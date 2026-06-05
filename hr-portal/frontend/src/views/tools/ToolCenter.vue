@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Money, Document, Right } from '@element-plus/icons-vue'
+import { Money, Document, Histogram, Right } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -23,6 +23,14 @@ const tools = computed(() => [
     path: '/tools/income-certificate',
     icon: Document,
     enabled: userStore.menus.some((m) => m.code === 'tools.income_certificate'),
+  },
+  {
+    code: 'tools.cost_allocation',
+    title: '成本分摊',
+    desc: '选择分摊报表运行预览，确认无误后一键计算存档至数据视图。',
+    path: '/tools/cost-allocation',
+    icon: Histogram,
+    enabled: userStore.menus.some((m) => m.code === 'tools.cost_allocation'),
   },
 ])
 

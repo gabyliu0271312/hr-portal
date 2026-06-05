@@ -59,10 +59,23 @@ async def _handler_datasource_sync(
     return rows, message
 
 
+async def _handler_push_target(
+    job: ScheduledJob,
+    db: AsyncSession,
+    triggered_by: str,
+) -> tuple[int, str]:
+    """推送到外部目标。business_id = push_targets.id"""
+    from app.push.push_service import execute_push
+
+    rows, message = await execute_push(job.business_id, db)
+    return rows, message
+
+
 # ===== 注册表 =====
 
 JOB_HANDLERS: dict[str, HandlerFn] = {
     "datasource_sync": _handler_datasource_sync,
+    "push_target": _handler_push_target,
 }
 
 

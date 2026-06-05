@@ -115,6 +115,18 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '查看报表', menuCode: 'report.list' },
       },
       {
+        path: 'tools/allocation-designer/:id',
+        name: 'AllocationSchemeDesigner',
+        component: () => import('@/views/tools/AllocationSchemeDesigner.vue'),
+        meta: { label: '分摊方案配置', menuCode: 'tools.cost_allocation' },
+      },
+      {
+        path: 'tools/cost-allocation',
+        name: 'CostAllocation',
+        component: () => import('@/views/tools/CostAllocation.vue'),
+        meta: { label: '成本分摊', menuCode: 'tools.cost_allocation' },
+      },
+      {
         path: 'tools/center',
         name: 'ToolsCenter',
         component: () => import('@/views/tools/ToolCenter.vue'),

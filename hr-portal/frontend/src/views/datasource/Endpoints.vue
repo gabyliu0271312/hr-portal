@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, CopyDocument } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
+import PushTargetList from '@/components/push/PushTargetList.vue'
 import {
   SOURCE_TYPES,
   SCHEDULE_OPTIONS,
@@ -346,123 +347,134 @@ onMounted(load)
       </div>
     </el-card>
 
-    <!-- ========= 配置抽屉（类型驱动）========= -->
+    <!-- ========= 配置抽屉（拉取 + 推送 两个 Tab）========= -->
     <el-drawer
       v-model="drawerOpen"
       :title="editing ? `配置接口 · ${editing.table_label}` : '新建接口'"
       direction="rtl"
-      size="560px"
+      size="600px"
     >
-      <el-form label-position="top">
-        <el-form-item label="接入类型">
-          <el-select v-model="form.source_type" style="width: 100%" @change="onTypeChange">
-            <el-option
-              v-for="t in SOURCE_TYPES"
-              :key="t.code"
-              :label="t.label"
-              :value="t.code"
-            />
-          </el-select>
-          <div v-if="currentType" style="margin-top: 6px; font-size: 12px; color: var(--color-text-secondary); line-height: 1.5">
-            {{ currentType.description }}
-          </div>
-        </el-form-item>
-
-        <template v-if="currentType">
-          <div v-for="grp in currentType.groups" :key="grp.title" class="field-group">
-            <div class="section-title">{{ grp.title }}</div>
-            <el-form-item
-              v-for="f in grp.fields"
-              :key="f.key"
-              :label="f.label"
-              :required="f.required"
-            >
-              <el-input
-                v-if="f.type === 'text' || f.type === 'url'"
-                v-model="form.config[f.key]"
-                :placeholder="fieldPlaceholder(f.key, f.placeholder)"
-              />
-              <el-input
-                v-else-if="f.type === 'password'"
-                v-model="form.config[f.key]"
-                type="password"
-                show-password
-                :placeholder="fieldPlaceholder(f.key, f.placeholder)"
-              />
-              <el-input
-                v-else-if="f.type === 'textarea'"
-                v-model="form.config[f.key]"
-                type="textarea"
-                :rows="4"
-                :placeholder="f.placeholder"
-              />
-              <el-select
-                v-else-if="f.type === 'select'"
-                v-model="form.config[f.key]"
-                style="width: 100%"
-              >
+      <el-tabs>
+        <!-- Tab 1：拉取接口 -->
+        <el-tab-pane label="拉取接口">
+          <el-form label-position="top">
+            <el-form-item label="接入类型">
+              <el-select v-model="form.source_type" style="width: 100%" @change="onTypeChange">
                 <el-option
-                  v-for="opt in f.options"
-                  :key="opt.value"
-                  :label="opt.label"
-                  :value="opt.value"
+                  v-for="t in SOURCE_TYPES"
+                  :key="t.code"
+                  :label="t.label"
+                  :value="t.code"
                 />
               </el-select>
-              <div v-if="f.hint" class="field-hint">{{ f.hint }}</div>
+              <div v-if="currentType" style="margin-top: 6px; font-size: 12px; color: var(--color-text-secondary); line-height: 1.5">
+                {{ currentType.description }}
+              </div>
             </el-form-item>
-          </div>
-        </template>
 
-        <div v-if="isPeriodTable" class="field-group">
-          <div class="section-title">月份设置</div>
-          <el-form-item label="月份偏移">
-            <el-input-number v-model="monthOffset" :step="1" controls-position="right" style="width: 160px" />
-            <div class="field-hint">
-              拉取时自动在最前加一列「月份」，取值 = 当前月 + 偏移。0=当前月，-1=上月，1=下月。
-              当前将生成：<strong>{{ monthPreview }}</strong>
+            <template v-if="currentType">
+              <div v-for="grp in currentType.groups" :key="grp.title" class="field-group">
+                <div class="section-title">{{ grp.title }}</div>
+                <el-form-item
+                  v-for="f in grp.fields"
+                  :key="f.key"
+                  :label="f.label"
+                  :required="f.required"
+                >
+                  <el-input
+                    v-if="f.type === 'text' || f.type === 'url'"
+                    v-model="form.config[f.key]"
+                    :placeholder="fieldPlaceholder(f.key, f.placeholder)"
+                  />
+                  <el-input
+                    v-else-if="f.type === 'password'"
+                    v-model="form.config[f.key]"
+                    type="password"
+                    show-password
+                    :placeholder="fieldPlaceholder(f.key, f.placeholder)"
+                  />
+                  <el-input
+                    v-else-if="f.type === 'textarea'"
+                    v-model="form.config[f.key]"
+                    type="textarea"
+                    :rows="4"
+                    :placeholder="f.placeholder"
+                  />
+                  <el-select
+                    v-else-if="f.type === 'select'"
+                    v-model="form.config[f.key]"
+                    style="width: 100%"
+                  >
+                    <el-option
+                      v-for="opt in f.options"
+                      :key="opt.value"
+                      :label="opt.label"
+                      :value="opt.value"
+                    />
+                  </el-select>
+                  <div v-if="f.hint" class="field-hint">{{ f.hint }}</div>
+                </el-form-item>
+              </div>
+            </template>
+
+            <div v-if="isPeriodTable" class="field-group">
+              <div class="section-title">月份设置</div>
+              <el-form-item label="月份偏移">
+                <el-input-number v-model="monthOffset" :step="1" controls-position="right" style="width: 160px" />
+                <div class="field-hint">
+                  拉取时自动在最前加一列「月份」，取值 = 当前月 + 偏移。0=当前月，-1=上月，1=下月。
+                  当前将生成：<strong>{{ monthPreview }}</strong>
+                </div>
+              </el-form-item>
             </div>
-          </el-form-item>
-        </div>
 
-        <div class="field-group">
-          <div class="section-title">调度与状态</div>
-          <el-form-item label="调度计划">
-            <el-select v-model="form.schedule" style="width: 100%">
-              <el-option
-                v-for="opt in SCHEDULE_OPTIONS"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="启用">
-            <el-switch v-model="form.is_active" active-text="启用" inactive-text="停用" />
-          </el-form-item>
-        </div>
+            <div class="field-group">
+              <div class="section-title">调度与状态</div>
+              <el-form-item label="调度计划">
+                <el-select v-model="form.schedule" style="width: 100%">
+                  <el-option
+                    v-for="opt in SCHEDULE_OPTIONS"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="启用">
+                <el-switch v-model="form.is_active" active-text="启用" inactive-text="停用" />
+              </el-form-item>
+            </div>
 
-        <div
-          v-if="testResult"
-          :class="['test-result', testResult.ok ? 'test-result--ok' : 'test-result--fail']"
-        >
-          {{ testResult.ok ? '✓' : '✕' }} {{ testResult.message }}
-        </div>
-      </el-form>
+            <div
+              v-if="testResult"
+              :class="['test-result', testResult.ok ? 'test-result--ok' : 'test-result--fail']"
+            >
+              {{ testResult.ok ? '✓' : '✕' }} {{ testResult.message }}
+            </div>
+          </el-form>
 
-      <template #footer>
-        <div style="display: flex; justify-content: space-between; align-items: center">
-          <el-button link @click="openCopyDialog">
-            <el-icon style="margin-right: 4px"><CopyDocument /></el-icon>从其他表复制凭证
-          </el-button>
-          <div>
-            <el-button @click="drawerOpen = false">取消</el-button>
-            <el-button v-if="currentType?.testable" :loading="testing" @click="handleTest">
-              测试连接
-            </el-button>
-            <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
-          </div>
-        </div>
-      </template>
+          <template #footer>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0">
+              <el-button link @click="openCopyDialog">
+                <el-icon style="margin-right: 4px"><CopyDocument /></el-icon>从其他表复制凭证
+              </el-button>
+              <div>
+                <el-button @click="drawerOpen = false">取消</el-button>
+                <el-button v-if="currentType?.testable" :loading="testing" @click="handleTest">
+                  测试连接
+                </el-button>
+                <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+              </div>
+            </div>
+          </template>
+        </el-tab-pane>
+
+        <!-- Tab 2：推送接口 -->
+        <el-tab-pane label="推送接口">
+          <PushTargetList v-if="editing" :source-table="editing.table_name" />
+          <el-empty v-else description="请先选择一条接口配置" />
+        </el-tab-pane>
+      </el-tabs>
     </el-drawer>
 
     <!-- ========= 复制凭证对话框 ========= -->

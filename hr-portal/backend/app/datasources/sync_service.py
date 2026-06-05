@@ -29,13 +29,18 @@ from app.data.formula import eval_formula
 
 
 # ===== 月度表配置（通用）=====
-# 在这里登记的表：同步时自动在最前注入「月份」列（YYYYMM），并按（月份 + entity_keys）作为
-# 业务主键按月各存一份。其他月度表将来加一行即可启用，无需改代码。
+# 在这里登记的表：is_period=True，同步时按 period_source 决定是否注入月份列。
+# 业务实体键（entity_keys）已移到字段管理 is_pk_part，此处不再维护。
 PERIOD_TABLES: dict[str, dict] = {
     "cost_center_monthly": {
         "period_col": "月份",
-        "offset_key": "MONTH_OFFSET",  # settings 里的月份偏移：0=当前月，-1=上月，1=下月
-        "entity_keys": ["编码"],       # 业务实体键（与月份共同组成主键、跨月匹配同一行）
+        "offset_key": "MONTH_OFFSET",
+        "period_source": "inject",  # 接口无月份，同步时自动注入
+    },
+    "emp_monthly_cost_result": {
+        "period_col": "月份",
+        "offset_key": "MONTH_OFFSET",
+        "period_source": "inject",
     },
 }
 
@@ -237,27 +242,25 @@ def _calc_pk_hash(row: dict, pk_columns: list[str]) -> str:
 
 
 async def _ensure_period_meta(table_name: str, db: AsyncSession) -> None:
-    """月度表元数据收口：把「月份」列置为主键、排到最前；entity_keys 也置为主键。
+    """月度表元数据收口：把「月份」列置为主键并排到最前。
 
-    在 _ensure_columns 之后调用——此时月份列（已注入每行）与 entity_keys 列均已自动注册，
-    这里只做属性修正，保证首次同步即按（月份 + 编码）算 pk_hash、按月各存一份。
+    业务实体键（如工号、编码）由管理员在字段管理里手动勾选 is_pk_part，此处只处理期间列。
     """
     cfg = PERIOD_TABLES.get(table_name)
     if not cfg:
         return
-    targets = {cfg["period_col"], *cfg["entity_keys"]}
+    period_col = cfg["period_col"]
     cols = (
         await db.execute(
             select(TableColumn).where(
                 TableColumn.table_name == table_name,
-                TableColumn.column_code.in_(targets),
+                TableColumn.column_code == period_col,
             )
         )
     ).scalars().all()
     for c in cols:
         c.is_pk_part = True
-        if c.column_code == cfg["period_col"]:
-            c.display_order = 0
+        c.display_order = 0
     await db.flush()
 
 
@@ -345,11 +348,14 @@ def apply_lookups_to_row(merged: dict, lookup_maps: list[tuple[dict, dict]]) -> 
 
 
 async def _dynamic_upsert(
-    table_name: str, rows: list[dict], db: AsyncSession
+    table_name: str, rows: list[dict], db: AsyncSession,
+    period_ym: str = "",
 ) -> int:
     Model = DATA_TABLES.get(table_name)
     if Model is None:
         raise RuntimeError(f"未知业务表: {table_name}")
+
+    # 空批次：源端可能异常，不做任何删除，直接返回
     if not rows:
         return 0
 
@@ -393,16 +399,19 @@ async def _dynamic_upsert(
         ).all()
         existing_map = {h: (raw or {}) for h, raw in ex_rows}
 
-    # 上月行（按 entity_keys 匹配，仅复制上月需要）
+    # 上月行（按 is_pk_part 列中除 period_col 外的业务键匹配，仅复制上月需要）
     cfg = PERIOD_TABLES.get(table_name)
     prev_map: dict[tuple, dict] = {}
+    entity_keys: list[str] = []
     if cfg and copy_codes and deduped:
         period_col = cfg["period_col"]
-        entity_keys = cfg["entity_keys"]
+        # 从字段管理取业务实体键（is_pk_part 且不是 period_col）
+        entity_keys = [
+            code for code in pk_columns if code != period_col
+        ]
         cur_ym = str(deduped[0][1].get(period_col, ""))
         prev_ym = _prev_ym(cur_ym)
         if prev_ym:
-            # raw 列是通用 JSON，用 cast 到 JSONB 才能用 ->> 文本访问
             pv_rows = (
                 await db.execute(
                     select(Model.raw).where(
@@ -429,8 +438,8 @@ async def _dynamic_upsert(
                     merged[code] = ex[code]
         else:
             # 新行：复制上月（只填空）
-            if cfg and copy_codes:
-                key = tuple(str(r.get(k, "")) for k in cfg["entity_keys"])
+            if cfg and copy_codes and entity_keys:
+                key = tuple(str(r.get(k, "")) for k in entity_keys)
                 pv = prev_map.get(key)
                 if pv:
                     for code in copy_codes:
@@ -440,7 +449,10 @@ async def _dynamic_upsert(
             for code, dv in defaults.items():
                 if merged.get(code) in (None, ""):
                     merged[code] = dv
-        # 跨表查找填值：仅填空、保留手改（target 为手工字段时上面已恢复已维护值）
+        # 跨表查找填值：强制重算（不保留旧值），确保映射表更新后能同步
+        # 先清空 lookup target 字段，再重新查找填值
+        for cfg_lk, _ in lookup_maps:
+            merged.pop(cfg_lk["target"], None)
         apply_lookups_to_row(merged, lookup_maps)
         # 计算字段：用已组装好的行值算出结果写回（覆盖任何残留旧值）
         for comp in computed:
@@ -457,35 +469,26 @@ async def _dynamic_upsert(
         set_={"raw": stmt.excluded.raw, "synced_at": stmt.excluded.synced_at},
     )
     await db.execute(stmt)
-    return len(payload)
 
+    # 7) 删孤儿：本次批次中不存在的行视为已失效，直接删除
+    #    月度表：只删当月（保留历史月份）；其他表（含实时花名册）：全表范围
+    current_hashes = [h for h, _ in deduped]
+    cfg_period = PERIOD_TABLES.get(table_name)
+    if cfg_period and deduped:
+        period_col = cfg_period["period_col"]
+        cur_ym = str(deduped[0][1].get(period_col, ""))
+        if cur_ym:
+            await db.execute(
+                delete(Model).where(
+                    cast(Model.raw, JSONB)[period_col].astext == cur_ym,
+                    Model.pk_hash.not_in(current_hashes),
+                )
+            )
+    else:
+        await db.execute(
+            delete(Model).where(Model.pk_hash.not_in(current_hashes))
+        )
 
-async def _dynamic_snapshot_replace(
-    table_name: str, rows: list[dict], db: AsyncSession
-) -> int:
-    Model = DATA_TABLES.get(table_name)
-    if Model is None:
-        raise RuntimeError(f"未知业务表: {table_name}")
-
-    await db.execute(delete(Model))
-    if not rows:
-        return 0
-
-    await _ensure_columns(table_name, rows[0], db)
-    payload = []
-    for idx, r in enumerate(rows):
-        if not isinstance(r, dict):
-            continue
-        material = json.dumps({"idx": idx, "row": r}, sort_keys=True, ensure_ascii=False)
-        payload.append({
-            "pk_hash": hashlib.sha256(material.encode("utf-8")).hexdigest()[:32],
-            "raw": r,
-            "synced_at": datetime.now(UTC),
-        })
-    if not payload:
-        return 0
-
-    await db.execute(pg_insert(Model).values(payload))
     return len(payload)
 
 
@@ -789,14 +792,23 @@ async def sync_to_table(
     # 注入 scope_role 用的稳定 code（落库前一次性算好）
     _inject_scope_codes(table_name, rows or [])
 
-    # 月度表：在每行最前注入「月份」列（YYYYMM）
+    # 月度表：inject 类型自动注入「月份」列；field 类型接口自带，直接读第一行值
     period_cfg = PERIOD_TABLES.get(table_name)
     cur_ym = ""
-    if period_cfg and rows:
-        cur_ym = _resolve_period_ym(period_cfg, settings)
-        rows = [
-            {period_cfg["period_col"]: cur_ym, **r} for r in rows if isinstance(r, dict)
-        ]
+    if period_cfg:
+        period_col = period_cfg["period_col"]
+        if period_cfg.get("period_source", "inject") == "inject":
+            cur_ym = _resolve_period_ym(period_cfg, settings)
+            if rows:
+                rows = [
+                    {period_col: cur_ym, **r} for r in rows if isinstance(r, dict)
+                ]
+        else:
+            # field 模式：从第一行数据里读月份值（用于孤儿删除范围）
+            if rows:
+                first = rows[0] if isinstance(rows[0], dict) else {}
+                raw_ym = str(first.get(period_col, ""))
+                cur_ym = _normalize_yyyymm(raw_ym) if raw_ym else ""
 
     # 源端字段黑名单：永久丢弃（如成本中心「启用状态」改本地手工维护，北森不再同步）
     drop_set = SOURCE_DROP_COLUMNS.get(table_name)
@@ -806,11 +818,8 @@ async def sync_to_table(
                 for k in drop_set:
                     r.pop(k, None)
 
-    # 先写入业务表
-    if table_name == "emp_realtime_roster":
-        inserted = await _dynamic_snapshot_replace(table_name, rows or [], db)
-    else:
-        inserted = await _dynamic_upsert(table_name, rows, db)
+    # 写入业务表（统一走 upsert + 删孤儿）
+    inserted = await _dynamic_upsert(table_name, rows or [], db, period_ym=cur_ym)
 
     # 派发到树构建：成本中心 → cc_tree；实时花名册 → org_tree
     if table_name == "cost_center_monthly":

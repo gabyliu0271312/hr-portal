@@ -27,6 +27,10 @@ from app.scheduler.router import router as scheduler_router
 from app.scopes.router import router as scopes_router
 from app.seed import run_seed
 from app.trees.router import router as trees_router
+from app.push.router import router as push_router
+from app.admin.tables_router import router as admin_tables_router
+from app.allocation.router import router as allocation_router
+from app.cost_allocation.router import router as cost_allocation_router
 from app.tools.router import router as tools_router
 from app.users.router import router as users_router
 
@@ -41,6 +45,14 @@ async def lifespan(app: FastAPI):
         await run_seed(AsyncSessionLocal)
     except Exception as e:
         logger.exception("[startup] seed failed: %s", e)
+
+    # 启动：加载用户新建的动态表到 DATA_TABLES / PERIOD_TABLES
+    try:
+        from app.data.dynamic_loader import load_dynamic_tables
+        async with AsyncSessionLocal() as _s:
+            await load_dynamic_tables(_s)
+    except Exception as e:
+        logger.exception("[startup] load dynamic tables failed: %s", e)
         # 不阻塞启动 —— 业务可在迁移补全后手动重启
 
     # 启动：给所有数据集的关联键补建索引（加速报表 JOIN）
@@ -122,3 +134,7 @@ app.include_router(scheduler_router, prefix=settings.API_PREFIX)
 app.include_router(scopes_router, prefix=settings.API_PREFIX)
 app.include_router(datasets_router, prefix=settings.API_PREFIX)
 app.include_router(tools_router, prefix=settings.API_PREFIX)
+app.include_router(cost_allocation_router, prefix=settings.API_PREFIX)
+app.include_router(allocation_router, prefix=settings.API_PREFIX)
+app.include_router(admin_tables_router, prefix=settings.API_PREFIX)
+app.include_router(push_router, prefix=settings.API_PREFIX)

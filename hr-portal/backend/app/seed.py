@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.password import hash_password
 from app.core.config import settings
 from app.datasources.models import DataSource
+from app.data.models import RegisteredTable
 from app.users.models import Menu, Role, RoleMenu, User, UserRole
 
 logger = logging.getLogger("seed")
@@ -79,6 +80,7 @@ MENU_TREE: list[dict] = [
                     {"code": "tools.center", "label": "工具中心", "icon": "Grid"},
                     {"code": "tools.compensation_calc", "label": "补偿金计算", "icon": "Money"},
                     {"code": "tools.income_certificate", "label": "证明开具", "icon": "Document"},
+                    {"code": "tools.cost_allocation", "label": "成本分摊", "icon": "Histogram"},
                 ],
             },
         ],
@@ -195,6 +197,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_admin_user(db, super_role)
         await _ensure_datasources(db)
         await _ensure_datasource_jobs(db)
+        await _ensure_registered_tables(db)
         logger.info("[seed] done")
 
 
@@ -231,6 +234,12 @@ _DATASOURCES_INIT = [
         "table_label": "成本中心月度维护表",
         "source_type": "beisen_report",
         "schedule": "每日 06:00",
+    },
+    {
+        "table_name": "emp_monthly_cost_result",
+        "table_label": "员工月度成本分摊结果",
+        "source_type": "internal",
+        "schedule": "手动存档",
     },
 ]
 
@@ -278,4 +287,41 @@ async def _ensure_datasource_jobs(db: AsyncSession) -> None:
             enabled=ds.is_active,
         )
         logger.info("[seed] scheduled_job for ds %d (%s) created", ds.id, ds.table_name)
+    await db.commit()
+
+
+# ===== 内置表注册（幂等写入 registered_tables）=====
+
+_BUILTIN_TABLES = [
+    {"table_name": "emp_realtime_roster",     "table_label": "员工实时花名册",        "icon": "List",           "display_order": 10,  "is_period": False},
+    {"table_name": "emp_monthly_roster",      "table_label": "员工月度花名册",        "icon": "Calendar",       "display_order": 20,  "is_period": True,  "period_col": "月份", "period_source": "field"},
+    {"table_name": "emp_monthly_salary",      "table_label": "员工月度工资表",        "icon": "Money",          "display_order": 30,  "is_period": True,  "period_col": "月份", "period_source": "field"},
+    {"table_name": "emp_monthly_allocation",  "table_label": "员工月度成本分摊表",    "icon": "Histogram",      "display_order": 40,  "is_period": True,  "period_col": "月份", "period_source": "field"},
+    {"table_name": "cost_center_monthly",     "table_label": "成本中心月度维护表",    "icon": "OfficeBuilding", "display_order": 50,  "is_period": True,  "period_col": "月份", "period_source": "inject"},
+    {"table_name": "emp_monthly_cost_class",  "table_label": "员工月度成本归集分类表","icon": "Collection",     "display_order": 60,  "is_period": False},
+    {"table_name": "emp_monthly_cost_result", "table_label": "员工月度成本分摊结果",  "icon": "TrendCharts",    "display_order": 70,  "is_period": True,  "period_col": "月份", "period_source": "inject", "is_result_table": True},
+]
+
+
+async def _ensure_registered_tables(db: AsyncSession) -> None:
+    existing = {
+        r for (r,) in (await db.execute(select(RegisteredTable.table_name))).all()
+    }
+    for cfg in _BUILTIN_TABLES:
+        if cfg["table_name"] in existing:
+            continue
+        rt = RegisteredTable(
+            table_name=cfg["table_name"],
+            table_label=cfg["table_label"],
+            description=None,
+            is_period=cfg.get("is_period", False),
+            period_col=cfg.get("period_col", "月份"),
+            period_source=cfg.get("period_source", "field"),
+            is_builtin=True,
+            is_result_table=cfg.get("is_result_table", False),
+            icon=cfg.get("icon", "Grid"),
+            display_order=cfg.get("display_order", 999),
+        )
+        db.add(rt)
+        logger.info("[seed] registered_table added: %s", cfg["table_name"])
     await db.commit()

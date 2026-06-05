@@ -104,7 +104,8 @@ def _mul_round2(a: Any, b: Any) -> Any:
 def _aggregate(values: list, func: str, row_count: int) -> Any:
     """对一组值做聚合：sum/avg/min/max/count；非数值跳过，无数值 → 空"""
     if func == "count":
-        return row_count
+        # 去重计数：统计非空的不同值数量（适用于工号等维度列）
+        return len({v for v in values if v not in (None, "")})
     nums: list[float] = []
     for v in values:
         try:

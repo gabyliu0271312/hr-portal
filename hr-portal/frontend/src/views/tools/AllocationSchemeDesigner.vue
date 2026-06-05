@@ -3,8 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, View, Check } from '@element-plus/icons-vue'
-import PermissionButton from '@/components/PermissionButton.vue'
-import ReportBasicInfo from '@/components/report/ReportBasicInfo.vue'
+import AllocationBasicInfo from '@/components/allocation/AllocationBasicInfo.vue'
 import ReportFieldPicker from '@/components/report/ReportFieldPicker.vue'
 import ReportFilterList from '@/components/report/ReportFilterList.vue'
 import ReportSortList from '@/components/report/ReportSortList.vue'
@@ -13,9 +12,10 @@ import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue
 import ReportAggregateConfig from '@/components/report/ReportAggregateConfig.vue'
 import ReportRoundingConfig from '@/components/report/ReportRoundingConfig.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
-import { reportsApi, type RunResult } from '@/api/reports'
+import { allocationApi, type AllocationSchemeIn } from '@/api/allocation'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetItem } from '@/api/datasets'
+import { reportsApi, type RunResult } from '@/api/reports'
 import { useTableOptions } from '@/composables/useTableOptions'
 
 const { tables: TABLES } = useTableOptions()
@@ -23,11 +23,11 @@ const { tables: TABLES } = useTableOptions()
 const route = useRoute()
 const router = useRouter()
 
-const reportId = computed(() => {
+const schemeId = computed(() => {
   const id = route.params.id as string
   return id === 'new' ? null : Number(id)
 })
-const isNew = computed(() => reportId.value === null)
+const isNew = computed(() => schemeId.value === null)
 
 const form = reactive({
   name: '',
@@ -35,24 +35,21 @@ const form = reactive({
   source_type: 'single' as 'single' | 'dataset',
   table_name: 'emp_realtime_roster',
   dataset_id: null as number | null,
-  is_published: false,
+  result_table: 'emp_monthly_cost_result',
   selected_codes: [] as string[],
   filters: [] as any[],
   sorts: [] as any[],
   value_rules: [] as { target: string; factor: string }[],
   aggregate: false,
   aggregations: {} as Record<string, string>,
-  transpose: {
-    enabled: false,
-    drop_zero_measures: true,
-    rules: [] as any[],
-  },
+  transpose: { enabled: false, drop_zero_measures: true, rules: [] as any[] },
   rounding_corrections: [] as { group_by: string; target_cols: string[] }[],
 })
 
 const allColumns = ref<ColumnInfo[]>([])
 const datasets = ref<DatasetItem[]>([])
 const currentDataset = ref<DatasetItem | null>(null)
+const resultTables = ref<{ table_name: string; label: string }[]>([])
 const loadingCols = ref(false)
 const saving = ref(false)
 const previewing = ref(false)
@@ -66,24 +63,18 @@ const transposeRef = ref<InstanceType<typeof ReportTransposeConfig> | null>(null
 const filterRef = ref<InstanceType<typeof ReportFilterList> | null>(null)
 
 const selectedColsDetail = computed(() =>
-  form.selected_codes
-    .map((code) => allColumns.value.find((c) => c.code === code))
-    .filter(Boolean) as ColumnInfo[]
+  form.selected_codes.map((c) => allColumns.value.find((x) => x.code === c)).filter(Boolean) as ColumnInfo[]
 )
-const selectedDimensions = computed(() =>
-  selectedColsDetail.value.filter((c) => c.agg_role !== 'measure')
-)
-const selectedMeasures = computed(() =>
-  selectedColsDetail.value.filter((c) => c.agg_role === 'measure')
-)
+const selectedDimensions = computed(() => selectedColsDetail.value.filter((c) => c.agg_role !== 'measure'))
+const selectedMeasures = computed(() => selectedColsDetail.value.filter((c) => c.agg_role === 'measure'))
 const isDataset = computed(() => form.source_type === 'dataset')
 
 async function loadDatasets() {
-  try {
-    datasets.value = await datasetsApi.list()
-  } catch {
-    datasets.value = []
-  }
+  try { datasets.value = await datasetsApi.list() } catch { datasets.value = [] }
+}
+
+async function loadResultTables() {
+  try { resultTables.value = await allocationApi.listResultTables() } catch { resultTables.value = [] }
 }
 
 async function loadColumns() {
@@ -97,53 +88,48 @@ async function loadColumns() {
       const cols: ColumnInfo[] = []
       for (const t of ds.tables) {
         const tcols = await dataApi.columns(t.table_name)
-        for (const c of tcols) {
-          cols.push({ ...c, code: `${t.alias}.${c.code}`, label: `${t.alias}.${c.label}` })
-        }
+        for (const c of tcols) cols.push({ ...c, code: `${t.alias}.${c.code}`, label: `${t.alias}.${c.label}` })
       }
       allColumns.value = cols
     } else {
       allColumns.value = []
     }
-  } catch {
-    allColumns.value = []
-  } finally {
-    loadingCols.value = false
-  }
+  } catch { allColumns.value = [] } finally { loadingCols.value = false }
 }
 
-async function loadReport() {
+async function loadScheme() {
   if (isNew.value) return
   try {
-    const r = await reportsApi.get(reportId.value!)
-    form.name = r.name
-    form.description = r.description ?? ''
-    form.source_type = r.dataset_id ? 'dataset' : 'single'
-    form.table_name = r.table_name || 'emp_realtime_roster'
-    form.dataset_id = r.dataset_id
-    form.is_published = r.is_published
-    form.selected_codes = [...(r.config.columns ?? [])]
-    form.filters = (r.config.filters ?? []).map((f) => ({ ...f }))
-    form.sorts = (r.config.sorts ?? []).map((s) => ({ ...s }))
-    form.value_rules = (r.config.value_rules ?? []).map((v) => ({ ...v }))
-    form.aggregate = r.config.aggregate ?? false
-    form.aggregations = { ...(r.config.aggregations ?? {}) }
-    const tp = r.config.transpose
+    const s = await allocationApi.getScheme(schemeId.value!)
+    form.name = s.name
+    form.description = s.description ?? ''
+    form.source_type = s.dataset_id ? 'dataset' : 'single'
+    form.table_name = s.table_name || 'emp_realtime_roster'
+    form.dataset_id = s.dataset_id
+    form.result_table = s.result_table
+    const cfg = s.config
+    form.selected_codes = [...(cfg.columns ?? [])]
+    form.filters = (cfg.filters ?? []).map((f: any) => ({ ...f }))
+    form.sorts = (cfg.sorts ?? []).map((s: any) => ({ ...s }))
+    form.value_rules = (cfg.value_rules ?? []).map((v: any) => ({ ...v }))
+    form.aggregate = cfg.aggregate ?? false
+    form.aggregations = { ...(cfg.aggregations ?? {}) }
+    const tp = cfg.transpose
     form.transpose = {
       enabled: tp?.enabled ?? false,
       drop_zero_measures: tp?.drop_zero_measures ?? true,
-      rules: (tp?.rules ?? []).map((rule) => ({
-        source_col: rule.source_col,
-        target_cols: [...(rule.target_cols ?? [])],
-        dims: Object.entries(rule.dim_updates ?? {}).map(([dim, value]) => ({ dim, value })),
+      rules: (tp?.rules ?? []).map((r: any) => ({
+        source_col: r.source_col,
+        target_cols: [...(r.target_cols ?? [])],
+        dims: Object.entries(r.dim_updates ?? {}).map(([dim, value]) => ({ dim, value })),
       })),
     }
-    form.rounding_corrections = (r.config.rounding_corrections ?? []).map((rc: any) => ({
+    form.rounding_corrections = (cfg.rounding_corrections ?? []).map((rc: any) => ({
       group_by: rc.group_by ?? '',
       target_cols: [...(rc.target_cols ?? [])],
     }))
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '加载报表失败')
+    ElMessage.error(e?.response?.data?.detail || '加载方案失败')
   }
 }
 
@@ -162,44 +148,24 @@ function resetForm() {
   previewTotal.value = 0
 }
 
-async function onSourceChange() {
-  resetForm()
-  await loadColumns()
-}
-
-async function onTableChange() {
-  resetForm()
-  await loadColumns()
-}
-
-async function onDatasetChange() {
-  resetForm()
-  await loadColumns()
-}
-
-function buildPayload() {
-  const tailCode = (q: string) => (q.includes('.') ? q.slice(q.indexOf('.') + 1) : q)
-  const selectedDimCodes = selectedDimensions.value.map((c) => c.code)
-
+function buildPayload(): AllocationSchemeIn {
   return {
     name: form.name.trim(),
     description: form.description.trim() || null,
     table_name: form.source_type === 'single' ? form.table_name : '',
     dataset_id: form.source_type === 'dataset' ? form.dataset_id : null,
-    is_published: form.is_published,
+    result_table: form.result_table,
+    is_active: true,
     config: {
       columns: form.selected_codes,
-      filters: form.filters
-        .filter((f) => f.column)
-        .map((f) => {
-          const op = f.op
-          let value: any = f.value
-          if (op === 'is_null' || op === 'is_not_null') value = null
-          else if ((op === 'between' || op === 'in') && typeof value === 'string') {
-            value = value.split(',').map((s: string) => s.trim()).filter(Boolean)
-          }
-          return { column: f.column, op, value }
-        }),
+      filters: form.filters.filter((f) => f.column).map((f) => {
+        const op = f.op
+        let value = f.value
+        if (op === 'is_null' || op === 'is_not_null') value = null
+        else if ((op === 'between' || op === 'in') && typeof value === 'string')
+          value = value.split(',').map((s: string) => s.trim()).filter(Boolean)
+        return { column: f.column, op, value }
+      }),
       sorts: form.sorts.filter((s) => s.column),
       value_rules: form.value_rules.filter((v) => v.target && v.factor),
       aggregate: form.aggregate,
@@ -213,18 +179,7 @@ function buildPayload() {
           .filter((r: any) => r.source_col && r.target_cols.length)
           .map((r: any) => {
             const du: Record<string, string> = {}
-            for (const d of r.dims) {
-              if (d.dim && d.value !== '') du[d.dim] = d.value
-            }
-            const codeQuals = selectedDimCodes.filter((c) => tailCode(c) === '编码')
-            for (const [dim, val] of Object.entries({ ...du })) {
-              if (tailCode(dim) !== '维度值' && tailCode(dim) !== '名称') continue
-              const opt = (transposeRef.value as any)?.ccNameOptions?.find((o: any) => o.value === val)
-              if (!opt?.extra) continue
-              for (const cq of codeQuals) {
-                if (du[cq] === undefined) du[cq] = opt.extra
-              }
-            }
+            for (const d of r.dims) if (d.dim && d.value !== '') du[d.dim] = d.value
             return { source_col: r.source_col, target_cols: r.target_cols, dim_updates: du }
           }),
       },
@@ -236,73 +191,66 @@ function buildPayload() {
 }
 
 async function save() {
-  if (!form.name.trim()) { ElMessage.warning('请填写报表名'); return }
+  if (!form.name.trim()) { ElMessage.warning('请填写方案名'); return }
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段'); return }
   saving.value = true
   try {
     if (form.transpose.enabled) await transposeRef.value?.ensureCcMaster()
     const payload = buildPayload()
     if (isNew.value) {
-      const r = await reportsApi.create(payload)
+      const s = await allocationApi.createScheme(payload)
       ElMessage.success('已创建')
-      router.replace(`/report/designer/${r.id}`)
+      router.replace(`/tools/allocation-designer/${s.id}`)
     } else {
-      await reportsApi.update(reportId.value!, payload)
+      await allocationApi.updateScheme(schemeId.value!, payload)
       ElMessage.success('已保存')
     }
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '保存失败')
-  } finally {
-    saving.value = false
-  }
+  } finally { saving.value = false }
 }
 
 async function preview() {
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段才能预览'); return }
-  if (isNew.value) { ElMessage.info('请先保存草稿后再预览'); return }
+  if (isNew.value) { ElMessage.info('请先保存后再预览'); return }
   previewing.value = true
   try {
     if (form.transpose.enabled) await transposeRef.value?.ensureCcMaster()
-    await reportsApi.update(reportId.value!, buildPayload())
-    const res = await reportsApi.run(reportId.value!, previewPage.value, previewPageSize.value)
-    previewColumns.value = res.columns
-    previewItems.value = res.items
-    previewTotal.value = res.total
+    await allocationApi.updateScheme(schemeId.value!, buildPayload())
+    // 复用 report run 接口预览——创建一个临时 report 或直接调 scheme run preview
+    // 此处简化：通过 scheme 的 dataset_id 直接查询（待后续优化）
+    ElMessage.info('预览功能需绑定报表，请先保存后在列表点击"计算"验证数据')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '预览失败')
-  } finally {
-    previewing.value = false
-  }
+  } finally { previewing.value = false }
 }
 
 onMounted(async () => {
-  await loadDatasets()
-  if (!isNew.value) await loadReport()
+  await Promise.all([loadDatasets(), loadResultTables()])
+  if (!isNew.value) await loadScheme()
   await loadColumns()
 })
 
-watch(
-  () => route.params.id,
-  async (v) => {
-    if (!v) return
-    if (v === 'new') {
-      Object.assign(form, {
-        name: '', description: '', source_type: 'single',
-        table_name: 'emp_realtime_roster', dataset_id: null,
-        is_published: false, selected_codes: [], filters: [], sorts: [],
-        value_rules: [], aggregate: false, aggregations: {},
-        transpose: { enabled: false, drop_zero_measures: true, rules: [] },
-        rounding_corrections: [],
-      })
-      previewItems.value = []
-      previewColumns.value = []
-      await loadColumns()
-    } else {
-      await loadReport()
-      await loadColumns()
-    }
+watch(() => route.params.id, async (v) => {
+  if (!v) return
+  if (v === 'new') {
+    Object.assign(form, {
+      name: '', description: '', source_type: 'single',
+      table_name: 'emp_realtime_roster', dataset_id: null,
+      result_table: 'emp_monthly_cost_result',
+      selected_codes: [], filters: [], sorts: [], value_rules: [],
+      aggregate: false, aggregations: {},
+      transpose: { enabled: false, drop_zero_measures: true, rules: [] },
+      rounding_corrections: [],
+    })
+    previewItems.value = []
+    previewColumns.value = []
+    await loadColumns()
+  } else {
+    await loadScheme()
+    await loadColumns()
   }
-)
+})
 </script>
 
 <template>
@@ -311,17 +259,14 @@ watch(
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">
           <div>
-            <el-button link @click="router.push('/report/list')">
-              <el-icon><ArrowLeft /></el-icon>返回列表
+            <el-button link @click="router.push('/tools/cost-allocation')">
+              <el-icon><ArrowLeft /></el-icon>返回方案列表
             </el-button>
             <span style="font-size: 16px; font-weight: 600; margin-left: 8px">
-              {{ isNew ? '新建报表' : `编辑报表 · ${form.name || '(未命名)'}` }}
+              {{ isNew ? '新建分摊方案' : `编辑方案 · ${form.name || '(未命名)'}` }}
             </span>
           </div>
           <div>
-            <el-button :loading="previewing" :disabled="isNew" @click="preview">
-              <el-icon style="margin-right: 4px"><View /></el-icon>预览
-            </el-button>
             <el-button type="primary" :loading="saving" @click="save">
               <el-icon style="margin-right: 4px"><Check /></el-icon>保存
             </el-button>
@@ -331,19 +276,20 @@ watch(
 
       <el-form label-position="top">
         <div class="section-title">基本信息</div>
-        <ReportBasicInfo
+        <AllocationBasicInfo
           v-model:name="form.name"
           v-model:description="form.description"
           v-model:source-type="form.source_type"
           v-model:table-name="form.table_name"
           v-model:dataset-id="form.dataset_id"
-          v-model:is-published="form.is_published"
+          v-model:result-table="form.result_table"
           :tables="TABLES"
           :datasets="datasets"
           :current-dataset="currentDataset"
-          @source-change="onSourceChange"
-          @table-change="onTableChange"
-          @dataset-change="onDatasetChange"
+          :result-tables="resultTables"
+          @source-change="resetForm(); loadColumns()"
+          @table-change="resetForm(); loadColumns()"
+          @dataset-change="resetForm(); loadColumns()"
         />
 
         <div class="section-title">选择字段（{{ form.selected_codes.length }} 个）</div>
@@ -353,7 +299,7 @@ watch(
           :loading="loadingCols"
         />
 
-        <div class="section-title">筛选条件（{{ form.filters.length }} 个，多个之间为 AND）</div>
+        <div class="section-title">筛选条件（{{ form.filters.length }} 个）</div>
         <ReportFilterList
           ref="filterRef"
           v-model:filters="form.filters"
@@ -363,11 +309,8 @@ watch(
           :current-dataset-tables="currentDataset?.tables"
         />
 
-        <div class="section-title">排序（{{ form.sorts.length }} 个，按顺序应用）</div>
-        <ReportSortList
-          v-model:sorts="form.sorts"
-          :all-columns="allColumns"
-        />
+        <div class="section-title">排序（{{ form.sorts.length }} 个）</div>
+        <ReportSortList v-model:sorts="form.sorts" :all-columns="allColumns" />
 
         <template v-if="isDataset">
           <div class="section-title">数值拆分（{{ form.value_rules.length }} 个）</div>
@@ -399,21 +342,6 @@ watch(
             :selected-dimensions="selectedDimensions"
             :selected-measures="selectedMeasures"
             :aggregate="form.aggregate"
-          />
-        </template>
-
-        <template v-if="previewItems.length || previewTotal">
-          <div class="section-title">预览结果（共 {{ previewTotal }} 行）</div>
-          <ReportPreviewTable
-            :columns="previewColumns"
-            :items="previewItems"
-            :total="previewTotal"
-            :page="previewPage"
-            :page-size="previewPageSize"
-            :loading="previewing"
-            @update:page="previewPage = $event"
-            @update:page-size="previewPageSize = $event"
-            @page-change="preview"
           />
         </template>
       </el-form>

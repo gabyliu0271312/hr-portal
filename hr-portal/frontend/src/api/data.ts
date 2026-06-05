@@ -60,6 +60,13 @@ export const dataApi = {
         values,
       })
       .then((r) => r.data),
+
+  bulkDelete: (table: string, rowIds: number[]) =>
+    api
+      .delete<{ ok: boolean; deleted: number }>(`/data/${table}/bulk`, {
+        data: { row_ids: rowIds },
+      })
+      .then((r) => r.data),
 }
 
 export interface TreeNode {

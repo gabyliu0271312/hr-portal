@@ -15,6 +15,7 @@
 - [新增菜单页面 SOP](./hr_portal_add_menu_sop.md) — 用户说"加页面/加菜单"必须走 5 步：建 Vue → 注册路由 → 加 MENU_TREE → restart → 引导 UI 配权限
 - [menu_actions 升级（Phase 6 前必做）](./hr_portal_menu_actions_upgrade.md) — 权限模型从固定 V/C/U/D/E 升级为自定义动作字典；过渡期工作流按钮用 op="U" 兜底
 - [调度系统组件化方案](./hr_portal_scheduler_design.md) — scheduled_jobs/job_runs 通用表 + JOB_HANDLERS 字典；未来加报表订阅/消息推送只加 handler 不改表
+- [报表组件架构决策](./hr_portal_report_component_architecture.md) — 报表管理与成本分摊共享 10 个组件库；成本分摊多 ArchiveSection；改共享组件两边同步，改页面文件只影响各自模块
 - [两棵树构建规则](./hr_portal_tree_build.md) — cost_center_tree 来自月度维护表 + 业务层级Id；org_tree 来自实时花名册 + 7 层冗余字段（含虚拟根「创梦天地」）
 - [数据范围标签新版语义](./hr_portal_scopes_design.md) — 组织范围+人员范围两段式（alembic 0009）；单标签内 AND、多标签 OR；filters 字段映射花名册.姓名/员工类型/公司名称
 
