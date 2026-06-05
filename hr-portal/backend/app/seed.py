@@ -1,0 +1,281 @@
+"""首次启动数据初始化
+
+- 创建 admin 用户（密码取 ADMIN_INIT_PASSWORD）
+- 注入全量菜单（三级结构：tab → 分组 → 叶子）
+- 创建"超级管理员"角色 + 全菜单全操作权限
+- 把 admin 绑到超级管理员
+
+幂等：已存在时不重复创建；菜单结构变化时只新增不删除。
+"""
+import logging
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.password import hash_password
+from app.core.config import settings
+from app.datasources.models import DataSource
+from app.users.models import Menu, Role, RoleMenu, User, UserRole
+
+logger = logging.getLogger("seed")
+
+
+# ===== 菜单清单（三层结构）=====
+# 一级（顶部 tab）→ 二级（左侧分组）→ 三级（左侧叶子，对应路由页面）
+MENU_TREE: list[dict] = [
+    # 一级 1：系统设置
+    {
+        "code": "system",
+        "label": "系统设置",
+        "icon": "Setting",
+        "children": [
+            # 二级 1.1：权限管理
+            {
+                "code": "system.auth",
+                "label": "权限管理",
+                "icon": "Lock",
+                "children": [
+                    {"code": "system.users", "label": "用户管理", "icon": "User"},
+                    {"code": "system.roles", "label": "角色配置", "icon": "Avatar"},
+                    {"code": "system.scopes", "label": "管理单元", "icon": "Connection"},
+                    {"code": "system.field_categories", "label": "字段分类", "icon": "Stamp"},
+                    {"code": "system.field_columns", "label": "字段管理", "icon": "Grid"},
+                ],
+            },
+            # 二级 1.2：数据接入
+            {
+                "code": "system.datasource",
+                "label": "数据接入",
+                "icon": "Download",
+                "children": [
+                    {"code": "datasource.endpoints", "label": "接口配置", "icon": "Link"},
+                    {"code": "datasource.sync_runs", "label": "同步历史", "icon": "Clock"},
+                    {"code": "datasource.datasets", "label": "表间关联", "icon": "Share"},
+                    {"code": "data.view", "label": "数据视图", "icon": "DataAnalysis"},
+                ],
+            },
+            # 二级 1.3：参数配置
+            {
+                "code": "system.params",
+                "label": "参数配置",
+                "icon": "Operation",
+                "children": [
+                    {"code": "system.compensation_caps", "label": "补偿金规则维护", "icon": "Money"},
+                ],
+            },
+        ],
+    },
+    # 一级 3：提效工具
+    {
+        "code": "tools",
+        "label": "提效工具",
+        "icon": "Tools",
+        "children": [
+            {
+                "code": "tools.hr",
+                "label": "HR 小工具",
+                "icon": "Briefcase",
+                "children": [
+                    {"code": "tools.center", "label": "工具中心", "icon": "Grid"},
+                    {"code": "tools.compensation_calc", "label": "补偿金计算", "icon": "Money"},
+                    {"code": "tools.income_certificate", "label": "证明开具", "icon": "Document"},
+                ],
+            },
+        ],
+    },
+]
+
+
+async def _ensure_menus(db: AsyncSession) -> dict[str, Menu]:
+    """幂等地写入菜单。返回 code → Menu 的映射"""
+    existing = (await db.execute(select(Menu))).scalars().all()
+    by_code: dict[str, Menu] = {m.code: m for m in existing}
+
+    order = 0
+    async def add(node: dict, parent_id: int | None) -> None:
+        nonlocal order
+        if node["code"] not in by_code:
+            m = Menu(
+                code=node["code"],
+                label=node["label"],
+                parent_id=parent_id,
+                display_order=order,
+                icon=node.get("icon"),
+            )
+            db.add(m)
+            await db.flush()
+            by_code[node["code"]] = m
+            logger.info("[seed] menu added: %s", node["code"])
+        order += 10
+        for child in node.get("children", []):
+            await add(child, by_code[node["code"]].id)
+
+    for top in MENU_TREE:
+        await add(top, None)
+
+    await db.commit()
+    return by_code
+
+
+async def _ensure_super_role(db: AsyncSession, menus: dict[str, Menu]) -> Role:
+    """超级管理员角色，全菜单全操作"""
+    role = (
+        await db.execute(select(Role).where(Role.name == "超级管理员"))
+    ).scalar_one_or_none()
+    if role is None:
+        role = Role(name="超级管理员", description="拥有全部菜单与全部操作权限")
+        db.add(role)
+        await db.flush()
+        logger.info("[seed] role 超级管理员 created")
+
+    # 给所有菜单挂上 RoleMenu（包含中间分组节点）—— 操作权限四件套全开
+    existing_links = {
+        rm.menu_id
+        for rm in (
+            await db.execute(select(RoleMenu).where(RoleMenu.role_id == role.id))
+        )
+        .scalars()
+        .all()
+    }
+    for menu in menus.values():
+        if menu.id in existing_links:
+            continue
+        db.add(
+            RoleMenu(
+                role_id=role.id,
+                menu_id=menu.id,
+                scope_dimension="none",
+                can_view=True,
+                can_create=True,
+                can_update=True,
+                can_delete=True,
+                can_export=True,
+            )
+        )
+    await db.commit()
+    return role
+
+
+async def _ensure_admin_user(db: AsyncSession, super_role: Role) -> User:
+    user = (
+        await db.execute(select(User).where(User.login_name == "admin"))
+    ).scalar_one_or_none()
+    if user is None:
+        user = User(
+            login_name="admin",
+            display_name="系统管理员",
+            password_hash=hash_password(settings.ADMIN_INIT_PASSWORD),
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
+        logger.info("[seed] user admin created")
+
+    # 确保绑定超级管理员角色
+    bound = (
+        await db.execute(
+            select(UserRole).where(
+                UserRole.user_id == user.id, UserRole.role_id == super_role.id
+            )
+        )
+    ).first()
+    if bound is None:
+        db.add(UserRole(user_id=user.id, role_id=super_role.id))
+        logger.info("[seed] admin → 超级管理员 bound")
+
+    await db.commit()
+    return user
+
+
+async def run_seed(session_factory) -> None:
+    """供 FastAPI 启动事件调用"""
+    async with session_factory() as db:
+        menus = await _ensure_menus(db)
+        super_role = await _ensure_super_role(db, menus)
+        await _ensure_admin_user(db, super_role)
+        await _ensure_datasources(db)
+        await _ensure_datasource_jobs(db)
+        logger.info("[seed] done")
+
+
+# ===== 5 张数据表的初始 datasource 配置（无凭证，待管理员配置）=====
+
+
+_DATASOURCES_INIT = [
+    {
+        "table_name": "emp_realtime_roster",
+        "table_label": "员工实时花名册",
+        "source_type": "beisen_report",
+        "schedule": "每日 06:00",
+    },
+    {
+        "table_name": "emp_monthly_roster",
+        "table_label": "员工月度花名册",
+        "source_type": "beisen_report",
+        "schedule": "每月 1 日 06:00",
+    },
+    {
+        "table_name": "emp_monthly_salary",
+        "table_label": "员工月度工资表",
+        "source_type": "beisen_report",
+        "schedule": "每月 5 日 06:00",
+    },
+    {
+        "table_name": "emp_monthly_allocation",
+        "table_label": "员工月度成本分摊表",
+        "source_type": "upload",
+        "schedule": "手动触发",
+    },
+    {
+        "table_name": "cost_center_monthly",
+        "table_label": "成本中心月度维护表",
+        "source_type": "beisen_report",
+        "schedule": "每日 06:00",
+    },
+]
+
+
+async def _ensure_datasources(db: AsyncSession) -> None:
+    existing_names = {
+        n for (n,) in (await db.execute(select(DataSource.table_name))).all()
+    }
+    for cfg in _DATASOURCES_INIT:
+        if cfg["table_name"] in existing_names:
+            continue
+        ds = DataSource(
+            table_name=cfg["table_name"],
+            table_label=cfg["table_label"],
+            source_type=cfg["source_type"],
+            schedule=cfg["schedule"],
+            settings={},
+            secrets_encrypted={},
+            is_active=False,
+            last_status="pending",
+        )
+        db.add(ds)
+        logger.info("[seed] datasource added: %s", cfg["table_name"])
+    await db.commit()
+
+
+async def _ensure_datasource_jobs(db: AsyncSession) -> None:
+    """为每个 datasource 幂等创建 scheduled_jobs 记录（kind=datasource_sync）
+
+    已有的 job 不会被强制覆盖（保留用户后续在前端的 schedule 修改）。
+    """
+    from app.scheduler.service import get_job_by_business, upsert_job
+
+    dss = (await db.execute(select(DataSource))).scalars().all()
+    for ds in dss:
+        existing = await get_job_by_business(db, "datasource_sync", ds.id)
+        if existing is not None:
+            continue
+        await upsert_job(
+            db,
+            kind="datasource_sync",
+            business_id=ds.id,
+            cron=ds.schedule or "手动触发",
+            payload={"table_name": ds.table_name},
+            enabled=ds.is_active,
+        )
+        logger.info("[seed] scheduled_job for ds %d (%s) created", ds.id, ds.table_name)
+    await db.commit()

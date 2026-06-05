@@ -1,0 +1,175 @@
+/* ============================================================
+ * Element Plus 主题覆写
+ * 通过覆盖 EP 的 --el-* 变量把 EP 默认蓝换成 brand 蓝
+ * 并把 EP 默认偏圆的圆角拉直成账册风
+ * ============================================================ */
+
+:root {
+  /* ===== 主色 ===== */
+  --el-color-primary:               var(--brand-500);
+  --el-color-primary-light-3:       var(--brand-400);
+  --el-color-primary-light-5:       var(--brand-300);
+  --el-color-primary-light-7:       var(--brand-200);
+  --el-color-primary-light-8:       var(--brand-100);
+  --el-color-primary-light-9:       var(--brand-50);
+  --el-color-primary-dark-2:        var(--brand-700);
+
+  /* ===== 状态色 ===== */
+  --el-color-success:               var(--success-500);
+  --el-color-success-light-9:       var(--success-50);
+  --el-color-warning:               var(--warning-500);
+  --el-color-warning-light-9:       var(--warning-50);
+  --el-color-danger:                var(--danger-500);
+  --el-color-error:                 var(--danger-500);
+  --el-color-danger-light-9:        var(--danger-50);
+  --el-color-info:                  var(--ink-500);
+
+  /* ===== 文本色 ===== */
+  --el-text-color-primary:          var(--ink-800);
+  --el-text-color-regular:          var(--ink-700);
+  --el-text-color-secondary:        var(--ink-500);
+  --el-text-color-placeholder:      var(--ink-400);
+  --el-text-color-disabled:         var(--ink-300);
+
+  /* ===== 边框 ===== */
+  --el-border-color:                var(--ink-200);
+  --el-border-color-light:          var(--ink-150);
+  --el-border-color-lighter:        var(--ink-100);
+  --el-border-color-extra-light:    var(--ink-100);
+  --el-border-color-dark:           var(--ink-300);
+  --el-border-color-darker:         var(--ink-400);
+
+  /* ===== 填充 ===== */
+  --el-fill-color:                  var(--ink-50);
+  --el-fill-color-light:            var(--ink-50);
+  --el-fill-color-lighter:          var(--ink-0);
+  --el-fill-color-blank:            #fff;
+  --el-fill-color-darker:           var(--ink-100);
+
+  /* ===== 背景 ===== */
+  --el-bg-color:                    #fff;
+  --el-bg-color-page:               var(--ink-0);
+  --el-bg-color-overlay:            #fff;
+
+  /* ===== 字体 ===== */
+  --el-font-family:                 var(--font-display);
+  --el-font-size-base:              var(--fs-md);
+  --el-font-size-small:             var(--fs-sm);
+  --el-font-size-extra-small:       var(--fs-xs);
+  --el-font-size-large:             var(--fs-lg);
+
+  /* ===== 圆角（拉直 —— EP 默认偏圆，账册风要直）===== */
+  --el-border-radius-base:          var(--r-sm);
+  --el-border-radius-small:         var(--r-sm);
+  --el-border-radius-round:         var(--r-md);
+  --el-border-radius-circle:        var(--r-pill);
+
+  /* ===== 阴影 ===== */
+  --el-box-shadow:                  var(--shadow-2);
+  --el-box-shadow-light:            var(--shadow-1);
+  --el-box-shadow-lighter:          var(--shadow-1);
+  --el-box-shadow-dark:             var(--shadow-3);
+
+  /* ===== 组件尺寸（更紧凑，账册感）===== */
+  --el-component-size:              32px;
+  --el-component-size-small:        28px;
+  --el-component-size-large:        36px;
+}
+
+/* === 关键组件的精细打磨 === */
+
+/* 按钮：默认 ghost，不要每个都填色 */
+.el-button {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.el-button--primary {
+  font-weight: 600;
+}
+.el-button--default:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger) {
+  --el-button-bg-color: #fff;
+  --el-button-text-color: var(--ink-800);
+}
+
+/* 表格：去掉斑马线，用更细的水平线；表头小字 + 字距 */
+.el-table {
+  --el-table-header-bg-color: var(--ink-50);
+  --el-table-header-text-color: var(--ink-600);
+  --el-table-border-color: var(--ink-150);
+  --el-table-row-hover-bg-color: var(--brand-50);
+}
+.el-table th.el-table__cell {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--ink-600);
+  padding: var(--space-4) var(--space-6);
+}
+.el-table td.el-table__cell {
+  padding: var(--space-4) var(--space-6);
+}
+.el-table .el-table__row {
+  position: relative;
+}
+
+/* 输入框：底线少一点干扰 */
+.el-input__wrapper {
+  box-shadow: 0 0 0 1px var(--ink-200) inset;
+}
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--brand-500) inset, var(--shadow-focus);
+}
+
+/* Tag：默认无背景 + 1px 边框，更像「徽章」而非「按钮」 */
+.el-tag {
+  border-radius: var(--r-sm);
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid currentColor;
+  letter-spacing: 0;
+}
+.el-tag .el-tag__content {
+  color: inherit;
+}
+
+/* Menu：左侧导航更扁平，hover/active 用色块而非加粗描边 */
+.el-menu {
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--ink-700);
+  --el-menu-hover-bg-color: var(--ink-100);
+  --el-menu-active-color: var(--brand-600);
+  border-right: none;
+}
+.el-menu-item, .el-sub-menu__title {
+  height: 36px !important;
+  line-height: 36px !important;
+  font-size: var(--fs-sm);
+}
+.el-menu-item.is-active {
+  background: var(--brand-50);
+  border-left: 2px solid var(--brand-500);
+  padding-left: calc(var(--space-7) - 2px) !important;
+}
+
+/* Drawer：去掉默认的圆角 */
+.el-drawer {
+  --el-drawer-padding-primary: var(--pad-card);
+}
+.el-drawer__header {
+  border-bottom: var(--border-default);
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+/* Tree：节点选中态更明显 */
+.el-tree {
+  --el-tree-node-hover-bg-color: var(--ink-50);
+}
+.el-tree-node__content {
+  height: 32px;
+}
+.el-tree-node.is-current > .el-tree-node__content {
+  background: var(--brand-50);
+  color: var(--brand-700);
+}

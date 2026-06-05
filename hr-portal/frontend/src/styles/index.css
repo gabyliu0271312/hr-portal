@@ -1,0 +1,68 @@
+/* HR Portal 统一样式入口 —— main.ts 里只 import 这一个文件
+ * 参考成本分摊系统的飞书风格：el-card 卡片 + 蓝色主色 + 灰底页面 */
+
+@import './global.css';
+@import './components.css';
+
+/* 飞书风格 token（覆盖前面的） */
+:root {
+  /* 主色：飞书蓝 */
+  --color-primary:          #3370ff;
+  --color-primary-hover:    #2855cc;
+  --color-primary-light:    #eef2ff;
+
+  /* 文字层级 */
+  --color-text-primary:     #1a2233;
+  --color-text-regular:     #374151;
+  --color-text-secondary:   #5c6b82;
+  --color-text-placeholder: #9aa5b4;
+
+  /* 背景层 */
+  --color-bg-page:          #f4f6f9;
+  --color-bg-card:          #ffffff;
+  --color-bg-hover:         #f0f5ff;
+  --color-bg-subtle:        #f8fafc;
+
+  /* 边框 */
+  --color-border:           #e4e9f0;
+  --color-border-light:     #eef1f6;
+
+  /* 状态色 */
+  --color-warning:          #f5920a;
+  --color-success:          #12b76a;
+  --color-danger:           #f04438;
+  --color-info:             #667085;
+
+  /* 覆盖 Element Plus 主色 */
+  --el-color-primary:         #3370ff;
+  --el-color-primary-light-3: #6691ff;
+  --el-color-primary-light-5: #99b8ff;
+  --el-color-primary-light-7: #b3c6ff;
+  --el-color-primary-light-8: #ccdbff;
+  --el-color-primary-light-9: #eef2ff;
+  --el-color-primary-dark-2:  #2855cc;
+
+  /* 覆盖 Element Plus 文字色 */
+  --el-text-color-primary:    #1a2233;
+  --el-text-color-regular:    #374151;
+  --el-text-color-secondary:  #5c6b82;
+
+  /* 覆盖 Element Plus 边框色 */
+  --el-border-color:          #e4e9f0;
+  --el-border-color-light:    #eef1f6;
+  --el-border-color-lighter:  #f3f6fb;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
+  background: var(--color-bg-page) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* 表格单元格不裁剪内容（参考方案的关键 CSS） */
+.el-table .cell {
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+

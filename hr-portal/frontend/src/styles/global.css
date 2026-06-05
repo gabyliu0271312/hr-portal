@@ -1,0 +1,66 @@
+/* ============================================================
+ * 全局基础样式
+ * ============================================================ */
+
+@import './tokens.css';
+@import './element-overrides.css';
+
+/* IBM Plex Sans + Plex Mono；中文用思源黑体（系统已带）
+ * 走 Google Fonts CDN，国内访问慢可改为本地托管 */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* 滚动条不闪动 */
+  scrollbar-gutter: stable;
+  font-feature-settings: 'tnum' 1, 'cv11' 1, 'ss01' 1; /* 表格数字等宽 */
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  line-height: var(--lh-base);
+  color: var(--ink-800);
+  background: var(--ink-0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* 标题不要默认上下边距，节省垂直空间 */
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-weight: 600;
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tracking-tight);
+  color: var(--ink-900);
+}
+
+h1 { font-size: var(--fs-2xl); font-weight: 700; }
+h2 { font-size: var(--fs-xl); }
+h3 { font-size: var(--fs-lg); }
+h4 { font-size: var(--fs-md); }
+
+p { margin: 0; }
+a { color: var(--brand-600); text-decoration: none; transition: color var(--duration-fast) var(--easing-out); }
+a:hover { color: var(--brand-700); }
+
+/* 选中态 */
+::selection {
+  background: var(--brand-200);
+  color: var(--brand-900);
+}
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--ink-200);
+  border-radius: var(--r-sm);
+  border: 2px solid var(--ink-0);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ink-300); }
