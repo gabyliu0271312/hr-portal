@@ -67,6 +67,24 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '模板维护', menuCode: 'system.document_templates' },
       },
       {
+        path: 'system/ai-config',
+        name: 'SystemAiConfig',
+        component: () => import('@/views/system/AiConfig.vue'),
+        meta: { label: 'AI 基础配置', menuCode: 'system.ai_config' },
+      },
+      {
+        path: 'system/function-library',
+        name: 'SystemFunctionLibrary',
+        component: () => import('@/views/system/FunctionLibrary.vue'),
+        meta: { label: '函数库管理', menuCode: 'system.function_library' },
+      },
+      {
+        path: 'system/logs/ai',
+        name: 'SystemAiLogs',
+        component: () => import('@/views/system/SystemLogs.vue'),
+        meta: { label: 'AI 调用日志', menuCode: 'system.logs.ai' },
+      },
+      {
         path: 'datasource/endpoints',
         name: 'DatasourceEndpoints',
         component: () => import('@/views/datasource/Endpoints.vue'),

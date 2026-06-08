@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, View, Check } from '@element-plus/icons-vue'
-import PermissionButton from '@/components/PermissionButton.vue'
+import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
 import ReportBasicInfo from '@/components/report/ReportBasicInfo.vue'
 import ReportFieldWorkbench from '@/components/report/ReportFieldWorkbench.vue'
 import ReportFilterList from '@/components/report/ReportFilterList.vue'
@@ -11,8 +11,8 @@ import ReportSortList from '@/components/report/ReportSortList.vue'
 import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import { reportsApi, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
-import { dataApi, type ColumnInfo } from '@/api/data'
-import { datasetsApi, type DatasetItem } from '@/api/datasets'
+import type { ColumnInfo } from '@/api/data'
+import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 import { useTableOptions } from '@/composables/useTableOptions'
 
 const { tables: TABLES } = useTableOptions()
@@ -72,7 +72,6 @@ const form = reactive({
 const allColumns = ref<ColumnInfo[]>([])
 const datasets = ref<DatasetItem[]>([])
 const currentDataset = ref<DatasetItem | null>(null)
-const loadingCols = ref(false)
 const saving = ref(false)
 const previewing = ref(false)
 const previewColumns = ref<RunResult['columns']>([])
@@ -80,6 +79,7 @@ const previewItems = ref<RunResult['items']>([])
 const previewTotal = ref(0)
 const previewPage = ref(1)
 const previewPageSize = ref(20)
+const singleTableDatasetId = ref<number | null>(null)
 
 const transposeRef = ref<InstanceType<typeof ReportTransposeConfig> | null>(null)
 const filterRef = ref<InstanceType<typeof ReportFilterList> | null>(null)
@@ -96,51 +96,12 @@ const selectedMeasures = computed(() =>
   selectedColsDetail.value.filter((c) => c.agg_role === 'measure')
 )
 const isDataset = computed(() => form.source_type === 'dataset')
-const sourceName = computed(() => {
-  if (form.source_type === 'dataset') return currentDataset.value?.name || '数据集'
-  return TABLES.value.find((item: any) => item.value === form.table_name)?.label || form.table_name
-})
-const fieldSourceGroups = computed(() => {
-  if (form.source_type === 'dataset') {
-    return (currentDataset.value?.tables || []).map((item) => ({
-      key: item.alias,
-      label: `${item.alias} · ${TABLES.value.find((t: any) => t.value === item.table_name)?.label || item.table_name}`,
-    }))
-  }
-  return [{ key: sourceName.value, label: sourceName.value }]
-})
 
 async function loadDatasets() {
   try {
     datasets.value = await datasetsApi.list()
   } catch {
     datasets.value = []
-  }
-}
-
-async function loadColumns() {
-  loadingCols.value = true
-  try {
-    if (form.source_type === 'single') {
-      allColumns.value = await dataApi.columns(form.table_name)
-    } else if (form.dataset_id) {
-      const ds = await datasetsApi.get(form.dataset_id)
-      currentDataset.value = ds
-      const cols: ColumnInfo[] = []
-      for (const t of ds.tables) {
-        const tcols = await dataApi.columns(t.table_name)
-        for (const c of tcols) {
-          cols.push({ ...c, code: `${t.alias}.${c.code}`, label: `${t.alias}.${c.label}` })
-        }
-      }
-      allColumns.value = cols
-    } else {
-      allColumns.value = []
-    }
-  } catch {
-    allColumns.value = []
-  } finally {
-    loadingCols.value = false
   }
 }
 
@@ -156,6 +117,7 @@ async function loadReport() {
     form.is_published = r.is_published
     form.selected_codes = [...(r.config.columns ?? [])]
     form.column_settings = { ...(r.config.column_settings ?? {}) }
+    singleTableDatasetId.value = r.config.single_table_dataset_id || null
     form.default_split_rule = {
       enabled: !!r.config.default_split_rule?.enabled,
       factor: r.config.default_split_rule?.factor || '',
@@ -221,6 +183,7 @@ async function loadReport() {
 }
 
 function resetForm() {
+  singleTableDatasetId.value = null
   form.selected_codes = []
   form.column_settings = {}
   form.default_split_rule = { enabled: false, factor: '' }
@@ -263,17 +226,21 @@ function resetForm() {
 
 async function onSourceChange() {
   resetForm()
-  await loadColumns()
 }
 
 async function onTableChange() {
   resetForm()
-  await loadColumns()
 }
 
 async function onDatasetChange() {
   resetForm()
-  await loadColumns()
+}
+
+function onCalculatedFieldSaved(field: DatasetCalculatedField) {
+  const code = `calc.${field.code}`
+  if (!form.selected_codes.includes(code)) {
+    form.selected_codes = [...form.selected_codes, code]
+  }
 }
 
 function buildPayload() {
@@ -316,6 +283,7 @@ function buildPayload() {
     config: {
       columns: form.selected_codes,
       column_settings: form.column_settings,
+      single_table_dataset_id: form.source_type === 'single' ? singleTableDatasetId.value : null,
       default_split_rule: form.default_split_rule,
       filters: form.filters
         .filter((f) => f.column)
@@ -444,7 +412,6 @@ async function preview() {
 onMounted(async () => {
   await loadDatasets()
   if (!isNew.value) await loadReport()
-  await loadColumns()
 })
 
 watch(
@@ -484,10 +451,9 @@ watch(
       })
       previewItems.value = []
       previewColumns.value = []
-      await loadColumns()
+      singleTableDatasetId.value = null
     } else {
       await loadReport()
-      await loadColumns()
     }
   }
 )
@@ -535,18 +501,34 @@ watch(
         />
 
         <div class="section-title">报表设置（{{ form.selected_codes.length }} 个字段）</div>
-        <ReportFieldWorkbench
-          v-model:selected-codes="form.selected_codes"
-          v-model:column-settings="form.column_settings"
-          v-model:default-split-rule="form.default_split_rule"
-          v-model:default-aggregation="form.default_aggregation"
-          v-model:aggregate="form.aggregate"
-          v-model:rounding-group-by="form.rounding_group_by"
-          :all-columns="allColumns"
-          :source-groups="fieldSourceGroups"
-          :loading="loadingCols"
-          :is-dataset="isDataset"
-        />
+        <CalculatedFieldBridge
+          v-model:single-table-dataset-id="singleTableDatasetId"
+          :source-type="form.source_type"
+          :table-name="form.table_name"
+          :dataset-id="form.dataset_id"
+          :datasets="datasets"
+          :tables="TABLES"
+          @columns-change="allColumns = $event"
+          @dataset-change="currentDataset = $event"
+          @saved="onCalculatedFieldSaved"
+        >
+          <template #default="{ columns, loading, sourceGroups, canCreateField, createField }">
+            <ReportFieldWorkbench
+              v-model:selected-codes="form.selected_codes"
+              v-model:column-settings="form.column_settings"
+              v-model:default-split-rule="form.default_split_rule"
+              v-model:default-aggregation="form.default_aggregation"
+              v-model:aggregate="form.aggregate"
+              v-model:rounding-group-by="form.rounding_group_by"
+              :all-columns="columns"
+              :source-groups="sourceGroups"
+              :loading="loading"
+              :is-dataset="isDataset"
+              :can-create-field="canCreateField"
+              @create-field="createField"
+            />
+          </template>
+        </CalculatedFieldBridge>
 
         <div class="section-title">筛选条件（{{ form.filters.length }} 个，多个之间为 AND）</div>
         <ReportFilterList

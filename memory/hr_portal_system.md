@@ -103,6 +103,80 @@ metadata:
 - **数据集（DataSet）化的表间关联**：表间关联归属于数据集而非全局；新建报表第一步必须先选数据集
 - **模板维护平台化**：证明、协议等文档模板统一放在“系统设置 → 参数配置 → 模板维护”，以 `.docx` Word 模板上传解析为主，业务工具只读取模板配置。
 
+## AI 原生工作台根原则（2026-06-08）
+
+HR Portal 后续定位为 **AI 原生 HR 工作台**，不是简单的“功能页面集合 + 若干 AI 按钮”。所有新增或重构功能都要优先考虑是否需要暴露给 AI 编排层，并为后续 AI 调用做好受控准备。
+
+根本边界：
+
+```text
+AI 负责理解、编排、草稿、解释和建议。
+HR Portal 后端负责权限、数据、确定性计算、状态变更、导出、审计和最终执行。
+用户负责确认高风险动作。
+```
+
+所有可被 AI 理解或调用的能力，必须准备：
+
+- 稳定 `capability_id`、输入/输出 schema、能力说明和示例问法。
+- 所需功能权限、数据范围要求、敏感级别、风险等级和确认策略。
+- 受控 Tool Wrapper，不允许 AI 直接调用任意后端 URL。
+- Context Packet，不允许页面随意拼接大段 HR 明细给模型。
+- Schema Validator + Policy Guard，不信任模型输出。
+- AI 调用、工具调用、用户确认和业务执行审计。
+- 基础评测用例，覆盖正常、问答、失败、越权、敏感数据和低置信度回问。
+
+后续开发节奏：
+
+```text
+AI 相关功能：先做最小 AI 底座，再接入具体业务场景。
+普通业务功能：可以继续开发，但设计时必须判断是否注册 AI Capability。
+```
+
+最小 AI 底座范围：
+
+```text
+Capability Registry
+AI Orchestrator
+Tool Wrapper
+Context Packet
+Schema Validator
+Policy Guard
+Audit
+Eval Case Skeleton
+```
+
+下次继续公式/计算字段开发时，应先补齐上述最小底座，再把 `formula.generate`、`formula.validate`、`formula.repair`、`calculated_field.save` 等能力接进去；不要再新增独立页面 prompt 接口。
+
+完整 AI 平台演进：
+
+```text
+Phase 0 最小 AI 底座
+Phase 1 首个场景验证
+Phase 2 多场景复用
+Phase 3 管理治理平台
+Phase 4 知识/RAG 能力
+Phase 5 工作流编排
+Phase 6 渠道与网关扩展
+Phase 7 模型优化/微调
+```
+
+Phase 5 类似传统 Skill，但本系统应实现为 `AI Workflow / Capability Orchestration`：多个原子 Capability 的受控编排，每一步保留 Tool、Artifact、Policy Guard、用户确认和审计，不做黑盒大 Skill。
+
+禁止方向：
+
+- 不用提示词替代权限校验。
+- 不让模型生成 SQL/代码并执行。
+- 不把完整工资、身份证、手机号等敏感明细默认送入模型。
+- 不把 AI 调用日志放到孤立 AI 页面；统一进入系统日志管理。
+- 不把函数库放进 AI 基础配置；函数库是平台公共能力。
+
+参考文档：
+
+- `specs/004-ai-native-workbench/ai-native-development-principles.md`
+- `specs/004-ai-native-workbench/ai-capability-registry.md`
+- `specs/004-ai-native-workbench/ai-platform-roadmap.md`
+- `specs/004-ai-native-workbench/architecture-review.md`
+
 ## 数据层架构（v2，C1 动态列扩展，2026-05-23）
 
 **核心思想**：业务表 schema 不锁字段，源端来什么字段就有什么字段；字段元数据独立存。

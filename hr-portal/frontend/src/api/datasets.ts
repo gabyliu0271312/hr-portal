@@ -49,6 +49,37 @@ export interface DatasetPayload {
   acl: DatasetAclItem[]
 }
 
+export interface DatasetCalculatedField {
+  id: number
+  dataset_id: number
+  code: string
+  label: string
+  description: string | null
+  formula: string
+  formula_display: string | null
+  data_type: string
+  agg_role: 'dimension' | 'measure'
+  depends_on: string[]
+  used_functions: string[]
+  is_sensitive: boolean
+  is_active: boolean
+  created_by: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DatasetCalculatedFieldPayload {
+  code?: string | null
+  label: string
+  description?: string | null
+  formula: string
+  formula_display?: string | null
+  data_type: string
+  agg_role: 'dimension' | 'measure'
+  is_sensitive?: boolean
+  is_active?: boolean
+}
+
 export const datasetsApi = {
   list: () => api.get<DatasetItem[]>('/datasets').then((r) => r.data),
 
@@ -68,4 +99,19 @@ export const datasetsApi = {
 
   visibleTables: () =>
     api.get<{ table_name: string; label: string }[]>('/datasets/_visible-tables').then((r) => r.data),
+
+  ensureSingleTableDataset: (tableName: string) =>
+    api.post<DatasetItem>('/datasets/_single-table', { table_name: tableName }).then((r) => r.data),
+
+  calculatedFields: (id: number) =>
+    api.get<DatasetCalculatedField[]>(`/datasets/${id}/calculated-fields`).then((r) => r.data),
+
+  createCalculatedField: (id: number, body: DatasetCalculatedFieldPayload) =>
+    api.post<DatasetCalculatedField>(`/datasets/${id}/calculated-fields`, body).then((r) => r.data),
+
+  updateCalculatedField: (datasetId: number, fieldId: number, body: DatasetCalculatedFieldPayload) =>
+    api.put<DatasetCalculatedField>(`/datasets/${datasetId}/calculated-fields/${fieldId}`, body).then((r) => r.data),
+
+  removeCalculatedField: (datasetId: number, fieldId: number) =>
+    api.delete<{ ok: boolean }>(`/datasets/${datasetId}/calculated-fields/${fieldId}`).then((r) => r.data),
 }

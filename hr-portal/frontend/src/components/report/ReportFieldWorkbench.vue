@@ -16,6 +16,7 @@ const props = defineProps<{
   roundingGroupBy: string[]
   isDataset?: boolean
   loading?: boolean
+  canCreateField?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   'update:defaultAggregation': [v: AggregationFunc]
   'update:aggregate': [v: boolean]
   'update:roundingGroupBy': [v: string[]]
+  createField: []
 }>()
 
 const AGG_FUNCS = REPORT_AGG_FUNCS
@@ -48,11 +50,13 @@ const numericAllCols = computed(() =>
 const draggingCode = ref('')
 
 function sourceKey(code: string) {
+  if (code.startsWith('calc.')) return 'calc'
   return props.isDataset && code.includes('.') ? code.slice(0, code.indexOf('.')) : 'current'
 }
 
 function sourceLabel(code: string) {
   const key = sourceKey(code)
+  if (key === 'calc') return '计算字段'
   if (!props.isDataset) return '当前报表'
   return props.sourceGroups?.find((item) => item.key === key)?.label || key
 }
@@ -121,6 +125,7 @@ function reorderColumn(code: string, targetCode: string) {
 function sourceTableLabel(code: string) {
   const label = sourceLabel(code)
   const alias = sourceKey(code)
+  if (alias === 'calc') return label
   return props.isDataset ? alias : label
 }
 
@@ -391,7 +396,19 @@ function setSplitFactor(code: string, value: string) {
     <div class="available-panel">
       <div class="panel-head">
         <span>可选字段</span>
-        <span>{{ availableCols.length }} 个</span>
+        <span class="available-head-actions">
+          <el-button
+            v-if="canCreateField"
+            size="small"
+            type="primary"
+            plain
+            @click="emit('createField')"
+          >
+            <el-icon><Plus /></el-icon>
+            新建字段
+          </el-button>
+          <span>{{ availableCols.length }} 个</span>
+        </span>
       </div>
       <div v-if="availableColumnGroups.length" class="source-groups">
         <section v-for="group in availableColumnGroups" :key="group.key" class="source-group">
@@ -478,11 +495,17 @@ function setSplitFactor(code: string, value: string) {
 }
 .panel-head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
   color: var(--color-text-secondary);
   font-size: 12px;
   font-weight: 700;
+}
+.available-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .source-groups {
   display: grid;

@@ -87,6 +87,7 @@ export interface ReportConfig {
   transpose?: TransposeConfig
   rounding_corrections?: { group_by: string | string[]; target_cols?: string[] }[]
   filter_logic?: FilterLogic | null
+  single_table_dataset_id?: number | null
 }
 
 export interface ReportItem {

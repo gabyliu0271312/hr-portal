@@ -86,6 +86,8 @@ class ReportConfig(BaseModel):
     rounding_corrections: list[dict] = Field(default_factory=list)
     # 复杂筛选逻辑预留：旧 filters 仍按 AND 兼容
     filter_logic: dict | None = None
+    # 单表报表的计算字段库数据集 ID；仅用于保存/运行 calc.* 字段
+    single_table_dataset_id: int | None = None
 
 
 class ReportIn(BaseModel):
@@ -457,6 +459,23 @@ def _apply_sorts(stmt, Model, sorts: list[SortCond]):
     return stmt
 
 
+def _apply_single_python_sorts(items: list[dict[str, Any]], sorts: list[SortCond]) -> None:
+    for s in reversed(sorts or []):
+        cq = s.column
+        if not cq:
+            continue
+        is_desc = (s.order or "asc").lower() == "desc"
+
+        def _k(it, _cq=cq):
+            v = it.get(_cq)
+            try:
+                return (0, float(v))
+            except (TypeError, ValueError):
+                return (1, str(v) if v is not None else "")
+
+        items.sort(key=_k, reverse=is_desc)
+
+
 async def _run_query(
     db: AsyncSession,
     table_name: str,
@@ -480,19 +499,46 @@ async def _run_query(
         )
     ).scalars().all()
     col_by_code = {c.column_code: c for c in all_cols}
+    calc_fields = []
+    calc_by_qual = {}
+    if config.single_table_dataset_id:
+        from app.datasets.calculated_fields import active_calculated_fields, calc_qual
+        calc_fields = await active_calculated_fields(config.single_table_dataset_id, db)
+        calc_by_qual = {calc_qual(f.code): f for f in calc_fields}
 
     # 2) 用户选定的列；空则取全部 visible
     selected_codes = config.columns
+    selected_calc_fields = []
     if not selected_codes:
         selected_codes = [c.column_code for c in all_cols if c.is_visible]
+        selected_calc_fields = list(calc_fields)
+    else:
+        for c in selected_codes:
+            if isinstance(c, str) and c.startswith("calc."):
+                calc_field = calc_by_qual.get(c)
+                if calc_field is None:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"计算字段不存在: {c}")
+                selected_calc_fields.append(calc_field)
     selected_cols = [col_by_code[c] for c in selected_codes if c in col_by_code]
+    calc_filter_on = any(str(f.column or "").startswith("calc.") for f in config.filters or [])
+    calc_sort_on = any(str(s.column or "").startswith("calc.") for s in config.sorts or [])
+    internal_calc_fields = list(selected_calc_fields)
+    for f in config.filters or []:
+        field = calc_by_qual.get(str(f.column or ""))
+        if field and field not in internal_calc_fields:
+            internal_calc_fields.append(field)
+    for s in config.sorts or []:
+        field = calc_by_qual.get(str(s.column or ""))
+        if field and field not in internal_calc_fields:
+            internal_calc_fields.append(field)
 
     # 3) 拼 SQL
     stmt = select(Model)
     count_stmt = select(func.count()).select_from(Model)
 
-    stmt = _apply_filters(stmt, Model, config.filters, config.filter_logic)
-    count_stmt = _apply_filters(count_stmt, Model, config.filters, config.filter_logic)
+    if not calc_filter_on:
+        stmt = _apply_filters(stmt, Model, config.filters, config.filter_logic)
+        count_stmt = _apply_filters(count_stmt, Model, config.filters, config.filter_logic)
 
     # 注入数据范围权限（FR-REPORT-004）
     if user is not None:
@@ -502,16 +548,20 @@ async def _run_query(
             stmt = stmt.where(scope_clause)
             count_stmt = count_stmt.where(scope_clause)
 
-    stmt = _apply_sorts(stmt, Model, config.sorts)
-    if not config.sorts:
+    if not calc_sort_on:
+        stmt = _apply_sorts(stmt, Model, config.sorts)
+    if not config.sorts or calc_sort_on:
         stmt = stmt.order_by(desc(Model.synced_at), desc(Model.id))
 
-    total = (await db.execute(count_stmt)).scalar_one()
-
-    if page_size > 0:
-        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
-
-    rows = (await db.execute(stmt)).scalars().all()
+    need_all = calc_filter_on or calc_sort_on
+    total = 0
+    if need_all:
+        rows = (await db.execute(stmt)).scalars().all()
+    else:
+        total = (await db.execute(count_stmt)).scalar_one()
+        if page_size > 0:
+            stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        rows = (await db.execute(stmt)).scalars().all()
 
     # 字段分类脱敏（仅当传入 user 时生效；脱敏中间件路径）
     sensitive_set: set[str] = set()
@@ -520,12 +570,21 @@ async def _run_query(
         sensitive_set = await get_sensitive_columns(user, table_name, db)
 
     items: list[dict[str, Any]] = []
+    custom_functions = {}
+    if internal_calc_fields:
+        from app.ai_formula.custom_functions import executable_functions
+        custom_functions = await executable_functions(db)
     for r in rows:
         raw = r.raw or {}
         item: dict[str, Any] = {
             "_id": r.id,
             "_synced_at": r.synced_at.isoformat() if r.synced_at else None,
         }
+        formula_item: dict[str, Any] = {}
+        for code, value in raw.items():
+            formula_item[code] = value
+            formula_item[f"current.{code}"] = value
+            item.setdefault(code, value)
         for c in selected_cols:
             v = raw.get(c.column_code)
             # is_sensitive（列级）+ field_category 敏感分类 任一命中都脱敏
@@ -533,22 +592,69 @@ async def _run_query(
                 v = "******"
             elif isinstance(v, datetime):
                 v = v.isoformat()
+            formula_item[c.column_code] = raw.get(c.column_code)
+            formula_item[f"current.{c.column_code}"] = raw.get(c.column_code)
             item[c.column_code] = v
+        for field in internal_calc_fields:
+            from app.datasets.calculated_fields import calc_qual
+            from app.ai_formula.field_refs import row_field_resolver
+            from app.ai_formula.formula_evaluator import evaluate_formula
+            qual = calc_qual(field.code)
+            value = evaluate_formula(
+                field.formula,
+                field_resolver=row_field_resolver(formula_item),
+                custom_functions=custom_functions,
+            )
+            formula_item[qual] = value
+            if field in selected_calc_fields:
+                item[qual] = "******" if field.is_sensitive and value not in (None, "") else value
+        if calc_filter_on:
+            from app.reports.sql_builder import _row_matches_filters
+            filter_row = {**formula_item, **item}
+            if not _row_matches_filters(
+                filter_row,
+                [f.model_dump() for f in config.filters],
+                config.filter_logic,
+            ):
+                continue
         items.append(item)
 
-    return selected_cols, items, total
+    if calc_sort_on:
+        _apply_single_python_sorts(items, config.sorts)
+    if need_all:
+        total = len(items)
+        if page_size > 0:
+            items = items[(page - 1) * page_size: page * page_size]
+
+    output_cols: list[Any] = list(selected_cols)
+    for field in selected_calc_fields:
+        from app.datasets.calculated_fields import calc_qual
+        output_cols.append(
+            {
+                "code": calc_qual(field.code),
+                "label": field.label,
+                "data_type": field.data_type,
+                "is_sensitive": field.is_sensitive,
+            }
+        )
+    return output_cols, items, total
 
 
-def _single_columns_meta(cols: list[TableColumn]) -> list[dict[str, Any]]:
-    return [
-        {
-            "code": c.column_code,
-            "label": c.column_label,
-            "data_type": c.data_type,
-            "is_sensitive": c.is_sensitive,
-        }
-        for c in cols
-    ]
+def _single_columns_meta(cols: list[Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for c in cols:
+        if isinstance(c, dict):
+            out.append(dict(c))
+            continue
+        out.append(
+            {
+                "code": c.column_code,
+                "label": c.column_label,
+                "data_type": c.data_type,
+                "is_sensitive": c.is_sensitive,
+            }
+        )
+    return out
 
 
 @router.post("/{report_id}/run", response_model=RunResult)

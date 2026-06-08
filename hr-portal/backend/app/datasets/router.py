@@ -61,6 +61,10 @@ class DatasetIn(BaseModel):
     acl: list[DatasetAclIn] = Field(default_factory=list)
 
 
+class SingleTableDatasetIn(BaseModel):
+    table_name: str
+
+
 class DatasetTableOut(DatasetTableIn):
     id: int
 
@@ -206,6 +210,20 @@ def _validate_payload(payload: DatasetIn) -> None:
             )
 
 
+_VISIBLE_TABLE_LABELS = {
+    "emp_realtime_roster": "员工实时花名册",
+    "emp_monthly_roster": "员工月度花名册",
+    "emp_monthly_salary": "员工月度工资表",
+    "emp_monthly_allocation": "员工月度成本分摊表",
+    "cost_center_monthly": "成本中心月度维护表",
+    "emp_monthly_cost_class": "员工月度成本归集分类表",
+}
+
+
+def _table_label(table_name: str) -> str:
+    return _VISIBLE_TABLE_LABELS.get(table_name, table_name)
+
+
 # ===== CRUD =====
 
 @router.get("", response_model=list[DatasetOut])
@@ -280,20 +298,58 @@ async def create_dataset(
     return await _to_out(ds, db)
 
 
+@router.post(
+    "/_single-table",
+    response_model=DatasetOut,
+    dependencies=[Depends(require_op("datasource.datasets", "C"))],
+)
+async def ensure_single_table_dataset(
+    payload: SingleTableDatasetIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> DatasetOut:
+    if payload.table_name not in DATA_TABLES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="未知数据表")
+    label = _table_label(payload.table_name)
+    raw_name = f"单表字段库 · {label}"
+    name = raw_name if len(raw_name) <= 64 else f"单表字段库 · {payload.table_name}"[:64]
+    existing = (
+        await db.execute(
+            select(DataSet)
+            .join(DataSetTable, DataSetTable.dataset_id == DataSet.id)
+            .where(
+                DataSetTable.table_name == payload.table_name,
+                DataSetTable.alias == "current",
+                DataSet.name.like("单表字段库 ·%"),
+            )
+            .order_by(DataSet.id)
+        )
+    ).scalars().first()
+    if existing is not None:
+        if not await _can_access(user, existing, db):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该单表字段库")
+        return await _to_out(existing, db)
+
+    ds = DataSet(
+        name=name,
+        description=f"系统自动创建，用于保存 {label} 的报表计算字段。",
+        is_active=True,
+        created_by=user.id,
+    )
+    db.add(ds)
+    await db.flush()
+    db.add(DataSetTable(dataset_id=ds.id, table_name=payload.table_name, alias="current"))
+    await db.commit()
+    await db.refresh(ds)
+    return await _to_out(ds, db)
+
+
 @router.get("/_visible-tables")
 async def list_visible_tables(
     _: User = Depends(current_user),
 ) -> list[dict[str, str]]:
     """数据集可纳入的源表清单"""
-    labels = {
-        "emp_realtime_roster": "员工实时花名册",
-        "emp_monthly_roster": "员工月度花名册",
-        "emp_monthly_salary": "员工月度工资表",
-        "emp_monthly_allocation": "员工月度成本分摊表",
-        "cost_center_monthly": "成本中心月度维护表",
-        "emp_monthly_cost_class": "员工月度成本归集分类表",
-    }
-    return [{"table_name": k, "label": labels.get(k, k)} for k in DATA_TABLES.keys()]
+    return [{"table_name": k, "label": _table_label(k)} for k in DATA_TABLES.keys()]
 
 
 @router.get("/{ds_id}", response_model=DatasetOut)

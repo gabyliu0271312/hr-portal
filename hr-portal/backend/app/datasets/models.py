@@ -111,3 +111,36 @@ class DataSetAcl(Base):
     user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
+
+
+class DatasetCalculatedField(Base):
+    __tablename__ = "dataset_calculated_fields"
+    __table_args__ = (
+        UniqueConstraint("dataset_id", "code", name="uq_dataset_calc_field_code"),
+        Index("ix_dataset_calc_fields_dataset", "dataset_id", "is_active"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    dataset_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False
+    )
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    formula: Mapped[str] = mapped_column(Text, nullable=False)
+    formula_display: Mapped[str | None] = mapped_column(Text, nullable=True)
+    data_type: Mapped[str] = mapped_column(String(16), nullable=False, default="number")
+    agg_role: Mapped[str] = mapped_column(String(16), nullable=False, default="measure")
+    depends_on: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
+    used_functions: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
+    is_sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    created_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

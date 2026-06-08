@@ -24,6 +24,26 @@ LLM 只生成公式草稿。
 报表执行管道负责计算、权限、脱敏、聚合和导出。
 ```
 
+平台归属：
+
+```text
+计算字段不是一个孤立 AI 功能，而是 AI 原生 HR 工作台下的首批 Capability 场景。
+```
+
+相关能力必须注册到 AI 能力注册表：
+
+| capability_id | 类型 | 说明 |
+|---|---|---|
+| `function_catalog.query` | answer/query | 查询函数是否存在、是否启用、如何使用 |
+| `formula.generate` | draft | 根据自然语言和字段元数据生成公式草稿 |
+| `formula.explain` | answer | 解释公式含义 |
+| `formula.validate` | diagnose | 校验公式并解释错误 |
+| `formula.repair` | draft | 根据校验错误修复公式草稿 |
+| `calculated_field.create_draft` | draft | 生成计算字段元数据草稿 |
+| `calculated_field.save` | write | 保存数据集计算字段，必须确认 |
+
+页面不得直接拼 prompt 调模型，必须通过统一 AI 编排层或已注册 Capability 接口调用。
+
 ## 2. 首期范围
 
 ### 2.1 本期做
@@ -297,6 +317,20 @@ FIELD("salary.基本工资")
 
 ## 7. 自然语言转公式
 
+### 7.0 意图边界
+
+公式助手必须先识别用户意图：
+
+| 用户意图 | 示例 | 系统行为 |
+|---|---|---|
+| 问答 | “当前月份公式怎么写？” | 只回答，例如 `MONTH(TODAY())`，不写入公式编辑区 |
+| 生成 | “生成一个字段，如果员工是刘琦返回 1，否则 2” | 调用 `formula.generate`，结果写入公式草稿 |
+| 调整 | “把刘琦改成张三” | 带当前公式调用 `formula.repair` 或 `formula.generate`，更新公式草稿 |
+| 解释 | “这段公式是什么意思？” | 调用 `formula.explain`，不改变公式 |
+| 校验 | “为什么保存失败？” | 调用 `formula.validate` 并解释错误 |
+
+禁止用关键词 if/else 直接拼公式作为主要方案。规则兜底只能处理系统明确内置的确定性快捷模板，并且仍需经过公式校验。
+
 ### 7.1 LLM 输入上下文
 
 调用 LLM 时只传字段元数据，不传真实数据明细。
@@ -521,6 +555,15 @@ calc.tax_amount
 
 ### 12.1 AI 公式草稿
 
+统一 AI 编排入口：
+
+```text
+POST /api/v1/ai/chat
+POST /api/v1/ai/capabilities/formula.generate/draft
+```
+
+业务兼容入口可以保留，但应内部转发到同一 Capability 实现，避免页面级 prompt 分叉：
+
 ```text
 POST /api/v1/ai-formula/draft
 ```
@@ -609,7 +652,7 @@ GET /api/v1/system-logs?category=ai_call
 
 ```text
 user_id
-skill_code
+capability_id
 request_summary
 response_summary
 input_hash

@@ -28,6 +28,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement, cast
 from sqlalchemy.types import String as SAString
 
+from app.ai_formula.custom_functions import executable_functions
+from app.ai_formula.field_refs import row_field_resolver
+from app.ai_formula.formula_evaluator import evaluate_formula
+from app.datasets.calculated_fields import active_calculated_fields, calc_qual
+from app.datasets.models import DatasetCalculatedField
 from app.data.models import DATA_TABLES, TableColumn
 from app.datasets.models import DataSet, DataSetRelation, DataSetTable
 from app.reports.filter_logic import build_filter_clause
@@ -424,6 +429,164 @@ def _split_qualified(qualified: str) -> tuple[str, str]:
     return alias, code
 
 
+def _dedupe_pairs(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for alias, code in items:
+        key = f"{alias}.{code}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((alias, code))
+    return out
+
+
+def _calc_role(field: DatasetCalculatedField) -> str:
+    return getattr(field, "agg_role", "dimension") or "dimension"
+
+
+def _row_filter_value_match(value: Any, op: str, expected: Any) -> bool:
+    op = (op or "eq").lower()
+    if op == "eq":
+        return str(value) == str(expected)
+    if op == "neq":
+        return str(value) != str(expected)
+    if op == "contains":
+        return str(expected or "") in str(value or "")
+    if op in {"gt", "gte", "lt", "lte"}:
+        left_num = _to_num(value)
+        right_num = _to_num(expected)
+        left = left_num if left_num is not None and right_num is not None else str(value or "")
+        right = right_num if left_num is not None and right_num is not None else str(expected or "")
+        if op == "gt":
+            return left > right
+        if op == "gte":
+            return left >= right
+        if op == "lt":
+            return left < right
+        return left <= right
+    if op == "between" and isinstance(expected, (list, tuple)) and len(expected) == 2:
+        if expected[0] not in (None, "") and not _row_filter_value_match(value, "gte", expected[0]):
+            return False
+        if expected[1] not in (None, "") and not _row_filter_value_match(value, "lte", expected[1]):
+            return False
+        return True
+    if op == "in" and isinstance(expected, (list, tuple)):
+        return str(value) in {str(v) for v in expected}
+    if op == "is_null":
+        return value in (None, "")
+    if op == "is_not_null":
+        return value not in (None, "")
+    return True
+
+
+def _row_matches_filters(
+    row: dict[str, Any],
+    filters: list[dict[str, Any]],
+    filter_logic: dict[str, Any] | None = None,
+) -> bool:
+    from app.reports.filter_logic import TOKEN_RE, filter_label
+
+    checks: dict[str, bool] = {}
+    ordered: list[str] = []
+    for i, f in enumerate(filters or []):
+        col = f.get("column")
+        if not col:
+            continue
+        label = filter_label(i)
+        ordered.append(label)
+        checks[label] = _row_filter_value_match(row.get(col), f.get("op") or "eq", f.get("value"))
+    if not checks:
+        return True
+    expression = ""
+    if isinstance(filter_logic, dict):
+        expression = str(filter_logic.get("expression") or "").strip()
+    if not expression:
+        return all(checks.values())
+
+    tokens: list[str] = []
+    pos = 0
+    while pos < len(expression):
+        match = TOKEN_RE.match(expression, pos)
+        if not match:
+            return all(checks.values())
+        tokens.append(match.group(1).upper())
+        pos = match.end()
+    pos_ref = {"pos": 0}
+    referenced: set[str] = set()
+
+    def peek() -> str | None:
+        return tokens[pos_ref["pos"]] if pos_ref["pos"] < len(tokens) else None
+
+    def take() -> str:
+        token = tokens[pos_ref["pos"]]
+        pos_ref["pos"] += 1
+        return token
+
+    def parse_or() -> bool:
+        value = parse_and()
+        while peek() == "OR":
+            take()
+            right = parse_and()
+            value = value or right
+        return value
+
+    def parse_and() -> bool:
+        value = parse_factor()
+        while peek() == "AND":
+            take()
+            right = parse_factor()
+            value = value and right
+        return value
+
+    def parse_factor() -> bool:
+        token = peek()
+        if token is None:
+            return True
+        if token == "(":
+            take()
+            value = parse_or()
+            if peek() == ")":
+                take()
+            return value
+        if token in {"AND", "OR", ")"}:
+            take()
+            return True
+        take()
+        label = filter_label(int(token) - 1) if token.isdigit() else token
+        referenced.add(label)
+        return checks.get(label, True)
+
+    result = parse_or()
+    unused = [checks[label] for label in ordered if label not in referenced]
+    return result and all(unused)
+
+
+def _apply_python_sorts(items: list[dict[str, Any]], sorts: list[dict[str, Any]]) -> None:
+    for s in reversed(sorts or []):
+        cq = s.get("column")
+        if not cq:
+            continue
+        is_desc = (s.get("order") or "asc").lower() == "desc"
+
+        def _k(it, _cq=cq):
+            v = it.get(_cq)
+            try:
+                return (0, float(v))
+            except (TypeError, ValueError):
+                return (1, str(v) if v is not None else "")
+
+        items.sort(key=_k, reverse=is_desc)
+
+
+def _project_output_items(
+    items: list[dict[str, Any]],
+    columns_meta: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    output_codes = [str(col.get("code")) for col in columns_meta if col.get("code")]
+    return [{code: row.get(code) for code in output_codes} for row in items]
+
+
 async def run_dataset_query(
     dataset_id: int,
     columns: list[str],
@@ -454,17 +617,75 @@ async def run_dataset_query(
     alias_to_table = {t.alias: t.table_name for t in ds_tables}
     alias_to_model = {t.alias: DATA_TABLES[t.table_name] for t in ds_tables}
     alias_columns = await _get_columns_for_aliases(ds_tables, db)
+    calc_fields = await active_calculated_fields(dataset_id, db)
+    calc_by_code = {f.code: f for f in calc_fields}
+    calc_by_qual = {calc_qual(f.code): f for f in calc_fields}
 
     # 选定列：未指定则取每张表的可见列
     selected: list[tuple[str, str]] = []
+    display_selected: list[tuple[str, str]] = []
+    selected_calc_fields: list[DatasetCalculatedField] = []
     if columns:
         for q in columns:
-            selected.append(_split_qualified(q))
+            if q.startswith("calc."):
+                calc_field = calc_by_qual.get(q)
+                if calc_field is None:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"计算字段不存在: {q}")
+                selected_calc_fields.append(calc_field)
+            else:
+                pair = _split_qualified(q)
+                display_selected.append(pair)
+                selected.append(pair)
     else:
         for alias, cols in alias_columns.items():
             for c in cols:
                 if c.is_visible:
-                    selected.append((alias, c.column_code))
+                    pair = (alias, c.column_code)
+                    display_selected.append(pair)
+                    selected.append(pair)
+        selected_calc_fields = list(calc_fields)
+
+    calc_filter_on = any(str((f or {}).get("column") or "").startswith("calc.") for f in filters or [])
+    calc_sort_on = any(str((s or {}).get("column") or "").startswith("calc.") for s in sorts or [])
+    calc_rule_quals: set[str] = set()
+    for vr in value_rules or []:
+        for key in ("target", "factor"):
+            raw = (vr or {}).get(key)
+            if isinstance(raw, str) and raw.startswith("calc."):
+                calc_rule_quals.add(raw)
+    internal_calc_fields: list[DatasetCalculatedField] = []
+    selected_calc_quals = {calc_qual(f.code) for f in selected_calc_fields}
+    for qual in set(selected_calc_quals) | calc_rule_quals:
+        field = calc_by_qual.get(qual)
+        if field and field not in internal_calc_fields:
+            internal_calc_fields.append(field)
+    for f in filters or []:
+        field = calc_by_qual.get(str((f or {}).get("column") or ""))
+        if field and field not in internal_calc_fields:
+            internal_calc_fields.append(field)
+    for s in sorts or []:
+        field = calc_by_qual.get(str((s or {}).get("column") or ""))
+        if field and field not in internal_calc_fields:
+            internal_calc_fields.append(field)
+
+    for field in internal_calc_fields:
+        for dep in field.depends_on or []:
+            if isinstance(dep, str) and "." in dep:
+                selected.append(_split_qualified(dep))
+    for f in filters or []:
+        raw = str((f or {}).get("column") or "")
+        if raw and not raw.startswith("calc.") and "." in raw:
+            selected.append(_split_qualified(raw))
+    for s in sorts or []:
+        raw = str((s or {}).get("column") or "")
+        if raw and not raw.startswith("calc.") and "." in raw:
+            selected.append(_split_qualified(raw))
+    for vr in value_rules or []:
+        for key in ("target", "factor"):
+            raw = str((vr or {}).get(key) or "")
+            if raw and not raw.startswith("calc.") and "." in raw:
+                selected.append(_split_qualified(raw))
+    selected = _dedupe_pairs(selected)
 
     # 构造 SELECT 列表：每个 alias 取其 raw 整列 + id（用于 dedupe）
     used_aliases = list({a for a, _ in selected} | {a for a in alias_to_model.keys()})
@@ -578,6 +799,8 @@ async def run_dataset_query(
     # 用户级 filters
     def _dataset_filter_clause(f: dict[str, Any]) -> ColumnElement | None:
         col_qual = f.get("column", "")
+        if str(col_qual).startswith("calc."):
+            return None
         if "." not in col_qual:
             return None
         a, code = _split_qualified(col_qual)
@@ -588,7 +811,11 @@ async def run_dataset_query(
         return _filter_clause(json_text, (f.get("op") or "eq").lower(), f.get("value"))
 
     try:
-        user_clause = build_filter_clause(filters, _dataset_filter_clause, filter_logic)
+        user_clause = None if calc_filter_on else build_filter_clause(
+            filters,
+            _dataset_filter_clause,
+            filter_logic,
+        )
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if user_clause is not None:
@@ -596,8 +823,11 @@ async def run_dataset_query(
         count_stmt = count_stmt.where(user_clause)
 
     # 排序
+    sql_sort_applied = False
     for s in sorts:
         col_qual = s.get("column", "")
+        if str(col_qual).startswith("calc."):
+            continue
         if "." not in col_qual:
             continue
         a, code = _split_qualified(col_qual)
@@ -607,19 +837,24 @@ async def run_dataset_query(
         order = (s.get("order") or "asc").lower()
         col_expr = _raw_text(m, code)
         stmt = stmt.order_by(desc(col_expr) if order == "desc" else col_expr)
+        sql_sort_applied = True
 
-    if not sorts:
+    if not sql_sort_applied:
         stmt = stmt.order_by(desc(aliased_models[primary_alias].id))
 
     # 维度/度量（来自字段管理的 agg_role）+ 是否聚合
     def _role(alias: str, code: str) -> str:
+        if alias == "calc":
+            field = calc_by_code.get(code)
+            return _calc_role(field) if field else "dimension"
         col = next(
             (c for c in alias_columns.get(alias, []) if c.column_code == code), None
         )
         return getattr(col, "agg_role", "dimension") if col else "dimension"
 
-    dim_quals = [f"{a}.{c}" for (a, c) in selected if _role(a, c) == "dimension"]
-    mea_quals = [f"{a}.{c}" for (a, c) in selected if _role(a, c) == "measure"]
+    output_pairs = display_selected + [("calc", f.code) for f in selected_calc_fields]
+    dim_quals = [f"{a}.{c}" for (a, c) in output_pairs if _role(a, c) == "dimension"]
+    mea_quals = [f"{a}.{c}" for (a, c) in output_pairs if _role(a, c) == "measure"]
     agg_on = bool(aggregate) and len(mea_quals) > 0
     transpose_rules = (transpose or {}).get("rules") or []
     transpose_enabled = bool((transpose or {}).get("enabled"))
@@ -636,7 +871,7 @@ async def run_dataset_query(
     structural_reshape_on = column_to_row_on or row_to_column_on
 
     # 取数：聚合/转置要增删行，须取全量后 Python 分页；明细模式 SQL 分页
-    need_all = agg_on or transpose_on or structural_reshape_on
+    need_all = agg_on or transpose_on or structural_reshape_on or calc_filter_on or calc_sort_on
     total = 0
     if need_all:
         rows = (await db.execute(stmt)).all()
@@ -654,7 +889,7 @@ async def run_dataset_query(
         for a, table in alias_to_table.items():
             sensitive_by_alias[a] = await get_sensitive_columns(user, table, db)
 
-    for alias, code in selected:
+    for alias, code in display_selected:
         col = next(
             (c for c in alias_columns.get(alias, []) if c.column_code == code), None
         )
@@ -679,6 +914,15 @@ async def run_dataset_query(
                     "is_sensitive": mask,
                 }
             )
+    for field in selected_calc_fields:
+        columns_meta.append(
+            {
+                "code": calc_qual(field.code),
+                "label": field.label,
+                "data_type": field.data_type,
+                "is_sensitive": field.is_sensitive,
+            }
+        )
 
     # ===== 行数据 =====
     # 数值拆分规则：target 列出值 = round(num(target) × num(factor), 2)，非数值/空 → 空
@@ -690,9 +934,11 @@ async def run_dataset_query(
             rules_by_target[t] = f
 
     full_items: list[dict[str, Any]] = []
+    custom_functions = await executable_functions(db)
     for r in rows:
         d = r._mapping if hasattr(r, "_mapping") else dict(zip(r.keys(), r))
         item: dict[str, Any] = {}
+        formula_item: dict[str, Any] = {}
         # 提取每个 alias 的 raw
         alias_raws: dict[str, dict] = {}
         for a in used_aliases:
@@ -703,6 +949,7 @@ async def run_dataset_query(
             v = raw.get(code)
             if isinstance(v, datetime):
                 v = v.isoformat()
+            formula_item[f"{alias}.{code}"] = v
             sens = sensitive_by_alias.get(alias, set())
             col = next(
                 (c for c in alias_columns.get(alias, []) if c.column_code == code), None
@@ -715,7 +962,7 @@ async def run_dataset_query(
                 # 行级乘系数：round(target × factor, 2)；同时存未取整乘积供余差收口用
                 qual = f"{alias}.{code}"
                 factor_qual = rules_by_target.get(qual)
-                if factor_qual is not None:
+                if factor_qual is not None and not factor_qual.startswith("calc."):
                     fa, _, fc = factor_qual.partition(".")
                     factor_val = alias_raws.get(fa, {}).get(fc)
                     try:
@@ -725,11 +972,35 @@ async def run_dataset_query(
                     except (TypeError, ValueError):
                         v = ""
             item[f"{alias}.{code}"] = v
+        for field in internal_calc_fields:
+            qual = calc_qual(field.code)
+            value = evaluate_formula(
+                field.formula,
+                field_resolver=row_field_resolver(formula_item),
+                custom_functions=custom_functions,
+            )
+            formula_item[qual] = value
+            if field.is_sensitive and value not in (None, ""):
+                value = "******"
+            item[qual] = value
+        for target_qual, factor_qual in rules_by_target.items():
+            if not (target_qual.startswith("calc.") or factor_qual.startswith("calc.")):
+                continue
+            if target_qual not in item or factor_qual not in item:
+                continue
+            try:
+                raw_prod = _num(item.get(target_qual)) * _num(item.get(factor_qual))
+                item[f"__rawprod__{target_qual}"] = raw_prod
+                item[target_qual] = round(raw_prod, 2)
+            except (TypeError, ValueError):
+                item[target_qual] = ""
+        if calc_filter_on and not _row_matches_filters(formula_item, filters, filter_logic):
+            continue
         full_items.append(item)
 
     # ===== 转置/重映射（先拆分，已在上面完成）→ 行重塑 → 再聚合 =====
     if transpose_on:
-        selected_quals = [f"{a}.{c}" for (a, c) in selected]
+        selected_quals = [cm["code"] for cm in columns_meta]
         full_items, dropped = _apply_transpose(
             full_items,
             selected_quals,
@@ -753,6 +1024,7 @@ async def run_dataset_query(
         total = len(full_items)
         if page_size > 0:
             full_items = full_items[(page - 1) * page_size: page * page_size]
+        full_items = _project_output_items(full_items, columns_meta)
         return columns_meta, full_items, total
 
     if row_to_column_on:
@@ -766,13 +1038,17 @@ async def run_dataset_query(
         total = len(full_items)
         if page_size > 0:
             full_items = full_items[(page - 1) * page_size: page * page_size]
+        full_items = _project_output_items(full_items, columns_meta)
         return columns_meta, full_items, total
 
     if not agg_on:
-        if transpose_on:
+        if calc_sort_on:
+            _apply_python_sorts(full_items, sorts)
+        if need_all:
             total = len(full_items)
             if page_size > 0:
                 full_items = full_items[(page - 1) * page_size: page * page_size]
+        full_items = _project_output_items(full_items, columns_meta)
         return columns_meta, full_items, total
 
     # ===== 聚合：先拆分（已在上面完成）→ 按维度分组 → 度量聚合 =====
@@ -864,6 +1140,7 @@ async def run_dataset_query(
         items = result[(page - 1) * page_size: page * page_size]
     else:
         items = result
+    items = _project_output_items(items, columns_meta)
     return columns_meta, items, total
 
 

@@ -65,6 +65,17 @@ MENU_TREE: list[dict] = [
                 "children": [
                     {"code": "system.compensation_caps", "label": "补偿金规则维护", "icon": "Money"},
                     {"code": "system.document_templates", "label": "模板维护", "icon": "Document"},
+                    {"code": "system.ai_config", "label": "AI 基础配置", "icon": "Cpu"},
+                    {"code": "system.function_library", "label": "函数库管理", "icon": "Collection"},
+                ],
+            },
+            # 二级 1.4：日志管理
+            {
+                "code": "system.logs",
+                "label": "日志管理",
+                "icon": "Tickets",
+                "children": [
+                    {"code": "system.logs.ai", "label": "AI 调用日志", "icon": "ChatDotRound"},
                 ],
             },
         ],
@@ -236,6 +247,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_datasource_jobs(db)
         await _ensure_registered_tables(db)
         await _ensure_document_templates(db)
+        await _ensure_formula_functions(db)
         logger.info("[seed] done")
 
 
@@ -407,4 +419,52 @@ async def _ensure_document_templates(db: AsyncSession) -> None:
                 )
             )
         logger.info("[seed] document_template added: %s", cfg["code"])
+    await db.commit()
+
+
+async def _ensure_formula_functions(db: AsyncSession) -> None:
+    from app.ai_formula.models import FormulaFunction
+
+    defaults = [
+        {
+            "code": "CALC_TAX",
+            "name": "个税试算",
+            "description": "按内置个税速算逻辑根据输入金额试算个人所得税。",
+            "function_type": "system_builtin",
+            "parameters": [{"name": "amount", "type": "number", "description": "税前金额"}],
+            "return_type": "number",
+            "is_sensitive_output": True,
+        },
+        {
+            "code": "SAFE_DIVIDE",
+            "name": "安全除法",
+            "description": "除数为 0 或空时返回默认值。",
+            "function_type": "system_builtin",
+            "parameters": [
+                {"name": "a", "type": "number"},
+                {"name": "b", "type": "number"},
+                {"name": "default", "type": "number"},
+            ],
+            "return_type": "number",
+            "is_sensitive_output": False,
+        },
+    ]
+    existing = {code for (code,) in (await db.execute(select(FormulaFunction.code))).all()}
+    for cfg in defaults:
+        if cfg["code"] in existing:
+            continue
+        db.add(
+            FormulaFunction(
+                code=cfg["code"],
+                name=cfg["name"],
+                description=cfg["description"],
+                function_type=cfg["function_type"],
+                parameters=cfg["parameters"],
+                return_type=cfg["return_type"],
+                formula_body=None,
+                is_enabled=True,
+                is_sensitive_output=cfg["is_sensitive_output"],
+            )
+        )
+        logger.info("[seed] formula function added: %s", cfg["code"])
     await db.commit()

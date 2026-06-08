@@ -12,10 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.auth.router import router as auth_router
+from app.codegen.router import router as codegen_router
 from app.core.config import settings
 from app.core.db import AsyncSessionLocal, engine
 from app.data.columns_router import router as columns_router
 from app.data.router import router as data_router
+from app.datasets.calculated_fields import router as dataset_calculated_fields_router
 from app.datasets.router import router as datasets_router
 from app.datasources.router import router as datasources_router
 from app.field_category.router import router as field_cat_router
@@ -29,8 +31,11 @@ from app.seed import run_seed
 from app.trees.router import router as trees_router
 from app.push.router import router as push_router
 from app.admin.tables_router import router as admin_tables_router
+from app.ai.router import router as ai_router
 from app.allocation.router import router as allocation_router
+from app.ai_formula.router import router as ai_formula_router
 from app.cost_allocation.router import router as cost_allocation_router
+from app.system.router import router as system_logs_router
 from app.tools.router import router as tools_router
 from app.users.router import router as users_router
 
@@ -121,6 +126,8 @@ async def root() -> dict:
 
 # ===== 路由挂载 =====
 app.include_router(auth_router, prefix=settings.API_PREFIX)
+app.include_router(ai_router, prefix=settings.API_PREFIX)
+app.include_router(codegen_router, prefix=settings.API_PREFIX)
 app.include_router(users_router, prefix=settings.API_PREFIX)
 app.include_router(roles_router, prefix=settings.API_PREFIX)
 app.include_router(menus_router, prefix=settings.API_PREFIX)
@@ -133,6 +140,9 @@ app.include_router(reports_router, prefix=settings.API_PREFIX)
 app.include_router(scheduler_router, prefix=settings.API_PREFIX)
 app.include_router(scopes_router, prefix=settings.API_PREFIX)
 app.include_router(datasets_router, prefix=settings.API_PREFIX)
+app.include_router(dataset_calculated_fields_router, prefix=settings.API_PREFIX)
+app.include_router(ai_formula_router, prefix=settings.API_PREFIX)
+app.include_router(system_logs_router, prefix=settings.API_PREFIX)
 app.include_router(tools_router, prefix=settings.API_PREFIX)
 app.include_router(cost_allocation_router, prefix=settings.API_PREFIX)
 app.include_router(allocation_router, prefix=settings.API_PREFIX)
