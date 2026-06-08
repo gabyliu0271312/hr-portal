@@ -107,7 +107,9 @@ onMounted(load)
         <el-table v-loading="loading" :data="filteredList" stripe style="width: 100%" max-height="600">
           <el-table-column label="报表名" min-width="220">
             <template #default="{ row }">
-              <strong>{{ row.name }}</strong>
+              <button class="report-name-link" type="button" @click="openRun(row)">
+                {{ row.name }}
+              </button>
               <el-tag v-if="!row.is_published" size="small" type="info" style="margin-left: 8px">草稿</el-tag>
               <el-tag v-else size="small" type="success" style="margin-left: 8px">已发布</el-tag>
               <div v-if="row.description" style="color: var(--color-text-secondary); font-size: 12px; margin-top: 2px">
@@ -175,3 +177,19 @@ onMounted(load)
     </el-card>
   </div>
 </template>
+
+<style scoped>
+.report-name-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+}
+.report-name-link:hover {
+  text-decoration: underline;
+}
+</style>

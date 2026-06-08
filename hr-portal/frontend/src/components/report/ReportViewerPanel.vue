@@ -2,11 +2,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Download, Edit, Refresh } from '@element-plus/icons-vue'
+import { ArrowLeft, Download, Edit, InfoFilled, Refresh } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
-import { reportsApi, type ReportItem, type RunResult } from '@/api/reports'
+import ReportRuntimeFilters from '@/components/report/ReportRuntimeFilters.vue'
+import { reportsApi, type FilterCond, type ReportItem, type RunResult } from '@/api/reports'
 import { datasetsApi } from '@/api/datasets'
+import { dataApi } from '@/api/data'
 import { getToken } from '@/api/client'
 
 const props = defineProps<{
@@ -23,6 +25,9 @@ const page = ref(1)
 const pageSize = ref(50)
 const loading = ref(false)
 const integrity = ref<{ ok: boolean; issues: string[] } | null>(null)
+const runtimeFilters = ref<FilterCond[]>([])
+const runtimeFilterRef = ref<InstanceType<typeof ReportRuntimeFilters> | null>(null)
+const columnLabels = ref<Record<string, string>>({})
 
 async function loadReport() {
   try {
@@ -33,11 +38,42 @@ async function loadReport() {
       } catch {
         integrity.value = null
       }
+      await loadDatasetColumnLabels(report.value.dataset_id)
     } else {
       integrity.value = null
+      await loadSingleColumnLabels(report.value.table_name)
     }
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载报表失败')
+  }
+}
+
+async function loadSingleColumnLabels(tableName: string) {
+  if (!tableName) {
+    columnLabels.value = {}
+    return
+  }
+  try {
+    const cols = await dataApi.columns(tableName)
+    columnLabels.value = Object.fromEntries(cols.map((col) => [col.code, col.label]))
+  } catch {
+    columnLabels.value = {}
+  }
+}
+
+async function loadDatasetColumnLabels(datasetId: number) {
+  try {
+    const ds = await datasetsApi.get(datasetId)
+    const entries: [string, string][] = []
+    for (const table of ds.tables) {
+      const cols = await dataApi.columns(table.table_name)
+      for (const col of cols) {
+        entries.push([`${table.alias}.${col.code}`, `${table.alias}.${col.label}`])
+      }
+    }
+    columnLabels.value = Object.fromEntries(entries)
+  } catch {
+    columnLabels.value = {}
   }
 }
 
@@ -48,7 +84,7 @@ async function run() {
   }
   loading.value = true
   try {
-    const res = await reportsApi.run(props.reportId, page.value, pageSize.value)
+    const res = await reportsApi.run(props.reportId, page.value, pageSize.value, runtimeFilters.value)
     columns.value = res.columns
     items.value = res.items
     total.value = res.total
@@ -66,8 +102,8 @@ async function run() {
 async function doExport(format: 'csv' | 'xlsx') {
   try {
     const url = format === 'xlsx'
-      ? reportsApi.exportXlsxUrl(props.reportId)
-      : reportsApi.exportCsvUrl(props.reportId)
+      ? reportsApi.exportXlsxUrl(props.reportId, runtimeFilters.value)
+      : reportsApi.exportCsvUrl(props.reportId, runtimeFilters.value)
     const resp = await fetch(url, {
       headers: { Authorization: `Bearer ${getToken()}` },
     })
@@ -90,11 +126,19 @@ async function doExport(format: 'csv' | 'xlsx') {
   }
 }
 
-const filterDescriptions = computed(() => {
-  const cfg = report.value?.config
-  if (!cfg) return [] as string[]
-  return cfg.filters.map((f) => `${f.column} ${f.op} ${JSON.stringify(f.value)}`)
+const sourceSummary = computed(() => {
+  if (!report.value) return ''
+  if (report.value.dataset_id) return `数据集 · ${report.value.dataset_name || `#${report.value.dataset_id}`}`
+  return `单表 · ${report.value.table_label || report.value.table_name}`
 })
+
+const fieldCount = computed(() => columns.value.length || report.value?.config.columns?.length || 0)
+
+function applyRuntimeFilters(filters: FilterCond[]) {
+  runtimeFilters.value = filters
+  page.value = 1
+  run()
+}
 
 onMounted(async () => {
   await loadReport()
@@ -105,18 +149,37 @@ defineExpose({ run })
 </script>
 
 <template>
-  <el-card v-if="report">
+  <el-card v-if="report" class="report-view-card">
     <template #header>
-      <div style="display: flex; justify-content: space-between; align-items: center">
-        <div>
+      <div class="viewer-head">
+        <div class="viewer-title-area">
           <el-button link @click="router.push('/report/list')">
             <el-icon><ArrowLeft /></el-icon>返回列表
           </el-button>
-          <span style="font-size: 16px; font-weight: 600; margin-left: 8px">{{ report.name }}</span>
-          <el-tag v-if="report.is_published" size="small" type="success" effect="plain" style="margin-left: 8px">已发布</el-tag>
-          <el-tag v-else size="small" type="info" effect="plain" style="margin-left: 8px">草稿</el-tag>
+          <span class="viewer-title">{{ report.name }}</span>
+          <el-tooltip placement="bottom-start" :width="320">
+            <template #content>
+              <div class="report-info-tip">
+                <div><span>数据来源</span><strong>{{ sourceSummary }}</strong></div>
+                <div><span>所有者</span><strong>{{ report.owner_name || '—' }}</strong></div>
+                <div><span>字段数</span><strong>{{ fieldCount }}</strong></div>
+                <div><span>运行次数</span><strong>{{ report.run_count }}</strong></div>
+                <div>
+                  <span>上次运行</span>
+                  <strong>{{ report.last_run_at ? new Date(report.last_run_at).toLocaleString('zh-CN') : '—' }}</strong>
+                </div>
+                <div v-if="report.description" class="tip-desc">
+                  <span>描述</span>
+                  <strong>{{ report.description }}</strong>
+                </div>
+              </div>
+            </template>
+            <el-icon class="info-icon"><InfoFilled /></el-icon>
+          </el-tooltip>
+          <el-tag v-if="report.is_published" size="small" type="success" effect="plain">已发布</el-tag>
+          <el-tag v-else size="small" type="info" effect="plain">草稿</el-tag>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center">
+        <div class="viewer-actions">
           <slot name="toolbar-extra" />
           <el-button :loading="loading" @click="run">
             <el-icon style="margin-right: 4px"><Refresh /></el-icon>刷新
@@ -134,6 +197,14 @@ defineExpose({ run })
       </div>
     </template>
 
+    <ReportRuntimeFilters
+      ref="runtimeFilterRef"
+      :filters="report.config.filters || []"
+      :filter-logic="report.config.filter_logic"
+      :column-labels="columnLabels"
+      @apply="applyRuntimeFilters"
+    />
+
     <el-alert
       v-if="integrity && !integrity.ok"
       type="warning"
@@ -149,26 +220,6 @@ defineExpose({ run })
         请到「系统设置 → 数据接入 → 表间关联」修复后再回到此页运行。
       </div>
     </el-alert>
-
-    <el-descriptions :column="3" size="small" border style="margin-bottom: 16px">
-      <el-descriptions-item label="数据来源">
-        <span v-if="report.dataset_id">
-          <el-tag size="small" type="warning" effect="plain">数据集</el-tag>
-          <strong style="margin-left: 6px">{{ report.dataset_name }}</strong>
-        </span>
-        <span v-else>
-          <el-tag size="small" effect="plain">单表</el-tag>
-          <strong style="margin-left: 6px">{{ report.table_label || report.table_name }}</strong>
-        </span>
-      </el-descriptions-item>
-      <el-descriptions-item label="所有者">{{ report.owner_name || '—' }}</el-descriptions-item>
-      <el-descriptions-item label="字段数">{{ columns.length }}</el-descriptions-item>
-      <el-descriptions-item label="筛选条件" :span="3">
-        <span v-if="!filterDescriptions.length" style="color: var(--color-text-placeholder)">无</span>
-        <el-tag v-for="(d, i) in filterDescriptions" :key="i" size="small" effect="plain" style="margin-right: 4px">{{ d }}</el-tag>
-      </el-descriptions-item>
-      <el-descriptions-item v-if="report.description" label="描述" :span="3">{{ report.description }}</el-descriptions-item>
-    </el-descriptions>
 
     <ReportPreviewTable
       :columns="columns"
@@ -191,3 +242,76 @@ defineExpose({ run })
     <el-empty description="加载报表中..." />
   </el-card>
 </template>
+
+<style scoped>
+.report-view-card :deep(.el-card__header) {
+  padding: 12px 16px;
+}
+.report-view-card :deep(.el-card__body) {
+  padding: 0;
+}
+.viewer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.viewer-title-area,
+.viewer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.viewer-title {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.info-icon {
+  flex: none;
+  color: var(--color-primary);
+  cursor: help;
+  font-size: 16px;
+}
+.report-info-tip {
+  display: grid;
+  gap: 8px;
+}
+.report-info-tip div {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 10px;
+}
+.report-info-tip span {
+  color: rgba(255, 255, 255, 0.72);
+}
+.report-info-tip strong {
+  color: #fff;
+  font-weight: 600;
+}
+.tip-desc strong {
+  line-height: 1.5;
+}
+.report-view-card :deep(.el-alert),
+.report-view-card :deep(.el-table),
+.report-view-card :deep(.el-pagination) {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+.report-view-card :deep(.el-pagination) {
+  padding-bottom: 16px;
+}
+@media (max-width: 900px) {
+  .viewer-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .viewer-actions {
+    flex-wrap: wrap;
+  }
+}
+</style>

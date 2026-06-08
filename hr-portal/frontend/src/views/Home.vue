@@ -48,37 +48,15 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { HIDDEN_IN_QUICK, MENU_ROUTE_MAP } from '@/constants/menuRoutes'
 
 const userStore = useUserStore()
 const router = useRouter()
 
-// 叶子页 code → 路由路径（与 Default.vue 的 ROUTE_MAP 保持一致）
-const ROUTE_MAP: Record<string, string> = {
-  'system.users': '/system/users',
-  'system.roles': '/system/roles',
-  'system.scopes': '/system/scopes',
-  'system.field_categories': '/system/field-categories',
-  'system.field_columns': '/system/field-columns',
-  'system.compensation_caps': '/system/compensation-caps',
-  'datasource.endpoints': '/datasource/endpoints',
-  'datasource.datasets': '/datasource/datasets',
-  'data.view': '/data/view',
-  'data.emp_realtime': '/data/emp-realtime',
-  'data.emp_monthly': '/data/emp-monthly',
-  'data.emp_salary': '/data/emp-salary',
-  'data.emp_allocation': '/data/emp-allocation',
-  'data.cc_monthly': '/data/cc-monthly',
-  'report.list': '/report/list',
-  'tools.center': '/tools/center',
-  'tools.compensation_calc': '/tools/compensation-calc',
-  'tools.income_certificate': '/tools/income-certificate',
-}
-
 // 只显示能真正打开页面的叶子菜单（过滤掉无页面的二级分组，以及作为入口聚合页的工具中心）
-const HIDDEN_IN_QUICK = new Set(['tools.center'])
 const leafMenus = computed(() =>
   userStore.menus.filter(
-    (m) => m.parent_id !== null && ROUTE_MAP[m.code] !== undefined && !HIDDEN_IN_QUICK.has(m.code),
+    (m) => m.parent_id !== null && MENU_ROUTE_MAP[m.code] !== undefined && !HIDDEN_IN_QUICK.has(m.code),
   ),
 )
 
@@ -97,7 +75,7 @@ const today = computed(() => {
 })
 
 function goto(code: string) {
-  const path = ROUTE_MAP[code]
+  const path = MENU_ROUTE_MAP[code]
   if (path) router.push(path)
 }
 </script>

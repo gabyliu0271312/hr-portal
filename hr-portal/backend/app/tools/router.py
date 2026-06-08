@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import calendar
+import hashlib
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, cast, desc, func, or_, select
+from sqlalchemy import cast, desc, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
@@ -18,8 +20,16 @@ from app.data.models import EmpRealtimeRoster
 from app.permissions.masker import get_sensitive_columns
 from app.permissions.scope_filter import build_scope_filter, is_unrestricted
 from app.tools import agreement as agreement_svc
+from app.tools import document_templates as template_svc
 from app.tools import income_certificate as income_cert_svc
-from app.tools.models import CompensationCap, InstallmentRule
+from app.tools.models import (
+    CompensationCap,
+    DocumentGenerationLog,
+    DocumentTemplate,
+    DocumentTemplateBlock,
+    DocumentTemplateVariable,
+    InstallmentRule,
+)
 from app.users.models import User
 
 
@@ -80,6 +90,87 @@ class CompensationCalcOut(BaseModel):
     extra_amount: float
     total_amount: float
     cap_rule_id: int
+
+
+class DocumentTemplateBlockIn(BaseModel):
+    block_type: str = Field(min_length=1, max_length=32)
+    content: str = ""
+    display_order: int = 10
+    style_config: dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentTemplateVariableIn(BaseModel):
+    variable_code: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+    variable_name: str = Field(min_length=1, max_length=128)
+    source_type: str = Field(default="manual", max_length=32)
+    source_key: str | None = Field(default=None, max_length=128)
+    default_value: str | None = None
+    required: bool = False
+    formatter: str | None = Field(default=None, max_length=32)
+
+
+class DocumentTemplateIn(BaseModel):
+    code: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
+    name: str = Field(min_length=1, max_length=128)
+    business_type: str = Field(min_length=1, max_length=64)
+    description: str | None = None
+    is_active: bool = True
+    version: str = Field(default="1.0", max_length=32)
+    effective_start: date | None = None
+    effective_end: date | None = None
+    layout_config: dict[str, Any] = Field(default_factory=dict)
+    blocks: list[DocumentTemplateBlockIn] = Field(default_factory=list)
+    variables: list[DocumentTemplateVariableIn] = Field(default_factory=list)
+
+
+class DocumentTemplateBlockOut(DocumentTemplateBlockIn):
+    id: int
+
+
+class DocumentTemplateVariableOut(DocumentTemplateVariableIn):
+    id: int
+
+
+class DocumentTemplateOut(BaseModel):
+    id: int
+    code: str
+    name: str
+    business_type: str
+    description: str | None
+    is_active: bool
+    version: str
+    effective_start: date | None
+    effective_end: date | None
+    layout_config: dict[str, Any]
+    template_file_name: str | None
+    template_file_size: int | None
+    parsed_variables: list[str] = Field(default_factory=list)
+    uploaded_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    blocks: list[DocumentTemplateBlockOut] = Field(default_factory=list)
+    variables: list[DocumentTemplateVariableOut] = Field(default_factory=list)
+
+
+class DocumentTemplatePreviewIn(BaseModel):
+    sample_data: dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentTemplatePreviewOut(BaseModel):
+    html: str
+    plain_text: str
+
+
+class DocumentTemplateUploadOut(BaseModel):
+    id: int
+    file_name: str
+    file_size: int
+    parsed_variables: list[str]
+
+
+class EditableDraftIn(BaseModel):
+    draft_html: str | None = Field(default=None, max_length=300_000)
+    manually_adjusted: bool = False
 
 
 _SEARCH_FIELDS = ["工号", "姓名", "姓名（中文名）", "英文名"]
@@ -183,6 +274,284 @@ def _cap_out(row: CompensationCap) -> CompensationCapOut:
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+def _template_block_out(row: DocumentTemplateBlock) -> DocumentTemplateBlockOut:
+    return DocumentTemplateBlockOut(
+        id=row.id,
+        block_type=row.block_type,
+        content=row.content,
+        display_order=row.display_order,
+        style_config=row.style_config or {},
+    )
+
+
+def _template_variable_out(row: DocumentTemplateVariable) -> DocumentTemplateVariableOut:
+    return DocumentTemplateVariableOut(
+        id=row.id,
+        variable_code=row.variable_code,
+        variable_name=row.variable_name,
+        source_type=row.source_type,
+        source_key=row.source_key,
+        default_value=row.default_value,
+        required=row.required,
+        formatter=row.formatter,
+    )
+
+
+def _template_out(row: DocumentTemplate) -> DocumentTemplateOut:
+    return DocumentTemplateOut(
+        id=row.id,
+        code=row.code,
+        name=row.name,
+        business_type=row.business_type,
+        description=row.description,
+        is_active=row.is_active,
+        version=row.version,
+        effective_start=row.effective_start,
+        effective_end=row.effective_end,
+        layout_config=row.layout_config or {},
+        template_file_name=row.template_file_name,
+        template_file_size=row.template_file_size,
+        parsed_variables=list(row.parsed_variables or []),
+        uploaded_at=row.uploaded_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        blocks=[_template_block_out(b) for b in sorted(row.blocks, key=lambda b: b.display_order)],
+        variables=[_template_variable_out(v) for v in row.variables],
+    )
+
+
+def _validate_template_payload(payload: DocumentTemplateIn) -> None:
+    if payload.business_type not in template_svc.VALID_BUSINESS_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="不支持的模板业务类型")
+    if payload.effective_start and payload.effective_end and payload.effective_end < payload.effective_start:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="生效结束日期不能早于开始日期")
+    variable_codes = [v.variable_code for v in payload.variables]
+    if len(variable_codes) != len(set(variable_codes)):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="变量编码不能重复")
+    for variable in payload.variables:
+        if variable.source_type not in template_svc.VALID_SOURCE_TYPES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"不支持的变量来源类型: {variable.source_type}")
+
+
+async def _load_template_by_id(db: AsyncSession, template_id: int) -> DocumentTemplate | None:
+    return (
+        await db.execute(
+            select(DocumentTemplate)
+            .options(selectinload(DocumentTemplate.blocks), selectinload(DocumentTemplate.variables))
+            .where(DocumentTemplate.id == template_id)
+        )
+    ).scalar_one_or_none()
+
+
+async def _load_template_by_code(db: AsyncSession, code: str) -> DocumentTemplate | None:
+    return (
+        await db.execute(
+            select(DocumentTemplate)
+            .options(selectinload(DocumentTemplate.blocks), selectinload(DocumentTemplate.variables))
+            .where(DocumentTemplate.code == code)
+        )
+    ).scalar_one_or_none()
+
+
+async def _load_active_template(
+    db: AsyncSession,
+    business_type: str,
+    code: str | None = None,
+) -> DocumentTemplate:
+    today = date.today()
+    stmt = (
+        select(DocumentTemplate)
+        .options(selectinload(DocumentTemplate.blocks), selectinload(DocumentTemplate.variables))
+        .where(
+            DocumentTemplate.business_type == business_type,
+            DocumentTemplate.is_active.is_(True),
+            or_(DocumentTemplate.effective_start.is_(None), DocumentTemplate.effective_start <= today),
+            or_(DocumentTemplate.effective_end.is_(None), DocumentTemplate.effective_end >= today),
+        )
+        .order_by(DocumentTemplate.code)
+    )
+    if code:
+        stmt = stmt.where(DocumentTemplate.code == code)
+    row = (await db.execute(stmt.limit(1))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="未找到可用模板，请先在模板维护中配置并启用")
+    return row
+
+
+async def _save_template_children(
+    row: DocumentTemplate,
+    payload: DocumentTemplateIn,
+    db: AsyncSession,
+) -> None:
+    blocks = (
+        await db.execute(
+            select(DocumentTemplateBlock).where(DocumentTemplateBlock.template_id == row.id)
+        )
+    ).scalars().all()
+    for block in blocks:
+        await db.delete(block)
+    variables = (
+        await db.execute(
+            select(DocumentTemplateVariable).where(DocumentTemplateVariable.template_id == row.id)
+        )
+    ).scalars().all()
+    for variable in variables:
+        await db.delete(variable)
+    await db.flush()
+    for block in payload.blocks:
+        db.add(
+            DocumentTemplateBlock(
+                template_id=row.id,
+                block_type=block.block_type,
+                content=block.content,
+                display_order=block.display_order,
+                style_config=block.style_config or {},
+            )
+        )
+    for variable in payload.variables:
+        db.add(
+            DocumentTemplateVariable(
+                template_id=row.id,
+                variable_code=variable.variable_code,
+                variable_name=variable.variable_name,
+                source_type=variable.source_type,
+                source_key=variable.source_key,
+                default_value=variable.default_value,
+                required=variable.required,
+                formatter=variable.formatter,
+            )
+        )
+
+
+async def _merge_parsed_variables(
+    row: DocumentTemplate,
+    parsed_variables: list[str],
+    db: AsyncSession,
+) -> None:
+    existing = {variable.variable_code for variable in row.variables}
+    defaults = _default_variable_map(row.business_type)
+    for code in parsed_variables:
+        if code in existing:
+            continue
+        cfg = defaults.get(code)
+        db.add(
+            DocumentTemplateVariable(
+                template_id=row.id,
+                variable_code=code,
+                variable_name=cfg.get("variable_name", code) if cfg else code,
+                source_type=cfg.get("source_type", "manual") if cfg else "manual",
+                source_key=cfg.get("source_key") if cfg else None,
+                default_value=cfg.get("default_value") if cfg else None,
+                required=cfg.get("required", False) if cfg else False,
+                formatter=cfg.get("formatter") if cfg else None,
+            )
+        )
+
+
+def _default_variable_map(business_type: str) -> dict[str, dict[str, Any]]:
+    for tpl in template_svc.DEFAULT_TEMPLATES:
+        if tpl.get("business_type") == business_type:
+            return {item["variable_code"]: item for item in tpl.get("variables", [])}
+    return {}
+
+
+def _render_template_plain_text(row: DocumentTemplate, values: dict[str, Any]) -> str:
+    if row.template_file:
+        return template_svc.render_docx_plain_text(row.template_file, values, row.variables, row.business_type)
+    blocks = template_svc.render_template_blocks(row.blocks, values, row.variables, row.business_type)
+    return "\n".join(text for text, _kind in blocks if text)
+
+
+def _render_template_html(row: DocumentTemplate, values: dict[str, Any]) -> str:
+    if row.template_file:
+        plain = _render_template_plain_text(row, values)
+        escaped = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return f'<pre class="template-docx-preview">{escaped}</pre>'
+    blocks = template_svc.render_template_blocks(row.blocks, values, row.variables, row.business_type)
+    if row.business_type == "agreement":
+        return agreement_svc.render_html(values, blocks)
+    if row.business_type == "income_certificate":
+        return income_cert_svc.render_html(values, blocks)
+    return f"<pre>{_render_template_plain_text(row, values)}</pre>"
+
+
+def _raw_template_blocks(row: DocumentTemplate) -> list[tuple[str, str]]:
+    if row.blocks:
+        return [
+            (block.content, block.block_type)
+            for block in sorted(row.blocks, key=lambda item: item.display_order)
+        ]
+    for tpl in template_svc.DEFAULT_TEMPLATES:
+        if tpl.get("code") == row.code:
+            return [
+                (block.get("content", ""), block.get("block_type", "paragraph"))
+                for block in tpl.get("blocks", [])
+            ]
+    for tpl in template_svc.DEFAULT_TEMPLATES:
+        if tpl.get("business_type") == row.business_type:
+            return [
+                (block.get("content", ""), block.get("block_type", "paragraph"))
+                for block in tpl.get("blocks", [])
+            ]
+    return [(row.name, "title")]
+
+
+def _render_downloadable_template_docx(row: DocumentTemplate) -> bytes:
+    blocks = _raw_template_blocks(row)
+    if row.business_type == "agreement":
+        return agreement_svc.render_docx({}, blocks)
+    if row.business_type == "income_certificate":
+        return income_cert_svc.render_docx({}, blocks)
+    html = "".join(f"<p>{text}</p>" for text, _kind in blocks)
+    return template_svc.render_preview_html_docx(html, row.business_type)
+
+
+def _draft_hash(html: str | None) -> str | None:
+    if not html:
+        return None
+    return hashlib.sha256(html.encode("utf-8")).hexdigest()
+
+
+def _render_edited_preview_docx(template: DocumentTemplate, draft_html: str) -> bytes:
+    blocks = template_svc.extract_blocks_from_preview_html(draft_html)
+    if not blocks:
+        return template_svc.render_preview_html_docx(draft_html, template.business_type)
+    if template.business_type == "agreement":
+        return agreement_svc.render_docx({}, blocks)
+    if template.business_type == "income_certificate":
+        return income_cert_svc.render_docx({}, blocks)
+    return template_svc.render_preview_html_docx(draft_html, template.business_type)
+
+
+async def _record_document_generation(
+    *,
+    db: AsyncSession,
+    user: User,
+    business_type: str,
+    action: str,
+    template: DocumentTemplate,
+    subject_name: str | None,
+    manually_adjusted: bool,
+    draft_html: str | None,
+    context: dict[str, Any] | None = None,
+) -> None:
+    db.add(
+        DocumentGenerationLog(
+            business_type=business_type,
+            action=action,
+            template_code=template.code,
+            template_name=template.name,
+            subject_name=subject_name,
+            manually_adjusted=manually_adjusted,
+            draft_hash=_draft_hash(draft_html),
+            draft_length=len(draft_html or "") if draft_html else None,
+            context=context or {},
+            created_by=user.id,
+        )
+    )
+    await db.commit()
 
 
 async def _ensure_valid_cap_period(
@@ -304,6 +673,213 @@ async def delete_compensation_cap(
     await db.delete(row)
     await db.commit()
     return {"ok": True}
+
+
+# ============ 文档模板维护 ============
+
+
+@router.get(
+    "/document-templates",
+    response_model=list[DocumentTemplateOut],
+    dependencies=[Depends(require_op("system.document_templates", "V"))],
+)
+async def list_document_templates(
+    business_type: str | None = None,
+    keyword: str | None = None,
+    db: AsyncSession = Depends(get_session),
+) -> list[DocumentTemplateOut]:
+    stmt = (
+        select(DocumentTemplate)
+        .options(selectinload(DocumentTemplate.blocks), selectinload(DocumentTemplate.variables))
+        .order_by(DocumentTemplate.business_type, DocumentTemplate.code)
+    )
+    if business_type:
+        stmt = stmt.where(DocumentTemplate.business_type == business_type.strip())
+    if keyword:
+        kw = f"%{keyword.strip()}%"
+        stmt = stmt.where(or_(DocumentTemplate.code.ilike(kw), DocumentTemplate.name.ilike(kw)))
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_template_out(row) for row in rows]
+
+
+@router.get(
+    "/document-templates/{template_id}",
+    response_model=DocumentTemplateOut,
+    dependencies=[Depends(require_op("system.document_templates", "V"))],
+)
+async def get_document_template(
+    template_id: int,
+    db: AsyncSession = Depends(get_session),
+) -> DocumentTemplateOut:
+    row = await _load_template_by_id(db, template_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在")
+    return _template_out(row)
+
+
+@router.post(
+    "/document-templates/{template_id}/word",
+    response_model=DocumentTemplateUploadOut,
+    dependencies=[Depends(require_op("system.document_templates", "U"))],
+)
+async def upload_document_template_word(
+    template_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_session),
+) -> DocumentTemplateUploadOut:
+    row = await _load_template_by_id(db, template_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在")
+    filename = file.filename or ""
+    if not filename.lower().endswith(".docx"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="仅支持上传 .docx Word 模板")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="上传文件不能为空")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Word 模板不能超过 10MB")
+    try:
+        parsed_variables = template_svc.extract_variables_from_docx(content)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Word 模板解析失败，请确认文件格式正确") from exc
+    row.template_file_name = filename
+    row.template_file_content_type = file.content_type
+    row.template_file_size = len(content)
+    row.template_file = content
+    row.parsed_variables = parsed_variables
+    row.uploaded_at = datetime.now()
+    await _merge_parsed_variables(row, parsed_variables, db)
+    await db.commit()
+    return DocumentTemplateUploadOut(
+        id=row.id,
+        file_name=filename,
+        file_size=len(content),
+        parsed_variables=parsed_variables,
+    )
+
+
+@router.get(
+    "/document-templates/{template_id}/word",
+    dependencies=[Depends(require_op("system.document_templates", "V"))],
+)
+async def download_document_template_word(
+    template_id: int,
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    row = await _load_template_by_id(db, template_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在")
+    from urllib.parse import quote
+
+    content = row.template_file or _render_downloadable_template_docx(row)
+    filename = row.template_file_name or f"{row.code}_template.docx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@router.post(
+    "/document-templates",
+    response_model=DocumentTemplateOut,
+    dependencies=[Depends(require_op("system.document_templates", "C"))],
+)
+async def create_document_template(
+    payload: DocumentTemplateIn,
+    db: AsyncSession = Depends(get_session),
+) -> DocumentTemplateOut:
+    _validate_template_payload(payload)
+    if await _load_template_by_code(db, payload.code):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="模板编码已存在")
+    row = DocumentTemplate(
+        code=payload.code,
+        name=payload.name,
+        business_type=payload.business_type,
+        description=payload.description,
+        is_active=payload.is_active,
+        version=payload.version,
+        effective_start=payload.effective_start,
+        effective_end=payload.effective_end,
+        layout_config=payload.layout_config or {},
+    )
+    db.add(row)
+    await db.flush()
+    await _save_template_children(row, payload, db)
+    await db.commit()
+    saved = await _load_template_by_id(db, row.id)
+    assert saved is not None
+    return _template_out(saved)
+
+
+@router.put(
+    "/document-templates/{template_id}",
+    response_model=DocumentTemplateOut,
+    dependencies=[Depends(require_op("system.document_templates", "U"))],
+)
+async def update_document_template(
+    template_id: int,
+    payload: DocumentTemplateIn,
+    db: AsyncSession = Depends(get_session),
+) -> DocumentTemplateOut:
+    _validate_template_payload(payload)
+    row = await _load_template_by_id(db, template_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在")
+    existing = await _load_template_by_code(db, payload.code)
+    if existing and existing.id != template_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="模板编码已存在")
+    row.code = payload.code
+    row.name = payload.name
+    row.business_type = payload.business_type
+    row.description = payload.description
+    row.is_active = payload.is_active
+    row.version = payload.version
+    row.effective_start = payload.effective_start
+    row.effective_end = payload.effective_end
+    row.layout_config = payload.layout_config or {}
+    await _save_template_children(row, payload, db)
+    await db.commit()
+    saved = await _load_template_by_id(db, row.id)
+    assert saved is not None
+    return _template_out(saved)
+
+
+@router.delete(
+    "/document-templates/{template_id}",
+    dependencies=[Depends(require_op("system.document_templates", "D"))],
+)
+async def delete_document_template(
+    template_id: int,
+    db: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    row = await _load_template_by_id(db, template_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在")
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post(
+    "/document-templates/{template_id}/preview",
+    response_model=DocumentTemplatePreviewOut,
+    dependencies=[Depends(require_op("system.document_templates", "V"))],
+)
+async def preview_document_template(
+    template_id: int,
+    payload: DocumentTemplatePreviewIn,
+    db: AsyncSession = Depends(get_session),
+) -> DocumentTemplatePreviewOut:
+    row = await _load_template_by_id(db, template_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在")
+    values = template_svc.sample_values(row.business_type)
+    values.update(payload.sample_data or {})
+    return DocumentTemplatePreviewOut(
+        html=_render_template_html(row, values),
+        plain_text=_render_template_plain_text(row, values),
+    )
 
 
 @router.get(
@@ -477,6 +1053,8 @@ class AgreementInstallment(BaseModel):
 
 
 class AgreementData(BaseModel):
+    template_code: str = "agreement_release"
+    template_name: str = "解除劳动合同协议书"
     company: str = ""
     name: str = ""
     id_card: str = ""
@@ -494,6 +1072,12 @@ class AgreementPrepareIn(BaseModel):
     leave_date: date | None = None
     plan: str = "N+1"
     region: str | None = None
+    template_code: str = "agreement_release"
+
+
+class AgreementDocumentIn(BaseModel):
+    data: AgreementData
+    draft: EditableDraftIn = Field(default_factory=EditableDraftIn)
 
 
 def _to_render_dict(data: AgreementData) -> dict:
@@ -511,6 +1095,16 @@ def _to_render_dict(data: AgreementData) -> dict:
             {"pay_date": it.pay_date, "amount": Decimal(str(it.amount))} for it in data.installments
         ],
     }
+
+
+async def _agreement_template(db: AsyncSession, code: str | None = None) -> DocumentTemplate:
+    template_code = code or "agreement_release"
+    try:
+        return await _load_active_template(db, "agreement", template_code)
+    except HTTPException:
+        if template_code == "agreement_release":
+            return await _load_active_template(db, "agreement", None)
+        raise
 
 
 @router.post(
@@ -534,6 +1128,7 @@ async def prepare_agreement(
         db,
     )
     leave_date = calc.leave_date
+    template = await _agreement_template(db, payload.template_code)
     rules = [
         {"period_no": r.period_no, "ratio": float(r.ratio), "months_after": r.months_after, "pay_day": r.pay_day}
         for r in await _load_rules(db)
@@ -542,6 +1137,8 @@ async def prepare_agreement(
         Decimal(str(calc.total_amount)), rules, leave_date
     )
     return AgreementData(
+        template_code=template.code,
+        template_name=template.name,
         company=_first(raw, "公司名称") or "",
         name=calc.employee.chinese_name or calc.employee.name or "",
         id_card=_first(raw, "证件号码") or "",
@@ -561,16 +1158,55 @@ async def prepare_agreement(
     "/agreement/preview",
     dependencies=[Depends(require_op("tools.compensation_calc", "V"))],
 )
-async def preview_agreement(data: AgreementData) -> dict[str, str]:
-    return {"html": agreement_svc.render_html(_to_render_dict(data))}
+async def preview_agreement(
+    data: AgreementData,
+    db: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    render_data = _to_render_dict(data)
+    template = await _agreement_template(db, data.template_code)
+    if template.template_file:
+        html = _render_template_html(template, render_data)
+    else:
+        blocks = template_svc.render_template_blocks(template.blocks, render_data, template.variables, template.business_type)
+        html = agreement_svc.render_html(render_data, blocks)
+    return {"html": html}
 
 
 @router.post(
     "/agreement/docx",
     dependencies=[Depends(require_op("tools.compensation_calc", "V"))],
 )
-async def download_agreement(data: AgreementData) -> Response:
-    content = agreement_svc.render_docx(_to_render_dict(data))
+async def download_agreement(
+    payload: AgreementDocumentIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    data = payload.data
+    render_data = _to_render_dict(data)
+    template = await _agreement_template(db, data.template_code)
+    if payload.draft.manually_adjusted and payload.draft.draft_html:
+        content = _render_edited_preview_docx(template, payload.draft.draft_html)
+    elif template.template_file:
+        content = template_svc.render_docx_template(
+            template.template_file,
+            render_data,
+            template.variables,
+            template.business_type,
+        )
+    else:
+        blocks = template_svc.render_template_blocks(template.blocks, render_data, template.variables, template.business_type)
+        content = agreement_svc.render_docx(render_data, blocks)
+    await _record_document_generation(
+        db=db,
+        user=user,
+        business_type="agreement",
+        action="download",
+        template=template,
+        subject_name=data.name,
+        manually_adjusted=payload.draft.manually_adjusted,
+        draft_html=payload.draft.draft_html if payload.draft.manually_adjusted else None,
+        context={"total_amount": data.total_amount},
+    )
     filename = f"解除劳动合同协议书_{data.name or '员工'}.docx"
     from urllib.parse import quote
 
@@ -581,12 +1217,37 @@ async def download_agreement(data: AgreementData) -> Response:
     )
 
 
+@router.post(
+    "/agreement/print-log",
+    dependencies=[Depends(require_op("tools.compensation_calc", "V"))],
+)
+async def log_agreement_print(
+    payload: AgreementDocumentIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict[str, bool]:
+    template = await _agreement_template(db, payload.data.template_code)
+    await _record_document_generation(
+        db=db,
+        user=user,
+        business_type="agreement",
+        action="print",
+        template=template,
+        subject_name=payload.data.name,
+        manually_adjusted=payload.draft.manually_adjusted,
+        draft_html=payload.draft.draft_html if payload.draft.manually_adjusted else None,
+        context={"total_amount": payload.data.total_amount},
+    )
+    return {"ok": True}
+
+
 # ============ 证明开具：年包收入证明 ============
 
 
 class IncomeCertificateTemplate(BaseModel):
     code: str
     name: str
+    manual_variables: list[DocumentTemplateVariableOut] = Field(default_factory=list)
 
 
 class IncomeCertificatePrepareIn(BaseModel):
@@ -609,9 +1270,12 @@ class IncomeCertificateData(BaseModel):
     target_bonus: float = Field(ge=0)
     annual_package: float = Field(ge=0)
     issue_date: date
+    manual_values: dict[str, Any] = Field(default_factory=dict)
 
 
-INCOME_CERT_TEMPLATES = [IncomeCertificateTemplate(code="annual_income", name="年包收入证明")]
+class IncomeCertificateDocumentIn(BaseModel):
+    data: IncomeCertificateData
+    draft: EditableDraftIn = Field(default_factory=EditableDraftIn)
 
 
 def _income_cert_render_dict(data: IncomeCertificateData) -> dict[str, Any]:
@@ -627,6 +1291,68 @@ def _income_cert_render_dict(data: IncomeCertificateData) -> dict[str, Any]:
         "annual_package": Decimal(str(data.annual_package)),
         "issue_date": data.issue_date,
     }
+
+
+def _manual_variables(template: DocumentTemplate) -> list[DocumentTemplateVariable]:
+    return [variable for variable in template.variables if variable.source_type == "manual"]
+
+
+def _manual_default_value(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, Decimal):
+        return str(_money(value))
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _manual_defaults(template: DocumentTemplate, base_values: dict[str, Any] | None = None) -> dict[str, Any]:
+    base_values = base_values or {}
+    defaults: dict[str, Any] = {}
+    for variable in _manual_variables(template):
+        if variable.default_value not in (None, ""):
+            defaults[variable.variable_code] = variable.default_value
+        else:
+            defaults[variable.variable_code] = _manual_default_value(base_values.get(variable.variable_code))
+    return defaults
+
+
+def _income_cert_render_values(data: IncomeCertificateData, template: DocumentTemplate) -> dict[str, Any]:
+    values = _income_cert_render_dict(data)
+    manual_values = _manual_defaults(template, values)
+    submitted_manual_values = data.manual_values or {}
+    for variable in _manual_variables(template):
+        if variable.variable_code not in submitted_manual_values:
+            continue
+        submitted_value = submitted_manual_values[variable.variable_code]
+        default_from_base = (
+            variable.variable_code in values
+            and values.get(variable.variable_code) not in (None, "")
+            and variable.default_value in (None, "")
+        )
+        if submitted_value in (None, "") and default_from_base and not variable.required:
+            continue
+        manual_values[variable.variable_code] = submitted_value
+    missing = [
+        variable.variable_name
+        for variable in _manual_variables(template)
+        if variable.required and manual_values.get(variable.variable_code) in (None, "")
+    ]
+    if missing:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"请先填写手工变量：{'、'.join(missing)}")
+    values.update(manual_values)
+    return values
+
+
+async def _income_certificate_template(db: AsyncSession, code: str | None = None) -> DocumentTemplate:
+    template_code = code or "annual_income"
+    try:
+        return await _load_active_template(db, "income_certificate", template_code)
+    except HTTPException:
+        if template_code == "annual_income":
+            return await _load_active_template(db, "income_certificate", None)
+        raise
 
 
 async def _get_employee_raw_for_tool(employee_id: int, user: User, db: AsyncSession) -> dict[str, Any]:
@@ -645,8 +1371,31 @@ async def _get_employee_raw_for_tool(employee_id: int, user: User, db: AsyncSess
     response_model=list[IncomeCertificateTemplate],
     dependencies=[Depends(require_op("tools.income_certificate", "V"))],
 )
-async def list_income_certificate_templates() -> list[IncomeCertificateTemplate]:
-    return INCOME_CERT_TEMPLATES
+async def list_income_certificate_templates(
+    db: AsyncSession = Depends(get_session),
+) -> list[IncomeCertificateTemplate]:
+    today = date.today()
+    rows = (
+        await db.execute(
+            select(DocumentTemplate)
+            .options(selectinload(DocumentTemplate.variables))
+            .where(
+                DocumentTemplate.business_type == "income_certificate",
+                DocumentTemplate.is_active.is_(True),
+                or_(DocumentTemplate.effective_start.is_(None), DocumentTemplate.effective_start <= today),
+                or_(DocumentTemplate.effective_end.is_(None), DocumentTemplate.effective_end >= today),
+            )
+            .order_by(DocumentTemplate.code)
+        )
+    ).scalars().all()
+    return [
+        IncomeCertificateTemplate(
+            code=row.code,
+            name=row.name,
+            manual_variables=[_template_variable_out(variable) for variable in _manual_variables(row)],
+        )
+        for row in rows
+    ]
 
 
 @router.get(
@@ -681,9 +1430,7 @@ async def prepare_income_certificate(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> IncomeCertificateData:
-    if payload.template_code != "annual_income":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="暂不支持该证明模板")
-
+    template = await _income_certificate_template(db, payload.template_code)
     raw = await _get_employee_raw_for_tool(payload.employee_id, user, db)
     hire_date = _parse_date(_first(raw, "入职日期", "1b725de4-7e51-4888-ab05-dc435bb511f8_original"), "入职日期")
     raw_leave = _first(raw, "离职日期", "9e0a9a5d-f3d8-4262-84a4-9f1c7dc4c0ce_original")
@@ -693,7 +1440,9 @@ async def prepare_income_certificate(
     target_bonus = _parse_money(target_bonus_raw, "目标年终奖") if target_bonus_raw not in (None, "") else Decimal("0")
     annual_package = _money(basic_salary * Decimal("12") + target_bonus)
 
-    return IncomeCertificateData(
+    result = IncomeCertificateData(
+        template_code=template.code,
+        template_name=template.name,
         company=_first(raw, "公司名称") or "",
         name=_first(raw, "姓名（中文名）", "姓名") or "",
         id_card=_first(raw, "证件号码") or "",
@@ -705,23 +1454,65 @@ async def prepare_income_certificate(
         target_bonus=float(_money(target_bonus)),
         annual_package=float(annual_package),
         issue_date=date.today(),
+        manual_values={},
     )
+    result.manual_values = _manual_defaults(template, _income_cert_render_dict(result))
+    return result
 
 
 @router.post(
     "/income-certificate/preview",
     dependencies=[Depends(require_op("tools.income_certificate", "V"))],
 )
-async def preview_income_certificate(data: IncomeCertificateData) -> dict[str, str]:
-    return {"html": income_cert_svc.render_html(_income_cert_render_dict(data))}
+async def preview_income_certificate(
+    data: IncomeCertificateData,
+    db: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    template = await _income_certificate_template(db, data.template_code)
+    render_data = _income_cert_render_values(data, template)
+    if template.template_file:
+        html = _render_template_html(template, render_data)
+    else:
+        blocks = template_svc.render_template_blocks(template.blocks, render_data, template.variables, template.business_type)
+        html = income_cert_svc.render_html(render_data, blocks)
+    return {"html": html}
 
 
 @router.post(
     "/income-certificate/docx",
     dependencies=[Depends(require_op("tools.income_certificate", "V"))],
 )
-async def download_income_certificate(data: IncomeCertificateData) -> Response:
-    content = income_cert_svc.render_docx(_income_cert_render_dict(data))
+async def download_income_certificate(
+    payload: IncomeCertificateDocumentIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    data = payload.data
+    template = await _income_certificate_template(db, data.template_code)
+    render_data = _income_cert_render_values(data, template)
+    if payload.draft.manually_adjusted and payload.draft.draft_html:
+        content = _render_edited_preview_docx(template, payload.draft.draft_html)
+    elif template.template_file:
+        content = template_svc.render_docx_template(
+            template.template_file,
+            render_data,
+            template.variables,
+            template.business_type,
+        )
+    else:
+        blocks = template_svc.render_template_blocks(template.blocks, render_data, template.variables, template.business_type)
+        content = income_cert_svc.render_docx(render_data, blocks)
+    await _record_document_generation(
+        db=db,
+        user=user,
+        business_type="income_certificate",
+        action="download",
+        template=template,
+        subject_name=data.name,
+        manually_adjusted=payload.draft.manually_adjusted,
+        draft_html=payload.draft.draft_html if payload.draft.manually_adjusted else None,
+        context={"annual_package": data.annual_package, "manual_value_keys": sorted((data.manual_values or {}).keys())},
+    )
     filename = f"收入证明_{data.name or '员工'}.docx"
     from urllib.parse import quote
 
@@ -730,3 +1521,31 @@ async def download_income_certificate(data: IncomeCertificateData) -> Response:
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+@router.post(
+    "/income-certificate/print-log",
+    dependencies=[Depends(require_op("tools.income_certificate", "V"))],
+)
+async def log_income_certificate_print(
+    payload: IncomeCertificateDocumentIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict[str, bool]:
+    template = await _income_certificate_template(db, payload.data.template_code)
+    _income_cert_render_values(payload.data, template)
+    await _record_document_generation(
+        db=db,
+        user=user,
+        business_type="income_certificate",
+        action="print",
+        template=template,
+        subject_name=payload.data.name,
+        manually_adjusted=payload.draft.manually_adjusted,
+        draft_html=payload.draft.draft_html if payload.draft.manually_adjusted else None,
+        context={
+            "annual_package": payload.data.annual_package,
+            "manual_value_keys": sorted((payload.data.manual_values or {}).keys()),
+        },
+    )
+    return {"ok": True}

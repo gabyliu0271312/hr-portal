@@ -87,15 +87,14 @@ const visibleTools = computed(() => tools.value.filter((t) => t.enabled))
   align-items: flex-start;
   padding: 18px;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--color-bg-card);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
 .tool-card:hover {
   border-color: var(--color-primary);
-  box-shadow: 0 8px 24px rgba(31, 35, 41, 0.08);
-  transform: translateY(-1px);
+  background: var(--color-primary-subtle);
 }
 .tool-card.disabled {
   cursor: not-allowed;
@@ -103,8 +102,7 @@ const visibleTools = computed(() => tools.value.filter((t) => t.enabled))
 }
 .tool-card.disabled:hover {
   border-color: var(--color-border);
-  box-shadow: none;
-  transform: none;
+  background: var(--color-bg-card);
 }
 .tool-icon {
   display: flex;
@@ -112,8 +110,8 @@ const visibleTools = computed(() => tools.value.filter((t) => t.enabled))
   justify-content: center;
   width: 44px;
   height: 44px;
-  border-radius: 10px;
-  background: rgba(51, 112, 255, 0.1);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-light);
   color: var(--color-primary);
   font-size: 22px;
 }

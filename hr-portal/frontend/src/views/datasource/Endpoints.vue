@@ -527,13 +527,13 @@ onMounted(load)
   line-height: 1.5;
 }
 .test-result--ok {
-  background: #e8f7ee;
+  background: var(--color-success-light);
   color: var(--color-success);
-  border: 1px solid #b7e6c5;
+  border: 1px solid var(--color-success-border);
 }
 .test-result--fail {
-  background: #fdecec;
+  background: var(--color-danger-light);
   color: var(--color-danger);
-  border: 1px solid #f5c2c2;
+  border: 1px solid var(--color-danger-border);
 }
 </style>

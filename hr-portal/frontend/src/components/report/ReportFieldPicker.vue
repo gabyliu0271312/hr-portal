@@ -121,7 +121,7 @@ function clearAll() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--color-bg-elevated, #fff);
+  background: var(--color-bg-elevated);
 }
 .pane-body {
   flex: 1;

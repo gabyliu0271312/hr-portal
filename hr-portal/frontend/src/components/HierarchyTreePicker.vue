@@ -250,7 +250,7 @@ export const TreeNodeRow = defineComponent({
   font-size: 13px;
 }
 .tree-row:hover {
-  background: var(--color-bg-elevated, #fff);
+  background: var(--color-bg-elevated);
 }
 .tree-toggle {
   cursor: pointer;

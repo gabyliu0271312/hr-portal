@@ -132,34 +132,54 @@ def _esc(s: str) -> str:
     )
 
 
-def render_html(data: dict) -> str:
+def _split_blocks(blocks: list[tuple[str, str]]) -> tuple[str, str, list[tuple[str, str]]]:
+    header = HEADER_TEXT
+    title = TITLE
+    body_blocks: list[tuple[str, str]] = []
+    for text, kind in blocks:
+        if kind == "header":
+            header = text
+        elif kind == "title":
+            title = text
+        else:
+            body_blocks.append((text, kind))
+    return header, title, body_blocks
+
+
+def _default_blocks(data: dict) -> list[tuple[str, str]]:
+    return build_blocks(data) + [
+        (f"甲方：{data.get('company') or ''}                乙方：", "sign"),
+        ("年     月     日                         年     月     日", "sign"),
+    ]
+
+
+def render_html(data: dict, template_blocks: list[tuple[str, str]] | None = None) -> str:
     """与 docx 同源的 A4 预览 HTML（含打印样式，宋体）。"""
+    header, title, blocks = _split_blocks(template_blocks or _default_blocks(data))
     parts = []
-    for text, kind in build_blocks(data):
-        cls = "agr-p" if kind == "body" else "agr-line"
+    for text, kind in blocks:
+        cls = "agr-p" if kind in {"body", "paragraph"} else "agr-sign" if kind == "sign" else "agr-line"
         parts.append(f'<p class="{cls}">{_esc(text)}</p>')
     body = "".join(parts)
-    company = _esc(data.get("company") or "")
     return f"""<div class="agr-doc">
-<div class="agr-header">{_esc(HEADER_TEXT)}</div>
-<h1 class="agr-title">{_esc(TITLE)}</h1>
+<div class="agr-header">{_esc(header)}</div>
+<h1 class="agr-title">{_esc(title)}</h1>
 {body}
-<p class="agr-sign">甲方：{company}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;乙方：</p>
-<p class="agr-sign">年&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;月&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;日&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;年&nbsp;&nbsp;&nbsp;&nbsp;月&nbsp;&nbsp;&nbsp;&nbsp;日</p>
 </div>"""
 
 
-def render_docx(data: dict) -> bytes:
+def render_docx(data: dict, template_blocks: list[tuple[str, str]] | None = None) -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml.ns import qn
     from docx.shared import Pt
 
+    header, title_text, blocks = _split_blocks(template_blocks or _default_blocks(data))
     doc = Document()
     # 页眉：小五(9pt) 宋体 靠右
     section = doc.sections[0]
     header_p = section.header.paragraphs[0]
-    header_p.text = HEADER_TEXT
+    header_p.text = header
     header_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     for r in header_p.runs:
         r.font.size = Pt(9)
@@ -174,23 +194,18 @@ def render_docx(data: dict) -> bytes:
 
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run(TITLE)
+    run = title.add_run(title_text)
     run.bold = True
     run.font.size = Pt(16)
     run.font.name = "宋体"
     run.element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
 
-    for text, kind in build_blocks(data):
+    for text, kind in blocks:
         p = doc.add_paragraph(text)
         pf = p.paragraph_format
         pf.line_spacing = 1.5
-        if kind == "body":
+        if kind in {"body", "paragraph"}:
             pf.first_line_indent = Pt(24)  # 首行缩进 2 字符（小四 12pt）
-
-    # 落款（不缩进；甲方代入公司全称，乙方留签名位）
-    sign = doc.add_paragraph(f"甲方：{data.get('company') or ''}                乙方：")
-    sign.paragraph_format.line_spacing = 1.5
-    doc.add_paragraph("年     月     日                         年     月     日")
 
     buf = BytesIO()
     doc.save(buf)

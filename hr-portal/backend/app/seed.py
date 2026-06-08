@@ -16,6 +16,8 @@ from app.auth.password import hash_password
 from app.core.config import settings
 from app.datasources.models import DataSource
 from app.data.models import RegisteredTable
+from app.tools.document_templates import DEFAULT_TEMPLATES
+from app.tools.models import DocumentTemplate, DocumentTemplateBlock, DocumentTemplateVariable
 from app.users.models import Menu, Role, RoleMenu, User, UserRole
 
 logger = logging.getLogger("seed")
@@ -62,6 +64,7 @@ MENU_TREE: list[dict] = [
                 "icon": "Operation",
                 "children": [
                     {"code": "system.compensation_caps", "label": "补偿金规则维护", "icon": "Money"},
+                    {"code": "system.document_templates", "label": "模板维护", "icon": "Document"},
                 ],
             },
         ],
@@ -81,6 +84,40 @@ MENU_TREE: list[dict] = [
                     {"code": "tools.compensation_calc", "label": "补偿金计算", "icon": "Money"},
                     {"code": "tools.income_certificate", "label": "证明开具", "icon": "Document"},
                     {"code": "tools.cost_allocation", "label": "成本分摊", "icon": "Histogram"},
+                ],
+            },
+        ],
+    },
+    # 一级 4：绩效管理（独立业务应用入口）
+    {
+        "code": "performance",
+        "label": "绩效管理",
+        "icon": "TrendCharts",
+        "children": [
+            {
+                "code": "performance.access",
+                "label": "应用入口",
+                "icon": "Guide",
+                "children": [
+                    {"code": "performance.app", "label": "绩效管理入口", "icon": "DataBoard"},
+                    {"code": "performance.admin", "label": "绩效后台设置", "icon": "Setting"},
+                ],
+            },
+        ],
+    },
+    # 一级 5：成本分摊（已上线独立业务应用入口）
+    {
+        "code": "cost_allocation",
+        "label": "成本分摊",
+        "icon": "Histogram",
+        "children": [
+            {
+                "code": "cost_allocation.access",
+                "label": "应用入口",
+                "icon": "Guide",
+                "children": [
+                    {"code": "cost_allocation.app", "label": "成本分摊系统入口", "icon": "Histogram"},
+                    {"code": "cost_allocation.admin", "label": "成本分摊后台入口", "icon": "Setting"},
                 ],
             },
         ],
@@ -198,6 +235,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_datasources(db)
         await _ensure_datasource_jobs(db)
         await _ensure_registered_tables(db)
+        await _ensure_document_templates(db)
         logger.info("[seed] done")
 
 
@@ -324,4 +362,49 @@ async def _ensure_registered_tables(db: AsyncSession) -> None:
         )
         db.add(rt)
         logger.info("[seed] registered_table added: %s", cfg["table_name"])
+    await db.commit()
+
+
+async def _ensure_document_templates(db: AsyncSession) -> None:
+    existing_codes = {
+        code for (code,) in (await db.execute(select(DocumentTemplate.code))).all()
+    }
+    for cfg in DEFAULT_TEMPLATES:
+        if cfg["code"] in existing_codes:
+            continue
+        tpl = DocumentTemplate(
+            code=cfg["code"],
+            name=cfg["name"],
+            business_type=cfg["business_type"],
+            description=cfg.get("description"),
+            is_active=True,
+            version=cfg.get("version", "1.0"),
+            layout_config={},
+        )
+        db.add(tpl)
+        await db.flush()
+        for block in cfg.get("blocks", []):
+            db.add(
+                DocumentTemplateBlock(
+                    template_id=tpl.id,
+                    block_type=block["block_type"],
+                    content=block["content"],
+                    display_order=block.get("display_order", 10),
+                    style_config=block.get("style_config") or {},
+                )
+            )
+        for variable in cfg.get("variables", []):
+            db.add(
+                DocumentTemplateVariable(
+                    template_id=tpl.id,
+                    variable_code=variable["variable_code"],
+                    variable_name=variable["variable_name"],
+                    source_type=variable.get("source_type", "manual"),
+                    source_key=variable.get("source_key"),
+                    default_value=variable.get("default_value"),
+                    required=variable.get("required", False),
+                    formatter=variable.get("formatter"),
+                )
+            )
+        logger.info("[seed] document_template added: %s", cfg["code"])
     await db.commit()

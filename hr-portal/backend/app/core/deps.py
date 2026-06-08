@@ -137,6 +137,11 @@ async def get_user_menus(user: User, db: AsyncSession) -> list[dict]:
     )
     rows = (await db.execute(stmt)).all()
 
+    all_menus = {
+        m.id: m
+        for m in (await db.execute(select(Menu))).scalars().all()
+    }
+
     # 同一菜单可能被多个角色覆盖：操作权限取并集
     merged: dict[str, dict] = {}
     for r in rows:
@@ -161,4 +166,25 @@ async def get_user_menus(user: User, db: AsyncSession) -> list[dict]:
             m["can_update"] = m["can_update"] or r.can_update
             m["can_delete"] = m["can_delete"] or r.can_delete
             m["can_export"] = m["can_export"] or r.can_export
-    return list(merged.values())
+
+        parent_id = r.parent_id
+        while parent_id is not None:
+            parent = all_menus.get(parent_id)
+            if parent is None:
+                break
+            if parent.code not in merged:
+                merged[parent.code] = {
+                    "id": parent.id,
+                    "code": parent.code,
+                    "label": parent.label,
+                    "parent_id": parent.parent_id,
+                    "order": parent.display_order,
+                    "icon": parent.icon,
+                    "can_create": False,
+                    "can_update": False,
+                    "can_delete": False,
+                    "can_export": False,
+                    "scope_dimension": "none",
+                }
+            parent_id = parent.parent_id
+    return sorted(merged.values(), key=lambda item: (item["order"], item["id"]))

@@ -8,11 +8,14 @@ POST /cost-allocation/archive
 from __future__ import annotations
 
 from datetime import datetime, UTC
+from urllib.parse import urljoin
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.reports.models import Report
@@ -34,6 +37,53 @@ class ArchiveOut(BaseModel):
     archived: int
     period_ym: str
     archived_at: str
+
+
+class ExternalSsoUrlOut(BaseModel):
+    url: str
+    target_url: str
+
+
+def _join_external_url(path: str = "") -> str:
+    base = settings.COST_ALLOCATION_APP_URL.rstrip("/") + "/"
+    return urljoin(base, path.lstrip("/"))
+
+
+@router.get("/external-sso-url", response_model=ExternalSsoUrlOut)
+async def external_sso_url(
+    entry_type: str = Query(default="app", pattern="^(app|admin)$"),
+    user: User = Depends(require_op("cost_allocation.app", "V")),
+    db: AsyncSession = Depends(get_session),
+) -> ExternalSsoUrlOut:
+    if entry_type == "admin":
+        # 后台入口本身还需 HR Portal 的后台入口权限。
+        admin_dep = require_op("cost_allocation.admin", "V")
+        await admin_dep(user=user, db=db)
+
+    target_path = settings.COST_ALLOCATION_ADMIN_PATH if entry_type == "admin" else ""
+    target_url = _join_external_url(target_path)
+    login_url = _join_external_url("/login")
+    api_url = _join_external_url("/api/v1/auth/feishu/url")
+
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            resp = await client.get(api_url, params={"redirect_uri": login_url})
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="获取成本分摊飞书登录地址失败，请确认生产系统可访问",
+        ) from exc
+
+    url = data.get("url")
+    if not url:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="成本分摊系统未返回飞书登录地址",
+        )
+
+    return ExternalSsoUrlOut(url=url, target_url=target_url)
 
 
 @router.post(
@@ -60,6 +110,7 @@ async def archive_cost_allocation(
             dataset_id=r.dataset_id,
             columns=cfg.columns,
             filters=[f.model_dump() for f in cfg.filters],
+            filter_logic=cfg.filter_logic,
             sorts=[s.model_dump() for s in cfg.sorts],
             value_rules=cfg.value_rules,
             aggregate=cfg.aggregate,

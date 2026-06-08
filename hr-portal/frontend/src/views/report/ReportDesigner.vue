@@ -5,15 +5,12 @@ import { ElMessage } from 'element-plus'
 import { ArrowLeft, View, Check } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import ReportBasicInfo from '@/components/report/ReportBasicInfo.vue'
-import ReportFieldPicker from '@/components/report/ReportFieldPicker.vue'
+import ReportFieldWorkbench from '@/components/report/ReportFieldWorkbench.vue'
 import ReportFilterList from '@/components/report/ReportFilterList.vue'
 import ReportSortList from '@/components/report/ReportSortList.vue'
-import ReportValueRules from '@/components/report/ReportValueRules.vue'
 import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue'
-import ReportAggregateConfig from '@/components/report/ReportAggregateConfig.vue'
-import ReportRoundingConfig from '@/components/report/ReportRoundingConfig.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
-import { reportsApi, type RunResult } from '@/api/reports'
+import { reportsApi, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetItem } from '@/api/datasets'
 import { useTableOptions } from '@/composables/useTableOptions'
@@ -37,15 +34,37 @@ const form = reactive({
   dataset_id: null as number | null,
   is_published: false,
   selected_codes: [] as string[],
+  column_settings: {} as Record<string, ColumnSetting>,
+  default_split_rule: { enabled: false, factor: '' } as DefaultSplitRule,
+  rounding_group_by: [] as string[],
   filters: [] as any[],
+  filter_logic: null as FilterLogic | null,
   sorts: [] as any[],
   value_rules: [] as { target: string; factor: string }[],
   aggregate: false,
+  default_aggregation: 'sum' as AggregationFunc,
   aggregations: {} as Record<string, string>,
   transpose: {
     enabled: false,
     drop_zero_measures: true,
     rules: [] as any[],
+    column_to_row: {
+      enabled: false,
+      source_cols: [] as string[],
+      group_by: [] as string[],
+      item_label: '项目',
+      value_label: '金额',
+      conflict_strategy: 'keep_all',
+    },
+    row_to_column: {
+      enabled: false,
+      group_by: [] as string[],
+      pivot_col: '',
+      value_col: '',
+      pivot_values: [] as { value: string; label?: string }[],
+      fill_value: '--',
+      conflict_strategy: 'first',
+    },
   },
   rounding_corrections: [] as { group_by: string; target_cols: string[] }[],
 })
@@ -77,6 +96,19 @@ const selectedMeasures = computed(() =>
   selectedColsDetail.value.filter((c) => c.agg_role === 'measure')
 )
 const isDataset = computed(() => form.source_type === 'dataset')
+const sourceName = computed(() => {
+  if (form.source_type === 'dataset') return currentDataset.value?.name || '数据集'
+  return TABLES.value.find((item: any) => item.value === form.table_name)?.label || form.table_name
+})
+const fieldSourceGroups = computed(() => {
+  if (form.source_type === 'dataset') {
+    return (currentDataset.value?.tables || []).map((item) => ({
+      key: item.alias,
+      label: `${item.alias} · ${TABLES.value.find((t: any) => t.value === item.table_name)?.label || item.table_name}`,
+    }))
+  }
+  return [{ key: sourceName.value, label: sourceName.value }]
+})
 
 async function loadDatasets() {
   try {
@@ -123,11 +155,26 @@ async function loadReport() {
     form.dataset_id = r.dataset_id
     form.is_published = r.is_published
     form.selected_codes = [...(r.config.columns ?? [])]
+    form.column_settings = { ...(r.config.column_settings ?? {}) }
+    form.default_split_rule = {
+      enabled: !!r.config.default_split_rule?.enabled,
+      factor: r.config.default_split_rule?.factor || '',
+    }
     form.filters = (r.config.filters ?? []).map((f) => ({ ...f }))
+    form.filter_logic = r.config.filter_logic ?? null
     form.sorts = (r.config.sorts ?? []).map((s) => ({ ...s }))
     form.value_rules = (r.config.value_rules ?? []).map((v) => ({ ...v }))
     form.aggregate = r.config.aggregate ?? false
+    form.default_aggregation = (r.config.default_aggregation || 'sum') as AggregationFunc
     form.aggregations = { ...(r.config.aggregations ?? {}) }
+    for (const [code, aggregation] of Object.entries(form.aggregations)) {
+      if (aggregation && aggregation !== form.default_aggregation && !form.column_settings[code]?.aggregation) {
+        form.column_settings[code] = {
+          ...(form.column_settings[code] || {}),
+          aggregation: aggregation as AggregationFunc,
+        }
+      }
+    }
     const tp = r.config.transpose
     form.transpose = {
       enabled: tp?.enabled ?? false,
@@ -137,11 +184,37 @@ async function loadReport() {
         target_cols: [...(rule.target_cols ?? [])],
         dims: Object.entries(rule.dim_updates ?? {}).map(([dim, value]) => ({ dim, value })),
       })),
+      column_to_row: {
+        enabled: !!tp?.column_to_row?.enabled,
+        source_cols: [...(tp?.column_to_row?.source_cols ?? [])],
+        group_by: [...(tp?.column_to_row?.group_by ?? [])],
+        item_label: tp?.column_to_row?.item_label || '项目',
+        value_label: tp?.column_to_row?.value_label || '金额',
+        conflict_strategy: tp?.column_to_row?.conflict_strategy || 'keep_all',
+      },
+      row_to_column: {
+        enabled: !!tp?.row_to_column?.enabled,
+        group_by: [...(tp?.row_to_column?.group_by ?? [])],
+        pivot_col: tp?.row_to_column?.pivot_col || '',
+        value_col: tp?.row_to_column?.value_col || '',
+        pivot_values: (tp?.row_to_column?.pivot_values ?? []).map((item: any) => ({
+          value: item.value,
+          label: item.label || '',
+        })),
+        fill_value: tp?.row_to_column?.fill_value ?? '--',
+        conflict_strategy: tp?.row_to_column?.conflict_strategy || 'first',
+      },
     }
     form.rounding_corrections = (r.config.rounding_corrections ?? []).map((rc: any) => ({
-      group_by: rc.group_by ?? '',
+      group_by: Array.isArray(rc.group_by) ? rc.group_by[0] ?? '' : rc.group_by ?? '',
       target_cols: [...(rc.target_cols ?? [])],
     }))
+    const firstRounding = r.config.rounding_corrections?.[0]
+    form.rounding_group_by = Array.isArray(firstRounding?.group_by)
+      ? [...firstRounding.group_by]
+      : firstRounding?.group_by
+        ? [firstRounding.group_by]
+        : []
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载报表失败')
   }
@@ -149,12 +222,38 @@ async function loadReport() {
 
 function resetForm() {
   form.selected_codes = []
+  form.column_settings = {}
+  form.default_split_rule = { enabled: false, factor: '' }
+  form.rounding_group_by = []
   form.filters = []
+  form.filter_logic = null
   form.sorts = []
   form.value_rules = []
   form.aggregate = false
+  form.default_aggregation = 'sum'
   form.aggregations = {}
-  form.transpose = { enabled: false, drop_zero_measures: true, rules: [] }
+  form.transpose = {
+    enabled: false,
+    drop_zero_measures: true,
+    rules: [],
+    column_to_row: {
+      enabled: false,
+      source_cols: [],
+      group_by: [],
+      item_label: '项目',
+      value_label: '金额',
+      conflict_strategy: 'keep_all',
+    },
+    row_to_column: {
+      enabled: false,
+      group_by: [],
+      pivot_col: '',
+      value_col: '',
+      pivot_values: [],
+      fill_value: '--',
+      conflict_strategy: 'first',
+    },
+  }
   form.rounding_corrections = []
   filterRef.value?.clearCache()
   previewColumns.value = []
@@ -180,6 +279,33 @@ async function onDatasetChange() {
 function buildPayload() {
   const tailCode = (q: string) => (q.includes('.') ? q.slice(q.indexOf('.') + 1) : q)
   const selectedDimCodes = selectedDimensions.value.map((c) => c.code)
+  const selectedMeasureCodes = selectedMeasures.value.map((c) => c.code)
+  const c2r = form.transpose.column_to_row || {}
+  const r2c = form.transpose.row_to_column || {}
+  const filterLogic: FilterLogic | null =
+    form.filter_logic?.mode === 'custom' && form.filter_logic.expression?.trim()
+      ? { mode: 'custom', expression: form.filter_logic.expression.trim() }
+      : null
+  const valueRulesByTarget = new Map<string, string>()
+  if (form.default_split_rule.enabled && form.default_split_rule.factor) {
+    for (const measure of selectedMeasureCodes) {
+      const setting = form.column_settings[measure] || {}
+      if (setting.split_mode === 'none') continue
+      if (setting.split_mode === 'custom' && setting.split_factor) {
+        valueRulesByTarget.set(measure, setting.split_factor)
+      } else {
+        valueRulesByTarget.set(measure, form.default_split_rule.factor)
+      }
+    }
+  }
+  for (const rule of form.value_rules) {
+    if (rule.target && rule.factor) valueRulesByTarget.set(rule.target, rule.factor)
+  }
+  for (const measure of selectedMeasureCodes) {
+    const setting = form.column_settings[measure] || {}
+    if (setting.split_mode === 'none') valueRulesByTarget.delete(measure)
+    if (setting.split_mode === 'custom' && setting.split_factor) valueRulesByTarget.set(measure, setting.split_factor)
+  }
 
   return {
     name: form.name.trim(),
@@ -189,6 +315,8 @@ function buildPayload() {
     is_published: form.is_published,
     config: {
       columns: form.selected_codes,
+      column_settings: form.column_settings,
+      default_split_rule: form.default_split_rule,
       filters: form.filters
         .filter((f) => f.column)
         .map((f) => {
@@ -198,13 +326,28 @@ function buildPayload() {
           else if ((op === 'between' || op === 'in') && typeof value === 'string') {
             value = value.split(',').map((s: string) => s.trim()).filter(Boolean)
           }
-          return { column: f.column, op, value }
+          return {
+            column: f.column,
+            op,
+            value,
+            visible: f.visible ?? true,
+            locked: f.locked ?? false,
+          }
         }),
+      filter_logic: filterLogic,
       sorts: form.sorts.filter((s) => s.column),
-      value_rules: form.value_rules.filter((v) => v.target && v.factor),
+      value_rules: [...valueRulesByTarget.entries()].map(([target, factor]) => ({ target, factor })),
       aggregate: form.aggregate,
+      default_aggregation: form.default_aggregation || 'sum',
       aggregations: form.aggregate
-        ? Object.fromEntries(selectedMeasures.value.map((c) => [c.code, form.aggregations[c.code] || 'sum']))
+        ? Object.fromEntries(
+            selectedMeasures.value.map((c) => [
+              c.code,
+              form.column_settings[c.code]?.aggregation
+                || form.default_aggregation
+                || 'sum',
+            ]),
+          )
         : {},
       transpose: {
         enabled: form.transpose.enabled,
@@ -227,10 +370,33 @@ function buildPayload() {
             }
             return { source_col: r.source_col, target_cols: r.target_cols, dim_updates: du }
           }),
+        column_to_row: {
+          enabled: !!c2r.enabled,
+          source_cols: [...(c2r.source_cols || [])].filter((code) => form.selected_codes.includes(code)),
+          group_by: [...(c2r.group_by || [])].filter((code) => form.selected_codes.includes(code)),
+          item_label: c2r.item_label || '项目',
+          value_label: c2r.value_label || '金额',
+          conflict_strategy: (c2r.conflict_strategy || 'keep_all') as ReshapeConflictStrategy,
+        },
+        row_to_column: {
+          enabled: !!r2c.enabled,
+          group_by: [...(r2c.group_by || [])].filter((code) => form.selected_codes.includes(code)),
+          pivot_col: form.selected_codes.includes(r2c.pivot_col || '') ? r2c.pivot_col : '',
+          value_col: form.selected_codes.includes(r2c.value_col || '') ? r2c.value_col : '',
+          pivot_values: (r2c.pivot_values || [])
+            .filter((item: any) => item.value !== '')
+            .map((item: any) => ({ value: item.value, label: item.label || '' })),
+          fill_value: r2c.fill_value ?? '--',
+          conflict_strategy: (r2c.conflict_strategy || 'first') as Exclude<ReshapeConflictStrategy, 'keep_all'>,
+        },
       },
-      rounding_corrections: form.rounding_corrections
-        .filter((rc) => rc.group_by && rc.target_cols.length)
-        .map((rc) => ({ group_by: rc.group_by, target_cols: [...rc.target_cols] })),
+      rounding_corrections: form.aggregate && form.rounding_group_by.length && selectedMeasureCodes.length
+        ? [{ group_by: [...form.rounding_group_by], target_cols: selectedMeasureCodes }]
+        : form.aggregate
+          ? form.rounding_corrections
+            .filter((rc) => rc.group_by && rc.target_cols.length)
+            .map((rc) => ({ group_by: rc.group_by, target_cols: [...rc.target_cols] }))
+          : [],
     },
   }
 }
@@ -240,7 +406,7 @@ async function save() {
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段'); return }
   saving.value = true
   try {
-    if (form.transpose.enabled) await transposeRef.value?.ensureCcMaster()
+    if (form.transpose.enabled && form.transpose.rules?.length) await transposeRef.value?.ensureCcMaster()
     const payload = buildPayload()
     if (isNew.value) {
       const r = await reportsApi.create(payload)
@@ -262,7 +428,7 @@ async function preview() {
   if (isNew.value) { ElMessage.info('请先保存草稿后再预览'); return }
   previewing.value = true
   try {
-    if (form.transpose.enabled) await transposeRef.value?.ensureCcMaster()
+    if (form.transpose.enabled && form.transpose.rules?.length) await transposeRef.value?.ensureCcMaster()
     await reportsApi.update(reportId.value!, buildPayload())
     const res = await reportsApi.run(reportId.value!, previewPage.value, previewPageSize.value)
     previewColumns.value = res.columns
@@ -290,8 +456,30 @@ watch(
         name: '', description: '', source_type: 'single',
         table_name: 'emp_realtime_roster', dataset_id: null,
         is_published: false, selected_codes: [], filters: [], sorts: [],
-        value_rules: [], aggregate: false, aggregations: {},
-        transpose: { enabled: false, drop_zero_measures: true, rules: [] },
+        value_rules: [], aggregate: false, default_aggregation: 'sum', aggregations: {},
+        column_settings: {}, default_split_rule: { enabled: false, factor: '' }, rounding_group_by: [], filter_logic: null,
+        transpose: {
+          enabled: false,
+          drop_zero_measures: true,
+          rules: [],
+          column_to_row: {
+            enabled: false,
+            source_cols: [],
+            group_by: [],
+            item_label: '项目',
+            value_label: '金额',
+            conflict_strategy: 'keep_all',
+          },
+          row_to_column: {
+            enabled: false,
+            group_by: [],
+            pivot_col: '',
+            value_col: '',
+            pivot_values: [],
+            fill_value: '--',
+            conflict_strategy: 'first',
+          },
+        },
         rounding_corrections: [],
       })
       previewItems.value = []
@@ -346,17 +534,25 @@ watch(
           @dataset-change="onDatasetChange"
         />
 
-        <div class="section-title">选择字段（{{ form.selected_codes.length }} 个）</div>
-        <ReportFieldPicker
+        <div class="section-title">报表设置（{{ form.selected_codes.length }} 个字段）</div>
+        <ReportFieldWorkbench
           v-model:selected-codes="form.selected_codes"
+          v-model:column-settings="form.column_settings"
+          v-model:default-split-rule="form.default_split_rule"
+          v-model:default-aggregation="form.default_aggregation"
+          v-model:aggregate="form.aggregate"
+          v-model:rounding-group-by="form.rounding_group_by"
           :all-columns="allColumns"
+          :source-groups="fieldSourceGroups"
           :loading="loadingCols"
+          :is-dataset="isDataset"
         />
 
         <div class="section-title">筛选条件（{{ form.filters.length }} 个，多个之间为 AND）</div>
         <ReportFilterList
           ref="filterRef"
           v-model:filters="form.filters"
+          v-model:filter-logic="form.filter_logic"
           :all-columns="allColumns"
           :table-name="form.table_name"
           :source-type="form.source_type"
@@ -370,36 +566,15 @@ watch(
         />
 
         <template v-if="isDataset">
-          <div class="section-title">数值拆分（{{ form.value_rules.length }} 个）</div>
-          <ReportValueRules
-            v-model:value-rules="form.value_rules"
-            :selected-codes="form.selected_codes"
-            :all-columns="allColumns"
-          />
-
           <div class="section-title">转置 / 重映射</div>
           <ReportTransposeConfig
             ref="transposeRef"
             v-model:transpose="form.transpose"
             :selected-dimensions="selectedDimensions"
             :selected-measures="selectedMeasures"
+            :selected-columns="selectedColsDetail"
           />
 
-          <div class="section-title">聚合汇总</div>
-          <ReportAggregateConfig
-            v-model:aggregate="form.aggregate"
-            v-model:aggregations="form.aggregations"
-            :selected-dimensions="selectedDimensions"
-            :selected-measures="selectedMeasures"
-          />
-
-          <div class="section-title">余差收口</div>
-          <ReportRoundingConfig
-            v-model:rounding-corrections="form.rounding_corrections"
-            :selected-dimensions="selectedDimensions"
-            :selected-measures="selectedMeasures"
-            :aggregate="form.aggregate"
-          />
         </template>
 
         <template v-if="previewItems.length || previewTotal">

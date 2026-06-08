@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, nextTick, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { QuestionFilled, Search, Plus, Delete, Document, Printer } from '@element-plus/icons-vue'
 import {
   toolsApi,
@@ -26,6 +26,10 @@ const previewing = ref(false)
 const downloading = ref(false)
 const agreement = ref<AgreementData | null>(null)
 const previewHtml = ref('')
+const originalPreviewHtml = ref('')
+const previewPaperRef = ref<HTMLElement | null>(null)
+const draftAdjusted = ref(false)
+let editedPreviewHtml = ''
 
 const busy = computed(() => searching.value || calculating.value)
 
@@ -111,6 +115,10 @@ function resetAll() {
   leaveDateInvalid.value = false
   plan.value = 'N+1'
   result.value = null
+  previewHtml.value = ''
+  originalPreviewHtml.value = ''
+  draftAdjusted.value = false
+  editedPreviewHtml = ''
 }
 
 async function openAgreement() {
@@ -118,6 +126,9 @@ async function openAgreement() {
   agreementOpen.value = true
   agreementLoading.value = true
   previewHtml.value = ''
+  originalPreviewHtml.value = ''
+  draftAdjusted.value = false
+  editedPreviewHtml = ''
   agreement.value = null
   try {
     agreement.value = await toolsApi.prepareAgreement({
@@ -148,9 +159,25 @@ function removeInstallment(idx: number) {
 
 async function refreshPreview() {
   if (!agreement.value) return
+  if (draftAdjusted.value) {
+    try {
+      await ElMessageBox.confirm('重新生成会覆盖当前预览中的人工修改，是否继续？', '确认重新生成', {
+        confirmButtonText: '继续',
+        cancelButtonText: '取消',
+        type: 'warning',
+      })
+    } catch {
+      return
+    }
+  }
   previewing.value = true
   try {
     previewHtml.value = await toolsApi.previewAgreement(agreement.value)
+    originalPreviewHtml.value = previewHtml.value
+    editedPreviewHtml = previewHtml.value
+    draftAdjusted.value = false
+    await nextTick()
+    if (previewPaperRef.value) previewPaperRef.value.innerHTML = previewHtml.value
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '预览失败')
   } finally {
@@ -158,11 +185,31 @@ async function refreshPreview() {
   }
 }
 
+function onPreviewInput() {
+  editedPreviewHtml = previewPaperRef.value?.innerHTML || ''
+  draftAdjusted.value = editedPreviewHtml !== originalPreviewHtml.value
+}
+
+function resetPreviewDraft() {
+  previewHtml.value = originalPreviewHtml.value
+  editedPreviewHtml = originalPreviewHtml.value
+  draftAdjusted.value = false
+  if (previewPaperRef.value) previewPaperRef.value.innerHTML = originalPreviewHtml.value
+}
+
+function currentDraft() {
+  const html = previewPaperRef.value?.innerHTML || editedPreviewHtml || previewHtml.value
+  return {
+    draft_html: draftAdjusted.value ? html : null,
+    manually_adjusted: draftAdjusted.value,
+  }
+}
+
 async function downloadDocx() {
   if (!agreement.value) return
   downloading.value = true
   try {
-    const resp = await toolsApi.downloadAgreement(agreement.value)
+    const resp = await toolsApi.downloadAgreement(agreement.value, currentDraft())
     const blob = new Blob([resp.data as BlobPart], {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     })
@@ -190,15 +237,23 @@ const PRINT_STYLE = `
   .agr-sign { margin-top: 18px; white-space: nowrap; }
 `
 
-function printAgreement() {
+async function printAgreement() {
   if (!previewHtml.value) return
+  const html = previewPaperRef.value?.innerHTML || previewHtml.value
+  if (agreement.value) {
+    try {
+      await toolsApi.logAgreementPrint(agreement.value, currentDraft())
+    } catch {
+      ElMessage.warning('打印留痕失败，但不影响本次打印')
+    }
+  }
   const w = window.open('', '_blank', 'width=900,height=1000')
   if (!w) {
     ElMessage.warning('浏览器拦截了打印窗口，请允许弹窗后重试')
     return
   }
   w.document.write(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>解除劳动合同协议书</title><style>${PRINT_STYLE}</style></head><body>${previewHtml.value}</body></html>`,
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>解除劳动合同协议书</title><style>${PRINT_STYLE}</style></head><body>${html}</body></html>`,
   )
   w.document.close()
   w.focus()
@@ -219,8 +274,13 @@ async function printDirect() {
       region: null,
     })
     previewHtml.value = await toolsApi.previewAgreement(data)
+    originalPreviewHtml.value = previewHtml.value
+    editedPreviewHtml = previewHtml.value
+    draftAdjusted.value = false
+    await nextTick()
+    if (previewPaperRef.value) previewPaperRef.value.innerHTML = previewHtml.value
     agreement.value = data
-    printAgreement()
+    await printAgreement()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '生成协议失败')
   } finally {
@@ -472,8 +532,27 @@ interface ResultRow {
 
         <!-- 右：预览 -->
         <div class="agr-preview-pane">
-          <div class="agr-pane-title">协议预览（与下载的 Word 格式一致）</div>
-          <div v-loading="previewing" class="agr-preview-paper" v-html="previewHtml"></div>
+          <div class="agr-preview-head">
+            <div>
+              <div class="agr-pane-title">协议预览</div>
+              <div class="draft-tip">当前内容可直接编辑，修改仅影响本次文档，不会修改后台模板。</div>
+            </div>
+            <div class="draft-actions">
+              <el-tag :type="draftAdjusted ? 'warning' : 'success'" size="small">
+                {{ draftAdjusted ? '已人工调整' : '标准生成' }}
+              </el-tag>
+              <el-button size="small" :disabled="!draftAdjusted" @click="resetPreviewDraft">恢复原始预览</el-button>
+            </div>
+          </div>
+          <div
+            ref="previewPaperRef"
+            v-loading="previewing"
+            class="agr-preview-paper"
+            contenteditable="true"
+            spellcheck="false"
+            v-html="previewHtml"
+            @input="onPreviewInput"
+          ></div>
         </div>
       </div>
 
@@ -512,7 +591,7 @@ interface ResultRow {
   margin: 12px 0 8px;
 }
 :deep(.is-selected-row) {
-  background-color: rgba(51, 112, 255, 0.1) !important;
+  background-color: var(--color-primary-light) !important;
 }
 .result-highlight {
   color: var(--color-primary);
@@ -547,6 +626,24 @@ interface ResultRow {
   min-width: 0;
   overflow-x: auto;
 }
+.agr-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.draft-tip {
+  color: var(--color-text-placeholder);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
 .agr-preview-paper {
   flex: none;
   width: 210mm;
@@ -559,6 +656,11 @@ interface ResultRow {
   padding: 20mm;
   box-sizing: border-box;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  outline: none;
+}
+.agr-preview-paper:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light), 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 .agr-preview-paper :deep(.agr-doc) {
   font-family: SimSun, '宋体', serif;

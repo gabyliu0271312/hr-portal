@@ -1,167 +1,104 @@
 /* ============================================================
- * HR Portal — Design Tokens
- * 风格定位：Ledger / 账册风
- *   - 严肃可信赖，参考 Bloomberg / Linear / Carbon
- *   - 数字专属字体，金额/工号 / 时间均用等宽
- *   - 状态用色条 + 脱敏用结构化字符，区别于通用后台
+ * HR Portal Design Tokens
  *
- * 这是单一真源；Element Plus 主题覆写从这里读 var()
+ * Single source of truth for the platform visual system.
+ * Style: Feishu blue + neutral page background + restrained cards.
  * ============================================================ */
 
 :root {
-  /* ---------- 字体 ---------- */
-  /* 显示字体：IBM Plex Sans —— 工业且不像 Inter；中文用思源黑体 */
-  --font-display:
-    'IBM Plex Sans', 'Source Han Sans SC', 'Noto Sans SC',
-    -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  /* Font */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 
-  /* 数字 / 等宽：IBM Plex Mono —— 用在金额、ID、时间、人数 */
-  --font-mono:
-    'IBM Plex Mono', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
 
-  /* 字号阶梯（流体 clamp，1366→1920 自适应） */
-  --fs-3xs: clamp(10px,  0.65vw + 0.4rem, 11px);    /* 标签 */
-  --fs-2xs: clamp(11px,  0.7vw + 0.45rem, 12px);    /* 表格密集 */
-  --fs-xs:  clamp(12px,  0.75vw + 0.5rem, 13px);    /* 辅助 */
-  --fs-sm:  clamp(13px,  0.8vw + 0.55rem, 14px);    /* 正文 */
-  --fs-md:  clamp(14px,  0.85vw + 0.6rem, 15px);    /* 默认 */
-  --fs-lg:  clamp(16px,  1vw + 0.7rem, 18px);       /* 小标题 */
-  --fs-xl:  clamp(20px,  1.3vw + 1rem, 24px);       /* 区块标题 */
-  --fs-2xl: clamp(28px,  2vw + 1rem, 36px);         /* 页头大数 */
-  --fs-3xl: clamp(40px,  3vw + 1.5rem, 56px);       /* 登录页 */
+  --line-height-tight: 1.3;
+  --line-height-base: 1.5;
+  --line-height-loose: 1.7;
 
-  /* 行高 */
-  --lh-tight: 1.2;
-  --lh-snug:  1.4;
-  --lh-base:  1.55;
-  --lh-loose: 1.75;
+  /* Brand */
+  --color-primary: #3370ff;
+  --color-primary-hover: #2855cc;
+  --color-primary-active: #1f4fb8;
+  --color-primary-light: #eef2ff;
+  --color-primary-subtle: #f5f7ff;
 
-  /* 字距：英文与数字略放宽 */
-  --tracking-tight: -0.012em;
-  --tracking-base:  0;
-  --tracking-wide:  0.04em;
-  --tracking-eyebrow: 0.18em;          /* 用于「SECTION /」式编辑部小标题 */
+  /* Text */
+  --color-text-primary: #1a2233;
+  --color-text-regular: #374151;
+  --color-text-secondary: #5c6b82;
+  --color-text-placeholder: #9aa5b4;
+  --color-text-disabled: #c4cad4;
 
-  /* ---------- 颜色（OKLCH） ---------- */
-  /* Brand：靛蓝偏冷，不用 Element 默认 #409eff 的清亮蓝
-   * 调色思路：H=240（蓝紫边界）+ 中等饱和；亮态 50%-60%，深态 35%-45% */
-  --brand-50:  oklch(97%  0.012 248);
-  --brand-100: oklch(94%  0.025 248);
-  --brand-200: oklch(88%  0.05  248);
-  --brand-300: oklch(78%  0.09  248);
-  --brand-400: oklch(66%  0.13  248);
-  --brand-500: oklch(54%  0.16  248);  /* 主色：用于 primary 按钮、链接、active */
-  --brand-600: oklch(46%  0.16  248);
-  --brand-700: oklch(38%  0.14  248);
-  --brand-800: oklch(30%  0.10  248);
-  --brand-900: oklch(22%  0.06  248);
+  /* Background */
+  --color-bg-page: #f4f6f9;
+  --color-bg-card: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-bg-subtle: #f8fafc;
+  --color-bg-hover: #f0f5ff;
 
-  /* Neutral：所有灰阶都 tint 一点点蓝，避免冷漠的纯灰 */
-  --ink-0:    oklch(99%   0.003 248);  /* 页面背景 */
-  --ink-50:   oklch(97%   0.005 248);  /* 表头 / 卡片背景 */
-  --ink-100:  oklch(94%   0.007 248);  /* 分隔/hover */
-  --ink-150:  oklch(91%   0.009 248);
-  --ink-200:  oklch(87%   0.011 248);  /* 边框 */
-  --ink-300:  oklch(78%   0.013 248);  /* 禁用文字 */
-  --ink-400:  oklch(66%   0.015 248);  /* placeholder */
-  --ink-500:  oklch(54%   0.018 248);  /* 次要文字 */
-  --ink-600:  oklch(43%   0.020 248);  /* 辅助文字 */
-  --ink-700:  oklch(33%   0.022 248);  /* 正文 */
-  --ink-800:  oklch(24%   0.024 248);  /* 重要正文 */
-  --ink-900:  oklch(15%   0.020 248);  /* 标题、强调 */
+  /* Border */
+  --color-border: #e4e9f0;
+  --color-border-light: #eef1f6;
+  --color-border-lighter: #f3f6fb;
+  --color-border-strong: #d0d7e2;
 
-  /* 状态色：饱和度统一，不用毒糖色 */
-  --success-50:  oklch(96%  0.02  155);
-  --success-500: oklch(56%  0.15  155);
-  --success-700: oklch(40%  0.13  155);
+  /* Status */
+  --color-success: #12b76a;
+  --color-success-light: #e8f7ee;
+  --color-success-border: #b7e6c5;
+  --color-warning: #f5920a;
+  --color-warning-light: #fff7e8;
+  --color-warning-border: #ffd99a;
+  --color-danger: #f04438;
+  --color-danger-light: #fdecec;
+  --color-danger-border: #f5c2c2;
+  --color-info: #667085;
+  --color-info-light: #f2f4f7;
+  --color-info-border: #d0d5dd;
 
-  --warning-50:  oklch(97%  0.04  85);
-  --warning-500: oklch(70%  0.16  85);
-  --warning-700: oklch(50%  0.15  60);
+  /* Spacing */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-7: 32px;
+  --spacing-8: 40px;
 
-  --danger-50:   oklch(96%  0.025 25);
-  --danger-500:  oklch(58%  0.20  25);
-  --danger-700:  oklch(43%  0.18  25);
+  /* Shape */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
 
-  --info-50:     oklch(96%  0.02  220);
-  --info-500:    oklch(60%  0.13  220);
-  --info-700:    oklch(43%  0.12  220);
+  /* Elevation */
+  --shadow-none: none;
+  --shadow-card: 0 1px 2px rgba(31, 35, 41, 0.06);
+  --shadow-popover: 0 8px 20px rgba(31, 35, 41, 0.10);
+  --shadow-focus: 0 0 0 3px rgba(51, 112, 255, 0.16);
 
-  /* 数据脱敏专属色 —— 不是简单灰，而是带斜纹背景的 token */
-  --redacted-fg: var(--ink-400);
-  --redacted-bg:
-    repeating-linear-gradient(
-      135deg,
-      var(--ink-100) 0 6px,
-      var(--ink-50)  6px 12px
-    );
+  /* Motion */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --ease-standard: ease;
 
-  /* ---------- 间距（4px 基线，乘数体系） ---------- */
-  --space-0:  0;
-  --space-1:  2px;
-  --space-2:  4px;
-  --space-3:  6px;
-  --space-4:  8px;
-  --space-5:  12px;
-  --space-6:  16px;
-  --space-7:  20px;
-  --space-8:  24px;
-  --space-9:  32px;
-  --space-10: 40px;
-  --space-11: 48px;
-  --space-12: 64px;
-  --space-13: 96px;
+  /* Layout */
+  --layout-topbar-height: 56px;
+  --layout-sidebar-width: 220px;
+  --layout-content-max-width: 1440px;
 
-  /* 流体内边距：随屏幕略放宽 */
-  --pad-page:    clamp(20px, 2vw, 32px);
-  --pad-card:    clamp(16px, 1.4vw, 24px);
-  --pad-section: clamp(32px, 3vw, 56px);
-
-  /* ---------- 圆角（极克制） ---------- */
-  --r-0: 0;
-  --r-sm: 2px;        /* 默认：表格、按钮、输入框、Tag */
-  --r-md: 4px;        /* 卡片、抽屉、弹窗 */
-  --r-lg: 6px;        /* 大型容器、登录卡 */
-  --r-pill: 999px;    /* 仅头像、状态点 */
-
-  /* ---------- 边框 ---------- */
-  --bw-1: 1px;
-  --bw-2: 2px;
-  --bw-bar: 3px;       /* 行首状态色条专用 */
-  --border-default: var(--bw-1) solid var(--ink-200);
-  --border-strong:  var(--bw-1) solid var(--ink-300);
-  --border-focus:   var(--bw-2) solid var(--brand-500);
-
-  /* ---------- 阴影（极克制，避免漂浮卡片感） ---------- */
-  --shadow-0: none;
-  --shadow-1: 0 1px 0 oklch(0% 0 0 / 0.04);                 /* 分隔级 */
-  --shadow-2: 0 1px 2px oklch(0% 0 0 / 0.06),
-              0 1px 1px oklch(0% 0 0 / 0.04);                /* 抬起一档 */
-  --shadow-3: 0 4px 12px oklch(0% 0 0 / 0.08),
-              0 2px 4px oklch(0% 0 0 / 0.04);                /* 抽屉/弹窗 */
-  --shadow-focus: 0 0 0 3px oklch(54% 0.16 248 / 0.18);
-
-  /* ---------- 动效 ---------- */
-  --easing-out:  cubic-bezier(0.22, 1, 0.36, 1);   /* ease-out-quart */
-  --easing-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --duration-fast:  120ms;
-  --duration-base:  200ms;
-  --duration-slow:  320ms;
-
-  /* ---------- 布局尺寸 ---------- */
-  --layout-topbar-h:    52px;
-  --layout-sidebar-w:   232px;
-  --layout-sidebar-w-collapsed: 56px;
-  --layout-content-max: 1440px;
-  --layout-table-row-h: 40px;
-  --layout-table-row-h-compact: 32px;
-
-  /* ---------- z-index ---------- */
-  --z-sidebar: 50;
-  --z-topbar:  60;
-  --z-drawer:  100;
-  --z-dialog:  110;
-  --z-toast:   200;
+  /* Z index */
+  --z-index-sidebar: 50;
+  --z-index-topbar: 60;
+  --z-index-drawer: 100;
+  --z-index-dialog: 110;
+  --z-index-toast: 200;
 }
-
-/* 需要时可以挂 dark / high-contrast，本期不做 */

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from datetime import datetime
 from typing import Any
 
@@ -21,11 +22,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.data.models import DATA_TABLES, TableColumn
+from app.reports.filter_logic import build_filter_clause
 from app.reports.models import Report
 from app.users.models import User
 
@@ -39,6 +42,8 @@ class FilterCond(BaseModel):
     column: str
     op: str = "eq"  # eq / neq / contains / gt / gte / lt / lte / between / in / is_null / is_not_null
     value: Any = None
+    visible: bool = True
+    locked: bool = False
 
 
 class SortCond(BaseModel):
@@ -59,8 +64,15 @@ class ReportConfig(BaseModel):
     # 数值拆分规则（仅数据集模式）：[{"target":"alias.col","factor":"alias.col"}]
     # 出值时 target 列显示 round(num(target) × num(factor), 2)，非数值/空 → 空
     value_rules: list[dict] = Field(default_factory=list)
+    # 字段级展示/计算配置：{"col": {"display_name": "...", "hidden": true,
+    # "aggregation": "sum", "split_mode": "default|none|custom", "split_factor": "..."}}
+    column_settings: dict[str, dict] = Field(default_factory=dict)
+    # 默认数值拆分规则，前端保存时会同步展开为 value_rules，保留该字段用于编辑回显
+    default_split_rule: dict = Field(default_factory=dict)
     # 聚合：开启后按维度列 GROUP BY、对度量列按 aggregations 指定方式汇总
     aggregate: bool = False
+    # 默认度量聚合方式：字段未单独覆盖时使用；前端保存时会展开为 aggregations
+    default_aggregation: str = "sum"
     # 度量聚合方式：{"alias.col": "sum|avg|min|max|count"}，缺省 sum
     aggregations: dict[str, str] = Field(default_factory=dict)
     # 转置/重映射（仅数据集模式）：把源度量从原维度组合搬到新维度组合，保留其余记录
@@ -72,6 +84,8 @@ class ReportConfig(BaseModel):
     # 余差收口：聚合后按指定维度分组，确保各组合计严格等于原始值乘系数
     # [{"group_by": "alias.col", "target_cols": ["alias.col", ...]}]
     rounding_corrections: list[dict] = Field(default_factory=list)
+    # 复杂筛选逻辑预留：旧 filters 仍按 AND 兼容
+    filter_logic: dict | None = None
 
 
 class ReportIn(BaseModel):
@@ -108,6 +122,37 @@ class RunResult(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class RunOverrides(BaseModel):
+    filters: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def _project_report_output(
+    columns: list[dict[str, Any]],
+    items: list[dict[str, Any]],
+    config: ReportConfig,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    settings = config.column_settings or {}
+    visible_columns: list[dict[str, Any]] = []
+    visible_codes: list[str] = []
+    for col in columns:
+        code = col.get("code")
+        setting = settings.get(code, {}) if code else {}
+        if setting.get("hidden"):
+            continue
+        next_col = dict(col)
+        display_name = setting.get("display_name")
+        if display_name:
+            next_col["label"] = display_name
+        visible_columns.append(next_col)
+        if code:
+            visible_codes.append(code)
+    visible_items = [
+        {code: item.get(code) for code in visible_codes}
+        for item in items
+    ]
+    return visible_columns, visible_items
 
 
 # ===== 工具：表标签映射 =====
@@ -268,55 +313,143 @@ async def delete_report(
 
 # ===== 查询执行 =====
 
-def _apply_filters(stmt, Model, filters: list[FilterCond]):
-    """把 filters 翻译成 SQL where（基于 raw JSONB ->> 文本比较）"""
+def _single_filter_clause(Model, f: dict[str, Any]):
+    """把单个 filter 翻译成 SQL where 子句（基于 raw JSONB ->> 文本比较）"""
     from sqlalchemy import String as SAString, cast
 
-    for f in filters:
-        col = f.column
-        op = (f.op or "eq").lower()
-        val = f.value
-        # raw->>'col' 取出 text
-        json_text = cast(Model.raw[col].astext, SAString)
+    col = f.get("column")
+    if not col:
+        return None
+    op = (f.get("op") or "eq").lower()
+    val = f.get("value")
+    json_text = cast(func.jsonb_extract_path_text(cast(Model.raw, JSONB), col), SAString)
 
-        if op == "eq":
-            stmt = stmt.where(json_text == (str(val) if val is not None else None))
-        elif op == "neq":
-            stmt = stmt.where(json_text != (str(val) if val is not None else None))
-        elif op == "contains":
-            if val:
-                stmt = stmt.where(json_text.ilike(f"%{val}%"))
-        elif op == "gt":
-            stmt = stmt.where(json_text > str(val))
-        elif op == "gte":
-            stmt = stmt.where(json_text >= str(val))
-        elif op == "lt":
-            stmt = stmt.where(json_text < str(val))
-        elif op == "lte":
-            stmt = stmt.where(json_text <= str(val))
-        elif op == "between":
-            if isinstance(val, (list, tuple)) and len(val) == 2:
-                lo, hi = val
-                if lo is not None:
-                    stmt = stmt.where(json_text >= str(lo))
-                if hi is not None:
-                    stmt = stmt.where(json_text <= str(hi))
-        elif op == "in":
-            if isinstance(val, (list, tuple)) and val:
-                stmt = stmt.where(json_text.in_([str(x) for x in val]))
-        elif op == "is_null":
-            stmt = stmt.where(or_(Model.raw[col].astext.is_(None), Model.raw[col].astext == ""))
-        elif op == "is_not_null":
-            stmt = stmt.where(Model.raw[col].astext.isnot(None))
-            stmt = stmt.where(Model.raw[col].astext != "")
+    if op == "eq":
+        return json_text == (str(val) if val is not None else None)
+    if op == "neq":
+        return json_text != (str(val) if val is not None else None)
+    if op == "contains":
+        return json_text.ilike(f"%{val}%") if val else None
+    if op == "gt":
+        return json_text > str(val)
+    if op == "gte":
+        return json_text >= str(val)
+    if op == "lt":
+        return json_text < str(val)
+    if op == "lte":
+        return json_text <= str(val)
+    if op == "between" and isinstance(val, (list, tuple)) and len(val) == 2:
+        clauses = []
+        lo, hi = val
+        if lo is not None:
+            clauses.append(json_text >= str(lo))
+        if hi is not None:
+            clauses.append(json_text <= str(hi))
+        from sqlalchemy import and_
+        return and_(*clauses) if clauses else None
+    if op == "in" and isinstance(val, (list, tuple)) and val:
+        return json_text.in_([str(x) for x in val])
+    if op == "is_null":
+        return or_(json_text.is_(None), json_text == "")
+    if op == "is_not_null":
+        from sqlalchemy import and_
+        return and_(json_text.isnot(None), json_text != "")
+    return None
+
+
+def _apply_filters(stmt, Model, filters: list[FilterCond], filter_logic: dict | None = None):
+    """把 filters/筛选逻辑翻译成 SQL where。"""
+    try:
+        clause = build_filter_clause(
+            filters,
+            lambda f: _single_filter_clause(Model, f),
+            filter_logic,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if clause is not None:
+        stmt = stmt.where(clause)
     return stmt
+
+
+def _normalize_runtime_filters(raw_filters: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for f in raw_filters or []:
+        if not isinstance(f, dict) or not f.get("column"):
+            continue
+        next_filter = dict(f)
+        op = next_filter.get("op") or "eq"
+        value = next_filter.get("value")
+        if op in {"is_null", "is_not_null"}:
+            value = None
+        elif op in {"between", "in"} and isinstance(value, str):
+            value = [v.strip() for v in value.split(",") if v.strip()]
+        next_filter["op"] = op
+        next_filter["value"] = value
+        normalized.append(next_filter)
+    return normalized
+
+
+def _apply_runtime_overrides(cfg: ReportConfig, raw_filters: list[dict[str, Any]] | None) -> ReportConfig:
+    """Apply temporary view-page filter edits without mutating the stored config."""
+    runtime_filters = _normalize_runtime_filters(raw_filters)
+    if not runtime_filters:
+        return cfg
+
+    base = [f.model_dump() for f in cfg.filters]
+    used: set[int] = set()
+    for rf in runtime_filters:
+        replaced = False
+        raw_index = rf.get("__index")
+        if isinstance(raw_index, int) and 0 <= raw_index < len(base):
+            bf = base[raw_index]
+            if bf.get("visible", True) and not bf.get("locked", False):
+                base[raw_index] = {
+                    **bf,
+                    "op": rf.get("op", bf.get("op", "eq")),
+                    "value": rf.get("value"),
+                }
+                used.add(raw_index)
+                replaced = True
+        if replaced:
+            continue
+        for i, bf in enumerate(base):
+            if i in used:
+                continue
+            if bf.get("column") != rf.get("column"):
+                continue
+            if not bf.get("visible", True) or bf.get("locked", False):
+                continue
+            base[i] = {
+                **bf,
+                "op": rf.get("op", bf.get("op", "eq")),
+                "value": rf.get("value"),
+            }
+            used.add(i)
+            break
+
+    data = cfg.model_dump()
+    data["filters"] = base
+    return ReportConfig(**data)
+
+
+def _parse_runtime_filters(raw: str | None) -> list[dict[str, Any]]:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="runtime_filters 不是合法 JSON") from exc
+    if not isinstance(parsed, list):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="runtime_filters 必须是数组")
+    return [f for f in parsed if isinstance(f, dict)]
 
 
 def _apply_sorts(stmt, Model, sorts: list[SortCond]):
     from sqlalchemy import String as SAString, cast
 
     for s in sorts:
-        json_text = cast(Model.raw[s.column].astext, SAString)
+        json_text = cast(func.jsonb_extract_path_text(cast(Model.raw, JSONB), s.column), SAString)
         if s.order == "desc":
             stmt = stmt.order_by(desc(json_text))
         else:
@@ -358,8 +491,8 @@ async def _run_query(
     stmt = select(Model)
     count_stmt = select(func.count()).select_from(Model)
 
-    stmt = _apply_filters(stmt, Model, config.filters)
-    count_stmt = _apply_filters(count_stmt, Model, config.filters)
+    stmt = _apply_filters(stmt, Model, config.filters, config.filter_logic)
+    count_stmt = _apply_filters(count_stmt, Model, config.filters, config.filter_logic)
 
     # 注入数据范围权限（FR-REPORT-004）
     if user is not None:
@@ -406,9 +539,22 @@ async def _run_query(
     return selected_cols, items, total
 
 
+def _single_columns_meta(cols: list[TableColumn]) -> list[dict[str, Any]]:
+    return [
+        {
+            "code": c.column_code,
+            "label": c.column_label,
+            "data_type": c.data_type,
+            "is_sensitive": c.is_sensitive,
+        }
+        for c in cols
+    ]
+
+
 @router.post("/{report_id}/run", response_model=RunResult)
 async def run_report(
     report_id: int,
+    overrides: RunOverrides | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     user: User = Depends(current_user),
@@ -418,7 +564,7 @@ async def run_report(
     if r is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
 
-    cfg = ReportConfig(**(r.config or {}))
+    cfg = _apply_runtime_overrides(ReportConfig(**(r.config or {})), overrides.filters if overrides else None)
 
     if r.dataset_id is not None:
         # 数据集模式：多表 JOIN
@@ -427,6 +573,7 @@ async def run_report(
             dataset_id=r.dataset_id,
             columns=cfg.columns,
             filters=[f.model_dump() for f in cfg.filters],
+            filter_logic=cfg.filter_logic,
             sorts=[s.model_dump() for s in cfg.sorts],
             value_rules=cfg.value_rules,
             aggregate=cfg.aggregate,
@@ -441,7 +588,8 @@ async def run_report(
         r.last_run_at = datetime.utcnow()
         r.run_count = (r.run_count or 0) + 1
         await db.commit()
-        return RunResult(columns=cols_meta, items=items, total=total, page=page, page_size=page_size)
+        out_cols, out_items = _project_report_output(cols_meta, items, cfg)
+        return RunResult(columns=out_cols, items=out_items, total=total, page=page, page_size=page_size)
 
     # 单表模式（保留向后兼容）
     cols, items, total = await _run_query(db, r.table_name, cfg, page, page_size, user=user)
@@ -451,17 +599,10 @@ async def run_report(
     r.run_count = (r.run_count or 0) + 1
     await db.commit()
 
+    out_cols, out_items = _project_report_output(_single_columns_meta(cols), items, cfg)
     return RunResult(
-        columns=[
-            {
-                "code": c.column_code,
-                "label": c.column_label,
-                "data_type": c.data_type,
-                "is_sensitive": c.is_sensitive,
-            }
-            for c in cols
-        ],
-        items=items,
+        columns=out_cols,
+        items=out_items,
         total=total,
         page=page,
         page_size=page_size,
@@ -469,18 +610,19 @@ async def run_report(
 
 
 async def _collect_export_rows(
-    r: Report, user: User, db: AsyncSession
+    r: Report, user: User, db: AsyncSession, runtime_filters: list[dict[str, Any]] | None = None
 ) -> tuple[list[str], list[list[Any]], list[str]]:
     """统一收集导出数据：返回 (header_labels, value_rows, codes)
     支持单表与数据集两种模式
     """
-    cfg = ReportConfig(**(r.config or {}))
+    cfg = _apply_runtime_overrides(ReportConfig(**(r.config or {})), runtime_filters)
     if r.dataset_id is not None:
         from app.reports.sql_builder import run_dataset_query
         cols_meta, items, _ = await run_dataset_query(
             dataset_id=r.dataset_id,
             columns=cfg.columns,
             filters=[f.model_dump() for f in cfg.filters],
+            filter_logic=cfg.filter_logic,
             sorts=[s.model_dump() for s in cfg.sorts],
             value_rules=cfg.value_rules,
             aggregate=cfg.aggregate,
@@ -492,14 +634,16 @@ async def _collect_export_rows(
             user=user,
             db=db,
         )
+        cols_meta, items = _project_report_output(cols_meta, items, cfg)
         codes = [c["code"] for c in cols_meta]
         labels = [c["label"] for c in cols_meta]
         rows = [[item.get(code, "") for code in codes] for item in items]
         return labels, rows, codes
 
     cols, items, _ = await _run_query(db, r.table_name, cfg, page=1, page_size=100000, user=user)
-    codes = [c.column_code for c in cols]
-    labels = [c.column_label for c in cols]
+    cols_meta, items = _project_report_output(_single_columns_meta(cols), items, cfg)
+    codes = [c["code"] for c in cols_meta]
+    labels = [c["label"] for c in cols_meta]
     rows = [[item.get(code, "") for code in codes] for item in items]
     return labels, rows, codes
 
@@ -510,6 +654,7 @@ async def _collect_export_rows(
 )
 async def export_report_csv(
     report_id: int,
+    runtime_filters: str | None = Query(None),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
@@ -517,7 +662,9 @@ async def export_report_csv(
     if r is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
 
-    labels, rows, _codes = await _collect_export_rows(r, user, db)
+    labels, rows, _codes = await _collect_export_rows(
+        r, user, db, _parse_runtime_filters(runtime_filters)
+    )
 
     buf = io.StringIO()
     buf.write("﻿")  # UTF-8 BOM，让 Excel 正确识别中文
@@ -543,6 +690,7 @@ async def export_report_csv(
 )
 async def export_report_xlsx(
     report_id: int,
+    runtime_filters: str | None = Query(None),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
@@ -553,7 +701,9 @@ async def export_report_xlsx(
     if r is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
 
-    labels, rows, _codes = await _collect_export_rows(r, user, db)
+    labels, rows, _codes = await _collect_export_rows(
+        r, user, db, _parse_runtime_filters(runtime_filters)
+    )
 
     wb = Workbook()
     ws = wb.active

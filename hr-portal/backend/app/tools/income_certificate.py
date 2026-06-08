@@ -94,27 +94,40 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace(" ", "&nbsp;")
 
 
-def render_html(data: dict) -> str:
+def _split_blocks(blocks: list[tuple[str, str]]) -> tuple[str, list[tuple[str, str]]]:
+    title = TITLE
+    body_blocks: list[tuple[str, str]] = []
+    for text, kind in blocks:
+        if kind == "title":
+            title = text
+        else:
+            body_blocks.append((text, kind))
+    return title, body_blocks
+
+
+def render_html(data: dict, template_blocks: list[tuple[str, str]] | None = None) -> str:
+    title, blocks = _split_blocks(template_blocks or build_blocks(data))
     parts = []
-    for text, kind in build_blocks(data):
-        cls = {"body": "cert-p", "sign": "cert-sign", "line": "cert-line"}[kind]
+    for text, kind in blocks:
+        cls = {"body": "cert-p", "paragraph": "cert-p", "sign": "cert-sign", "line": "cert-line", "footer": "cert-line"}.get(kind, "cert-p")
         parts.append(f'<p class="{cls}">{_esc(text)}</p>')
     body = "".join(parts)
     logo = _logo_data_url()
     logo_html = f'<div class="cert-header"><img class="cert-logo" src="{logo}" /></div>' if logo else ""
     return f"""<div class="cert-doc">
 {logo_html}
-<h1 class="cert-title">{_esc(TITLE)}</h1>
+<h1 class="cert-title">{_esc(title)}</h1>
 {body}
 </div>"""
 
 
-def render_docx(data: dict) -> bytes:
+def render_docx(data: dict, template_blocks: list[tuple[str, str]] | None = None) -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml.ns import qn
     from docx.shared import Inches, Pt
 
+    title_text, blocks = _split_blocks(template_blocks or build_blocks(data))
     doc = Document()
     section = doc.sections[0]
     logo = _logo_bytes()
@@ -131,17 +144,17 @@ def render_docx(data: dict) -> bytes:
 
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run(TITLE)
+    run = title.add_run(title_text)
     run.bold = True
     run.font.size = Pt(18)
     run.font.name = "宋体"
     run.element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
 
-    for text, kind in build_blocks(data):
+    for text, kind in blocks:
         p = doc.add_paragraph(text)
         pf = p.paragraph_format
         pf.line_spacing = 1.5
-        if kind == "body":
+        if kind in {"body", "paragraph"}:
             pf.first_line_indent = Pt(24)
         elif kind == "sign":
             p.alignment = WD_ALIGN_PARAGRAPH.RIGHT

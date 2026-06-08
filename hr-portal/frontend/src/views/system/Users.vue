@@ -58,7 +58,7 @@
               <el-tag v-for="rn in row.role_names" :key="rn" size="small" style="margin-right: 4px">
                 {{ rn }}
               </el-tag>
-              <span v-if="!row.role_names.length" style="color: #9aa5b4; font-size: 12px">未分配</span>
+              <span v-if="!row.role_names.length" style="color: var(--color-text-placeholder); font-size: 12px">未分配</span>
             </template>
           </el-table-column>
           <el-table-column label="状态" width="90">
@@ -143,7 +143,7 @@
           <el-checkbox-group v-model="form.role_ids" style="display: flex; flex-direction: column; gap: 8px">
             <el-checkbox v-for="r in roles" :key="r.id" :value="r.id" :disabled="!r.is_active">
               {{ r.name }}
-              <span v-if="!r.is_active" style="color: #9aa5b4; font-size: 12px">（已停用）</span>
+              <span v-if="!r.is_active" style="color: var(--color-text-placeholder); font-size: 12px">（已停用）</span>
             </el-checkbox>
           </el-checkbox-group>
         </el-form-item>

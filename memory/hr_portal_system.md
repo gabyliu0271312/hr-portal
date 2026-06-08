@@ -27,22 +27,25 @@ metadata:
 **Why**：成本分摊系统的 nginx 容器 publish 了 `0.0.0.0:80`，hr-portal 必须避开。
 **How to apply**：以后改 docker-compose 端口前先用 `docker ps` 看占用情况；hr-portal 默认入口是 <http://localhost:8080/>。
 
-## 视觉风格（v2.0 飞书风，2026-05-23 重构）
+## 视觉风格（v2.1 平台飞书风，2026-06-06 重建）
 
-参考成本分摊系统（`C:\Users\gaby.liu\.claude\projects\成本分摊系统`），全面抛弃 v1「账册风」：
+当前前端只保留一套平台设计 token，已彻底移除 v1「账册风 / Ledger」变量与组件样式：
 
-- 主色 `#3370ff` 飞书蓝（已覆盖 EP 主色变量）
+- 主色 `#3370ff` 飞书蓝（平台级主色，不是单个模块主题色）
 - 灰底页面 `#f4f6f9` + 白色 `<el-card>` 内容块
 - 字体走系统默认 sans-serif（不引外部字体）
+- token 唯一源头：`frontend/src/styles/tokens.css`
+- Element Plus 覆盖：`frontend/src/styles/element-overrides.css`
 - 完整规范见 `hr-portal/frontend/docs/design-system.md`
 
-**已废弃的 v1 元素**（看到旧文档/记忆别再用）：
+**已废弃且不要恢复的 v1 元素**：
 
 - ~~PageHead 组件~~（行内 el-card header 替代）
 - ~~行首状态色条~~（改用 el-tag）
 - ~~操作权限四件套圆点~~（改用 el-checkbox 标准矩阵）
-- ~~脱敏密文格栅~~（暂时不用，Phase 5 再设计）
+- ~~脱敏密文格栅~~（敏感数据使用普通文本占位）
 - ~~`.hp-table-wrap` / `.hp-filter` / `.hp-pager` 等 hp-* 类~~（直接用 el-card + 行内 style）
+- ~~`--brand-*` / `--ink-*` / `--fs-*` / `--space-*` / `--r-*` 等旧 token~~
 
 ## 菜单层级（v2.0 三级结构，2026-05-23）
 
@@ -98,6 +101,7 @@ metadata:
 - **登录方式本期仅账密**，飞书 SSO 推到下一期但保留接入位（user 表 `feishu_user_id` 字段、登录页置灰按钮）
 - **操作权限本期穷举**：新增 / 修改 / 删除 / 导出 四类，按 角色 × 菜单 矩阵；遇到工作流按钮考虑 Phase 6 升级 menu_actions（[[hr-portal-menu-actions-upgrade]]）
 - **数据集（DataSet）化的表间关联**：表间关联归属于数据集而非全局；新建报表第一步必须先选数据集
+- **模板维护平台化**：证明、协议等文档模板统一放在“系统设置 → 参数配置 → 模板维护”，以 `.docx` Word 模板上传解析为主，业务工具只读取模板配置。
 
 ## 数据层架构（v2，C1 动态列扩展，2026-05-23）
 
@@ -278,6 +282,71 @@ ReportRun 页打开时自动调用，断键则禁用「运行」按钮。
 - `GET /reports/{id}/export.xlsx` — openpyxl，文件名 URL-encode 避免 latin-1 编码错
 - 导出走与 run 相同的脱敏 + 权限管道
 
+## 模板维护（2026-06-06）
+
+菜单位置：
+
+```text
+系统设置 → 参数配置 → 模板维护
+```
+
+权限 code：
+
+```text
+system.document_templates
+```
+
+一期能力：
+
+- 维护文档模板基本信息：编码、名称、业务类型、状态、版本、生效期间。
+- 上传 / 下载 `.docx` Word 模板。
+- 自动解析 Word 模板中的 `{{variable_code}}` 占位符。
+- 维护模板变量：变量编码、变量名称、来源类型、来源键、默认值、是否必填。
+- 占位符格式：`{{variable_code}}`。
+- 支持模板预览，使用示例变量值渲染为纯文本预览；正式下载输出替换后的 Word 文档。
+- 不执行用户输入公式代码。
+
+后端表：
+
+```text
+document_templates
+document_template_blocks
+document_template_variables
+```
+
+`document_template_blocks` 是历史兼容兜底；正常维护方式应使用 `document_templates.template_file` 存储 Word 模板。
+
+默认模板：
+
+- `agreement_release`：解除劳动合同协议书，供补偿金计算生成协议使用。
+- `annual_income`：年包收入证明，供证明开具工具使用。
+
+工具读取逻辑：
+
+- “补偿金计算 → 协议预览/下载”读取启用的 `agreement` 模板。
+- “证明开具 → 模板下拉/预览/下载”读取启用的 `income_certificate` 模板。
+- 若模板已上传 Word 文件，则下载时直接替换 Word 占位符并输出 `.docx`。
+- 若模板未上传 Word 文件，则使用历史模板块/服务端默认模板兜底。
+- “模板维护 → 下载”始终可用：已上传 Word 时下载原 Word；未上传 Word 时按当前模板块/默认模板生成一份可编辑 `.docx` 模板，便于管理员下载后在 Word 中调整再上传替换。
+- 模板 seed 只补缺，不覆盖管理员后续在页面里的修改。
+
+前台可编辑预览（2026-06-07）：
+
+- 补偿金协议与收入证明点击“预览”后，右侧预览区默认就是可编辑草稿，不需要再点“编辑草稿”。
+- 预览区顶部显示“标准生成 / 已人工调整”，并提示本次修改不会改变后台标准模板。
+- 用户调整预览文字后，下载 Word 与打印都使用当前预览内容。
+- 若用户已人工调整后点击“更新右侧预览”，系统先提示重新生成会覆盖当前修改。
+- “恢复原始预览”可回到本次打开预览时由模板生成的原始内容。
+- 下载/打印会写入 `document_generation_logs`：业务类型、动作、模板、对象姓名、是否人工调整、草稿 hash/长度、操作人、时间；不存完整正文。
+- 证明开具支持模板手工变量：模板变量 `source_type = manual` 时，会在“证明开具 → 预览”左侧自动出现“本次补充字段”；用户本次填写的值会合并进 `manual_values`，参与预览、下载 Word 和打印。例如旅游/签证证明中的护照号、目的地、行程时间，不需要写入员工花名册。
+- 必填手工变量由前端和后端双重校验；缺失时阻止预览/下载/打印。
+
+新增表：
+
+```text
+document_generation_logs
+```
+
 ### 数据集前端
 
 - `views/datasource/Datasets.vue` — 数据集列表
@@ -297,3 +366,59 @@ ReportRun 页打开时自动调用，断键则禁用「运行」按钮。
 - 坑 6：北森 token 接口要 `application/x-www-form-urlencoded`，httpx `data=` 默认会带；不要用 `params=`
 - 坑 7：北森企业租户 IP 白名单 → 开发/生产 IP 必须先加入白名单才能调 API
 - 坑 8：数据层不要再写固定列 schema → 已切 C1 动态列，所有新接入字段都自动注册到 table_columns
+
+## 大型独立应用接入原则（2026-06-06）
+
+HR Portal 后续不仅承载普通菜单页，也会承载绩效管理这类大型独立业务应用。
+
+统一原则：
+
+- HR Portal 是应用门户和入口授权中心。
+- 普通小功能继续按现有三级菜单接入。
+- 大型独立应用作为顶部一级应用入口接入。
+- HR Portal 只控制能否进入应用、能否进入应用后台。
+- 业务应用内部的角色、流程、数据权限、节点权限由业务应用自己管理。
+
+统一权限命名：
+
+```text
+<app_code>.app
+<app_code>.admin
+```
+
+示例：
+
+```text
+performance.app
+performance.admin
+cost_allocation.app
+cost_allocation.admin
+```
+
+绩效管理在 HR Portal 中应作为一级应用入口，不放在“提效工具”或“系统设置”下。进入 `/performance` 后使用绩效自己的 `PerformanceLayout` 和内部导航。
+
+已上线的人力成本分摊系统也按独立应用模式接入：
+
+- 顶部一级应用：成本分摊
+- HR Portal 入口权限：`cost_allocation.app`
+- HR Portal 后台入口权限：`cost_allocation.admin`
+- HR Portal 路由：`/cost-allocation-system`、`/cost-allocation-system/admin`
+- 跳转地址由 `VITE_COST_ALLOCATION_APP_URL` / `VITE_COST_ALLOCATION_ADMIN_URL` 配置
+
+注意区分：`tools.cost_allocation` 是 HR Portal 内部“提效工具”下的成本分摊/报表能力；`cost_allocation.*` 是已上线独立成本分摊系统入口权限。HR Portal 只管入口，独立系统内部的 `admin`、`cost_admin`、`hrbp`、`manager` 角色仍由成本分摊系统自己管理。
+
+成本分摊生产地址：`http://192.168.10.13:37800/`。当前点击 HR Portal 成本分摊入口时，不直接打开生产首页，而是调用 HR Portal 后端 `GET /api/v1/cost-allocation/external-sso-url?entry_type=app|admin`，由后端请求成本分摊系统 `GET /api/v1/auth/feishu/url?redirect_uri=http://192.168.10.13:37800/login`，拿到飞书 OAuth 地址后让浏览器跳转。该方式是“HR Portal 触发目标系统飞书 SSO”，不是共享 HR Portal token，也不是统一 session。若用户仍无法进入成本分摊系统，优先检查成本分摊用户表中的 `feishu_open_id`、邮箱、手机号匹配，以及目标系统内部角色。
+
+成本分摊后续只保留两条优化路线：方案一是继续作为外部独立系统，但升级为“HR Portal 一次性 ticket 无感登录 + return_url 返回 HR Portal”；方案三是迁入 HR Portal，成为类似绩效管理的内部应用。当前不考虑 iframe/反向代理承载外部系统的中间方案。短期优先方案一，成本更低且可实现无感进入和返回 HR Portal；中长期如成本分摊需要深度复用 HR Portal 人员、组织、权限、报表和视觉体系，再评估方案三。
+
+成本分摊专项集成文档：
+
+```text
+specs/003-cost-allocation-integration/sso-integration.md
+```
+
+主规格文档：
+
+```text
+specs/001-hr-permission-portal/application-access-model.md
+```

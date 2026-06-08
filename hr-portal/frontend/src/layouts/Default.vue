@@ -76,27 +76,11 @@ import { useUserStore } from '@/stores/user'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { Avatar } from '@element-plus/icons-vue'
 import { authApi } from '@/api/auth'
+import { MENU_ROUTE_MAP } from '@/constants/menuRoutes'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
-
-// 路由路径映射：菜单 code → 实际路由路径
-const ROUTE_MAP: Record<string, string> = {
-  'system.users': '/system/users',
-  'system.roles': '/system/roles',
-  'system.scopes': '/system/scopes',
-  'system.field_categories': '/system/field-categories',
-  'system.field_columns': '/system/field-columns',
-  'system.compensation_caps': '/system/compensation-caps',
-  'datasource.endpoints': '/datasource/endpoints',
-  'datasource.datasets': '/datasource/datasets',
-  'data.view': '/data/view',
-  'report.list': '/report/list',
-  'tools.center': '/tools/center',
-  'tools.compensation_calc': '/tools/compensation-calc',
-  'tools.income_certificate': '/tools/income-certificate',
-}
 
 interface LeafMenu {
   id: number
@@ -119,13 +103,13 @@ const tabGroups = computed<TabMenu[]>(() => {
         id: leaf.id,
         code: leaf.code,
         label: leaf.label,
-        routePath: ROUTE_MAP[leaf.code] ?? '/home',
+        routePath: MENU_ROUTE_MAP[leaf.code] ?? '/home',
       }))
       return {
         id: g.id,
         code: g.code,
         label: g.label,
-        routePath: ROUTE_MAP[g.code] ?? '/home',
+        routePath: MENU_ROUTE_MAP[g.code] ?? '/home',
         children: leaves,
       }
     })
@@ -133,7 +117,7 @@ const tabGroups = computed<TabMenu[]>(() => {
       id: tab.id,
       code: tab.code,
       label: tab.label,
-      routePath: ROUTE_MAP[tab.code] ?? '/home',
+      routePath: MENU_ROUTE_MAP[tab.code] ?? '/home',
       children: groups,
     }
   })

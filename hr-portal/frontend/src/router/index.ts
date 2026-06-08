@@ -61,6 +61,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '补偿金上限维护', menuCode: 'system.compensation_caps' },
       },
       {
+        path: 'system/document-templates',
+        name: 'SystemDocumentTemplates',
+        component: () => import('@/views/system/DocumentTemplates.vue'),
+        meta: { label: '模板维护', menuCode: 'system.document_templates' },
+      },
+      {
         path: 'datasource/endpoints',
         name: 'DatasourceEndpoints',
         component: () => import('@/views/datasource/Endpoints.vue'),
@@ -143,6 +149,53 @@ const routes: RouteRecordRaw[] = [
         name: 'IncomeCertificate',
         component: () => import('@/views/tools/IncomeCertificate.vue'),
         meta: { label: '证明开具', menuCode: 'tools.income_certificate' },
+      },
+      {
+        path: 'cost-allocation-system',
+        name: 'CostAllocationSystemEntry',
+        component: () => import('@/views/costAllocation/Entry.vue'),
+        meta: { label: '成本分摊系统入口', menuCode: 'cost_allocation.app', entryType: 'app' },
+      },
+      {
+        path: 'cost-allocation-system/admin',
+        name: 'CostAllocationSystemAdminEntry',
+        component: () => import('@/views/costAllocation/Entry.vue'),
+        meta: { label: '成本分摊后台入口', menuCode: 'cost_allocation.admin', entryType: 'admin' },
+      },
+    ],
+  },
+  {
+    path: '/performance',
+    component: () => import('@/layouts/PerformanceLayout.vue'),
+    meta: { menuCode: 'performance.app' },
+    children: [
+      {
+        path: '',
+        redirect: '/performance/workbench',
+      },
+      {
+        path: 'workbench',
+        name: 'PerformanceWorkbench',
+        component: () => import('@/views/performance/Workbench.vue'),
+        meta: { label: '绩效工作台', menuCode: 'performance.app' },
+      },
+      {
+        path: 'review',
+        name: 'PerformanceReview',
+        component: () => import('@/views/performance/Review.vue'),
+        meta: { label: '绩效评估', menuCode: 'performance.app' },
+      },
+      {
+        path: 'projects',
+        name: 'PerformanceProjects',
+        component: () => import('@/views/performance/Projects.vue'),
+        meta: { label: '项目管理', menuCode: 'performance.app' },
+      },
+      {
+        path: 'settings',
+        name: 'PerformanceSettings',
+        component: () => import('@/views/performance/Settings.vue'),
+        meta: { label: '绩效后台设置', menuCode: 'performance.admin' },
       },
     ],
   },

@@ -1,11 +1,16 @@
 import { api } from './client'
+import type { AggregationFunc, ColumnSetting, DefaultSplitRule, FilterLogic } from './reports'
 
 export interface AllocationSchemeConfig {
   columns: string[]
   filters: any[]
+  filter_logic?: FilterLogic | null
   sorts: any[]
   value_rules?: any[]
+  column_settings?: Record<string, ColumnSetting>
+  default_split_rule?: DefaultSplitRule
   aggregate?: boolean
+  default_aggregation?: AggregationFunc
   aggregations?: Record<string, string>
   transpose?: any
   rounding_corrections?: any[]

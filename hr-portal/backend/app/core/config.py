@@ -38,6 +38,9 @@ class Settings(BaseSettings):
 
     ORG_ROOT_NAME: str = "创梦天地"
 
+    COST_ALLOCATION_APP_URL: str = "http://192.168.10.13:37800/"
+    COST_ALLOCATION_ADMIN_PATH: str = "/admin/workbench"
+
     LOGIN_FAIL_LIMIT: int = 5
     LOGIN_LOCK_MINUTES: int = 15
 

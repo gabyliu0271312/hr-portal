@@ -37,11 +37,17 @@ services:
       BEISEN_APP_KEY: ${BEISEN_APP_KEY:-}
       BEISEN_APP_SECRET: ${BEISEN_APP_SECRET:-}
       ORG_ROOT_NAME: ${ORG_ROOT_NAME:-创梦天地}
+      COST_ALLOCATION_APP_URL: ${COST_ALLOCATION_APP_URL:-http://192.168.10.13:37800/}
+      COST_ALLOCATION_ADMIN_PATH: ${COST_ALLOCATION_ADMIN_PATH:-/admin/workbench}
     ports:
       - "8000:8000"
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_COST_ALLOCATION_APP_URL: ${VITE_COST_ALLOCATION_APP_URL:-}
+        VITE_COST_ALLOCATION_ADMIN_URL: ${VITE_COST_ALLOCATION_ADMIN_URL:-}
     container_name: hr-portal-frontend
     restart: unless-stopped
     depends_on:

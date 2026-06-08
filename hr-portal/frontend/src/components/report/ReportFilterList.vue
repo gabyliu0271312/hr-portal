@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Plus, Delete } from '@element-plus/icons-vue'
-import type { FilterCond } from '@/api/reports'
+import type { FilterCond, FilterLogic } from '@/api/reports'
 import type { ColumnInfo } from '@/api/data'
 import { dataApi } from '@/api/data'
 
 const props = defineProps<{
   filters: FilterCond[]
+  filterLogic?: FilterLogic | null
   allColumns: ColumnInfo[]
   tableName: string
   sourceType: 'single' | 'dataset'
   currentDatasetTables?: { table_name: string; alias: string }[]
+  showViewControls?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:filters': [v: FilterCond[]]
+  'update:filterLogic': [v: FilterLogic | null]
 }>()
 
 const FILTER_OPS = [
@@ -35,6 +38,19 @@ type DistinctOpt = { value: string; label: string }
 const NAME_FIELDS = ['维度值', '名称']
 const distinctCache = ref<Map<string, DistinctOpt[]>>(new Map())
 const distinctLoading = ref<Set<string>>(new Set())
+
+const logicMode = computed(() => props.filterLogic?.mode || 'and')
+const logicExpression = computed(() => props.filterLogic?.expression || '')
+
+function filterLabel(index: number): string {
+  let n = index
+  const chars: string[] = []
+  do {
+    chars.unshift(String.fromCharCode(65 + (n % 26)))
+    n = Math.floor(n / 26) - 1
+  } while (n >= 0)
+  return chars.join('')
+}
 
 function colInfo(qual: string): ColumnInfo | undefined {
   return props.allColumns.find((c) => c.code === qual)
@@ -106,7 +122,7 @@ function onFilterColumnChange(f: FilterCond) {
 }
 
 function addFilter() {
-  emit('update:filters', [...props.filters, { column: '', op: 'eq', value: '' }])
+  emit('update:filters', [...props.filters, { column: '', op: 'eq', value: '', visible: true, locked: false }])
 }
 
 function removeFilter(i: number) {
@@ -115,12 +131,21 @@ function removeFilter(i: number) {
   emit('update:filters', next)
 }
 
+function setLogicMode(mode: 'and' | 'custom') {
+  emit('update:filterLogic', mode === 'custom' ? { mode, expression: logicExpression.value } : null)
+}
+
+function setLogicExpression(expression: string) {
+  emit('update:filterLogic', { mode: 'custom', expression })
+}
+
 defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
 </script>
 
 <template>
   <div>
     <div v-for="(f, i) in filters" :key="i" class="rule-row">
+      <el-tag class="rule-label" effect="plain">{{ filterLabel(i) }}</el-tag>
       <el-select
         v-model="f.column"
         placeholder="字段"
@@ -157,6 +182,27 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
       <el-button link type="danger" @click="removeFilter(i)">
         <el-icon><Delete /></el-icon>
       </el-button>
+      <template v-if="showViewControls !== false">
+        <el-checkbox v-model="f.visible">查看页显示</el-checkbox>
+        <el-checkbox v-model="f.locked" :disabled="f.visible === false">锁定</el-checkbox>
+      </template>
+    </div>
+    <div v-if="filters.length > 1" class="logic-row">
+      <span class="logic-label">组合逻辑</span>
+      <el-radio-group
+        :model-value="logicMode"
+        @update:model-value="(v: string | number) => setLogicMode(v as 'and' | 'custom')"
+      >
+        <el-radio-button label="and">全部 AND</el-radio-button>
+        <el-radio-button label="custom">自定义</el-radio-button>
+      </el-radio-group>
+      <el-input
+        v-if="logicMode === 'custom'"
+        :model-value="logicExpression"
+        placeholder="例如：(A AND B) OR C"
+        style="max-width: 360px"
+        @update:model-value="setLogicExpression"
+      />
     </div>
     <el-button link type="primary" @click="addFilter">
       <el-icon style="margin-right: 4px"><Plus /></el-icon>添加筛选
@@ -170,5 +216,22 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+.rule-label {
+  width: 34px;
+  justify-content: center;
+}
+.logic-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 4px;
+  padding-left: 42px;
+}
+.logic-label {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
 }
 </style>

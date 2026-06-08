@@ -143,6 +143,19 @@ def _run_out(r: AllocationRun) -> RunOut:
     )
 
 
+def _merge_filters_for_run(cfg: ReportConfig, extra_filters: list[dict]) -> ReportConfig:
+    """Merge runtime allocation filters while preserving saved report config."""
+    base_filters = [f.model_dump() for f in cfg.filters]
+    extra_by_col = {f["column"]: f for f in extra_filters if f.get("column")}
+    merged_filters = [
+        extra_by_col.pop(f["column"], f) for f in base_filters
+    ] + list(extra_by_col.values())
+
+    data = cfg.model_dump()
+    data["filters"] = merged_filters
+    return ReportConfig(**data)
+
+
 # ===== 结果表列表 =====
 
 @router.get("/result-tables", response_model=list[ResultTableItem])
@@ -274,11 +287,8 @@ async def run_scheme(
 
     # 合并 filters：方案配置为基础，extra_filters 同列名时覆盖
     cfg = ReportConfig(**(s.config or {}))
-    base_filters = [f.model_dump() for f in cfg.filters]
-    extra_by_col = {f["column"]: f for f in payload.extra_filters}
-    merged_filters = [
-        extra_by_col.pop(f["column"], f) for f in base_filters
-    ] + list(extra_by_col.values())  # extra 里有但方案没有的也追加
+    merged_cfg = _merge_filters_for_run(cfg, payload.extra_filters)
+    merged_filters = [f.model_dump() for f in merged_cfg.filters]
 
     # 从合并后的 filters 推导 period_ym（取月份类 eq 字段的值）
     period_ym = ""
@@ -307,14 +317,15 @@ async def run_scheme(
             from app.reports.sql_builder import run_dataset_query
             _, items, _ = await run_dataset_query(
                 dataset_id=dataset_id_ref,
-                columns=cfg.columns,
+                columns=merged_cfg.columns,
                 filters=merged_filters,
-                sorts=[sc.model_dump() for sc in cfg.sorts],
-                value_rules=cfg.value_rules,
-                aggregate=cfg.aggregate,
-                aggregations=cfg.aggregations,
-                transpose=cfg.transpose,
-                rounding_corrections=cfg.rounding_corrections,
+                filter_logic=merged_cfg.filter_logic,
+                sorts=[sc.model_dump() for sc in merged_cfg.sorts],
+                value_rules=merged_cfg.value_rules,
+                aggregate=merged_cfg.aggregate,
+                aggregations=merged_cfg.aggregations,
+                transpose=merged_cfg.transpose,
+                rounding_corrections=merged_cfg.rounding_corrections,
                 page=1,
                 page_size=0,
                 user=user,
@@ -323,10 +334,8 @@ async def run_scheme(
         else:
             if not table_name_ref:
                 raise ValueError("方案未配置数据来源")
-            from app.reports.router import FilterCond
-            cfg.filters = [FilterCond(**fd) for fd in merged_filters]
             _, items, _ = await _run_query(
-                db, table_name_ref, cfg, page=1, page_size=0, user=user
+                db, table_name_ref, merged_cfg, page=1, page_size=0, user=user
             )
 
         if not items:

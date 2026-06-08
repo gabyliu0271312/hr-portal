@@ -1,0 +1,28 @@
+export const MENU_ROUTE_MAP: Record<string, string> = {
+  'system.users': '/system/users',
+  'system.roles': '/system/roles',
+  'system.scopes': '/system/scopes',
+  'system.field_categories': '/system/field-categories',
+  'system.field_columns': '/system/field-columns',
+  'system.compensation_caps': '/system/compensation-caps',
+  'system.document_templates': '/system/document-templates',
+  'datasource.endpoints': '/datasource/endpoints',
+  'datasource.datasets': '/datasource/datasets',
+  'data.view': '/data/view',
+  'data.emp_realtime': '/data/emp-realtime',
+  'data.emp_monthly': '/data/emp-monthly',
+  'data.emp_salary': '/data/emp-salary',
+  'data.emp_allocation': '/data/emp-allocation',
+  'data.cc_monthly': '/data/cc-monthly',
+  'report.list': '/report/list',
+  'performance.app': '/performance',
+  'performance.admin': '/performance/settings',
+  'cost_allocation.app': '/cost-allocation-system',
+  'cost_allocation.admin': '/cost-allocation-system/admin',
+  'tools.center': '/tools/center',
+  'tools.compensation_calc': '/tools/compensation-calc',
+  'tools.income_certificate': '/tools/income-certificate',
+  'tools.cost_allocation': '/tools/cost-allocation',
+}
+
+export const HIDDEN_IN_QUICK = new Set(['tools.center'])
