@@ -19,13 +19,14 @@ from app.ai_formula.custom_functions import (
 )
 from app.ai_formula.field_refs import (
     dataset_field_meta,
+    dataset_field_meta_for_ai,
     display_to_internal,
     extract_field_refs,
     internal_to_display,
 )
 from app.ai_formula.function_catalog import base_formula_function_catalog
 from app.ai_formula.formula_evaluator import formula_syntax_issues
-from app.ai_formula.formula_parser import extract_formula_meta, normalize_formula
+from app.ai_formula.formula_parser import normalize_formula
 from app.ai_formula.models import FormulaFunction, FormulaFunctionCatalogSetting
 from app.ai_formula.validator import validate_dataset_formula
 from app.core.db import get_session
@@ -36,7 +37,7 @@ from app.datasets.router import _can_access
 from app.users.models import User
 
 
-router = APIRouter(tags=["ai-formula"])
+router = APIRouter(tags=["function-library"])
 
 
 class FormulaFunctionIn(BaseModel):
@@ -375,79 +376,41 @@ async def update_function(
     return _function_out(row)
 
 
-@router.post("/ai-formula/validate", response_model=FormulaValidateOut)
-async def validate_formula(
+async def validate_formula_impl(
     payload: FormulaValidateIn,
-    user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_session),
+    user: User,
+    db: AsyncSession,
+    *,
+    timer: AiAuditTimer | None = None,
+    capability_id: str = "formula.validate",
 ) -> FormulaValidateOut:
+    timer = timer or AiAuditTimer()
+    timer.add_event("entry", capability_id=capability_id, route="formula_validate")
     await _ensure_dataset_access(payload.dataset_id, user, db)
+    timer.add_event("permission_check", capability_id=capability_id, dataset_id=payload.dataset_id)
     _, fields = await dataset_field_meta(payload.dataset_id, db)
+    timer.add_event(
+        "tool",
+        tool_name="dataset.list_fields",
+        capability_id=capability_id,
+        field_count=len(fields),
+    )
     formula = display_to_internal(payload.formula, fields)
     result = await validate_dataset_formula(payload.dataset_id, formula, db)
-    return FormulaValidateOut(**result)
-
-
-def _fallback_draft(message: str, fields: list[Any]) -> FormulaDraftOut:
-    msg = message.lower()
-    candidates = fields
-    for raw in re.findall(r"[\u4e00-\u9fa5A-Za-z0-9_]+", message):
-        found = [f for f in fields if raw in f.label or raw in f.code]
-        if found:
-            candidates = found
-            break
-    field = candidates[0] if candidates else None
-    if field is None:
-        return FormulaDraftOut(
-            field_label="新建字段",
-            formula_display="=0",
-            formula="=0",
-            data_type="number",
-            agg_role="measure",
-            explanation="未识别到可引用字段，请手工补充公式。",
-            change_summary="生成占位公式",
-            depends_on=[],
-            used_functions=[],
-            warnings=["当前未配置可用模型，已生成占位公式。"],
-            validation_status="valid",
-            validation_errors=[],
-        )
-    if "税" in message:
-        formula = f'=CALC_TAX(FIELD("{field.code}"))'
-        label = "个税金额"
-        explanation = f"使用 {field.label} 作为输入，调用 CALC_TAX 生成个税金额草稿。"
-    elif "/" in message or "占比" in message or "比例" in message:
-        formula = f'=SAFE_DIVIDE(FIELD("{field.code}"), 1, 0)'
-        label = "占比"
-        explanation = f"基于 {field.label} 生成占比公式草稿，请补充除数字段。"
-    elif any(token in msg for token in ["if", "如果", "否则"]):
-        formula = f'=IF(FIELD("{field.code}")>0,FIELD("{field.code}"),0)'
-        label = "条件计算"
-        explanation = f"基于 {field.label} 生成条件公式草稿。"
-    else:
-        formula = f'=FIELD("{field.code}")'
-        label = "新建字段"
-        explanation = f"引用 {field.label} 生成字段草稿。"
-    depends_on, used_functions = extract_formula_meta(formula)
-    return FormulaDraftOut(
-        field_label=label,
-        formula_display=internal_to_display(formula, fields),
-        formula=formula,
-        data_type="number" if field.data_type == "number" else field.data_type,
-        agg_role="measure" if field.agg_role == "measure" or field.data_type == "number" else "dimension",
-        explanation=explanation,
-        change_summary="基于当前需求生成公式草稿",
-        depends_on=depends_on,
-        used_functions=used_functions,
-        warnings=["当前未配置可用模型，已使用本地规则生成草稿。"],
-        validation_status="valid",
-        validation_errors=[],
+    timer.add_event(
+        "policy_validation",
+        capability_id=capability_id,
+        status="success" if result["valid"] else "validation_failed",
+        error_count=len(result["errors"] or []),
     )
+    return FormulaValidateOut(**result)
 
 
 def _formula_draft_error_detail(exc: Exception) -> str:
     text = str(exc)
     lowered = text.lower()
+    if "空公式" in text or "未返回 formula" in text:
+        return "模型要求更新公式，但没有返回可写入的公式内容，我没有更新公式。请明确要保留的占位值或字段后重试。"
     if "timeout" in lowered or "timed out" in lowered:
         return "模型生成超时，请稍后重试，或在 AI 基础配置中调大超时时间。"
     if "json" in lowered:
@@ -461,148 +424,33 @@ def _formula_draft_error_detail(exc: Exception) -> str:
     return "模型这次没有生成可用公式，请继续用更明确的一句话描述计算规则。"
 
 
-def _detect_formula_intent(message: str) -> str:
-    text = (message or "").strip().lower()
-    if not text:
-        return "formula_draft"
-    question_markers = [
-        "?",
-        "？",
-        "怎么写",
-        "如何写",
-        "怎么用",
-        "如何用",
-        "是什么",
-        "为什么",
-        "有没有",
-        "是否",
-        "能不能",
-        "可以吗",
-        "支持吗",
-        "启用",
-        "函数",
-        "公式应该",
-        "标准 excel",
-        "excel里",
-        "excel 里",
-    ]
-    draft_markers = [
-        "生成",
-        "创建",
-        "新建",
-        "改成",
-        "调整为",
-        "替换",
-        "返回",
-        "等于",
-        "如果",
-        "否则",
-        "计算",
-        "字段",
-    ]
-    if any(marker in text for marker in question_markers):
-        if not any(marker in text for marker in ["生成一个", "创建一个", "新建一个", "帮我生成"]):
-            return "formula_question"
-    if any(marker in text for marker in draft_markers):
-        return "formula_draft"
-    return "formula_question"
-
-
-def _platform_function_codes(function_catalog: list[dict[str, Any]]) -> set[str]:
-    return {str(item.get("code") or "").upper() for item in function_catalog if item.get("code")}
-
-
-def _local_formula_answer(
-    message: str,
-    fields: list[Any],
-    function_catalog: list[dict[str, Any]],
-    current_formula: str | None,
-) -> FormulaDraftOut:
-    text = message.lower()
-    codes = _platform_function_codes(function_catalog)
-    month_field = next(
-        (
-            field
-            for field in fields
-            if any(key in field.label or key in field.code.lower() for key in ["月份", "年月", "month", "ym"])
-        ),
-        None,
-    )
-    if any(key in text for key in ["当前月", "当前月份", "month(today", "today", "日期"]):
-        standard = '=MONTH(TODAY())'
-        if "yyyymm" in text or "年月" in text or month_field:
-            standard = '=TEXT(TODAY(),"yyyymm")'
-        missing = [code for code in ["TODAY", "MONTH"] if code not in codes]
-        if "TEXT" in standard and "TEXT" not in codes:
-            missing.append("TEXT")
-        if missing:
-            limitation = f"当前平台函数库未开放 {', '.join(missing)}，所以标准 Excel 写法暂时不能直接保存为平台公式。"
-        else:
-            limitation = None
-        if month_field:
-            answer = (
-                f"标准 Excel 写法是 {standard}。当前平台更稳的落地方式是引用数据集里的"
-                f"「{month_field.label}」字段进行比较，因为该字段已经在数据集中。"
-            )
-            formula = f'=FIELD("{month_field.code}")'
-            formula_display = internal_to_display(formula, fields)
-        else:
-            answer = (
-                f"标准 Excel 写法是 {standard}。当前数据集里没有明显的月份/年月字段，"
-                "如果要保存为平台公式，需要先提供月份字段或开放日期函数。"
-            )
-            formula = current_formula or "=0"
-            formula_display = internal_to_display(formula, fields)
-        return FormulaDraftOut(
-            intent="formula_question",
-            should_update_formula=False,
-            field_label="",
-            formula_display=formula_display,
-            formula=formula,
-            data_type="number",
-            agg_role="measure",
-            explanation=answer,
-            change_summary=answer,
-            depends_on=[],
-            used_functions=[],
-            warnings=[],
-            validation_status="valid",
-            validation_errors=[],
-            standard_excel_formula=standard,
-            platform_limitation=limitation,
-        )
-    return FormulaDraftOut(
-        intent="formula_question",
-        should_update_formula=False,
-        field_label="",
-        formula_display=current_formula or "",
-        formula=current_formula or "",
-        data_type="number",
-        agg_role="measure",
-        explanation="这是一个公式问题。你可以继续问函数用法；如果要生成计算字段，请直接描述“按什么条件返回什么结果”。",
-        change_summary="已按问答处理，未修改公式。",
-        depends_on=[],
-        used_functions=[],
-        warnings=[],
-        validation_status="valid",
-        validation_errors=[],
-    )
-
-
-@router.post(
-    "/ai-formula/draft",
-    response_model=FormulaDraftOut,
-    dependencies=[Depends(require_op("datasource.datasets", "C"))],
-)
-async def draft_formula(
+async def draft_formula_impl(
     payload: FormulaDraftIn,
-    user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_session),
+    user: User,
+    db: AsyncSession,
+    *,
+    timer: AiAuditTimer | None = None,
+    capability_id: str = "formula.generate",
 ) -> FormulaDraftOut:
-    timer = AiAuditTimer()
+    timer = timer or AiAuditTimer()
+    timer.add_event("entry", capability_id=capability_id, route="formula_draft")
     await _ensure_dataset_access(payload.dataset_id, user, db)
-    ds, fields = await dataset_field_meta(payload.dataset_id, db)
+    timer.add_event("permission_check", capability_id=capability_id, dataset_id=payload.dataset_id)
+    ds, fields, context_policy = await dataset_field_meta_for_ai(payload.dataset_id, user, db)
+    timer.add_event(
+        "tool",
+        tool_name="dataset.list_fields",
+        capability_id=capability_id,
+        field_count=len(fields),
+        filtered_sensitive_count=len(context_policy.get("filtered_sensitive_fields") or []),
+    )
     function_rows = await enabled_function_rows(db)
+    timer.add_event(
+        "tool",
+        tool_name="function_catalog.list_enabled",
+        capability_id=capability_id,
+        function_count=len(function_rows),
+    )
     ai_settings = {
         row.code.upper(): row
         for row in (await db.execute(select(FormulaFunctionCatalogSetting))).scalars().all()
@@ -629,8 +477,8 @@ async def draft_formula(
         "dataset_id": ds.id,
         "field_count": len(fields),
         "function_count": len(function_catalog),
+        "context_policy": context_policy,
     }
-    intent = _detect_formula_intent(payload.message)
     history = [
         {
             "role": str(item.get("role") or "")[:20],
@@ -641,134 +489,91 @@ async def draft_formula(
         if isinstance(item, dict)
     ]
     try:
-        if config and config.api_key_encrypted and config.model_fast_json:
-            api_key = decrypt(config.api_key_encrypted)
-            if not api_key:
-                raise RuntimeError("AI API key 解密失败")
-            if intent == "formula_question":
-                fallback_answer = _local_formula_answer(
-                    payload.message,
-                    fields,
-                    function_catalog,
-                    payload.current_formula,
-                )
-                messages = [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are an HR report formula assistant. Return JSON only. "
-                            "The user is asking a question, not necessarily asking you to generate a formula. "
-                            "Answer naturally and clearly in Chinese. "
-                            "Do not modify the formula unless the user explicitly asks to generate or change it. "
-                            "Set should_update_formula=false for questions. "
-                            "Explain both standard Excel knowledge and this platform's current capability. "
-                            "Use only the provided platform Functions list when saying what can be saved in the platform. "
-                            "If standard Excel supports something but the platform function list does not, say that directly."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Fields: {[f.__dict__ for f in fields]}\n"
-                            f"Platform Functions: {function_catalog}\n"
-                            f"Current formula: {payload.current_formula or ''}\n"
-                            f"Recent chat history: {history}\n"
-                            f"Question: {payload.message}\n"
-                            "Return keys: intent, should_update_formula, explanation, change_summary, standard_excel_formula, platform_limitation, warnings."
-                        ),
-                    },
-                ]
-                raw, usage = await generate_json_openai_compatible(
-                    api_key=api_key,
-                    base_url=config.base_url,
-                    model=config.model_fast_json,
-                    messages=messages,
-                    timeout=int(config.timeout_seconds or 30),
-                )
-                out = FormulaDraftOut(
-                    intent="formula_question",
-                    should_update_formula=False,
-                    field_label="",
-                    formula_display=payload.current_formula or fallback_answer.formula_display,
-                    formula=payload.current_formula or fallback_answer.formula,
-                    data_type="number",
-                    agg_role="measure",
-                    explanation=raw.get("explanation") or fallback_answer.explanation,
-                    change_summary=raw.get("change_summary") or raw.get("explanation") or fallback_answer.change_summary,
-                    depends_on=[],
-                    used_functions=[],
-                    warnings=raw.get("warnings") or [],
-                    validation_status="valid",
-                    validation_errors=[],
-                    standard_excel_formula=raw.get("standard_excel_formula") or fallback_answer.standard_excel_formula,
-                    platform_limitation=raw.get("platform_limitation") or fallback_answer.platform_limitation,
-                )
-                await record_ai_log(
-                    db=db,
-                    user=user,
-                    action="formula_question",
-                    request_summary=payload.message[:300],
-                    response_summary=out.explanation[:500],
-                    input_payload={
-                        "message": payload.message,
-                        "current_formula": payload.current_formula,
-                        "current_field_label": payload.current_field_label,
-                        "history_turns": len(history),
-                        **request_meta,
-                    },
-                    output_payload=out.model_dump(),
-                    status="success",
-                    metadata={**request_meta, "history_turns": len(history), "intent": out.intent},
-                    token_usage=usage,
-                    timer=timer,
-                )
-                await db.commit()
-                return out
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an HR report Excel formula assistant. "
-                        "Return JSON only. Use FIELD(\"alias.column\") for dataset fields. "
-                        "Escape all double quotes inside JSON string values. "
-                        "The user is editing one formula through a chat. "
-                        "If Current formula is present, treat the latest requirement as an edit to it unless the user clearly asks to regenerate. "
-                        "Do not ask the user to click apply; return the latest complete formula draft. "
-                        "Use only functions listed in Functions. Do not invent Excel functions. "
-                        "You must distinguish standard Excel formulas from formulas that this platform can validate and save. "
-                        "For current month/current date/month comparison requirements, mention the standard Excel answer in standard_excel_formula "
-                        "(for example MONTH(TODAY()) or TEXT(TODAY(),\"yyyymm\")), but do not put unsupported functions into formula. "
-                        "If the platform Functions list does not include TODAY/MONTH/TEXT/DATE, set platform_limitation and return a platform-saveable formula "
-                        "using an existing dataset month/year-month field when possible; otherwise keep formula as the current formula or =0 and explain the limitation. "
-                        "Do not output SQL, code, URLs, or unlisted fields."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Dataset: {ds.name}\n"
-                        f"Fields: {[f.__dict__ for f in fields]}\n"
-                        f"Functions: {function_catalog}\n"
-                        f"Current field label: {payload.current_field_label or ''}\n"
-                        f"Current formula: {payload.current_formula or ''}\n"
-                        f"Recent chat history: {history}\n"
-                        f"Requirement: {payload.message}\n"
-                        "Return keys: field_label, formula_display, formula, data_type, agg_role, explanation, change_summary, depends_on, used_functions, warnings, standard_excel_formula, platform_limitation."
-                    ),
-                },
-            ]
-            raw, usage = await generate_json_openai_compatible(
-                api_key=api_key,
-                base_url=config.base_url,
-                model=config.model_fast_json,
-                messages=messages,
-                timeout=int(config.timeout_seconds or 30),
-            )
+        if not config or not config.api_key_encrypted or not config.model_fast_json:
+            raise RuntimeError("AI 基础配置未启用，无法生成公式草稿")
+        api_key = decrypt(config.api_key_encrypted)
+        if not api_key:
+            raise RuntimeError("AI API key 解密失败")
+        timer.add_event(
+            "model_call",
+            capability_id=capability_id,
+            model=config.model_fast_json,
+            provider=getattr(config, "provider", "openai_compatible"),
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an HR report Excel formula assistant. Return JSON only. "
+                    "Classify the user request and decide whether the formula editor must change. "
+                    "Use intent='formula_question' and should_update_formula=false for explanation-only answers. "
+                    "Use intent='formula_draft' and should_update_formula=true when the user asks to create, insert, put, replace, adjust, or update formula content. "
+                    "If should_update_formula=true, formula or formula_display is required and must represent the actual formula after the operation. "
+                    "Do not claim an operation was completed unless should_update_formula=true and formula/formula_display is provided. "
+                    "For edit requests, start from Current formula and return the complete formula after the edit, not an isolated fragment. "
+                    "When the user asks to remove a field reference or says they will maintain a value manually, replace the removed reference with a neutral placeholder such as manual_value or value_to_fill while keeping the remaining formula structure. "
+                    "Never return an empty formula, bare '=', or unrelated explanation when should_update_formula=true. "
+                    "Use FIELD(\"alias.column\") for dataset fields. "
+                    "For a function template insertion, use the function metadata parameters to produce a platform formula template, "
+                    "for example =IF(condition,value_if_true,value_if_false). "
+                    "Use only functions listed in Functions. Do not invent Excel functions or fields. "
+                    "For unsupported standard Excel functions, explain the limitation and keep should_update_formula=false unless a platform-saveable formula can be produced. "
+                    "Never output SQL, code, URLs, file paths, external links, macros, or unlisted fields. "
+                    "Return keys: intent, should_update_formula, field_label, formula_display, formula, data_type, agg_role, explanation, change_summary, warnings, standard_excel_formula, platform_limitation."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Dataset: {ds.name}\n"
+                    f"Fields: {[f.__dict__ for f in fields]}\n"
+                    f"Functions: {function_catalog}\n"
+                    f"Current field label: {payload.current_field_label or ''}\n"
+                    f"Current formula: {payload.current_formula or ''}\n"
+                    f"Recent chat history: {history}\n"
+                    f"User message: {payload.message}\n"
+                ),
+            },
+        ]
+        raw, usage = await generate_json_openai_compatible(
+            api_key=api_key,
+            base_url=config.base_url,
+            model=config.model_fast_json,
+            messages=messages,
+            timeout=int(config.timeout_seconds or 30),
+            repair_instructions=(
+                "Return keys: intent, should_update_formula, field_label, formula_display, formula, "
+                "data_type, agg_role, explanation, change_summary, warnings, "
+                "standard_excel_formula, platform_limitation. "
+                "If the user asked to insert or update formula content, should_update_formula must be true "
+                "and formula or formula_display must contain the complete formula after the edit. "
+                "If a field reference is removed for manual maintenance, keep the formula shape and use a placeholder identifier instead of returning an empty formula."
+            ),
+        )
+        timer.add_event("schema_validation", capability_id=capability_id, target="model_json", keys=sorted(raw.keys()))
+        raw_formula = raw.get("formula") or raw.get("formula_display") or ""
+        should_update_raw = raw.get("should_update_formula")
+        should_update = bool(raw_formula) if should_update_raw is None else bool(should_update_raw)
+        intent = str(raw.get("intent") or ("formula_draft" if should_update else "formula_question"))
+        if should_update:
+            if not str(raw_formula).strip():
+                raise RuntimeError("模型要求更新公式，但未返回 formula 或 formula_display")
             formula = normalize_formula(
-                display_to_internal(raw.get("formula") or raw.get("formula_display") or "", fields)
+                display_to_internal(str(raw_formula), fields)
             )
+            if formula.strip() in {"", "="}:
+                raise RuntimeError("模型要求更新公式，但返回了空公式")
             validation = await validate_dataset_formula(payload.dataset_id, formula, db)
+            timer.add_event(
+                "tool",
+                tool_name="formula.validate",
+                capability_id=capability_id,
+                validation_status="valid" if validation["valid"] else "invalid",
+                error_count=len(validation["errors"] or []),
+            )
             out = FormulaDraftOut(
+                intent=intent,
+                should_update_formula=True,
                 field_label=raw.get("field_label") or "新建字段",
                 formula_display=internal_to_display(formula, fields),
                 formula=formula,
@@ -787,40 +592,37 @@ async def draft_formula(
                 standard_excel_formula=raw.get("standard_excel_formula") or None,
                 platform_limitation=raw.get("platform_limitation") or None,
             )
-            await record_ai_log(
-                db=db,
-                user=user,
-                action="formula_draft",
-                request_summary=payload.message[:300],
-                response_summary=out.explanation[:500],
-                input_payload={
-                    "message": payload.message,
-                    "current_formula": payload.current_formula,
-                    "current_field_label": payload.current_field_label,
-                    "history_turns": len(history),
-                    **request_meta,
-                },
-                output_payload=out.model_dump(),
-                status="success" if validation["valid"] else "validation_failed",
-                metadata={
-                    **request_meta,
-                    "history_turns": len(history),
-                    "validation_status": out.validation_status,
-                },
-                token_usage=usage,
-                timer=timer,
+            status_text = "success" if validation["valid"] else "validation_failed"
+        else:
+            out = FormulaDraftOut(
+                intent=intent,
+                should_update_formula=False,
+                field_label=raw.get("field_label") or "",
+                formula_display=payload.current_formula or "",
+                formula=payload.current_formula or "",
+                data_type=raw.get("data_type") or "number",
+                agg_role=raw.get("agg_role") or "measure",
+                explanation=raw.get("explanation") or raw.get("change_summary") or "",
+                change_summary=raw.get("change_summary") or raw.get("explanation") or "",
+                depends_on=[],
+                used_functions=[],
+                warnings=raw.get("warnings") or [],
+                validation_status="valid",
+                validation_errors=[],
+                standard_excel_formula=raw.get("standard_excel_formula") or None,
+                platform_limitation=raw.get("platform_limitation") or None,
             )
-            await db.commit()
-            return out
-        out = (
-            _local_formula_answer(payload.message, fields, function_catalog, payload.current_formula)
-            if intent == "formula_question"
-            else _fallback_draft(payload.message, fields)
+            status_text = "success"
+        timer.add_event(
+            "policy_validation",
+            capability_id=capability_id,
+            status=status_text,
+            should_update_formula=out.should_update_formula,
         )
         await record_ai_log(
             db=db,
             user=user,
-            action="formula_question" if intent == "formula_question" else "formula_draft",
+            action="formula_draft" if out.should_update_formula else "formula_question",
             request_summary=payload.message[:300],
             response_summary=out.explanation[:500],
             input_payload={
@@ -831,13 +633,21 @@ async def draft_formula(
                 **request_meta,
             },
             output_payload=out.model_dump(),
-            status="fallback",
-            metadata={**request_meta, "history_turns": len(history), "intent": out.intent},
+            status=status_text,
+            metadata={
+                **request_meta,
+                "history_turns": len(history),
+                "intent": out.intent,
+                "should_update_formula": out.should_update_formula,
+                "validation_status": out.validation_status,
+            },
+            token_usage=usage,
             timer=timer,
         )
         await db.commit()
         return out
     except Exception as exc:
+        timer.add_event("failure", status="error", capability_id=capability_id, reason=str(exc)[:500])
         await record_ai_log(
             db=db,
             user=user,

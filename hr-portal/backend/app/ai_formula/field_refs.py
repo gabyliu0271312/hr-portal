@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.data.models import TableColumn
 from app.datasets.models import DataSet, DataSetTable
+from app.permissions.masker import get_sensitive_columns
+from app.users.models import User
 
 
 FIELD_CALL_RE = re.compile(r'FIELD\(\s*["\']([^"\']+)["\']\s*\)', re.IGNORECASE)
@@ -24,6 +26,7 @@ class FieldMeta:
     agg_role: str
     alias: str
     column_code: str
+    sensitivity_level: str = "internal"
 
 
 async def dataset_field_meta(dataset_id: int, db: AsyncSession) -> tuple[DataSet, list[FieldMeta]]:
@@ -69,8 +72,94 @@ async def dataset_field_meta(dataset_id: int, db: AsyncSession) -> tuple[DataSet
                     agg_role=col.agg_role,
                     alias=table.alias,
                     column_code=col.column_code,
+                    sensitivity_level=(
+                        "sensitive"
+                        if col.is_sensitive or col.column_code in sensitive_from_category
+                        else "internal"
+                    ),
                 )
             )
+    return ds, fields
+
+
+async def dataset_field_meta_for_ai(
+    dataset_id: int,
+    user: User,
+    db: AsyncSession,
+) -> tuple[DataSet, list[FieldMeta], dict[str, Any]]:
+    ds = await db.get(DataSet, dataset_id)
+    if ds is None:
+        raise ValueError("dataset not found")
+    tables = (
+        await db.execute(
+            select(DataSetTable).where(DataSetTable.dataset_id == dataset_id).order_by(DataSetTable.id)
+        )
+    ).scalars().all()
+    fields: list[FieldMeta] = []
+    filtered_sensitive: list[str] = []
+    total_fields = 0
+    for table in tables:
+        masked = await get_sensitive_columns(user, table.table_name, db)
+        _, table_fields = await _dataset_table_field_meta(dataset_id, table, db)
+        for field in table_fields:
+            total_fields += 1
+            if field.column_code in masked:
+                filtered_sensitive.append(field.code)
+                continue
+            fields.append(field)
+    return ds, fields, {
+        "total_fields": total_fields,
+        "visible_fields": len(fields),
+        "filtered_sensitive_fields": filtered_sensitive,
+        "context_policy": "authorized_metadata_only",
+    }
+
+
+async def _dataset_table_field_meta(
+    dataset_id: int,
+    table: DataSetTable,
+    db: AsyncSession,
+) -> tuple[DataSet, list[FieldMeta]]:
+    ds = await db.get(DataSet, dataset_id)
+    if ds is None:
+        raise ValueError("dataset not found")
+    from app.field_category.models import FieldCategory, FieldCategoryAssignment
+
+    sensitive_from_category = {
+        row[0]
+        for row in (
+            await db.execute(
+                select(FieldCategoryAssignment.column_name)
+                .join(FieldCategory, FieldCategory.id == FieldCategoryAssignment.category_id)
+                .where(
+                    FieldCategoryAssignment.table_name == table.table_name,
+                    FieldCategory.is_sensitive.is_(True),
+                )
+            )
+        ).all()
+    }
+    cols = (
+        await db.execute(
+            select(TableColumn)
+            .where(TableColumn.table_name == table.table_name)
+            .order_by(TableColumn.display_order, TableColumn.id)
+        )
+    ).scalars().all()
+    fields: list[FieldMeta] = []
+    for col in cols:
+        is_sensitive = col.is_sensitive or col.column_code in sensitive_from_category
+        fields.append(
+            FieldMeta(
+                code=f"{table.alias}.{col.column_code}",
+                label=f"{table.alias}.{col.column_label}",
+                data_type=col.data_type,
+                is_sensitive=is_sensitive,
+                agg_role=col.agg_role,
+                alias=table.alias,
+                column_code=col.column_code,
+                sensitivity_level="sensitive" if is_sensitive else "internal",
+            )
+        )
     return ds, fields
 
 

@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { DatasetCalculatedField, DatasetCalculatedFieldPayload } from './datasets'
 
 export interface AiConfigPayload {
   provider?: string
@@ -94,7 +95,15 @@ export const aiFormulaApi = {
     current_field_label?: string | null
     history?: { role: string; content: string; formula?: string | null }[]
   }) =>
-    api.post<FormulaDraft>('/ai-formula/draft', body, { timeout: AI_DRAFT_TIMEOUT_MS }).then((r) => r.data),
+    api
+      .post<FormulaDraft>('/ai/capabilities/formula.generate/draft', body, { timeout: AI_DRAFT_TIMEOUT_MS })
+      .then((r) => r.data),
   validate: (body: { dataset_id: number; formula: string }) =>
-    api.post<FormulaValidation>('/ai-formula/validate', body).then((r) => r.data),
+    api.post<FormulaValidation>('/ai/capabilities/formula.validate/diagnose', body).then((r) => r.data),
+  saveCalculatedField: (datasetId: number, body: DatasetCalculatedFieldPayload) =>
+    api
+      .post<DatasetCalculatedField>('/ai/capabilities/calculated_field.save/write', body, {
+        params: { dataset_id: datasetId, confirmed: true },
+      })
+      .then((r) => r.data),
 }

@@ -555,18 +555,13 @@ calc.tax_amount
 
 ### 12.1 AI 公式草稿
 
-统一 AI 编排入口：
+统一 AI Capability 入口：
 
 ```text
-POST /api/v1/ai/chat
 POST /api/v1/ai/capabilities/formula.generate/draft
 ```
 
-业务兼容入口可以保留，但应内部转发到同一 Capability 实现，避免页面级 prompt 分叉：
-
-```text
-POST /api/v1/ai-formula/draft
-```
+页面不得直接调用旧的业务兼容 prompt 接口；公式草稿必须走 Capability 路径。
 
 请求：
 
@@ -597,7 +592,7 @@ POST /api/v1/ai-formula/draft
 ### 12.2 公式校验
 
 ```text
-POST /api/v1/ai-formula/validate
+POST /api/v1/ai/capabilities/formula.validate/diagnose
 ```
 
 请求：

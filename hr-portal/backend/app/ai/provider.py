@@ -87,18 +87,25 @@ def _parse_json_like_object(raw: str) -> dict[str, Any]:
     if start >= 0 and end > start:
         raw = raw[start : end + 1]
     keys = {
+        "intent",
         "field_label",
         "formula_display",
         "formula",
         "data_type",
         "agg_role",
         "explanation",
+        "change_summary",
+        "standard_excel_formula",
+        "platform_limitation",
     }
     result: dict[str, Any] = {}
     for key in keys:
         value = _extract_json_like_string(raw, key)
         if value is not None:
             result[key] = value
+    value = _extract_json_like_bool(raw, "should_update_formula")
+    if value is not None:
+        result["should_update_formula"] = value
     for key in {"depends_on", "used_functions", "warnings"}:
         value = _extract_json_like_array(raw, key)
         if value is not None:
@@ -119,10 +126,7 @@ def _extract_json_like_string(raw: str, key: str) -> str | None:
             i += 2
             continue
         if ch == '"':
-            j = i + 1
-            while j < len(raw) and raw[j].isspace():
-                j += 1
-            if j >= len(raw) or raw[j] in {",", "}"}:
+            if _looks_like_json_string_end(raw, i + 1):
                 return "".join(out).strip()
             out.append(ch)
             i += 1
@@ -130,6 +134,29 @@ def _extract_json_like_string(raw: str, key: str) -> str | None:
         out.append(ch)
         i += 1
     return None
+
+
+def _looks_like_json_string_end(raw: str, pos: int) -> bool:
+    i = pos
+    while i < len(raw) and raw[i].isspace():
+        i += 1
+    if i >= len(raw) or raw[i] == "}":
+        return True
+    if raw[i] != ",":
+        return False
+    i += 1
+    while i < len(raw) and raw[i].isspace():
+        i += 1
+    if i >= len(raw) or raw[i] == "}":
+        return True
+    return re.match(r'"[A-Za-z_][A-Za-z0-9_]*"\s*:', raw[i:]) is not None
+
+
+def _extract_json_like_bool(raw: str, key: str) -> bool | None:
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*(true|false)', raw, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1).lower() == "true"
 
 
 def _extract_json_like_array(raw: str, key: str) -> list[Any] | None:
@@ -209,6 +236,7 @@ async def generate_json_openai_compatible(
     model: str,
     messages: list[dict[str, str]],
     timeout: int = 30,
+    repair_instructions: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     try:
         _, content, usage = await chat_completion_openai_compatible(
@@ -230,5 +258,36 @@ async def generate_json_openai_compatible(
             messages=messages,
             timeout=timeout,
         )
-    return parse_json_like_content(content), usage
-
+    try:
+        return parse_json_like_content(content), usage
+    except AiProviderJsonError:
+        repair_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You repair malformed assistant output into a valid JSON object. "
+                    "Return JSON only. Preserve the original intent and values. "
+                    "Escape quotes inside string values. Do not add markdown."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Expected JSON object instructions:\n{repair_instructions or 'Return the data as a valid JSON object.'}\n\n"
+                    f"Original assistant output:\n{content}"
+                ),
+            },
+        ]
+        _, repaired, repair_usage = await chat_completion_openai_compatible(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            messages=repair_messages,
+            timeout=timeout,
+            response_format={"type": "json_object"},
+        )
+        parsed = parse_json_like_content(repaired)
+        merged_usage = dict(usage or {})
+        if repair_usage:
+            merged_usage["repair"] = repair_usage
+        return parsed, merged_usage or None

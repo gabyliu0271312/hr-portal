@@ -45,6 +45,8 @@
   - 全局 AI 工作台
   - 页面级 Copilot
   - 内嵌字段/公式/规则助手
+  - 非对话式 AI 建议
+  - 批量/异步 AI 任务
   - AI 能力管理
   - 评测与失败分析
 
@@ -54,9 +56,11 @@
   - Workflow Orchestrator
   - Artifact Manager
   - Confirmation Manager
+  - Task Orchestrator
 
 能力层
   - Capability Registry
+  - Capability Version
   - Tool Wrapper Registry
   - Prompt Template
   - Eval Case
@@ -68,6 +72,7 @@
   - Permission Context
   - Data Context
   - Knowledge Context
+  - Attachment Context
 
 安全治理层
   - Schema Validator
@@ -76,6 +81,13 @@
   - Sensitive Data Minimization
   - Audit
   - Usage Ledger
+
+观测调试层
+  - Trace
+  - Structured Event Log
+  - Prompt/Context Snapshot
+  - Bad Case Capture
+  - Eval Replay
 
 模型层
   - Model Provider
@@ -89,10 +101,10 @@
 |---|---|---|---|
 | Phase 0 | 最小 AI 底座 | 建立 AI 能力受控调用的最小闭环 | 现在做 |
 | Phase 1 | 首个场景验证 | 用公式/计算字段验证底座有效性，并用低风险只读场景验证可迁移性 | Phase 0 后立即做 |
-| Phase 2 | 多场景复用 | 报表、成本分摊、文档、数据解释接入同一底座 | 首个场景核心能力稳定后做 |
-| Phase 3 | 管理治理平台 | 管理员可维护能力、Prompt、评测、成本和失败分析 | Capability 超过 5-8 个后做 |
-| Phase 4 | 知识/RAG 能力 | 制度、模板、SOP、字段口径可被检索引用 | 正式开放需稳定文档库和 ACL；管理员受限实验可更早做 |
-| Phase 5 | 工作流编排 | 多个 Capability 组合完成跨模块 HR 任务 | 单点能力稳定后做，支持受控动态计划 |
+| Phase 2 | 多场景复用 | 报表、成本分摊、文档、数据解释接入同一底座，并支持非对话调用 | 首个场景核心能力稳定后做 |
+| Phase 3 | 管理治理平台 | 管理员可维护能力、Prompt、评测、Trace、版本和失败分析 | Capability 超过 5-8 个后做 |
+| Phase 4 | 知识/RAG 能力 | 制度、模板、SOP、字段口径可被检索引用，支持文件解析入库 | 正式开放需稳定文档库和 ACL；管理员受限实验可更早做 |
+| Phase 5 | 工作流编排 | 多个 Capability 组合完成跨模块 HR 任务，支持异步步骤 | 单点能力稳定后做，支持受控动态计划 |
 | Phase 6 | 渠道与网关扩展 | 飞书机器人、外部 Gateway、多系统复用 | Web 工作台成熟后做；只读单轮实验入口可更早评估 |
 | Phase 7 | 模型优化/微调 | 专有术语、固定输出和复杂意图优化 | 有评测集和真实样本后做 |
 
@@ -111,6 +123,7 @@
 - `Schema Validator`
 - `Policy Guard` 最小规则
 - `Audit`
+- `Trace` 最小结构
 - `Eval Case Skeleton` 与基础量化门槛
 - 敏感字段标记与元数据过滤约定
 - 首批能力：`formula.generate`、`formula.validate`、`formula.repair`、`calculated_field.save`
@@ -125,11 +138,12 @@
 ### 验收标准
 
 - 未注册 Capability 不能被 AI 调用。
-- Phase 0 的 Registry 可以是轻量清单或配置约定，不要求建设完整管理后台，但必须包含 capability_id、输入输出 schema、风险等级、side_effect_tags、policy profile、tool 白名单、固定模型配置和审计开关。
+- Phase 0 的 Registry 可以是轻量清单或配置约定，不要求建设完整管理后台，但必须包含 capability_id、version、输入输出 schema、风险等级、side_effect_tags、policy profile、tool 白名单、固定模型配置和审计开关。
 - 模型输出必须过 schema 和 policy 校验。
 - AI 调用和工具调用可审计。
+- 每次 AI 请求必须生成 trace_id，并记录关键事件：入口、Capability、Tool、模型调用、schema/policy 校验、用户确认和失败原因。
 - 公式场景不传真实敏感明细，字段元数据必须按用户权限、场景和 sensitivity_level 过滤后再进入上下文。
-- Context Packet 在 Phase 0 只定义轻量顶层分区，例如 page、permission、data、domain_context；公式场景只实现必要字段和函数库上下文，不建设通用上下文聚合框架。
+- Context Packet 在 Phase 0 只定义轻量顶层分区，例如 page、permission、data、attachments、domain_context；公式场景只实现必要字段和函数库上下文，不建设通用上下文聚合框架。
 - 报表或其他只读场景的 Context Packet 可以先以文档样例验证结构，不作为 Phase 0 必须开发的完整功能。
 - 至少沉淀 20-30 个公式/计算字段 eval case，并支持自动回放。
 - Eval Case 必须定义自动判定规则，例如后端公式校验通过、字段引用存在、函数白名单合法、危险表达式被拒绝、失败原因分类正确。
@@ -146,6 +160,9 @@
 - 不做页面侧 prompt 拼接和模型直调。
 - 不做动态 Tool 注册或页面创建任意 Tool。
 - 不做可配置策略规则引擎。
+- 不做完整 Trace 可视化平台。
+- 不做文件解析、向量化和多模态理解，只在 Context Packet 中预留 attachments。
+- 不做异步任务队列。
 
 ## 5. Phase 1：首个场景验证
 
@@ -174,6 +191,7 @@
 - 公式场景 eval cases。
 - 真实业务语义评测样本与人工评估记录。
 - 一个只读低风险 Capability，例如 `report.explain_config` 或 `page.explain_metrics` 的最小实验版。
+- 生产 bad case 捕获规则：失败、用户放弃、后端校验拒绝、人工标记都能关联到 trace_id。
 
 ### 进入条件
 
@@ -196,6 +214,7 @@
 - 公式失败可以定位到 prompt、schema、字段元数据、函数库、后端校验或 policy。
 - 至少 10 个真实业务公式意图完成人工语义评估，由业务专家判断公式是否满足需求。
 - 人工语义评估应记录需求原文、生成公式、字段映射、业务判断、失败原因和修复建议。
+- 失败或人工标记的 bad case 能基于 trace_id 找到当时的关键上下文、模型输入摘要、工具输出和校验结果。
 
 ### 不做
 
@@ -203,6 +222,7 @@
 - 不做 AI 自动保存字段。
 - 不做数据动作函数读取未授权 HR 数据。
 - 不把低风险实验升级为正式能力，除非补齐 capability、schema、policy、eval 和审计。
+- 不做完整生产数据到 eval 的自动闭环，只保留 bad case 捕获和手动转 eval 的入口。
 
 ## 6. Phase 2：多场景复用
 
@@ -217,6 +237,9 @@
 - 文档能力：`document.draft_income_certificate`、`document.draft_agreement`
 - 数据集能力：`dataset.list_fields`、`dataset.explain_lineage`
 - 页面级 Copilot 统一接入 `POST /api/v1/ai/chat`
+- 非对话调用路径：允许页面、表单、定时任务或事件通过后端 API 直接调用已注册 Capability，并传入结构化参数。
+- 嵌入式建议能力：例如表单异常提示、规则自然语言解释、配置质量检查。
+- `file.parse` Capability 的最小实验版，用于 Word/PDF/Excel 等文件解析为结构化文本，供后续 RAG 或文档能力复用。
 - 低风险实验入口：`ai.experiment` 或 `sandbox.chat`，仅允许只读、无敏感明细、可审计的探索性调用。
 - 实验生命周期管理：实验创建时必须设置负责人、目标、最长有效期、转正条件和关闭条件。
 
@@ -226,12 +249,15 @@
 - 公式场景的失败原因能被审计和回放。
 - 至少 3 个 Capability 有稳定 schema 和 eval cases。
 - Context Packet 已被至少两个不同业务域验证。
+- Capability 可被对话入口和非对话入口复用，且两种入口都走同一套 schema、policy、permission、audit 和 trace。
 
 ### 验收标准
 
 - 不同页面使用同一套 AI Orchestrator、Context Packet、Policy Guard。
 - 新场景不新增独立模型调用接口。
+- 新场景不绕过 Capability Registry 直接调用模型或工具。
 - 报表、成本分摊、文档的执行仍走原业务服务权限。
+- 非对话调用必须携带 actor、trigger_type、trace_id 和业务上下文来源。
 - 实验入口的调用量、失败率或复用频率超过阈值后，必须升级为正式 Capability。
 - 任意页面不得绕过后端统一入口直接调用模型。
 - 实验能力默认最长 60 天；到期结论只能是转正、关闭或经评审延期。
@@ -244,6 +270,7 @@
 - 不做向量库问答，除非已有文档 ACL。
 - 不让 `ai.experiment` 访问敏感字段、业务写入工具或未授权数据。
 - 不允许长期维持无负责人、无期限、无转正标准的实验能力。
+- 不做大规模批量异步处理；Phase 2 只允许低风险、小规模、可限流的非对话调用。
 
 ## 7. Phase 3：管理治理平台
 
@@ -254,8 +281,11 @@
 ### 交付物
 
 - AI 能力管理页面。
+- Capability 版本字段管理。
 - Prompt 模板管理。
 - Eval Case 管理。
+- Trace 查询与失败回放。
+- 生产 bad case 转 Eval Case。
 - 失败分析。
 - 使用量和调用看板。
 - Capability 成功率、失败率、风险分布。
@@ -272,9 +302,12 @@
 
 - 管理员可启停 `ai_visible`。
 - 管理员可维护示例问法和风险等级。
+- 管理员可查看 capability version，并标记 deprecated。
 - 管理员不能注册任意 URL 或任意代码。
 - 评测失败能定位到 capability、prompt、model、tool 或 policy。
 - 管理员可查看 eval case 通过率、失败分类、人工复核状态和版本变化。
+- 管理员可通过 trace_id 查询一次 AI 调用的关键执行链路，包括入口、Capability、Tool、模型调用、校验结果和失败节点。
+- 生产 bad case 可以一键生成 Eval Case 草稿，并在修复后自动回放。
 - 管理员可查看实验能力的负责人、有效期、转正条件、关闭条件和回放记录。
 
 ### 不做
@@ -282,6 +315,8 @@
 - 不允许通过页面创建任意 Tool。
 - 不允许通过页面绕过代码白名单。
 - 不把 AI 能力管理做成业务权限替代品。
+- 不要求 Phase 3 完成 Workflow 版本绑定；但 Capability 必须已有版本字段和废弃标记。
+- 不做完整 OpenTelemetry 平台，Trace 先以结构化日志和查询页面为主。
 
 ## 8. Phase 4：知识/RAG 能力
 
@@ -295,6 +330,7 @@
 
 - Knowledge Source 管理。
 - 文档 ACL。
+- 文件解析与文本结构化。
 - 检索结果引用。
 - 知识问答 Capability。
 - 与模板维护、字段管理、报表说明的知识连接。
@@ -306,6 +342,7 @@
 
 - 已有稳定文档库。
 - 文档权限边界明确。
+- 已有可控的文件解析链路，能处理目标文档类型的文本、表格和版本元数据。
 - 业务确实需要制度、模板、字段口径类问答。
 - 能接受“无来源不回答”的产品策略。
 
@@ -323,6 +360,7 @@
 - 用户无权访问的文档不得进入检索上下文。
 - 没有可靠来源时必须说明无法确认。
 - 知识问答不触发业务写入动作。
+- 文件解析结果必须保留来源文件、页码/段落/表格位置和更新时间。
 - 管理员实验产生的问题、冲突和低质量文档必须能沉淀为整改清单。
 - 管理员实验到期后必须评审，决定关闭、延期或补齐正式 RAG 能力要求。
 
@@ -333,6 +371,7 @@
 - 不允许无来源编造制度条款。
 - 不把管理员实验直接开放给普通员工。
 - 不允许管理员实验长期替代正式知识问答能力。
+- 不把文件上传解析做成绕过文档 ACL 的入口。
 
 ## 9. Phase 5：工作流编排
 
@@ -411,6 +450,8 @@ Phase 5 MVP
 
 复杂模式检测不是永久不做，而是不作为 Phase 5 的进入门槛。只有当真实工作流数量增加、出现高风险组合案例、或准备把 Dynamic Plan 扩展到外部渠道/跨系统执行时，才评估进入后续治理增强。
 
+Workflow 必须支持异步步骤。耗时 Capability 可以返回 task_id，由 Task Orchestrator 跟踪 pending、running、success、failed、cancelled 状态，并把结果回填到后续步骤。HTTP 请求不应依赖长时间阻塞来等待结果。
+
 ### 示例
 
 用户输入：
@@ -439,6 +480,8 @@ workflow: cost_allocation_monthly_analysis
 
 - Workflow Definition。
 - Dynamic Plan 生成与审查。
+- Capability 版本绑定。
+- Async Capability / Task Orchestrator。
 - Plan Validator 最小规则集。
 - Workflow Orchestrator。
 - Step-level Artifact。
@@ -451,9 +494,11 @@ workflow: cost_allocation_monthly_analysis
 
 - 至少 8-12 个原子 Capability 稳定。
 - 每个参与 Workflow 的 Capability 都有 schema、policy、eval cases。
+- 参与 Workflow 的 Capability 必须有版本号；Workflow Definition 必须记录依赖的 capability_id 和版本范围。
 - 单点报表、成本分摊、文档能力都已稳定。
 - 高风险确认策略已稳定。
 - Dynamic Plan 的可执行步骤必须能全部映射到已注册 Capability。
+- 至少支持一个异步 Capability 的状态查询、取消和失败恢复。
 - 参与 Workflow 的 Capability 必须标注风险等级和 side_effect_tags。
 - 已定义最小两步组合风险规则，例如 `exports_file -> sends_notification`、`reads_sensitive -> external_channel`、`batch_operation -> writes_data`。
 
@@ -461,7 +506,9 @@ workflow: cost_allocation_monthly_analysis
 
 - 用户可以看到工作流拆解步骤。
 - 每一步都有 capability_id、输入、输出、状态和审计。
+- 每一步必须记录 capability version；Capability major 版本不兼容升级不得静默影响已有 Workflow。
 - 高风险步骤必须暂停并等待用户确认。
+- 异步步骤必须有 task_id、状态、超时、取消和失败恢复策略。
 - 工作流失败时能定位到具体步骤。
 - 用户可以放弃、重试或编辑某一步草稿。
 - 动态计划执行前必须展示计划摘要；涉及写入、发送、导出、批量计算等高风险动作时必须逐步确认。
@@ -477,6 +524,7 @@ workflow: cost_allocation_monthly_analysis
 - 不允许 Dynamic Plan 生成新的 Tool、访问未注册接口或直接操作数据库。
 - 不允许绕过 Plan Validator 直接执行动态计划。
 - Phase 5 MVP 不建设完整风险模式库、符号执行器或复杂跨步骤数据流分析；这些能力作为后续治理增强，在达到真实风险或外部扩展条件后再评估。
+- 不允许通过延长 HTTP 超时来替代异步任务机制。
 
 ## 10. Phase 6：渠道与网关扩展
 
@@ -508,6 +556,7 @@ workflow: cost_allocation_monthly_analysis
 - 渠道、限流和观测复杂度明显超过 HR Portal 内嵌架构。
 - 有明确运维和安全审计要求。
 - 如果正式渠道需要执行 Workflow 或 Dynamic Plan，必须重新评估 Plan Validator 是否覆盖外部渠道相关组合风险；覆盖不足时，不开放自动执行。
+- 如果正式渠道需要触发异步任务，必须支持任务状态通知、取消和权限隔离。
 
 只读单轮实验入口的最低进入条件：
 
@@ -523,6 +572,7 @@ workflow: cost_allocation_monthly_analysis
 - 群聊上下文不会串用户权限。
 - Gateway 不接管 HR 业务数据权限。
 - Web 和外部渠道复用同一 Capability Registry。
+- 外部渠道触发的 Capability、Task 和 Workflow 必须保留 trace_id，并能回溯到具体用户、会话和触发来源。
 - 实验入口必须标注实验性质，并能单独关闭、限流和审计。
 - 实验入口交互必须可回放、可抽样评估，到期后必须关闭、延期评审或转入正式渠道建设。
 

@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.audit import AiAuditTimer, record_ai_log
-from app.ai.provider import generate_json_openai_compatible
-from app.ai.service import active_ai_config
 from app.codegen.rules import normalize_ai_code, suggest_code_from_candidates
 from app.core.db import get_session
 from app.core.deps import current_user
-from app.core.secret_box import decrypt
 from app.datasets.models import DataSet, DatasetCalculatedField
 from app.datasets.router import _can_access
 from app.users.models import User
@@ -69,47 +64,9 @@ async def suggest_code(
     if payload.dataset_id is not None:
         existing |= await _dataset_existing_codes(payload.dataset_id, user, db)
 
-    config = await active_ai_config(db)
     ai_candidate: str | None = None
-    explanation: str | None = None
+    explanation: str | None = "Phase 0 期间编码建议不直接调用模型，已使用本地规则生成。"
     status_text = "fallback"
-    usage: dict[str, Any] | None = None
-    try:
-        if config and config.api_key_encrypted and config.model_fast_json:
-            api_key = decrypt(config.api_key_encrypted)
-            if not api_key:
-                raise RuntimeError("AI API key 解密失败")
-            raw, usage = await generate_json_openai_compatible(
-                api_key=api_key,
-                base_url=config.base_url,
-                model=config.model_fast_json,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Return JSON only. Generate a concise English snake_case code "
-                            "for a business object name. Use ASCII lowercase letters, "
-                            "numbers and underscores only. Do not include explanations outside JSON."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Name: {payload.label}\n"
-                            f"Scope: {payload.scope}\n"
-                            f"Context: {payload.context or ''}\n"
-                            'Return keys: code, explanation. Example: {"code":"employee_tax_amount","explanation":"..."}'
-                        ),
-                    },
-                ],
-                timeout=int(config.timeout_seconds or 30),
-            )
-            ai_candidate = normalize_ai_code(str(raw.get("code") or ""), prefix=payload.prefix)
-            explanation = str(raw.get("explanation") or "")[:500] or None
-            status_text = "success" if ai_candidate else "fallback"
-    except Exception as exc:
-        explanation = f"AI 编码建议失败，已使用本地规则：{exc}"
-        status_text = "fallback"
 
     suggestion = suggest_code_from_candidates(
         label=payload.label,
@@ -139,8 +96,9 @@ async def suggest_code(
             "prefix": payload.prefix,
             "source": out.source,
             "rule": out.rule,
+            "ai_disabled_reason": "phase0_capability_registry_guard",
         },
-        token_usage=usage,
+        token_usage=None,
         timer=timer,
     )
     await db.commit()

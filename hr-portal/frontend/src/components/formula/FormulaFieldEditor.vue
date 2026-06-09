@@ -5,7 +5,7 @@ import { Check, Close, Plus, Search, Position } from '@element-plus/icons-vue'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import type { ColumnInfo } from '@/api/data'
 import { aiFormulaApi, type FormulaValidation } from '@/api/aiFormula'
-import { datasetsApi, type DatasetCalculatedField } from '@/api/datasets'
+import type { DatasetCalculatedField } from '@/api/datasets'
 import { functionLibraryApi, type FormulaFunction } from '@/api/functionLibrary'
 
 const props = defineProps<{
@@ -415,10 +415,6 @@ function compactFormulaIssues(issues?: string[]) {
   return list.slice(0, 2).join('；') + (list.length > 2 ? '。其余问题可在右侧校验结果查看。' : '')
 }
 
-function isUnsupportedCurrentDateIssue(text: string) {
-  return /(TODAY|MONTH|TEXT|DATE|NOW|CURRENT_MONTH|当前月|当前月份|当前日期)/i.test(text)
-}
-
 function draftValidationErrors(draft: any) {
   return Array.isArray(draft?.validation_errors) ? draft.validation_errors.filter(Boolean) : []
 }
@@ -434,22 +430,12 @@ function buildAssistantReply(draft: any, applyResult: DraftApplyResult) {
     return lines.join('\n')
   }
   const validationErrors = applyResult.validationErrors || draftValidationErrors(draft)
-  const standardFormula = draft.standard_excel_formula
   const platformLimitation = draft.platform_limitation
-  const issueText = `${validationErrors.join('；')} ${summary} ${platformLimitation || ''}`
-  if (platformLimitation || (validationErrors.length && isUnsupportedCurrentDateIssue(issueText))) {
-    const lines = [
-      standardFormula
-        ? `标准 Excel 里可以这样写：${standardFormula}。`
-        : '标准 Excel 里，“当前月份”通常会用 MONTH(TODAY())；如果要和 YYYYMM 字段比较，通常会用 TEXT(TODAY(),"yyyymm")。',
-      platformLimitation || '但当前平台公式库还没有开放对应的日期函数，所以这个写法现在不能直接保存。',
-      validationErrors.length ? `当前草稿未通过校验：${compactFormulaIssues(validationErrors)}` : '',
-      '可落地的做法是：改为引用数据集里的“月份/年月”字段，或先在函数库中开放对应日期函数后再使用。',
-    ].filter(Boolean)
-    return lines.join('\n')
-  }
   if (validationErrors.length) {
-    return `${summary}\n\n我已经把草稿写入上方公式区，但它还没有通过校验：${compactFormulaIssues(validationErrors)}\n可以直接继续告诉我怎么调整，例如“不要用当前月份函数，改为引用月份字段”。`
+    return `${summary}\n\n公式区已更新，但当前草稿还没有通过校验：${compactFormulaIssues(validationErrors)}`
+  }
+  if (platformLimitation) {
+    return `${summary}\n\n平台限制：${platformLimitation}`
   }
   const warnings = Array.isArray(draft.warnings) ? draft.warnings.filter(Boolean) : []
   if (warnings.length) {
@@ -610,7 +596,7 @@ async function save() {
   form.is_sensitive = latestValidation.is_sensitive || form.is_sensitive
   saving.value = true
   try {
-    const saved = await datasetsApi.createCalculatedField(props.datasetId, {
+    const saved = await aiFormulaApi.saveCalculatedField(props.datasetId, {
       code: form.code.trim() || null,
       label: form.label.trim(),
       description: form.description.trim() || null,
