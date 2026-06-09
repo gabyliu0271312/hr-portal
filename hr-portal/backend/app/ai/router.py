@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.audit import AiAuditTimer, record_ai_log
@@ -27,6 +27,7 @@ from app.core.deps import current_user, require_op
 from app.core.secret_box import decrypt, encrypt
 from app.datasets.calculated_fields import CalculatedFieldIn, CalculatedFieldOut
 from app.datasets.calculated_fields import create_calculated_field as create_calculated_field_impl
+from app.system.models import SystemLog
 from app.users.models import User
 
 
@@ -77,6 +78,51 @@ class AiConfigTestOut(BaseModel):
     message: str
     response: dict[str, Any]
     token_usage: dict[str, Any] | None = None
+
+
+class ReportExplainConfigIn(BaseModel):
+    report_id: int | None = Field(default=None, ge=1)
+    report_name: str = Field(default="", max_length=128)
+    description: str | None = Field(default=None, max_length=1000)
+    columns: list[str] = Field(default_factory=list, max_length=100)
+    filters: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    sorts: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    aggregate: bool = False
+    aggregations: dict[str, str] = Field(default_factory=dict)
+    column_settings: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+class ReportExplainConfigOut(BaseModel):
+    summary: str
+    field_count: int
+    filter_count: int
+    sort_count: int
+    aggregation_count: int
+    visible_fields: list[str]
+    warnings: list[str]
+    context_packet: dict[str, Any]
+
+
+class AiBadCaseCaptureIn(BaseModel):
+    trace_id: str = Field(min_length=8, max_length=128)
+    capability_id: str | None = Field(default=None, max_length=128)
+    source: str = Field(pattern="^(failure|user_abandon|backend_validation_rejected|manual_mark)$")
+    failure_stage: str = Field(
+        default="unknown",
+        pattern="^(prompt|schema|field|function|backend|policy|tool|model|user|unknown)$",
+    )
+    user_message: str | None = Field(default=None, max_length=1000)
+    formula: str | None = Field(default=None, max_length=2000)
+    reason: str = Field(min_length=1, max_length=1000)
+    repair_suggestion: str | None = Field(default=None, max_length=1000)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AiBadCaseCaptureOut(BaseModel):
+    captured: bool
+    source_trace_id: str
+    capture_trace_id: str
+    source_log_found: bool
 
 
 class CapabilityOut(BaseModel):
@@ -151,6 +197,8 @@ def _capability_input_schema(item: CapabilityDefinition) -> dict[str, Any]:
         return schema_from_model(FormulaValidateIn)
     if item.capability_id == "calculated_field.save":
         return schema_from_model(CalculatedFieldIn)
+    if item.capability_id == "report.explain_config":
+        return schema_from_model(ReportExplainConfigIn)
     return {"type": "object", "properties": {}}
 
 
@@ -163,6 +211,8 @@ def _capability_output_schema(item: CapabilityDefinition) -> dict[str, Any]:
         return schema_from_model(FormulaValidateOut)
     if item.capability_id == "calculated_field.save":
         return schema_from_model(CalculatedFieldOut)
+    if item.capability_id == "report.explain_config":
+        return schema_from_model(ReportExplainConfigOut)
     if item.capability_id == "ai.capability.list":
         return {"type": "array", "items": schema_from_model(CapabilityOut)}
     return {"type": "object", "properties": {}}
@@ -191,6 +241,83 @@ def _config_out(row: AiProviderConfig) -> AiConfigOut:
         extra_config=row.extra_config or {},
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def _report_explain_payload_from_row(row: Any) -> ReportExplainConfigIn:
+    config = row.config or {}
+    return ReportExplainConfigIn(
+        report_id=row.id,
+        report_name=row.name,
+        description=row.description,
+        columns=list(config.get("columns") or []),
+        filters=list(config.get("filters") or []),
+        sorts=list(config.get("sorts") or []),
+        aggregate=bool(config.get("aggregate")),
+        aggregations=dict(config.get("aggregations") or {}),
+        column_settings=dict(config.get("column_settings") or {}),
+    )
+
+
+def _explain_report_config(payload: ReportExplainConfigIn) -> ReportExplainConfigOut:
+    settings = payload.column_settings or {}
+    visible_fields = [
+        column
+        for column in payload.columns
+        if not (settings.get(column) or {}).get("hidden")
+    ]
+    hidden_count = len(payload.columns) - len(visible_fields)
+    warnings: list[str] = []
+    if not payload.columns:
+        warnings.append("报表未配置展示字段。")
+    if hidden_count:
+        warnings.append(f"有 {hidden_count} 个已选字段被配置为隐藏。")
+    if payload.aggregate and not payload.aggregations:
+        warnings.append("报表已开启聚合，但未配置字段级聚合方式，将使用默认聚合规则。")
+
+    title = payload.report_name or "未命名报表"
+    parts = [
+        f"报表「{title}」当前展示 {len(visible_fields)} 个字段",
+        f"包含 {len(payload.filters)} 个筛选条件",
+        f"{len(payload.sorts)} 个排序规则",
+    ]
+    if payload.aggregate:
+        parts.append(f"已开启聚合，配置了 {len(payload.aggregations)} 个字段聚合方式")
+    summary = "，".join(parts) + "。"
+
+    context_packet = {
+        "page": {
+            "kind": "report_config",
+            "report_id": payload.report_id,
+            "report_name": payload.report_name,
+        },
+        "permission": {
+            "required": {"resource": "report.list", "operation": "V"},
+            "mode": "read_only",
+        },
+        "data": {
+            "columns": payload.columns,
+            "visible_fields": visible_fields,
+            "filters": payload.filters,
+            "sorts": payload.sorts,
+            "aggregate": payload.aggregate,
+            "aggregations": payload.aggregations,
+        },
+        "attachments": [],
+        "domain_context": {
+            "capability_id": "report.explain_config",
+            "side_effect": "none",
+        },
+    }
+    return ReportExplainConfigOut(
+        summary=summary,
+        field_count=len(payload.columns),
+        filter_count=len(payload.filters),
+        sort_count=len(payload.sorts),
+        aggregation_count=len(payload.aggregations),
+        visible_fields=visible_fields,
+        warnings=warnings,
+        context_packet=context_packet,
     )
 
 
@@ -433,6 +560,159 @@ async def save_calculated_field_capability(
         if isinstance(exc, HTTPException):
             raise
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(detail)) from exc
+
+
+@router.post(
+    "/capabilities/report.explain_config/answer",
+    response_model=ReportExplainConfigOut,
+    dependencies=[Depends(require_op("report.list", "V"))],
+)
+async def explain_report_config_capability(
+    payload: ReportExplainConfigIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> ReportExplainConfigOut:
+    timer = AiAuditTimer()
+    capability = _ensure_capability("report.explain_config")
+    effective_payload = payload
+    try:
+        timer.add_event("entry", capability_id=capability.capability_id, route="/ai/capabilities/report.explain_config/answer")
+        timer.add_event("capability", capability_id=capability.capability_id, risk_level=capability.risk_level)
+        validate_model_payload(ReportExplainConfigIn, payload, label="report.explain_config input")
+        timer.add_event("schema_validation", capability_id=capability.capability_id, target="input")
+        validate_capability_policy(capability, used_tools=["report.read_config"])
+        timer.add_event("policy_validation", capability_id=capability.capability_id, target="capability")
+        if payload.report_id is not None:
+            from app.reports.models import Report
+
+            row = await db.get(Report, payload.report_id)
+            if row is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
+            effective_payload = _report_explain_payload_from_row(row)
+        timer.add_event(
+            "tool",
+            tool_name="report.read_config",
+            capability_id=capability.capability_id,
+            report_id=effective_payload.report_id,
+            field_count=len(effective_payload.columns),
+            filter_count=len(effective_payload.filters),
+        )
+        out = _explain_report_config(effective_payload)
+        validate_model_payload(ReportExplainConfigOut, out, label="report.explain_config output")
+        timer.add_event("schema_validation", capability_id=capability.capability_id, target="output")
+        await record_ai_log(
+            db=db,
+            user=user,
+            action="report_explain_config",
+            request_summary=(effective_payload.report_name or f"report:{effective_payload.report_id}")[:300],
+            response_summary=out.summary[:500],
+            input_payload=effective_payload.model_dump(),
+            output_payload=out.model_dump(),
+            status="success",
+            metadata={
+                "capability_id": capability.capability_id,
+                "report_id": effective_payload.report_id,
+                "field_count": out.field_count,
+                "filter_count": out.filter_count,
+                "sort_count": out.sort_count,
+                "aggregation_count": out.aggregation_count,
+            },
+            timer=timer,
+        )
+        await db.commit()
+        return out
+    except (AiSchemaValidationError, AiPolicyError, HTTPException) as exc:
+        detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        timer.add_event("failure", status="error", capability_id=capability.capability_id, reason=str(detail)[:500])
+        await record_ai_log(
+            db=db,
+            user=user,
+            action="report_explain_config",
+            request_summary=(payload.report_name or f"report:{payload.report_id}")[:300],
+            response_summary=None,
+            input_payload=payload.model_dump(),
+            output_payload={},
+            status="error",
+            metadata={"capability_id": capability.capability_id, "report_id": payload.report_id},
+            error=str(detail),
+            timer=timer,
+        )
+        await db.commit()
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(detail)) from exc
+
+
+@router.post("/bad-cases", response_model=AiBadCaseCaptureOut)
+async def capture_ai_bad_case(
+    payload: AiBadCaseCaptureIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> AiBadCaseCaptureOut:
+    timer = AiAuditTimer()
+    source_log = (
+        await db.execute(
+            select(SystemLog)
+            .where(SystemLog.trace_id == payload.trace_id)
+            .order_by(desc(SystemLog.created_at), desc(SystemLog.id))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    source_metadata = (source_log.metadata_json or {}) if source_log is not None else {}
+    capability_id = payload.capability_id or source_metadata.get("capability_id")
+    timer.add_event(
+        "entry",
+        route="/ai/bad-cases",
+        capability_id=capability_id,
+        source_trace_id=payload.trace_id,
+    )
+    timer.add_event(
+        "bad_case_capture",
+        capability_id=capability_id,
+        source_trace_id=payload.trace_id,
+        source=payload.source,
+        failure_stage=payload.failure_stage,
+        source_log_found=source_log is not None,
+    )
+    metadata = {
+        "source_trace_id": payload.trace_id,
+        "capability_id": capability_id,
+        "source": payload.source,
+        "failure_stage": payload.failure_stage,
+        "repair_suggestion": payload.repair_suggestion,
+        "source_log_found": source_log is not None,
+        "source_log": {
+            "action": source_log.action if source_log is not None else None,
+            "status": source_log.status if source_log is not None else None,
+            "request_summary": source_log.request_summary if source_log is not None else None,
+            "response_summary": source_log.response_summary if source_log is not None else None,
+            "error": source_log.error if source_log is not None else None,
+        },
+        "manual_metadata": payload.metadata,
+    }
+    await record_ai_log(
+        db=db,
+        user=user,
+        action="bad_case_capture",
+        request_summary=(payload.user_message or payload.reason)[:300],
+        response_summary=payload.reason[:500],
+        input_payload=payload.model_dump(),
+        output_payload={
+            "captured": True,
+            "source_trace_id": payload.trace_id,
+            "source_log_found": source_log is not None,
+        },
+        status="captured",
+        metadata=metadata,
+        timer=timer,
+    )
+    await db.commit()
+    return AiBadCaseCaptureOut(
+        captured=True,
+        source_trace_id=payload.trace_id,
+        capture_trace_id=timer.trace_id,
+        source_log_found=source_log is not None,
+    )
 
 
 @router.get(

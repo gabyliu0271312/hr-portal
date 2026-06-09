@@ -148,6 +148,26 @@ CAPABILITIES: tuple[CapabilityDefinition, ...] = (
         examples=["保存为计算字段"],
         failure_modes=["用户未确认", "计算字段编码重复", "公式校验失败", "用户无权创建字段"],
     ),
+    CapabilityDefinition(
+        capability_id="report.explain_config",
+        name="解释报表配置",
+        module="reports",
+        type="answer",
+        description="基于报表结构化配置生成只读说明，用于验证 AI 底座可迁移到公式以外的低风险场景。",
+        required_permission=("report.list", "V"),
+        risk_level="low",
+        side_effect_tags=[],
+        tools=["report.read_config"],
+        policy_profile={
+            "output_contract": "report_explain_config_schema",
+            "allowed_side_effect": "none",
+            "field_context": "metadata_only",
+        },
+        model_profile="none",
+        sensitive_context="metadata_only",
+        examples=["解释这张报表当前展示了哪些字段和筛选条件"],
+        failure_modes=["报表配置为空", "用户无权查看报表", "输入配置结构不合法"],
+    ),
 )
 
 
