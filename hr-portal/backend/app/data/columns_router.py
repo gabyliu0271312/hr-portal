@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.data.models import DATA_TABLES, TableColumn
+from app.datasets.metadata import table_options
 from app.users.models import User
 
 
@@ -133,17 +134,12 @@ def _to_out(c: TableColumn) -> ColumnOut:
 
 
 @router.get("/tables")
-async def list_tables(_: User = Depends(current_user)) -> list[dict[str, str]]:
+async def list_tables(
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> list[dict[str, str]]:
     """返回所有支持的业务表清单"""
-    LABELS = {
-        "emp_realtime_roster": "员工实时花名册",
-        "emp_monthly_roster": "员工月度花名册",
-        "emp_monthly_salary": "员工月度工资表",
-        "emp_monthly_allocation": "员工月度成本分摊表",
-        "cost_center_monthly": "成本中心月度维护表",
-        "emp_monthly_cost_class": "员工月度成本归集分类表",
-    }
-    return [{"table_name": k, "label": LABELS.get(k, k)} for k in DATA_TABLES.keys()]
+    return await table_options(db)
 
 
 @router.get("/{table}", response_model=list[ColumnOut])

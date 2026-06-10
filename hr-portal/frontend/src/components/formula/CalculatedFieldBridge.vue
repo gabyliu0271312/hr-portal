@@ -35,9 +35,7 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
 const sourceGroups = computed(() => {
   const groups = (currentDataset.value?.tables || []).map((item) => ({
     key: item.alias,
-    label: item.alias === datasetTableName(item)
-      ? datasetTableName(item)
-      : `${datasetTableName(item)} (${item.alias})`,
+    label: datasetTableName(item),
   }))
   groups.push({ key: 'calc', label: '计算字段' })
   return groups

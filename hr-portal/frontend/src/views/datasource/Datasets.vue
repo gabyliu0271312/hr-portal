@@ -96,7 +96,6 @@ onMounted(load)
                 style="margin-right: 4px"
               >
                 {{ tableDisplayName(t) }}
-                <span v-if="t.alias !== tableDisplayName(t)" class="table-alias">({{ t.alias }})</span>
               </el-tag>
             </template>
           </el-table-column>
@@ -126,11 +125,3 @@ onMounted(load)
     </el-card>
   </div>
 </template>
-
-<style scoped>
-.table-alias {
-  margin-left: 4px;
-  color: var(--color-text-placeholder);
-  font-family: monospace;
-}
-</style>

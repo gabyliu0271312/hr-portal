@@ -35,8 +35,7 @@ watch(
 )
 
 function datasetTableName(table: DatasetItem['tables'][number]): string {
-  const label = table.table_label || table.table_name
-  return table.alias && table.alias !== label ? `${label} (${table.alias})` : label
+  return table.table_label || table.table_name
 }
 </script>
 

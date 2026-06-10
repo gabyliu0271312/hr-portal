@@ -8,6 +8,7 @@ import BulkActionBar from '@/components/BulkActionBar.vue'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import { datasourcesApi, type DataSourceListItem } from '@/api/datasources'
 import { adminTablesApi } from '@/api/admin_tables'
+import { tableColumnsApi } from '@/api/table_columns'
 import { useDataExport } from '@/composables/useDataExport'
 import { pushTargetsApi } from '@/api/push_targets'
 
@@ -123,7 +124,17 @@ async function bulkDelete() {
 async function loadColumns() {
   if (!meta.value) return
   try {
-    columns.value = await dataApi.columns(meta.value.code)
+    const [dataColumns, managedColumns] = await Promise.all([
+      dataApi.columns(meta.value.code),
+      tableColumnsApi.list(meta.value.code).catch(() => []),
+    ])
+    const labelByCode = new Map(
+      managedColumns.map((col) => [col.column_code, col.column_label])
+    )
+    columns.value = dataColumns.map((col) => ({
+      ...col,
+      label: labelByCode.get(col.code) || col.label || col.code,
+    }))
   } catch {
     columns.value = []
   }
@@ -299,9 +310,6 @@ onMounted(async () => {
         <div style="display: flex; justify-content: space-between; align-items: center">
           <div>
             <span style="font-size: 16px; font-weight: 600">{{ meta.label }}</span>
-            <span style="margin-left: 12px; font-family: monospace; font-size: 12px; color: var(--color-text-secondary)">
-              {{ meta.code }}
-            </span>
           </div>
           <div>
             <PermissionButton menu="system.field_columns" op="U" size="default" @click="$router.push(`/system/field-columns?table=${meta.code}`)">

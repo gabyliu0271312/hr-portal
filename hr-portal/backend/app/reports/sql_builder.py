@@ -993,10 +993,16 @@ async def run_dataset_query(
         for target_qual, factor_qual in rules_by_target.items():
             if not (target_qual.startswith("calc.") or factor_qual.startswith("calc.")):
                 continue
-            if target_qual not in item or factor_qual not in item:
+            if target_qual not in item:
                 continue
             try:
-                raw_prod = _num(item.get(target_qual)) * _num(item.get(factor_qual))
+                # 取系数时用原始未乘值，避免第一阶段已乘系数的字段被二次放大
+                if not factor_qual.startswith("calc."):
+                    fa, _, fc = factor_qual.partition(".")
+                    factor_val = alias_raws.get(fa, {}).get(fc)
+                else:
+                    factor_val = item.get(factor_qual)
+                raw_prod = _num(item.get(target_qual)) * _num(factor_val)
                 item[f"__rawprod__{target_qual}"] = raw_prod
                 item[target_qual] = round(raw_prod, 2)
             except (TypeError, ValueError):

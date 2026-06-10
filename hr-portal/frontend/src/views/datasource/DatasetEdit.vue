@@ -209,8 +209,7 @@ function tableDisplayName(t: DatasetTableItem): string {
 }
 
 function tableAliasOptionLabel(t: DatasetTableItem): string {
-  const name = tableDisplayName(t)
-  return t.alias && t.alias !== name ? `${name} (${t.alias})` : name
+  return tableDisplayName(t)
 }
 
 async function save() {
