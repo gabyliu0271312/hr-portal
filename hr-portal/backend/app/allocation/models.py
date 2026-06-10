@@ -17,10 +17,10 @@ class AllocationScheme(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # 数据源：与 Report 保持一致，二选一
+    # 数据源统一为数据集；table_name 仅保留为空字符串，便于旧表结构过渡。
     table_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    dataset_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True
+    dataset_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("datasets.id"), nullable=False
     )
 
     # 写入目标（月度结果表）

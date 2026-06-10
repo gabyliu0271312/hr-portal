@@ -18,6 +18,7 @@ export interface TableColumn {
   agg_role: string
   is_computed: boolean
   formula_expr: string | null
+  global_field_id: number | null
   created_at: string
   updated_at: string
 }

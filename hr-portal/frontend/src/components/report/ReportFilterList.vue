@@ -9,9 +9,7 @@ const props = defineProps<{
   filters: FilterCond[]
   filterLogic?: FilterLogic | null
   allColumns: ColumnInfo[]
-  tableName: string
-  sourceType: 'single' | 'dataset'
-  currentDatasetTables?: { table_name: string; alias: string }[]
+  currentDatasetTables?: { table_name: string; alias: string; table_label?: string | null }[]
   showViewControls?: boolean
 }>()
 
@@ -57,9 +55,6 @@ function colInfo(qual: string): ColumnInfo | undefined {
 }
 
 function resolveTableColumn(qual: string): { table: string; column: string } | null {
-  if (props.sourceType === 'single') {
-    return props.tableName ? { table: props.tableName, column: qual } : null
-  }
   const dot = qual.indexOf('.')
   if (dot < 0 || !props.currentDatasetTables) return null
   const alias = qual.slice(0, dot)

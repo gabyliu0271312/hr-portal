@@ -21,6 +21,7 @@ from app.datasets.calculated_fields import router as dataset_calculated_fields_r
 from app.datasets.router import router as datasets_router
 from app.datasources.router import router as datasources_router
 from app.field_category.router import router as field_cat_router
+from app.global_fields.router import router as global_fields_router
 from app.menus.router import router as menus_router
 from app.reports.router import router as reports_router
 from app.roles.router import router as roles_router
@@ -132,6 +133,7 @@ app.include_router(users_router, prefix=settings.API_PREFIX)
 app.include_router(roles_router, prefix=settings.API_PREFIX)
 app.include_router(menus_router, prefix=settings.API_PREFIX)
 app.include_router(field_cat_router, prefix=settings.API_PREFIX)
+app.include_router(global_fields_router, prefix=settings.API_PREFIX)
 app.include_router(datasources_router, prefix=settings.API_PREFIX)
 app.include_router(data_router, prefix=settings.API_PREFIX)
 app.include_router(columns_router, prefix=settings.API_PREFIX)

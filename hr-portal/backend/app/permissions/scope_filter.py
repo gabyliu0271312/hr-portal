@@ -213,6 +213,20 @@ async def _build_person_clause(
 # ===== 主入口 =====
 
 
+async def _is_scope_exempt(table: str, db: AsyncSession) -> bool:
+    """该表是否被显式声明为「数据范围免控」"""
+    from app.data.models import RegisteredTable
+
+    row = (
+        await db.execute(
+            select(RegisteredTable.scope_exempt).where(
+                RegisteredTable.table_name == table
+            )
+        )
+    ).first()
+    return bool(row[0]) if row else False
+
+
 async def build_scope_filter(
     user: User, table: str, db: AsyncSession
 ) -> ColumnElement:
@@ -220,6 +234,13 @@ async def build_scope_filter(
 
     true()  → 无约束（全表可见）
     false() → 无权限（空集）
+
+    fail-closed 语义（KD-1 安全修复）：
+    - 超管 → 放行
+    - 表显式声明 scope_exempt=True → 放行（无需按树管控）
+    - 表未声明免控、却没有任何 scope_role 字段 → 拒绝（false），杜绝裸奔
+    - 用户无标签 → 拒绝
+    - 标签维度与表字段不匹配（解析不到约束列）→ 该标签贡献 false（不再放行）
     """
     if table not in DATA_TABLES:
         return false()
@@ -228,10 +249,14 @@ async def build_scope_filter(
     if await _is_super_admin(user, db):
         return true()
 
+    # 显式免控白名单：声明该表无需数据范围控制
+    if await _is_scope_exempt(table, db):
+        return true()
+
     role_cols = await _get_role_columns(table, db)
     if not role_cols:
-        # 该表没标 scope_role 字段 → 不接入权限，放行
-        return true()
+        # 受控表却没标任何 scope_role 字段 → fail-closed 拒绝（旧逻辑此处放行=漏洞）
+        return false()
 
     tags = await _get_user_tags(user.id, db)
     if not tags:
@@ -245,8 +270,9 @@ async def build_scope_filter(
 
         parts = [p for p in (org_part, person_part) if p is not None]
         if not parts:
-            # 两段都对此表无约束 → 这个标签贡献 true（不约束）
-            tag_clauses.append(true())
+            # 该标签的维度在此表解析不到约束列 → fail-closed:该标签不授予可见性
+            # （旧逻辑此处 append(true()) 会导致维度不匹配时越权看全表）
+            tag_clauses.append(false())
         else:
             tag_clauses.append(and_(*parts))
 

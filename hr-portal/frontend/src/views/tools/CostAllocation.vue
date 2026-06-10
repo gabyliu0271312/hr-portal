@@ -76,13 +76,9 @@ onMounted(loadSchemes)
           </el-table-column>
           <el-table-column label="数据来源" min-width="160">
             <template #default="{ row }">
-              <span v-if="row.dataset_id">
+              <span>
                 <el-tag size="small" type="warning" effect="plain">数据集</el-tag>
-                <span style="margin-left: 6px">{{ row.dataset_name }}</span>
-              </span>
-              <span v-else>
-                <el-tag size="small" effect="plain">单表</el-tag>
-                <span style="margin-left: 6px">{{ row.table_name }}</span>
+                <span style="margin-left: 6px">{{ row.dataset_name || `#${row.dataset_id}` }}</span>
               </span>
             </template>
           </el-table-column>

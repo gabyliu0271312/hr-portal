@@ -10,6 +10,7 @@ export interface RegisteredTableOut {
   period_source: string
   is_builtin: boolean
   is_result_table: boolean
+  scope_exempt: boolean
   icon: string
   display_order: number
   created_at: string
@@ -35,6 +36,9 @@ export const adminTablesApi = {
 
   create: (body: CreateTableIn) =>
     api.post<RegisteredTableOut>('/admin/tables', body).then((r) => r.data),
+
+  update: (table_name: string, body: { scope_exempt?: boolean; table_label?: string; description?: string; display_order?: number }) =>
+    api.patch<RegisteredTableOut>(`/admin/tables/${table_name}`, body).then((r) => r.data),
 
   remove: (table_name: string) =>
     api.delete<{ ok: boolean }>(`/admin/tables/${table_name}`).then((r) => r.data),

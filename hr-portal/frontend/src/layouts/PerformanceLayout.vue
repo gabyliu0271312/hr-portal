@@ -41,6 +41,7 @@
         <router-view />
       </el-main>
     </el-container>
+    <GlobalAiAssistant />
   </el-container>
 </template>
 
@@ -48,6 +49,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue'
 
 interface PerformanceMenuItem {
   key: string

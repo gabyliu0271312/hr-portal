@@ -19,7 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.data.models import DATA_TABLES, TableColumn
+from app.datasets.metadata import table_label, table_label_map, table_options
 from app.datasets.models import DataSet, DataSetAcl, DataSetRelation, DataSetTable
+from app.datasets.single_table import ensure_single_table_dataset as ensure_single_table_dataset_impl
 from app.reports.models import Report
 from app.users.models import User, UserRole
 
@@ -67,6 +69,7 @@ class SingleTableDatasetIn(BaseModel):
 
 class DatasetTableOut(DatasetTableIn):
     id: int
+    table_label: str | None = None
 
 
 class DatasetRelationOut(DatasetRelationIn):
@@ -112,6 +115,7 @@ async def _to_out(ds: DataSet, db: AsyncSession) -> DatasetOut:
     ref_count = (
         await db.execute(select(Report).where(Report.dataset_id == ds.id))
     ).scalars().all()
+    label_by_table = await table_label_map(db, [t.table_name for t in tables])
     return DatasetOut(
         id=ds.id,
         name=ds.name,
@@ -119,7 +123,13 @@ async def _to_out(ds: DataSet, db: AsyncSession) -> DatasetOut:
         is_active=ds.is_active,
         created_by=ds.created_by,
         tables=[
-            DatasetTableOut(id=t.id, table_name=t.table_name, alias=t.alias) for t in tables
+            DatasetTableOut(
+                id=t.id,
+                table_name=t.table_name,
+                alias=t.alias,
+                table_label=label_by_table.get(t.table_name, t.table_name),
+            )
+            for t in tables
         ],
         relations=[
             DatasetRelationOut(
@@ -210,20 +220,6 @@ def _validate_payload(payload: DatasetIn) -> None:
             )
 
 
-_VISIBLE_TABLE_LABELS = {
-    "emp_realtime_roster": "员工实时花名册",
-    "emp_monthly_roster": "员工月度花名册",
-    "emp_monthly_salary": "员工月度工资表",
-    "emp_monthly_allocation": "员工月度成本分摊表",
-    "cost_center_monthly": "成本中心月度维护表",
-    "emp_monthly_cost_class": "员工月度成本归集分类表",
-}
-
-
-def _table_label(table_name: str) -> str:
-    return _VISIBLE_TABLE_LABELS.get(table_name, table_name)
-
-
 # ===== CRUD =====
 
 @router.get("", response_model=list[DatasetOut])
@@ -308,48 +304,28 @@ async def ensure_single_table_dataset(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> DatasetOut:
-    if payload.table_name not in DATA_TABLES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="未知数据表")
-    label = _table_label(payload.table_name)
-    raw_name = f"单表字段库 · {label}"
-    name = raw_name if len(raw_name) <= 64 else f"单表字段库 · {payload.table_name}"[:64]
-    existing = (
-        await db.execute(
-            select(DataSet)
-            .join(DataSetTable, DataSetTable.dataset_id == DataSet.id)
-            .where(
-                DataSetTable.table_name == payload.table_name,
-                DataSetTable.alias == "current",
-                DataSet.name.like("单表字段库 ·%"),
-            )
-            .order_by(DataSet.id)
+    try:
+        ds = await ensure_single_table_dataset_impl(
+            payload.table_name,
+            db,
+            created_by=user.id,
+            table_label=await table_label(db, payload.table_name),
         )
-    ).scalars().first()
-    if existing is not None:
-        if not await _can_access(user, existing, db):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该单表字段库")
-        return await _to_out(existing, db)
-
-    ds = DataSet(
-        name=name,
-        description=f"系统自动创建，用于保存 {label} 的报表计算字段。",
-        is_active=True,
-        created_by=user.id,
-    )
-    db.add(ds)
-    await db.flush()
-    db.add(DataSetTable(dataset_id=ds.id, table_name=payload.table_name, alias="current"))
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="未知数据表")
+    if not await _can_access(user, ds, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该单表数据集")
     await db.commit()
-    await db.refresh(ds)
     return await _to_out(ds, db)
 
 
 @router.get("/_visible-tables")
 async def list_visible_tables(
     _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
 ) -> list[dict[str, str]]:
     """数据集可纳入的源表清单"""
-    return [{"table_name": k, "label": _table_label(k)} for k in DATA_TABLES.keys()]
+    return await table_options(db)
 
 
 @router.get("/{ds_id}", response_model=DatasetOut)

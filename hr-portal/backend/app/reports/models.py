@@ -44,8 +44,8 @@ class Report(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     table_name: Mapped[str] = mapped_column(String(64), nullable=False)
-    dataset_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True
+    dataset_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("datasets.id"), nullable=False
     )
     config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 

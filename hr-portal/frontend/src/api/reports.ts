@@ -1,5 +1,8 @@
 import { api } from './client'
 
+const AI_REPORT_EXPLAIN_TIMEOUT_MS = 130_000
+const REPORT_RUN_MAX_PAGE_SIZE = 100
+
 export interface FilterCond {
   column: string
   op: string
@@ -87,7 +90,12 @@ export interface ReportConfig {
   transpose?: TransposeConfig
   rounding_corrections?: { group_by: string | string[]; target_cols?: string[] }[]
   filter_logic?: FilterLogic | null
-  single_table_dataset_id?: number | null
+}
+
+export interface ReportAclItem {
+  id?: number
+  role_id: number | null
+  user_id: number | null
 }
 
 export interface ReportItem {
@@ -96,7 +104,7 @@ export interface ReportItem {
   description: string | null
   table_name: string
   table_label: string | null
-  dataset_id: number | null
+  dataset_id: number
   dataset_name: string | null
   config: ReportConfig
   owner_id: number | null
@@ -106,15 +114,17 @@ export interface ReportItem {
   run_count: number
   created_at: string
   updated_at: string
+  acl: ReportAclItem[]
+  can_edit: boolean
 }
 
 export interface ReportPayload {
   name: string
   description?: string | null
-  table_name?: string
-  dataset_id?: number | null
+  dataset_id: number
   config: ReportConfig
   is_published: boolean
+  acl: ReportAclItem[]
 }
 
 export interface RunResult {
@@ -125,8 +135,36 @@ export interface RunResult {
   page_size: number
 }
 
+export interface ReportConfigExplainPayload {
+  report_id?: number | null
+  report_name?: string
+  description?: string | null
+  columns: string[]
+  filters: Record<string, any>[]
+  sorts: Record<string, any>[]
+  aggregate?: boolean
+  aggregations?: Record<string, string>
+  column_settings?: Record<string, ColumnSetting>
+  question?: string | null
+  history?: { role: 'user' | 'assistant'; content: string }[]
+}
+
+export interface ReportConfigExplainResult {
+  answer?: string | null
+  summary: string
+  field_count: number
+  filter_count: number
+  sort_count: number
+  aggregation_count: number
+  visible_fields: string[]
+  warnings: string[]
+  context_packet: Record<string, any>
+  mode?: string
+  trace_id?: string | null
+}
+
 export const reportsApi = {
-  list: (params: { table_name?: string; keyword?: string } = {}) =>
+  list: (params: { dataset_id?: number; keyword?: string } = {}) =>
     api.get<ReportItem[]>('/reports', { params }).then((r) => r.data),
 
   get: (id: number) => api.get<ReportItem>(`/reports/${id}`).then((r) => r.data),
@@ -140,9 +178,18 @@ export const reportsApi = {
   remove: (id: number) =>
     api.delete<{ ok: boolean }>(`/reports/${id}`).then((r) => r.data),
 
-  run: (id: number, page = 1, page_size = 50, filters: FilterCond[] = []) =>
+  run: (id: number, page = 1, page_size = 50, filters: FilterCond[] = []) => {
+    const safePageSize = Math.min(Math.max(Number(page_size) || 50, 1), REPORT_RUN_MAX_PAGE_SIZE)
+    return api
+      .post<RunResult>(`/reports/${id}/run`, { filters }, { params: { page, page_size: safePageSize } })
+      .then((r) => r.data)
+  },
+
+  explainConfig: (body: ReportConfigExplainPayload) =>
     api
-      .post<RunResult>(`/reports/${id}/run`, { filters }, { params: { page, page_size } })
+      .post<ReportConfigExplainResult>('/ai/capabilities/report.explain_config/answer', body, {
+        timeout: AI_REPORT_EXPLAIN_TIMEOUT_MS,
+      })
       .then((r) => r.data),
 
   exportCsvUrl: (id: number, filters: FilterCond[] = []) => {

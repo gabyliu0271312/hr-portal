@@ -173,8 +173,6 @@ class SafeFormulaEvaluator:
         left = self._eval_node(node.left)
         right = self._eval_node(node.right)
         if isinstance(node.op, ast.Add):
-            if isinstance(left, str) or isinstance(right, str):
-                return f"{'' if left is None else left}{'' if right is None else right}"
             return (_to_number(left) or 0) + (_to_number(right) or 0)
         if isinstance(node.op, ast.Sub):
             return (_to_number(left) or 0) - (_to_number(right) or 0)

@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, View, Check } from '@element-plus/icons-vue'
+import { ArrowLeft, View, Check, MagicStick, Position } from '@element-plus/icons-vue'
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
 import ReportBasicInfo from '@/components/report/ReportBasicInfo.vue'
 import ReportFieldWorkbench from '@/components/report/ReportFieldWorkbench.vue'
 import ReportFilterList from '@/components/report/ReportFilterList.vue'
-import ReportSortList from '@/components/report/ReportSortList.vue'
 import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
+import AclEditor from '@/components/AclEditor.vue'
 import { reportsApi, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
@@ -29,8 +29,6 @@ const isNew = computed(() => reportId.value === null)
 const form = reactive({
   name: '',
   description: '',
-  source_type: 'single' as 'single' | 'dataset',
-  table_name: 'emp_realtime_roster',
   dataset_id: null as number | null,
   is_published: false,
   selected_codes: [] as string[],
@@ -67,6 +65,7 @@ const form = reactive({
     },
   },
   rounding_corrections: [] as { group_by: string; target_cols: string[] }[],
+  acl: [] as { id?: number; role_id: number | null; user_id: number | null }[],
 })
 
 const allColumns = ref<ColumnInfo[]>([])
@@ -74,15 +73,29 @@ const datasets = ref<DatasetItem[]>([])
 const currentDataset = ref<DatasetItem | null>(null)
 const saving = ref(false)
 const previewing = ref(false)
+const explaining = ref(false)
+const explainOpen = ref(false)
+const explainResult = ref<Awaited<ReturnType<typeof reportsApi.explainConfig>> | null>(null)
+const explainInput = ref('')
+const explainScrollRef = ref<HTMLElement | null>(null)
 const previewColumns = ref<RunResult['columns']>([])
 const previewItems = ref<RunResult['items']>([])
 const previewTotal = ref(0)
 const previewPage = ref(1)
 const previewPageSize = ref(20)
-const singleTableDatasetId = ref<number | null>(null)
 
 const transposeRef = ref<InstanceType<typeof ReportTransposeConfig> | null>(null)
 const filterRef = ref<InstanceType<typeof ReportFilterList> | null>(null)
+
+interface ExplainChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  traceId?: string | null
+}
+
+let explainChatId = 0
+const explainMessages = ref<ExplainChatMessage[]>([])
 
 const selectedColsDetail = computed(() =>
   form.selected_codes
@@ -95,11 +108,14 @@ const selectedDimensions = computed(() =>
 const selectedMeasures = computed(() =>
   selectedColsDetail.value.filter((c) => c.agg_role === 'measure')
 )
-const isDataset = computed(() => form.source_type === 'dataset')
+const isDataset = computed(() => true)
 
 async function loadDatasets() {
   try {
     datasets.value = await datasetsApi.list()
+    if (isNew.value && !form.dataset_id) {
+      form.dataset_id = datasets.value.find((d) => d.is_active)?.id ?? datasets.value[0]?.id ?? null
+    }
   } catch {
     datasets.value = []
   }
@@ -111,13 +127,11 @@ async function loadReport() {
     const r = await reportsApi.get(reportId.value!)
     form.name = r.name
     form.description = r.description ?? ''
-    form.source_type = r.dataset_id ? 'dataset' : 'single'
-    form.table_name = r.table_name || 'emp_realtime_roster'
     form.dataset_id = r.dataset_id
     form.is_published = r.is_published
+    form.acl = (r.acl || []).map((a) => ({ id: a.id, role_id: a.role_id, user_id: a.user_id }))
     form.selected_codes = [...(r.config.columns ?? [])]
     form.column_settings = { ...(r.config.column_settings ?? {}) }
-    singleTableDatasetId.value = r.config.single_table_dataset_id || null
     form.default_split_rule = {
       enabled: !!r.config.default_split_rule?.enabled,
       factor: r.config.default_split_rule?.factor || '',
@@ -183,7 +197,6 @@ async function loadReport() {
 }
 
 function resetForm() {
-  singleTableDatasetId.value = null
   form.selected_codes = []
   form.column_settings = {}
   form.default_split_rule = { enabled: false, factor: '' }
@@ -222,14 +235,6 @@ function resetForm() {
   previewColumns.value = []
   previewItems.value = []
   previewTotal.value = 0
-}
-
-async function onSourceChange() {
-  resetForm()
-}
-
-async function onTableChange() {
-  resetForm()
 }
 
 async function onDatasetChange() {
@@ -277,13 +282,14 @@ function buildPayload() {
   return {
     name: form.name.trim(),
     description: form.description.trim() || null,
-    table_name: form.source_type === 'single' ? form.table_name : '',
-    dataset_id: form.source_type === 'dataset' ? form.dataset_id : null,
+    dataset_id: form.dataset_id!,
     is_published: form.is_published,
+    acl: form.acl
+      .filter((a) => a.role_id != null || a.user_id != null)
+      .map((a) => ({ role_id: a.role_id, user_id: a.user_id })),
     config: {
       columns: form.selected_codes,
       column_settings: form.column_settings,
-      single_table_dataset_id: form.source_type === 'single' ? singleTableDatasetId.value : null,
       default_split_rule: form.default_split_rule,
       filters: form.filters
         .filter((f) => f.column)
@@ -372,6 +378,7 @@ function buildPayload() {
 async function save() {
   if (!form.name.trim()) { ElMessage.warning('请填写报表名'); return }
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段'); return }
+  if (!form.dataset_id) { ElMessage.warning('请选择数据集'); return }
   saving.value = true
   try {
     if (form.transpose.enabled && form.transpose.rules?.length) await transposeRef.value?.ensureCcMaster()
@@ -409,6 +416,106 @@ async function preview() {
   }
 }
 
+function explainHistoryPayload() {
+  return explainMessages.value.slice(-8).map((item) => ({
+    role: item.role,
+    content: item.content,
+  }))
+}
+
+function scrollExplainToBottom() {
+  nextTick(() => {
+    const el = explainScrollRef.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
+function buildExplainPayload(question: string) {
+  const payload = buildPayload()
+  return {
+    report_id: reportId.value,
+    report_name: payload.name || '未命名报表',
+    description: payload.description,
+    columns: payload.config.columns,
+    filters: payload.config.filters,
+    sorts: payload.config.sorts,
+    aggregate: payload.config.aggregate,
+    aggregations: payload.config.aggregations,
+    column_settings: payload.config.column_settings,
+    question,
+    history: explainHistoryPayload().filter((item) => item.content !== question),
+  }
+}
+
+async function sendExplainQuestion(question: string, options: { showUserMessage?: boolean } = {}) {
+  if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段才能解释'); return }
+  const text = question.trim()
+  if (!text) {
+    ElMessage.warning('请先输入要追问的问题')
+    return
+  }
+  if (options.showUserMessage !== false) {
+    explainMessages.value.push({
+      id: ++explainChatId,
+      role: 'user',
+      content: text,
+    })
+  }
+  explainOpen.value = true
+  explainInput.value = ''
+  scrollExplainToBottom()
+  explaining.value = true
+  try {
+    const result = await reportsApi.explainConfig(buildExplainPayload(text))
+    explainResult.value = result
+    explainMessages.value.push({
+      id: ++explainChatId,
+      role: 'assistant',
+      content: result.answer || result.summary,
+      traceId: result.trace_id,
+    })
+    scrollExplainToBottom()
+  } catch (e: any) {
+    const message = explainErrorMessage(e)
+    ElMessage.error(message)
+    explainMessages.value.push({
+      id: ++explainChatId,
+      role: 'assistant',
+      content: message,
+    })
+    scrollExplainToBottom()
+  } finally {
+    explaining.value = false
+  }
+}
+
+async function explainConfig() {
+  if (!explainMessages.value.length) {
+    await sendExplainQuestion('请解释当前报表配置。', { showUserMessage: false })
+    return
+  }
+  explainOpen.value = true
+  scrollExplainToBottom()
+}
+
+function sendExplainInput() {
+  sendExplainQuestion(explainInput.value)
+}
+
+function handleExplainKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    sendExplainInput()
+  }
+}
+
+function explainErrorMessage(e: any) {
+  if (e?.code === 'ECONNABORTED') {
+    return '模型回答超时了，请稍后重试，或在 AI 基础配置里调大超时时间。'
+  }
+  return e?.response?.data?.detail || 'AI 解释失败'
+}
+
 onMounted(async () => {
   await loadDatasets()
   if (!isNew.value) await loadReport()
@@ -420,8 +527,7 @@ watch(
     if (!v) return
     if (v === 'new') {
       Object.assign(form, {
-        name: '', description: '', source_type: 'single',
-        table_name: 'emp_realtime_roster', dataset_id: null,
+        name: '', description: '', dataset_id: datasets.value.find((d) => d.is_active)?.id ?? datasets.value[0]?.id ?? null,
         is_published: false, selected_codes: [], filters: [], sorts: [],
         value_rules: [], aggregate: false, default_aggregation: 'sum', aggregations: {},
         column_settings: {}, default_split_rule: { enabled: false, factor: '' }, rounding_group_by: [], filter_logic: null,
@@ -451,7 +557,6 @@ watch(
       })
       previewItems.value = []
       previewColumns.value = []
-      singleTableDatasetId.value = null
     } else {
       await loadReport()
     }
@@ -460,7 +565,7 @@ watch(
 </script>
 
 <template>
-  <div style="padding: 24px">
+  <div class="designer-page">
     <el-card>
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">
@@ -473,6 +578,9 @@ watch(
             </span>
           </div>
           <div>
+            <el-button :loading="explaining" @click="explainConfig">
+              <el-icon style="margin-right: 4px"><MagicStick /></el-icon>AI 解释
+            </el-button>
             <el-button :loading="previewing" :disabled="isNew" @click="preview">
               <el-icon style="margin-right: 4px"><View /></el-icon>预览
             </el-button>
@@ -488,23 +596,24 @@ watch(
         <ReportBasicInfo
           v-model:name="form.name"
           v-model:description="form.description"
-          v-model:source-type="form.source_type"
-          v-model:table-name="form.table_name"
           v-model:dataset-id="form.dataset_id"
           v-model:is-published="form.is_published"
-          :tables="TABLES"
           :datasets="datasets"
           :current-dataset="currentDataset"
-          @source-change="onSourceChange"
-          @table-change="onTableChange"
           @dataset-change="onDatasetChange"
         />
 
-        <div class="section-title">报表设置（{{ form.selected_codes.length }} 个字段）</div>
+        <div class="section-title">访问授权（谁能查看/运行此报表）</div>
+        <AclEditor v-model="form.acl" :owner-name="form.name ? null : null" />
+
+        <div class="section-title section-title-row">
+          <span>报表设置（{{ form.selected_codes.length }} 个字段）</span>
+          <el-button size="small" type="primary" plain :loading="explaining" @click="explainConfig">
+            <el-icon><MagicStick /></el-icon>
+            AI 解释
+          </el-button>
+        </div>
         <CalculatedFieldBridge
-          v-model:single-table-dataset-id="singleTableDatasetId"
-          :source-type="form.source_type"
-          :table-name="form.table_name"
           :dataset-id="form.dataset_id"
           :datasets="datasets"
           :tables="TABLES"
@@ -520,44 +629,36 @@ watch(
               v-model:default-aggregation="form.default_aggregation"
               v-model:aggregate="form.aggregate"
               v-model:rounding-group-by="form.rounding_group_by"
+              v-model:sorts="form.sorts"
               :all-columns="columns"
               :source-groups="sourceGroups"
               :loading="loading"
               :is-dataset="isDataset"
               :can-create-field="canCreateField"
               @create-field="createField"
-            />
+            >
+              <template #filters>
+                <ReportFilterList
+                  ref="filterRef"
+                  v-model:filters="form.filters"
+                  v-model:filter-logic="form.filter_logic"
+                  :all-columns="allColumns"
+                  :current-dataset-tables="currentDataset?.tables"
+                />
+              </template>
+
+              <template #reshape>
+                <ReportTransposeConfig
+                  ref="transposeRef"
+                  v-model:transpose="form.transpose"
+                  :selected-dimensions="selectedDimensions"
+                  :selected-measures="selectedMeasures"
+                  :selected-columns="selectedColsDetail"
+                />
+              </template>
+            </ReportFieldWorkbench>
           </template>
         </CalculatedFieldBridge>
-
-        <div class="section-title">筛选条件（{{ form.filters.length }} 个，多个之间为 AND）</div>
-        <ReportFilterList
-          ref="filterRef"
-          v-model:filters="form.filters"
-          v-model:filter-logic="form.filter_logic"
-          :all-columns="allColumns"
-          :table-name="form.table_name"
-          :source-type="form.source_type"
-          :current-dataset-tables="currentDataset?.tables"
-        />
-
-        <div class="section-title">排序（{{ form.sorts.length }} 个，按顺序应用）</div>
-        <ReportSortList
-          v-model:sorts="form.sorts"
-          :all-columns="allColumns"
-        />
-
-        <template v-if="isDataset">
-          <div class="section-title">转置 / 重映射</div>
-          <ReportTransposeConfig
-            ref="transposeRef"
-            v-model:transpose="form.transpose"
-            :selected-dimensions="selectedDimensions"
-            :selected-measures="selectedMeasures"
-            :selected-columns="selectedColsDetail"
-          />
-
-        </template>
 
         <template v-if="previewItems.length || previewTotal">
           <div class="section-title">预览结果（共 {{ previewTotal }} 行）</div>
@@ -575,6 +676,117 @@ watch(
         </template>
       </el-form>
     </el-card>
+
+    <el-drawer
+      v-model="explainOpen"
+      title="AI 报表助手"
+      size="460px"
+      append-to-body
+      class="report-ai-drawer"
+    >
+      <div class="report-ai-chat">
+        <div ref="explainScrollRef" class="report-chat-thread">
+          <div v-if="!explainMessages.length && !explaining" class="chat-empty">
+            打开后会先解释当前报表配置，你也可以继续追问字段、筛选、排序和后续功能阶段。
+          </div>
+          <div
+            v-for="item in explainMessages"
+            :key="item.id"
+            class="chat-message"
+            :class="item.role"
+          >
+            <div class="chat-bubble">
+              <div class="chat-content">{{ item.content }}</div>
+              <div v-if="item.traceId" class="trace-line">trace_id: {{ item.traceId }}</div>
+            </div>
+          </div>
+          <div v-if="explaining" class="chat-message assistant">
+            <div class="chat-bubble">正在读取当前配置并回答...</div>
+          </div>
+        </div>
+
+        <div class="ai-send-box">
+          <el-input
+            v-model="explainInput"
+            class="ai-send-input"
+            type="textarea"
+            :autosize="{ minRows: 1, maxRows: 3 }"
+            resize="none"
+            placeholder="继续追问，例如：这个报表的筛选条件是什么意思？"
+            @keydown="handleExplainKeydown"
+          />
+          <div class="ai-send-actions">
+            <span class="send-hint">Enter 发送，Shift+Enter 换行</span>
+            <el-button
+              class="send-icon-button"
+              type="primary"
+              circle
+              :loading="explaining"
+              @click="sendExplainInput"
+            >
+              <el-icon><Position /></el-icon>
+            </el-button>
+          </div>
+        </div>
+
+        <template v-if="explainResult">
+          <div class="explain-metrics">
+            <div>
+              <strong>{{ explainResult.field_count }}</strong>
+              <span>字段</span>
+            </div>
+            <div>
+              <strong>{{ explainResult.filter_count }}</strong>
+              <span>筛选</span>
+            </div>
+            <div>
+              <strong>{{ explainResult.sort_count }}</strong>
+              <span>排序</span>
+            </div>
+            <div>
+              <strong>{{ explainResult.aggregation_count }}</strong>
+              <span>聚合</span>
+            </div>
+          </div>
+
+          <el-collapse>
+            <el-collapse-item title="配置上下文" name="context">
+              <section class="explain-section">
+                <div class="explain-title">可见字段</div>
+                <div class="tag-list">
+                  <el-tag
+                    v-for="field in explainResult.visible_fields"
+                    :key="field"
+                    size="small"
+                    effect="plain"
+                  >
+                    {{ field }}
+                  </el-tag>
+                </div>
+              </section>
+
+              <section v-if="explainResult.warnings.length" class="explain-section">
+                <div class="explain-title">提示</div>
+                <el-alert
+                  v-for="item in explainResult.warnings"
+                  :key="item"
+                  :title="item"
+                  type="warning"
+                  show-icon
+                  :closable="false"
+                  class="warning-item"
+                />
+              </section>
+
+              <section class="explain-section">
+                <div class="explain-title">Context Packet</div>
+                <pre class="context-json">{{ JSON.stringify(explainResult.context_packet, null, 2) }}</pre>
+              </section>
+            </el-collapse-item>
+          </el-collapse>
+        </template>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -585,8 +797,199 @@ watch(
   color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin: 24px 0 12px;
+  margin: 14px 0 8px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--color-border-light);
+}
+.designer-page {
+  padding: 16px;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-title-row :deep(.el-button) {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.report-ai-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+}
+
+.report-ai-drawer :deep(.el-drawer__body) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.report-chat-thread {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 260px;
+  flex: 1;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  background: var(--color-bg-subtle);
+  overscroll-behavior: contain;
+}
+
+.chat-empty {
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.chat-message {
+  display: flex;
+  min-width: 0;
+}
+
+.chat-message.user {
+  justify-content: flex-end;
+}
+
+.chat-message.assistant {
+  justify-content: flex-start;
+}
+
+.chat-bubble {
+  display: grid;
+  gap: 6px;
+  max-width: 88%;
+  padding: 9px 11px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.chat-message.user .chat-bubble {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.trace-line {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-placeholder);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-send-box {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+}
+
+.ai-send-input :deep(.el-textarea__inner) {
+  min-height: 30px !important;
+  padding: 2px 0;
+  border: 0;
+  box-shadow: none;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ai-send-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.send-hint {
+  min-width: 0;
+  color: var(--color-text-placeholder);
+  font-size: 12px;
+}
+
+.send-icon-button {
+  flex: 0 0 auto;
+}
+
+.explain-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.explain-metrics > div {
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  padding: 10px 8px;
+  text-align: center;
+  background: var(--color-bg-soft);
+}
+
+.explain-metrics strong {
+  display: block;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.explain-metrics span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.explain-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.explain-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.warning-item + .warning-item {
+  margin-top: 6px;
+}
+
+.context-json {
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border-radius: 6px;
+  background: #111827;
+  color: #e5e7eb;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

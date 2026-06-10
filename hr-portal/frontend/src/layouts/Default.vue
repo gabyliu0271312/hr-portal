@@ -35,7 +35,7 @@
 
     <!-- 二级布局：左侧二三级菜单 + 右侧内容 -->
     <el-container style="flex: 1; min-height: 0">
-      <el-aside v-if="leftMenu.length" width="220px" class="app-aside">
+      <el-aside v-if="!hideAside && leftMenu.length" width="220px" class="app-aside">
         <template v-for="grp in leftMenu" :key="grp.id">
           <!-- 二级分组（无子集时直接当叶子）-->
           <template v-if="grp.children.length">
@@ -66,6 +66,7 @@
         <router-view />
       </el-main>
     </el-container>
+    <GlobalAiAssistant />
   </el-container>
 </template>
 
@@ -77,6 +78,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import { Avatar } from '@element-plus/icons-vue'
 import { authApi } from '@/api/auth'
 import { MENU_ROUTE_MAP } from '@/constants/menuRoutes'
+import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -123,8 +125,18 @@ const tabGroups = computed<TabMenu[]>(() => {
   })
 })
 
-/** 当前激活的 tab：根据 route.path 反查 */
+function tabContainsMenuCode(tab: TabMenu, code: string) {
+  return tab.code === code
+    || tab.children.some((g) => g.code === code || g.children.some((leaf) => leaf.code === code))
+}
+
+/** 当前激活的 tab：优先根据 menuCode 反查，动态路由再回退到 path 匹配 */
 const activeTabId = computed(() => {
+  const code = route.meta.menuCode as string | null | undefined
+  if (code) {
+    const tab = tabGroups.value.find((item) => tabContainsMenuCode(item, code))
+    if (tab) return tab.id
+  }
   for (const tab of tabGroups.value) {
     for (const g of tab.children) {
       if (g.routePath === route.path) return tab.id
@@ -136,8 +148,11 @@ const activeTabId = computed(() => {
   return tabGroups.value[0]?.id ?? null
 })
 
+const hideAside = computed(() => route.meta.hideAside === true)
+
 /** 当前 tab 下的左侧菜单（二级分组 + 三级叶子）*/
 const leftMenu = computed<GroupMenu[]>(() => {
+  if (hideAside.value) return []
   const tab = tabGroups.value.find((t) => t.id === activeTabId.value)
   return tab?.children ?? []
 })

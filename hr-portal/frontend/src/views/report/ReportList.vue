@@ -5,34 +5,35 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Document, Edit, Delete, View } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { reportsApi, type ReportItem } from '@/api/reports'
+import { datasetsApi, type DatasetItem } from '@/api/datasets'
 
 const router = useRouter()
 
 const list = ref<ReportItem[]>([])
+const datasets = ref<DatasetItem[]>([])
 const loading = ref(false)
-const filterTable = ref('')
+const filterDataset = ref<number | null>(null)
 const filterKeyword = ref('')
-
-const TABLES = [
-  { value: 'emp_realtime_roster', label: '员工实时花名册' },
-  { value: 'emp_monthly_roster', label: '员工月度花名册' },
-  { value: 'emp_monthly_salary', label: '员工月度工资表' },
-  { value: 'emp_monthly_allocation', label: '员工月度成本分摊表' },
-  { value: 'cost_center_monthly', label: '成本中心月度维护表' },
-  { value: 'emp_monthly_cost_class', label: '员工月度成本归集分类表' },
-]
 
 async function load() {
   loading.value = true
   try {
     list.value = await reportsApi.list({
-      table_name: filterTable.value || undefined,
+      dataset_id: filterDataset.value || undefined,
       keyword: filterKeyword.value || undefined,
     })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadDatasets() {
+  try {
+    datasets.value = await datasetsApi.list()
+  } catch {
+    datasets.value = []
   }
 }
 
@@ -67,7 +68,9 @@ async function handleDelete(row: ReportItem) {
 
 const filteredList = computed(() => list.value)
 
-onMounted(load)
+onMounted(async () => {
+  await Promise.all([loadDatasets(), load()])
+})
 </script>
 
 <template>
@@ -83,9 +86,9 @@ onMounted(load)
       </template>
 
       <el-form inline style="margin-bottom: 16px">
-        <el-form-item label="数据表">
-          <el-select v-model="filterTable" placeholder="全部" clearable style="width: 200px" @change="load" @clear="load">
-            <el-option v-for="t in TABLES" :key="t.value" :label="t.label" :value="t.value" />
+        <el-form-item label="数据集">
+          <el-select v-model="filterDataset" placeholder="全部" clearable style="width: 220px" @change="load" @clear="load">
+            <el-option v-for="ds in datasets" :key="ds.id" :label="ds.name" :value="ds.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="名称">
@@ -119,16 +122,9 @@ onMounted(load)
           </el-table-column>
           <el-table-column label="数据来源" min-width="200">
             <template #default="{ row }">
-              <span v-if="row.dataset_id">
+              <span>
                 <el-tag size="small" type="warning" effect="plain">数据集</el-tag>
                 <strong style="margin-left: 6px">{{ row.dataset_name || `#${row.dataset_id}` }}</strong>
-              </span>
-              <span v-else>
-                <el-tag size="small" effect="plain">单表</el-tag>
-                <strong style="margin-left: 6px">{{ row.table_label || row.table_name }}</strong>
-                <div style="font-family: monospace; font-size: 11px; color: var(--color-text-secondary); margin-top: 2px">
-                  {{ row.table_name }}
-                </div>
               </span>
             </template>
           </el-table-column>

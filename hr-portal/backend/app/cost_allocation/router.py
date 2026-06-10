@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.reports.models import Report
-from app.reports.router import ReportConfig, _run_query
+from app.reports.router import ReportConfig
 from app.datasources.sync_service import _dynamic_upsert
 from app.users.models import User
 
@@ -103,31 +103,27 @@ async def archive_cost_allocation(
 
     cfg = ReportConfig(**(r.config or {}))
 
+    if r.dataset_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
+
     # 2) 全量运行（page_size=0 → 不限页）
-    if r.dataset_id is not None:
-        from app.reports.sql_builder import run_dataset_query
-        cols_meta, items, _ = await run_dataset_query(
-            dataset_id=r.dataset_id,
-            columns=cfg.columns,
-            filters=[f.model_dump() for f in cfg.filters],
-            filter_logic=cfg.filter_logic,
-            sorts=[s.model_dump() for s in cfg.sorts],
-            value_rules=cfg.value_rules,
-            aggregate=cfg.aggregate,
-            aggregations=cfg.aggregations,
-            transpose=cfg.transpose,
-            rounding_corrections=cfg.rounding_corrections,
-            page=1,
-            page_size=0,
-            user=user,
-            db=db,
-        )
-    else:
-        if not r.table_name:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表未配置数据来源")
-        cols_meta, items, _ = await _run_query(
-            db, r.table_name, cfg, page=1, page_size=0, user=user
-        )
+    from app.reports.sql_builder import run_dataset_query
+    cols_meta, items, _ = await run_dataset_query(
+        dataset_id=r.dataset_id,
+        columns=cfg.columns,
+        filters=[f.model_dump() for f in cfg.filters],
+        filter_logic=cfg.filter_logic,
+        sorts=[s.model_dump() for s in cfg.sorts],
+        value_rules=cfg.value_rules,
+        aggregate=cfg.aggregate,
+        aggregations=cfg.aggregations,
+        transpose=cfg.transpose,
+        rounding_corrections=cfg.rounding_corrections,
+        page=1,
+        page_size=0,
+        user=user,
+        db=db,
+    )
 
     # 空批次保护
     if not items:

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { QuestionFilled, Search, Plus, Delete, Document, Printer } from '@element-plus/icons-vue'
 import {
@@ -9,6 +10,8 @@ import {
   type AgreementData,
 } from '@/api/tools'
 
+const route = useRoute()
+const router = useRouter()
 const keyword = ref('')
 const searching = ref(false)
 const calculating = ref(false)
@@ -17,6 +20,7 @@ const selected = ref<EmployeeCandidate | null>(null)
 const leaveDate = ref('')
 const leaveDateInvalid = ref(false)
 const plan = ref<'N' | 'N+1'>('N+1')
+const region = ref<string | null>(null)
 const result = ref<CompensationResult | null>(null)
 
 // 解除协议生成
@@ -67,6 +71,13 @@ function pickEmployee(row: EmployeeCandidate) {
   calculate()
 }
 
+async function pickEmployeeFromAi(row: EmployeeCandidate) {
+  selected.value = row
+  employees.value = [row]
+  if (row.leave_date && !leaveDate.value) leaveDate.value = row.leave_date
+  await calculate()
+}
+
 function rowClassName({ row }: { row: EmployeeCandidate }) {
   return selected.value && row.id === selected.value.id ? 'is-selected-row' : ''
 }
@@ -92,7 +103,7 @@ async function calculate() {
       employee_id: selected.value.id,
       leave_date: leaveDate.value || null,
       plan: plan.value,
-      region: null,
+      region: region.value || null,
     })
   } catch (e: any) {
     result.value = null
@@ -107,6 +118,48 @@ watch([leaveDate, plan], () => {
   if (selected.value) calculate()
 })
 
+function queryString(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+async function hydrateFromAiQuery() {
+  if (route.query.ai !== '1') return
+  const queryPlan = queryString(route.query.plan).toUpperCase()
+  plan.value = queryPlan === 'N' ? 'N' : 'N+1'
+  const queryLeaveDate = queryString(route.query.leave_date)
+  if (queryLeaveDate) leaveDate.value = queryLeaveDate
+  const queryRegion = queryString(route.query.region)
+  region.value = queryRegion || null
+  const employeeId = Number(route.query.employee_id || 0)
+  const queryKeyword = queryString(route.query.keyword)
+  if (queryKeyword) keyword.value = queryKeyword
+  try {
+    if (employeeId) {
+      const list = await toolsApi.searchCompensationEmployees({
+        keyword: queryKeyword || String(employeeId),
+        limit: 50,
+      })
+      const found = list.find((item) => item.id === employeeId)
+      if (found) {
+        await pickEmployeeFromAi(found)
+        ElMessage.success('已从 AI 助手带入员工并完成试算')
+      } else {
+        employees.value = list
+        ElMessage.warning('AI 带入的员工不在当前可见候选中，请手动选择')
+      }
+    } else if (queryKeyword) {
+      await searchAndCalculate()
+    }
+  } finally {
+    const { ai, employee_id, keyword: _keyword, leave_date, plan: _plan, region: _region, ...rest } = route.query
+    router.replace({ path: route.path, query: rest })
+  }
+}
+
+onMounted(() => {
+  hydrateFromAiQuery()
+})
+
 function resetAll() {
   keyword.value = ''
   employees.value = []
@@ -114,6 +167,7 @@ function resetAll() {
   leaveDate.value = ''
   leaveDateInvalid.value = false
   plan.value = 'N+1'
+  region.value = null
   result.value = null
   previewHtml.value = ''
   originalPreviewHtml.value = ''
@@ -135,7 +189,7 @@ async function openAgreement() {
       employee_id: selected.value.id,
       leave_date: leaveDate.value || null,
       plan: plan.value,
-      region: null,
+      region: region.value || null,
     })
     await refreshPreview()
   } catch (e: any) {
@@ -271,7 +325,7 @@ async function printDirect() {
       employee_id: selected.value.id,
       leave_date: leaveDate.value || null,
       plan: plan.value,
-      region: null,
+      region: region.value || null,
     })
     previewHtml.value = await toolsApi.previewAgreement(data)
     originalPreviewHtml.value = previewHtml.value

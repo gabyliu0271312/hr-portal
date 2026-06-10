@@ -8,7 +8,6 @@ export interface AllocationSchemeConfig {
   sorts: any[]
   value_rules?: any[]
   column_settings?: Record<string, ColumnSetting>
-  single_table_dataset_id?: number | null
   default_split_rule?: DefaultSplitRule
   aggregate?: boolean
   default_aggregation?: AggregationFunc
@@ -20,8 +19,7 @@ export interface AllocationSchemeConfig {
 export interface AllocationSchemeIn {
   name: string
   description?: string | null
-  table_name?: string
-  dataset_id?: number | null
+  dataset_id: number
   result_table: string
   config: AllocationSchemeConfig
   is_active?: boolean
@@ -32,7 +30,7 @@ export interface AllocationSchemeOut {
   name: string
   description: string | null
   table_name: string
-  dataset_id: number | null
+  dataset_id: number
   dataset_name: string | null
   result_table: string
   result_table_label: string

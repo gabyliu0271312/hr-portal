@@ -49,6 +49,10 @@ async function handleDelete(row: DatasetItem) {
 
 const filteredList = computed(() => list.value)
 
+function tableDisplayName(t: DatasetItem['tables'][number]): string {
+  return t.table_label || t.table_name
+}
+
 onMounted(load)
 </script>
 
@@ -91,7 +95,8 @@ onMounted(load)
                 effect="plain"
                 style="margin-right: 4px"
               >
-                {{ t.alias }}
+                {{ tableDisplayName(t) }}
+                <span v-if="t.alias !== tableDisplayName(t)" class="table-alias">({{ t.alias }})</span>
               </el-tag>
             </template>
           </el-table-column>
@@ -121,3 +126,11 @@ onMounted(load)
     </el-card>
   </div>
 </template>
+
+<style scoped>
+.table-alias {
+  margin-left: 4px;
+  color: var(--color-text-placeholder);
+  font-family: monospace;
+}
+</style>

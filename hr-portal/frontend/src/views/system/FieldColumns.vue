@@ -9,6 +9,9 @@ import {
   type TableColumn,
   type TableMeta,
 } from '@/api/table_columns'
+import { adminTablesApi } from '@/api/admin_tables'
+import { globalFieldsApi, type GlobalField } from '@/api/global_fields'
+import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,6 +21,10 @@ const currentTable = ref<string>('')
 const columns = ref<TableColumn[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const scopeExempt = ref(false)
+const scopeExemptSaving = ref(false)
+const globalFields = ref<GlobalField[]>([])
+const existingColumnCodes = computed(() => columns.value.map((c) => c.column_code))
 
 const DATA_TYPES = [
   { label: '字符串', value: 'string' },
@@ -62,10 +69,53 @@ async function loadColumns() {
       if (c.is_computed == null) c.is_computed = false
       if (c.formula_expr == null) c.formula_expr = ''
     }
+    await loadScopeExempt()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载字段失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadScopeExempt() {
+  try {
+    const all = await adminTablesApi.list()
+    const meta = all.find((t) => t.table_name === currentTable.value)
+    scopeExempt.value = meta?.scope_exempt ?? false
+  } catch {
+    scopeExempt.value = false
+  }
+}
+
+function claimedHint(gfId: number): string {
+  const g = globalFields.value.find((x) => x.id === gfId)
+  if (!g) return ''
+  const parts: string[] = []
+  if (g.scope_role) {
+    const SR: Record<string, string> = {
+      cc_code: '成本中心',
+      org_node_code: '组织',
+      employment_type: '用工类型',
+      employment_entity: '用工主体',
+      person: '人员',
+    }
+    parts.push('权限=' + (SR[g.scope_role] ?? g.scope_role))
+  }
+  if (g.category_name) parts.push('分类=' + g.category_name)
+  return parts.length ? parts.join('，') : '名称'
+}
+
+async function toggleScopeExempt(val: boolean) {
+  scopeExemptSaving.value = true
+  try {
+    await adminTablesApi.update(currentTable.value, { scope_exempt: val })
+    scopeExempt.value = val
+    ElMessage.success(val ? '已设为数据范围免控（全员可见本表所有行）' : '已恢复数据范围管控')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '设置失败')
+    await loadScopeExempt()
+  } finally {
+    scopeExemptSaving.value = false
   }
 }
 
@@ -88,6 +138,7 @@ async function saveAll() {
       agg_role: c.agg_role || 'dimension',
       is_computed: c.is_computed,
       formula_expr: c.is_computed ? (c.formula_expr || '') : null,
+      global_field_id: c.global_field_id ?? null,
     }))
     const res = await tableColumnsApi.bulkUpdate(currentTable.value, payload)
     ElMessage.success(`已保存 ${res.updated} 个字段`)
@@ -224,6 +275,11 @@ watch(currentTable, () => {
 
 onMounted(async () => {
   await loadTables()
+  try {
+    globalFields.value = await globalFieldsApi.list()
+  } catch {
+    globalFields.value = []
+  }
   const queryTable = route.query.table as string | undefined
   currentTable.value = queryTable || tables.value[0]?.table_name || ''
 })
@@ -274,6 +330,33 @@ onMounted(async () => {
               :value="t.table_name"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item>
+          <template #label>
+            <span>数据范围免控</span>
+            <el-tooltip placement="top">
+              <template #content>
+                <div style="max-width: 300px; line-height: 1.6">
+                  开启后，本表<strong>不接入数据范围（行级）权限</strong>，所有有权访问的用户可见全部行。<br />
+                  关闭（默认）= 受控：本表必须配置「权限角色」字段才能被看到，<br />
+                  否则非超管用户默认看不到任何行（fail-closed，防止敏感表裸奔）。<br />
+                  仅对公共/非敏感表（如组织树、字典表）才建议开启免控。
+                </div>
+              </template>
+              <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
+                <InfoFilled />
+              </el-icon>
+            </el-tooltip>
+          </template>
+          <el-switch
+            v-model="scopeExempt"
+            :loading="scopeExemptSaving"
+            :disabled="!currentTable || loading"
+            inline-prompt
+            active-text="免控"
+            inactive-text="受控"
+            @change="(v: boolean) => toggleScopeExempt(v)"
+          />
         </el-form-item>
       </el-form>
 
@@ -429,6 +512,47 @@ onMounted(async () => {
               <el-switch v-model="row.copy_from_last_month" :disabled="row.auto_discovered" />
             </template>
           </el-table-column>
+          <el-table-column label="认领全局字段" width="220">
+            <template #header>
+              <span>认领全局字段</span>
+              <el-tooltip placement="top">
+                <template #content>
+                  <div style="max-width: 300px; line-height: 1.6">
+                    把本物理列认领到「全局字段字典」里的统一字段。<br />
+                    认领后：名称、字段分类、权限角色都<strong>继承自全局字段</strong>，<br />
+                    组织树/成本中心树只需在全局字段上绑定一次。<br />
+                    未认领 → 用本列自身的名称与权限角色（回退）。
+                  </div>
+                </template>
+                <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
+                  <InfoFilled />
+                </el-icon>
+              </el-tooltip>
+            </template>
+            <template #default="{ row }">
+              <el-select
+                v-model="row.global_field_id"
+                size="small"
+                clearable
+                filterable
+                placeholder="未认领"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="g in globalFields"
+                  :key="g.id"
+                  :label="`${g.label} (${g.code})`"
+                  :value="g.id"
+                />
+              </el-select>
+              <div
+                v-if="row.global_field_id"
+                style="font-size: 11px; color: var(--color-text-placeholder); margin-top: 2px"
+              >
+                继承：{{ claimedHint(row.global_field_id) }}
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column label="权限角色" width="180">
             <template #header>
               <span>权限角色</span>
@@ -439,7 +563,8 @@ onMounted(async () => {
                     • cc_code：成本中心编码列<br />
                     • org_node_code：组织节点编码列<br />
                     • employment_type / entity / person：人员筛选用<br />
-                    未设置 → 该列不参与权限过滤
+                    未设置 → 该列不参与权限过滤<br />
+                    <strong>已认领全局字段时，以全局字段的权限角色为准。</strong>
                   </div>
                 </template>
                 <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
@@ -454,6 +579,7 @@ onMounted(async () => {
                 clearable
                 placeholder="未设置"
                 style="width: 100%"
+                :disabled="!!row.global_field_id"
               >
                 <el-option
                   v-for="r in SCOPE_ROLES.filter((x) => x.value)"
@@ -499,14 +625,20 @@ onMounted(async () => {
     <!-- 新增字段对话框 -->
     <el-dialog v-model="dialogOpen" title="新增字段" width="520px">
       <el-form label-position="top">
-        <el-form-item label="字段编码（源端）" required>
-          <el-input v-model="newCol.column_code" placeholder="如：custom_field" />
-          <div style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">
-            手动新增字段后，源端数据中如果存在同名 key 也会被同步进来
-          </div>
-        </el-form-item>
         <el-form-item label="字段名称" required>
           <el-input v-model="newCol.column_label" placeholder="展示给用户看的中文名" />
+        </el-form-item>
+        <el-form-item label="字段编码（源端）" required>
+          <SmartCodeInput
+            v-model="newCol.column_code"
+            :label="newCol.column_label"
+            scope="table_column"
+            :existing-codes="existingColumnCodes"
+            :editable="true"
+          />
+          <div style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">
+            按名称自动生成规范编码，可手动调整。手动新增字段后，源端数据中如果存在同名 key 也会被同步进来
+          </div>
         </el-form-item>
         <el-form-item label="数据类型">
           <el-select v-model="newCol.data_type" style="width: 100%">

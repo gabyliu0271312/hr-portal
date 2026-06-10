@@ -31,9 +31,10 @@ from sqlalchemy.types import String as SAString
 from app.ai_formula.custom_functions import executable_functions
 from app.ai_formula.field_refs import row_field_resolver
 from app.ai_formula.formula_evaluator import evaluate_formula
-from app.datasets.calculated_fields import active_calculated_fields, calc_qual
-from app.datasets.models import DatasetCalculatedField
 from app.data.models import DATA_TABLES, TableColumn
+from app.datasets.calculated_fields import active_calculated_fields, calc_qual
+from app.datasets.metadata import effective_column_label_map
+from app.datasets.models import DatasetCalculatedField
 from app.datasets.models import DataSet, DataSetRelation, DataSetTable
 from app.reports.filter_logic import build_filter_clause
 from app.users.models import User
@@ -888,6 +889,10 @@ async def run_dataset_query(
         from app.permissions.masker import get_sensitive_columns
         for a, table in alias_to_table.items():
             sensitive_by_alias[a] = await get_sensitive_columns(user, table, db)
+    labels_by_alias = {
+        alias: await effective_column_label_map(cols, db)
+        for alias, cols in alias_columns.items()
+    }
 
     for alias, code in display_selected:
         col = next(
@@ -909,7 +914,9 @@ async def run_dataset_query(
             columns_meta.append(
                 {
                     "code": f"{alias}.{code}",
-                    "label": col.column_label,
+                    "label": labels_by_alias.get(alias, {}).get(
+                        code, col.column_label or col.column_code
+                    ),
                     "data_type": col.data_type,
                     "is_sensitive": mask,
                 }

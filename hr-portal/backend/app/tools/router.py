@@ -927,9 +927,15 @@ async def _calc_core(
     if plan not in {"N", "N+1"}:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="补偿方案只能是 N 或 N+1")
 
-    sensitive_cols = await get_sensitive_columns(user, "emp_realtime_roster", db)
-    if "基本工资" in sensitive_cols:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权限查看基本工资，无法计算补偿金")
+    # Phase D 统一裁决：补偿金计算工具在薪酬白名单内时，无薪酬权限的 HRBP 也可使用基本工资。
+    # 仅当该字段对「补偿金工具」仍不可用（既无分类权限、工具又不在白名单）才拒绝。
+    from app.permissions.masker import get_hidden_columns
+    hidden = await get_hidden_columns(user, "emp_realtime_roster", db, tool_key="compensation_calc")
+    if "基本工资" in hidden:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="无权限使用基本工资计算补偿金（请将补偿金计算加入薪酬分类的授权工具白名单）",
+        )
 
     stmt = select(EmpRealtimeRoster).where(EmpRealtimeRoster.id == payload.employee_id)
     scope_clause = await build_scope_filter(user, "emp_realtime_roster", db)
@@ -1432,6 +1438,14 @@ async def prepare_income_certificate(
 ) -> IncomeCertificateData:
     template = await _income_certificate_template(db, payload.template_code)
     raw = await _get_employee_raw_for_tool(payload.employee_id, user, db)
+    # Phase D 统一裁决：证明开具工具在薪酬白名单内时，无薪酬权限者也可出具带工资的证明。
+    from app.permissions.masker import get_hidden_columns
+    hidden = await get_hidden_columns(user, "emp_realtime_roster", db, tool_key="income_certificate")
+    if "基本工资" in hidden:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="无权限使用工资开具收入证明（请将证明开具加入薪酬分类的授权工具白名单）",
+        )
     hire_date = _parse_date(_first(raw, "入职日期", "1b725de4-7e51-4888-ab05-dc435bb511f8_original"), "入职日期")
     raw_leave = _first(raw, "离职日期", "9e0a9a5d-f3d8-4262-84a4-9f1c7dc4c0ce_original")
     leave_date = payload.leave_date or (_parse_date(raw_leave, "离职日期") if raw_leave else None)

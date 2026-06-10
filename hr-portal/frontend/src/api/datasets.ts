@@ -4,6 +4,7 @@ export interface DatasetTableItem {
   id?: number
   table_name: string
   alias: string
+  table_label?: string | null
 }
 
 export interface JoinKey {

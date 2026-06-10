@@ -7,7 +7,7 @@ import PermissionButton from '@/components/PermissionButton.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import ReportRuntimeFilters from '@/components/report/ReportRuntimeFilters.vue'
 import { reportsApi, type FilterCond, type ReportItem, type RunResult } from '@/api/reports'
-import { datasetsApi } from '@/api/datasets'
+import { datasetsApi, type DatasetItem } from '@/api/datasets'
 import { dataApi } from '@/api/data'
 import { getToken } from '@/api/client'
 
@@ -29,35 +29,21 @@ const runtimeFilters = ref<FilterCond[]>([])
 const runtimeFilterRef = ref<InstanceType<typeof ReportRuntimeFilters> | null>(null)
 const columnLabels = ref<Record<string, string>>({})
 
+function datasetTableName(table: DatasetItem['tables'][number]): string {
+  return table.table_label || table.table_name
+}
+
 async function loadReport() {
   try {
     report.value = await reportsApi.get(props.reportId)
-    if (report.value.dataset_id) {
-      try {
-        integrity.value = await datasetsApi.integrity(report.value.dataset_id)
-      } catch {
-        integrity.value = null
-      }
-      await loadDatasetColumnLabels(report.value.dataset_id)
-    } else {
+    try {
+      integrity.value = await datasetsApi.integrity(report.value.dataset_id)
+    } catch {
       integrity.value = null
-      await loadSingleColumnLabels(report.value.table_name)
     }
+    await loadDatasetColumnLabels(report.value.dataset_id)
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载报表失败')
-  }
-}
-
-async function loadSingleColumnLabels(tableName: string) {
-  if (!tableName) {
-    columnLabels.value = {}
-    return
-  }
-  try {
-    const cols = await dataApi.columns(tableName)
-    columnLabels.value = Object.fromEntries(cols.map((col) => [col.code, col.label]))
-  } catch {
-    columnLabels.value = {}
   }
 }
 
@@ -67,8 +53,9 @@ async function loadDatasetColumnLabels(datasetId: number) {
     const entries: [string, string][] = []
     for (const table of ds.tables) {
       const cols = await dataApi.columns(table.table_name)
+      const tableName = datasetTableName(table)
       for (const col of cols) {
-        entries.push([`${table.alias}.${col.code}`, `${table.alias}.${col.label}`])
+        entries.push([`${table.alias}.${col.code}`, `${tableName}.${col.label}`])
       }
     }
     columnLabels.value = Object.fromEntries(entries)
@@ -128,8 +115,7 @@ async function doExport(format: 'csv' | 'xlsx') {
 
 const sourceSummary = computed(() => {
   if (!report.value) return ''
-  if (report.value.dataset_id) return `数据集 · ${report.value.dataset_name || `#${report.value.dataset_id}`}`
-  return `单表 · ${report.value.table_label || report.value.table_name}`
+  return `数据集 · ${report.value.dataset_name || `#${report.value.dataset_id}`}`
 })
 
 const fieldCount = computed(() => columns.value.length || report.value?.config.columns?.length || 0)
@@ -229,7 +215,7 @@ defineExpose({ run })
       :page-size="pageSize"
       :loading="loading"
       :max-height="600"
-      :page-sizes="[20, 50, 100, 200]"
+      :page-sizes="[20, 50, 100]"
       @update:page="page = $event"
       @update:page-size="pageSize = $event"
       @page-change="run"

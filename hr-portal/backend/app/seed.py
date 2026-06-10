@@ -16,6 +16,7 @@ from app.auth.password import hash_password
 from app.core.config import settings
 from app.datasources.models import DataSource
 from app.data.models import RegisteredTable
+from app.datasets.single_table import ensure_single_table_dataset
 from app.tools.document_templates import DEFAULT_TEMPLATES
 from app.tools.models import DocumentTemplate, DocumentTemplateBlock, DocumentTemplateVariable
 from app.users.models import Menu, Role, RoleMenu, User, UserRole
@@ -42,6 +43,7 @@ MENU_TREE: list[dict] = [
                     {"code": "system.roles", "label": "角色配置", "icon": "Avatar"},
                     {"code": "system.scopes", "label": "管理单元", "icon": "Connection"},
                     {"code": "system.field_categories", "label": "字段分类", "icon": "Stamp"},
+                    {"code": "system.global_fields", "label": "全局字段字典", "icon": "Collection"},
                     {"code": "system.field_columns", "label": "字段管理", "icon": "Grid"},
                 ],
             },
@@ -246,6 +248,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_datasources(db)
         await _ensure_datasource_jobs(db)
         await _ensure_registered_tables(db)
+        await _ensure_single_table_datasets(db)
         await _ensure_document_templates(db)
         await _ensure_formula_functions(db)
         logger.info("[seed] done")
@@ -374,6 +377,23 @@ async def _ensure_registered_tables(db: AsyncSession) -> None:
         )
         db.add(rt)
         logger.info("[seed] registered_table added: %s", cfg["table_name"])
+    await db.commit()
+
+
+async def _ensure_single_table_datasets(db: AsyncSession) -> None:
+    rows = (
+        await db.execute(select(RegisteredTable).order_by(RegisteredTable.display_order, RegisteredTable.id))
+    ).scalars().all()
+    for row in rows:
+        try:
+            await ensure_single_table_dataset(
+                row.table_name,
+                db,
+                created_by=None,
+                table_label=row.table_label,
+            )
+        except ValueError:
+            continue
     await db.commit()
 
 

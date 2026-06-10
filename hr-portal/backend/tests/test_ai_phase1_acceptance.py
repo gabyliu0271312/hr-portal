@@ -45,7 +45,7 @@ def test_phase1_report_explain_config_capability_is_registered_and_routed():
     assert capability.risk_level == "low"
     assert capability.side_effect_tags == []
     assert capability.tools == ["report.read_config"]
-    assert capability.model_profile == "none"
+    assert capability.model_profile == "reasoning"
     assert "/api/v1/ai/capabilities/report.explain_config/answer" in paths
 
 
@@ -70,6 +70,8 @@ def test_phase1_report_explain_config_returns_context_packet():
     assert out.context_packet["page"]["kind"] == "report_config"
     assert out.context_packet["permission"]["mode"] == "read_only"
     assert out.context_packet["domain_context"]["side_effect"] == "none"
+    assert out.mode == "read_only_chat"
+    assert out.answer
     assert out.warnings
 
 

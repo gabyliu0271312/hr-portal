@@ -49,6 +49,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '字段分类', menuCode: 'system.field_categories' },
       },
       {
+        path: 'system/global-fields',
+        name: 'SystemGlobalFields',
+        component: () => import('@/views/system/GlobalFields.vue'),
+        meta: { label: '全局字段字典', menuCode: 'system.global_fields' },
+      },
+      {
         path: 'system/field-columns',
         name: 'SystemFieldColumns',
         component: () => import('@/views/system/FieldColumns.vue'),
@@ -130,7 +136,7 @@ const routes: RouteRecordRaw[] = [
         path: 'report/designer/:id',
         name: 'ReportDesigner',
         component: () => import('@/views/report/ReportDesigner.vue'),
-        meta: { label: '报表设计', menuCode: 'report.list' },
+        meta: { label: '报表设计', menuCode: 'report.list', hideAside: true },
       },
       {
         path: 'report/run/:id',
@@ -142,7 +148,7 @@ const routes: RouteRecordRaw[] = [
         path: 'tools/allocation-designer/:id',
         name: 'AllocationSchemeDesigner',
         component: () => import('@/views/tools/AllocationSchemeDesigner.vue'),
-        meta: { label: '分摊方案配置', menuCode: 'tools.cost_allocation' },
+        meta: { label: '分摊方案配置', menuCode: 'tools.cost_allocation', hideAside: true },
       },
       {
         path: 'tools/cost-allocation',

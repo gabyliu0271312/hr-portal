@@ -12,6 +12,7 @@ import {
   type JoinKey,
 } from '@/api/datasets'
 import { dataApi, type ColumnInfo } from '@/api/data'
+import AclEditor, { type AclRow } from '@/components/AclEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,12 +29,14 @@ const form = reactive<{
   is_active: boolean
   tables: DatasetTableItem[]
   relations: DatasetRelationItem[]
+  acl: AclRow[]
 }>({
   name: '',
   description: '',
   is_active: true,
   tables: [],
   relations: [],
+  acl: [],
 })
 
 const visibleTables = ref<{ table_name: string; label: string }[]>([])
@@ -69,7 +72,12 @@ async function loadDataset() {
     form.name = r.name
     form.description = r.description ?? ''
     form.is_active = r.is_active
-    form.tables = r.tables.map((t) => ({ table_name: t.table_name, alias: t.alias }))
+    form.acl = (r.acl || []).map((a) => ({ id: a.id, role_id: a.role_id, user_id: a.user_id }))
+    form.tables = r.tables.map((t) => ({
+      table_name: t.table_name,
+      alias: t.alias,
+      table_label: t.table_label,
+    }))
     form.relations = r.relations.map((rel) => ({
       left_alias: rel.left_alias,
       right_alias: rel.right_alias,
@@ -105,7 +113,7 @@ function addTable() {
     return
   }
   const alias = _shortAlias(remaining.table_name)
-  form.tables.push({ table_name: remaining.table_name, alias })
+  form.tables.push({ table_name: remaining.table_name, alias, table_label: remaining.label })
   loadAliasColumns()
 }
 
@@ -133,6 +141,7 @@ function removeTable(i: number) {
 
 function onTableChange(t: DatasetTableItem) {
   // 别名固定后改 table_name 时重新加载该 alias 的字段
+  t.table_label = visibleTableLabel(t.table_name)
   loadAliasColumns()
 }
 
@@ -185,8 +194,23 @@ function buildPayload(): DatasetPayload {
       cardinality: r.cardinality || '1:1',
       keys: r.keys.filter((k) => k.left && k.right),
     })),
-    acl: [],  // 简化版：先不在设计器里配 ACL
+    acl: form.acl
+      .filter((a) => a.role_id != null || a.user_id != null)
+      .map((a) => ({ role_id: a.role_id, user_id: a.user_id })),
   }
+}
+
+function visibleTableLabel(tableName: string): string {
+  return visibleTables.value.find((t) => t.table_name === tableName)?.label || tableName
+}
+
+function tableDisplayName(t: DatasetTableItem): string {
+  return t.table_label || visibleTableLabel(t.table_name)
+}
+
+function tableAliasOptionLabel(t: DatasetTableItem): string {
+  const name = tableDisplayName(t)
+  return t.alias && t.alias !== name ? `${name} (${t.alias})` : name
 }
 
 async function save() {
@@ -297,6 +321,7 @@ onMounted(async () => {
             style="width: 180px"
             @change="(v: string | number) => onAliasChange(i, String(v), t.alias)"
           />
+          <span class="table-name-hint">{{ tableDisplayName(t) }}</span>
           <el-button link type="danger" @click="removeTable(i)">
             <el-icon><Delete /></el-icon>
           </el-button>
@@ -327,13 +352,13 @@ onMounted(async () => {
           <div class="relation-head">
             <el-icon><Connection /></el-icon>
             <el-select v-model="rel.left_alias" style="width: 160px">
-              <el-option v-for="t in form.tables" :key="t.alias" :label="t.alias" :value="t.alias" />
+              <el-option v-for="t in form.tables" :key="t.alias" :label="tableAliasOptionLabel(t)" :value="t.alias" />
             </el-select>
             <el-select v-model="rel.join_type" style="width: 200px">
               <el-option v-for="jt in JOIN_TYPES" :key="jt.value" :label="jt.label" :value="jt.value" />
             </el-select>
             <el-select v-model="rel.right_alias" style="width: 160px">
-              <el-option v-for="t in form.tables" :key="t.alias" :label="t.alias" :value="t.alias" />
+              <el-option v-for="t in form.tables" :key="t.alias" :label="tableAliasOptionLabel(t)" :value="t.alias" />
             </el-select>
             <el-select v-model="rel.cardinality" style="width: 150px" placeholder="基数">
               <el-option v-for="c in CARDINALITIES" :key="c.value" :label="c.label" :value="c.value" />
@@ -373,6 +398,9 @@ onMounted(async () => {
         <el-button link type="primary" @click="addRelation">
           <el-icon style="margin-right: 4px"><Plus /></el-icon>添加关联
         </el-button>
+
+        <div class="section-title">访问授权（谁能使用此数据集）</div>
+        <AclEditor v-model="form.acl" />
       </el-form>
     </el-card>
   </div>
@@ -394,6 +422,11 @@ onMounted(async () => {
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+.table-name-hint {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  min-width: 120px;
 }
 .relation-block {
   border: 1px solid var(--color-border-light);

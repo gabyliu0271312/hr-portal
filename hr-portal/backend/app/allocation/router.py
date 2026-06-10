@@ -23,7 +23,7 @@ from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.allocation.models import AllocationScheme, AllocationRun
 from app.datasources.sync_service import PERIOD_TABLES, _dynamic_upsert
-from app.reports.router import ReportConfig, _run_query
+from app.reports.router import ReportConfig
 from app.users.models import User
 
 router = APIRouter(prefix="/allocation", tags=["allocation"])
@@ -40,7 +40,7 @@ class SchemeIn(BaseModel):
     name: str
     description: str | None = None
     table_name: str = ""
-    dataset_id: int | None = None
+    dataset_id: int
     result_table: str = "emp_monthly_cost_result"
     config: dict = {}
     is_active: bool = True
@@ -195,7 +195,7 @@ async def create_scheme(
     s = AllocationScheme(
         name=payload.name,
         description=payload.description,
-        table_name=payload.table_name,
+        table_name="",
         dataset_id=payload.dataset_id,
         result_table=payload.result_table,
         config=payload.config,
@@ -236,7 +236,7 @@ async def update_scheme(
     _validate_source(payload)
     s.name = payload.name
     s.description = payload.description
-    s.table_name = payload.table_name
+    s.table_name = ""
     s.dataset_id = payload.dataset_id
     s.result_table = payload.result_table
     s.config = payload.config
@@ -282,8 +282,9 @@ async def run_scheme(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"结果表 {s.result_table} 不在允许列表")
 
     dataset_id_ref = s.dataset_id
-    table_name_ref = s.table_name
     result_table_ref = s.result_table
+    if dataset_id_ref is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="成本分摊方案必须绑定数据集")
 
     # 合并 filters：方案配置为基础，extra_filters 同列名时覆盖
     cfg = ReportConfig(**(s.config or {}))
@@ -313,30 +314,23 @@ async def run_scheme(
     await db.flush()
 
     try:
-        if dataset_id_ref is not None:
-            from app.reports.sql_builder import run_dataset_query
-            _, items, _ = await run_dataset_query(
-                dataset_id=dataset_id_ref,
-                columns=merged_cfg.columns,
-                filters=merged_filters,
-                filter_logic=merged_cfg.filter_logic,
-                sorts=[sc.model_dump() for sc in merged_cfg.sorts],
-                value_rules=merged_cfg.value_rules,
-                aggregate=merged_cfg.aggregate,
-                aggregations=merged_cfg.aggregations,
-                transpose=merged_cfg.transpose,
-                rounding_corrections=merged_cfg.rounding_corrections,
-                page=1,
-                page_size=0,
-                user=user,
-                db=db,
-            )
-        else:
-            if not table_name_ref:
-                raise ValueError("方案未配置数据来源")
-            _, items, _ = await _run_query(
-                db, table_name_ref, merged_cfg, page=1, page_size=0, user=user
-            )
+        from app.reports.sql_builder import run_dataset_query
+        _, items, _ = await run_dataset_query(
+            dataset_id=dataset_id_ref,
+            columns=merged_cfg.columns,
+            filters=merged_filters,
+            filter_logic=merged_cfg.filter_logic,
+            sorts=[sc.model_dump() for sc in merged_cfg.sorts],
+            value_rules=merged_cfg.value_rules,
+            aggregate=merged_cfg.aggregate,
+            aggregations=merged_cfg.aggregations,
+            transpose=merged_cfg.transpose,
+            rounding_corrections=merged_cfg.rounding_corrections,
+            page=1,
+            page_size=0,
+            user=user,
+            db=db,
+        )
 
         if not items:
             raise ValueError("报表无数据，存档中止（空批次保护）")
@@ -390,9 +384,8 @@ async def list_runs(
 # ===== 校验 =====
 
 def _validate_source(payload: SchemeIn) -> None:
-    from app.data.models import DATA_TABLES
-    if not payload.dataset_id and payload.table_name not in DATA_TABLES:
+    if not payload.dataset_id:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail="必须指定 dataset_id 或合法 table_name",
+            detail="必须指定 dataset_id",
         )

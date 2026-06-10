@@ -7,7 +7,6 @@ import AllocationBasicInfo from '@/components/allocation/AllocationBasicInfo.vue
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
 import ReportFieldWorkbench from '@/components/report/ReportFieldWorkbench.vue'
 import ReportFilterList from '@/components/report/ReportFilterList.vue'
-import ReportSortList from '@/components/report/ReportSortList.vue'
 import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import { allocationApi, type AllocationSchemeIn } from '@/api/allocation'
@@ -30,8 +29,6 @@ const isNew = computed(() => schemeId.value === null)
 const form = reactive({
   name: '',
   description: '',
-  source_type: 'single' as 'single' | 'dataset',
-  table_name: 'emp_realtime_roster',
   dataset_id: null as number | null,
   result_table: 'emp_monthly_cost_result',
   selected_codes: [] as string[],
@@ -81,7 +78,6 @@ const previewItems = ref<RunResult['items']>([])
 const previewTotal = ref(0)
 const previewPage = ref(1)
 const previewPageSize = ref(20)
-const singleTableDatasetId = ref<number | null>(null)
 
 const transposeRef = ref<InstanceType<typeof ReportTransposeConfig> | null>(null)
 const filterRef = ref<InstanceType<typeof ReportFilterList> | null>(null)
@@ -91,10 +87,15 @@ const selectedColsDetail = computed(() =>
 )
 const selectedDimensions = computed(() => selectedColsDetail.value.filter((c) => c.agg_role !== 'measure'))
 const selectedMeasures = computed(() => selectedColsDetail.value.filter((c) => c.agg_role === 'measure'))
-const isDataset = computed(() => form.source_type === 'dataset')
+const isDataset = computed(() => true)
 
 async function loadDatasets() {
-  try { datasets.value = await datasetsApi.list() } catch { datasets.value = [] }
+  try {
+    datasets.value = await datasetsApi.list()
+    if (isNew.value && !form.dataset_id) {
+      form.dataset_id = datasets.value.find((d) => d.is_active)?.id ?? datasets.value[0]?.id ?? null
+    }
+  } catch { datasets.value = [] }
 }
 
 async function loadResultTables() {
@@ -107,14 +108,11 @@ async function loadScheme() {
     const s = await allocationApi.getScheme(schemeId.value!)
     form.name = s.name
     form.description = s.description ?? ''
-    form.source_type = s.dataset_id ? 'dataset' : 'single'
-    form.table_name = s.table_name || 'emp_realtime_roster'
     form.dataset_id = s.dataset_id
     form.result_table = s.result_table
     const cfg = s.config
     form.selected_codes = [...(cfg.columns ?? [])]
     form.column_settings = { ...(cfg.column_settings ?? {}) }
-    singleTableDatasetId.value = cfg.single_table_dataset_id || null
     form.default_split_rule = {
       enabled: !!cfg.default_split_rule?.enabled,
       factor: cfg.default_split_rule?.factor || '',
@@ -180,7 +178,6 @@ async function loadScheme() {
 }
 
 function resetForm() {
-  singleTableDatasetId.value = null
   form.selected_codes = []
   form.column_settings = {}
   form.default_split_rule = { enabled: false, factor: '' }
@@ -219,14 +216,6 @@ function resetForm() {
   previewColumns.value = []
   previewItems.value = []
   previewTotal.value = 0
-}
-
-function onSourceChange() {
-  resetForm()
-}
-
-function onTableChange() {
-  resetForm()
 }
 
 function onDatasetChange() {
@@ -272,14 +261,12 @@ function buildPayload(): AllocationSchemeIn {
   return {
     name: form.name.trim(),
     description: form.description.trim() || null,
-    table_name: form.source_type === 'single' ? form.table_name : '',
-    dataset_id: form.source_type === 'dataset' ? form.dataset_id : null,
+    dataset_id: form.dataset_id!,
     result_table: form.result_table,
     is_active: true,
     config: {
       columns: form.selected_codes,
       column_settings: form.column_settings,
-      single_table_dataset_id: form.source_type === 'single' ? singleTableDatasetId.value : null,
       default_split_rule: form.default_split_rule,
       filters: form.filters.filter((f) => f.column).map((f) => {
         const op = f.op
@@ -346,6 +333,7 @@ function buildPayload(): AllocationSchemeIn {
 async function save() {
   if (!form.name.trim()) { ElMessage.warning('请填写方案名'); return }
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段'); return }
+  if (!form.dataset_id) { ElMessage.warning('请选择数据集'); return }
   saving.value = true
   try {
     if (form.transpose.enabled && form.transpose.rules?.length) await transposeRef.value?.ensureCcMaster()
@@ -387,8 +375,7 @@ watch(() => route.params.id, async (v) => {
   if (!v) return
   if (v === 'new') {
     Object.assign(form, {
-      name: '', description: '', source_type: 'single',
-      table_name: 'emp_realtime_roster', dataset_id: null,
+      name: '', description: '', dataset_id: datasets.value.find((d) => d.is_active)?.id ?? datasets.value[0]?.id ?? null,
       result_table: 'emp_monthly_cost_result',
       selected_codes: [], filters: [], sorts: [], value_rules: [],
       aggregate: false, default_aggregation: 'sum', aggregations: {},
@@ -419,7 +406,6 @@ watch(() => route.params.id, async (v) => {
     })
     previewItems.value = []
     previewColumns.value = []
-    singleTableDatasetId.value = null
   } else {
     await loadScheme()
   }
@@ -427,7 +413,7 @@ watch(() => route.params.id, async (v) => {
 </script>
 
 <template>
-  <div style="padding: 24px">
+  <div class="designer-page">
     <el-card>
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">
@@ -452,24 +438,16 @@ watch(() => route.params.id, async (v) => {
         <AllocationBasicInfo
           v-model:name="form.name"
           v-model:description="form.description"
-          v-model:source-type="form.source_type"
-          v-model:table-name="form.table_name"
           v-model:dataset-id="form.dataset_id"
           v-model:result-table="form.result_table"
-          :tables="TABLES"
           :datasets="datasets"
           :current-dataset="currentDataset"
           :result-tables="resultTables"
-          @source-change="onSourceChange"
-          @table-change="onTableChange"
           @dataset-change="onDatasetChange"
         />
 
         <div class="section-title">报表设置（{{ form.selected_codes.length }} 个字段）</div>
         <CalculatedFieldBridge
-          v-model:single-table-dataset-id="singleTableDatasetId"
-          :source-type="form.source_type"
-          :table-name="form.table_name"
           :dataset-id="form.dataset_id"
           :datasets="datasets"
           :tables="TABLES"
@@ -485,41 +463,36 @@ watch(() => route.params.id, async (v) => {
               v-model:default-aggregation="form.default_aggregation"
               v-model:aggregate="form.aggregate"
               v-model:rounding-group-by="form.rounding_group_by"
+              v-model:sorts="form.sorts"
               :all-columns="columns"
               :source-groups="sourceGroups"
               :loading="loading"
               :is-dataset="isDataset"
               :can-create-field="canCreateField"
               @create-field="createField"
-            />
+            >
+              <template #filters>
+                <ReportFilterList
+                  ref="filterRef"
+                  v-model:filters="form.filters"
+                  v-model:filter-logic="form.filter_logic"
+                  :all-columns="allColumns"
+                  :current-dataset-tables="currentDataset?.tables"
+                />
+              </template>
+
+              <template #reshape>
+                <ReportTransposeConfig
+                  ref="transposeRef"
+                  v-model:transpose="form.transpose"
+                  :selected-dimensions="selectedDimensions"
+                  :selected-measures="selectedMeasures"
+                  :selected-columns="selectedColsDetail"
+                />
+              </template>
+            </ReportFieldWorkbench>
           </template>
         </CalculatedFieldBridge>
-
-        <div class="section-title">筛选条件（{{ form.filters.length }} 个）</div>
-        <ReportFilterList
-          ref="filterRef"
-          v-model:filters="form.filters"
-          v-model:filter-logic="form.filter_logic"
-          :all-columns="allColumns"
-          :table-name="form.table_name"
-          :source-type="form.source_type"
-          :current-dataset-tables="currentDataset?.tables"
-        />
-
-        <div class="section-title">排序（{{ form.sorts.length }} 个）</div>
-        <ReportSortList v-model:sorts="form.sorts" :all-columns="allColumns" />
-
-        <template v-if="isDataset">
-          <div class="section-title">转置 / 重映射</div>
-          <ReportTransposeConfig
-            ref="transposeRef"
-            v-model:transpose="form.transpose"
-            :selected-dimensions="selectedDimensions"
-            :selected-measures="selectedMeasures"
-            :selected-columns="selectedColsDetail"
-          />
-
-        </template>
       </el-form>
     </el-card>
   </div>
@@ -532,8 +505,11 @@ watch(() => route.params.id, async (v) => {
   color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin: 24px 0 12px;
+  margin: 14px 0 8px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--color-border-light);
+}
+.designer-page {
+  padding: 16px;
 }
 </style>

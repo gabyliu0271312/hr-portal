@@ -18,6 +18,7 @@ from app.core.deps import current_user, require_op
 from app.data.models import RegisteredTable, DATA_TABLES
 from app.data.dynamic_loader import _make_dynamic_model
 from app.datasources.sync_service import PERIOD_TABLES
+from app.datasets.single_table import ensure_single_table_dataset, find_single_table_dataset
 from app.users.models import User
 
 router = APIRouter(prefix="/admin/tables", tags=["admin-tables"])
@@ -47,6 +48,7 @@ class RegisteredTableOut(BaseModel):
     period_source: str
     is_builtin: bool
     is_result_table: bool
+    scope_exempt: bool
     icon: str
     display_order: int
     created_at: str
@@ -63,6 +65,7 @@ def _to_out(rt: RegisteredTable) -> RegisteredTableOut:
         period_source=rt.period_source,
         is_builtin=rt.is_builtin,
         is_result_table=rt.is_result_table,
+        scope_exempt=rt.scope_exempt,
         icon=rt.icon,
         display_order=rt.display_order,
         created_at=rt.created_at.isoformat(),
@@ -165,10 +168,51 @@ async def create_table(
             )
             db.add(ds)
 
+    await ensure_single_table_dataset(
+        payload.table_name,
+        db,
+        created_by=user.id,
+        table_label=payload.table_label,
+    )
+
     # 7) 超管自动获得全量权限（data.view 菜单已有，不需要额外操作）
     # 超管角色通过 seed 的 _ensure_super_role 已拥有所有菜单权限，
     # 数据视图的表级访问通过 data.view 菜单统一控制，无需追加。
 
+    await db.commit()
+    await db.refresh(rt)
+    return _to_out(rt)
+
+
+class UpdateTableIn(BaseModel):
+    scope_exempt: bool | None = None
+    table_label: str | None = None
+    description: str | None = None
+    display_order: int | None = None
+
+
+@router.patch("/{table_name}", response_model=RegisteredTableOut,
+              dependencies=[Depends(require_op("system.users", "U"))])
+async def update_table(
+    table_name: str,
+    payload: UpdateTableIn,
+    db: AsyncSession = Depends(get_session),
+) -> RegisteredTableOut:
+    rt = (
+        await db.execute(
+            select(RegisteredTable).where(RegisteredTable.table_name == table_name)
+        )
+    ).scalar_one_or_none()
+    if rt is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="表不存在")
+    if payload.scope_exempt is not None:
+        rt.scope_exempt = payload.scope_exempt
+    if payload.table_label is not None:
+        rt.table_label = payload.table_label
+    if payload.description is not None:
+        rt.description = payload.description
+    if payload.display_order is not None:
+        rt.display_order = payload.display_order
     await db.commit()
     await db.refresh(rt)
     return _to_out(rt)
@@ -191,11 +235,45 @@ async def delete_table(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="内置表不允许删除")
 
     # 删物理表
+    from app.allocation.models import AllocationScheme
+    from app.datasets.models import DataSetTable
+    from app.reports.models import Report
+
+    ds = await find_single_table_dataset(table_name, db)
+    if ds is not None:
+        report_ref = (
+            await db.execute(select(Report.id).where(Report.dataset_id == ds.id).limit(1))
+        ).scalar_one_or_none()
+        allocation_ref = (
+            await db.execute(
+                select(AllocationScheme.id).where(AllocationScheme.dataset_id == ds.id).limit(1)
+            )
+        ).scalar_one_or_none()
+        if report_ref is not None or allocation_ref is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="该视图的数据集已被报表或成本分摊方案引用，无法删除",
+            )
+
     await db.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
     # 清字段元数据
     from sqlalchemy import delete
     from app.data.models import TableColumn
     await db.execute(delete(TableColumn).where(TableColumn.table_name == table_name))
+    if ds is not None:
+        dataset_has_other_tables = (
+            await db.execute(
+                select(DataSetTable.id)
+                .where(
+                    DataSetTable.dataset_id == ds.id,
+                    DataSetTable.table_name != table_name,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if dataset_has_other_tables is None:
+            await db.delete(ds)
+    await db.delete(rt)
     # 删注册记录
     await db.delete(rt)
     # 从运行时移除

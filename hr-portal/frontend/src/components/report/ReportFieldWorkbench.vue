@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowDown, Close, Hide, Plus, Rank, View } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Close, Hide, Plus, Rank, View } from '@element-plus/icons-vue'
 import type { ColumnInfo } from '@/api/data'
-import type { AggregationFunc, ColumnSetting, DefaultSplitRule } from '@/api/reports'
+import type { AggregationFunc, ColumnSetting, DefaultSplitRule, SortCond } from '@/api/reports'
 import { REPORT_AGG_FUNCS, reportAggLabel } from '@/constants/reportAggregation'
 
 const props = defineProps<{
@@ -14,6 +14,7 @@ const props = defineProps<{
   defaultAggregation?: AggregationFunc
   aggregate: boolean
   roundingGroupBy: string[]
+  sorts?: SortCond[]
   isDataset?: boolean
   loading?: boolean
   canCreateField?: boolean
@@ -26,6 +27,7 @@ const emit = defineEmits<{
   'update:defaultAggregation': [v: AggregationFunc]
   'update:aggregate': [v: boolean]
   'update:roundingGroupBy': [v: string[]]
+  'update:sorts': [v: SortCond[]]
   createField: []
 }>()
 
@@ -44,10 +46,30 @@ const availableCols = computed(() =>
 const availableColumnGroups = computed(() => groupColumns(availableCols.value))
 
 const selectedDimensions = computed(() => selectedCols.value.filter((item) => item.agg_role !== 'measure'))
+const selectedMeasures = computed(() => selectedCols.value.filter((item) => item.agg_role === 'measure'))
+const selectedFieldGroups = computed(() => [
+  {
+    key: 'dimension',
+    title: '维度',
+    count: selectedDimensions.value.length,
+    columns: selectedDimensions.value,
+    empty: '单击左侧维度字段后会加入这里',
+  },
+  {
+    key: 'measure',
+    title: '指标',
+    count: selectedMeasures.value.length,
+    columns: selectedMeasures.value,
+    empty: '单击左侧指标字段后会加入这里',
+  },
+])
 const numericAllCols = computed(() =>
   props.allColumns.filter((item) => item.agg_role === 'measure' || item.data_type === 'number')
 )
 const draggingCode = ref('')
+const collapsedSourceKeys = ref<Set<string>>(new Set())
+const advancedOpen = ref(false)
+const advancedTab = ref<'rules' | 'reshape'>('rules')
 
 function sourceKey(code: string) {
   if (code.startsWith('calc.')) return 'calc'
@@ -63,7 +85,10 @@ function sourceLabel(code: string) {
 
 function cleanFieldLabel(col: ColumnInfo) {
   const prefix = `${sourceKey(col.code)}.`
-  return props.isDataset && col.label.startsWith(prefix) ? col.label.slice(prefix.length) : col.label
+  if (!props.isDataset) return col.label
+  if (col.label.startsWith(prefix)) return col.label.slice(prefix.length)
+  const dot = col.label.lastIndexOf('.')
+  return dot >= 0 ? col.label.slice(dot + 1) : col.label
 }
 
 function groupColumns(cols: ColumnInfo[]) {
@@ -102,9 +127,20 @@ function displayLabel(col: ColumnInfo) {
   return colSetting(col.code).display_name || cleanFieldLabel(col)
 }
 
+function aggRoleOf(code: string) {
+  return props.allColumns.find((item) => item.code === code)?.agg_role
+}
+
 function addColumn(code: string) {
   if (props.selectedCodes.includes(code)) return
-  emit('update:selectedCodes', [...props.selectedCodes, code])
+  const next = [...props.selectedCodes]
+  if (aggRoleOf(code) === 'measure') {
+    next.push(code)
+  } else {
+    const firstMeasureIndex = next.findIndex((item) => aggRoleOf(item) === 'measure')
+    next.splice(firstMeasureIndex >= 0 ? firstMeasureIndex : next.length, 0, code)
+  }
+  emit('update:selectedCodes', next)
 }
 
 function removeColumn(code: string) {
@@ -126,7 +162,7 @@ function sourceTableLabel(code: string) {
   const label = sourceLabel(code)
   const alias = sourceKey(code)
   if (alias === 'calc') return label
-  return props.isDataset ? alias : label
+  return label
 }
 
 function fieldSource(col: ColumnInfo) {
@@ -186,216 +222,57 @@ function setSplitMode(code: string, value: string) {
 function setSplitFactor(code: string, value: string) {
   updateSetting(code, { split_mode: 'custom', split_factor: value })
 }
+
+function sourceCollapsed(key: string) {
+  return collapsedSourceKeys.value.has(key)
+}
+
+function toggleSourceGroup(key: string) {
+  const next = new Set(collapsedSourceKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  collapsedSourceKeys.value = next
+}
+
+function fieldSort(code: string) {
+  return props.sorts?.find((item) => item.column === code)
+}
+
+function fieldSortIndex(code: string) {
+  return props.sorts?.findIndex((item) => item.column === code) ?? -1
+}
+
+function fieldSortLabel(code: string) {
+  const sort = fieldSort(code)
+  if (!sort) return ''
+  const order = sort.order === 'asc' ? '升序' : '降序'
+  const index = fieldSortIndex(code)
+  return index >= 0 ? `${order} ${index + 1}` : order
+}
+
+function setFieldSort(code: string, order: 'asc' | 'desc') {
+  const next = [...(props.sorts || [])]
+  const index = next.findIndex((item) => item.column === code)
+  if (index >= 0) next[index] = { ...next[index], order }
+  else next.push({ column: code, order })
+  emit('update:sorts', next)
+}
+
+function clearFieldSort(code: string) {
+  emit('update:sorts', (props.sorts || []).filter((item) => item.column !== code))
+}
+
+function openAdvanced(tab: 'rules' | 'reshape') {
+  advancedTab.value = tab
+  advancedOpen.value = true
+}
 </script>
 
 <template>
   <div v-loading="loading" class="field-workbench">
-    <div class="output-rules-panel">
+    <aside class="available-panel">
       <div class="panel-head">
-        <span>出数规则</span>
-        <span>{{ aggregate ? '聚合' : '明细' }}</span>
-      </div>
-      <div class="rule-grid">
-        <div class="rule-item">
-          <span class="option-label">出数模式</span>
-          <el-radio-group :model-value="aggregate" size="small" @change="setOutputMode">
-            <el-radio-button :label="false">明细</el-radio-button>
-            <el-radio-button :label="true">聚合</el-radio-button>
-          </el-radio-group>
-        </div>
-
-        <div class="rule-item">
-          <span class="option-label">默认统计</span>
-          <el-select
-            :model-value="defaultAggregationValue()"
-            :disabled="!aggregate"
-            size="small"
-            style="width: 136px"
-            @update:model-value="setDefaultAggregation"
-          >
-            <el-option v-for="item in AGG_FUNCS" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
-        </div>
-
-        <div v-if="isDataset" class="rule-item rule-item-wide">
-          <span class="option-label">默认拆分</span>
-          <el-switch
-            :model-value="defaultSplitRule.enabled"
-            active-text="启用"
-            inactive-text="关闭"
-            @update:model-value="(v: boolean) => emit('update:defaultSplitRule', { ...defaultSplitRule, enabled: v })"
-          />
-          <el-select
-            :model-value="defaultSplitRule.factor || ''"
-            :disabled="!defaultSplitRule.enabled"
-            filterable
-            clearable
-            placeholder="选择统一系数字段"
-            style="width: min(260px, 100%)"
-            @update:model-value="(v: string) => emit('update:defaultSplitRule', { ...defaultSplitRule, factor: v })"
-          >
-            <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
-          </el-select>
-        </div>
-
-        <div v-if="isDataset" class="rule-item rule-item-wide">
-          <span class="option-label">余差收口</span>
-          <el-select
-            :model-value="roundingGroupBy"
-            :disabled="!aggregate"
-            multiple
-            filterable
-            clearable
-            :placeholder="aggregate ? '选择一个或多个分组维度' : '聚合模式可选'"
-            style="width: min(420px, 100%)"
-            @update:model-value="(v: string[]) => emit('update:roundingGroupBy', v)"
-          >
-            <el-option v-for="item in selectedDimensions" :key="item.code" :label="item.label" :value="item.code" />
-          </el-select>
-        </div>
-      </div>
-    </div>
-
-    <div class="selected-panel">
-      <div class="panel-head">
-        <span>已选字段</span>
-        <span>{{ selectedCols.length }} 个</span>
-      </div>
-      <div v-if="selectedCols.length" class="field-grid selected-grid">
-        <div
-          v-for="(col, index) in selectedCols"
-          :key="col.code"
-          class="selected-shell"
-          :class="{ 'is-dragging': draggingCode === col.code, 'is-hidden': colSetting(col.code).hidden }"
-          draggable="true"
-          @dragstart="draggingCode = col.code"
-          @dragend="draggingCode = ''"
-          @dragover.prevent
-          @drop.prevent="reorderColumn(draggingCode, col.code); draggingCode = ''"
-        >
-          <div class="selected-field" :class="{ 'is-hidden': colSetting(col.code).hidden }">
-            <span class="drag-handle" title="拖动字段调整顺序">
-              <el-icon><Rank /></el-icon>
-            </span>
-            <el-tooltip :content="fieldSource(col)" placement="top" :show-after="350">
-              <button class="field-label-button" type="button">
-                <span class="field-name">{{ displayLabel(col) }}</span>
-              </button>
-            </el-tooltip>
-            <span v-if="aggregate" class="field-agg-badge" :class="{ 'is-dimension': col.agg_role !== 'measure' }">
-              {{ fieldAggregationLabel(col) }}
-            </span>
-            <el-popover
-              trigger="click"
-              placement="bottom-start"
-              :width="280"
-              popper-class="field-config-popper"
-            >
-              <template #reference>
-                <button
-                  class="field-config-button"
-                  type="button"
-                  title="字段设置"
-                  draggable="false"
-                  @dragstart.stop.prevent
-                  @mousedown.stop
-                >
-                  <el-icon><ArrowDown /></el-icon>
-                </button>
-              </template>
-              <div class="field-menu">
-                <div class="menu-block">
-                  <div class="menu-title">字段操作</div>
-                  <div class="menu-row">
-                    <el-button size="small" type="danger" plain @click="removeColumn(col.code)">
-                      <el-icon><Close /></el-icon>
-                      移除字段
-                    </el-button>
-                  </div>
-                </div>
-
-                <div v-if="aggregate" class="menu-block">
-                  <div class="menu-title">统计类型</div>
-                  <template v-if="col.agg_role === 'measure'">
-                    <div class="agg-options">
-                      <button
-                        v-for="item in AGG_FUNCS"
-                        :key="item.value"
-                        class="agg-option"
-                        :class="{ 'is-active': effectiveAggregation(col) === item.value }"
-                        @click="setAggregation(col.code, item.value)"
-                      >
-                        {{ item.label }}
-                      </button>
-                    </div>
-                    <button
-                      v-if="colSetting(col.code).aggregation"
-                      class="menu-link-command"
-                      @click="resetAggregation(col.code)"
-                    >
-                      恢复默认统计类型（{{ reportAggLabel(defaultAggregationValue()) }}）
-                    </button>
-                  </template>
-                  <div v-else class="menu-note">维度字段在聚合模式下作为分组维度，等同于不汇总。</div>
-                </div>
-
-                <div class="menu-block">
-                  <div class="menu-title">设置显示名</div>
-                  <div class="menu-row">
-                    <el-input
-                      :model-value="colSetting(col.code).display_name || ''"
-                      :placeholder="cleanFieldLabel(col)"
-                      size="small"
-                      style="width: 180px"
-                      @update:model-value="(v: string) => updateSetting(col.code, { display_name: v })"
-                    />
-                    <el-button size="small" link @click="resetDisplayName(col.code)">恢复</el-button>
-                  </div>
-                </div>
-
-                <div v-if="isDataset && col.agg_role === 'measure'" class="menu-block">
-                  <div class="menu-title">数值拆分</div>
-                  <el-select
-                    :model-value="colSetting(col.code).split_mode || 'default'"
-                    size="small"
-                    style="width: 180px"
-                    @update:model-value="(v: string) => setSplitMode(col.code, v)"
-                  >
-                    <el-option label="使用默认规则" value="default" />
-                    <el-option label="不拆分" value="none" />
-                    <el-option label="自定义系数" value="custom" />
-                  </el-select>
-                  <el-select
-                    v-if="colSetting(col.code).split_mode === 'custom'"
-                    :model-value="colSetting(col.code).split_factor || ''"
-                    size="small"
-                    filterable
-                    clearable
-                    placeholder="选择系数字段"
-                    style="width: 180px; margin-top: 8px"
-                    @update:model-value="(v: string) => setSplitFactor(col.code, v)"
-                  >
-                    <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
-                  </el-select>
-                </div>
-
-                <div class="menu-block">
-                  <button class="menu-command" @click="toggleHidden(col.code)">
-                    <el-icon><component :is="colSetting(col.code).hidden ? View : Hide" /></el-icon>
-                    {{ colSetting(col.code).hidden ? '取消隐藏' : '隐藏' }}
-                  </button>
-                </div>
-              </div>
-            </el-popover>
-          </div>
-        </div>
-      </div>
-      <div v-else class="empty-grid">从下方单击字段加入报表</div>
-    </div>
-
-    <div class="available-panel">
-      <div class="panel-head">
-        <span>可选字段</span>
+        <span>报表可选字段</span>
         <span class="available-head-actions">
           <el-button
             v-if="canCreateField"
@@ -412,15 +289,21 @@ function setSplitFactor(code: string, value: string) {
       </div>
       <div v-if="availableColumnGroups.length" class="source-groups">
         <section v-for="group in availableColumnGroups" :key="group.key" class="source-group">
-          <div class="source-head">
-            <span>{{ group.label }}</span>
+          <button class="source-head" type="button" @click="toggleSourceGroup(group.key)">
+            <span class="source-title">
+              <el-icon>
+                <component :is="sourceCollapsed(group.key) ? ArrowRight : ArrowDown" />
+              </el-icon>
+              {{ group.label }}
+            </span>
             <span>{{ group.columns.length }} 个</span>
-          </div>
-          <div class="field-grid">
+          </button>
+          <div v-show="!sourceCollapsed(group.key)" class="available-list">
             <button
               v-for="col in group.columns"
               :key="col.code"
-              class="field-card available-field"
+              class="available-field"
+              type="button"
               @click="addColumn(col.code)"
             >
               <span class="field-main">
@@ -428,7 +311,7 @@ function setSplitFactor(code: string, value: string) {
                 <span class="field-name">{{ cleanFieldLabel(col) }}</span>
               </span>
               <span class="field-meta">
-                <el-tag v-if="col.agg_role === 'measure'" size="small" type="success" effect="plain">度量</el-tag>
+                <el-tag v-if="col.agg_role === 'measure'" size="small" type="success" effect="plain">指标</el-tag>
                 <el-tag v-else size="small" effect="plain">维度</el-tag>
                 <el-tag v-if="col.is_sensitive" size="small" type="danger" effect="plain">敏感</el-tag>
                 <el-tag v-if="col.is_pk_part" size="small" type="primary" effect="plain">PK</el-tag>
@@ -439,36 +322,462 @@ function setSplitFactor(code: string, value: string) {
         </section>
       </div>
       <div v-else class="empty-grid">所有字段已加入</div>
-    </div>
+    </aside>
+
+    <main class="config-panel">
+      <section class="config-section selected-panel">
+        <div class="section-head">
+          <div>
+            <span class="section-title">字段编排</span>
+            <span class="section-subtitle">{{ selectedCols.length }} 个字段</span>
+          </div>
+          <span class="section-actions">
+            <el-tag size="small" effect="plain">{{ aggregate ? '汇总表' : '明细表' }}</el-tag>
+            <el-button size="small" plain @click="openAdvanced('rules')">统计规则</el-button>
+            <el-button v-if="$slots.reshape" size="small" plain @click="openAdvanced('reshape')">数据重塑</el-button>
+          </span>
+        </div>
+
+        <div class="field-rows">
+          <section
+            v-for="group in selectedFieldGroups"
+            :key="group.key"
+            class="selected-row"
+            :class="`is-${group.key}`"
+          >
+            <div class="row-label">
+              <span>{{ group.title }}</span>
+              <span>{{ group.count }}</span>
+            </div>
+            <div v-if="group.columns.length" class="selected-grid">
+              <div
+                v-for="col in group.columns"
+                :key="col.code"
+                class="selected-shell"
+                :class="{ 'is-dragging': draggingCode === col.code, 'is-hidden': colSetting(col.code).hidden }"
+                draggable="true"
+                @dragstart="draggingCode = col.code"
+                @dragend="draggingCode = ''"
+                @dragover.prevent
+                @drop.prevent="reorderColumn(draggingCode, col.code); draggingCode = ''"
+              >
+                <div
+                  class="selected-field"
+                  :class="{
+                    'is-hidden': colSetting(col.code).hidden,
+                    'is-dimension': col.agg_role !== 'measure',
+                    'is-measure': col.agg_role === 'measure',
+                  }"
+                >
+                  <span class="drag-handle" title="拖动字段调整顺序">
+                    <el-icon><Rank /></el-icon>
+                  </span>
+                  <el-tooltip :content="fieldSource(col)" placement="top" :show-after="350">
+                    <button class="field-label-button" type="button">
+                      <span class="field-name">{{ displayLabel(col) }}</span>
+                    </button>
+                  </el-tooltip>
+                  <span v-if="aggregate" class="field-agg-badge" :class="{ 'is-dimension': col.agg_role !== 'measure' }">
+                    {{ fieldAggregationLabel(col) }}
+                  </span>
+                  <span v-if="fieldSortLabel(col.code)" class="field-sort-badge">{{ fieldSortLabel(col.code) }}</span>
+                  <el-popover
+                    trigger="click"
+                    placement="bottom-start"
+                    :width="280"
+                    popper-class="field-config-popper"
+                  >
+                    <template #reference>
+                      <button
+                        class="field-config-button"
+                        type="button"
+                        title="字段设置"
+                        draggable="false"
+                        @dragstart.stop.prevent
+                        @mousedown.stop
+                      >
+                        <el-icon><ArrowDown /></el-icon>
+                      </button>
+                    </template>
+                    <div class="field-menu">
+                      <div class="menu-block">
+                        <div class="menu-title">字段操作</div>
+                        <div class="menu-row">
+                          <el-button size="small" type="danger" plain @click="removeColumn(col.code)">
+                            <el-icon><Close /></el-icon>
+                            移除字段
+                          </el-button>
+                        </div>
+                      </div>
+
+                      <div v-if="sorts" class="menu-block">
+                        <div class="menu-title">排序</div>
+                        <div class="sort-actions">
+                          <button
+                            class="agg-option"
+                            :class="{ 'is-active': fieldSort(col.code)?.order === 'asc' }"
+                            @click="setFieldSort(col.code, 'asc')"
+                          >
+                            升序
+                          </button>
+                          <button
+                            class="agg-option"
+                            :class="{ 'is-active': fieldSort(col.code)?.order === 'desc' }"
+                            @click="setFieldSort(col.code, 'desc')"
+                          >
+                            降序
+                          </button>
+                        </div>
+                        <button
+                          v-if="fieldSort(col.code)"
+                          class="menu-link-command"
+                          @click="clearFieldSort(col.code)"
+                        >
+                          取消排序
+                        </button>
+                      </div>
+
+                      <div v-if="aggregate" class="menu-block">
+                        <div class="menu-title">统计类型</div>
+                        <template v-if="col.agg_role === 'measure'">
+                          <div class="agg-options">
+                            <button
+                              v-for="item in AGG_FUNCS"
+                              :key="item.value"
+                              class="agg-option"
+                              :class="{ 'is-active': effectiveAggregation(col) === item.value }"
+                              @click="setAggregation(col.code, item.value)"
+                            >
+                              {{ item.label }}
+                            </button>
+                          </div>
+                          <button
+                            v-if="colSetting(col.code).aggregation"
+                            class="menu-link-command"
+                            @click="resetAggregation(col.code)"
+                          >
+                            恢复默认统计类型（{{ reportAggLabel(defaultAggregationValue()) }}）
+                          </button>
+                        </template>
+                        <div v-else class="menu-note">维度字段在汇总模式下作为分组维度，等同于不汇总。</div>
+                      </div>
+
+                      <div class="menu-block">
+                        <div class="menu-title">设置显示名</div>
+                        <div class="menu-row">
+                          <el-input
+                            :model-value="colSetting(col.code).display_name || ''"
+                            :placeholder="cleanFieldLabel(col)"
+                            size="small"
+                            style="width: 180px"
+                            @update:model-value="(v: string) => updateSetting(col.code, { display_name: v })"
+                          />
+                          <el-button size="small" link @click="resetDisplayName(col.code)">恢复</el-button>
+                        </div>
+                      </div>
+
+                      <div v-if="isDataset && col.agg_role === 'measure'" class="menu-block">
+                        <div class="menu-title">数值拆分</div>
+                        <el-select
+                          :model-value="colSetting(col.code).split_mode || 'default'"
+                          size="small"
+                          style="width: 180px"
+                          @update:model-value="(v: string) => setSplitMode(col.code, v)"
+                        >
+                          <el-option label="使用默认规则" value="default" />
+                          <el-option label="不拆分" value="none" />
+                          <el-option label="自定义系数" value="custom" />
+                        </el-select>
+                        <el-select
+                          v-if="colSetting(col.code).split_mode === 'custom'"
+                          :model-value="colSetting(col.code).split_factor || ''"
+                          size="small"
+                          filterable
+                          clearable
+                          placeholder="选择系数字段"
+                          style="width: 180px; margin-top: 8px"
+                          @update:model-value="(v: string) => setSplitFactor(col.code, v)"
+                        >
+                          <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
+                        </el-select>
+                      </div>
+
+                      <div class="menu-block">
+                        <button class="menu-command" @click="toggleHidden(col.code)">
+                          <el-icon><component :is="colSetting(col.code).hidden ? View : Hide" /></el-icon>
+                          {{ colSetting(col.code).hidden ? '取消隐藏' : '隐藏' }}
+                        </button>
+                      </div>
+                    </div>
+                  </el-popover>
+                </div>
+              </div>
+            </div>
+            <div v-else class="row-empty">{{ group.empty }}</div>
+          </section>
+        </div>
+      </section>
+
+      <section v-if="$slots.filters" class="config-section">
+        <div class="section-head">
+          <span class="section-title">筛选条件</span>
+        </div>
+        <slot name="filters" />
+      </section>
+    </main>
+
+    <el-drawer
+      v-model="advancedOpen"
+      title="高级配置"
+      size="560px"
+      append-to-body
+      class="workbench-drawer"
+    >
+      <el-tabs v-model="advancedTab">
+        <el-tab-pane label="统计规则" name="rules">
+          <div class="rule-grid">
+            <div class="rule-item">
+              <span class="option-label">出数类型</span>
+              <el-radio-group :model-value="aggregate" size="small" @change="setOutputMode">
+                <el-radio-button :label="false">明细表</el-radio-button>
+                <el-radio-button :label="true">汇总表</el-radio-button>
+              </el-radio-group>
+            </div>
+
+            <div class="rule-item">
+              <span class="option-label">默认统计</span>
+              <el-select
+                :model-value="defaultAggregationValue()"
+                :disabled="!aggregate"
+                size="small"
+                style="width: 136px"
+                @update:model-value="setDefaultAggregation"
+              >
+                <el-option v-for="item in AGG_FUNCS" :key="item.value" :label="item.label" :value="item.value" />
+              </el-select>
+            </div>
+
+            <div v-if="isDataset" class="rule-item rule-item-wide">
+              <span class="option-label">默认拆分</span>
+              <el-switch
+                :model-value="defaultSplitRule.enabled"
+                active-text="启用"
+                inactive-text="关闭"
+                @update:model-value="(v: boolean) => emit('update:defaultSplitRule', { ...defaultSplitRule, enabled: v })"
+              />
+              <el-select
+                :model-value="defaultSplitRule.factor || ''"
+                :disabled="!defaultSplitRule.enabled"
+                filterable
+                clearable
+                placeholder="选择统一系数字段"
+                style="width: min(260px, 100%)"
+                @update:model-value="(v: string) => emit('update:defaultSplitRule', { ...defaultSplitRule, factor: v })"
+              >
+                <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
+              </el-select>
+            </div>
+
+            <div v-if="isDataset" class="rule-item rule-item-wide">
+              <span class="option-label">余差收口</span>
+              <el-select
+                :model-value="roundingGroupBy"
+                :disabled="!aggregate"
+                multiple
+                filterable
+                clearable
+                :placeholder="aggregate ? '选择一个或多个分组维度' : '汇总表可选'"
+                style="width: min(420px, 100%)"
+                @update:model-value="(v: string[]) => emit('update:roundingGroupBy', v)"
+              >
+                <el-option v-for="item in selectedDimensions" :key="item.code" :label="item.label" :value="item.code" />
+              </el-select>
+            </div>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane v-if="$slots.reshape" label="数据重塑" name="reshape">
+          <slot name="reshape" />
+        </el-tab-pane>
+      </el-tabs>
+    </el-drawer>
   </div>
 </template>
 
 <style scoped>
 .field-workbench {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  min-height: 560px;
   border: 1px solid var(--color-border-light);
   border-radius: 8px;
   background: var(--color-bg-elevated);
   overflow: hidden;
 }
-.selected-panel {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border-light);
+.available-panel {
+  min-width: 0;
+  padding: 10px 10px 12px;
+  border-right: 1px solid var(--color-border-light);
+  background: #fff;
+}
+.config-panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px 16px;
   background: var(--color-bg-page);
+}
+.config-section {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  background: #fff;
+}
+.section-head,
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.section-head > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.section-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.section-title {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+.section-subtitle {
+  color: var(--color-text-placeholder);
+  font-size: 12px;
+}
+.available-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.source-groups {
+  display: grid;
+  gap: 8px;
+  max-height: min(68vh, 720px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.source-group {
+  display: grid;
+  gap: 4px;
+}
+.source-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--color-bg-soft);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.source-head:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+.source-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.available-list {
+  display: grid;
+  gap: 0;
+}
+.available-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 6px;
+  min-height: 38px;
+  padding: 7px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--color-border-light);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.available-field:hover {
+  background: var(--color-primary-light);
+}
+.field-rows {
+  display: grid;
+  gap: 10px;
+}
+.selected-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+}
+.selected-row.is-dimension {
+  --selected-color: #245edb;
+  --selected-bg: rgba(36, 94, 219, 0.08);
+}
+.selected-row.is-measure {
+  --selected-color: #0f8a72;
+  --selected-bg: rgba(15, 138, 114, 0.08);
+}
+.row-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 40px;
+  padding: 10px 8px 0 0;
+  color: var(--selected-color);
+  font-size: 12px;
+  font-weight: 700;
+  border-right: 3px solid var(--selected-color);
+}
+.selected-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+.row-empty,
+.empty-grid {
+  min-height: 40px;
+  padding: 10px 12px;
+  border: 1px dashed var(--color-border-light);
+  border-radius: 6px;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
 }
 .option-label {
   flex: none;
   font-size: 12px;
   font-weight: 700;
   color: var(--color-text-secondary);
-}
-.empty-grid {
-  color: var(--color-text-placeholder);
-  font-size: 13px;
-}
-.output-rules-panel {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border-light);
-  background: var(--color-bg-elevated);
 }
 .rule-grid {
   display: grid;
@@ -484,58 +793,6 @@ function setSplitFactor(code: string, value: string) {
 }
 .rule-item-wide {
   grid-column: span 2;
-}
-@media (max-width: 900px) {
-  .rule-item-wide {
-    grid-column: span 1;
-  }
-}
-.available-panel {
-  padding: 12px 16px 16px;
-}
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 700;
-}
-.available-head-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.source-groups {
-  display: grid;
-  gap: 14px;
-}
-.source-group {
-  display: grid;
-  gap: 8px;
-}
-.source-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 2px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 700;
-}
-.field-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
-}
-.available-panel .source-groups {
-  max-height: min(52vh, 560px);
-  overflow-y: auto;
-  padding-right: 2px;
-}
-.selected-grid {
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 }
 .selected-shell {
   position: relative;
@@ -563,32 +820,25 @@ function setSplitFactor(code: string, value: string) {
 .selected-shell:active {
   cursor: grabbing;
 }
-.field-card {
-  display: grid;
-  gap: 5px;
-  min-height: 70px;
-  padding: 9px 10px;
-  border: 1px solid var(--color-border-light);
-  border-radius: 6px;
-  background: #fff;
-  text-align: left;
-  cursor: pointer;
-}
-.available-field:hover {
-  border-color: var(--color-primary);
-  background: var(--color-primary-light);
-}
 .selected-field {
   display: flex;
   align-items: center;
   width: 100%;
-  height: 42px;
+  height: 40px;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--color-primary);
   border-radius: 6px;
   background: var(--color-primary);
   color: #fff;
+}
+.selected-field.is-dimension {
+  border-color: #245edb;
+  background: #2f6bea;
+}
+.selected-field.is-measure {
+  border-color: #0f8a72;
+  background: #11967d;
 }
 .field-label-button {
   display: flex;
@@ -626,6 +876,22 @@ function setSplitFactor(code: string, value: string) {
   background: rgba(255, 255, 255, 0.12);
   font-weight: 600;
 }
+.field-sort-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  max-width: 76px;
+  height: 22px;
+  margin-right: 6px;
+  padding: 0 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 .field-config-button {
   display: inline-flex;
   align-items: center;
@@ -662,10 +928,6 @@ function setSplitFactor(code: string, value: string) {
   background: rgba(20, 86, 240, 0.12);
   color: var(--color-primary);
 }
-.selected-field .field-main,
-.selected-field .field-code {
-  color: inherit;
-}
 .field-main,
 .field-meta {
   display: flex;
@@ -682,10 +944,6 @@ function setSplitFactor(code: string, value: string) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.field-arrow {
-  flex: none;
-  margin-left: auto;
 }
 .field-code {
   overflow: hidden;
@@ -717,6 +975,11 @@ function setSplitFactor(code: string, value: string) {
   gap: 6px;
 }
 .agg-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.sort-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
@@ -762,5 +1025,31 @@ function setSplitFactor(code: string, value: string) {
   cursor: pointer;
   font-size: 13px;
   text-align: left;
+}
+@media (max-width: 1180px) {
+  .field-workbench {
+    grid-template-columns: 1fr;
+  }
+  .available-panel {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border-light);
+  }
+  .source-groups {
+    max-height: 360px;
+  }
+}
+@media (max-width: 900px) {
+  .rule-item-wide {
+    grid-column: span 1;
+  }
+  .selected-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .row-label {
+    min-height: auto;
+    padding-top: 0;
+    justify-content: flex-start;
+  }
 }
 </style>
