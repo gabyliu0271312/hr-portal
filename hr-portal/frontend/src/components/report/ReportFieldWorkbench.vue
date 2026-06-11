@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowDown, ArrowRight, Close, Hide, Plus, Rank, View } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Close, Edit, Hide, Plus, Rank, View } from '@element-plus/icons-vue'
 import type { ColumnInfo } from '@/api/data'
 import type { AggregationFunc, ColumnSetting, DefaultSplitRule, SortCond } from '@/api/reports'
 import { REPORT_AGG_FUNCS, reportAggLabel } from '@/constants/reportAggregation'
@@ -29,6 +29,7 @@ const emit = defineEmits<{
   'update:roundingGroupBy': [v: string[]]
   'update:sorts': [v: SortCond[]]
   createField: []
+  editField: [col: ColumnInfo]
 }>()
 
 const AGG_FUNCS = REPORT_AGG_FUNCS
@@ -298,7 +299,7 @@ function openAdvanced(tab: 'rules' | 'reshape') {
             </span>
             <span>{{ group.columns.length }} 个</span>
           </button>
-          <div v-show="!sourceCollapsed(group.key)" class="available-list">
+            <div v-show="!sourceCollapsed(group.key)" class="available-list">
             <button
               v-for="col in group.columns"
               :key="col.code"
@@ -315,6 +316,15 @@ function openAdvanced(tab: 'rules' | 'reshape') {
                 <el-tag v-else size="small" effect="plain">维度</el-tag>
                 <el-tag v-if="col.is_sensitive" size="small" type="danger" effect="plain">敏感</el-tag>
                 <el-tag v-if="col.is_pk_part" size="small" type="primary" effect="plain">PK</el-tag>
+                <el-button
+                  v-if="col.code.startsWith('calc.') && canCreateField"
+                  size="small"
+                  type="primary"
+                  link
+                  @click.stop="emit('editField', col)"
+                >
+                  <el-icon><Edit /></el-icon>
+                </el-button>
               </span>
               <span class="field-code">{{ col.code }}</span>
             </button>
@@ -403,6 +413,16 @@ function openAdvanced(tab: 'rules' | 'reshape') {
                       <div class="menu-block">
                         <div class="menu-title">字段操作</div>
                         <div class="menu-row">
+                          <el-button
+                            v-if="col.code.startsWith('calc.') && canCreateField"
+                            size="small"
+                            type="primary"
+                            plain
+                            @click="emit('editField', col)"
+                          >
+                            <el-icon><Edit /></el-icon>
+                            编辑公式
+                          </el-button>
                           <el-button size="small" type="danger" plain @click="removeColumn(col.code)">
                             <el-icon><Close /></el-icon>
                             移除字段

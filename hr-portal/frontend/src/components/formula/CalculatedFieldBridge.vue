@@ -22,9 +22,11 @@ const emit = defineEmits<{
 const userStore = useUserStore()
 
 const columns = ref<ColumnInfo[]>([])
+const calcFields = ref<DatasetCalculatedField[]>([])
 const currentDataset = ref<DatasetItem | null>(null)
 const loading = ref(false)
 const formulaEditorOpen = ref(false)
+const editingField = ref<DatasetCalculatedField | null>(null)
 
 const canCreateField = computed(() => userStore.hasOp('datasource.datasets', 'C'))
 
@@ -77,20 +79,29 @@ async function refresh() {
     emit('datasetChange', ds)
 
     const nextColumns: ColumnInfo[] = []
+    const failedTables: string[] = []
     for (const table of ds.tables) {
-      const tableColumns = await dataApi.columns(table.table_name)
       const tableName = datasetTableName(table)
-      for (const col of tableColumns) {
-        nextColumns.push({
-          ...col,
-          code: `${table.alias}.${col.code}`,
-          label: `${tableName}.${col.label}`,
-        })
+      try {
+        const tableColumns = await dataApi.columns(table.table_name)
+        for (const col of tableColumns) {
+          nextColumns.push({
+            ...col,
+            code: `${table.alias}.${col.code}`,
+            label: `${tableName}.${col.label}`,
+          })
+        }
+      } catch {
+        failedTables.push(tableName)
       }
     }
+    if (failedTables.length) {
+      ElMessage.warning(`以下数据表字段加载失败,已跳过:${failedTables.join('、')}`)
+    }
 
-    const calcFields = await datasetsApi.calculatedFields(props.datasetId)
-    nextColumns.push(...calcFields.map(calcColumn))
+    const fetched = await datasetsApi.calculatedFields(props.datasetId)
+    calcFields.value = fetched
+    nextColumns.push(...fetched.map(calcColumn))
     columns.value = nextColumns
     emit('columnsChange', nextColumns)
   } catch {
@@ -103,11 +114,17 @@ async function refresh() {
   }
 }
 
-function openEditor() {
+function openEditor(fieldOrCol?: DatasetCalculatedField | ColumnInfo | null) {
   if (!canCreateField.value) return
   if (!props.datasetId) {
     ElMessage.warning('请先选择数据集')
     return
+  }
+  if (fieldOrCol && 'code' in fieldOrCol && (fieldOrCol as ColumnInfo).code?.startsWith('calc.')) {
+    const code = (fieldOrCol as ColumnInfo).code.slice('calc.'.length)
+    editingField.value = calcFields.value.find((f) => f.code === code) ?? null
+  } else {
+    editingField.value = (fieldOrCol as DatasetCalculatedField) ?? null
   }
   formulaEditorOpen.value = true
 }
@@ -134,6 +151,7 @@ defineExpose({ refresh, openEditor })
     :current-dataset="currentDataset"
     :can-create-field="canCreateField"
     :create-field="openEditor"
+    :edit-field="openEditor"
     :refresh="refresh"
   />
 
@@ -141,6 +159,7 @@ defineExpose({ refresh, openEditor })
     v-model:visible="formulaEditorOpen"
     :dataset-id="datasetId"
     :fields="formulaEditorFields"
+    :edit-field="editingField"
     @saved="onSaved"
   />
 </template>

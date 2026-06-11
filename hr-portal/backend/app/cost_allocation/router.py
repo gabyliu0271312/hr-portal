@@ -28,6 +28,18 @@ router = APIRouter(prefix="/cost-allocation", tags=["cost-allocation"])
 RESULT_TABLE = "emp_monthly_cost_result"
 
 
+def _archive_label_map(columns_meta: list[dict]) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for col in columns_meta:
+        code = str(col.get("code") or "")
+        label = str(col.get("label") or "")
+        if not code or not label:
+            continue
+        archive_code = code.split(".", 1)[1] if "." in code else code
+        labels.setdefault(archive_code, label)
+    return labels
+
+
 class ArchiveIn(BaseModel):
     report_id: int
     period_ym: str  # YYYYMM，如 "202506"
@@ -141,7 +153,13 @@ async def archive_cost_allocation(
         rows.append(row)
 
     # 4) upsert + 删当月孤儿（sync_service 统一逻辑）
-    archived = await _dynamic_upsert(RESULT_TABLE, rows, db, period_ym=period_ym)
+    archived = await _dynamic_upsert(
+        RESULT_TABLE,
+        rows,
+        db,
+        period_ym=period_ym,
+        column_labels=_archive_label_map(cols_meta),
+    )
     await db.commit()
 
     return ArchiveOut(

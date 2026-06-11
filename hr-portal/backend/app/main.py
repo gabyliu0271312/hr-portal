@@ -44,8 +44,38 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message
 logger = logging.getLogger("hr-portal")
 
 
+async def _wait_for_db_ready(max_wait_seconds: int = 60) -> None:
+    """等数据库可真正执行查询再继续。
+
+    pg_isready / healthcheck 在容器重启时会过早报健康，此刻 Postgres 仍在
+    崩溃恢复（the database system is starting up），SELECT 会抛错。动态表注册
+    依赖查库，必须等到能真正查询，否则会静默退化成「缺表」的半残进程。
+    """
+    import asyncio
+
+    delay = 0.5
+    waited = 0.0
+    while True:
+        try:
+            async with AsyncSessionLocal() as _s:
+                await _s.execute(text("SELECT 1"))
+            return
+        except Exception as e:
+            if waited >= max_wait_seconds:
+                raise RuntimeError(
+                    f"数据库在 {max_wait_seconds}s 内未就绪，启动中止"
+                ) from e
+            logger.warning("[startup] DB 未就绪，%.1fs 后重试：%s", delay, e)
+            await asyncio.sleep(delay)
+            waited += delay
+            delay = min(delay * 2, 5.0)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 启动：等 DB 真正可查询（避免重启时撞上 Postgres 崩溃恢复）
+    await _wait_for_db_ready()
+
     # 启动：跑 seed
     try:
         await run_seed(AsyncSessionLocal)
@@ -53,13 +83,11 @@ async def lifespan(app: FastAPI):
         logger.exception("[startup] seed failed: %s", e)
 
     # 启动：加载用户新建的动态表到 DATA_TABLES / PERIOD_TABLES
-    try:
-        from app.data.dynamic_loader import load_dynamic_tables
-        async with AsyncSessionLocal() as _s:
-            await load_dynamic_tables(_s)
-    except Exception as e:
-        logger.exception("[startup] load dynamic tables failed: %s", e)
-        # 不阻塞启动 —— 业务可在迁移补全后手动重启
+    # 失败时直接抛出，阻断启动 —— 配合 restart: unless-stopped 自动重试，
+    # 绝不带病对外服务（缺表会导致整个数据集字段不显示）
+    from app.data.dynamic_loader import load_dynamic_tables
+    async with AsyncSessionLocal() as _s:
+        await load_dynamic_tables(_s)
 
     # 启动：给所有数据集的关联键补建索引（加速报表 JOIN）
     try:

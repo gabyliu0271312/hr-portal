@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.data.models import TableColumn
+from app.data.models import TableColumn, RegisteredTable
 from app.datasets.models import DataSet, DataSetTable
 from app.permissions.masker import get_sensitive_columns
 from app.users.models import User
@@ -27,6 +27,7 @@ class FieldMeta:
     alias: str
     column_code: str
     sensitivity_level: str = "internal"
+    display_label: str | None = None
 
 
 async def dataset_field_meta(dataset_id: int, db: AsyncSession) -> tuple[DataSet, list[FieldMeta]]:
@@ -38,6 +39,17 @@ async def dataset_field_meta(dataset_id: int, db: AsyncSession) -> tuple[DataSet
             select(DataSetTable).where(DataSetTable.dataset_id == dataset_id).order_by(DataSetTable.id)
         )
     ).scalars().all()
+
+    table_names = [t.table_name for t in tables]
+    reg_rows = (
+        await db.execute(
+            select(RegisteredTable.table_name, RegisteredTable.table_label).where(
+                RegisteredTable.table_name.in_(table_names)
+            )
+        )
+    ).all()
+    table_label_by_name = {r.table_name: r.table_label for r in reg_rows if r.table_label}
+
     fields: list[FieldMeta] = []
     for table in tables:
         from app.field_category.models import FieldCategory, FieldCategoryAssignment
@@ -62,11 +74,13 @@ async def dataset_field_meta(dataset_id: int, db: AsyncSession) -> tuple[DataSet
                 .order_by(TableColumn.display_order, TableColumn.id)
             )
         ).scalars().all()
+        cn_table = table_label_by_name.get(table.table_name)
         for col in cols:
             fields.append(
                 FieldMeta(
                     code=f"{table.alias}.{col.column_code}",
                     label=f"{table.alias}.{col.column_label}",
+                    display_label=f"{cn_table}.{col.column_label}" if cn_table else None,
                     data_type=col.data_type,
                     is_sensitive=col.is_sensitive or col.column_code in sensitive_from_category,
                     agg_role=col.agg_role,
@@ -172,10 +186,23 @@ def extract_field_refs(formula: str) -> list[str]:
     return seen
 
 
+def _normalize_brackets(text: str) -> str:
+    return text.replace('（', '(').replace('）', ')')
+
+
 def display_to_internal(formula: str, fields: list[FieldMeta]) -> str:
     by_label = {f.label: f.code for f in fields}
     by_code = {f.code: f.code for f in fields}
     lookup = {**by_label, **by_code}
+    for f in fields:
+        if f.display_label:
+            lookup.setdefault(f.display_label, f.code)
+        # 同时注册半角括号版本，兼容用户手动输入半角
+        for key in [f.label, f.display_label]:
+            if key:
+                half = _normalize_brackets(key)
+                if half != key:
+                    lookup.setdefault(half, f.code)
     by_tail_label: dict[str, str] = {}
     for f in fields:
         tail = f.label.split(".", 1)[-1]

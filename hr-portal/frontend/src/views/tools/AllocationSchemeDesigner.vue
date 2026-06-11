@@ -455,7 +455,7 @@ watch(() => route.params.id, async (v) => {
           @dataset-change="currentDataset = $event"
           @saved="onCalculatedFieldSaved"
         >
-          <template #default="{ columns, loading, sourceGroups, canCreateField, createField }">
+          <template #default="{ columns, loading, sourceGroups, canCreateField, createField, editField }">
             <ReportFieldWorkbench
               v-model:selected-codes="form.selected_codes"
               v-model:column-settings="form.column_settings"
@@ -470,6 +470,7 @@ watch(() => route.params.id, async (v) => {
               :is-dataset="isDataset"
               :can-create-field="canCreateField"
               @create-field="createField"
+              @edit-field="editField"
             >
               <template #filters>
                 <ReportFilterList

@@ -5,13 +5,14 @@ import { Check, Close, Plus, Search, Position } from '@element-plus/icons-vue'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import type { ColumnInfo } from '@/api/data'
 import { aiFormulaApi, type FormulaValidation } from '@/api/aiFormula'
-import type { DatasetCalculatedField } from '@/api/datasets'
+import { datasetsApi, type DatasetCalculatedField } from '@/api/datasets'
 import { functionLibraryApi, type FormulaFunction } from '@/api/functionLibrary'
 
 const props = defineProps<{
   visible: boolean
   datasetId: number | null
   fields: ColumnInfo[]
+  editField?: DatasetCalculatedField | null
 }>()
 
 const emit = defineEmits<{
@@ -253,6 +254,18 @@ watch(
   (value) => {
     if (value) {
       reset()
+      if (props.editField) {
+        const f = props.editField
+        Object.assign(form, {
+          label: f.label,
+          code: f.code,
+          description: f.description || '',
+          formula: normalizeDisplayFormula(internalFormulaToDisplay(f.formula_display || f.formula)),
+          formula_display: '',
+          data_type: f.data_type,
+          is_sensitive: f.is_sensitive,
+        })
+      }
       loadFunctions()
     }
   }
@@ -596,17 +609,23 @@ async function save() {
   form.is_sensitive = latestValidation.is_sensitive || form.is_sensitive
   saving.value = true
   try {
-    const saved = await aiFormulaApi.saveCalculatedField(props.datasetId, {
+    const payload = {
       code: form.code.trim() || null,
       label: form.label.trim(),
       description: form.description.trim() || null,
       formula: form.formula.trim(),
       formula_display: null,
       data_type: form.data_type,
-      agg_role: inferAggRole(),
+      agg_role: inferAggRole() as 'dimension' | 'measure',
       is_sensitive: form.is_sensitive,
       is_active: true,
-    })
+    }
+    let saved: DatasetCalculatedField
+    if (props.editField?.id) {
+      saved = await datasetsApi.updateCalculatedField(props.datasetId, props.editField.id, payload)
+    } else {
+      saved = await aiFormulaApi.saveCalculatedField(props.datasetId, payload)
+    }
     ElMessage.success('计算字段已保存')
     dirty.value = false
     emit('saved', saved)
@@ -636,7 +655,7 @@ async function save() {
     <template #header>
       <div class="designer-titlebar">
         <div>
-          <div class="designer-title">新建计算字段</div>
+          <div class="designer-title">{{ editField ? '编辑计算字段' : '新建计算字段' }}</div>
           <div class="designer-subtitle">用自然语言生成公式，也可以手动插入字段、函数和常量。</div>
         </div>
         <div class="title-actions">

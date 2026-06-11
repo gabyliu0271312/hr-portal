@@ -34,6 +34,22 @@ RESULT_TABLE_LABELS = {
 }
 
 
+def _strip_archive_prefix(key: str) -> str:
+    return key.split(".", 1)[1] if "." in key else key
+
+
+def _archive_label_map(columns_meta: list[dict[str, Any]]) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for col in columns_meta:
+        code = str(col.get("code") or "")
+        label = str(col.get("label") or "")
+        if not code or not label:
+            continue
+        labels.setdefault(code, label)
+        labels.setdefault(_strip_archive_prefix(code), label)
+    return labels
+
+
 # ===== Schemas =====
 
 class SchemeIn(BaseModel):
@@ -315,7 +331,7 @@ async def run_scheme(
 
     try:
         from app.reports.sql_builder import run_dataset_query
-        _, items, _ = await run_dataset_query(
+        cols_meta, items, _ = await run_dataset_query(
             dataset_id=dataset_id_ref,
             columns=merged_cfg.columns,
             filters=merged_filters,
@@ -336,15 +352,19 @@ async def run_scheme(
             raise ValueError("报表无数据，存档中止（空批次保护）")
 
         # 存档字段：去掉 alias. 前缀，只保留字段名
-        def strip_alias(key: str) -> str:
-            return key.split(".", 1)[1] if "." in key else key
-
         rows = [
-            {strip_alias(k): v for k, v in item.items() if not k.startswith("_")}
+            {_strip_archive_prefix(k): v for k, v in item.items() if not k.startswith("_")}
             for item in items
         ]
+        column_labels = _archive_label_map(cols_meta)
 
-        written = await _dynamic_upsert(result_table_ref, rows, db, period_ym=period_ym)
+        written = await _dynamic_upsert(
+            result_table_ref,
+            rows,
+            db,
+            period_ym=period_ym,
+            column_labels=column_labels,
+        )
 
         run.status = "success"
         run.rows_written = written

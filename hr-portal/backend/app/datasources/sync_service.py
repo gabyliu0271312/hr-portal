@@ -164,19 +164,22 @@ def _guess_data_type(value) -> str:
 
 
 async def _ensure_columns(
-    table_name: str, sample_row: dict, db: AsyncSession
+    table_name: str,
+    sample_row: dict,
+    db: AsyncSession,
+    column_labels: dict[str, str] | None = None,
 ) -> None:
     """从样本行扫描所有 key，对没注册过的字段 INSERT 一条 table_columns"""
     if not sample_row:
         return
 
-    existing_codes = {
-        code for (code,) in (
-            await db.execute(
-                select(TableColumn.column_code).where(TableColumn.table_name == table_name)
-            )
-        ).all()
-    }
+    existing_cols = (
+        await db.execute(
+            select(TableColumn).where(TableColumn.table_name == table_name)
+        )
+    ).scalars().all()
+    existing_by_code = {col.column_code: col for col in existing_cols}
+    column_labels = column_labels or {}
     # 当前库内最大 display_order
     max_order = (
         await db.execute(
@@ -189,14 +192,18 @@ async def _ensure_columns(
 
     new_cols = []
     for key, val in sample_row.items():
-        if key in existing_codes:
+        label = column_labels.get(key) or key
+        if key in existing_by_code:
+            col = existing_by_code[key]
+            if col.column_label == col.column_code and label != key:
+                col.column_label = label
             continue
         max_order += 10
         dtype = _guess_data_type(val)
         new_cols.append(TableColumn(
             table_name=table_name,
             column_code=key,
-            column_label=key,
+            column_label=label,
             data_type=dtype,
             is_pk_part=False,
             is_sensitive=False,
@@ -350,6 +357,7 @@ def apply_lookups_to_row(merged: dict, lookup_maps: list[tuple[dict, dict]]) -> 
 async def _dynamic_upsert(
     table_name: str, rows: list[dict], db: AsyncSession,
     period_ym: str = "",
+    column_labels: dict[str, str] | None = None,
 ) -> int:
     Model = DATA_TABLES.get(table_name)
     if Model is None:
@@ -360,7 +368,7 @@ async def _dynamic_upsert(
         return 0
 
     # 1) 自动注册新字段（用第一行作为样本）
-    await _ensure_columns(table_name, rows[0], db)
+    await _ensure_columns(table_name, rows[0], db, column_labels=column_labels)
 
     # 2) 月度表：收口月份/编码主键
     await _ensure_period_meta(table_name, db)
