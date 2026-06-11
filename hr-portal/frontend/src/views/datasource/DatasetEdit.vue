@@ -105,28 +105,15 @@ async function loadAliasColumns() {
 }
 
 function addTable() {
-  const used = new Set(form.tables.map((t) => t.alias))
-  // 默认别名 = table_name 简称
-  const remaining = visibleTables.value.find((v) => !used.has(_shortAlias(v.table_name)))
+  const used = new Set(form.tables.map((t) => t.table_name))
+  const remaining = visibleTables.value.find((v) => !used.has(v.table_name))
   if (!remaining) {
     ElMessage.warning('所有源表已纳入')
     return
   }
-  const alias = _shortAlias(remaining.table_name)
-  form.tables.push({ table_name: remaining.table_name, alias, table_label: remaining.label })
+  // 别名 = 物理表名(无自关联场景);保持命名纯净
+  form.tables.push({ table_name: remaining.table_name, alias: remaining.table_name, table_label: remaining.label })
   loadAliasColumns()
-}
-
-function _shortAlias(table_name: string): string {
-  const map: Record<string, string> = {
-    emp_realtime_roster: 'realtime',
-    emp_monthly_roster: 'roster',
-    emp_monthly_salary: 'salary',
-    emp_monthly_allocation: 'allocation',
-    cost_center_monthly: 'cc',
-    emp_monthly_cost_class: 'costclass',
-  }
-  return map[table_name] || table_name
 }
 
 function removeTable(i: number) {
@@ -139,19 +126,17 @@ function removeTable(i: number) {
   delete columnsByAlias.value[removed.alias]
 }
 
-function onTableChange(t: DatasetTableItem) {
-  // 别名固定后改 table_name 时重新加载该 alias 的字段
+function onTableChange(t: DatasetTableItem, oldAlias: string) {
+  // 别名跟随表名;同步到 relations
   t.table_label = visibleTableLabel(t.table_name)
-  loadAliasColumns()
-}
-
-function onAliasChange(idx: number, newAlias: string, oldAlias: string) {
-  // 别名改名 → 同步到 relations
-  if (!newAlias || newAlias === oldAlias) return
-  form.relations.forEach((r) => {
-    if (r.left_alias === oldAlias) r.left_alias = newAlias
-    if (r.right_alias === oldAlias) r.right_alias = newAlias
-  })
+  const newAlias = t.table_name
+  if (newAlias !== oldAlias) {
+    t.alias = newAlias
+    form.relations.forEach((r) => {
+      if (r.left_alias === oldAlias) r.left_alias = newAlias
+      if (r.right_alias === oldAlias) r.right_alias = newAlias
+    })
+  }
   loadAliasColumns()
 }
 
@@ -310,16 +295,10 @@ onMounted(async () => {
             v-model="t.table_name"
             placeholder="选择源表"
             style="width: 260px"
-            @change="onTableChange(t)"
+            @change="(v: string | number) => onTableChange(t, t.alias)"
           >
             <el-option v-for="vt in visibleTables" :key="vt.table_name" :label="vt.label" :value="vt.table_name" />
           </el-select>
-          <el-input
-            v-model="t.alias"
-            placeholder="别名（关联时使用）"
-            style="width: 180px"
-            @change="(v: string | number) => onAliasChange(i, String(v), t.alias)"
-          />
           <span class="table-name-hint">{{ tableDisplayName(t) }}</span>
           <el-button link type="danger" @click="removeTable(i)">
             <el-icon><Delete /></el-icon>

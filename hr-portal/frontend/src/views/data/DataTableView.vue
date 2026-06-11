@@ -310,6 +310,7 @@ onMounted(async () => {
         <div style="display: flex; justify-content: space-between; align-items: center">
           <div>
             <span style="font-size: 16px; font-weight: 600">{{ meta.label }}</span>
+            <span style="font-size: 13px; color: var(--color-text-secondary); margin-left: 8px; font-weight: 400">{{ meta.code }}</span>
           </div>
           <div>
             <PermissionButton menu="system.field_columns" op="U" size="default" @click="$router.push(`/system/field-columns?table=${meta.code}`)">

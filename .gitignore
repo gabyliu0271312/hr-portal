@@ -10,6 +10,11 @@ API接口信息维护.txt
 *.db
 *.sqlite
 
+# 数据库备份/导出（含真实 HR 数据，绝不入库）
+backups/
+hr-portal/backups/
+*.dump
+
 # Python
 __pycache__/
 *.pyc

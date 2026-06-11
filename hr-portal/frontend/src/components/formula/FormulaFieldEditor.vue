@@ -260,7 +260,7 @@ watch(
           label: f.label,
           code: f.code,
           description: f.description || '',
-          formula: normalizeDisplayFormula(internalFormulaToDisplay(f.formula_display || f.formula)),
+          formula: normalizeDisplayFormula(internalFormulaToDisplay(f.formula)),
           formula_display: '',
           data_type: f.data_type,
           is_sensitive: f.is_sensitive,
@@ -340,8 +340,14 @@ function shouldPrefixSpace(current: string, start: number, text: string) {
   return true
 }
 
+function aliasFieldRef(field: ColumnInfo): string {
+  const alias = field.code.includes('.') ? field.code.slice(0, field.code.indexOf('.')) : ''
+  const name = field.label.includes('.') ? field.label.slice(field.label.lastIndexOf('.') + 1) : field.label
+  return alias ? `${alias}.${name}` : name
+}
+
 function displayFieldRef(field: ColumnInfo) {
-  return `[${field.label || field.code}]`
+  return aliasFieldRef(field)
 }
 
 function fieldCodeToLabel(code: string) {
@@ -349,9 +355,10 @@ function fieldCodeToLabel(code: string) {
 }
 
 function internalFormulaToDisplay(formula: string) {
-  return (formula || '').replace(/FIELD\(\s*["']([^"']+)["']\s*\)/gi, (_match, code: string) =>
-    `[${fieldCodeToLabel(code)}]`
-  )
+  return (formula || '').replace(/FIELD\(\s*["']([^"']+)["']\s*\)/gi, (_match, code: string) => {
+    const field = props.fields.find((f) => f.code === code)
+    return field ? aliasFieldRef(field) : code
+  })
 }
 
 function normalizeDisplayFormula(formula: string) {

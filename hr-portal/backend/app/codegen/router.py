@@ -6,7 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.audit import AiAuditTimer, record_ai_log
-from app.codegen.rules import normalize_ai_code, suggest_code_from_candidates
+from app.ai.capabilities import get_capability
+from app.ai.policy_guard import validate_capability_policy
+from app.codegen.rules import suggest_code_from_candidates
+from app.codegen.service import ai_translate_code
 from app.core.db import get_session
 from app.core.deps import current_user
 from app.datasets.models import DataSet, DatasetCalculatedField
@@ -53,6 +56,12 @@ async def _dataset_existing_codes(dataset_id: int, user: User, db: AsyncSession)
     }
 
 
+async def _ai_translate_code(
+    db: AsyncSession, *, label: str, scope: str, prefix: str, context: str | None
+) -> tuple[str | None, str | None, dict | None]:
+    return await ai_translate_code(db, label=label, scope=scope, prefix=prefix, context=context)
+
+
 @router.post("/suggest", response_model=CodeSuggestOut)
 async def suggest_code(
     payload: CodeSuggestIn,
@@ -60,13 +69,37 @@ async def suggest_code(
     db: AsyncSession = Depends(get_session),
 ) -> CodeSuggestOut:
     timer = AiAuditTimer()
+    capability_id = "codegen.suggest"
+    timer.add_event("entry", capability_id=capability_id, scope=payload.scope)
     existing = set(payload.existing_codes or [])
     if payload.dataset_id is not None:
         existing |= await _dataset_existing_codes(payload.dataset_id, user, db)
 
+    # 能力注册表 + 策略闸门:确认 codegen.suggest 已注册且放行(low/draft_only)
+    capability = get_capability(capability_id)
+    ai_allowed = False
+    if capability is not None:
+        try:
+            validate_capability_policy(capability)
+            ai_allowed = capability.is_enabled and capability.model_profile == "fast_json"
+        except Exception:
+            ai_allowed = False
+
     ai_candidate: str | None = None
-    explanation: str | None = "Phase 0 期间编码建议不直接调用模型，已使用本地规则生成。"
+    explanation: str | None = "AI 未启用，已使用本地规则生成。"
     status_text = "fallback"
+    usage = None
+    if ai_allowed:
+        timer.add_event("model_call", capability_id=capability_id)
+        ai_candidate, explanation, usage = await _ai_translate_code(
+            db,
+            label=payload.label,
+            scope=payload.scope,
+            prefix=payload.prefix,
+            context=payload.context,
+        )
+        if ai_candidate:
+            status_text = "ok"
 
     suggestion = suggest_code_from_candidates(
         label=payload.label,
@@ -96,9 +129,10 @@ async def suggest_code(
             "prefix": payload.prefix,
             "source": out.source,
             "rule": out.rule,
-            "ai_disabled_reason": "phase0_capability_registry_guard",
+            "capability_id": capability_id,
+            "ai_allowed": ai_allowed,
         },
-        token_usage=None,
+        token_usage=usage,
         timer=timer,
     )
     await db.commit()

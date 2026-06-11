@@ -190,6 +190,11 @@ async def _ensure_columns(
         )
     ).scalars().all()
     existing_by_code = {col.column_code: col for col in existing_cols}
+    # 中文 label → 已有 code(同 label 多条时取 display_order 最小=最早建的,稳定可复现)
+    label_to_code: dict[str, str] = {}
+    for col in sorted(existing_cols, key=lambda c: c.display_order):
+        if col.column_label and col.column_label not in label_to_code:
+            label_to_code[col.column_label] = col.column_code
     column_labels = column_labels or {}
     # 当前库内最大 display_order
     max_order = (
@@ -212,17 +217,29 @@ async def _ensure_columns(
                 col.column_label = label
             continue
         # 新字段:key 可能是英文 code(已被 client 翻译但库内还没注册)或中文名(全新字段)
-        # 含中文 → 用 codegen 生成规范英文 code,中文作 label;已是英文 → 直接用
+        # 含中文 → 三层定 code:① 同中文 label 复用已有 code ② AI 翻译 ③ 规则兜底
         import re as _re
         from app.codegen.rules import deterministic_code, unique_code
+        from app.codegen.service import ai_translate_code
         if _re.search(r"[一-鿿]", key):
             label = key
-            new_code = unique_code(deterministic_code(key) or "field", used_codes)
+            reused = label_to_code.get(label)
+            if reused:
+                # ① 复用同中文 label 的已有 code:列已存在,只记 rename_map,不重复建列
+                rename_map[key] = reused
+                used_codes.add(reused)
+                continue
+            ai_code, _expl, _usage = await ai_translate_code(
+                db, label=label, scope="field", context=f"数据表 {table_name} 自动同步字段"
+            )
+            base = ai_code or deterministic_code(label)  # ② AI / ③ 规则兜底
+            new_code = unique_code(base, used_codes)
             rename_map[key] = new_code
         else:
             label = column_labels.get(key) or key
             new_code = key
         used_codes.add(new_code)
+        label_to_code.setdefault(label, new_code)
         max_order += 10
         dtype = _guess_data_type(val)
         new_cols.append(TableColumn(

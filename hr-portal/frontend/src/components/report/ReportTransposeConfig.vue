@@ -112,13 +112,13 @@ async function ensureCcMaster() {
   if (ccMasterLoaded) return
   ccMasterLoaded = true
   try {
-    const names = await dataApi.distinct('cost_center_monthly', '名称', '编码')
+    const names = await dataApi.distinct('cost_center_monthly', 'name', 'code')
     ccNameOptions.value = names.map((r) => ({
       value: r.value,
       label: r.extra ? `${r.value} (${r.extra})` : r.value,
       extra: r.extra || '',
     }))
-    const codes = await dataApi.distinct('cost_center_monthly', '编码', '名称')
+    const codes = await dataApi.distinct('cost_center_monthly', 'code', 'name')
     ccCodeOptions.value = codes.map((r) => ({
       value: r.value,
       label: r.extra ? `${r.value} (${r.extra})` : r.value,
@@ -130,8 +130,8 @@ async function ensureCcMaster() {
 
 function tdimKind(qual: string): 'name' | 'code' | null {
   const t = qual.includes('.') ? qual.slice(qual.indexOf('.') + 1) : qual
-  if (t === '维度值' || t === '名称') return 'name'
-  if (t === '编码') return 'code'
+  if (t === 'dimension_value' || t === 'name') return 'name'
+  if (t === 'code') return 'code'
   return null
 }
 
@@ -140,7 +140,7 @@ function onTransposeDimValue(rule: TransposeRule, d: TransposeDim) {
   const opt = ccNameOptions.value.find((o) => o.value === d.value)
   if (!opt || !opt.extra) return
   const codeQuals = props.selectedDimensions
-    .filter((c) => (c.code.includes('.') ? c.code.slice(c.code.indexOf('.') + 1) : c.code) === '编码')
+    .filter((c) => (c.code.includes('.') ? c.code.slice(c.code.indexOf('.') + 1) : c.code) === 'code')
     .map((c) => c.code)
   for (const cq of codeQuals) {
     const ex = rule.dims.find((x) => x.dim === cq)

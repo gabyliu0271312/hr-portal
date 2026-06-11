@@ -33,7 +33,7 @@ const FILTER_OPS = [
 ]
 
 type DistinctOpt = { value: string; label: string }
-const NAME_FIELDS = ['维度值', '名称']
+const NAME_FIELDS = ['dimension_value', 'name']
 const distinctCache = ref<Map<string, DistinctOpt[]>>(new Map())
 const distinctLoading = ref<Set<string>>(new Set())
 
@@ -81,7 +81,7 @@ async function ensureOptions(qual: string) {
   distinctLoading.value.add(qual)
   try {
     const wantExtra = NAME_FIELDS.includes(tailCode(qual))
-    const rows = await dataApi.distinct(rc.table, rc.column, wantExtra ? '编码' : undefined)
+    const rows = await dataApi.distinct(rc.table, rc.column, wantExtra ? 'code' : undefined)
     const opts = rows.map((r) => ({
       value: r.value,
       label: wantExtra && r.extra ? `${r.value} (${r.extra})` : r.value,

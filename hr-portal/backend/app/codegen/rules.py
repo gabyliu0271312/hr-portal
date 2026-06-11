@@ -35,6 +35,13 @@ HR_TERM_MAP = {
     "占比": "ratio",
     "系数": "factor",
     "月份": "month",
+    "月度": "monthly",
+    "季度": "quarterly",
+    "年度": "annual",
+    "考勤": "attendance",
+    "假期": "leave",
+    "请假": "leave",
+    "加班": "overtime",
     "日期": "date",
     "时间": "time",
     "状态": "status",
@@ -68,11 +75,17 @@ def normalize_code(raw: str, *, prefix: str = "") -> str:
     if not text:
         return ""
     text = text.replace("字段", "")
+    text = re.sub(r"表$", "", text)
     text = _replace_known_terms(text)
+    # 已知词替换后若仍含未识别的中文/非 ASCII,说明规则翻不全。
+    # 不再静默删成空(那会退化成 employee/field 误导名),而是保留已识别的英文片段
+    # 并对剩余中文打可识别标记,提示用户"这是规则没翻全、需要手动改名"。
+    if re.search(r"[^\x00-\x7f]", text):
+        text = _mark_untranslated(text)
     text = re.sub(r"[^a-z0-9_]+", "_", text)
     text = re.sub(r"_+", "_", text).strip("_")
     if not text:
-        text = "field"
+        text = "unnamed"
     if re.match(r"^\d", text):
         text = f"f_{text}"
     if prefix and not text.startswith(f"{prefix}_"):
@@ -93,11 +106,13 @@ def normalize_ai_code(raw: str, *, prefix: str = "") -> str:
 
 def deterministic_code(label: str, *, prefix: str = "") -> str:
     code = normalize_code(label, prefix=prefix)
-    return code or normalize_code("field", prefix=prefix)
+    # 兜底名用 unnamed_field 而非 field:语义中性、不冒充真实字段,
+    # 管理员可在字段管理页按 unnamed/to_rename 关键字筛出待命名字段。
+    return code or normalize_code("unnamed_field", prefix=prefix)
 
 
 def unique_code(base_code: str, existing: set[str]) -> str:
-    base = base_code[:64].rstrip("_") or "field"
+    base = base_code[:64].rstrip("_") or "unnamed_field"
     if base not in existing:
         return base
     for idx in range(2, 1000):
@@ -140,6 +155,17 @@ def _replace_known_terms(text: str) -> str:
     for zh, en in sorted(HR_TERM_MAP.items(), key=lambda item: len(item[0]), reverse=True):
         out = out.replace(zh, f"_{en}_")
     return out
+
+
+def _mark_untranslated(text: str) -> str:
+    """保留已识别的英文片段,把剩余未翻译的中文统一替换为 to_rename 标记。
+
+    例:"_employee_月度考勤" → "employee_to_rename"(用户一眼看出需手动改名)。
+    """
+    parts = re.split(r"[^\x00-\x7f]+", text)
+    ascii_kept = "_".join(p for p in parts if p.strip("_"))
+    ascii_kept = ascii_kept.strip("_")
+    return f"{ascii_kept}_to_rename" if ascii_kept else "to_rename"
 
 
 def _dedupe(items: list[str]) -> list[str]:

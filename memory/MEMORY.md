@@ -17,6 +17,7 @@
 - [调度系统组件化方案](./hr_portal_scheduler_design.md) — scheduled_jobs/job_runs 通用表 + JOB_HANDLERS 字典；未来加报表订阅/消息推送只加 handler 不改表
 - [报表组件架构决策](./hr_portal_report_component_architecture.md) — 报表管理与成本分摊共享 10 个组件库；成本分摊多 ArchiveSection；改共享组件两边同步，改页面文件只影响各自模块
 - [两棵树构建规则](./hr_portal_tree_build.md) — cost_center_tree 来自月度维护表 + 业务层级Id；org_tree 来自实时花名册 + 7 层冗余字段（含虚拟根「创梦天地」）
+- [Codegen 命名机制](./hr_portal_codegen_naming.md) — 表名/字段 code 三层定名：同中文label复用→AI翻译→规则兜底；建表与同步共用 codegen/service.py；改命名问题先看这条
 - [数据范围标签新版语义](./hr_portal_scopes_design.md) — 组织范围+人员范围两段式（alembic 0009）；单标签内 AND、多标签 OR；filters 字段映射花名册.姓名/员工类型/公司名称
 - [AI 原生开发原则](../specs/004-ai-native-workbench/ai-native-development-principles.md) — HR 工作台根原则：所有新能力都要具备被 AI 理解、调用、校验、审计和确认的准备
 - [AI 能力注册表](../specs/004-ai-native-workbench/ai-capability-registry.md) — capability 元数据、工具边界、能力清单、权限叠加和评测用例

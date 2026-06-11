@@ -189,3 +189,25 @@ Invoke-RestMethod -Uri $url -Method Put -Headers $headers -Body $bytes `
 
 **预防**：调试时优先用 `curl.exe`（Win10+ 自带）或在容器内 `docker exec ... python -c` 调，避免触雷。前端通过浏览器调 API 是 UTF-8 干净的，不会有此问题。
 
+## 坑 11：前端 `--build` 命中 Docker 层缓存 → 改了源码容器里还是旧 JS
+
+**现象**：改了前端 .vue/.ts 源码，跑了 `docker compose up -d --build frontend`，浏览器里行为完全没变（下拉没恢复、UI 没更新）。看起来像"代码没改"，实则改了但没编译进容器。
+
+**根因**：前端 Dockerfile 是多阶段容器内构建（`COPY . . && npx vite build`），理论上改源码该重编。但 `docker compose --build` 会复用 Docker 层缓存——某些情况下 `COPY . .` 这层的缓存判定没失效（或整个 build 阶段命中缓存被跳过），nginx 镜像里仍是上次编译的旧 dist。坑 5 说的"要 --build"是对的，但 **--build 不等于一定重新编译**。
+
+**如何确认容器跑的是新是旧**（关键诊断手法,照抄）：
+```bash
+# 进容器搜编译产物里是否含"已删除的旧代码特征"或"新增的代码特征"
+docker compose exec -T frontend sh -c 'cd /usr/share/nginx/html/assets && grep -rl "已删除的旧标识符" . '
+# 例:本次删了 _shortAlias 里的 costclass 映射,旧产物里还能 grep 到 costclass = 没编译进去
+```
+注意 Git Bash 会把容器内 `/usr/...` 路径改写成 `C:/Program Files/Git/usr/...`，必须用 `docker compose exec -T frontend sh -c '...'` 在容器内 shell 里跑 grep，不要直接 `exec ls /usr/...`。
+
+**修复**：强制无缓存重建。
+```bash
+docker compose build --no-cache frontend && docker compose up -d frontend
+```
+
+**预防**：前端改源码后,只要浏览器行为没变,第一时间用上面的 grep 法验证容器产物,而不是反复怀疑"代码没生效"去重改源码。确认是缓存就 `--no-cache`。后端同理(坑 5)但后端 Python 是直接 COPY 源码,缓存失效更敏感,前端因为多了 npm/vite 层更容易命中缓存。
+
+
