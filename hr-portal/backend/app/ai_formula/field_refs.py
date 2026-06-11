@@ -210,15 +210,29 @@ def display_to_internal(formula: str, fields: list[FieldMeta]) -> str:
             by_tail_label[tail] = f.code
         lookup.setdefault(tail, f.code)
 
+    # 方括号引用按「括号归一化」匹配：用户输入半角/全角括号都能命中
+    # 含表别名前缀（salary.应发工资）和纯尾名（应发工资）两种写法
+    norm_lookup: dict[str, str] = {}
+    for f in fields:
+        tail = f.label.split(".", 1)[-1]
+        for key in [f.label, f.code, f.display_label, tail]:
+            if key:
+                norm_lookup.setdefault(_normalize_brackets(key), f.code)
+
     def repl(match: re.Match[str]) -> str:
         raw = match.group(1).strip()
-        code = by_label.get(raw) or by_code.get(raw) or by_tail_label.get(raw)
+        code = (
+            by_label.get(raw)
+            or by_code.get(raw)
+            or by_tail_label.get(raw)
+            or norm_lookup.get(_normalize_brackets(raw))
+        )
         return f'FIELD("{code}")' if code else match.group(0)
 
     out = _replace_formula_text(formula or "", DISPLAY_REF_RE, repl)
     for raw in sorted(lookup, key=len, reverse=True):
         code = lookup[raw]
-        pattern = re.compile(rf'(?<!["\w.]){re.escape(raw)}(?!["\w.])(?!\s*\()')
+        pattern = re.compile(rf'(?<!["\w.（）()]){re.escape(raw)}(?!["\w.（）()])(?!\s*\()')
         out = _replace_formula_text(out, pattern, f'FIELD("{code}")')
     return out if out.startswith("=") else f"={out}"
 
