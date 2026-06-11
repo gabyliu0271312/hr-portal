@@ -242,8 +242,11 @@ def display_to_internal(formula: str, fields: list[FieldMeta]) -> str:
         # 字段名本身含括号时，其后的 ) 是名字的一部分，不能当函数调用排除
         has_bracket = any(b in raw for b in "（）()")
         tail_guard = "" if has_bracket else r"(?!\s*\()"
+        # 边界只排除字母数字、下划线、点，不排除括号：
+        # 截断问题由「长 key 优先 + 引号内跳过」保证，括号排除会误伤
+        # 紧跟函数左括号的字段名，如 IF(员工月度工资表.工号 ...)
         pattern = re.compile(
-            rf'(?<!["\w.（）()]){re.escape(raw)}(?!["\w.（）()]){tail_guard}'
+            rf'(?<!["\w.]){re.escape(raw)}(?!["\w.]){tail_guard}'
         )
         out = _replace_formula_text(out, pattern, f'FIELD("{code}")')
     return out if out.startswith("=") else f"={out}"
