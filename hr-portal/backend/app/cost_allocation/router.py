@@ -144,12 +144,12 @@ async def archive_cost_allocation(
             detail="报表无数据，存档中止（空批次保护）",
         )
 
-    # 3) 构造写入行：过滤内部字段，注入月份
+    # 3) 构造写入行：过滤内部字段，注入月份(结果表期间列=cost_period)
     period_ym = payload.period_ym
     rows = []
     for item in items:
         row = {k: v for k, v in item.items() if not k.startswith("_")}
-        row.setdefault("月份", period_ym)
+        row.setdefault("cost_period", period_ym)
         rows.append(row)
 
     # 4) upsert + 删当月孤儿（sync_service 统一逻辑）

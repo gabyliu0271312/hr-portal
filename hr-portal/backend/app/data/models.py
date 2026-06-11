@@ -135,8 +135,10 @@ class TableColumn(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     table_name: Mapped[str] = mapped_column(String(64), nullable=False)
-    column_code: Mapped[str] = mapped_column(String(128), nullable=False)  # 源端字段名（如"系数"或"employee_id"）
+    column_code: Mapped[str] = mapped_column(String(128), nullable=False)  # 字段编码（规范英文）
     column_label: Mapped[str] = mapped_column(String(128), nullable=False)  # 展示名
+    # 源端稳定字段标识（北森 UUID）：跨同步识别同一字段，中文名变了也认得
+    source_field_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # 类型：string / number / date / datetime / bool
     data_type: Mapped[str] = mapped_column(String(16), nullable=False, default="string")

@@ -1,0 +1,1006 @@
+{
+  "emp_realtime_roster": {
+    "employee_no": {
+      "old_code": "工号",
+      "code": "employee_no",
+      "label": "工号",
+      "uuid": "44e5cebb-e2fa-4b69-b0cc-8f4d20167d9f",
+      "source": "canonical"
+    },
+    "name": {
+      "old_code": "姓名（中文名）",
+      "code": "name",
+      "label": "姓名（中文名）",
+      "uuid": "37ddc816-37e2-d132-062f-9a784c0084c4",
+      "source": "canonical"
+    },
+    "english_name": {
+      "old_code": "英文名",
+      "code": "english_name",
+      "label": "英文名",
+      "uuid": "be73fb79-690c-4b06-8ad2-8b772be90cfa",
+      "source": "canonical"
+    },
+    "hire_date": {
+      "old_code": "入职日期",
+      "code": "hire_date",
+      "label": "入职日期",
+      "uuid": "1b725de4-7e51-4888-ab05-dc435bb511f8",
+      "source": "dict"
+    },
+    "terminated_date": {
+      "old_code": "离职日期",
+      "code": "terminated_date",
+      "label": "离职日期",
+      "uuid": "9e0a9a5d-f3d8-4262-84a4-9f1c7dc4c0ce",
+      "source": "dict"
+    },
+    "employee_status": {
+      "old_code": "人员状态",
+      "code": "employee_status",
+      "label": "人员状态",
+      "uuid": "1a92cb4f-a15d-4465-a228-5cfd46abbef9",
+      "source": "dict"
+    },
+    "bu": {
+      "old_code": "BU",
+      "code": "bu",
+      "label": "BU",
+      "uuid": "3e7fd239-431d-44f4-f676-df4d50cf38c1",
+      "source": "dict"
+    },
+    "company_name": {
+      "old_code": "公司名称",
+      "code": "company_name",
+      "label": "公司名称",
+      "uuid": "e0c74ad7-a8d6-4be9-8641-a86e055420e6",
+      "source": "dict"
+    },
+    "company_org": {
+      "old_code": "公司级组织",
+      "code": "company_org",
+      "label": "公司级组织",
+      "uuid": "a7bc1497-ba98-487c-85c0-7c732ce68489",
+      "source": "dict"
+    },
+    "department": {
+      "old_code": "一级部门",
+      "code": "department",
+      "label": "一级部门",
+      "uuid": "da21ba4e-1bf4-4e59-9b2c-1e8fda7c86a7",
+      "source": "dict"
+    },
+    "department_2": {
+      "old_code": "二级部门",
+      "code": "department_2",
+      "label": "二级部门",
+      "uuid": "a2c1bf8e-d15d-4f38-85d2-284fb8335c79",
+      "source": "dict"
+    },
+    "department_3": {
+      "old_code": "三级部门",
+      "code": "department_3",
+      "label": "三级部门",
+      "uuid": "ac817865-29cc-4516-b1c1-2b6cb58364d6",
+      "source": "dict"
+    },
+    "department_4": {
+      "old_code": "四级部门",
+      "code": "department_4",
+      "label": "四级部门",
+      "uuid": "9ca79caa-d90a-4e30-b441-6abea5e1af24",
+      "source": "dict"
+    },
+    "department_5": {
+      "old_code": "五级部门",
+      "code": "department_5",
+      "label": "五级部门",
+      "uuid": "fa8df054-e00d-40d9-bb9a-68a33e217c02",
+      "source": "dict"
+    },
+    "employee_type": {
+      "old_code": "员工类型",
+      "code": "employee_type",
+      "label": "员工类型",
+      "uuid": "09423790-361a-4c1e-9e06-ad5185ec8273",
+      "source": "dict"
+    },
+    "job_family": {
+      "old_code": "职位族",
+      "code": "job_family",
+      "label": "职位族",
+      "uuid": "e5998bee-239c-4159-a005-1cddc67473d6",
+      "source": "canonical"
+    },
+    "job_category": {
+      "old_code": "职位类",
+      "code": "job_category",
+      "label": "职位类",
+      "uuid": "fd47c318-094c-4624-8941-cc213219bef9",
+      "source": "canonical"
+    },
+    "standard_position": {
+      "old_code": "标准职位",
+      "code": "standard_position",
+      "label": "标准职位",
+      "uuid": "8f8fc55c-f698-400b-b5d6-60447b1d3af3",
+      "source": "canonical"
+    },
+    "position": {
+      "old_code": "职位",
+      "code": "position",
+      "label": "职位",
+      "uuid": "ca3f7f1f-8973-4b67-84bf-3ee91bb55d1d",
+      "source": "ai"
+    },
+    "direct_supervisor": {
+      "old_code": "直接上级",
+      "code": "direct_supervisor",
+      "label": "直接上级",
+      "uuid": "a7d6b14d-c874-402d-be7d-ce829abca827",
+      "source": "canonical"
+    },
+    "position_level": {
+      "old_code": "岗位层级",
+      "code": "position_level",
+      "label": "岗位层级",
+      "uuid": "74dfc56a-fd35-461f-8703-31c3a4a04763",
+      "source": "canonical"
+    },
+    "management_level": {
+      "old_code": "管理职级",
+      "code": "management_level",
+      "label": "管理职级",
+      "uuid": "2cc45a7a-43e6-2cee-d13c-5dfbac47706b",
+      "source": "canonical"
+    },
+    "effective_date": {
+      "old_code": "生效日期",
+      "code": "effective_date",
+      "label": "生效日期",
+      "uuid": "f3106329-a6a3-42fd-90a5-876559b6fbe8",
+      "source": "canonical"
+    },
+    "change_reason": {
+      "old_code": "变动原因",
+      "code": "change_reason",
+      "label": "变动原因",
+      "uuid": "822d3287-97f4-4b28-9c70-e7b551afb73f",
+      "source": "canonical"
+    },
+    "base_salary": {
+      "old_code": "基本工资",
+      "code": "base_salary",
+      "label": "基本工资",
+      "uuid": "865535b8-f66a-4136-beb7-731fa8fe3bf7",
+      "source": "canonical"
+    },
+    "position_salary": {
+      "old_code": "岗位工资",
+      "code": "position_salary",
+      "label": "岗位工资",
+      "uuid": "e899b8a0-d419-4b09-a600-3dd01f676a67",
+      "source": "canonical"
+    },
+    "target_year_end_bonus": {
+      "old_code": "目标年终奖",
+      "code": "target_year_end_bonus",
+      "label": "目标年终奖",
+      "uuid": "e073b921-7af4-40f2-ba87-c33aaa37e47b",
+      "source": "canonical"
+    },
+    "currency": {
+      "old_code": "币种",
+      "code": "currency",
+      "label": "币种",
+      "uuid": "a9d893b9-2cd1-0c32-a6ed-43384723d829",
+      "source": "ai"
+    },
+    "id_number": {
+      "old_code": "证件号码",
+      "code": "id_number",
+      "label": "证件号码",
+      "uuid": "3451508d-99b6-4e1c-9777-d8808d9e97dc",
+      "source": "canonical"
+    },
+    "name_2": {
+      "old_code": "姓名",
+      "code": "name_2",
+      "label": "姓名",
+      "uuid": "62018008-71bf-4084-88f6-28b0d6621e35",
+      "source": "canonical"
+    },
+    "org_node_code": {
+      "old_code": "_org_node_code",
+      "code": "org_node_code",
+      "label": "组织节点编码（权限用）",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "work_location": {
+      "old_code": "工作地",
+      "code": "work_location",
+      "label": "工作地",
+      "uuid": "f5734357-1bd9-4d48-8bec-faea6938458d",
+      "source": "canonical"
+    }
+  },
+  "emp_monthly_salary": {
+    "expense_type": {
+      "old_code": "费用类型",
+      "code": "expense_type",
+      "label": "费用类型",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "pay_month": {
+      "old_code": "发薪月份",
+      "code": "pay_month",
+      "label": "发薪月份",
+      "uuid": "e554e1d4-7b24-41f3-ae0e-6b677c98489b",
+      "source": "canonical"
+    },
+    "employee_no": {
+      "old_code": "工号",
+      "code": "employee_no",
+      "label": "工号",
+      "uuid": "b4317727-3d0a-4441-b0e1-2011e2d4ccf8",
+      "source": "canonical"
+    },
+    "name": {
+      "old_code": "姓名",
+      "code": "name",
+      "label": "姓名",
+      "uuid": "a1fc8e94-616d-4bab-997c-01abbc58a060",
+      "source": "canonical"
+    },
+    "english_name": {
+      "old_code": "英文名",
+      "code": "english_name",
+      "label": "英文名",
+      "uuid": "c34a683e-0df9-45cd-b36f-a96062c5989c",
+      "source": "canonical"
+    },
+    "client": {
+      "old_code": "甲方",
+      "code": "client",
+      "label": "甲方",
+      "uuid": "6e8b7ecc-de04-4dd4-92ba-eab2d1712a0c",
+      "source": "canonical"
+    },
+    "company_org": {
+      "old_code": "公司级组织",
+      "code": "company_org",
+      "label": "公司级组织",
+      "uuid": "80148ae5-e5e2-49a1-8dc7-a9c0096f2a1a",
+      "source": "dict"
+    },
+    "department": {
+      "old_code": "一级部门",
+      "code": "department",
+      "label": "一级部门",
+      "uuid": "34b693e9-9214-46e0-bd23-80c16ed27ea1",
+      "source": "dict"
+    },
+    "department_2": {
+      "old_code": "二级部门",
+      "code": "department_2",
+      "label": "二级部门",
+      "uuid": "4b8b5f8c-4140-4419-8212-5ff1cb46c66f",
+      "source": "dict"
+    },
+    "department_3": {
+      "old_code": "三级部门",
+      "code": "department_3",
+      "label": "三级部门",
+      "uuid": "e7e88db0-c4e3-40da-b805-84a8d116fe8e",
+      "source": "dict"
+    },
+    "department_4": {
+      "old_code": "四级部门",
+      "code": "department_4",
+      "label": "四级部门",
+      "uuid": "b876e09b-04e3-4b74-9ebb-d8282276c34d",
+      "source": "dict"
+    },
+    "department_5": {
+      "old_code": "五级部门",
+      "code": "department_5",
+      "label": "五级部门",
+      "uuid": "4ca8b77a-9889-4b25-b0a6-21fc7243b8cf",
+      "source": "dict"
+    },
+    "position": {
+      "old_code": "职位",
+      "code": "position",
+      "label": "职位",
+      "uuid": "dd673e0a-e21c-4e9f-8f7d-e44b84bfa91d",
+      "source": "ai"
+    },
+    "employee_nature": {
+      "old_code": "员工性质",
+      "code": "employee_nature",
+      "label": "员工性质",
+      "uuid": "db54f62e-1076-4808-ab14-2fa8822f259f",
+      "source": "canonical"
+    },
+    "hire_date": {
+      "old_code": "入职日期",
+      "code": "hire_date",
+      "label": "入职日期",
+      "uuid": "df5398f8-17fa-4ddd-a3fd-ff4abaf4662d",
+      "source": "dict"
+    },
+    "terminated_date": {
+      "old_code": "离职日期",
+      "code": "terminated_date",
+      "label": "离职日期",
+      "uuid": "c9ab38d3-63d4-4e1b-bd00-648b227b0379",
+      "source": "dict"
+    },
+    "base_salary": {
+      "old_code": "基本工资",
+      "code": "base_salary",
+      "label": "基本工资",
+      "uuid": "201039dd-6184-4f2d-a657-9755289d7747",
+      "source": "canonical"
+    },
+    "position_salary": {
+      "old_code": "岗位工资",
+      "code": "position_salary",
+      "label": "岗位工资",
+      "uuid": "0ec57503-de2c-4350-9ab9-d2f5ffc5409e",
+      "source": "canonical"
+    },
+    "currency": {
+      "old_code": "币种(自定义)",
+      "code": "currency",
+      "label": "币种(自定义)",
+      "uuid": "cf20a17c-34fb-4027-b4cb-b4b0deb225f7",
+      "source": "push_config"
+    },
+    "custom_exchange_rate": {
+      "old_code": "汇率(自定义)",
+      "code": "custom_exchange_rate",
+      "label": "汇率(自定义)",
+      "uuid": "f5d80d18-5eb2-44d0-9958-96d413d7ed08",
+      "source": "canonical"
+    },
+    "tax_salary_cost": {
+      "old_code": "税前工资成本",
+      "code": "tax_salary_cost",
+      "label": "税前工资成本",
+      "uuid": "8b39e293-8535-4e73-9fde-d2ac5ee5f5b7",
+      "source": "dict"
+    },
+    "referral_bonus": {
+      "old_code": "推荐奖",
+      "code": "referral_bonus",
+      "label": "推荐奖",
+      "uuid": "18ced135-9531-4989-a81d-6303060c2024",
+      "source": "push_config"
+    },
+    "salary": {
+      "old_code": "应发工资",
+      "code": "salary",
+      "label": "应发工资",
+      "uuid": "3bb24ce6-21f2-445c-a3ae-3791fa7caf3b",
+      "source": "dict"
+    },
+    "economic_compensation": {
+      "old_code": "经济补偿金",
+      "code": "economic_compensation",
+      "label": "经济补偿金",
+      "uuid": "a8045bde-203a-4c92-b019-b43259f05700",
+      "source": "push_config"
+    },
+    "social_security_employee_part": {
+      "old_code": "社保个人部分（工资条）",
+      "code": "social_security_employee_part",
+      "label": "社保个人部分（工资条）",
+      "uuid": "6e7a19b4-d210-43e8-87b2-d747cdfc6a95",
+      "source": "push_config"
+    },
+    "individual_income_tax_total": {
+      "old_code": "个税总额",
+      "code": "individual_income_tax_total",
+      "label": "个税总额",
+      "uuid": "a843ff00-ae09-4811-ba2e-cbe37aa43cf0",
+      "source": "push_config"
+    },
+    "post_tax_deductions_total": {
+      "old_code": "税后扣除项总额",
+      "code": "post_tax_deductions_total",
+      "label": "税后扣除项总额",
+      "uuid": "230b08ae-60b8-4157-bf94-1c5279c9e99d",
+      "source": "push_config"
+    },
+    "net_salary": {
+      "old_code": "实发工资",
+      "code": "net_salary",
+      "label": "实发工资",
+      "uuid": "ea91bc64-07a8-4c32-9fa6-23e6a0849641",
+      "source": "push_config"
+    },
+    "employer_social_security_cost": {
+      "old_code": "单位社保费用",
+      "code": "employer_social_security_cost",
+      "label": "单位社保费用",
+      "uuid": "6a3ebefb-80d5-4104-ac92-0af851cfe5f3",
+      "source": "push_config"
+    },
+    "employer_housing_fund": {
+      "old_code": "单位住房公积金",
+      "code": "employer_housing_fund",
+      "label": "单位住房公积金",
+      "uuid": "c059d13c-c97c-4cdc-bd7f-10f6a5b95af2",
+      "source": "push_config"
+    },
+    "disability_security_contribution": {
+      "old_code": "残保金",
+      "code": "disability_security_contribution",
+      "label": "残保金",
+      "uuid": "31e027b0-f3ba-4acd-b605-e35bccf77973",
+      "source": "push_config"
+    },
+    "service_fee": {
+      "old_code": "服务费",
+      "code": "service_fee",
+      "label": "服务费",
+      "uuid": "4a0138eb-8667-4c30-b1ed-168c0f2bb9d0",
+      "source": "push_config"
+    },
+    "interest_free_loan_interest": {
+      "old_code": "无息借款利息",
+      "code": "interest_free_loan_interest",
+      "label": "无息借款利息",
+      "uuid": "12122dae-08c0-48c0-9c7e-7f32745aee88",
+      "source": "push_config"
+    },
+    "housing_allowance_post_tax": {
+      "old_code": "住房补贴（税后）",
+      "code": "housing_allowance_post_tax",
+      "label": "住房补贴（税后）",
+      "uuid": "7b3e1899-8722-4cfd-8373-1480c6f837e8",
+      "source": "push_config"
+    },
+    "interest_free_loan_repayment": {
+      "old_code": "无息借款还款",
+      "code": "interest_free_loan_repayment",
+      "label": "无息借款还款",
+      "uuid": "15603653-eee6-4855-a773-cfc05766a1ec",
+      "source": "push_config"
+    },
+    "rent": {
+      "old_code": "房租",
+      "code": "rent",
+      "label": "房租",
+      "uuid": "7f337804-a41a-40cf-9731-f3b10b1b8815",
+      "source": "push_config"
+    },
+    "property_management_fee": {
+      "old_code": "物业费",
+      "code": "property_management_fee",
+      "label": "物业费",
+      "uuid": "72f5ca3f-a662-4715-b674-e564bf12f525",
+      "source": "push_config"
+    },
+    "electricity_fee": {
+      "old_code": "电费",
+      "code": "electricity_fee",
+      "label": "电费",
+      "uuid": "7520f373-47f0-4bdc-bf2a-696069c9e7f1",
+      "source": "push_config"
+    },
+    "gas_fee": {
+      "old_code": "燃气费",
+      "code": "gas_fee",
+      "label": "燃气费",
+      "uuid": "853608df-2a59-42c0-a07a-2f597e7af67b",
+      "source": "push_config"
+    },
+    "employee_card_reissue_deduction": {
+      "old_code": "工卡补办扣款",
+      "code": "employee_card_reissue_deduction",
+      "label": "工卡补办扣款",
+      "uuid": "0671533e-9f34-4b4a-9e6a-7e3185e1d229",
+      "source": "push_config"
+    },
+    "exit_employee_card_loss_deduction": {
+      "old_code": "离职工卡丢失扣款",
+      "code": "exit_employee_card_loss_deduction",
+      "label": "离职工卡丢失扣款",
+      "uuid": "62de1a95-a715-469a-8f82-54fd6925b3b6",
+      "source": "push_config"
+    },
+    "didi_deduction": {
+      "old_code": "滴滴扣款",
+      "code": "didi_deduction",
+      "label": "滴滴扣款",
+      "uuid": "972a527e-8a1d-4d3f-b503-1c2a09c96a8f",
+      "source": "push_config"
+    },
+    "travel_excess_deduction": {
+      "old_code": "差旅超标扣款",
+      "code": "travel_excess_deduction",
+      "label": "差旅超标扣款",
+      "uuid": "6d773645-2448-4144-8b3a-aa60adcac6c9",
+      "source": "push_config"
+    },
+    "fixed_asset_deduction": {
+      "old_code": "固定资产扣款",
+      "code": "fixed_asset_deduction",
+      "label": "固定资产扣款",
+      "uuid": "4b295022-973e-4862-8078-15cc7e455190",
+      "source": "push_config"
+    },
+    "parking_fee": {
+      "old_code": "停车费",
+      "code": "parking_fee",
+      "label": "停车费",
+      "uuid": "5f547165-8dbf-4829-8c86-b485893ef6bf",
+      "source": "push_config"
+    },
+    "training_deduction": {
+      "old_code": "培训扣款",
+      "code": "training_deduction",
+      "label": "培训扣款",
+      "uuid": "fabe93f1-0ac0-4b27-836a-5b4c99a9d7af",
+      "source": "push_config"
+    },
+    "social_security_fund_special_adjustment": {
+      "old_code": "社保公积金特殊调整",
+      "code": "social_security_fund_special_adjustment",
+      "label": "社保公积金特殊调整",
+      "uuid": "02ffb942-a95a-4ffa-ac02-eb3fbb17da83",
+      "source": "push_config"
+    },
+    "other_deductions": {
+      "old_code": "其他扣款",
+      "code": "other_deductions",
+      "label": "其他扣款",
+      "uuid": "95028448-6a6e-4bdb-b99c-eb48d052c865",
+      "source": "push_config"
+    },
+    "tax_exempt_income_post_tax_deduction": {
+      "old_code": "免税收入(税后扣除)",
+      "code": "tax_exempt_income_post_tax_deduction",
+      "label": "免税收入(税后扣除)",
+      "uuid": "2b5ad499-841c-4db3-ad0e-45e449b02e02",
+      "source": "push_config"
+    },
+    "outsourcing_fee": {
+      "old_code": "外包费用",
+      "code": "outsourcing_fee",
+      "label": "外包费用",
+      "uuid": "6990e0e6-d50b-4e07-9d72-cbcace6525f7",
+      "source": "canonical"
+    },
+    "gross_salary_including_compensation": {
+      "old_code": "应发工资（含补偿金）",
+      "code": "gross_salary_including_compensation",
+      "label": "应发工资（含补偿金）",
+      "uuid": "77d62cbf-1cfe-4d38-989a-18012a6043a1_c89caa22-bc61-4e07-a88f-9a03b3c5b337",
+      "source": "push_config"
+    },
+    "welfare_taxable_item_universal": {
+      "old_code": "福利计税项（普适性福利）",
+      "code": "welfare_taxable_item_universal",
+      "label": "福利计税项（普适性福利）",
+      "uuid": "4be9ab3c-29b8-4d9f-bb5a-b1da9b45696f",
+      "source": "push_config"
+    },
+    "welfare_taxable_item_non_universal": {
+      "old_code": "福利计税项（非普适性福利）",
+      "code": "welfare_taxable_item_non_universal",
+      "label": "福利计税项（非普适性福利）",
+      "uuid": "db59e3de-6d2a-4a66-89bc-e447c45dec71",
+      "source": "push_config"
+    },
+    "provident_fund_employee_total": {
+      "old_code": "个人住房公积金",
+      "code": "provident_fund_employee_total",
+      "label": "个人住房公积金",
+      "uuid": "a5e0481a-fb5d-4411-8bca-44f2f2337bf9",
+      "source": "push_config"
+    }
+  },
+  "emp_monthly_allocation": {
+    "cost_period": {
+      "old_code": "成本归属年月",
+      "code": "cost_period",
+      "label": "成本归属年月",
+      "uuid": "3c218733-251f-4539-900c-e6fd04d8acef",
+      "source": "canonical"
+    },
+    "employee_no": {
+      "old_code": "工号",
+      "code": "employee_no",
+      "label": "工号",
+      "uuid": "44e5cebb-e2fa-4b69-b0cc-8f4d20167d9f",
+      "source": "canonical"
+    },
+    "employee": {
+      "old_code": "员工",
+      "code": "employee",
+      "label": "员工",
+      "uuid": "1125732e-543a-417c-84e0-e664f2c24c48",
+      "source": "dict"
+    },
+    "code": {
+      "old_code": "编码",
+      "code": "code",
+      "label": "编码",
+      "uuid": "e2b8e0ef-e1ed-42a1-ad71-054b713bd651",
+      "source": "canonical"
+    },
+    "dimension_value": {
+      "old_code": "维度值",
+      "code": "dimension_value",
+      "label": "维度值",
+      "uuid": "bf89e524-368f-4019-a609-75c714cacea8",
+      "source": "canonical"
+    },
+    "headcount": {
+      "old_code": "系数",
+      "code": "headcount",
+      "label": "系数",
+      "uuid": "e4546fe5-bc57-41d0-ba52-949577052202",
+      "source": "push_config"
+    }
+  },
+  "cost_center_monthly": {
+    "month": {
+      "old_code": "月份",
+      "code": "month",
+      "label": "月份",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "code": {
+      "old_code": "编码",
+      "code": "code",
+      "label": "编码",
+      "uuid": "e2b8e0ef-e1ed-42a1-ad71-054b713bd651",
+      "source": "canonical"
+    },
+    "name": {
+      "old_code": "名称",
+      "code": "name",
+      "label": "名称",
+      "uuid": "6b088147-5dba-4ffa-88b2-deb237fe9250",
+      "source": "canonical"
+    },
+    "game_project_detail": {
+      "old_code": "Game Project Details",
+      "code": "game_project_detail",
+      "label": "游戏项目明细",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "standard_game_project": {
+      "old_code": "Standard Game Project",
+      "code": "standard_game_project",
+      "label": "标准游戏项目",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "studio": {
+      "old_code": "Game Studio",
+      "code": "studio",
+      "label": "工作室",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "studio_group": {
+      "old_code": "Studio Group",
+      "code": "studio_group",
+      "label": "工作室群",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "studio_group_2": {
+      "old_code": "Business Group",
+      "code": "studio_group_2",
+      "label": "工作室群",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "status": {
+      "old_code": "启用状态",
+      "code": "status",
+      "label": "启用状态",
+      "uuid": "",
+      "source": "dict"
+    }
+  },
+  "emp_monthly_cost_result": {
+    "cost_period": {
+      "old_code": "成本归属年月",
+      "code": "cost_period",
+      "label": "成本归属年月",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "client": {
+      "old_code": "甲方",
+      "code": "client",
+      "label": "甲方",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "expense_type": {
+      "old_code": "费用类型",
+      "code": "expense_type",
+      "label": "费用类型",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "name": {
+      "old_code": "名称",
+      "code": "name",
+      "label": "名称",
+      "uuid": "",
+      "source": "canonical"
+    },
+    "currency": {
+      "old_code": "币种(自定义)",
+      "code": "currency",
+      "label": "币种(自定义)",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "gross_salary_including_compensation": {
+      "old_code": "应发工资（含补偿金）",
+      "code": "gross_salary_including_compensation",
+      "label": "应发工资（含补偿金）",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "salary_bonus": {
+      "old_code": "salary_bonus",
+      "code": "salary_bonus",
+      "label": "应发工资（含补偿金及奖金）",
+      "uuid": "",
+      "source": "keep"
+    },
+    "social_security_employee_part": {
+      "old_code": "社保个人部分（工资条）",
+      "code": "social_security_employee_part",
+      "label": "社保个人部分（工资条）",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "provident_fund_employee_total": {
+      "old_code": "个人住房公积金",
+      "code": "provident_fund_employee_total",
+      "label": "个人住房公积金",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "individual_income_tax_total": {
+      "old_code": "个税总额",
+      "code": "individual_income_tax_total",
+      "label": "个税总额",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "post_tax_deductions_total": {
+      "old_code": "税后扣除项总额",
+      "code": "post_tax_deductions_total",
+      "label": "税后扣除项总额",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "net_salary": {
+      "old_code": "实发工资",
+      "code": "net_salary",
+      "label": "实发工资",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "current_month_paid": {
+      "old_code": "field",
+      "code": "current_month_paid",
+      "label": "本月实发",
+      "uuid": "",
+      "source": "override"
+    },
+    "second_installment": {
+      "old_code": "field_2",
+      "code": "second_installment",
+      "label": "第二期发放",
+      "uuid": "",
+      "source": "override"
+    },
+    "third_installment": {
+      "old_code": "field_3",
+      "code": "third_installment",
+      "label": "第三期发放",
+      "uuid": "",
+      "source": "override"
+    },
+    "fourth_installment": {
+      "old_code": "field_4",
+      "code": "fourth_installment",
+      "label": "第四期发放",
+      "uuid": "",
+      "source": "override"
+    },
+    "employer_social_security_cost": {
+      "old_code": "单位社保费用",
+      "code": "employer_social_security_cost",
+      "label": "单位社保费用",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "employer_housing_fund": {
+      "old_code": "单位住房公积金",
+      "code": "employer_housing_fund",
+      "label": "单位住房公积金",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "disability_security_contribution": {
+      "old_code": "残保金",
+      "code": "disability_security_contribution",
+      "label": "残保金",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "service_fee": {
+      "old_code": "服务费",
+      "code": "service_fee",
+      "label": "服务费",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "interest_free_loan_interest": {
+      "old_code": "无息借款利息",
+      "code": "interest_free_loan_interest",
+      "label": "无息借款利息",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "housing_allowance_post_tax": {
+      "old_code": "住房补贴（税后）",
+      "code": "housing_allowance_post_tax",
+      "label": "住房补贴（税后）",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "rent": {
+      "old_code": "房租",
+      "code": "rent",
+      "label": "房租",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "interest_free_loan_repayment": {
+      "old_code": "无息借款还款",
+      "code": "interest_free_loan_repayment",
+      "label": "无息借款还款",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "property_management_fee": {
+      "old_code": "物业费",
+      "code": "property_management_fee",
+      "label": "物业费",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "electricity_fee": {
+      "old_code": "电费",
+      "code": "electricity_fee",
+      "label": "电费",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "gas_fee": {
+      "old_code": "燃气费",
+      "code": "gas_fee",
+      "label": "燃气费",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "employee_card_reissue_deduction": {
+      "old_code": "工卡补办扣款",
+      "code": "employee_card_reissue_deduction",
+      "label": "工卡补办扣款",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "exit_employee_card_loss_deduction": {
+      "old_code": "离职工卡丢失扣款",
+      "code": "exit_employee_card_loss_deduction",
+      "label": "离职工卡丢失扣款",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "didi_deduction": {
+      "old_code": "滴滴扣款",
+      "code": "didi_deduction",
+      "label": "滴滴扣款",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "travel_excess_deduction": {
+      "old_code": "差旅超标扣款",
+      "code": "travel_excess_deduction",
+      "label": "差旅超标扣款",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "fixed_asset_deduction": {
+      "old_code": "固定资产扣款",
+      "code": "fixed_asset_deduction",
+      "label": "固定资产扣款",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "parking_fee": {
+      "old_code": "停车费",
+      "code": "parking_fee",
+      "label": "停车费",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "training_deduction": {
+      "old_code": "培训扣款",
+      "code": "training_deduction",
+      "label": "培训扣款",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "social_security_fund_special_adjustment": {
+      "old_code": "社保公积金特殊调整",
+      "code": "social_security_fund_special_adjustment",
+      "label": "社保公积金特殊调整",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "other_deductions": {
+      "old_code": "其他扣款",
+      "code": "other_deductions",
+      "label": "其他扣款",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "tax_exempt_income_post_tax_deduction": {
+      "old_code": "免税收入(税后扣除)",
+      "code": "tax_exempt_income_post_tax_deduction",
+      "label": "免税收入(税后扣除)",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "welfare_taxable_item_universal": {
+      "old_code": "福利计税项（普适性福利）",
+      "code": "welfare_taxable_item_universal",
+      "label": "福利计税项（普适性福利）",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "welfare_taxable_item_non_universal": {
+      "old_code": "福利计税项（非普适性福利）",
+      "code": "welfare_taxable_item_non_universal",
+      "label": "福利计税项（非普适性福利）",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "economic_compensation": {
+      "old_code": "经济补偿金",
+      "code": "economic_compensation",
+      "label": "经济补偿金",
+      "uuid": "",
+      "source": "push_config"
+    },
+    "headcount": {
+      "old_code": "系数",
+      "code": "headcount",
+      "label": "人数",
+      "uuid": "",
+      "source": "dict"
+    }
+  }
+}

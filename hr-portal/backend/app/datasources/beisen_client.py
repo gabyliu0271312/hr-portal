@@ -93,17 +93,26 @@ class BeisenReportClient:
         self,
         page_size: int = 500,
         timeout: float = 60.0,
+        uuid_to_code: dict[str, str] | None = None,
+        title_to_code: dict[str, str] | None = None,
     ) -> list[dict]:
-        """拉取报表全量数据。
+        """拉取报表全量数据，把数据行的 UUID key 翻译成英文 column_code。
 
-        与成本分摊系统对齐：GET + query params + reportId/page/pageSize 小驼峰
-        若提供了 header_url，会先拉表头并把 UUID-keyed rows 翻译成中文名 keyed rows
+        翻译优先级（每个数据列 key）：
+          1) uuid_to_code[key]      —— 已注册字段，按 UUID 锚点翻译(最稳定)
+          2) title_to_code[title]   —— 新字段:UUID 未注册,用表头中文名匹配已建 code
+          3) 表头 title(中文)       —— 全新字段,交给 _ensure_columns 生成英文 code
+          4) 原 key                 —— 无表头信息,原样保留
 
-        429 限频处理：北森报表 API 默认 1 秒 1 次调用上限，每两次请求间至少 sleep 1.2s；
-        遇到 429 时按指数退避重试（最多 5 次：2s/4s/8s/16s/32s）。
+        uuid_to_code/title_to_code 由调用方(sync_service)从 table_columns 的
+        source_field_id/column_label 预加载传入。
+
+        429 限频处理：每两次请求间至少 sleep 1.2s；遇 429 指数退避(最多5次)。
         """
         import asyncio
 
+        uuid_to_code = uuid_to_code or {}
+        title_to_code = title_to_code or {}
         self._validate()
         token = await _get_token(self.token_url, self.app_key, self.app_secret)
         headers = {"Authorization": f"Bearer {token}"}
@@ -122,8 +131,8 @@ class BeisenReportClient:
             return resp
 
         async with httpx.AsyncClient(timeout=timeout) as client:
-            # 1) 拉表头（可选）
-            uuid_to_name: dict[str, str] = {}
+            # 1) 拉表头（可选）：建 UUID→title 映射
+            uuid_to_title: dict[str, str] = {}
             if self.header_url:
                 try:
                     h_resp = await _get_with_retry(
@@ -131,9 +140,9 @@ class BeisenReportClient:
                     )
                     h_json = h_resp.json()
                     columns = h_json.get("data", {}).get("columns") or []
-                    uuid_to_name = {c["id"]: c.get("title", c["id"]) for c in columns if "id" in c}
+                    uuid_to_title = {c["id"]: c.get("title", c["id"]) for c in columns if "id" in c}
                 except Exception:
-                    uuid_to_name = {}
+                    uuid_to_title = {}
                 # 表头与数据接口之间也加间隔
                 await asyncio.sleep(1.2)
 
@@ -159,16 +168,26 @@ class BeisenReportClient:
                 )
                 datas.extend((resp.json().get("data") or {}).get("datas") or [])
 
-            # 4) UUID → 中文名翻译
-            if uuid_to_name:
-                translated = []
-                for row in datas:
-                    if isinstance(row, dict):
-                        translated.append({uuid_to_name.get(k, k): v for k, v in row.items()})
-                    else:
-                        translated.append(row)
-                return translated
-            return datas
+            # 4) key 翻译:UUID锚点 > title对应已建code > title(中文,新字段) > 原key
+            def translate_key(k: str) -> str:
+                if k in uuid_to_code:
+                    return uuid_to_code[k]
+                title = uuid_to_title.get(k)
+                if title and title in title_to_code:
+                    return title_to_code[title]
+                if title:
+                    return title  # 全新字段:用中文名,_ensure_columns 会生成英文 code
+                return k
+
+            if not uuid_to_title:
+                return datas
+            translated = []
+            for row in datas:
+                if isinstance(row, dict):
+                    translated.append({translate_key(k): v for k, v in row.items()})
+                else:
+                    translated.append(row)
+            return translated
 
 
 # ===== 北森通用 OpenAPI（SearchCostCenter 等）=====

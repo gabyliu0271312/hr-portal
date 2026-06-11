@@ -34,4 +34,4 @@ data/pg/
 
 # Logs
 *.log
-logs/
+logs/backups/

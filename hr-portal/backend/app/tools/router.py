@@ -173,9 +173,9 @@ class EditableDraftIn(BaseModel):
     manually_adjusted: bool = False
 
 
-_SEARCH_FIELDS = ["工号", "姓名", "姓名（中文名）", "英文名"]
-_REGION_FIELDS = ["工作地", "工作地点", "工作城市", "办公地点", "办公城市", "城市", "地区", "常驻地"]
-_DEPT_FIELDS = ["五级部门", "四级部门", "三级部门", "二级部门", "一级部门", "公司级组织"]
+_SEARCH_FIELDS = ["employee_no", "name", "english_name"]
+_REGION_FIELDS = ["work_location"]
+_DEPT_FIELDS = ["department_5", "department_4", "department_3", "department_2", "department", "company_org"]
 
 
 def _raw_text(col_code: str):
@@ -194,16 +194,16 @@ def _to_candidate(row: EmpRealtimeRoster) -> EmployeeCandidate:
     raw = row.raw or {}
     return EmployeeCandidate(
         id=row.id,
-        employee_no=_first(raw, "工号"),
-        name=_first(raw, "姓名", "姓名（中文名）"),
-        chinese_name=_first(raw, "姓名（中文名）", "corehr_employeeinformation_extzhongwenming_609153_78242362_alias"),
-        english_name=_first(raw, "英文名"),
-        company=_first(raw, "公司名称"),
+        employee_no=_first(raw, "employee_no"),
+        name=_first(raw, "name"),
+        chinese_name=_first(raw, "name"),
+        english_name=_first(raw, "english_name"),
+        company=_first(raw, "company_name"),
         department=_first(raw, *_DEPT_FIELDS),
         work_region=_first(raw, *_REGION_FIELDS),
-        employment_status=_first(raw, "人员状态"),
-        hire_date=_first(raw, "入职日期", "1b725de4-7e51-4888-ab05-dc435bb511f8_original"),
-        leave_date=_first(raw, "离职日期", "9e0a9a5d-f3d8-4262-84a4-9f1c7dc4c0ce_original"),
+        employment_status=_first(raw, "employee_status"),
+        hire_date=_first(raw, "hire_date"),
+        leave_date=_first(raw, "terminated_date"),
     )
 
 
@@ -947,13 +947,13 @@ async def _calc_core(
 
     raw = row.raw or {}
     candidate = _to_candidate(row)
-    hire_date = _parse_date(_first(raw, "入职日期", "1b725de4-7e51-4888-ab05-dc435bb511f8_original"), "入职日期")
-    leave_date = payload.leave_date or _parse_date(_first(raw, "离职日期", "9e0a9a5d-f3d8-4262-84a4-9f1c7dc4c0ce_original"), "离职日期")
+    hire_date = _parse_date(_first(raw, "hire_date"), "入职日期")
+    leave_date = payload.leave_date or _parse_date(_first(raw, "terminated_date"), "离职日期")
     region = (payload.region or candidate.work_region or "").strip()
     if not region:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="花名册未识别到工作地，请先补充工作地字段或手动选择地区")
 
-    basic_salary = _parse_money(_first(raw, "基本工资"), "基本工资")
+    basic_salary = _parse_money(_first(raw, "base_salary"), "基本工资")
     cap = await _get_matching_cap(region, leave_date, db)
     cap_amount = Decimal(str(cap.cap_amount))
     compensation_base = min(basic_salary, cap_amount)
@@ -1145,9 +1145,9 @@ async def prepare_agreement(
     return AgreementData(
         template_code=template.code,
         template_name=template.name,
-        company=_first(raw, "公司名称") or "",
+        company=_first(raw, "company_name") or "",
         name=calc.employee.chinese_name or calc.employee.name or "",
-        id_card=_first(raw, "证件号码") or "",
+        id_card=_first(raw, "id_number") or "",
         dissolve_date=leave_date,
         last_work_date=leave_date,
         social_security_month=f"{leave_date.year}年{leave_date.month}月",
@@ -1446,21 +1446,21 @@ async def prepare_income_certificate(
             status.HTTP_403_FORBIDDEN,
             detail="无权限使用工资开具收入证明（请将证明开具加入薪酬分类的授权工具白名单）",
         )
-    hire_date = _parse_date(_first(raw, "入职日期", "1b725de4-7e51-4888-ab05-dc435bb511f8_original"), "入职日期")
-    raw_leave = _first(raw, "离职日期", "9e0a9a5d-f3d8-4262-84a4-9f1c7dc4c0ce_original")
+    hire_date = _parse_date(_first(raw, "hire_date"), "入职日期")
+    raw_leave = _first(raw, "terminated_date")
     leave_date = payload.leave_date or (_parse_date(raw_leave, "离职日期") if raw_leave else None)
-    basic_salary = _parse_money(_first(raw, "基本工资"), "基本工资")
-    target_bonus_raw = _first(raw, "目标年终奖")
+    basic_salary = _parse_money(_first(raw, "base_salary"), "基本工资")
+    target_bonus_raw = _first(raw, "target_year_end_bonus")
     target_bonus = _parse_money(target_bonus_raw, "目标年终奖") if target_bonus_raw not in (None, "") else Decimal("0")
     annual_package = _money(basic_salary * Decimal("12") + target_bonus)
 
     result = IncomeCertificateData(
         template_code=template.code,
         template_name=template.name,
-        company=_first(raw, "公司名称") or "",
-        name=_first(raw, "姓名（中文名）", "姓名") or "",
-        id_card=_first(raw, "证件号码") or "",
-        position=_first(raw, "职位", "标准职位", "职务", "岗位") or "",
+        company=_first(raw, "company_name") or "",
+        name=_first(raw, "name") or "",
+        id_card=_first(raw, "id_number") or "",
+        position=_first(raw, "position", "standard_position") or "",
         hire_date=hire_date,
         leave_date=leave_date,
         leave_date_text=f"{leave_date.year}年{leave_date.month}月{leave_date.day}日" if leave_date else "至今",

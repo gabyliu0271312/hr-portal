@@ -33,12 +33,12 @@ from app.data.formula import eval_formula
 # 业务实体键（entity_keys）已移到字段管理 is_pk_part，此处不再维护。
 PERIOD_TABLES: dict[str, dict] = {
     "cost_center_monthly": {
-        "period_col": "月份",
+        "period_col": "month",
         "offset_key": "MONTH_OFFSET",
         "period_source": "inject",  # 接口无月份，同步时自动注入
     },
     "emp_monthly_cost_result": {
-        "period_col": "月份",
+        "period_col": "month",
         "offset_key": "MONTH_OFFSET",
         "period_source": "inject",
     },
@@ -48,30 +48,31 @@ PERIOD_TABLES: dict[str, dict] = {
 # 源端字段永久黑名单：这些列即使源端返回也丢弃、不入库（改由本地手工字段维护）。
 # 成本中心「启用状态」改为本地手工维护，北森不再同步该字段。
 SOURCE_DROP_COLUMNS: dict[str, set[str]] = {
-    "cost_center_monthly": {"启用状态"},
+    "cost_center_monthly": {"status"},
 }
 
 
 # 年月列强制规范化为 YYYYMM（便于跨表按月份 JOIN）。
 # 如分摊表「成本归属年月」源端是 "2025-10"，统一成 "202510"，与成本中心「月份」对齐。
 YEARMONTH_COLUMNS: dict[str, set[str]] = {
-    "emp_monthly_allocation": {"成本归属年月"},
+    "emp_monthly_allocation": {"cost_period"},
 }
 
 
 # 跨表查找填值（lookup/enrichment）：同步/重算时按规则从另一张表查出值填进 target。
 # 只填空（target 为空才填）、保留手改；rules 按顺序优先级，命中即停。
+# 注意:lookup_table(emp_monthly_cost_class)未迁移,其 type_col/value_col/result_col 仍是原 code
 LOOKUP_FIELDS: dict[str, list[dict]] = {
     "emp_monthly_salary": [
         {
-            "target": "费用类型",
+            "target": "expense_type",
             "lookup_table": "emp_monthly_cost_class",
-            "type_col": "field type",          # 映射表「字段类型」列（值=工号/甲方）
+            "type_col": "field type",          # 映射表「字段类型」列（值=工号/甲方对应的中文判别值）
             "value_col": "value",              # 映射表「值」列
             "result_col": "cost classification",  # 映射表「费用类型」列
             "rules": [                          # 先工号、后甲方
-                {"match_type": "工号", "src_field": "工号"},
-                {"match_type": "甲方", "src_field": "甲方"},
+                {"match_type": "工号", "src_field": "employee_no"},
+                {"match_type": "甲方", "src_field": "client"},
             ],
         }
     ],
@@ -112,19 +113,25 @@ def _prev_ym(ym: str) -> str:
     return f"{yy:04d}{m2 + 1:02d}"
 
 
-# 表头接口没翻译成中文名的列，key 里会带北森报表列的 UUID（如 "<guid>_Id"）。
+# 表头接口没翻译成中文名的列，key 里会带北森报表列的 UUID（如 "<guid>_Id"）
+# 或北森内部字段标识（如 "corehr_..._id" / "..._alias" / "..._original"）。
 # 这类列对业务无意义，落库前一律丢弃（含将来接口新增的同类列）。
 _UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
+# 北森辅助列形态：xxx_数字_id / xxx_数字_alias / 任意_original / 任意_alias 结尾
+_HELPER_COL_RE = re.compile(r"(_\d{4,}_(id|alias)|_original|_alias)$", re.IGNORECASE)
 
 
 def _strip_uuid_columns(rows: list[dict]) -> None:
-    """就地删除未被表头翻译的 UUID 噪音列"""
+    """就地删除未被翻译的北森噪音列(UUID列 + corehr_/_id/_alias/_original 辅助列)。
+
+    已翻译成英文 column_code 的业务字段是干净标识(employee_no 等),不受影响。
+    """
     for r in rows:
         if not isinstance(r, dict):
             continue
-        for k in [k for k in r if _UUID_RE.search(k)]:
+        for k in [k for k in r if _UUID_RE.search(k) or _HELPER_COL_RE.search(k)]:
             del r[k]
 
 
@@ -168,10 +175,14 @@ async def _ensure_columns(
     sample_row: dict,
     db: AsyncSession,
     column_labels: dict[str, str] | None = None,
-) -> None:
-    """从样本行扫描所有 key，对没注册过的字段 INSERT 一条 table_columns"""
+) -> dict[str, str]:
+    """从样本行扫描所有 key，对没注册过的字段 INSERT 一条 table_columns。
+
+    返回 rename_map: {样本行里的中文key: 新生成的英文code}，
+    供调用方把 raw 数据的中文 key 同步改成英文 code。
+    """
     if not sample_row:
-        return
+        return {}
 
     existing_cols = (
         await db.execute(
@@ -191,18 +202,32 @@ async def _ensure_columns(
     ).scalar_one_or_none() or 0
 
     new_cols = []
+    rename_map: dict[str, str] = {}
+    used_codes = set(existing_by_code.keys())
     for key, val in sample_row.items():
-        label = column_labels.get(key) or key
         if key in existing_by_code:
+            label = column_labels.get(key) or key
             col = existing_by_code[key]
             if col.column_label == col.column_code and label != key:
                 col.column_label = label
             continue
+        # 新字段:key 可能是英文 code(已被 client 翻译但库内还没注册)或中文名(全新字段)
+        # 含中文 → 用 codegen 生成规范英文 code,中文作 label;已是英文 → 直接用
+        import re as _re
+        from app.codegen.rules import deterministic_code, unique_code
+        if _re.search(r"[一-鿿]", key):
+            label = key
+            new_code = unique_code(deterministic_code(key) or "field", used_codes)
+            rename_map[key] = new_code
+        else:
+            label = column_labels.get(key) or key
+            new_code = key
+        used_codes.add(new_code)
         max_order += 10
         dtype = _guess_data_type(val)
         new_cols.append(TableColumn(
             table_name=table_name,
-            column_code=key,
+            column_code=new_code,
             column_label=label,
             data_type=dtype,
             is_pk_part=False,
@@ -216,6 +241,7 @@ async def _ensure_columns(
     if new_cols:
         db.add_all(new_cols)
         await db.flush()
+    return rename_map
 
 
 # ===== 业务主键计算 =====
@@ -368,7 +394,15 @@ async def _dynamic_upsert(
         return 0
 
     # 1) 自动注册新字段（用第一行作为样本）
-    await _ensure_columns(table_name, rows[0], db, column_labels=column_labels)
+    rename_map = await _ensure_columns(table_name, rows[0], db, column_labels=column_labels)
+
+    # 1b) 全新中文字段已生成英文 code → 把所有行 raw 的中文 key 改成英文 code
+    if rename_map:
+        for r in rows:
+            if isinstance(r, dict):
+                for zh, en in rename_map.items():
+                    if zh in r:
+                        r[en] = r.pop(zh)
 
     # 2) 月度表：收口月份/编码主键
     await _ensure_period_meta(table_name, db)
@@ -546,7 +580,7 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
             level = 1
         # is_active 由本地手工「启用状态」决定：== "启用" 才算启用；
         # 空 / 未维护 / 停用 一律按停用（新增成本中心落库时已默认写为"启用"）
-        is_active = (str(_first(r, "启用状态", default="") or "").strip() == "启用")
+        is_active = (str(_first(r, "status", "启用状态", default="") or "").strip() == "启用")
 
         node = CostCenterNode(
             code=str(code),
@@ -598,13 +632,13 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
 
 
 _ORG_LEVEL_FIELDS = [
-    # (level, field_name)
-    (2, "公司级组织"),
-    (3, "一级部门"),
-    (4, "二级部门"),
-    (5, "三级部门"),
-    (6, "四级部门"),
-    (7, "五级部门"),
+    # (level, column_code)
+    (2, "company_org"),
+    (3, "department"),
+    (4, "department_2"),
+    (5, "department_3"),
+    (6, "department_4"),
+    (7, "department_5"),
 ]
 
 
@@ -650,7 +684,7 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
     for r in rows:
         if not isinstance(r, dict):
             continue
-        is_active_emp = str(r.get("人员状态") or "").strip() != "离职"
+        is_active_emp = str(r.get("employee_status") or "").strip() != "离职"
         path_names = [root_name]
         parent_code = root_code
         for level, field in _ORG_LEVEL_FIELDS:
@@ -779,7 +813,21 @@ async def sync_to_table(
     # 拉数据
     client = make_client(source_type, settings, secrets)
     if hasattr(client, "get_grid_data"):
-        rows = await client.get_grid_data()
+        # 预加载 UUID→英文code、中文名→英文code 映射,让 client 把北森数据 key 翻译成英文 code
+        col_rows = (
+            await db.execute(
+                select(
+                    TableColumn.column_code,
+                    TableColumn.source_field_id,
+                    TableColumn.column_label,
+                ).where(TableColumn.table_name == table_name)
+            )
+        ).all()
+        uuid_to_code = {sf: code for code, sf, _ in col_rows if sf}
+        title_to_code = {lbl: code for code, _, lbl in col_rows if lbl}
+        rows = await client.get_grid_data(
+            uuid_to_code=uuid_to_code, title_to_code=title_to_code
+        )
     elif hasattr(client, "fetch"):
         rows = await client.fetch()
     else:
@@ -839,7 +887,7 @@ async def sync_to_table(
             tree_src = (
                 await db.execute(
                     select(Model.raw).where(
-                        cast(Model.raw, JSONB)["月份"].astext == cur_ym
+                        cast(Model.raw, JSONB)["month"].astext == cur_ym
                     )
                 )
             ).all()
