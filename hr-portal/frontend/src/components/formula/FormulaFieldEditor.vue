@@ -341,7 +341,7 @@ function shouldPrefixSpace(current: string, start: number, text: string) {
 }
 
 function displayFieldRef(field: ColumnInfo) {
-  return field.label || field.code
+  return `[${field.label || field.code}]`
 }
 
 function fieldCodeToLabel(code: string) {
@@ -350,7 +350,7 @@ function fieldCodeToLabel(code: string) {
 
 function internalFormulaToDisplay(formula: string) {
   return (formula || '').replace(/FIELD\(\s*["']([^"']+)["']\s*\)/gi, (_match, code: string) =>
-    fieldCodeToLabel(code)
+    `[${fieldCodeToLabel(code)}]`
   )
 }
 

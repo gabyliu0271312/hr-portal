@@ -210,6 +210,13 @@ def display_to_internal(formula: str, fields: list[FieldMeta]) -> str:
             by_tail_label[tail] = f.code
         lookup.setdefault(tail, f.code)
 
+    # 给 lookup 所有现有 key 补注册半角括号版本（含裸名），
+    # 兼容用户不加方括号、直接用半角括号写字段名：应发工资(含补偿金)
+    for key in list(lookup):
+        half = _normalize_brackets(key)
+        if half != key:
+            lookup.setdefault(half, lookup[key])
+
     # 方括号引用按「括号归一化」匹配：用户输入半角/全角括号都能命中
     # 含表别名前缀（salary.应发工资）和纯尾名（应发工资）两种写法
     norm_lookup: dict[str, str] = {}
@@ -232,7 +239,12 @@ def display_to_internal(formula: str, fields: list[FieldMeta]) -> str:
     out = _replace_formula_text(formula or "", DISPLAY_REF_RE, repl)
     for raw in sorted(lookup, key=len, reverse=True):
         code = lookup[raw]
-        pattern = re.compile(rf'(?<!["\w.（）()]){re.escape(raw)}(?!["\w.（）()])(?!\s*\()')
+        # 字段名本身含括号时，其后的 ) 是名字的一部分，不能当函数调用排除
+        has_bracket = any(b in raw for b in "（）()")
+        tail_guard = "" if has_bracket else r"(?!\s*\()"
+        pattern = re.compile(
+            rf'(?<!["\w.（）()]){re.escape(raw)}(?!["\w.（）()]){tail_guard}'
+        )
         out = _replace_formula_text(out, pattern, f'FIELD("{code}")')
     return out if out.startswith("=") else f"={out}"
 
