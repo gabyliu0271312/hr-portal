@@ -46,6 +46,7 @@ function sourceTypeLabel(code: string): string {
 
 // ===== 配置抽屉 =====
 const drawerOpen = ref(false)
+const activeTab = ref('pull')
 const editing = ref<DataSourceListItem | null>(null)
 const form = reactive<{
   source_type: string
@@ -354,9 +355,9 @@ onMounted(load)
       direction="rtl"
       size="600px"
     >
-      <el-tabs>
+      <el-tabs v-model="activeTab">
         <!-- Tab 1：拉取接口 -->
-        <el-tab-pane label="拉取接口">
+        <el-tab-pane label="拉取接口" name="pull">
           <el-form label-position="top">
             <el-form-item label="接入类型">
               <el-select v-model="form.source_type" style="width: 100%" @change="onTypeChange">
@@ -452,29 +453,29 @@ onMounted(load)
               {{ testResult.ok ? '✓' : '✕' }} {{ testResult.message }}
             </div>
           </el-form>
-
-          <template #footer>
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0">
-              <el-button link @click="openCopyDialog">
-                <el-icon style="margin-right: 4px"><CopyDocument /></el-icon>从其他表复制凭证
-              </el-button>
-              <div>
-                <el-button @click="drawerOpen = false">取消</el-button>
-                <el-button v-if="currentType?.testable" :loading="testing" @click="handleTest">
-                  测试连接
-                </el-button>
-                <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
-              </div>
-            </div>
-          </template>
         </el-tab-pane>
 
         <!-- Tab 2：推送接口 -->
-        <el-tab-pane label="推送接口">
+        <el-tab-pane label="推送接口" name="push">
           <PushTargetList v-if="editing" :source-table="editing.table_name" />
           <el-empty v-else description="请先选择一条接口配置" />
         </el-tab-pane>
       </el-tabs>
+
+      <template #footer>
+        <div v-if="activeTab === 'pull'" style="display: flex; justify-content: space-between; align-items: center">
+          <el-button link @click="openCopyDialog">
+            <el-icon style="margin-right: 4px"><CopyDocument /></el-icon>从其他表复制凭证
+          </el-button>
+          <div>
+            <el-button @click="drawerOpen = false">取消</el-button>
+            <el-button v-if="currentType?.testable" :loading="testing" @click="handleTest">
+              测试连接
+            </el-button>
+            <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+          </div>
+        </div>
+      </template>
     </el-drawer>
 
     <!-- ========= 复制凭证对话框 ========= -->
