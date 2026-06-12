@@ -310,10 +310,10 @@ async def push_db_expose(
     field_mappings: list[dict],
     db: AsyncSession,
 ) -> tuple[int, str]:
-    """在本地 PostgreSQL 创建只读账号并授权指定表，返回连接信息。"""
+    """在本地 PostgreSQL 的 finebi schema 中刷新中文列名物理表，创建只读账号并授权。"""
     import secrets as py_secrets
     import string
-    from sqlalchemy import text
+    from sqlalchemy import text, select as sa_select
     from app.core.config import settings as app_settings
 
     readonly_user = settings.get("readonly_user") or f"ro_{source_table}"[:30]
@@ -322,24 +322,57 @@ async def push_db_expose(
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
         password = "".join(py_secrets.choice(alphabet) for _ in range(20))
 
+    finebi_table = f"t_finebi_{source_table}"
+
+    # 1. 确保 finebi schema 存在
+    await db.execute(text("CREATE SCHEMA IF NOT EXISTS finebi"))
+
+    # 2. 读取字段元数据，构建中文列名物理表
+    cols = (
+        await db.execute(
+            sa_select(TableColumn)
+            .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
+            .order_by(TableColumn.display_order)
+        )
+    ).scalars().all()
+
+    if not cols:
+        raise RuntimeError(f"table_columns 中找不到表 {source_table} 的字段定义")
+
+    cols_def = ", ".join(f'"{c.column_label}" text' for c in cols)
+    cols_sel = ", ".join(f"raw->>{c.column_code!r}" for c in cols)
+
+    await db.execute(text(f'DROP TABLE IF EXISTS finebi."{finebi_table}"'))
+    await db.execute(text(
+        f'CREATE TABLE finebi."{finebi_table}" (id bigint, synced_at timestamptz, {cols_def})'
+    ))
+    await db.execute(text(
+        f'INSERT INTO finebi."{finebi_table}" SELECT id, synced_at, {cols_sel} FROM public."{source_table}"'
+    ))
+
+    # 3. 创建只读账号（不存在才建）
     await db.execute(text(
         f"DO $$ BEGIN "
         f"IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{readonly_user}') THEN "
         f"CREATE USER \"{readonly_user}\" WITH PASSWORD '{password}'; "
         f"END IF; END $$;"
     ))
-    await db.execute(text(f'GRANT CONNECT ON DATABASE "{app_settings.DB_NAME}" TO "{readonly_user}";'))
-    await db.execute(text(f'GRANT USAGE ON SCHEMA public TO "{readonly_user}";'))
-    await db.execute(text(f'GRANT SELECT ON "{source_table}" TO "{readonly_user}";'))
+    await db.execute(text(f'GRANT CONNECT ON DATABASE "{app_settings.DB_NAME}" TO "{readonly_user}"'))
+
+    # 4. 只授权 finebi schema 下这一张表，revoke public schema 访问
+    await db.execute(text(f'REVOKE ALL ON SCHEMA public FROM "{readonly_user}"'))
+    await db.execute(text(f'GRANT USAGE ON SCHEMA finebi TO "{readonly_user}"'))
+    await db.execute(text(f'GRANT SELECT ON finebi."{finebi_table}" TO "{readonly_user}"'))
+
     await db.commit()
 
     conn_url = (
         f"postgresql://{readonly_user}:{password}"
-        f"@{app_settings.DB_HOST}:{app_settings.DB_PORT}/{app_settings.DB_NAME}"
+        f"@127.0.0.1:{app_settings.DB_PORT}/{app_settings.DB_NAME}"
     )
 
+    # 5. 回写连接信息到 PushTarget
     from app.push.models import PushTarget
-    from sqlalchemy import select as sa_select
     pts = (await db.execute(
         sa_select(PushTarget).where(
             PushTarget.source_table == source_table,
@@ -355,19 +388,18 @@ async def push_db_expose(
         pts.settings = {
             **(pts.settings or {}),
             "readonly_user": readonly_user,
-            "host": app_settings.DB_HOST,
+            "host": "127.0.0.1",
             "port": app_settings.DB_PORT,
             "database": app_settings.DB_NAME,
+            "schema": "finebi",
             "conn_url": conn_url,
         }
-        if "ip_whitelist" not in pts.settings:
-            pts.settings["ip_whitelist"] = []
         flag_modified(pts, "secrets_encrypted")
         flag_modified(pts, "settings")
         await db.commit()
 
-    rows = (await db.execute(text(f'SELECT COUNT(*) FROM "{source_table}"'))).scalar_one()
-    return rows, f"只读账号已就绪：{readonly_user}  连接URL：{conn_url}"
+    rows = (await db.execute(text(f'SELECT COUNT(*) FROM finebi."{finebi_table}"'))).scalar_one()
+    return rows, f"FineBI 表已刷新：finebi.{finebi_table}，只读账号：{readonly_user}，连接：{conn_url}"
 
 
 # ===== 统一调度入口 =====
