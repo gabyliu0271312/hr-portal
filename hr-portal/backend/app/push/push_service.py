@@ -364,9 +364,14 @@ async def push_db_expose(
     ))
     await db.execute(text(f'GRANT CONNECT ON DATABASE "{app_settings.DB_NAME}" TO "{readonly_user}"'))
 
-    # 4. 只授权独立 schema，撤销 public 及旧共享 finebi schema 的访问
+    # 4. 只授权独立 schema，撤销 public 及旧共享 finebi schema 的访问（旧 schema 可能不存在）
     await db.execute(text(f'REVOKE ALL ON SCHEMA public FROM "{readonly_user}"'))
-    await db.execute(text(f'REVOKE ALL ON SCHEMA finebi FROM "{readonly_user}"'))
+    await db.execute(text(
+        f"DO $$ BEGIN "
+        f"IF EXISTS (SELECT FROM pg_namespace WHERE nspname = 'finebi') THEN "
+        f"REVOKE ALL ON SCHEMA finebi FROM \"{readonly_user}\"; "
+        f"END IF; END $$;"
+    ))
     await db.execute(text(f'GRANT USAGE ON SCHEMA "{schema_name}" TO "{readonly_user}"'))
     await db.execute(text(f'GRANT SELECT ON "{schema_name}"."{finebi_table}" TO "{readonly_user}"'))
 
