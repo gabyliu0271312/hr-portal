@@ -916,4 +916,23 @@ async def sync_to_table(
         await _sync_org_tree(rows or [], db)
 
     await db.commit()
+
+    # 同步完成后自动刷新该表关联的 db_expose finebi 物理表
+    try:
+        from app.push.models import PushTarget
+        from app.push.push_service import execute_push
+        from sqlalchemy import select as sa_select
+        pts = (await db.execute(
+            sa_select(PushTarget).where(
+                PushTarget.source_table == table_name,
+                PushTarget.push_type == "db_expose",
+                PushTarget.is_active.is_(True),
+            )
+        )).scalars().all()
+        for pt in pts:
+            await execute_push(pt.id, db)
+            await db.commit()
+    except Exception as e:
+        logger.warning("[sync] finebi 自动刷新失败 table=%s: %s", table_name, e)
+
     return inserted, f"成功同步 {inserted} 行"
