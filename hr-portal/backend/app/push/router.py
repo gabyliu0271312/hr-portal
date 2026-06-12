@@ -217,9 +217,16 @@ async def delete_push_target(
     pt_id: int,
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, bool]:
+    from sqlalchemy import text
     pt = await db.get(PushTarget, pt_id)
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
+
+    if pt.push_type == "db_expose":
+        readonly_user = (pt.settings or {}).get("readonly_user")
+        if readonly_user:
+            await db.execute(text(f'DROP USER IF EXISTS "{readonly_user}"'))
+
     await db.delete(pt)
     await db.commit()
     return {"ok": True}

@@ -316,7 +316,8 @@ async def push_db_expose(
     from sqlalchemy import text, select as sa_select
     from app.core.config import settings as app_settings
 
-    readonly_user = settings.get("readonly_user") or f"ro_{source_table}"[:30]
+    pt_id = settings.get("_pt_id", "")
+    readonly_user = settings.get("readonly_user") or f"ro_{source_table}_{pt_id}"[:63]
     password = secrets.get("readonly_password", "")
     if not password:
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
@@ -350,11 +351,13 @@ async def push_db_expose(
         f'INSERT INTO finebi."{finebi_table}" SELECT id, synced_at, {cols_sel} FROM public."{source_table}"'
     ))
 
-    # 3. 创建只读账号（不存在才建）
+    # 3. 创建或更新只读账号密码（始终同步，避免重建推送时密码不一致）
     await db.execute(text(
         f"DO $$ BEGIN "
         f"IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{readonly_user}') THEN "
         f"CREATE USER \"{readonly_user}\" WITH PASSWORD '{password}'; "
+        f"ELSE "
+        f"ALTER USER \"{readonly_user}\" WITH PASSWORD '{password}'; "
         f"END IF; END $$;"
     ))
     await db.execute(text(f'GRANT CONNECT ON DATABASE "{app_settings.DB_NAME}" TO "{readonly_user}"'))
@@ -436,6 +439,9 @@ async def execute_push(
     # period_ym 优先取调用方传入的，其次取配置里的
     if period_ym:
         settings["period_ym"] = period_ym
+
+    if pt.push_type == "db_expose":
+        settings.setdefault("_pt_id", pt.id)
 
     rows, message = await handler(
         pt.source_table, settings, secrets, pt.field_mappings or [], db
