@@ -457,7 +457,7 @@ onMounted(load)
 
         <!-- Tab 2：推送接口 -->
         <el-tab-pane label="推送接口" name="push">
-          <PushTargetList v-if="editing" :source-table="editing.table_name" />
+          <PushTargetList v-if="editing" :key="editing.id" :source-table="editing.table_name" />
           <el-empty v-else description="请先选择一条接口配置" />
         </el-tab-pane>
       </el-tabs>
