@@ -310,7 +310,7 @@ async def push_db_expose(
     field_mappings: list[dict],
     db: AsyncSession,
 ) -> tuple[int, str]:
-    """在本地 PostgreSQL 的 finebi schema 中刷新中文列名物理表，创建只读账号并授权。"""
+    """每张源表独立 schema（finebi_{source_table}），确保 FineBI 用户只能看到自己的表。"""
     import secrets as py_secrets
     import string
     from sqlalchemy import text, select as sa_select
@@ -323,10 +323,12 @@ async def push_db_expose(
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
         password = "".join(py_secrets.choice(alphabet) for _ in range(20))
 
-    finebi_table = f"t_finebi_{source_table}"
+    # 每张源表独立 schema，避免 FineBI 扫表时看到其他表
+    schema_name = f"finebi_{source_table}"
+    finebi_table = f"t_{source_table}"
 
-    # 1. 确保 finebi schema 存在
-    await db.execute(text("CREATE SCHEMA IF NOT EXISTS finebi"))
+    # 1. 确保独立 schema 存在
+    await db.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
 
     # 2. 读取字段元数据，构建中文列名物理表
     cols = (
@@ -343,12 +345,12 @@ async def push_db_expose(
     cols_def = ", ".join(f'"{c.column_label}" text' for c in cols)
     cols_sel = ", ".join(f"raw->>{c.column_code!r}" for c in cols)
 
-    await db.execute(text(f'DROP TABLE IF EXISTS finebi."{finebi_table}"'))
+    await db.execute(text(f'DROP TABLE IF EXISTS "{schema_name}"."{finebi_table}"'))
     await db.execute(text(
-        f'CREATE TABLE finebi."{finebi_table}" (id bigint, synced_at timestamptz, {cols_def})'
+        f'CREATE TABLE "{schema_name}"."{finebi_table}" (id bigint, synced_at timestamptz, {cols_def})'
     ))
     await db.execute(text(
-        f'INSERT INTO finebi."{finebi_table}" SELECT id, synced_at, {cols_sel} FROM public."{source_table}"'
+        f'INSERT INTO "{schema_name}"."{finebi_table}" SELECT id, synced_at, {cols_sel} FROM public."{source_table}"'
     ))
 
     # 3. 创建或更新只读账号密码（始终同步，避免重建推送时密码不一致）
@@ -362,10 +364,11 @@ async def push_db_expose(
     ))
     await db.execute(text(f'GRANT CONNECT ON DATABASE "{app_settings.DB_NAME}" TO "{readonly_user}"'))
 
-    # 4. 只授权 finebi schema 下这一张表，revoke public schema 访问
+    # 4. 只授权独立 schema，撤销 public 及旧共享 finebi schema 的访问
     await db.execute(text(f'REVOKE ALL ON SCHEMA public FROM "{readonly_user}"'))
-    await db.execute(text(f'GRANT USAGE ON SCHEMA finebi TO "{readonly_user}"'))
-    await db.execute(text(f'GRANT SELECT ON finebi."{finebi_table}" TO "{readonly_user}"'))
+    await db.execute(text(f'REVOKE ALL ON SCHEMA finebi FROM "{readonly_user}"'))
+    await db.execute(text(f'GRANT USAGE ON SCHEMA "{schema_name}" TO "{readonly_user}"'))
+    await db.execute(text(f'GRANT SELECT ON "{schema_name}"."{finebi_table}" TO "{readonly_user}"'))
 
     await db.commit()
 
@@ -374,14 +377,17 @@ async def push_db_expose(
         f"@127.0.0.1:{app_settings.DB_PORT}/{app_settings.DB_NAME}"
     )
 
-    # 5. 回写连接信息到 PushTarget
+    # 5. 回写连接信息到 PushTarget（按 pt_id 精确匹配，防止同表多推送目标写错行）
     from app.push.models import PushTarget
-    pts = (await db.execute(
-        sa_select(PushTarget).where(
-            PushTarget.source_table == source_table,
-            PushTarget.push_type == "db_expose",
-        )
-    )).scalars().first()
+    if pt_id:
+        pts = await db.get(PushTarget, int(pt_id))
+    else:
+        pts = (await db.execute(
+            sa_select(PushTarget).where(
+                PushTarget.source_table == source_table,
+                PushTarget.push_type == "db_expose",
+            )
+        )).scalars().first()
     if pts:
         from app.core.secret_box import encrypt
         from sqlalchemy.orm.attributes import flag_modified
@@ -394,15 +400,15 @@ async def push_db_expose(
             "host": "127.0.0.1",
             "port": app_settings.DB_PORT,
             "database": app_settings.DB_NAME,
-            "schema": "finebi",
+            "schema": schema_name,
             "conn_url": conn_url,
         }
         flag_modified(pts, "secrets_encrypted")
         flag_modified(pts, "settings")
         await db.commit()
 
-    rows = (await db.execute(text(f'SELECT COUNT(*) FROM finebi."{finebi_table}"'))).scalar_one()
-    return rows, f"FineBI 表已刷新：finebi.{finebi_table}，只读账号：{readonly_user}，连接：{conn_url}"
+    rows = (await db.execute(text(f'SELECT COUNT(*) FROM "{schema_name}"."{finebi_table}"'))).scalar_one()
+    return rows, f"FineBI 表已刷新：{schema_name}.{finebi_table}，只读账号：{readonly_user}，连接：{conn_url}"
 
 
 # ===== 统一调度入口 =====
