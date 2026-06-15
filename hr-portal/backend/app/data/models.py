@@ -1,12 +1,13 @@
-"""业务数据表 + 两棵树（C1 动态列扩展架构）
+"""业务数据表 + 两棵树（标准列动态扩展架构）
 
 设计原则：
-- 物理表只保留业务主键（schema 简洁）
-- 所有字段统一存到 raw JSONB
-- 字段元数据存到 table_columns（管理员可改名、改类型、标记敏感、调整顺序）
+- 业务字段以标准列存储，类型由数据库 schema 保证（不再用 raw JSONB）
+- 字段元数据存到 table_columns（管理员可改标签、类型、顺序、敏感标记等）
 - 业务主键由 table_columns 中 is_pk_part=true 的字段决定（动态主键）
-
-迁移时一律 DROP & CREATE，因为字段语义已变。
+- 同步时新增字段 → 自动 ALTER TABLE ADD COLUMN（默认 text）+ 写 table_columns
+- 管理员在前端改字段类型 → 后端执行 ALTER COLUMN TYPE（需人工确认数据合规）
+- 管理员删字段 → ALTER TABLE DROP COLUMN（二次确认，数据不可恢复）
+- 同步时字段消失 → 保留历史列，不自动删除
 """
 from datetime import datetime
 

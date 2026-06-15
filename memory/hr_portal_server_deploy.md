@@ -89,15 +89,59 @@ docker compose logs frontend | tail -30
   2. backend 注入 `SECRET_BOX_KEY: ${SECRET_BOX_KEY:-}`
   3. frontend 端口 `37801:80`
 
-## 6. FineBI 连数据库(已打通)
+## 6. FineBI 连数据库(已打通,架构已升级)
 
 需求:FineBI(同在本机)连 HR 数据库做报表。**最安全方案 = 同机 127.0.0.1 回环,不对外开 5432。**
 
-- 只读账号:用系统 UI 生成(系统设置→接口配置→员工月度工资表→配置→推送接口→"暴露只读数据库账号")。
-  - 系统自动建 `ro_emp_monthly_salary`、`GRANT SELECT`、密码加密存库。
-  - ⚠️ 系统生成的连接串 host 是容器名 `db`,**对 FineBI 无效,要改成 `127.0.0.1`**。
-  - ⚠️ UI 上的「IP 白名单」字段**后端未实现,不生效**,别依赖它做安全;真正隔离靠 127.0.0.1 回环。
-- FineBI 数据源填法:PostgreSQL / host `127.0.0.1` / 端口 `5432` / 库 `hr_portal` / 用户 `ro_emp_monthly_salary` / 密码见 UI"显示"。
+### 6.1 架构设计
+
+每张源表对应一套独立隔离：
+- **独立 schema**：`finebi_{source_table}`（如 `finebi_emp_monthly_salary`、`finebi_emp_realtime_roster`）
+- **独立只读账号**：`ro_{source_table}_{pt_id}`（如 `ro_emp_monthly_salary_3`）
+- **物理表**：`finebi_{source_table}.t_{source_table}`（中文列名，由 `table_columns.column_label` 构建）
+- 每个账号只有自己 schema 的 USAGE 权限 + 自己那张表的 SELECT —— FineBI 里只能看到自己的表
+
+> **为什么不用 VIEW，不用共享 schema？** FineBI 走 `pg_catalog` 扫表，会列出该 schema 下所有表（不管有没有 SELECT 权限）。共享 schema 时，账号 A 会看到账号 B 的表（只是不能查）。独立 schema 彻底解决跨表可见问题。
+
+### 6.2 配置步骤（新增一张表进 FineBI）
+
+1. 系统设置 → 接口配置 → 找到目标数据源 → 配置 → 推送接口 tab → 新建「暴露只读数据库账号」类型推送目标
+2. 点「立即推送」 → 系统自动：建 schema、建物理表（中文列名）、建 PG 只读账号、写回连接信息
+3. 推送成功后，进 FineBI 新建 PostgreSQL 数据连接：
+   - host：`127.0.0.1`
+   - 端口：`5432`
+   - 库：`hr_portal`
+   - 用户名：见 HR 系统推送目标的连接信息（`readonly_user` 字段）
+   - 密码：见 HR 系统「显示密码」
+   - **模式：`finebi_{source_table}`**（如 `finebi_emp_monthly_salary`）
+4. FineBI 刷新后可见物理表 `t_{source_table}`，列名全为中文
+
+### 6.3 数据同步
+
+- HR 系统每次拉取落库后，**自动触发 FineBI 物理表刷新**（`sync_service.py` 里 sync 后自动调 `execute_push`），无需手动推送
+- 手动触发：HR 系统 → 推送接口 → 「立即推送」
+
+### 6.4 账号生命周期
+
+- 新建推送目标 → 自动建 PG 账号
+- 删除推送目标 → 自动 `DROP USER`，FineBI 连接立即失效
+- 账号密码加密存库；重建推送目标时密码会更新（用 `ALTER USER ... WITH PASSWORD`），需同步更新 FineBI 连接密码
+
+### 6.5 已知问题 / 注意事项
+
+- ⚠️ FineBI 连接里的 host 填 `127.0.0.1`（不是容器名 `db`）
+- ⚠️ IP 白名单字段在 UI 上有但后端未实现，不生效
+- 旧共享 `finebi` schema（之前调试时手动建的）可以清理：
+
+  ```bash
+  docker exec hr-portal-db psql -U hr_portal -d hr_portal -c "DROP SCHEMA IF EXISTS finebi CASCADE;"
+  ```
+
+- 旧账号 `ro_emp_monthly_salary`（无 `_id` 后缀，调试时手动建的）可以清理：
+
+  ```bash
+  docker exec hr-portal-db psql -U hr_portal -d hr_portal -c "DROP USER IF EXISTS ro_emp_monthly_salary;"
+  ```
 
 ## 7. 安全状态与待办
 

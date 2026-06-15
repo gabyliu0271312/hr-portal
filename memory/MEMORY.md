@@ -18,6 +18,7 @@
 - [报表组件架构决策](./hr_portal_report_component_architecture.md) — 报表管理与成本分摊共享 10 个组件库；成本分摊多 ArchiveSection；改共享组件两边同步，改页面文件只影响各自模块
 - [两棵树构建规则](./hr_portal_tree_build.md) — cost_center_tree 来自月度维护表 + 业务层级Id；org_tree 来自实时花名册 + 7 层冗余字段（含虚拟根「创梦天地」）
 - [服务器部署手册](./hr_portal_server_deploy.md) — 192.168.10.13 生产部署全记录；三大坑(端口白名单找IT开/拉镜像被墙换国内源/base镜像复用)；前端 37801 对外、db 仅 127.0.0.1；FineBI 同机回环连库；更新/重启/排障命令
+- [数据源重构方案（JSONB→标准列）](./hr_portal_datasource_refactor.md) — 待实施；解决 FineBI 数值无法聚合根本问题；改动 models/sync/push/router 四处；字段类型改动策略：新增直接生效，已有字段改类型需人工确认
 - [Codegen 命名机制](./hr_portal_codegen_naming.md) — 表名/字段 code 三层定名：同中文label复用→AI翻译→规则兜底；建表与同步共用 codegen/service.py；改命名问题先看这条
 - [数据范围标签新版语义](./hr_portal_scopes_design.md) — 组织范围+人员范围两段式（alembic 0009）；单标签内 AND、多标签 OR；filters 字段映射花名册.姓名/员工类型/公司名称
 - [AI 原生开发原则](../specs/004-ai-native-workbench/ai-native-development-principles.md) — HR 工作台根原则：所有新能力都要具备被 AI 理解、调用、校验、审计和确认的准备
