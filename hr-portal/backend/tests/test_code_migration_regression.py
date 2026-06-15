@@ -11,15 +11,15 @@ from app.datasources.sync_service import _strip_uuid_columns
 def test_strip_removes_beisen_helper_columns_keeps_english_codes():
     rows = [{
         "employee_no": "106596",          # 业务字段(已翻译英文)→ 保留
-        "name": "张三",
-        "_org_node_code": "L7_abc",        # 系统注入列 → 保留
+        "full_name": "张三",
+        "org_node_code": "L7_abc",         # 系统注入列 → 保留
         "44e5cebb-e2fa-4b69-b0cc-8f4d20167d9f": "x",        # 纯UUID → 删
         "1b725de4-7e51-4888-ab05-dc435bb511f8_original": "2024/9/18",  # UUID_original → 删
         "corehr_employeeinformation_extzhongwenming_609153_78242362_id": "蔡宇",  # 内部id → 删
         "corehr_employmentrecord_extbu_609153_555150448_alias": "创梦天地",       # 内部alias → 删
     }]
     _strip_uuid_columns(rows)
-    assert set(rows[0].keys()) == {"employee_no", "name", "_org_node_code"}
+    assert set(rows[0].keys()) == {"employee_no", "full_name", "org_node_code"}
 
 
 def test_strip_keeps_pure_business_rows_untouched():

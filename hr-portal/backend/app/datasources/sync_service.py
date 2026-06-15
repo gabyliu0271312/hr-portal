@@ -128,8 +128,8 @@ def _prev_ym(ym: str) -> str:
 _UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
-# 北森辅助列形态：xxx_数字_id / xxx_数字_alias / 任意_original / 任意_alias 结尾
-_HELPER_COL_RE = re.compile(r"(_\d{4,}_(id|alias)|_original|_alias)$", re.IGNORECASE)
+# 北森辅助列形态：xxx_数字_id / xxx_数字_数字_id / xxx_alias / xxx_original 结尾
+_HELPER_COL_RE = re.compile(r"(_\d{4,}(?:_\d+)*_(id|alias)|_original|_alias)$", re.IGNORECASE)
 
 
 def _strip_uuid_columns(rows: list[dict]) -> None:
@@ -1019,7 +1019,7 @@ def _first(d: dict, *keys, default=None):
 
 
 def _inject_org_node_code(row: dict) -> None:
-    """给员工行注入 `_org_node_code`：员工所在最深层级对应的 org_tree.code"""
+    """给员工行注入 `org_node_code`：员工所在最深层级对应的 org_tree.code"""
     root_name = app_settings.ORG_ROOT_NAME
     path_names = [root_name]
     deepest_level = 1
@@ -1029,7 +1029,7 @@ def _inject_org_node_code(row: dict) -> None:
             break
         path_names.append(str(v).strip())
         deepest_level = level
-    row["_org_node_code"] = _org_node_code(deepest_level, path_names)
+    row["org_node_code"] = _org_node_code(deepest_level, path_names)
 
 
 def _inject_scope_codes(table_name: str, rows: list[dict]) -> None:

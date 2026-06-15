@@ -9,14 +9,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import cast, desc, func, or_, select
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import String, cast, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
-from app.data.models import EmpRealtimeRoster
+from app.data.models import DATA_TABLES
 from app.permissions.masker import get_sensitive_columns
 from app.permissions.scope_filter import build_scope_filter, is_unrestricted
 from app.tools import agreement as agreement_svc
@@ -173,37 +172,86 @@ class EditableDraftIn(BaseModel):
     manually_adjusted: bool = False
 
 
-_SEARCH_FIELDS = ["employee_no", "name", "english_name"]
+_SEARCH_FIELDS = ["employee_no", "full_name", "chinese_name", "english_name"]
 _REGION_FIELDS = ["work_location"]
 _DEPT_FIELDS = ["department_5", "department_4", "department_3", "department_2", "department", "company_org"]
+_ROSTER_TABLE = "emp_realtime_roster"
 
 
-def _raw_text(col_code: str):
-    return func.jsonb_extract_path_text(cast(EmpRealtimeRoster.raw, JSONB), col_code)
+def _employee_model():
+    model = DATA_TABLES.get(_ROSTER_TABLE)
+    if model is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="员工实时花名册未注册")
+    if "raw" in model.__table__.columns:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="员工实时花名册仍是 raw JSON 结构，请先重建为实体表",
+        )
+    return model
 
 
-def _first(raw: dict[str, Any], *keys: str) -> str | None:
+def _entity_column(model, col_code: str):
+    if col_code not in model.__table__.columns:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"员工实时花名册缺少实体列: {col_code}",
+        )
+    return model.__table__.c[col_code]
+
+
+def _entity_text(model, col_code: str):
+    return cast(_entity_column(model, col_code), String)
+
+
+def _row_value(row: Any, key: str) -> Any:
+    if not hasattr(row, key):
+        return None
+    return getattr(row, key)
+
+
+def _first(values: dict[str, Any], *keys: str) -> str | None:
     for key in keys:
-        value = raw.get(key)
+        value = values.get(key)
         if value not in (None, ""):
             return str(value).strip()
     return None
 
 
-def _to_candidate(row: EmpRealtimeRoster) -> EmployeeCandidate:
-    raw = row.raw or {}
+def _employee_values(row: Any) -> dict[str, Any]:
+    needed = {
+        "employee_no",
+        "full_name",
+        "chinese_name",
+        "english_name",
+        "company_name",
+        "employee_status",
+        "hire_date",
+        "terminated_date",
+        "base_salary",
+        "id_number",
+        "position",
+        "standard_position",
+        "target_year_end_bonus",
+        *_REGION_FIELDS,
+        *_DEPT_FIELDS,
+    }
+    return {key: _row_value(row, key) for key in needed}
+
+
+def _to_candidate(row: Any) -> EmployeeCandidate:
+    values = _employee_values(row)
     return EmployeeCandidate(
         id=row.id,
-        employee_no=_first(raw, "employee_no"),
-        name=_first(raw, "name"),
-        chinese_name=_first(raw, "name"),
-        english_name=_first(raw, "english_name"),
-        company=_first(raw, "company_name"),
-        department=_first(raw, *_DEPT_FIELDS),
-        work_region=_first(raw, *_REGION_FIELDS),
-        employment_status=_first(raw, "employee_status"),
-        hire_date=_first(raw, "hire_date"),
-        leave_date=_first(raw, "terminated_date"),
+        employee_no=_first(values, "employee_no"),
+        name=_first(values, "full_name"),
+        chinese_name=_first(values, "chinese_name"),
+        english_name=_first(values, "english_name"),
+        company=_first(values, "company_name"),
+        department=_first(values, *_DEPT_FIELDS),
+        work_region=_first(values, *_REGION_FIELDS),
+        employment_status=_first(values, "employee_status"),
+        hire_date=_first(values, "hire_date"),
+        leave_date=_first(values, "terminated_date"),
     )
 
 
@@ -894,12 +942,13 @@ async def search_compensation_employees(
     db: AsyncSession = Depends(get_session),
 ) -> list[EmployeeCandidate]:
     kw = keyword.strip()
-    stmt = select(EmpRealtimeRoster)
-    scope_clause = await build_scope_filter(user, "emp_realtime_roster", db)
+    Employee = _employee_model()
+    stmt = select(Employee)
+    scope_clause = await build_scope_filter(user, _ROSTER_TABLE, db)
     if not is_unrestricted(scope_clause):
         stmt = stmt.where(scope_clause)
-    stmt = stmt.where(or_(*[_raw_text(f).ilike(f"%{kw}%") for f in _SEARCH_FIELDS]))
-    stmt = stmt.order_by(desc(EmpRealtimeRoster.synced_at), desc(EmpRealtimeRoster.id)).limit(limit)
+    stmt = stmt.where(or_(*[_entity_text(Employee, f).ilike(f"%{kw}%") for f in _SEARCH_FIELDS]))
+    stmt = stmt.order_by(desc(Employee.synced_at), desc(Employee.id)).limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
     return [_to_candidate(r) for r in rows]
 
@@ -914,7 +963,7 @@ async def calculate_compensation(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> CompensationCalcOut:
-    result, _raw = await _calc_core(payload, user, db)
+    result, _employee_values = await _calc_core(payload, user, db)
     return result
 
 
@@ -930,30 +979,31 @@ async def _calc_core(
     # Phase D 统一裁决：补偿金计算工具在薪酬白名单内时，无薪酬权限的 HRBP 也可使用基本工资。
     # 仅当该字段对「补偿金工具」仍不可用（既无分类权限、工具又不在白名单）才拒绝。
     from app.permissions.masker import get_hidden_columns
-    hidden = await get_hidden_columns(user, "emp_realtime_roster", db, tool_key="compensation_calc")
+    hidden = await get_hidden_columns(user, _ROSTER_TABLE, db, tool_key="compensation_calc")
     if "基本工资" in hidden:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="无权限使用基本工资计算补偿金（请将补偿金计算加入薪酬分类的授权工具白名单）",
         )
 
-    stmt = select(EmpRealtimeRoster).where(EmpRealtimeRoster.id == payload.employee_id)
-    scope_clause = await build_scope_filter(user, "emp_realtime_roster", db)
+    Employee = _employee_model()
+    stmt = select(Employee).where(Employee.id == payload.employee_id)
+    scope_clause = await build_scope_filter(user, _ROSTER_TABLE, db)
     if not is_unrestricted(scope_clause):
         stmt = stmt.where(scope_clause)
     row = (await db.execute(stmt.limit(1))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="员工不存在或无数据权限")
 
-    raw = row.raw or {}
+    values = _employee_values(row)
     candidate = _to_candidate(row)
-    hire_date = _parse_date(_first(raw, "hire_date"), "入职日期")
-    leave_date = payload.leave_date or _parse_date(_first(raw, "terminated_date"), "离职日期")
+    hire_date = _parse_date(_first(values, "hire_date"), "入职日期")
+    leave_date = payload.leave_date or _parse_date(_first(values, "terminated_date"), "离职日期")
     region = (payload.region or candidate.work_region or "").strip()
     if not region:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="花名册未识别到工作地，请先补充工作地字段或手动选择地区")
 
-    basic_salary = _parse_money(_first(raw, "base_salary"), "基本工资")
+    basic_salary = _parse_money(_first(values, "base_salary"), "基本工资")
     cap = await _get_matching_cap(region, leave_date, db)
     cap_amount = Decimal(str(cap.cap_amount))
     compensation_base = min(basic_salary, cap_amount)
@@ -977,7 +1027,7 @@ async def _calc_core(
         total_amount=float(total_amount),
         cap_rule_id=cap.id,
     )
-    return result, raw
+    return result, values
 
 
 # ============ 分期规则配置 ============
@@ -1123,7 +1173,7 @@ async def prepare_agreement(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> AgreementData:
-    calc, raw = await _calc_core(
+    calc, employee_values = await _calc_core(
         CompensationCalcIn(
             employee_id=payload.employee_id,
             leave_date=payload.leave_date,
@@ -1145,9 +1195,9 @@ async def prepare_agreement(
     return AgreementData(
         template_code=template.code,
         template_name=template.name,
-        company=_first(raw, "company_name") or "",
+        company=_first(employee_values, "company_name") or "",
         name=calc.employee.chinese_name or calc.employee.name or "",
-        id_card=_first(raw, "id_number") or "",
+        id_card=_first(employee_values, "id_number") or "",
         dissolve_date=leave_date,
         last_work_date=leave_date,
         social_security_month=f"{leave_date.year}年{leave_date.month}月",
@@ -1361,15 +1411,16 @@ async def _income_certificate_template(db: AsyncSession, code: str | None = None
         raise
 
 
-async def _get_employee_raw_for_tool(employee_id: int, user: User, db: AsyncSession) -> dict[str, Any]:
-    stmt = select(EmpRealtimeRoster).where(EmpRealtimeRoster.id == employee_id)
-    scope_clause = await build_scope_filter(user, "emp_realtime_roster", db)
+async def _get_employee_values_for_tool(employee_id: int, user: User, db: AsyncSession) -> dict[str, Any]:
+    Employee = _employee_model()
+    stmt = select(Employee).where(Employee.id == employee_id)
+    scope_clause = await build_scope_filter(user, _ROSTER_TABLE, db)
     if not is_unrestricted(scope_clause):
         stmt = stmt.where(scope_clause)
     row = (await db.execute(stmt.limit(1))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="员工不存在或无数据权限")
-    return row.raw or {}
+    return _employee_values(row)
 
 
 @router.get(
@@ -1416,12 +1467,13 @@ async def search_income_certificate_employees(
     db: AsyncSession = Depends(get_session),
 ) -> list[EmployeeCandidate]:
     kw = keyword.strip()
-    stmt = select(EmpRealtimeRoster)
-    scope_clause = await build_scope_filter(user, "emp_realtime_roster", db)
+    Employee = _employee_model()
+    stmt = select(Employee)
+    scope_clause = await build_scope_filter(user, _ROSTER_TABLE, db)
     if not is_unrestricted(scope_clause):
         stmt = stmt.where(scope_clause)
-    stmt = stmt.where(or_(*[_raw_text(f).ilike(f"%{kw}%") for f in _SEARCH_FIELDS]))
-    stmt = stmt.order_by(desc(EmpRealtimeRoster.synced_at), desc(EmpRealtimeRoster.id)).limit(limit)
+    stmt = stmt.where(or_(*[_entity_text(Employee, f).ilike(f"%{kw}%") for f in _SEARCH_FIELDS]))
+    stmt = stmt.order_by(desc(Employee.synced_at), desc(Employee.id)).limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
     return [_to_candidate(r) for r in rows]
 
@@ -1437,30 +1489,30 @@ async def prepare_income_certificate(
     db: AsyncSession = Depends(get_session),
 ) -> IncomeCertificateData:
     template = await _income_certificate_template(db, payload.template_code)
-    raw = await _get_employee_raw_for_tool(payload.employee_id, user, db)
+    employee_values = await _get_employee_values_for_tool(payload.employee_id, user, db)
     # Phase D 统一裁决：证明开具工具在薪酬白名单内时，无薪酬权限者也可出具带工资的证明。
     from app.permissions.masker import get_hidden_columns
-    hidden = await get_hidden_columns(user, "emp_realtime_roster", db, tool_key="income_certificate")
+    hidden = await get_hidden_columns(user, _ROSTER_TABLE, db, tool_key="income_certificate")
     if "基本工资" in hidden:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="无权限使用工资开具收入证明（请将证明开具加入薪酬分类的授权工具白名单）",
         )
-    hire_date = _parse_date(_first(raw, "hire_date"), "入职日期")
-    raw_leave = _first(raw, "terminated_date")
+    hire_date = _parse_date(_first(employee_values, "hire_date"), "入职日期")
+    raw_leave = _first(employee_values, "terminated_date")
     leave_date = payload.leave_date or (_parse_date(raw_leave, "离职日期") if raw_leave else None)
-    basic_salary = _parse_money(_first(raw, "base_salary"), "基本工资")
-    target_bonus_raw = _first(raw, "target_year_end_bonus")
+    basic_salary = _parse_money(_first(employee_values, "base_salary"), "基本工资")
+    target_bonus_raw = _first(employee_values, "target_year_end_bonus")
     target_bonus = _parse_money(target_bonus_raw, "目标年终奖") if target_bonus_raw not in (None, "") else Decimal("0")
     annual_package = _money(basic_salary * Decimal("12") + target_bonus)
 
     result = IncomeCertificateData(
         template_code=template.code,
         template_name=template.name,
-        company=_first(raw, "company_name") or "",
-        name=_first(raw, "name") or "",
-        id_card=_first(raw, "id_number") or "",
-        position=_first(raw, "position", "standard_position") or "",
+        company=_first(employee_values, "company_name") or "",
+        name=_first(employee_values, "full_name") or "",
+        id_card=_first(employee_values, "id_number") or "",
+        position=_first(employee_values, "position", "standard_position") or "",
         hire_date=hire_date,
         leave_date=leave_date,
         leave_date_text=f"{leave_date.year}年{leave_date.month}月{leave_date.day}日" if leave_date else "至今",

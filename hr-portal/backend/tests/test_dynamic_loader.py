@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 from sqlalchemy import BigInteger, Column, MetaData, Numeric, String, Table
 
+import app.data.dynamic_loader as dynamic_loader
 from app.data.dynamic_loader import (
-    _make_dynamic_model,
     _make_model_from_table,
     register_period_table,
     register_source_table_model,
@@ -13,13 +13,8 @@ from app.data.models import DATA_TABLES
 from app.datasources.sync_service import PERIOD_TABLES
 
 
-def test_make_dynamic_model_keeps_legacy_raw_schema_for_transition():
-    model = _make_dynamic_model("tmp_legacy_raw_table")
-
-    assert "raw" in model.__table__.columns
-    assert "id" in model.__table__.columns
-    assert "pk_hash" in model.__table__.columns
-    assert "synced_at" in model.__table__.columns
+def test_dynamic_loader_no_longer_exposes_legacy_raw_fallback():
+    assert not hasattr(dynamic_loader, "_make_dynamic_model")
 
 
 def test_make_model_from_reflected_table_exposes_entity_columns():

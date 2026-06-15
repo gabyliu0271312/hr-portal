@@ -1,7 +1,7 @@
 {
   "emp_realtime_roster": {
     "工号": "employee_no",
-    "姓名（中文名）": "name",
+    "姓名（中文名）": "chinese_name",
     "英文名": "english_name",
     "入职日期": "hire_date",
     "离职日期": "terminated_date",
@@ -29,7 +29,7 @@
     "目标年终奖": "target_year_end_bonus",
     "币种": "currency",
     "证件号码": "id_number",
-    "姓名": "name_2",
+    "姓名": "full_name",
     "_org_node_code": "org_node_code",
     "工作地": "work_location"
   },
@@ -37,7 +37,7 @@
     "费用类型": "expense_type",
     "发薪月份": "pay_month",
     "工号": "employee_no",
-    "姓名": "name",
+    "姓名": "full_name",
     "英文名": "english_name",
     "甲方": "client",
     "公司级组织": "company_org",

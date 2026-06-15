@@ -32,7 +32,7 @@ BEISEN_TABLES = ["emp_realtime_roster", "emp_monthly_salary", "emp_monthly_alloc
 INTERNAL_TABLES = ["emp_monthly_cost_result"]
 
 CANONICAL = {
-    "工号": "employee_no", "姓名": "name", "姓名（中文名）": "name", "英文名": "english_name",
+    "工号": "employee_no", "姓名": "full_name", "姓名（中文名）": "chinese_name", "英文名": "english_name",
     "月份": "month", "发薪月份": "pay_month", "成本归属年月": "cost_period",
     "甲方": "client", "费用类型": "expense_type", "编码": "code", "名称": "name",
     "生效日期": "effective_date", "岗位工资": "position_salary", "基本工资": "base_salary",

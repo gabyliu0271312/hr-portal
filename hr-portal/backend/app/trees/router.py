@@ -6,16 +6,15 @@
 - GET /trees/employment-entity  用工主体 distinct 值
 - GET /trees/persons            人员姓名 distinct 值（支持 keyword 搜索）
 """
-from typing import Any
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any
 
 from app.core.db import get_session
 from app.core.deps import current_user
-from app.data.models import CostCenterNode, EmpRealtimeRoster, OrgNode
+from app.data.models import CostCenterNode, DATA_TABLES, OrgNode
 from app.users.models import User
 
 
@@ -97,26 +96,45 @@ class DistinctValueOut(BaseModel):
     total_count: int
 
 
-async def _distinct_values_by_field(
-    field: str, include_inactive: bool, db: AsyncSession
+_ROSTER_TABLE = "emp_realtime_roster"
+_STATUS_COL = "employee_status"
+
+
+def _roster_model():
+    model = DATA_TABLES.get(_ROSTER_TABLE)
+    if model is None:
+        raise RuntimeError("员工实时花名册未注册，请先完成实体表反射加载")
+    if "raw" in model.__table__.columns:
+        raise RuntimeError("员工实时花名册仍是 raw JSON 结构，请先重建为实体表")
+    return model
+
+
+def _entity_column(model, column_code: str):
+    if column_code not in model.__table__.columns:
+        raise RuntimeError(f"员工实时花名册缺少实体列: {column_code}")
+    return model.__table__.c[column_code]
+
+
+async def _distinct_values_by_column(
+    column_code: str, include_inactive: bool, db: AsyncSession
 ) -> list[DistinctValueOut]:
-    """通用 distinct 查询：从 emp_realtime_roster.raw 取某字段的 distinct 值
+    """通用 distinct 查询：从 emp_realtime_roster 实体列取某字段的 distinct 值
 
     - include_inactive=False（默认）：只返回 active_count > 0 的值
     - 按 active 倒序、value 升序
     """
-    sql = text(
-        """
-        SELECT raw->>:field AS value,
-               COUNT(*) FILTER (WHERE raw->>'人员状态' != '离职') AS active_count,
-               COUNT(*) AS total_count
-        FROM emp_realtime_roster
-        WHERE raw->>:field IS NOT NULL AND raw->>:field != ''
-        GROUP BY raw->>:field
-        ORDER BY active_count DESC, value ASC
-        """
+    model = _roster_model()
+    value_expr = cast(_entity_column(model, column_code), String)
+    status_expr = cast(_entity_column(model, _STATUS_COL), String)
+    active_count = func.count().filter(status_expr != "离职").label("active_count")
+    total_count = func.count().label("total_count")
+    stmt = (
+        select(value_expr.label("value"), active_count, total_count)
+        .where(value_expr.is_not(None), value_expr != "")
+        .group_by(value_expr)
+        .order_by(active_count.desc(), value_expr.asc())
     )
-    rows = (await db.execute(sql, {"field": field})).all()
+    rows = (await db.execute(stmt)).all()
     out: list[DistinctValueOut] = []
     for value, active_count, total_count in rows:
         if not include_inactive and active_count == 0:
@@ -135,8 +153,8 @@ async def get_employment_types(
     _: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[DistinctValueOut]:
-    """用工类型 distinct 值（来源：emp_realtime_roster.员工类型）"""
-    return await _distinct_values_by_field("员工类型", include_inactive, db)
+    """用工类型 distinct 值（来源：emp_realtime_roster.employee_type）"""
+    return await _distinct_values_by_column("employee_type", include_inactive, db)
 
 
 @router.get("/employment-entity", response_model=list[DistinctValueOut])
@@ -145,8 +163,8 @@ async def get_employment_entities(
     _: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[DistinctValueOut]:
-    """用工主体 distinct 值（来源：emp_realtime_roster.公司名称）"""
-    return await _distinct_values_by_field("公司名称", include_inactive, db)
+    """用工主体 distinct 值（来源：emp_realtime_roster.company_name）"""
+    return await _distinct_values_by_column("company_name", include_inactive, db)
 
 
 class PersonOut(BaseModel):
@@ -164,7 +182,7 @@ async def get_persons(
     _: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[PersonOut]:
-    """人员姓名 distinct 值（来源：emp_realtime_roster.姓名）
+    """人员姓名 distinct 值（来源：emp_realtime_roster.full_name）
 
     支持远程搜索：keyword 同时匹配姓名 / 公司级组织
     默认只返回在职人员；勾选 include_inactive 含离职
@@ -172,24 +190,24 @@ async def get_persons(
     limit = max(1, min(limit, 500))
     kw = f"%{keyword.strip()}%" if keyword and keyword.strip() else None
 
-    base = """
-        SELECT raw->>'姓名' AS value,
-               raw->>'公司级组织' AS department,
-               bool_or(raw->>'人员状态' != '离职') AS active
-        FROM emp_realtime_roster
-        WHERE raw->>'姓名' IS NOT NULL AND raw->>'姓名' != ''
-    """
+    model = _roster_model()
+    name_expr = cast(_entity_column(model, "full_name"), String)
+    department_expr = cast(_entity_column(model, "company_org"), String)
+    status_expr = cast(_entity_column(model, _STATUS_COL), String)
+    active_expr = func.bool_or(status_expr != "离职").label("active")
+    stmt = (
+        select(name_expr.label("value"), department_expr.label("department"), active_expr)
+        .where(name_expr.is_not(None), name_expr != "")
+        .group_by(name_expr, department_expr)
+        .order_by(active_expr.desc(), name_expr.asc())
+        .limit(limit)
+    )
     if not include_inactive:
-        base += " AND raw->>'人员状态' != '离职'"
+        stmt = stmt.where(status_expr != "离职")
     if kw:
-        base += " AND (raw->>'姓名' ILIKE :kw OR raw->>'公司级组织' ILIKE :kw)"
-    base += " GROUP BY raw->>'姓名', raw->>'公司级组织' ORDER BY active DESC, value ASC LIMIT :limit"
+        stmt = stmt.where(name_expr.ilike(kw) | department_expr.ilike(kw))
 
-    params: dict[str, Any] = {"limit": limit}
-    if kw:
-        params["kw"] = kw
-
-    rows = (await db.execute(text(base), params)).all()
+    rows = (await db.execute(stmt)).all()
     return [
         PersonOut(value=v, label=v, department=dep, active=bool(act))
         for v, dep, act in rows

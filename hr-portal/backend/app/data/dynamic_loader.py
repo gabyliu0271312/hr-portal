@@ -3,17 +3,15 @@
 启动时从 registered_tables 读取业务表注册信息，按数据库真实 schema
 反射 SQLAlchemy 模型并注入 DATA_TABLES / PERIOD_TABLES。
 
-阶段 2 仍保留 _make_dynamic_model 作为旧 raw JSON 表的兼容函数；新路径
-应优先使用 register_source_table_model / load_dynamic_tables。
+业务表不再有静态 raw JSON ORM fallback；运行时注册表只能来自真实
+数据库表反射。
 """
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, JSON, MetaData, String, Table, UniqueConstraint
-from sqlalchemy.exc import NoSuchTableError
-from sqlalchemy.orm import mapped_column
+from sqlalchemy import MetaData, Table
 from sqlalchemy.sql import func, select
 
 from app.core.db import Base
@@ -108,28 +106,6 @@ def register_period_table(rt: "RegisteredTable", *, overwrite: bool = False) -> 
     }
 
 
-def _make_dynamic_model(table_name: str):
-    """动态创建旧 raw JSON schema 的 SQLAlchemy 模型。
-
-    仅用于阶段 2 过渡兼容；实体表路径应使用反射模型。
-    """
-    validate_table_name(table_name)
-
-    attrs = {
-        "__module__": __name__,
-        "__tablename__": table_name,
-        "__table_args__": (UniqueConstraint("pk_hash", name=f"uq_{table_name}_pk"),),
-        "id": mapped_column(BigInteger, primary_key=True),
-        "pk_hash": mapped_column(String(64), nullable=False, index=True),
-        "raw": mapped_column(JSON, nullable=False, default=dict),
-        "synced_at": mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False),
-    }
-
-    # 动态创建类，继承 Base 实现完整 ORM 支持
-    model = type(table_name, (Base,), attrs)
-    return model
-
-
 async def load_dynamic_tables(db: "AsyncSession") -> None:
     """从 registered_tables 加载业务表，注入 DATA_TABLES / PERIOD_TABLES。"""
     from app.data.models import DATA_TABLES, RegisteredTable
@@ -145,14 +121,5 @@ async def load_dynamic_tables(db: "AsyncSession") -> None:
     ).scalars().all()
 
     for rt in rows:
-        try:
-            await register_source_table_model(db, rt.table_name, force=True)
-        except NoSuchTableError:
-            if rt.table_name in DATA_TABLES:
-                logger.warning(
-                    "[dynamic-tables] physical table missing, keeping fallback model: %s",
-                    rt.table_name,
-                )
-            else:
-                raise
+        await register_source_table_model(db, rt.table_name, force=True)
         register_period_table(rt, overwrite=False)

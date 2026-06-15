@@ -15,13 +15,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import cast, select, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.ddl import POSTGRES_IDENTIFIER_MAX_BYTES, make_identifier, postgres_type, quote_ident
 from app.data.models import DATA_TABLES, TableColumn
 from app.datasources.sync_service import PERIOD_TABLES
 
@@ -38,6 +39,63 @@ def apply_field_mappings(row: dict, mappings: list[dict]) -> dict:
     return {mapping_dict.get(k, k): v for k, v in row.items()}
 
 
+def _ensure_entity_model(Model, table_name: str) -> None:
+    if "raw" in Model.__table__.columns:
+        raise RuntimeError(f"业务表 {table_name} 仍是 raw JSON 结构，请先重建为实体表")
+
+
+def _entity_column(Model, table_name: str, column_code: str):
+    if column_code not in Model.__table__.columns:
+        raise RuntimeError(f"业务表 {table_name} 缺少实体列: {column_code}")
+    return Model.__table__.c[column_code]
+
+
+def _normalize_outbound_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
+def json_ready_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Convert one outbound API/HTTP row to JSON-serializable values."""
+    return {k: _normalize_outbound_value(v) for k, v in row.items()}
+
+
+def _row_entity_value(row: Any, column_code: str) -> Any:
+    if not hasattr(row, column_code):
+        raise RuntimeError(f"数据行缺少实体列: {column_code}")
+    return getattr(row, column_code)
+
+
+def _dedupe_labels(cols: list[TableColumn]) -> dict[str, str]:
+    """FineBI 暴露使用中文列名，同名时加后缀避免 CREATE TABLE 冲突。"""
+    counts: dict[str, int] = {}
+    out: dict[str, str] = {}
+    for col in cols:
+        base = (col.column_label or col.column_code).strip() or col.column_code
+        counts[base] = counts.get(base, 0) + 1
+        out[col.column_code] = base if counts[base] == 1 else f"{base}_{counts[base]}"
+    return out
+
+
+def _quote_pg_identifier(identifier: str) -> str:
+    """Quote arbitrary PostgreSQL identifiers such as Chinese FineBI labels."""
+    value = str(identifier or "").strip()
+    if not value:
+        raise RuntimeError("PostgreSQL 标识符不能为空")
+    if len(value.encode("utf-8")) > POSTGRES_IDENTIFIER_MAX_BYTES:
+        raise RuntimeError(f"PostgreSQL 标识符超过 {POSTGRES_IDENTIFIER_MAX_BYTES} 字节上限")
+    return f'"{value.replace(chr(34), chr(34) * 2)}"'
+
+
+def _quote_pg_literal(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 # ===== 读取源数据 =====
 
 async def _load_source_rows(
@@ -49,6 +107,7 @@ async def _load_source_rows(
     Model = DATA_TABLES.get(source_table)
     if Model is None:
         raise RuntimeError(f"未知数据表: {source_table}")
+    _ensure_entity_model(Model, source_table)
 
     # 取可见字段列表
     cols = (
@@ -59,16 +118,18 @@ async def _load_source_rows(
         )
     ).scalars().all()
     col_codes = [c.column_code for c in cols]
+    for code in col_codes:
+        _entity_column(Model, source_table, code)
 
     stmt = select(Model)
     period_cfg = PERIOD_TABLES.get(source_table)
     if period_cfg and period_ym:
         period_col = period_cfg["period_col"]
-        stmt = stmt.where(cast(Model.raw, JSONB)[period_col].astext == period_ym)
+        stmt = stmt.where(_entity_column(Model, source_table, period_col) == period_ym)
 
     rows = (await db.execute(stmt)).scalars().all()
     return [
-        {code: (r.raw or {}).get(code) for code in col_codes}
+        {code: _row_entity_value(r, code) for code in col_codes}
         for r in rows
     ]
 
@@ -77,7 +138,7 @@ def _row_pk_hash(row: dict, pk_cols: list[str]) -> str:
     if pk_cols:
         material = "||".join(str(row.get(c, "")) for c in pk_cols)
     else:
-        material = json.dumps(row, sort_keys=True, ensure_ascii=False)
+        material = json.dumps(json_ready_row(row), sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(material.encode()).hexdigest()[:32]
 
 
@@ -276,7 +337,10 @@ async def push_http(
     period_ym = settings.get("period_ym", "")
 
     rows = await _load_source_rows(source_table, db, period_ym)
-    mapped_rows = [apply_field_mappings(r, field_mappings) for r in rows]
+    mapped_rows = [
+        json_ready_row(apply_field_mappings(r, field_mappings))
+        for r in rows
+    ]
 
     total = 0
     async with httpx.AsyncClient(timeout=60) as client:
@@ -316,6 +380,11 @@ async def push_db_expose(
     from sqlalchemy import text, select as sa_select
     from app.core.config import settings as app_settings
 
+    Model = DATA_TABLES.get(source_table)
+    if Model is None:
+        raise RuntimeError(f"未知数据表: {source_table}")
+    _ensure_entity_model(Model, source_table)
+
     pt_id = settings.get("_pt_id", "")
     readonly_user = settings.get("readonly_user") or f"ro_{source_table}_{pt_id}"[:63]
     password = secrets.get("readonly_password", "")
@@ -323,14 +392,15 @@ async def push_db_expose(
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
         password = "".join(py_secrets.choice(alphabet) for _ in range(20))
 
-    # 每张源表独立 schema，避免 FineBI 扫表时看到其他表
-    schema_name = f"finebi_{source_table}"
-    finebi_table = f"t_{source_table}"
+    source_table_q = quote_ident(source_table, kind="table")
+    schema_name = make_identifier("finebi_", source_table)
+    finebi_table = make_identifier("t_", source_table)
+    schema_q = _quote_pg_identifier(schema_name)
+    finebi_table_q = _quote_pg_identifier(finebi_table)
+    readonly_user_q = _quote_pg_identifier(readonly_user)
+    db_name_q = _quote_pg_identifier(app_settings.DB_NAME)
 
-    # 1. 确保独立 schema 存在
-    await db.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
-
-    # 2. 读取字段元数据，构建中文列名物理表
+    # 1. 读取字段元数据，构建中文列名物理表
     cols = (
         await db.execute(
             sa_select(TableColumn)
@@ -342,38 +412,71 @@ async def push_db_expose(
     if not cols:
         raise RuntimeError(f"table_columns 中找不到表 {source_table} 的字段定义")
 
-    cols_def = ", ".join(f'"{c.column_label}" text' for c in cols)
-    cols_sel = ", ".join(f"raw->>{c.column_code!r}" for c in cols)
+    for col in cols:
+        _entity_column(Model, source_table, col.column_code)
+    label_by_code = _dedupe_labels(cols)
+    cols_def = ", ".join(
+        f"{_quote_pg_identifier(label_by_code[c.column_code])} {postgres_type(c.data_type)}"
+        for c in cols
+    )
+    insert_cols = ", ".join(
+        _quote_pg_identifier(label_by_code[c.column_code])
+        for c in cols
+    )
+    cols_sel = ", ".join(
+        f"{quote_ident(c.column_code)} AS {_quote_pg_identifier(label_by_code[c.column_code])}"
+        for c in cols
+    )
 
-    await db.execute(text(f'DROP TABLE IF EXISTS "{schema_name}"."{finebi_table}"'))
+    period_ym = settings.get("period_ym", "")
+    where_sql = ""
+    params: dict[str, Any] = {}
+    period_cfg = PERIOD_TABLES.get(source_table)
+    if period_cfg and period_ym:
+        period_col = period_cfg["period_col"]
+        _entity_column(Model, source_table, period_col)
+        where_sql = f" WHERE {quote_ident(period_col)} = :period_ym"
+        params["period_ym"] = period_ym
+
+    # 2. 确保独立 schema 存在
+    await db.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_q}"))
+
+    await db.execute(text(f"DROP TABLE IF EXISTS {schema_q}.{finebi_table_q}"))
     await db.execute(text(
-        f'CREATE TABLE "{schema_name}"."{finebi_table}" (id bigint, synced_at timestamptz, {cols_def})'
+        f"CREATE TABLE {schema_q}.{finebi_table_q} "
+        f"(id BIGINT, synced_at TIMESTAMPTZ, {cols_def})"
     ))
     await db.execute(text(
-        f'INSERT INTO "{schema_name}"."{finebi_table}" SELECT id, synced_at, {cols_sel} FROM public."{source_table}"'
-    ))
+        f"INSERT INTO {schema_q}.{finebi_table_q} "
+        f"(id, synced_at, {insert_cols}) "
+        f"SELECT id, synced_at, {cols_sel} FROM public.{source_table_q}{where_sql}"
+    ), params)
 
     # 3. 创建或更新只读账号密码（始终同步，避免重建推送时密码不一致）
-    await db.execute(text(
-        f"DO $$ BEGIN "
-        f"IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{readonly_user}') THEN "
-        f"CREATE USER \"{readonly_user}\" WITH PASSWORD '{password}'; "
-        f"ELSE "
-        f"ALTER USER \"{readonly_user}\" WITH PASSWORD '{password}'; "
-        f"END IF; END $$;"
-    ))
-    await db.execute(text(f'GRANT CONNECT ON DATABASE "{app_settings.DB_NAME}" TO "{readonly_user}"'))
+    role_exists = (
+        await db.execute(
+            text("SELECT EXISTS (SELECT FROM pg_roles WHERE rolname = :rolname)"),
+            {"rolname": readonly_user},
+        )
+    ).scalar_one()
+    if role_exists:
+        await db.execute(text(f"ALTER USER {readonly_user_q} WITH PASSWORD {_quote_pg_literal(password)}"))
+    else:
+        await db.execute(text(f"CREATE USER {readonly_user_q} WITH PASSWORD {_quote_pg_literal(password)}"))
+    await db.execute(text(f"GRANT CONNECT ON DATABASE {db_name_q} TO {readonly_user_q}"))
 
     # 4. 只授权独立 schema，撤销 public 及旧共享 finebi schema 的访问（旧 schema 可能不存在）
-    await db.execute(text(f'REVOKE ALL ON SCHEMA public FROM "{readonly_user}"'))
-    await db.execute(text(
-        f"DO $$ BEGIN "
-        f"IF EXISTS (SELECT FROM pg_namespace WHERE nspname = 'finebi') THEN "
-        f"REVOKE ALL ON SCHEMA finebi FROM \"{readonly_user}\"; "
-        f"END IF; END $$;"
-    ))
-    await db.execute(text(f'GRANT USAGE ON SCHEMA "{schema_name}" TO "{readonly_user}"'))
-    await db.execute(text(f'GRANT SELECT ON "{schema_name}"."{finebi_table}" TO "{readonly_user}"'))
+    await db.execute(text(f"REVOKE ALL ON SCHEMA public FROM {readonly_user_q}"))
+    finebi_schema_exists = (
+        await db.execute(
+            text("SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = :schema_name)"),
+            {"schema_name": "finebi"},
+        )
+    ).scalar_one()
+    if finebi_schema_exists:
+        await db.execute(text(f"REVOKE ALL ON SCHEMA finebi FROM {readonly_user_q}"))
+    await db.execute(text(f"GRANT USAGE ON SCHEMA {schema_q} TO {readonly_user_q}"))
+    await db.execute(text(f"GRANT SELECT ON {schema_q}.{finebi_table_q} TO {readonly_user_q}"))
 
     await db.commit()
 
@@ -412,7 +515,7 @@ async def push_db_expose(
         flag_modified(pts, "settings")
         await db.commit()
 
-    rows = (await db.execute(text(f'SELECT COUNT(*) FROM "{schema_name}"."{finebi_table}"'))).scalar_one()
+    rows = (await db.execute(text(f"SELECT COUNT(*) FROM {schema_q}.{finebi_table_q}"))).scalar_one()
     return rows, f"FineBI 表已刷新：{schema_name}.{finebi_table}，只读账号：{readonly_user}，连接：{conn_url}"
 
 

@@ -98,26 +98,15 @@ COPY public.registered_tables (id, table_name, table_label, description, is_peri
 --
 
 COPY public.table_columns (id, table_name, column_code, column_label, data_type, is_pk_part, is_sensitive, is_visible, display_order, auto_discovered, description, created_at, updated_at, scope_role, copy_from_last_month, enum_options, agg_role, is_computed, formula_expr, global_field_id, source_field_id) FROM stdin;
-510	emp_realtime_roster	corehr_employeeinformation_extzhongwenming_609153_78242362_id	corehr_employeeinformation_extzhongwenming_609153_78242362_id	string	f	f	t	1039	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	dimension	f	\N	\N	\N
-511	emp_realtime_roster	corehr_employeeinformation_extzhongwenming_609153_78242362_alias	corehr_employeeinformation_extzhongwenming_609153_78242362_alias	string	f	f	t	1049	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	dimension	f	\N	\N	\N
-512	emp_realtime_roster	corehr_employmentrecord_extbu_609153_555150448_id	corehr_employmentrecord_extbu_609153_555150448_id	number	f	f	t	1059	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	measure	f	\N	\N	\N
-513	emp_realtime_roster	corehr_employmentrecord_extbu_609153_555150448_alias	corehr_employmentrecord_extbu_609153_555150448_alias	string	f	f	t	1069	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	dimension	f	\N	\N	\N
-514	emp_realtime_roster	corehr_employmentrecord_extguanlizhiji_609153_264978747_id	corehr_employmentrecord_extguanlizhiji_609153_264978747_id	string	f	f	t	1079	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	dimension	f	\N	\N	\N
-515	emp_realtime_roster	corehr_employmentrecord_extguanlizhiji_609153_264978747_alias	corehr_employmentrecord_extguanlizhiji_609153_264978747_alias	string	f	f	t	1089	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	dimension	f	\N	\N	\N
-516	emp_realtime_roster	compensation_salaryprofile_extbizhong_609153_398635978_id	compensation_salaryprofile_extbizhong_609153_398635978_id	number	f	f	t	1099	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	measure	f	\N	\N	\N
-517	emp_realtime_roster	compensation_salaryprofile_extbizhong_609153_398635978_alias	compensation_salaryprofile_extbizhong_609153_398635978_alias	string	f	f	t	1109	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	dimension	f	\N	\N	\N
-518	emp_realtime_roster	corehr_employmentrecord_extgongzuodi_609153_691575567_id	corehr_employmentrecord_extgongzuodi_609153_691575567_id	number	f	f	t	1119	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	measure	f	\N	\N	\N
-519	emp_realtime_roster	corehr_employmentrecord_extgongzuodi_609153_691575567_alias	corehr_employmentrecord_extgongzuodi_609153_691575567_alias	string	f	f	t	1129	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	dimension	f	\N	\N	\N
-520	emp_realtime_roster	_org_node_code	_org_node_code	string	f	f	t	1139	t	\N	2026-06-11 05:25:05.777363+00	2026-06-11 05:25:05.777363+00	\N	f	\N	dimension	f	\N	\N	\N
-178	emp_monthly_cost_class	cost classification	费用类型	enum	f	f	t	30	f		2026-06-04 07:27:01.059583+00	2026-06-05 08:08:53.588608+00	\N	f	["\\u5de5\\u8d44", "\\u52b3\\u52a1", "\\u5916\\u5305", "\\u4ee3\\u53d1"]	dimension	f	\N	\N	\N
-176	emp_monthly_cost_class	field type	字段类型	enum	f	f	t	10	f		2026-06-04 07:24:25.326543+00	2026-06-04 07:24:25.326543+00	\N	f	["\\u5de5\\u53f7", "\\u7532\\u65b9"]	dimension	f	\N	\N	\N
+178	emp_monthly_cost_class	cost_classification	费用类型	enum	f	f	t	30	f		2026-06-04 07:27:01.059583+00	2026-06-05 08:08:53.588608+00	\N	f	["\\u5de5\\u8d44", "\\u52b3\\u52a1", "\\u5916\\u5305", "\\u4ee3\\u53d1"]	dimension	f	\N	\N	\N
+176	emp_monthly_cost_class	field_type	字段类型	enum	f	f	t	10	f		2026-06-04 07:24:25.326543+00	2026-06-04 07:24:25.326543+00	\N	f	["\\u5de5\\u53f7", "\\u7532\\u65b9"]	dimension	f	\N	\N	\N
 525	emp_monthly_cost_result	field	本月实发	number	f	f	t	107	t	\N	2026-06-11 07:05:10.628437+00	2026-06-11 09:37:43.729283+00	\N	f	\N	measure	f	\N	\N	\N
 499	emp_severance_installment	employee_no	工号	string	t	f	t	10	f		2026-06-10 07:15:56.074556+00	2026-06-10 07:15:56.074556+00	\N	f	null	dimension	f	\N	\N	\N
 493	emp_year_end_bonus	employee_no	工号	string	t	f	t	10	f		2026-06-09 10:08:38.493233+00	2026-06-09 10:08:38.493233+00	\N	f	null	dimension	f	\N	\N	\N
 494	emp_year_end_bonus	bonus_year	奖金归属年	string	t	f	t	20	f		2026-06-09 10:09:04.869045+00	2026-06-09 10:09:04.869045+00	\N	f	null	measure	f	\N	\N	\N
 497	emp_year_end_bonus	currency	币种	string	t	f	t	50	f		2026-06-09 10:09:58.931989+00	2026-06-09 10:09:58.931989+00	\N	f	null	dimension	f	\N	\N	\N
 71	emp_realtime_roster	employee_no	工号	number	t	f	t	10	t	\N	2026-05-24 03:07:51.181022+00	2026-05-24 03:07:51.181022+00	\N	f	\N	measure	f	\N	\N	44e5cebb-e2fa-4b69-b0cc-8f4d20167d9f
-74	emp_realtime_roster	name	姓名（中文名）	string	f	f	t	40	t	\N	2026-05-24 03:07:51.181022+00	2026-05-24 03:07:51.181022+00	\N	f	\N	dimension	f	\N	\N	37ddc816-37e2-d132-062f-9a784c0084c4
+74	emp_realtime_roster	chinese_name	姓名（中文名）	string	f	f	t	40	t	\N	2026-05-24 03:07:51.181022+00	2026-05-24 03:07:51.181022+00	\N	f	\N	dimension	f	\N	\N	37ddc816-37e2-d132-062f-9a784c0084c4
 75	emp_realtime_roster	english_name	英文名	string	f	f	t	50	t	\N	2026-05-24 03:07:51.181022+00	2026-05-24 03:07:51.181022+00	\N	f	\N	dimension	f	\N	\N	be73fb79-690c-4b06-8ad2-8b772be90cfa
 177	emp_monthly_cost_class	value	值	string	f	f	t	20	f		2026-06-04 07:24:43.608079+00	2026-06-04 07:24:43.608079+00	\N	f	null	dimension	f	\N	\N	\N
 76	emp_realtime_roster	hire_date	入职日期	date	f	f	t	60	t	\N	2026-05-24 03:07:51.181022+00	2026-05-24 03:07:51.181022+00	\N	f	\N	dimension	f	\N	\N	1b725de4-7e51-4888-ab05-dc435bb511f8
@@ -147,11 +136,11 @@ COPY public.table_columns (id, table_name, column_code, column_label, data_type,
 106	emp_realtime_roster	target_year_end_bonus	目标年终奖	string	f	f	t	360	t	\N	2026-05-24 03:07:51.181022+00	2026-05-24 03:07:51.181022+00	\N	f	\N	dimension	f	\N	\N	e073b921-7af4-40f2-ba87-c33aaa37e47b
 109	emp_realtime_roster	currency	币种	string	f	f	t	390	t	\N	2026-05-24 03:07:51.181022+00	2026-05-24 03:07:51.181022+00	\N	f	\N	dimension	f	\N	\N	a9d893b9-2cd1-0c32-a6ed-43384723d829
 110	emp_realtime_roster	id_number	证件号码	number	f	f	t	400	t	\N	2026-05-24 03:07:51.181022+00	2026-05-24 03:07:51.181022+00	\N	f	\N	measure	f	\N	\N	3451508d-99b6-4e1c-9777-d8808d9e97dc
-122	emp_realtime_roster	name_2	姓名	string	f	f	t	520	t	\N	2026-05-24 04:26:59.974116+00	2026-05-24 04:26:59.974116+00	person	f	\N	dimension	f	\N	\N	62018008-71bf-4084-88f6-28b0d6621e35
+122	emp_realtime_roster	full_name	姓名	string	f	f	t	520	t	\N	2026-05-24 04:26:59.974116+00	2026-05-24 04:26:59.974116+00	person	f	\N	dimension	f	\N	\N	62018008-71bf-4084-88f6-28b0d6621e35
 127	emp_realtime_roster	org_node_code	组织节点编码（权限用）	string	f	f	f	999	f	\N	2026-05-24 06:41:21.70394+00	2026-05-24 06:41:21.70394+00	org_node_code	f	\N	dimension	f	\N	\N	\N
 131	emp_realtime_roster	work_location	工作地	string	f	f	t	1029	t	\N	2026-06-01 11:41:09.578841+00	2026-06-01 11:41:09.578841+00	\N	f	\N	dimension	f	\N	\N	f5734357-1bd9-4d48-8bec-faea6938458d
 179	emp_monthly_salary	expense_type	费用类型	string	f	f	t	50	f	\N	2026-06-04 07:58:12.700639+00	2026-06-04 07:58:12.700639+00	\N	f	null	dimension	f	\N	\N	\N
-224	emp_monthly_salary	name	姓名	string	f	f	t	80	t	\N	2026-06-04 08:20:35.649219+00	2026-06-04 08:20:35.649219+00	\N	f	\N	dimension	f	\N	\N	a1fc8e94-616d-4bab-997c-01abbc58a060
+224	emp_monthly_salary	full_name	姓名	string	f	f	t	80	t	\N	2026-06-04 08:20:35.649219+00	2026-06-04 08:20:35.649219+00	\N	f	\N	dimension	f	\N	\N	a1fc8e94-616d-4bab-997c-01abbc58a060
 225	emp_monthly_salary	english_name	英文名	string	f	f	t	90	t	\N	2026-06-04 08:20:35.649219+00	2026-06-04 08:20:35.649219+00	\N	f	\N	dimension	f	\N	\N	c34a683e-0df9-45cd-b36f-a96062c5989c
 226	emp_monthly_salary	client	甲方	string	f	f	t	100	t	\N	2026-06-04 08:20:35.649219+00	2026-06-04 08:20:35.649219+00	\N	f	\N	dimension	f	\N	\N	6e8b7ecc-de04-4dd4-92ba-eab2d1712a0c
 227	emp_monthly_salary	company_org	公司级组织	string	f	f	t	110	t	\N	2026-06-04 08:20:35.649219+00	2026-06-04 08:20:35.649219+00	\N	f	\N	dimension	f	\N	\N	80148ae5-e5e2-49a1-8dc7-a9c0096f2a1a
@@ -315,4 +304,3 @@ SELECT pg_catalog.setval('public.table_columns_id_seq', 537, true);
 --
 
 \unrestrict opBMV71Phd6OBdX9RYDeJ7uUVqJ0f5cvWmZ5xiur3nVJfPrWWHA82nhfCqVxFSX
-

@@ -3,20 +3,22 @@
 - GET /data/{table}/columns  返回字段元信息（按 display_order）
 - GET /data/{table}          分页查询；items 中每行是 {col_code: value, ...} 的字典
 
-字段映射：物理表只有 raw JSONB，按 column_code 从 raw 提取值
+字段映射：业务字段来自实体列，column_code 必须对应真实数据库列
 """
-from datetime import datetime
+import json
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import desc, func, select
+from sqlalchemy import String, cast, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
-from app.data.models import DATA_TABLES, TableColumn
 from app.data.formula import eval_formula
+from app.data.models import DATA_TABLES, TableColumn
 from app.datasets.metadata import effective_column_label_map
 from app.users.models import User
 
@@ -68,6 +70,152 @@ async def _check_field_categories_sensitive(table: str, db: AsyncSession) -> set
     return {row[0] for row in (await db.execute(sens_stmt)).all()}
 
 
+def _ensure_entity_model(Model, table: str) -> None:
+    """数据视图只允许读取实体列业务表，不再兼容旧 raw JSON 表。"""
+    if "raw" in Model.__table__.columns:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"业务表 {table} 仍是 raw JSON 结构，请先重建为实体表",
+        )
+
+
+def _entity_column(Model, table: str, column_code: str):
+    if column_code not in Model.__table__.columns:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"业务表 {table} 缺少实体列: {column_code}",
+        )
+    return Model.__table__.c[column_code]
+
+
+def _entity_text_expr(Model, table: str, column_code: str):
+    return cast(_entity_column(Model, table, column_code), String)
+
+
+def _normalize_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
+def _row_value(row: Any, code: str) -> Any:
+    if not hasattr(row, code):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"数据行缺少实体列: {code}",
+        )
+    return _normalize_value(getattr(row, code))
+
+
+def _row_to_item(row: Any, col_codes: list[str], hidden_cols: set[str]) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "_id": row.id,
+        "_synced_at": row.synced_at.isoformat() if row.synced_at else None,
+    }
+    for code in col_codes:
+        if code in hidden_cols:
+            continue
+        item[code] = _row_value(row, code)
+    return item
+
+
+def _row_values(row: Any, col_codes: list[str]) -> dict[str, Any]:
+    return {code: _row_value(row, code) for code in col_codes}
+
+
+def _set_row_value(row: Any, code: str, value: Any) -> None:
+    if not hasattr(row, code):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"数据行缺少实体列: {code}",
+        )
+    setattr(row, code, value)
+
+
+async def _source_column_map(table: str, db: AsyncSession) -> dict[str, TableColumn]:
+    return {
+        c.column_code: c
+        for c in await _get_columns(table, db)
+    }
+
+
+def _coerce_manual_value(value: Any, data_type: str) -> Any:
+    """手工录入值按字段类型转为实体列可写值；无法转换时写 NULL。"""
+    if value in (None, ""):
+        return None
+    key = (data_type or "string").strip().lower()
+    if key in {"string", "text", "enum"}:
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+    if key == "number":
+        try:
+            return Decimal(str(value).replace(",", "").strip())
+        except Exception:
+            return None
+    if key == "integer":
+        try:
+            return int(Decimal(str(value).replace(",", "").strip()))
+        except Exception:
+            return None
+    if key == "date":
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        text = str(value).strip().replace("/", "-")
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            return None
+    if key == "datetime":
+        if isinstance(value, datetime):
+            return value
+        text = str(value).strip().replace("/", "-").replace("T", " ")
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                width = 19 if " " in fmt else 10
+                return datetime.strptime(text[:width], fmt).replace(tzinfo=UTC)
+            except ValueError:
+                pass
+        return None
+    if key in {"boolean", "bool"}:
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "t", "yes", "y", "是", "启用"}:
+            return True
+        if text in {"0", "false", "f", "no", "n", "否", "停用"}:
+            return False
+        return None
+    return value
+
+
+def _apply_entity_values(row: Any, values: dict[str, Any], columns_by_code: dict[str, TableColumn]) -> None:
+    for code, value in values.items():
+        col = columns_by_code.get(code)
+        if col is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"未知字段: {code}")
+        _set_row_value(row, code, _coerce_manual_value(value, col.data_type))
+
+
+def _apply_computed_values(row: Any, computed: list[tuple[str, str]], columns_by_code: dict[str, TableColumn]) -> None:
+    if not computed:
+        return
+    current = _row_values(row, list(columns_by_code))
+    for code, expr in computed:
+        value = eval_formula(expr, current)
+        col = columns_by_code.get(code)
+        _set_row_value(
+            row,
+            code,
+            _coerce_manual_value(value, col.data_type if col is not None else "string"),
+        )
+        current[code] = value
+
+
 @router.get("/{table}/columns", response_model=list[ColumnInfo])
 async def get_columns(
     table: str,
@@ -117,10 +265,13 @@ async def query_table(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
 
     Model = DATA_TABLES[table]
+    _ensure_entity_model(Model, table)
     visible_cols = await _get_columns(table, db, only_visible=True)
     col_codes = [c.column_code for c in visible_cols]
+    for code in col_codes:
+        _entity_column(Model, table, code)
 
-    # 拼接 raw JSON 查询
+    # 拼接实体列查询
     stmt = select(Model)
     count_stmt = select(func.count()).select_from(Model)
 
@@ -131,32 +282,24 @@ async def query_table(
         stmt = stmt.where(scope_clause)
         count_stmt = count_stmt.where(scope_clause)
 
-    # 精确筛选：filters 是 JSON 对象 {列编码: 值}，按 raw->>列 = 值 等值过滤
+    # 精确筛选：filters 是 JSON 对象 {列编码: 值}，按真实实体列文本等值过滤
     if filters:
-        import json as _json
-        from sqlalchemy import cast
-        from sqlalchemy.dialects.postgresql import JSONB
         try:
-            fmap = _json.loads(filters)
+            fmap = json.loads(filters)
         except (ValueError, TypeError):
             fmap = {}
         for code, val in (fmap.items() if isinstance(fmap, dict) else []):
             if val in (None, "") or code not in col_codes:
                 continue
-            cond = cast(Model.raw, JSONB)[code].astext == str(val)
+            cond = _entity_text_expr(Model, table, code) == str(val)
             stmt = stmt.where(cond)
             count_stmt = count_stmt.where(cond)
 
     if keyword and col_codes:
         # 关键字搜索：在所有可见列上做 ILIKE
-        # raw 是通用 JSON，需 cast 到 JSONB 才能用 ->> 文本访问
-        from sqlalchemy import or_, cast
-        from sqlalchemy.dialects.postgresql import JSONB
         conds = []
         for code in col_codes:
-            conds.append(
-                cast(Model.raw, JSONB)[code].astext.ilike(f"%{keyword}%")
-            )
+            conds.append(_entity_text_expr(Model, table, code).ilike(f"%{keyword}%"))
         if conds:
             stmt = stmt.where(or_(*conds))
             count_stmt = count_stmt.where(or_(*conds))
@@ -176,18 +319,10 @@ async def query_table(
     # 通用数据视图（tool_key=None）：无权敏感字段直接隐藏，不出现在结果中
     hidden_cols = await get_hidden_columns(user, table, db, tool_key=None)
 
-    # 把 raw 按可见列展开成扁平 dict
+    # 把实体列按可见列展开成扁平 dict
     items = []
     for r in rows:
-        raw = r.raw or {}
-        item: dict[str, Any] = {"_id": r.id, "_synced_at": r.synced_at.isoformat() if r.synced_at else None}
-        for code in col_codes:
-            if code in hidden_cols:
-                continue
-            v = raw.get(code)
-            if isinstance(v, datetime):
-                v = v.isoformat()
-            item[code] = v
+        item = _row_to_item(r, col_codes, hidden_cols)
         items.append(apply_mask(item, sensitive_cols))
 
     return DataPage(items=items, total=total, page=page, page_size=page_size, hidden_columns=sorted(hidden_cols))
@@ -209,8 +344,6 @@ async def export_csv(
     """导出数据视图为 CSV（带权限脱敏，全量不分页）"""
     import csv, io
     from fastapi.responses import StreamingResponse
-    from sqlalchemy import or_, cast
-    from sqlalchemy.dialects.postgresql import JSONB
     from app.permissions.scope_filter import build_scope_filter, is_unrestricted
     from app.permissions.masker import apply_mask, get_sensitive_columns, get_hidden_columns
 
@@ -218,11 +351,14 @@ async def export_csv(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
 
     Model = DATA_TABLES[table]
+    _ensure_entity_model(Model, table)
     visible_cols = await _get_columns(table, db, only_visible=True)
     hidden_export = await get_hidden_columns(user, table, db, tool_key=None)
     visible_cols = [c for c in visible_cols if c.column_code not in hidden_export]
     label_by_code = await effective_column_label_map(visible_cols, db)
     col_codes = [c.column_code for c in visible_cols]
+    for code in col_codes:
+        _entity_column(Model, table, code)
 
     stmt = select(Model)
     scope_clause = await build_scope_filter(user, table, db)
@@ -230,17 +366,16 @@ async def export_csv(
         stmt = stmt.where(scope_clause)
 
     if filters:
-        import json as _json
         try:
-            fmap = _json.loads(filters) if isinstance(filters, str) else filters
+            fmap = json.loads(filters) if isinstance(filters, str) else filters
         except (ValueError, TypeError):
             fmap = {}
         for code, val in (fmap.items() if isinstance(fmap, dict) else []):
             if val not in (None, "") and code in col_codes:
-                stmt = stmt.where(cast(Model.raw, JSONB)[code].astext == str(val))
+                stmt = stmt.where(_entity_text_expr(Model, table, code) == str(val))
 
     if keyword and col_codes:
-        conds = [cast(Model.raw, JSONB)[code].astext.ilike(f"%{keyword}%") for code in col_codes]
+        conds = [_entity_text_expr(Model, table, code).ilike(f"%{keyword}%") for code in col_codes]
         stmt = stmt.where(or_(*conds))
 
     rows = (await db.execute(stmt.order_by(desc(Model.synced_at), desc(Model.id)))).scalars().all()
@@ -253,8 +388,7 @@ async def export_csv(
     headers = [label_by_code.get(c.column_code, c.column_label or c.column_code) for c in visible_cols]
     writer.writerow(headers)
     for r in rows:
-        raw = r.raw or {}
-        item = {c.column_code: raw.get(c.column_code) for c in visible_cols}
+        item = _row_values(r, col_codes)
         item = apply_mask(item, all_sensitive)
         writer.writerow([
             "******" if (c.is_sensitive or c.column_code in all_sensitive) and item.get(c.column_code) not in (None, "")
@@ -288,20 +422,18 @@ async def distinct_values(
     if table not in DATA_TABLES:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
 
-    from sqlalchemy import cast
-    from sqlalchemy.dialects.postgresql import JSONB
-
     valid = {c.column_code for c in await _get_columns(table, db)}
     if column not in valid:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="未知字段")
     extra_col = label_extra if (label_extra and label_extra in valid) else None
 
     Model = DATA_TABLES[table]
-    val_expr = cast(Model.raw, JSONB)[column].astext
+    _ensure_entity_model(Model, table)
+    val_expr = _entity_text_expr(Model, table, column)
 
     sel = [val_expr.label("value")]
     if extra_col:
-        sel.append(func.max(cast(Model.raw, JSONB)[extra_col].astext).label("extra"))
+        sel.append(func.max(_entity_text_expr(Model, table, extra_col)).label("extra"))
     stmt = select(*sel).where(val_expr.isnot(None), val_expr != "")
 
     # 数据范围权限过滤
@@ -364,14 +496,19 @@ async def create_row(
 
     from app.datasources.sync_service import _calc_pk_hash, _get_pk_columns
 
-    new_raw: dict[str, Any] = dict(payload.values)
+    new_values: dict[str, Any] = dict(payload.values)
     for code, expr in await _computed_cols(table, db):
-        new_raw[code] = eval_formula(expr, new_raw)
+        new_values[code] = eval_formula(expr, new_values)
 
     pk_columns = await _get_pk_columns(table, db)
-    pk_hash = _calc_pk_hash(new_raw, pk_columns)
+    pk_hash = _calc_pk_hash(new_values, pk_columns)
 
     Model = DATA_TABLES[table]
+    _ensure_entity_model(Model, table)
+    columns_by_code = await _source_column_map(table, db)
+    for code in set(new_values) | set(pk_columns):
+        _entity_column(Model, table, code)
+
     dup = (
         await db.execute(select(Model.id).where(Model.pk_hash == pk_hash))
     ).scalar_one_or_none()
@@ -380,7 +517,8 @@ async def create_row(
             status.HTTP_400_BAD_REQUEST, detail="相同业务主键的行已存在"
         )
 
-    row = Model(pk_hash=pk_hash, raw=new_raw)
+    row = Model(pk_hash=pk_hash, synced_at=datetime.now(UTC))
+    _apply_entity_values(row, new_values, columns_by_code)
     db.add(row)
     await db.commit()
     await db.refresh(row)
@@ -438,16 +576,17 @@ async def bulk_update_rows(
         )
 
     Model = DATA_TABLES[table]
+    _ensure_entity_model(Model, table)
+    columns_by_code = await _source_column_map(table, db)
+    computed = await _computed_cols(table, db)
+    for code in set(payload.values) | {code for code, _ in computed}:
+        _entity_column(Model, table, code)
     rows = (
         await db.execute(select(Model).where(Model.id.in_(payload.row_ids)))
     ).scalars().all()
-    computed = await _computed_cols(table, db)
     for row in rows:
-        new_raw = dict(row.raw or {})
-        new_raw.update(payload.values)
-        for code, expr in computed:
-            new_raw[code] = eval_formula(expr, new_raw)
-        row.raw = new_raw
+        _apply_entity_values(row, payload.values, columns_by_code)
+        _apply_computed_values(row, computed, columns_by_code)
     await db.commit()
     return {"ok": True, "updated": len(rows)}
 
@@ -481,7 +620,7 @@ async def update_row(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    """内联编辑：只允许改手工字段（auto_discovered=false）的值，写回 raw。
+    """内联编辑：只允许改手工字段（auto_discovered=false）的实体列值。
 
     接口字段（auto_discovered=true）每次同步会被源端覆盖，不允许手工改。
     """
@@ -492,6 +631,7 @@ async def update_row(
     await require_op("data.view", "U")(user=user, db=db)
 
     Model = DATA_TABLES[table]
+    _ensure_entity_model(Model, table)
     row = await db.get(Model, row_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="数据行不存在")
@@ -505,10 +645,11 @@ async def update_row(
             detail=f"字段 {bad} 不是手工字段，不允许手工修改",
         )
 
-    new_raw = dict(row.raw or {})
-    new_raw.update(payload.values)
-    for code, expr in await _computed_cols(table, db):
-        new_raw[code] = eval_formula(expr, new_raw)
-    row.raw = new_raw
+    columns_by_code = await _source_column_map(table, db)
+    computed = await _computed_cols(table, db)
+    for code in set(payload.values) | {code for code, _ in computed}:
+        _entity_column(Model, table, code)
+    _apply_entity_values(row, payload.values, columns_by_code)
+    _apply_computed_values(row, computed, columns_by_code)
     await db.commit()
     return {"ok": True}

@@ -1,8 +1,7 @@
-"""数据集关联键索引：给 JOIN 用到的 raw JSON 提取表达式建表达式索引。
+"""数据集关联键索引：给 JOIN 用到的实体列建普通索引。
 
-数据集 JOIN 的关联条件是 jsonb_extract_path_text(raw,'列') 等值比较，无索引时
-PostgreSQL 退化为嵌套循环 + 反复解析 JSON，数据量一大就慢到分钟级。给每个关联键
-建表达式索引后，优化器可改用 hash/索引扫描，提速 2 个数量级。
+业务表已经切换为实体列，数据集 JOIN 关联键也必须指向真实物理列。给每个关联键
+建普通 btree 索引后，优化器可改用 hash/索引扫描。
 
 幂等：CREATE INDEX IF NOT EXISTS；索引名按 (表, 列) 稳定 hash，避免重复。
 """
@@ -13,8 +12,9 @@ import hashlib
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.ddl import quote_ident, validate_column_name, validate_table_name
 from app.data.models import DATA_TABLES
-from app.datasets.models import DataSet, DataSetRelation, DataSetTable
+from app.datasets.models import DataSetRelation, DataSetTable
 from sqlalchemy import select
 
 
@@ -26,13 +26,18 @@ def _index_name(table: str, column: str) -> str:
 async def _ensure_one(db: AsyncSession, table: str, column: str) -> None:
     if table not in DATA_TABLES or not column:
         return
+    validate_table_name(table)
+    validate_column_name(column)
+    model = DATA_TABLES[table]
+    if "raw" in model.__table__.columns:
+        raise RuntimeError(f"业务表 {table} 仍是 raw JSON 结构，请先重建为实体表")
+    if column not in model.__table__.columns:
+        raise RuntimeError(f"业务表 {table} 缺少 JOIN 实体列: {column}")
     name = _index_name(table, column)
-    # column 经 md5 进索引名，这里把列名作为字符串字面量传给 jsonb_extract_path_text，
-    # 用参数化避免注入：拼接索引 DDL 不支持绑定参数，故对列名做单引号转义。
-    safe_col = column.replace("'", "''")
     sql = (
-        f"CREATE INDEX IF NOT EXISTS {name} ON {table} "
-        f"(jsonb_extract_path_text(raw::jsonb, '{safe_col}'))"
+        f"CREATE INDEX IF NOT EXISTS {quote_ident(name, kind='constraint')} "
+        f"ON {quote_ident(table, kind='table')} "
+        f"({quote_ident(column, kind='column')})"
     )
     await db.execute(text(sql))
 

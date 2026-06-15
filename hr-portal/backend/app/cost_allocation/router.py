@@ -40,6 +40,23 @@ def _archive_label_map(columns_meta: list[dict]) -> dict[str, str]:
     return labels
 
 
+def _strip_archive_prefix(key: str) -> str:
+    return key.split(".", 1)[1] if "." in key else key
+
+
+def _archive_rows(items: list[dict], period_ym: str) -> list[dict]:
+    rows = []
+    for item in items:
+        row = {
+            _strip_archive_prefix(k): v
+            for k, v in item.items()
+            if not k.startswith("_")
+        }
+        row.setdefault("month", period_ym)
+        rows.append(row)
+    return rows
+
+
 class ArchiveIn(BaseModel):
     report_id: int
     period_ym: str  # YYYYMM，如 "202506"
@@ -146,20 +163,22 @@ async def archive_cost_allocation(
 
     # 3) 构造写入行：过滤内部字段，注入月份(结果表期间列=month)
     period_ym = payload.period_ym
-    rows = []
-    for item in items:
-        row = {k: v for k, v in item.items() if not k.startswith("_")}
-        row.setdefault("month", period_ym)
-        rows.append(row)
+    rows = _archive_rows(items, period_ym)
 
     # 4) upsert + 删当月孤儿（sync_service 统一逻辑）
-    archived = await _dynamic_upsert(
-        RESULT_TABLE,
-        rows,
-        db,
-        period_ym=period_ym,
-        column_labels=_archive_label_map(cols_meta),
-    )
+    try:
+        archived = await _dynamic_upsert(
+            RESULT_TABLE,
+            rows,
+            db,
+            period_ym=period_ym,
+            column_labels=_archive_label_map(cols_meta),
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     await db.commit()
 
     return ArchiveOut(

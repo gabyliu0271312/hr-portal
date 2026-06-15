@@ -67,7 +67,7 @@ def validate_column_name(column_code: str, *, allow_base: bool = False) -> str:
     """Validate a physical source column name.
 
     Leading underscores are allowed because the system injects columns such as
-    `_org_node_code` for permission filtering.
+    `org_node_code` for permission filtering.
     """
     value = (column_code or "").strip()
     if not value:

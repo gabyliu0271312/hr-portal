@@ -29,104 +29,13 @@ from sqlalchemy.sql import func
 from app.core.db import Base
 
 
-# ===== 5 张业务表（极简 schema）=====
-# 主键：BIGSERIAL id
-# 业务主键：从 raw 中提取的 hash（pk_hash），保证幂等 upsert
-# raw：完整源数据 JSONB
-# synced_at：同步时间
-
-class EmpRealtimeRoster(Base):
-    __tablename__ = "emp_realtime_roster"
-    __table_args__ = (UniqueConstraint("pk_hash", name="uq_emp_realtime_pk"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    pk_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    raw: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    synced_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class EmpMonthlyRoster(Base):
-    __tablename__ = "emp_monthly_roster"
-    __table_args__ = (UniqueConstraint("pk_hash", name="uq_emp_monthly_roster_pk"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    pk_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    raw: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    synced_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class EmpMonthlySalary(Base):
-    __tablename__ = "emp_monthly_salary"
-    __table_args__ = (UniqueConstraint("pk_hash", name="uq_emp_monthly_salary_pk"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    pk_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    raw: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    synced_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class EmpMonthlyAllocation(Base):
-    __tablename__ = "emp_monthly_allocation"
-    __table_args__ = (UniqueConstraint("pk_hash", name="uq_emp_monthly_allocation_pk"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    pk_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    raw: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    synced_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class CostCenterMonthly(Base):
-    __tablename__ = "cost_center_monthly"
-    __table_args__ = (UniqueConstraint("pk_hash", name="uq_cc_monthly_pk"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    pk_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    raw: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    synced_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class EmpMonthlyCostClass(Base):
-    __tablename__ = "emp_monthly_cost_class"
-    __table_args__ = (UniqueConstraint("pk_hash", name="uq_emp_cost_class_pk"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    pk_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    raw: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    synced_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class EmpMonthlyCostResult(Base):
-    """员工月度成本分摊结果表 — 由成本分摊工具计算后存档写入，不从源端拉取。"""
-    __tablename__ = "emp_monthly_cost_result"
-    __table_args__ = (UniqueConstraint("pk_hash", name="uq_emp_cost_result_pk"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    pk_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    raw: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    synced_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
 # ===== 字段元数据表（C1 核心）=====
 class TableColumn(Base):
     """业务表的字段元数据。
 
     - 同步时：源端来什么字段就自动 INSERT 一条（首次出现时）
     - 管理员：可改 column_label / data_type / is_pk_part / is_sensitive / display_order / is_visible
-    - 查询时：按 display_order 排序，按 column_code 从 raw->>{code} 提取值
+    - 查询时：按 display_order 排序，按 column_code 从实体列提取值
     """
     __tablename__ = "table_columns"
     __table_args__ = (
@@ -169,7 +78,7 @@ class TableColumn(Base):
     # 报表聚合角色：'dimension'（维度，GROUP BY）/ 'measure'（度量，可聚合）
     agg_role: Mapped[str] = mapped_column(String(16), nullable=False, default="dimension")
 
-    # 计算字段：用本表已有字段做四则运算生成的新列（同步时算好存进 raw）
+    # 计算字段：用本表已有字段做四则运算生成的新列（同步时算好写入实体列）
     is_computed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 公式表达式，字段以 [列编码] 引用，如 "[应发工资] + [社保] - 5000"；非计算字段为 None
     formula_expr: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -243,16 +152,9 @@ class OrgNode(Base):
     )
 
 
-# ===== 表注册表（方便后续遍历）=====
-DATA_TABLES = {
-    "emp_realtime_roster": EmpRealtimeRoster,
-    "emp_monthly_roster": EmpMonthlyRoster,
-    "emp_monthly_salary": EmpMonthlySalary,
-    "emp_monthly_allocation": EmpMonthlyAllocation,
-    "cost_center_monthly": CostCenterMonthly,
-    "emp_monthly_cost_class": EmpMonthlyCostClass,
-    "emp_monthly_cost_result": EmpMonthlyCostResult,
-}
+# ===== 运行时业务表注册表 =====
+# 业务表不再在 ORM 中静态定义；启动时由 registered_tables + 数据库真实 schema 反射填充。
+DATA_TABLES = {}
 
 
 # ===== 动态注册表元数据（一键新建视图的注册中心）=====

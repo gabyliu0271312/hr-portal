@@ -7,9 +7,9 @@
       "uuid": "44e5cebb-e2fa-4b69-b0cc-8f4d20167d9f",
       "source": "canonical"
     },
-    "name": {
+    "chinese_name": {
       "old_code": "姓名（中文名）",
-      "code": "name",
+      "code": "chinese_name",
       "label": "姓名（中文名）",
       "uuid": "37ddc816-37e2-d132-062f-9a784c0084c4",
       "source": "canonical"
@@ -203,9 +203,9 @@
       "uuid": "3451508d-99b6-4e1c-9777-d8808d9e97dc",
       "source": "canonical"
     },
-    "name_2": {
+    "full_name": {
       "old_code": "姓名",
-      "code": "name_2",
+      "code": "full_name",
       "label": "姓名",
       "uuid": "62018008-71bf-4084-88f6-28b0d6621e35",
       "source": "canonical"
@@ -247,9 +247,9 @@
       "uuid": "b4317727-3d0a-4441-b0e1-2011e2d4ccf8",
       "source": "canonical"
     },
-    "name": {
+    "full_name": {
       "old_code": "姓名",
-      "code": "name",
+      "code": "full_name",
       "label": "姓名",
       "uuid": "a1fc8e94-616d-4bab-997c-01abbc58a060",
       "source": "canonical"

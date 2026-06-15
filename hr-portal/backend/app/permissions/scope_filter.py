@@ -18,8 +18,7 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import and_, false, func, or_, select, true
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import String, and_, false, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement, cast
 
@@ -93,9 +92,20 @@ async def _get_role_columns(table: str, db: AsyncSession) -> dict[str, str]:
     return {r.scope_role: r.column_code for r in rows}
 
 
-def _raw_text(model, col_code: str) -> ColumnElement:
-    """raw->>'col_code' 等价表达，兼容 JSON/JSONB 两种存储类型"""
-    return func.jsonb_extract_path_text(cast(model.raw, JSONB), col_code)
+def _table_name(model) -> str:
+    return getattr(model, "__tablename__", getattr(model.__table__, "name", "unknown"))
+
+
+def _entity_text(model, col_code: str) -> ColumnElement:
+    """实体列文本表达式，用于保持权限筛选按字符串值匹配的原语义。"""
+    table_name = _table_name(model)
+    if "raw" in model.__table__.columns:
+        raise RuntimeError(
+            f"业务表 {table_name} 仍是 raw JSON 结构，请先重建为实体表"
+        )
+    if col_code not in model.__table__.columns:
+        raise RuntimeError(f"业务表 {table_name} 缺少权限实体列: {col_code}")
+    return cast(model.__table__.c[col_code], String)
 
 
 async def _is_super_admin(user: User, db: AsyncSession) -> bool:
@@ -165,7 +175,7 @@ async def _build_org_clause(
 
     if not codes:
         return false()
-    return _raw_text(Model, role_cols[col_key]).in_(codes)
+    return _entity_text(Model, role_cols[col_key]).in_(codes)
 
 
 def _build_filter_clause(
@@ -179,7 +189,7 @@ def _build_filter_clause(
     vals = [v for v in (f.values or []) if v]
     if not vals:
         return false()
-    expr = _raw_text(Model, col_code).in_(vals)
+    expr = _entity_text(Model, col_code).in_(vals)
     return expr if f.operator == "eq" else ~expr
 
 

@@ -308,7 +308,7 @@ async def expose_data(
     db: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     from app.core.secret_box import decrypt
-    from app.push.push_service import _load_source_rows, apply_field_mappings
+    from app.push.push_service import _load_source_rows, apply_field_mappings, json_ready_row
 
     pt = await db.get(PushTarget, pt_id)
     if pt is None or pt.push_type != "api_expose":
@@ -334,4 +334,7 @@ async def expose_data(
 
     period_ym = s.get("period_ym", "")
     rows = await _load_source_rows(pt.source_table, db, period_ym)
-    return [apply_field_mappings(r, pt.field_mappings or []) for r in rows]
+    return [
+        json_ready_row(apply_field_mappings(r, pt.field_mappings or []))
+        for r in rows
+    ]

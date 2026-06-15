@@ -5,9 +5,10 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import BigInteger, Column, MetaData, Numeric, String, Table
 
-from app.data.dynamic_loader import _make_dynamic_model, _make_model_from_table
+from app.data.dynamic_loader import _make_model_from_table
 from app.data.models import DATA_TABLES, TableColumn
 from app.datasources import sync_service
+from tests.entity_helpers import make_legacy_raw_model
 
 
 pytestmark = pytest.mark.asyncio
@@ -229,7 +230,7 @@ async def test_dynamic_upsert_writes_entity_payload_without_raw(monkeypatch):
 
 async def test_dynamic_upsert_rejects_legacy_raw_model():
     table_name = "sync_legacy_raw_guard"
-    model = _make_dynamic_model(table_name)
+    model = make_legacy_raw_model(table_name)
     old_model = DATA_TABLES.get(table_name)
     DATA_TABLES[table_name] = model
 

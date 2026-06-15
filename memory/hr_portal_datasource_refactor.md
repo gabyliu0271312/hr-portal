@@ -232,7 +232,7 @@ hire_date DATE
 
 任务：
 
-- [ ] 移除业务表对静态 `raw JSON` ORM class 的依赖。
+- [x] 移除业务表对静态 `raw JSON` ORM class 的依赖。
 - [x] 保留 `TableColumn`、`RegisteredTable`、`CostCenterNode`、`OrgNode` 等元数据和树模型。
 - [x] 实现按数据库真实表反射的模型加载。
 - [x] `DATA_TABLES` 继续作为运行时注册表，但内容来自反射。
@@ -250,12 +250,16 @@ hire_date DATE
 
 - 已改造 `app/data/dynamic_loader.py`：新增 `reflect_source_table_model`、`register_source_table_model`、`unregister_source_table_model`、`register_period_table`。
 - 启动加载从“只加载用户自建表”调整为“按 `registered_tables` 加载所有业务表”，优先按真实数据库表反射。
-- 若物理表缺失但 `DATA_TABLES` 中已有旧静态模型，则保留 fallback，避免阶段 2 在重建表前破坏当前启动路径。
+- 已移除物理表缺失时回退到旧静态模型的 fallback；`load_dynamic_tables` 现在只能反射真实数据库实体表，缺表会直接失败。
 - `admin/tables_router.py` 的热注册入口已改为使用 `register_source_table_model`，删除表时使用 `unregister_source_table_model`。
-- `_make_dynamic_model` 保留为旧 raw JSON schema 的过渡兼容函数；新实体表路径应使用反射模型。
-- 本阶段尚未移除 `models.py` 中 7 个静态 raw ORM class，因为 `tools/router.py`、`trees/router.py` 等仍直接导入 `EmpRealtimeRoster`。彻底移除放到后续工具/树路由改造时一起做。
-- 验证命令：`$env:PYTHONPATH='.'; pytest tests/test_dynamic_loader.py tests/test_data_ddl.py -q`，结果 `33 passed`。
-- 语法检查命令：`$env:PYTHONPATH='.'; python -m py_compile app\data\dynamic_loader.py app\admin\tables_router.py tests\test_dynamic_loader.py`，通过。
+- `_make_dynamic_model` 已从生产代码移除；测试中的旧 raw 模型仅通过 `tests/entity_helpers.py` 本地 helper 构造，用于验证旧结构会被拒绝。
+- 已移除 `models.py` 中 7 个静态 raw 业务 ORM class，`DATA_TABLES` 初始为空，只在启动或热注册时由真实表反射填充。
+- 已改造 `app/trees/router.py`：用工类型、用工主体、人员下拉统一从 `emp_realtime_roster` 实体列读取，不再导入 `EmpRealtimeRoster` 或使用 `raw->>`。
+- 已改造维护脚本 `scripts/backfill_scope_codes.py`、`scripts/rebuild_trees.py`：从反射实体模型读取行数据，不再访问业务表 `row.raw`。
+- 已把组织权限注入字段统一为实体列 `org_node_code`，并移除 `_org_node_code` 过渡元数据。
+- 已把数据集 JOIN 索引器 `app/datasets/indexing.py` 从 `jsonb_extract_path_text(raw...)` 表达式索引改为实体列普通索引，启动日志不再出现 raw 列缺失错误。
+- 验证命令：`$env:PYTHONPATH='.'; pytest -q`，结果 `130 passed`，仅有既有 `HTTP_422_UNPROCESSABLE_ENTITY` 常量弃用 warning。
+- 前端构建命令：`npm.cmd run build`，通过；仅有既有 Rollup PURE 注释和大 chunk 警告。
 
 ### 阶段 3：重建业务物理表
 
@@ -276,10 +280,10 @@ hire_date DATE
 
 验收：
 
-- [ ] 9 张表不再包含主业务 `raw` 列。
-- [ ] 每张表都有 `id`、`pk_hash`、`synced_at`。
-- [ ] 每张表的业务字段是实体列。
-- [ ] 表结构与 `table_columns` 一致。
+- [x] 9 张表不再包含主业务 `raw` 列。
+- [x] 每张表都有 `id`、`pk_hash`、`synced_at`。
+- [x] 每张表的业务字段是实体列。
+- [x] 表结构与 `table_columns` 一致。
 
 阶段 3 结论：
 
@@ -288,12 +292,16 @@ hire_date DATE
 - 真实执行必须同时传 `--apply --i-understand-this-drops-data`，避免误删数据。
 - 建表 SQL 复用阶段 1 的 DDL 工具：基础列为 `id`、`pk_hash`、`synced_at`，业务列来自 `table_columns`。
 - 执行 apply 时会先从 `DATA_TABLES` 注销旧模型，DROP/CREATE 后再反射注册新实体表模型。
-- 当前只完成“重建能力”和 dry-run 计划生成；上方验收项需要在真实数据库执行 apply 后确认。
+- 已在本地 Docker 真实数据库执行 `python -m scripts.rebuild_source_tables --apply --i-understand-this-drops-data`，9 张业务表已 DROP + 重建为实体列结构。
+- 执行前清理了旧元数据：`emp_monthly_cost_class.field type` -> `field_type`、`cost classification` -> `cost_classification`；删除旧 `_org_node_code` 和北森辅助噪音字段，保留标准 `org_node_code`。
+- 真实数据库验收结果：9 张业务表 `has_raw=false`；`id`、`pk_hash`、`synced_at` 基础列齐全；`table_columns` 指向的业务列全部存在；无 `metadata_missing`。
+- 重建并启动后端镜像：`docker compose build backend; docker compose up -d backend`；健康接口 `/api/v1/health` 返回 `status=ok`，启动日志显示 9 张业务表均完成动态反射。
 - Dry-run 命令：`$env:PYTHONPATH='.'; python -m scripts.rebuild_source_tables`。
 - 单表 dry-run 命令：`$env:PYTHONPATH='.'; python -m scripts.rebuild_source_tables --tables emp_realtime_roster emp_monthly_salary`。
 - 真实执行命令：`$env:PYTHONPATH='.'; python -m scripts.rebuild_source_tables --apply --i-understand-this-drops-data`。
-- 验证命令：`$env:PYTHONPATH='.'; pytest tests/test_rebuild_source_tables.py tests/test_dynamic_loader.py tests/test_data_ddl.py -q`，结果 `38 passed`。
-- 语法检查命令：`$env:PYTHONPATH='.'; python -m py_compile scripts\rebuild_source_tables.py tests\test_rebuild_source_tables.py`，通过。
+- 容器真实执行命令：`docker exec hr-portal-backend sh -lc "cd /app && python -m scripts.rebuild_source_tables --apply --i-understand-this-drops-data"`。
+- 验证命令：`$env:PYTHONPATH='.'; pytest -q`，结果 `130 passed`，仅有既有 `HTTP_422_UNPROCESSABLE_ENTITY` 常量弃用 warning。
+- 前端构建命令：`npm.cmd run build`，通过；仅有既有 Rollup PURE 注释和大 chunk 警告。
 
 ### 阶段 4：改前端建表入口对应的后端逻辑
 
@@ -431,25 +439,36 @@ hire_date DATE
 
 任务：
 
-- [ ] 查询列表时从实体列组装 item。
-- [ ] 精确筛选从 `raw->>` 改为真实列比较。
-- [ ] 关键字搜索改为 `cast(column, String).ilike(...)`。
-- [ ] distinct 改为 `SELECT DISTINCT column`。
-- [ ] CSV 导出从实体列读取。
-- [ ] 手工新增行改为实体列 insert。
-- [ ] 单行编辑改为实体列 update。
-- [ ] 批量编辑改为实体列 update。
-- [ ] 计算字段编辑后重算并写实体列。
-- [ ] 脱敏和隐藏列逻辑保持不变，只替换取值来源。
+- [x] 查询列表时从实体列组装 item。
+- [x] 精确筛选从 `raw->>` 改为真实列比较。
+- [x] 关键字搜索改为 `cast(column, String).ilike(...)`。
+- [x] distinct 改为 `SELECT DISTINCT column`。
+- [x] CSV 导出从实体列读取。
+- [x] 手工新增行改为实体列 insert。
+- [x] 单行编辑改为实体列 update。
+- [x] 批量编辑改为实体列 update。
+- [x] 计算字段编辑后重算并写实体列。
+- [x] 脱敏和隐藏列逻辑保持不变，只替换取值来源。
 
 验收：
 
-- [ ] 数据列表可以打开。
-- [ ] 搜索可以使用。
-- [ ] 筛选可以使用。
-- [ ] distinct 下拉可以使用。
-- [ ] CSV 导出可以使用。
-- [ ] 手工新增、单行编辑、批量编辑可以使用。
+- [x] 数据列表可以打开。
+- [x] 搜索可以使用。
+- [x] 筛选可以使用。
+- [x] distinct 下拉可以使用。
+- [x] CSV 导出可以使用。
+- [x] 手工新增、单行编辑、批量编辑可以使用。
+
+阶段 7 结论：
+
+- 已改造 `app/data/router.py`：数据列表、精确筛选、关键词搜索、distinct 下拉、CSV 导出全部从实体列读取，不再使用 `Model.raw`、`raw->>` 或 `jsonb_extract_path_text`。
+- 数据视图入口新增实体表强校验：如果业务表仍包含 `raw` 列，会直接返回 `409`，要求先完成实体表重建，不再做旧结构兼容。
+- 列表返回值统一通过实体列属性组装，并保留 `_id`、`_synced_at`、隐藏列、脱敏逻辑。
+- 手工新增行改为创建实体列 ORM 对象，按 `table_columns.data_type` 转换写入值，并继续按业务主键计算 `pk_hash`。
+- 单行编辑和批量编辑改为更新实体列；编辑后会按当前实体列值重算计算字段并写回实体列。
+- 新增测试 `tests/test_data_router_entity.py`，覆盖实体列表查询、筛选、搜索、distinct、CSV、手工新增、单行编辑、批量编辑，以及旧 raw 表拒绝访问。
+- 验证命令：`$env:PYTHONPATH='.'; pytest -q`，结果 `105 passed`。
+- 前端构建命令：`npm.cmd run build`，通过；Rollup 仅提示既有的大 chunk / PURE 注释警告。
 
 ### 阶段 8：改权限过滤
 
@@ -459,21 +478,31 @@ hire_date DATE
 
 任务：
 
-- [ ] 将 `_raw_text(model, col_code)` 替换为实体列表达式工具。
-- [ ] `scope_role` 字段过滤改为真实列 `IN`。
-- [ ] 非文本列参与权限过滤时按文本比较或按原类型比较，策略保持一致。
-- [ ] 保留 fail-closed 语义。
-- [ ] 保留超管放行。
-- [ ] 保留 `scope_exempt` 放行。
+- [x] 将 `_raw_text(model, col_code)` 替换为实体列表达式工具。
+- [x] `scope_role` 字段过滤改为真实列 `IN`。
+- [x] 非文本列参与权限过滤时按文本比较或按原类型比较，策略保持一致。
+- [x] 保留 fail-closed 语义。
+- [x] 保留超管放行。
+- [x] 保留 `scope_exempt` 放行。
 
 验收：
 
-- [ ] 无标签用户看不到受控表数据。
-- [ ] 超管可以看全部。
-- [ ] `scope_exempt=true` 的表可以放行。
-- [ ] 组织范围过滤有效。
-- [ ] 成本中心范围过滤有效。
-- [ ] 人员范围过滤有效。
+- [x] 无标签用户看不到受控表数据。
+- [x] 超管可以看全部。
+- [x] `scope_exempt=true` 的表可以放行。
+- [x] 组织范围过滤有效。
+- [x] 成本中心范围过滤有效。
+- [x] 人员范围过滤有效。
+
+阶段 8 结论：
+
+- 已改造 `app/permissions/scope_filter.py`：删除权限过滤中的 `raw->>` / `jsonb_extract_path_text` 路径，统一改为 `cast(entity_column, String).in_(...)`，保持原有按文本值匹配的权限语义。
+- `scope_role` 指向的字段现在必须是业务实体表的真实列；如果业务表仍是旧 `raw JSON` 结构，或元数据指向的权限列不存在，会直接失败，避免权限过滤静默失效。
+- 保留 fail-closed 语义：受控表未配置任何 `scope_role` 字段时返回 `false()`；用户无标签时返回 `false()`；标签维度和表字段不匹配时该标签不授予可见性。
+- 保留超管放行和 `registered_tables.scope_exempt=true` 放行。
+- 新增测试 `tests/test_scope_filter_entity.py`，覆盖实体列组织/人员过滤、旧 raw 表拒绝、缺失实体权限列拒绝、无 scope_role fail-closed、scope_exempt 放行、超管放行。
+- 验证命令：`$env:PYTHONPATH='.'; pytest -q`，结果 `111 passed`。
+- 前端构建命令：`npm.cmd run build`，通过；Rollup 仅提示既有的大 chunk / PURE 注释警告。
 
 ### 阶段 9：改工具中心
 
@@ -483,45 +512,75 @@ hire_date DATE
 
 任务：
 
-- [ ] 员工搜索从 `raw` 搜索改成实体列搜索。
-- [ ] `_to_candidate` 从实体列取值。
-- [ ] 补偿金计算从实体列取 `hire_date`、`terminated_date`、`base_salary` 等字段。
-- [ ] 收入证明从实体列取员工基本信息。
-- [ ] 工具权限隐藏字段逻辑保持不变。
-- [ ] 继续使用 `build_scope_filter` 做数据范围控制。
+- [x] 员工搜索从 `raw` 搜索改成实体列搜索。
+- [x] `_to_candidate` 从实体列取值。
+- [x] 补偿金计算从实体列取 `hire_date`、`terminated_date`、`base_salary` 等字段。
+- [x] 收入证明从实体列取员工基本信息。
+- [x] 工具权限隐藏字段逻辑保持不变。
+- [x] 继续使用 `build_scope_filter` 做数据范围控制。
 
 验收：
 
-- [ ] 补偿金员工搜索可用。
-- [ ] 补偿金计算可用。
-- [ ] 收入证明员工搜索可用。
-- [ ] 收入证明生成可用。
+- [x] 补偿金员工搜索可用。
+- [x] 补偿金计算可用。
+- [x] 收入证明员工搜索可用。
+- [x] 收入证明生成可用。
+
+阶段 9 结论：
+
+- 已改造 `app/tools/router.py`：工具中心不再直接导入静态 `EmpRealtimeRoster` raw ORM，而是从 `DATA_TABLES["emp_realtime_roster"]` 获取当前反射实体模型。
+- 员工搜索改为实体列搜索：`employee_no`、`full_name`、`chinese_name`、`english_name` 使用 `cast(entity_column, String).ilike(...)`，并继续叠加 `build_scope_filter` 数据范围控制。
+- `_to_candidate` 改为从实体列属性组装候选人，字段包括工号、姓名、英文名、公司、部门、工作地、在离职状态、入职日期、离职日期。
+- 补偿金计算改为从实体列读取 `hire_date`、`terminated_date`、`base_salary` 和工作地；协议准备复用的员工值也来自实体列。
+- 收入证明准备改为从实体列读取公司、姓名、身份证、岗位、入职日期、离职日期、基本工资、目标年终奖。
+- 字段编码已统一：员工实时花名册 `姓名` 使用 `full_name`，`姓名（中文名）` 使用 `chinese_name`；员工月度工资表 `姓名` 使用 `full_name`。
+- 工具权限隐藏字段逻辑保持不变：仍通过 `get_hidden_columns(..., tool_key=...)` 控制薪酬字段使用权限。
+- 工具中心入口新增旧表强校验：如果 `emp_realtime_roster` 仍是 `raw JSON` 结构，会直接返回 `409`，要求先重建实体表。
+- 新增测试 `tests/test_tools_router_entity.py`，覆盖补偿金员工搜索、补偿金计算、收入证明准备，以及旧 raw 花名册拒绝访问。
+- 验证命令：`$env:PYTHONPATH='.'; pytest -q`，结果 `115 passed`。
+- 前端构建命令：`npm.cmd run build`，通过；Rollup 仅提示既有的大 chunk / PURE 注释警告。
 
 ### 阶段 10：改 FineBI 暴露和推送
 
 涉及文件：
 
 - `hr-portal/backend/app/push/push_service.py`
+- `hr-portal/backend/app/push/router.py`
 
 任务：
 
-- [ ] `_load_source_rows` 从实体列读取可见字段。
-- [ ] 月度过滤从实体列过滤。
-- [ ] `push_external_db` 保持字段映射和 upsert 逻辑。
-- [ ] `push_http` 保持字段映射逻辑。
-- [ ] `push_api_expose` 保持读取源行逻辑。
-- [ ] `push_db_expose` 建表时按 `table_columns.data_type` 创建真实类型。
-- [ ] `push_db_expose` 插入时直接 `SELECT column AS "中文名"`。
-- [ ] 去掉 `raw->>`。
-- [ ] 保留每张源表独立 FineBI schema。
+- [x] `_load_source_rows` 从实体列读取可见字段。
+- [x] 月度过滤从实体列过滤。
+- [x] `push_external_db` 保持字段映射和 upsert 逻辑。
+- [x] `push_http` 保持字段映射逻辑。
+- [x] `push_api_expose` 保持读取源行逻辑。
+- [x] HTTP 和 API 暴露出口把 `Decimal/date/datetime` 转为 JSON 可序列化值。
+- [x] 外部数据库推送保留实体列原生值，不提前字符串化。
+- [x] `push_db_expose` 建表时按 `table_columns.data_type` 创建真实类型。
+- [x] `push_db_expose` 插入时直接 `SELECT column AS "中文名"`。
+- [x] 去掉 `raw->>`。
+- [x] 保留每张源表独立 FineBI schema。
 
 验收：
 
-- [ ] FineBI 暴露表可以刷新。
-- [ ] FineBI 表字段是中文列名。
-- [ ] 数值列在 FineBI schema 中是 `NUMERIC`。
-- [ ] 日期列在 FineBI schema 中是 `DATE` 或 `TIMESTAMPTZ`。
-- [ ] 只读账号权限仍只限独立 schema。
+- [x] FineBI 暴露表可以刷新。
+- [x] FineBI 表字段是中文列名。
+- [x] 数值列在 FineBI schema 中是 `NUMERIC`。
+- [x] 日期列在 FineBI schema 中是 `DATE` 或 `TIMESTAMPTZ`。
+- [x] 只读账号权限仍只限独立 schema。
+
+阶段 10 结论：
+
+- 已改造 `app/push/push_service.py`：`_load_source_rows` 只从实体列读取 `table_columns.is_visible=true` 的字段，月度过滤使用真实期间列，遇到旧 `raw JSON` 业务表或缺失实体列直接失败。
+- `push_external_db` 继续使用实体列原生 Python 值，字段映射、upsert、删孤儿逻辑保持；仅在内部无主键 hash 材料上做 JSON 安全转换，不影响外部数据库入参类型。
+- `push_http` 和 `app/push/router.py` 的 `api_expose` 数据出口会把 `Decimal`、`date`、`datetime` 转成 JSON 可序列化字符串。
+- `push_db_expose` 改为按 `table_columns.data_type` 创建 FineBI 暴露表真实类型，数值为 `NUMERIC`，日期为 `DATE`，日期时间为 `TIMESTAMPTZ`。
+- FineBI 插入 SQL 改为 `SELECT "entity_column" AS "中文列名"`，不再使用 `raw->>`；重复中文列名会追加 `_2`、`_3` 后缀避免建表冲突。
+- FineBI schema 和表名继续按源表独立生成；只读账号授权只限该独立 schema，并撤销 public 和旧共享 `finebi` schema 访问。
+- 新增测试 `tests/test_push_service_entity.py`，覆盖实体列读取、旧 raw 表拒绝、HTTP/API JSON 转换、FineBI 类型和 SQL 生成。
+- 验证命令：`$env:PYTHONPATH='.'; pytest -q`，结果 `120 passed`。
+- 推送模块旧读法搜索命令：`rg -n "raw->>|jsonb_extract_path_text|cast\(.*JSONB|JSONB" app/push tests/test_push_service_entity.py -S`，无命中。
+- 前端构建命令：`npm.cmd run build`，通过；Rollup 仅提示既有的大 chunk / PURE 注释警告。
 
 ### 阶段 11：改成本分摊相关
 
@@ -532,18 +591,31 @@ hire_date DATE
 
 任务：
 
-- [ ] 检查是否直接访问 `raw`。
-- [ ] 如果只是调用 `_dynamic_upsert`，保持传入 dict 即可。
-- [ ] 确认成本分摊结果写入 `emp_monthly_cost_result` 实体列。
-- [ ] 确认结果表字段缺失时会自动建列。
-- [ ] 确认结果表可用于数据查看和 FineBI。
+- [x] 检查是否直接访问 `raw`。
+- [x] 如果只是调用 `_dynamic_upsert`，保持传入 dict 即可。
+- [x] 确认成本分摊结果写入 `emp_monthly_cost_result` 实体列。
+- [x] 确认结果表字段缺失时会自动建列。
+- [x] 确认结果表可用于数据查看和 FineBI。
 
 验收：
 
-- [ ] 成本分摊方案可执行。
-- [ ] 分摊结果可落库。
-- [ ] 结果表可查看。
-- [ ] 结果表可推送到 FineBI。
+- [x] 成本分摊方案可执行。
+- [x] 分摊结果可落库。
+- [x] 结果表可查看。
+- [x] 结果表可推送到 FineBI。
+
+阶段 11 结论：
+
+- 已检查 `app/allocation/router.py` 和 `app/cost_allocation/router.py`：成本分摊归档链路本身不直接读取或写入业务表 `raw`，结果写入统一交给阶段 6 已实体化的 `_dynamic_upsert`。
+- 方案执行入口 `app/allocation/router.py` 已保持通过 `_strip_archive_prefix` 把报表结果中的 `alias.column` 规范为实体列 `column` 后再写入结果表。
+- 修正旧归档入口 `app/cost_allocation/router.py`：归档行也统一剥离 `alias.` 前缀，避免实体表中自动生成 `result.employee_no` 这类错误字段。
+- 旧归档入口现在会把 `_dynamic_upsert` 的实体表强校验错误转换为 `422`，例如结果表仍是旧 `raw JSON` 结构时直接失败，不做兼容写入。
+- 结果表字段缺失仍由 `_dynamic_upsert -> _ensure_columns -> add_source_column` 自动创建实体列；结果表新增字段的 label 由报表列元数据传入。
+- 已验证 `emp_monthly_cost_result` 可继续被阶段 7 的数据查看链路读取，也可被阶段 10 的 `push_db_expose` 暴露到 FineBI，数值字段保持 `NUMERIC`。
+- 新增测试 `tests/test_allocation_entity.py`，覆盖成本分摊方案归档、旧归档接口 alias 前缀剥离、旧 raw 结果表拒绝、结果表 FineBI 暴露真实类型。
+- 验证命令：`$env:PYTHONPATH='.'; pytest -q`，结果 `124 passed`，仅有既有 `HTTP_422_UNPROCESSABLE_ENTITY` 常量弃用 warning。
+- 成本分摊模块旧读法搜索命令：`rg -n "raw->>|jsonb_extract_path_text|cast\(.*JSONB|JSONB|\.raw|Model\.raw" app/allocation app/cost_allocation tests/test_allocation_entity.py -S`，无命中。
+- 前端构建命令：`npm.cmd run build`，通过；Rollup 仅提示既有的大 chunk / PURE 注释警告。
 
 ### 阶段 12：改报表 SQL
 
@@ -725,6 +797,7 @@ hire_date DATE
 
 ## 13. 当前实施状态
 
-- [ ] 待实施
+- [x] 阶段 0-11 已完成。
+- [x] 阶段 2/3 未验收项已补齐：生产代码无静态 raw 业务 ORM fallback；真实 Docker 数据库 9 张业务表已重建并验收为实体列。
 
-下一步建议从阶段 1 开始：先做 `app/data/ddl.py`，不要直接改同步服务。DDL 工具层稳定后，再替换上层调用点。
+下一步建议进入阶段 12：改造报表 SQL，把 JOIN、SELECT、过滤、排序、聚合从 `raw` 全面切到实体列。

@@ -1,38 +1,42 @@
-"""一次性脚本：给已存的 raw 数据回写 _org_node_code / _cc_code
+"""一次性脚本：给已存的实体表数据回写 org_node_code。
 
 用法（容器内）：
-    docker compose exec backend python /app/backfill_scope_codes.py
+    docker compose exec backend python scripts/backfill_scope_codes.py
 """
 import asyncio
 
 from sqlalchemy import select
 
 from app.core.db import AsyncSessionLocal
-from app.data.models import CostCenterMonthly, EmpRealtimeRoster
-from app.datasources.sync_service import _inject_cc_code, _inject_org_node_code
+from app.data.dynamic_loader import load_dynamic_tables
+from app.data.models import DATA_TABLES
+from app.datasources.sync_service import _inject_org_node_code
 
 
 async def main() -> None:
     async with AsyncSessionLocal() as db:
-        # roster
-        roster = (await db.execute(select(EmpRealtimeRoster))).scalars().all()
-        for r in roster:
-            raw = dict(r.raw) if isinstance(r.raw, dict) else {}
-            before = raw.get("_org_node_code")
-            _inject_org_node_code(raw)
-            if raw.get("_org_node_code") != before:
-                r.raw = raw
-        print(f"[roster] processed {len(roster)} rows")
+        await load_dynamic_tables(db)
+        model = DATA_TABLES.get("emp_realtime_roster")
+        if model is None:
+            raise RuntimeError("emp_realtime_roster 未注册")
+        if "raw" in model.__table__.columns:
+            raise RuntimeError("emp_realtime_roster 仍是 raw JSON 结构，请先重建为实体表")
+        if "org_node_code" not in model.__table__.columns:
+            raise RuntimeError("emp_realtime_roster 缺少实体列 org_node_code")
 
-        # cost_center_monthly
-        cc = (await db.execute(select(CostCenterMonthly))).scalars().all()
-        for r in cc:
-            raw = dict(r.raw) if isinstance(r.raw, dict) else {}
-            before = raw.get("_cc_code")
-            _inject_cc_code(raw)
-            if raw.get("_cc_code") != before:
-                r.raw = raw
-        print(f"[cc] processed {len(cc)} rows")
+        roster = (await db.execute(select(model))).scalars().all()
+        for r in roster:
+            row = {
+                col.name: getattr(r, col.name)
+                for col in model.__table__.columns
+                if hasattr(r, col.name)
+            }
+            before = row.get("org_node_code")
+            _inject_org_node_code(row)
+            after = row.get("org_node_code")
+            if after != before:
+                setattr(r, "org_node_code", after)
+        print(f"[roster] processed {len(roster)} rows")
 
         await db.commit()
         print("[backfill] done")
