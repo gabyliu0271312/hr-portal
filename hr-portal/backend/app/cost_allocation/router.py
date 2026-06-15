@@ -2,7 +2,7 @@
 
 POST /cost-allocation/archive
   - 运行指定报表（全量）
-  - 将结果行注入「月份」字段后写入 emp_monthly_cost_result
+  - 将结果行注入 month 字段后写入 emp_monthly_cost_result
   - 月度表主键规则：upsert + 只删当月孤儿，历史月份保留
 """
 from __future__ import annotations
@@ -144,12 +144,12 @@ async def archive_cost_allocation(
             detail="报表无数据，存档中止（空批次保护）",
         )
 
-    # 3) 构造写入行：过滤内部字段，注入月份(结果表期间列=cost_period)
+    # 3) 构造写入行：过滤内部字段，注入月份(结果表期间列=month)
     period_ym = payload.period_ym
     rows = []
     for item in items:
         row = {k: v for k, v in item.items() if not k.startswith("_")}
-        row.setdefault("cost_period", period_ym)
+        row.setdefault("month", period_ym)
         rows.append(row)
 
     # 4) upsert + 删当月孤儿（sync_service 统一逻辑）

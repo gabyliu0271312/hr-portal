@@ -1,23 +1,31 @@
 """C1 动态列同步服务
 
-- 写库：整行 JSON 入 raw + 算 pk_hash + upsert
-- 自动发现：每次同步时检查 raw 的所有 key，没注册过的 INSERT 一条到 table_columns
+- 写库：业务字段写入实体列 + 算 pk_hash + upsert
+- 自动发现：每次同步时检查源端 key，没注册过的先 ALTER TABLE ADD COLUMN，再 INSERT table_columns
 - 业务主键：从 table_columns 中 is_pk_part=true 的列里取值，组合成 pk_hash
-- 若没有任何 PK 列，回退到整行 JSON 的 hash
+- 若没有任何 PK 列，回退到整行 dict 的稳定 hash
 - 员工实时花名册按 snapshot 处理，每次同步仅保留最新快照
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from datetime import datetime, UTC, date
+from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import cast, delete, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.dialects.postgresql import insert as pg_insert, JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.config import settings as app_settings
+from app.data.ddl import (
+    DDLValidationError,
+    add_source_column,
+    validate_column_name,
+)
+from app.data.dynamic_loader import register_source_table_model
 from app.data.models import (
     DATA_TABLES,
     CostCenterNode,
@@ -26,6 +34,8 @@ from app.data.models import (
 )
 from app.datasources.beisen_client import make_client
 from app.data.formula import eval_formula
+
+logger = logging.getLogger(__name__)
 
 
 # ===== 月度表配置（通用）=====
@@ -61,15 +71,14 @@ YEARMONTH_COLUMNS: dict[str, set[str]] = {
 
 # 跨表查找填值（lookup/enrichment）：同步/重算时按规则从另一张表查出值填进 target。
 # 只填空（target 为空才填）、保留手改；rules 按顺序优先级，命中即停。
-# 注意:lookup_table(emp_monthly_cost_class)未迁移,其 type_col/value_col/result_col 仍是原 code
 LOOKUP_FIELDS: dict[str, list[dict]] = {
     "emp_monthly_salary": [
         {
             "target": "expense_type",
             "lookup_table": "emp_monthly_cost_class",
-            "type_col": "field type",          # 映射表「字段类型」列（值=工号/甲方对应的中文判别值）
+            "type_col": "field_type",          # 映射表「字段类型」列（值=工号/甲方对应的中文判别值）
             "value_col": "value",              # 映射表「值」列
-            "result_col": "cost classification",  # 映射表「费用类型」列
+            "result_col": "cost_classification",  # 映射表「费用类型」列
             "rules": [                          # 先工号、后甲方
                 {"match_type": "工号", "src_field": "employee_no"},
                 {"match_type": "甲方", "src_field": "client"},
@@ -170,16 +179,161 @@ def _guess_data_type(value) -> str:
     return "string"
 
 
+def _model_has_column(model, column_code: str) -> bool:
+    return column_code in model.__table__.columns
+
+
+def _assert_entity_model(model, table_name: str) -> None:
+    if "raw" in model.__table__.columns:
+        raise RuntimeError(
+            f"业务表 {table_name} 仍是 raw JSON 结构，请先执行阶段 3 重建为实体表"
+        )
+
+
+async def _source_columns(table_name: str, db: AsyncSession) -> list[TableColumn]:
+    return (
+        await db.execute(
+            select(TableColumn)
+            .where(TableColumn.table_name == table_name)
+            .order_by(TableColumn.display_order, TableColumn.id)
+        )
+    ).scalars().all()
+
+
+def _row_to_dict(row, columns: list[TableColumn]) -> dict:
+    out: dict = {}
+    for col in columns:
+        if hasattr(row, col.column_code):
+            out[col.column_code] = _normalize_db_value(getattr(row, col.column_code))
+    return out
+
+
+def _normalize_db_value(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
+def _coerce_db_value(value, data_type: str):
+    if value in (None, ""):
+        return None
+    key = (data_type or "string").strip().lower()
+    if key in {"string", "text", "enum"}:
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+    if key == "number":
+        try:
+            return Decimal(str(value).replace(",", "").strip())
+        except (InvalidOperation, ValueError):
+            return None
+    if key == "integer":
+        try:
+            return int(Decimal(str(value).replace(",", "").strip()))
+        except (InvalidOperation, ValueError):
+            return None
+    if key == "date":
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        text = str(value).strip().replace("/", "-")
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            return None
+    if key == "datetime":
+        if isinstance(value, datetime):
+            return value
+        text = str(value).strip().replace("/", "-").replace("T", " ")
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(text[:19 if " " in fmt else 10], fmt).replace(tzinfo=UTC)
+            except ValueError:
+                pass
+        return None
+    if key in {"boolean", "bool"}:
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "t", "yes", "y", "是", "启用"}:
+            return True
+        if text in {"0", "false", "f", "no", "n", "否", "停用"}:
+            return False
+        return None
+    return value
+
+
+def _field_key_needs_codegen(key: str) -> bool:
+    try:
+        validate_column_name(key)
+        return False
+    except DDLValidationError:
+        return True
+
+
+async def _field_code_for_key(
+    *,
+    table_name: str,
+    key: str,
+    label: str,
+    used_codes: set[str],
+    label_to_code: dict[str, str],
+    db: AsyncSession,
+) -> tuple[str, bool]:
+    """Return (column_code, renamed) for a source key under strict entity schema."""
+    reused = label_to_code.get(label)
+    if reused:
+        used_codes.add(reused)
+        return reused, reused != key
+
+    from app.codegen.rules import deterministic_code, unique_code
+    from app.codegen.service import ai_translate_code
+
+    ai_code, _expl, _usage = await ai_translate_code(
+        db,
+        label=label,
+        scope="field",
+        context=f"数据表 {table_name} 自动同步字段",
+    )
+    base = ai_code or deterministic_code(label)
+    new_code = unique_code(base, used_codes)
+    validate_column_name(new_code)
+    used_codes.add(new_code)
+    label_to_code.setdefault(label, new_code)
+    return new_code, new_code != key
+
+
+def _payload_for_entity_row(
+    *,
+    model,
+    merged: dict,
+    columns_by_code: dict[str, TableColumn],
+    pk_hash: str,
+) -> dict:
+    payload = {
+        "pk_hash": pk_hash,
+        "synced_at": datetime.now(UTC),
+    }
+    for code, col in columns_by_code.items():
+        if not _model_has_column(model, code):
+            raise RuntimeError(f"业务表 {model.__tablename__} 缺少实体列: {code}")
+        payload[code] = _coerce_db_value(merged.get(code), col.data_type)
+    return payload
+
+
 async def _ensure_columns(
     table_name: str,
     sample_row: dict,
     db: AsyncSession,
     column_labels: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """从样本行扫描所有 key，对没注册过的字段 INSERT 一条 table_columns。
+    """从样本行扫描所有 key，对没注册过的字段创建实体列并写入 table_columns。
 
     返回 rename_map: {样本行里的中文key: 新生成的英文code}，
-    供调用方把 raw 数据的中文 key 同步改成英文 code。
+    供调用方把源端 key 同步改成实体列 column_code。
     """
     if not sample_row:
         return {}
@@ -209,6 +363,7 @@ async def _ensure_columns(
     new_cols = []
     rename_map: dict[str, str] = {}
     used_codes = set(existing_by_code.keys())
+    added_physical_columns = False
     for key, val in sample_row.items():
         if key in existing_by_code:
             label = column_labels.get(key) or key
@@ -216,48 +371,53 @@ async def _ensure_columns(
             if col.column_label == col.column_code and label != key:
                 col.column_label = label
             continue
-        # 新字段:key 可能是英文 code(已被 client 翻译但库内还没注册)或中文名(全新字段)
-        # 含中文 → 三层定 code:① 同中文 label 复用已有 code ② AI 翻译 ③ 规则兜底
-        import re as _re
-        from app.codegen.rules import deterministic_code, unique_code
-        from app.codegen.service import ai_translate_code
-        if _re.search(r"[一-鿿]", key):
-            label = key
-            reused = label_to_code.get(label)
-            if reused:
-                # ① 复用同中文 label 的已有 code:列已存在,只记 rename_map,不重复建列
-                rename_map[key] = reused
-                used_codes.add(reused)
-                continue
-            ai_code, _expl, _usage = await ai_translate_code(
-                db, label=label, scope="field", context=f"数据表 {table_name} 自动同步字段"
+
+        # 新字段:key 可能是合法英文 code，也可能是中文名/带空格旧 code。
+        # 实体表只接受合法 column_code；非合法 key 必须生成合法 code 后再建物理列。
+        label = column_labels.get(key) or key
+        if _field_key_needs_codegen(key):
+            new_code, renamed = await _field_code_for_key(
+                table_name=table_name,
+                key=key,
+                label=label,
+                used_codes=used_codes,
+                label_to_code=label_to_code,
+                db=db,
             )
-            base = ai_code or deterministic_code(label)  # ② AI / ③ 规则兜底
-            new_code = unique_code(base, used_codes)
-            rename_map[key] = new_code
+            if renamed:
+                rename_map[key] = new_code
         else:
-            label = column_labels.get(key) or key
             new_code = key
-        used_codes.add(new_code)
+            validate_column_name(new_code)
+            used_codes.add(new_code)
         label_to_code.setdefault(label, new_code)
         max_order += 10
         dtype = _guess_data_type(val)
-        new_cols.append(TableColumn(
-            table_name=table_name,
-            column_code=new_code,
-            column_label=label,
-            data_type=dtype,
-            is_pk_part=False,
-            is_sensitive=False,
-            is_visible=True,
-            display_order=max_order,
-            auto_discovered=True,
-            # 自动预标聚合角色：数字→度量，其余→维度（管理员可在字段管理改）
-            agg_role="measure" if dtype == "number" else "dimension",
-        ))
+        try:
+            await add_source_column(db, table_name, new_code, dtype)
+        except DDLValidationError as exc:
+            raise RuntimeError(f"自动新增实体列失败: {table_name}.{new_code}: {exc}") from exc
+        added_physical_columns = True
+        new_cols.append(
+            TableColumn(
+                table_name=table_name,
+                column_code=new_code,
+                column_label=label,
+                data_type=dtype,
+                is_pk_part=False,
+                is_sensitive=False,
+                is_visible=True,
+                display_order=max_order,
+                auto_discovered=True,
+                # 自动预标聚合角色：数字→度量，其余→维度（管理员可在字段管理改）
+                agg_role="measure" if dtype == "number" else "dimension",
+            )
+        )
     if new_cols:
         db.add_all(new_cols)
         await db.flush()
+    if added_physical_columns:
+        await register_source_table_model(db, table_name, force=True)
     return rename_map
 
 
@@ -292,7 +452,7 @@ def _calc_pk_hash(row: dict, pk_columns: list[str]) -> str:
 
 
 async def _ensure_period_meta(table_name: str, db: AsyncSession) -> None:
-    """月度表元数据收口：把「月份」列置为主键并排到最前。
+    """月度表元数据收口：把期间实体列置为主键并排到最前。
 
     业务实体键（如工号、编码）由管理员在字段管理里手动勾选 is_pk_part，此处只处理期间列。
     """
@@ -300,6 +460,12 @@ async def _ensure_period_meta(table_name: str, db: AsyncSession) -> None:
     if not cfg:
         return
     period_col = cfg["period_col"]
+    try:
+        validate_column_name(period_col)
+    except DDLValidationError as exc:
+        raise RuntimeError(
+            f"月度表 {table_name} 的 period_col 必须是实体列编码，当前值: {period_col}"
+        ) from exc
     cols = (
         await db.execute(
             select(TableColumn).where(
@@ -369,15 +535,22 @@ async def build_lookup_maps(table_name: str, db: AsyncSession) -> list[tuple[dic
         LM = DATA_TABLES.get(cfg["lookup_table"])
         if LM is None:
             continue
-        rows = (await db.execute(select(LM.raw))).all()
+        _assert_entity_model(LM, cfg["lookup_table"])
+        lookup_columns = await _source_columns(cfg["lookup_table"], db)
+        required = [cfg["type_col"], cfg["value_col"], cfg["result_col"]]
+        missing = [code for code in required if not _model_has_column(LM, code)]
+        if missing:
+            raise RuntimeError(f"lookup 表 {cfg['lookup_table']} 缺少实体列: {missing}")
+
+        rows = (await db.execute(select(LM))).scalars().all()
         m: dict[tuple[str, str], object] = {}
-        for (raw,) in rows:
-            if isinstance(raw, dict):
-                key = (
-                    str(raw.get(cfg["type_col"], "")),
-                    str(raw.get(cfg["value_col"], "")),
-                )
-                m[key] = raw.get(cfg["result_col"])
+        for row in rows:
+            values = _row_to_dict(row, lookup_columns)
+            key = (
+                str(values.get(cfg["type_col"], "")),
+                str(values.get(cfg["value_col"], "")),
+            )
+            m[key] = values.get(cfg["result_col"])
         out.append((cfg, m))
     return out
 
@@ -405,26 +578,76 @@ async def _dynamic_upsert(
     Model = DATA_TABLES.get(table_name)
     if Model is None:
         raise RuntimeError(f"未知业务表: {table_name}")
+    _assert_entity_model(Model, table_name)
 
     # 空批次：源端可能异常，不做任何删除，直接返回
     if not rows:
         return 0
 
-    # 1) 自动注册新字段（用第一行作为样本）
-    rename_map = await _ensure_columns(table_name, rows[0], db, column_labels=column_labels)
+    # 内部归档调用可通过 period_ym 显式给月度表补期间列。
+    cfg = PERIOD_TABLES.get(table_name)
+    if cfg and period_ym:
+        period_col = cfg["period_col"]
+        validate_column_name(period_col)
+        normalized_period = _normalize_yyyymm(period_ym)
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            existing_period = r.get(period_col)
+            if existing_period in (None, ""):
+                r[period_col] = normalized_period
+                continue
+            normalized_existing = _normalize_yyyymm(existing_period)
+            if normalized_existing != normalized_period:
+                raise RuntimeError(
+                    f"月度表 {table_name} 行数据期间 {normalized_existing} "
+                    f"与请求期间 {normalized_period} 不一致"
+                )
+            r[period_col] = normalized_existing
 
-    # 1b) 全新中文字段已生成英文 code → 把所有行 raw 的中文 key 改成英文 code
+    # 1) 自动注册新字段（扫描全批次 key，避免第一行为空列导致漏建）
+    sample_row: dict = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        for key, value in r.items():
+            if key not in sample_row or sample_row[key] in (None, ""):
+                sample_row[key] = value
+    rename_map = await _ensure_columns(table_name, sample_row, db, column_labels=column_labels)
+
+    # 1b) 全新中文/非法 key 已生成英文 code → 把所有行 key 改成实体列 code
     if rename_map:
         for r in rows:
             if isinstance(r, dict):
                 for zh, en in rename_map.items():
                     if zh in r:
                         r[en] = r.pop(zh)
+    Model = DATA_TABLES.get(table_name)
+    if Model is None:
+        raise RuntimeError(f"未知业务表: {table_name}")
+    _assert_entity_model(Model, table_name)
 
-    # 2) 月度表：收口月份/编码主键
+    if cfg:
+        period_col = cfg["period_col"]
+        validate_column_name(period_col)
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            if r.get(period_col) in (None, ""):
+                raise RuntimeError(f"月度表 {table_name} 缺少期间字段: {period_col}")
+            r[period_col] = _normalize_yyyymm(r[period_col])
+
+    # 2) 月度表：收口期间列主键
     await _ensure_period_meta(table_name, db)
 
-    # 3) 取业务主键列
+    # 3) 取字段元数据/业务主键列，并要求元数据字段都有实体列
+    table_columns = await _source_columns(table_name, db)
+    columns_by_code = {col.column_code: col for col in table_columns}
+    missing_physical = [
+        col.column_code for col in table_columns if not _model_has_column(Model, col.column_code)
+    ]
+    if missing_physical:
+        raise RuntimeError(f"业务表 {table_name} 缺少实体列: {missing_physical}")
     pk_columns = await _get_pk_columns(table_name, db)
 
     # 4) 同批次去重（多行同 PK 取最后一行），保留顺序
@@ -451,15 +674,17 @@ async def _dynamic_upsert(
     existing_map: dict[str, dict] = {}
     if manual_codes:
         hashes = [h for h, _ in deduped]
-        ex_rows = (
+        existing_rows = (
             await db.execute(
-                select(Model.pk_hash, Model.raw).where(Model.pk_hash.in_(hashes))
+                select(Model).where(Model.pk_hash.in_(hashes))
             )
-        ).all()
-        existing_map = {h: (raw or {}) for h, raw in ex_rows}
+        ).scalars().all()
+        existing_map = {
+            row.pk_hash: _row_to_dict(row, table_columns)
+            for row in existing_rows
+        }
 
     # 上月行（按 is_pk_part 列中除 period_col 外的业务键匹配，仅复制上月需要）
-    cfg = PERIOD_TABLES.get(table_name)
     prev_map: dict[tuple, dict] = {}
     entity_keys: list[str] = []
     if cfg and copy_codes and deduped:
@@ -471,17 +696,15 @@ async def _dynamic_upsert(
         cur_ym = str(deduped[0][1].get(period_col, ""))
         prev_ym = _prev_ym(cur_ym)
         if prev_ym:
-            pv_rows = (
+            previous_rows = (
                 await db.execute(
-                    select(Model.raw).where(
-                        cast(Model.raw, JSONB)[period_col].astext == prev_ym
-                    )
+                    select(Model).where(getattr(Model, period_col) == prev_ym)
                 )
-            ).all()
-            for (raw,) in pv_rows:
-                if isinstance(raw, dict):
-                    key = tuple(str(raw.get(k, "")) for k in entity_keys)
-                    prev_map[key] = raw
+            ).scalars().all()
+            for row in previous_rows:
+                values = _row_to_dict(row, table_columns)
+                key = tuple(str(values.get(k, "")) for k in entity_keys)
+                prev_map[key] = values
 
     # 6) 组装 payload（合并手工值）
     computed = await _get_computed_columns(table_name, db)
@@ -516,18 +739,27 @@ async def _dynamic_upsert(
         # 计算字段：用已组装好的行值算出结果写回（覆盖任何残留旧值）
         for comp in computed:
             merged[comp["code"]] = eval_formula(comp["formula"], merged)
-        payload.append({
-            "pk_hash": h,
-            "raw": merged,
-            "synced_at": datetime.now(UTC),
-        })
+        payload.append(
+            _payload_for_entity_row(
+                model=Model,
+                merged=merged,
+                columns_by_code=columns_by_code,
+                pk_hash=h,
+            )
+        )
 
     stmt = pg_insert(Model).values(payload)
+    update_set = {
+        code: getattr(stmt.excluded, code)
+        for code in columns_by_code
+    }
+    update_set["synced_at"] = stmt.excluded.synced_at
     stmt = stmt.on_conflict_do_update(
         index_elements=["pk_hash"],
-        set_={"raw": stmt.excluded.raw, "synced_at": stmt.excluded.synced_at},
+        set_=update_set,
     )
     await db.execute(stmt)
+    db.expire_all()
 
     # 7) 删孤儿：本次批次中不存在的行视为已失效，直接删除
     #    月度表：只删当月（保留历史月份）；其他表（含实时花名册）：全表范围
@@ -539,7 +771,7 @@ async def _dynamic_upsert(
         if cur_ym:
             await db.execute(
                 delete(Model).where(
-                    cast(Model.raw, JSONB)[period_col].astext == cur_ym,
+                    getattr(Model, period_col) == cur_ym,
                     Model.pk_hash.not_in(current_hashes),
                 )
             )
@@ -865,11 +1097,12 @@ async def sync_to_table(
     # 注入 scope_role 用的稳定 code（落库前一次性算好）
     _inject_scope_codes(table_name, rows or [])
 
-    # 月度表：inject 类型自动注入「月份」列；field 类型接口自带，直接读第一行值
+    # 月度表：inject 类型自动注入期间实体列；field 类型接口自带，直接读第一行值
     period_cfg = PERIOD_TABLES.get(table_name)
     cur_ym = ""
     if period_cfg:
         period_col = period_cfg["period_col"]
+        validate_column_name(period_col)
         if period_cfg.get("period_source", "inject") == "inject":
             cur_ym = _resolve_period_ym(period_cfg, settings)
             if rows:
@@ -900,17 +1133,17 @@ async def sync_to_table(
         # 保证树的 is_active 与数据表一致
         await db.flush()
         Model = DATA_TABLES[table_name]
+        _assert_entity_model(Model, table_name)
+        table_columns = await _source_columns(table_name, db)
         if cur_ym:
-            tree_src = (
+            tree_rows_orm = (
                 await db.execute(
-                    select(Model.raw).where(
-                        cast(Model.raw, JSONB)["month"].astext == cur_ym
-                    )
+                    select(Model).where(getattr(Model, "month") == cur_ym)
                 )
-            ).all()
+            ).scalars().all()
         else:
-            tree_src = (await db.execute(select(Model.raw))).all()
-        tree_rows = [raw for (raw,) in tree_src if isinstance(raw, dict)]
+            tree_rows_orm = (await db.execute(select(Model))).scalars().all()
+        tree_rows = [_row_to_dict(row, table_columns) for row in tree_rows_orm]
         await _sync_cc_tree(tree_rows, db)
     elif table_name == "emp_realtime_roster":
         await _sync_org_tree(rows or [], db)

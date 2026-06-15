@@ -43,6 +43,7 @@ export interface ColumnUpdatePayload {
   agg_role?: string
   is_computed?: boolean
   formula_expr?: string | null
+  confirm_type_change?: boolean
 }
 
 export const tableColumnsApi = {

@@ -272,8 +272,8 @@ class RegisteredTable(Base):
 
     # 是否月度表（影响孤儿删除范围）
     is_period: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # 月度表的期间列名（默认「月份」）
-    period_col: Mapped[str] = mapped_column(String(64), nullable=False, default="月份")
+    # 月度表的期间实体列编码（默认 month）
+    period_col: Mapped[str] = mapped_column(String(64), nullable=False, default="month")
     # 月份来源：'field'=接口自带月份字段 / 'inject'=同步时按 MONTH_OFFSET 自动注入
     period_source: Mapped[str] = mapped_column(String(16), nullable=False, default="field")
 

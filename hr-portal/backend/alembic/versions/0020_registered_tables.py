@@ -17,7 +17,7 @@ def upgrade() -> None:
         sa.Column("table_label", sa.String(128), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("is_period", sa.Boolean(), nullable=False, server_default="false"),
-        sa.Column("period_col", sa.String(64), nullable=False, server_default="月份"),
+        sa.Column("period_col", sa.String(64), nullable=False, server_default="month"),
         sa.Column("entity_keys", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("is_builtin", sa.Boolean(), nullable=False, server_default="false"),
         sa.Column("is_result_table", sa.Boolean(), nullable=False, server_default="false"),

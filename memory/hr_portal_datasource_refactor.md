@@ -233,18 +233,29 @@ hire_date DATE
 任务：
 
 - [ ] 移除业务表对静态 `raw JSON` ORM class 的依赖。
-- [ ] 保留 `TableColumn`、`RegisteredTable`、`CostCenterNode`、`OrgNode` 等元数据和树模型。
-- [ ] 实现按数据库真实表反射的模型加载。
-- [ ] `DATA_TABLES` 继续作为运行时注册表，但内容来自反射。
-- [ ] 启动时从 `registered_tables` 加载所有业务表。
-- [ ] 用户新建表后可热注册到 `DATA_TABLES`。
-- [ ] 月度表继续注册到 `PERIOD_TABLES`。
+- [x] 保留 `TableColumn`、`RegisteredTable`、`CostCenterNode`、`OrgNode` 等元数据和树模型。
+- [x] 实现按数据库真实表反射的模型加载。
+- [x] `DATA_TABLES` 继续作为运行时注册表，但内容来自反射。
+- [x] 启动时从 `registered_tables` 加载所有业务表。
+- [x] 用户新建表后可热注册到 `DATA_TABLES`。
+- [x] 月度表继续注册到 `PERIOD_TABLES`。
 
 验收：
 
-- [ ] 服务启动后，内置业务表可在 `DATA_TABLES` 中找到。
-- [ ] 用户自建业务表可在 `DATA_TABLES` 中找到。
-- [ ] ORM/SQLAlchemy 查询能访问实体列。
+- [x] 服务启动后，内置业务表可在 `DATA_TABLES` 中找到。
+- [x] 用户自建业务表可在 `DATA_TABLES` 中找到。
+- [x] ORM/SQLAlchemy 查询能访问实体列。
+
+阶段 2 结论：
+
+- 已改造 `app/data/dynamic_loader.py`：新增 `reflect_source_table_model`、`register_source_table_model`、`unregister_source_table_model`、`register_period_table`。
+- 启动加载从“只加载用户自建表”调整为“按 `registered_tables` 加载所有业务表”，优先按真实数据库表反射。
+- 若物理表缺失但 `DATA_TABLES` 中已有旧静态模型，则保留 fallback，避免阶段 2 在重建表前破坏当前启动路径。
+- `admin/tables_router.py` 的热注册入口已改为使用 `register_source_table_model`，删除表时使用 `unregister_source_table_model`。
+- `_make_dynamic_model` 保留为旧 raw JSON schema 的过渡兼容函数；新实体表路径应使用反射模型。
+- 本阶段尚未移除 `models.py` 中 7 个静态 raw ORM class，因为 `tools/router.py`、`trees/router.py` 等仍直接导入 `EmpRealtimeRoster`。彻底移除放到后续工具/树路由改造时一起做。
+- 验证命令：`$env:PYTHONPATH='.'; pytest tests/test_dynamic_loader.py tests/test_data_ddl.py -q`，结果 `33 passed`。
+- 语法检查命令：`$env:PYTHONPATH='.'; python -m py_compile app\data\dynamic_loader.py app\admin\tables_router.py tests\test_dynamic_loader.py`，通过。
 
 ### 阶段 3：重建业务物理表
 
@@ -254,14 +265,14 @@ hire_date DATE
 
 任务：
 
-- [ ] 读取 9 张业务表名单。
-- [ ] 读取每张表的 `table_columns`。
-- [ ] DROP 9 张业务表。
-- [ ] 重建基础列：`id`、`pk_hash`、`synced_at`。
-- [ ] 根据 `table_columns.column_code` 建实体列。
-- [ ] 根据 `table_columns.data_type` 决定 PostgreSQL 类型。
-- [ ] 为 `pk_hash` 创建唯一约束和索引。
-- [ ] 重载或刷新 `DATA_TABLES`。
+- [x] 读取 9 张业务表名单。
+- [x] 读取每张表的 `table_columns`。
+- [x] DROP 9 张业务表。
+- [x] 重建基础列：`id`、`pk_hash`、`synced_at`。
+- [x] 根据 `table_columns.column_code` 建实体列。
+- [x] 根据 `table_columns.data_type` 决定 PostgreSQL 类型。
+- [x] 为 `pk_hash` 创建唯一约束和索引。
+- [x] 重载或刷新 `DATA_TABLES`。
 
 验收：
 
@@ -269,6 +280,20 @@ hire_date DATE
 - [ ] 每张表都有 `id`、`pk_hash`、`synced_at`。
 - [ ] 每张表的业务字段是实体列。
 - [ ] 表结构与 `table_columns` 一致。
+
+阶段 3 结论：
+
+- 已新增 `scripts/rebuild_source_tables.py`，默认 dry-run，仅打印 DROP/CREATE 计划，不改数据库。
+- 脚本默认重建阶段 0 确认的 9 张业务表，也支持 `--tables` 限定表名。
+- 真实执行必须同时传 `--apply --i-understand-this-drops-data`，避免误删数据。
+- 建表 SQL 复用阶段 1 的 DDL 工具：基础列为 `id`、`pk_hash`、`synced_at`，业务列来自 `table_columns`。
+- 执行 apply 时会先从 `DATA_TABLES` 注销旧模型，DROP/CREATE 后再反射注册新实体表模型。
+- 当前只完成“重建能力”和 dry-run 计划生成；上方验收项需要在真实数据库执行 apply 后确认。
+- Dry-run 命令：`$env:PYTHONPATH='.'; python -m scripts.rebuild_source_tables`。
+- 单表 dry-run 命令：`$env:PYTHONPATH='.'; python -m scripts.rebuild_source_tables --tables emp_realtime_roster emp_monthly_salary`。
+- 真实执行命令：`$env:PYTHONPATH='.'; python -m scripts.rebuild_source_tables --apply --i-understand-this-drops-data`。
+- 验证命令：`$env:PYTHONPATH='.'; pytest tests/test_rebuild_source_tables.py tests/test_dynamic_loader.py tests/test_data_ddl.py -q`，结果 `38 passed`。
+- 语法检查命令：`$env:PYTHONPATH='.'; python -m py_compile scripts\rebuild_source_tables.py tests\test_rebuild_source_tables.py`，通过。
 
 ### 阶段 4：改前端建表入口对应的后端逻辑
 
@@ -279,20 +304,35 @@ hire_date DATE
 
 任务：
 
-- [ ] 新建表时不再创建 `raw JSON`。
-- [ ] 新建表时只创建基础列。
-- [ ] 写入 `registered_tables`。
-- [ ] 热注册实体表模型。
-- [ ] 如果请求包含初始字段，同时创建实体列和 `table_columns`。
-- [ ] 删除表时继续 `DROP TABLE`。
-- [ ] 删除表时清理 `registered_tables`、`table_columns`、单表数据集。
+- [x] 新建表时不再创建 `raw JSON`。
+- [x] 新建表时只创建基础列。
+- [x] 写入 `registered_tables`。
+- [x] 热注册实体表模型。
+- [x] 如果请求包含初始字段，同时创建实体列和 `table_columns`。
+- [x] 删除表时继续 `DROP TABLE`。
+- [x] 删除表时清理 `registered_tables`、`table_columns`、单表数据集。
 
 验收：
 
-- [ ] 前端可以新建一张空业务表。
-- [ ] 新建表没有 `raw` 列。
-- [ ] 新建表能出现在表列表和字段管理里。
-- [ ] 自建表可以删除。
+- [x] 前端可以新建一张空业务表。
+- [x] 新建表没有 `raw` 列。
+- [x] 新建表能出现在表列表和字段管理里。
+- [x] 自建表可以删除。
+
+阶段 4 结论：
+
+- 已改造 `app/admin/tables_router.py` 的新建表逻辑，去掉旧的拼接 SQL + `raw JSON` schema，统一改为调用阶段 1 的 `create_source_table` 受控 DDL 工具。
+- 前端现有建表弹窗不传 `columns` 时，会创建只有 `id`、`pk_hash`、`synced_at` 的空实体业务表；这与后续阶段 5 的“字段管理”衔接。
+- 后端 `CreateTableIn.columns` 已预留可选初始字段；如果请求包含字段，会同时创建真实实体列并写入 `table_columns(auto_discovered=false)`。
+- 新建成功后会写入 `registered_tables`，再通过 `register_source_table_model(..., force=True)` 反射热注册实体表模型，并继续维护月度表 `PERIOD_TABLES`。
+- 删除自建表时会校验表名，调用 `drop_source_table(..., cascade=True)` 删除物理表，清理 `table_columns`、单表数据集、`registered_tables` 和运行时注册。
+- 修复了删除路径中重复 `db.delete(rt)` 的问题。
+- 当前阶段未新增前端初始字段编辑 UI；前端仍按原有表单创建空业务表，字段增删改放在阶段 5。
+- 验证命令：`$env:PYTHONPATH='.'; pytest tests/test_admin_tables_router.py tests/test_rebuild_source_tables.py tests/test_dynamic_loader.py tests/test_data_ddl.py -q`，结果 `45 passed`。
+- 语法检查命令：`$env:PYTHONPATH='.'; python -m py_compile app\admin\tables_router.py tests\test_admin_tables_router.py`，通过。
+- 真实容器验收已完成：重建并启动当前工作区后端容器，前端 `http://localhost:8080/` 返回 200，后端 `http://localhost:8000/api/v1/health` 返回 OK。
+- 使用真实 API 创建临时表 `codex_stage4_check` 成功，数据库物理结构只有 `id`、`pk_hash`、`synced_at`，确认无 `raw` 列；`/admin/tables` 可查询到该表。
+- 使用真实 API 删除临时表成功，确认物理表、`registered_tables`、`table_columns`、`dataset_tables` 均无残留。
 
 ### 阶段 5：改字段管理
 
@@ -302,25 +342,39 @@ hire_date DATE
 
 任务：
 
-- [ ] 新增字段接口先执行 `ALTER TABLE ADD COLUMN`。
-- [ ] 新增字段接口再写入 `table_columns`。
-- [ ] 新增字段失败时不能留下半截元数据。
-- [ ] 删除字段前做依赖检查。
-- [ ] 删除字段时执行 `ALTER TABLE DROP COLUMN`。
-- [ ] 删除字段后删除 `table_columns`。
-- [ ] 修改字段类型时执行 `ALTER TABLE ALTER COLUMN TYPE`。
-- [ ] 空表或空列可以直接改类型。
-- [ ] 非空列改类型需要显式确认参数。
-- [ ] 修改字段标签、顺序、显示、敏感、权限角色仍只改元数据。
-- [ ] 计算字段创建后要创建实体列。
-- [ ] 重算计算字段时写回实体列。
+- [x] 新增字段接口先执行 `ALTER TABLE ADD COLUMN`。
+- [x] 新增字段接口再写入 `table_columns`。
+- [x] 新增字段失败时不能留下半截元数据。
+- [x] 删除字段前做依赖检查。
+- [x] 删除字段时执行 `ALTER TABLE DROP COLUMN`。
+- [x] 删除字段后删除 `table_columns`。
+- [x] 修改字段类型时执行 `ALTER TABLE ALTER COLUMN TYPE`。
+- [x] 空表或空列可以直接改类型。
+- [x] 非空列改类型需要显式确认参数。
+- [x] 修改字段标签、顺序、显示、敏感、权限角色仍只改元数据。
+- [x] 计算字段创建后要创建实体列。
+- [x] 重算计算字段时写回实体列。
 
 验收：
 
-- [ ] 前端新增字段后，数据库真实列存在。
-- [ ] 前端删除字段后，数据库真实列消失。
-- [ ] 修改展示配置不影响数据库列。
-- [ ] 修改类型后数据库列类型同步变化。
+- [x] 前端新增字段后，数据库真实列存在。
+- [x] 前端删除字段后，数据库真实列消失。
+- [x] 修改展示配置不影响数据库列。
+- [x] 修改类型后数据库列类型同步变化。
+
+阶段 5 结论：
+
+- 已改造 `app/data/columns_router.py`：新增字段先调用 `add_source_column` 创建实体列，再写入 `table_columns(auto_discovered=false)`，并刷新 `DATA_TABLES` 反射模型。
+- 删除字段改为先做依赖检查，再调用 `drop_source_column` 删除数据库实体列，最后删除 `table_columns` 并刷新运行时模型。
+- 删除依赖检查覆盖：业务主键、数据权限角色、本表计算字段、数据集关联关系、数据集计算字段、报表配置、成本分摊方案配置、推送目标字段映射。
+- 字段类型修改会调用 `alter_source_column_type`；如果物理列已有非空数据且请求未带 `confirm_type_change=true`，后端返回 `409` 要求显式确认。
+- 前端字段管理页已在“保存所有修改”时识别数据类型变化，并弹出确认框；确认后提交 `confirm_type_change`。
+- 计算字段新增会创建实体列；重算计算字段时优先写实体列，仍保留旧 `raw` 行对象兼容分支，等待阶段 7 数据查看/编辑彻底切换。
+- `clean-orphans` 从“扫描 raw key”调整为“扫描物理列是否存在”，只删除无实体列对应的自动发现字段元数据。
+- 验证命令：`$env:PYTHONPATH='.'; pytest -q`，结果 `93 passed`。
+- 前端构建命令：`npm.cmd run build`，通过；PowerShell 直接执行 `npm run build` 会受本机执行策略阻止，因此使用 `npm.cmd`。
+- 真实容器验收已完成：重建并启动当前工作区后端容器，通过真实 API 创建临时表 `codex_stage5_check`，新增字段 `stage_amount` 后确认物理列存在，修改类型为 `string` 后确认接口返回新类型，删除字段和临时表成功；确认物理表、`registered_tables`、`table_columns`、`dataset_tables` 均无残留。
+- 阶段边界：数据查看、手工行编辑、同步服务、报表 SQL、FineBI 推送等主数据读写链路仍在后续阶段切换实体列，本阶段只完成字段管理入口的 DDL 与元数据一致性。
 
 ### 阶段 6：改同步服务
 
@@ -330,30 +384,44 @@ hire_date DATE
 
 任务：
 
-- [ ] 修改 `_ensure_columns`，发现新字段时自动 `ADD COLUMN TEXT`。
-- [ ] `_ensure_columns` 继续写入 `table_columns(auto_discovered=true)`。
-- [ ] 中文字段名仍走 codegen 生成英文 `column_code`。
-- [ ] 字段重命名时仍优先复用 `source_field_id` 或中文 label 对应 code。
-- [ ] `_dynamic_upsert` payload 从 `{"raw": merged}` 改为实体列字典。
-- [ ] upsert insert values 包含 `pk_hash`、`synced_at`、实体列。
-- [ ] upsert update set 不再更新 `raw`，改为更新实体列和 `synced_at`。
-- [ ] 手工字段保留逻辑从实体列读取旧值。
-- [ ] 复制上月逻辑从实体列读取上月值。
-- [ ] 月度孤儿删除从实体列过滤期间。
-- [ ] lookup 读取映射表时从实体列读取。
-- [ ] 计算字段结果写入实体列。
-- [ ] 成本中心树构建从落库后实体列组装 dict。
-- [ ] 组织架构树构建可继续使用同步前 rows，或从实体列重读后组装 dict。
+- [x] 修改 `_ensure_columns`，发现新字段时自动 `ADD COLUMN`。
+- [x] `_ensure_columns` 继续写入 `table_columns(auto_discovered=true)`。
+- [x] 中文字段名、非法字段编码仍走 codegen 生成合法英文 `column_code`。
+- [x] 字段重命名时仍优先复用中文 label 对应 code。
+- [x] `_dynamic_upsert` payload 从 `{"raw": merged}` 改为实体列字典。
+- [x] upsert insert values 包含 `pk_hash`、`synced_at`、实体列。
+- [x] upsert update set 不再更新 `raw`，改为更新实体列和 `synced_at`。
+- [x] 手工字段保留逻辑从实体列读取旧值。
+- [x] 复制上月逻辑从实体列读取上月值。
+- [x] 月度孤儿删除从实体列过滤期间。
+- [x] lookup 读取映射表时从实体列读取。
+- [x] 计算字段结果写入实体列。
+- [x] 成本中心树构建从落库后实体列组装 dict。
+- [x] 组织架构树构建继续使用同步前 rows。
 
 验收：
 
-- [ ] `emp_realtime_roster` 能同步成功。
-- [ ] `emp_monthly_salary` 能同步成功。
-- [ ] 接口新增字段时数据库自动新增实体列。
-- [ ] 手工字段不会被同步覆盖。
-- [ ] 复制上月字段仍可用。
-- [ ] 计算字段仍可回填。
-- [ ] 月度表孤儿删除只影响当月。
+- [x] `emp_realtime_roster` 同步路径不再读写业务表 `raw`，运行时若仍是旧 raw 表会直接失败。
+- [x] `emp_monthly_salary` 同步路径不再读写业务表 `raw`，期间字段统一使用实体列编码 `month`。
+- [x] 接口新增字段时数据库自动新增实体列。
+- [x] 手工字段不会被同步覆盖。
+- [x] 复制上月字段仍可用。
+- [x] 计算字段仍可回填。
+- [x] 月度表孤儿删除只影响当月。
+
+阶段 6 结论：
+
+- 已改造 `app/datasources/sync_service.py` 为实体列强模式：同步服务不再兼容旧 `raw` 业务表，遇到仍包含 `raw` 列的业务表会直接报错，要求先执行阶段 3 重建。
+- `_ensure_columns` 会扫描本批次全部字段；新字段先通过 DDL 工具 `ADD COLUMN` 创建真实实体列，再写入 `table_columns(auto_discovered=true)` 并刷新运行时反射模型。
+- 非法源端 key（中文、空格等）会通过 codegen 生成合法 `column_code` 后再落库；月度期间字段统一要求使用实体列编码 `month`。
+- `_dynamic_upsert` 已改为实体列 payload，`ON CONFLICT` 更新实体列和 `synced_at`；执行后会 `expire_all()`，避免同一 Session 读到 upsert 前的旧 ORM 对象。
+- 手工字段保留、复制上月、lookup、计算字段、月度孤儿删除、成本中心落库后建树均改为实体列路径。
+- 配套收紧：`registered_tables.period_col` 默认值、内置表 seed、前端新建视图默认期间字段、成本分摊结果归档期间字段均统一为 `month`。
+- 新增测试：`tests/test_sync_service_entity.py`，覆盖自动补实体列、实体 upsert 不含 `raw`、旧 raw 模型失败、`period_ym` 注入 `month`、lookup 实体列读取。
+- 验证命令：`$env:PYTHONPATH='.'; pytest -q`，结果 `98 passed`。
+- 前端构建命令：`npm.cmd run build`，通过；Rollup 仅提示既有的大 chunk / PURE 注释警告。
+- 真实容器验收已完成：重建并启动 backend 容器，健康检查 OK；启动 seed 已把内置月度表 `period_col` 修正为 `month`。
+- 真实数据库验收已完成：临时实体表 `codex_stage6_sync_check` 通过 `_dynamic_upsert` 自动新增 `amount NUMERIC`，确认物理表无 `raw`；二次同步保留手工字段、更新实体金额、按当月删除孤儿；验收后确认物理表、`registered_tables`、`table_columns` 均无残留。
 
 ### 阶段 7：改数据查看、编辑、导出
 

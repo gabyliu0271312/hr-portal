@@ -22,7 +22,7 @@ const form = reactive({
     table_label: '',
     description: '',
     is_period: false,
-    period_col: '月份',
+    period_col: 'month',
     period_source: 'field',
     is_result_table: false,
     icon: 'Grid',
@@ -47,7 +47,7 @@ const pushForm = reactive({
 function open() {
     Object.assign(form, {
         table_name: '', table_label: '', description: '',
-        is_period: false, period_col: '月份', period_source: 'field',
+        is_period: false, period_col: 'month', period_source: 'field',
         is_result_table: false, icon: 'Grid', display_order: 999,
         create_datasource: false, datasource_source_type: 'upload',
         create_push_target: false,

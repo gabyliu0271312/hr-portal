@@ -19,6 +19,7 @@ const router = useRouter()
 const tables = ref<TableMeta[]>([])
 const currentTable = ref<string>('')
 const columns = ref<TableColumn[]>([])
+const originalDataTypeById = ref<Record<number, string>>({})
 const loading = ref(false)
 const saving = ref(false)
 const scopeExempt = ref(false)
@@ -62,6 +63,9 @@ async function loadColumns() {
   loading.value = true
   try {
     columns.value = await tableColumnsApi.list(currentTable.value)
+    originalDataTypeById.value = Object.fromEntries(
+      columns.value.map((c) => [c.id, c.data_type])
+    )
     // enum_options 规范化为数组，便于 v-model 绑定
     for (const c of columns.value) {
       if (!Array.isArray(c.enum_options)) c.enum_options = []
@@ -121,6 +125,22 @@ async function toggleScopeExempt(val: boolean) {
 
 async function saveAll() {
   if (!currentTable.value) return
+  const typeChanged = columns.value.filter(
+    (c) => originalDataTypeById.value[c.id] && originalDataTypeById.value[c.id] !== c.data_type
+  )
+  let confirmTypeChange = false
+  if (typeChanged.length) {
+    try {
+      await ElMessageBox.confirm(
+        `将修改 ${typeChanged.length} 个字段的数据类型。若列中已有数据，系统会尝试按新类型转换；转换失败会拒绝保存。是否继续？`,
+        '确认修改字段类型',
+        { type: 'warning', confirmButtonText: '确认修改', cancelButtonText: '取消' }
+      )
+      confirmTypeChange = true
+    } catch {
+      return
+    }
+  }
   saving.value = true
   try {
     const payload = columns.value.map((c) => ({
@@ -139,6 +159,8 @@ async function saveAll() {
       is_computed: c.is_computed,
       formula_expr: c.is_computed ? (c.formula_expr || '') : null,
       global_field_id: c.global_field_id ?? null,
+      confirm_type_change:
+        confirmTypeChange && originalDataTypeById.value[c.id] !== c.data_type,
     }))
     const res = await tableColumnsApi.bulkUpdate(currentTable.value, payload)
     ElMessage.success(`已保存 ${res.updated} 个字段`)
@@ -191,7 +213,7 @@ function move(row: TableColumn, direction: -1 | 1) {
 async function removeColumn(row: TableColumn) {
   try {
     await ElMessageBox.confirm(
-      `删除字段「${row.column_label}」？删除后历史数据中该字段值仍保留在 raw 里，但页面不再展示。`,
+      `删除字段「${row.column_label}」？系统会检查依赖，检查通过后将删除数据库物理列和字段元数据。`,
       '提示',
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
     )

@@ -13,17 +13,281 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select, delete
+from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
+from app.data.ddl import (
+    DDLValidationError,
+    add_source_column,
+    alter_source_column_type,
+    column_exists,
+    drop_source_column,
+    postgres_type,
+    quote_ident,
+    validate_column_name,
+    validate_table_name,
+)
+from app.data.dynamic_loader import register_source_table_model
 from app.data.models import DATA_TABLES, TableColumn
 from app.datasets.metadata import table_options
 from app.users.models import User
 
 
 router = APIRouter(prefix="/table-columns", tags=["table-columns"])
+
+
+def _ddl_http_error(exc: Exception) -> HTTPException:
+    return HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+def _ensure_known_table(table: str) -> str:
+    try:
+        table_name = validate_table_name(table)
+    except DDLValidationError as exc:
+        raise _ddl_http_error(exc) from exc
+    if table_name not in DATA_TABLES:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
+    return table_name
+
+
+def _validate_payload_column_code(column_code: str) -> str:
+    try:
+        return validate_column_name(column_code)
+    except DDLValidationError as exc:
+        raise _ddl_http_error(exc) from exc
+
+
+def _type_change_using_expr(column_code: str, data_type: str) -> str:
+    col = quote_ident(column_code)
+    key = (data_type or "string").strip().lower()
+    if key in {"string", "text", "enum"}:
+        return f"{col}::text"
+    if key == "number":
+        return f"NULLIF({col}::text, '')::numeric"
+    if key == "integer":
+        return f"NULLIF({col}::text, '')::integer"
+    if key == "date":
+        return f"NULLIF({col}::text, '')::date"
+    if key == "datetime":
+        return f"NULLIF({col}::text, '')::timestamptz"
+    if key in {"boolean", "bool"}:
+        return f"NULLIF({col}::text, '')::boolean"
+    postgres_type(data_type)
+    return f"{col}::text"
+
+
+async def _source_column_has_values(
+    db: AsyncSession,
+    table_name: str,
+    column_code: str,
+) -> bool:
+    if not await column_exists(db, table_name, column_code):
+        return False
+    result = await db.execute(
+        text(
+            "SELECT EXISTS ("
+            f"SELECT 1 FROM {quote_ident(table_name, kind='table')} "
+            f"WHERE {quote_ident(column_code)} IS NOT NULL LIMIT 1"
+            ")"
+        )
+    )
+    return bool(result.scalar_one())
+
+
+async def _alter_type_if_needed(
+    db: AsyncSession,
+    table_name: str,
+    col: TableColumn,
+    next_data_type: str,
+    *,
+    confirm_type_change: bool = False,
+) -> bool:
+    if (next_data_type or "string") == col.data_type:
+        return False
+    try:
+        postgres_type(next_data_type)
+        validate_column_name(col.column_code)
+    except DDLValidationError as exc:
+        raise _ddl_http_error(exc) from exc
+
+    if not await column_exists(db, table_name, col.column_code):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"字段「{col.column_label}」的物理列不存在，"
+                "请先完成实体表重建或重新同步补列"
+            ),
+        )
+    if await _source_column_has_values(db, table_name, col.column_code) and not confirm_type_change:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"字段「{col.column_label}」已有数据，修改字段类型需要确认",
+        )
+    try:
+        await alter_source_column_type(
+            db,
+            table_name,
+            col.column_code,
+            next_data_type,
+            using_expr=_type_change_using_expr(col.column_code, next_data_type),
+        )
+    except DDLValidationError as exc:
+        raise _ddl_http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"字段「{col.column_label}」类型转换失败，请检查已有数据是否符合目标类型",
+        ) from exc
+    return True
+
+
+def _json_refs_column(value: Any, column_code: str, qualified_codes: set[str]) -> bool:
+    if isinstance(value, str):
+        return value == column_code or value in qualified_codes
+    if isinstance(value, dict):
+        return any(_json_refs_column(v, column_code, qualified_codes) for v in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_json_refs_column(v, column_code, qualified_codes) for v in value)
+    return False
+
+
+async def _column_dependency_reasons(
+    db: AsyncSession,
+    table_name: str,
+    col: TableColumn,
+) -> list[str]:
+    reasons: list[str] = []
+    column_code = col.column_code
+    if col.is_pk_part:
+        reasons.append("该字段参与业务主键")
+    if col.scope_role:
+        reasons.append("该字段被标记为数据权限角色")
+    if reasons:
+        return reasons
+
+    from app.data.formula import extract_refs
+
+    formula_rows = (
+        await db.execute(
+            select(TableColumn.column_code, TableColumn.column_label, TableColumn.formula_expr)
+            .where(
+                TableColumn.table_name == table_name,
+                TableColumn.is_computed.is_(True),
+                TableColumn.id != col.id,
+            )
+        )
+    ).all()
+    for code, label, expr in formula_rows:
+        if expr and column_code in extract_refs(expr):
+            reasons.append(f"被本表计算字段「{label or code}」引用")
+
+    from app.datasets.models import DataSetRelation, DataSetTable, DatasetCalculatedField
+
+    ds_tables = (
+        await db.execute(select(DataSetTable).where(DataSetTable.table_name == table_name))
+    ).scalars().all()
+    aliases_by_dataset: dict[int, set[str]] = {}
+    for row in ds_tables:
+        aliases_by_dataset.setdefault(row.dataset_id, set()).add(row.alias)
+    ds_ids = list(aliases_by_dataset)
+    qualified_codes = {
+        f"{alias}.{column_code}"
+        for aliases in aliases_by_dataset.values()
+        for alias in aliases
+    }
+
+    if ds_ids:
+        rels = (
+            await db.execute(
+                select(DataSetRelation).where(DataSetRelation.dataset_id.in_(ds_ids))
+            )
+        ).scalars().all()
+        for rel in rels:
+            aliases = aliases_by_dataset.get(rel.dataset_id, set())
+            for key in rel.keys or []:
+                if rel.left_alias in aliases and key.get("left") == column_code:
+                    reasons.append("被数据集关联关系引用")
+                    break
+                if rel.right_alias in aliases and key.get("right") == column_code:
+                    reasons.append("被数据集关联关系引用")
+                    break
+
+        calc_fields = (
+            await db.execute(
+                select(DatasetCalculatedField).where(
+                    DatasetCalculatedField.dataset_id.in_(ds_ids),
+                    DatasetCalculatedField.is_active.is_(True),
+                )
+            )
+        ).scalars().all()
+        for field in calc_fields:
+            if _json_refs_column(field.depends_on or [], column_code, qualified_codes):
+                reasons.append(f"被数据集计算字段「{field.label or field.code}」引用")
+
+    from app.reports.models import Report
+
+    report_stmt = select(Report)
+    if ds_ids:
+        report_stmt = report_stmt.where(
+            (Report.table_name == table_name) | (Report.dataset_id.in_(ds_ids))
+        )
+    else:
+        report_stmt = report_stmt.where(Report.table_name == table_name)
+    reports = (await db.execute(report_stmt)).scalars().all()
+    for report in reports:
+        if _json_refs_column(report.config or {}, column_code, qualified_codes):
+            reasons.append(f"被报表「{report.name}」引用")
+
+    from app.allocation.models import AllocationScheme
+
+    allocation_stmt = select(AllocationScheme)
+    if ds_ids:
+        allocation_stmt = allocation_stmt.where(
+            (AllocationScheme.table_name == table_name)
+            | (AllocationScheme.result_table == table_name)
+            | (AllocationScheme.dataset_id.in_(ds_ids))
+        )
+    else:
+        allocation_stmt = allocation_stmt.where(
+            (AllocationScheme.table_name == table_name)
+            | (AllocationScheme.result_table == table_name)
+        )
+    schemes = (await db.execute(allocation_stmt)).scalars().all()
+    for scheme in schemes:
+        if _json_refs_column(scheme.config or {}, column_code, qualified_codes):
+            reasons.append(f"被成本分摊方案「{scheme.name}」引用")
+
+    from app.push.models import PushTarget
+
+    push_targets = (
+        await db.execute(select(PushTarget).where(PushTarget.source_table == table_name))
+    ).scalars().all()
+    for target in push_targets:
+        if _json_refs_column(target.field_mappings or [], column_code, {column_code}):
+            reasons.append(f"被推送目标「{target.name}」字段映射引用")
+
+    return sorted(set(reasons))
+
+
+def _row_value(row: Any, code: str) -> Any:
+    if hasattr(row, code):
+        return getattr(row, code)
+    raw = getattr(row, "raw", None)
+    if isinstance(raw, dict):
+        return raw.get(code)
+    return None
+
+
+def _set_row_value(row: Any, code: str, value: Any) -> None:
+    if hasattr(row, code):
+        setattr(row, code, value)
+        return
+    raw = dict(getattr(row, "raw", None) or {})
+    raw[code] = value
+    row.raw = raw
 
 
 async def _validate_formula(
@@ -79,6 +343,7 @@ class ColumnIn(BaseModel):
     agg_role: str = "dimension"
     is_computed: bool = False
     formula_expr: str | None = None
+    confirm_type_change: bool = False
 
 
 class ColumnOut(BaseModel):
@@ -148,8 +413,7 @@ async def list_columns(
     _: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[ColumnOut]:
-    if table not in DATA_TABLES:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
+    table = _ensure_known_table(table)
     rows = (
         (
             await db.execute(
@@ -174,14 +438,14 @@ async def create_column(
     payload: ColumnIn,
     db: AsyncSession = Depends(get_session),
 ) -> ColumnOut:
-    if table not in DATA_TABLES:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
+    table = _ensure_known_table(table)
+    column_code = _validate_payload_column_code(payload.column_code)
     # 防重
     exists = (
         await db.execute(
             select(TableColumn).where(
                 TableColumn.table_name == table,
-                TableColumn.column_code == payload.column_code,
+                TableColumn.column_code == column_code,
             )
         )
     ).scalar_one_or_none()
@@ -189,11 +453,16 @@ async def create_column(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="该字段已存在")
 
     if payload.is_computed:
-        await _validate_formula(table, payload.column_code, payload.formula_expr, db)
+        await _validate_formula(table, column_code, payload.formula_expr, db)
+
+    try:
+        await add_source_column(db, table, column_code, payload.data_type)
+    except DDLValidationError as exc:
+        raise _ddl_http_error(exc) from exc
 
     col = TableColumn(
         table_name=table,
-        column_code=payload.column_code,
+        column_code=column_code,
         column_label=payload.column_label,
         data_type=payload.data_type,
         is_pk_part=payload.is_pk_part,
@@ -210,6 +479,8 @@ async def create_column(
         auto_discovered=False,
     )
     db.add(col)
+    await db.flush()
+    await register_source_table_model(db, table, force=True)
     await db.commit()
     await db.refresh(col)
     return _to_out(col)
@@ -225,10 +496,10 @@ async def bulk_update(
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, int]:
     """批量更新（用于拖拽排序后一次性保存）"""
-    if table not in DATA_TABLES:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
+    table = _ensure_known_table(table)
 
     updated = 0
+    ddl_changed = False
     for item in payload.columns:
         cid = item.get("id")
         if not cid:
@@ -249,6 +520,14 @@ async def bulk_update(
                     detail=f"字段「{col.column_label}」是接口字段，不能设为计算字段",
                 )
             await _validate_formula(table, col.column_code, item.get("formula_expr"), db)
+        if "data_type" in item:
+            ddl_changed = await _alter_type_if_needed(
+                db,
+                table,
+                col,
+                item.get("data_type") or "string",
+                confirm_type_change=bool(item.get("confirm_type_change")),
+            ) or ddl_changed
         for k in (
             "column_label",
             "data_type",
@@ -271,6 +550,9 @@ async def bulk_update(
             col.formula_expr = None
         updated += 1
 
+    if ddl_changed:
+        await db.flush()
+        await register_source_table_model(db, table, force=True)
     await db.commit()
     return {"updated": updated}
 
@@ -286,6 +568,7 @@ async def update_column(
     payload: ColumnIn,
     db: AsyncSession = Depends(get_session),
 ) -> ColumnOut:
+    table = _ensure_known_table(table)
     col = await db.get(TableColumn, column_id)
     if col is None or col.table_name != table:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="字段不存在")
@@ -302,6 +585,13 @@ async def update_column(
                 detail="接口字段不能设为计算字段",
             )
         await _validate_formula(table, col.column_code, payload.formula_expr, db)
+    ddl_changed = await _alter_type_if_needed(
+        db,
+        table,
+        col,
+        payload.data_type,
+        confirm_type_change=payload.confirm_type_change,
+    )
     col.column_label = payload.column_label
     col.data_type = payload.data_type
     col.is_pk_part = payload.is_pk_part
@@ -316,6 +606,9 @@ async def update_column(
     col.is_computed = payload.is_computed
     col.formula_expr = payload.formula_expr if payload.is_computed else None
     # column_code 不允许改（PK 一致性）
+    if ddl_changed:
+        await db.flush()
+        await register_source_table_model(db, table, force=True)
     await db.commit()
     await db.refresh(col)
     return _to_out(col)
@@ -329,12 +622,11 @@ async def recompute_computed_columns(
     table: str,
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    """重算该表的自动字段：计算字段（公式）+ 跨表查找字段（只填空），写回 raw。
+    """重算该表的自动字段：计算字段（公式）+ 跨表查找字段（只填空），写回实体列。
 
     新建公式/查找规则后立即回填，免等下次同步。
     """
-    if table not in DATA_TABLES:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
+    table = _ensure_known_table(table)
 
     from app.data.formula import eval_formula
     from app.datasources.sync_service import apply_lookups_to_row, build_lookup_maps
@@ -354,13 +646,18 @@ async def recompute_computed_columns(
 
     Model = DATA_TABLES[table]
     rows = (await db.execute(select(Model))).scalars().all()
+    table_columns = await _get_columns(table, db)
     updated = 0
     for row in rows:
-        new_raw = dict(row.raw or {})
-        apply_lookups_to_row(new_raw, lookup_maps)
+        row_values = {
+            c.column_code: _row_value(row, c.column_code)
+            for c in table_columns
+        }
+        apply_lookups_to_row(row_values, lookup_maps)
         for code, expr in computed:
-            new_raw[code] = eval_formula(expr, new_raw)
-        row.raw = new_raw
+            row_values[code] = eval_formula(expr, row_values)
+        for code, value in row_values.items():
+            _set_row_value(row, code, value)
         updated += 1
     await db.commit()
     return {
@@ -380,24 +677,29 @@ async def delete_column(
     column_id: int,
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, bool]:
-    from sqlalchemy import text
-
+    table = _ensure_known_table(table)
     col = await db.get(TableColumn, column_id)
     if col is None or col.table_name != table:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="字段不存在")
 
     column_code = col.column_code
+    reasons = await _column_dependency_reasons(db, table, col)
+    if reasons:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"字段「{col.column_label}」存在依赖，不能删除：" + "；".join(reasons),
+        )
 
-    # 1) 删字段元数据
+    # 1) 删物理列
+    try:
+        await drop_source_column(db, table, column_code)
+    except DDLValidationError as exc:
+        raise _ddl_http_error(exc) from exc
+
+    # 2) 删字段元数据
     await db.delete(col)
     await db.flush()
-
-    # 2) 从所有行的 raw JSON 里硬删除该字段 key（PostgreSQL JSONB - 操作符）
-    if table in DATA_TABLES:
-        await db.execute(
-            text(f'UPDATE "{table}" SET raw = raw::jsonb - :key WHERE raw::jsonb ? :key'),
-            {"key": column_code},
-        )
+    await register_source_table_model(db, table, force=True)
 
     await db.commit()
     return {"ok": True}
@@ -411,18 +713,15 @@ async def clean_orphan_columns(
     table: str,
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    """扫描业务表所有 raw 数据，删除"在所有行中都不存在"的字段元数据。
+    """扫描物理表结构，删除已经没有实体列的孤儿字段元数据。
 
     用途：源端字段重命名 / 删除 / 数据源切换后，table_columns 残留旧字段。
     安全保护：
     - 跳过 is_pk_part=true（防止误删主键定义）
     - 跳过 auto_discovered=false（管理员手动建的字段保留）
-    - 不删 raw 数据，只删元数据
+    - 不删物理列，只删已无物理列对应的元数据
     """
-    if table not in DATA_TABLES:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
-
-    Model = DATA_TABLES[table]
+    table = _ensure_known_table(table)
 
     # 1) 取所有字段元数据
     cols = (
@@ -435,21 +734,14 @@ async def clean_orphan_columns(
         .all()
     )
 
-    # 2) 扫描所有 raw 数据，收集出现过的 key
-    seen_keys: set[str] = set()
-    rows = (await db.execute(select(Model.raw))).all()
-    for (raw,) in rows:
-        if isinstance(raw, dict):
-            seen_keys.update(raw.keys())
-
-    # 3) 找出孤儿
+    # 2) 找出无物理列的孤儿元数据
     deleted: list[str] = []
     for c in cols:
         if c.is_pk_part:
             continue
         if not c.auto_discovered:
             continue
-        if c.column_code in seen_keys:
+        if await column_exists(db, table, c.column_code):
             continue
         deleted.append(c.column_code)
         await db.delete(c)
@@ -459,6 +751,6 @@ async def clean_orphan_columns(
         "ok": True,
         "deleted_count": len(deleted),
         "deleted_codes": deleted,
-        "total_rows_scanned": len(rows),
+        "total_rows_scanned": 0,
         "total_columns_before": len(cols),
     }

@@ -6,17 +6,27 @@ DELETE /admin/tables/{name} 删除自定义表（内置表不允许删）
 """
 from __future__ import annotations
 
-from datetime import datetime, UTC
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
-from sqlalchemy import text, select
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
-from app.data.models import RegisteredTable, DATA_TABLES
-from app.data.dynamic_loader import _make_dynamic_model
+from app.data.ddl import (
+    DDLValidationError,
+    SourceColumn,
+    create_source_table,
+    drop_source_table,
+    validate_column_name,
+    validate_table_name,
+)
+from app.data.dynamic_loader import (
+    register_period_table,
+    register_source_table_model,
+    unregister_source_table_model,
+)
+from app.data.models import RegisteredTable
 from app.datasources.sync_service import PERIOD_TABLES
 from app.datasets.single_table import ensure_single_table_dataset, find_single_table_dataset
 from app.users.models import User
@@ -24,18 +34,33 @@ from app.users.models import User
 router = APIRouter(prefix="/admin/tables", tags=["admin-tables"])
 
 
+class InitialColumnIn(BaseModel):
+    column_code: str = Field(min_length=1, max_length=63)
+    column_label: str = Field(min_length=1, max_length=128)
+    data_type: str = "string"
+    is_pk_part: bool = False
+    is_sensitive: bool = False
+    is_visible: bool = True
+    display_order: int = 999
+    description: str | None = None
+    scope_role: str | None = None
+    enum_options: list[str] | None = None
+    agg_role: str = "dimension"
+
+
 class CreateTableIn(BaseModel):
     table_name: str
     table_label: str
     description: str | None = None
     is_period: bool = False
-    period_col: str = "月份"
+    period_col: str = "month"
     period_source: str = "field"   # field=接口自带 / inject=同步时自动注入
     is_result_table: bool = False
     icon: str = "Grid"
     display_order: int = 999
     create_datasource: bool = False
     datasource_source_type: str = "upload"
+    columns: list[InitialColumnIn] = Field(default_factory=list)
 
 
 class RegisteredTableOut(BaseModel):
@@ -92,42 +117,39 @@ async def create_table(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> RegisteredTableOut:
-    # 1) 校验表名：只允许小写字母、数字、下划线
-    import re
-    if not re.match(r"^[a-z][a-z0-9_]{1,62}$", payload.table_name):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                            detail="表名只允许小写字母、数字、下划线，且以字母开头")
+    # 1) 校验表名/初始字段：只允许受控 DDL 标识符
+    try:
+        table_name = validate_table_name(payload.table_name)
+        period_col = validate_column_name(payload.period_col) if payload.is_period else "month"
+        ddl_columns = [
+            SourceColumn(c.column_code, c.data_type)
+            for c in sorted(payload.columns, key=lambda x: (x.display_order, x.column_code))
+        ]
+    except DDLValidationError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     # 2) 检查是否已存在
     existing = (
         await db.execute(
-            select(RegisteredTable).where(RegisteredTable.table_name == payload.table_name)
+            select(RegisteredTable).where(RegisteredTable.table_name == table_name)
         )
     ).scalar_one_or_none()
     if existing:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="表名已存在")
 
-    # 3) 建物理表（极简 schema，与内置表完全一致）
-    await db.execute(text(f"""
-        CREATE TABLE IF NOT EXISTS "{payload.table_name}" (
-            id        BIGSERIAL PRIMARY KEY,
-            pk_hash   VARCHAR(64) NOT NULL,
-            raw       JSON NOT NULL DEFAULT '{{}}',
-            synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            CONSTRAINT "uq_{payload.table_name}_pk" UNIQUE (pk_hash)
-        )
-    """))
-    await db.execute(text(
-        f'CREATE INDEX IF NOT EXISTS "ix_{payload.table_name}_pk_hash" ON "{payload.table_name}" (pk_hash)'
-    ))
+    # 3) 建物理表：实体表基础列 + 可选初始业务列，不再创建 raw JSON
+    try:
+        await create_source_table(db, table_name, ddl_columns)
+    except DDLValidationError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     # 4) 写入 registered_tables
     rt = RegisteredTable(
-        table_name=payload.table_name,
+        table_name=table_name,
         table_label=payload.table_label,
         description=payload.description,
         is_period=payload.is_period,
-        period_col=payload.period_col,
+        period_col=period_col,
         period_source=payload.period_source,
         is_builtin=False,
         is_result_table=payload.is_result_table,
@@ -137,27 +159,45 @@ async def create_table(
     db.add(rt)
     await db.flush()
 
-    # 5) 热注册到运行时 DATA_TABLES / PERIOD_TABLES
-    model = _make_dynamic_model(payload.table_name)
-    DATA_TABLES[payload.table_name] = model
-    if payload.is_period:
-        PERIOD_TABLES[payload.table_name] = {
-            "period_col": payload.period_col,
-            "offset_key": "MONTH_OFFSET",
-            "period_source": payload.period_source,
-        }
+    # 5) 可选初始字段元数据
+    if payload.columns:
+        from app.data.models import TableColumn
 
-    # 6) 可选：创建 datasource 接口配置
+        db.add_all([
+            TableColumn(
+                table_name=table_name,
+                column_code=c.column_code,
+                column_label=c.column_label,
+                data_type=c.data_type,
+                is_pk_part=c.is_pk_part,
+                is_sensitive=c.is_sensitive,
+                is_visible=c.is_visible,
+                display_order=c.display_order,
+                auto_discovered=False,
+                description=c.description,
+                scope_role=c.scope_role,
+                enum_options=c.enum_options,
+                agg_role=c.agg_role,
+            )
+            for c in payload.columns
+        ])
+        await db.flush()
+
+    # 6) 热注册到运行时 DATA_TABLES / PERIOD_TABLES
+    await register_source_table_model(db, table_name, force=True)
+    register_period_table(rt, overwrite=True)
+
+    # 7) 可选：创建 datasource 接口配置
     if payload.create_datasource:
         from app.datasources.models import DataSource
         ds_exists = (
             await db.execute(
-                select(DataSource).where(DataSource.table_name == payload.table_name)
+                select(DataSource).where(DataSource.table_name == table_name)
             )
         ).scalar_one_or_none()
         if not ds_exists:
             ds = DataSource(
-                table_name=payload.table_name,
+                table_name=table_name,
                 table_label=payload.table_label,
                 source_type=payload.datasource_source_type,
                 schedule="手动触发",
@@ -169,13 +209,13 @@ async def create_table(
             db.add(ds)
 
     await ensure_single_table_dataset(
-        payload.table_name,
+        table_name,
         db,
         created_by=user.id,
         table_label=payload.table_label,
     )
 
-    # 7) 超管自动获得全量权限（data.view 菜单已有，不需要额外操作）
+    # 8) 超管自动获得全量权限（data.view 菜单已有，不需要额外操作）
     # 超管角色通过 seed 的 _ensure_super_role 已拥有所有菜单权限，
     # 数据视图的表级访问通过 data.view 菜单统一控制，无需追加。
 
@@ -224,9 +264,14 @@ async def delete_table(
     table_name: str,
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, bool]:
+    try:
+        safe_table_name = validate_table_name(table_name)
+    except DDLValidationError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     rt = (
         await db.execute(
-            select(RegisteredTable).where(RegisteredTable.table_name == table_name)
+            select(RegisteredTable).where(RegisteredTable.table_name == safe_table_name)
         )
     ).scalar_one_or_none()
     if rt is None:
@@ -239,7 +284,7 @@ async def delete_table(
     from app.datasets.models import DataSetTable
     from app.reports.models import Report
 
-    ds = await find_single_table_dataset(table_name, db)
+    ds = await find_single_table_dataset(safe_table_name, db)
     if ds is not None:
         report_ref = (
             await db.execute(select(Report.id).where(Report.dataset_id == ds.id).limit(1))
@@ -255,18 +300,18 @@ async def delete_table(
                 detail="该视图的数据集已被报表或成本分摊方案引用，无法删除",
             )
 
-    await db.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
+    await drop_source_table(db, safe_table_name, cascade=True)
     # 清字段元数据
     from sqlalchemy import delete
     from app.data.models import TableColumn
-    await db.execute(delete(TableColumn).where(TableColumn.table_name == table_name))
+    await db.execute(delete(TableColumn).where(TableColumn.table_name == safe_table_name))
     if ds is not None:
         dataset_has_other_tables = (
             await db.execute(
                 select(DataSetTable.id)
                 .where(
                     DataSetTable.dataset_id == ds.id,
-                    DataSetTable.table_name != table_name,
+                    DataSetTable.table_name != safe_table_name,
                 )
                 .limit(1)
             )
@@ -274,11 +319,9 @@ async def delete_table(
         if dataset_has_other_tables is None:
             await db.delete(ds)
     await db.delete(rt)
-    # 删注册记录
-    await db.delete(rt)
     # 从运行时移除
-    DATA_TABLES.pop(table_name, None)
-    PERIOD_TABLES.pop(table_name, None)
+    unregister_source_table_model(safe_table_name)
+    PERIOD_TABLES.pop(safe_table_name, None)
 
     await db.commit()
     return {"ok": True}

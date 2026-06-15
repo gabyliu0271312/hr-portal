@@ -37,7 +37,7 @@ const form = reactive({
   table_label: '',
   description: '',
   is_period: false,
-  period_col: '月份',
+  period_col: 'month',
   period_source: 'field' as 'field' | 'inject',
   is_result_table: false,
   icon: 'Grid',
@@ -64,7 +64,7 @@ const pushForm = reactive({
 function open() {
   Object.assign(form, {
     table_name: '', table_label: '', description: '',
-    is_period: false, period_col: '月份', period_source: 'field',
+    is_period: false, period_col: 'month', period_source: 'field',
     is_result_table: false, icon: 'Grid', display_order: 999,
     create_datasource: false, datasource_source_type: 'upload',
     create_push_target: false,
@@ -191,8 +191,8 @@ defineExpose({ open })
         <el-switch v-model="form.is_period" active-text="是（按月存储，历史月份保留）" inactive-text="否（全量替换）" />
       </el-form-item>
       <template v-if="form.is_period">
-        <el-form-item label="期间列名">
-          <el-input v-model="form.period_col" style="width: 160px" placeholder="月份" />
+        <el-form-item label="期间字段编码">
+          <el-input v-model="form.period_col" style="width: 160px" placeholder="month" />
           <span style="margin-left: 8px; font-size: 12px; color: var(--color-text-placeholder)">
             该列值为 YYYYMM 格式
           </span>
