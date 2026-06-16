@@ -86,7 +86,9 @@ const enumFilterColumns = computed(() =>
 const tableRef = ref()
 const selectedRows = ref<Record<string, any>[]>([])
 const statusCol = computed(() =>
-  columns.value.find((c) => c.code === '启用状态' && c.data_type === 'enum')
+  columns.value.find(
+    (c) => c.data_type === 'enum' && (c.code === 'status' || c.label === '启用状态')
+  )
 )
 function onSelectionChange(rows: Record<string, any>[]) {
   selectedRows.value = rows
@@ -275,11 +277,11 @@ async function submitCreate() {
 
 // 默认筛选：成本中心「启用状态」默认只看「启用」（可手动清空看全部）
 function applyDefaultFilters() {
-  const statusCol = columns.value.find(
-    (c) => c.code === '启用状态' && c.data_type === 'enum'
+  const sc = columns.value.find(
+    (c) => c.data_type === 'enum' && (c.code === 'status' || c.label === '启用状态')
   )
-  if (statusCol && filters['启用状态'] === undefined) {
-    filters['启用状态'] = '启用'
+  if (sc && filters[sc.code] === undefined) {
+    filters[sc.code] = '启用'
   }
 }
 
