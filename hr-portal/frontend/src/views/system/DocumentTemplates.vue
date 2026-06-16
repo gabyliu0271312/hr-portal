@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, Plus, Refresh, Upload, View } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
@@ -24,10 +24,6 @@ const businessTypeFilter = ref('')
 const dialogOpen = ref(false)
 const previewOpen = ref(false)
 const previewHtml = ref('')
-const previewTarget = ref<DocumentTemplate | null>(null)
-const previewPaperRef = ref<HTMLElement | null>(null)
-const previewDirty = ref(false)
-const savingPreview = ref(false)
 const editing = ref<DocumentTemplate | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -277,54 +273,17 @@ async function downloadWord(row: DocumentTemplate) {
   }
 }
 
-function placeholderSampleData(row: DocumentTemplate) {
-  const codes = new Set<string>()
-  row.parsed_variables.forEach((code) => codes.add(code))
-  row.variables.forEach((variable) => codes.add(variable.variable_code))
-  return Object.fromEntries([...codes].map((code) => [code, `{{${code}}}`]))
-}
-
 async function preview(row: DocumentTemplate) {
-  previewTarget.value = row
   previewOpen.value = true
   previewing.value = true
   previewHtml.value = ''
-  previewDirty.value = false
   try {
-    const result = await toolsApi.previewDocumentTemplate(row.id, placeholderSampleData(row))
+    const result = await toolsApi.previewDocumentTemplate(row.id)
     previewHtml.value = result.html
-    await nextTick()
-    if (previewPaperRef.value) previewPaperRef.value.innerHTML = previewHtml.value
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '预览失败')
   } finally {
     previewing.value = false
-  }
-}
-
-function onTemplatePreviewInput() {
-  previewHtml.value = previewPaperRef.value?.innerHTML || ''
-  previewDirty.value = true
-}
-
-async function saveTemplatePreview() {
-  if (!previewTarget.value) return
-  const html = previewPaperRef.value?.innerHTML || previewHtml.value
-  savingPreview.value = true
-  try {
-    const saved = await toolsApi.saveDocumentTemplatePreview(previewTarget.value.id, html)
-    previewTarget.value = saved
-    if (editing.value?.id === saved.id) {
-      editing.value = saved
-      Object.assign(form, clonePayload(saved))
-    }
-    previewDirty.value = false
-    ElMessage.success('已保存预览内容')
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存预览失败')
-  } finally {
-    savingPreview.value = false
   }
 }
 
@@ -539,24 +498,9 @@ onMounted(load)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="previewOpen" title="模板预览 / 编辑" width="96%" top="2vh">
-      <div class="preview-scroll">
-        <div
-          ref="previewPaperRef"
-          v-loading="previewing"
-          class="preview-paper"
-          contenteditable="true"
-          spellcheck="false"
-          v-html="previewHtml"
-          @input="onTemplatePreviewInput"
-        ></div>
-      </div>
+    <el-dialog v-model="previewOpen" title="模板预览" width="860px" top="5vh">
+      <div v-loading="previewing" class="preview-paper" v-html="previewHtml"></div>
       <template #footer>
-        <span
-          class="save-hint"
-          v-text="previewDirty ? '预览内容已修改，保存后会作为系统标准模板使用。' : '预览内容可直接编辑，变量请保留 {{变量编码}} 格式。'"
-        ></span>
-        <el-button :loading="savingPreview" :disabled="!previewDirty" type="primary" @click="saveTemplatePreview">保存预览内容</el-button>
         <el-button @click="previewOpen = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -676,93 +620,21 @@ onMounted(load)
   color: var(--color-text-secondary);
   font-size: 13px;
 }
-.preview-scroll {
-  max-height: 78vh;
-  overflow: auto;
-  background: var(--color-bg-subtle);
-  padding: 16px;
-}
 .preview-paper {
-  width: 215.9mm;
-  min-height: 279.4mm;
-  margin: 0 auto;
-  padding: 25.4mm 31.75mm;
-  box-sizing: border-box;
-  overflow: visible;
+  min-height: 420px;
+  max-height: 72vh;
+  overflow: auto;
+  padding: 24px;
   background: #fff;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  outline: none;
+  border-radius: var(--radius-md);
 }
-.preview-paper:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-light), 0 2px 12px rgba(0, 0, 0, 0.06);
-}
-.preview-paper :deep(.agr-doc),
-.preview-paper :deep(.cert-doc) {
+.preview-paper :deep(.template-docx-preview) {
+  margin: 0;
+  white-space: pre-wrap;
   font-family: SimSun, '宋体', serif;
+  line-height: 1.8;
   color: #000;
-}
-.preview-paper :deep(.agr-doc) {
-  font-size: 12pt;
-  line-height: 1.45;
-}
-.preview-paper :deep(.agr-header) {
-  text-align: right;
-  font-size: 9pt;
-  color: #000;
-  margin-bottom: 8mm;
-}
-.preview-paper :deep(.agr-title) {
-  text-align: center;
-  font-size: 16pt;
-  font-weight: 700;
-  margin: 0 0 8mm;
-}
-.preview-paper :deep(.agr-head) {
-  margin: 0 0 3mm;
-  white-space: nowrap;
-}
-.preview-paper :deep(.agr-p) {
-  margin: 0 0 3.5mm;
-  text-align: justify;
-  text-indent: 2em;
-}
-.preview-paper :deep(.agr-line) {
-  margin: 0 0 3.5mm;
-  white-space: nowrap;
-}
-.preview-paper :deep(.agr-sign) {
-  margin-top: 9mm;
-  white-space: nowrap;
-}
-.preview-paper :deep(.cert-doc) {
-  font-size: 14pt;
-  line-height: 1.5;
-}
-.preview-paper :deep(.cert-title) {
-  text-align: center;
-  font-size: 18pt;
-  font-weight: 700;
-  margin: 18mm 0 18mm;
-}
-.preview-paper :deep(.cert-p) {
-  margin: 0 0 8mm;
-  text-align: justify;
-  text-indent: 2em;
-}
-.preview-paper :deep(.cert-sign) {
-  margin: 0 0 5mm;
-  text-align: right;
-}
-.preview-paper :deep(.cert-line) {
-  margin: 0 0 3mm;
-}
-.save-hint {
-  float: left;
-  color: var(--color-text-secondary);
-  font-size: 13px;
 }
 
 @media (max-width: 1100px) {

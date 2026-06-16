@@ -117,7 +117,14 @@ def render_template_blocks(
 def render_text(content: str, values: dict[str, Any]) -> str:
     def replace(match: re.Match[str]) -> str:
         key = match.group(1)
-        return _format_value(values.get(key))
+        value = values.get(key)
+        if value is None:
+            return ""
+        if isinstance(value, (date, datetime)):
+            return date_text(value)
+        if isinstance(value, Decimal):
+            return money_text(value)
+        return str(value)
 
     return _VAR_PATTERN.sub(replace, content or "")
 
@@ -173,72 +180,6 @@ def render_docx_plain_text(
         merged = enrich_values(business_type, merged)
     doc = Document(BytesIO(content))
     return "\n".join(render_text(text, merged) for text in _iter_doc_text(doc) if text.strip())
-
-
-def render_docx_preview_blocks(
-    content: bytes,
-    values: dict[str, Any],
-    variables: Iterable[Any] = (),
-    business_type: str = "",
-) -> list[tuple[str, str]]:
-    """Render a stored docx template into stable blocks for HTML preview."""
-    from docx import Document
-
-    merged = _values_with_defaults(values, variables)
-    if business_type:
-        merged = enrich_values(business_type, merged)
-
-    doc = Document(BytesIO(content))
-    blocks: list[tuple[str, str]] = []
-    header_seen = False
-
-    for section in doc.sections:
-        for paragraph in section.header.paragraphs:
-            text = render_text(paragraph.text, merged).strip()
-            if text:
-                kind = _docx_preview_block_type(text, -1, business_type)
-                blocks.append((text, "title" if kind == "title" else "header"))
-                header_seen = kind != "title"
-                break
-        if header_seen:
-            break
-
-    body_index = 0
-    for paragraph in doc.paragraphs:
-        text = render_text(paragraph.text, merged).strip()
-        if not text:
-            continue
-        kind = _docx_preview_block_type(text, body_index, business_type)
-        if kind == "header":
-            if not header_seen:
-                blocks.append((text, kind))
-                header_seen = True
-            continue
-        blocks.append((text, kind))
-        body_index += 1
-
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    text = render_text(paragraph.text, merged).strip()
-                    if text:
-                        kind = _docx_preview_block_type(text, body_index, business_type)
-                        if kind == "header":
-                            if not header_seen:
-                                blocks.append((text, kind))
-                                header_seen = True
-                            continue
-                        blocks.append((text, kind))
-                        body_index += 1
-
-    return blocks
-
-
-def extract_docx_template_blocks(content: bytes, business_type: str = "") -> list[tuple[str, str]]:
-    variables = extract_variables_from_docx(content)
-    placeholder_values = {code: f"{{{{{code}}}}}" for code in variables}
-    return render_docx_preview_blocks(content, placeholder_values, (), business_type)
 
 
 class _PreviewHtmlParser(HTMLParser):
@@ -317,8 +258,6 @@ class _PreviewHtmlParser(HTMLParser):
         if "agr-header" in classes:
             return "header"
         if tag == "p":
-            if "agr-head" in classes:
-                return "head"
             if {"agr-sign", "cert-sign"} & classes:
                 return "sign"
             if {"agr-line", "cert-line"} & classes:
@@ -343,19 +282,10 @@ def render_preview_html_docx(html: str, business_type: str = "") -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml.ns import qn
-    from docx.shared import Mm, Pt
+    from docx.shared import Pt
 
     blocks = extract_blocks_from_preview_html(html)
     doc = Document()
-    section = doc.sections[0]
-    section.page_width = Mm(215.9)
-    section.page_height = Mm(279.4)
-    section.top_margin = Mm(25.4)
-    section.bottom_margin = Mm(25.4)
-    section.left_margin = Mm(31.75)
-    section.right_margin = Mm(31.75)
-    section.header_distance = Mm(12.7)
-    section.footer_distance = Mm(12.7)
     font_size = Pt(14 if business_type == "income_certificate" else 12)
     style = doc.styles["Normal"]
     style.font.name = "宋体"
@@ -383,14 +313,11 @@ def render_preview_html_docx(html: str, business_type: str = "") -> bytes:
             run.font.size = Pt(18 if business_type == "income_certificate" else 16)
         else:
             run.font.size = font_size
-            p.paragraph_format.line_spacing = 1.45 if business_type == "agreement" else 1.5
-            p.paragraph_format.space_after = Pt(4 if business_type == "agreement" else 6)
+            p.paragraph_format.line_spacing = 1.5
             if kind in {"body", "paragraph"}:
                 p.paragraph_format.first_line_indent = Pt(24)
             if kind == "sign" and business_type == "income_certificate":
                 p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            if kind == "sign" and business_type == "agreement":
-                p.paragraph_format.space_before = Pt(10)
 
     buf = BytesIO()
     doc.save(buf)
@@ -421,109 +348,20 @@ def _iter_tables(doc: Any) -> Iterable[Any]:
         yield from section.footer.tables
 
 
-def _docx_preview_block_type(text: str, body_index: int, business_type: str) -> str:
-    compact = re.sub(r"\s+", "", text or "")
-    if business_type == "agreement":
-        if "商业秘密" in compact and "禁止外传" in compact:
-            return "header"
-        if compact == "解除劳动合同协议书":
-            return "title"
-        if text.startswith(("甲方（公司）：", "乙方（员工）：")):
-            return "head"
-        if text.startswith("甲方：") or re.match(r"^年\s+月\s+日", text):
-            return "sign"
-        if body_index == 0:
-            return "title"
-        return "paragraph"
-    if business_type == "income_certificate":
-        if compact == "收入证明":
-            return "title"
-        if text.startswith(("单位联系电话：", "单位地址：")):
-            return "line"
-        if body_index == 0:
-            return "title"
-        if body_index >= 3:
-            return "sign"
-        return "paragraph"
-    if body_index == 0:
-        return "title"
-    return "paragraph"
-
-
 def _replace_in_paragraph(paragraph: Any, values: dict[str, Any]) -> None:
     original = paragraph.text
     if "{{" not in original:
         return
-    matches = list(_VAR_PATTERN.finditer(original))
-    if not matches:
+    replaced = render_text(original, values)
+    if replaced == original:
         return
-    replacements = [
-        (match.start(), match.end(), _format_value(values.get(match.group(1))))
-        for match in matches
-    ]
-    if all(original[start:end] == replacement for start, end, replacement in replacements):
-        return
-    if not paragraph.runs:
-        paragraph.add_run(_replace_text_ranges(original, 0, len(original), replacements))
-        return
-
-    cursor = 0
-    segments: list[tuple[Any, int, int]] = []
     if paragraph.runs:
-        for run in paragraph.runs:
-            text = run.text or ""
-            start = cursor
-            cursor += len(text)
-            segments.append((run, start, cursor))
-
-    # If python-docx exposes text not present in runs (for example uncommon inline
-    # elements), fall back to the old whole-paragraph replacement rather than
-    # risking a partial write.
-    if cursor != len(original):
-        replaced = render_text(original, values)
         first = paragraph.runs[0]
         first.text = replaced
         for run in paragraph.runs[1:]:
             run.text = ""
-        return
-
-    for run, start, end in segments:
-        run.text = _replace_text_ranges(original, start, end, replacements)
-
-
-def _format_value(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, (date, datetime)):
-        return date_text(value)
-    if isinstance(value, Decimal):
-        return money_text(value)
-    return str(value)
-
-
-def _replace_text_ranges(
-    original: str,
-    start: int,
-    end: int,
-    replacements: list[tuple[int, int, str]],
-) -> str:
-    cursor = start
-    parts: list[str] = []
-    for replace_start, replace_end, replacement in replacements:
-        if replace_end <= start:
-            continue
-        if replace_start >= end:
-            break
-        overlap_start = max(replace_start, start)
-        overlap_end = min(replace_end, end)
-        if cursor < overlap_start:
-            parts.append(original[cursor:overlap_start])
-        if start <= replace_start < end:
-            parts.append(replacement)
-        cursor = max(cursor, overlap_end)
-    if cursor < end:
-        parts.append(original[cursor:end])
-    return "".join(parts)
+    else:
+        paragraph.add_run(replaced)
 
 
 def _values_with_defaults(values: dict[str, Any], variables: Iterable[Any]) -> dict[str, Any]:
