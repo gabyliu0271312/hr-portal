@@ -121,4 +121,4 @@ async def load_dynamic_tables(db: "AsyncSession") -> None:
 
     for rt in rows:
         await register_source_table_model(db, rt.table_name, force=True)
-        register_period_table(rt, overwrite=False)
+        register_period_table(rt, overwrite=True)

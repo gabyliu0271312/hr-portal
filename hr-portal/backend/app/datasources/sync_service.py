@@ -52,11 +52,6 @@ PERIOD_TABLES: dict[str, dict] = {
         "offset_key": "MONTH_OFFSET",
         "period_source": "inject",
     },
-    "emp_monthly_allocation": {
-        "period_col": "cost_period",
-        "offset_key": "MONTH_OFFSET",
-        "period_source": "inject",  # 接口数据不带期间字段，同步时按 MONTH_OFFSET 注入
-    },
 }
 
 
@@ -396,6 +391,10 @@ async def _ensure_columns(
             validate_column_name(new_code)
             used_codes.add(new_code)
         label_to_code.setdefault(label, new_code)
+        # 中文/非法 key 反查到已有 code 时（如"成本归属年月"→cost_period），
+        # 只写 rename_map，不重复建物理列和元数据。
+        if new_code in existing_by_code:
+            continue
         max_order += 10
         dtype = _guess_data_type(val)
         try:
