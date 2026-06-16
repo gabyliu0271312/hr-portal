@@ -638,7 +638,11 @@ async def _dynamic_upsert(
             if not isinstance(r, dict):
                 continue
             if r.get(period_col) in (None, ""):
-                raise RuntimeError(f"月度表 {table_name} 缺少期间字段: {period_col}")
+                raise RuntimeError(
+                    f"月度表 {table_name} 缺少期间字段: {period_col}；"
+                    f"该行实际字段: {sorted(r.keys())}；"
+                    f"rename_map: {rename_map}"
+                )
             r[period_col] = _normalize_yyyymm(r[period_col])
 
     # 2) 月度表：收口期间列主键
