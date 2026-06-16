@@ -280,40 +280,33 @@ async function downloadDocx() {
   }
 }
 
-const PRINT_STYLE = `
-  @page { size: A4; margin: 25mm 20mm; }
-  body { font-family: SimSun, "宋体", serif; color: #000; }
-  .agr-doc { font-size: 12pt; line-height: 1.8; }
-  .agr-header { text-align: right; font-size: 9pt; color: #444; margin-bottom: 8px; }
-  .agr-title { text-align: center; font-size: 16pt; font-weight: 700; margin: 6px 0 16px; }
-  .agr-p { margin: 0 0 8px; text-align: justify; text-indent: 2em; }
-  .agr-line { margin: 0 0 8px; white-space: nowrap; }
-  .agr-sign { margin-top: 18px; white-space: nowrap; }
-`
-
 async function printAgreement() {
   if (!previewHtml.value) return
-  const html = previewPaperRef.value?.innerHTML || previewHtml.value
-  if (agreement.value) {
-    try {
-      await toolsApi.logAgreementPrint(agreement.value, currentDraft())
-    } catch {
-      ElMessage.warning('打印留痕失败，但不影响本次打印')
+  if (!agreement.value) return
+  try {
+    const resp = await toolsApi.downloadAgreementPdf(agreement.value, currentDraft())
+    const blob = new Blob([resp.data as BlobPart], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const frame = document.createElement('iframe')
+    frame.style.position = 'fixed'
+    frame.style.right = '0'
+    frame.style.bottom = '0'
+    frame.style.width = '0'
+    frame.style.height = '0'
+    frame.style.border = '0'
+    frame.src = url
+    frame.onload = () => {
+      frame.contentWindow?.focus()
+      frame.contentWindow?.print()
+      setTimeout(() => {
+        URL.revokeObjectURL(url)
+        frame.remove()
+      }, 3000)
     }
+    document.body.appendChild(frame)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '打印失败')
   }
-  const w = window.open('', '_blank', 'width=900,height=1000')
-  if (!w) {
-    ElMessage.warning('浏览器拦截了打印窗口，请允许弹窗后重试')
-    return
-  }
-  w.document.write(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>解除劳动合同协议书</title><style>${PRINT_STYLE}</style></head><body>${html}</body></html>`,
-  )
-  w.document.close()
-  w.focus()
-  setTimeout(() => {
-    w.print()
-  }, 300)
 }
 
 const printing = ref(false)
@@ -613,7 +606,7 @@ interface ResultRow {
       <template #footer>
         <el-button @click="agreementOpen = false">关闭</el-button>
         <el-button :loading="downloading" @click="downloadDocx">下载 Word</el-button>
-        <el-button type="primary" @click="printAgreement">打印</el-button>
+        <el-button type="primary" :loading="printing" @click="printAgreement">打印</el-button>
       </template>
     </el-dialog>
   </div>
@@ -700,14 +693,15 @@ interface ResultRow {
 }
 .agr-preview-paper {
   flex: none;
-  width: 210mm;
+  width: 215.9mm;
+  min-height: 279.4mm;
   margin: 0 auto;
   max-height: 78vh;
   overflow-y: auto;
   background: #fff;
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  padding: 20mm;
+  padding: 25.4mm 31.75mm;
   box-sizing: border-box;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   outline: none;
@@ -719,35 +713,36 @@ interface ResultRow {
 .agr-preview-paper :deep(.agr-doc) {
   font-family: SimSun, '宋体', serif;
   font-size: 12pt;
-  line-height: 1.9;
+  line-height: 1.45;
   color: #000;
 }
 .agr-preview-paper :deep(.agr-header) {
   text-align: right;
   font-size: 9pt;
-  color: #666;
-  margin-bottom: 8px;
+  color: #000;
+  margin-bottom: 8mm;
 }
 .agr-preview-paper :deep(.agr-title) {
   text-align: center;
   font-size: 16pt;
   font-weight: 700;
-  margin: 8px 0 18px;
+  margin: 0 0 8mm;
+}
+.agr-preview-paper :deep(.agr-head) {
+  margin: 0 0 3mm;
+  white-space: nowrap;
 }
 .agr-preview-paper :deep(.agr-p) {
-  margin: 0 0 10px;
+  margin: 0 0 3.5mm;
   text-align: justify;
   text-indent: 2em;
 }
 .agr-preview-paper :deep(.agr-line) {
-  margin: 0 0 10px;
+  margin: 0 0 3.5mm;
   white-space: nowrap;
 }
 .agr-preview-paper :deep(.agr-sign) {
-  margin-top: 20px;
+  margin-top: 9mm;
   white-space: nowrap;
-}
-.agr-preview-paper :deep(.agr-sign) {
-  margin-top: 20px;
 }
 </style>

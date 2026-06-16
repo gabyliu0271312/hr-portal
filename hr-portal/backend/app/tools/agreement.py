@@ -158,7 +158,15 @@ def render_html(data: dict, template_blocks: list[tuple[str, str]] | None = None
     header, title, blocks = _split_blocks(template_blocks or _default_blocks(data))
     parts = []
     for text, kind in blocks:
-        cls = "agr-p" if kind in {"body", "paragraph"} else "agr-sign" if kind == "sign" else "agr-line"
+        cls = (
+            "agr-p"
+            if kind in {"body", "paragraph"}
+            else "agr-head"
+            if kind == "head"
+            else "agr-sign"
+            if kind == "sign"
+            else "agr-line"
+        )
         parts.append(f'<p class="{cls}">{_esc(text)}</p>')
     body = "".join(parts)
     return f"""<div class="agr-doc">
@@ -172,12 +180,20 @@ def render_docx(data: dict, template_blocks: list[tuple[str, str]] | None = None
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml.ns import qn
-    from docx.shared import Pt
+    from docx.shared import Mm, Pt
 
     header, title_text, blocks = _split_blocks(template_blocks or _default_blocks(data))
     doc = Document()
     # 页眉：小五(9pt) 宋体 靠右
     section = doc.sections[0]
+    section.page_width = Mm(215.9)
+    section.page_height = Mm(279.4)
+    section.top_margin = Mm(25.4)
+    section.bottom_margin = Mm(25.4)
+    section.left_margin = Mm(31.75)
+    section.right_margin = Mm(31.75)
+    section.header_distance = Mm(12.7)
+    section.footer_distance = Mm(12.7)
     header_p = section.header.paragraphs[0]
     header_p.text = header
     header_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -203,9 +219,14 @@ def render_docx(data: dict, template_blocks: list[tuple[str, str]] | None = None
     for text, kind in blocks:
         p = doc.add_paragraph(text)
         pf = p.paragraph_format
-        pf.line_spacing = 1.5
+        pf.line_spacing = 1.45
+        pf.space_after = Pt(4)
         if kind in {"body", "paragraph"}:
             pf.first_line_indent = Pt(24)  # 首行缩进 2 字符（小四 12pt）
+        elif kind == "head":
+            pf.space_after = Pt(3)
+        elif kind == "sign":
+            pf.space_before = Pt(10)
 
     buf = BytesIO()
     doc.save(buf)

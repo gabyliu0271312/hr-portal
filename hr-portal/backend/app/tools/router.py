@@ -19,6 +19,7 @@ from app.data.models import DATA_TABLES
 from app.permissions.masker import get_sensitive_columns
 from app.permissions.scope_filter import build_scope_filter, is_unrestricted
 from app.tools import agreement as agreement_svc
+from app.tools import docx_convert
 from app.tools import document_templates as template_svc
 from app.tools import income_certificate as income_cert_svc
 from app.tools.models import (
@@ -158,6 +159,10 @@ class DocumentTemplatePreviewIn(BaseModel):
 class DocumentTemplatePreviewOut(BaseModel):
     html: str
     plain_text: str
+
+
+class DocumentTemplatePreviewSaveIn(BaseModel):
+    html: str = Field(min_length=1, max_length=300_000)
 
 
 class DocumentTemplateUploadOut(BaseModel):
@@ -498,6 +503,74 @@ async def _merge_parsed_variables(
         )
 
 
+async def _replace_template_blocks(
+    row: DocumentTemplate,
+    blocks: list[tuple[str, str]],
+    db: AsyncSession,
+) -> None:
+    existing_blocks = (
+        await db.execute(
+            select(DocumentTemplateBlock).where(DocumentTemplateBlock.template_id == row.id)
+        )
+    ).scalars().all()
+    for block in existing_blocks:
+        await db.delete(block)
+    await db.flush()
+    for index, (content, block_type) in enumerate(blocks, start=1):
+        db.add(
+            DocumentTemplateBlock(
+                template_id=row.id,
+                block_type=block_type if block_type in template_svc.VALID_BLOCK_TYPES else "paragraph",
+                content=content,
+                display_order=index * 10,
+                style_config={},
+            )
+        )
+
+
+def _mark_standard_blocks_mode(row: DocumentTemplate) -> None:
+    config = dict(row.layout_config or {})
+    config["render_mode"] = "standard_blocks"
+    row.layout_config = config
+
+
+def _mark_uploaded_docx_mode(row: DocumentTemplate) -> None:
+    config = dict(row.layout_config or {})
+    if config.get("render_mode") == "standard_blocks":
+        config.pop("render_mode", None)
+    row.layout_config = config
+
+
+async def _save_template_word_file(
+    row: DocumentTemplate,
+    *,
+    filename: str,
+    content: bytes,
+    content_type: str | None,
+    db: AsyncSession,
+) -> list[str]:
+    if not content:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Word 模板不能为空")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Word 模板不能超过 10MB")
+    try:
+        parsed_variables = template_svc.extract_variables_from_docx(content)
+        parsed_blocks = template_svc.extract_docx_template_blocks(content, row.business_type)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Word 模板解析失败，请确认文件格式正确") from exc
+    row.template_file_name = filename
+    row.template_file_content_type = content_type
+    row.template_file_size = len(content)
+    row.template_file = content
+    row.parsed_variables = parsed_variables
+    row.uploaded_at = datetime.now()
+    await _merge_parsed_variables(row, parsed_variables, db)
+    if parsed_blocks:
+        await _replace_template_blocks(row, parsed_blocks, db)
+        _mark_uploaded_docx_mode(row)
+    return parsed_variables
+
+
 def _default_variable_map(business_type: str) -> dict[str, dict[str, Any]]:
     for tpl in template_svc.DEFAULT_TEMPLATES:
         if tpl.get("business_type") == business_type:
@@ -505,24 +578,46 @@ def _default_variable_map(business_type: str) -> dict[str, dict[str, Any]]:
     return {}
 
 
-def _render_template_plain_text(row: DocumentTemplate, values: dict[str, Any]) -> str:
+def _template_uses_standard_blocks(row: DocumentTemplate) -> bool:
+    return bool(row.blocks) and (
+        not row.template_file or (row.layout_config or {}).get("render_mode") == "standard_blocks"
+    )
+
+
+def _template_uses_uploaded_docx(row: DocumentTemplate) -> bool:
+    return bool(row.template_file) and not _template_uses_standard_blocks(row)
+
+
+def _render_template_blocks_for_values(
+    row: DocumentTemplate,
+    values: dict[str, Any],
+) -> list[tuple[str, str]]:
+    if _template_uses_standard_blocks(row):
+        return template_svc.render_template_blocks(row.blocks, values, row.variables, row.business_type)
     if row.template_file:
-        return template_svc.render_docx_plain_text(row.template_file, values, row.variables, row.business_type)
-    blocks = template_svc.render_template_blocks(row.blocks, values, row.variables, row.business_type)
+        return template_svc.render_docx_preview_blocks(
+            row.template_file,
+            values,
+            row.variables,
+            row.business_type,
+        )
+    return template_svc.render_template_blocks(row.blocks, values, row.variables, row.business_type)
+
+
+def _render_template_plain_text(row: DocumentTemplate, values: dict[str, Any]) -> str:
+    blocks = _render_template_blocks_for_values(row, values)
     return "\n".join(text for text, _kind in blocks if text)
 
 
 def _render_template_html(row: DocumentTemplate, values: dict[str, Any]) -> str:
-    if row.template_file:
-        plain = _render_template_plain_text(row, values)
-        escaped = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        return f'<pre class="template-docx-preview">{escaped}</pre>'
-    blocks = template_svc.render_template_blocks(row.blocks, values, row.variables, row.business_type)
+    blocks = _render_template_blocks_for_values(row, values)
     if row.business_type == "agreement":
         return agreement_svc.render_html(values, blocks)
     if row.business_type == "income_certificate":
         return income_cert_svc.render_html(values, blocks)
-    return f"<pre>{_render_template_plain_text(row, values)}</pre>"
+    escaped = "\n".join(text for text, _kind in blocks if text)
+    escaped = escaped.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return f"<pre>{escaped}</pre>"
 
 
 def _raw_template_blocks(row: DocumentTemplate) -> list[tuple[str, str]]:
@@ -784,19 +879,13 @@ async def upload_document_template_word(
     content = await file.read()
     if not content:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="上传文件不能为空")
-    if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Word 模板不能超过 10MB")
-    try:
-        parsed_variables = template_svc.extract_variables_from_docx(content)
-    except Exception as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Word 模板解析失败，请确认文件格式正确") from exc
-    row.template_file_name = filename
-    row.template_file_content_type = file.content_type
-    row.template_file_size = len(content)
-    row.template_file = content
-    row.parsed_variables = parsed_variables
-    row.uploaded_at = datetime.now()
-    await _merge_parsed_variables(row, parsed_variables, db)
+    parsed_variables = await _save_template_word_file(
+        row,
+        filename=filename,
+        content=content,
+        content_type=file.content_type,
+        db=db,
+    )
     await db.commit()
     return DocumentTemplateUploadOut(
         id=row.id,
@@ -819,7 +908,7 @@ async def download_document_template_word(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在")
     from urllib.parse import quote
 
-    content = row.template_file or _render_downloadable_template_docx(row)
+    content = row.template_file if _template_uses_uploaded_docx(row) else _render_downloadable_template_docx(row)
     filename = row.template_file_name or f"{row.code}_template.docx"
     return Response(
         content=content,
@@ -928,6 +1017,30 @@ async def preview_document_template(
         html=_render_template_html(row, values),
         plain_text=_render_template_plain_text(row, values),
     )
+
+
+@router.post(
+    "/document-templates/{template_id}/preview/save",
+    response_model=DocumentTemplateOut,
+    dependencies=[Depends(require_op("system.document_templates", "U"))],
+)
+async def save_document_template_preview(
+    template_id: int,
+    payload: DocumentTemplatePreviewSaveIn,
+    db: AsyncSession = Depends(get_session),
+) -> DocumentTemplateOut:
+    row = await _load_template_by_id(db, template_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在")
+    blocks = template_svc.extract_blocks_from_preview_html(payload.html)
+    if not blocks:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="预览内容为空，无法保存")
+    await _replace_template_blocks(row, blocks, db)
+    _mark_standard_blocks_mode(row)
+    await db.commit()
+    saved = await _load_template_by_id(db, template_id)
+    assert saved is not None
+    return _template_out(saved)
 
 
 @router.get(
@@ -1136,6 +1249,19 @@ class AgreementDocumentIn(BaseModel):
     draft: EditableDraftIn = Field(default_factory=EditableDraftIn)
 
 
+def _render_agreement_docx_content(data: AgreementData, template: DocumentTemplate) -> bytes:
+    render_data = _to_render_dict(data)
+    if _template_uses_uploaded_docx(template):
+        return template_svc.render_docx_template(
+            template.template_file,
+            render_data,
+            template.variables,
+            template.business_type,
+        )
+    blocks = _render_template_blocks_for_values(template, render_data)
+    return agreement_svc.render_docx(render_data, blocks)
+
+
 def _to_render_dict(data: AgreementData) -> dict:
     return {
         "company": data.company,
@@ -1238,20 +1364,11 @@ async def download_agreement(
     db: AsyncSession = Depends(get_session),
 ) -> Response:
     data = payload.data
-    render_data = _to_render_dict(data)
     template = await _agreement_template(db, data.template_code)
     if payload.draft.manually_adjusted and payload.draft.draft_html:
         content = _render_edited_preview_docx(template, payload.draft.draft_html)
-    elif template.template_file:
-        content = template_svc.render_docx_template(
-            template.template_file,
-            render_data,
-            template.variables,
-            template.business_type,
-        )
     else:
-        blocks = template_svc.render_template_blocks(template.blocks, render_data, template.variables, template.business_type)
-        content = agreement_svc.render_docx(render_data, blocks)
+        content = _render_agreement_docx_content(data, template)
     await _record_document_generation(
         db=db,
         user=user,
@@ -1271,6 +1388,42 @@ async def download_agreement(
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+@router.post(
+    "/agreement/pdf",
+    dependencies=[Depends(require_op("tools.compensation_calc", "V"))],
+)
+async def download_agreement_pdf(
+    payload: AgreementDocumentIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    data = payload.data
+    template = await _agreement_template(db, data.template_code)
+    if payload.draft.manually_adjusted and payload.draft.draft_html:
+        docx_content = _render_edited_preview_docx(template, payload.draft.draft_html)
+    else:
+        docx_content = _render_agreement_docx_content(data, template)
+    try:
+        pdf_content = docx_convert.convert_docx_bytes_to_pdf(
+            docx_content,
+            f"agreement_{data.name or 'employee'}.docx",
+        )
+    except Exception as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="PDF 转换失败") from exc
+    await _record_document_generation(
+        db=db,
+        user=user,
+        business_type="agreement",
+        action="print",
+        template=template,
+        subject_name=data.name,
+        manually_adjusted=payload.draft.manually_adjusted,
+        draft_html=payload.draft.draft_html if payload.draft.manually_adjusted else None,
+        context={"total_amount": data.total_amount, "render": "pdf"},
+    )
+    return Response(content=pdf_content, media_type="application/pdf")
 
 
 @router.post(
@@ -1558,7 +1711,7 @@ async def download_income_certificate(
     render_data = _income_cert_render_values(data, template)
     if payload.draft.manually_adjusted and payload.draft.draft_html:
         content = _render_edited_preview_docx(template, payload.draft.draft_html)
-    elif template.template_file:
+    elif _template_uses_uploaded_docx(template):
         content = template_svc.render_docx_template(
             template.template_file,
             render_data,
@@ -1566,7 +1719,7 @@ async def download_income_certificate(
             template.business_type,
         )
     else:
-        blocks = template_svc.render_template_blocks(template.blocks, render_data, template.variables, template.business_type)
+        blocks = _render_template_blocks_for_values(template, render_data)
         content = income_cert_svc.render_docx(render_data, blocks)
     await _record_document_generation(
         db=db,

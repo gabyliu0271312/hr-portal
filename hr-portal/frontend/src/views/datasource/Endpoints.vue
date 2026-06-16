@@ -12,11 +12,25 @@ import {
   initFormForType,
 } from '@/config/dataSources'
 import { datasourcesApi, type DataSourceListItem } from '@/api/datasources'
+import { adminTablesApi } from '@/api/admin_tables'
 
 const router = useRouter()
 
 const list = ref<DataSourceListItem[]>([])
 const loading = ref(false)
+
+// 月度自动偏移（inject）表集合：period_source==='inject' 的表显示「月份设置」
+const injectTables = ref<Set<string>>(new Set())
+async function loadInjectTables() {
+  try {
+    const tables = await adminTablesApi.list()
+    injectTables.value = new Set(
+      tables.filter((t) => t.period_source === 'inject').map((t) => t.table_name)
+    )
+  } catch {
+    injectTables.value = new Set()
+  }
+}
 
 async function load() {
   loading.value = true
@@ -65,8 +79,10 @@ const testResult = ref<{ ok: boolean; message: string } | null>(null)
 
 const currentType = computed(() => findSourceType(form.source_type))
 
-// ===== 月度表「月份设置」（表级特例，目前仅成本中心月度维护表）=====
-const isPeriodTable = computed(() => editing.value?.table_name === 'cost_center_monthly')
+// ===== 月度表「月份设置」：period_source==='inject' 的表均支持月度自动偏移 =====
+const isPeriodTable = computed(
+  () => !!editing.value && injectTables.value.has(editing.value.table_name)
+)
 const monthOffset = computed<number>({
   get: () => parseInt(form.config['MONTH_OFFSET'] ?? '0', 10) || 0,
   set: (v) => {
@@ -117,7 +133,7 @@ function openEdit(row: DataSourceListItem) {
   }
   // 敏感字段：留空，提示 placeholder 说明"已保存"
   // 月度表：默认月份偏移 0（当前月）
-  if (row.table_name === 'cost_center_monthly' && !merged['MONTH_OFFSET']) {
+  if (injectTables.value.has(row.table_name) && !merged['MONTH_OFFSET']) {
     merged['MONTH_OFFSET'] = '0'
   }
   Object.assign(form, {
@@ -271,7 +287,10 @@ async function triggerSync(row: DataSourceListItem) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadInjectTables()
+})
 </script>
 
 <template>
