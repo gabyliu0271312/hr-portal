@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from typing import Any, Sequence, Union
 
 from alembic import op
@@ -17,17 +16,29 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-@dataclass(frozen=True)
 class RenameSpec:
-    table: str
-    sources: tuple[str, ...]
-    target: str
-    label: str
-    source_field_id: str | None = None
-    data_type: str = "string"
-    is_visible: bool = True
-    auto_discovered: bool = True
-    scope_role: str | None = None
+    def __init__(
+        self,
+        *,
+        table: str,
+        sources: tuple[str, ...],
+        target: str,
+        label: str,
+        source_field_id: str | None = None,
+        data_type: str = "string",
+        is_visible: bool = True,
+        auto_discovered: bool = True,
+        scope_role: str | None = None,
+    ) -> None:
+        self.table = table
+        self.sources = sources
+        self.target = target
+        self.label = label
+        self.source_field_id = source_field_id
+        self.data_type = data_type
+        self.is_visible = is_visible
+        self.auto_discovered = auto_discovered
+        self.scope_role = scope_role
 
 
 RENAMES: tuple[RenameSpec, ...] = (
