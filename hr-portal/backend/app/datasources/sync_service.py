@@ -52,6 +52,11 @@ PERIOD_TABLES: dict[str, dict] = {
         "offset_key": "MONTH_OFFSET",
         "period_source": "inject",
     },
+    "emp_monthly_allocation": {
+        "period_col": "cost_period",
+        "offset_key": "MONTH_OFFSET",
+        "period_source": "inject",  # 接口数据不带期间字段，同步时按 MONTH_OFFSET 注入
+    },
 }
 
 
