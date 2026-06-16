@@ -174,6 +174,11 @@ async def _ensure_menus(db: AsyncSession) -> dict[str, Menu]:
             await db.flush()
             by_code[node["code"]] = m
             logger.info("[seed] menu added: %s", node["code"])
+        else:
+            m = by_code[node["code"]]
+            if m.display_order != order:
+                m.display_order = order
+                logger.info("[seed] menu order updated: %s → %d", node["code"], order)
         order += 10
         for child in node.get("children", []):
             await add(child, by_code[node["code"]].id)
