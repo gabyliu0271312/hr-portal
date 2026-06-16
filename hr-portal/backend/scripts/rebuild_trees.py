@@ -18,7 +18,7 @@ async def _load_entity_rows(table_name: str, db) -> list[dict]:
     if model is None:
         raise RuntimeError(f"{table_name} 未注册")
     if "raw" in model.__table__.columns:
-        raise RuntimeError(f"{table_name} 仍是 raw JSON 结构，请先重建为实体表")
+        raise RuntimeError(f"{table_name} 不是实体列结构，请先重建为实体列业务表")
     rows = (await db.execute(select(model))).scalars().all()
     columns = [col.name for col in model.__table__.columns]
     return [

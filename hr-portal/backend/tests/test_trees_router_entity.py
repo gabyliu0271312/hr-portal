@@ -112,7 +112,7 @@ async def test_tree_distinct_rejects_legacy_raw_roster():
     old_model = register_roster(make_legacy_raw_model("trees_legacy_raw_roster"))
 
     try:
-        with pytest.raises(RuntimeError, match="仍是 raw JSON 结构"):
+        with pytest.raises(RuntimeError, match="不是实体列结构"):
             await trees_router.get_employment_entities(db=FakeSession())
     finally:
         restore_roster(old_model)

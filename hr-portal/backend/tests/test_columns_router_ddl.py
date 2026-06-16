@@ -2,9 +2,12 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import BigInteger, Column, MetaData, String, Table
 
 from app.data import columns_router
+from app.data.dynamic_loader import _make_model_from_table
 from app.data.models import DATA_TABLES, TableColumn
+from tests.entity_helpers import make_legacy_raw_model
 
 
 pytestmark = pytest.mark.asyncio
@@ -296,3 +299,97 @@ async def test_delete_column_drops_physical_column_and_metadata(monkeypatch, reg
     assert db.deleted == [col]
     assert register_calls == [(db, "custom_entity", True)]
     assert db.committed is True
+
+
+async def test_recompute_computed_columns_reads_and_writes_entity_columns(monkeypatch):
+    table_name = "columns_recompute_entity"
+    table = Table(
+        table_name,
+        MetaData(),
+        Column("id", BigInteger, primary_key=True),
+        Column("base_salary", String),
+        Column("bonus", String),
+        Column("total", String),
+    )
+    model = _make_model_from_table(table_name, table)
+    old_model = DATA_TABLES.get(table_name)
+    DATA_TABLES[table_name] = model
+    row = model(id=1, base_salary="100", bonus="25", total=None)
+    columns = [
+        make_column(table_name=table_name, column_code="base_salary"),
+        make_column(table_name=table_name, column_code="bonus"),
+        make_column(
+            table_name=table_name,
+            column_code="total",
+            is_computed=True,
+            formula_expr="[base_salary] + [bonus]",
+        ),
+    ]
+
+    async def empty_lookup_maps(table_arg, db_arg):
+        return []
+
+    import app.datasources.sync_service as sync_service
+
+    monkeypatch.setattr(sync_service, "build_lookup_maps", empty_lookup_maps)
+    db = FakeSession(
+        results=[
+            FakeResult(rows=[("total", "[base_salary] + [bonus]")]),
+            FakeResult(rows=[row]),
+            FakeResult(rows=columns),
+        ]
+    )
+
+    try:
+        result = await columns_router.recompute_computed_columns(table_name, db=db)
+    finally:
+        if old_model is None:
+            DATA_TABLES.pop(table_name, None)
+        else:
+            DATA_TABLES[table_name] = old_model
+
+    assert result["updated_rows"] == 1
+    assert row.total == 125.0
+    assert not hasattr(row, "raw")
+    assert db.committed is True
+
+
+async def test_recompute_computed_columns_rejects_legacy_raw_rows(monkeypatch):
+    table_name = "columns_recompute_legacy"
+    model = make_legacy_raw_model(table_name)
+    old_model = DATA_TABLES.get(table_name)
+    DATA_TABLES[table_name] = model
+    row = model(id=1, pk_hash="pk1", raw={"base_salary": "100", "total": None})
+    columns = [
+        make_column(table_name=table_name, column_code="base_salary"),
+        make_column(
+            table_name=table_name,
+            column_code="total",
+            is_computed=True,
+            formula_expr="[base_salary] + 1",
+        ),
+    ]
+
+    async def empty_lookup_maps(table_arg, db_arg):
+        return []
+
+    import app.datasources.sync_service as sync_service
+
+    monkeypatch.setattr(sync_service, "build_lookup_maps", empty_lookup_maps)
+    db = FakeSession(
+        results=[
+            FakeResult(rows=[("total", "[base_salary] + 1")]),
+        ]
+    )
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await columns_router.recompute_computed_columns(table_name, db=db)
+    finally:
+        if old_model is None:
+            DATA_TABLES.pop(table_name, None)
+        else:
+            DATA_TABLES[table_name] = old_model
+
+    assert exc_info.value.status_code == 409
+    assert "不是实体列结构" in str(exc_info.value.detail)

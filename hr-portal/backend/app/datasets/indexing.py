@@ -30,7 +30,7 @@ async def _ensure_one(db: AsyncSession, table: str, column: str) -> None:
     validate_column_name(column)
     model = DATA_TABLES[table]
     if "raw" in model.__table__.columns:
-        raise RuntimeError(f"业务表 {table} 仍是 raw JSON 结构，请先重建为实体表")
+        raise RuntimeError(f"业务表 {table} 不是实体列结构，请先重建为实体列业务表")
     if column not in model.__table__.columns:
         raise RuntimeError(f"业务表 {table} 缺少 JOIN 实体列: {column}")
     name = _index_name(table, column)

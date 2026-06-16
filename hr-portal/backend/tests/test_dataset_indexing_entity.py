@@ -70,7 +70,7 @@ async def test_join_index_rejects_legacy_raw_model():
     old = set_table(table_name, make_legacy_raw_model(table_name))
 
     try:
-        with pytest.raises(RuntimeError, match="仍是 raw JSON 结构"):
+        with pytest.raises(RuntimeError, match="不是实体列结构"):
             await indexing._ensure_one(FakeSession(), table_name, "employee_no")
     finally:
         restore_table(table_name, old)

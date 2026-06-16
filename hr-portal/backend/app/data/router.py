@@ -71,11 +71,11 @@ async def _check_field_categories_sensitive(table: str, db: AsyncSession) -> set
 
 
 def _ensure_entity_model(Model, table: str) -> None:
-    """数据视图只允许读取实体列业务表，不再兼容旧 raw JSON 表。"""
+    """数据视图只允许读取实体列业务表。"""
     if "raw" in Model.__table__.columns:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail=f"业务表 {table} 仍是 raw JSON 结构，请先重建为实体表",
+            detail=f"业务表 {table} 不是实体列结构，请先重建为实体列业务表",
         )
 
 

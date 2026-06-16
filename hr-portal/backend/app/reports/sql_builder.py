@@ -11,19 +11,19 @@
 - total
 
 实现思路：
-- 5 张业务表都是 (id, pk_hash, raw, synced_at) 极简 schema
-- SELECT t1.id, t1.raw, t2.id, t2.raw, ... FROM table1 t1 [LEFT JOIN table2 t2 ON ...] WHERE ...
-- JOIN 条件：raw->>'left.col' = raw->>'right.col'
+- 业务表已经切换为实体列宽表，字段必须指向真实物理列
+- SELECT 只取报表需要的实体列与每个 alias 的 id，不再读取整行 raw
+- JOIN / 过滤 / 排序都直接使用实体列表达式
 - 字段分类脱敏 + 数据范围权限按 alias 对应的 table 各自计算后 AND 进 where
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, desc, func, or_, select, true
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import and_, desc, func, inspect, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement, cast
 from sqlalchemy.types import String as SAString
@@ -40,14 +40,110 @@ from app.reports.filter_logic import build_filter_clause
 from app.users.models import User
 
 
-def _raw_text(model, col_code: str) -> ColumnElement:
-    """raw->>'col_code' 的 SQL 表达式（兼容 aliased model）
+def _table_name(model) -> str:
+    return getattr(model, "__tablename__", getattr(model.__table__, "name", "unknown"))
 
-    aliased 后 model.raw[code].astext 不可用，改用 func.jsonb_extract_path_text。
-    若 raw 列是 JSON 而非 JSONB，先 cast 一下；这里 5 张业务表实际是 JSON，
-    PostgreSQL 的 jsonb_extract_path_text 会自动 cast。
-    """
-    return func.jsonb_extract_path_text(cast(model.raw, JSONB), col_code)
+
+def _ensure_entity_model(model) -> None:
+    table_name = _table_name(model)
+    if "raw" in model.__table__.columns:
+        raise RuntimeError(f"业务表 {table_name} 不是实体列结构，请先重建为实体列业务表")
+
+
+def _entity_column(model, col_code: str) -> ColumnElement:
+    """实体列 SQL 表达式，兼容 SQLAlchemy aliased model。"""
+    _ensure_entity_model(model)
+    table_name = _table_name(model)
+    if col_code not in model.__table__.columns:
+        raise RuntimeError(f"业务表 {table_name} 缺少报表实体列: {col_code}")
+    return inspect(model).selectable.c[col_code]
+
+
+def _entity_text(model, col_code: str) -> ColumnElement:
+    return cast(_entity_column(model, col_code), SAString)
+
+
+def _select_label(alias: str, code: str) -> str:
+    return f"__{alias}__{code}"
+
+
+def _normalize_report_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
+def _coerce_filter_value(value: Any, data_type: str) -> Any:
+    if value is None:
+        return None
+    key = (data_type or "string").strip().lower()
+    if key in {"string", "text", "enum"}:
+        return str(value)
+    if value == "":
+        return None
+    if key == "number":
+        try:
+            return Decimal(str(value).replace(",", "").strip())
+        except (InvalidOperation, ValueError) as exc:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"数值筛选条件无法转换: {value}",
+            ) from exc
+    if key == "integer":
+        try:
+            return int(Decimal(str(value).replace(",", "").strip()))
+        except (InvalidOperation, ValueError) as exc:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"整数筛选条件无法转换: {value}",
+            ) from exc
+    if key == "date":
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        text = str(value).strip().replace("/", "-")
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"日期筛选条件无法转换: {value}",
+            ) from exc
+    if key == "datetime":
+        if isinstance(value, datetime):
+            return value
+        text = str(value).strip().replace("/", "-").replace("T", " ").replace("Z", "+00:00")
+        if "+" in text[10:]:
+            try:
+                return datetime.fromisoformat(text)
+            except ValueError:
+                pass
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                width = 19 if " " in fmt else 10
+                return datetime.strptime(text[:width], fmt).replace(tzinfo=UTC)
+            except ValueError:
+                pass
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"日期时间筛选条件无法转换: {value}",
+        )
+    if key in {"boolean", "bool"}:
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "t", "yes", "y", "是", "启用"}:
+            return True
+        if text in {"0", "false", "f", "no", "n", "否", "停用"}:
+            return False
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"布尔筛选条件无法转换: {value}",
+        )
+    return value
 
 
 async def _get_dataset_meta(
@@ -617,7 +713,13 @@ async def run_dataset_query(
 
     alias_to_table = {t.alias: t.table_name for t in ds_tables}
     alias_to_model = {t.alias: DATA_TABLES[t.table_name] for t in ds_tables}
+    for alias, model in alias_to_model.items():
+        _ensure_entity_model(model)
     alias_columns = await _get_columns_for_aliases(ds_tables, db)
+    columns_by_alias = {
+        alias: {col.column_code: col for col in cols}
+        for alias, cols in alias_columns.items()
+    }
     calc_fields = await active_calculated_fields(dataset_id, db)
     calc_by_code = {f.code: f for f in calc_fields}
     calc_by_qual = {calc_qual(f.code): f for f in calc_fields}
@@ -688,7 +790,7 @@ async def run_dataset_query(
                 selected.append(_split_qualified(raw))
     selected = _dedupe_pairs(selected)
 
-    # 构造 SELECT 列表：每个 alias 取其 raw 整列 + id（用于 dedupe）
+    # 构造 SELECT 列表：每个 alias 取 id，并按需取实体列。
     used_aliases = list({a for a, _ in selected} | {a for a in alias_to_model.keys()})
     # 至少把第一张表 id 作为基准
     primary_alias = ds_tables[0].alias
@@ -698,12 +800,15 @@ async def run_dataset_query(
     from sqlalchemy.orm import aliased, join as orm_join
     aliased_models: dict[str, Any] = {a: aliased(alias_to_model[a], name=a) for a in used_aliases}
 
-    # 构造 select：把每个 aliased model 的 id 与 raw 都选出来
+    # 构造 select：把每个 aliased model 的 id 与所需实体列选出来
     select_cols: list[Any] = []
     for a in used_aliases:
         m = aliased_models[a]
         select_cols.append(m.id.label(f"__{a}__id"))
-        select_cols.append(m.raw.label(f"__{a}__raw"))
+    for a, code in selected:
+        if a not in aliased_models:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"未知数据集别名: {a}")
+        select_cols.append(_entity_column(aliased_models[a], code).label(_select_label(a, code)))
 
     stmt = select(*select_cols)
     count_stmt = select(func.count()).select_from(aliased_models[primary_alias])
@@ -734,11 +839,11 @@ async def run_dataset_query(
                     right_col = k.get("right")
                     if known == r.left_alias:
                         conds.append(
-                            _raw_text(lm, left_col) == _raw_text(rm, right_col)
+                            _entity_column(lm, left_col) == _entity_column(rm, right_col)
                         )
                     else:
                         conds.append(
-                            _raw_text(lm, right_col) == _raw_text(rm, left_col)
+                            _entity_column(lm, right_col) == _entity_column(rm, left_col)
                         )
                 join_cond = and_(*conds) if conds else true()
                 join_kind = (r.join_type or "left").lower()
@@ -786,10 +891,8 @@ async def run_dataset_query(
         for a in used_aliases:
             clause = await build_scope_filter(user, alias_to_table[a], db)
             if not is_unrestricted(clause):
-                # 注意 build_scope_filter 引用的是原 Model，我们用了 aliased — 这里需要重新绑到 aliased model
-                # 简化方案：直接用原 Model 的 raw 字段名规则 + 重写为对 aliased model 的引用
-                # 这里实现一个粗糙但有效的版本：把过滤条件作用于 aliased.raw 而不是原 Model.raw
-                # → 通过递归遍历表达式不现实；改为重新构造一遍过滤
+                # build_scope_filter 引用原 Model；报表查询使用 aliased model，
+                # 因此按同一权限语义重建一份绑定到当前 alias 的实体列条件。
                 clause2 = await _rebuild_scope_filter_for_alias(
                     user, alias_to_table[a], aliased_models[a], db
                 )
@@ -808,8 +911,10 @@ async def run_dataset_query(
         if a not in aliased_models:
             return None
         m = aliased_models[a]
-        json_text = _raw_text(m, code)
-        return _filter_clause(json_text, (f.get("op") or "eq").lower(), f.get("value"))
+        col = columns_by_alias.get(a, {}).get(code)
+        data_type = col.data_type if col is not None else "string"
+        expr = _entity_column(m, code)
+        return _filter_clause(expr, data_type, (f.get("op") or "eq").lower(), f.get("value"))
 
     try:
         user_clause = None if calc_filter_on else build_filter_clause(
@@ -836,7 +941,7 @@ async def run_dataset_query(
             continue
         m = aliased_models[a]
         order = (s.get("order") or "asc").lower()
-        col_expr = _raw_text(m, code)
+        col_expr = _entity_column(m, code)
         stmt = stmt.order_by(desc(col_expr) if order == "desc" else col_expr)
         sql_sort_applied = True
 
@@ -946,17 +1051,11 @@ async def run_dataset_query(
         d = r._mapping if hasattr(r, "_mapping") else dict(zip(r.keys(), r))
         item: dict[str, Any] = {}
         formula_item: dict[str, Any] = {}
-        # 提取每个 alias 的 raw
-        alias_raws: dict[str, dict] = {}
-        for a in used_aliases:
-            raw = d.get(f"__{a}__raw") or {}
-            alias_raws[a] = raw if isinstance(raw, dict) else {}
         for alias, code in selected:
-            raw = alias_raws.get(alias, {})
-            v = raw.get(code)
-            if isinstance(v, datetime):
-                v = v.isoformat()
-            formula_item[f"{alias}.{code}"] = v
+            qual = f"{alias}.{code}"
+            raw_value = d.get(_select_label(alias, code))
+            formula_item[qual] = raw_value
+            v = _normalize_report_value(raw_value)
             sens = sensitive_by_alias.get(alias, set())
             col = next(
                 (c for c in alias_columns.get(alias, []) if c.column_code == code), None
@@ -967,18 +1066,17 @@ async def run_dataset_query(
                     v = "******"
             else:
                 # 行级乘系数：round(target × factor, 2)；同时存未取整乘积供余差收口用
-                qual = f"{alias}.{code}"
                 factor_qual = rules_by_target.get(qual)
                 if factor_qual is not None and not factor_qual.startswith("calc."):
                     fa, _, fc = factor_qual.partition(".")
-                    factor_val = alias_raws.get(fa, {}).get(fc)
+                    factor_val = d.get(_select_label(fa, fc))
                     try:
-                        raw_prod = _num(v) * _num(factor_val)
+                        raw_prod = _num(raw_value) * _num(factor_val)
                         item[f"__rawprod__{qual}"] = raw_prod  # 未取整，用于余差收口
                         v = round(raw_prod, 2)
                     except (TypeError, ValueError):
                         v = ""
-            item[f"{alias}.{code}"] = v
+            item[qual] = v
         for field in internal_calc_fields:
             qual = calc_qual(field.code)
             value = evaluate_formula(
@@ -999,7 +1097,7 @@ async def run_dataset_query(
                 # 取系数时用原始未乘值，避免第一阶段已乘系数的字段被二次放大
                 if not factor_qual.startswith("calc."):
                     fa, _, fc = factor_qual.partition(".")
-                    factor_val = alias_raws.get(fa, {}).get(fc)
+                    factor_val = d.get(_select_label(fa, fc))
                 else:
                     factor_val = item.get(factor_qual)
                 raw_prod = _num(item.get(target_qual)) * _num(factor_val)
@@ -1157,34 +1255,38 @@ async def run_dataset_query(
     return columns_meta, items, total
 
 
-def _filter_clause(json_text, op: str, val: Any) -> ColumnElement | None:
+def _filter_clause(expr, data_type: str, op: str, val: Any) -> ColumnElement | None:
     if op == "eq":
-        return json_text == (str(val) if val is not None else None)
+        return expr == _coerce_filter_value(val, data_type)
     if op == "neq":
-        return json_text != (str(val) if val is not None else None)
+        return expr != _coerce_filter_value(val, data_type)
     if op == "contains" and val:
-        return json_text.ilike(f"%{val}%")
+        return cast(expr, SAString).ilike(f"%{val}%")
     if op == "gt":
-        return json_text > str(val)
+        return expr > _coerce_filter_value(val, data_type)
     if op == "gte":
-        return json_text >= str(val)
+        return expr >= _coerce_filter_value(val, data_type)
     if op == "lt":
-        return json_text < str(val)
+        return expr < _coerce_filter_value(val, data_type)
     if op == "lte":
-        return json_text <= str(val)
+        return expr <= _coerce_filter_value(val, data_type)
     if op == "between" and isinstance(val, (list, tuple)) and len(val) == 2:
         clauses = []
-        if val[0] is not None:
-            clauses.append(json_text >= str(val[0]))
-        if val[1] is not None:
-            clauses.append(json_text <= str(val[1]))
+        if val[0] not in (None, ""):
+            clauses.append(expr >= _coerce_filter_value(val[0], data_type))
+        if val[1] not in (None, ""):
+            clauses.append(expr <= _coerce_filter_value(val[1], data_type))
         return and_(*clauses) if clauses else None
     if op == "in" and isinstance(val, (list, tuple)) and val:
-        return json_text.in_([str(x) for x in val])
+        return expr.in_([_coerce_filter_value(x, data_type) for x in val])
     if op == "is_null":
-        return or_(json_text.is_(None), json_text == "")
+        if (data_type or "").strip().lower() in {"string", "text", "enum"}:
+            return or_(expr.is_(None), expr == "")
+        return expr.is_(None)
     if op == "is_not_null":
-        return and_(json_text.isnot(None), json_text != "")
+        if (data_type or "").strip().lower() in {"string", "text", "enum"}:
+            return and_(expr.isnot(None), expr != "")
+        return expr.isnot(None)
     return None
 
 
@@ -1216,9 +1318,6 @@ async def _rebuild_scope_filter_for_alias(
     tags = await _get_user_tags(user.id, db)
     if not tags:
         return false()
-
-    def _txt(code: str):
-        return _raw_text(aliased_model, code)
 
     tag_clauses: list[ColumnElement] = []
     for tag, sels, filters in tags:
@@ -1257,7 +1356,7 @@ async def _rebuild_scope_filter_for_alias(
                             codes.update(r[0] for r in descendants)
                         else:
                             codes.add(node.code)
-                    org_part = _txt(role_cols[col_key]).in_(codes) if codes else false()
+                    org_part = _entity_text(aliased_model, role_cols[col_key]).in_(codes) if codes else false()
 
         # ---- 人员范围 ----
         person_part: ColumnElement | None = None
@@ -1274,14 +1373,14 @@ async def _rebuild_scope_filter_for_alias(
                     if not vals:
                         parts.append(false())
                         continue
-                    expr = _txt(col_code).in_(vals)
+                    expr = _entity_text(aliased_model, col_code).in_(vals)
                     parts.append(expr if f.operator == "eq" else ~expr)
                 if parts:
                     person_part = and_(*parts)
 
         merged = [p for p in (org_part, person_part) if p is not None]
         if not merged:
-            tag_clauses.append(true())
+            tag_clauses.append(false())
         else:
             tag_clauses.append(and_(*merged))
 

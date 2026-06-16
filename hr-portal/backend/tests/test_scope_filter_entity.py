@@ -151,7 +151,6 @@ async def test_build_scope_filter_uses_entity_columns_for_org_and_person(monkeyp
         level=1,
         is_leaf=True,
         is_active=True,
-        raw={},
     )
     tag = make_tag(person_scope_enabled=True)
     selection = ScopeTagSelection(id=1, tag_id=1, node_id=10, include_descendants=False)
@@ -206,7 +205,6 @@ async def test_build_scope_filter_rejects_legacy_raw_model():
         level=1,
         is_leaf=True,
         is_active=True,
-        raw={},
     )
     db = FakeSession(
         results=[
@@ -221,7 +219,7 @@ async def test_build_scope_filter_rejects_legacy_raw_model():
     )
 
     try:
-        with pytest.raises(RuntimeError, match="仍是 raw JSON 结构"):
+        with pytest.raises(RuntimeError, match="不是实体列结构"):
             await scope_filter.build_scope_filter(SimpleNamespace(id=99), table_name, db)
     finally:
         restore_table(table_name, old_model)
@@ -293,7 +291,6 @@ async def test_build_scope_filter_missing_physical_scope_column_raises():
         level=1,
         is_leaf=True,
         is_active=True,
-        raw={},
     )
     db = FakeSession(
         results=[

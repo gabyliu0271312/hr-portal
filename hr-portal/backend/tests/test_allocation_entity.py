@@ -398,7 +398,7 @@ async def test_allocation_archive_rejects_legacy_raw_result_table(monkeypatch):
         restore_result_table(old_model, old_period)
 
     assert exc_info.value.status_code == 422
-    assert "仍是 raw JSON 结构" in str(exc_info.value.detail)
+    assert "不是实体列结构" in str(exc_info.value.detail)
 
 
 async def test_result_table_can_be_exposed_to_finebi_with_entity_types():

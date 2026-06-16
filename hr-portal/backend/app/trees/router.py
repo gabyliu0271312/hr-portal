@@ -105,7 +105,7 @@ def _roster_model():
     if model is None:
         raise RuntimeError("员工实时花名册未注册，请先完成实体表反射加载")
     if "raw" in model.__table__.columns:
-        raise RuntimeError("员工实时花名册仍是 raw JSON 结构，请先重建为实体表")
+        raise RuntimeError("员工实时花名册不是实体列结构，请先重建为实体列业务表")
     return model
 
 

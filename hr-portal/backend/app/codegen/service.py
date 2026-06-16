@@ -37,7 +37,7 @@ async def ai_translate_code(
             "role": "system",
             "content": (
                 "You translate Chinese HR data-model names into English database identifiers. "
-                "Output a single raw JSON object and NOTHING else. "
+                "Output a single JSON object and NOTHING else. "
                 "No markdown, no code fences, no tables, no commentary, no alternatives. "
                 'Exact shape: {"code": "<identifier>", "explanation": "<一句中文说明>"}. '
                 "code MUST be lower snake_case, ASCII only, match ^[a-z][a-z0-9_]*$, concise and semantic, "

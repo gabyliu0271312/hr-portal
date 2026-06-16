@@ -60,6 +60,15 @@ def _validate_payload_column_code(column_code: str) -> str:
         raise _ddl_http_error(exc) from exc
 
 
+def _ensure_entity_model(Model, table: str) -> None:
+    model_table = getattr(Model, "__table__", None)
+    if model_table is not None and "raw" in model_table.columns:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"业务表 {table} 不是实体列结构，请先重建为实体列业务表",
+        )
+
+
 def _type_change_using_expr(column_code: str, data_type: str) -> str:
     col = quote_ident(column_code)
     key = (data_type or "string").strip().lower()
@@ -95,6 +104,16 @@ async def _source_column_has_values(
         )
     )
     return bool(result.scalar_one())
+
+
+async def _get_columns(table_name: str, db: AsyncSession) -> list[TableColumn]:
+    return (
+        await db.execute(
+            select(TableColumn)
+            .where(TableColumn.table_name == table_name)
+            .order_by(TableColumn.display_order, TableColumn.id)
+        )
+    ).scalars().all()
 
 
 async def _alter_type_if_needed(
@@ -275,19 +294,20 @@ async def _column_dependency_reasons(
 def _row_value(row: Any, code: str) -> Any:
     if hasattr(row, code):
         return getattr(row, code)
-    raw = getattr(row, "raw", None)
-    if isinstance(raw, dict):
-        return raw.get(code)
-    return None
+    raise HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail=f"数据行缺少实体列: {code}",
+    )
 
 
 def _set_row_value(row: Any, code: str, value: Any) -> None:
     if hasattr(row, code):
         setattr(row, code, value)
         return
-    raw = dict(getattr(row, "raw", None) or {})
-    raw[code] = value
-    row.raw = raw
+    raise HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail=f"数据行缺少实体列: {code}",
+    )
 
 
 async def _validate_formula(
@@ -645,6 +665,7 @@ async def recompute_computed_columns(
         return {"ok": True, "updated_rows": 0, "computed_columns": 0, "lookup_fields": 0}
 
     Model = DATA_TABLES[table]
+    _ensure_entity_model(Model, table)
     rows = (await db.execute(select(Model))).scalars().all()
     table_columns = await _get_columns(table, db)
     updated = 0

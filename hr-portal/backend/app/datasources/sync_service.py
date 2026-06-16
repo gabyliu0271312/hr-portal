@@ -186,7 +186,7 @@ def _model_has_column(model, column_code: str) -> bool:
 def _assert_entity_model(model, table_name: str) -> None:
     if "raw" in model.__table__.columns:
         raise RuntimeError(
-            f"业务表 {table_name} 仍是 raw JSON 结构，请先执行阶段 3 重建为实体表"
+            f"业务表 {table_name} 不是实体列结构，请先执行阶段 3 重建为实体列业务表"
         )
 
 
@@ -838,7 +838,6 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
             level=level,
             is_leaf=False,  # 第二遍根据 children 数推算
             is_active=is_active,
-            raw=r,
             synced_at=datetime.now(UTC),
         )
         db.add(node)
@@ -963,7 +962,6 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
             level=level,
             is_leaf=False,
             is_active=(code in active_codes),
-            raw={"source": "emp_realtime_roster", "name": meta["name"], "level": level},
             synced_at=datetime.now(UTC),
         )
         db.add(node)

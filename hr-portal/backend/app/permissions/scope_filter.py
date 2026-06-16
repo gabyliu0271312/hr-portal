@@ -101,7 +101,7 @@ def _entity_text(model, col_code: str) -> ColumnElement:
     table_name = _table_name(model)
     if "raw" in model.__table__.columns:
         raise RuntimeError(
-            f"业务表 {table_name} 仍是 raw JSON 结构，请先重建为实体表"
+            f"业务表 {table_name} 不是实体列结构，请先重建为实体列业务表"
         )
     if col_code not in model.__table__.columns:
         raise RuntimeError(f"业务表 {table_name} 缺少权限实体列: {col_code}")

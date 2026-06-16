@@ -7,7 +7,7 @@ Usage:
   python -m scripts.rebuild_source_tables --tables emp_realtime_roster emp_monthly_salary
   python -m scripts.rebuild_source_tables --apply --i-understand-this-drops-data
 
-This script intentionally does not migrate data from raw JSON. Source data is
+This script intentionally does not migrate old source rows. Source data is
 expected to be re-synced or re-uploaded after tables are rebuilt.
 """
 from __future__ import annotations

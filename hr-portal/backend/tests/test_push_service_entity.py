@@ -224,7 +224,7 @@ async def test_load_source_rows_rejects_legacy_raw_model():
     )
 
     try:
-        with pytest.raises(RuntimeError, match="仍是 raw JSON 结构"):
+        with pytest.raises(RuntimeError, match="不是实体列结构"):
             await push_service._load_source_rows(table_name, FakeSession())
     finally:
         restore_table(table_name, old_model, old_period)

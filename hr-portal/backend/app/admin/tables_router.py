@@ -137,7 +137,7 @@ async def create_table(
     if existing:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="表名已存在")
 
-    # 3) 建物理表：实体表基础列 + 可选初始业务列，不再创建 raw JSON
+    # 3) 建物理表：实体表基础列 + 可选初始业务列
     try:
         await create_source_table(db, table_name, ddl_columns)
     except DDLValidationError as exc:

@@ -235,7 +235,7 @@ async def test_dynamic_upsert_rejects_legacy_raw_model():
     DATA_TABLES[table_name] = model
 
     try:
-        with pytest.raises(RuntimeError, match="仍是 raw JSON 结构"):
+        with pytest.raises(RuntimeError, match="不是实体列结构"):
             await sync_service._dynamic_upsert(
                 table_name,
                 [{"employee_no": "E001"}],

@@ -41,7 +41,7 @@ def apply_field_mappings(row: dict, mappings: list[dict]) -> dict:
 
 def _ensure_entity_model(Model, table_name: str) -> None:
     if "raw" in Model.__table__.columns:
-        raise RuntimeError(f"业务表 {table_name} 仍是 raw JSON 结构，请先重建为实体表")
+        raise RuntimeError(f"业务表 {table_name} 不是实体列结构，请先重建为实体列业务表")
 
 
 def _entity_column(Model, table_name: str, column_code: str):

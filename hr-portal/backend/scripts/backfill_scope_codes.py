@@ -20,7 +20,7 @@ async def main() -> None:
         if model is None:
             raise RuntimeError("emp_realtime_roster 未注册")
         if "raw" in model.__table__.columns:
-            raise RuntimeError("emp_realtime_roster 仍是 raw JSON 结构，请先重建为实体表")
+            raise RuntimeError("emp_realtime_roster 不是实体列结构，请先重建为实体列业务表")
         if "org_node_code" not in model.__table__.columns:
             raise RuntimeError("emp_realtime_roster 缺少实体列 org_node_code")
 

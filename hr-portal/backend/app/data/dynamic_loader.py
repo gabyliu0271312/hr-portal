@@ -3,8 +3,7 @@
 启动时从 registered_tables 读取业务表注册信息，按数据库真实 schema
 反射 SQLAlchemy 模型并注入 DATA_TABLES / PERIOD_TABLES。
 
-业务表不再有静态 raw JSON ORM fallback；运行时注册表只能来自真实
-数据库表反射。
+业务表不再有静态旧结构 ORM fallback；运行时注册表只能来自真实数据库表反射。
 """
 from __future__ import annotations
 

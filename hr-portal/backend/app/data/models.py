@@ -1,7 +1,7 @@
 """业务数据表 + 两棵树（标准列动态扩展架构）
 
 设计原则：
-- 业务字段以标准列存储，类型由数据库 schema 保证（不再用 raw JSONB）
+- 业务字段以标准列存储，类型由数据库 schema 保证
 - 字段元数据存到 table_columns（管理员可改标签、类型、顺序、敏感标记等）
 - 业务主键由 table_columns 中 is_pk_part=true 的字段决定（动态主键）
 - 同步时新增字段 → 自动 ALTER TABLE ADD COLUMN（默认 text）+ 写 table_columns
@@ -104,7 +104,7 @@ class TableColumn(Base):
     )
 
 
-# ===== 两棵树（保持原结构，含 raw 字段足够灵活）=====
+# ===== 两棵树（标准列结构）=====
 class CostCenterNode(Base):
     __tablename__ = "cost_center_tree"
     __table_args__ = (
@@ -122,7 +122,6 @@ class CostCenterNode(Base):
     is_leaf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    raw: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -146,7 +145,6 @@ class OrgNode(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     manager: Mapped[str | None] = mapped_column(String(64), nullable=True)
     path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    raw: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
