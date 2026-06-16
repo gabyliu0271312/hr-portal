@@ -179,7 +179,7 @@ class BeisenReportClient:
                     return title  # 全新字段:用中文名,_ensure_columns 会生成英文 code
                 return k
 
-            if not uuid_to_title:
+            if not uuid_to_title and not uuid_to_code and not title_to_code:
                 return datas
             translated = []
             for row in datas:
