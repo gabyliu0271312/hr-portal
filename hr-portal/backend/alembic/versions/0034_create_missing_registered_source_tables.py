@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0034_create_missing_registered_source_tables"
+revision: str = "0034_missing_registered_tables"
 down_revision: Union[str, None] = "0033_drop_tree_raw_columns"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
