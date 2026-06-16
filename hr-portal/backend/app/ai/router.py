@@ -547,7 +547,16 @@ def _normalize_employee_keyword(value: Any) -> str:
         "员工",
         "人员",
     }
-    return "" if text in generic_mentions else text[:80]
+    if text in generic_mentions:
+        return ""
+    stripped = re.sub(
+        r"补偿金|赔偿金|计算|试算|测算|查询|查找|查看|查|看|算|开|打开|跳转|帮我|帮忙|帮|麻烦|请|求|想|要|一下|一个|的",
+        "",
+        text,
+    ).strip()
+    if not stripped:
+        return ""
+    return text[:80]
 
 
 def _compact_employee_keyword(value: str) -> str:
@@ -583,7 +592,7 @@ def _extract_compensation_request_fallback(message: str) -> dict[str, Any]:
         plan = "N"
     cleaned = re.sub(r"20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?", " ", text)
     cleaned = re.sub(
-        r"补偿金|计算|查询员工|查询|员工|帮我|帮|试算|测算|打开|跳转|页面|方案|计划|离职日期|日期|改为|改成|改到|换成|调整为|调整成|设置为|设为|变为|变成|为|的|N\s*\+\s*1|N",
+        r"补偿金|计算|查询员工|查询|查找|查看|查|看|员工|帮我|帮|试算|测算|打开|跳转|页面|方案|计划|离职日期|日期|改为|改成|改到|换成|调整为|调整成|设置为|设为|变为|变成|为|的|N\s*\+\s*1|N",
         " ",
         cleaned,
         flags=re.IGNORECASE,
@@ -654,6 +663,7 @@ async def _extract_compensation_request_with_model(
                 "如果用户是在修改上一轮补偿金任务，例如“方案改为N”“日期改成2026-06-30”，"
                 "仍输出 intent=compensation.calculate，但只填写被用户明确修改的字段，并在 changed_fields 中列出字段名。"
                 "不要把“方案改为”“日期改成”等操作描述当成员工姓名。"
+                "也不要把“查”“查询”“计算”“看”等动作或功能词当成员工姓名;只有真正的姓名/工号/英文名才填 employee_keyword,否则为 null。"
                 "只有用户明确给出姓名、工号或英文名时才填写 employee_keyword；"
                 "如果只是“一个员工”“某个人”“该员工”等泛称，employee_keyword 必须为 null。"
                 "不要猜员工 ID，不要输出个人敏感数据。"

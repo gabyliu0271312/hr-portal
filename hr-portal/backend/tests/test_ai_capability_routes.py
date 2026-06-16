@@ -6,6 +6,7 @@ from app.ai.router import (
     _choose_employee_keyword,
     _extract_compensation_request_fallback,
     _merge_compensation_request,
+    _normalize_employee_keyword,
 )
 from app.main import app
 
@@ -73,6 +74,25 @@ def test_phase2_global_ai_compensation_capabilities_are_registered():
 
 def test_compensation_fallback_does_not_treat_generic_employee_as_keyword():
     extracted = _extract_compensation_request_fallback("帮我计算一个员工的补偿金")
+
+    assert extracted["intent"] == "compensation.calculate"
+    assert extracted["employee_keyword"] == ""
+
+
+def test_normalize_employee_keyword_blanks_pure_function_words():
+    # "查"被 LLM 当成姓氏 zhā 抽出,纯功能词必须置空,回落到"请告诉我算谁"
+    for value in ["查", "查补偿金", "看补偿金", "计算补偿金", "算一下", "算一下补偿金", "请帮我查"]:
+        assert _normalize_employee_keyword(value) == ""
+
+
+def test_normalize_employee_keyword_keeps_real_names_with_surname_zha():
+    # 真姓"查"(查理/查继光)及含功能词前缀的姓名不可被误删
+    for value in ["张伟", "王芳", "EMP001", "查理", "查继光", "Charlie"]:
+        assert _normalize_employee_keyword(value) != ""
+
+
+def test_compensation_fallback_blanks_search_verb_only_message():
+    extracted = _extract_compensation_request_fallback("查补偿金")
 
     assert extracted["intent"] == "compensation.calculate"
     assert extracted["employee_keyword"] == ""
