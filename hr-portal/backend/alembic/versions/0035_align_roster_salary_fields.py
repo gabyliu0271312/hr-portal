@@ -15,6 +15,8 @@ down_revision: Union[str, None] = "0034_missing_registered_tables"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+POSTGRES_IDENTIFIER_MAX_BYTES = 63
+
 
 class RenameSpec:
     def __init__(
@@ -119,7 +121,13 @@ def _quote_ident(identifier: str) -> str:
     return f'"{identifier.replace(chr(34), chr(34) * 2)}"'
 
 
+def _is_valid_pg_identifier_length(identifier: str) -> bool:
+    return len(identifier.encode("utf-8")) <= POSTGRES_IDENTIFIER_MAX_BYTES
+
+
 def _table_exists(bind, table: str) -> bool:
+    if not _is_valid_pg_identifier_length(table):
+        return False
     return bool(
         bind.execute(
             sa.text(
@@ -137,6 +145,8 @@ def _table_exists(bind, table: str) -> bool:
 
 
 def _column_exists(bind, table: str, column: str) -> bool:
+    if not _is_valid_pg_identifier_length(table) or not _is_valid_pg_identifier_length(column):
+        return False
     return bool(
         bind.execute(
             sa.text(
