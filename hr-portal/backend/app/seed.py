@@ -82,6 +82,22 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
+    # 一级 2：报表管理
+    {
+        "code": "report",
+        "label": "报表管理",
+        "icon": "PieChart",
+        "children": [
+            {
+                "code": "report.main",
+                "label": "报表",
+                "icon": "Document",
+                "children": [
+                    {"code": "report.list", "label": "报表管理", "icon": "Document"},
+                ],
+            },
+        ],
+    },
     # 一级 3：提效工具
     {
         "code": "tools",
