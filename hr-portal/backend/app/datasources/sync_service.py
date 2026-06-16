@@ -66,6 +66,7 @@ SOURCE_DROP_COLUMNS: dict[str, set[str]] = {
 # 如分摊表「成本归属年月」源端是 "2025-10"，统一成 "202510"，与成本中心「月份」对齐。
 YEARMONTH_COLUMNS: dict[str, set[str]] = {
     "emp_monthly_allocation": {"cost_period"},
+    "emp_monthly_salary": {"pay_month"},
 }
 
 
