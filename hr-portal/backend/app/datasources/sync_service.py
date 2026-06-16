@@ -72,6 +72,7 @@ YEARMONTH_COLUMNS: dict[str, set[str]] = {
 
 # 跨表查找填值（lookup/enrichment）：同步/重算时按规则从另一张表查出值填进 target。
 # 只填空（target 为空才填）、保留手改；rules 按顺序优先级，命中即停。
+# default：所有规则都未命中时填入的兜底值（可选）。
 LOOKUP_FIELDS: dict[str, list[dict]] = {
     "emp_monthly_salary": [
         {
@@ -84,6 +85,7 @@ LOOKUP_FIELDS: dict[str, list[dict]] = {
                 {"match_type": "工号", "src_field": "employee_no"},
                 {"match_type": "甲方", "src_field": "client"},
             ],
+            "default": "工资",                  # 都未命中时默认归为工资
         }
     ],
 }
@@ -561,10 +563,12 @@ async def build_lookup_maps(table_name: str, db: AsyncSession) -> list[tuple[dic
 
 
 def apply_lookups_to_row(merged: dict, lookup_maps: list[tuple[dict, dict]]) -> None:
-    """对一行按 lookup 配置填值：仅当 target 为空时，按 rules 顺序查找，命中非空即填并停。"""
+    """对一行按 lookup 配置填值：仅当 target 为空时，按 rules 顺序查找，命中非空即填并停；
+    全部未命中则填 cfg['default']（若配置）。"""
     for cfg, m in lookup_maps:
         if merged.get(cfg["target"]) not in (None, ""):
             continue
+        hit = False
         for rule in cfg["rules"]:
             src_val = merged.get(rule["src_field"])
             if src_val in (None, ""):
@@ -572,7 +576,10 @@ def apply_lookups_to_row(merged: dict, lookup_maps: list[tuple[dict, dict]]) -> 
             res = m.get((rule["match_type"], str(src_val)))
             if res not in (None, ""):
                 merged[cfg["target"]] = res
+                hit = True
                 break
+        if not hit and cfg.get("default") not in (None, ""):
+            merged[cfg["target"]] = cfg["default"]
 
 
 async def _dynamic_upsert(
