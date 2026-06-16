@@ -1089,7 +1089,19 @@ async def sync_to_table(
         raise RuntimeError(f"客户端不支持数据拉取: {type(client).__name__}")
 
     # 丢弃表头未翻译的 UUID 噪音列（含将来接口新增的同类列）
+    if rows and isinstance(rows[0], dict):
+        logger.warning(
+            "[sync-diag] %s 翻译后/strip前 首行 key: %s",
+            table_name,
+            sorted(rows[0].keys()),
+        )
     _strip_uuid_columns(rows or [])
+    if rows and isinstance(rows[0], dict):
+        logger.warning(
+            "[sync-diag] %s strip后 首行 key: %s",
+            table_name,
+            sorted(rows[0].keys()),
+        )
 
     # 年月列强制规范化为 YYYYMM（便于跨表按月份 JOIN）
     ym_cols = YEARMONTH_COLUMNS.get(table_name)
