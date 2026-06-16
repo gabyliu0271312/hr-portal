@@ -638,11 +638,7 @@ async def _dynamic_upsert(
             if not isinstance(r, dict):
                 continue
             if r.get(period_col) in (None, ""):
-                raise RuntimeError(
-                    f"月度表 {table_name} 缺少期间字段: {period_col}；"
-                    f"该行实际字段: {sorted(r.keys())}；"
-                    f"rename_map: {rename_map}"
-                )
+                raise RuntimeError(f"月度表 {table_name} 缺少期间字段: {period_col}")
             r[period_col] = _normalize_yyyymm(r[period_col])
 
     # 2) 月度表：收口期间列主键
@@ -1059,6 +1055,31 @@ async def sync_to_table(
     secrets: dict,
     db: AsyncSession,
 ) -> tuple[int, str]:
+    """同步入口。失败时回滚并按物理表真实结构重建内存模型。
+
+    _ensure_columns 在新增列时会立即把模型反射进 DATA_TABLES，但 DDL 随事务
+    回滚后，内存模型可能残留本次未提交的列，导致后续数据视图查询引用不存在的列
+    （UndefinedColumnError）。这里在失败路径上重新反射，保证内存模型与库一致。
+    """
+    try:
+        return await _sync_to_table_impl(table_name, source_type, settings, secrets, db)
+    except Exception:
+        try:
+            await db.rollback()
+            if table_name in DATA_TABLES:
+                await register_source_table_model(db, table_name, force=True)
+        except Exception:
+            logger.exception("[sync] 失败回滚后重建模型失败 table=%s", table_name)
+        raise
+
+
+async def _sync_to_table_impl(
+    table_name: str,
+    source_type: str,
+    settings: dict,
+    secrets: dict,
+    db: AsyncSession,
+) -> tuple[int, str]:
     if table_name not in DATA_TABLES:
         raise RuntimeError(f"暂不支持的业务表: {table_name}")
 
@@ -1089,19 +1110,7 @@ async def sync_to_table(
         raise RuntimeError(f"客户端不支持数据拉取: {type(client).__name__}")
 
     # 丢弃表头未翻译的 UUID 噪音列（含将来接口新增的同类列）
-    if rows and isinstance(rows[0], dict):
-        logger.warning(
-            "[sync-diag] %s 翻译后/strip前 首行 key: %s",
-            table_name,
-            sorted(rows[0].keys()),
-        )
     _strip_uuid_columns(rows or [])
-    if rows and isinstance(rows[0], dict):
-        logger.warning(
-            "[sync-diag] %s strip后 首行 key: %s",
-            table_name,
-            sorted(rows[0].keys()),
-        )
 
     # 年月列强制规范化为 YYYYMM（便于跨表按月份 JOIN）
     ym_cols = YEARMONTH_COLUMNS.get(table_name)
