@@ -186,8 +186,8 @@ def render_docx(data: dict, template_blocks: list[tuple[str, str]] | None = None
     doc = Document()
     # 页眉：小五(9pt) 宋体 靠右
     section = doc.sections[0]
-    section.page_width = Mm(215.9)
-    section.page_height = Mm(279.4)
+    section.page_width = Mm(210)
+    section.page_height = Mm(297)
     section.top_margin = Mm(25.4)
     section.bottom_margin = Mm(25.4)
     section.left_margin = Mm(31.75)

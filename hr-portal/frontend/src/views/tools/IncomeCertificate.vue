@@ -9,6 +9,7 @@ import {
   type IncomeCertificateData,
   type IncomeCertificateTemplate,
 } from '@/api/tools'
+import DocumentPaperPreview from '@/components/document/DocumentPaperPreview.vue'
 
 const keyword = ref('')
 const searching = ref(false)
@@ -25,9 +26,8 @@ const previewing = ref(false)
 const downloading = ref(false)
 const previewHtml = ref('')
 const originalPreviewHtml = ref('')
-const previewPaperRef = ref<HTMLElement | null>(null)
+const previewRef = ref<InstanceType<typeof DocumentPaperPreview> | null>(null)
 const draftAdjusted = ref(false)
-let editedPreviewHtml = ''
 
 const busy = computed(() => searching.value || preparing.value)
 const currentTemplate = computed(() => templates.value.find((item) => item.code === templateCode.value))
@@ -161,7 +161,6 @@ function resetAll() {
   previewHtml.value = ''
   originalPreviewHtml.value = ''
   draftAdjusted.value = false
-  editedPreviewHtml = ''
   previewOpen.value = false
 }
 
@@ -190,10 +189,9 @@ async function refreshPreview() {
   try {
     previewHtml.value = await toolsApi.previewIncomeCertificate(certData.value)
     originalPreviewHtml.value = previewHtml.value
-    editedPreviewHtml = previewHtml.value
     draftAdjusted.value = false
     await nextTick()
-    if (previewPaperRef.value) previewPaperRef.value.innerHTML = previewHtml.value
+    previewRef.value?.setHtml(previewHtml.value)
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '预览失败')
   } finally {
@@ -201,20 +199,13 @@ async function refreshPreview() {
   }
 }
 
-function onPreviewInput() {
-  editedPreviewHtml = previewPaperRef.value?.innerHTML || ''
-  draftAdjusted.value = editedPreviewHtml !== originalPreviewHtml.value
-}
-
 function resetPreviewDraft() {
   previewHtml.value = originalPreviewHtml.value
-  editedPreviewHtml = originalPreviewHtml.value
-  draftAdjusted.value = false
-  if (previewPaperRef.value) previewPaperRef.value.innerHTML = originalPreviewHtml.value
+  previewRef.value?.setHtml(originalPreviewHtml.value)
 }
 
 function currentDraft() {
-  const html = previewPaperRef.value?.innerHTML || editedPreviewHtml || previewHtml.value
+  const html = previewRef.value?.getHtml() || previewHtml.value
   return {
     draft_html: draftAdjusted.value ? html : null,
     manually_adjusted: draftAdjusted.value,
@@ -244,7 +235,7 @@ async function downloadDocx() {
 }
 
 const PRINT_STYLE = `
-  @page { size: A4; margin: 25mm 20mm; }
+  @page { size: A4; margin: 25.4mm 31.75mm; }
   body { font-family: SimSun, "宋体", serif; color: #000; }
   .cert-doc { font-size: 14pt; line-height: 1.8; }
   .cert-header { margin-bottom: 18px; }
@@ -277,17 +268,16 @@ async function printDirect() {
     if (!previewOpen.value || !previewHtml.value) {
       previewHtml.value = await toolsApi.previewIncomeCertificate(certData.value)
       originalPreviewHtml.value = previewHtml.value
-      editedPreviewHtml = previewHtml.value
       draftAdjusted.value = false
       await nextTick()
-      if (previewPaperRef.value) previewPaperRef.value.innerHTML = previewHtml.value
+      previewRef.value?.setHtml(previewHtml.value)
     }
     try {
       await toolsApi.logIncomeCertificatePrint(certData.value, currentDraft())
     } catch {
       ElMessage.warning('打印留痕失败，但不影响本次打印')
     }
-    printHtml(previewPaperRef.value?.innerHTML || editedPreviewHtml || previewHtml.value)
+    printHtml(previewRef.value?.getHtml() || previewHtml.value)
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '打印失败')
   } finally {
@@ -480,15 +470,11 @@ onMounted(loadTemplates)
               <el-button size="small" :disabled="!draftAdjusted" @click="resetPreviewDraft">恢复原始预览</el-button>
             </div>
           </div>
-          <div
-            ref="previewPaperRef"
-            v-loading="previewing"
-            class="cert-preview-paper"
-            contenteditable="true"
-            spellcheck="false"
-            v-html="previewHtml"
-            @input="onPreviewInput"
-          ></div>
+          <DocumentPaperPreview
+            ref="previewRef"
+            :loading="previewing"
+            @dirty="draftAdjusted = $event"
+          />
         </div>
       </div>
 
@@ -586,58 +572,6 @@ onMounted(loadTemplates)
   display: flex;
   align-items: center;
   gap: 8px;
-  white-space: nowrap;
-}
-.cert-preview-paper {
-  flex: none;
-  width: 210mm;
-  margin: 0 auto;
-  max-height: 78vh;
-  overflow-y: auto;
-  background: #fff;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 20mm;
-  box-sizing: border-box;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  outline: none;
-}
-.cert-preview-paper:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-light), 0 2px 12px rgba(0, 0, 0, 0.06);
-}
-.cert-preview-paper :deep(.cert-doc) {
-  font-family: SimSun, '宋体', serif;
-  font-size: 14pt;
-  line-height: 1.8;
-  color: #000;
-}
-.cert-preview-paper :deep(.cert-header) {
-  margin-bottom: 18px;
-}
-.cert-preview-paper :deep(.cert-logo) {
-  width: 38mm;
-  height: auto;
-  display: block;
-}
-.cert-preview-paper :deep(.cert-title) {
-  text-align: center;
-  font-size: 18pt;
-  font-weight: 700;
-  margin: 6px 0 16px;
-}
-.cert-preview-paper :deep(.cert-p) {
-  margin: 0 0 8px;
-  text-align: justify;
-  text-indent: 2em;
-}
-.cert-preview-paper :deep(.cert-sign) {
-  margin: 18px 0 8px;
-  text-align: right;
-  white-space: nowrap;
-}
-.cert-preview-paper :deep(.cert-line) {
-  margin: 4px 0;
   white-space: nowrap;
 }
 </style>

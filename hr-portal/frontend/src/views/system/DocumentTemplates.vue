@@ -3,6 +3,7 @@ import { nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, Plus, Refresh, Upload, View } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
+import DocumentPaperPreview from '@/components/document/DocumentPaperPreview.vue'
 import {
   toolsApi,
   type DocumentTemplate,
@@ -25,7 +26,7 @@ const dialogOpen = ref(false)
 const previewOpen = ref(false)
 const previewHtml = ref('')
 const previewTarget = ref<DocumentTemplate | null>(null)
-const previewPaperRef = ref<HTMLElement | null>(null)
+const previewPaperRef = ref<InstanceType<typeof DocumentPaperPreview> | null>(null)
 const previewDirty = ref(false)
 const savingPreview = ref(false)
 const editing = ref<DocumentTemplate | null>(null)
@@ -294,7 +295,7 @@ async function preview(row: DocumentTemplate) {
     const result = await toolsApi.previewDocumentTemplate(row.id, placeholderSampleData(row))
     previewHtml.value = result.html
     await nextTick()
-    if (previewPaperRef.value) previewPaperRef.value.innerHTML = previewHtml.value
+    previewPaperRef.value?.setHtml(previewHtml.value)
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '预览失败')
   } finally {
@@ -302,14 +303,9 @@ async function preview(row: DocumentTemplate) {
   }
 }
 
-function onTemplatePreviewInput() {
-  previewHtml.value = previewPaperRef.value?.innerHTML || ''
-  previewDirty.value = true
-}
-
 async function saveTemplatePreview() {
   if (!previewTarget.value) return
-  const html = previewPaperRef.value?.innerHTML || previewHtml.value
+  const html = previewPaperRef.value?.getHtml() || previewHtml.value
   savingPreview.value = true
   try {
     const saved = await toolsApi.saveDocumentTemplatePreview(previewTarget.value.id, html)
@@ -541,15 +537,11 @@ onMounted(load)
 
     <el-dialog v-model="previewOpen" title="模板预览 / 编辑" width="96%" top="2vh">
       <div class="preview-scroll">
-        <div
+        <DocumentPaperPreview
           ref="previewPaperRef"
-          v-loading="previewing"
-          class="preview-paper"
-          contenteditable="true"
-          spellcheck="false"
-          v-html="previewHtml"
-          @input="onTemplatePreviewInput"
-        ></div>
+          :loading="previewing"
+          @dirty="previewDirty = $event"
+        />
       </div>
       <template #footer>
         <span
@@ -681,83 +673,6 @@ onMounted(load)
   overflow: auto;
   background: var(--color-bg-subtle);
   padding: 16px;
-}
-.preview-paper {
-  width: 215.9mm;
-  min-height: 279.4mm;
-  margin: 0 auto;
-  padding: 25.4mm 31.75mm;
-  box-sizing: border-box;
-  overflow: visible;
-  background: #fff;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  outline: none;
-}
-.preview-paper:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-light), 0 2px 12px rgba(0, 0, 0, 0.06);
-}
-.preview-paper :deep(.agr-doc),
-.preview-paper :deep(.cert-doc) {
-  font-family: SimSun, '宋体', serif;
-  color: #000;
-}
-.preview-paper :deep(.agr-doc) {
-  font-size: 12pt;
-  line-height: 1.45;
-}
-.preview-paper :deep(.agr-header) {
-  text-align: right;
-  font-size: 9pt;
-  color: #000;
-  margin-bottom: 8mm;
-}
-.preview-paper :deep(.agr-title) {
-  text-align: center;
-  font-size: 16pt;
-  font-weight: 700;
-  margin: 0 0 8mm;
-}
-.preview-paper :deep(.agr-head) {
-  margin: 0 0 3mm;
-  white-space: nowrap;
-}
-.preview-paper :deep(.agr-p) {
-  margin: 0 0 3.5mm;
-  text-align: justify;
-  text-indent: 2em;
-}
-.preview-paper :deep(.agr-line) {
-  margin: 0 0 3.5mm;
-  white-space: nowrap;
-}
-.preview-paper :deep(.agr-sign) {
-  margin-top: 9mm;
-  white-space: nowrap;
-}
-.preview-paper :deep(.cert-doc) {
-  font-size: 14pt;
-  line-height: 1.5;
-}
-.preview-paper :deep(.cert-title) {
-  text-align: center;
-  font-size: 18pt;
-  font-weight: 700;
-  margin: 18mm 0 18mm;
-}
-.preview-paper :deep(.cert-p) {
-  margin: 0 0 8mm;
-  text-align: justify;
-  text-indent: 2em;
-}
-.preview-paper :deep(.cert-sign) {
-  margin: 0 0 5mm;
-  text-align: right;
-}
-.preview-paper :deep(.cert-line) {
-  margin: 0 0 3mm;
 }
 .save-hint {
   float: left;

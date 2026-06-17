@@ -143,18 +143,24 @@ def render_docx_template(
     business_type: str = "",
 ) -> bytes:
     from docx import Document
+    from docx.shared import Mm
 
     merged = _values_with_defaults(values, variables)
     if business_type:
         merged = enrich_values(business_type, merged)
     doc = Document(BytesIO(content))
+    for section in doc.sections:
+        section.page_width = Mm(210)
+        section.page_height = Mm(297)
     for paragraph in _iter_paragraphs(doc):
         _replace_in_paragraph(paragraph, merged)
+        _cap_line_spacing(paragraph)
     for table in _iter_tables(doc):
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
                     _replace_in_paragraph(paragraph, merged)
+                    _cap_line_spacing(paragraph)
     buf = BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -348,8 +354,8 @@ def render_preview_html_docx(html: str, business_type: str = "") -> bytes:
     blocks = extract_blocks_from_preview_html(html)
     doc = Document()
     section = doc.sections[0]
-    section.page_width = Mm(215.9)
-    section.page_height = Mm(279.4)
+    section.page_width = Mm(210)
+    section.page_height = Mm(297)
     section.top_margin = Mm(25.4)
     section.bottom_margin = Mm(25.4)
     section.left_margin = Mm(31.75)
@@ -412,6 +418,17 @@ def _iter_paragraphs(doc: Any) -> Iterable[Any]:
     for section in doc.sections:
         yield from section.header.paragraphs
         yield from section.footer.paragraphs
+
+
+def _cap_line_spacing(paragraph: Any, max_ratio: float = 1.3) -> None:
+    """压缩过大的倍数行距，缓解 LibreOffice 比 Word 行高偏大导致的溢页。
+
+    仅处理「按倍数」的行距(line_spacing 为浮点倍数);固定值行距(Pt/Mm)和段距不动。
+    """
+    pf = paragraph.paragraph_format
+    ls = pf.line_spacing
+    if isinstance(ls, float) and ls > max_ratio:
+        pf.line_spacing = max_ratio
 
 
 def _iter_tables(doc: Any) -> Iterable[Any]:

@@ -48,6 +48,8 @@ services:
     image: gotenberg/gotenberg:8
     container_name: hr-portal-gotenberg
     restart: unless-stopped
+    volumes:
+      - ./backend/docker/fonts:/usr/share/fonts/truetype/custom:ro
     command:
       - "gotenberg"
       - "--api-timeout=120s"

@@ -125,11 +125,13 @@ def render_docx(data: dict, template_blocks: list[tuple[str, str]] | None = None
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml.ns import qn
-    from docx.shared import Inches, Pt
+    from docx.shared import Inches, Mm, Pt
 
     title_text, blocks = _split_blocks(template_blocks or build_blocks(data))
     doc = Document()
     section = doc.sections[0]
+    section.page_width = Mm(210)
+    section.page_height = Mm(297)
     logo = _logo_bytes()
     if logo:
         header_p = section.header.paragraphs[0]

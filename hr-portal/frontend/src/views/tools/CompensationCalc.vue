@@ -9,6 +9,7 @@ import {
   type EmployeeCandidate,
   type AgreementData,
 } from '@/api/tools'
+import DocumentPaperPreview from '@/components/document/DocumentPaperPreview.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,9 +32,8 @@ const downloading = ref(false)
 const agreement = ref<AgreementData | null>(null)
 const previewHtml = ref('')
 const originalPreviewHtml = ref('')
-const previewPaperRef = ref<HTMLElement | null>(null)
+const previewRef = ref<InstanceType<typeof DocumentPaperPreview> | null>(null)
 const draftAdjusted = ref(false)
-let editedPreviewHtml = ''
 
 const busy = computed(() => searching.value || calculating.value)
 
@@ -172,7 +172,6 @@ function resetAll() {
   previewHtml.value = ''
   originalPreviewHtml.value = ''
   draftAdjusted.value = false
-  editedPreviewHtml = ''
 }
 
 async function openAgreement() {
@@ -182,7 +181,6 @@ async function openAgreement() {
   previewHtml.value = ''
   originalPreviewHtml.value = ''
   draftAdjusted.value = false
-  editedPreviewHtml = ''
   agreement.value = null
   try {
     agreement.value = await toolsApi.prepareAgreement({
@@ -228,10 +226,9 @@ async function refreshPreview() {
   try {
     previewHtml.value = await toolsApi.previewAgreement(agreement.value)
     originalPreviewHtml.value = previewHtml.value
-    editedPreviewHtml = previewHtml.value
     draftAdjusted.value = false
     await nextTick()
-    if (previewPaperRef.value) previewPaperRef.value.innerHTML = previewHtml.value
+    previewRef.value?.setHtml(previewHtml.value)
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '预览失败')
   } finally {
@@ -239,20 +236,13 @@ async function refreshPreview() {
   }
 }
 
-function onPreviewInput() {
-  editedPreviewHtml = previewPaperRef.value?.innerHTML || ''
-  draftAdjusted.value = editedPreviewHtml !== originalPreviewHtml.value
-}
-
 function resetPreviewDraft() {
   previewHtml.value = originalPreviewHtml.value
-  editedPreviewHtml = originalPreviewHtml.value
-  draftAdjusted.value = false
-  if (previewPaperRef.value) previewPaperRef.value.innerHTML = originalPreviewHtml.value
+  previewRef.value?.setHtml(originalPreviewHtml.value)
 }
 
 function currentDraft() {
-  const html = previewPaperRef.value?.innerHTML || editedPreviewHtml || previewHtml.value
+  const html = previewRef.value?.getHtml() || previewHtml.value
   return {
     draft_html: draftAdjusted.value ? html : null,
     manually_adjusted: draftAdjusted.value,
@@ -322,10 +312,9 @@ async function printDirect() {
     })
     previewHtml.value = await toolsApi.previewAgreement(data)
     originalPreviewHtml.value = previewHtml.value
-    editedPreviewHtml = previewHtml.value
     draftAdjusted.value = false
     await nextTick()
-    if (previewPaperRef.value) previewPaperRef.value.innerHTML = previewHtml.value
+    previewRef.value?.setHtml(previewHtml.value)
     agreement.value = data
     await printAgreement()
   } catch (e: any) {
@@ -591,15 +580,11 @@ interface ResultRow {
               <el-button size="small" :disabled="!draftAdjusted" @click="resetPreviewDraft">恢复原始预览</el-button>
             </div>
           </div>
-          <div
-            ref="previewPaperRef"
-            v-loading="previewing"
-            class="agr-preview-paper"
-            contenteditable="true"
-            spellcheck="false"
-            v-html="previewHtml"
-            @input="onPreviewInput"
-          ></div>
+          <DocumentPaperPreview
+            ref="previewRef"
+            :loading="previewing"
+            @dirty="draftAdjusted = $event"
+          />
         </div>
       </div>
 
@@ -689,60 +674,6 @@ interface ResultRow {
   display: flex;
   align-items: center;
   gap: 8px;
-  white-space: nowrap;
-}
-.agr-preview-paper {
-  flex: none;
-  width: 215.9mm;
-  min-height: 279.4mm;
-  margin: 0 auto;
-  max-height: 78vh;
-  overflow-y: auto;
-  background: #fff;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 25.4mm 31.75mm;
-  box-sizing: border-box;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  outline: none;
-}
-.agr-preview-paper:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-light), 0 2px 12px rgba(0, 0, 0, 0.06);
-}
-.agr-preview-paper :deep(.agr-doc) {
-  font-family: SimSun, '宋体', serif;
-  font-size: 12pt;
-  line-height: 1.45;
-  color: #000;
-}
-.agr-preview-paper :deep(.agr-header) {
-  text-align: right;
-  font-size: 9pt;
-  color: #000;
-  margin-bottom: 8mm;
-}
-.agr-preview-paper :deep(.agr-title) {
-  text-align: center;
-  font-size: 16pt;
-  font-weight: 700;
-  margin: 0 0 8mm;
-}
-.agr-preview-paper :deep(.agr-head) {
-  margin: 0 0 3mm;
-  white-space: nowrap;
-}
-.agr-preview-paper :deep(.agr-p) {
-  margin: 0 0 3.5mm;
-  text-align: justify;
-  text-indent: 2em;
-}
-.agr-preview-paper :deep(.agr-line) {
-  margin: 0 0 3.5mm;
-  white-space: nowrap;
-}
-.agr-preview-paper :deep(.agr-sign) {
-  margin-top: 9mm;
   white-space: nowrap;
 }
 </style>
