@@ -1663,7 +1663,7 @@ async def prepare_income_certificate(
         template_code=template.code,
         template_name=template.name,
         company=_first(employee_values, "company_name") or "",
-        name=_first(employee_values, "full_name") or "",
+        name=_first(employee_values, "chinese_name", "full_name") or "",
         id_card=_first(employee_values, "id_number") or "",
         position=_first(employee_values, "position", "standard_position") or "",
         hire_date=hire_date,
