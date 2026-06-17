@@ -10,6 +10,7 @@ import {
   type AgreementData,
 } from '@/api/tools'
 import DocumentPaperPreview from '@/components/document/DocumentPaperPreview.vue'
+import { printPdfBlob } from '@/utils/printPdf'
 
 const route = useRoute()
 const router = useRouter()
@@ -275,25 +276,7 @@ async function printAgreement() {
   if (!agreement.value) return
   try {
     const resp = await toolsApi.downloadAgreementPdf(agreement.value, currentDraft())
-    const blob = new Blob([resp.data as BlobPart], { type: 'application/pdf' })
-    const url = URL.createObjectURL(blob)
-    const frame = document.createElement('iframe')
-    frame.style.position = 'fixed'
-    frame.style.right = '0'
-    frame.style.bottom = '0'
-    frame.style.width = '0'
-    frame.style.height = '0'
-    frame.style.border = '0'
-    frame.src = url
-    frame.onload = () => {
-      frame.contentWindow?.focus()
-      frame.contentWindow?.print()
-      setTimeout(() => {
-        URL.revokeObjectURL(url)
-        frame.remove()
-      }, 3000)
-    }
-    document.body.appendChild(frame)
+    printPdfBlob(new Blob([resp.data as BlobPart], { type: 'application/pdf' }))
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '打印失败')
   }

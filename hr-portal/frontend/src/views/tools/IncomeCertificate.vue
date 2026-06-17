@@ -10,6 +10,7 @@ import {
   type IncomeCertificateTemplate,
 } from '@/api/tools'
 import DocumentPaperPreview from '@/components/document/DocumentPaperPreview.vue'
+import { printPdfBlob } from '@/utils/printPdf'
 
 const keyword = ref('')
 const searching = ref(false)
@@ -234,32 +235,6 @@ async function downloadDocx() {
   }
 }
 
-const PRINT_STYLE = `
-  @page { size: A4; margin: 25.4mm 31.75mm; }
-  body { font-family: SimSun, "宋体", serif; color: #000; }
-  .cert-doc { font-size: 14pt; line-height: 1.8; }
-  .cert-header { margin-bottom: 18px; }
-  .cert-logo { width: 38mm; height: auto; display: block; }
-  .cert-title { text-align: center; font-size: 18pt; font-weight: 700; margin: 6px 0 16px; }
-  .cert-p { margin: 0 0 8px; text-align: justify; text-indent: 2em; }
-  .cert-sign { margin: 18px 0 8px; text-align: right; white-space: nowrap; }
-  .cert-line { margin: 4px 0; white-space: nowrap; }
-`
-
-function printHtml(html: string) {
-  const w = window.open('', '_blank', 'width=900,height=1000')
-  if (!w) {
-    ElMessage.warning('浏览器拦截了打印窗口，请允许弹窗后重试')
-    return
-  }
-  w.document.write(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>收入证明</title><style>${PRINT_STYLE}</style></head><body>${html}</body></html>`,
-  )
-  w.document.close()
-  w.focus()
-  setTimeout(() => w.print(), 300)
-}
-
 async function printDirect() {
   if (!certData.value) return
   if (!validateManualValues()) return
@@ -272,12 +247,8 @@ async function printDirect() {
       await nextTick()
       previewRef.value?.setHtml(previewHtml.value)
     }
-    try {
-      await toolsApi.logIncomeCertificatePrint(certData.value, currentDraft())
-    } catch {
-      ElMessage.warning('打印留痕失败，但不影响本次打印')
-    }
-    printHtml(previewRef.value?.getHtml() || previewHtml.value)
+    const resp = await toolsApi.downloadIncomeCertificatePdf(certData.value, currentDraft())
+    printPdfBlob(new Blob([resp.data as BlobPart], { type: 'application/pdf' }))
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '打印失败')
   } finally {

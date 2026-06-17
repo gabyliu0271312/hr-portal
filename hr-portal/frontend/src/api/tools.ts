@@ -219,6 +219,9 @@ export const toolsApi = {
   downloadIncomeCertificate: (data: IncomeCertificateData, draft: EditableDraft) =>
     api.post('/tools/income-certificate/docx', { data, draft }, { responseType: 'blob' }).then((r) => r),
 
+  downloadIncomeCertificatePdf: (data: IncomeCertificateData, draft: EditableDraft) =>
+    api.post('/tools/income-certificate/pdf', { data, draft }, { responseType: 'blob' }).then((r) => r),
+
   logIncomeCertificatePrint: (data: IncomeCertificateData, draft: EditableDraft) =>
     api.post<{ ok: boolean }>('/tools/income-certificate/print-log', { data, draft }).then((r) => r.data),
 }

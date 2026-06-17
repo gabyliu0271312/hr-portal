@@ -1697,6 +1697,20 @@ async def preview_income_certificate(
     return {"html": html}
 
 
+def _income_cert_docx_bytes(payload, template, render_data) -> bytes:
+    if payload.draft.manually_adjusted and payload.draft.draft_html:
+        return _render_edited_preview_docx(template, payload.draft.draft_html)
+    if _template_uses_uploaded_docx(template):
+        return template_svc.render_docx_template(
+            template.template_file,
+            render_data,
+            template.variables,
+            template.business_type,
+        )
+    blocks = _render_template_blocks_for_values(template, render_data)
+    return income_cert_svc.render_docx(render_data, blocks)
+
+
 @router.post(
     "/income-certificate/docx",
     dependencies=[Depends(require_op("tools.income_certificate", "V"))],
@@ -1709,18 +1723,7 @@ async def download_income_certificate(
     data = payload.data
     template = await _income_certificate_template(db, data.template_code)
     render_data = _income_cert_render_values(data, template)
-    if payload.draft.manually_adjusted and payload.draft.draft_html:
-        content = _render_edited_preview_docx(template, payload.draft.draft_html)
-    elif _template_uses_uploaded_docx(template):
-        content = template_svc.render_docx_template(
-            template.template_file,
-            render_data,
-            template.variables,
-            template.business_type,
-        )
-    else:
-        blocks = _render_template_blocks_for_values(template, render_data)
-        content = income_cert_svc.render_docx(render_data, blocks)
+    content = _income_cert_docx_bytes(payload, template, render_data)
     await _record_document_generation(
         db=db,
         user=user,
@@ -1740,6 +1743,40 @@ async def download_income_certificate(
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+@router.post(
+    "/income-certificate/pdf",
+    dependencies=[Depends(require_op("tools.income_certificate", "V"))],
+)
+async def download_income_certificate_pdf(
+    payload: IncomeCertificateDocumentIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    data = payload.data
+    template = await _income_certificate_template(db, data.template_code)
+    render_data = _income_cert_render_values(data, template)
+    content = _income_cert_docx_bytes(payload, template, render_data)
+    try:
+        pdf_content = docx_convert.convert_docx_bytes_to_pdf(
+            content,
+            f"income_{data.name or 'employee'}.docx",
+        )
+    except Exception as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="PDF 转换失败") from exc
+    await _record_document_generation(
+        db=db,
+        user=user,
+        business_type="income_certificate",
+        action="print",
+        template=template,
+        subject_name=data.name,
+        manually_adjusted=payload.draft.manually_adjusted,
+        draft_html=payload.draft.draft_html if payload.draft.manually_adjusted else None,
+        context={"annual_package": data.annual_package, "render": "pdf"},
+    )
+    return Response(content=pdf_content, media_type="application/pdf")
 
 
 @router.post(
