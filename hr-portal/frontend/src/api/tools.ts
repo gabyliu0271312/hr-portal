@@ -165,6 +165,9 @@ export const toolsApi = {
       .post<{ html: string; plain_text: string }>(`/tools/document-templates/${id}/preview`, { sample_data })
       .then((r) => r.data),
 
+  saveDocumentTemplatePreview: (id: number, html: string) =>
+    api.post<DocumentTemplate>(`/tools/document-templates/${id}/preview/save`, { html }).then((r) => r.data),
+
   searchCompensationEmployees: (params: { keyword: string; limit?: number }) =>
     api.get<EmployeeCandidate[]>('/tools/compensation/employees', { params }).then((r) => r.data),
 
@@ -194,6 +197,9 @@ export const toolsApi = {
 
   downloadAgreement: (data: AgreementData, draft: EditableDraft) =>
     api.post('/tools/agreement/docx', { data, draft }, { responseType: 'blob' }).then((r) => r),
+
+  downloadAgreementPdf: (data: AgreementData, draft: EditableDraft) =>
+    api.post('/tools/agreement/pdf', { data, draft }, { responseType: 'blob' }).then((r) => r),
 
   logAgreementPrint: (data: AgreementData, draft: EditableDraft) =>
     api.post<{ ok: boolean }>('/tools/agreement/print-log', { data, draft }).then((r) => r.data),

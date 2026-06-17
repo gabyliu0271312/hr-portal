@@ -24,6 +24,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      gotenberg:
+        condition: service_started
     environment:
       APP_ENV: ${APP_ENV:-prod}
       DB_HOST: db
@@ -39,8 +41,17 @@ services:
       ORG_ROOT_NAME: ${ORG_ROOT_NAME:-创梦天地}
       COST_ALLOCATION_APP_URL: ${COST_ALLOCATION_APP_URL:-http://192.168.10.13:37800/}
       COST_ALLOCATION_ADMIN_PATH: ${COST_ALLOCATION_ADMIN_PATH:-/admin/workbench}
+      GOTENBERG_URL: ${GOTENBERG_URL:-http://gotenberg:3000}
     ports:
       - "8000:8000"
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: hr-portal-gotenberg
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--api-timeout=120s"
 
   frontend:
     build:
