@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '@/api/client'
+import { formatDateTime } from '@/utils/datetime'
 
 interface SystemLog {
   id: number
@@ -47,7 +48,9 @@ onMounted(load)
         </div>
       </template>
       <el-table v-loading="loading" :data="rows" stripe style="width: 100%" max-height="680">
-        <el-table-column prop="created_at" label="时间" min-width="170" />
+        <el-table-column prop="created_at" label="时间" min-width="170">
+          <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+        </el-table-column>
         <el-table-column prop="action" label="动作" min-width="130" />
         <el-table-column prop="status" label="状态" min-width="100" />
         <el-table-column prop="request_summary" label="请求摘要" min-width="240" show-overflow-tooltip />

@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, VideoPlay } from '@element-plus/icons-vue'
+import { formatDateTime } from '@/utils/datetime'
 import PermissionButton from '@/components/PermissionButton.vue'
 import PushTargetDialog from './PushTargetDialog.vue'
 import PushRunHistory from './PushRunHistory.vue'
@@ -95,7 +96,7 @@ onMounted(load)
                 {{ row.last_status === 'success' ? '成功' : '失败' }}
               </el-tag>
               <span style="margin-left: 6px; font-size: 12px; color: var(--color-text-secondary)">
-                {{ new Date(row.last_push_at).toLocaleString('zh-CN') }}
+                {{ formatDateTime(row.last_push_at) }}
                 · {{ row.last_rows }} 行
               </span>
             </span>

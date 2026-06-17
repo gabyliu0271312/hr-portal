@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { schedulerApi, type JobRunItem } from '@/api/scheduler'
+import { formatDateTime } from '@/utils/datetime'
 import { datasourcesApi, type DataSourceListItem } from '@/api/datasources'
 
 const route = useRoute()
@@ -130,7 +131,7 @@ onMounted(async () => {
           </el-table-column>
           <el-table-column label="开始时间" min-width="180">
             <template #default="{ row }">
-              {{ new Date(row.started_at).toLocaleString('zh-CN') }}
+              {{ formatDateTime(row.started_at) }}
             </template>
           </el-table-column>
           <el-table-column label="耗时" width="100">

@@ -70,7 +70,7 @@
           </el-table-column>
           <el-table-column label="上次登录" min-width="150">
             <template #default="{ row }">
-              {{ row.last_login_at ? new Date(row.last_login_at).toLocaleString('zh-CN') : '—' }}
+              {{ row.last_login_at ? formatDateTime(row.last_login_at) : '—' }}
             </template>
           </el-table-column>
           <el-table-column label="操作" width="360" fixed="right">
@@ -233,6 +233,7 @@ import PermissionButton from '@/components/PermissionButton.vue'
 import { usersApi, type UserDetail, type UserListItem } from '@/api/users'
 import { scopesApi, type ScopeTagItem } from '@/api/scopes'
 import { fieldCategoriesApi, type FieldCategory } from '@/api/field_categories'
+import { formatDateTime } from '@/utils/datetime'
 import { rolesApi, type RoleListItem } from '@/api/roles'
 
 interface Query {
@@ -428,7 +429,7 @@ const lockedHint = (row: UserListItem) => {
   if (!row.locked_until) return ''
   const until = new Date(row.locked_until)
   if (until <= new Date()) return ''
-  return `锁定至 ${until.toLocaleString('zh-CN')}`
+  return `锁定至 ${formatDateTime(row.locked_until)}`
 }
 
 onMounted(() => {

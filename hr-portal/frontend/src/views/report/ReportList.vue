@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Document, Edit, Delete, View } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
+import { formatDateTime } from '@/utils/datetime'
 import { reportsApi, type ReportItem } from '@/api/reports'
 import { datasetsApi, type DatasetItem } from '@/api/datasets'
 
@@ -139,14 +140,14 @@ onMounted(async () => {
           <el-table-column label="上次运行" min-width="180">
             <template #default="{ row }">
               <span v-if="row.last_run_at">
-                {{ new Date(row.last_run_at).toLocaleString('zh-CN') }}
+                {{ formatDateTime(row.last_run_at) }}
               </span>
               <span v-else style="color: var(--color-text-placeholder)">—</span>
             </template>
           </el-table-column>
           <el-table-column label="更新时间" min-width="180">
             <template #default="{ row }">
-              {{ new Date(row.updated_at).toLocaleString('zh-CN') }}
+              {{ formatDateTime(row.updated_at) }}
             </template>
           </el-table-column>
           <el-table-column label="操作" width="280" fixed="right">

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Download, Edit, InfoFilled, Refresh } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
+import { formatDateTime } from '@/utils/datetime'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import ReportRuntimeFilters from '@/components/report/ReportRuntimeFilters.vue'
 import { reportsApi, type FilterCond, type ReportItem, type RunResult } from '@/api/reports'
@@ -152,7 +153,7 @@ defineExpose({ run })
                 <div><span>运行次数</span><strong>{{ report.run_count }}</strong></div>
                 <div>
                   <span>上次运行</span>
-                  <strong>{{ report.last_run_at ? new Date(report.last_run_at).toLocaleString('zh-CN') : '—' }}</strong>
+                  <strong>{{ formatDateTime(report.last_run_at) }}</strong>
                 </div>
                 <div v-if="report.description" class="tip-desc">
                   <span>描述</span>

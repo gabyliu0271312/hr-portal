@@ -9,6 +9,7 @@ import { dataApi, type ColumnInfo } from '@/api/data'
 import { datasourcesApi, type DataSourceListItem } from '@/api/datasources'
 import { adminTablesApi } from '@/api/admin_tables'
 import { tableColumnsApi } from '@/api/table_columns'
+import { formatDateTime, formatDateOnly } from '@/utils/datetime'
 import { useDataExport } from '@/composables/useDataExport'
 import { pushTargetsApi } from '@/api/push_targets'
 
@@ -199,7 +200,7 @@ function formatCell(row: Record<string, any>, col: ColumnInfo): string {
   if (v === null || v === undefined || v === '') return '—'
   if (col.data_type === 'datetime' || col.data_type === 'date') {
     if (typeof v === 'string') {
-      try { return new Date(v).toLocaleString('zh-CN') } catch { return v }
+      return col.data_type === 'date' ? formatDateOnly(v, v) : formatDateTime(v, v)
     }
   }
   return String(v)

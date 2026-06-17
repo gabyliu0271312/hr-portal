@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, CopyDocument } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
+import { formatDateTime } from '@/utils/datetime'
 import PushTargetList from '@/components/push/PushTargetList.vue'
 import {
   SOURCE_TYPES,
@@ -334,7 +335,7 @@ onMounted(() => {
           <el-table-column label="上次拉取" min-width="180">
             <template #default="{ row }">
               <span v-if="row.last_sync_at">
-                {{ new Date(row.last_sync_at).toLocaleString('zh-CN') }}
+                {{ formatDateTime(row.last_sync_at) }}
               </span>
               <span v-else style="color: var(--color-text-placeholder)">—</span>
             </template>

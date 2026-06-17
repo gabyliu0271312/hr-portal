@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { PushRunOut } from '@/api/push_targets'
 import { pushTargetsApi } from '@/api/push_targets'
+import { formatDateTime } from '@/utils/datetime'
 
 const props = defineProps<{ pushTargetId: number }>()
 
@@ -43,7 +44,7 @@ defineExpose({ reload: load })
         <el-table-column label="触发方式" width="90" prop="triggered_by" />
         <el-table-column label="开始时间" min-width="160">
           <template #default="{ row }">
-            {{ row.started_at ? new Date(row.started_at).toLocaleString('zh-CN') : '—' }}
+            {{ formatDateTime(row.started_at) }}
           </template>
         </el-table-column>
       </el-table>
