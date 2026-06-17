@@ -3,7 +3,6 @@ import { ref } from 'vue'
 
 defineProps<{
   loading?: boolean
-  editable?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -31,17 +30,22 @@ defineExpose({ setHtml, getHtml })
 </script>
 
 <template>
-  <div
-    ref="paperRef"
-    v-loading="loading"
-    class="doc-paper"
-    :contenteditable="editable !== false"
-    spellcheck="false"
-    @input="onInput"
-  ></div>
+  <div v-loading="loading" class="doc-paper-wrap">
+    <div
+      ref="paperRef"
+      class="doc-paper"
+      contenteditable="true"
+      spellcheck="false"
+      @input="onInput"
+    ></div>
+  </div>
 </template>
 
 <style scoped>
+/* loading 包裹层:遮罩挂这里,不碰内容 div 的 innerHTML */
+.doc-paper-wrap {
+  width: 100%;
+}
 /* A4 纸张容器，与后端 docx 输出参数对齐 */
 .doc-paper {
   flex: none;
