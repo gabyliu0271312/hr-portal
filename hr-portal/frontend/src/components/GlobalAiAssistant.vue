@@ -147,6 +147,10 @@ function handleKeydown(event: KeyboardEvent) {
                 <strong>{{ item.compensation.employee.name || item.compensation.employee.employee_no }}</strong>
               </div>
               <div class="result-row">
+                <span>离职日期</span>
+                <strong>{{ item.compensation.leave_date || '--' }}</strong>
+              </div>
+              <div class="result-row">
                 <span>方案</span>
                 <strong>{{ item.compensation.plan }}</strong>
               </div>
