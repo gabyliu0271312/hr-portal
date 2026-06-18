@@ -513,106 +513,17 @@ def _normalize_optional_plan(value: Any) -> str | None:
     return _normalize_plan(value)
 
 
-def _context_employee_keyword(context: CompensationChatContext | None) -> str:
-    if context is None:
-        return ""
-    return _normalize_employee_keyword(context.employee_keyword or context.employee_name or "")
-
-
-def _context_to_extracted(context: CompensationChatContext | None) -> dict[str, Any]:
-    if context is None:
-        return {}
-    return {
-        "employee_id": context.employee_id,
-        "employee_keyword": _context_employee_keyword(context),
-        "leave_date": context.leave_date.isoformat() if context.leave_date else None,
-        "plan": _normalize_optional_plan(context.plan),
-        "region": context.region,
-    }
-
-
-def _normalize_employee_keyword(value: Any) -> str:
+def _clean_name(value: Any) -> str:
+    """轻量清洗模型给出的姓名/工号:去引号和首尾标点。语义解析由大模型负责,这里不做。"""
     text = str(value or "").strip()
-    text = re.sub(r"[「」“”\"'，,。!！?？：:\s]+", " ", text).strip()
-    text = re.sub(r"\s*的$", "", text).strip()
-    generic_mentions = {
-        "一个员工",
-        "一个人",
-        "一个",
-        "某个员工",
-        "某个人",
-        "某个",
-        "某员工",
-        "某",
-        "该员工",
-        "这个员工",
-        "这个",
-        "员工",
-        "人员",
-    }
-    if text in generic_mentions:
-        return ""
-    stripped = re.sub(
-        r"补偿金|赔偿金|计算|试算|测算|查询|查找|查看|查|看|算|开|打开|跳转|帮我|帮忙|帮|麻烦|请|求|想|要|一下|一个|的",
-        "",
-        text,
-    ).strip()
-    if not stripped:
-        return ""
+    text = re.sub(r"^[「」“”\"'\s]+|[「」“”\"'\s]+$", "", text)
     return text[:80]
 
 
-def _compact_employee_keyword(value: str) -> str:
-    return re.sub(r"[\s._-]+", "", value).lower()
-
-
-def _choose_employee_keyword(model_value: Any, fallback_value: Any) -> str:
-    model_keyword = _normalize_employee_keyword(model_value)
-    fallback_keyword = _normalize_employee_keyword(fallback_value)
-    if not model_keyword:
-        return fallback_keyword
-    if (
-        fallback_keyword
-        and re.search(r"[._-]", fallback_keyword)
-        and _compact_employee_keyword(model_keyword) == _compact_employee_keyword(fallback_keyword)
-    ):
-        return fallback_keyword
-    return model_keyword
-
-
-def _extract_compensation_request_fallback(message: str) -> dict[str, Any]:
-    text = message.strip()
-    leave_date = None
-    date_match = re.search(r"(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})日?", text)
-    if date_match:
-        y, m, d = date_match.groups()
-        leave_date = f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
-    plan = None
-    plan_match = re.search(r"(?<![A-Za-z0-9_])N\s*\+\s*1(?![A-Za-z0-9_])", text, flags=re.IGNORECASE)
-    if plan_match:
-        plan = "N+1"
-    elif re.search(r"(?<![A-Za-z0-9_])N(?!\s*\+)(?![A-Za-z0-9_])", text, flags=re.IGNORECASE):
-        plan = "N"
-    cleaned = re.sub(r"20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?", " ", text)
-    cleaned = re.sub(
-        r"补偿金|计算|查询员工|查询|查找|查看|查|看|员工|帮我|帮|试算|测算|打开|跳转|页面|方案|计划|离职日期|日期|改为|改成|改到|换成|调整为|调整成|设置为|设为|变为|变成|为|的|N\s*\+\s*1|N",
-        " ",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    keyword = re.sub(r"[，,。!！?？：:\s]+", " ", cleaned).strip()
-    if not keyword and (plan or leave_date):
-        changed_fields = [field for field, value in {"leave_date": leave_date, "plan": plan}.items() if value]
-    else:
-        changed_fields = [field for field, value in {"employee_keyword": keyword, "leave_date": leave_date, "plan": plan}.items() if value]
-    return {
-        "intent": "compensation.calculate",
-        "employee_keyword": _normalize_employee_keyword(keyword),
-        "leave_date": leave_date,
-        "plan": plan,
-        "region": None,
-        "changed_fields": changed_fields,
-    }
+def _context_employee_keyword(context: CompensationChatContext | None) -> str:
+    if context is None:
+        return ""
+    return _clean_name(context.employee_keyword or context.employee_name or "")
 
 
 def _merge_compensation_request(
@@ -632,9 +543,18 @@ def _merge_compensation_request(
     }
     if selected_employee_id:
         merged["changed_fields"].append("employee_id")
-    keyword = _normalize_employee_keyword(extracted.get("employee_keyword"))
+    keyword = _clean_name(extracted.get("employee_keyword"))
     if keyword:
         merged["employee_keyword"] = keyword
+        # 用户本轮换了人:新关键词与上一轮上下文不一致时,清掉沿用的旧 employee_id,
+        # 强制按新关键词重新解析;并清掉上一轮那个人的离职日期(本轮未显式给新日期时),不套用给新人。
+        if not selected_employee_id:
+            prev_keyword = _context_employee_keyword(context)
+            changed_person = "employee_keyword" in (extracted.get("changed_fields") or []) or keyword != prev_keyword
+            if changed_person:
+                merged["employee_id"] = None
+                if not extracted.get("leave_date"):
+                    merged["leave_date"] = None
     if extracted.get("leave_date"):
         merged["leave_date"] = extracted.get("leave_date")
     if extracted.get("plan"):
@@ -649,26 +569,27 @@ async def _extract_compensation_request_with_model(
     session: ChatSession,
     db: AsyncSession,
     timer: AiAuditTimer,
-) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
+    """纯大模型解析:把自然语言抽成结构化补偿金请求。无正则兜底解析。
+
+    无法解析(模型报错/非法 JSON)时返回 (None, ...),由上层提示用户换种说法。
+    模型可用性由 global_ai_chat 上游统一保证。
+    """
     config = await active_ai_config(db)
     prev_ctx = _comp_ctx_from_session(session)
-    fallback = _extract_compensation_request_fallback(payload.message)
-    if not config or not config.api_key_encrypted or not (config.model_reasoning or config.model_fast_json):
-        return fallback, None, "fallback_no_model"
-
     model = (config.model_reasoning or config.model_fast_json or "").strip()
     messages = [
         {
             "role": "system",
             "content": (
-                "你是 HR Portal 全局 AI 入口的意图解析器。"
+                "你是 HR Portal 全局 AI 入口的补偿金意图解析器。"
                 "只输出 JSON 对象，不解释。"
-                "当前只允许识别 compensation.calculate 或 general_question。"
                 "如果用户想计算补偿金，提取 employee_keyword、leave_date(YYYY-MM-DD 或 null)、plan(N 或 N+1)、region。"
                 "如果用户是在修改上一轮补偿金任务，例如“方案改为N”“日期改成2026-06-30”，"
                 "仍输出 intent=compensation.calculate，但只填写被用户明确修改的字段，并在 changed_fields 中列出字段名。"
+                "如果用户要改成另一个人，例如“人员改成刘琦”“换成张三”，"
+                "提取新的 employee_keyword=刘琦/张三，并在 changed_fields 中包含 employee_keyword。"
                 "不要把“方案改为”“日期改成”等操作描述当成员工姓名。"
-                "也不要把“查”“查询”“计算”“看”等动作或功能词当成员工姓名;只有真正的姓名/工号/英文名才填 employee_keyword,否则为 null。"
                 "只有用户明确给出姓名、工号或英文名时才填写 employee_keyword；"
                 "如果只是“一个员工”“某个人”“该员工”等泛称，employee_keyword 必须为 null。"
                 "不要猜员工 ID，不要输出个人敏感数据。"
@@ -708,22 +629,18 @@ async def _extract_compensation_request_with_model(
         raw = parse_json_content(content)
         changed_fields = raw.get("changed_fields")
         if not isinstance(changed_fields, list):
-            changed_fields = fallback.get("changed_fields") or []
-        has_context = prev_ctx is not None
-        employee_keyword = _choose_employee_keyword(raw.get("employee_keyword"), fallback["employee_keyword"])
-        if has_context and "employee_keyword" not in changed_fields and not fallback.get("employee_keyword"):
-            employee_keyword = ""
+            changed_fields = []
         return {
-            "intent": str(raw.get("intent") or fallback["intent"]),
-            "employee_keyword": employee_keyword,
-            "leave_date": raw.get("leave_date") or fallback["leave_date"],
-            "plan": _normalize_optional_plan(raw.get("plan") or fallback.get("plan")),
+            "intent": str(raw.get("intent") or "compensation.calculate"),
+            "employee_keyword": _clean_name(raw.get("employee_keyword")),
+            "leave_date": raw.get("leave_date") or None,
+            "plan": _normalize_optional_plan(raw.get("plan")),
             "region": raw.get("region") or None,
             "changed_fields": changed_fields,
         }, usage, "model"
     except Exception as exc:
         timer.add_event("model_call", status="error", capability_id="ai.chat", reason=str(exc)[:500])
-        return fallback, None, "fallback_model_error"
+        return None, None, "parse_error"
 
 
 def _compensation_route_query(
@@ -927,17 +844,19 @@ async def _handle_compensation_chat(
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 全局 AI chat 通用路由：按注册表把意图分发到已注册 Capability 的处理器，
-# 不在 router 内堆叠 `if intent == ...` 分支。新增 chat 场景（如 data.query）
-# 只需向 CHAT_ROUTES 追加一条路由 + 提供 extractor/handler，无需改调度逻辑。
+# 全局 AI chat 通用路由（LLM-first 底层组件）。
+# 规则（所有 chat 能力统一遵循,新增能力只追加 ChatRoute,不改本段）:
+#   1. 路由完全由大模型意图分类决定,不用关键词匹配。
+#   2. 语义解析完全交给各能力的 LLM extractor,不写正则解析器。
+#   3. 多轮续接由会话层 active_capability_id 承载(状态,不是关键词):
+#      分类为 general_question 但有在途任务时,续接到该任务。
 # ──────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class ChatRoute:
     intent: str
     capability_id: str
-    keyword_triggers: tuple[str, ...]
-    description: str
-    extractor: Callable[[AiChatIn, ChatSession, AsyncSession, AiAuditTimer], Awaitable[tuple[dict[str, Any], dict[str, Any] | None, str]]]
+    description: str  # 供意图分类器识别该能力的自然语言说明
+    extractor: Callable[[AiChatIn, ChatSession, AsyncSession, AiAuditTimer], Awaitable[tuple[dict[str, Any] | None, dict[str, Any] | None, str]]]
     handler: Callable[[AiChatIn, dict[str, Any], ChatSession, User, AsyncSession, AiAuditTimer], Awaitable[AiChatOut]]
 
 
@@ -945,19 +864,11 @@ CHAT_ROUTES: tuple[ChatRoute, ...] = (
     ChatRoute(
         intent="compensation.calculate",
         capability_id="compensation.calculate_preview",
-        keyword_triggers=("补偿金", "赔偿金"),
-        description="员工离职补偿金 / 赔偿金的只读试算与跳转",
+        description="员工离职补偿金 / 赔偿金的只读试算与跳转(含修改上一轮的员工/离职日期/方案)",
         extractor=_extract_compensation_request_with_model,
         handler=_handle_compensation_chat,
     ),
 )
-
-
-def _route_by_keyword(message: str) -> ChatRoute | None:
-    for route in CHAT_ROUTES:
-        if any(keyword in message for keyword in route.keyword_triggers):
-            return route
-    return None
 
 
 def _route_by_capability(capability_id: str | None) -> ChatRoute | None:
@@ -977,23 +888,45 @@ def _route_by_intent(intent: str) -> ChatRoute | None:
 
 
 async def _classify_chat_intent(
-    payload: AiChatIn, db: AsyncSession, timer: AiAuditTimer
+    payload: AiChatIn, session: ChatSession, db: AsyncSession, timer: AiAuditTimer
 ) -> tuple[str, dict[str, Any] | None]:
-    """通用意图分类：在已注册 chat 意图中选一个，否则 general_question。"""
+    """大模型意图分类(感知在途任务):在已注册 chat 意图中选一个,否则 general_question。
+
+    分类器知道当前有没有在途任务,因此能把"方案改为N""2026-06-30"这类续接
+    判回在途能力的 intent;真正离题才返回 general_question。模型可用性由上游保证。
+    """
     config = await active_ai_config(db)
-    if not config or not config.api_key_encrypted or not (config.model_reasoning or config.model_fast_json):
-        return "general_question", None
     model = (config.model_reasoning or config.model_fast_json or "").strip()
     catalog = "\n".join(f"- {route.intent}: {route.description}" for route in CHAT_ROUTES)
+    active = _route_by_capability(session.active_capability_id)
+    active_hint = (
+        f"用户当前有一个在途任务: {active.intent}({active.description})。"
+        "如果本轮消息是在补充或修改这个在途任务(例如只回一个日期、‘方案改为N’、‘人员改成张三’),"
+        "请返回该在途任务的 intent,而不是 general_question。"
+        if active
+        else "用户当前没有在途任务。"
+    )
     messages = [
         {
             "role": "system",
             "content": (
-                "你是 HR Portal 全局 AI 入口的意图路由器，只输出 JSON 对象：{\"intent\": \"...\"}。"
-                "在以下已注册意图中选择最匹配的一个；都不匹配时返回 general_question。\n" + catalog
+                "你是 HR Portal 全局 AI 入口的意图路由器,只输出 JSON 对象:{\"intent\": \"...\"}。"
+                "在以下已注册意图中选择最匹配的一个;都不匹配时返回 general_question。\n"
+                + catalog
+                + "\n"
+                + active_hint
             ),
         },
-        {"role": "user", "content": payload.message},
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "message": payload.message,
+                    "history": [item.model_dump() for item in payload.history[-6:]],
+                },
+                ensure_ascii=False,
+            ),
+        },
     ]
     timer.add_event("model_call", capability_id="ai.chat", purpose="intent_classify", model=model)
     try:
@@ -1024,29 +957,9 @@ async def _classify_chat_intent(
 async def _resolve_chat_route(
     payload: AiChatIn, session: ChatSession, db: AsyncSession, timer: AiAuditTimer
 ) -> tuple[ChatRoute | None, str, dict[str, Any] | None]:
-    """关键词路由 → 会话续接 → 通用意图分类兜底。调度器不认识任何具体能力。"""
-    # 1) 关键词路由（便宜、确定）；允许用户从在途任务切到别的能力。
-    route = _route_by_keyword(payload.message)
-    if route is not None:
-        timer.add_event(
-            "capability_resolve",
-            capability_id=route.capability_id,
-            route_intent=route.intent,
-            parse_mode="keyword",
-        )
-        return route, "keyword", None
-    # 2) 会话续接：上一轮有在途能力（如补偿金待补离职日期），裸日期/补充信息续接到它。
-    route = _route_by_capability(session.active_capability_id)
-    if route is not None:
-        timer.add_event(
-            "capability_resolve",
-            capability_id=route.capability_id,
-            route_intent=route.intent,
-            parse_mode="session_continuation",
-        )
-        return route, "session_continuation", None
-    # 3) 通用意图分类兜底
-    intent, usage = await _classify_chat_intent(payload, db, timer)
+    """大模型意图分类主导 → 会话续接兜底。调度器不认识任何具体能力,也不做关键词匹配。"""
+    # 1) 大模型意图分类(感知在途任务):命中已注册能力即路由(覆盖新建任务和切换能力)。
+    intent, usage = await _classify_chat_intent(payload, session, db, timer)
     route = _route_by_intent(intent)
     if route is not None:
         timer.add_event(
@@ -1055,7 +968,18 @@ async def _resolve_chat_route(
             route_intent=route.intent,
             parse_mode="intent_classify",
         )
-    return route, "intent_classify", usage
+        return route, "intent_classify", usage
+    # 2) 分类为 general_question,但有在途任务 → 续接(状态续接,非关键词)。
+    route = _route_by_capability(session.active_capability_id)
+    if route is not None:
+        timer.add_event(
+            "capability_resolve",
+            capability_id=route.capability_id,
+            route_intent=route.intent,
+            parse_mode="session_continuation",
+        )
+        return route, "session_continuation", usage
+    return None, "intent_classify", usage
 
 
 @router.get("/capabilities", response_model=list[CapabilityOut])
@@ -1087,20 +1011,41 @@ async def global_ai_chat(
         timer.add_event("policy_validation", capability_id=capability.capability_id, target="capability")
         conv, session = await load_or_create_conversation(db, user, payload.conversation_id)
         timer.add_event("conversation", conversation_id=session.conversation_id, active_capability_id=session.active_capability_id)
-        route, parse_mode, usage = await _resolve_chat_route(payload, session, db, timer)
-        if route is None:
-            session.clear_active()
+        ai_config = await active_ai_config(db)
+        if not ai_config or not ai_config.api_key_encrypted or not (ai_config.model_reasoning or ai_config.model_fast_json):
+            # 全局 AI 入口完全依赖大模型做意图识别和语义解析,未配置模型时直接降级提示,不做正则猜测。
             out = AiChatOut(
                 intent="general_question",
-                status="unsupported",
-                answer="当前全局 AI 试点只支持补偿金只读试算和跳转。你可以说：帮我计算某某的补偿金。",
+                status="ai_unconfigured",
+                answer="当前未配置可用的 AI 模型,无法理解自然语言请求。请联系管理员在「系统设置 → AI 配置」中启用模型,或在对应功能页手动操作。",
                 trace_id=timer.trace_id,
+                conversation_id=session.conversation_id,
             )
+            parse_mode = "no_model"
         else:
-            extracted, extract_usage, extract_mode = await route.extractor(payload, session, db, timer)
-            usage = extract_usage or usage
-            parse_mode = f"{parse_mode}+{extract_mode}"
-            out = await route.handler(payload, extracted, session, user, db, timer)
+            route, parse_mode, usage = await _resolve_chat_route(payload, session, db, timer)
+            if route is None:
+                session.clear_active()
+                out = AiChatOut(
+                    intent="general_question",
+                    status="unsupported",
+                    answer="当前全局 AI 试点只支持补偿金只读试算和跳转。你可以说：帮我计算某某的补偿金。",
+                    trace_id=timer.trace_id,
+                )
+            else:
+                extracted, extract_usage, extract_mode = await route.extractor(payload, session, db, timer)
+                usage = extract_usage or usage
+                parse_mode = f"{parse_mode}+{extract_mode}"
+                if extracted is None:
+                    # 大模型解析失败:不猜,提示用户换种说法;保留在途任务以便重试。
+                    out = AiChatOut(
+                        intent=route.intent,
+                        status="unclear",
+                        answer="我没太理解你的意思,可以说得更具体些吗?例如:帮我算 张三 2026-06-30 的 N+1 补偿金。",
+                        trace_id=timer.trace_id,
+                    )
+                else:
+                    out = await route.handler(payload, extracted, session, user, db, timer)
         out.conversation_id = session.conversation_id
         await persist_conversation(db, conv, session)
         validate_model_payload(AiChatOut, out, label="ai.chat output")

@@ -389,7 +389,7 @@ frontend/src/api/ai.ts
 
 1. ✅ 抽取 `context_builder.py`：Context Packet 由 `build_context_packet` 统一构建，固定 `page / permission / data / attachments / domain_context` 五分区，`report.explain_config` 已接入；`domain_context` 下预留 `semantic_layer`、`query_spec` 占位（默认 None，Phase 2 落编译器）。
 2. ✅ Policy Guard 收口输出级 deny：禁止内容定义抽到单一真相源 `app/ai/deny_patterns.py`（`DENY_PATTERN_REGEX` 通用正则 + `FORMULA_BLOCK_TOKENS` 公式 token）；`policy_guard.enforce_output_deny_patterns` 与 `formula_safety.safety_issues` 都从该模块取，不再各自维护两套；`data.query` 的“禁止模型输出 SQL/表名/join”复用 `enforce_output_deny_patterns`。
-3. ✅ `ai.chat` 通用路由 + 多轮会话：`/chat` 改为 `ChatRoute` 注册表 + `_resolve_chat_route`（关键词 → 会话续接 → 通用意图分类），移除 `if intent == compensation` 硬编码分支。多轮续接由 **PG 持久化会话层** `ai_conversations`（0038 迁移）承载——通用 `active_capability_id` + `state` 槽位，调度器据 `active_capability_id` 做能力无关续接（裸日期等补充信息不再误判），前端只持有 `conversation_id`。补偿金作为首个接入者，槽位入 `state`，不再走 wire 上的 `compensation_context`；新增 chat 场景（如 `data.query`）只需追加路由 + extractor/handler，零字段零调度改动。
+3. ✅ `ai.chat` 通用路由 + 多轮会话（LLM-first 底层组件，所有 chat 能力统一遵循）：`/chat` = `ChatRoute` 注册表 + `_resolve_chat_route`。**三条铁律**:(a) 路由完全由**大模型意图分类**决定,不用关键词匹配(`keyword_triggers` 已删除);(b) 语义解析完全交给各能力的 **LLM extractor**,不写正则解析器(原 `_extract_*_fallback` / `_normalize_employee_keyword` 等已删除,模型解析失败则提示用户换种说法,不猜);(c) 多轮续接由 **PG 会话层** `ai_conversations`(0038)的 `active_capability_id` 承载——分类器感知在途任务,把"方案改为N""只回一个日期"判回在途 intent;分类为 general_question 但有在途任务时按状态续接。确定性代码只管状态合并/权限/查库/校验,不重写解析。新增 chat 能力(如 `data.query`)只追加一条 `ChatRoute(intent, capability_id, description, extractor, handler)`,零关键词、零正则、零调度改动;未配置模型时全局 AI 入口直接降级提示。
 
 注意：
 

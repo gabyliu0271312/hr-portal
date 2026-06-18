@@ -3,15 +3,11 @@ from datetime import date
 
 from app.ai.conversation import ChatSession
 from app.ai.router import (
-    AiChatIn,
     CompensationChatContext,
-    _choose_employee_keyword,
     _comp_ctx_from_session,
-    _extract_compensation_request_fallback,
     _merge_compensation_request,
-    _normalize_employee_keyword,
     _route_by_capability,
-    _route_by_keyword,
+    _route_by_intent,
 )
 from app.main import app
 
@@ -77,67 +73,11 @@ def test_phase2_global_ai_compensation_capabilities_are_registered():
     assert preview.tools == ["compensation.employee_search", "compensation.calculate"]
 
 
-def test_compensation_fallback_does_not_treat_generic_employee_as_keyword():
-    extracted = _extract_compensation_request_fallback("帮我计算一个员工的补偿金")
-
-    assert extracted["intent"] == "compensation.calculate"
-    assert extracted["employee_keyword"] == ""
-
-
-def test_normalize_employee_keyword_blanks_pure_function_words():
-    # "查"被 LLM 当成姓氏 zhā 抽出,纯功能词必须置空,回落到"请告诉我算谁"
-    for value in ["查", "查补偿金", "看补偿金", "计算补偿金", "算一下", "算一下补偿金", "请帮我查"]:
-        assert _normalize_employee_keyword(value) == ""
-
-
-def test_normalize_employee_keyword_keeps_real_names_with_surname_zha():
-    # 真姓"查"(查理/查继光)及含功能词前缀的姓名不可被误删
-    for value in ["张伟", "王芳", "EMP001", "查理", "查继光", "Charlie"]:
-        assert _normalize_employee_keyword(value) != ""
-
-
-def test_compensation_fallback_blanks_search_verb_only_message():
-    extracted = _extract_compensation_request_fallback("查补偿金")
-
-    assert extracted["intent"] == "compensation.calculate"
-    assert extracted["employee_keyword"] == ""
-
-
-def test_compensation_fallback_strips_possessive_particle_from_employee_keyword():
-    extracted = _extract_compensation_request_fallback("帮我计算张三的补偿金")
-
-    assert extracted["employee_keyword"] == "张三"
-
-
-def test_compensation_fallback_preserves_employee_identifier_punctuation():
-    extracted = _extract_compensation_request_fallback("帮我计算jay.zhu的补偿金")
-
-    assert extracted["employee_keyword"] == "jay.zhu"
-
-
-def test_compensation_fallback_extracts_employee_from_query_with_leave_date():
-    extracted = _extract_compensation_request_fallback("查询员工gaby.liu刘琦，离职日期为2026-06-25的补偿金")
-
-    assert extracted["employee_keyword"] == "gaby.liu刘琦"
-    assert extracted["leave_date"] == "2026-06-25"
-
-
-def test_compensation_keyword_prefers_fallback_when_model_drops_identifier_punctuation():
-    keyword = _choose_employee_keyword("jay zhu", "jay.zhu")
-
-    assert keyword == "jay.zhu"
-
-
-def test_compensation_fallback_treats_plan_change_as_patch_not_employee_keyword():
-    extracted = _extract_compensation_request_fallback("方案改为N")
-
-    assert extracted["employee_keyword"] == ""
-    assert extracted["plan"] == "N"
-    assert extracted["changed_fields"] == ["plan"]
-
+# ── 合并层(确定性状态管理):extracted 由大模型 LLM extractor 产出,这里用字面值代入 ──
 
 def test_compensation_patch_merges_with_previous_context():
-    extracted = _extract_compensation_request_fallback("方案改为N")
+    # 仅改方案(extracted 只带 plan),其余字段沿用上一轮上下文。
+    extracted = {"intent": "compensation.calculate", "employee_keyword": "", "plan": "N", "changed_fields": ["plan"]}
     merged = _merge_compensation_request(
         extracted,
         CompensationChatContext(
@@ -157,36 +97,83 @@ def test_compensation_patch_merges_with_previous_context():
 
 
 def test_compensation_merge_without_context_keeps_new_task_defaults():
-    extracted = _extract_compensation_request_fallback("帮我计算张三的补偿金")
+    extracted = {"intent": "compensation.calculate", "employee_keyword": "张三", "changed_fields": ["employee_keyword"]}
     merged = _merge_compensation_request(extracted, None)
 
     assert merged["employee_keyword"] == "张三"
     assert merged["plan"] == "N+1"
 
 
-def test_session_continuation_routes_bare_followup_to_active_capability():
-    # 上一轮补偿金待补离职日期(active 已置位),本轮只回裸日期、无关键词:
-    # 通用调度应按 active_capability_id 续接到补偿金,而不是掉进 unsupported(原多轮 bug)。
+def test_compensation_change_person_resets_stale_employee_and_date():
+    # 上一轮已算吴天昊(employee_id=106401, 日期 2026-06-29),本轮"人员改成刘琦":
+    # 必须清掉沿用的旧 employee_id 和旧日期,按新关键词重新解析,否则会继续算吴天昊。
+    extracted = {
+        "intent": "compensation.calculate",
+        "employee_keyword": "刘琦",
+        "changed_fields": ["employee_keyword"],
+    }
+    merged = _merge_compensation_request(
+        extracted,
+        CompensationChatContext(
+            employee_id=106401,
+            employee_keyword="tianhao.wu吴天昊",
+            employee_name="tianhao.wu吴天昊",
+            leave_date=date(2026, 6, 29),
+            plan="N",
+            region="深圳",
+        ),
+    )
+    assert merged["employee_keyword"] == "刘琦"
+    assert merged["employee_id"] is None
+    assert merged["leave_date"] is None
+    assert merged["plan"] == "N"
+
+
+def test_compensation_change_person_detected_even_without_changed_fields():
+    # 模型没把 employee_keyword 列进 changed_fields 时,靠"新关键词≠上一轮"也能识别换人。
+    extracted = {"intent": "compensation.calculate", "employee_keyword": "刘琦", "changed_fields": []}
+    merged = _merge_compensation_request(
+        extracted,
+        CompensationChatContext(employee_id=106401, employee_keyword="吴天昊", leave_date=date(2026, 6, 29), plan="N+1"),
+    )
+    assert merged["employee_id"] is None
+    assert merged["employee_keyword"] == "刘琦"
+
+
+def test_compensation_same_person_followup_keeps_employee_id():
+    # 仅改方案、不换人(extracted 不带新关键词):必须保留 employee_id,不能误清。
+    extracted = {"intent": "compensation.calculate", "employee_keyword": "", "plan": "N", "changed_fields": ["plan"]}
+    merged = _merge_compensation_request(
+        extracted,
+        CompensationChatContext(employee_id=106401, employee_keyword="吴天昊", leave_date=date(2026, 6, 29), plan="N+1"),
+    )
+    assert merged["employee_id"] == 106401
+    assert merged["leave_date"] == "2026-06-29"
+    assert merged["plan"] == "N"
+
+
+# ── 调度(LLM-first):路由按意图,续接按会话状态,均不依赖关键词 ──
+
+def test_active_capability_drives_session_continuation():
+    # 上一轮补偿金待补离职日期,active 已置位:可按 active_capability_id 续接到补偿金(状态续接)。
     session = ChatSession(
         conversation_id=1,
         active_capability_id="compensation.calculate_preview",
         state={"compensation.calculate_preview": {"employee_id": 106401, "leave_date": None, "plan": "N+1"}},
     )
-    assert _route_by_keyword("2026-06-29") is None  # 裸日期无关键词
     route = _route_by_capability(session.active_capability_id)
     assert route is not None
     assert route.intent == "compensation.calculate"
-    # 续接读得回上一轮槽位
     ctx = _comp_ctx_from_session(session)
     assert ctx is not None and ctx.employee_id == 106401
 
 
-def test_keyword_overrides_session_continuation():
-    # 关键词在调度顺序里优先于续接:用户可随时用关键词从在途任务切走(为多能力预留)。
-    assert _route_by_keyword("再帮我算下补偿金").intent == "compensation.calculate"
+def test_intent_maps_to_registered_route():
+    assert _route_by_intent("compensation.calculate").capability_id == "compensation.calculate_preview"
+    assert _route_by_intent("general_question") is None
+    assert _route_by_intent("nonexistent.intent") is None
 
 
 def test_empty_session_has_no_active_capability_route():
     assert _route_by_capability(None) is None
     assert _comp_ctx_from_session(ChatSession(conversation_id=None)) is None
-

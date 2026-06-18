@@ -69,7 +69,7 @@ Capability Registry
 | 函数人人可用 | “纯计算函数”和“读取员工敏感数据的函数”被混在一起。 | 必须区分 Pure Formula Function 与 Data Action。前者开放，后者必须走功能权限 + 数据范围权限。 |
 | 网关只做功能权限 | 如果网关能调用 Action，就不能完全无视 Action 风险。 | AI 服务负责 Tool 级许可、参数校验、确认策略；业务服务负责数据权限。 |
 | Redis 存会话 | Redis 只适合热上下文，不适合审计和复盘。 | PostgreSQL 持久化 conversation/message/tool_invocation；Redis 只缓存短期上下文。 |
-| 关键词路由 Capability | 对“AI 工作台”太脆弱，且容易误触高风险动作。 | 优先显式入口、页面上下文和结构化意图识别；LLM 意图分类仅作为辅助，并需低置信度回问。 |
+| 关键词路由 Capability | 对“AI 工作台”太脆弱，且容易误触高风险动作。 | chat 路由改为 **LLM 意图分类为主**(不用关键词)+ 会话状态续接;语义解析也全交大模型,不写正则解析器。详见 implementation-blueprint §12.1。 |
 | 缓存相同输入 1 小时 | HR 数据高度权限相关，相同输入不同用户结果不同。 | 缓存必须带 tenant/user/permission/context 指纹；敏感输出默认不缓存。 |
 | 防越狱靠提示词和敏感词 | 提示词不是安全边界。 | 用工具白名单、参数 Schema、数据最小化、禁止执行生成 SQL/代码、输出过滤和红队集。 |
 | Feishu group session 用 open_chat_id | 群聊中多个用户共享上下文，会串权限。 | session key 至少包含 tenant_id + open_chat_id + open_id + thread/message root。 |
