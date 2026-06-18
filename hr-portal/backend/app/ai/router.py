@@ -580,13 +580,18 @@ async def _extract_compensation_request_with_model(
     config = await active_ai_config(db)
     prev_ctx = _comp_ctx_from_session(session)
     model = (config.model_reasoning or config.model_fast_json or "").strip()
+    today = date.today().isoformat()
     messages = [
         {
             "role": "system",
             "content": (
                 "你是 HR Portal 全局 AI 入口的补偿金意图解析器。"
                 "只输出 JSON 对象，不解释。"
+                f"今天是 {today}（Asia/Shanghai）。"
                 "如果用户想计算补偿金，提取 employee_keyword、leave_date(YYYY-MM-DD 或 null)、plan(N 或 N+1)、region。"
+                "用户给的离职日期可能不完整或用口语，例如“7月9号”“7/9”“下个月15号”“明天”“月底”，"
+                "请结合今天把它解析成完整的 YYYY-MM-DD；缺年份时默认今年（若该日期明显已过去很久可用明年）。"
+                "无法判断具体日期时 leave_date 才返回 null。"
                 "如果用户是在修改上一轮补偿金任务，例如“方案改为N”“日期改成2026-06-30”，"
                 "仍输出 intent=compensation.calculate，但只填写被用户明确修改的字段，并在 changed_fields 中列出字段名。"
                 "如果用户要改成另一个人，例如“人员改成刘琦”“换成张三”，"
@@ -601,6 +606,7 @@ async def _extract_compensation_request_with_model(
             "role": "user",
             "content": json.dumps(
                 {
+                    "today": today,
                     "message": payload.message,
                     "page_path": payload.page_path,
                     "compensation_context": prev_ctx.model_dump(mode="json") if prev_ctx else None,
@@ -608,7 +614,7 @@ async def _extract_compensation_request_with_model(
                     "output_schema_hint": {
                         "intent": "compensation.calculate 或 general_question",
                         "employee_keyword": "string 或 null，仅当用户明确指定员工",
-                        "leave_date": "YYYY-MM-DD 或 null，仅当用户明确指定或修改",
+                        "leave_date": "YYYY-MM-DD 或 null；口语/缺年份的日期请结合 today 解析后再填",
                         "plan": "N、N+1 或 null，仅当用户明确指定或修改",
                         "region": "string 或 null",
                         "changed_fields": "本轮明确修改的字段名数组，例如 ['plan']",
