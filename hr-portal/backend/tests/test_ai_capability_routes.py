@@ -105,8 +105,8 @@ def test_compensation_merge_without_context_keeps_new_task_defaults():
 
 
 def test_compensation_change_person_resets_stale_employee_and_date():
-    # 上一轮已算吴天昊(employee_id=106401, 日期 2026-06-29),本轮"人员改成刘琦":
-    # 必须清掉沿用的旧 employee_id 和旧日期,按新关键词重新解析,否则会继续算吴天昊。
+    # 上一轮已算吴天昊(employee_id=106401, 日期 2026-06-29, 方案 N),本轮"人员改成刘琦":
+    # 换人 = 该员工从默认重新算 → 清掉旧 employee_id/日期/地区,方案回默认 N+1。
     extracted = {
         "intent": "compensation.calculate",
         "employee_keyword": "刘琦",
@@ -126,6 +126,24 @@ def test_compensation_change_person_resets_stale_employee_and_date():
     assert merged["employee_keyword"] == "刘琦"
     assert merged["employee_id"] is None
     assert merged["leave_date"] is None
+    assert merged["region"] is None
+    assert merged["plan"] == "N+1"  # 换人回默认方案,不沿用上一个人的 N
+
+
+def test_compensation_change_person_honors_explicitly_given_plan():
+    # 换人时本轮显式给了方案,则保留显式值(不强制回默认)。
+    extracted = {
+        "intent": "compensation.calculate",
+        "employee_keyword": "刘琦",
+        "plan": "N",
+        "changed_fields": ["employee_keyword", "plan"],
+    }
+    merged = _merge_compensation_request(
+        extracted,
+        CompensationChatContext(employee_id=106401, employee_keyword="吴天昊", leave_date=date(2026, 6, 29), plan="N+1"),
+    )
+    assert merged["employee_id"] is None
+    assert merged["employee_keyword"] == "刘琦"
     assert merged["plan"] == "N"
 
 
@@ -134,10 +152,11 @@ def test_compensation_change_person_detected_even_without_changed_fields():
     extracted = {"intent": "compensation.calculate", "employee_keyword": "刘琦", "changed_fields": []}
     merged = _merge_compensation_request(
         extracted,
-        CompensationChatContext(employee_id=106401, employee_keyword="吴天昊", leave_date=date(2026, 6, 29), plan="N+1"),
+        CompensationChatContext(employee_id=106401, employee_keyword="吴天昊", leave_date=date(2026, 6, 29), plan="N"),
     )
     assert merged["employee_id"] is None
     assert merged["employee_keyword"] == "刘琦"
+    assert merged["plan"] == "N+1"  # 换人回默认
 
 
 def test_compensation_same_person_followup_keeps_employee_id():

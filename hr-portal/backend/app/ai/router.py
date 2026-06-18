@@ -546,15 +546,17 @@ def _merge_compensation_request(
     keyword = _clean_name(extracted.get("employee_keyword"))
     if keyword:
         merged["employee_keyword"] = keyword
-        # 用户本轮换了人:新关键词与上一轮上下文不一致时,清掉沿用的旧 employee_id,
-        # 强制按新关键词重新解析;并清掉上一轮那个人的离职日期(本轮未显式给新日期时),不套用给新人。
+        # 用户本轮换了人:换人 = 该员工从默认重新算。清掉沿用的旧 employee_id,
+        # 并把离职日期/地区/方案重置为默认(下方再用本轮显式给的值覆盖),
+        # 不把上一个人的离职日期、工作地区、N/N+1 方案静默套给新人。
         if not selected_employee_id:
             prev_keyword = _context_employee_keyword(context)
             changed_person = "employee_keyword" in (extracted.get("changed_fields") or []) or keyword != prev_keyword
             if changed_person:
                 merged["employee_id"] = None
-                if not extracted.get("leave_date"):
-                    merged["leave_date"] = None
+                merged["leave_date"] = None
+                merged["region"] = None
+                merged["plan"] = "N+1"
     if extracted.get("leave_date"):
         merged["leave_date"] = extracted.get("leave_date")
     if extracted.get("plan"):
