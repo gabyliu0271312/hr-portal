@@ -26,6 +26,7 @@ from app.ai.provider import (
 )
 from app.ai.schema_validator import AiSchemaValidationError, schema_from_model, validate_model_payload
 from app.ai.service import active_ai_config
+from app.ai.conversation import ChatSession, load_or_create as load_or_create_conversation, persist as persist_conversation
 from app.ai_formula.router import FormulaDraftIn, FormulaDraftOut, FormulaValidateIn, FormulaValidateOut
 from app.ai_formula.router import draft_formula_impl, validate_formula_impl
 from app.core.db import get_session
@@ -143,9 +144,9 @@ class CompensationChatContext(BaseModel):
 class AiChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
     page_path: str | None = Field(default=None, max_length=300)
+    conversation_id: int | None = Field(default=None, ge=1)
     history: list[AiChatMessage] = Field(default_factory=list, max_length=20)
     selected_employee_id: int | None = Field(default=None, ge=1)
-    compensation_context: CompensationChatContext | None = None
 
 
 class AiActionOut(BaseModel):
@@ -160,10 +161,10 @@ class AiChatOut(BaseModel):
     answer: str
     status: str
     trace_id: str | None = None
+    conversation_id: int | None = None
     actions: list[AiActionOut] = Field(default_factory=list)
     candidates: list[EmployeeCandidate] = Field(default_factory=list)
     compensation: CompensationCalcOut | None = None
-    compensation_context: CompensationChatContext | None = None
     missing_fields: list[str] = Field(default_factory=list)
     extracted: dict[str, Any] = Field(default_factory=dict)
 
@@ -645,10 +646,12 @@ def _merge_compensation_request(
 
 async def _extract_compensation_request_with_model(
     payload: AiChatIn,
+    session: ChatSession,
     db: AsyncSession,
     timer: AiAuditTimer,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
     config = await active_ai_config(db)
+    prev_ctx = _comp_ctx_from_session(session)
     fallback = _extract_compensation_request_fallback(payload.message)
     if not config or not config.api_key_encrypted or not (config.model_reasoning or config.model_fast_json):
         return fallback, None, "fallback_no_model"
@@ -677,7 +680,7 @@ async def _extract_compensation_request_with_model(
                 {
                     "message": payload.message,
                     "page_path": payload.page_path,
-                    "compensation_context": payload.compensation_context.model_dump(mode="json") if payload.compensation_context else None,
+                    "compensation_context": prev_ctx.model_dump(mode="json") if prev_ctx else None,
                     "history": [item.model_dump() for item in payload.history[-6:]],
                     "output_schema_hint": {
                         "intent": "compensation.calculate 或 general_question",
@@ -706,7 +709,7 @@ async def _extract_compensation_request_with_model(
         changed_fields = raw.get("changed_fields")
         if not isinstance(changed_fields, list):
             changed_fields = fallback.get("changed_fields") or []
-        has_context = payload.compensation_context is not None
+        has_context = prev_ctx is not None
         employee_keyword = _choose_employee_keyword(raw.get("employee_keyword"), fallback["employee_keyword"])
         if has_context and "employee_keyword" not in changed_fields and not fallback.get("employee_keyword"):
             employee_keyword = ""
@@ -764,9 +767,33 @@ def _context_from_result(result: CompensationCalcOut, keyword: str | None = None
     )
 
 
+COMP_CAP = "compensation.calculate_preview"
+
+
+def _comp_ctx_from_session(session: ChatSession) -> CompensationChatContext | None:
+    """从通用会话槽位还原上一轮补偿金上下文。"""
+    slots = session.capability_state(COMP_CAP)
+    if not slots:
+        return None
+    try:
+        return CompensationChatContext(**slots)
+    except (TypeError, ValueError):
+        return None
+
+
+def _comp_ctx_to_session(
+    session: ChatSession, ctx: CompensationChatContext | None, *, active: bool = True
+) -> None:
+    """把本轮补偿金上下文写回通用会话槽位;active=True 表示任务仍在途。"""
+    session.set_capability_state(COMP_CAP, ctx.model_dump(mode="json") if ctx else {})
+    if active:
+        session.active_capability_id = COMP_CAP
+
+
 async def _handle_compensation_chat(
     payload: AiChatIn,
     extracted: dict[str, Any],
+    session: ChatSession,
     user: User,
     db: AsyncSession,
     timer: AiAuditTimer,
@@ -778,21 +805,22 @@ async def _handle_compensation_chat(
     if not await user_has_permission(user, db, calc_capability.required_permission):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权使用补偿金计算")
 
+    prev_ctx = _comp_ctx_from_session(session)
     extracted = _merge_compensation_request(
         extracted,
-        payload.compensation_context,
+        prev_ctx,
         selected_employee_id=payload.selected_employee_id,
     )
     keyword = str(extracted.get("employee_keyword") or "").strip()
     selected_employee_id = extracted.get("employee_id")
     if not keyword and not selected_employee_id:
+        _comp_ctx_to_session(session, prev_ctx, active=True)
         return AiChatOut(
             intent="compensation.calculate",
             status="need_employee",
             answer="请告诉我要计算哪位员工的补偿金，可以输入姓名、工号或英文名。",
             trace_id=timer.trace_id,
             missing_fields=["employee_keyword"],
-            compensation_context=payload.compensation_context,
             actions=[_compensation_action(_compensation_route_query(plan=extracted.get("plan") or "N+1"))],
             extracted=extracted,
         )
@@ -804,23 +832,23 @@ async def _handle_compensation_chat(
         timer.add_event("tool", tool_name="compensation.employee_search", capability_id=employee_capability.capability_id, keyword=keyword)
         candidates = await search_compensation_employees(keyword=keyword, limit=10, user=user, db=db)
         if not candidates:
+            _comp_ctx_to_session(session, prev_ctx, active=True)
             return AiChatOut(
                 intent="compensation.calculate",
                 status="not_found",
                 answer=f"没有找到「{keyword}」对应、且你有权限查看的员工。请换工号或更完整姓名再试。",
                 trace_id=timer.trace_id,
-                compensation_context=payload.compensation_context,
                 actions=[_compensation_action(_compensation_route_query(keyword=keyword, plan=extracted.get("plan") or "N+1"))],
                 extracted=extracted,
             )
         if len(candidates) > 1:
+            _comp_ctx_to_session(session, prev_ctx, active=True)
             return AiChatOut(
                 intent="compensation.calculate",
                 status="need_employee_selection",
                 answer=f"我找到了 {len(candidates)} 个可能的员工，请先选择具体人员后再计算。",
                 trace_id=timer.trace_id,
                 candidates=candidates,
-                compensation_context=payload.compensation_context,
                 actions=[_compensation_action(_compensation_route_query(keyword=keyword, leave_date=extracted.get("leave_date"), plan=extracted.get("plan") or "N+1", region=extracted.get("region")))],
                 extracted=extracted,
             )
@@ -836,6 +864,15 @@ async def _handle_compensation_chat(
             leave_date = selected.leave_date
             missing = []
         else:
+            pending_ctx = CompensationChatContext(
+                employee_id=selected_employee_id,
+                employee_keyword=keyword or _context_employee_keyword(prev_ctx),
+                employee_name=prev_ctx.employee_name if prev_ctx else None,
+                leave_date=None,
+                plan=extracted.get("plan") or "N+1",
+                region=extracted.get("region"),
+            )
+            _comp_ctx_to_session(session, pending_ctx, active=True)
             return AiChatOut(
                 intent="compensation.calculate",
                 status="need_more_info",
@@ -843,14 +880,6 @@ async def _handle_compensation_chat(
                 trace_id=timer.trace_id,
                 candidates=candidates,
                 missing_fields=missing,
-                compensation_context=CompensationChatContext(
-                    employee_id=selected_employee_id,
-                    employee_keyword=keyword or _context_employee_keyword(payload.compensation_context),
-                    employee_name=payload.compensation_context.employee_name if payload.compensation_context else None,
-                    leave_date=None,
-                    plan=extracted.get("plan") or "N+1",
-                    region=extracted.get("region"),
-                ),
                 actions=[_compensation_action(_compensation_route_query(employee_id=selected_employee_id, keyword=keyword, plan=extracted.get("plan") or "N+1", region=extracted.get("region")))],
                 extracted=extracted,
             )
@@ -878,6 +907,8 @@ async def _handle_compensation_chat(
     )
     employee_name = result.employee.name or result.employee.employee_no or "该员工"
     next_context = _context_from_result(result, keyword=keyword or result.employee.name)
+    # 成功后仍保留 active + 完整槽位:允许后续"方案改为N"等裸续接;关键词可随时切走,不会永久粘死。
+    _comp_ctx_to_session(session, next_context, active=True)
     answer = (
         f"已完成「{employee_name}」的补偿金只读试算：方案 {result.plan}，"
         f"N 年限 {result.service_years_n}，补偿基数 {result.compensation_base:.2f}，"
@@ -890,7 +921,6 @@ async def _handle_compensation_chat(
         trace_id=timer.trace_id,
         candidates=candidates,
         compensation=result,
-        compensation_context=next_context,
         actions=[_compensation_action(query, label="打开并核对补偿金计算")],
         extracted=extracted,
     )
@@ -907,8 +937,8 @@ class ChatRoute:
     capability_id: str
     keyword_triggers: tuple[str, ...]
     description: str
-    extractor: Callable[[AiChatIn, AsyncSession, AiAuditTimer], Awaitable[tuple[dict[str, Any], dict[str, Any] | None, str]]]
-    handler: Callable[[AiChatIn, dict[str, Any], User, AsyncSession, AiAuditTimer], Awaitable[AiChatOut]]
+    extractor: Callable[[AiChatIn, ChatSession, AsyncSession, AiAuditTimer], Awaitable[tuple[dict[str, Any], dict[str, Any] | None, str]]]
+    handler: Callable[[AiChatIn, dict[str, Any], ChatSession, User, AsyncSession, AiAuditTimer], Awaitable[AiChatOut]]
 
 
 CHAT_ROUTES: tuple[ChatRoute, ...] = (
@@ -926,6 +956,15 @@ CHAT_ROUTES: tuple[ChatRoute, ...] = (
 def _route_by_keyword(message: str) -> ChatRoute | None:
     for route in CHAT_ROUTES:
         if any(keyword in message for keyword in route.keyword_triggers):
+            return route
+    return None
+
+
+def _route_by_capability(capability_id: str | None) -> ChatRoute | None:
+    if not capability_id:
+        return None
+    for route in CHAT_ROUTES:
+        if route.capability_id == capability_id:
             return route
     return None
 
@@ -983,9 +1022,10 @@ async def _classify_chat_intent(
 
 
 async def _resolve_chat_route(
-    payload: AiChatIn, db: AsyncSession, timer: AiAuditTimer
+    payload: AiChatIn, session: ChatSession, db: AsyncSession, timer: AiAuditTimer
 ) -> tuple[ChatRoute | None, str, dict[str, Any] | None]:
-    """先关键词路由（便宜、确定），无命中再用通用意图分类兜底。"""
+    """关键词路由 → 会话续接 → 通用意图分类兜底。调度器不认识任何具体能力。"""
+    # 1) 关键词路由（便宜、确定）；允许用户从在途任务切到别的能力。
     route = _route_by_keyword(payload.message)
     if route is not None:
         timer.add_event(
@@ -995,6 +1035,17 @@ async def _resolve_chat_route(
             parse_mode="keyword",
         )
         return route, "keyword", None
+    # 2) 会话续接：上一轮有在途能力（如补偿金待补离职日期），裸日期/补充信息续接到它。
+    route = _route_by_capability(session.active_capability_id)
+    if route is not None:
+        timer.add_event(
+            "capability_resolve",
+            capability_id=route.capability_id,
+            route_intent=route.intent,
+            parse_mode="session_continuation",
+        )
+        return route, "session_continuation", None
+    # 3) 通用意图分类兜底
     intent, usage = await _classify_chat_intent(payload, db, timer)
     route = _route_by_intent(intent)
     if route is not None:
@@ -1034,8 +1085,11 @@ async def global_ai_chat(
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="input")
         validate_capability_policy(capability, used_tools=["compensation.employee_resolve", "compensation.calculate_preview"])
         timer.add_event("policy_validation", capability_id=capability.capability_id, target="capability")
-        route, parse_mode, usage = await _resolve_chat_route(payload, db, timer)
+        conv, session = await load_or_create_conversation(db, user, payload.conversation_id)
+        timer.add_event("conversation", conversation_id=session.conversation_id, active_capability_id=session.active_capability_id)
+        route, parse_mode, usage = await _resolve_chat_route(payload, session, db, timer)
         if route is None:
+            session.clear_active()
             out = AiChatOut(
                 intent="general_question",
                 status="unsupported",
@@ -1043,10 +1097,12 @@ async def global_ai_chat(
                 trace_id=timer.trace_id,
             )
         else:
-            extracted, extract_usage, extract_mode = await route.extractor(payload, db, timer)
+            extracted, extract_usage, extract_mode = await route.extractor(payload, session, db, timer)
             usage = extract_usage or usage
             parse_mode = f"{parse_mode}+{extract_mode}"
-            out = await route.handler(payload, extracted, user, db, timer)
+            out = await route.handler(payload, extracted, session, user, db, timer)
+        out.conversation_id = session.conversation_id
+        await persist_conversation(db, conv, session)
         validate_model_payload(AiChatOut, out, label="ai.chat output")
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="output")
         await record_ai_log(
@@ -1060,6 +1116,8 @@ async def global_ai_chat(
             status=out.status,
             metadata={
                 "capability_id": capability.capability_id,
+                "conversation_id": session.conversation_id,
+                "active_capability_id": session.active_capability_id,
                 "intent": out.intent,
                 "parse_mode": parse_mode,
                 "action_count": len(out.actions),

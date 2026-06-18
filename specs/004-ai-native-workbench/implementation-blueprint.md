@@ -389,7 +389,7 @@ frontend/src/api/ai.ts
 
 1. ✅ 抽取 `context_builder.py`：Context Packet 由 `build_context_packet` 统一构建，固定 `page / permission / data / attachments / domain_context` 五分区，`report.explain_config` 已接入；`domain_context` 下预留 `semantic_layer`、`query_spec` 占位（默认 None，Phase 2 落编译器）。
 2. ✅ Policy Guard 收口输出级 deny：禁止内容定义抽到单一真相源 `app/ai/deny_patterns.py`（`DENY_PATTERN_REGEX` 通用正则 + `FORMULA_BLOCK_TOKENS` 公式 token）；`policy_guard.enforce_output_deny_patterns` 与 `formula_safety.safety_issues` 都从该模块取，不再各自维护两套；`data.query` 的“禁止模型输出 SQL/表名/join”复用 `enforce_output_deny_patterns`。
-3. ✅ `ai.chat` 通用路由：`/chat` 改为 `ChatRoute` 注册表 + `_resolve_chat_route`（关键词优先路由 + 通用意图分类 `_classify_chat_intent` 兜底），移除 `if intent == compensation` 硬编码分支；补偿金作为首条注册路由，新增 chat 场景（如 `data.query`）只需向 `CHAT_ROUTES` 追加路由 + 提供 extractor/handler，不改调度逻辑。
+3. ✅ `ai.chat` 通用路由 + 多轮会话：`/chat` 改为 `ChatRoute` 注册表 + `_resolve_chat_route`（关键词 → 会话续接 → 通用意图分类），移除 `if intent == compensation` 硬编码分支。多轮续接由 **PG 持久化会话层** `ai_conversations`（0038 迁移）承载——通用 `active_capability_id` + `state` 槽位，调度器据 `active_capability_id` 做能力无关续接（裸日期等补充信息不再误判），前端只持有 `conversation_id`。补偿金作为首个接入者，槽位入 `state`，不再走 wire 上的 `compensation_context`；新增 chat 场景（如 `data.query`）只需追加路由 + extractor/handler，零字段零调度改动。
 
 注意：
 

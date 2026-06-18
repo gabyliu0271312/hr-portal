@@ -29,10 +29,10 @@ export interface AiChatResult {
   answer: string
   status: string
   trace_id?: string | null
+  conversation_id?: number | null
   actions: AiAction[]
   candidates: EmployeeCandidate[]
   compensation?: CompensationResult | null
-  compensation_context?: CompensationChatContext | null
   missing_fields: string[]
   extracted: Record<string, any>
 }
@@ -41,9 +41,9 @@ export const aiApi = {
   chat: (body: {
     message: string
     page_path?: string | null
+    conversation_id?: number | null
     history?: AiChatMessage[]
     selected_employee_id?: number | null
-    compensation_context?: CompensationChatContext | null
   }) =>
     api
       .post<AiChatResult>('/ai/chat', body, { timeout: AI_CHAT_TIMEOUT_MS })

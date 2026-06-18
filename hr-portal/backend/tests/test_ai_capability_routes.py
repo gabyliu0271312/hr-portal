@@ -1,12 +1,17 @@
 from app.ai.capabilities import get_capability
 from datetime import date
 
+from app.ai.conversation import ChatSession
 from app.ai.router import (
+    AiChatIn,
     CompensationChatContext,
     _choose_employee_keyword,
+    _comp_ctx_from_session,
     _extract_compensation_request_fallback,
     _merge_compensation_request,
     _normalize_employee_keyword,
+    _route_by_capability,
+    _route_by_keyword,
 )
 from app.main import app
 
@@ -157,3 +162,31 @@ def test_compensation_merge_without_context_keeps_new_task_defaults():
 
     assert merged["employee_keyword"] == "张三"
     assert merged["plan"] == "N+1"
+
+
+def test_session_continuation_routes_bare_followup_to_active_capability():
+    # 上一轮补偿金待补离职日期(active 已置位),本轮只回裸日期、无关键词:
+    # 通用调度应按 active_capability_id 续接到补偿金,而不是掉进 unsupported(原多轮 bug)。
+    session = ChatSession(
+        conversation_id=1,
+        active_capability_id="compensation.calculate_preview",
+        state={"compensation.calculate_preview": {"employee_id": 106401, "leave_date": None, "plan": "N+1"}},
+    )
+    assert _route_by_keyword("2026-06-29") is None  # 裸日期无关键词
+    route = _route_by_capability(session.active_capability_id)
+    assert route is not None
+    assert route.intent == "compensation.calculate"
+    # 续接读得回上一轮槽位
+    ctx = _comp_ctx_from_session(session)
+    assert ctx is not None and ctx.employee_id == 106401
+
+
+def test_keyword_overrides_session_continuation():
+    # 关键词在调度顺序里优先于续接:用户可随时用关键词从在途任务切走(为多能力预留)。
+    assert _route_by_keyword("再帮我算下补偿金").intent == "compensation.calculate"
+
+
+def test_empty_session_has_no_active_capability_route():
+    assert _route_by_capability(None) is None
+    assert _comp_ctx_from_session(ChatSession(conversation_id=None)) is None
+

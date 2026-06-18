@@ -370,11 +370,15 @@ ai_prompt_templates
 ai_conversations
 - id
 - user_id
-- tenant_id
 - channel
-- page_context
+- active_capability_id   # 已实现:进行中任务的能力 id,调度器据此做能力无关的多轮续接
+- state                  # 已实现:通用槽位 JSON,按 capability_id 分区(如补偿金 employee_id/leave_date/plan)
 - created_at
 - updated_at
+
+# ai_conversations 已落地(0038 迁移)。多轮续接由该会话层统一承载:任何 chat 能力把"待补信息"
+# 写进 state 并置 active_capability_id,下一轮裸输入(如只回一个日期)按 active_capability_id 续接,
+# 不再依赖前端回传能力特异性字段(原 compensation_context 已下线)。
 
 ai_messages
 - id

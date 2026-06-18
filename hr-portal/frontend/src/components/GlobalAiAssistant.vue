@@ -3,7 +3,7 @@ import { nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { MagicStick, Position } from '@element-plus/icons-vue'
-import { aiApi, type AiAction, type AiChatMessage, type CompensationChatContext } from '@/api/ai'
+import { aiApi, type AiAction, type AiChatMessage } from '@/api/ai'
 import type { CompensationResult, EmployeeCandidate } from '@/api/tools'
 
 interface ChatMessage {
@@ -23,7 +23,8 @@ const input = ref('')
 const sending = ref(false)
 const threadRef = ref<HTMLElement | null>(null)
 const messages = ref<ChatMessage[]>([])
-const compensationContext = ref<CompensationChatContext | null>(null)
+// 多轮会话:前端只持有后端发的 conversation_id,任务状态/槽位由后端 PG 持久化。
+const conversationId = ref<number | null>(null)
 let messageId = 0
 
 function chatHistory(): AiChatMessage[] {
@@ -89,12 +90,12 @@ async function sendMessage(
     const result = await aiApi.chat({
       message,
       page_path: route.fullPath,
+      conversation_id: conversationId.value,
       history: chatHistory(),
       selected_employee_id: selectedEmployeeId,
-      compensation_context: compensationContext.value,
     })
-    if (result.compensation_context) {
-      compensationContext.value = result.compensation_context
+    if (result.conversation_id) {
+      conversationId.value = result.conversation_id
     }
     messages.value.push({
       id: ++messageId,

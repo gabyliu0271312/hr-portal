@@ -34,3 +34,28 @@ class AiProviderConfig(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+
+class AiConversation(Base):
+    """全局 AI 多轮会话状态。承载通用的"进行中能力 + 槽位",与具体能力解耦。"""
+
+    __tablename__ = "ai_conversations"
+    __table_args__ = (
+        Index("ix_ai_conversations_user_updated", "user_id", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    channel: Mapped[str] = mapped_column(String(16), nullable=False, default="web", server_default="web")
+    # 进行中任务的能力 id;None=无在途任务。调度器据此做能力无关的续接。
+    active_capability_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 通用槽位,按 capability_id 分区,如 {"compensation.calculate_preview": {...}}
+    state: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
