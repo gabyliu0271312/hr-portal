@@ -186,6 +186,8 @@ User Message
 | `report.explain_result` | answer | 解释报表结果摘要 |
 | `report.apply_draft` | apply | 把报表草稿填入设计器 |
 | `report.export` | export | 导出报表，必须确认和审计 |
+| `data.query` | query | 自然语言转 QuerySpec，经语义层编译执行受控查询（不生成 SQL） |
+| `data.explain_result` | answer | 解释查询结果摘要与异常，只覆盖已授权且已返回数据 |
 
 ### 6.4 成本分摊能力
 

@@ -20,10 +20,13 @@
 - [服务器部署手册](./hr_portal_server_deploy.md) — 192.168.10.13 生产部署全记录；三大坑(端口白名单找IT开/拉镜像被墙换国内源/base镜像复用)；前端 37801 对外、db 仅 127.0.0.1；FineBI 同机回环连库；更新/重启/排障命令
 - [数据源重构方案（JSONB→标准列）](./hr_portal_datasource_refactor.md) — 待实施；解决 FineBI 数值无法聚合根本问题；改动 models/sync/push/router 四处；字段类型改动策略：新增直接生效，已有字段改类型需人工确认
 - [Codegen 命名机制](./hr_portal_codegen_naming.md) — 表名/字段 code 三层定名：同中文label复用→AI翻译→规则兜底；建表与同步共用 codegen/service.py；改命名问题先看这条
+- [时间显示统一北京时间](./hr_portal_time_display.md) — 前端所有时间一律走 utils/datetime.ts(formatDateTime/formatDateOnly)，锁 Asia/Shanghai；禁止裸用 toLocaleString；后端存 UTC 不动
 - [数据范围标签新版语义](./hr_portal_scopes_design.md) — 组织范围+人员范围两段式（alembic 0009）；单标签内 AND、多标签 OR；filters 字段映射花名册.姓名/员工类型/公司名称
+- [文档打印与预览方案](./hr_portal_docx_print.md) — Gotenberg 独立服务转 PDF（backend 不内置 LibreOffice）；内网拉不到镜像/字体只能本地 export→传→import；真宋体不入库单独传；三处预览统一 DocumentPaperPreview + printPdfBlob；协议 3 页真因=1.5 行距，render_docx_template 强制 A4+压行距；生产 compose 差异已纳入仓库
 - [AI 原生开发原则](../specs/004-ai-native-workbench/ai-native-development-principles.md) — HR 工作台根原则：所有新能力都要具备被 AI 理解、调用、校验、审计和确认的准备
 - [AI 能力注册表](../specs/004-ai-native-workbench/ai-capability-registry.md) — capability 元数据、工具边界、能力清单、权限叠加和评测用例
 - [AI 平台完整路线图](../specs/004-ai-native-workbench/ai-platform-roadmap.md) — Phase 0-7 阶段拆解、进入条件、验收标准；Phase 5 是 Workflow/Capability Orchestration，不是黑盒 Skill
+- [ChatBI 走 QuerySpec 不走裸 SQL](./hr_portal_chatbi_queryspec.md) — NL 查数定调 Text-to-QuerySpec + 指标语义层；权限编译期注入；口径治理待办；已写入 specs/004
 
 ## 主要文档导航
 

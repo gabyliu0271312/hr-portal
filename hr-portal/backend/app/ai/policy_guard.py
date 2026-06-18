@@ -4,10 +4,26 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.ai.capabilities import CapabilityDefinition
+from app.ai.deny_patterns import DENY_PATTERN_REGEX, output_deny_hits
 
 
 class AiPolicyError(ValueError):
     pass
+
+
+# 输出级 deny 收口：公式与 data.query 共用同一道输出闸。
+# 禁止内容定义统一来自 app.ai.deny_patterns（单一真相源）。
+def enforce_output_deny_patterns(capability: CapabilityDefinition, text: str | None) -> list[str]:
+    """按 capability.policy_profile.deny_patterns 扫描模型输出，命中即拒。
+
+    禁止模式来自 app.ai.deny_patterns.DENY_PATTERN_REGEX。仅在输出为结构化/受控文本的
+    能力上调用（如 data.query 的 QuerySpec、公式草稿），避免对自由文本解释类能力误伤。
+    """
+    patterns = capability.policy_profile.get("deny_patterns", []) or []
+    hits = output_deny_hits(text, patterns)
+    if hits:
+        raise AiPolicyError(f"模型输出命中禁止模式: {hits}")
+    return hits
 
 
 @dataclass(frozen=True)

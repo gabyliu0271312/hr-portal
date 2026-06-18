@@ -422,7 +422,40 @@ ai_eval_cases
 - expected
 - risk_tags
 - enabled
+
+ai_semantic_datasets
+- dataset_id
+- name
+- base_object          # 表或视图，白名单
+- required_permission
+- scope_role
+- is_enabled
+
+ai_semantic_dimensions
+- dimension_id
+- dataset_id
+- field_code
+- label
+- sensitive
+
+ai_semantic_metrics
+- metric_id
+- name
+- definition_expr      # 预定义聚合/口径公式，管理员维护，模型只引用
+- version
+- required_permission
+- is_enabled
+- owner
+
+ai_semantic_join_paths
+- join_id
+- left_dataset
+- right_dataset
+- on_condition         # 预定义关联条件白名单
+- is_enabled
 ```
+
+语义层与 Capability 同样以代码/管理员维护为准；QuerySpec 只能引用其中已启用项，指标口径公式由管理员定义，不由模型生成。指标口径治理可后续补齐，基础阶段先建结构。
 
 Redis 只用于：
 
@@ -541,6 +574,61 @@ GET  /api/v1/system-logs?category=ai_call
 - 不允许无来源编造制度条款。
 
 第一期可以先不做向量库，使用少量手工维护知识文档和关键词检索；RAG 成熟后再扩展。
+
+### 8.7 `data.query`：自然语言数据查询（受控 ChatBI）
+
+目标：把“我部门今年每月离职率”“研发中心 5 月人力成本”这类自然语言分析需求，转成受控查询规格 QuerySpec，由后端编译执行，而不是由模型生成 SQL。
+
+核心原则：
+
+```text
+模型只组合语义层（选指标、选维度、选筛选），不生成 SQL、不生成 join、不写 WHERE。
+SQL 由后端 QuerySpec Compiler 用预定义口径和关联路径生成。
+```
+
+它不是 Text-to-SQL，而是 Text-to-QuerySpec：
+
+```text
+自然语言
+  -> 模型输出 QuerySpec（白名单 JSON）
+  -> Schema 校验（指标/维度/筛选是否都已注册）
+  -> Policy Guard（指标级、数据集级权限）
+  -> QuerySpec Compiler 编译为参数化 SQL
+  -> 强制注入 scope_filter（行级权限）+ masker（列级脱敏）
+  -> 复用现有 run_dataset_query 执行
+  -> 返回表格/卡片
+```
+
+QuerySpec 示例：
+
+```json
+{
+  "metric": "turnover_rate",
+  "dimensions": ["dept", "month"],
+  "filters": [{"field": "year", "op": "eq", "value": "2026"}],
+  "time_grain": "month",
+  "limit": 100
+}
+```
+
+依赖一类新资产：指标语义层（数据模型见 6 节）：
+
+```text
+Dataset Registry    可查表/视图白名单
+Dimension Registry  可分组字段
+Metric Registry     预定义口径与聚合公式，如 离职率 = 离职人数 / 平均在职人数
+Join Path Registry  预定义关联路径，不开放任意 join
+```
+
+边界：
+
+- 模型不能引用未注册的指标/维度/字段；缺指标时回问或提示管理员新增，不得即兴计算口径。
+- 不开放任意多表 join，只允许预定义 Join Path。
+- 用户无权访问的指标/字段在 Context Packet 阶段即过滤，模型看不到选项。
+- 模型输出中不得出现原始 SQL、表名拼接或 join 条件；出现即判为非法草稿。
+- 指标口径定义、口径争议和版本化属于后续治理事项；基础搭建阶段只需预留注册表结构与编译器接口，不要求口径全部定义完毕。
+
+附属能力 `data.explain_result`：对 data.query 结果做摘要和异常提示，只解释用户已授权且已返回的数据，不因追问扩大查询范围。
 
 ## 9. 前端体验设计
 
@@ -696,6 +784,7 @@ ADR-AI-006：公式函数区分纯计算函数和数据动作函数。
 ADR-AI-007：飞书机器人延后到 Web 工作台稳定之后。
 ADR-AI-008：模型使用能力标签配置，不在业务代码中写死具体模型名称。
 ADR-AI-009：微调不是第一阶段地基，必须先完成能力注册、工具边界、上下文治理、策略校验和评测体系。
+ADR-AI-010：自然语言数据查询采用 Text-to-QuerySpec + 语义层编译执行，禁止模型生成 SQL；指标口径由指标语义层统一定义、版本化，模型只引用不创造。
 ```
 
 ## 14. 一句话结论

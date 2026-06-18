@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
@@ -13,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.audit import AiAuditTimer, record_ai_log
 from app.ai.capabilities import CAPABILITY_BY_ID, CapabilityDefinition, get_capability, user_has_permission, visible_capabilities
+from app.ai.context_builder import build_context_packet
 from app.ai.models import AiProviderConfig
 from app.ai.policy_guard import AiPolicyError, policy_profile_for_capability, validate_capability_policy
 from app.ai.provider import (
@@ -359,17 +362,17 @@ def _explain_report_config(payload: ReportExplainConfigIn) -> ReportExplainConfi
         parts.append(f"已开启聚合，配置了 {len(payload.aggregations)} 个字段聚合方式")
     summary = "，".join(parts) + "。"
 
-    context_packet = {
-        "page": {
+    context_packet = build_context_packet(
+        page={
             "kind": "report_config",
             "report_id": payload.report_id,
             "report_name": payload.report_name,
         },
-        "permission": {
+        permission={
             "required": {"resource": "report.list", "operation": "V"},
             "mode": "read_only",
         },
-        "data": {
+        data={
             "columns": payload.columns,
             "visible_fields": visible_fields,
             "filters": payload.filters,
@@ -377,12 +380,11 @@ def _explain_report_config(payload: ReportExplainConfigIn) -> ReportExplainConfi
             "aggregate": payload.aggregate,
             "aggregations": payload.aggregations,
         },
-        "attachments": [],
-        "domain_context": {
+        domain_context={
             "capability_id": "report.explain_config",
             "side_effect": "none",
         },
-    }
+    )
     return ReportExplainConfigOut(
         answer=summary,
         summary=summary,
@@ -894,6 +896,117 @@ async def _handle_compensation_chat(
     )
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# 全局 AI chat 通用路由：按注册表把意图分发到已注册 Capability 的处理器，
+# 不在 router 内堆叠 `if intent == ...` 分支。新增 chat 场景（如 data.query）
+# 只需向 CHAT_ROUTES 追加一条路由 + 提供 extractor/handler，无需改调度逻辑。
+# ──────────────────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class ChatRoute:
+    intent: str
+    capability_id: str
+    keyword_triggers: tuple[str, ...]
+    description: str
+    extractor: Callable[[AiChatIn, AsyncSession, AiAuditTimer], Awaitable[tuple[dict[str, Any], dict[str, Any] | None, str]]]
+    handler: Callable[[AiChatIn, dict[str, Any], User, AsyncSession, AiAuditTimer], Awaitable[AiChatOut]]
+
+
+CHAT_ROUTES: tuple[ChatRoute, ...] = (
+    ChatRoute(
+        intent="compensation.calculate",
+        capability_id="compensation.calculate_preview",
+        keyword_triggers=("补偿金", "赔偿金"),
+        description="员工离职补偿金 / 赔偿金的只读试算与跳转",
+        extractor=_extract_compensation_request_with_model,
+        handler=_handle_compensation_chat,
+    ),
+)
+
+
+def _route_by_keyword(message: str) -> ChatRoute | None:
+    for route in CHAT_ROUTES:
+        if any(keyword in message for keyword in route.keyword_triggers):
+            return route
+    return None
+
+
+def _route_by_intent(intent: str) -> ChatRoute | None:
+    for route in CHAT_ROUTES:
+        if route.intent == intent:
+            return route
+    return None
+
+
+async def _classify_chat_intent(
+    payload: AiChatIn, db: AsyncSession, timer: AiAuditTimer
+) -> tuple[str, dict[str, Any] | None]:
+    """通用意图分类：在已注册 chat 意图中选一个，否则 general_question。"""
+    config = await active_ai_config(db)
+    if not config or not config.api_key_encrypted or not (config.model_reasoning or config.model_fast_json):
+        return "general_question", None
+    model = (config.model_reasoning or config.model_fast_json or "").strip()
+    catalog = "\n".join(f"- {route.intent}: {route.description}" for route in CHAT_ROUTES)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是 HR Portal 全局 AI 入口的意图路由器，只输出 JSON 对象：{\"intent\": \"...\"}。"
+                "在以下已注册意图中选择最匹配的一个；都不匹配时返回 general_question。\n" + catalog
+            ),
+        },
+        {"role": "user", "content": payload.message},
+    ]
+    timer.add_event("model_call", capability_id="ai.chat", purpose="intent_classify", model=model)
+    try:
+        _, content, usage = await chat_completion_openai_compatible(
+            api_key=decrypt(config.api_key_encrypted),
+            base_url=config.base_url,
+            model=model,
+            messages=messages,
+            timeout=int(config.timeout_seconds or 30),
+            response_format={"type": "json_object"},
+        )
+        raw = parse_json_content(content)
+        intent = str(raw.get("intent") or "general_question")
+        if _route_by_intent(intent) is None:
+            intent = "general_question"
+        return intent, usage
+    except Exception as exc:
+        timer.add_event(
+            "model_call",
+            status="error",
+            capability_id="ai.chat",
+            purpose="intent_classify",
+            reason=str(exc)[:300],
+        )
+        return "general_question", None
+
+
+async def _resolve_chat_route(
+    payload: AiChatIn, db: AsyncSession, timer: AiAuditTimer
+) -> tuple[ChatRoute | None, str, dict[str, Any] | None]:
+    """先关键词路由（便宜、确定），无命中再用通用意图分类兜底。"""
+    route = _route_by_keyword(payload.message)
+    if route is not None:
+        timer.add_event(
+            "capability_resolve",
+            capability_id=route.capability_id,
+            route_intent=route.intent,
+            parse_mode="keyword",
+        )
+        return route, "keyword", None
+    intent, usage = await _classify_chat_intent(payload, db, timer)
+    route = _route_by_intent(intent)
+    if route is not None:
+        timer.add_event(
+            "capability_resolve",
+            capability_id=route.capability_id,
+            route_intent=route.intent,
+            parse_mode="intent_classify",
+        )
+    return route, "intent_classify", usage
+
+
 @router.get("/capabilities", response_model=list[CapabilityOut])
 async def list_capabilities(
     user: User = Depends(current_user),
@@ -921,18 +1034,19 @@ async def global_ai_chat(
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="input")
         validate_capability_policy(capability, used_tools=["compensation.employee_resolve", "compensation.calculate_preview"])
         timer.add_event("policy_validation", capability_id=capability.capability_id, target="capability")
-        extracted, usage, parse_mode = await _extract_compensation_request_with_model(payload, db, timer)
-        intent = str(extracted.get("intent") or "")
-        if intent != "compensation.calculate" and "补偿金" not in payload.message:
+        route, parse_mode, usage = await _resolve_chat_route(payload, db, timer)
+        if route is None:
             out = AiChatOut(
                 intent="general_question",
                 status="unsupported",
                 answer="当前全局 AI 试点只支持补偿金只读试算和跳转。你可以说：帮我计算某某的补偿金。",
                 trace_id=timer.trace_id,
-                extracted=extracted,
             )
         else:
-            out = await _handle_compensation_chat(payload, extracted, user, db, timer)
+            extracted, extract_usage, extract_mode = await route.extractor(payload, db, timer)
+            usage = extract_usage or usage
+            parse_mode = f"{parse_mode}+{extract_mode}"
+            out = await route.handler(payload, extracted, user, db, timer)
         validate_model_payload(AiChatOut, out, label="ai.chat output")
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="output")
         await record_ai_log(

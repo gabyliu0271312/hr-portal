@@ -381,11 +381,22 @@ frontend/src/api/ai.ts
 9. 补充系统日志、用量统计和失败解释。
 10. 再考虑 Prompt 优化、模型切换和微调可行性。
 
+## 12.1 Phase 0 收尾项（为 Phase 2 data.query / 语义层铺路）
+
+当前 Phase 0/1 已落地 Capability Registry、Schema/Policy/Audit/Trace、字段权限过滤、公式全套和只读对照场景。进入 Phase 2 前补齐以下三项，避免接 `data.query` 时返工。
+
+实施状态（2026-06-18）：三项均已完成并通过测试（ai/formula/report 50 项全绿）。
+
+1. ✅ 抽取 `context_builder.py`：Context Packet 由 `build_context_packet` 统一构建，固定 `page / permission / data / attachments / domain_context` 五分区，`report.explain_config` 已接入；`domain_context` 下预留 `semantic_layer`、`query_spec` 占位（默认 None，Phase 2 落编译器）。
+2. ✅ Policy Guard 收口输出级 deny：禁止内容定义抽到单一真相源 `app/ai/deny_patterns.py`（`DENY_PATTERN_REGEX` 通用正则 + `FORMULA_BLOCK_TOKENS` 公式 token）；`policy_guard.enforce_output_deny_patterns` 与 `formula_safety.safety_issues` 都从该模块取，不再各自维护两套；`data.query` 的“禁止模型输出 SQL/表名/join”复用 `enforce_output_deny_patterns`。
+3. ✅ `ai.chat` 通用路由：`/chat` 改为 `ChatRoute` 注册表 + `_resolve_chat_route`（关键词优先路由 + 通用意图分类 `_classify_chat_intent` 兜底），移除 `if intent == compensation` 硬编码分支；补偿金作为首条注册路由，新增 chat 场景（如 `data.query`）只需向 `CHAT_ROUTES` 追加路由 + 提供 extractor/handler，不改调度逻辑。
+
 注意：
 
 - 上述开发顺序仅覆盖 Phase 0/1。
 - Phase 2 之后的多场景复用、治理平台、RAG、工作流编排、渠道扩展和微调，必须先按 `ai-platform-roadmap.md` 做阶段升级评估。
 - Phase 5 是 `AI Workflow / Capability Orchestration`，类似 Skill 的能力，但不得实现为黑盒大 Skill；必须由多个原子 Capability、Tool、Artifact、Policy Guard 和用户确认点组成。
+- Phase 2 将新增 `data.query`（自然语言数据查询 / 受控 ChatBI）与指标语义层。为避免地基返工，Phase 0 的 Context Packet 顶层分区、Capability 元数据 schema 和 Tool Wrapper 接口应预留 `semantic_layer` / `query_spec` 扩展位；但 Phase 0/1 不实现指标语义层和 QuerySpec 编译器。本文“不让 LLM 生成 SQL 并执行”对 data.query 仍然成立——QuerySpec 不是 LLM 生成的 SQL，SQL 由后端编译器生成。
 
 ## 13. 验收口径
 

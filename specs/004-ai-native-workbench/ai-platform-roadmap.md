@@ -65,6 +65,7 @@
   - Prompt Template
   - Eval Case
   - Policy Profile
+  - Semantic Layer Registry（Dataset/Dimension/Metric/Join Path）
 
 上下文层
   - Context Packet
@@ -236,6 +237,8 @@
 - 成本分摊能力：`cost_allocation.explain_scheme`、`cost_allocation.validate_scheme`
 - 文档能力：`document.draft_income_certificate`、`document.draft_agreement`
 - 数据集能力：`dataset.list_fields`、`dataset.explain_lineage`
+- 自然语言数据查询能力：`data.query`（NL→QuerySpec）、`data.explain_result`，产出受控查询规格由后端编译执行，禁止生成 SQL。
+- 指标语义层 MVP：`Dataset / Dimension / Metric / Join Path` 注册表与 `QuerySpec Compiler`；指标口径由管理员定义，模型只引用。口径争议与版本化治理作为后续事项，本阶段只需建结构和编译器接口。
 - 页面级 Copilot 统一接入 `POST /api/v1/ai/chat`
 - 非对话调用路径：允许页面、表单、定时任务或事件通过后端 API 直接调用已注册 Capability，并传入结构化参数。
 - 嵌入式建议能力：例如表单异常提示、规则自然语言解释、配置质量检查。
@@ -257,6 +260,7 @@
 - 新场景不新增独立模型调用接口。
 - 新场景不绕过 Capability Registry 直接调用模型或工具。
 - 报表、成本分摊、文档的执行仍走原业务服务权限。
+- `data.query` 不得返回未注册的指标/维度/字段；编译产物必须经 scope_filter 行级过滤和列级脱敏；模型输出中不得包含原始 SQL、表名拼接或 join 条件。
 - 非对话调用必须携带 actor、trigger_type、trace_id 和业务上下文来源。
 - 实验入口的调用量、失败率或复用频率超过阈值后，必须升级为正式 Capability。
 - 任意页面不得绕过后端统一入口直接调用模型。
@@ -266,6 +270,7 @@
 ### 不做
 
 - 不做复杂跨模块自动执行。
+- 不开放任意多表 join，只允许预定义 Join Path；不允许模型自定义指标口径。
 - 不做外部渠道。
 - 不做向量库问答，除非已有文档 ACL。
 - 不让 `ai.experiment` 访问敏感字段、业务写入工具或未授权数据。
