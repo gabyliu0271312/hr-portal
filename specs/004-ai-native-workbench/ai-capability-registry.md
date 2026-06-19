@@ -207,6 +207,16 @@ User Message
 | `document.draft_income_certificate` | draft | 生成收入证明草稿 |
 | `document.draft_agreement` | draft | 生成协议草稿 |
 | `document.generate_file` | export | 生成正式文件，必须确认 |
+| `compensation.employee_resolve` | query | 根据姓名、工号或英文名解析补偿金候选员工 |
+| `compensation.calculate_preview` | preview | 只读试算补偿金，并在会话槽位中保留员工、日期、方案、地区 |
+| `document.preview_from_context` | preview | 基于已授权业务上下文预览模板文档，例如补偿金试算后的解除协议 |
+| `document.print_from_context` | export | 基于已授权业务上下文生成可打印 PDF，必须由用户在对话中明确发起 |
+
+补偿金后续文档动作约定：
+
+- `ai.chat` 的补偿金能力只通过 LLM extractor 识别“继续计算 / 预览协议 / 打印协议”等后续动作，输出结构化 `followup_action`；调度层和前端不得用关键词或正则兜底。
+- 后端 action 必须是通用 `document_preview` / `document_print`，携带 `business_type`、`template_code`、`source_capability_id` 和已校验参数；前端用统一文档预览组件执行，不能为每个业务能力复制一套弹窗。
+- 预览是 `preview` 能力，不写入数据；打印属于用户明确触发的 `export` 类动作，仍复用业务接口和生成日志，不绕过模板、权限、数据范围与字段白名单。
 
 ## 7. 前端维护界面
 

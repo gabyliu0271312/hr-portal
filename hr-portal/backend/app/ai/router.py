@@ -152,7 +152,7 @@ class AiChatIn(BaseModel):
 class AiActionOut(BaseModel):
     type: str
     label: str
-    route: str
+    route: str = ""
     query: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -513,6 +513,12 @@ def _normalize_optional_plan(value: Any) -> str | None:
     return _normalize_plan(value)
 
 
+def _normalize_followup_action(value: Any) -> str:
+    text = str(value or "").strip()
+    allowed = {"calculate", "agreement_preview", "agreement_print"}
+    return text if text in allowed else "calculate"
+
+
 def _clean_name(value: Any) -> str:
     """轻量清洗模型给出的姓名/工号:去引号和首尾标点。语义解析由大模型负责,这里不做。"""
     text = str(value or "").strip()
@@ -539,6 +545,7 @@ def _merge_compensation_request(
         "leave_date": context.leave_date.isoformat() if context and context.leave_date else None,
         "plan": _normalize_optional_plan(context.plan) if context else "N+1",
         "region": context.region if context else None,
+        "followup_action": _normalize_followup_action(extracted.get("followup_action")),
         "changed_fields": list(extracted.get("changed_fields") or []),
     }
     if selected_employee_id:
@@ -589,6 +596,8 @@ async def _extract_compensation_request_with_model(
                 "只输出 JSON 对象，不解释。"
                 f"今天是 {today}（Asia/Shanghai）。"
                 "如果用户想计算补偿金，提取 employee_keyword、leave_date(YYYY-MM-DD 或 null)、plan(N 或 N+1)、region。"
+                "同时识别 followup_action: 默认为 calculate；如果用户基于上一轮补偿金结果要求预览/查看解除协议，"
+                "输出 agreement_preview；如果用户明确要求打印解除协议或打印刚才这份，输出 agreement_print。"
                 "用户给的离职日期可能不完整或用口语，例如“7月9号”“7/9”“下个月15号”“明天”“月底”，"
                 "请结合今天把它解析成完整的 YYYY-MM-DD；缺年份时默认今年（若该日期明显已过去很久可用明年）。"
                 "无法判断具体日期时 leave_date 才返回 null。"
@@ -617,6 +626,7 @@ async def _extract_compensation_request_with_model(
                         "leave_date": "YYYY-MM-DD 或 null；口语/缺年份的日期请结合 today 解析后再填",
                         "plan": "N、N+1 或 null，仅当用户明确指定或修改",
                         "region": "string 或 null",
+                        "followup_action": "calculate、agreement_preview 或 agreement_print",
                         "changed_fields": "本轮明确修改的字段名数组，例如 ['plan']",
                     },
                 },
@@ -644,6 +654,7 @@ async def _extract_compensation_request_with_model(
             "leave_date": raw.get("leave_date") or None,
             "plan": _normalize_optional_plan(raw.get("plan")),
             "region": raw.get("region") or None,
+            "followup_action": _normalize_followup_action(raw.get("followup_action")),
             "changed_fields": changed_fields,
         }, usage, "model"
     except Exception as exc:
@@ -676,6 +687,25 @@ def _compensation_action(query: dict[str, Any], label: str = "打开补偿金计
         type="navigate",
         label=label,
         route="/tools/compensation-calc",
+        query=query,
+    )
+
+
+def _agreement_document_action(ctx: CompensationChatContext, action_type: str) -> AiActionOut:
+    is_print = action_type == "agreement_print"
+    query: dict[str, Any] = {
+        "business_type": "agreement",
+        "template_code": "agreement_release",
+        "source_capability_id": COMP_CAP,
+        "employee_id": ctx.employee_id,
+        "leave_date": ctx.leave_date.isoformat() if ctx.leave_date else None,
+        "plan": _normalize_plan(ctx.plan),
+        "region": ctx.region,
+    }
+    return AiActionOut(
+        type="document_print" if is_print else "document_preview",
+        label="打印解除协议" if is_print else "预览解除协议",
+        route="",
         query=query,
     )
 
@@ -725,8 +755,12 @@ async def _handle_compensation_chat(
 ) -> AiChatOut:
     employee_capability = _ensure_capability("compensation.employee_resolve")
     calc_capability = _ensure_capability("compensation.calculate_preview")
+    doc_preview_capability = _ensure_capability("document.preview_from_context")
+    doc_print_capability = _ensure_capability("document.print_from_context")
     validate_capability_policy(employee_capability, used_tools=["compensation.employee_search"])
     validate_capability_policy(calc_capability, used_tools=["compensation.employee_search", "compensation.calculate"])
+    validate_capability_policy(doc_preview_capability, used_tools=["document.prepare_from_context", "document.preview"])
+    validate_capability_policy(doc_print_capability, used_tools=["document.prepare_from_context", "document.pdf"])
     if not await user_has_permission(user, db, calc_capability.required_permission):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权使用补偿金计算")
 
@@ -738,6 +772,51 @@ async def _handle_compensation_chat(
     )
     keyword = str(extracted.get("employee_keyword") or "").strip()
     selected_employee_id = extracted.get("employee_id")
+    followup_action = _normalize_followup_action(extracted.get("followup_action"))
+    if followup_action in {"agreement_preview", "agreement_print"}:
+        if (
+            not selected_employee_id
+            or not extracted.get("leave_date")
+            or not extracted.get("plan")
+        ):
+            _comp_ctx_to_session(session, prev_ctx, active=True)
+            return AiChatOut(
+                intent="compensation.calculate",
+                status="need_compensation_context",
+                answer="还没有可用于生成协议的完整补偿金结果。请先完成补偿金试算，再让我预览或打印协议。",
+                trace_id=timer.trace_id,
+                missing_fields=["employee_id", "leave_date", "plan"],
+                actions=[_compensation_action(_compensation_route_query(plan=extracted.get("plan") or "N+1"))],
+                extracted=extracted,
+            )
+        parsed_leave_date = date.fromisoformat(str(extracted.get("leave_date")))
+        ctx = CompensationChatContext(
+            employee_id=selected_employee_id,
+            employee_keyword=keyword or _context_employee_keyword(prev_ctx),
+            employee_name=prev_ctx.employee_name if prev_ctx else None,
+            leave_date=parsed_leave_date,
+            plan=_normalize_plan(extracted.get("plan")),
+            region=extracted.get("region"),
+        )
+        _comp_ctx_to_session(session, ctx, active=True)
+        capability = doc_print_capability if followup_action == "agreement_print" else doc_preview_capability
+        timer.add_event(
+            "tool",
+            tool_name="document.action_from_context",
+            capability_id=capability.capability_id,
+            business_type="agreement",
+            action=followup_action,
+        )
+        action = _agreement_document_action(ctx, followup_action)
+        answer = "已准备好解除协议预览。" if followup_action == "agreement_preview" else "已准备好打印解除协议。"
+        return AiChatOut(
+            intent="compensation.calculate",
+            status=followup_action,
+            answer=answer,
+            trace_id=timer.trace_id,
+            actions=[action],
+            extracted=extracted,
+        )
     if not keyword and not selected_employee_id:
         _comp_ctx_to_session(session, prev_ctx, active=True)
         return AiChatOut(
@@ -1015,7 +1094,15 @@ async def global_ai_chat(
         timer.add_event("capability", capability_id=capability.capability_id, risk_level=capability.risk_level)
         validate_model_payload(AiChatIn, payload, label="ai.chat input")
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="input")
-        validate_capability_policy(capability, used_tools=["compensation.employee_resolve", "compensation.calculate_preview"])
+        validate_capability_policy(
+            capability,
+            used_tools=[
+                "compensation.employee_resolve",
+                "compensation.calculate_preview",
+                "document.preview_from_context",
+                "document.print_from_context",
+            ],
+        )
         timer.add_event("policy_validation", capability_id=capability.capability_id, target="capability")
         conv, session = await load_or_create_conversation(db, user, payload.conversation_id)
         timer.add_event("conversation", conversation_id=session.conversation_id, active_capability_id=session.active_capability_id)

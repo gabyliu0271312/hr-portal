@@ -3,6 +3,7 @@ from datetime import date
 
 from app.ai.conversation import ChatSession
 from app.ai.router import (
+    _agreement_document_action,
     CompensationChatContext,
     _comp_ctx_from_session,
     _merge_compensation_request,
@@ -59,7 +60,12 @@ def test_phase2_global_ai_compensation_capabilities_are_registered():
     assert chat.type == "chat"
     assert chat.risk_level == "low"
     assert chat.side_effect_tags == []
-    assert chat.tools == ["compensation.employee_resolve", "compensation.calculate_preview"]
+    assert chat.tools == [
+        "compensation.employee_resolve",
+        "compensation.calculate_preview",
+        "document.preview_from_context",
+        "document.print_from_context",
+    ]
 
     assert resolve is not None
     assert resolve.required_permission == ("tools.compensation_calc", "V")
@@ -71,6 +77,17 @@ def test_phase2_global_ai_compensation_capabilities_are_registered():
     assert preview.risk_level == "medium"
     assert preview.side_effect_tags == []
     assert preview.tools == ["compensation.employee_search", "compensation.calculate"]
+
+    doc_preview = get_capability("document.preview_from_context")
+    doc_print = get_capability("document.print_from_context")
+    assert doc_preview is not None
+    assert doc_preview.type == "preview"
+    assert doc_preview.required_permission == ("tools.compensation_calc", "V")
+    assert doc_preview.side_effect_tags == []
+    assert doc_print is not None
+    assert doc_print.type == "export"
+    assert doc_print.required_permission == ("tools.compensation_calc", "V")
+    assert doc_print.side_effect_tags == ["export"]
 
 
 # ── 合并层(确定性状态管理):extracted 由大模型 LLM extractor 产出,这里用字面值代入 ──
@@ -94,6 +111,52 @@ def test_compensation_patch_merges_with_previous_context():
     assert merged["employee_keyword"] == "gaby.liu刘琦"
     assert merged["leave_date"] == "2026-06-25"
     assert merged["plan"] == "N"
+
+
+def test_compensation_document_followup_action_merges_with_previous_context():
+    extracted = {
+        "intent": "compensation.calculate",
+        "followup_action": "agreement_preview",
+        "changed_fields": [],
+    }
+    merged = _merge_compensation_request(
+        extracted,
+        CompensationChatContext(
+            employee_id=123,
+            employee_keyword="张三",
+            employee_name="张三",
+            leave_date=date(2026, 6, 25),
+            plan="N+1",
+            region="深圳",
+        ),
+    )
+
+    assert merged["employee_id"] == 123
+    assert merged["leave_date"] == "2026-06-25"
+    assert merged["plan"] == "N+1"
+    assert merged["followup_action"] == "agreement_preview"
+
+
+def test_agreement_document_action_uses_generic_document_action_shape():
+    action = _agreement_document_action(
+        CompensationChatContext(
+            employee_id=123,
+            employee_keyword="张三",
+            employee_name="张三",
+            leave_date=date(2026, 6, 25),
+            plan="N+1",
+            region="深圳",
+        ),
+        "agreement_print",
+    )
+
+    assert action.type == "document_print"
+    assert action.route == ""
+    assert action.query["business_type"] == "agreement"
+    assert action.query["source_capability_id"] == "compensation.calculate_preview"
+    assert action.query["employee_id"] == 123
+    assert action.query["leave_date"] == "2026-06-25"
+    assert action.query["plan"] == "N+1"
 
 
 def test_compensation_merge_without_context_keeps_new_task_defaults():

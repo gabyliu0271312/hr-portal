@@ -20,7 +20,7 @@ export interface CompensationChatContext {
 export interface AiAction {
   type: string
   label: string
-  route: string
+  route?: string
   query: Record<string, any>
 }
 

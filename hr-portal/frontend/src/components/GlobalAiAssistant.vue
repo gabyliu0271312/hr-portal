@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { MagicStick, Position } from '@element-plus/icons-vue'
 import { aiApi, type AiAction, type AiChatMessage } from '@/api/ai'
 import type { CompensationResult, EmployeeCandidate } from '@/api/tools'
+import DocumentActionPreview from '@/components/document/DocumentActionPreview.vue'
 
 interface ChatMessage {
   id: number
@@ -22,6 +23,7 @@ const open = ref(false)
 const input = ref('')
 const sending = ref(false)
 const threadRef = ref<HTMLElement | null>(null)
+const documentActionRef = ref<InstanceType<typeof DocumentActionPreview> | null>(null)
 const messages = ref<ChatMessage[]>([])
 // 多轮会话:前端只持有后端发的 conversation_id,任务状态/槽位由后端 PG 持久化。
 const conversationId = ref<number | null>(null)
@@ -57,9 +59,15 @@ function employeeTitle(item: EmployeeCandidate) {
 }
 
 function runAction(action: AiAction) {
-  if (action.type !== 'navigate') return
-  router.push({ path: action.route, query: action.query || {} })
-  open.value = false
+  if (action.type === 'navigate') {
+    if (!action.route) return
+    router.push({ path: action.route, query: action.query || {} })
+    open.value = false
+    return
+  }
+  if (action.type === 'document_preview' || action.type === 'document_print') {
+    documentActionRef.value?.execute(action)
+  }
 }
 
 async function chooseCandidate(candidate: EmployeeCandidate, source: ChatMessage) {
@@ -174,7 +182,7 @@ function handleKeydown(event: KeyboardEvent) {
             <div v-if="item.actions?.length" class="action-list">
               <el-button
                 v-for="action in item.actions"
-                :key="`${action.type}-${action.route}`"
+                :key="`${action.type}-${action.route || action.label}`"
                 size="small"
                 type="primary"
                 plain
@@ -210,6 +218,8 @@ function handleKeydown(event: KeyboardEvent) {
       </div>
     </div>
   </el-drawer>
+
+  <DocumentActionPreview ref="documentActionRef" />
 </template>
 
 <style scoped>
