@@ -65,7 +65,7 @@ async function printAgreement() {
 
 async function execute(action: AiAction) {
   loading.value = true
-  open.value = true
+  open.value = action.type === 'document_preview'
   agreement.value = null
   previewHtml.value = ''
   originalPreviewHtml.value = ''
