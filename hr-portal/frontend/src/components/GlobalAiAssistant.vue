@@ -70,6 +70,13 @@ function runAction(action: AiAction) {
   }
 }
 
+function runAutoActions(actions: AiAction[]) {
+  const documentAction = actions.find((action) => action.type === 'document_preview' || action.type === 'document_print')
+  if (documentAction) {
+    nextTick(() => documentActionRef.value?.execute(documentAction))
+  }
+}
+
 async function chooseCandidate(candidate: EmployeeCandidate, source: ChatMessage) {
   const text = `选择 ${employeeTitle(candidate)}`
   messages.value.push({ id: ++messageId, role: 'user', content: text })
@@ -105,15 +112,17 @@ async function sendMessage(
     if (result.conversation_id) {
       conversationId.value = result.conversation_id
     }
+    const actions = result.actions || []
     messages.value.push({
       id: ++messageId,
       role: 'assistant',
       content: result.answer,
       traceId: result.trace_id,
       candidates: result.candidates || source?.candidates || [],
-      actions: result.actions || [],
+      actions,
       compensation: result.compensation,
     })
+    runAutoActions(actions)
     scrollToBottom()
   } catch (e: any) {
     const detail = e?.code === 'ECONNABORTED'
