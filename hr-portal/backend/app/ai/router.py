@@ -139,6 +139,7 @@ class CompensationChatContext(BaseModel):
     leave_date: date | None = None
     plan: str | None = Field(default=None, max_length=8)
     region: str | None = Field(default=None, max_length=80)
+    recent_results: list[dict[str, Any]] = Field(default_factory=list, max_length=5)
 
 
 class AiChatIn(BaseModel):
@@ -515,7 +516,7 @@ def _normalize_optional_plan(value: Any) -> str | None:
 
 def _normalize_followup_action(value: Any) -> str:
     text = str(value or "").strip()
-    allowed = {"calculate", "agreement_preview", "agreement_print"}
+    allowed = {"calculate", "agreement_preview", "agreement_print", "compare_results"}
     return text if text in allowed else "calculate"
 
 
@@ -597,7 +598,8 @@ async def _extract_compensation_request_with_model(
                 f"今天是 {today}（Asia/Shanghai）。"
                 "如果用户想计算补偿金，提取 employee_keyword、leave_date(YYYY-MM-DD 或 null)、plan(N 或 N+1)、region。"
                 "同时识别 followup_action: 默认为 calculate；如果用户基于上一轮补偿金结果要求预览/查看解除协议，"
-                "输出 agreement_preview；如果用户明确要求打印解除协议或打印刚才这份，输出 agreement_print。"
+                "输出 agreement_preview；如果用户明确要求打印解除协议或打印刚才这份，输出 agreement_print；"
+                "如果用户询问最近两次试算、N 与 N+1、两个方案或前后结果的差异/差额/多多少钱，输出 compare_results。"
                 "用户给的离职日期可能不完整或用口语，例如“7月9号”“7/9”“下个月15号”“明天”“月底”，"
                 "请结合今天把它解析成完整的 YYYY-MM-DD；缺年份时默认今年（若该日期明显已过去很久可用明年）。"
                 "无法判断具体日期时 leave_date 才返回 null。"
@@ -626,7 +628,7 @@ async def _extract_compensation_request_with_model(
                         "leave_date": "YYYY-MM-DD 或 null；口语/缺年份的日期请结合 today 解析后再填",
                         "plan": "N、N+1 或 null，仅当用户明确指定或修改",
                         "region": "string 或 null",
-                        "followup_action": "calculate、agreement_preview 或 agreement_print",
+                        "followup_action": "calculate、agreement_preview、agreement_print 或 compare_results",
                         "changed_fields": "本轮明确修改的字段名数组，例如 ['plan']",
                     },
                 },
@@ -710,6 +712,63 @@ def _agreement_document_action(ctx: CompensationChatContext, action_type: str) -
     )
 
 
+def _comp_result_snapshot(result: CompensationCalcOut) -> dict[str, Any]:
+    employee_name = result.employee.name or result.employee.chinese_name or result.employee.english_name or result.employee.employee_no
+    return {
+        "employee_id": result.employee.id,
+        "employee_name": employee_name,
+        "employee_no": result.employee.employee_no,
+        "leave_date": result.leave_date.isoformat(),
+        "plan": result.plan,
+        "service_years_n": result.service_years_n,
+        "compensation_base": result.compensation_base,
+        "n_amount": result.n_amount,
+        "extra_amount": result.extra_amount,
+        "total_amount": result.total_amount,
+    }
+
+
+def _append_recent_comp_result(ctx: CompensationChatContext, result: CompensationCalcOut) -> CompensationChatContext:
+    snapshot = _comp_result_snapshot(result)
+    recent = [item for item in (ctx.recent_results or []) if isinstance(item, dict)]
+    recent.append(snapshot)
+    ctx.recent_results = recent[-5:]
+    return ctx
+
+
+def _format_comp_result_label(item: dict[str, Any]) -> str:
+    employee = item.get("employee_name") or item.get("employee_no") or "该员工"
+    return f"{employee} / {item.get('leave_date') or '--'} / 方案 {item.get('plan') or '--'}"
+
+
+def _compare_recent_comp_results(ctx: CompensationChatContext | None) -> AiChatOut | None:
+    recent = [item for item in ((ctx.recent_results if ctx else None) or []) if isinstance(item, dict)]
+    if len(recent) < 2:
+        return None
+    previous, current = recent[-2], recent[-1]
+    previous_total = float(previous.get("total_amount") or 0)
+    current_total = float(current.get("total_amount") or 0)
+    delta = current_total - previous_total
+    abs_delta = abs(delta)
+    higher = current if current_total >= previous_total else previous
+    lower = previous if current_total >= previous_total else current
+    answer = (
+        f"最近两次补偿金试算差额为 {abs_delta:.2f}。"
+        f"{_format_comp_result_label(higher)} 合计 {float(higher.get('total_amount') or 0):.2f}，"
+        f"{_format_comp_result_label(lower)} 合计 {float(lower.get('total_amount') or 0):.2f}。"
+    )
+    if (previous.get("plan"), current.get("plan")) in {("N+1", "N"), ("N", "N+1")}:
+        answer += "差额主要来自 +1 金额。"
+    else:
+        answer += "差异可能来自方案、离职日期、员工或地区等试算条件变化。"
+    return AiChatOut(
+        intent="compensation.calculate",
+        status="compare_results",
+        answer=answer,
+        extracted={"followup_action": "compare_results"},
+    )
+
+
 def _context_from_result(result: CompensationCalcOut, keyword: str | None = None) -> CompensationChatContext:
     employee_name = result.employee.name or result.employee.chinese_name or result.employee.english_name or result.employee.employee_no
     return CompensationChatContext(
@@ -773,6 +832,22 @@ async def _handle_compensation_chat(
     keyword = str(extracted.get("employee_keyword") or "").strip()
     selected_employee_id = extracted.get("employee_id")
     followup_action = _normalize_followup_action(extracted.get("followup_action"))
+    if followup_action == "compare_results":
+        compared = _compare_recent_comp_results(prev_ctx)
+        if compared is None:
+            _comp_ctx_to_session(session, prev_ctx, active=True)
+            return AiChatOut(
+                intent="compensation.calculate",
+                status="need_more_results",
+                answer="我还没有两次可对比的补偿金试算结果。请先完成至少两次试算，例如分别算 N 和 N+1，再让我比较差额。",
+                trace_id=timer.trace_id,
+                missing_fields=["recent_results"],
+                extracted=extracted,
+            )
+        _comp_ctx_to_session(session, prev_ctx, active=True)
+        compared.trace_id = timer.trace_id
+        compared.extracted = extracted
+        return compared
     if followup_action in {"agreement_preview", "agreement_print"}:
         if (
             not selected_employee_id
@@ -797,6 +872,7 @@ async def _handle_compensation_chat(
             leave_date=parsed_leave_date,
             plan=_normalize_plan(extracted.get("plan")),
             region=extracted.get("region"),
+            recent_results=prev_ctx.recent_results if prev_ctx else [],
         )
         _comp_ctx_to_session(session, ctx, active=True)
         capability = doc_print_capability if followup_action == "agreement_print" else doc_preview_capability
@@ -875,6 +951,7 @@ async def _handle_compensation_chat(
                 leave_date=None,
                 plan=extracted.get("plan") or "N+1",
                 region=extracted.get("region"),
+                recent_results=prev_ctx.recent_results if prev_ctx else [],
             )
             _comp_ctx_to_session(session, pending_ctx, active=True)
             return AiChatOut(
@@ -911,6 +988,8 @@ async def _handle_compensation_chat(
     )
     employee_name = result.employee.name or result.employee.employee_no or "该员工"
     next_context = _context_from_result(result, keyword=keyword or result.employee.name)
+    next_context.recent_results = prev_ctx.recent_results if prev_ctx else []
+    next_context = _append_recent_comp_result(next_context, result)
     # 成功后仍保留 active + 完整槽位:允许后续"方案改为N"等裸续接;关键词可随时切走,不会永久粘死。
     _comp_ctx_to_session(session, next_context, active=True)
     answer = (

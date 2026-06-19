@@ -4,6 +4,8 @@ from datetime import date
 from app.ai.conversation import ChatSession
 from app.ai.router import (
     _agreement_document_action,
+    _append_recent_comp_result,
+    _compare_recent_comp_results,
     CompensationChatContext,
     _comp_ctx_from_session,
     _merge_compensation_request,
@@ -11,6 +13,7 @@ from app.ai.router import (
     _route_by_intent,
 )
 from app.main import app
+from app.tools.router import CompensationCalcOut, EmployeeCandidate
 
 
 def _route_paths() -> set[str]:
@@ -157,6 +160,58 @@ def test_agreement_document_action_uses_generic_document_action_shape():
     assert action.query["employee_id"] == 123
     assert action.query["leave_date"] == "2026-06-25"
     assert action.query["plan"] == "N+1"
+
+
+def _comp_result(plan: str, total: float, extra: float = 0.0) -> CompensationCalcOut:
+    return CompensationCalcOut(
+        employee=EmployeeCandidate(
+            id=123,
+            employee_no="E001",
+            name="张三",
+            chinese_name="张三",
+            english_name=None,
+            company="测试公司",
+            department="测试部门",
+            work_region="深圳",
+            employment_status=None,
+            hire_date="2026-01-01",
+            leave_date="2026-06-30",
+        ),
+        hire_date=date(2026, 1, 1),
+        leave_date=date(2026, 6, 30),
+        work_region="深圳",
+        basic_salary=100.0,
+        cap_amount=1000.0,
+        compensation_base=150.0,
+        service_years_n=0.5,
+        plan=plan,
+        n_amount=75.0,
+        extra_amount=extra,
+        total_amount=total,
+        cap_rule_id=1,
+    )
+
+
+def test_recent_compensation_results_can_be_compared_deterministically():
+    ctx = CompensationChatContext(employee_id=123, employee_keyword="张三", leave_date=date(2026, 6, 30), plan="N+1")
+    ctx = _append_recent_comp_result(ctx, _comp_result("N+1", 225.0, 150.0))
+    ctx = _append_recent_comp_result(ctx, _comp_result("N", 75.0, 0.0))
+
+    compared = _compare_recent_comp_results(ctx)
+
+    assert compared is not None
+    assert compared.status == "compare_results"
+    assert "差额为 150.00" in compared.answer
+    assert "方案 N+1" in compared.answer
+    assert "方案 N" in compared.answer
+    assert "差额主要来自 +1 金额" in compared.answer
+
+
+def test_recent_compensation_compare_requires_two_results():
+    ctx = CompensationChatContext(employee_id=123, employee_keyword="张三")
+    ctx = _append_recent_comp_result(ctx, _comp_result("N", 75.0))
+
+    assert _compare_recent_comp_results(ctx) is None
 
 
 def test_compensation_merge_without_context_keeps_new_task_defaults():
