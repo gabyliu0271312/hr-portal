@@ -741,11 +741,12 @@ def _format_comp_result_label(item: dict[str, Any]) -> str:
     return f"{employee} / {item.get('leave_date') or '--'} / 方案 {item.get('plan') or '--'}"
 
 
-def _compare_recent_comp_results(ctx: CompensationChatContext | None) -> AiChatOut | None:
-    recent = [item for item in ((ctx.recent_results if ctx else None) or []) if isinstance(item, dict)]
-    if len(recent) < 2:
-        return None
-    previous, current = recent[-2], recent[-1]
+def _compare_comp_result_snapshots(
+    previous: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    subject: str = "两次补偿金试算",
+) -> AiChatOut:
     previous_total = float(previous.get("total_amount") or 0)
     current_total = float(current.get("total_amount") or 0)
     delta = current_total - previous_total
@@ -753,7 +754,7 @@ def _compare_recent_comp_results(ctx: CompensationChatContext | None) -> AiChatO
     higher = current if current_total >= previous_total else previous
     lower = previous if current_total >= previous_total else current
     answer = (
-        f"最近两次补偿金试算差额为 {abs_delta:.2f}。"
+        f"{subject}差额为 {abs_delta:.2f}。"
         f"{_format_comp_result_label(higher)} 合计 {float(higher.get('total_amount') or 0):.2f}，"
         f"{_format_comp_result_label(lower)} 合计 {float(lower.get('total_amount') or 0):.2f}。"
     )
@@ -767,6 +768,13 @@ def _compare_recent_comp_results(ctx: CompensationChatContext | None) -> AiChatO
         answer=answer,
         extracted={"followup_action": "compare_results"},
     )
+
+
+def _compare_recent_comp_results(ctx: CompensationChatContext | None) -> AiChatOut | None:
+    recent = [item for item in ((ctx.recent_results if ctx else None) or []) if isinstance(item, dict)]
+    if len(recent) < 2:
+        return None
+    return _compare_comp_result_snapshots(recent[-2], recent[-1], subject="最近两次补偿金试算")
 
 
 def _context_from_result(result: CompensationCalcOut, keyword: str | None = None) -> CompensationChatContext:
@@ -824,6 +832,9 @@ async def _handle_compensation_chat(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权使用补偿金计算")
 
     prev_ctx = _comp_ctx_from_session(session)
+    explicit_employee_keyword = _clean_name(extracted.get("employee_keyword"))
+    explicit_leave_date = extracted.get("leave_date")
+    has_explicit_compare_inputs = bool(payload.selected_employee_id or explicit_employee_keyword or explicit_leave_date)
     extracted = _merge_compensation_request(
         extracted,
         prev_ctx,
@@ -832,22 +843,13 @@ async def _handle_compensation_chat(
     keyword = str(extracted.get("employee_keyword") or "").strip()
     selected_employee_id = extracted.get("employee_id")
     followup_action = _normalize_followup_action(extracted.get("followup_action"))
-    if followup_action == "compare_results":
+    if followup_action == "compare_results" and not has_explicit_compare_inputs:
         compared = _compare_recent_comp_results(prev_ctx)
-        if compared is None:
+        if compared is not None:
             _comp_ctx_to_session(session, prev_ctx, active=True)
-            return AiChatOut(
-                intent="compensation.calculate",
-                status="need_more_results",
-                answer="我还没有两次可对比的补偿金试算结果。请先完成至少两次试算，例如分别算 N 和 N+1，再让我比较差额。",
-                trace_id=timer.trace_id,
-                missing_fields=["recent_results"],
-                extracted=extracted,
-            )
-        _comp_ctx_to_session(session, prev_ctx, active=True)
-        compared.trace_id = timer.trace_id
-        compared.extracted = extracted
-        return compared
+            compared.trace_id = timer.trace_id
+            compared.extracted = extracted
+            return compared
     if followup_action in {"agreement_preview", "agreement_print"}:
         if (
             not selected_employee_id
@@ -894,6 +896,16 @@ async def _handle_compensation_chat(
             extracted=extracted,
         )
     if not keyword and not selected_employee_id:
+        if followup_action == "compare_results":
+            _comp_ctx_to_session(session, prev_ctx, active=True)
+            return AiChatOut(
+                intent="compensation.calculate",
+                status="need_more_results",
+                answer="我还没有两次可对比的补偿金试算结果。请先完成至少两次试算，例如分别算 N 和 N+1，再让我比较差额。",
+                trace_id=timer.trace_id,
+                missing_fields=["recent_results"],
+                extracted=extracted,
+            )
         _comp_ctx_to_session(session, prev_ctx, active=True)
         return AiChatOut(
             intent="compensation.calculate",
@@ -969,6 +981,56 @@ async def _handle_compensation_chat(
         parsed_leave_date = date.fromisoformat(str(leave_date))
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="离职日期格式无法识别，请使用 YYYY-MM-DD") from exc
+    if followup_action == "compare_results":
+        compare_results: dict[str, CompensationCalcOut] = {}
+        for plan in ("N", "N+1"):
+            compare_calc_in = CompensationCalcIn(
+                employee_id=selected_employee_id,
+                leave_date=parsed_leave_date,
+                plan=plan,
+                region=extracted.get("region"),
+            )
+            validate_model_payload(CompensationCalcIn, compare_calc_in, label=f"compensation.calculate_preview {plan} input")
+            timer.add_event(
+                "tool",
+                tool_name="compensation.calculate",
+                capability_id=calc_capability.capability_id,
+                employee_id=selected_employee_id,
+                plan=plan,
+            )
+            compare_result, _raw = await calculate_compensation_impl(compare_calc_in, user, db)
+            validate_model_payload(CompensationCalcOut, compare_result, label=f"compensation.calculate_preview {plan} output")
+            compare_results[plan] = compare_result
+
+        n_result = compare_results["N"]
+        n1_result = compare_results["N+1"]
+        next_context = _context_from_result(n1_result, keyword=keyword or n1_result.employee.name)
+        next_context.recent_results = prev_ctx.recent_results if prev_ctx else []
+        next_context = _append_recent_comp_result(next_context, n_result)
+        next_context = _append_recent_comp_result(next_context, n1_result)
+        _comp_ctx_to_session(session, next_context, active=True)
+        compared = _compare_comp_result_snapshots(
+            _comp_result_snapshot(n_result),
+            _comp_result_snapshot(n1_result),
+            subject="N 与 N+1 两个方案",
+        )
+        compared.trace_id = timer.trace_id
+        compared.extracted = extracted
+        compared.compensation = n1_result
+        compared.actions = [
+            _compensation_action(
+                _compensation_route_query(
+                    employee_id=selected_employee_id,
+                    keyword=keyword or n1_result.employee.name,
+                    leave_date=n1_result.leave_date.isoformat(),
+                    plan=n1_result.plan,
+                    region=n1_result.work_region,
+                ),
+                label="打开并核对 N+1 补偿金计算",
+            )
+        ]
+        return compared
+
     calc_in = CompensationCalcIn(
         employee_id=selected_employee_id,
         leave_date=parsed_leave_date,

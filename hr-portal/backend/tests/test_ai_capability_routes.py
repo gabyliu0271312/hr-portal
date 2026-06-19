@@ -1,11 +1,19 @@
 from app.ai.capabilities import get_capability
 from datetime import date
 
+import pytest
+
+import app.ai.router as ai_router
+from app.ai.audit import AiAuditTimer
 from app.ai.conversation import ChatSession
 from app.ai.router import (
+    AiChatIn,
     _agreement_document_action,
     _append_recent_comp_result,
+    _compare_comp_result_snapshots,
     _compare_recent_comp_results,
+    _comp_result_snapshot,
+    _handle_compensation_chat,
     CompensationChatContext,
     _comp_ctx_from_session,
     _merge_compensation_request,
@@ -207,11 +215,114 @@ def test_recent_compensation_results_can_be_compared_deterministically():
     assert "差额主要来自 +1 金额" in compared.answer
 
 
+def test_compensation_snapshot_comparison_supports_current_two_plan_task():
+    compared = _compare_comp_result_snapshots(
+        _comp_result_snapshot(_comp_result("N", 75.0)),
+        _comp_result_snapshot(_comp_result("N+1", 225.0, 150.0)),
+        subject="N 与 N+1 两个方案",
+    )
+
+    assert compared.status == "compare_results"
+    assert "N 与 N+1 两个方案差额为 150.00" in compared.answer
+    assert "方案 N+1" in compared.answer
+    assert "方案 N" in compared.answer
+
+
 def test_recent_compensation_compare_requires_two_results():
     ctx = CompensationChatContext(employee_id=123, employee_keyword="张三")
     ctx = _append_recent_comp_result(ctx, _comp_result("N", 75.0))
 
     assert _compare_recent_comp_results(ctx) is None
+
+
+@pytest.mark.asyncio
+async def test_compensation_compare_with_employee_and_date_calculates_both_plans(monkeypatch):
+    calls: list[str] = []
+
+    async def fake_has_permission(user, db, permission):
+        return True
+
+    async def fake_search_compensation_employees(keyword, limit, user, db):
+        assert keyword == "107405"
+        return [
+            EmployeeCandidate(
+                id=107405,
+                employee_no="107405",
+                name="测试员工",
+                chinese_name="测试员工",
+                english_name=None,
+                company="测试公司",
+                department="测试部门",
+                work_region="深圳",
+                employment_status=None,
+                hire_date="2020-01-01",
+                leave_date=None,
+            )
+        ]
+
+    async def fake_calculate_compensation(calc_in, user, db):
+        calls.append(calc_in.plan)
+        total = 75.0 if calc_in.plan == "N" else 225.0
+        extra = 0.0 if calc_in.plan == "N" else 150.0
+        return (
+            CompensationCalcOut(
+                employee=EmployeeCandidate(
+                    id=calc_in.employee_id,
+                    employee_no="107405",
+                    name="测试员工",
+                    chinese_name="测试员工",
+                    english_name=None,
+                    company="测试公司",
+                    department="测试部门",
+                    work_region="深圳",
+                    employment_status=None,
+                    hire_date="2020-01-01",
+                    leave_date=calc_in.leave_date.isoformat(),
+                ),
+                hire_date=date(2020, 1, 1),
+                leave_date=calc_in.leave_date,
+                work_region="深圳",
+                basic_salary=100.0,
+                cap_amount=1000.0,
+                compensation_base=150.0,
+                service_years_n=0.5,
+                plan=calc_in.plan,
+                n_amount=75.0,
+                extra_amount=extra,
+                total_amount=total,
+                cap_rule_id=1,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(ai_router, "user_has_permission", fake_has_permission)
+    monkeypatch.setattr(ai_router, "search_compensation_employees", fake_search_compensation_employees)
+    monkeypatch.setattr(ai_router, "calculate_compensation_impl", fake_calculate_compensation)
+
+    session = ChatSession(conversation_id=1)
+    result = await _handle_compensation_chat(
+        AiChatIn(message="算一下107405补偿金N和N+1的方案，离职日期6月20日，并比较两者的差异"),
+        {
+            "intent": "compensation.calculate",
+            "employee_keyword": "107405",
+            "leave_date": "2026-06-20",
+            "followup_action": "compare_results",
+            "changed_fields": ["employee_keyword", "leave_date"],
+        },
+        session,
+        user=object(),
+        db=object(),
+        timer=AiAuditTimer(),
+    )
+
+    assert calls == ["N", "N+1"]
+    assert result.status == "compare_results"
+    assert "N 与 N+1 两个方案差额为 150.00" in result.answer
+    assert result.compensation is not None
+    assert result.compensation.plan == "N+1"
+    ctx = _comp_ctx_from_session(session)
+    assert ctx is not None
+    assert [item["plan"] for item in ctx.recent_results[-2:]] == ["N", "N+1"]
 
 
 def test_compensation_merge_without_context_keeps_new_task_defaults():
