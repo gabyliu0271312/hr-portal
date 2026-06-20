@@ -22,8 +22,6 @@ const columns = ref<TableColumn[]>([])
 const originalDataTypeById = ref<Record<number, string>>({})
 const loading = ref(false)
 const saving = ref(false)
-const scopeExempt = ref(false)
-const scopeExemptSaving = ref(false)
 const globalFields = ref<GlobalField[]>([])
 const existingColumnCodes = computed(() => columns.value.map((c) => c.column_code))
 
@@ -73,21 +71,10 @@ async function loadColumns() {
       if (c.is_computed == null) c.is_computed = false
       if (c.formula_expr == null) c.formula_expr = ''
     }
-    await loadScopeExempt()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载字段失败')
   } finally {
     loading.value = false
-  }
-}
-
-async function loadScopeExempt() {
-  try {
-    const all = await adminTablesApi.list()
-    const meta = all.find((t) => t.table_name === currentTable.value)
-    scopeExempt.value = meta?.scope_exempt ?? false
-  } catch {
-    scopeExempt.value = false
   }
 }
 
@@ -107,20 +94,6 @@ function claimedHint(gfId: number): string {
   }
   if (g.category_name) parts.push('分类=' + g.category_name)
   return parts.length ? parts.join('，') : '名称'
-}
-
-async function toggleScopeExempt(val: boolean) {
-  scopeExemptSaving.value = true
-  try {
-    await adminTablesApi.update(currentTable.value, { scope_exempt: val })
-    scopeExempt.value = val
-    ElMessage.success(val ? '已设为数据范围免控（全员可见本表所有行）' : '已恢复数据范围管控')
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '设置失败')
-    await loadScopeExempt()
-  } finally {
-    scopeExemptSaving.value = false
-  }
 }
 
 async function saveAll() {
@@ -352,33 +325,6 @@ onMounted(async () => {
               :value="t.table_name"
             />
           </el-select>
-        </el-form-item>
-        <el-form-item>
-          <template #label>
-            <span>数据范围免控</span>
-            <el-tooltip placement="top">
-              <template #content>
-                <div style="max-width: 300px; line-height: 1.6">
-                  开启后，本表<strong>不接入数据范围（行级）权限</strong>，所有有权访问的用户可见全部行。<br />
-                  关闭（默认）= 受控：本表必须配置「权限角色」字段才能被看到，<br />
-                  否则非超管用户默认看不到任何行（fail-closed，防止敏感表裸奔）。<br />
-                  仅对公共/非敏感表（如组织树、字典表）才建议开启免控。
-                </div>
-              </template>
-              <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
-                <InfoFilled />
-              </el-icon>
-            </el-tooltip>
-          </template>
-          <el-switch
-            v-model="scopeExempt"
-            :loading="scopeExemptSaving"
-            :disabled="!currentTable || loading"
-            inline-prompt
-            active-text="免控"
-            inactive-text="受控"
-            @change="(v: boolean) => toggleScopeExempt(v)"
-          />
         </el-form-item>
       </el-form>
 

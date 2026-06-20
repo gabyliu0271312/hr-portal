@@ -519,3 +519,102 @@ async def test_data_view_rejects_legacy_raw_model(patch_access):
 
     assert exc_info.value.status_code == 409
     assert db.executed == []
+
+
+async def test_query_table_masked_column_not_in_clear_select(monkeypatch, patch_access):
+    """脱敏列：SQL 投影用 CASE 占位 ******，真值不进 SELECT（不出库）。"""
+    import app.permissions.masker as masker
+
+    async def sensitive_amount(user, table, db):
+        return {"amount"}
+
+    monkeypatch.setattr(masker, "get_sensitive_columns", sensitive_amount)
+
+    table_name = "data_entity_mask"
+    model = make_entity_model(
+        table_name,
+        [Column("employee_no", String), Column("amount", Numeric)],
+    )
+    old_model = DATA_TABLES.get(table_name)
+    DATA_TABLES[table_name] = model
+    row = model(id=1, pk_hash="pk1", synced_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+                employee_no="E001", amount=Decimal("123.45"))
+    columns = [
+        make_column(table_name=table_name, column_code="employee_no"),
+        make_column(table_name=table_name, column_code="amount", data_type="number", display_order=20),
+    ]
+    db = FakeSession(results=[FakeResult(rows=columns), FakeResult(value=1), FakeResult(rows=[row])])
+
+    try:
+        await data_router.query_table(table_name, page=1, page_size=20, user=SimpleNamespace(id=1), db=db)
+    finally:
+        DATA_TABLES.pop(table_name, None) if old_model is None else DATA_TABLES.__setitem__(table_name, old_model)
+
+    main_sql = str(db.executed[-1][0].compile(compile_kwargs={"literal_binds": True}))
+    assert "******" in main_sql           # 脱敏列以常量占位
+    assert "CASE" in main_sql.upper()      # 通过 CASE 表达式占位，未直接取真值列
+    assert "employee_no" in main_sql       # 非脱敏列正常投影
+
+
+async def test_query_table_hidden_column_absent_from_select_and_output(monkeypatch, patch_access):
+    """隐藏列：不进 SELECT，不出现在结果。"""
+    import app.permissions.masker as masker
+
+    async def hidden_amount(user, table, db, tool_key=None):
+        return {"amount"}
+
+    monkeypatch.setattr(masker, "get_hidden_columns", hidden_amount)
+
+    table_name = "data_entity_hidden"
+    model = make_entity_model(
+        table_name,
+        [Column("employee_no", String), Column("amount", Numeric)],
+    )
+    old_model = DATA_TABLES.get(table_name)
+    DATA_TABLES[table_name] = model
+    row = model(id=1, pk_hash="pk1", synced_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+                employee_no="E001", amount=Decimal("123.45"))
+    columns = [
+        make_column(table_name=table_name, column_code="employee_no"),
+        make_column(table_name=table_name, column_code="amount", data_type="number", display_order=20),
+    ]
+    db = FakeSession(results=[FakeResult(rows=columns), FakeResult(value=1), FakeResult(rows=[row])])
+
+    try:
+        page = await data_router.query_table(
+            table_name, page=1, page_size=20, keyword="x", user=SimpleNamespace(id=1), db=db
+        )
+    finally:
+        DATA_TABLES.pop(table_name, None) if old_model is None else DATA_TABLES.__setitem__(table_name, old_model)
+
+    assert page.hidden_columns == ["amount"]
+    assert all("amount" not in item for item in page.items)
+    main_sql = str(db.executed[-1][0])
+    assert "amount" not in main_sql        # 隐藏列既不投影、也不参与关键字搜索
+
+
+async def test_distinct_values_blocks_sensitive_column(monkeypatch, patch_access):
+    """distinct：脱敏/隐藏列直接拒绝，避免取值反推。"""
+    import app.permissions.masker as masker
+
+    async def sensitive_dept(user, table, db):
+        return {"department"}
+
+    monkeypatch.setattr(masker, "get_sensitive_columns", sensitive_dept)
+
+    table_name = "data_entity_distinct_block"
+    model = make_entity_model(table_name, [Column("department", String)])
+    old_model = DATA_TABLES.get(table_name)
+    DATA_TABLES[table_name] = model
+    columns = [make_column(table_name=table_name, column_code="department")]
+    db = FakeSession(results=[FakeResult(rows=columns)])
+
+    try:
+        with pytest.raises(HTTPException) as exc:
+            await data_router.distinct_values(
+                table_name, column="department", limit=500, user=SimpleNamespace(id=1), db=db
+            )
+    finally:
+        DATA_TABLES.pop(table_name, None) if old_model is None else DATA_TABLES.__setitem__(table_name, old_model)
+
+    assert exc.value.status_code == 403

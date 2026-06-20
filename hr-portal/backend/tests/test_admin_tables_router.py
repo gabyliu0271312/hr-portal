@@ -81,8 +81,6 @@ class FakeSession:
             obj.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
         if getattr(obj, "is_builtin", None) is None:
             obj.is_builtin = False
-        if getattr(obj, "scope_exempt", None) is None:
-            obj.scope_exempt = False
 
     async def delete(self, obj):
         self.deleted.append(obj)
@@ -142,7 +140,6 @@ async def test_create_table_builds_empty_entity_table(monkeypatch, fake_user):
 
     assert result.table_name == "custom_entity"
     assert result.is_builtin is False
-    assert result.scope_exempt is False
     assert create_calls[0][1] == "custom_entity"
     assert create_calls[0][2] == []
     assert register_calls == [(db, "custom_entity", True)]

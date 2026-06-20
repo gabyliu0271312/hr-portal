@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import String, cast, desc, func, or_, select
+from sqlalchemy import String, case, cast, desc, func, literal, null, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -125,6 +125,25 @@ def _row_to_item(row: Any, col_codes: list[str], hidden_cols: set[str]) -> dict[
 
 def _row_values(row: Any, col_codes: list[str]) -> dict[str, Any]:
     return {code: _row_value(row, code) for code in col_codes}
+
+
+MASK = "******"
+
+
+def _scoped_projection(
+    Model, table: str, col_codes: list[str], hidden_cols: set[str], masked_cols: set[str]
+):
+    """显式列投影：隐藏列不进 SELECT；脱敏列在 SQL 内用 CASE 占位为 ******（真值不出库，保留 NULL）。"""
+    proj = [Model.id.label("id"), Model.synced_at.label("synced_at")]
+    for code in col_codes:
+        if code in hidden_cols:
+            continue
+        ent = _entity_column(Model, table, code)
+        if code in masked_cols:
+            proj.append(case((ent.is_(None), null()), else_=literal(MASK)).label(code))
+        else:
+            proj.append(ent.label(code))
+    return proj
 
 
 def _set_row_value(row: Any, code: str, value: Any) -> None:
@@ -271,8 +290,16 @@ async def query_table(
     for code in col_codes:
         _entity_column(Model, table, code)
 
-    # 拼接实体列查询
-    stmt = select(Model)
+    # 字段裁决：隐藏列不进 SELECT，脱敏列在 SQL 内 CASE 占位（真值不出库）
+    from app.permissions.masker import get_sensitive_columns, get_hidden_columns
+    sensitive_cols = await get_sensitive_columns(user, table, db)
+    # 通用数据视图（tool_key=None）：无权敏感字段直接隐藏，不出现在结果中
+    hidden_cols = await get_hidden_columns(user, table, db, tool_key=None)
+    # 隐藏/脱敏列不可被搜索或筛选命中，避免通过查询反推真值
+    blocked = hidden_cols | sensitive_cols
+
+    # 拼接实体列查询（显式投影）
+    stmt = select(*_scoped_projection(Model, table, col_codes, hidden_cols, sensitive_cols))
     count_stmt = select(func.count()).select_from(Model)
 
     # 注入数据范围权限过滤
@@ -289,17 +316,19 @@ async def query_table(
         except (ValueError, TypeError):
             fmap = {}
         for code, val in (fmap.items() if isinstance(fmap, dict) else []):
-            if val in (None, "") or code not in col_codes:
+            if val in (None, "") or code not in col_codes or code in blocked:
                 continue
             cond = _entity_text_expr(Model, table, code) == str(val)
             stmt = stmt.where(cond)
             count_stmt = count_stmt.where(cond)
 
     if keyword and col_codes:
-        # 关键字搜索：在所有可见列上做 ILIKE
-        conds = []
-        for code in col_codes:
-            conds.append(_entity_text_expr(Model, table, code).ilike(f"%{keyword}%"))
+        # 关键字搜索：在所有可见且非隐藏/非脱敏列上做 ILIKE
+        conds = [
+            _entity_text_expr(Model, table, code).ilike(f"%{keyword}%")
+            for code in col_codes
+            if code not in blocked
+        ]
         if conds:
             stmt = stmt.where(or_(*conds))
             count_stmt = count_stmt.where(or_(*conds))
@@ -311,19 +340,10 @@ async def query_table(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(stmt)).all()
 
-    # 字段分类脱敏 + 隐藏（U5 / FR-MODEL-003 / SC-008 / Phase D 统一裁决）
-    from app.permissions.masker import apply_mask, get_sensitive_columns, get_hidden_columns
-    sensitive_cols = await get_sensitive_columns(user, table, db)
-    # 通用数据视图（tool_key=None）：无权敏感字段直接隐藏，不出现在结果中
-    hidden_cols = await get_hidden_columns(user, table, db, tool_key=None)
-
-    # 把实体列按可见列展开成扁平 dict
-    items = []
-    for r in rows:
-        item = _row_to_item(r, col_codes, hidden_cols)
-        items.append(apply_mask(item, sensitive_cols))
+    # 投影已完成隐藏/脱敏：隐藏列不在结果、脱敏列已是 ******
+    items = [_row_to_item(r, col_codes, hidden_cols) for r in rows]
 
     return DataPage(items=items, total=total, page=page, page_size=page_size, hidden_columns=sorted(hidden_cols))
 
@@ -345,7 +365,7 @@ async def export_csv(
     import csv, io
     from fastapi.responses import StreamingResponse
     from app.permissions.scope_filter import build_scope_filter, is_unrestricted
-    from app.permissions.masker import apply_mask, get_sensitive_columns, get_hidden_columns
+    from app.permissions.masker import get_sensitive_columns, get_hidden_columns
 
     if table not in DATA_TABLES:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
@@ -360,7 +380,15 @@ async def export_csv(
     for code in col_codes:
         _entity_column(Model, table, code)
 
-    stmt = select(Model)
+    # 脱敏列集合（含表级 is_sensitive + 字段分类敏感）；隐藏列已从 visible_cols 排除
+    sensitive_cols = await get_sensitive_columns(user, table, db)
+    sens_from_cat = await _check_field_categories_sensitive(table, db)
+    all_sensitive = sensitive_cols | sens_from_cat | {
+        c.column_code for c in visible_cols if c.is_sensitive
+    }
+    blocked = hidden_export | all_sensitive
+
+    stmt = select(*_scoped_projection(Model, table, col_codes, hidden_export, all_sensitive))
     scope_clause = await build_scope_filter(user, table, db)
     if not is_unrestricted(scope_clause):
         stmt = stmt.where(scope_clause)
@@ -371,17 +399,19 @@ async def export_csv(
         except (ValueError, TypeError):
             fmap = {}
         for code, val in (fmap.items() if isinstance(fmap, dict) else []):
-            if val not in (None, "") and code in col_codes:
+            if val not in (None, "") and code in col_codes and code not in blocked:
                 stmt = stmt.where(_entity_text_expr(Model, table, code) == str(val))
 
     if keyword and col_codes:
-        conds = [_entity_text_expr(Model, table, code).ilike(f"%{keyword}%") for code in col_codes]
-        stmt = stmt.where(or_(*conds))
+        conds = [
+            _entity_text_expr(Model, table, code).ilike(f"%{keyword}%")
+            for code in col_codes
+            if code not in blocked
+        ]
+        if conds:
+            stmt = stmt.where(or_(*conds))
 
-    rows = (await db.execute(stmt.order_by(desc(Model.synced_at), desc(Model.id)))).scalars().all()
-    sensitive_cols = await get_sensitive_columns(user, table, db)
-    sens_from_cat = await _check_field_categories_sensitive(table, db)
-    all_sensitive = sensitive_cols | sens_from_cat
+    rows = (await db.execute(stmt.order_by(desc(Model.synced_at), desc(Model.id)))).all()
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -389,10 +419,8 @@ async def export_csv(
     writer.writerow(headers)
     for r in rows:
         item = _row_values(r, col_codes)
-        item = apply_mask(item, all_sensitive)
         writer.writerow([
-            "******" if (c.is_sensitive or c.column_code in all_sensitive) and item.get(c.column_code) not in (None, "")
-            else ("" if item.get(c.column_code) is None else str(item.get(c.column_code)))
+            "" if item.get(c.column_code) is None else str(item.get(c.column_code))
             for c in visible_cols
         ])
 
@@ -425,7 +453,14 @@ async def distinct_values(
     valid = {c.column_code for c in await _get_columns(table, db)}
     if column not in valid:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="未知字段")
-    extra_col = label_extra if (label_extra and label_extra in valid) else None
+    # 隐藏/脱敏列不可取 distinct，避免绕过裁决反推真值
+    from app.permissions.masker import get_sensitive_columns, get_hidden_columns
+    blocked = (
+        await get_hidden_columns(user, table, db, tool_key=None)
+    ) | (await get_sensitive_columns(user, table, db))
+    if column in blocked:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权获取该字段取值")
+    extra_col = label_extra if (label_extra and label_extra in valid and label_extra not in blocked) else None
 
     Model = DATA_TABLES[table]
     _ensure_entity_model(Model, table)

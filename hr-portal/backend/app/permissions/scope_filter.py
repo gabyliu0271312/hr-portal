@@ -220,21 +220,45 @@ async def _build_person_clause(
     return and_(*parts)
 
 
-# ===== 主入口 =====
+async def _build_tag_clause(
+    tag: ScopeTag,
+    sels: list[ScopeTagSelection],
+    filters: list[ScopeTagFilter],
+    Model,
+    role_cols: dict[str, str],
+    db: AsyncSession,
+) -> ColumnElement:
+    """单个标签在给定 Model/role_cols 下的子句（org_part AND person_part）。
+
+    解析不到任何约束列 → false()（fail-closed，不授予可见性）。
+    """
+    org_part = await _build_org_clause(tag, sels, Model, role_cols, db)
+    person_part = await _build_person_clause(tag, filters, Model, role_cols)
+    parts = [p for p in (org_part, person_part) if p is not None]
+    if not parts:
+        return false()
+    return and_(*parts)
 
 
-async def _is_scope_exempt(table: str, db: AsyncSession) -> bool:
-    """该表是否被显式声明为「数据范围免控」"""
+ROSTER_TABLE = "emp_realtime_roster"
+ROSTER_EMP_COL = "employee_no"
+
+
+async def _get_roster_join_col(table: str, db: AsyncSession) -> str | None:
+    """该表声明的「关联花名册 employee_no 的列名」（G3 穿透），未声明返回 None。"""
     from app.data.models import RegisteredTable
 
     row = (
         await db.execute(
-            select(RegisteredTable.scope_exempt).where(
+            select(RegisteredTable.roster_join_col).where(
                 RegisteredTable.table_name == table
             )
         )
     ).first()
-    return bool(row[0]) if row else False
+    return row[0] if row and row[0] else None
+
+
+# ===== 主入口 =====
 
 
 async def build_scope_filter(
@@ -245,12 +269,15 @@ async def build_scope_filter(
     true()  → 无约束（全表可见）
     false() → 无权限（空集）
 
-    fail-closed 语义（KD-1 安全修复）：
+    fail-closed 语义（KD-1 安全修复 + 005 收口）：
     - 超管 → 放行
-    - 表显式声明 scope_exempt=True → 放行（无需按树管控）
-    - 表未声明免控、却没有任何 scope_role 字段 → 拒绝（false），杜绝裸奔
+    - 本表无 scope_role 字段且无 roster_join_col → 拒绝（false），杜绝裸奔
     - 用户无标签 → 拒绝
-    - 标签维度与表字段不匹配（解析不到约束列）→ 该标签贡献 false（不再放行）
+    - 标签维度在解析域（本表或花名册）都不命中约束列 → 该标签贡献 false（不放行）
+
+    G3 穿透：本表无自有 scope_role 列、但声明了 roster_join_col 时，
+    人员/组织维度经实时花名册子查询解析：
+        本表.<join_col> IN (SELECT 花名册.employee_no FROM 花名册 WHERE <标签子句>)
     """
     if table not in DATA_TABLES:
         return false()
@@ -259,13 +286,12 @@ async def build_scope_filter(
     if await _is_super_admin(user, db):
         return true()
 
-    # 显式免控白名单：声明该表无需数据范围控制
-    if await _is_scope_exempt(table, db):
-        return true()
-
     role_cols = await _get_role_columns(table, db)
+    roster_join_col = None
     if not role_cols:
-        # 受控表却没标任何 scope_role 字段 → fail-closed 拒绝（旧逻辑此处放行=漏洞）
+        roster_join_col = await _get_roster_join_col(table, db)
+    if not role_cols and not roster_join_col:
+        # 受控表既无 scope_role 字段、也无穿透声明 → fail-closed 拒绝
         return false()
 
     tags = await _get_user_tags(user.id, db)
@@ -273,21 +299,37 @@ async def build_scope_filter(
         # 用户没绑标签 → 看不到任何行
         return false()
 
+    # 解析域：本表有 scope_role 列则直接在本表解析；否则经花名册穿透
+    use_passthrough = not role_cols and bool(roster_join_col)
+    if use_passthrough:
+        if (
+            roster_join_col not in Model.__table__.columns
+            or ROSTER_TABLE not in DATA_TABLES
+        ):
+            return false()
+        resolver_model = DATA_TABLES[ROSTER_TABLE]
+        resolver_cols = await _get_role_columns(ROSTER_TABLE, db)
+    else:
+        resolver_model = Model
+        resolver_cols = role_cols
+
     tag_clauses: list[ColumnElement] = []
     for tag, sels, filters in tags:
-        org_part = await _build_org_clause(tag, sels, Model, role_cols, db)
-        person_part = await _build_person_clause(tag, filters, Model, role_cols)
-
-        parts = [p for p in (org_part, person_part) if p is not None]
-        if not parts:
-            # 该标签的维度在此表解析不到约束列 → fail-closed:该标签不授予可见性
-            # （旧逻辑此处 append(true()) 会导致维度不匹配时越权看全表）
-            tag_clauses.append(false())
-        else:
-            tag_clauses.append(and_(*parts))
+        tag_clauses.append(
+            await _build_tag_clause(tag, sels, filters, resolver_model, resolver_cols, db)
+        )
 
     if not tag_clauses:
         return false()
+    if any(c is true() for c in tag_clauses):
+        # 某标签无限制（org_scope_unlimited）→ 看全部（穿透表也含花名册之外的历史行）
+        return true()
+
+    if use_passthrough:
+        # 本表.<join_col> IN (SELECT 花名册.employee_no WHERE 标签子句)
+        subq = select(_entity_text(resolver_model, ROSTER_EMP_COL)).where(or_(*tag_clauses))
+        return _entity_text(Model, roster_join_col).in_(subq)
+
     return or_(*tag_clauses)
 
 

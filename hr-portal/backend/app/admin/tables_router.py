@@ -73,7 +73,6 @@ class RegisteredTableOut(BaseModel):
     period_source: str
     is_builtin: bool
     is_result_table: bool
-    scope_exempt: bool
     icon: str
     display_order: int
     created_at: str
@@ -90,7 +89,6 @@ def _to_out(rt: RegisteredTable) -> RegisteredTableOut:
         period_source=rt.period_source,
         is_builtin=rt.is_builtin,
         is_result_table=rt.is_result_table,
-        scope_exempt=rt.scope_exempt,
         icon=rt.icon,
         display_order=rt.display_order,
         created_at=rt.created_at.isoformat(),
@@ -225,7 +223,6 @@ async def create_table(
 
 
 class UpdateTableIn(BaseModel):
-    scope_exempt: bool | None = None
     table_label: str | None = None
     description: str | None = None
     display_order: int | None = None
@@ -245,8 +242,6 @@ async def update_table(
     ).scalar_one_or_none()
     if rt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="表不存在")
-    if payload.scope_exempt is not None:
-        rt.scope_exempt = payload.scope_exempt
     if payload.table_label is not None:
         rt.table_label = payload.table_label
     if payload.description is not None:

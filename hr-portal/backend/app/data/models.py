@@ -183,11 +183,9 @@ class RegisteredTable(Base):
     # 是否可作为成本分摊结果表
     is_result_table: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # 数据范围免控:为 True 时该表不接入 L2 数据范围过滤（显式声明无需按树管控）。
-    # 默认 False = 受控:未配 scope_role 字段时数据范围引擎 fail-closed（拒绝），杜绝裸奔。
-    scope_exempt: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false"
-    )
+    # G3 子查询穿透：本表关联实时花名册 employee_no 的列名（如 'employee_no'）。
+    # 非空时，本表缺少的人员维度（org/用工类型/主体/person）经花名册子查询解析。
+    roster_join_col: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # 图标（Element Plus icon name）
     icon: Mapped[str] = mapped_column(String(64), nullable=False, default="Grid")

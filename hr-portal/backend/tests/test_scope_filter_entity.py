@@ -6,7 +6,7 @@ from sqlalchemy import BigInteger, Boolean, Column, MetaData, String, Table
 from sqlalchemy.sql.elements import False_, True_
 
 from app.data.dynamic_loader import _make_model_from_table
-from app.data.models import CostCenterNode, DATA_TABLES, RegisteredTable, TableColumn
+from app.data.models import CostCenterNode, DATA_TABLES, OrgNode, RegisteredTable, TableColumn
 from app.permissions import scope_filter
 from app.scopes.models import ScopeTag, ScopeTagFilter, ScopeTagSelection
 from tests.entity_helpers import make_legacy_raw_model
@@ -167,7 +167,6 @@ async def test_build_scope_filter_uses_entity_columns_for_org_and_person(monkeyp
     db = FakeSession(
         results=[
             FakeResult(rows=[]),  # _is_super_admin
-            FakeResult(rows=[(False,)]),  # _is_scope_exempt
             FakeResult(rows=role_columns),  # _get_role_columns
             FakeResult(rows=[tag]),  # scope tags
             FakeResult(rows=[selection]),  # selections
@@ -209,7 +208,6 @@ async def test_build_scope_filter_rejects_legacy_raw_model():
     db = FakeSession(
         results=[
             FakeResult(rows=[]),
-            FakeResult(rows=[(False,)]),
             FakeResult(rows=role_columns),
             FakeResult(rows=[tag]),
             FakeResult(rows=[selection]),
@@ -231,7 +229,6 @@ async def test_build_scope_filter_missing_scope_role_fails_closed(monkeypatch):
     db = FakeSession(
         results=[
             FakeResult(rows=[]),
-            FakeResult(rows=[(False,)]),
             FakeResult(rows=[]),
         ]
     )
@@ -242,24 +239,6 @@ async def test_build_scope_filter_missing_scope_role_fails_closed(monkeypatch):
         restore_table(table_name, old_model)
 
     assert isinstance(clause, False_)
-
-
-async def test_build_scope_filter_scope_exempt_allows_all():
-    table_name = "scope_exempt_table"
-    old_model = set_table(table_name, make_entity_model(table_name))
-    db = FakeSession(
-        results=[
-            FakeResult(rows=[]),
-            FakeResult(rows=[(True,)]),
-        ]
-    )
-
-    try:
-        clause = await scope_filter.build_scope_filter(SimpleNamespace(id=99), table_name, db)
-    finally:
-        restore_table(table_name, old_model)
-
-    assert isinstance(clause, True_)
 
 
 async def test_build_scope_filter_super_admin_allows_all():
@@ -295,7 +274,6 @@ async def test_build_scope_filter_missing_physical_scope_column_raises():
     db = FakeSession(
         results=[
             FakeResult(rows=[]),
-            FakeResult(rows=[(False,)]),
             FakeResult(rows=role_columns),
             FakeResult(rows=[tag]),
             FakeResult(rows=[selection]),
@@ -309,3 +287,78 @@ async def test_build_scope_filter_missing_physical_scope_column_raises():
             await scope_filter.build_scope_filter(SimpleNamespace(id=99), table_name, db)
     finally:
         restore_table(table_name, old_model)
+
+
+def _make_plain_entity(table_name: str, *cols: str):
+    from sqlalchemy import BigInteger as _BI
+    table = Table(
+        table_name,
+        MetaData(),
+        Column("id", _BI, primary_key=True),
+        Column("pk_hash", String(64), nullable=False),
+        Column("synced_at", String),
+        *[Column(c, String) for c in cols],
+    )
+    return _make_model_from_table(table_name, table)
+
+
+async def test_build_scope_filter_passthrough_via_roster():
+    """G3：目标表只有 employee_no、无 scope_role 列 → 经花名册子查询穿透。"""
+    target_name = "scope_passthrough_salary"
+    target_model = _make_plain_entity(target_name, "employee_no")
+    roster_model = _make_plain_entity(scope_filter.ROSTER_TABLE, "employee_no", "org_node_code")
+    old_target = set_table(target_name, target_model)
+    old_roster = set_table(scope_filter.ROSTER_TABLE, roster_model)
+
+    tag = make_tag(dimension="org")
+    selection = ScopeTagSelection(id=1, tag_id=1, node_id=10, include_descendants=False)
+    node = OrgNode(id=10, code="ORG001", name="技术中心", level=1, is_leaf=True, is_active=True)
+    roster_role_col = make_column(
+        table_name=scope_filter.ROSTER_TABLE,
+        column_code="org_node_code",
+        scope_role="org_node_code",
+    )
+
+    db = FakeSession(
+        results=[
+            FakeResult(rows=[]),                  # _is_super_admin
+            FakeResult(rows=[]),                  # _get_role_columns(target) → 空
+            FakeResult(rows=[("employee_no",)]),  # _get_roster_join_col → employee_no
+            FakeResult(rows=[tag]),               # tags
+            FakeResult(rows=[selection]),         # selections
+            FakeResult(rows=[]),                  # filters
+            FakeResult(rows=[roster_role_col]),   # _get_role_columns(roster)
+        ],
+        get_map={(OrgNode, 10): node},
+    )
+
+    try:
+        clause = await scope_filter.build_scope_filter(SimpleNamespace(id=99), target_name, db)
+    finally:
+        restore_table(target_name, old_target)
+        restore_table(scope_filter.ROSTER_TABLE, old_roster)
+
+    sql = compiled_sql(clause).upper()
+    assert "IN (SELECT" in sql                       # 子查询穿透
+    assert scope_filter.ROSTER_TABLE.upper() in sql  # 从花名册取
+    assert "EMPLOYEE_NO" in sql
+    assert "ORG001" in sql                           # 组织约束下放到花名册
+
+
+async def test_build_scope_filter_no_role_no_join_fails_closed():
+    """无 scope_role 列且无 roster_join_col → fail-closed。"""
+    target_name = "scope_no_role_no_join"
+    target_model = _make_plain_entity(target_name, "employee_no")
+    old_target = set_table(target_name, target_model)
+    db = FakeSession(
+        results=[
+            FakeResult(rows=[]),  # _is_super_admin
+            FakeResult(rows=[]),  # _get_role_columns(target) → 空
+            FakeResult(rows=[]),  # _get_roster_join_col → 无（.first()=None）
+        ]
+    )
+    try:
+        clause = await scope_filter.build_scope_filter(SimpleNamespace(id=99), target_name, db)
+    finally:
+        restore_table(target_name, old_target)
+    assert isinstance(clause, False_)
