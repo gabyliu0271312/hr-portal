@@ -17,19 +17,18 @@ const merging = ref(false)
 const downloading = ref(false)
 const mergeResult = ref<MergeResult | null>(null)
 
-// 建模板对话框
+// 建/编辑模板对话框
 const tplDialog = ref(false)
-const tplMode = ref<'ai' | 'manual' | 'edit'>('ai')
+const tplStep = ref<'upload' | 'loading' | 'form'>('upload')
 const editingId = ref<number | null>(null)
 
-// AI 草稿流程
-const aiStep = ref<1 | 2 | 3>(1) // 1=上传+背景 2=等AI 3=确认草稿
-const aiFiles = ref<File[]>([])
+// 文件 + AI
+const tplFiles = ref<File[]>([])
 const aiContext = ref('')
 const aiLoading = ref(false)
 const draft = ref<AiDraft | null>(null)
 
-// 手动/编辑表单
+// 表单
 const form = ref({
   name: '',
   description: '',
@@ -50,25 +49,18 @@ async function loadTemplates() {
 }
 onMounted(loadTemplates)
 
-// ── 建模板 ───────────────────────────────────────────────────────────────────
-function openNewAi() {
-  tplMode.value = 'ai'
-  aiStep.value = 1
-  aiFiles.value = []
+// ── 建/编辑模板 ──────────────────────────────────────────────────────────────
+function openNew() {
+  editingId.value = null
+  tplFiles.value = []
   aiContext.value = ''
   draft.value = null
-  tplDialog.value = true
-}
-
-function openNewManual() {
-  tplMode.value = 'manual'
-  editingId.value = null
   resetForm()
+  tplStep.value = 'upload'
   tplDialog.value = true
 }
 
 async function openEdit(id: number) {
-  tplMode.value = 'edit'
   editingId.value = id
   try {
     const detail: TemplateDetail = await tableToolsApi.getTemplate(id)
@@ -80,6 +72,7 @@ async function openEdit(id: number) {
       aggregate: detail.aggregate,
       mappings: detail.mappings.map((m) => ({ ...m })),
     }
+    tplStep.value = 'form'
     tplDialog.value = true
   } catch { ElMessage.error('加载模板详情失败') }
 }
@@ -88,21 +81,21 @@ function resetForm() {
   form.value = { name: '', description: '', merge_keys: ['姓名', '证件号码'], std_fields: [], aggregate: 'sum', mappings: [] }
 }
 
-// AI 草稿步骤
-function handleAiFileChange(uploadFile: any) {
-  aiFiles.value.push(uploadFile.raw)
+// 文件拖拽/选择（去重）
+function handleTplFileChange(uploadFile: any) {
+  const file: File = uploadFile.raw
+  if (!tplFiles.value.find((f) => f.name === file.name && f.size === file.size)) {
+    tplFiles.value.push(file)
+  }
 }
-function removeAiFile(index: number) {
-  aiFiles.value.splice(index, 1)
-}
+function removeTplFile(index: number) { tplFiles.value.splice(index, 1) }
 
+// AI 识别
 async function runAiDraft() {
-  if (!aiFiles.value.length) { ElMessage.warning('请先上传文件'); return }
-  aiStep.value = 2
-  aiLoading.value = true
+  if (!tplFiles.value.length) { ElMessage.warning('请先上传文件'); return }
+  tplStep.value = 'loading'
   try {
-    draft.value = await tableToolsApi.aiDraft(aiFiles.value, aiContext.value)
-    // 把草稿填入 form 供编辑确认
+    draft.value = await tableToolsApi.aiDraft(tplFiles.value, aiContext.value)
     form.value = {
       name: draft.value.name || '',
       description: draft.value.description || '',
@@ -111,20 +104,25 @@ async function runAiDraft() {
       aggregate: draft.value.aggregate,
       mappings: draft.value.mappings.map((m) => ({ ...m })),
     }
-    aiStep.value = 3
+    tplStep.value = 'form'
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || 'AI 识别失败，请重试')
-    aiStep.value = 1
-  } finally {
-    aiLoading.value = false
+    tplStep.value = 'upload'
   }
+}
+
+// 跳过 AI，直接进表单
+function skipToManual() {
+  draft.value = null
+  resetForm()
+  tplStep.value = 'form'
 }
 
 function aiLowConfidence(mappingName: string) {
   return draft.value?._meta?.low_confidence?.find((l) => l.sheet === mappingName)
 }
 
-// 保存模板（AI确认 or 手动 or 编辑）
+// 保存
 async function saveTemplate() {
   if (!form.value.name.trim()) { ElMessage.warning('请填写模板名称'); return }
   if (!form.value.std_fields.length) { ElMessage.warning('标准字段不能为空'); return }
@@ -149,7 +147,7 @@ async function saveTemplate() {
         skip_tokens: m.skip_tokens || ['合计', '小计', '总计'],
       })),
     }
-    if (tplMode.value === 'edit' && editingId.value) {
+    if (editingId.value) {
       await tableToolsApi.updateTemplate(editingId.value, payload)
       ElMessage.success('模板已更新')
     } else {
@@ -178,7 +176,7 @@ async function deleteTemplate(t: TemplateOut) {
   }
 }
 
-// 标准字段 tag 编辑
+// 标准字段 tag
 function addStdField() {
   const v = stdFieldInput.value.trim()
   if (v && !form.value.std_fields.includes(v)) form.value.std_fields.push(v)
@@ -197,11 +195,12 @@ function openMerge(t: TemplateOut) {
 }
 
 function handleMergeFileChange(uploadFile: any) {
-  mergeFiles.value.push(uploadFile.raw)
+  const file: File = uploadFile.raw
+  if (!mergeFiles.value.find((f) => f.name === file.name && f.size === file.size)) {
+    mergeFiles.value.push(file)
+  }
 }
-function removeMergeFile(index: number) {
-  mergeFiles.value.splice(index, 1)
-}
+function removeMergeFile(index: number) { mergeFiles.value.splice(index, 1) }
 
 async function runMerge() {
   if (!mergeTemplate.value) return
@@ -243,12 +242,8 @@ async function downloadResult() {
               配置归集模板，定期上传多源文件一键合并为标准表格。
             </div>
           </div>
-          <div style="display: flex; gap: 8px">
-            <PermissionButton menu="table_tools" op="E" type="primary" :icon="MagicStick"
-              @click="openNewAi">AI 建模板</PermissionButton>
-            <PermissionButton menu="table_tools" op="E" :icon="Plus"
-              @click="openNewManual">手动新建</PermissionButton>
-          </div>
+          <PermissionButton menu="table_tools" op="E" type="primary" :icon="Plus"
+            @click="openNew">新建模板</PermissionButton>
         </div>
       </template>
 
@@ -279,26 +274,34 @@ async function downloadResult() {
     <!-- 月度合并抽屉 -->
     <el-drawer v-model="mergeDrawer" :title="`合并 · ${mergeTemplate?.name}`" size="720px" destroy-on-close>
       <div style="padding: 0 4px">
-        <!-- 文件上传 -->
-        <el-form label-width="80px">
-          <el-form-item label="上传文件">
-            <div style="width: 100%">
-              <el-upload :auto-upload="false" :show-file-list="false" multiple accept=".xlsx,.xls"
-                :on-change="handleMergeFileChange">
-                <el-button :icon="Upload">选择 Excel 文件</el-button>
-              </el-upload>
-              <div v-if="mergeFiles.length" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px">
-                <el-tag v-for="(f, i) in mergeFiles" :key="i" closable @close="removeMergeFile(i)" type="info">
-                  {{ f.name }}
-                </el-tag>
-              </div>
-            </div>
-          </el-form-item>
-        </el-form>
+        <!-- 拖拽上传区 -->
+        <el-upload
+          drag multiple :auto-upload="false" :show-file-list="false"
+          accept=".xlsx,.xls" :on-change="handleMergeFileChange"
+          style="margin-bottom: 12px">
+          <el-icon style="font-size: 40px; color: var(--color-text-placeholder)"><Upload /></el-icon>
+          <div style="margin-top: 8px; font-size: 14px; color: var(--color-text-regular)">
+            拖拽文件到此处，或 <em style="color: var(--color-primary)">点击选择</em>
+          </div>
+          <div style="margin-top: 4px; font-size: 12px; color: var(--color-text-placeholder)">
+            支持 .xlsx / .xls，可同时选择多个文件
+          </div>
+        </el-upload>
+
+        <!-- 已选文件列表 -->
+        <div v-if="mergeFiles.length" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px">
+          <el-tag v-for="(f, i) in mergeFiles" :key="i" closable @close="removeMergeFile(i)" type="info">
+            {{ f.name }}
+          </el-tag>
+        </div>
 
         <div style="display: flex; gap: 8px; margin-bottom: 16px">
-          <el-button type="primary" :loading="merging" @click="runMerge">运行预览</el-button>
-          <el-button :icon="Download" :loading="downloading" @click="downloadResult">下载完整结果</el-button>
+          <el-button type="primary" :loading="merging" :disabled="!mergeFiles.length" @click="runMerge">
+            运行预览
+          </el-button>
+          <el-button :icon="Download" :loading="downloading" :disabled="!mergeFiles.length" @click="downloadResult">
+            下载完整结果
+          </el-button>
         </div>
 
         <!-- 统计 -->
@@ -354,55 +357,59 @@ async function downloadResult() {
       </div>
     </el-drawer>
 
-    <!-- 建/编辑模板对话框 -->
+    <!-- 新建/编辑模板对话框 -->
     <el-dialog
       v-model="tplDialog"
-      :title="tplMode === 'edit' ? '编辑模板' : tplMode === 'ai' ? 'AI 建模板' : '手动新建模板'"
+      :title="editingId ? '编辑模板' : '新建归集模板'"
       width="860px" destroy-on-close>
 
-      <!-- AI 步骤 1：上传文件 + 业务背景 -->
-      <template v-if="tplMode === 'ai' && aiStep === 1">
-        <el-form label-width="100px">
-          <el-form-item label="上传文件" required>
-            <div style="width: 100%">
-              <el-upload :auto-upload="false" :show-file-list="false" multiple accept=".xlsx,.xls"
-                :on-change="handleAiFileChange">
-                <el-button :icon="Upload">选择 Excel 文件</el-button>
-                <span style="margin-left: 10px; color: var(--color-text-placeholder); font-size: 12px">
-                  上传本次归集场景涉及的所有源文件
-                </span>
-              </el-upload>
-              <div v-if="aiFiles.length" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px">
-                <el-tag v-for="(f, i) in aiFiles" :key="i" closable @close="removeAiFile(i)" type="info">
-                  {{ f.name }}
-                </el-tag>
-              </div>
-            </div>
-          </el-form-item>
-          <el-form-item label="业务背景">
-            <el-input v-model="aiContext" placeholder="可选。一句话说明业务背景，如：社保公积金月度归集，区分个人与单位"
-              style="width: 100%" />
-          </el-form-item>
-        </el-form>
-        <div style="text-align: right; margin-top: 8px">
+      <!-- 步骤 1：上传文件（新建时） -->
+      <template v-if="tplStep === 'upload'">
+        <el-upload
+          drag multiple :auto-upload="false" :show-file-list="false"
+          accept=".xlsx,.xls" :on-change="handleTplFileChange">
+          <el-icon style="font-size: 40px; color: var(--color-text-placeholder)"><Upload /></el-icon>
+          <div style="margin-top: 8px; font-size: 14px; color: var(--color-text-regular)">
+            拖拽文件到此处，或 <em style="color: var(--color-primary)">点击选择</em>
+          </div>
+          <div style="margin-top: 4px; font-size: 12px; color: var(--color-text-placeholder)">
+            上传本次归集场景的所有源文件，AI 将自动识别字段映射 · 支持 .xlsx / .xls · 可多选
+          </div>
+        </el-upload>
+
+        <!-- 已选文件 -->
+        <div v-if="tplFiles.length" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px">
+          <el-tag v-for="(f, i) in tplFiles" :key="i" closable @close="removeTplFile(i)" type="info">
+            {{ f.name }}
+          </el-tag>
+        </div>
+
+        <!-- 业务背景 -->
+        <el-input
+          v-model="aiContext"
+          placeholder="可选：一句话说明业务背景，如：社保公积金月度归集，区分个人与单位"
+          style="margin-top: 16px" />
+
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px">
           <el-button @click="tplDialog = false">取消</el-button>
-          <el-button type="primary" :icon="MagicStick" :disabled="!aiFiles.length" @click="runAiDraft">
+          <el-button @click="skipToManual">跳过，手动配置</el-button>
+          <el-button type="primary" :icon="MagicStick" :disabled="!tplFiles.length" @click="runAiDraft">
             AI 识别
           </el-button>
         </div>
       </template>
 
-      <!-- AI 步骤 2：等待 -->
-      <template v-else-if="tplMode === 'ai' && aiStep === 2">
+      <!-- 步骤 2：AI 分析中 -->
+      <template v-else-if="tplStep === 'loading'">
         <div style="text-align: center; padding: 60px 0">
-          <el-icon class="is-loading" style="font-size: 36px; color: var(--color-primary)">
+          <el-icon class="is-loading" style="font-size: 40px; color: var(--color-primary)">
             <MagicStick />
           </el-icon>
           <div style="margin-top: 16px; color: var(--color-text-regular)">AI 正在分析文件结构，请稍候…</div>
         </div>
       </template>
 
-      <!-- AI 步骤 3 / 手动 / 编辑：确认/填写表单 -->
+      <!-- 步骤 3：确认/填写表单（AI 草稿或手动） -->
       <template v-else>
         <!-- 低置信度提示 -->
         <el-alert v-if="draft?._meta?.low_confidence?.length" type="warning" :closable="false"
@@ -415,7 +422,7 @@ async function downloadResult() {
           </div>
         </el-alert>
 
-        <el-form :model="form" label-width="100px" style="max-height: 600px; overflow-y: auto; padding-right: 8px">
+        <el-form :model="form" label-width="100px" style="max-height: 560px; overflow-y: auto; padding-right: 8px">
           <el-form-item label="模板名称" required>
             <el-input v-model="form.name" placeholder="如：社保月度归集" />
           </el-form-item>
@@ -439,18 +446,13 @@ async function downloadResult() {
               </div>
             </div>
           </el-form-item>
-
-          <!-- 映射列表（折叠展示，可逐条展开） -->
           <el-form-item label="数据源映射">
             <div style="width: 100%">
               <div v-if="!form.mappings.length" style="color: var(--color-text-placeholder); font-size: 13px">
-                {{ tplMode === 'ai' ? 'AI 未识别到映射，请检查文件' : '暂无映射，保存后可补充' }}
+                暂无映射，保存后可在编辑中补充
               </div>
               <el-collapse v-else>
-                <el-collapse-item
-                  v-for="(m, idx) in form.mappings"
-                  :key="idx"
-                  :name="idx">
+                <el-collapse-item v-for="(m, idx) in form.mappings" :key="idx" :name="idx">
                   <template #title>
                     <div style="display: flex; align-items: center; gap: 8px">
                       <span>{{ m.name }}</span>
@@ -464,10 +466,10 @@ async function downloadResult() {
                       <strong>表头行：</strong>{{ m.header_start }}–{{ m.header_end }}</div>
                     <div><strong>识别签名：</strong>{{ m.match_signature?.join(', ') }}</div>
                     <div><strong>主键映射：</strong>
-                      <span v-for="(v, k) in m.key_map" :key="k" style="margin-right: 8px">{{ k }} → {{ v }}</span>
+                      <span v-for="(v, k) in m.key_map" :key="String(k)" style="margin-right: 8px">{{ k }} → {{ v }}</span>
                     </div>
                     <div><strong>字段映射：</strong>
-                      <span v-for="(v, k) in m.column_map" :key="k" style="margin-right: 8px">{{ k }} → {{ v }}</span>
+                      <span v-for="(v, k) in m.column_map" :key="String(k)" style="margin-right: 8px">{{ k }} → {{ v }}</span>
                     </div>
                     <div v-if="m.derived_fields?.length"><strong>派生字段：</strong>
                       <span v-for="df in m.derived_fields" :key="df.target" style="margin-right: 8px">
@@ -484,7 +486,9 @@ async function downloadResult() {
           </el-form-item>
         </el-form>
 
-        <div style="text-align: right; margin-top: 12px">
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px">
+          <!-- 新建时可以退回重新上传 -->
+          <el-button v-if="!editingId" @click="tplStep = 'upload'">返回重新上传</el-button>
           <el-button @click="tplDialog = false">取消</el-button>
           <el-button type="primary" :loading="savingTpl" @click="saveTemplate">保存模板</el-button>
         </div>
