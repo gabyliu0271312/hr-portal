@@ -35,20 +35,28 @@ def _extract_headers_from_blob(name: str, data: bytes) -> list[dict]:
     results = []
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
-        # 探测：尝试 1/2/3 行表头，取非空列最多的那个
+        # 探测表头：试多组 (start, end) 组合，用不重复列名数打分。
+        # 这样可以跳过整行合并的"单笔缴存清单"式标题行——它们的 distinct 列名数=1。
         best_header: list[str] = []
+        best_start = 1
         best_end = 1
-        for end in (1, 2, 3):
-            h = parse_header(ws, 1, end)
-            flat = [c for c in h if c]
-            if len(flat) > len(best_header):
-                best_header = flat
-                best_end = end
-        if len(best_header) < 2:
+        best_score = -1
+        for start in (1, 2, 3, 4):
+            for end in range(start, start + 3):
+                h = parse_header(ws, start, end)
+                flat = [c for c in h if c]
+                score = len(set(flat))
+                if score > best_score:
+                    best_score = score
+                    best_header = flat
+                    best_start = start
+                    best_end = end
+        if len(set(best_header)) < 2:
             continue
         results.append({
             "file": name,
             "sheet": sheet_name,
+            "header_start": best_start,
             "header_end": best_end,
             "columns": best_header,
         })
@@ -179,7 +187,7 @@ async def _step2_map_sheet(
         "name": f"{sheet_info['file']} / {sheet_info['sheet']}",
         "match_signature": sheet_info["columns"][:5],  # 取前5列作为识别签名
         "sheet_kw": sheet_info["sheet"],
-        "header_start": 1,
+        "header_start": sheet_info.get("header_start", 1),
         "header_end": sheet_info["header_end"],
         "key_map": result.get("key_map") or {},
         "column_map": result.get("column_map") or {},
