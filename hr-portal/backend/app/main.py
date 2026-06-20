@@ -38,6 +38,7 @@ from app.ai_formula.router import router as ai_formula_router
 from app.cost_allocation.router import router as cost_allocation_router
 from app.system.router import router as system_logs_router
 from app.tools.router import router as tools_router
+from app.table_tools.router import router as table_tools_router
 from app.users.router import router as users_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
@@ -174,6 +175,7 @@ app.include_router(dataset_calculated_fields_router, prefix=settings.API_PREFIX)
 app.include_router(ai_formula_router, prefix=settings.API_PREFIX)
 app.include_router(system_logs_router, prefix=settings.API_PREFIX)
 app.include_router(tools_router, prefix=settings.API_PREFIX)
+app.include_router(table_tools_router, prefix=settings.API_PREFIX)
 app.include_router(cost_allocation_router, prefix=settings.API_PREFIX)
 app.include_router(allocation_router, prefix=settings.API_PREFIX)
 app.include_router(admin_tables_router, prefix=settings.API_PREFIX)

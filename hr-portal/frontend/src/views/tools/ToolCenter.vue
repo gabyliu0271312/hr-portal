@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Money, Document, Histogram, Right } from '@element-plus/icons-vue'
+import { Money, Document, Histogram, Grid, Right } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -31,6 +31,14 @@ const tools = computed(() => [
     path: '/tools/cost-allocation',
     icon: Histogram,
     enabled: userStore.menus.some((m) => m.code === 'tools.cost_allocation'),
+  },
+  {
+    code: 'table_tools',
+    title: '表格归集',
+    desc: '上传多源 Excel 文件，按人合并为标准字段表格，支持 AI 自动识别映射关系。',
+    path: '/tools/table-merge',
+    icon: Grid,
+    enabled: userStore.menus.some((m) => m.code === 'table_tools'),
   },
 ])
 

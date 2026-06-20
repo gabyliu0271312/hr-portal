@@ -113,6 +113,7 @@ MENU_TREE: list[dict] = [
                     {"code": "tools.compensation_calc", "label": "补偿金计算", "icon": "Money"},
                     {"code": "tools.income_certificate", "label": "证明开具", "icon": "Document"},
                     {"code": "tools.cost_allocation", "label": "成本分摊", "icon": "Histogram"},
+                    {"code": "table_tools", "label": "表格归集", "icon": "Grid"},
                 ],
             },
         ],
@@ -369,8 +370,8 @@ async def _ensure_datasource_jobs(db: AsyncSession) -> None:
 _BUILTIN_TABLES = [
     {"table_name": "emp_realtime_roster",     "table_label": "员工实时花名册",        "icon": "List",           "display_order": 10,  "is_period": False},
     {"table_name": "emp_monthly_roster",      "table_label": "员工月度花名册",        "icon": "Calendar",       "display_order": 20,  "is_period": True,  "period_col": "month", "period_source": "inject"},
-    {"table_name": "emp_monthly_salary",      "table_label": "员工月度工资表",        "icon": "Money",          "display_order": 30,  "is_period": True,  "period_col": "pay_month", "period_source": "field"},
-    {"table_name": "emp_monthly_allocation",  "table_label": "员工月度成本分摊表",    "icon": "Histogram",      "display_order": 40,  "is_period": True,  "period_col": "cost_period", "period_source": "field"},
+    {"table_name": "emp_monthly_salary",      "table_label": "员工月度工资表",        "icon": "Money",          "display_order": 30,  "is_period": True,  "period_col": "pay_month", "period_source": "field", "roster_join_col": "employee_no"},
+    {"table_name": "emp_monthly_allocation",  "table_label": "员工月度成本分摊表",    "icon": "Histogram",      "display_order": 40,  "is_period": True,  "period_col": "cost_period", "period_source": "field", "roster_join_col": "employee_no"},
     {"table_name": "cost_center_monthly",     "table_label": "成本中心月度维护表",    "icon": "OfficeBuilding", "display_order": 50,  "is_period": True,  "period_col": "month", "period_source": "inject"},
     {"table_name": "emp_monthly_cost_class",  "table_label": "员工月度成本归集分类表","icon": "Collection",     "display_order": 60,  "is_period": False},
     {"table_name": "emp_monthly_cost_result", "table_label": "员工月度成本分摊结果",  "icon": "TrendCharts",    "display_order": 70,  "is_period": True,  "period_col": "month", "period_source": "inject", "is_result_table": True},
@@ -391,6 +392,7 @@ async def _ensure_registered_tables(db: AsyncSession) -> None:
             existing.is_result_table = cfg.get("is_result_table", False)
             existing.icon = cfg.get("icon", "Grid")
             existing.display_order = cfg.get("display_order", 999)
+            existing.roster_join_col = cfg.get("roster_join_col")
             continue
         rt = RegisteredTable(
             table_name=cfg["table_name"],
@@ -403,6 +405,7 @@ async def _ensure_registered_tables(db: AsyncSession) -> None:
             is_result_table=cfg.get("is_result_table", False),
             icon=cfg.get("icon", "Grid"),
             display_order=cfg.get("display_order", 999),
+            roster_join_col=cfg.get("roster_join_col"),
         )
         db.add(rt)
         logger.info("[seed] registered_table added: %s", cfg["table_name"])

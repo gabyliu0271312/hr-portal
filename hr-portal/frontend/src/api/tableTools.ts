@@ -1,0 +1,105 @@
+import { api } from './client'
+
+export interface SourceMappingIn {
+  name: string
+  match_signature: string[]
+  sheet_kw?: string | null
+  header_start: number
+  header_end: number
+  key_map: Record<string, string>
+  column_map: Record<string, string>
+  derived_fields: { target: string; expr: string; round?: number }[]
+  derive_check?: { sum_of: string[]; equals_col: string; tol: number } | null
+  skip_tokens: string[]
+}
+
+export interface TemplateIn {
+  name: string
+  description?: string | null
+  merge_keys: string[]
+  std_fields: string[]
+  aggregate: string
+  mappings: SourceMappingIn[]
+}
+
+export interface TemplateOut {
+  id: number
+  name: string
+  description: string | null
+  merge_keys: string[]
+  std_fields: string[]
+  aggregate: string
+  version: number
+  mapping_count: number
+}
+
+export interface TemplateDetail extends TemplateOut {
+  mappings: (SourceMappingIn & { id: number })[]
+}
+
+export interface MergeResult {
+  columns: string[]
+  rows: Record<string, any>[]
+  total_rows: number
+  recognize_log: { sheet: string; file: string; mapping: string }[]
+  anomalies: { key: string; field: string; values: any[] }[]
+  stats: { files: number; records: number; persons: number; anomalies: number }
+}
+
+export interface AiDraftMeta {
+  sheets_found: number
+  files: string[]
+  low_confidence: { sheet: string; confidence: number; notes: string }[]
+}
+
+export interface AiDraft extends TemplateIn {
+  mappings: (SourceMappingIn & { _confidence?: number; _notes?: string })[]
+  _meta: AiDraftMeta
+}
+
+export const tableToolsApi = {
+  listTemplates: (): Promise<TemplateOut[]> =>
+    api.get('/table-tools/templates').then((r) => r.data),
+
+  getTemplate: (id: number): Promise<TemplateDetail> =>
+    api.get(`/table-tools/templates/${id}`).then((r) => r.data),
+
+  createTemplate: (payload: TemplateIn): Promise<TemplateOut> =>
+    api.post('/table-tools/templates', payload).then((r) => r.data),
+
+  updateTemplate: (id: number, payload: TemplateIn): Promise<TemplateOut> =>
+    api.put(`/table-tools/templates/${id}`, payload).then((r) => r.data),
+
+  deleteTemplate: (id: number): Promise<void> =>
+    api.delete(`/table-tools/templates/${id}`).then(() => undefined),
+
+  runMerge: (templateId: number, files: File[]): Promise<MergeResult> => {
+    const fd = new FormData()
+    files.forEach((f) => fd.append('files', f))
+    return api.post(`/table-tools/templates/${templateId}/merge`, fd, {
+      timeout: 120000,
+    }).then((r) => r.data)
+  },
+
+  downloadMerge: async (templateId: number, files: File[]): Promise<void> => {
+    const fd = new FormData()
+    files.forEach((f) => fd.append('files', f))
+    const resp = await api.post(`/table-tools/templates/${templateId}/download`, fd, {
+      responseType: 'blob',
+      timeout: 120000,
+    })
+    const url = URL.createObjectURL(resp.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'merged_result.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+
+  aiDraft: (files: File[], businessContext: string): Promise<AiDraft> => {
+    const fd = new FormData()
+    files.forEach((f) => fd.append('files', f))
+    fd.append('business_context', businessContext)
+    return api.post('/table-tools/ai-draft', fd, { timeout: 120000 }).then((r) => r.data)
+  },
+}

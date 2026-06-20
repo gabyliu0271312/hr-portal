@@ -163,6 +163,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '工具中心', menuCode: 'tools.center' },
       },
       {
+        path: 'tools/table-merge',
+        name: 'TableMerge',
+        component: () => import('@/views/tools/TableMerge.vue'),
+        meta: { label: '表格归集', menuCode: 'table_tools' },
+      },
+      {
         path: 'tools/compensation-calc',
         name: 'CompensationCalc',
         component: () => import('@/views/tools/CompensationCalc.vue'),
