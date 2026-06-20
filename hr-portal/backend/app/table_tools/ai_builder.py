@@ -27,7 +27,7 @@ import io
 def _extract_headers_from_blob(name: str, data: bytes) -> list[dict]:
     """从单个 Excel 文件提取所有有效 sheet 的表头（最多 3 行合并后扁平列名）。"""
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
     except Exception:
         return []
 
