@@ -192,7 +192,7 @@ async def _step2_map_sheet(
         "key_map": result.get("key_map") or {},
         "column_map": result.get("column_map") or {},
         "derived_fields": result.get("derived_fields") or [],
-        "derive_check": result.get("derive_check"),
+        "derive_check": None,  # 禁用 AI 生成的拆分校验，社保文件四舍五入差异会产生大量误报
         "skip_tokens": result.get("skip_tokens") or ["合计", "小计", "总计"],
         "_confidence": result.get("confidence", 0.8),
         "_notes": result.get("notes", ""),

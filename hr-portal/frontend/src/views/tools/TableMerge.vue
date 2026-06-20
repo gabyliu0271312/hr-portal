@@ -333,14 +333,14 @@ async function downloadResult() {
         <!-- 异常 -->
         <div v-if="mergeResult?.anomalies?.length">
           <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--el-color-danger)">
-            字段冲突（{{ mergeResult.anomalies.length }} 条）
+            异常（{{ mergeResult.anomalies.length }} 条）
           </div>
           <el-table :data="mergeResult.anomalies" size="small" style="margin-bottom: 12px">
-            <el-table-column prop="key" label="人员主键" show-overflow-tooltip />
-            <el-table-column prop="field" label="字段" />
-            <el-table-column label="冲突值">
-              <template #default="{ row }">{{ row.values?.join(' vs ') }}</template>
+            <el-table-column prop="type" label="类型" width="110" />
+            <el-table-column label="人员主键" show-overflow-tooltip>
+              <template #default="{ row }">{{ typeof row.key === 'object' ? JSON.stringify(row.key) : row.key }}</template>
             </el-table-column>
+            <el-table-column prop="detail" label="详情" show-overflow-tooltip />
           </el-table>
         </div>
 
