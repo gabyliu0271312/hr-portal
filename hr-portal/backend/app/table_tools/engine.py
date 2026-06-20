@@ -113,8 +113,11 @@ def extract_records(ws, header: list[str | None], mapping: dict) -> tuple[list[d
             rec[stdname] = str(rowvals[i]).strip() if i is not None and rowvals[i] is not None else ""
         if not any(rec.get(v) for v in key_map.values()):
             continue
-        # 直接映射
+        # 直接映射（跳过已被 key_map 赋值的主键列，避免 float() 覆盖字符串主键）
+        key_std_fields = set(key_map.values())
         for srcname, stdname in mapping.get("column_map", {}).items():
+            if stdname in key_std_fields:
+                continue
             i = col_idx.get(srcname)
             if i is None:
                 continue
@@ -169,7 +172,10 @@ def aggregate_records(
     anomalies: list[dict] = []
 
     for rec, src in records_with_src:
-        pk = tuple(rec.get(k, "") for k in merge_keys)
+        # 主键统一转字符串:不同来源对同一字段可能写入 str/float 混合类型
+        # (如证件号被误归到 column_map 会被 float() 转换),不统一会导致
+        # sorted() 报 TypeError,也会导致同一人在不同来源里因类型不同而对不上。
+        pk = tuple(str(rec.get(k, "")).strip() for k in merge_keys)
         if not any(pk):
             continue
         cur = person.setdefault(pk, {k: rec.get(k, "") for k in merge_keys})
