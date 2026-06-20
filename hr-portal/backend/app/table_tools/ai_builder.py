@@ -77,7 +77,7 @@ async def _get_ai_config(db: AsyncSession) -> tuple[str, str | None, str, int]:
     if not api_key:
         raise ValueError("AI 服务 API Key 未配置或解密失败")
     model = row.model_fast_json or row.model_reasoning or "gpt-4o-mini"
-    return api_key, row.base_url, model, int(row.timeout_seconds or 30)
+    return api_key, row.base_url, model, max(int(row.timeout_seconds or 30), 120)
 
 
 # ── Step 1: 聚类标准字段 ─────────────────────────────────────────────────────
