@@ -142,8 +142,8 @@ def extract_records(ws, header: list[str | None], mapping: dict) -> tuple[list[d
         for d in mapping.get("derived_fields", []):
             try:
                 v = round(eval_expr(d["expr"], getcol), d.get("round", 2))
-            except ValueError as e:
-                anomalies.append({"type": "派生失败", "key": rec, "detail": f"{d['target']}: {e}"})
+            except ValueError:
+                # 列值为 None/空（该 sheet 无此字段）时静默跳过，不计入异常
                 continue
             derived[d["target"]] = v
             rec[d["target"]] = v
