@@ -117,7 +117,22 @@ async def get_template(
     t = await _load_template(db, tid)
     return {
         **_template_out(t).model_dump(),
-        "mappings": [_mapping_to_engine(m) | {"id": m.id} for m in t.mappings],
+        "mappings": [
+            {
+                "id": m.id,
+                "name": m.name,
+                "match_signature": m.match_signature,
+                "sheet_kw": m.sheet_kw,
+                "header_start": m.header_start,
+                "header_end": m.header_end,
+                "key_map": m.key_map,
+                "column_map": m.column_map,
+                "derived_fields": m.derived_fields,
+                "derive_check": m.derive_check,
+                "skip_tokens": m.skip_tokens,
+            }
+            for m in t.mappings
+        ],
     }
 
 
