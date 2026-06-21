@@ -77,7 +77,7 @@ export const tableToolsApi = {
     const fd = new FormData()
     files.forEach((f) => fd.append('files', f))
     return api.post(`/table-tools/templates/${templateId}/merge`, fd, {
-      timeout: 120000,
+      timeout: 300000,
     }).then((r) => r.data)
   },
 
@@ -86,7 +86,7 @@ export const tableToolsApi = {
     files.forEach((f) => fd.append('files', f))
     const resp = await api.post(`/table-tools/templates/${templateId}/download`, fd, {
       responseType: 'blob',
-      timeout: 120000,
+      timeout: 300000,
     })
     const url = URL.createObjectURL(resp.data)
     const a = document.createElement('a')
@@ -100,6 +100,6 @@ export const tableToolsApi = {
     const fd = new FormData()
     files.forEach((f) => fd.append('files', f))
     fd.append('business_context', businessContext)
-    return api.post('/table-tools/ai-draft', fd, { timeout: 120000 }).then((r) => r.data)
+    return api.post('/table-tools/ai-draft', fd, { timeout: 300000 }).then((r) => r.data)
   },
 }

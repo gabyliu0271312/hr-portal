@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 from sqlalchemy import select
@@ -25,6 +26,8 @@ from app.table_tools.engine import parse_header
 
 import openpyxl
 import io
+
+logger = logging.getLogger(__name__)
 
 
 # ── 读表头 ──────────────────────────────────────────────────────────────────
@@ -235,8 +238,8 @@ async def build_draft(
     if not std_fields:
         raise ValueError("AI 未能识别出标准字段，请补充业务背景后重试")
 
-    # Step 2: 并发映射所有 sheet（最多 5 并发，避免触发限速）
-    semaphore = asyncio.Semaphore(5)
+    # Step 2: 并发映射所有 sheet（10 并发,缩短全量文件总耗时,避免撞前端/反代超时）
+    semaphore = asyncio.Semaphore(10)
 
     async def _map_with_sem(sheet_info: dict) -> dict:
         async with semaphore:
@@ -245,6 +248,10 @@ async def build_draft(
             )
 
     mappings = list(await asyncio.gather(*[_map_with_sem(h) for h in all_headers]))
+    logger.info(
+        "table_merge build_draft: %d sheets, %d std_fields, %d mappings",
+        len(all_headers), len(std_fields), len(mappings),
+    )
 
     return {
         "name": "",
