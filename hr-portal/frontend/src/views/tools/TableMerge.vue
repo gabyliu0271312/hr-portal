@@ -44,6 +44,7 @@ const form = ref({
   mappings: [] as any[],
 })
 const stdFieldInput = ref('')
+const draggingStdField = ref('')
 const savingTpl = ref(false)
 
 // 当前展开的 mapping 索引
@@ -193,6 +194,17 @@ function addStdField() {
 }
 function removeStdField(f: string) {
   form.value.std_fields = form.value.std_fields.filter((x) => x !== f)
+}
+// 拖拽排序：决定归集输出表的列顺序
+function reorderStdField(code: string, targetCode: string) {
+  if (!code || !targetCode || code === targetCode) return
+  const next = [...form.value.std_fields]
+  const from = next.indexOf(code)
+  const to = next.indexOf(targetCode)
+  if (from < 0 || to < 0) return
+  const [item] = next.splice(from, 1)
+  next.splice(to, 0, item)
+  form.value.std_fields = next
 }
 
 // 低置信度
@@ -483,10 +495,15 @@ const editingColMapEntries = computed({
 
             <section class="form-section">
               <h3 class="section-title">标准字段 <span class="required-mark">*</span></h3>
-              <p class="section-desc">归集后输出表的列名，所有数据源的字段都会映射到这里</p>
+              <p class="section-desc">归集后输出表的列名，所有数据源的字段都会映射到这里；可拖拽调整顺序，决定导出表的列序</p>
               <div class="std-tags">
                 <el-tag v-for="f in form.std_fields" :key="f" closable
-                  @close="removeStdField(f)" class="std-tag">{{ f }}</el-tag>
+                  @close="removeStdField(f)" class="std-tag"
+                  draggable="true"
+                  @dragstart="draggingStdField = f"
+                  @dragend="draggingStdField = ''"
+                  @dragover.prevent
+                  @drop.prevent="reorderStdField(draggingStdField, f); draggingStdField = ''">{{ f }}</el-tag>
               </div>
               <div class="std-add">
                 <el-input v-model="stdFieldInput" placeholder="输入字段名后添加"
@@ -987,7 +1004,8 @@ const editingColMapEntries = computed({
 .field-label.required::after { content: ' *'; color: var(--color-danger); }
 
 .std-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; min-height: 24px; }
-.std-tag { font-size: 12px; }
+.std-tag { font-size: 12px; cursor: grab; }
+.std-tag:active { cursor: grabbing; }
 .std-add { display: flex; gap: 6px; }
 
 /* ── 映射列表 ───────────────────────────────────────────── */

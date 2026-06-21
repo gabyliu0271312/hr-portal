@@ -41,8 +41,8 @@ export interface MergeResult {
   columns: string[]
   rows: Record<string, any>[]
   total_rows: number
-  recognize_log: { sheet: string; file: string; mapping: string }[]
-  anomalies: { key: string; field: string; values: any[] }[]
+  recognize_log: { sheet: string; file: string; mapping: string; score: number }[]
+  anomalies: { type: string; key: any; detail: string; file?: string }[]
   stats: { files: number; records: number; persons: number; anomalies: number }
 }
 
