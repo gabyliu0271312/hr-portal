@@ -96,6 +96,25 @@ async def _get_ai_config(db: AsyncSession) -> tuple[str, str | None, str, int]:
     return api_key, row.base_url, model, max(int(row.timeout_seconds or 30), 180)
 
 
+# ── AI 调用重试(中转商间歇 504/超时,瞬时错误重试可救回) ──────────────────────
+
+async def _gen_json_with_retry(*, retries: int = 2, **kwargs) -> tuple[dict, Any]:
+    """包装 generate_json_openai_compatible:对瞬时错误(网关 5xx/超时)重试。
+    aiapi.uu.cc 中转间歇返回 504/网关错误,单次重试大概率成功。"""
+    import httpx
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return await generate_json_openai_compatible(**kwargs)
+        except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.TransportError) as e:
+            last_exc = e
+            if attempt < retries:
+                await asyncio.sleep(1.5 * (attempt + 1))
+                continue
+            raise
+    raise last_exc  # 不会到这,satisfy 类型
+
+
 # ── Step 1: 聚类标准字段 ─────────────────────────────────────────────────────
 
 _STEP1_SYSTEM = """\
@@ -105,6 +124,11 @@ _STEP1_SYSTEM = """\
 3. 标准字段名用中文，尽量精简（不超过 10 字），避免冗余（如"个人养老"和"养老个人"统一为一个）。
 4. 忽略序号、备注、合计行等元数据列，不纳入标准字段。
 5. 同时识别：哪些列是人员主键（姓名/工号/证件号等身份列）。
+
+重要——合并粒度：
+- 默认积极合并同类列，不要为每一个源列都建一个标准字段；标准字段总数应尽量精简。
+- 若用户提供了「业务背景」，**以业务背景描述的口径和粒度为最高优先级**：用户说要哪些字段、合并到什么程度，就严格照办（如用户要求"按类别只保留个人与单位两项"，则同类的基数/比例/明细等细分列都归并掉，不单独建字段）。
+- 没有业务背景时，按通用常识合并到"够用的最粗粒度"，宁可少而准，细分留待用户在确认环节补充。
 
 返回严格合法的 JSON，格式如下（禁止 markdown/解释文字）：
 {
@@ -126,7 +150,7 @@ async def _step1_cluster_fields(
     context_line = f"\n业务背景（用户提供）：{business_context}" if business_context.strip() else ""
     user_msg = f"以下是所有 Excel sheet 的列名：\n\n" + "\n".join(sheets_summary) + context_line
 
-    result, _ = await generate_json_openai_compatible(
+    result, _ = await _gen_json_with_retry(
         api_key=api_key, base_url=base_url, model=model,
         messages=[
             {"role": "system", "content": _STEP1_SYSTEM},
@@ -141,6 +165,21 @@ async def _step1_cluster_fields(
 
 
 # ── Step 2: 逐 sheet 生成映射 ────────────────────────────────────────────────
+
+def _coerce_confidence(raw: Any) -> float:
+    """AI 返回的 confidence 可能是数值、字符串,甚至是 {列名:分} 的 dict。
+    统一规范成单一浮点:dict 取其数值均值,无法解析则兜底 0.8。"""
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    if isinstance(raw, str):
+        try:
+            return float(raw)
+        except ValueError:
+            return 0.8
+    if isinstance(raw, dict):
+        nums = [float(v) for v in raw.values() if isinstance(v, (int, float))]
+        return sum(nums) / len(nums) if nums else 0.8
+    return 0.8
 
 _STEP2_SYSTEM = """\
 你是 Excel 数据映射专家。给你：
@@ -170,6 +209,8 @@ _STEP2_SYSTEM = """\
     封顶取小:          {"target":"医疗公司","expr":"MIN({医疗基数}*0.08, 5000)","round":2}
     条件取值:          {"target":"补贴","expr":"IF({工龄}>=10, 1000, 500)"}
 - 无法识别的列不要强行映射，confidence 相应降低。
+- column_map / derived_fields 的目标只能用给定 std_fields 里的字段，不要自创新标准字段。
+- 若提供了用户业务背景，映射口径须与其一致。
 - 禁止 markdown/解释文字，只返回 JSON。
 """
 
@@ -179,14 +220,20 @@ async def _step2_map_sheet(
     std_fields: list[str],
     merge_keys: list[str],
     api_key: str, base_url: str | None, model: str, timeout: int,
+    business_context: str = "",
 ) -> dict:
+    context_line = (
+        f"用户业务背景（最高优先级,映射口径以此为准）：{business_context}\n\n"
+        if business_context.strip() else ""
+    )
     user_msg = (
+        f"{context_line}"
         f"标准字段列表：{json.dumps(std_fields, ensure_ascii=False)}\n"
         f"人员主键：{json.dumps(merge_keys, ensure_ascii=False)}\n\n"
         f"Sheet：【{sheet_info['file']} / {sheet_info['sheet']}】\n"
         f"列名：{', '.join(sheet_info['columns'])}"
     )
-    result, _ = await generate_json_openai_compatible(
+    result, _ = await _gen_json_with_retry(
         api_key=api_key, base_url=base_url, model=model,
         messages=[
             {"role": "system", "content": _STEP2_SYSTEM},
@@ -206,7 +253,7 @@ async def _step2_map_sheet(
         "derived_fields": result.get("derived_fields") or [],
         "derive_check": None,  # 禁用 AI 生成的拆分校验，社保文件四舍五入差异会产生大量误报
         "skip_tokens": result.get("skip_tokens") or ["合计", "小计", "总计"],
-        "_confidence": result.get("confidence", 0.8),
+        "_confidence": _coerce_confidence(result.get("confidence")),
         "_notes": result.get("notes", ""),
     }
 
@@ -244,14 +291,43 @@ async def build_draft(
     async def _map_with_sem(sheet_info: dict) -> dict:
         async with semaphore:
             return await _step2_map_sheet(
-                sheet_info, std_fields, merge_keys, api_key, base_url, model, timeout
+                sheet_info, std_fields, merge_keys, api_key, base_url, model, timeout,
+                business_context,
             )
 
-    mappings = list(await asyncio.gather(*[_map_with_sem(h) for h in all_headers]))
-    logger.info(
-        "table_merge build_draft: %d sheets, %d std_fields, %d mappings",
-        len(all_headers), len(std_fields), len(mappings),
+    # return_exceptions=True:某个 sheet 的 AI 调用失败(中转 504/400 等)不拖垮整体,
+    # 失败 sheet 降级为空映射 + 标红低置信,交人工补,其余 sheet 正常产出。
+    raw_results = await asyncio.gather(
+        *[_map_with_sem(h) for h in all_headers], return_exceptions=True
     )
+    mappings: list[dict] = []
+    failed_sheets: list[dict] = []
+    for h, res in zip(all_headers, raw_results):
+        if isinstance(res, Exception):
+            failed_sheets.append({"sheet": f"{h['file']} / {h['sheet']}", "error": str(res)})
+            mappings.append({
+                "name": f"{h['file']} / {h['sheet']}",
+                "match_signature": h["columns"][:5],
+                "sheet_kw": h["sheet"],
+                "header_start": h.get("header_start", 1),
+                "header_end": h["header_end"],
+                "key_map": {}, "column_map": {}, "derived_fields": [],
+                "derive_check": None, "skip_tokens": ["合计", "小计", "总计"],
+                "_confidence": 0.0,
+                "_notes": f"AI 调用失败,请手工配置该表映射:{res}",
+            })
+        else:
+            mappings.append(res)
+    logger.info(
+        "table_merge build_draft: %d sheets, %d std_fields, %d mappings, %d failed",
+        len(all_headers), len(std_fields), len(mappings), len(failed_sheets),
+    )
+    if failed_sheets and len(failed_sheets) == len(all_headers):
+        # 全部 sheet 都失败 → AI 服务整体不可用,直接报错让用户重试
+        raise ValueError(
+            f"AI 服务暂时不可用(全部 {len(all_headers)} 个表识别失败),请稍后重试。"
+            f"首个错误:{failed_sheets[0]['error']}"
+        )
 
     return {
         "name": "",
@@ -263,9 +339,10 @@ async def build_draft(
         "_meta": {
             "sheets_found": len(all_headers),
             "files": list({h["file"] for h in all_headers}),
+            "failed_sheets": failed_sheets,
             "low_confidence": [
                 {"sheet": m["name"], "confidence": m["_confidence"], "notes": m["_notes"]}
-                for m in mappings if m.get("_confidence", 1.0) < 0.85
+                for m in mappings if _coerce_confidence(m.get("_confidence", 1.0)) < 0.85
             ],
         },
     }

@@ -415,10 +415,10 @@ const editingColMapEntries = computed({
             </div>
 
             <div class="context-wrap">
-              <label class="context-label">业务背景（可选）</label>
+              <label class="context-label">业务背景（可选，但强烈建议填写）</label>
               <el-input
-                v-model="aiContext" type="textarea" :rows="2"
-                placeholder="一句话说明归集场景，如：社保公积金月度归集，区分个人与单位缴纳部分" />
+                v-model="aiContext" type="textarea" :rows="3"
+                placeholder="描述本次归集的场景与你想要的标准字段，AI 会据此决定字段清单和合并粒度。可包含：&#10;· 归集场景（如：月度社保公积金、考勤汇总、报销明细）&#10;· 想要哪些标准字段、合并到什么粗细（如：每类只保留个人/单位两项，忽略基数与比例）&#10;· 哪些列要忽略、用什么作归集主键&#10;描述越具体，AI 生成的模板越贴近预期，需要手工调整的越少。" />
             </div>
 
             <div class="upload-actions">
