@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { DatasetItem } from '@/api/datasets'
+import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
 
 const props = defineProps<{
   name: string
   description: string
   datasetId: number | null
   isPublished: boolean
+  scopeStrategy: ScopeStrategy | null
   datasets: DatasetItem[]
   currentDataset: DatasetItem | null
 }>()
@@ -16,6 +18,7 @@ const emit = defineEmits<{
   'update:description': [v: string]
   'update:datasetId': [v: number | null]
   'update:isPublished': [v: boolean]
+  'update:scopeStrategy': [v: ScopeStrategy | null]
   'dataset-change': []
 }>()
 
@@ -34,6 +37,10 @@ const datasetIdModel = computed({
 const isPublishedModel = computed({
   get: () => props.isPublished,
   set: (v) => emit('update:isPublished', v),
+})
+const scopeStrategyModel = computed({
+  get: () => props.scopeStrategy,
+  set: (v) => emit('update:scopeStrategy', v),
 })
 
 const showDescription = ref(!!props.description)
@@ -88,6 +95,17 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
           </el-button>
         </div>
       </el-form-item>
+
+      <el-form-item class="strategy-field" label="数据范围策略">
+        <el-select v-model="scopeStrategyModel" size="small" clearable placeholder="继承默认" style="width: 100%">
+          <el-option
+            v-for="item in SCOPE_STRATEGY_OPTIONS"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
+          />
+        </el-select>
+      </el-form-item>
     </div>
 
     <el-form-item v-if="showDescription" class="description-field" label="描述">
@@ -105,7 +123,7 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
 }
 .basic-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 1.3fr) minmax(280px, 1fr) minmax(180px, 0.7fr);
+  grid-template-columns: minmax(240px, 1.2fr) minmax(260px, 1fr) minmax(160px, 0.6fr) minmax(180px, 0.7fr);
   gap: 8px 12px;
   align-items: start;
 }

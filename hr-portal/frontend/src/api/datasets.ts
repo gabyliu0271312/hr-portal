@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { ScopeStrategy } from '@/constants/scopeStrategy'
 
 export interface DatasetTableItem {
   id?: number
@@ -32,6 +33,7 @@ export interface DatasetItem {
   name: string
   description: string | null
   is_active: boolean
+  scope_strategy: ScopeStrategy | null
   created_by: number | null
   tables: DatasetTableItem[]
   relations: DatasetRelationItem[]
@@ -45,6 +47,7 @@ export interface DatasetPayload {
   name: string
   description?: string | null
   is_active?: boolean
+  scope_strategy?: ScopeStrategy | null
   tables: DatasetTableItem[]
   relations: DatasetRelationItem[]
   acl: DatasetAclItem[]

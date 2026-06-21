@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import BigInteger, Column, Date, MetaData, Numeric, String, Table, select
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.elements import False_
 
 from app.data.dynamic_loader import _make_model_from_table
 from app.data.models import DATA_TABLES, TableColumn
@@ -448,3 +449,98 @@ async def test_report_scope_filter_rebuild_binds_to_aliased_entity_column(monkey
     assert "employee_no" in sql
     assert "raw" not in sql
     assert "jsonb" not in sql
+
+
+async def test_report_scope_filter_skips_alias_that_cannot_resolve_explicit_strategy(monkeypatch):
+    roster_table = "report_scope_roster"
+    allocation_table = "report_scope_allocation"
+    roster_model = make_entity_model(roster_table, [Column("employee_no", String)])
+    allocation_model = make_entity_model(
+        allocation_table,
+        [Column("employee_no", String), Column("code", String)],
+    )
+    old_roster = register_table(roster_table, roster_model)
+    old_allocation = register_table(allocation_table, allocation_model)
+    ds = DataSet(id=9, name="cc report", scope_strategy="cc_first")
+    tables = [
+        DataSetTable(dataset_id=9, table_name=roster_table, alias="r"),
+        DataSetTable(dataset_id=9, table_name=allocation_table, alias="a"),
+    ]
+    rel = DataSetRelation(
+        dataset_id=9,
+        left_alias="r",
+        right_alias="a",
+        join_type="left",
+        keys=[{"left": "employee_no", "right": "employee_no"}],
+    )
+    db = FakeSession(
+        get_map={(DataSet, 9): ds},
+        results=[
+            *dataset_rows(9, tables, [rel]),
+            FakeResult(rows=[make_column(roster_table, "employee_no")]),
+            FakeResult(rows=[
+                make_column(allocation_table, "employee_no"),
+                make_column(allocation_table, "code", scope_role="cc_code"),
+            ]),
+            FakeResult(rows=[]),  # calculated fields
+            FakeResult(rows=[]),  # hidden roster
+            FakeResult(rows=[]),  # sensitive roster
+            FakeResult(rows=[]),  # hidden allocation
+            FakeResult(rows=[]),  # sensitive allocation
+            FakeResult(rows=[
+                (roster_table, "person_first"),
+                (allocation_table, "cc_first"),
+            ]),
+            FakeResult(value=1),  # count
+            FakeResult(rows=[
+                FakeRow(__r__id=1, __a__id=2, __r__employee_no="E001", __a__code="CC001")
+            ]),
+        ],
+    )
+
+    async def fake_hidden(user, table, db, tool_key=None):
+        return set()
+
+    async def fake_sensitive(user, table, db):
+        return set()
+
+    async def fake_can_resolve(table, strategy, db):
+        return table == allocation_table
+
+    async def fake_build_scope(user, table, db, strategy=None):
+        return False_() if table == allocation_table else None
+
+    async def fake_rebuild(user, table, aliased_model, db, strategy=None):
+        if table != allocation_table:
+            raise AssertionError("roster alias should not rebuild cc_first scope")
+        return aliased_model.__table__.c.code == "CC001"
+
+    import app.permissions.masker as masker
+    import app.permissions.scope_filter as scope_filter
+
+    monkeypatch.setattr(masker, "get_hidden_columns", fake_hidden)
+    monkeypatch.setattr(masker, "get_sensitive_columns", fake_sensitive)
+    monkeypatch.setattr(scope_filter, "can_resolve_scope_strategy", fake_can_resolve)
+    monkeypatch.setattr(scope_filter, "build_scope_filter", fake_build_scope)
+    monkeypatch.setattr(sql_builder, "_rebuild_scope_filter_for_alias", fake_rebuild)
+
+    try:
+        _cols, _items, _total = await sql_builder.run_dataset_query(
+            dataset_id=9,
+            columns=["r.employee_no", "a.code"],
+            filters=[],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[],
+            aggregate=False,
+            aggregations={},
+            transpose={},
+            rounding_corrections=[],
+            page=1,
+            page_size=50,
+            user=SimpleNamespace(id=1),
+            db=db,
+        )
+    finally:
+        restore_table(roster_table, old_roster)
+        restore_table(allocation_table, old_allocation)

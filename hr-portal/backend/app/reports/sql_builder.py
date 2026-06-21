@@ -31,11 +31,12 @@ from sqlalchemy.types import String as SAString
 from app.ai_formula.custom_functions import executable_functions
 from app.ai_formula.field_refs import row_field_resolver
 from app.ai_formula.formula_evaluator import evaluate_formula
-from app.data.models import DATA_TABLES, TableColumn
+from app.data.models import DATA_TABLES, RegisteredTable, TableColumn
 from app.datasets.calculated_fields import active_calculated_fields, calc_qual
 from app.datasets.metadata import effective_column_label_map
 from app.datasets.models import DatasetCalculatedField
 from app.datasets.models import DataSet, DataSetRelation, DataSetTable
+from app.permissions.strategy import DEFAULT_SCOPE_STRATEGY, normalize_scope_strategy
 from app.reports.filter_logic import build_filter_clause
 from app.users.models import User
 
@@ -188,6 +189,21 @@ async def _get_columns_for_aliases(
         )
         by_alias[t.alias] = list(cols)
     return by_alias
+
+
+async def _table_scope_strategy_map(
+    table_names: list[str], db: AsyncSession
+) -> dict[str, str]:
+    if not table_names:
+        return {}
+    rows = (
+        await db.execute(
+            select(RegisteredTable.table_name, RegisteredTable.scope_strategy).where(
+                RegisteredTable.table_name.in_(table_names)
+            )
+        )
+    ).all()
+    return {name: strategy or DEFAULT_SCOPE_STRATEGY for name, strategy in rows}
 
 
 def _num(v: Any) -> float:
@@ -699,6 +715,7 @@ async def run_dataset_query(
     transpose: dict[str, Any] | None = None,
     rounding_corrections: list[dict[str, Any]] | None = None,
     filter_logic: dict[str, Any] | None = None,
+    scope_strategy: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     """执行数据集多表查询
 
@@ -716,6 +733,25 @@ async def run_dataset_query(
     for alias, model in alias_to_model.items():
         _ensure_entity_model(model)
     alias_columns = await _get_columns_for_aliases(ds_tables, db)
+    resolved_scope_strategy = (
+        normalize_scope_strategy(scope_strategy)
+        if scope_strategy
+        else (
+            normalize_scope_strategy(ds.scope_strategy)
+            if ds.scope_strategy
+            else None
+        )
+    )
+    strategy_by_alias: dict[str, str] = {}
+    if user is not None:
+        table_default_strategies = await _table_scope_strategy_map(
+            list({t.table_name for t in ds_tables}), db
+        )
+        strategy_by_alias = {
+            alias: resolved_scope_strategy
+            or table_default_strategies.get(table, DEFAULT_SCOPE_STRATEGY)
+            for alias, table in alias_to_table.items()
+        }
     columns_by_alias = {
         alias: {col.column_code: col for col in cols}
         for alias, cols in alias_columns.items()
@@ -723,6 +759,27 @@ async def run_dataset_query(
     calc_fields = await active_calculated_fields(dataset_id, db)
     calc_by_code = {f.code: f for f in calc_fields}
     calc_by_qual = {calc_qual(f.code): f for f in calc_fields}
+
+    hidden_by_alias: dict[str, set[str]] = {}
+    sensitive_by_alias: dict[str, set[str]] = {}
+    if user is not None:
+        from app.permissions.masker import get_hidden_columns, get_sensitive_columns
+        for a, table in alias_to_table.items():
+            hidden_by_alias[a] = await get_hidden_columns(user, table, db, tool_key=None)
+            sensitive_by_alias[a] = await get_sensitive_columns(user, table, db)
+
+    def _is_hidden_ref(qualified: str) -> bool:
+        if "." not in qualified or qualified.startswith("calc."):
+            return False
+        alias, code = _split_qualified(qualified)
+        return code in hidden_by_alias.get(alias, set())
+
+    def _reject_hidden_ref(qualified: str, label: str) -> None:
+        if _is_hidden_ref(qualified):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail=f"无权使用{label}: {qualified}",
+            )
 
     # 选定列：未指定则取每张表的可见列
     selected: list[tuple[str, str]] = []
@@ -736,13 +793,14 @@ async def run_dataset_query(
                     raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"计算字段不存在: {q}")
                 selected_calc_fields.append(calc_field)
             else:
+                _reject_hidden_ref(q, "字段")
                 pair = _split_qualified(q)
                 display_selected.append(pair)
                 selected.append(pair)
     else:
         for alias, cols in alias_columns.items():
             for c in cols:
-                if c.is_visible:
+                if c.is_visible and c.column_code not in hidden_by_alias.get(alias, set()):
                     pair = (alias, c.column_code)
                     display_selected.append(pair)
                     selected.append(pair)
@@ -774,19 +832,23 @@ async def run_dataset_query(
     for field in internal_calc_fields:
         for dep in field.depends_on or []:
             if isinstance(dep, str) and "." in dep:
+                _reject_hidden_ref(dep, "计算字段依赖")
                 selected.append(_split_qualified(dep))
     for f in filters or []:
         raw = str((f or {}).get("column") or "")
         if raw and not raw.startswith("calc.") and "." in raw:
+            _reject_hidden_ref(raw, "筛选字段")
             selected.append(_split_qualified(raw))
     for s in sorts or []:
         raw = str((s or {}).get("column") or "")
         if raw and not raw.startswith("calc.") and "." in raw:
+            _reject_hidden_ref(raw, "排序字段")
             selected.append(_split_qualified(raw))
     for vr in value_rules or []:
         for key in ("target", "factor"):
             raw = str((vr or {}).get(key) or "")
             if raw and not raw.startswith("calc.") and "." in raw:
+                _reject_hidden_ref(raw, "拆分字段")
                 selected.append(_split_qualified(raw))
     selected = _dedupe_pairs(selected)
 
@@ -887,18 +949,34 @@ async def run_dataset_query(
 
     # 注入数据范围权限（每个 alias 各自算后 AND）
     if user is not None:
-        from app.permissions.scope_filter import build_scope_filter, is_unrestricted
+        from app.permissions.scope_filter import (
+            can_resolve_scope_strategy,
+            build_scope_filter,
+            is_unrestricted,
+        )
+        any_strategy_resolved = False
         for a in used_aliases:
-            clause = await build_scope_filter(user, alias_to_table[a], db)
+            strategy = strategy_by_alias[a]
+            if resolved_scope_strategy and not await can_resolve_scope_strategy(
+                alias_to_table[a], strategy, db
+            ):
+                continue
+            any_strategy_resolved = True
+            clause = await build_scope_filter(user, alias_to_table[a], db, strategy=strategy)
             if not is_unrestricted(clause):
                 # build_scope_filter 引用原 Model；报表查询使用 aliased model，
                 # 因此按同一权限语义重建一份绑定到当前 alias 的实体列条件。
                 clause2 = await _rebuild_scope_filter_for_alias(
-                    user, alias_to_table[a], aliased_models[a], db
+                    user, alias_to_table[a], aliased_models[a], db, strategy=strategy
                 )
                 if clause2 is not None:
                     stmt = stmt.where(clause2)
                     count_stmt = count_stmt.where(clause2)
+        if resolved_scope_strategy and not any_strategy_resolved:
+            from sqlalchemy import false
+
+            stmt = stmt.where(false())
+            count_stmt = count_stmt.where(false())
 
     # 用户级 filters
     def _dataset_filter_clause(f: dict[str, Any]) -> ColumnElement | None:
@@ -989,11 +1067,6 @@ async def run_dataset_query(
 
     # ===== 列元数据 =====
     columns_meta: list[dict[str, Any]] = []
-    sensitive_by_alias: dict[str, set[str]] = {}
-    if user is not None:
-        from app.permissions.masker import get_sensitive_columns
-        for a, table in alias_to_table.items():
-            sensitive_by_alias[a] = await get_sensitive_columns(user, table, db)
     labels_by_alias = {
         alias: await effective_column_label_map(cols, db)
         for alias, cols in alias_columns.items()
@@ -1291,99 +1364,26 @@ def _filter_clause(expr, data_type: str, op: str, val: Any) -> ColumnElement | N
 
 
 async def _rebuild_scope_filter_for_alias(
-    user: User, table: str, aliased_model, db: AsyncSession
+    user: User,
+    table: str,
+    aliased_model,
+    db: AsyncSession,
+    strategy: str | None = DEFAULT_SCOPE_STRATEGY,
 ) -> ColumnElement | None:
-    """复用 scope_filter 的语义，但 Model 换成 aliased
+    """复用 scope_filter 的语义，但 Model 换成 aliased。
 
     返回值：
-    - None      → 不约束（超管、表无 scope_role 字段、或当前所有标签对此表无约束）
+    - None      → 不约束（超管等）
     - false()   → 用户无权限（无标签）
     - 其它      → 拼接到 where 的 ColumnElement
     """
-    from sqlalchemy import false, true
-    from app.data.models import CostCenterNode, OrgNode
-    from app.permissions.scope_filter import (
-        _get_role_columns,
-        _get_user_tags,
-        _is_super_admin,
+    from app.permissions.scope_filter import _build_scope_filter_for_model, is_unrestricted
+
+    clause = await _build_scope_filter_for_model(
+        user,
+        table,
+        aliased_model,
+        db,
+        strategy=strategy,
     )
-
-    if await _is_super_admin(user, db):
-        return None
-
-    role_cols = await _get_role_columns(table, db)
-    if not role_cols:
-        return None
-
-    tags = await _get_user_tags(user.id, db)
-    if not tags:
-        return false()
-
-    tag_clauses: list[ColumnElement] = []
-    for tag, sels, filters in tags:
-        # ---- 组织范围 ----
-        org_part: ColumnElement | None = None
-        if tag.org_scope_enabled:
-            if tag.org_scope_unlimited:
-                org_part = true()
-            else:
-                if tag.dimension == "cost_center":
-                    col_key = "cc_code"
-                    NodeModel = CostCenterNode
-                elif tag.dimension == "org":
-                    col_key = "org_node_code"
-                    NodeModel = OrgNode
-                else:
-                    col_key = None
-                    NodeModel = None
-
-                if col_key and col_key in role_cols and NodeModel is not None:
-                    codes: set[str] = set()
-                    for s in sels:
-                        if s.node_id is None:
-                            continue
-                        node = await db.get(NodeModel, s.node_id)
-                        if node is None:
-                            continue
-                        if s.include_descendants and node.path:
-                            descendants = (
-                                await db.execute(
-                                    select(NodeModel.code).where(
-                                        NodeModel.path.like(f"{node.path}%")
-                                    )
-                                )
-                            ).all()
-                            codes.update(r[0] for r in descendants)
-                        else:
-                            codes.add(node.code)
-                    org_part = _entity_text(aliased_model, role_cols[col_key]).in_(codes) if codes else false()
-
-        # ---- 人员范围 ----
-        person_part: ColumnElement | None = None
-        if tag.person_scope_enabled:
-            if not filters:
-                person_part = false()
-            else:
-                parts: list[ColumnElement] = []
-                for f in filters:
-                    col_code = role_cols.get(f.field_code)
-                    if not col_code:
-                        continue
-                    vals = [v for v in (f.values or []) if v]
-                    if not vals:
-                        parts.append(false())
-                        continue
-                    expr = _entity_text(aliased_model, col_code).in_(vals)
-                    parts.append(expr if f.operator == "eq" else ~expr)
-                if parts:
-                    person_part = and_(*parts)
-
-        merged = [p for p in (org_part, person_part) if p is not None]
-        if not merged:
-            tag_clauses.append(false())
-        else:
-            tag_clauses.append(and_(*merged))
-
-    if not tag_clauses:
-        return false()
-    return or_(*tag_clauses)
+    return None if is_unrestricted(clause) else clause

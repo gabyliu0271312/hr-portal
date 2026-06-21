@@ -362,3 +362,89 @@ async def test_build_scope_filter_no_role_no_join_fails_closed():
     finally:
         restore_table(target_name, old_target)
     assert isinstance(clause, False_)
+
+
+async def test_build_scope_filter_person_first_uses_only_org_tags():
+    table_name = "scope_strategy_person"
+    model = _make_plain_entity(table_name, "org_node_code", "cc_code")
+    old_model = set_table(table_name, model)
+    org_tag = make_tag(id=1, name="组织标签", dimension="org")
+    cc_tag = make_tag(id=2, name="成本标签", dimension="cost_center")
+    org_sel = ScopeTagSelection(id=1, tag_id=1, node_id=10, include_descendants=False)
+    cc_sel = ScopeTagSelection(id=2, tag_id=2, node_id=20, include_descendants=False)
+    org_node = OrgNode(id=10, code="ORG001", name="技术中心", level=1, is_leaf=True, is_active=True)
+    cc_node = CostCenterNode(id=20, code="CC001", name="项目中心", level=1, is_leaf=True, is_active=True)
+    role_columns = [
+        make_column(table_name=table_name, column_code="org_node_code", scope_role="org_node_code"),
+        make_column(table_name=table_name, column_code="cc_code", scope_role="cc_code"),
+    ]
+    db = FakeSession(
+        results=[
+            FakeResult(rows=[]),
+            FakeResult(rows=role_columns),
+            FakeResult(rows=[]),  # _get_roster_join_col
+            FakeResult(rows=[org_tag, cc_tag]),
+            FakeResult(rows=[org_sel]),
+            FakeResult(rows=[]),
+            FakeResult(rows=[cc_sel]),
+            FakeResult(rows=[]),
+        ],
+        get_map={(OrgNode, 10): org_node, (CostCenterNode, 20): cc_node},
+    )
+
+    try:
+        clause = await scope_filter.build_scope_filter(
+            SimpleNamespace(id=99), table_name, db, strategy="person_first"
+        )
+    finally:
+        restore_table(table_name, old_model)
+
+    sql = compiled_sql(clause)
+    assert "ORG001" in sql
+    assert "CC001" not in sql
+
+
+async def test_build_scope_filter_person_first_passthrough_even_when_table_has_cc_role():
+    target_name = "scope_strategy_salary"
+    target_model = _make_plain_entity(target_name, "employee_no", "cc_code")
+    roster_model = _make_plain_entity(scope_filter.ROSTER_TABLE, "employee_no", "org_node_code")
+    old_target = set_table(target_name, target_model)
+    old_roster = set_table(scope_filter.ROSTER_TABLE, roster_model)
+    tag = make_tag(id=1, name="组织标签", dimension="org")
+    selection = ScopeTagSelection(id=1, tag_id=1, node_id=10, include_descendants=False)
+    node = OrgNode(id=10, code="ORG001", name="技术中心", level=1, is_leaf=True, is_active=True)
+    target_role_col = make_column(
+        table_name=target_name,
+        column_code="cc_code",
+        scope_role="cc_code",
+    )
+    roster_role_col = make_column(
+        table_name=scope_filter.ROSTER_TABLE,
+        column_code="org_node_code",
+        scope_role="org_node_code",
+    )
+    db = FakeSession(
+        results=[
+            FakeResult(rows=[]),
+            FakeResult(rows=[target_role_col]),
+            FakeResult(rows=[("employee_no",)]),
+            FakeResult(rows=[tag]),
+            FakeResult(rows=[selection]),
+            FakeResult(rows=[]),
+            FakeResult(rows=[roster_role_col]),
+        ],
+        get_map={(OrgNode, 10): node},
+    )
+
+    try:
+        clause = await scope_filter.build_scope_filter(
+            SimpleNamespace(id=99), target_name, db, strategy="person_first"
+        )
+    finally:
+        restore_table(target_name, old_target)
+        restore_table(scope_filter.ROSTER_TABLE, old_roster)
+
+    sql = compiled_sql(clause).upper()
+    assert "IN (SELECT" in sql
+    assert "ORG001" in sql
+    assert "CC_CODE" not in sql

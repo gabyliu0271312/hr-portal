@@ -22,6 +22,7 @@ from app.data.models import DATA_TABLES, TableColumn
 from app.datasets.metadata import table_label, table_label_map, table_options
 from app.datasets.models import DataSet, DataSetAcl, DataSetRelation, DataSetTable
 from app.datasets.single_table import ensure_single_table_dataset as ensure_single_table_dataset_impl
+from app.permissions.strategy import ensure_scope_strategy
 from app.reports.models import Report
 from app.users.models import User, UserRole
 
@@ -58,6 +59,7 @@ class DatasetIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     description: str | None = None
     is_active: bool = True
+    scope_strategy: str | None = None
     tables: list[DatasetTableIn] = Field(default_factory=list)
     relations: list[DatasetRelationIn] = Field(default_factory=list)
     acl: list[DatasetAclIn] = Field(default_factory=list)
@@ -85,6 +87,7 @@ class DatasetOut(BaseModel):
     name: str
     description: str | None
     is_active: bool
+    scope_strategy: str | None
     created_by: int | None
     tables: list[DatasetTableOut]
     relations: list[DatasetRelationOut]
@@ -121,6 +124,7 @@ async def _to_out(ds: DataSet, db: AsyncSession) -> DatasetOut:
         name=ds.name,
         description=ds.description,
         is_active=ds.is_active,
+        scope_strategy=ds.scope_strategy,
         created_by=ds.created_by,
         tables=[
             DatasetTableOut(
@@ -257,10 +261,16 @@ async def create_dataset(
     if exists is not None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="数据集名已存在")
 
+    try:
+        scope_strategy = ensure_scope_strategy(payload.scope_strategy)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的数据范围策略") from exc
+
     ds = DataSet(
         name=payload.name,
         description=payload.description,
         is_active=payload.is_active,
+        scope_strategy=scope_strategy,
         created_by=user.id,
     )
     db.add(ds)
@@ -372,6 +382,10 @@ async def update_dataset(
     ds.name = payload.name
     ds.description = payload.description
     ds.is_active = payload.is_active
+    try:
+        ds.scope_strategy = ensure_scope_strategy(payload.scope_strategy)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的数据范围策略") from exc
 
     # 替换式
     await db.execute(delete(DataSetTable).where(DataSetTable.dataset_id == ds_id))

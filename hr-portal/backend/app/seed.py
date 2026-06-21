@@ -368,13 +368,13 @@ async def _ensure_datasource_jobs(db: AsyncSession) -> None:
 # ===== 内置表注册（幂等写入 registered_tables）=====
 
 _BUILTIN_TABLES = [
-    {"table_name": "emp_realtime_roster",     "table_label": "员工实时花名册",        "icon": "List",           "display_order": 10,  "is_period": False},
-    {"table_name": "emp_monthly_roster",      "table_label": "员工月度花名册",        "icon": "Calendar",       "display_order": 20,  "is_period": True,  "period_col": "month", "period_source": "inject"},
-    {"table_name": "emp_monthly_salary",      "table_label": "员工月度工资表",        "icon": "Money",          "display_order": 30,  "is_period": True,  "period_col": "pay_month", "period_source": "field", "roster_join_col": "employee_no"},
-    {"table_name": "emp_monthly_allocation",  "table_label": "员工月度成本分摊表",    "icon": "Histogram",      "display_order": 40,  "is_period": True,  "period_col": "cost_period", "period_source": "field", "roster_join_col": "employee_no"},
-    {"table_name": "cost_center_monthly",     "table_label": "成本中心月度维护表",    "icon": "OfficeBuilding", "display_order": 50,  "is_period": True,  "period_col": "month", "period_source": "inject"},
-    {"table_name": "emp_monthly_cost_class",  "table_label": "员工月度成本归集分类表","icon": "Collection",     "display_order": 60,  "is_period": False},
-    {"table_name": "emp_monthly_cost_result", "table_label": "员工月度成本分摊结果",  "icon": "TrendCharts",    "display_order": 70,  "is_period": True,  "period_col": "month", "period_source": "inject", "is_result_table": True},
+    {"table_name": "emp_realtime_roster",     "table_label": "员工实时花名册",        "icon": "List",           "display_order": 10,  "is_period": False, "scope_strategy": "person_first"},
+    {"table_name": "emp_monthly_roster",      "table_label": "员工月度花名册",        "icon": "Calendar",       "display_order": 20,  "is_period": True,  "period_col": "month", "period_source": "inject", "scope_strategy": "person_first"},
+    {"table_name": "emp_monthly_salary",      "table_label": "员工月度工资表",        "icon": "Money",          "display_order": 30,  "is_period": True,  "period_col": "pay_month", "period_source": "field", "roster_join_col": "employee_no", "scope_strategy": "person_first"},
+    {"table_name": "emp_monthly_allocation",  "table_label": "员工月度成本分摊表",    "icon": "Histogram",      "display_order": 40,  "is_period": True,  "period_col": "cost_period", "period_source": "field", "roster_join_col": "employee_no", "scope_strategy": "cc_first"},
+    {"table_name": "cost_center_monthly",     "table_label": "成本中心月度维护表",    "icon": "OfficeBuilding", "display_order": 50,  "is_period": True,  "period_col": "month", "period_source": "inject", "scope_strategy": "cc_first"},
+    {"table_name": "emp_monthly_cost_class",  "table_label": "员工月度成本归集分类表","icon": "Collection",     "display_order": 60,  "is_period": False, "scope_strategy": "cc_first"},
+    {"table_name": "emp_monthly_cost_result", "table_label": "员工月度成本分摊结果",  "icon": "TrendCharts",    "display_order": 70,  "is_period": True,  "period_col": "month", "period_source": "inject", "is_result_table": True, "scope_strategy": "cc_first"},
 ]
 
 
@@ -393,6 +393,7 @@ async def _ensure_registered_tables(db: AsyncSession) -> None:
             existing.icon = cfg.get("icon", "Grid")
             existing.display_order = cfg.get("display_order", 999)
             existing.roster_join_col = cfg.get("roster_join_col")
+            existing.scope_strategy = cfg.get("scope_strategy", "cross_filter")
             continue
         rt = RegisteredTable(
             table_name=cfg["table_name"],
@@ -406,10 +407,29 @@ async def _ensure_registered_tables(db: AsyncSession) -> None:
             icon=cfg.get("icon", "Grid"),
             display_order=cfg.get("display_order", 999),
             roster_join_col=cfg.get("roster_join_col"),
+            scope_strategy=cfg.get("scope_strategy", "cross_filter"),
         )
         db.add(rt)
         logger.info("[seed] registered_table added: %s", cfg["table_name"])
     await db.commit()
+    await _ensure_scope_role_defaults(db)
+
+
+async def _ensure_scope_role_defaults(db: AsyncSession) -> None:
+    """补齐阶段 4 依赖的内置表权限列声明。"""
+    from app.data.models import TableColumn
+
+    row = (
+        await db.execute(
+            select(TableColumn).where(
+                TableColumn.table_name == "emp_monthly_allocation",
+                TableColumn.column_code == "code",
+            )
+        )
+    ).scalar_one_or_none()
+    if row is not None and not row.scope_role:
+        row.scope_role = "cc_code"
+        await db.commit()
 
 
 async def _ensure_single_table_datasets(db: AsyncSession) -> None:
@@ -418,7 +438,7 @@ async def _ensure_single_table_datasets(db: AsyncSession) -> None:
     ).scalars().all()
     for row in rows:
         try:
-            await ensure_single_table_dataset(
+            ds = await ensure_single_table_dataset(
                 row.table_name,
                 db,
                 created_by=None,
@@ -426,6 +446,8 @@ async def _ensure_single_table_datasets(db: AsyncSession) -> None:
             )
         except ValueError:
             continue
+        if ds.scope_strategy is None:
+            ds.scope_strategy = row.scope_strategy
     await db.commit()
 
 

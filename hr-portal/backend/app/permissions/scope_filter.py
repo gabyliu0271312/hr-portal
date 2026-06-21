@@ -18,7 +18,7 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import String, and_, false, or_, select, true
+from sqlalchemy import String, and_, false, inspect, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement, cast
 
@@ -30,6 +30,14 @@ from app.scopes.models import (
     UserScopeTag,
 )
 from app.users.models import User
+from app.permissions.strategy import (
+    DEFAULT_SCOPE_STRATEGY,
+    SCOPE_STRATEGY_CC_FIRST,
+    SCOPE_STRATEGY_CROSS_FILTER,
+    SCOPE_STRATEGY_PERSON_FIRST,
+    normalize_scope_strategy,
+    strategy_scope_roles,
+)
 
 
 # ===== 工具：取标签关联数据 =====
@@ -105,7 +113,7 @@ def _entity_text(model, col_code: str) -> ColumnElement:
         )
     if col_code not in model.__table__.columns:
         raise RuntimeError(f"业务表 {table_name} 缺少权限实体列: {col_code}")
-    return cast(model.__table__.c[col_code], String)
+    return cast(inspect(model).selectable.c[col_code], String)
 
 
 async def _is_super_admin(user: User, db: AsyncSession) -> bool:
@@ -240,6 +248,19 @@ async def _build_tag_clause(
     return and_(*parts)
 
 
+def _filter_tags_by_strategy(
+    tags: list[tuple[ScopeTag, list[ScopeTagSelection], list[ScopeTagFilter]]],
+    strategy: str | None,
+) -> list[tuple[ScopeTag, list[ScopeTagSelection], list[ScopeTagFilter]]]:
+    """按场景策略激活标签；cross_filter 保持旧行为（全部标签 OR）。"""
+    strategy = normalize_scope_strategy(strategy)
+    if strategy == SCOPE_STRATEGY_PERSON_FIRST:
+        return [row for row in tags if row[0].dimension == "org"]
+    if strategy == SCOPE_STRATEGY_CC_FIRST:
+        return [row for row in tags if row[0].dimension == "cost_center"]
+    return tags
+
+
 ROSTER_TABLE = "emp_realtime_roster"
 ROSTER_EMP_COL = "employee_no"
 
@@ -258,11 +279,84 @@ async def _get_roster_join_col(table: str, db: AsyncSession) -> str | None:
     return row[0] if row and row[0] else None
 
 
+def _has_strategy_roles(role_cols: dict[str, str], strategy: str | None) -> bool:
+    return bool(set(role_cols) & strategy_scope_roles(strategy))
+
+
+async def can_resolve_scope_strategy(
+    table: str, strategy: str | None, db: AsyncSession
+) -> bool:
+    """当前表或其花名册穿透域能否解析该策略的核心维度。"""
+    if table not in DATA_TABLES:
+        return False
+    strategy = normalize_scope_strategy(strategy)
+    if strategy == SCOPE_STRATEGY_CROSS_FILTER:
+        return True
+
+    role_cols = await _get_role_columns(table, db)
+    if _has_strategy_roles(role_cols, strategy):
+        return True
+
+    roster_join_col = await _get_roster_join_col(table, db)
+    if not roster_join_col or ROSTER_TABLE not in DATA_TABLES:
+        return False
+    Model = DATA_TABLES[table]
+    if roster_join_col not in Model.__table__.columns:
+        return False
+    roster_cols = await _get_role_columns(ROSTER_TABLE, db)
+    return _has_strategy_roles(roster_cols, strategy)
+
+
+async def _build_tag_clause_with_passthrough(
+    tag: ScopeTag,
+    sels: list[ScopeTagSelection],
+    filters: list[ScopeTagFilter],
+    Model,
+    role_cols: dict[str, str],
+    db: AsyncSession,
+    *,
+    roster_join_col: str | None,
+    roster_role_cols: dict[str, str] | None,
+) -> ColumnElement:
+    """先用本表能解析的维度；缺的维度通过花名册子查询补齐。"""
+    direct_parts: list[ColumnElement] = []
+    roster_parts: list[ColumnElement] = []
+    roster_model = DATA_TABLES.get(ROSTER_TABLE)
+
+    org_part = await _build_org_clause(tag, sels, Model, role_cols, db)
+    if org_part is not None:
+        direct_parts.append(org_part)
+    elif roster_join_col and roster_model is not None and roster_role_cols is not None:
+        roster_org = await _build_org_clause(tag, sels, roster_model, roster_role_cols, db)
+        if roster_org is not None:
+            roster_parts.append(roster_org)
+
+    person_part = await _build_person_clause(tag, filters, Model, role_cols)
+    if person_part is not None:
+        direct_parts.append(person_part)
+    elif roster_join_col and roster_model is not None and roster_role_cols is not None:
+        roster_person = await _build_person_clause(tag, filters, roster_model, roster_role_cols)
+        if roster_person is not None:
+            roster_parts.append(roster_person)
+
+    if roster_parts:
+        subq = select(_entity_text(roster_model, ROSTER_EMP_COL)).where(and_(*roster_parts))
+        direct_parts.append(_entity_text(Model, roster_join_col).in_(subq))
+
+    if not direct_parts:
+        return false()
+    return and_(*direct_parts)
+
+
 # ===== 主入口 =====
 
 
-async def build_scope_filter(
-    user: User, table: str, db: AsyncSession
+async def _build_scope_filter_for_model(
+    user: User,
+    table: str,
+    Model,
+    db: AsyncSession,
+    strategy: str | None = DEFAULT_SCOPE_STRATEGY,
 ) -> ColumnElement:
     """返回拼到查询的 where 表达式
 
@@ -279,44 +373,44 @@ async def build_scope_filter(
     人员/组织维度经实时花名册子查询解析：
         本表.<join_col> IN (SELECT 花名册.employee_no FROM 花名册 WHERE <标签子句>)
     """
-    if table not in DATA_TABLES:
-        return false()
-    Model = DATA_TABLES[table]
+    strategy = normalize_scope_strategy(strategy)
 
     if await _is_super_admin(user, db):
         return true()
 
     role_cols = await _get_role_columns(table, db)
     roster_join_col = None
-    if not role_cols:
+    if not role_cols or strategy in {SCOPE_STRATEGY_PERSON_FIRST, SCOPE_STRATEGY_CC_FIRST}:
         roster_join_col = await _get_roster_join_col(table, db)
     if not role_cols and not roster_join_col:
         # 受控表既无 scope_role 字段、也无穿透声明 → fail-closed 拒绝
         return false()
 
     tags = await _get_user_tags(user.id, db)
+    tags = _filter_tags_by_strategy(tags, strategy)
     if not tags:
         # 用户没绑标签 → 看不到任何行
         return false()
 
-    # 解析域：本表有 scope_role 列则直接在本表解析；否则经花名册穿透
-    use_passthrough = not role_cols and bool(roster_join_col)
-    if use_passthrough:
-        if (
-            roster_join_col not in Model.__table__.columns
-            or ROSTER_TABLE not in DATA_TABLES
-        ):
+    roster_role_cols: dict[str, str] | None = None
+    if roster_join_col:
+        if roster_join_col not in Model.__table__.columns or ROSTER_TABLE not in DATA_TABLES:
             return false()
-        resolver_model = DATA_TABLES[ROSTER_TABLE]
-        resolver_cols = await _get_role_columns(ROSTER_TABLE, db)
-    else:
-        resolver_model = Model
-        resolver_cols = role_cols
+        roster_role_cols = await _get_role_columns(ROSTER_TABLE, db)
 
     tag_clauses: list[ColumnElement] = []
     for tag, sels, filters in tags:
         tag_clauses.append(
-            await _build_tag_clause(tag, sels, filters, resolver_model, resolver_cols, db)
+            await _build_tag_clause_with_passthrough(
+                tag,
+                sels,
+                filters,
+                Model,
+                role_cols,
+                db,
+                roster_join_col=roster_join_col,
+                roster_role_cols=roster_role_cols,
+            )
         )
 
     if not tag_clauses:
@@ -325,12 +419,25 @@ async def build_scope_filter(
         # 某标签无限制（org_scope_unlimited）→ 看全部（穿透表也含花名册之外的历史行）
         return true()
 
-    if use_passthrough:
-        # 本表.<join_col> IN (SELECT 花名册.employee_no WHERE 标签子句)
-        subq = select(_entity_text(resolver_model, ROSTER_EMP_COL)).where(or_(*tag_clauses))
-        return _entity_text(Model, roster_join_col).in_(subq)
-
     return or_(*tag_clauses)
+
+
+async def build_scope_filter(
+    user: User,
+    table: str,
+    db: AsyncSession,
+    strategy: str | None = DEFAULT_SCOPE_STRATEGY,
+) -> ColumnElement:
+    """返回拼到查询的 where 表达式。"""
+    if table not in DATA_TABLES:
+        return false()
+    return await _build_scope_filter_for_model(
+        user,
+        table,
+        DATA_TABLES[table],
+        db,
+        strategy=strategy,
+    )
 
 
 def is_unrestricted(filter_clause) -> bool:

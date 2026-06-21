@@ -13,6 +13,7 @@ import {
 } from '@/api/datasets'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import AclEditor, { type AclRow } from '@/components/AclEditor.vue'
+import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,6 +28,7 @@ const form = reactive<{
   name: string
   description: string
   is_active: boolean
+  scope_strategy: ScopeStrategy | null
   tables: DatasetTableItem[]
   relations: DatasetRelationItem[]
   acl: AclRow[]
@@ -34,6 +36,7 @@ const form = reactive<{
   name: '',
   description: '',
   is_active: true,
+  scope_strategy: null,
   tables: [],
   relations: [],
   acl: [],
@@ -72,6 +75,7 @@ async function loadDataset() {
     form.name = r.name
     form.description = r.description ?? ''
     form.is_active = r.is_active
+    form.scope_strategy = r.scope_strategy
     form.acl = (r.acl || []).map((a) => ({ id: a.id, role_id: a.role_id, user_id: a.user_id }))
     form.tables = r.tables.map((t) => ({
       table_name: t.table_name,
@@ -171,6 +175,7 @@ function buildPayload(): DatasetPayload {
     name: form.name.trim(),
     description: form.description.trim() || null,
     is_active: form.is_active,
+    scope_strategy: form.scope_strategy || null,
     tables: form.tables.map((t) => ({ table_name: t.table_name, alias: t.alias })),
     relations: form.relations.map((r) => ({
       left_alias: r.left_alias,
@@ -287,6 +292,16 @@ onMounted(async () => {
         </div>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" maxlength="500" />
+        </el-form-item>
+        <el-form-item label="数据范围策略">
+          <el-select v-model="form.scope_strategy" clearable style="width: 260px" placeholder="继承表默认">
+            <el-option
+              v-for="item in SCOPE_STRATEGY_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
         </el-form-item>
 
         <div class="section-title">纳入的数据表（{{ form.tables.length }}）</div>

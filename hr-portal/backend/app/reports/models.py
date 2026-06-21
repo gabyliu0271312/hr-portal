@@ -53,6 +53,7 @@ class Report(Base):
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    scope_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     last_run_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

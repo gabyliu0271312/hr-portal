@@ -29,6 +29,7 @@ from app.data.dynamic_loader import (
 from app.data.models import RegisteredTable
 from app.datasources.sync_service import PERIOD_TABLES
 from app.datasets.single_table import ensure_single_table_dataset, find_single_table_dataset
+from app.permissions.strategy import DEFAULT_SCOPE_STRATEGY, ensure_scope_strategy
 from app.users.models import User
 
 router = APIRouter(prefix="/admin/tables", tags=["admin-tables"])
@@ -58,6 +59,7 @@ class CreateTableIn(BaseModel):
     is_result_table: bool = False
     icon: str = "Grid"
     display_order: int = 999
+    scope_strategy: str = DEFAULT_SCOPE_STRATEGY
     create_datasource: bool = False
     datasource_source_type: str = "upload"
     columns: list[InitialColumnIn] = Field(default_factory=list)
@@ -75,6 +77,7 @@ class RegisteredTableOut(BaseModel):
     is_result_table: bool
     icon: str
     display_order: int
+    scope_strategy: str
     created_at: str
 
 
@@ -91,6 +94,7 @@ def _to_out(rt: RegisteredTable) -> RegisteredTableOut:
         is_result_table=rt.is_result_table,
         icon=rt.icon,
         display_order=rt.display_order,
+        scope_strategy=rt.scope_strategy or DEFAULT_SCOPE_STRATEGY,
         created_at=rt.created_at.isoformat(),
     )
 
@@ -126,6 +130,11 @@ async def create_table(
     except DDLValidationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    try:
+        scope_strategy = ensure_scope_strategy(payload.scope_strategy) or DEFAULT_SCOPE_STRATEGY
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的数据范围策略") from exc
+
     # 2) 检查是否已存在
     existing = (
         await db.execute(
@@ -153,6 +162,7 @@ async def create_table(
         is_result_table=payload.is_result_table,
         icon=payload.icon,
         display_order=payload.display_order,
+        scope_strategy=scope_strategy,
     )
     db.add(rt)
     await db.flush()
@@ -226,6 +236,7 @@ class UpdateTableIn(BaseModel):
     table_label: str | None = None
     description: str | None = None
     display_order: int | None = None
+    scope_strategy: str | None = None
 
 
 @router.patch("/{table_name}", response_model=RegisteredTableOut,
@@ -248,6 +259,11 @@ async def update_table(
         rt.description = payload.description
     if payload.display_order is not None:
         rt.display_order = payload.display_order
+    if payload.scope_strategy is not None:
+        try:
+            rt.scope_strategy = ensure_scope_strategy(payload.scope_strategy) or DEFAULT_SCOPE_STRATEGY
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的数据范围策略") from exc
     await db.commit()
     await db.refresh(rt)
     return _to_out(rt)

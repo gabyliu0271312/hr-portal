@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { ScopeStrategy } from '@/constants/scopeStrategy'
 
 const AI_REPORT_EXPLAIN_TIMEOUT_MS = 130_000
 const REPORT_RUN_MAX_PAGE_SIZE = 100
@@ -110,6 +111,7 @@ export interface ReportItem {
   owner_id: number | null
   owner_name: string | null
   is_published: boolean
+  scope_strategy: ScopeStrategy | null
   last_run_at: string | null
   run_count: number
   created_at: string
@@ -124,6 +126,7 @@ export interface ReportPayload {
   dataset_id: number
   config: ReportConfig
   is_published: boolean
+  scope_strategy?: ScopeStrategy | null
   acl: ReportAclItem[]
 }
 

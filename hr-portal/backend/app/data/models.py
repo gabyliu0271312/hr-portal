@@ -187,6 +187,9 @@ class RegisteredTable(Base):
     # 非空时，本表缺少的人员维度（org/用工类型/主体/person）经花名册子查询解析。
     roster_join_col: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # 数据范围场景策略：person_first / cc_first / cross_filter。
+    scope_strategy: Mapped[str] = mapped_column(String(32), nullable=False, default="cross_filter")
+
     # 图标（Element Plus icon name）
     icon: Mapped[str] = mapped_column(String(64), nullable=False, default="Grid")
 

@@ -208,6 +208,21 @@ async def test_create_table_rejects_invalid_table_name_before_db_work(fake_user)
     assert db.executed == []
 
 
+async def test_create_table_rejects_invalid_scope_strategy_before_db_work(fake_user):
+    db = FakeSession()
+    payload = tables_router.CreateTableIn(
+        table_name="custom_entity",
+        table_label="Custom Entity",
+        scope_strategy="bad_strategy",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await tables_router.create_table(payload, user=fake_user, db=db)
+
+    assert exc_info.value.status_code == 400
+    assert db.executed == []
+
+
 async def test_create_table_rejects_duplicate_registered_table(monkeypatch, fake_user):
     create_calls, _, _, _ = _install_create_table_fakes(monkeypatch)
     db = FakeSession(

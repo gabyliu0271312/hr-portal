@@ -5,6 +5,7 @@ import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import { adminTablesApi, type RegisteredTableOut } from '@/api/admin_tables'
 import { pushTargetsApi, type PushTargetIn } from '@/api/push_targets'
 import PushTargetDialog from '@/components/push/PushTargetDialog.vue'
+import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
 
 const props = withDefaults(defineProps<{
   existingTableNames?: string[]
@@ -42,6 +43,7 @@ const form = reactive({
   is_result_table: false,
   icon: 'Grid',
   display_order: 999,
+  scope_strategy: 'cross_filter' as ScopeStrategy,
   create_datasource: false,
   datasource_source_type: 'upload',
   create_push_target: false,
@@ -65,7 +67,7 @@ function open() {
   Object.assign(form, {
     table_name: '', table_label: '', description: '',
     is_period: false, period_col: 'month', period_source: 'field',
-    is_result_table: false, icon: 'Grid', display_order: 999,
+    is_result_table: false, icon: 'Grid', display_order: 999, scope_strategy: 'cross_filter',
     create_datasource: false, datasource_source_type: 'upload',
     create_push_target: false,
   })
@@ -126,6 +128,7 @@ async function confirm() {
       is_result_table: form.is_result_table,
       icon: form.icon,
       display_order: form.display_order,
+      scope_strategy: form.scope_strategy,
       create_datasource: form.create_datasource,
       datasource_source_type: form.datasource_source_type,
     })
@@ -183,6 +186,16 @@ defineExpose({ open })
         </el-form-item>
         <el-form-item label="显示顺序">
           <el-input-number v-model="form.display_order" :min="1" :max="9999" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="数据范围策略">
+          <el-select v-model="form.scope_strategy" style="width: 100%">
+            <el-option
+              v-for="item in SCOPE_STRATEGY_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
         </el-form-item>
       </div>
 

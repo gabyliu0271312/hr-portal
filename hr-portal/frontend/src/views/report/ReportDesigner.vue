@@ -14,6 +14,7 @@ import { reportsApi, type AggregationFunc, type ColumnSetting, type DefaultSplit
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 import { useTableOptions } from '@/composables/useTableOptions'
+import type { ScopeStrategy } from '@/constants/scopeStrategy'
 
 const { tables: TABLES } = useTableOptions()
 
@@ -31,6 +32,7 @@ const form = reactive({
   description: '',
   dataset_id: null as number | null,
   is_published: false,
+  scope_strategy: null as ScopeStrategy | null,
   selected_codes: [] as string[],
   column_settings: {} as Record<string, ColumnSetting>,
   default_split_rule: { enabled: false, factor: '' } as DefaultSplitRule,
@@ -129,6 +131,7 @@ async function loadReport() {
     form.description = r.description ?? ''
     form.dataset_id = r.dataset_id
     form.is_published = r.is_published
+    form.scope_strategy = r.scope_strategy
     form.acl = (r.acl || []).map((a) => ({ id: a.id, role_id: a.role_id, user_id: a.user_id }))
     form.selected_codes = [...(r.config.columns ?? [])]
     form.column_settings = { ...(r.config.column_settings ?? {}) }
@@ -284,6 +287,7 @@ function buildPayload() {
     description: form.description.trim() || null,
     dataset_id: form.dataset_id!,
     is_published: form.is_published,
+    scope_strategy: form.scope_strategy || null,
     acl: form.acl
       .filter((a) => a.role_id != null || a.user_id != null)
       .map((a) => ({ role_id: a.role_id, user_id: a.user_id })),
@@ -528,7 +532,7 @@ watch(
     if (v === 'new') {
       Object.assign(form, {
         name: '', description: '', dataset_id: datasets.value.find((d) => d.is_active)?.id ?? datasets.value[0]?.id ?? null,
-        is_published: false, selected_codes: [], filters: [], sorts: [],
+        is_published: false, scope_strategy: null, selected_codes: [], filters: [], sorts: [],
         value_rules: [], aggregate: false, default_aggregation: 'sum', aggregations: {},
         column_settings: {}, default_split_rule: { enabled: false, factor: '' }, rounding_group_by: [], filter_logic: null,
         transpose: {
@@ -598,6 +602,7 @@ watch(
           v-model:description="form.description"
           v-model:dataset-id="form.dataset_id"
           v-model:is-published="form.is_published"
+          v-model:scope-strategy="form.scope_strategy"
           :datasets="datasets"
           :current-dataset="currentDataset"
           @dataset-change="onDatasetChange"

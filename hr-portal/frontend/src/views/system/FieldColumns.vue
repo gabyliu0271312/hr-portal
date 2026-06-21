@@ -12,11 +12,13 @@ import {
 import { adminTablesApi } from '@/api/admin_tables'
 import { globalFieldsApi, type GlobalField } from '@/api/global_fields'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
+import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
 
 const route = useRoute()
 const router = useRouter()
 
 const tables = ref<TableMeta[]>([])
+const registeredTables = ref<Awaited<ReturnType<typeof adminTablesApi.list>>>([])
 const currentTable = ref<string>('')
 const columns = ref<TableColumn[]>([])
 const originalDataTypeById = ref<Record<number, string>>({})
@@ -24,6 +26,10 @@ const loading = ref(false)
 const saving = ref(false)
 const globalFields = ref<GlobalField[]>([])
 const existingColumnCodes = computed(() => columns.value.map((c) => c.column_code))
+const currentRegisteredTable = computed(() =>
+  registeredTables.value.find((item) => item.table_name === currentTable.value) || null
+)
+const currentScopeStrategy = ref<ScopeStrategy>('cross_filter')
 
 const DATA_TYPES = [
   { label: '字符串', value: 'string' },
@@ -51,6 +57,7 @@ const AGG_ROLES = [
 async function loadTables() {
   try {
     tables.value = await tableColumnsApi.tables()
+    registeredTables.value = await adminTablesApi.list()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载表清单失败')
   }
@@ -60,6 +67,7 @@ async function loadColumns() {
   if (!currentTable.value) return
   loading.value = true
   try {
+    currentScopeStrategy.value = currentRegisteredTable.value?.scope_strategy || 'cross_filter'
     columns.value = await tableColumnsApi.list(currentTable.value)
     originalDataTypeById.value = Object.fromEntries(
       columns.value.map((c) => [c.id, c.data_type])
@@ -75,6 +83,24 @@ async function loadColumns() {
     ElMessage.error(e?.response?.data?.detail || '加载字段失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function saveTableScopeStrategy() {
+  const table = currentRegisteredTable.value
+  if (!table) return
+  saving.value = true
+  try {
+    const updated = await adminTablesApi.update(table.table_name, {
+      scope_strategy: currentScopeStrategy.value,
+    })
+    const idx = registeredTables.value.findIndex((item) => item.table_name === updated.table_name)
+    if (idx >= 0) registeredTables.value[idx] = updated
+    ElMessage.success('已保存数据范围策略')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存策略失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -325,6 +351,33 @@ onMounted(async () => {
               :value="t.table_name"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item label="数据范围策略">
+          <el-select
+            v-model="currentScopeStrategy"
+            style="width: 180px"
+            :disabled="!currentTable || loading"
+          >
+            <el-option
+              v-for="item in SCOPE_STRATEGY_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <PermissionButton
+            menu="system.field_columns"
+            op="U"
+            type="primary"
+            plain
+            :loading="saving"
+            :disabled="!currentRegisteredTable"
+            @click="saveTableScopeStrategy"
+          >
+            保存策略
+          </PermissionButton>
         </el-form-item>
       </el-form>
 

@@ -6,6 +6,7 @@
 字段映射：业务字段来自实体列，column_code 必须对应真实数据库列
 """
 import json
+import inspect
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -18,8 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.data.formula import eval_formula
-from app.data.models import DATA_TABLES, TableColumn
+from app.data.models import DATA_TABLES, RegisteredTable, TableColumn
 from app.datasets.metadata import effective_column_label_map
+from app.permissions.strategy import DEFAULT_SCOPE_STRATEGY
 from app.users.models import User
 
 
@@ -54,6 +56,30 @@ async def _get_columns(table: str, db: AsyncSession, only_visible: bool = False)
         stmt = stmt.where(TableColumn.is_visible.is_(True))
     stmt = stmt.order_by(TableColumn.display_order, TableColumn.id)
     return (await db.execute(stmt)).scalars().all()
+
+
+async def _scope_strategy_for_table(table: str, db: AsyncSession) -> str:
+    rows = (
+        await db.execute(
+            select(RegisteredTable.scope_strategy).where(RegisteredTable.table_name == table)
+        )
+    ).all()
+    row = rows[0] if rows else None
+    return row[0] if row and row[0] else DEFAULT_SCOPE_STRATEGY
+
+
+async def _build_scope_clause(user: User, table: str, db: AsyncSession):
+    from app.permissions.scope_filter import build_scope_filter
+
+    try:
+        supports_strategy = "strategy" in inspect.signature(build_scope_filter).parameters
+    except (TypeError, ValueError):
+        supports_strategy = True
+    if not supports_strategy:
+        return await build_scope_filter(user, table, db)
+    return await build_scope_filter(
+        user, table, db, strategy=await _scope_strategy_for_table(table, db)
+    )
 
 
 async def _check_field_categories_sensitive(table: str, db: AsyncSession) -> set[str]:
@@ -303,8 +329,8 @@ async def query_table(
     count_stmt = select(func.count()).select_from(Model)
 
     # 注入数据范围权限过滤
-    from app.permissions.scope_filter import build_scope_filter, is_unrestricted
-    scope_clause = await build_scope_filter(user, table, db)
+    from app.permissions.scope_filter import is_unrestricted
+    scope_clause = await _build_scope_clause(user, table, db)
     if not is_unrestricted(scope_clause):
         stmt = stmt.where(scope_clause)
         count_stmt = count_stmt.where(scope_clause)
@@ -364,7 +390,7 @@ async def export_csv(
     """导出数据视图为 CSV（带权限脱敏，全量不分页）"""
     import csv, io
     from fastapi.responses import StreamingResponse
-    from app.permissions.scope_filter import build_scope_filter, is_unrestricted
+    from app.permissions.scope_filter import is_unrestricted
     from app.permissions.masker import get_sensitive_columns, get_hidden_columns
 
     if table not in DATA_TABLES:
@@ -389,7 +415,7 @@ async def export_csv(
     blocked = hidden_export | all_sensitive
 
     stmt = select(*_scoped_projection(Model, table, col_codes, hidden_export, all_sensitive))
-    scope_clause = await build_scope_filter(user, table, db)
+    scope_clause = await _build_scope_clause(user, table, db)
     if not is_unrestricted(scope_clause):
         stmt = stmt.where(scope_clause)
 
@@ -472,8 +498,8 @@ async def distinct_values(
     stmt = select(*sel).where(val_expr.isnot(None), val_expr != "")
 
     # 数据范围权限过滤
-    from app.permissions.scope_filter import build_scope_filter, is_unrestricted
-    scope_clause = await build_scope_filter(user, table, db)
+    from app.permissions.scope_filter import is_unrestricted
+    scope_clause = await _build_scope_clause(user, table, db)
     if not is_unrestricted(scope_clause):
         stmt = stmt.where(scope_clause)
 

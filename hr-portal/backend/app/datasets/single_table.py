@@ -27,6 +27,15 @@ async def registered_table_label(table_name: str, db: AsyncSession) -> str:
     return row.table_label if row else table_name
 
 
+async def registered_table_scope_strategy(table_name: str, db: AsyncSession) -> str | None:
+    row = (
+        await db.execute(
+            select(RegisteredTable.scope_strategy).where(RegisteredTable.table_name == table_name)
+        )
+    ).first()
+    return row[0] if row else None
+
+
 async def find_single_table_dataset(table_name: str, db: AsyncSession) -> DataSet | None:
     return (
         await db.execute(
@@ -70,6 +79,7 @@ async def ensure_single_table_dataset(
         name=name,
         description=f"系统自动创建，用于 {label} 的报表、成本分摊与计算字段。",
         is_active=True,
+        scope_strategy=await registered_table_scope_strategy(table_name, db),
         created_by=created_by,
     )
     db.add(ds)

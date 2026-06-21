@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
+from app.permissions.strategy import ensure_scope_strategy
 from app.reports.models import Report, ReportAcl
 from app.users.models import User, UserRole
 
@@ -64,6 +65,7 @@ class ReportIn(BaseModel):
     dataset_id: int
     config: ReportConfig = Field(default_factory=ReportConfig)
     is_published: bool = False
+    scope_strategy: str | None = None
     acl: list[ReportAclIn] = Field(default_factory=list)
 
 
@@ -79,6 +81,7 @@ class ReportOut(BaseModel):
     owner_id: int | None
     owner_name: str | None
     is_published: bool
+    scope_strategy: str | None
     last_run_at: datetime | None
     run_count: int
     created_at: datetime
@@ -214,6 +217,7 @@ async def _to_out(r: Report, db: AsyncSession, user: User | None = None) -> Repo
         owner_id=r.owner_id,
         owner_name=owner_name,
         is_published=r.is_published,
+        scope_strategy=r.scope_strategy,
         last_run_at=r.last_run_at,
         run_count=r.run_count,
         created_at=r.created_at,
@@ -256,6 +260,11 @@ async def create_report(
     if dataset is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="数据集不存在")
 
+    try:
+        scope_strategy = ensure_scope_strategy(payload.scope_strategy)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的数据范围策略") from exc
+
     report = Report(
         name=payload.name,
         description=payload.description,
@@ -264,6 +273,7 @@ async def create_report(
         config=payload.config.model_dump(),
         owner_id=user.id,
         is_published=payload.is_published,
+        scope_strategy=scope_strategy,
     )
     db.add(report)
     await db.flush()
@@ -315,6 +325,10 @@ async def update_report(
     report.dataset_id = payload.dataset_id
     report.config = payload.config.model_dump()
     report.is_published = payload.is_published
+    try:
+        report.scope_strategy = ensure_scope_strategy(payload.scope_strategy)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的数据范围策略") from exc
     await _replace_report_acl(db, report.id, payload.acl)
     await db.commit()
     await db.refresh(report)
@@ -453,6 +467,7 @@ async def run_report(
         page_size=page_size,
         user=user,
         db=db,
+        scope_strategy=report.scope_strategy,
     )
 
     report.last_run_at = datetime.utcnow()
@@ -491,6 +506,7 @@ async def _collect_export_rows(
         page_size=0,
         user=user,
         db=db,
+        scope_strategy=report.scope_strategy,
     )
     columns_meta, items = _project_report_output(columns_meta, items, cfg)
     codes = [column["code"] for column in columns_meta]
