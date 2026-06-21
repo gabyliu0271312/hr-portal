@@ -292,6 +292,28 @@ CAPABILITIES: tuple[CapabilityDefinition, ...] = (
         examples=["解释这张报表当前展示了哪些字段和筛选条件", "继续追问这个筛选条件为什么这样配置"],
         failure_modes=["报表配置为空", "用户无权查看报表", "输入配置结构不合法"],
     ),
+    CapabilityDefinition(
+        capability_id="table_merge.suggest_mapping",
+        name="生成表格归集映射草稿",
+        module="table_tools",
+        type="draft",
+        description="读取多源 Excel 的表头结构,跨文件聚类语义相同的列,提议标准字段、源列→标准字段映射、派生规则与归集主键,产出待人确认的归集模板草稿。只产草稿不写库。",
+        required_permission=("table_tools", "E"),
+        risk_level="medium",
+        side_effect_tags=["draft_only"],
+        confirmation="none",
+        tools=[],
+        policy_profile={
+            "output_contract": "merge_mapping_draft_schema",
+            "deny_patterns": ["code", "url", "file_path", "external_link", "macro"],
+            "field_context": "headers_only",
+            "allowed_side_effect": "draft_only",
+        },
+        model_profile="fast_json",
+        sensitive_context="metadata_only",
+        examples=["这批社保表帮我提一组标准字段和映射", "北京公积金这张表的列怎么对到标准字段"],
+        failure_modes=["AI 未配置或超时", "模型未返回合法 JSON", "口径歧义列需人工定夺", "表头解析失败"],
+    ),
 )
 
 

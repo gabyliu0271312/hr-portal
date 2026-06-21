@@ -27,6 +27,8 @@
 - [AI 能力注册表](../specs/004-ai-native-workbench/ai-capability-registry.md) — capability 元数据、工具边界、能力清单、权限叠加和评测用例
 - [AI 平台完整路线图](../specs/004-ai-native-workbench/ai-platform-roadmap.md) — Phase 0-7 阶段拆解、进入条件、验收标准；Phase 5 是 Workflow/Capability Orchestration，不是黑盒 Skill
 - [ChatBI 走 QuerySpec 不走裸 SQL](./hr_portal_chatbi_queryspec.md) — NL 查数定调 Text-to-QuerySpec + 指标语义层；权限编译期注入；口径治理待办；已写入 specs/004
+- [表格处理工具(社保多源归集)](./hr_portal_excel_table_tools.md) — specs/006；多源异构→按人(姓名+证件)归集到标准模板；7种表头结构；AI分级介入(规则认模板+AI猜陌生表映射,②第一版必做)；复用现有 ai/provider.py；节奏=先文档→demo→工程
+- [公式引擎是公共组件](./hr_portal_formula_engine_shared.md) — app/ai_formula 是顶层公共模块(reports/datasets/table_tools 平级复用)；要做"按公式算字段"一律复用 evaluate_formula+executable_functions，禁止重写求值器；table_tools 派生已删 eval_expr 改用它(2026-06-21)
 
 ## 主要文档导航
 

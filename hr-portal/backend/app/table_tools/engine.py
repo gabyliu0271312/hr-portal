@@ -4,6 +4,10 @@
 按主键归集、按口径聚合、校验、标来源。完全不知道"养老""公积金"为何物。
 
 所有业务语义来自运行时传入的 mapping 配置(模板库),不写死在此。
+
+派生字段求值复用公共公式引擎 app.ai_formula(报表/数据集同款),
+支持 IF/ROUND/MIN/MAX/SUM/CALC_TAX 等全套函数。派生表达式用 {列名} 占位,
+内部转成引擎原生的 FIELD("列名") 求值。
 """
 from __future__ import annotations
 
@@ -12,6 +16,8 @@ from collections import defaultdict
 from typing import Any, Callable
 
 import openpyxl
+
+from app.ai_formula.formula_evaluator import evaluate_formula
 
 
 # ── 表头解析 ────────────────────────────────────────────────
@@ -49,19 +55,44 @@ def sheet_headers(ws, header_rows_candidates: set[tuple[int, int]]) -> dict[tupl
 
 
 # ── 通用表达式求值(派生字段) ───────────────────────────────
-def eval_expr(expr: str, getval: Callable[[str], Any]) -> float:
-    """安全求值:{源列名} 占位 → 数值,仅支持 + - * / 与括号。"""
-    def repl(m: re.Match) -> str:
-        v = getval(m.group(1))
-        try:
-            return repr(float(v))
-        except (ValueError, TypeError):
-            raise ValueError(f"列[{m.group(1)}]非数值: {v!r}")
+_PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
 
-    safe = re.sub(r"\{([^{}]+)\}", repl, expr)
-    if not re.fullmatch(r"[0-9eE+\-*/.() ]+", safe):
-        raise ValueError(f"表达式含非法字符: {safe}")
-    return eval(safe, {"__builtins__": {}}, {})  # noqa: S307 — 已白名单字符
+
+def _to_field_calls(expr: str) -> tuple[str, list[str]]:
+    """把派生表达式里的 {列名} 占位转成引擎原生 FIELD("列名")。
+
+    返回 (转换后表达式, 引用的列名列表)。列名原样保留(含中文/括号/斜杠),
+    FIELD 的参数是字面量字符串,引擎按字符串向 resolver 取值,无需归一化。
+    """
+    refs: list[str] = []
+
+    def repl(m: re.Match) -> str:
+        name = m.group(1).strip()
+        refs.append(name)
+        # 列名可能含双引号(罕见),用单引号包裹规避;FIELD 正则两种引号都认
+        quote = "'" if '"' in name else '"'
+        return f"FIELD({quote}{name}{quote})"
+
+    return _PLACEHOLDER_RE.sub(repl, expr), refs
+
+
+def eval_derived(
+    expr: str,
+    getval: Callable[[str], Any],
+    custom_functions: dict[str, Callable[..., Any]] | None = None,
+) -> Any:
+    """派生字段求值:{列名} 占位 → 公共公式引擎(支持 IF/ROUND/MIN/MAX/自定义函数)。
+
+    任一引用列在本行无值(该 sheet 无此字段)时返回 None,由调用方决定跳过。
+    """
+    converted, refs = _to_field_calls(expr)
+    if any(getval(name) in (None, "") for name in refs):
+        return None
+    return evaluate_formula(
+        converted,
+        field_resolver=getval,
+        custom_functions=custom_functions,
+    )
 
 
 # ── 行级工具 ────────────────────────────────────────────────
@@ -77,16 +108,22 @@ def is_skip_row(rowvals: list[Any], key_idx: list[int], skip_tokens: list[str]) 
 
 
 # ── 单 sheet 解析为标准记录 ─────────────────────────────────
-def extract_records(ws, header: list[str | None], mapping: dict) -> tuple[list[dict], list[dict]]:
+def extract_records(
+    ws,
+    header: list[str | None],
+    mapping: dict,
+    custom_functions: dict[str, Callable[..., Any]] | None = None,
+) -> tuple[list[dict], list[dict]]:
     """按一份 source_mapping 把一个 sheet 解析成标准记录列表。
 
     mapping 关键字段:
       key_map      源列→标准主键列
       column_map   源列→标准字段(直接搬)
-      derived_fields  [{target, expr, round}]  派生(通用表达式)
+      derived_fields  [{target, expr, round}]  派生(公共公式引擎,{列名} 占位)
       derive_check {sum_of, equals_col, tol}   拆分校验
       header (start,end)  表头行区间
       skip_tokens  合计行关键词
+    custom_functions: 公共引擎可执行函数库(IF/ROUND/CALC_TAX 等),由调用方注入。
     返回 (records, anomalies)
     """
     col_idx = {h: i for i, h in enumerate(header) if h}
@@ -137,14 +174,15 @@ def extract_records(ws, header: list[str | None], mapping: dict) -> tuple[list[d
             except (ValueError, TypeError):
                 pass
             rec[stdname] = val
-        # 派生
-        derived: dict[str, float] = {}
+        # 派生(公共公式引擎:支持 IF/ROUND/MIN/MAX/CALC_TAX 等)
+        derived: dict[str, Any] = {}
         for d in mapping.get("derived_fields", []):
-            try:
-                v = round(eval_expr(d["expr"], getcol), d.get("round", 2))
-            except ValueError:
-                # 列值为 None/空（该 sheet 无此字段）时静默跳过，不计入异常
+            v = eval_derived(d["expr"], getcol, custom_functions)
+            if v is None or v == "":
+                # 引用列在该 sheet 无值时静默跳过,不计入异常
                 continue
+            if isinstance(v, (int, float)) and "round" in d:
+                v = round(v, d.get("round", 2))
             derived[d["target"]] = v
             rec[d["target"]] = v
         # 拆分校验
@@ -153,7 +191,7 @@ def extract_records(ws, header: list[str | None], mapping: dict) -> tuple[list[d
             total = getcol(chk["equals_col"])
             try:
                 total = float(total)
-                s = sum(derived[t] for t in chk["sum_of"])
+                s = sum(float(derived[t]) for t in chk["sum_of"])
                 if abs(s - total) > chk.get("tol", 0.05):
                     anomalies.append({"type": "拆分校验不符", "key": rec, "detail": f"和{s} vs 合计{total}"})
             except (ValueError, TypeError):
@@ -221,12 +259,14 @@ def run_merge(
     files: list[tuple[str, bytes]],
     template: dict,
     mappings: list[dict],
+    custom_functions: dict[str, Callable[..., Any]] | None = None,
 ) -> dict:
     """执行一次合并。
 
     files: [(filename, xlsx_bytes)]
     template: {merge_keys, std_fields, aggregate}
     mappings: [source_mapping]  每份含 match/sheet_kw/header/key_map/column_map/derived_fields...
+    custom_functions: 公共公式引擎可执行函数库(IF/ROUND/CALC_TAX 等),由 router 注入。
     返回 {rows, columns, recognize_log, anomalies, stats}
     """
     import io
@@ -272,7 +312,7 @@ def run_merge(
             m, score = best
             recognize_log.append({"file": fname, "sheet": ws.title,
                                   "mapping": m["name"], "score": round(score, 3)})
-            recs, anos = extract_records(ws, best_hdr, m)
+            recs, anos = extract_records(ws, best_hdr, m, custom_functions)
             for a in anos:
                 a["file"] = fname
             anomalies.extend(anos)

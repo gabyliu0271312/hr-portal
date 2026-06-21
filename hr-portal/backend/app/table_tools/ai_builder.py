@@ -1,5 +1,9 @@
 """AI 辅助建模板：两步聚类 → 草稿 JSON（不存库，返回前端确认）。
 
+本模块是 table_merge.suggest_mapping 能力的 service 层(对标 codegen/service.py):
+capability 注册 / 策略闸门 / 输出 deny / 审计由 router 的 /ai-draft 统一把关(走 004 底座),
+此处只负责"组 prompt → 调 provider → 出草稿"。只发表头列名给模型,明细行不进上下文(spec §4.8)。
+
 Step 1: 把所有文件/sheet 的表头列丢给 AI，聚类出标准字段列表。
 Step 2: 对每个 sheet，让 AI 把它的列映射到标准字段，识别主键 + 派生字段。
 
@@ -156,7 +160,12 @@ _STEP2_SYSTEM = """\
 
 规则：
 - key_map 只映射 merge_keys 里的主键列；column_map 只映射可以直接对应标准字段的列。
-- 如果一列需要与另一列相乘/相加才能得到标准字段（如 基数×比例=公积金），用 derived_fields，表达式用 {列名} 占位符。
+- 如果一列需要计算才能得到标准字段,用 derived_fields,表达式用 {列名} 占位符引用源列。
+  派生表达式支持四则运算与公式函数:IF / AND / OR / ROUND / MIN / MAX / SUM / ABS / CONCAT 等。
+  例:
+    基数×比例:        {"target":"公积金个人","expr":"{缴存基数}*{个人缴存比例}","round":2}
+    封顶取小:          {"target":"医疗公司","expr":"MIN({医疗基数}*0.08, 5000)","round":2}
+    条件取值:          {"target":"补贴","expr":"IF({工龄}>=10, 1000, 500)"}
 - 无法识别的列不要强行映射，confidence 相应降低。
 - 禁止 markdown/解释文字，只返回 JSON。
 """

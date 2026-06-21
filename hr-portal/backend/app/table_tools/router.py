@@ -15,6 +15,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.ai.audit import AiAuditTimer, record_ai_log
+from app.ai.capabilities import get_capability
+from app.ai.policy_guard import enforce_output_deny_patterns, validate_capability_policy
+from app.ai_formula.custom_functions import executable_functions
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.table_tools import engine
@@ -25,6 +29,7 @@ from app.users.models import User
 router = APIRouter(prefix="/table-tools", tags=["table-tools"])
 
 MENU = "table_tools"
+AI_DRAFT_CAPABILITY = "table_merge.suggest_mapping"
 
 
 # ── Schemas ────────────────────────────────────────────────
@@ -231,7 +236,8 @@ async def run_merge_api(
     blobs = await _read_files(files)
     template = {"merge_keys": t.merge_keys, "std_fields": t.std_fields, "aggregate": t.aggregate}
     mappings = [_mapping_to_engine(m) for m in t.mappings]
-    result = engine.run_merge(blobs, template, mappings)
+    custom_functions = await executable_functions(db)
+    result = engine.run_merge(blobs, template, mappings, custom_functions)
     # 预览只回前 100 行,完整结果走下载
     return {
         "columns": result["columns"],
@@ -255,7 +261,8 @@ async def download_merge(
     blobs = await _read_files(files)
     template = {"merge_keys": t.merge_keys, "std_fields": t.std_fields, "aggregate": t.aggregate}
     mappings = [_mapping_to_engine(m) for m in t.mappings]
-    result = engine.run_merge(blobs, template, mappings)
+    custom_functions = await executable_functions(db)
+    result = engine.run_merge(blobs, template, mappings, custom_functions)
     xlsx = engine.rows_to_xlsx(result["columns"], result["rows"])
     return Response(
         content=xlsx,
@@ -264,23 +271,75 @@ async def download_merge(
     )
 
 
-# ── AI 建模板草稿 ───────────────────────────────────────────────────────────
+# ── AI 建模板草稿(走 004 底座:capability 注册 + 策略闸门 + 输出 deny + 审计)──────
 
 @router.post("/ai-draft")
 async def ai_draft(
     files: list[UploadFile] = File(...),
     business_context: str = "",
     db: AsyncSession = Depends(get_session),
-    _: User = Depends(require_op(MENU, "E")),
+    user: User = Depends(require_op(MENU, "E")),
 ) -> dict:
     """上传文件 + 可选业务背景 → AI 生成归集模板草稿（不存库）。
 
-    返回结构兼容 TemplateIn，附带 _meta._low_confidence 供前端标红提示。
-    前端用户确认/修改后，直接 POST /templates 存库。
+    AI 接入受 004 底座管控:能力注册表 + 策略闸门 + 输出 deny 扫描 + 统一审计。
+    只发表头给模型(ai_builder 内只解析表头列名),明细行不进上下文(§4.8)。
+    返回结构兼容 TemplateIn,附带 _meta.low_confidence 供前端标红。前端确认后 POST /templates 存库。
     """
-    blobs = await _read_files(files)
+    timer = AiAuditTimer()
+    timer.add_event("entry", capability_id=AI_DRAFT_CAPABILITY)
+
+    capability = get_capability(AI_DRAFT_CAPABILITY)
+    if capability is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="AI 能力未注册")
     try:
+        validate_capability_policy(capability)
+    except Exception as e:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"AI 能力未启用: {e}")
+
+    blobs = await _read_files(files)
+    status_text = "ok"
+    error: str | None = None
+    draft: dict[str, Any] = {}
+    try:
+        timer.add_event("model_call", capability_id=AI_DRAFT_CAPABILITY)
         draft = await ai_builder.build_draft(blobs, business_context, db)
+        # 输出级 deny:扫描 AI 产出的标准字段/映射文本,拦截 SQL/代码/URL 等注入
+        enforce_output_deny_patterns(capability, _draft_scan_text(draft))
     except ValueError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        status_text = "error"
+        error = str(e)
+    except Exception as e:  # policy deny 等
+        status_text = "error"
+        error = str(e)
+
+    await record_ai_log(
+        db=db,
+        user=user,
+        action="table_merge_suggest_mapping",
+        request_summary=f"{len(blobs)}个文件 {business_context[:60]}",
+        response_summary=f"{len(draft.get('std_fields', []))}个标准字段/{len(draft.get('mappings', []))}个源映射" if status_text == "ok" else (error or ""),
+        input_payload={"files": [n for n, _ in blobs], "business_context": business_context},
+        output_payload={"std_fields": draft.get("std_fields", []), "meta": draft.get("_meta", {})},
+        status=status_text,
+        error=error,
+        metadata={"capability_id": AI_DRAFT_CAPABILITY},
+        timer=timer,
+    )
+    await db.commit()
+
+    if status_text != "ok":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=error or "AI 生成失败")
     return draft
+
+
+def _draft_scan_text(draft: dict[str, Any]) -> str:
+    """把草稿里模型生成的文本(标准字段名 + 各源 column_map/derived 表达式)拼起来供 deny 扫描。"""
+    parts: list[str] = list(draft.get("std_fields") or [])
+    for m in draft.get("mappings") or []:
+        parts.extend((m.get("column_map") or {}).keys())
+        parts.extend(str(v) for v in (m.get("column_map") or {}).values())
+        for d in m.get("derived_fields") or []:
+            parts.append(str(d.get("expr", "")))
+            parts.append(str(d.get("target", "")))
+    return "\n".join(parts)
