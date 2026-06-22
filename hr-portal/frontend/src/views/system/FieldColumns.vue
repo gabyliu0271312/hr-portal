@@ -322,7 +322,7 @@ onMounted(async () => {
   <div style="padding: 24px">
     <el-card>
       <template #header>
-        <div style="display: flex; justify-content: space-between; align-items: center">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px">
           <div style="display: flex; align-items: center; gap: 6px">
             <span style="font-size: 16px; font-weight: 600">字段管理</span>
             <!-- ④ 动态字段源数据说明：收进感叹号，hover 才显示 -->
@@ -339,57 +339,50 @@ onMounted(async () => {
               </el-icon>
             </el-tooltip>
           </div>
-          <div>
+          <!-- 表选择器 + 数据范围策略 + 操作按钮，统一一行 -->
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+            <el-select v-model="currentTable" style="width: 200px" :disabled="loading" placeholder="选择业务表">
+              <el-option
+                v-for="t in tables"
+                :key="t.table_name"
+                :label="t.label"
+                :value="t.table_name"
+              />
+            </el-select>
+            <div style="display: flex; align-items: center; gap: 4px">
+              <span style="font-size: 14px; color: var(--color-text-secondary); white-space: nowrap">数据范围策略</span>
+              <el-tooltip placement="top">
+                <template #content>
+                  <div style="max-width: 260px; line-height: 1.6">
+                    控制该表多个权限标签之间的取数关系。选择后立即生效，无需手动保存。
+                  </div>
+                </template>
+                <el-icon style="color: var(--color-text-secondary); cursor: help"><InfoFilled /></el-icon>
+              </el-tooltip>
+              <el-select
+                v-model="currentScopeStrategy"
+                style="width: 160px"
+                :loading="saving"
+                :disabled="!currentRegisteredTable || loading"
+                @change="saveTableScopeStrategy"
+              >
+                <el-option
+                  v-for="item in SCOPE_STRATEGY_OPTIONS"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </div>
             <PermissionButton menu="system.field_columns" op="C" type="primary" @click="openCreate">
-              <el-icon style="margin-right: 4px"><Plus /></el-icon>新增字段
+              <el-icon style="margin-right: 4px"><Plus /></el-icon>新增
             </PermissionButton>
             <PermissionButton menu="system.field_columns" op="U" type="default" :loading="recomputing" @click="recomputeComputed">
-              重算自动字段
+              重算
             </PermissionButton>
           </div>
         </div>
       </template>
-
-      <!-- 表选择器 + 表级数据范围策略 -->
-      <el-form inline style="margin-bottom: 16px">
-        <el-form-item label="选择业务表">
-          <el-select v-model="currentTable" style="width: 240px" :disabled="loading">
-            <el-option
-              v-for="t in tables"
-              :key="t.table_name"
-              :label="t.label"
-              :value="t.table_name"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="数据范围策略">
-          <el-select
-            v-model="currentScopeStrategy"
-            style="width: 180px"
-            :disabled="!currentTable || loading"
-          >
-            <el-option
-              v-for="item in SCOPE_STRATEGY_OPTIONS"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <PermissionButton
-            menu="system.field_columns"
-            op="U"
-            type="primary"
-            plain
-            :loading="saving"
-            :disabled="!currentRegisteredTable"
-            @click="saveTableScopeStrategy"
-          >
-            保存策略
-          </PermissionButton>
-        </el-form-item>
-      </el-form>
 
       <!-- ① 瘦身后的字段列表：只读展示关键列，编辑走弹窗 -->
       <el-table v-loading="loading" :data="columns" stripe style="width: 100%" max-height="650">
