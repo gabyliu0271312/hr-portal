@@ -27,6 +27,7 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   'tools.compensation_calc': '/tools/compensation-calc',
   'tools.income_certificate': '/tools/income-certificate',
   'tools.cost_allocation': '/tools/cost-allocation',
+  'table_tools': '/tools/table-merge',
 }
 
 export const HIDDEN_IN_QUICK = new Set(['tools.center'])
