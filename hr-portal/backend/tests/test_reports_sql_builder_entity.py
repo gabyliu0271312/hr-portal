@@ -850,4 +850,5 @@ async def test_report_list_lookup_numeric_is_not_null_filter_does_not_compare_em
 
     sql = "\n".join(str(statement) for statement, _ in db.executed).lower()
     assert "management_level is not null" in sql
-    assert "management_level != " not in sql
+    assert "cast(lls_0_r.management_level as varchar) !=" in sql
+    assert "lls_0_r.management_level != " not in sql

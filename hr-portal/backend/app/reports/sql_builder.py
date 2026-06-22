@@ -1685,13 +1685,9 @@ def _filter_clause(expr, data_type: str, op: str, val: Any) -> ColumnElement | N
     if op == "in" and isinstance(val, (list, tuple)) and val:
         return expr.in_([_coerce_filter_value(x, data_type) for x in val])
     if op == "is_null":
-        if (data_type or "").strip().lower() in {"string", "text", "enum"}:
-            return or_(expr.is_(None), expr == "")
-        return expr.is_(None)
+        return or_(expr.is_(None), cast(expr, SAString) == "")
     if op == "is_not_null":
-        if (data_type or "").strip().lower() in {"string", "text", "enum"}:
-            return and_(expr.isnot(None), expr != "")
-        return expr.isnot(None)
+        return and_(expr.isnot(None), cast(expr, SAString) != "")
     return None
 
 
