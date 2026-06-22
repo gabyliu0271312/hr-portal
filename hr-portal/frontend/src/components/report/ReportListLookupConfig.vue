@@ -164,6 +164,17 @@ function sourceSummary(source: ListLookupSource) {
   const returns = fieldLabel(source.return_field) || '待选择返回字段'
   return `先按条件筛选数据行，再返回「${returns}」作为名单。`
 }
+
+function returnFieldHint(source: ListLookupSource) {
+  const target = targetLabel.value || '回查目标字段'
+  if (source.type === 'filtered_rows') {
+    return `这里要选择最终用于回查的键，需和「${target}」同一种字段；筛选条件请在下方“来源筛选”里配置。`
+  }
+  if (source.resolver?.enabled === true) {
+    return `匹配成功后返回的字段需和「${target}」同一种键。`
+  }
+  return `直接使用抽取字段时，抽取字段需和「${target}」同一种键。`
+}
 </script>
 
 <template>
@@ -228,7 +239,7 @@ function sourceSummary(source: ListLookupSource) {
           <span class="step-index">3</span>
           <div>
             <strong>回查目标</strong>
-            <p>最终名单会用于过滤这个字段，通常选择唯一键或人员编号。</p>
+            <p>最终名单会用于过滤这个字段。所有来源返回的名单键都要和它一致，例如都用工号。</p>
           </div>
           <el-select
             :model-value="listLookup.lookup?.target_field || ''"
@@ -314,6 +325,7 @@ function sourceSummary(source: ListLookupSource) {
             >
               <el-option v-for="col in allColumns" :key="col.code" :label="col.label" :value="col.code" />
             </el-select>
+            <small>{{ returnFieldHint(source) }}</small>
           </label>
         </div>
 
@@ -354,6 +366,7 @@ function sourceSummary(source: ListLookupSource) {
               >
                 <el-option v-for="col in allColumns" :key="col.code" :label="col.label" :value="col.code" />
               </el-select>
+              <small>{{ returnFieldHint(source) }}</small>
             </label>
           </div>
         </div>
@@ -603,6 +616,12 @@ function sourceSummary(source: ListLookupSource) {
   color: var(--color-text-secondary);
   font-size: 12px;
   font-weight: 800;
+}
+
+.field-block small {
+  color: var(--color-text-placeholder);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .field-block-wide {

@@ -740,6 +740,118 @@ def _filter_clause_for_aliases(
     )
 
 
+def _column_meta_for_lookup(
+    qualified: str,
+    *,
+    columns_by_alias: dict[str, dict[str, TableColumn]],
+) -> TableColumn:
+    if not qualified or "." not in qualified:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"名单回查字段必须形如 alias.column，收到: {qualified}",
+        )
+    alias, code = _split_qualified(qualified)
+    col = columns_by_alias.get(alias, {}).get(code)
+    if col is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"名单回查字段不存在: {qualified}")
+    return col
+
+
+def _lookup_type_key(data_type: str | None) -> str:
+    key = (data_type or "string").strip().lower()
+    if key in {"string", "text", "enum"}:
+        return "string"
+    if key in {"number", "numeric", "integer", "int", "float", "decimal"}:
+        return "number"
+    return key
+
+
+def _ensure_lookup_type_match(
+    *,
+    field: str,
+    field_type: str | None,
+    expected_field: str,
+    expected_type: str | None,
+    context: str,
+) -> None:
+    if _lookup_type_key(field_type) == _lookup_type_key(expected_type):
+        return
+    raise HTTPException(
+        status.HTTP_400_BAD_REQUEST,
+        detail=(
+            f"{context}字段类型不一致：{field}({field_type or 'string'}) "
+            f"不能与 {expected_field}({expected_type or 'string'}) 做名单匹配。"
+            "请让所有名单来源返回同一种回查键。"
+        ),
+    )
+
+
+def _validate_list_lookup_types(
+    list_lookup: dict[str, Any] | None,
+    *,
+    columns_by_alias: dict[str, dict[str, TableColumn]],
+) -> None:
+    config = list_lookup or {}
+    if not config.get("enabled"):
+        return
+    lookup = config.get("lookup") or {}
+    target_field = lookup.get("target_field") or config.get("target_field")
+    if not target_field:
+        return
+    target_col = _column_meta_for_lookup(str(target_field), columns_by_alias=columns_by_alias)
+    target_type = target_col.data_type
+
+    for index, source in enumerate(config.get("sources") or [], start=1):
+        if not isinstance(source, dict):
+            continue
+        source_type = source.get("type") or "filtered_rows"
+        if source_type == "field_values":
+            source_field = source.get("source_field")
+            if not source_field:
+                continue
+            source_col = _column_meta_for_lookup(str(source_field), columns_by_alias=columns_by_alias)
+            resolver = source.get("resolver") or {}
+            if resolver.get("enabled", True) and resolver.get("match_field") and resolver.get("return_field"):
+                match_col = _column_meta_for_lookup(str(resolver["match_field"]), columns_by_alias=columns_by_alias)
+                return_col = _column_meta_for_lookup(str(resolver["return_field"]), columns_by_alias=columns_by_alias)
+                _ensure_lookup_type_match(
+                    field=str(source_field),
+                    field_type=source_col.data_type,
+                    expected_field=str(resolver["match_field"]),
+                    expected_type=match_col.data_type,
+                    context=f"名单回查第 {index} 个来源的抽取字段与匹配字段",
+                )
+                _ensure_lookup_type_match(
+                    field=str(resolver["return_field"]),
+                    field_type=return_col.data_type,
+                    expected_field=str(target_field),
+                    expected_type=target_type,
+                    context=f"名单回查第 {index} 个来源的返回字段与回查目标",
+                )
+            else:
+                _ensure_lookup_type_match(
+                    field=str(source_field),
+                    field_type=source_col.data_type,
+                    expected_field=str(target_field),
+                    expected_type=target_type,
+                    context=f"名单回查第 {index} 个来源的抽取字段与回查目标",
+                )
+            continue
+
+        if source_type == "filtered_rows":
+            return_field = source.get("return_field")
+            if not return_field:
+                continue
+            return_col = _column_meta_for_lookup(str(return_field), columns_by_alias=columns_by_alias)
+            _ensure_lookup_type_match(
+                field=str(return_field),
+                field_type=return_col.data_type,
+                expected_field=str(target_field),
+                expected_type=target_type,
+                context=f"名单回查第 {index} 个来源的返回字段与回查目标",
+            )
+
+
 def _source_key_select(
     source: dict[str, Any],
     *,
@@ -942,6 +1054,7 @@ async def run_dataset_query(
         alias: {col.column_code: col for col in cols}
         for alias, cols in alias_columns.items()
     }
+    _validate_list_lookup_types(list_lookup, columns_by_alias=columns_by_alias)
     calc_fields = await active_calculated_fields(dataset_id, db)
     calc_by_code = {f.code: f for f in calc_fields}
     calc_by_qual = {calc_qual(f.code): f for f in calc_fields}

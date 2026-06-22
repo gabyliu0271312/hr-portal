@@ -3,6 +3,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import BigInteger, Column, Date, MetaData, Numeric, String, Table, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import False_
@@ -707,3 +708,79 @@ async def test_report_list_lookup_supports_intersect_and_except(operator, expect
     sql = "\n".join(str(statement) for statement, _ in db.executed).lower()
     assert expected_sql in sql
     assert_no_raw_sql(db)
+
+
+async def test_report_list_lookup_rejects_mismatched_source_key_type():
+    table_name = "report_entity_list_lookup_type_mismatch"
+    model = make_entity_model(
+        table_name,
+        [
+            Column("employee_no", String),
+            Column("full_name", String),
+            Column("direct_supervisor", String),
+            Column("management_level", Numeric),
+        ],
+    )
+    old = register_table(table_name, model)
+    ds = DataSet(id=12, name="list lookup mismatch")
+    table = DataSetTable(dataset_id=12, table_name=table_name, alias="r")
+    columns = [
+        make_column(table_name, "employee_no", column_label="工号"),
+        make_column(table_name, "full_name", column_label="姓名"),
+        make_column(table_name, "direct_supervisor", column_label="直接上级"),
+        make_column(table_name, "management_level", column_label="管理职级", data_type="number"),
+    ]
+    db = FakeSession(
+        get_map={(DataSet, 12): ds},
+        results=[
+            *dataset_rows(12, [table]),
+            FakeResult(rows=columns),
+        ],
+    )
+
+    try:
+        with pytest.raises(HTTPException) as exc:
+            await sql_builder.run_dataset_query(
+                dataset_id=12,
+                columns=["r.employee_no", "r.full_name"],
+                filters=[],
+                filter_logic=None,
+                sorts=[],
+                value_rules=[],
+                aggregate=False,
+                aggregations={},
+                transpose={},
+                rounding_corrections=[],
+                list_lookup={
+                    "enabled": True,
+                    "operator": "union",
+                    "lookup": {"target_field": "r.employee_no"},
+                    "sources": [
+                        {
+                            "type": "field_values",
+                            "source_field": "r.direct_supervisor",
+                            "resolver": {
+                                "match_field": "r.full_name",
+                                "return_field": "r.employee_no",
+                            },
+                        },
+                        {
+                            "type": "filtered_rows",
+                            "return_field": "r.management_level",
+                            "filters": [
+                                {"column": "r.management_level", "op": "is_not_null"},
+                            ],
+                        },
+                    ],
+                },
+                page=1,
+                page_size=50,
+                user=None,
+                db=db,
+            )
+    finally:
+        restore_table(table_name, old)
+
+    assert exc.value.status_code == 400
+    assert "名单回查第 2 个来源" in str(exc.value.detail)
+    assert "请让所有名单来源返回同一种回查键" in str(exc.value.detail)
