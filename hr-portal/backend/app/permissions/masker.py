@@ -103,7 +103,7 @@ def apply_mask(item: dict, sensitive_cols: set[str]) -> dict:
 #            ├─ 在(补偿金/证明)        → 可见（白名单工具内原值可见，这是授权它的目的）
 #            └─ 不在(通用数据集/报表)  → 隐藏（字段完全不可用，连聚合也拒）
 #
-# 敏感分类来源 = 列级 is_sensitive(物理列自身) ∪ 字段分类(直接 assignment) ∪ 认领的全局字段所属分类。
+# 敏感分类来源 = 列级 is_sensitive(物理列自身) ∪ 字段分类(直接 assignment)。
 # tool_key=None 表示通用查询场景（data 视图 / 报表 / 数据集），不命中任何白名单。
 
 VERDICT_VISIBLE = "visible"   # 原值可见
@@ -115,16 +115,11 @@ async def _table_sensitive_category_map(
     table: str, db: AsyncSession
 ) -> dict[str, set[int]]:
     """该表每个列 → 命中的敏感分类 id 集合。
-    合并两条来源：
-      1) field_category_assignments 直接给 (table, column) 打的敏感分类
-      2) 该列认领的全局字段 global_fields.category_id 是敏感分类
+    来源:field_category_assignments 直接给 (table, column) 打的敏感分类。
     """
-    from app.data.models import TableColumn
-    from app.global_fields.models import GlobalField
-
     by_col: dict[str, set[int]] = {}
 
-    # 来源1：直接 assignment
+    # 直接 assignment
     rows = (
         await db.execute(
             select(
@@ -140,22 +135,6 @@ async def _table_sensitive_category_map(
     for col_name, cat_id in rows:
         by_col.setdefault(col_name, set()).add(cat_id)
 
-    # 来源2：认领的全局字段的敏感分类（诉求2，分类随字段继承）
-    claim_rows = (
-        await db.execute(
-            select(TableColumn.column_code, GlobalField.category_id)
-            .join(GlobalField, GlobalField.id == TableColumn.global_field_id)
-            .join(FieldCategory, FieldCategory.id == GlobalField.category_id)
-            .where(
-                TableColumn.table_name == table,
-                FieldCategory.is_sensitive.is_(True),
-            )
-        )
-    ).all()
-    for col_code, cat_id in claim_rows:
-        if cat_id is not None:
-            by_col.setdefault(col_code, set()).add(cat_id)
-
     return by_col
 
 
@@ -163,7 +142,7 @@ async def _whitelisted_tools_for_categories(
     cat_ids: set[int], db: AsyncSession
 ) -> dict[int, set[str]]:
     """分类 id → 其授权工具白名单 tool_key 集合"""
-    from app.global_fields.models import FieldCategoryToolWhitelist
+    from app.field_category.models import FieldCategoryToolWhitelist
 
     if not cat_ids:
         return {}

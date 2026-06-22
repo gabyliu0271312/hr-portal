@@ -3,7 +3,6 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   'system.roles': '/system/roles',
   'system.scopes': '/system/scopes',
   'system.field_categories': '/system/field-categories',
-  'system.global_fields': '/system/global-fields',
   'system.field_columns': '/system/field-columns',
   'system.compensation_caps': '/system/compensation-caps',
   'system.document_templates': '/system/document-templates',

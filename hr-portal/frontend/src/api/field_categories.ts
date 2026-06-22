@@ -13,6 +13,11 @@ export interface Assignment {
   column_name: string
 }
 
+export interface ToolOption {
+  key: string
+  label: string
+}
+
 export const fieldCategoriesApi = {
   list: () => api.get<FieldCategory[]>('/field-categories').then((r) => r.data),
   create: (body: { name: string; description?: string; is_sensitive?: boolean }) =>
@@ -47,5 +52,22 @@ export const fieldCategoriesApi = {
   setUserVisible: (user_id: number, category_ids: number[]) =>
     api
       .put<{ ok: boolean; count: number }>(`/field-categories/_user/${user_id}`, { category_ids })
+      .then((r) => r.data),
+
+  // 授权工具白名单（分类 → 工具）
+  tools: () =>
+    api.get<ToolOption[]>('/field-categories/_tools').then((r) => r.data),
+  getWhitelist: (cat_id: number) =>
+    api
+      .get<{ category_id: number; tool_keys: string[] }>(
+        `/field-categories/${cat_id}/whitelist`,
+      )
+      .then((r) => r.data),
+  setWhitelist: (cat_id: number, tool_keys: string[]) =>
+    api
+      .put<{ category_id: number; tool_keys: string[] }>(
+        `/field-categories/${cat_id}/whitelist`,
+        { tool_keys },
+      )
       .then((r) => r.data),
 }

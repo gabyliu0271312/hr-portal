@@ -49,12 +49,6 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '字段分类', menuCode: 'system.field_categories' },
       },
       {
-        path: 'system/global-fields',
-        name: 'SystemGlobalFields',
-        component: () => import('@/views/system/GlobalFields.vue'),
-        meta: { label: '全局字段字典', menuCode: 'system.global_fields' },
-      },
-      {
         path: 'system/field-columns',
         name: 'SystemFieldColumns',
         component: () => import('@/views/system/FieldColumns.vue'),

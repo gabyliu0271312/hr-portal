@@ -43,7 +43,6 @@ MENU_TREE: list[dict] = [
                     {"code": "system.roles", "label": "角色配置", "icon": "Avatar"},
                     {"code": "system.scopes", "label": "管理单元", "icon": "Connection"},
                     {"code": "system.field_categories", "label": "字段分类", "icon": "Stamp"},
-                    {"code": "system.global_fields", "label": "全局字段字典", "icon": "Collection"},
                     {"code": "system.field_columns", "label": "字段管理", "icon": "Grid"},
                 ],
             },

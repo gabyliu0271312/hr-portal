@@ -95,7 +95,6 @@ def make_column(**overrides):
         "agg_role": "dimension",
         "is_computed": False,
         "formula_expr": None,
-        "global_field_id": None,
         "description": None,
         "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
         "updated_at": datetime(2026, 1, 1, tzinfo=timezone.utc),

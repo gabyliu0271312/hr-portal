@@ -38,6 +38,24 @@ class FieldCategoryAssignment(Base):
     column_name: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+class FieldCategoryToolWhitelist(Base):
+    """字段分类 → 授权工具白名单
+
+    无该分类权限的用户,仅在白名单工具内可使用该分类字段(原值可见、可计算)。
+    """
+    __tablename__ = "field_category_tool_whitelist"
+    __table_args__ = (
+        UniqueConstraint("category_id", "tool_key", name="uq_field_cat_tool"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    category_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("field_categories.id", ondelete="CASCADE"), nullable=False
+    )
+    # 工具标识,如 'compensation_calc' / 'income_certificate'
+    tool_key: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class UserVisibleCategory(Base):
     __tablename__ = "user_visible_categories"
 

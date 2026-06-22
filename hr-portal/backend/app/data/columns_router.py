@@ -384,7 +384,6 @@ class ColumnOut(BaseModel):
     agg_role: str
     is_computed: bool
     formula_expr: str | None
-    global_field_id: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -412,7 +411,6 @@ def _to_out(c: TableColumn) -> ColumnOut:
         agg_role=c.agg_role,
         is_computed=c.is_computed,
         formula_expr=c.formula_expr,
-        global_field_id=c.global_field_id,
         created_at=c.created_at,
         updated_at=c.updated_at,
     )
@@ -562,7 +560,6 @@ async def bulk_update(
             "agg_role",
             "is_computed",
             "formula_expr",
-            "global_field_id",
         ):
             if k in item:
                 setattr(col, k, item[k])

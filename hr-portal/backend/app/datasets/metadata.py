@@ -6,7 +6,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.data.models import DATA_TABLES, RegisteredTable, TableColumn
-from app.global_fields.models import GlobalField
 
 
 BUILTIN_TABLE_LABELS = {
@@ -83,20 +82,7 @@ async def table_options(db: AsyncSession) -> list[dict[str, str]]:
 async def effective_column_label_map(
     columns: Sequence[TableColumn], db: AsyncSession
 ) -> dict[str, str]:
-    global_ids = {
-        c.global_field_id for c in columns if getattr(c, "global_field_id", None) is not None
-    }
-    global_labels: dict[int, str] = {}
-    if global_ids:
-        rows = (
-            await db.execute(
-                select(GlobalField.id, GlobalField.label).where(GlobalField.id.in_(global_ids))
-            )
-        ).all()
-        global_labels = {gid: label for gid, label in rows if label}
-
     labels: dict[str, str] = {}
     for col in columns:
-        inherited = global_labels.get(col.global_field_id) if col.global_field_id else None
-        labels[col.column_code] = inherited or col.column_label or col.column_code
+        labels[col.column_code] = col.column_label or col.column_code
     return labels

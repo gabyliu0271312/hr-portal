@@ -87,10 +87,6 @@ class TableColumn(Base):
     # 取值：'cc_code' / 'org_node_code' / 'employment_type' / 'employment_entity' / None
     scope_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
-    # 认领的全局字段 id（指向 global_fields）。NULL=未认领，走物理列自身值（回退）。
-    # 认领后：label/scope_role/分类 等从全局字段继承（见 Phase C/D 解析逻辑）。
-    global_field_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(

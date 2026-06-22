@@ -9,6 +9,7 @@ from app.core.deps import require_op
 from app.field_category.models import (
     FieldCategory,
     FieldCategoryAssignment,
+    FieldCategoryToolWhitelist,
     RoleVisibleCategory,
     UserVisibleCategory,
 )
@@ -16,6 +17,13 @@ from app.users.models import Role, User
 
 
 router = APIRouter(prefix="/field-categories", tags=["field-categories"])
+
+
+# 可纳入白名单的工具(key 与提效工具菜单 code 后缀对应)
+TOOLS = [
+    {"key": "compensation_calc", "label": "补偿金计算"},
+    {"key": "income_certificate", "label": "证明开具"},
+]
 
 
 class CategoryIn(BaseModel):
@@ -327,3 +335,57 @@ async def set_user_visible_categories(
         db.add(UserVisibleCategory(user_id=user_id, category_id=cid))
     await db.commit()
     return {"ok": True, "count": len(payload.category_ids)}
+
+
+# ===== 授权工具白名单(分类 → 工具)=====
+
+
+class WhitelistIn(BaseModel):
+    tool_keys: list[str] = Field(default_factory=list)
+
+
+@router.get("/_tools")
+async def list_whitelist_tools(
+    _=Depends(require_op("system.field_categories", "V")),
+) -> list[dict]:
+    return TOOLS
+
+
+@router.get("/{cat_id}/whitelist")
+async def get_whitelist(
+    cat_id: int,
+    db: AsyncSession = Depends(get_session),
+    _=Depends(require_op("system.field_categories", "V")),
+) -> dict:
+    rows = (
+        await db.execute(
+            select(FieldCategoryToolWhitelist.tool_key).where(
+                FieldCategoryToolWhitelist.category_id == cat_id
+            )
+        )
+    ).all()
+    return {"category_id": cat_id, "tool_keys": [r[0] for r in rows]}
+
+
+@router.put("/{cat_id}/whitelist")
+async def set_whitelist(
+    cat_id: int,
+    payload: WhitelistIn,
+    db: AsyncSession = Depends(get_session),
+    _=Depends(require_op("system.field_categories", "U")),
+) -> dict:
+    cat = await db.get(FieldCategory, cat_id)
+    if cat is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="字段分类不存在")
+    valid_keys = {t["key"] for t in TOOLS}
+    await db.execute(
+        delete(FieldCategoryToolWhitelist).where(
+            FieldCategoryToolWhitelist.category_id == cat_id
+        )
+    )
+    for k in payload.tool_keys:
+        if k not in valid_keys:
+            continue
+        db.add(FieldCategoryToolWhitelist(category_id=cat_id, tool_key=k))
+    await db.commit()
+    return {"category_id": cat_id, "tool_keys": payload.tool_keys}

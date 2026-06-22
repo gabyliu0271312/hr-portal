@@ -24,10 +24,13 @@
           <el-table-column label="字段数" width="100">
             <template #default="{ row }">{{ row.field_count }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="280" fixed="right">
+          <el-table-column label="操作" width="380" fixed="right">
             <template #default="{ row }">
               <PermissionButton menu="system.field_categories" op="V" size="small" @click="openAssignments(row)">
                 管理字段
+              </PermissionButton>
+              <PermissionButton v-if="row.is_sensitive" menu="system.field_categories" op="U" size="small" type="primary" @click="openWhitelist(row)">
+                白名单
               </PermissionButton>
               <PermissionButton menu="system.field_categories" op="U" size="small" @click="openEdit(row)">
                 编辑
@@ -136,6 +139,23 @@
         </div>
       </template>
     </el-drawer>
+
+    <!-- 授权工具白名单对话框 -->
+    <el-dialog v-model="whitelistOpen" :title="`授权工具白名单 · ${whitelistCat?.name ?? ''}`" width="460px">
+      <p style="color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; margin-top: 0">
+        勾选的工具,允许「无本分类权限」的用户在其中使用该分类字段(原值可见、可计算);<br />
+        不在白名单的通用数据集/报表,该类字段完全不可用。
+      </p>
+      <el-checkbox-group v-model="whitelistKeys">
+        <el-checkbox v-for="t in tools" :key="t.key" :value="t.key" border style="display: block; margin: 0 0 8px">
+          {{ t.label }}
+        </el-checkbox>
+      </el-checkbox-group>
+      <template #footer>
+        <el-button @click="whitelistOpen = false">取消</el-button>
+        <el-button type="primary" :loading="whitelistSaving" @click="saveWhitelist">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -148,6 +168,7 @@ import {
   fieldCategoriesApi,
   type FieldCategory,
   type Assignment,
+  type ToolOption,
 } from '@/api/field_categories'
 
 const list = ref<FieldCategory[]>([])
@@ -164,6 +185,38 @@ const assignmentCat = ref<FieldCategory | null>(null)
 const assignments = ref<Assignment[]>([])
 const newRow = reactive<Assignment>({ table_name: '', column_name: '' })
 const assignSaving = ref(false)
+
+// ===== 授权工具白名单 =====
+const tools = ref<ToolOption[]>([])
+const whitelistOpen = ref(false)
+const whitelistCat = ref<FieldCategory | null>(null)
+const whitelistKeys = ref<string[]>([])
+const whitelistSaving = ref(false)
+
+async function openWhitelist(cat: FieldCategory) {
+  whitelistCat.value = cat
+  try {
+    const r = await fieldCategoriesApi.getWhitelist(cat.id)
+    whitelistKeys.value = r.tool_keys
+  } catch {
+    whitelistKeys.value = []
+  }
+  whitelistOpen.value = true
+}
+
+async function saveWhitelist() {
+  if (!whitelistCat.value) return
+  whitelistSaving.value = true
+  try {
+    await fieldCategoriesApi.setWhitelist(whitelistCat.value.id, whitelistKeys.value)
+    ElMessage.success('已保存白名单')
+    whitelistOpen.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    whitelistSaving.value = false
+  }
+}
 
 const KNOWN_TABLES = [
   { value: 'emp_realtime_roster', label: '员工实时花名册' },
@@ -308,5 +361,12 @@ async function saveAssignments() {
 const tableLabel = (val: string) =>
   KNOWN_TABLES.find((t) => t.value === val)?.label ?? val
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  try {
+    tools.value = await fieldCategoriesApi.tools()
+  } catch {
+    tools.value = []
+  }
+})
 </script>

@@ -10,7 +10,6 @@ import {
   type TableMeta,
 } from '@/api/table_columns'
 import { adminTablesApi } from '@/api/admin_tables'
-import { globalFieldsApi, type GlobalField } from '@/api/global_fields'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
 
@@ -24,7 +23,6 @@ const columns = ref<TableColumn[]>([])
 const originalDataTypeById = ref<Record<number, string>>({})
 const loading = ref(false)
 const saving = ref(false)
-const globalFields = ref<GlobalField[]>([])
 const existingColumnCodes = computed(() => columns.value.map((c) => c.column_code))
 const currentRegisteredTable = computed(() =>
   registeredTables.value.find((item) => item.table_name === currentTable.value) || null
@@ -104,24 +102,6 @@ async function saveTableScopeStrategy() {
   }
 }
 
-function claimedHint(gfId: number): string {
-  const g = globalFields.value.find((x) => x.id === gfId)
-  if (!g) return ''
-  const parts: string[] = []
-  if (g.scope_role) {
-    const SR: Record<string, string> = {
-      cc_code: '成本中心',
-      org_node_code: '组织',
-      employment_type: '用工类型',
-      employment_entity: '用工主体',
-      person: '人员',
-    }
-    parts.push('权限=' + (SR[g.scope_role] ?? g.scope_role))
-  }
-  if (g.category_name) parts.push('分类=' + g.category_name)
-  return parts.length ? parts.join('，') : '名称'
-}
-
 async function saveAll() {
   if (!currentTable.value) return
   const typeChanged = columns.value.filter(
@@ -157,7 +137,6 @@ async function saveAll() {
       agg_role: c.agg_role || 'dimension',
       is_computed: c.is_computed,
       formula_expr: c.is_computed ? (c.formula_expr || '') : null,
-      global_field_id: c.global_field_id ?? null,
       confirm_type_change:
         confirmTypeChange && originalDataTypeById.value[c.id] !== c.data_type,
     }))
@@ -296,11 +275,6 @@ watch(currentTable, () => {
 
 onMounted(async () => {
   await loadTables()
-  try {
-    globalFields.value = await globalFieldsApi.list()
-  } catch {
-    globalFields.value = []
-  }
   const queryTable = route.query.table as string | undefined
   currentTable.value = queryTable || tables.value[0]?.table_name || ''
 })
@@ -533,47 +507,6 @@ onMounted(async () => {
               <el-switch v-model="row.copy_from_last_month" :disabled="row.auto_discovered" />
             </template>
           </el-table-column>
-          <el-table-column label="认领全局字段" width="220">
-            <template #header>
-              <span>认领全局字段</span>
-              <el-tooltip placement="top">
-                <template #content>
-                  <div style="max-width: 300px; line-height: 1.6">
-                    把本物理列认领到「全局字段字典」里的统一字段。<br />
-                    认领后：名称、字段分类、权限角色都<strong>继承自全局字段</strong>，<br />
-                    组织树/成本中心树只需在全局字段上绑定一次。<br />
-                    未认领 → 用本列自身的名称与权限角色（回退）。
-                  </div>
-                </template>
-                <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
-                  <InfoFilled />
-                </el-icon>
-              </el-tooltip>
-            </template>
-            <template #default="{ row }">
-              <el-select
-                v-model="row.global_field_id"
-                size="small"
-                clearable
-                filterable
-                placeholder="未认领"
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="g in globalFields"
-                  :key="g.id"
-                  :label="`${g.label} (${g.code})`"
-                  :value="g.id"
-                />
-              </el-select>
-              <div
-                v-if="row.global_field_id"
-                style="font-size: 11px; color: var(--color-text-placeholder); margin-top: 2px"
-              >
-                继承：{{ claimedHint(row.global_field_id) }}
-              </div>
-            </template>
-          </el-table-column>
           <el-table-column label="权限角色" width="180">
             <template #header>
               <span>权限角色</span>
@@ -584,8 +517,7 @@ onMounted(async () => {
                     • cc_code：成本中心编码列<br />
                     • org_node_code：组织节点编码列<br />
                     • employment_type / entity / person：人员筛选用<br />
-                    未设置 → 该列不参与权限过滤<br />
-                    <strong>已认领全局字段时，以全局字段的权限角色为准。</strong>
+                    未设置 → 该列不参与权限过滤
                   </div>
                 </template>
                 <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
@@ -600,7 +532,6 @@ onMounted(async () => {
                 clearable
                 placeholder="未设置"
                 style="width: 100%"
-                :disabled="!!row.global_field_id"
               >
                 <el-option
                   v-for="r in SCOPE_ROLES.filter((x) => x.value)"
