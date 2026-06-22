@@ -785,6 +785,10 @@ def _effective_filter_type(expr: ColumnElement, meta_type: str | None) -> str:
     return meta_type or "string"
 
 
+def _non_empty_expr(expr: ColumnElement) -> ColumnElement:
+    return and_(expr.isnot(None), cast(expr, SAString) != "")
+
+
 def _ensure_lookup_type_match(
     *,
     field: str,
@@ -905,11 +909,11 @@ def _source_key_select(
                 aliased_models=resolver_models,
             )
             stmt = select(return_expr.label("lookup_key")).where(
-                and_(value_expr.isnot(None), value_expr != "", match_expr == value_expr)
+                and_(_non_empty_expr(value_expr), match_expr == value_expr)
             )
         else:
             stmt = select(value_expr.label("lookup_key")).where(
-                and_(value_expr.isnot(None), value_expr != "")
+                _non_empty_expr(value_expr)
             )
         clause = build_filter_clause(
             source.get("filters") or [],
@@ -931,7 +935,7 @@ def _source_key_select(
         return None
     return_expr = _qualified_column_expr(str(return_field), aliased_models=source_models)
     stmt = select(return_expr.label("lookup_key")).where(
-        and_(return_expr.isnot(None), return_expr != "")
+        _non_empty_expr(return_expr)
     )
     clause = build_filter_clause(
         source.get("filters") or [],

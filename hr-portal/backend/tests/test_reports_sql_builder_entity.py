@@ -791,7 +791,7 @@ async def test_report_list_lookup_numeric_is_not_null_filter_does_not_compare_em
     model = make_entity_model(
         table_name,
         [
-            Column("employee_no", String),
+            Column("employee_no", Numeric),
             Column("management_level", Numeric),
         ],
     )
@@ -849,6 +849,9 @@ async def test_report_list_lookup_numeric_is_not_null_filter_does_not_compare_em
         restore_table(table_name, old)
 
     sql = "\n".join(str(statement) for statement, _ in db.executed).lower()
+    assert "employee_no is not null" in sql
+    assert "cast(lls_0_r.employee_no as varchar) !=" in sql
+    assert "lls_0_r.employee_no != " not in sql
     assert "management_level is not null" in sql
     assert "cast(lls_0_r.management_level as varchar) !=" in sql
     assert "lls_0_r.management_level != " not in sql
