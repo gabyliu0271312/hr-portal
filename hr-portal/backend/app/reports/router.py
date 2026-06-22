@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
+import os
 from datetime import datetime
 from typing import Any
 
@@ -19,6 +21,8 @@ from app.reports.models import Report, ReportAcl
 from app.users.models import User, UserRole
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+logger = logging.getLogger(__name__)
+LIST_LOOKUP_DEBUG = os.getenv("REPORT_LIST_LOOKUP_DEBUG", "").lower() in {"1", "true", "yes"}
 
 
 class FilterCond(BaseModel):
@@ -111,6 +115,53 @@ _TABLE_LABELS = {
     "cost_center_monthly": "成本中心月度维护表",
     "emp_monthly_cost_class": "员工月度成本归集分类表",
 }
+
+
+def _list_lookup_filter_snapshot(config: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Return a compact, log-friendly view of list lookup source filters."""
+    if not isinstance(config, dict) or not config.get("enabled"):
+        return []
+    snapshot: list[dict[str, Any]] = []
+    for index, source in enumerate(config.get("sources") or [], start=1):
+        if not isinstance(source, dict):
+            continue
+        filters: list[dict[str, Any]] = []
+        for item in source.get("filters") or []:
+            if not isinstance(item, dict):
+                continue
+            filters.append(
+                {
+                    "column": item.get("column"),
+                    "op": item.get("op"),
+                    "value": item.get("value"),
+                }
+            )
+        snapshot.append(
+            {
+                "index": index,
+                "name": source.get("name"),
+                "type": source.get("type"),
+                "return_field": source.get("return_field"),
+                "source_field": source.get("source_field"),
+                "filters": filters,
+            }
+        )
+    return snapshot
+
+
+def _log_list_lookup_filters(event: str, report: Report, config: dict[str, Any] | None) -> None:
+    if not LIST_LOOKUP_DEBUG:
+        return
+    logger.info(
+        "[%s] report_id=%s name=%s list_lookup_filters=%s",
+        event,
+        report.id,
+        report.name,
+        json.dumps(
+            _list_lookup_filter_snapshot(config),
+            ensure_ascii=False,
+        ),
+    )
 
 
 def _project_report_output(
@@ -278,6 +329,7 @@ async def create_report(
     )
     db.add(report)
     await db.flush()
+    _log_list_lookup_filters("report.create", report, report.config.get("list_lookup"))
     await _replace_report_acl(db, report.id, payload.acl)
     await db.commit()
     await db.refresh(report)
@@ -326,6 +378,7 @@ async def update_report(
     report.dataset_id = payload.dataset_id
     report.config = payload.config.model_dump()
     report.is_published = payload.is_published
+    _log_list_lookup_filters("report.update", report, report.config.get("list_lookup"))
     try:
         report.scope_strategy = ensure_scope_strategy(payload.scope_strategy)
     except ValueError as exc:
@@ -450,6 +503,7 @@ async def run_report(
         ReportConfig(**(report.config or {})),
         overrides.filters if overrides else None,
     )
+    _log_list_lookup_filters("report.run", report, cfg.list_lookup)
 
     from app.reports.sql_builder import run_dataset_query
 

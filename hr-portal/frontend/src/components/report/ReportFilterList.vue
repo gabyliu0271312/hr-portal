@@ -105,15 +105,48 @@ function valueDisabled(op: string): boolean {
   return op === 'is_null' || op === 'is_not_null'
 }
 
-function onFilterOpChange(f: FilterCond, op: string) {
-  const wasArray = Array.isArray(f.value)
-  const willArray = op === 'in'
-  if (wasArray !== willArray) f.value = willArray ? [] : ''
+function patchFilter(index: number, patch: Partial<FilterCond>) {
+  emit('update:filters', props.filters.map((item, i) => (i === index ? { ...item, ...patch } : item)))
 }
 
-function onFilterColumnChange(f: FilterCond) {
-  f.value = f.op === 'in' ? [] : ''
-  ensureOptions(f.column)
+function onFilterOpChange(index: number, op: string) {
+  const current = props.filters[index]
+  if (!current) return
+  let value = current.value
+  if (valueDisabled(op)) {
+    value = null
+  } else if (op === 'in') {
+    value = Array.isArray(value)
+      ? value
+      : typeof value === 'string' && value
+        ? value.split(',').map((part) => part.trim()).filter(Boolean)
+        : []
+  } else if (Array.isArray(value)) {
+    value = value.join(',')
+  } else if (value == null) {
+    value = ''
+  }
+  patchFilter(index, { op, value })
+}
+
+function onFilterColumnChange(index: number, column: string) {
+  const current = props.filters[index]
+  if (!current) return
+  const value = current.op === 'in' ? [] : valueDisabled(current.op) ? null : ''
+  patchFilter(index, { column, value })
+  ensureOptions(column)
+}
+
+function onFilterValueChange(index: number, value: any) {
+  patchFilter(index, { value })
+}
+
+function onFilterVisibleChange(index: number, visible: boolean) {
+  patchFilter(index, { visible, locked: visible ? props.filters[index]?.locked ?? false : false })
+}
+
+function onFilterLockedChange(index: number, locked: boolean) {
+  patchFilter(index, { locked })
 }
 
 function addFilter() {
@@ -142,20 +175,24 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
     <div v-for="(f, i) in filters" :key="i" class="rule-row">
       <el-tag class="rule-label" effect="plain">{{ filterLabel(i) }}</el-tag>
       <el-select
-        v-model="f.column"
+        :model-value="f.column"
         placeholder="字段"
         style="width: 200px"
         filterable
-        @change="onFilterColumnChange(f)"
+        @update:model-value="(value: string) => onFilterColumnChange(i, value)"
       >
         <el-option v-for="c in allColumns" :key="c.code" :label="c.label" :value="c.code" />
       </el-select>
-      <el-select v-model="f.op" style="width: 120px" @change="(op: string) => onFilterOpChange(f, op)">
+      <el-select
+        :model-value="f.op"
+        style="width: 120px"
+        @update:model-value="(op: string) => onFilterOpChange(i, op)"
+      >
         <el-option v-for="o in FILTER_OPS" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
       <el-select
         v-if="useValueDropdown(f)"
-        v-model="f.value"
+        :model-value="f.value"
         :multiple="f.op === 'in'"
         filterable
         allow-create
@@ -163,23 +200,32 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
         :reserve-keyword="false"
         placeholder="选择或输入值"
         style="flex: 1"
+        @update:model-value="(value: any) => onFilterValueChange(i, value)"
         @visible-change="(v: boolean) => v && ensureOptions(f.column)"
       >
         <el-option v-for="o in optionsFor(f.column)" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
       <el-input
         v-else
-        v-model="f.value"
+        :model-value="f.value"
         :placeholder="valueRequiresArray(f.op) ? '多个值用逗号分隔' : '值'"
         :disabled="valueDisabled(f.op)"
         style="flex: 1"
+        @update:model-value="(value: string) => onFilterValueChange(i, value)"
       />
       <el-button link type="danger" @click="removeFilter(i)">
         <el-icon><Delete /></el-icon>
       </el-button>
       <template v-if="showViewControls !== false">
-        <el-checkbox v-model="f.visible">查看页显示</el-checkbox>
-        <el-checkbox v-model="f.locked" :disabled="f.visible === false">锁定</el-checkbox>
+        <el-checkbox
+          :model-value="f.visible ?? true"
+          @update:model-value="(value: string | number | boolean) => onFilterVisibleChange(i, !!value)"
+        >查看页显示</el-checkbox>
+        <el-checkbox
+          :model-value="f.locked ?? false"
+          :disabled="f.visible === false"
+          @update:model-value="(value: string | number | boolean) => onFilterLockedChange(i, !!value)"
+        >锁定</el-checkbox>
       </template>
     </div>
     <div v-if="filters.length > 1" class="logic-row">
