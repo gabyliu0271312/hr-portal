@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Top, Bottom, InfoFilled } from '@element-plus/icons-vue'
+import { Plus, Top, Bottom, InfoFilled, EditPen } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import {
   tableColumnsApi,
@@ -52,6 +52,12 @@ const AGG_ROLES = [
   { label: '度量', value: 'measure' },
 ]
 
+// 展示用 label 映射
+const typeLabel = (v: string) => DATA_TYPES.find((t) => t.value === v)?.label || v
+const aggLabel = (v: string) => AGG_ROLES.find((t) => t.value === v)?.label || v
+const scopeRoleLabel = (v: string | null) =>
+  (v && SCOPE_ROLES.find((t) => t.value === v)?.label) || ''
+
 async function loadTables() {
   try {
     tables.value = await tableColumnsApi.tables()
@@ -70,7 +76,6 @@ async function loadColumns() {
     originalDataTypeById.value = Object.fromEntries(
       columns.value.map((c) => [c.id, c.data_type])
     )
-    // enum_options 规范化为数组，便于 v-model 绑定
     for (const c of columns.value) {
       if (!Array.isArray(c.enum_options)) c.enum_options = []
       if (!c.agg_role) c.agg_role = 'dimension'
@@ -102,54 +107,6 @@ async function saveTableScopeStrategy() {
   }
 }
 
-async function saveAll() {
-  if (!currentTable.value) return
-  const typeChanged = columns.value.filter(
-    (c) => originalDataTypeById.value[c.id] && originalDataTypeById.value[c.id] !== c.data_type
-  )
-  let confirmTypeChange = false
-  if (typeChanged.length) {
-    try {
-      await ElMessageBox.confirm(
-        `将修改 ${typeChanged.length} 个字段的数据类型。若列中已有数据，系统会尝试按新类型转换；转换失败会拒绝保存。是否继续？`,
-        '确认修改字段类型',
-        { type: 'warning', confirmButtonText: '确认修改', cancelButtonText: '取消' }
-      )
-      confirmTypeChange = true
-    } catch {
-      return
-    }
-  }
-  saving.value = true
-  try {
-    const payload = columns.value.map((c) => ({
-      id: c.id,
-      column_label: c.column_label,
-      data_type: c.data_type,
-      is_pk_part: c.is_pk_part,
-      is_sensitive: c.is_sensitive,
-      is_visible: c.is_visible,
-      display_order: c.display_order,
-      description: c.description,
-      scope_role: c.scope_role,
-      copy_from_last_month: c.copy_from_last_month,
-      enum_options: c.data_type === 'enum' ? (c.enum_options ?? []) : null,
-      agg_role: c.agg_role || 'dimension',
-      is_computed: c.is_computed,
-      formula_expr: c.is_computed ? (c.formula_expr || '') : null,
-      confirm_type_change:
-        confirmTypeChange && originalDataTypeById.value[c.id] !== c.data_type,
-    }))
-    const res = await tableColumnsApi.bulkUpdate(currentTable.value, payload)
-    ElMessage.success(`已保存 ${res.updated} 个字段`)
-    loadColumns()
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
-  } finally {
-    saving.value = false
-  }
-}
-
 const recomputing = ref(false)
 async function recomputeComputed() {
   if (!currentTable.value) return
@@ -164,28 +121,58 @@ async function recomputeComputed() {
   }
 }
 
-// 往某行公式末尾插入 [字段编码]
-function insertRef(row: TableColumn, code: string) {
-  if (!code) return
-  row.formula_expr = (row.formula_expr || '') + `[${code}]`
-}
-// 当前表可被引用的字段（排除自身）
-function refOptions(row: TableColumn) {
-  return columns.value.filter((c) => c.column_code !== row.column_code)
+// 构造单条更新/创建的 payload
+function buildPayload(c: typeof form.value) {
+  return {
+    column_code: c.column_code,
+    column_label: c.column_label,
+    data_type: c.data_type,
+    is_pk_part: c.is_pk_part,
+    is_sensitive: c.is_sensitive,
+    is_visible: c.is_visible,
+    display_order: c.display_order,
+    description: c.description,
+    scope_role: c.scope_role || null,
+    copy_from_last_month: c.copy_from_last_month,
+    enum_options: c.data_type === 'enum' ? (c.enum_options ?? []) : null,
+    agg_role: c.agg_role || 'dimension',
+    is_computed: c.is_computed,
+    formula_expr: c.is_computed ? (c.formula_expr || '') : null,
+  }
 }
 
-function move(row: TableColumn, direction: -1 | 1) {
+// 往公式末尾插入 [字段编码]
+function insertRef(code: string) {
+  if (!code) return
+  form.value.formula_expr = (form.value.formula_expr || '') + `[${code}]`
+}
+// 当前表可被引用的字段（排除自身）
+const refOptions = computed(() =>
+  columns.value.filter((c) => c.column_code !== form.value.column_code)
+)
+
+// 上下移动 —— 即时落库
+async function move(row: TableColumn, direction: -1 | 1) {
   const i = columns.value.findIndex((c) => c.id === row.id)
   if (i < 0) return
   const j = i + direction
   if (j < 0 || j >= columns.value.length) return
-  // 交换两个相邻行的 display_order
-  const a = columns.value[i].display_order
-  const b = columns.value[j].display_order
-  columns.value[i].display_order = b
-  columns.value[j].display_order = a
-  // 重新按 order 排序
+  const a = columns.value[i]
+  const b = columns.value[j]
+  const ao = a.display_order
+  const bo = b.display_order
+  a.display_order = bo
+  b.display_order = ao
   columns.value.sort((x, y) => x.display_order - y.display_order)
+  try {
+    await Promise.all([
+      tableColumnsApi.update(currentTable.value, a.id, buildPayload(a as any)),
+      tableColumnsApi.update(currentTable.value, b.id, buildPayload(b as any)),
+    ])
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存排序失败')
+    loadColumns()
+  }
 }
 
 async function removeColumn(row: TableColumn) {
@@ -207,26 +194,14 @@ async function removeColumn(row: TableColumn) {
   }
 }
 
-// ===== 新建字段 =====
+// ===== 新增 / 编辑字段（共用一个弹窗）=====
 const dialogOpen = ref(false)
-const newCol = ref({
-  column_code: '',
-  column_label: '',
-  data_type: 'string',
-  is_pk_part: false,
-  is_sensitive: false,
-  is_visible: true,
-  display_order: 999,
-  description: '',
-  scope_role: '' as string,
-  copy_from_last_month: false,
-  enum_options: [] as string[],
-  agg_role: 'dimension',
-  is_computed: false,
-  formula_expr: '',
-})
-function openCreate() {
-  newCol.value = {
+const dialogMode = ref<'create' | 'edit'>('create')
+const editingId = ref<number | null>(null)
+const submitting = ref(false)
+
+function blankForm() {
+  return {
     column_code: '',
     column_label: '',
     data_type: 'string',
@@ -234,37 +209,100 @@ function openCreate() {
     is_sensitive: false,
     is_visible: true,
     display_order: (columns.value[columns.value.length - 1]?.display_order ?? 0) + 10,
-    description: '',
-    scope_role: '',
+    description: '' as string | null,
+    scope_role: '' as string,
     copy_from_last_month: false,
-    enum_options: [],
+    enum_options: [] as string[],
     agg_role: 'dimension',
     is_computed: false,
     formula_expr: '',
+    auto_discovered: false,
+  }
+}
+const form = ref(blankForm())
+
+function openCreate() {
+  dialogMode.value = 'create'
+  editingId.value = null
+  form.value = blankForm()
+  dialogOpen.value = true
+}
+
+function openEdit(row: TableColumn) {
+  dialogMode.value = 'edit'
+  editingId.value = row.id
+  form.value = {
+    column_code: row.column_code,
+    column_label: row.column_label,
+    data_type: row.data_type,
+    is_pk_part: row.is_pk_part,
+    is_sensitive: row.is_sensitive,
+    is_visible: row.is_visible,
+    display_order: row.display_order,
+    description: row.description ?? '',
+    scope_role: row.scope_role ?? '',
+    copy_from_last_month: row.copy_from_last_month,
+    enum_options: Array.isArray(row.enum_options) ? [...row.enum_options] : [],
+    agg_role: row.agg_role || 'dimension',
+    is_computed: !!row.is_computed,
+    formula_expr: row.formula_expr ?? '',
+    auto_discovered: row.auto_discovered,
   }
   dialogOpen.value = true
 }
-async function createColumn() {
-  if (!newCol.value.column_code.trim() || !newCol.value.column_label.trim()) {
-    ElMessage.warning('字段编码与字段名称必填')
+
+async function submitForm() {
+  if (!form.value.column_label.trim()) {
+    ElMessage.warning('字段名称必填')
     return
   }
-  if (newCol.value.is_computed && !newCol.value.formula_expr.trim()) {
+  if (dialogMode.value === 'create' && !form.value.column_code.trim()) {
+    ElMessage.warning('字段编码必填')
+    return
+  }
+  if (form.value.is_computed && !form.value.formula_expr.trim()) {
     ElMessage.warning('计算字段必须填写公式')
     return
   }
+
+  // 编辑时若改了数据类型，需确认（已有数据会尝试按新类型转换）
+  let confirmTypeChange = false
+  if (
+    dialogMode.value === 'edit' &&
+    editingId.value != null &&
+    originalDataTypeById.value[editingId.value] &&
+    originalDataTypeById.value[editingId.value] !== form.value.data_type
+  ) {
+    try {
+      await ElMessageBox.confirm(
+        '已修改该字段的数据类型。若列中已有数据，系统会尝试按新类型转换；转换失败会拒绝保存。是否继续？',
+        '确认修改字段类型',
+        { type: 'warning', confirmButtonText: '确认修改', cancelButtonText: '取消' }
+      )
+      confirmTypeChange = true
+    } catch {
+      return
+    }
+  }
+
+  submitting.value = true
   try {
-    await tableColumnsApi.create(currentTable.value, {
-      ...newCol.value,
-      scope_role: newCol.value.scope_role || null,
-      enum_options: newCol.value.data_type === 'enum' ? newCol.value.enum_options : null,
-      formula_expr: newCol.value.is_computed ? newCol.value.formula_expr : null,
-    })
-    ElMessage.success('已新增字段')
+    if (dialogMode.value === 'create') {
+      await tableColumnsApi.create(currentTable.value, buildPayload(form.value) as any)
+      ElMessage.success('已新增字段')
+    } else {
+      await tableColumnsApi.update(currentTable.value, editingId.value!, {
+        ...(buildPayload(form.value) as any),
+        confirm_type_change: confirmTypeChange,
+      })
+      ElMessage.success('已保存修改')
+    }
     dialogOpen.value = false
     loadColumns()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '新增失败')
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    submitting.value = false
   }
 }
 
@@ -285,36 +323,34 @@ onMounted(async () => {
     <el-card>
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">
-          <span style="font-size: 16px; font-weight: 600">字段管理</span>
+          <div style="display: flex; align-items: center; gap: 6px">
+            <span style="font-size: 16px; font-weight: 600">字段管理</span>
+            <!-- ④ 动态字段源数据说明：收进感叹号，hover 才显示 -->
+            <el-tooltip placement="bottom-start" :show-after="100">
+              <template #content>
+                <div style="max-width: 360px; line-height: 1.7">
+                  每张表的字段由系统从源端数据<strong>自动发现</strong>（拉取时如发现新字段会自动注册）。<br />
+                  管理员可在此修改字段名称、数据类型、是否参与业务主键、是否敏感、列表是否可见、显示顺序等。<br />
+                  <strong>修改业务主键会影响下次同步的去重逻辑，请谨慎操作。</strong>
+                </div>
+              </template>
+              <el-icon style="color: var(--color-text-secondary); cursor: help; font-size: 16px">
+                <InfoFilled />
+              </el-icon>
+            </el-tooltip>
+          </div>
           <div>
-            <PermissionButton menu="system.field_columns" op="C" type="default" @click="openCreate">
+            <PermissionButton menu="system.field_columns" op="C" type="primary" @click="openCreate">
               <el-icon style="margin-right: 4px"><Plus /></el-icon>新增字段
             </PermissionButton>
             <PermissionButton menu="system.field_columns" op="U" type="default" :loading="recomputing" @click="recomputeComputed">
               重算自动字段
             </PermissionButton>
-            <PermissionButton menu="system.field_columns" op="U" type="primary" :loading="saving" @click="saveAll">
-              保存所有修改
-            </PermissionButton>
           </div>
         </div>
       </template>
 
-      <el-alert
-        title="动态字段元数据"
-        type="info"
-        :closable="false"
-        show-icon
-        style="margin-bottom: 16px"
-      >
-        <p style="margin: 0; line-height: 1.6">
-          每张表的字段由系统从源端数据自动发现（拉取时如发现新字段会自动注册）。
-          管理员可以在此修改字段名称、数据类型、是否参与业务主键、是否敏感、列表是否可见、显示顺序等。
-          <strong>修改业务主键会影响下次同步的去重逻辑，请谨慎操作。</strong>
-        </p>
-      </el-alert>
-
-      <!-- 表选择器 -->
+      <!-- 表选择器 + 表级数据范围策略 -->
       <el-form inline style="margin-bottom: 16px">
         <el-form-item label="选择业务表">
           <el-select v-model="currentTable" style="width: 240px" :disabled="loading">
@@ -355,251 +391,175 @@ onMounted(async () => {
         </el-form-item>
       </el-form>
 
-      <!-- 字段列表 -->
-      <div style="overflow-x: auto">
-        <el-table v-loading="loading" :data="columns" stripe style="width: 100%" max-height="650">
-          <el-table-column label="序号" width="70" type="index" />
-          <el-table-column label="字段编码（源端）" min-width="200">
-            <template #default="{ row }">
+      <!-- ① 瘦身后的字段列表：只读展示关键列，编辑走弹窗 -->
+      <el-table v-loading="loading" :data="columns" stripe style="width: 100%" max-height="650">
+        <el-table-column label="序号" width="60" type="index" align="center" />
+
+        <el-table-column label="字段" min-width="240">
+          <template #default="{ row }">
+            <div style="display: flex; flex-direction: column; line-height: 1.4">
+              <div style="display: flex; align-items: center; gap: 6px">
+                <span style="font-weight: 500">{{ row.column_label }}</span>
+                <el-tag v-if="row.auto_discovered" size="small" effect="plain">自动</el-tag>
+                <el-tag v-else size="small" type="warning" effect="plain">手动</el-tag>
+              </div>
               <span style="font-family: monospace; font-size: 12px; color: var(--color-text-secondary)">
                 {{ row.column_code }}
               </span>
-              <el-tag v-if="row.auto_discovered" size="small" effect="plain" style="margin-left: 6px">自动</el-tag>
-              <el-tag v-else size="small" type="warning" effect="plain" style="margin-left: 6px">手动</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="字段名称" min-width="180">
-            <template #default="{ row }">
-              <el-input v-model="row.column_label" size="small" />
-            </template>
-          </el-table-column>
-          <el-table-column label="类型" width="140">
-            <template #default="{ row }">
-              <el-select v-model="row.data_type" size="small">
-                <el-option v-for="t in DATA_TYPES" :key="t.value" :label="t.label" :value="t.value" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column width="120">
-            <template #header>
-              <span>维度/度量</span>
-              <el-tooltip placement="top">
-                <template #content>
-                  <div style="max-width: 280px; line-height: 1.6">
-                    报表聚合时的角色：<br />
-                    • 维度：分组依据（GROUP BY），如月份、成本中心<br />
-                    • 度量：被汇总的数值，如金额、人数<br />
-                    系统按类型自动预标（数字→度量，其余→维度），可手动调整。
-                  </div>
-                </template>
-                <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
-                  <InfoFilled />
-                </el-icon>
-              </el-tooltip>
-            </template>
-            <template #default="{ row }">
-              <el-select v-model="row.agg_role" size="small" style="width: 100%">
-                <el-option v-for="r in AGG_ROLES" :key="r.value" :label="r.label" :value="r.value" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column min-width="280">
-            <template #header>
-              <span>计算公式</span>
-              <el-tooltip placement="top">
-                <template #content>
-                  <div style="max-width: 280px; line-height: 1.6">
-                    用本表已有字段做四则运算生成新列。字段用 [字段编码] 引用，<br />
-                    支持 + - * / ( ) 和数字常数，遵循四则优先级。<br />
-                    例：[应发工资] + [社保] - 5000<br />
-                    仅手工字段可设；改完点上方「重算计算字段」立即回填。
-                  </div>
-                </template>
-                <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
-                  <InfoFilled />
-                </el-icon>
-              </el-tooltip>
-            </template>
-            <template #default="{ row }">
-              <div style="display: flex; align-items: center; gap: 6px">
-                <el-switch
-                  v-model="row.is_computed"
-                  size="small"
-                  :disabled="row.auto_discovered"
-                  inline-prompt
-                  active-text="算"
-                  inactive-text="否"
-                />
-                <template v-if="row.is_computed">
-                  <el-input
-                    v-model="row.formula_expr"
-                    size="small"
-                    placeholder="[字段编码] + ..."
-                    style="flex: 1"
-                  />
-                  <el-select
-                    :model-value="''"
-                    size="small"
-                    placeholder="插入字段"
-                    style="width: 110px"
-                    @change="(code: string) => insertRef(row, code)"
-                  >
-                    <el-option
-                      v-for="c in refOptions(row)"
-                      :key="c.column_code"
-                      :label="c.column_label"
-                      :value="c.column_code"
-                    />
-                  </el-select>
-                </template>
-                <span v-else style="color: var(--color-text-placeholder); font-size: 12px">—</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="可选项（值列表）" min-width="200">
-            <template #default="{ row }">
-              <el-select
-                v-if="row.data_type === 'enum'"
-                v-model="row.enum_options"
-                size="small"
-                multiple
-                filterable
-                allow-create
-                default-first-option
-                :reserve-keyword="false"
-                placeholder="输入选项后回车，第一项为默认值"
-                style="width: 100%"
-              />
-              <span v-else style="color: var(--color-text-placeholder); font-size: 12px">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="业务主键" width="80" align="center">
-            <template #default="{ row }">
-              <el-switch v-model="row.is_pk_part" />
-            </template>
-          </el-table-column>
-          <el-table-column label="敏感" width="70" align="center">
-            <template #default="{ row }">
-              <el-switch v-model="row.is_sensitive" />
-            </template>
-          </el-table-column>
-          <el-table-column label="显示" width="70" align="center">
-            <template #default="{ row }">
-              <el-switch v-model="row.is_visible" />
-            </template>
-          </el-table-column>
-          <el-table-column width="110" align="center">
-            <template #header>
-              <span>复制上月</span>
-              <el-tooltip placement="top">
-                <template #content>
-                  <div style="max-width: 260px; line-height: 1.6">
-                    新月份同步时，从上月同业务键的行带入该字段值（只填空、不覆盖）。<br />
-                    仅手工字段可用；接口字段每次同步由源端覆盖，不支持复制。
-                  </div>
-                </template>
-                <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
-                  <InfoFilled />
-                </el-icon>
-              </el-tooltip>
-            </template>
-            <template #default="{ row }">
-              <el-switch v-model="row.copy_from_last_month" :disabled="row.auto_discovered" />
-            </template>
-          </el-table-column>
-          <el-table-column label="权限角色" width="180">
-            <template #header>
-              <span>权限角色</span>
-              <el-tooltip placement="top">
-                <template #content>
-                  <div style="max-width: 280px; line-height: 1.6">
-                    标记该字段在数据范围权限中扮演的角色，例如：<br />
-                    • cc_code：成本中心编码列<br />
-                    • org_node_code：组织节点编码列<br />
-                    • employment_type / entity / person：人员筛选用<br />
-                    未设置 → 该列不参与权限过滤
-                  </div>
-                </template>
-                <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
-                  <InfoFilled />
-                </el-icon>
-              </el-tooltip>
-            </template>
-            <template #default="{ row }">
-              <el-select
-                v-model="row.scope_role"
-                size="small"
-                clearable
-                placeholder="未设置"
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="r in SCOPE_ROLES.filter((x) => x.value)"
-                  :key="r.value"
-                  :label="r.label"
-                  :value="r.value"
-                />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="排序" width="80">
-            <template #default="{ row }">
-              <el-input-number v-model="row.display_order" :min="0" :max="9999" size="small" controls-position="right" style="width: 80px" />
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="200" fixed="right">
-            <template #default="{ row, $index }">
-              <el-button link size="small" :disabled="$index === 0" @click="move(row, -1)">
-                <el-icon><Top /></el-icon>
-              </el-button>
-              <el-button link size="small" :disabled="$index === columns.length - 1" @click="move(row, 1)">
-                <el-icon><Bottom /></el-icon>
-              </el-button>
-              <PermissionButton menu="system.field_columns" op="D" link size="small" type="danger" @click="removeColumn(row)">
-                删除
-              </PermissionButton>
-            </template>
-          </el-table-column>
-          <template #empty>
-            <div style="padding: 32px 0; color: var(--color-text-placeholder); font-size: 13px">
-              <template v-if="currentTable">
-                该表尚未发现任何字段 · 先到接口配置页配置数据源并执行「立即拉取」，字段会自动注册
-              </template>
-              <template v-else>
-                请先选择业务表
-              </template>
             </div>
           </template>
-        </el-table>
-      </div>
+        </el-table-column>
+
+        <el-table-column label="类型" width="90" align="center">
+          <template #default="{ row }">{{ typeLabel(row.data_type) }}</template>
+        </el-table-column>
+
+        <el-table-column width="100" align="center">
+          <template #header>
+            <span>维度/度量</span>
+            <el-tooltip placement="top">
+              <template #content>
+                <div style="max-width: 280px; line-height: 1.6">
+                  报表聚合时的角色：<br />
+                  • 维度：分组依据（GROUP BY），如月份、成本中心<br />
+                  • 度量：被汇总的数值，如金额、人数
+                </div>
+              </template>
+              <el-icon style="margin-left: 4px; vertical-align: middle; cursor: help">
+                <InfoFilled />
+              </el-icon>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.agg_role === 'measure' ? 'success' : 'info'" effect="plain">
+              {{ aggLabel(row.agg_role) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <!-- 属性标记：开关状态 / 公式 / 可选项 / 权限角色，全部只读用 tag 展示 -->
+        <el-table-column label="属性" min-width="260">
+          <template #default="{ row }">
+            <div style="display: flex; flex-wrap: wrap; gap: 4px">
+              <el-tag v-if="row.is_pk_part" size="small" type="danger" effect="plain">主键</el-tag>
+              <el-tag v-if="row.is_sensitive" size="small" type="warning" effect="plain">敏感</el-tag>
+              <el-tag v-if="!row.is_visible" size="small" type="info" effect="plain">列表隐藏</el-tag>
+              <el-tag v-if="row.copy_from_last_month" size="small" effect="plain">复制上月</el-tag>
+
+              <!-- ② 计算公式：tag + hover 看表达式 -->
+              <el-tooltip v-if="row.is_computed" placement="top">
+                <template #content>
+                  <div style="max-width: 320px; word-break: break-all">{{ row.formula_expr || '（未填公式）' }}</div>
+                </template>
+                <el-tag size="small" type="success">公式</el-tag>
+              </el-tooltip>
+
+              <!-- ③ 可选项：tag·N + hover 看全部 -->
+              <el-tooltip v-if="row.data_type === 'enum'" placement="top">
+                <template #content>
+                  <div style="max-width: 320px; line-height: 1.6">
+                    <template v-if="row.enum_options?.length">
+                      <span v-for="(opt, i) in row.enum_options" :key="opt">
+                        {{ opt }}<el-tag v-if="i === 0" size="small" style="margin: 0 4px">默认</el-tag>
+                        <br />
+                      </span>
+                    </template>
+                    <span v-else>（暂无可选项）</span>
+                  </div>
+                </template>
+                <el-tag size="small">值列表 · {{ row.enum_options?.length || 0 }}</el-tag>
+              </el-tooltip>
+
+              <el-tag v-if="row.scope_role" size="small" type="primary" effect="plain">
+                权限：{{ scopeRoleLabel(row.scope_role) }}
+              </el-tag>
+
+              <span
+                v-if="!row.is_pk_part && !row.is_sensitive && row.is_visible && !row.copy_from_last_month && !row.is_computed && row.data_type !== 'enum' && !row.scope_role"
+                style="color: var(--color-text-placeholder); font-size: 12px"
+              >—</span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="排序" width="120" align="center">
+          <template #default="{ row, $index }">
+            <span style="margin-right: 6px">{{ row.display_order }}</span>
+            <el-button link size="small" :disabled="$index === 0" @click="move(row, -1)">
+              <el-icon><Top /></el-icon>
+            </el-button>
+            <el-button link size="small" :disabled="$index === columns.length - 1" @click="move(row, 1)">
+              <el-icon><Bottom /></el-icon>
+            </el-button>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="操作" width="120" fixed="right" align="center">
+          <template #default="{ row }">
+            <PermissionButton menu="system.field_columns" op="U" link size="small" type="primary" @click="openEdit(row)">
+              <el-icon style="margin-right: 2px"><EditPen /></el-icon>编辑
+            </PermissionButton>
+            <PermissionButton menu="system.field_columns" op="D" link size="small" type="danger" @click="removeColumn(row)">
+              删除
+            </PermissionButton>
+          </template>
+        </el-table-column>
+
+        <template #empty>
+          <div style="padding: 32px 0; color: var(--color-text-placeholder); font-size: 13px">
+            <template v-if="currentTable">
+              该表尚未发现任何字段 · 先到接口配置页配置数据源并执行「立即拉取」，字段会自动注册
+            </template>
+            <template v-else>
+              请先选择业务表
+            </template>
+          </div>
+        </template>
+      </el-table>
     </el-card>
 
-    <!-- 新增字段对话框 -->
-    <el-dialog v-model="dialogOpen" title="新增字段" width="520px">
+    <!-- 新增 / 编辑字段对话框 -->
+    <el-dialog
+      v-model="dialogOpen"
+      :title="dialogMode === 'create' ? '新增字段' : '编辑字段'"
+      width="560px"
+      top="6vh"
+    >
       <el-form label-position="top">
         <el-form-item label="字段名称" required>
-          <el-input v-model="newCol.column_label" placeholder="展示给用户看的中文名" />
+          <el-input v-model="form.column_label" placeholder="展示给用户看的中文名" />
         </el-form-item>
+
         <el-form-item label="字段编码（源端）" required>
           <SmartCodeInput
-            v-model="newCol.column_code"
-            :label="newCol.column_label"
+            v-if="dialogMode === 'create'"
+            v-model="form.column_code"
+            :label="form.column_label"
             scope="table_column"
             :existing-codes="existingColumnCodes"
             :editable="true"
           />
-          <div style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">
+          <template v-else>
+            <el-input v-model="form.column_code" disabled />
+            <div style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">
+              字段编码与源端 key 绑定，创建后不可修改
+            </div>
+          </template>
+          <div v-if="dialogMode === 'create'" style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">
             按名称自动生成规范编码，可手动调整。手动新增字段后，源端数据中如果存在同名 key 也会被同步进来
           </div>
         </el-form-item>
+
         <el-form-item label="数据类型">
-          <el-select v-model="newCol.data_type" style="width: 100%">
+          <el-select v-model="form.data_type" style="width: 100%">
             <el-option v-for="t in DATA_TYPES" :key="t.value" :label="t.label" :value="t.value" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="newCol.data_type === 'enum'" label="可选项（第一项为默认值）">
+
+        <!-- ③ 可选项优化：放进编辑弹窗 + 已选项预览（标默认值） -->
+        <el-form-item v-if="form.data_type === 'enum'" label="可选项">
           <el-select
-            v-model="newCol.enum_options"
+            v-model="form.enum_options"
             multiple
             filterable
             allow-create
@@ -608,21 +568,49 @@ onMounted(async () => {
             placeholder="输入一个选项后回车，如：启用 / 停用"
             style="width: 100%"
           />
+          <div
+            v-if="form.enum_options.length"
+            style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center"
+          >
+            <span style="font-size: 12px; color: var(--color-text-placeholder)">预览：</span>
+            <el-tag
+              v-for="(opt, i) in form.enum_options"
+              :key="opt"
+              size="small"
+              :type="i === 0 ? 'primary' : 'info'"
+              :effect="i === 0 ? 'dark' : 'plain'"
+            >
+              {{ opt }}<template v-if="i === 0"> · 默认</template>
+            </el-tag>
+          </div>
+          <div style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">
+            第一项为默认值；拖动顺序请重新输入。回车确认每一项
+          </div>
         </el-form-item>
+
         <el-form-item label="维度/度量">
-          <el-select v-model="newCol.agg_role" style="width: 100%">
-            <el-option v-for="r in AGG_ROLES" :key="r.value" :label="r.label" :value="r.value" />
-          </el-select>
+          <el-radio-group v-model="form.agg_role">
+            <el-radio-button v-for="r in AGG_ROLES" :key="r.value" :value="r.value">{{ r.label }}</el-radio-button>
+          </el-radio-group>
           <div style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">
             维度=报表分组依据；度量=被汇总的数值列
           </div>
         </el-form-item>
+
+        <!-- ② 计算公式：从表格搬进字段编辑 -->
         <el-form-item label="计算字段">
-          <el-switch v-model="newCol.is_computed" active-text="用已有字段做四则运算" />
+          <el-switch
+            v-model="form.is_computed"
+            :disabled="form.auto_discovered"
+            active-text="用本表已有字段做四则运算"
+          />
+          <div v-if="form.auto_discovered" style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">
+            接口自动发现的字段由源端供值，不支持设为计算字段
+          </div>
         </el-form-item>
-        <el-form-item v-if="newCol.is_computed" label="公式">
+        <el-form-item v-if="form.is_computed" label="公式">
           <el-input
-            v-model="newCol.formula_expr"
+            v-model="form.formula_expr"
             type="textarea"
             :rows="2"
             placeholder="如：[应发工资] + [社保] - 5000"
@@ -630,26 +618,28 @@ onMounted(async () => {
           <div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center">
             <span style="font-size: 12px; color: var(--color-text-placeholder)">插入字段：</span>
             <el-tag
-              v-for="c in columns"
+              v-for="c in refOptions"
               :key="c.column_code"
               size="small"
               effect="plain"
               style="cursor: pointer"
-              @click="newCol.formula_expr += `[${c.column_code}]`"
+              @click="insertRef(c.column_code)"
             >{{ c.column_label }}</el-tag>
           </div>
           <div style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">
-            字段用 [字段编码] 引用，支持 + - * / ( ) 与数字常数，遵循四则优先级
+            字段用 [字段编码] 引用，支持 + - * / ( ) 与数字常数，遵循四则优先级。保存后到上方点「重算自动字段」立即回填
           </div>
         </el-form-item>
-        <el-form-item>
-          <el-checkbox v-model="newCol.is_pk_part">参与业务主键</el-checkbox>
-          <el-checkbox v-model="newCol.is_sensitive">敏感字段</el-checkbox>
-          <el-checkbox v-model="newCol.is_visible">列表展示</el-checkbox>
-          <el-checkbox v-model="newCol.copy_from_last_month">复制上月</el-checkbox>
+
+        <el-form-item label="字段属性">
+          <el-checkbox v-model="form.is_pk_part">参与业务主键</el-checkbox>
+          <el-checkbox v-model="form.is_sensitive">敏感字段</el-checkbox>
+          <el-checkbox v-model="form.is_visible">列表展示</el-checkbox>
+          <el-checkbox v-model="form.copy_from_last_month" :disabled="form.auto_discovered">复制上月</el-checkbox>
         </el-form-item>
+
         <el-form-item label="权限角色">
-          <el-select v-model="newCol.scope_role" clearable style="width: 100%" placeholder="不参与权限过滤">
+          <el-select v-model="form.scope_role" clearable style="width: 100%" placeholder="不参与权限过滤">
             <el-option
               v-for="r in SCOPE_ROLES.filter((x) => x.value)"
               :key="r.value"
@@ -658,13 +648,20 @@ onMounted(async () => {
             />
           </el-select>
         </el-form-item>
+
+        <el-form-item label="显示顺序">
+          <el-input-number v-model="form.display_order" :min="0" :max="9999" controls-position="right" />
+        </el-form-item>
+
         <el-form-item label="描述">
-          <el-input v-model="newCol.description" type="textarea" :rows="2" />
+          <el-input v-model="form.description" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogOpen = false">取消</el-button>
-        <el-button type="primary" @click="createColumn">创建</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">
+          {{ dialogMode === 'create' ? '创建' : '保存' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
