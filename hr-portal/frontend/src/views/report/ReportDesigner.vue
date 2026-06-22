@@ -7,10 +7,11 @@ import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vu
 import ReportBasicInfo from '@/components/report/ReportBasicInfo.vue'
 import ReportFieldWorkbench from '@/components/report/ReportFieldWorkbench.vue'
 import ReportFilterList from '@/components/report/ReportFilterList.vue'
+import ReportListLookupConfig from '@/components/report/ReportListLookupConfig.vue'
 import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import AclEditor from '@/components/AclEditor.vue'
-import { reportsApi, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
+import { reportsApi, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ListLookupConfig, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 import { useTableOptions } from '@/composables/useTableOptions'
@@ -66,6 +67,12 @@ const form = reactive({
       conflict_strategy: 'first',
     },
   },
+  list_lookup: {
+    enabled: false,
+    operator: 'union',
+    lookup: { target_field: '' },
+    sources: [],
+  } as ListLookupConfig,
   rounding_corrections: [] as { group_by: string; target_cols: string[] }[],
   acl: [] as { id?: number; role_id: number | null; user_id: number | null }[],
 })
@@ -184,6 +191,19 @@ async function loadReport() {
         conflict_strategy: tp?.row_to_column?.conflict_strategy || 'first',
       },
     }
+    form.list_lookup = {
+      enabled: !!r.config.list_lookup?.enabled,
+      operator: r.config.list_lookup?.operator || 'union',
+      lookup: {
+        target_field: r.config.list_lookup?.lookup?.target_field || '',
+      },
+      sources: (r.config.list_lookup?.sources || []).map((source) => ({
+        ...source,
+        filters: (source.filters || []).map((f) => ({ ...f })),
+        filter_logic: source.filter_logic || null,
+        resolver: source.resolver ? { ...source.resolver } : undefined,
+      })),
+    }
     form.rounding_corrections = (r.config.rounding_corrections ?? []).map((rc: any) => ({
       group_by: Array.isArray(rc.group_by) ? rc.group_by[0] ?? '' : rc.group_by ?? '',
       target_cols: [...(rc.target_cols ?? [])],
@@ -232,6 +252,12 @@ function resetForm() {
       fill_value: '--',
       conflict_strategy: 'first',
     },
+  }
+  form.list_lookup = {
+    enabled: false,
+    operator: 'union',
+    lookup: { target_field: '' },
+    sources: [],
   }
   form.rounding_corrections = []
   filterRef.value?.clearCache()
@@ -367,6 +393,42 @@ function buildPayload() {
           fill_value: r2c.fill_value ?? '--',
           conflict_strategy: (r2c.conflict_strategy || 'first') as Exclude<ReshapeConflictStrategy, 'keep_all'>,
         },
+      },
+      list_lookup: {
+        enabled: !!form.list_lookup.enabled,
+        operator: form.list_lookup.operator || 'union',
+        lookup: {
+          target_field: form.list_lookup.lookup?.target_field || '',
+        },
+        sources: (form.list_lookup.sources || [])
+          .filter((source) => {
+            if (source.type === 'field_values') return !!source.source_field
+            return !!source.return_field
+          })
+          .map((source) => ({
+            ...source,
+            filters: (source.filters || [])
+              .filter((f) => f.column)
+              .map((f) => {
+                const op = f.op
+                let value: any = f.value
+                if (op === 'is_null' || op === 'is_not_null') value = null
+                else if ((op === 'between' || op === 'in') && typeof value === 'string') {
+                  value = value.split(',').map((s: string) => s.trim()).filter(Boolean)
+                }
+                return { column: f.column, op, value }
+              }),
+            filter_logic: source.filter_logic?.mode === 'custom' && source.filter_logic.expression?.trim()
+              ? ({ mode: 'custom', expression: source.filter_logic.expression.trim() } as FilterLogic)
+              : null,
+            resolver: source.type === 'field_values'
+              ? {
+                  enabled: source.resolver?.enabled !== false,
+                  match_field: source.resolver?.match_field || '',
+                  return_field: source.resolver?.return_field || '',
+                }
+              : undefined,
+          })),
       },
       rounding_corrections: form.aggregate && form.rounding_group_by.length && selectedMeasureCodes.length
         ? [{ group_by: [...form.rounding_group_by], target_cols: selectedMeasureCodes }]
@@ -557,6 +619,12 @@ watch(
             conflict_strategy: 'first',
           },
         },
+        list_lookup: {
+          enabled: false,
+          operator: 'union',
+          lookup: { target_field: '' },
+          sources: [],
+        },
         rounding_corrections: [],
       })
       previewItems.value = []
@@ -660,6 +728,14 @@ watch(
                   :selected-dimensions="selectedDimensions"
                   :selected-measures="selectedMeasures"
                   :selected-columns="selectedColsDetail"
+                />
+              </template>
+
+              <template #lookup>
+                <ReportListLookupConfig
+                  v-model:list-lookup="form.list_lookup"
+                  :all-columns="allColumns"
+                  :current-dataset-tables="currentDataset?.tables"
                 />
               </template>
             </ReportFieldWorkbench>

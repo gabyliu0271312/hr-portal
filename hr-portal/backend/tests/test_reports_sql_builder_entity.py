@@ -543,3 +543,167 @@ async def test_report_scope_filter_skips_alias_that_cannot_resolve_explicit_stra
     finally:
         restore_table(roster_table, old_roster)
         restore_table(allocation_table, old_allocation)
+
+
+async def test_report_list_lookup_union_resolves_name_values_to_employee_no():
+    table_name = "report_entity_list_lookup_union"
+    model = make_entity_model(
+        table_name,
+        [
+            Column("employee_no", String),
+            Column("full_name", String),
+            Column("direct_supervisor", String),
+            Column("management_level", String),
+        ],
+    )
+    old = register_table(table_name, model)
+    ds = DataSet(id=10, name="list lookup")
+    table = DataSetTable(dataset_id=10, table_name=table_name, alias="r")
+    columns = [
+        make_column(table_name, "employee_no", column_label="工号"),
+        make_column(table_name, "full_name", column_label="姓名"),
+        make_column(table_name, "direct_supervisor", column_label="直接上级"),
+        make_column(table_name, "management_level", column_label="管理职级"),
+    ]
+    db = FakeSession(
+        get_map={(DataSet, 10): ds},
+        results=[
+            *dataset_rows(10, [table]),
+            FakeResult(rows=columns),
+            FakeResult(rows=[]),
+            FakeResult(value=1),
+            FakeResult(rows=[FakeRow(__r__id=1, __r__employee_no="M001", __r__full_name="张三")]),
+        ],
+    )
+
+    try:
+        _cols, items, total = await sql_builder.run_dataset_query(
+            dataset_id=10,
+            columns=["r.employee_no", "r.full_name"],
+            filters=[],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[],
+            aggregate=False,
+            aggregations={},
+            transpose={},
+            rounding_corrections=[],
+            list_lookup={
+                "enabled": True,
+                "operator": "union",
+                "lookup": {"target_field": "r.employee_no"},
+                "sources": [
+                    {
+                        "type": "field_values",
+                        "source_field": "r.direct_supervisor",
+                        "resolver": {
+                            "match_field": "r.full_name",
+                            "return_field": "r.employee_no",
+                        },
+                    },
+                    {
+                        "type": "filtered_rows",
+                        "return_field": "r.employee_no",
+                        "filters": [
+                            {"column": "r.management_level", "op": "is_not_null"},
+                        ],
+                    },
+                ],
+            },
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+        )
+    finally:
+        restore_table(table_name, old)
+
+    assert total == 1
+    assert items == [{"r.employee_no": "M001", "r.full_name": "张三"}]
+    sql = "\n".join(str(statement) for statement, _ in db.executed).lower()
+    assert " union " in sql
+    assert "lls_0_r.direct_supervisor" in sql
+    assert "llr_0_r.full_name" in sql
+    assert "llr_0_r.employee_no" in sql
+    assert "management_level" in sql
+    assert_no_raw_sql(db)
+
+
+@pytest.mark.parametrize(
+    ("operator", "expected_sql"),
+    [
+        ("intersect", " intersect "),
+        ("except", " except "),
+    ],
+)
+async def test_report_list_lookup_supports_intersect_and_except(operator, expected_sql):
+    table_name = f"report_entity_list_lookup_{operator}"
+    model = make_entity_model(
+        table_name,
+        [
+            Column("employee_no", String),
+            Column("direct_supervisor_no", String),
+            Column("management_level", String),
+        ],
+    )
+    old = register_table(table_name, model)
+    ds = DataSet(id=11, name=operator)
+    table = DataSetTable(dataset_id=11, table_name=table_name, alias="r")
+    columns = [
+        make_column(table_name, "employee_no"),
+        make_column(table_name, "direct_supervisor_no"),
+        make_column(table_name, "management_level"),
+    ]
+    db = FakeSession(
+        get_map={(DataSet, 11): ds},
+        results=[
+            *dataset_rows(11, [table]),
+            FakeResult(rows=columns),
+            FakeResult(rows=[]),
+            FakeResult(value=0),
+            FakeResult(rows=[]),
+        ],
+    )
+
+    try:
+        _cols, _items, _total = await sql_builder.run_dataset_query(
+            dataset_id=11,
+            columns=["r.employee_no"],
+            filters=[],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[],
+            aggregate=False,
+            aggregations={},
+            transpose={},
+            rounding_corrections=[],
+            list_lookup={
+                "enabled": True,
+                "operator": operator,
+                "lookup": {"target_field": "r.employee_no"},
+                "sources": [
+                    {
+                        "type": "field_values",
+                        "source_field": "r.direct_supervisor_no",
+                        "resolver": {"enabled": False},
+                    },
+                    {
+                        "type": "filtered_rows",
+                        "return_field": "r.employee_no",
+                        "filters": [
+                            {"column": "r.management_level", "op": "is_not_null"},
+                        ],
+                    },
+                ],
+            },
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+        )
+    finally:
+        restore_table(table_name, old)
+
+    sql = "\n".join(str(statement) for statement, _ in db.executed).lower()
+    assert expected_sql in sql
+    assert_no_raw_sql(db)

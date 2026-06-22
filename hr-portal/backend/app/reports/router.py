@@ -47,6 +47,7 @@ class ReportConfig(BaseModel):
     transpose: dict = Field(default_factory=dict)
     rounding_corrections: list[dict] = Field(default_factory=list)
     filter_logic: dict | None = None
+    list_lookup: dict = Field(default_factory=dict)
 
 
 class ReportAclIn(BaseModel):
@@ -463,6 +464,7 @@ async def run_report(
         aggregations=cfg.aggregations,
         transpose=cfg.transpose,
         rounding_corrections=cfg.rounding_corrections,
+        list_lookup=cfg.list_lookup,
         page=page,
         page_size=page_size,
         user=user,
@@ -502,6 +504,7 @@ async def _collect_export_rows(
         aggregations=cfg.aggregations,
         transpose=cfg.transpose,
         rounding_corrections=cfg.rounding_corrections,
+        list_lookup=cfg.list_lookup,
         page=1,
         page_size=0,
         user=user,

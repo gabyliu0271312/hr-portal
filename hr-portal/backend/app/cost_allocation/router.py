@@ -148,6 +148,7 @@ async def archive_cost_allocation(
         aggregations=cfg.aggregations,
         transpose=cfg.transpose,
         rounding_corrections=cfg.rounding_corrections,
+        list_lookup=cfg.list_lookup,
         page=1,
         page_size=0,
         user=user,

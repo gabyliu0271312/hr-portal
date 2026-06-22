@@ -70,7 +70,7 @@ const numericAllCols = computed(() =>
 const draggingCode = ref('')
 const collapsedSourceKeys = ref<Set<string>>(new Set())
 const advancedOpen = ref(false)
-const advancedTab = ref<'rules' | 'reshape'>('rules')
+const advancedTab = ref<'rules' | 'reshape' | 'lookup'>('rules')
 
 function sourceKey(code: string) {
   if (code.startsWith('calc.')) return 'calc'
@@ -263,7 +263,7 @@ function clearFieldSort(code: string) {
   emit('update:sorts', (props.sorts || []).filter((item) => item.column !== code))
 }
 
-function openAdvanced(tab: 'rules' | 'reshape') {
+function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
   advancedTab.value = tab
   advancedOpen.value = true
 }
@@ -345,6 +345,7 @@ function openAdvanced(tab: 'rules' | 'reshape') {
             <el-tag size="small" effect="plain">{{ aggregate ? '汇总表' : '明细表' }}</el-tag>
             <el-button size="small" plain @click="openAdvanced('rules')">统计规则</el-button>
             <el-button v-if="$slots.reshape" size="small" plain @click="openAdvanced('reshape')">数据重塑</el-button>
+            <el-button v-if="$slots.lookup" size="small" plain @click="openAdvanced('lookup')">名单回查</el-button>
           </span>
         </div>
 
@@ -617,6 +618,9 @@ function openAdvanced(tab: 'rules' | 'reshape') {
         </el-tab-pane>
         <el-tab-pane v-if="$slots.reshape" label="数据重塑" name="reshape">
           <slot name="reshape" />
+        </el-tab-pane>
+        <el-tab-pane v-if="$slots.lookup" label="名单回查" name="lookup">
+          <slot name="lookup" />
         </el-tab-pane>
       </el-tabs>
     </el-drawer>

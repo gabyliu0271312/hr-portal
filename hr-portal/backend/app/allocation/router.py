@@ -342,6 +342,7 @@ async def run_scheme(
             aggregations=merged_cfg.aggregations,
             transpose=merged_cfg.transpose,
             rounding_corrections=merged_cfg.rounding_corrections,
+            list_lookup=merged_cfg.list_lookup,
             page=1,
             page_size=0,
             user=user,

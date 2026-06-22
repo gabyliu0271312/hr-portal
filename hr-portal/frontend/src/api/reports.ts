@@ -78,6 +78,35 @@ export interface TransposeConfig {
   row_to_column?: RowToColumnConfig
 }
 
+export type ListLookupOperator = 'union' | 'intersect' | 'except'
+export type ListLookupSourceType = 'field_values' | 'filtered_rows'
+
+export interface ListLookupResolver {
+  enabled?: boolean
+  match_field?: string
+  return_field?: string
+}
+
+export interface ListLookupSource {
+  id?: string
+  name?: string
+  type: ListLookupSourceType
+  source_field?: string
+  return_field?: string
+  resolver?: ListLookupResolver
+  filters?: FilterCond[]
+  filter_logic?: FilterLogic | null
+}
+
+export interface ListLookupConfig {
+  enabled: boolean
+  operator: ListLookupOperator
+  sources: ListLookupSource[]
+  lookup: {
+    target_field: string
+  }
+}
+
 export interface ReportConfig {
   columns: string[]
   filters: FilterCond[]
@@ -91,6 +120,7 @@ export interface ReportConfig {
   transpose?: TransposeConfig
   rounding_corrections?: { group_by: string | string[]; target_cols?: string[] }[]
   filter_logic?: FilterLogic | null
+  list_lookup?: ListLookupConfig
 }
 
 export interface ReportAclItem {

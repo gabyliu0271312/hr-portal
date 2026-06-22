@@ -23,7 +23,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, desc, func, inspect, or_, select, true
+from sqlalchemy import and_, desc, except_, func, inspect, intersect, or_, select, true, union
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement, cast
 from sqlalchemy.types import String as SAString
@@ -700,6 +700,191 @@ def _project_output_items(
     return [{code: row.get(code) for code in output_codes} for row in items]
 
 
+def _qualified_column_expr(
+    qualified: str,
+    *,
+    aliased_models: dict[str, Any],
+) -> ColumnElement:
+    if not qualified or "." not in qualified:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"名单回查字段必须形如 alias.column，收到: {qualified}",
+        )
+    alias, code = _split_qualified(qualified)
+    model = aliased_models.get(alias)
+    if model is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"未知数据集别名: {alias}")
+    return _entity_column(model, code)
+
+
+def _filter_clause_for_aliases(
+    filter_item: dict[str, Any],
+    *,
+    aliased_models: dict[str, Any],
+    columns_by_alias: dict[str, dict[str, TableColumn]],
+) -> ColumnElement | None:
+    col_qual = filter_item.get("column", "")
+    if str(col_qual).startswith("calc.") or "." not in str(col_qual):
+        return None
+    alias, code = _split_qualified(str(col_qual))
+    model = aliased_models.get(alias)
+    if model is None:
+        return None
+    col = columns_by_alias.get(alias, {}).get(code)
+    data_type = col.data_type if col is not None else "string"
+    return _filter_clause(
+        _entity_column(model, code),
+        data_type,
+        (filter_item.get("op") or "eq").lower(),
+        filter_item.get("value"),
+    )
+
+
+def _source_key_select(
+    source: dict[str, Any],
+    *,
+    alias_to_model: dict[str, Any],
+    columns_by_alias: dict[str, dict[str, TableColumn]],
+    index: int,
+) -> Any | None:
+    from sqlalchemy.orm import aliased
+
+    source_models = {
+        alias: aliased(model, name=f"lls_{index}_{alias}")
+        for alias, model in alias_to_model.items()
+    }
+    source_type = source.get("type") or "filtered_rows"
+    if source_type == "field_values":
+        source_field = source.get("source_field")
+        if not source_field:
+            return None
+        value_expr = _qualified_column_expr(str(source_field), aliased_models=source_models)
+        resolver = source.get("resolver") or {}
+        if resolver.get("enabled", True) and resolver.get("match_field") and resolver.get("return_field"):
+            resolver_models = {
+                alias: aliased(model, name=f"llr_{index}_{alias}")
+                for alias, model in alias_to_model.items()
+            }
+            match_expr = _qualified_column_expr(
+                str(resolver["match_field"]),
+                aliased_models=resolver_models,
+            )
+            return_expr = _qualified_column_expr(
+                str(resolver["return_field"]),
+                aliased_models=resolver_models,
+            )
+            stmt = select(return_expr.label("lookup_key")).where(
+                and_(value_expr.isnot(None), value_expr != "", match_expr == value_expr)
+            )
+        else:
+            stmt = select(value_expr.label("lookup_key")).where(
+                and_(value_expr.isnot(None), value_expr != "")
+            )
+        clause = build_filter_clause(
+            source.get("filters") or [],
+            lambda item: _filter_clause_for_aliases(
+                item,
+                aliased_models=source_models,
+                columns_by_alias=columns_by_alias,
+            ),
+            source.get("filter_logic"),
+        )
+        if clause is not None:
+            stmt = stmt.where(clause)
+        return stmt.distinct()
+
+    if source_type != "filtered_rows":
+        return None
+    return_field = source.get("return_field")
+    if not return_field:
+        return None
+    return_expr = _qualified_column_expr(str(return_field), aliased_models=source_models)
+    stmt = select(return_expr.label("lookup_key")).where(
+        and_(return_expr.isnot(None), return_expr != "")
+    )
+    clause = build_filter_clause(
+        source.get("filters") or [],
+        lambda item: _filter_clause_for_aliases(
+            item,
+            aliased_models=source_models,
+            columns_by_alias=columns_by_alias,
+        ),
+        source.get("filter_logic"),
+    )
+    if clause is not None:
+        stmt = stmt.where(clause)
+    return stmt.distinct()
+
+
+def _build_list_lookup_clause(
+    list_lookup: dict[str, Any] | None,
+    *,
+    alias_to_model: dict[str, Any],
+    aliased_models: dict[str, Any],
+    columns_by_alias: dict[str, dict[str, TableColumn]],
+) -> ColumnElement | None:
+    config = list_lookup or {}
+    if not config.get("enabled"):
+        return None
+    lookup = config.get("lookup") or {}
+    target_field = lookup.get("target_field") or config.get("target_field")
+    if not target_field:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="名单回查需要配置回查目标字段")
+    target_expr = _qualified_column_expr(str(target_field), aliased_models=aliased_models)
+    source_selects = [
+        stmt
+        for index, source in enumerate(config.get("sources") or [])
+        if isinstance(source, dict)
+        for stmt in [_source_key_select(
+            source,
+            alias_to_model=alias_to_model,
+            columns_by_alias=columns_by_alias,
+            index=index,
+        )]
+        if stmt is not None
+    ]
+    if not source_selects:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="名单回查至少需要一个名单来源")
+
+    operator = (config.get("operator") or "union").lower()
+    if operator == "intersect":
+        set_query = intersect(*source_selects)
+    elif operator == "except":
+        if len(source_selects) == 1:
+            set_query = source_selects[0]
+        else:
+            set_query = except_(source_selects[0], *source_selects[1:])
+    else:
+        set_query = union(*source_selects)
+    return target_expr.in_(set_query)
+
+
+def _list_lookup_refs(list_lookup: dict[str, Any] | None) -> list[str]:
+    config = list_lookup or {}
+    if not config.get("enabled"):
+        return []
+    refs: list[str] = []
+    lookup = config.get("lookup") or {}
+    for value in (lookup.get("target_field"), config.get("target_field")):
+        if isinstance(value, str) and value:
+            refs.append(value)
+    for source in config.get("sources") or []:
+        if not isinstance(source, dict):
+            continue
+        for value in (source.get("source_field"), source.get("return_field")):
+            if isinstance(value, str) and value:
+                refs.append(value)
+        resolver = source.get("resolver") or {}
+        for value in (resolver.get("match_field"), resolver.get("return_field")):
+            if isinstance(value, str) and value:
+                refs.append(value)
+        for item in source.get("filters") or []:
+            value = item.get("column") if isinstance(item, dict) else None
+            if isinstance(value, str) and value:
+                refs.append(value)
+    return refs
+
+
 async def run_dataset_query(
     dataset_id: int,
     columns: list[str],
@@ -715,6 +900,7 @@ async def run_dataset_query(
     transpose: dict[str, Any] | None = None,
     rounding_corrections: list[dict[str, Any]] | None = None,
     filter_logic: dict[str, Any] | None = None,
+    list_lookup: dict[str, Any] | None = None,
     scope_strategy: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     """执行数据集多表查询
@@ -850,6 +1036,10 @@ async def run_dataset_query(
             if raw and not raw.startswith("calc.") and "." in raw:
                 _reject_hidden_ref(raw, "拆分字段")
                 selected.append(_split_qualified(raw))
+    for raw in _list_lookup_refs(list_lookup):
+        if raw and not raw.startswith("calc.") and "." in raw:
+            _reject_hidden_ref(raw, "名单回查字段")
+            selected.append(_split_qualified(raw))
     selected = _dedupe_pairs(selected)
 
     # 构造 SELECT 列表：每个 alias 取 id，并按需取实体列。
@@ -1005,6 +1195,16 @@ async def run_dataset_query(
     if user_clause is not None:
         stmt = stmt.where(user_clause)
         count_stmt = count_stmt.where(user_clause)
+
+    list_lookup_clause = _build_list_lookup_clause(
+        list_lookup,
+        alias_to_model=alias_to_model,
+        aliased_models=aliased_models,
+        columns_by_alias=columns_by_alias,
+    )
+    if list_lookup_clause is not None:
+        stmt = stmt.where(list_lookup_clause)
+        count_stmt = count_stmt.where(list_lookup_clause)
 
     # 排序
     sql_sort_applied = False
