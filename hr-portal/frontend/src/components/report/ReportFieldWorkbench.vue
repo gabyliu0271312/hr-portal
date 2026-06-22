@@ -15,6 +15,7 @@ const props = defineProps<{
   aggregate: boolean
   roundingGroupBy: string[]
   sorts?: SortCond[]
+  lookupEnabled?: boolean
   isDataset?: boolean
   loading?: boolean
   canCreateField?: boolean
@@ -71,6 +72,23 @@ const draggingCode = ref('')
 const collapsedSourceKeys = ref<Set<string>>(new Set())
 const advancedOpen = ref(false)
 const advancedTab = ref<'rules' | 'reshape' | 'lookup'>('rules')
+const advancedMeta = computed(() => {
+  const map = {
+    rules: {
+      title: '统计规则',
+      desc: '控制明细/汇总口径、默认统计方式、拆分规则和余差收口。',
+    },
+    reshape: {
+      title: '数据重塑',
+      desc: '把字段结构转换为更适合分析的形态，例如重映射、列转行、行转列。',
+    },
+    lookup: {
+      title: '名单回查',
+      desc: '先从字段值或筛选结果生成名单，再用集合运算回查完整记录。',
+    },
+  }
+  return map[advancedTab.value]
+})
 
 function sourceKey(code: string) {
   if (code.startsWith('calc.')) return 'calc'
@@ -345,7 +363,15 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
             <el-tag size="small" effect="plain">{{ aggregate ? '汇总表' : '明细表' }}</el-tag>
             <el-button size="small" plain @click="openAdvanced('rules')">统计规则</el-button>
             <el-button v-if="$slots.reshape" size="small" plain @click="openAdvanced('reshape')">数据重塑</el-button>
-            <el-button v-if="$slots.lookup" size="small" plain @click="openAdvanced('lookup')">名单回查</el-button>
+            <el-button
+              v-if="$slots.lookup"
+              size="small"
+              :type="lookupEnabled ? 'primary' : 'default'"
+              :plain="!lookupEnabled"
+              @click="openAdvanced('lookup')"
+            >
+              名单回查
+            </el-button>
           </span>
         </div>
 
@@ -550,79 +576,99 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
     <el-drawer
       v-model="advancedOpen"
       title="高级配置"
-      size="560px"
+      size="min(1120px, 92vw)"
       append-to-body
       class="workbench-drawer"
     >
-      <el-tabs v-model="advancedTab">
-        <el-tab-pane label="统计规则" name="rules">
-          <div class="rule-grid">
-            <div class="rule-item">
-              <span class="option-label">出数类型</span>
-              <el-radio-group :model-value="aggregate" size="small" @change="setOutputMode">
-                <el-radio-button :label="false">明细表</el-radio-button>
-                <el-radio-button :label="true">汇总表</el-radio-button>
-              </el-radio-group>
-            </div>
-
-            <div class="rule-item">
-              <span class="option-label">默认统计</span>
-              <el-select
-                :model-value="defaultAggregationValue()"
-                :disabled="!aggregate"
-                size="small"
-                style="width: 136px"
-                @update:model-value="setDefaultAggregation"
-              >
-                <el-option v-for="item in AGG_FUNCS" :key="item.value" :label="item.label" :value="item.value" />
-              </el-select>
-            </div>
-
-            <div v-if="isDataset" class="rule-item rule-item-wide">
-              <span class="option-label">默认拆分</span>
-              <el-switch
-                :model-value="defaultSplitRule.enabled"
-                active-text="启用"
-                inactive-text="关闭"
-                @update:model-value="(v: boolean) => emit('update:defaultSplitRule', { ...defaultSplitRule, enabled: v })"
-              />
-              <el-select
-                :model-value="defaultSplitRule.factor || ''"
-                :disabled="!defaultSplitRule.enabled"
-                filterable
-                clearable
-                placeholder="选择统一系数字段"
-                style="width: min(260px, 100%)"
-                @update:model-value="(v: string) => emit('update:defaultSplitRule', { ...defaultSplitRule, factor: v })"
-              >
-                <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
-              </el-select>
-            </div>
-
-            <div v-if="isDataset" class="rule-item rule-item-wide">
-              <span class="option-label">余差收口</span>
-              <el-select
-                :model-value="roundingGroupBy"
-                :disabled="!aggregate"
-                multiple
-                filterable
-                clearable
-                :placeholder="aggregate ? '选择一个或多个分组维度' : '汇总表可选'"
-                style="width: min(420px, 100%)"
-                @update:model-value="(v: string[]) => emit('update:roundingGroupBy', v)"
-              >
-                <el-option v-for="item in selectedDimensions" :key="item.code" :label="item.label" :value="item.code" />
-              </el-select>
-            </div>
+      <div class="advanced-shell">
+        <section class="advanced-intro">
+          <div>
+            <span>当前配置</span>
+            <strong>{{ advancedMeta.title }}</strong>
+            <p>{{ advancedMeta.desc }}</p>
           </div>
-        </el-tab-pane>
-        <el-tab-pane v-if="$slots.reshape" label="数据重塑" name="reshape">
-          <slot name="reshape" />
-        </el-tab-pane>
-        <el-tab-pane v-if="$slots.lookup" label="名单回查" name="lookup">
-          <slot name="lookup" />
-        </el-tab-pane>
-      </el-tabs>
+        </section>
+
+        <el-tabs v-model="advancedTab" class="advanced-tabs">
+          <el-tab-pane label="统计规则" name="rules">
+            <div class="rules-panel">
+              <div class="rules-banner">
+                <strong>出数口径</strong>
+                <span>这些规则会影响报表结果的粒度、金额拆分和汇总后的尾差处理。</span>
+              </div>
+              <div class="rule-grid">
+                <div class="rule-item">
+                  <span class="option-label">出数类型</span>
+                  <el-radio-group :model-value="aggregate" size="small" @change="setOutputMode">
+                    <el-radio-button :label="false">明细表</el-radio-button>
+                    <el-radio-button :label="true">汇总表</el-radio-button>
+                  </el-radio-group>
+                  <p>明细表保留原始行；汇总表会按维度字段分组并统计指标。</p>
+                </div>
+
+                <div class="rule-item">
+                  <span class="option-label">默认统计</span>
+                  <el-select
+                    :model-value="defaultAggregationValue()"
+                    :disabled="!aggregate"
+                    size="small"
+                    style="width: 160px"
+                    @update:model-value="setDefaultAggregation"
+                  >
+                    <el-option v-for="item in AGG_FUNCS" :key="item.value" :label="item.label" :value="item.value" />
+                  </el-select>
+                  <p>没有单独设置统计方式的指标，会使用这里的默认值。</p>
+                </div>
+
+                <div v-if="isDataset" class="rule-item rule-item-wide">
+                  <span class="option-label">默认拆分</span>
+                  <el-switch
+                    :model-value="defaultSplitRule.enabled"
+                    active-text="启用"
+                    inactive-text="关闭"
+                    @update:model-value="(v: boolean) => emit('update:defaultSplitRule', { ...defaultSplitRule, enabled: v })"
+                  />
+                  <el-select
+                    :model-value="defaultSplitRule.factor || ''"
+                    :disabled="!defaultSplitRule.enabled"
+                    filterable
+                    clearable
+                    placeholder="选择统一系数字段"
+                    style="width: min(320px, 100%)"
+                    @update:model-value="(v: string) => emit('update:defaultSplitRule', { ...defaultSplitRule, factor: v })"
+                  >
+                    <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
+                  </el-select>
+                  <p>适合需要按统一比例分摊指标的场景，单个字段仍可覆盖默认规则。</p>
+                </div>
+
+                <div v-if="isDataset" class="rule-item rule-item-wide">
+                  <span class="option-label">余差收口</span>
+                  <el-select
+                    :model-value="roundingGroupBy"
+                    :disabled="!aggregate"
+                    multiple
+                    filterable
+                    clearable
+                    :placeholder="aggregate ? '选择一个或多个分组维度' : '汇总表可选'"
+                    style="width: min(520px, 100%)"
+                    @update:model-value="(v: string[]) => emit('update:roundingGroupBy', v)"
+                  >
+                    <el-option v-for="item in selectedDimensions" :key="item.code" :label="item.label" :value="item.code" />
+                  </el-select>
+                  <p>汇总后按这些维度做尾差归集，减少四舍五入造成的金额差异。</p>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane v-if="$slots.reshape" label="数据重塑" name="reshape">
+            <slot name="reshape" />
+          </el-tab-pane>
+          <el-tab-pane v-if="$slots.lookup" label="名单回查" name="lookup">
+            <slot name="lookup" />
+          </el-tab-pane>
+        </el-tabs>
+      </div>
     </el-drawer>
   </div>
 </template>
@@ -679,6 +725,7 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   flex: none;
 }
 .section-title {
@@ -803,10 +850,96 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
   font-weight: 700;
   color: var(--color-text-secondary);
 }
+.workbench-drawer :deep(.el-drawer__body) {
+  display: flex;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--color-bg-page);
+}
+.advanced-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+.advanced-intro {
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--color-border-light);
+  background:
+    radial-gradient(circle at 0 0, rgba(20, 86, 240, 0.12), transparent 28%),
+    linear-gradient(135deg, #fff 0%, var(--color-bg-soft) 100%);
+}
+.advanced-intro > div {
+  display: grid;
+  gap: 4px;
+}
+.advanced-intro span {
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.advanced-intro strong {
+  color: var(--color-text-primary);
+  font-size: 18px;
+  line-height: 1.3;
+}
+.advanced-intro p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.advanced-tabs {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  padding: 0 22px 22px;
+}
+.advanced-tabs :deep(.el-tabs__header) {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0 0 16px;
+  padding-top: 10px;
+  background: var(--color-bg-page);
+}
+.advanced-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+.rules-panel {
+  display: grid;
+  gap: 14px;
+}
+.rules-banner {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 12px;
+  background: #fff;
+}
+.rules-banner strong {
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+.rules-banner span,
+.rule-item p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
 .rule-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px 14px;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 12px;
 }
 .rule-item {
   display: flex;
@@ -814,9 +947,16 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
   flex-wrap: wrap;
   gap: 10px;
   min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 12px;
+  background: #fff;
 }
 .rule-item-wide {
   grid-column: span 2;
+}
+.rule-item p {
+  flex-basis: 100%;
 }
 .selected-shell {
   position: relative;
@@ -1063,6 +1203,15 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
   }
 }
 @media (max-width: 900px) {
+  .advanced-tabs {
+    padding: 0 14px 16px;
+  }
+  .advanced-intro {
+    padding: 16px;
+  }
+  .rule-grid {
+    grid-template-columns: 1fr;
+  }
   .rule-item-wide {
     grid-column: span 1;
   }

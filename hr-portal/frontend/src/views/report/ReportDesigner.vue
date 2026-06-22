@@ -423,7 +423,7 @@ function buildPayload() {
               : null,
             resolver: source.type === 'field_values'
               ? {
-                  enabled: source.resolver?.enabled !== false,
+                  enabled: source.resolver?.enabled === true,
                   match_field: source.resolver?.match_field || '',
                   return_field: source.resolver?.return_field || '',
                 }
@@ -706,6 +706,7 @@ watch(
               :all-columns="columns"
               :source-groups="sourceGroups"
               :loading="loading"
+              :lookup-enabled="form.list_lookup.enabled"
               :is-dataset="isDataset"
               :can-create-field="canCreateField"
               @create-field="createField"
@@ -762,11 +763,15 @@ watch(
     <el-drawer
       v-model="explainOpen"
       title="AI 报表助手"
-      size="460px"
+      size="min(640px, 92vw)"
       append-to-body
       class="report-ai-drawer"
     >
       <div class="report-ai-chat">
+        <section class="ai-drawer-intro">
+          <strong>帮你读懂当前报表配置</strong>
+          <span>可以追问字段、筛选、排序、汇总口径，也可以让它帮你检查配置是否符合预期。</span>
+        </section>
         <div ref="explainScrollRef" class="report-chat-thread">
           <div v-if="!explainMessages.length && !explaining" class="chat-empty">
             打开后会先解释当前报表配置，你也可以继续追问字段、筛选、排序和后续功能阶段。
@@ -910,6 +915,30 @@ watch(
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 16px;
+  background: var(--color-bg-page);
+}
+
+.ai-drawer-intro {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at top left, rgba(20, 86, 240, 0.12), transparent 34%),
+    #fff;
+}
+
+.ai-drawer-intro strong {
+  color: var(--color-text-primary);
+  font-size: 15px;
+}
+
+.ai-drawer-intro span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .report-chat-thread {
@@ -919,9 +948,9 @@ watch(
   min-height: 260px;
   flex: 1;
   overflow: auto;
-  padding: 10px;
+  padding: 14px;
   border: 1px solid var(--color-border-light);
-  border-radius: 6px;
+  border-radius: 12px;
   background: var(--color-bg-subtle);
   overscroll-behavior: contain;
 }
@@ -948,10 +977,10 @@ watch(
 .chat-bubble {
   display: grid;
   gap: 6px;
-  max-width: 88%;
-  padding: 9px 11px;
+  max-width: 86%;
+  padding: 11px 13px;
   border: 1px solid var(--color-border-light);
-  border-radius: 6px;
+  border-radius: 12px;
   background: #fff;
   color: var(--color-text-primary);
   font-size: 13px;
@@ -1020,7 +1049,7 @@ watch(
 
 .explain-metrics > div {
   border: 1px solid var(--color-border-light);
-  border-radius: 6px;
+  border-radius: 10px;
   padding: 10px 8px;
   text-align: center;
   background: var(--color-bg-soft);
@@ -1066,7 +1095,7 @@ watch(
   overflow: auto;
   margin: 0;
   padding: 12px;
-  border-radius: 6px;
+  border-radius: 10px;
   background: #111827;
   color: #e5e7eb;
   font-size: 12px;
