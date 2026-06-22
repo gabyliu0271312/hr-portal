@@ -760,17 +760,23 @@ async def _dynamic_upsert(
             )
         )
 
-    stmt = pg_insert(Model).values(payload)
-    update_set = {
-        code: getattr(stmt.excluded, code)
-        for code in columns_by_code
-    }
-    update_set["synced_at"] = stmt.excluded.synced_at
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["pk_hash"],
-        set_=update_set,
-    )
-    await db.execute(stmt)
+    # 分批插入：asyncpg 单条语句参数上限 32767，按每行列数算安全批大小
+    if payload:
+        cols_per_row = max(len(payload[0]), 1)
+        chunk_size = max(1, 30000 // cols_per_row)
+        for i in range(0, len(payload), chunk_size):
+            chunk = payload[i : i + chunk_size]
+            stmt = pg_insert(Model).values(chunk)
+            update_set = {
+                code: getattr(stmt.excluded, code)
+                for code in columns_by_code
+            }
+            update_set["synced_at"] = stmt.excluded.synced_at
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["pk_hash"],
+                set_=update_set,
+            )
+            await db.execute(stmt)
     db.expire_all()
 
     # 7) 删孤儿：本次批次中不存在的行视为已失效，直接删除
