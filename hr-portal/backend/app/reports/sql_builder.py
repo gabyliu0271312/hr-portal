@@ -26,6 +26,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, desc, except_, func, inspect, intersect, or_, select, true, union
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement, cast
+from sqlalchemy.types import Boolean as SABoolean
+from sqlalchemy.types import Date as SADate
+from sqlalchemy.types import DateTime as SADateTime
+from sqlalchemy.types import Numeric as SANumeric
 from sqlalchemy.types import String as SAString
 
 from app.ai_formula.custom_functions import executable_functions
@@ -731,9 +735,10 @@ def _filter_clause_for_aliases(
     if model is None:
         return None
     col = columns_by_alias.get(alias, {}).get(code)
-    data_type = col.data_type if col is not None else "string"
+    expr = _entity_column(model, code)
+    data_type = _effective_filter_type(expr, col.data_type if col is not None else "string")
     return _filter_clause(
-        _entity_column(model, code),
+        expr,
         data_type,
         (filter_item.get("op") or "eq").lower(),
         filter_item.get("value"),
@@ -764,6 +769,20 @@ def _lookup_type_key(data_type: str | None) -> str:
     if key in {"number", "numeric", "integer", "int", "float", "decimal"}:
         return "number"
     return key
+
+
+def _effective_filter_type(expr: ColumnElement, meta_type: str | None) -> str:
+    """Prefer the physical SQL column type when metadata is stale."""
+    sql_type = getattr(expr, "type", None)
+    if isinstance(sql_type, SANumeric):
+        return "number"
+    if isinstance(sql_type, SADateTime):
+        return "datetime"
+    if isinstance(sql_type, SADate):
+        return "date"
+    if isinstance(sql_type, SABoolean):
+        return "bool"
+    return meta_type or "string"
 
 
 def _ensure_lookup_type_match(

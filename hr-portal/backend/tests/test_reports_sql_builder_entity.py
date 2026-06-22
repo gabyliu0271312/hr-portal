@@ -784,3 +784,70 @@ async def test_report_list_lookup_rejects_mismatched_source_key_type():
     assert exc.value.status_code == 400
     assert "名单回查第 2 个来源" in str(exc.value.detail)
     assert "请让所有名单来源返回同一种回查键" in str(exc.value.detail)
+
+
+async def test_report_list_lookup_numeric_is_not_null_filter_does_not_compare_empty_string():
+    table_name = "report_entity_list_lookup_numeric_filter"
+    model = make_entity_model(
+        table_name,
+        [
+            Column("employee_no", String),
+            Column("management_level", Numeric),
+        ],
+    )
+    old = register_table(table_name, model)
+    ds = DataSet(id=13, name="list lookup numeric filter")
+    table = DataSetTable(dataset_id=13, table_name=table_name, alias="r")
+    columns = [
+        make_column(table_name, "employee_no", column_label="工号"),
+        # Simulate stale metadata: physical column is Numeric but metadata still says string.
+        make_column(table_name, "management_level", column_label="管理职级", data_type="string"),
+    ]
+    db = FakeSession(
+        get_map={(DataSet, 13): ds},
+        results=[
+            *dataset_rows(13, [table]),
+            FakeResult(rows=columns),
+            FakeResult(rows=[]),
+            FakeResult(value=0),
+            FakeResult(rows=[]),
+        ],
+    )
+
+    try:
+        await sql_builder.run_dataset_query(
+            dataset_id=13,
+            columns=["r.employee_no"],
+            filters=[],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[],
+            aggregate=False,
+            aggregations={},
+            transpose={},
+            rounding_corrections=[],
+            list_lookup={
+                "enabled": True,
+                "operator": "union",
+                "lookup": {"target_field": "r.employee_no"},
+                "sources": [
+                    {
+                        "type": "filtered_rows",
+                        "return_field": "r.employee_no",
+                        "filters": [
+                            {"column": "r.management_level", "op": "is_not_null"},
+                        ],
+                    },
+                ],
+            },
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+        )
+    finally:
+        restore_table(table_name, old)
+
+    sql = "\n".join(str(statement) for statement, _ in db.executed).lower()
+    assert "management_level is not null" in sql
+    assert "management_level != " not in sql
