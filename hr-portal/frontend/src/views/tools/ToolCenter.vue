@@ -1,48 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Money, Document, Histogram, Grid, Right } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { TOOLS_CATALOG } from '@/constants/toolsCatalog'
+import ToolCard from '@/components/ToolCard.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 
-const tools = computed(() => [
-  {
-    code: 'tools.compensation_calc',
-    title: '补偿金计算',
-    desc: '根据员工信息、离职日期和地区补偿基数上限自动计算 N / N+1 补偿金，并可一键生成解除劳动合同协议。',
-    path: '/tools/compensation-calc',
-    icon: Money,
-    enabled: userStore.menus.some((m) => m.code === 'tools.compensation_calc'),
-  },
-  {
-    code: 'tools.income_certificate',
-    title: '证明开具',
-    desc: '选择模板后开具收入证明，支持预览、打印和下载 Word。',
-    path: '/tools/income-certificate',
-    icon: Document,
-    enabled: userStore.menus.some((m) => m.code === 'tools.income_certificate'),
-  },
-  {
-    code: 'tools.cost_allocation',
-    title: '成本分摊',
-    desc: '选择分摊报表运行预览，确认无误后一键计算存档至数据视图。',
-    path: '/tools/cost-allocation',
-    icon: Histogram,
-    enabled: userStore.menus.some((m) => m.code === 'tools.cost_allocation'),
-  },
-  {
-    code: 'table_tools',
-    title: '表格归集',
-    desc: '上传多源 Excel 文件，按人合并为标准字段表格，支持 AI 自动识别映射关系。',
-    path: '/tools/table-merge',
-    icon: Grid,
-    enabled: userStore.menus.some((m) => m.code === 'table_tools'),
-  },
-])
-
-const visibleTools = computed(() => tools.value.filter((t) => t.enabled))
+const visibleTools = computed(() =>
+  TOOLS_CATALOG.filter((t) => userStore.menus.some((m) => m.code === t.code)),
+)
 </script>
 
 <template>
@@ -60,24 +28,12 @@ const visibleTools = computed(() => tools.value.filter((t) => t.enabled))
       <el-empty v-if="!visibleTools.length" description="暂无可用工具，请联系管理员开通提效工具权限" />
 
       <div v-else class="tool-grid">
-        <div
+        <ToolCard
           v-for="tool in visibleTools"
           :key="tool.code"
-          class="tool-card"
-          :class="{ disabled: !tool.enabled }"
-          @click="tool.enabled && router.push(tool.path)"
-        >
-          <div class="tool-icon">
-            <el-icon><component :is="tool.icon" /></el-icon>
-          </div>
-          <div style="flex: 1">
-            <div class="tool-title">
-              {{ tool.title }}
-            </div>
-            <div class="tool-desc">{{ tool.desc }}</div>
-          </div>
-          <el-icon v-if="tool.enabled" class="tool-arrow"><Right /></el-icon>
-        </div>
+          :tool="tool"
+          @open="router.push"
+        />
       </div>
     </el-card>
   </div>
@@ -88,57 +44,5 @@ const visibleTools = computed(() => tools.value.filter((t) => t.enabled))
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
-}
-.tool-card {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-  padding: 18px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-card);
-  cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
-}
-.tool-card:hover {
-  border-color: var(--color-primary);
-  background: var(--color-primary-subtle);
-}
-.tool-card.disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
-}
-.tool-card.disabled:hover {
-  border-color: var(--color-border);
-  background: var(--color-bg-card);
-}
-.tool-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  background: var(--color-primary-light);
-  color: var(--color-primary);
-  font-size: 22px;
-}
-.tool-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-.tool-desc {
-  margin-top: 8px;
-  color: var(--color-text-regular);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.tool-arrow {
-  margin-top: 4px;
-  color: var(--color-text-placeholder);
 }
 </style>
