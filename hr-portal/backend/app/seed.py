@@ -310,6 +310,12 @@ _DATASOURCES_INIT = [
         "schedule": "每日 06:00",
     },
     {
+        "table_name": "org_unit",
+        "table_label": "组织单元",
+        "source_type": "beisen_report",
+        "schedule": "每日 06:00",
+    },
+    {
         "table_name": "emp_monthly_cost_result",
         "table_label": "员工月度成本分摊结果",
         "source_type": "internal",
@@ -372,6 +378,7 @@ _BUILTIN_TABLES = [
     {"table_name": "emp_monthly_salary",      "table_label": "员工月度工资表",        "icon": "Money",          "display_order": 30,  "is_period": True,  "period_col": "pay_month", "period_source": "field", "roster_join_col": "employee_no", "scope_strategy": "person_first"},
     {"table_name": "emp_monthly_allocation",  "table_label": "员工月度成本分摊表",    "icon": "Histogram",      "display_order": 40,  "is_period": True,  "period_col": "cost_period", "period_source": "field", "roster_join_col": "employee_no", "scope_strategy": "cc_first"},
     {"table_name": "cost_center_monthly",     "table_label": "成本中心月度维护表",    "icon": "OfficeBuilding", "display_order": 50,  "is_period": True,  "period_col": "month", "period_source": "inject", "scope_strategy": "cc_first"},
+    {"table_name": "org_unit",                "table_label": "组织单元",              "icon": "Share",          "display_order": 55,  "is_period": False, "scope_strategy": "cross_filter"},
     {"table_name": "emp_monthly_cost_class",  "table_label": "员工月度成本归集分类表","icon": "Collection",     "display_order": 60,  "is_period": False, "scope_strategy": "cc_first"},
     {"table_name": "emp_monthly_cost_result", "table_label": "员工月度成本分摊结果",  "icon": "TrendCharts",    "display_order": 70,  "is_period": True,  "period_col": "month", "period_source": "inject", "is_result_table": True, "scope_strategy": "cc_first"},
 ]

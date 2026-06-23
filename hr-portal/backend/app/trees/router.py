@@ -79,7 +79,7 @@ async def get_org_tree(
     _: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[TreeNodeOut]:
-    """组织架构树（FR-TREE-002 含离职员工开关 — 此处含义=含 inactive 节点）"""
+    """组织架构树（include_inactive=含停用组织：勾选后返回状态非启用的组织单元节点）"""
     stmt = select(OrgNode).order_by(OrgNode.level, OrgNode.code)
     if not include_inactive:
         stmt = stmt.where(OrgNode.is_active.is_(True))

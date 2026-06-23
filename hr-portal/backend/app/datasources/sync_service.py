@@ -894,37 +894,22 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
     await _recompute_tree_paths(CostCenterNode, db)
 
 
-# ===== 组织架构树（基于实时花名册的 7 层冗余字段构建）=====
+# ===== 组织架构树（基于组织单元表 org_unit 的「行政上级组织编码」显式建树）=====
 
 
-_ORG_LEVEL_FIELDS = [
-    # (level, column_code)
-    (2, "company_org"),
-    (3, "department"),
-    (4, "department_2"),
-    (5, "department_3"),
-    (6, "department_4"),
-    (7, "department_5"),
-]
-
-
-def _org_node_code(level: int, path_names: list[str]) -> str:
-    """用 path 的 hash 作为稳定 code（源端没给每个部门编码）"""
-    material = "/".join(path_names)
-    h = hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
-    return f"L{level}_{h}"
+_ORG_ROOT_CODE = "RootOrg"
 
 
 async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
     """全量重建组织架构树。
 
-    数据源：`emp_realtime_roster`，每行员工带 7 个层级字段（创梦天地虚拟根 → 公司级组织 → 一~五级部门）。
-    遍历所有员工，DISTINCT 出每条层级路径，构建 7 层树。
+    数据源：`org_unit`（落库后的实体行），按源端真实编码显式建父子。
 
-    - 根节点固定：name = ORG_ROOT_NAME（默认"创梦天地"），level=1
-    - code 由 path 的 SHA256 前 16 位 + level 前缀生成（稳定且去重）
-    - 空字符串视为本层不存在，从那层起停止下钻
-    - is_active：节点路径上至少有 1 个非「离职」员工 → True，全部「离职」→ False
+    - 固定一个虚拟根 `code='RootOrg'`，name = ORG_ROOT_NAME（默认"创梦天地"），level=1。
+    - 每个有效 `org_code` 建一个节点：code=org_code，name=org_name，
+      level 按 parent_org_code 链路从 RootOrg 向下推算，is_active=(org_status 为启用态)。
+    - parent_org_code == 'RootOrg' 或为空 → 父为虚拟根；否则连到对应编码节点。
+    - 异常数据（org_code 空、parent 找不到、成环）跳过并 warning，不静默造错树。
     """
     await db.execute(delete(OrgNode))
     await db.flush()
@@ -932,73 +917,87 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
     if rows is None:
         rows = []
 
-    # (level, code) -> {name, parent_code, path_names}
-    nodes_meta: dict[tuple[int, str], dict] = {}
-    # 收集"路径上至少有 1 个在职员工"的 code 集合
-    active_codes: set[str] = set()
-
-    # 加根节点
     root_name = app_settings.ORG_ROOT_NAME
-    root_code = _org_node_code(1, [root_name])
-    nodes_meta[(1, root_code)] = {
-        "name": root_name,
-        "parent_code": None,
-        "level": 1,
-    }
-    active_codes.add(root_code)  # 虚拟根固定有效
 
+    # 收集有效单元行：org_code -> (name, parent_code, is_active)
+    units: dict[str, dict] = {}
     for r in rows:
         if not isinstance(r, dict):
             continue
-        is_active_emp = str(r.get("employee_status") or "").strip() != "离职"
-        path_names = [root_name]
-        parent_code = root_code
-        for level, field in _ORG_LEVEL_FIELDS:
-            v = r.get(field)
-            if v is None or str(v).strip() == "":
-                break
-            name = str(v).strip()
-            path_names = path_names + [name]
-            code = _org_node_code(level, path_names)
-            if (level, code) not in nodes_meta:
-                nodes_meta[(level, code)] = {
-                    "name": name,
-                    "parent_code": parent_code,
-                    "level": level,
-                }
-            if is_active_emp:
-                active_codes.add(code)
-            parent_code = code
+        code = str(r.get("org_code") or "").strip()
+        if not code:
+            logger.warning("[org_tree] 跳过 org_code 为空的组织单元行")
+            continue
+        if code == _ORG_ROOT_CODE:
+            continue  # 虚拟根由系统固定生成，源端同名行忽略
+        parent_code = str(r.get("parent_org_code") or "").strip()
+        is_active = str(r.get("org_status") or "").strip() in ("启用", "生效", "正常")
+        units[code] = {
+            "name": str(r.get("org_name") or code).strip() or code,
+            "parent_code": parent_code,
+            "is_active": is_active,
+        }
 
-    # 第一遍：先插所有节点（按 level 升序，确保父先于子，方便日后扩展）
+    # 推算 level：沿 parent_org_code 链路回溯到 RootOrg/空，RootOrg=1，其直接子=2
+    def _level_of(code: str) -> int:
+        depth = 2
+        cur = units.get(code, {}).get("parent_code", "")
+        guard = 0
+        while cur and cur != _ORG_ROOT_CODE and cur in units and guard < 50:
+            depth += 1
+            cur = units[cur]["parent_code"]
+            guard += 1
+        return depth
+
+    # 虚拟根
+    root = OrgNode(
+        code=_ORG_ROOT_CODE,
+        name=root_name,
+        parent_id=None,
+        level=1,
+        is_leaf=False,
+        is_active=True,
+        synced_at=datetime.now(UTC),
+    )
+    db.add(root)
+
+    # 第一遍：插所有单元节点
     code_to_node: dict[str, OrgNode] = {}
-    for (level, code), meta in sorted(nodes_meta.items(), key=lambda x: x[0][0]):
+    for code, meta in units.items():
         node = OrgNode(
             code=code,
             name=meta["name"],
             parent_id=None,
-            level=level,
+            level=_level_of(code),
             is_leaf=False,
-            is_active=(code in active_codes),
+            is_active=meta["is_active"],
             synced_at=datetime.now(UTC),
         )
         db.add(node)
         code_to_node[code] = node
-    await db.flush()
+    await db.flush()  # 拿 id
 
     # 第二遍：连父
-    for (level, code), meta in nodes_meta.items():
+    for code, meta in units.items():
         pcode = meta["parent_code"]
-        if pcode and pcode in code_to_node:
+        if not pcode or pcode == _ORG_ROOT_CODE:
+            code_to_node[code].parent_id = root.id
+        elif pcode in code_to_node:
             code_to_node[code].parent_id = code_to_node[pcode].id
+        else:
+            logger.warning(
+                "[org_tree] 组织单元 %s 的行政上级 %s 不存在，挂到虚拟根", code, pcode
+            )
+            code_to_node[code].parent_id = root.id
 
-    # is_leaf
+    # is_leaf：没有 child 的节点
     parents_with_children: set[int] = set()
     for n in code_to_node.values():
         if n.parent_id is not None:
             parents_with_children.add(n.parent_id)
     for n in code_to_node.values():
         n.is_leaf = n.id not in parents_with_children
+    root.is_leaf = root.id not in parents_with_children
 
     await db.flush()
     await _recompute_tree_paths(OrgNode, db)
@@ -1034,29 +1033,10 @@ def _first(d: dict, *keys, default=None):
 # ===== scope_role 用的稳定 code 注入（同步前一次性算好，方便权限引擎按列 IN 过滤）=====
 
 
-def _inject_org_node_code(row: dict) -> None:
-    """给员工行注入 `org_node_code`：员工所在最深层级对应的 org_tree.code"""
-    root_name = app_settings.ORG_ROOT_NAME
-    path_names = [root_name]
-    deepest_level = 1
-    for level, field in _ORG_LEVEL_FIELDS:
-        v = row.get(field)
-        if v is None or str(v).strip() == "":
-            break
-        path_names.append(str(v).strip())
-        deepest_level = level
-    row["org_node_code"] = _org_node_code(deepest_level, path_names)
-
-
 def _inject_scope_codes(table_name: str, rows: list[dict]) -> None:
-    if not rows:
-        return
-    if table_name == "emp_realtime_roster":
-        for r in rows:
-            if isinstance(r, dict):
-                _inject_org_node_code(r)
-    # 成本中心：不再注入 _cc_code。源端「编码」本身唯一，要做成本中心数据权限时
-    # 直接把「编码」列标 scope_role=cc_code 即可（与树节点 code 一致）。
+    # 花名册 org_node_code 现直接来自源端「组织节点编码」列，无需派生注入。
+    # 成本中心：源端「编码」本身唯一，做数据权限时把「编码」列标 scope_role=cc_code 即可。
+    return
 
 
 # ===== 派发：源端拉数据 → 落库 =====
@@ -1168,7 +1148,7 @@ async def _sync_to_table_impl(
     # 写入业务表（统一走 upsert + 删孤儿）
     inserted = await _dynamic_upsert(table_name, rows or [], db, period_ym=cur_ym)
 
-    # 派发到树构建：成本中心 → cc_tree；实时花名册 → org_tree
+    # 派发到树构建：成本中心 → cc_tree；组织单元 → org_tree
     if table_name == "cost_center_monthly":
         # 用落库后的当月数据建树（含本地手工「启用状态」+ 复制上月 + 新增默认启用），
         # 保证树的 is_active 与数据表一致
@@ -1186,8 +1166,15 @@ async def _sync_to_table_impl(
             tree_rows_orm = (await db.execute(select(Model))).scalars().all()
         tree_rows = [_row_to_dict(row, table_columns) for row in tree_rows_orm]
         await _sync_cc_tree(tree_rows, db)
-    elif table_name == "emp_realtime_roster":
-        await _sync_org_tree(rows or [], db)
+    elif table_name == "org_unit":
+        # 用落库后的组织单元实体行建树（吃到同批去重、字段映射、类型转换）
+        await db.flush()
+        Model = DATA_TABLES[table_name]
+        _assert_entity_model(Model, table_name)
+        table_columns = await _source_columns(table_name, db)
+        tree_rows_orm = (await db.execute(select(Model))).scalars().all()
+        tree_rows = [_row_to_dict(row, table_columns) for row in tree_rows_orm]
+        await _sync_org_tree(tree_rows, db)
 
     await db.commit()
 

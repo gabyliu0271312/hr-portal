@@ -467,7 +467,7 @@ onMounted(async () => {
         </el-form-item>
 
         <el-checkbox v-model="include_inactive" style="margin-bottom: 12px">
-          含离职 / 失效节点（影响下方树和人员下拉）
+          含停用组织 / 失效成本中心 / 离职人员（影响下方树和人员下拉）
         </el-checkbox>
 
         <!-- ===== 管理组织范围 ===== -->
