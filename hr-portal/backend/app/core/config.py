@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 480
 
-    ADMIN_INIT_PASSWORD: str = "admin123"
+    ADMIN_INIT_PASSWORD: str = "Admin@2026"
 
     BEISEN_BASE_URL: str = ""
     BEISEN_APP_KEY: str = ""

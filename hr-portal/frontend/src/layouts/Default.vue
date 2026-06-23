@@ -79,6 +79,7 @@ import { Avatar } from '@element-plus/icons-vue'
 import { authApi } from '@/api/auth'
 import { MENU_ROUTE_MAP } from '@/constants/menuRoutes'
 import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue'
+import { PASSWORD_POLICY_HINT, validatePasswordPolicy } from '@/utils/passwordPolicy'
 
 const router = useRouter()
 const route = useRoute()
@@ -190,10 +191,15 @@ async function handleCommand(cmd: string) {
         { inputType: 'password', confirmButtonText: '下一步' }
       )
       const { value: newPwd } = await ElMessageBox.prompt(
-        '请输入新密码（≥ 8 位且含字母与数字）',
+        `请输入新密码（${PASSWORD_POLICY_HINT}）`,
         '修改密码',
         { inputType: 'password', confirmButtonText: '提交' }
       )
+      const passwordError = validatePasswordPolicy(newPwd)
+      if (passwordError) {
+        ElMessage.warning(passwordError)
+        return
+      }
       await authApi.changePassword(oldPwd, newPwd)
       ElMessage.success('密码已更新')
     } catch (e: any) {

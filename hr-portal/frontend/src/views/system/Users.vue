@@ -136,8 +136,9 @@
             v-model="form.password"
             type="password"
             show-password
-            placeholder="≥ 8 位 + 含字母 + 含数字"
+            :placeholder="PASSWORD_POLICY_HINT"
           />
+          <div class="password-hint">密码要求：{{ PASSWORD_POLICY_HINT }}</div>
         </el-form-item>
         <el-form-item label="角色">
           <el-checkbox-group v-model="form.role_ids" style="display: flex; flex-direction: column; gap: 8px">
@@ -226,8 +227,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { onMounted, reactive, ref, computed, h } from 'vue'
+import { ElInput, ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { usersApi, type UserDetail, type UserListItem } from '@/api/users'
@@ -235,6 +236,11 @@ import { scopesApi, type ScopeTagItem } from '@/api/scopes'
 import { fieldCategoriesApi, type FieldCategory } from '@/api/field_categories'
 import { formatDateTime } from '@/utils/datetime'
 import { rolesApi, type RoleListItem } from '@/api/roles'
+import {
+  PASSWORD_POLICY_HINT,
+  generateStrongPassword,
+  validatePasswordPolicy,
+} from '@/utils/passwordPolicy'
 
 interface Query {
   q: string
@@ -316,7 +322,7 @@ function openCreate() {
     login_name: '',
     display_name: '',
     email: '',
-    password: '',
+    password: generateStrongPassword(),
     role_ids: [],
   })
   drawerOpen.value = true
@@ -351,8 +357,9 @@ async function onSave() {
       ElMessage.warning('登录名只能含字母/数字/._-，长度 3~64')
       return
     }
-    if (form.password.length < 8) {
-      ElMessage.warning('密码至少 8 位')
+    const passwordError = validatePasswordPolicy(form.password)
+    if (passwordError) {
+      ElMessage.warning(passwordError)
       return
     }
   }
@@ -411,16 +418,44 @@ async function onToggleActive(row: UserListItem) {
 }
 
 async function onResetPassword(row: UserListItem) {
+  const newPassword = ref(generateStrongPassword())
   try {
-    const { value } = await ElMessageBox.prompt(
-      `重置 "${row.display_name}" 的密码（≥ 8 位 + 含字母 + 含数字）`,
-      '重置密码',
-      { inputType: 'password', confirmButtonText: '重置' }
-    )
-    await usersApi.resetPassword(row.id, value)
+    await ElMessageBox({
+      title: '重置密码',
+      message: () =>
+        h('div', { class: 'reset-password-box' }, [
+          h('div', { class: 'reset-password-title' }, `重置 "${row.display_name}" 的密码`),
+          h(ElInput, {
+            modelValue: newPassword.value,
+            'onUpdate:modelValue': (value: string) => {
+              newPassword.value = value
+            },
+            type: 'password',
+            showPassword: true,
+            placeholder: PASSWORD_POLICY_HINT,
+          }),
+          h('div', { class: 'reset-password-hint' }, `密码要求：${PASSWORD_POLICY_HINT}`),
+        ]),
+      confirmButtonText: '重置',
+      cancelButtonText: '取消',
+      showCancelButton: true,
+      beforeClose: (action, instance, done) => {
+        if (action !== 'confirm') {
+          done()
+          return
+        }
+        const passwordError = validatePasswordPolicy(newPassword.value)
+        if (passwordError) {
+          ElMessage.warning(passwordError)
+          return
+        }
+        done()
+      },
+    })
+    await usersApi.resetPassword(row.id, newPassword.value)
     ElMessage.success('密码已重置')
   } catch (e: any) {
-    if (e === 'cancel') return
+    if (e === 'cancel' || e?.message === 'cancel') return
     ElMessage.error(e?.response?.data?.detail || '重置失败')
   }
 }
@@ -524,5 +559,22 @@ async function saveTags() {
   margin-bottom: 8px;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--color-border-light);
+}
+
+.password-hint,
+:global(.reset-password-hint) {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+:global(.reset-password-box) {
+  min-width: 360px;
+}
+
+:global(.reset-password-title) {
+  margin-bottom: 10px;
+  color: var(--color-text-primary);
 }
 </style>
