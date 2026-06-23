@@ -1023,6 +1023,18 @@ def _list_lookup_refs(list_lookup: dict[str, Any] | None) -> list[str]:
     return refs
 
 
+def _metric_filter_refs(column_settings: dict[str, Any] | None) -> list[str]:
+    refs: list[str] = []
+    for setting in (column_settings or {}).values():
+        if not isinstance(setting, dict):
+            continue
+        for item in setting.get("metric_filters") or []:
+            value = item.get("column") if isinstance(item, dict) else None
+            if isinstance(value, str) and value:
+                refs.append(value)
+    return refs
+
+
 async def run_dataset_query(
     dataset_id: int,
     columns: list[str],
@@ -1035,6 +1047,7 @@ async def run_dataset_query(
     value_rules: list[dict[str, Any]] | None = None,
     aggregate: bool = False,
     aggregations: dict[str, str] | None = None,
+    column_settings: dict[str, Any] | None = None,
     transpose: dict[str, Any] | None = None,
     rounding_corrections: list[dict[str, Any]] | None = None,
     filter_logic: dict[str, Any] | None = None,
@@ -1153,6 +1166,10 @@ async def run_dataset_query(
         field = calc_by_qual.get(str((s or {}).get("column") or ""))
         if field and field not in internal_calc_fields:
             internal_calc_fields.append(field)
+    for raw in _metric_filter_refs(column_settings):
+        field = calc_by_qual.get(str(raw or ""))
+        if field and field not in internal_calc_fields:
+            internal_calc_fields.append(field)
 
     for field in internal_calc_fields:
         for dep in field.depends_on or []:
@@ -1178,6 +1195,10 @@ async def run_dataset_query(
     for raw in _list_lookup_refs(list_lookup):
         if raw and not raw.startswith("calc.") and "." in raw:
             _reject_hidden_ref(raw, "名单回查字段")
+            selected.append(_split_qualified(raw))
+    for raw in _metric_filter_refs(column_settings):
+        if raw and not raw.startswith("calc.") and "." in raw:
+            _reject_hidden_ref(raw, "指标筛选字段")
             selected.append(_split_qualified(raw))
     selected = _dedupe_pairs(selected)
 
@@ -1605,7 +1626,14 @@ async def run_dataset_query(
         rws = g["__rows__"]
         for mq in mea_quals:
             agg_fn = (aggregations or {}).get(mq, "sum")
-            out[mq] = _aggregate([rw.get(mq) for rw in rws], agg_fn, len(rws))
+            setting = (column_settings or {}).get(mq) or {}
+            metric_filters = setting.get("metric_filters") or []
+            metric_filter_logic = setting.get("metric_filter_logic")
+            filtered_rows = [
+                rw for rw in rws
+                if _row_matches_filters(rw, metric_filters, metric_filter_logic)
+            ]
+            out[mq] = _aggregate([rw.get(mq) for rw in filtered_rows], agg_fn, len(filtered_rows))
         result.append(out)
 
     # ===== 余差收口：同组末行补差值，确保合计 = sum(rawprod) 取整 =====

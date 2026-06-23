@@ -146,6 +146,7 @@ async def archive_cost_allocation(
         value_rules=cfg.value_rules,
         aggregate=cfg.aggregate,
         aggregations=cfg.aggregations,
+        column_settings=cfg.column_settings,
         transpose=cfg.transpose,
         rounding_corrections=cfg.rounding_corrections,
         list_lookup=cfg.list_lookup,

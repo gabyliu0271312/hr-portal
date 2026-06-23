@@ -381,6 +381,14 @@ async def test_report_dimension_field_can_be_count_metric_for_self_join_span():
                     __sub__employee_no="E002",
                     __sub__employee_type="正式员工",
                 ),
+                FakeRow(
+                    __mgr__id=4,
+                    __sub__id=5,
+                    __mgr__employee_no="M002",
+                    __mgr__full_name="Manager B",
+                    __sub__employee_no="L001",
+                    __sub__employee_type="劳务人员",
+                ),
             ]),
         ],
     )
@@ -389,12 +397,19 @@ async def test_report_dimension_field_can_be_count_metric_for_self_join_span():
         _cols, items, total = await sql_builder.run_dataset_query(
             dataset_id=31,
             columns=["mgr.employee_no", "mgr.full_name", "sub.employee_no"],
-            filters=[{"column": "sub.employee_type", "op": "eq", "value": "正式员工"}],
+            filters=[],
             filter_logic=None,
             sorts=[],
             value_rules=[],
             aggregate=True,
             aggregations={"sub.employee_no": "count_distinct"},
+            column_settings={
+                "sub.employee_no": {
+                    "metric_filters": [
+                        {"column": "sub.employee_type", "op": "eq", "value": "正式员工"}
+                    ]
+                }
+            },
             transpose={},
             rounding_corrections=[],
             page=1,
@@ -405,12 +420,17 @@ async def test_report_dimension_field_can_be_count_metric_for_self_join_span():
     finally:
         restore_table(table_name, old)
 
-    assert total == 1
+    assert total == 2
     assert items == [
         {
             "mgr.employee_no": "M001",
             "mgr.full_name": "Manager A",
             "sub.employee_no": 2,
+        },
+        {
+            "mgr.employee_no": "M002",
+            "mgr.full_name": "Manager B",
+            "sub.employee_no": 0,
         }
     ]
     assert_no_raw_sql(db)

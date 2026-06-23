@@ -11,6 +11,7 @@ const props = defineProps<{
   allColumns: ColumnInfo[]
   currentDatasetTables?: { table_name: string; alias: string; table_label?: string | null }[]
   showViewControls?: boolean
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -171,13 +172,13 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
 </script>
 
 <template>
-  <div>
+  <div :class="{ 'is-compact': compact }">
     <div v-for="(f, i) in filters" :key="i" class="rule-row">
       <el-tag class="rule-label" effect="plain">{{ filterLabel(i) }}</el-tag>
       <el-select
         :model-value="f.column"
         placeholder="字段"
-        style="width: 200px"
+        class="filter-column-select"
         filterable
         @update:model-value="(value: string) => onFilterColumnChange(i, value)"
       >
@@ -185,7 +186,7 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
       </el-select>
       <el-select
         :model-value="f.op"
-        style="width: 120px"
+        class="filter-op-select"
         @update:model-value="(op: string) => onFilterOpChange(i, op)"
       >
         <el-option v-for="o in FILTER_OPS" :key="o.value" :label="o.label" :value="o.value" />
@@ -199,7 +200,7 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
         default-first-option
         :reserve-keyword="false"
         placeholder="选择或输入值"
-        style="flex: 1"
+        class="filter-value-control"
         @update:model-value="(value: any) => onFilterValueChange(i, value)"
         @visible-change="(v: boolean) => v && ensureOptions(f.column)"
       >
@@ -210,7 +211,7 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
         :model-value="f.value"
         :placeholder="valueRequiresArray(f.op) ? '多个值用逗号分隔' : '值'"
         :disabled="valueDisabled(f.op)"
-        style="flex: 1"
+        class="filter-value-control"
         @update:model-value="(value: string) => onFilterValueChange(i, value)"
       />
       <el-button link type="danger" @click="removeFilter(i)">
@@ -258,9 +259,41 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
   align-items: center;
   margin-bottom: 8px;
 }
+.filter-column-select {
+  width: 200px;
+}
+.filter-op-select {
+  width: 120px;
+}
+.filter-value-control {
+  flex: 1;
+}
 .rule-label {
   width: 34px;
   justify-content: center;
+}
+.is-compact .rule-row {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 8px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+}
+.is-compact .rule-label {
+  margin-top: 3px;
+}
+.is-compact .filter-column-select {
+  width: min(100%, 220px);
+}
+.is-compact .filter-op-select {
+  width: 104px;
+}
+.is-compact .filter-value-control {
+  flex: 1 1 180px;
+  min-width: 160px;
+}
+.is-compact .logic-row {
+  padding-left: 0;
 }
 .logic-row {
   display: flex;

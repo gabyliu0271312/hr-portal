@@ -289,6 +289,43 @@ function onCalculatedFieldSaved(field: DatasetCalculatedField) {
   }
 }
 
+function normalizeFilters(filters: any[], withViewControls = false) {
+  return (filters || [])
+    .filter((f) => f.column)
+    .map((f) => {
+      const op = f.op
+      let value: any = f.value
+      if (op === 'is_null' || op === 'is_not_null') value = null
+      else if ((op === 'between' || op === 'in') && typeof value === 'string') {
+        value = value.split(',').map((s: string) => s.trim()).filter(Boolean)
+      }
+      const out: any = { column: f.column, op, value }
+      if (withViewControls) {
+        out.visible = f.visible ?? true
+        out.locked = f.locked ?? false
+      }
+      return out
+    })
+}
+
+function normalizeColumnSettings() {
+  return Object.fromEntries(
+    Object.entries(form.column_settings).map(([code, setting]) => {
+      const next: ColumnSetting = { ...setting }
+      next.metric_filters = normalizeFilters(next.metric_filters || [])
+      next.metric_filter_logic =
+        next.metric_filter_logic?.mode === 'custom' && next.metric_filter_logic.expression?.trim()
+          ? { mode: 'custom', expression: next.metric_filter_logic.expression.trim() }
+          : null
+      if (!next.metric_filters.length) {
+        delete next.metric_filters
+        delete next.metric_filter_logic
+      }
+      return [code, next]
+    }),
+  )
+}
+
 function buildPayload() {
   const tailCode = (q: string) => (q.includes('.') ? q.slice(q.indexOf('.') + 1) : q)
   const selectedDimCodes = selectedDimensions.value.map((c) => c.code)
@@ -332,25 +369,9 @@ function buildPayload() {
       .map((a) => ({ role_id: a.role_id, user_id: a.user_id })),
     config: {
       columns: form.selected_codes,
-      column_settings: form.column_settings,
+      column_settings: normalizeColumnSettings(),
       default_split_rule: form.default_split_rule,
-      filters: form.filters
-        .filter((f) => f.column)
-        .map((f) => {
-          const op = f.op
-          let value: any = f.value
-          if (op === 'is_null' || op === 'is_not_null') value = null
-          else if ((op === 'between' || op === 'in') && typeof value === 'string') {
-            value = value.split(',').map((s: string) => s.trim()).filter(Boolean)
-          }
-          return {
-            column: f.column,
-            op,
-            value,
-            visible: f.visible ?? true,
-            locked: f.locked ?? false,
-          }
-        }),
+      filters: normalizeFilters(form.filters, true),
       filter_logic: filterLogic,
       sorts: form.sorts.filter((s) => s.column),
       value_rules: [...valueRulesByTarget.entries()].map(([target, factor]) => ({ target, factor })),

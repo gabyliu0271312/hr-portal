@@ -340,6 +340,7 @@ async def run_scheme(
             value_rules=merged_cfg.value_rules,
             aggregate=merged_cfg.aggregate,
             aggregations=merged_cfg.aggregations,
+            column_settings=merged_cfg.column_settings,
             transpose=merged_cfg.transpose,
             rounding_corrections=merged_cfg.rounding_corrections,
             list_lookup=merged_cfg.list_lookup,

@@ -2,8 +2,9 @@
 import { computed, ref } from 'vue'
 import { ArrowDown, ArrowRight, Close, Edit, Hide, Plus, Rank, View } from '@element-plus/icons-vue'
 import type { ColumnInfo } from '@/api/data'
-import type { AggregationFunc, ColumnSetting, DefaultSplitRule, SortCond } from '@/api/reports'
+import type { AggregationFunc, ColumnSetting, DefaultSplitRule, FilterCond, FilterLogic, SortCond } from '@/api/reports'
 import { REPORT_AGG_FUNCS, reportAggLabel } from '@/constants/reportAggregation'
+import ReportFilterList from './ReportFilterList.vue'
 
 const props = defineProps<{
   selectedCodes: string[]
@@ -241,6 +242,27 @@ function resetAggregation(code: string) {
   clearSettingKey(code, 'aggregation')
 }
 
+function metricFilters(col: ColumnInfo): FilterCond[] {
+  return colSetting(col.code).metric_filters || []
+}
+
+function metricFilterLogic(col: ColumnInfo): FilterLogic | null {
+  return colSetting(col.code).metric_filter_logic || null
+}
+
+function metricFilterSummary(col: ColumnInfo) {
+  const count = metricFilters(col).filter((item) => item.column).length
+  return count ? `指标筛选 ${count} 条` : ''
+}
+
+function setMetricFilters(code: string, filters: FilterCond[]) {
+  updateSetting(code, { metric_filters: filters })
+}
+
+function setMetricFilterLogic(code: string, logic: FilterLogic | null) {
+  updateSetting(code, { metric_filter_logic: logic })
+}
+
 function resetDisplayName(code: string) {
   updateSetting(code, { display_name: '' })
 }
@@ -434,6 +456,9 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
                   <span v-if="aggregate" class="field-agg-badge" :class="{ 'is-dimension': !isMeasureLike(col) }">
                     {{ fieldAggregationLabel(col) }}
                   </span>
+                  <span v-if="aggregate && metricFilterSummary(col)" class="field-sort-badge">
+                    {{ metricFilterSummary(col) }}
+                  </span>
                   <span v-if="fieldSortLabel(col.code)" class="field-sort-badge">{{ fieldSortLabel(col.code) }}</span>
                   <el-popover
                     trigger="click"
@@ -544,6 +569,20 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
                           </button>
                           <div class="menu-note">维度字段默认作为分组；选择计数/去重计数后会作为统计指标。</div>
                         </template>
+                      </div>
+
+                      <div v-if="aggregate && isMeasureLike(col)" class="menu-block metric-filter-block">
+                        <div class="menu-title">指标筛选</div>
+                        <div class="menu-note">只过滤当前指标参与统计的明细行，不会过滤整张报表的维度行。</div>
+                        <ReportFilterList
+                          :filters="metricFilters(col)"
+                          :filter-logic="metricFilterLogic(col)"
+                          :all-columns="allColumns"
+                          :show-view-controls="false"
+                          compact
+                          @update:filters="(value: FilterCond[]) => setMetricFilters(col.code, value)"
+                          @update:filter-logic="(value: FilterLogic | null) => setMetricFilterLogic(col.code, value)"
+                        />
                       </div>
 
                       <div class="menu-block">

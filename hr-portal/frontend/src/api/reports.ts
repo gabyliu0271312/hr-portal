@@ -36,6 +36,8 @@ export interface ColumnSetting {
   display_name?: string
   hidden?: boolean
   aggregation?: AggregationFunc
+  metric_filters?: FilterCond[]
+  metric_filter_logic?: FilterLogic | null
   split_mode?: SplitMode
   split_factor?: string
 }
