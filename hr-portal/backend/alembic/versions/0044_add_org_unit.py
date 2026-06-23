@@ -36,8 +36,8 @@ _ORG_UNIT_COLUMNS = [
     ("parent_org_code", "行政上级组织编码", "string", False),
     ("parent_org_dim", "行政维度上级", "string", False),
     ("org_status", "状态", "string", False),
+    ("establish_date", "设立日期", "date", False),
     ("effective_date", "生效日期", "date", False),
-    ("change_date", "变动日期", "date", False),
     ("change_type", "变动类型", "string", False),
 ]
 

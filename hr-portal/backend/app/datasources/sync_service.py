@@ -59,6 +59,9 @@ PERIOD_TABLES: dict[str, dict] = {
 # 成本中心「启用状态」改为本地手工维护，北森不再同步该字段。
 SOURCE_DROP_COLUMNS: dict[str, set[str]] = {
     "cost_center_monthly": {"status"},
+    # 组织单元「变动日期」不入库（仅保留设立日期/生效日期）；删元数据后源端会退回中文名，
+    # 这里按中文名拦截，避免下次同步把它当新字段重建。
+    "org_unit": {"变动日期", "change_date"},
 }
 
 
