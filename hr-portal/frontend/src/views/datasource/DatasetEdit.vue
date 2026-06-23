@@ -60,6 +60,8 @@ const CARDINALITIES = [
   { value: 'N:1', label: 'N:1（左多右1）' },
 ]
 
+const ALIAS_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+
 async function loadVisibleTables() {
   try {
     visibleTables.value = await datasetsApi.visibleTables()
@@ -109,14 +111,16 @@ async function loadAliasColumns() {
 }
 
 function addTable() {
-  const used = new Set(form.tables.map((t) => t.table_name))
-  const remaining = visibleTables.value.find((v) => !used.has(v.table_name))
-  if (!remaining) {
-    ElMessage.warning('所有源表已纳入')
+  const first = visibleTables.value[0]
+  if (!first) {
+    ElMessage.warning('没有可用源表')
     return
   }
-  // 别名 = 物理表名(无自关联场景);保持命名纯净
-  form.tables.push({ table_name: remaining.table_name, alias: remaining.table_name, table_label: remaining.label })
+  form.tables.push({
+    table_name: first.table_name,
+    alias: nextAlias(first.table_name),
+    table_label: first.label,
+  })
   loadAliasColumns()
 }
 
@@ -130,17 +134,72 @@ function removeTable(i: number) {
   delete columnsByAlias.value[removed.alias]
 }
 
-function onTableChange(t: DatasetTableItem, oldAlias: string) {
-  // 别名跟随表名;同步到 relations
+function onTableChange(t: DatasetTableItem) {
   t.table_label = visibleTableLabel(t.table_name)
-  const newAlias = t.table_name
-  if (newAlias !== oldAlias) {
-    t.alias = newAlias
-    form.relations.forEach((r) => {
-      if (r.left_alias === oldAlias) r.left_alias = newAlias
-      if (r.right_alias === oldAlias) r.right_alias = newAlias
-    })
+  if (!t.alias || aliasDuplicate(t.alias, t)) {
+    updateTableAlias(t, nextAlias(t.table_name))
   }
+  loadAliasColumns()
+}
+
+function normalizeAlias(raw: string): string {
+  let alias = (raw || '').trim().replace(/[^A-Za-z0-9_]/g, '_')
+  if (!alias) alias = 't'
+  if (/^[0-9]/.test(alias)) alias = `t_${alias}`
+  return alias
+}
+
+function nextAlias(tableName: string): string {
+  const base = normalizeAlias(tableName)
+  const used = new Set(form.tables.map((t) => t.alias))
+  if (!used.has(base)) return base
+  let index = 2
+  while (used.has(`${base}_${index}`)) index += 1
+  return `${base}_${index}`
+}
+
+function aliasDuplicate(alias: string, current: DatasetTableItem): boolean {
+  return form.tables.some((item) => item !== current && item.alias === alias)
+}
+
+function syncRelationAlias(oldAlias: string, newAlias: string) {
+  if (!oldAlias || oldAlias === newAlias) return
+  form.relations.forEach((r) => {
+    if (r.left_alias === oldAlias) r.left_alias = newAlias
+    if (r.right_alias === oldAlias) r.right_alias = newAlias
+  })
+}
+
+function updateTableAlias(t: DatasetTableItem, alias: string) {
+  const oldAlias = t.alias
+  t.alias = alias
+  syncRelationAlias(oldAlias, alias)
+  if (oldAlias && oldAlias !== alias) {
+    const oldColumns = columnsByAlias.value[oldAlias]
+    if (oldColumns && !columnsByAlias.value[alias]) columnsByAlias.value[alias] = oldColumns
+    delete columnsByAlias.value[oldAlias]
+  }
+}
+
+function onAliasInput(t: DatasetTableItem, alias: string) {
+  updateTableAlias(t, alias)
+}
+
+function onAliasChange(t: DatasetTableItem) {
+  const alias = normalizeAlias(t.alias)
+  if (!ALIAS_RE.test(alias)) {
+    ElMessage.warning('别名请使用英文、数字、下划线，且不能以数字开头')
+    updateTableAlias(t, nextAlias(t.table_name))
+    loadAliasColumns()
+    return
+  }
+  if (aliasDuplicate(alias, t)) {
+    ElMessage.warning(`别名重复: ${alias}`)
+    updateTableAlias(t, nextAlias(t.table_name))
+    loadAliasColumns()
+    return
+  }
+  updateTableAlias(t, alias)
   loadAliasColumns()
 }
 
@@ -210,6 +269,19 @@ async function save() {
   if (form.tables.length === 0) {
     ElMessage.warning('至少添加一张数据表')
     return
+  }
+  const aliases = new Set<string>()
+  for (const t of form.tables) {
+    updateTableAlias(t, normalizeAlias(t.alias))
+    if (!ALIAS_RE.test(t.alias || '')) {
+      ElMessage.warning(`别名格式不合法: ${t.alias}`)
+      return
+    }
+    if (aliases.has(t.alias)) {
+      ElMessage.warning(`别名重复: ${t.alias}`)
+      return
+    }
+    aliases.add(t.alias)
   }
   saving.value = true
   try {
@@ -310,10 +382,17 @@ onMounted(async () => {
             v-model="t.table_name"
             placeholder="选择源表"
             style="width: 260px"
-            @change="(v: string | number) => onTableChange(t, t.alias)"
+            @change="() => onTableChange(t)"
           >
             <el-option v-for="vt in visibleTables" :key="vt.table_name" :label="vt.label" :value="vt.table_name" />
           </el-select>
+          <el-input
+            :model-value="t.alias"
+            placeholder="别名，如 mgr / sub"
+            style="width: 180px"
+            @update:model-value="(v: string) => onAliasInput(t, v)"
+            @change="() => onAliasChange(t)"
+          />
           <span class="table-name-hint">{{ tableDisplayName(t) }}</span>
           <el-button link type="danger" @click="removeTable(i)">
             <el-icon><Delete /></el-icon>

@@ -47,8 +47,8 @@ const availableCols = computed(() =>
 
 const availableColumnGroups = computed(() => groupColumns(availableCols.value))
 
-const selectedDimensions = computed(() => selectedCols.value.filter((item) => item.agg_role !== 'measure'))
-const selectedMeasures = computed(() => selectedCols.value.filter((item) => item.agg_role === 'measure'))
+const selectedDimensions = computed(() => selectedCols.value.filter((item) => !isMeasureLike(item)))
+const selectedMeasures = computed(() => selectedCols.value.filter((item) => isMeasureLike(item)))
 const selectedFieldGroups = computed(() => [
   {
     key: 'dimension',
@@ -126,6 +126,22 @@ function colSetting(code: string): ColumnSetting {
   return props.columnSettings[code] || {}
 }
 
+function isCountAggregation(value?: string) {
+  return value === 'count' || value === 'count_distinct'
+}
+
+function isCountMetric(col: ColumnInfo) {
+  return col.agg_role !== 'measure' && isCountAggregation(colSetting(col.code).aggregation)
+}
+
+function isMeasureLike(col: ColumnInfo) {
+  return col.agg_role === 'measure' || isCountMetric(col)
+}
+
+function countAggOptions() {
+  return AGG_FUNCS.filter((item) => isCountAggregation(item.value))
+}
+
 function updateSetting(code: string, patch: ColumnSetting) {
   emit('update:columnSettings', {
     ...props.columnSettings,
@@ -197,6 +213,7 @@ function effectiveAggregation(col: ColumnInfo) {
 }
 
 function fieldAggregationLabel(col: ColumnInfo) {
+  if (isCountMetric(col)) return reportAggLabel(colSetting(col.code).aggregation)
   if (col.agg_role !== 'measure') return '分组'
   return reportAggLabel(effectiveAggregation(col))
 }
@@ -402,8 +419,8 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
                   class="selected-field"
                   :class="{
                     'is-hidden': colSetting(col.code).hidden,
-                    'is-dimension': col.agg_role !== 'measure',
-                    'is-measure': col.agg_role === 'measure',
+                    'is-dimension': !isMeasureLike(col),
+                    'is-measure': isMeasureLike(col),
                   }"
                 >
                   <span class="drag-handle" title="拖动字段调整顺序">
@@ -414,7 +431,7 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
                       <span class="field-name">{{ displayLabel(col) }}</span>
                     </button>
                   </el-tooltip>
-                  <span v-if="aggregate" class="field-agg-badge" :class="{ 'is-dimension': col.agg_role !== 'measure' }">
+                  <span v-if="aggregate" class="field-agg-badge" :class="{ 'is-dimension': !isMeasureLike(col) }">
                     {{ fieldAggregationLabel(col) }}
                   </span>
                   <span v-if="fieldSortLabel(col.code)" class="field-sort-badge">{{ fieldSortLabel(col.code) }}</span>
@@ -506,7 +523,27 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
                             恢复默认统计类型（{{ reportAggLabel(defaultAggregationValue()) }}）
                           </button>
                         </template>
-                        <div v-else class="menu-note">维度字段在汇总模式下作为分组维度，等同于不汇总。</div>
+                        <template v-else>
+                          <div class="agg-options">
+                            <button
+                              v-for="item in countAggOptions()"
+                              :key="item.value"
+                              class="agg-option"
+                              :class="{ 'is-active': colSetting(col.code).aggregation === item.value }"
+                              @click="setAggregation(col.code, item.value)"
+                            >
+                              {{ item.label }}
+                            </button>
+                          </div>
+                          <button
+                            v-if="colSetting(col.code).aggregation"
+                            class="menu-link-command"
+                            @click="resetAggregation(col.code)"
+                          >
+                            恢复为分组维度
+                          </button>
+                          <div class="menu-note">维度字段默认作为分组；选择计数/去重计数后会作为统计指标。</div>
+                        </template>
                       </div>
 
                       <div class="menu-block">

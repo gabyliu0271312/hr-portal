@@ -9,6 +9,7 @@
 - GET    /datasets/_visible-tables   返回当前用户能配数据集时可纳入的源表清单
 """
 from datetime import datetime
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,6 +29,7 @@ from app.users.models import User, UserRole
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
+ALIAS_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 # ===== Schemas =====
@@ -200,6 +202,11 @@ def _validate_payload(payload: DatasetIn) -> None:
         if t.table_name not in DATA_TABLES:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, detail=f"未知数据表: {t.table_name}"
+            )
+        if not ALIAS_RE.match(t.alias or ""):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"别名格式不合法: {t.alias}，请使用英文、数字、下划线，且不能以数字开头",
             )
         if t.alias in aliases:
             raise HTTPException(

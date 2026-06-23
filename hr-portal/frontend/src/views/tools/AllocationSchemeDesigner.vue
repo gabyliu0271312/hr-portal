@@ -85,8 +85,20 @@ const filterRef = ref<InstanceType<typeof ReportFilterList> | null>(null)
 const selectedColsDetail = computed(() =>
   form.selected_codes.map((c) => allColumns.value.find((x) => x.code === c)).filter(Boolean) as ColumnInfo[]
 )
-const selectedDimensions = computed(() => selectedColsDetail.value.filter((c) => c.agg_role !== 'measure'))
-const selectedMeasures = computed(() => selectedColsDetail.value.filter((c) => c.agg_role === 'measure'))
+function isCountAggregation(value?: string) {
+  return value === 'count' || value === 'count_distinct'
+}
+
+function isCountMetric(col: ColumnInfo) {
+  return col.agg_role !== 'measure' && isCountAggregation(form.column_settings[col.code]?.aggregation)
+}
+
+function isMeasureLike(col: ColumnInfo) {
+  return col.agg_role === 'measure' || isCountMetric(col)
+}
+
+const selectedDimensions = computed(() => selectedColsDetail.value.filter((c) => !isMeasureLike(c)))
+const selectedMeasures = computed(() => selectedColsDetail.value.filter((c) => isMeasureLike(c)))
 const isDataset = computed(() => true)
 
 async function loadDatasets() {
@@ -125,7 +137,7 @@ async function loadScheme() {
     form.default_aggregation = (cfg.default_aggregation || 'sum') as AggregationFunc
     form.aggregations = { ...(cfg.aggregations ?? {}) }
     for (const [code, aggregation] of Object.entries(form.aggregations)) {
-      if (aggregation && aggregation !== form.default_aggregation && !form.column_settings[code]?.aggregation) {
+      if (aggregation && !form.column_settings[code]?.aggregation) {
         form.column_settings[code] = {
           ...(form.column_settings[code] || {}),
           aggregation: aggregation as AggregationFunc,
@@ -231,6 +243,7 @@ function onCalculatedFieldSaved(field: DatasetCalculatedField) {
 
 function buildPayload(): AllocationSchemeIn {
   const selectedMeasureCodes = selectedMeasures.value.map((c) => c.code)
+  const selectedPhysicalMeasureCodes = selectedMeasures.value.filter((c) => c.agg_role === 'measure').map((c) => c.code)
   const c2r = form.transpose.column_to_row || {}
   const r2c = form.transpose.row_to_column || {}
   const filterLogic: FilterLogic | null =
@@ -239,7 +252,7 @@ function buildPayload(): AllocationSchemeIn {
       : null
   const valueRulesByTarget = new Map<string, string>()
   if (form.default_split_rule.enabled && form.default_split_rule.factor) {
-    for (const measure of selectedMeasureCodes) {
+    for (const measure of selectedPhysicalMeasureCodes) {
       const setting = form.column_settings[measure] || {}
       if (setting.split_mode === 'none') continue
       if (setting.split_mode === 'custom' && setting.split_factor) {
@@ -252,7 +265,7 @@ function buildPayload(): AllocationSchemeIn {
   for (const rule of form.value_rules) {
     if (rule.target && rule.factor) valueRulesByTarget.set(rule.target, rule.factor)
   }
-  for (const measure of selectedMeasureCodes) {
+  for (const measure of selectedPhysicalMeasureCodes) {
     const setting = form.column_settings[measure] || {}
     if (setting.split_mode === 'none') valueRulesByTarget.delete(measure)
     if (setting.split_mode === 'custom' && setting.split_factor) valueRulesByTarget.set(measure, setting.split_factor)
@@ -319,8 +332,8 @@ function buildPayload(): AllocationSchemeIn {
           conflict_strategy: (r2c.conflict_strategy || 'first') as Exclude<ReshapeConflictStrategy, 'keep_all'>,
         },
       },
-      rounding_corrections: form.aggregate && form.rounding_group_by.length && selectedMeasureCodes.length
-        ? [{ group_by: [...form.rounding_group_by], target_cols: selectedMeasureCodes }]
+      rounding_corrections: form.aggregate && form.rounding_group_by.length && selectedPhysicalMeasureCodes.length
+        ? [{ group_by: [...form.rounding_group_by], target_cols: selectedPhysicalMeasureCodes }]
         : form.aggregate
           ? form.rounding_corrections
             .filter((rc) => rc.group_by && rc.target_cols.length)

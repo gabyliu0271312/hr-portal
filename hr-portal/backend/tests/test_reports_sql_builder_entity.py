@@ -319,6 +319,103 @@ async def test_report_aggregate_keeps_database_numeric_values():
     assert_no_raw_sql(db)
 
 
+async def test_report_dimension_field_can_be_count_metric_for_self_join_span():
+    table_name = "report_entity_roster_span"
+    model = make_entity_model(
+        table_name,
+        [
+            Column("employee_no", String),
+            Column("full_name", String),
+            Column("direct_supervisor", String),
+            Column("employee_type", String),
+        ],
+    )
+    old = register_table(table_name, model)
+    ds = DataSet(id=31, name="manager span")
+    tables = [
+        DataSetTable(dataset_id=31, table_name=table_name, alias="mgr"),
+        DataSetTable(dataset_id=31, table_name=table_name, alias="sub"),
+    ]
+    rel = DataSetRelation(
+        dataset_id=31,
+        left_alias="mgr",
+        right_alias="sub",
+        join_type="left",
+        keys=[{"left": "full_name", "right": "direct_supervisor"}],
+    )
+    columns = [
+        make_column(table_name, "employee_no", column_label="employee_no", agg_role="dimension"),
+        make_column(table_name, "full_name", column_label="full_name", agg_role="dimension"),
+        make_column(table_name, "direct_supervisor", column_label="direct_supervisor", agg_role="dimension"),
+        make_column(table_name, "employee_type", column_label="employee_type", agg_role="dimension"),
+    ]
+    db = FakeSession(
+        get_map={(DataSet, 31): ds},
+        results=[
+            *dataset_rows(31, tables, [rel]),
+            FakeResult(rows=columns),
+            FakeResult(rows=columns),
+            FakeResult(rows=[]),
+            FakeResult(rows=[
+                FakeRow(
+                    __mgr__id=1,
+                    __sub__id=2,
+                    __mgr__employee_no="M001",
+                    __mgr__full_name="Manager A",
+                    __sub__employee_no="E001",
+                    __sub__employee_type="正式员工",
+                ),
+                FakeRow(
+                    __mgr__id=1,
+                    __sub__id=3,
+                    __mgr__employee_no="M001",
+                    __mgr__full_name="Manager A",
+                    __sub__employee_no="E002",
+                    __sub__employee_type="正式员工",
+                ),
+                FakeRow(
+                    __mgr__id=1,
+                    __sub__id=3,
+                    __mgr__employee_no="M001",
+                    __mgr__full_name="Manager A",
+                    __sub__employee_no="E002",
+                    __sub__employee_type="正式员工",
+                ),
+            ]),
+        ],
+    )
+
+    try:
+        _cols, items, total = await sql_builder.run_dataset_query(
+            dataset_id=31,
+            columns=["mgr.employee_no", "mgr.full_name", "sub.employee_no"],
+            filters=[{"column": "sub.employee_type", "op": "eq", "value": "正式员工"}],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[],
+            aggregate=True,
+            aggregations={"sub.employee_no": "count_distinct"},
+            transpose={},
+            rounding_corrections=[],
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+        )
+    finally:
+        restore_table(table_name, old)
+
+    assert total == 1
+    assert items == [
+        {
+            "mgr.employee_no": "M001",
+            "mgr.full_name": "Manager A",
+            "sub.employee_no": 2,
+        }
+    ]
+    assert_no_raw_sql(db)
+
+
 async def test_report_calculated_field_uses_selected_entity_dependencies():
     table_name = "report_entity_calc"
     model = make_entity_model(table_name, [Column("amount", Numeric)])

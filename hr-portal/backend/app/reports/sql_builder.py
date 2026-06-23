@@ -225,6 +225,9 @@ def _mul_round2(a: Any, b: Any) -> Any:
         return ""
 
 
+COUNT_AGG_FUNCS = {"count", "count_distinct"}
+
+
 def _aggregate(values: list, func: str, row_count: int) -> Any:
     """对一组值做聚合：sum/avg/min/max/count/count_distinct；非数值跳过，无数值 → 空"""
     if func == "count":
@@ -1372,9 +1375,20 @@ async def run_dataset_query(
         )
         return getattr(col, "agg_role", "dimension") if col else "dimension"
 
+    def _explicit_count_metric(qual: str) -> bool:
+        return (aggregations or {}).get(qual) in COUNT_AGG_FUNCS
+
     output_pairs = display_selected + [("calc", f.code) for f in selected_calc_fields]
-    dim_quals = [f"{a}.{c}" for (a, c) in output_pairs if _role(a, c) == "dimension"]
-    mea_quals = [f"{a}.{c}" for (a, c) in output_pairs if _role(a, c) == "measure"]
+    dim_quals = [
+        f"{a}.{c}"
+        for (a, c) in output_pairs
+        if _role(a, c) == "dimension" and not _explicit_count_metric(f"{a}.{c}")
+    ]
+    mea_quals = [
+        f"{a}.{c}"
+        for (a, c) in output_pairs
+        if _role(a, c) == "measure" or _explicit_count_metric(f"{a}.{c}")
+    ]
     agg_on = bool(aggregate) and len(mea_quals) > 0
     transpose_rules = (transpose or {}).get("rules") or []
     transpose_enabled = bool((transpose or {}).get("enabled"))
