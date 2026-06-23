@@ -10,6 +10,7 @@ const props = defineProps<{
   selectedCodes: string[]
   allColumns: ColumnInfo[]
   sourceGroups?: { key: string; label: string }[]
+  currentDatasetTables?: { table_name: string; alias: string; table_label?: string | null }[]
   columnSettings: Record<string, ColumnSetting>
   defaultSplitRule: DefaultSplitRule
   defaultAggregation?: AggregationFunc
@@ -73,6 +74,10 @@ const draggingCode = ref('')
 const collapsedSourceKeys = ref<Set<string>>(new Set())
 const advancedOpen = ref(false)
 const advancedTab = ref<'rules' | 'reshape' | 'lookup'>('rules')
+const metricFilterOpen = ref(false)
+const metricFilterCol = ref<ColumnInfo | null>(null)
+const metricFilterDraft = ref<FilterCond[]>([])
+const metricFilterLogicDraft = ref<FilterLogic | null>(null)
 const advancedMeta = computed(() => {
   const map = {
     rules: {
@@ -261,6 +266,39 @@ function setMetricFilters(code: string, filters: FilterCond[]) {
 
 function setMetricFilterLogic(code: string, logic: FilterLogic | null) {
   updateSetting(code, { metric_filter_logic: logic })
+}
+
+function cloneMetricFilters(filters: FilterCond[] = []): FilterCond[] {
+  return filters.map((item) => ({ ...item }))
+}
+
+function openMetricFilterDialog(col: ColumnInfo) {
+  metricFilterCol.value = col
+  metricFilterDraft.value = cloneMetricFilters(metricFilters(col))
+  metricFilterLogicDraft.value = metricFilterLogic(col)
+    ? { ...metricFilterLogic(col)! }
+    : null
+  metricFilterOpen.value = true
+}
+
+function clearMetricFilterDraft() {
+  metricFilterDraft.value = []
+  metricFilterLogicDraft.value = null
+}
+
+function setMetricFilterDraft(filters: FilterCond[]) {
+  metricFilterDraft.value = filters
+}
+
+function setMetricFilterLogicDraft(logic: FilterLogic | null) {
+  metricFilterLogicDraft.value = logic
+}
+
+function confirmMetricFilterDialog() {
+  if (!metricFilterCol.value) return
+  setMetricFilters(metricFilterCol.value.code, cloneMetricFilters(metricFilterDraft.value))
+  setMetricFilterLogic(metricFilterCol.value.code, metricFilterLogicDraft.value)
+  metricFilterOpen.value = false
 }
 
 function resetDisplayName(code: string) {
@@ -571,18 +609,14 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
                         </template>
                       </div>
 
-                      <div v-if="aggregate && isMeasureLike(col)" class="menu-block metric-filter-block">
-                        <div class="menu-title">指标筛选</div>
-                        <div class="menu-note">只过滤当前指标参与统计的明细行，不会过滤整张报表的维度行。</div>
-                        <ReportFilterList
-                          :filters="metricFilters(col)"
-                          :filter-logic="metricFilterLogic(col)"
-                          :all-columns="allColumns"
-                          :show-view-controls="false"
-                          compact
-                          @update:filters="(value: FilterCond[]) => setMetricFilters(col.code, value)"
-                          @update:filter-logic="(value: FilterLogic | null) => setMetricFilterLogic(col.code, value)"
-                        />
+                      <div v-if="aggregate && isMeasureLike(col)" class="menu-block">
+                        <button class="menu-command" @click="openMetricFilterDialog(col)">
+                          指标筛选...
+                          <span v-if="metricFilterSummary(col)" class="menu-command-badge">
+                            {{ metricFilters(col).filter((item) => item.column).length }}
+                          </span>
+                        </button>
+                        <div class="menu-note">只影响当前指标，不过滤整张报表。</div>
                       </div>
 
                       <div class="menu-block">
@@ -648,6 +682,39 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
         <slot name="filters" />
       </section>
     </main>
+
+    <el-dialog
+      v-model="metricFilterOpen"
+      :title="`${metricFilterCol ? displayLabel(metricFilterCol) : '指标'} · 指标筛选`"
+      width="760px"
+      class="metric-filter-dialog"
+      destroy-on-close
+    >
+      <div class="metric-filter-dialog-body">
+        <div class="metric-filter-explain">
+          <strong>只过滤当前指标参与统计的明细行</strong>
+          <span>例如给“正式员工管理幅宽”设置 sub.employee_type = 正式员工，经理维度行仍会保留，没有正式下属时指标显示为 0。</span>
+        </div>
+        <ReportFilterList
+          :filters="metricFilterDraft"
+          :filter-logic="metricFilterLogicDraft"
+          :all-columns="allColumns"
+          :current-dataset-tables="currentDatasetTables"
+          :show-view-controls="false"
+          compact
+          @update:filters="setMetricFilterDraft"
+          @update:filter-logic="setMetricFilterLogicDraft"
+        />
+      </div>
+      <template #footer>
+        <div class="metric-filter-footer">
+          <el-button text type="danger" @click="clearMetricFilterDraft">清空条件</el-button>
+          <span class="footer-spacer" />
+          <el-button @click="metricFilterOpen = false">取消</el-button>
+          <el-button type="primary" @click="confirmMetricFilterDialog">确定</el-button>
+        </div>
+      </template>
+    </el-dialog>
 
     <el-drawer
       v-model="advancedOpen"
@@ -1148,6 +1215,55 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
 }
 .field-config-button:hover {
   background: rgba(255, 255, 255, 0.14);
+}
+.menu-command-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+.metric-filter-dialog :deep(.el-dialog__body) {
+  padding-top: 8px;
+}
+.metric-filter-dialog-body {
+  display: grid;
+  gap: 14px;
+}
+.metric-filter-explain {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid rgba(20, 86, 240, 0.16);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 0 0, rgba(20, 86, 240, 0.12), transparent 30%),
+    linear-gradient(135deg, #f8fbff 0%, #fff 100%);
+}
+.metric-filter-explain strong {
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+.metric-filter-explain span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.metric-filter-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.footer-spacer {
+  flex: 1;
 }
 .selected-field:hover {
   filter: brightness(0.98);

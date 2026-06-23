@@ -739,6 +739,7 @@ watch(
               v-model:sorts="form.sorts"
               :all-columns="columns"
               :source-groups="sourceGroups"
+              :current-dataset-tables="currentDataset?.tables"
               :loading="loading"
               :lookup-enabled="form.list_lookup.enabled"
               :is-dataset="isDataset"
