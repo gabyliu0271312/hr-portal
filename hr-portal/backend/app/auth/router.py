@@ -1,14 +1,17 @@
-"""认证 API：登录 / 我是谁 / 改密 / 登出 / SSO 占位
+"""认证 API：登录 / 我是谁 / 改密 / 登出 / 飞书 SSO
 
 详细规格见 contracts/openapi-skeleton.md §1
 """
+import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import feishu_client
+from app.auth.feishu_client import FeishuError
 from app.auth.password import hash_password, is_strong_enough, verify_password
 from app.core.config import settings
 from app.core.db import get_session
@@ -164,7 +167,80 @@ async def change_password(
 
 @router.post("/feishu/sso", status_code=status.HTTP_501_NOT_IMPLEMENTED)
 async def feishu_sso() -> dict:
-    """飞书 SSO 接入位 —— 本期占位，下一期实现"""
+    """旧占位接口，保留兼容；真链路走 /feishu/url + /feishu/callback"""
     raise HTTPException(
-        status.HTTP_501_NOT_IMPLEMENTED, detail="飞书 SSO 即将上线，请使用账密登录"
+        status.HTTP_501_NOT_IMPLEMENTED, detail="请使用飞书登录按钮，走 /feishu/url"
     )
+
+
+# ===== 飞书单点登录 =====
+
+
+class FeishuUrlOut(BaseModel):
+    url: str
+    state: str
+
+
+@router.get("/feishu/url", response_model=FeishuUrlOut)
+async def feishu_url() -> FeishuUrlOut:
+    """返回飞书网页授权地址 + 一次性 state（前端存 sessionStorage 防 CSRF）"""
+    if not settings.FEISHU_SSO_ENABLED:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="飞书登录未启用")
+    state = secrets.token_urlsafe(16)
+    return FeishuUrlOut(url=feishu_client.get_authorize_url(state), state=state)
+
+
+@router.get("/feishu/callback", response_model=LoginOut)
+async def feishu_callback(
+    code: str,
+    db: AsyncSession = Depends(get_session),
+) -> LoginOut:
+    """飞书回调：code 换身份 -> 按企业邮箱匹配内部用户 -> 签发 HR Portal JWT
+
+    匹配优先级：feishu_user_id（已绑定）-> email/enterprise_email。
+    首次邮箱匹配成功后回写 feishu_user_id 完成绑定。
+    """
+    if not settings.FEISHU_SSO_ENABLED:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="飞书登录未启用")
+
+    try:
+        fs_user = await feishu_client.exchange_user_info(code)
+    except FeishuError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+    # 1. 已绑定 feishu_user_id 直接命中
+    user = (
+        await db.execute(select(User).where(User.feishu_user_id == fs_user.open_id))
+    ).scalar_one_or_none()
+
+    # 2. 否则按邮箱（飞书个人邮箱 + 企业邮箱）匹配
+    if user is None:
+        emails = [e for e in (fs_user.enterprise_email, fs_user.email) if e]
+        if not emails:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="飞书账号未返回邮箱，无法匹配 HR Portal 用户",
+            )
+        user = (
+            await db.execute(select(User).where(or_(*[User.email == e for e in emails])))
+        ).scalar_one_or_none()
+        if user is None:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="你的飞书账号未开通 HR Portal 权限，请联系管理员",
+            )
+        # 首次匹配，回写绑定
+        user.feishu_user_id = fs_user.open_id
+
+    if not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="账号已被禁用")
+
+    now = datetime.now(UTC)
+    user.failed_login_count = 0
+    user.locked_until = None
+    user.last_login_at = now
+    await db.commit()
+
+    token = create_access_token(user.id)
+    expires_at = now + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
+    return LoginOut(access_token=token, expires_at=expires_at)

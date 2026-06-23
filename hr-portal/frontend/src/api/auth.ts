@@ -34,6 +34,11 @@ export interface MeResp {
   menus: MenuItem[]
 }
 
+export interface FeishuUrlResp {
+  url: string
+  state: string
+}
+
 export const authApi = {
   login: (login_name: string, password: string) =>
     api.post<LoginResp>('/auth/login', { login_name, password }).then((r) => r.data),
@@ -42,5 +47,10 @@ export const authApi = {
   changePassword: (old_password: string, new_password: string) =>
     api
       .post('/auth/change-password', { old_password, new_password })
+      .then((r) => r.data),
+  feishuUrl: () => api.get<FeishuUrlResp>('/auth/feishu/url').then((r) => r.data),
+  feishuCallback: (code: string) =>
+    api
+      .get<LoginResp>('/auth/feishu/callback', { params: { code } })
       .then((r) => r.data),
 }

@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     COST_ALLOCATION_APP_URL: str = "http://192.168.10.13:37800/"
     COST_ALLOCATION_ADMIN_PATH: str = "/admin/workbench"
 
+    # 飞书单点登录（用飞书账号登录 HR Portal 本身）
+    FEISHU_SSO_ENABLED: bool = False
+    FEISHU_APP_ID: str = ""
+    FEISHU_APP_SECRET: str = ""
+    # 飞书 OAuth 回调地址，必须与开放平台「安全设置-重定向 URL」白名单完全一致
+    FEISHU_REDIRECT_URI: str = "http://localhost:8080/auth/feishu/callback"
+
     LOGIN_FAIL_LIMIT: int = 5
     LOGIN_LOCK_MINUTES: int = 15
 

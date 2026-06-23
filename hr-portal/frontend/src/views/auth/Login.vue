@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { AxiosError } from 'axios'
 import { useUserStore } from '@/stores/user'
+import { authApi } from '@/api/auth'
 
 const router = useRouter()
 const route = useRoute()
@@ -12,6 +13,7 @@ const userStore = useUserStore()
 const loginName = ref('')
 const password = ref('')
 const submitting = ref(false)
+const ssoLoading = ref(false)
 const errorMsg = ref<string | null>(null)
 
 async function onSubmit() {
@@ -33,8 +35,19 @@ async function onSubmit() {
   }
 }
 
-function showSsoHint() {
-  ElMessage.info('飞书 SSO 即将上线，请使用账号密码登录')
+async function onFeishuLogin() {
+  ssoLoading.value = true
+  try {
+    const { url, state } = await authApi.feishuUrl()
+    sessionStorage.setItem('feishu_oauth_state', state)
+    const redirect = (route.query.redirect as string) || '/home'
+    sessionStorage.setItem('feishu_oauth_redirect', redirect)
+    window.location.href = url
+  } catch (e) {
+    const err = e as AxiosError<{ detail: string }>
+    ElMessage.error(err.response?.data?.detail || '飞书登录暂不可用')
+    ssoLoading.value = false
+  }
 }
 </script>
 
@@ -101,9 +114,14 @@ function showSsoHint() {
           <span>或</span>
         </div>
 
-        <button class="login__sso" disabled @click="showSsoHint">
+        <button
+          class="login__sso"
+          type="button"
+          :disabled="ssoLoading"
+          @click="onFeishuLogin"
+        >
           <span class="login__sso-icon">⌬</span>
-          飞书登录（即将上线）
+          {{ ssoLoading ? '正在跳转飞书…' : '飞书登录' }}
         </button>
       </main>
 
@@ -273,17 +291,26 @@ function showSsoHint() {
   border-radius: var(--radius-sm);
   font-family: var(--font-sans);
   font-size: var(--font-size-sm);
-  color: var(--color-text-placeholder);
-  cursor: not-allowed;
+  color: var(--color-text-regular);
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-2);
   letter-spacing: 0;
+  transition: border-color var(--duration-base) var(--ease-standard);
+}
+.login__sso:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.login__sso:disabled {
+  color: var(--color-text-placeholder);
+  cursor: not-allowed;
 }
 .login__sso-icon {
   font-size: 16px;
-  color: var(--color-text-disabled);
+  color: var(--color-primary);
 }
 
 .login__footer {

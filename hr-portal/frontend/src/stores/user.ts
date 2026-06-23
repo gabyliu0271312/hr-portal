@@ -50,6 +50,17 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  async function loginByFeishu(code: string): Promise<void> {
+    loading.value = true
+    try {
+      const resp = await authApi.feishuCallback(code)
+      setToken(resp.access_token)
+      await refresh()
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function refresh(): Promise<MeResp | null> {
     try {
       const me = await authApi.me()
@@ -90,6 +101,7 @@ export const useUserStore = defineStore('user', () => {
     childrenOf,
     hasOp,
     login,
+    loginByFeishu,
     refresh,
     logout,
     reset,
