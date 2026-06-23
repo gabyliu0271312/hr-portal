@@ -18,6 +18,7 @@ from app.core.deps import current_user, require_op
 from app.data.models import DATA_TABLES
 from app.permissions.masker import get_sensitive_columns
 from app.permissions.scope_filter import build_scope_filter, is_unrestricted
+from app.system.models import SystemLog
 from app.tools import agreement as agreement_svc
 from app.tools import docx_convert
 from app.tools import document_templates as template_svc
@@ -1077,7 +1078,39 @@ async def calculate_compensation(
     db: AsyncSession = Depends(get_session),
 ) -> CompensationCalcOut:
     result, _employee_values = await _calc_core(payload, user, db)
+    await _record_compensation_calc(db=db, user=user, result=result)
     return result
+
+
+async def _record_compensation_calc(
+    *,
+    db: AsyncSession,
+    user: User,
+    result: CompensationCalcOut,
+) -> None:
+    """记录补偿金计算使用日志：谁、何时、查了谁。写入统一 system_logs。"""
+    emp = result.employee
+    subject = emp.chinese_name or emp.name or emp.english_name or f"员工#{emp.id}"
+    db.add(
+        SystemLog(
+            category="compensation_calc",
+            action="calculate",
+            status="success",
+            user_id=user.id,
+            request_summary=f"{subject}（工号 {emp.employee_no or '-'}）",
+            response_summary=f"{result.plan} 合计 {result.total_amount:.2f} 元",
+            metadata_json={
+                "employee_id": emp.id,
+                "employee_no": emp.employee_no,
+                "employee_name": subject,
+                "company": emp.company,
+                "work_region": result.work_region,
+                "plan": result.plan,
+                "total_amount": result.total_amount,
+            },
+        )
+    )
+    await db.commit()
 
 
 async def _calc_core(

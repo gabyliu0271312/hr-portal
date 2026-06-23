@@ -60,7 +60,7 @@ async function onFeishuLogin() {
         <span class="login__brand-mark">▎</span>
         <div>
           <h1 class="login__brand-name">HR PORTAL</h1>
-          <p class="login__brand-sub">权限管理 · 报表中台</p>
+          <p class="login__brand-sub">人力资源门户</p>
         </div>
       </header>
 
@@ -124,13 +124,6 @@ async function onFeishuLogin() {
           {{ ssoLoading ? '正在跳转飞书…' : '飞书登录' }}
         </button>
       </main>
-
-      <footer class="login__footer">
-        <span class="login__version">v0.1.0 · Phase 2</span>
-        <span class="login__footer-hint">
-          首次登录请使用 admin 账号；密码见 .env 中的 ADMIN_INIT_PASSWORD
-        </span>
-      </footer>
     </div>
   </div>
 </template>
@@ -200,8 +193,7 @@ async function onFeishuLogin() {
   gap: var(--spacing-5);
 }
 
-.login__eyebrow,
-.login__version {
+.login__eyebrow {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-2);
@@ -212,8 +204,7 @@ async function onFeishuLogin() {
   letter-spacing: 0;
 }
 
-.login__eyebrow::before,
-.login__version::before {
+.login__eyebrow::before {
   content: '';
   width: 18px;
   height: 1px;
@@ -311,20 +302,6 @@ async function onFeishuLogin() {
 .login__sso-icon {
   font-size: 16px;
   color: var(--color-primary);
-}
-
-.login__footer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-  text-align: left;
-  padding: 0 var(--spacing-2);
-}
-.login__footer-hint {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  line-height: var(--line-height-loose);
-  font-family: var(--font-mono);
 }
 
 .fade-enter-active,

@@ -91,6 +91,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: 'AI 调用日志', menuCode: 'system.logs.ai' },
       },
       {
+        path: 'system/logs/operation',
+        name: 'SystemOperationLogs',
+        component: () => import('@/views/system/OperationLogs.vue'),
+        meta: { label: '操作日志', menuCode: 'system.logs.operation' },
+      },
+      {
         path: 'datasource/endpoints',
         name: 'DatasourceEndpoints',
         component: () => import('@/views/datasource/Endpoints.vue'),

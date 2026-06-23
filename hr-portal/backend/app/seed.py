@@ -77,6 +77,7 @@ MENU_TREE: list[dict] = [
                 "icon": "Tickets",
                 "children": [
                     {"code": "system.logs.ai", "label": "AI 调用日志", "icon": "ChatDotRound"},
+                    {"code": "system.logs.operation", "label": "操作日志", "icon": "List"},
                 ],
             },
         ],

@@ -3,7 +3,7 @@
     <!-- 顶部一级导航：tabs -->
     <div class="app-header">
       <div class="header-left">
-        <span class="system-name" @click="router.push('/home')">HR Portal · 权限报表中台</span>
+        <span class="system-name" @click="router.push('/home')">HR Portal · 人力资源门户</span>
         <nav class="top-tabs">
           <span
             v-for="g in tabGroups"
