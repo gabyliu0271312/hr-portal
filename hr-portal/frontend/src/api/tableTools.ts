@@ -31,6 +31,7 @@ export interface TemplateOut {
   aggregate: string
   version: number
   mapping_count: number
+  created_by: number | null
 }
 
 export interface TemplateDetail extends TemplateOut {

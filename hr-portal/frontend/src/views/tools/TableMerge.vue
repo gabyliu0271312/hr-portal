@@ -7,6 +7,13 @@ import {
 } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { tableToolsApi, type TemplateOut, type TemplateDetail, type MergeResult, type AiDraft } from '@/api/tableTools'
+import { useUserStore } from '@/stores/user'
+
+const userStore = useUserStore()
+/** 改/删门禁:仅模板创建者本人或超级管理员(与后端一致) */
+function canModify(t: TemplateOut): boolean {
+  return userStore.isSuperAdmin || t.created_by === userStore.user?.id
+}
 
 // ── 视图状态 ─────────────────────────────────────────────────────────────────
 // mode: list | build | merge
@@ -339,7 +346,7 @@ const editingColMapEntries = computed({
           <h1 class="page-title">表格归集</h1>
           <p class="page-desc">配置归集模板，定期上传多源文件一键合并为标准表格</p>
         </div>
-        <PermissionButton menu="table_tools" op="E" type="primary" :icon="Plus" @click="openNew">
+        <PermissionButton menu="table_tools" op="C" type="primary" :icon="Plus" @click="openNew">
           新建模板
         </PermissionButton>
       </div>
@@ -351,7 +358,7 @@ const editingColMapEntries = computed({
       <div v-else-if="!templates.length" class="empty-state">
         <el-icon class="empty-icon"><Grid /></el-icon>
         <p>暂无归集模板</p>
-        <PermissionButton menu="table_tools" op="E" type="primary" :icon="Plus" @click="openNew">
+        <PermissionButton menu="table_tools" op="C" type="primary" :icon="Plus" @click="openNew">
           创建第一个模板
         </PermissionButton>
       </div>
@@ -372,10 +379,10 @@ const editingColMapEntries = computed({
           </div>
           <div class="tpl-card-actions">
             <el-button type="primary" size="small" :icon="Upload" @click="openMerge(t)">合并</el-button>
-            <PermissionButton menu="table_tools" op="E" size="small" :icon="Edit" @click="openEdit(t.id)">
+            <PermissionButton v-if="canModify(t)" menu="table_tools" op="U" size="small" :icon="Edit" @click="openEdit(t.id)">
               编辑
             </PermissionButton>
-            <PermissionButton menu="table_tools" op="E" size="small" type="danger" :icon="Delete"
+            <PermissionButton v-if="canModify(t)" menu="table_tools" op="D" size="small" type="danger" :icon="Delete"
               @click="deleteTemplate(t)" />
           </div>
         </div>
@@ -671,10 +678,10 @@ const editingColMapEntries = computed({
         </button>
         <h2 class="build-title">合并 · {{ mergeTemplate?.name }}</h2>
         <div class="build-topbar-actions">
-          <el-button :icon="Download" :loading="downloading"
+          <PermissionButton menu="table_tools" op="E" :icon="Download" :loading="downloading"
             :disabled="!mergeFiles.length" @click="downloadResult">
             下载完整结果
-          </el-button>
+          </PermissionButton>
           <el-button type="primary" :loading="merging"
             :disabled="!mergeFiles.length" @click="runMerge">
             运行预览

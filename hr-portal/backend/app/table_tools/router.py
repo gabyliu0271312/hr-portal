@@ -1,8 +1,11 @@
 """table_tools 路由:归集模板库 + 多表合并执行。
 
-权限(过渡期沿用固定动作,menu_actions 升级后再细化):
-  V = 查看模板 / 用模板跑合并 / 下载
-  E = 建/改模板(决定数据口径,管控)
+权限(固定动作 V/C/U/D/E,owner 隔离写操作 —— 方案 B):
+  V = 查看模板 / 用模板跑合并
+  C = 新建模板(记 created_by)
+  U = 改模板;仅能改自己建的,超级管理员可改任何模板
+  D = 删模板;仅能删自己建的,超级管理员可删任何模板
+  E = 导出/下载结果
 """
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ from app.ai.policy_guard import enforce_output_deny_patterns, validate_capabilit
 from app.ai_formula.custom_functions import executable_functions
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
+from app.permissions.scope_filter import _is_super_admin
 from app.table_tools import engine
 from app.table_tools import ai_builder
 from app.table_tools.models import MergeSourceMapping, MergeTemplate
@@ -64,6 +68,7 @@ class TemplateOut(BaseModel):
     aggregate: str
     version: int
     mapping_count: int
+    created_by: int | None
 
 
 # ── 序列化 ─────────────────────────────────────────────────
@@ -86,7 +91,7 @@ def _template_out(t: MergeTemplate) -> TemplateOut:
         id=t.id, name=t.name, description=t.description,
         merge_keys=t.merge_keys, std_fields=t.std_fields,
         aggregate=t.aggregate, version=t.version,
-        mapping_count=len(t.mappings),
+        mapping_count=len(t.mappings), created_by=t.created_by,
     )
 
 
@@ -98,6 +103,17 @@ async def _load_template(db: AsyncSession, tid: int) -> MergeTemplate:
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在")
     return row
+
+
+async def _ensure_can_modify(db: AsyncSession, t: MergeTemplate, user: User) -> None:
+    """改/删门禁:仅模板创建者本人或超级管理员可操作。"""
+    if t.created_by == user.id:
+        return
+    if await _is_super_admin(user, db):
+        return
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN, detail="只能操作自己创建的模板"
+    )
 
 
 # ── 模板 CRUD ──────────────────────────────────────────────
@@ -145,7 +161,7 @@ async def get_template(
 async def create_template(
     payload: TemplateIn,
     db: AsyncSession = Depends(get_session),
-    user: User = Depends(require_op(MENU, "E")),
+    user: User = Depends(require_op(MENU, "C")),
 ) -> TemplateOut:
     if (await db.execute(select(MergeTemplate).where(MergeTemplate.name == payload.name))).scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, detail="模板名已存在")
@@ -173,9 +189,10 @@ async def update_template(
     tid: int,
     payload: TemplateIn,
     db: AsyncSession = Depends(get_session),
-    _: User = Depends(require_op(MENU, "E")),
+    user: User = Depends(require_op(MENU, "U")),
 ) -> TemplateOut:
     t = await _load_template(db, tid)
+    await _ensure_can_modify(db, t, user)
     t.name = payload.name
     t.description = payload.description
     t.merge_keys = payload.merge_keys
@@ -201,9 +218,10 @@ async def update_template(
 async def delete_template(
     tid: int,
     db: AsyncSession = Depends(get_session),
-    _: User = Depends(require_op(MENU, "E")),
+    user: User = Depends(require_op(MENU, "D")),
 ) -> Response:
     t = await _load_template(db, tid)
+    await _ensure_can_modify(db, t, user)
     await db.delete(t)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
