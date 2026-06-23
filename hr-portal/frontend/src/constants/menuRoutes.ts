@@ -9,6 +9,7 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   'system.ai_config': '/system/ai-config',
   'system.function_library': '/system/function-library',
   'system.logs.ai': '/system/logs/ai',
+  'system.logs.operation': '/system/logs/operation',
   'datasource.endpoints': '/datasource/endpoints',
   'datasource.datasets': '/datasource/datasets',
   'data.view': '/data/view',
