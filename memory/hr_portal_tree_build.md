@@ -1,20 +1,38 @@
 ---
 name: hr-portal-tree-build
-description: cost_center_tree 与 org_tree 的构建规则（数据源 + 字段映射 + 触发时机）
+description: cost_center_tree 来自成本中心月度表；org_tree 来自组织单元表 org_unit（按 parent_org_code 建树，2026-06-23 起）
 metadata:
   type: project
 ---
 
-# 两棵树的构建规则（2026-05-24 修复）
+# 两棵树的构建规则（2026-06-23 改：org_tree 改 org_unit 权威建树）
 
 ## 数据来源
 
 | 树 | 数据源表 | 触发 | 实现函数 |
 |---|---|---|---|
 | `cost_center_tree` | `cost_center_monthly` | `sync_to_table('cost_center_monthly')` 末尾 | `sync_service._sync_cc_tree` |
-| `org_tree` | `emp_realtime_roster` | `sync_to_table('emp_realtime_roster')` 末尾 | `sync_service._sync_org_tree` |
+| `org_tree` | **`org_unit`（组织单元表，2026-06-23 起）** | `sync_to_table('org_unit')` 末尾 | `sync_service._sync_org_tree` |
 
-每次同步对应业务表后**全量重建**（先 `delete()`，再按当前 raw 集合插入），保证树永远反映源端最新结构。
+每次同步对应业务表后**全量重建**（先 `delete()`，派发读落库实体行后重插），保证树永远反映源端最新结构。
+
+## 组织架构树字段映射（org_unit 权威建树，2026-06-23 起）
+
+源端 `org_unit`（组织单元表）每行：
+
+- `编码`(org_code) → `code`（业务主键，源端真编码，抗改名）
+- `组织名称`(org_name) → `name`
+- `行政上级组织编码`(parent_org_code) → 显式连父：== `RootOrg` 或空 → 挂虚拟根；否则连到对应编码节点；父找不到/成环 → 挂虚拟根并 warning
+- `状态`(org_status) ∈ {启用, 生效, 正常} → `is_active=True`，否则 False
+- 字段：编码/组织名称/组织全称/行政上级组织编码/行政维度上级/状态/**设立日期**/生效日期/变动类型（**无变动日期**，已删；source_field_id 全为 NULL，靠中文表头匹配）
+
+**虚拟根**：代码固定生成 `code='RootOrg'`、`name=ORG_ROOT_NAME`（默认「创梦天地」）、level=1。子节点 level 按 parent_org_code 链路从 RootOrg 向下推算（直接子=2）。org_tree 始终唯一一个 `parent_id IS NULL` 根。
+
+**员工 org_node_code**：花名册 `org_node_code` 收敛为唯一一列，值直接取源端北森「组织节点编码」（删了旧派生 hash 列，源端列改名上位，scope_role=org_node_code）。与树节点 code 同体系，权限按任意层级授权都能命中、抗改名。源端为空则留空不兜底。
+
+**Why 改**：旧方案从花名册 6 层部门名反推、节点 code 用路径名 SHA256，部门一改名 code 全变 → 已配权限标签失效；空部门建不出。改 org_unit 后每层都是真实源端编码，结构完整、抗改名。详见 `specs/007-org-unit-tree/spec.md`。
+
+> ⚠️ 旧逻辑（已废弃）：`_sync_org_tree` 曾从 `emp_realtime_roster` 6 层冗余字段（company_org/department/department_2…）+ `L{level}_{sha256}` code 建 7 层树；`_inject_org_node_code` 派生 org_node_code。这些函数已删除。
 
 ## 成本中心树字段映射（4 层）
 
@@ -27,22 +45,6 @@ metadata:
 - `启用状态` "启用"/"停用" → `is_active`
 
 **Why**：北森给的字段命名怪——`层级` 字段是常量"成本中心"，**`业务层级Id` 才是真实层级数字**；`上级成本中心` 字段不可靠（指向 name 不指向 code，且 lvl=2 的"上级"是空）。父匹配只能靠"上一级冗余路径名"。
-
-## 组织架构树字段映射（7 层）
-
-源端 `emp_realtime_roster` 每行包含 6 个层级字段：
-
-```text
-公司级组织 → 一级部门 → 二级部门 → 三级部门 → 四级部门 → 五级部门
-```
-
-代码端再叠一个**虚拟根节点**「创梦天地」（取自 `ORG_ROOT_NAME` 配置项）→ 总共 **7 层**。
-
-字段为空字符串则截断（员工只到 N 级部门则建到 N 级）。
-
-**节点 code 生成**：源端没给部门编码，代码用 `f"L{level}_{sha256(path)[:16]}"` 作稳定 code，DISTINCT 去重。
-
-**Why**：组织树本就该来自员工实际所在部门，否则会和员工数据脱钩；且北森从不直接给"组织架构表"接口。
 
 ## 历史踩坑
 

@@ -16,7 +16,7 @@
 - [menu_actions 升级（Phase 6 前必做）](./hr_portal_menu_actions_upgrade.md) — 权限模型从固定 V/C/U/D/E 升级为自定义动作字典；过渡期工作流按钮用 op="U" 兜底
 - [调度系统组件化方案](./hr_portal_scheduler_design.md) — scheduled_jobs/job_runs 通用表 + JOB_HANDLERS 字典；未来加报表订阅/消息推送只加 handler 不改表
 - [报表组件架构决策](./hr_portal_report_component_architecture.md) — 报表管理与成本分摊共享 10 个组件库；成本分摊多 ArchiveSection；改共享组件两边同步，改页面文件只影响各自模块
-- [两棵树构建规则](./hr_portal_tree_build.md) — cost_center_tree 来自月度维护表 + 业务层级Id；org_tree 来自实时花名册 + 7 层冗余字段（含虚拟根「创梦天地」）
+- [两棵树构建规则](./hr_portal_tree_build.md) — cost_center_tree 来自月度维护表；**org_tree 已改由组织单元表 org_unit 权威建树（2026-06-23，spec 007）**，按 parent_org_code 显式连父+RootOrg 虚拟根；org_node_code 收敛为源端真编码单列
 - [服务器部署手册](./hr_portal_server_deploy.md) — 192.168.10.13 生产部署全记录；三大坑(端口白名单找IT开/拉镜像被墙换国内源/base镜像复用)；前端 37801 对外、db 仅 127.0.0.1；FineBI 同机回环连库；更新/重启/排障命令
 - [数据源重构方案（JSONB→标准列）](./hr_portal_datasource_refactor.md) — 待实施；解决 FineBI 数值无法聚合根本问题；改动 models/sync/push/router 四处；字段类型改动策略：新增直接生效，已有字段改类型需人工确认
 - [Codegen 命名机制](./hr_portal_codegen_naming.md) — 表名/字段 code 三层定名：同中文label复用→AI翻译→规则兜底；建表与同步共用 codegen/service.py；改命名问题先看这条

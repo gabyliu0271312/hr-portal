@@ -16,7 +16,7 @@
 3. **冗余字段问题**：花名册接口新增了源端字段 `org_node_code_2`（中文表头「组织节点编码」，按 UUID 锚定），系统按"同名 code 已占用"自动加后缀建成独立列，与系统派生的 `org_node_code` 形成两个语义重叠的列。
 
 ### 新方案（已与用户确认的事实）
-用户可从北森**同步一张「组织单元」表**，字段含：编码、组织名称、组织全称、行政上级组织编码、行政维度上级、状态、生效日期、变动日期、变动类型。已确认：
+用户可从北森**同步一张「组织单元」表**，字段含：编码、组织名称、组织全称、行政上级组织编码、行政维度上级、状态、设立日期、生效日期、变动类型。已确认：
 - 花名册里员工**带最子节点部门的编码**（当前本地暂名 `org_node_code_2`，源端中文表头「组织节点编码」），且**与组织单元表是同一套编码体系**，一定能查到对应节点。
 - 同一部门下所有员工的部门编码一致（无脏数据）。
 - 组织单元表里根节点的「行政上级组织编码」指向虚拟根 `RootOrg`。
@@ -76,8 +76,8 @@
   | `parent_org_code` | 行政上级组织编码 | string | dimension |
   | `parent_org_dim` | 行政维度上级 | string | dimension |
   | `org_status` | 状态 | string | dimension |
+  | `establish_date` | 设立日期 | date | dimension |
   | `effective_date` | 生效日期 | date | dimension |
-  | `change_date` | 变动日期 | date | dimension |
   | `change_type` | 变动类型 | string | dimension |
 
 > 预 seed 字段只是为了先锁定 `is_pk_part` 和 code；即便不预 seed，首次同步 `_ensure_columns` 也会自动发现，但主键判断会落空。**必须预 seed `org_code` 为主键。**
@@ -164,7 +164,7 @@
 
 ### 验收 1　表与字段就位
 - 启动后系统设置 → 字段管理，业务表下拉出现「组织单元」。
-- 其字段含编码/组织名称/.../变动类型 9 项；`编码`(org_code) 标记为业务主键。
+- 其字段含编码/组织名称/组织全称/行政上级组织编码/行政维度上级/状态/设立日期/生效日期/变动类型 9 项（**无「变动日期」**，日期口径为「设立日期 → 生效日期」）；`编码`(org_code) 标记为业务主键。
 
 ### 验收 2　组织树建出且结构正确
 - 在「组织单元」数据源配好 report_id、执行「立即拉取」成功。
@@ -199,8 +199,9 @@
 | 文件 | 改动 |
 |---|---|
 | `backend/app/seed.py` | `_DATASOURCES_INIT` + `_BUILTIN_TABLES` 各加一条 `org_unit` |
-| `backend/alembic/versions/0044_add_org_unit.py` | 新建：注册表 + 创建 `org_unit` 物理表 + 预 seed 9 字段（org_code 设主键）+ 收敛花名册 `org_node_code_2 → org_node_code`（也可拆 0045） |
-| `backend/app/datasources/sync_service.py` | 重写 `_sync_org_tree`（按 parent_org_code 建树，固定 `RootOrg` 虚拟根）；派发改 `org_unit` 触发并读取落库后实体行；删除 `_inject_org_node_code` 注入逻辑 |
+| `backend/alembic/versions/0044_add_org_unit.py` | 新建：注册表 + 创建 `org_unit` 物理表 + 预 seed 9 字段（org_code 设主键，日期为设立日期/生效日期）+ 收敛花名册 `org_node_code_2 → org_node_code` |
+| `backend/alembic/versions/0045_org_unit_establish_date.py` | 新建：收敛已上线生产库——删 `change_date`(变动日期) 物理列+元数据，加 `establish_date`(设立日期, order=65, 置于生效日期前) |
+| `backend/app/datasources/sync_service.py` | 重写 `_sync_org_tree`（按 parent_org_code 建树，固定 `RootOrg` 虚拟根）；派发改 `org_unit` 触发并读取落库后实体行；删除 `_inject_org_node_code` 注入逻辑；`SOURCE_DROP_COLUMNS` 加 `org_unit:{变动日期,change_date}` 防源端字段复活 |
 | `backend/app/trees/router.py` / 前端文案 | 组织树 inactive 语义改为「停用组织」，`include_inactive` 文案同步调整 |
 | 字段管理（验收观察，非最终操作） | 最终不应再存在 `org_node_code_2`；只保留源端真实编码列 `org_node_code` |
 
