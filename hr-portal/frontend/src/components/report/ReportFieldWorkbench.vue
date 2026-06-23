@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowDown, ArrowRight, Close, Edit, Hide, Plus, Rank, View } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Close, Edit, Filter, Hide, Plus, Rank, View } from '@element-plus/icons-vue'
 import type { ColumnInfo } from '@/api/data'
 import type { AggregationFunc, ColumnSetting, DefaultSplitRule, FilterCond, FilterLogic, SortCond } from '@/api/reports'
 import { REPORT_AGG_FUNCS, reportAggLabel } from '@/constants/reportAggregation'
@@ -260,12 +260,8 @@ function metricFilterSummary(col: ColumnInfo) {
   return count ? `指标筛选 ${count} 条` : ''
 }
 
-function setMetricFilters(code: string, filters: FilterCond[]) {
-  updateSetting(code, { metric_filters: filters })
-}
-
-function setMetricFilterLogic(code: string, logic: FilterLogic | null) {
-  updateSetting(code, { metric_filter_logic: logic })
+function metricFilterCount(col: ColumnInfo) {
+  return metricFilters(col).filter((item) => item.column).length
 }
 
 function cloneMetricFilters(filters: FilterCond[] = []): FilterCond[] {
@@ -296,8 +292,10 @@ function setMetricFilterLogicDraft(logic: FilterLogic | null) {
 
 function confirmMetricFilterDialog() {
   if (!metricFilterCol.value) return
-  setMetricFilters(metricFilterCol.value.code, cloneMetricFilters(metricFilterDraft.value))
-  setMetricFilterLogic(metricFilterCol.value.code, metricFilterLogicDraft.value)
+  updateSetting(metricFilterCol.value.code, {
+    metric_filters: cloneMetricFilters(metricFilterDraft.value),
+    metric_filter_logic: metricFilterLogicDraft.value,
+  })
   metricFilterOpen.value = false
 }
 
@@ -494,9 +492,18 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
                   <span v-if="aggregate" class="field-agg-badge" :class="{ 'is-dimension': !isMeasureLike(col) }">
                     {{ fieldAggregationLabel(col) }}
                   </span>
-                  <span v-if="aggregate && metricFilterSummary(col)" class="field-sort-badge">
-                    {{ metricFilterSummary(col) }}
-                  </span>
+                  <button
+                    v-if="aggregate && metricFilterCount(col)"
+                    class="field-filter-badge"
+                    type="button"
+                    title="编辑指标筛选"
+                    draggable="false"
+                    @click.stop="openMetricFilterDialog(col)"
+                    @mousedown.stop
+                  >
+                    <el-icon><Filter /></el-icon>
+                    {{ metricFilterCount(col) }}
+                  </button>
                   <span v-if="fieldSortLabel(col.code)" class="field-sort-badge">{{ fieldSortLabel(col.code) }}</span>
                   <el-popover
                     trigger="click"
@@ -613,7 +620,7 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
                         <button class="menu-command" @click="openMetricFilterDialog(col)">
                           指标筛选...
                           <span v-if="metricFilterSummary(col)" class="menu-command-badge">
-                            {{ metricFilters(col).filter((item) => item.column).length }}
+                            {{ metricFilterCount(col) }}
                           </span>
                         </button>
                         <div class="menu-note">只影响当前指标，不过滤整张报表。</div>
@@ -1198,6 +1205,30 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
+}
+.field-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex: none;
+  height: 22px;
+  margin-right: 6px;
+  padding: 0 7px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.field-filter-badge:hover {
+  background: rgba(255, 255, 255, 0.34);
+}
+.field-filter-badge .el-icon {
+  font-size: 13px;
 }
 .field-config-button {
   display: inline-flex;
