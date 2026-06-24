@@ -27,6 +27,16 @@ const reportId = computed(() => {
   return id === 'new' ? null : Number(id)
 })
 const isNew = computed(() => reportId.value === null)
+const copySourceId = ref<number | null>(null)
+const isCopyMode = computed(() => copySourceId.value !== null)
+const saveCreatesReport = computed(() => isNew.value || isCopyMode.value)
+const pageTitle = computed(() => {
+  if (isNew.value) return '新建报表'
+  const name = form.name || '(未命名)'
+  return isCopyMode.value
+    ? `编辑报表 · ${name}（保存后生成我的副本）`
+    : `编辑报表 · ${name}`
+})
 
 const form = reactive({
   name: '',
@@ -146,12 +156,15 @@ async function loadReport() {
   if (isNew.value) return
   try {
     const r = await reportsApi.get(reportId.value!)
-    form.name = r.name
+    copySourceId.value = r.can_edit ? null : r.id
+    form.name = r.can_edit ? r.name : `${r.name} - 副本`
     form.description = r.description ?? ''
     form.dataset_id = r.dataset_id
-    form.is_published = r.is_published
+    form.is_published = r.can_edit ? r.is_published : false
     form.scope_strategy = r.scope_strategy
-    form.acl = (r.acl || []).map((a) => ({ id: a.id, role_id: a.role_id, user_id: a.user_id }))
+    form.acl = r.can_edit
+      ? (r.acl || []).map((a) => ({ id: a.id, role_id: a.role_id, user_id: a.user_id }))
+      : []
     form.selected_codes = [...(r.config.columns ?? [])]
     form.column_settings = { ...(r.config.column_settings ?? {}) }
     form.default_split_rule = {
@@ -226,6 +239,9 @@ async function loadReport() {
       : firstRounding?.group_by
         ? [firstRounding.group_by]
         : []
+    if (!r.can_edit) {
+      ElMessage.info('正在编辑副本，保存后会生成你的新报表')
+    }
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载报表失败')
   }
@@ -483,9 +499,9 @@ async function save() {
   try {
     if (form.transpose.enabled && form.transpose.rules?.length) await transposeRef.value?.ensureCcMaster()
     const payload = buildPayload()
-    if (isNew.value) {
+    if (saveCreatesReport.value) {
       const r = await reportsApi.create(payload)
-      ElMessage.success('已创建')
+      ElMessage.success(isCopyMode.value ? '已另存为你的报表' : '已创建')
       router.replace(`/report/designer/${r.id}`)
     } else {
       await reportsApi.update(reportId.value!, payload)
@@ -500,7 +516,7 @@ async function save() {
 
 async function preview() {
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段才能预览'); return }
-  if (isNew.value) { ElMessage.info('请先保存草稿后再预览'); return }
+  if (saveCreatesReport.value) { ElMessage.info('请先保存为你的报表后再预览'); return }
   previewing.value = true
   try {
     if (form.transpose.enabled && form.transpose.rules?.length) await transposeRef.value?.ensureCcMaster()
@@ -626,6 +642,7 @@ watch(
   async (v) => {
     if (!v) return
     if (v === 'new') {
+      copySourceId.value = null
       Object.assign(form, {
         name: '', description: '', dataset_id: datasets.value.find((d) => d.is_active)?.id ?? datasets.value[0]?.id ?? null,
         is_published: false, scope_strategy: null, selected_codes: [], filters: [], sorts: [],
@@ -664,6 +681,7 @@ watch(
       previewItems.value = []
       previewColumns.value = []
     } else {
+      copySourceId.value = null
       await loadReport()
     }
   }
@@ -680,14 +698,14 @@ watch(
               <el-icon><ArrowLeft /></el-icon>返回列表
             </el-button>
             <span style="font-size: 16px; font-weight: 600; margin-left: 8px">
-              {{ isNew ? '新建报表' : `编辑报表 · ${form.name || '(未命名)'}` }}
+              {{ pageTitle }}
             </span>
           </div>
           <div>
             <el-button :loading="explaining" @click="explainConfig">
               <el-icon style="margin-right: 4px"><MagicStick /></el-icon>AI 解释
             </el-button>
-            <el-button :loading="previewing" :disabled="isNew" @click="preview">
+            <el-button :loading="previewing" :disabled="saveCreatesReport" @click="preview">
               <el-icon style="margin-right: 4px"><View /></el-icon>预览
             </el-button>
             <el-button type="primary" :loading="saving" @click="save">

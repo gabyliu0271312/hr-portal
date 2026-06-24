@@ -155,10 +155,13 @@ onMounted(async () => {
               <PermissionButton menu="report.list" op="V" size="small" @click="openRun(row)">
                 <el-icon style="margin-right: 4px"><View /></el-icon>查看
               </PermissionButton>
-              <PermissionButton menu="report.list" op="U" size="small" @click="openDesigner(row)">
+              <PermissionButton v-if="row.can_edit" menu="report.list" op="U" size="small" @click="openDesigner(row)">
                 <el-icon style="margin-right: 4px"><Edit /></el-icon>编辑
               </PermissionButton>
-              <PermissionButton menu="report.list" op="D" size="small" type="danger" @click="handleDelete(row)">
+              <PermissionButton v-else menu="report.list" op="C" size="small" @click="openDesigner(row)">
+                <el-icon style="margin-right: 4px"><Edit /></el-icon>编辑
+              </PermissionButton>
+              <PermissionButton v-if="row.can_edit" menu="report.list" op="D" size="small" type="danger" @click="handleDelete(row)">
                 <el-icon style="margin-right: 4px"><Delete /></el-icon>删除
               </PermissionButton>
             </template>
