@@ -1,13 +1,15 @@
 """Users 路由：用户 CRUD + 启停 + 重置密码 + 角色绑定"""
-from datetime import UTC, datetime
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.password import hash_password, is_strong_enough
 from app.core.db import get_session
-from app.core.deps import current_user, require_op
+from app.core.deps import require_op
+from app.scopes.models import ScopeTag, UserScopeTag
 from app.users.models import Role, User, UserRole
 from app.users.schemas import (
     ResetPasswordIn,
@@ -33,7 +35,37 @@ async def _get_user_or_404(db: AsyncSession, user_id: int) -> User:
     return user
 
 
-async def _user_to_list_item(user: User) -> UserListItem:
+ScopeNamesByUser = dict[int, dict[str, list[str]]]
+
+
+async def _scope_names_by_user(
+    db: AsyncSession,
+    user_ids: list[int],
+) -> ScopeNamesByUser:
+    if not user_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(UserScopeTag.user_id, ScopeTag.dimension, ScopeTag.name)
+            .join(ScopeTag, ScopeTag.id == UserScopeTag.tag_id)
+            .where(UserScopeTag.user_id.in_(user_ids))
+            .order_by(UserScopeTag.user_id, ScopeTag.dimension, ScopeTag.name)
+        )
+    ).all()
+    out: defaultdict[int, dict[str, list[str]]] = defaultdict(
+        lambda: {"org": [], "cost_center": []}
+    )
+    for user_id, dimension, name in rows:
+        if dimension in out[user_id]:
+            out[user_id][dimension].append(name)
+    return dict(out)
+
+
+async def _user_to_list_item(
+    user: User,
+    scope_names: ScopeNamesByUser | None = None,
+) -> UserListItem:
+    names = (scope_names or {}).get(user.id, {})
     return UserListItem(
         id=user.id,
         login_name=user.login_name,
@@ -43,6 +75,8 @@ async def _user_to_list_item(user: User) -> UserListItem:
         last_login_at=user.last_login_at,
         locked_until=user.locked_until,
         role_names=[r.name for r in user.roles],
+        org_scope_names=names.get("org", []),
+        cost_center_scope_names=names.get("cost_center", []),
     )
 
 
@@ -68,6 +102,11 @@ async def list_users(
                 User.login_name.ilike(like),
                 User.display_name.ilike(like),
                 User.email.ilike(like),
+                User.id.in_(
+                    select(UserScopeTag.user_id)
+                    .join(ScopeTag, ScopeTag.id == UserScopeTag.tag_id)
+                    .where(ScopeTag.name.ilike(like))
+                ),
             )
         )
     if is_active is not None:
@@ -82,7 +121,8 @@ async def list_users(
     stmt = stmt.order_by(User.id).offset((page - 1) * page_size).limit(page_size)
     users = (await db.execute(stmt)).scalars().unique().all()
 
-    items = [await _user_to_list_item(u) for u in users]
+    scope_names = await _scope_names_by_user(db, [u.id for u in users])
+    items = [await _user_to_list_item(u, scope_names) for u in users]
     return UserListResp(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -127,7 +167,7 @@ async def create_user(
 
     await db.commit()
     await db.refresh(user)
-    return await _detail(user)
+    return await _detail(user, db)
 
 
 # ==================== Detail / Update / Delete ====================
@@ -140,10 +180,12 @@ async def get_user(
     _: User = Depends(require_op("system.users", "V")),
 ) -> UserDetail:
     user = await _get_user_or_404(db, user_id)
-    return await _detail(user)
+    return await _detail(user, db)
 
 
-async def _detail(user: User) -> UserDetail:
+async def _detail(user: User, db: AsyncSession) -> UserDetail:
+    scope_names = await _scope_names_by_user(db, [user.id])
+    names = scope_names.get(user.id, {})
     return UserDetail(
         id=user.id,
         login_name=user.login_name,
@@ -155,6 +197,8 @@ async def _detail(user: User) -> UserDetail:
         locked_until=user.locked_until,
         role_ids=[r.id for r in user.roles],
         role_names=[r.name for r in user.roles],
+        org_scope_names=names.get("org", []),
+        cost_center_scope_names=names.get("cost_center", []),
     )
 
 
@@ -174,7 +218,7 @@ async def update_user(
 
     await db.commit()
     await db.refresh(user)
-    return await _detail(user)
+    return await _detail(user, db)
 
 
 # ==================== Activate / Deactivate ====================
@@ -257,7 +301,7 @@ async def set_user_roles(
 
     await db.commit()
     await db.refresh(user)
-    return await _detail(user)
+    return await _detail(user, db)
 
 
 # ==================== Feishu SSO 占位 ====================

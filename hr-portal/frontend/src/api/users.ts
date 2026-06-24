@@ -9,6 +9,8 @@ export interface UserListItem {
   last_login_at: string | null
   locked_until: string | null
   role_names: string[]
+  org_scope_names: string[]
+  cost_center_scope_names: string[]
 }
 
 export interface UserDetail {
@@ -22,6 +24,8 @@ export interface UserDetail {
   locked_until: string | null
   role_ids: number[]
   role_names: string[]
+  org_scope_names: string[]
+  cost_center_scope_names: string[]
 }
 
 export interface UserListResp {

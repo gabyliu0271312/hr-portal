@@ -35,7 +35,7 @@ class FieldCategoryAssignment(Base):
         nullable=False,
     )
     table_name: Mapped[str] = mapped_column(String(64), nullable=False)
-    column_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    column_name: Mapped[str] = mapped_column(String(128), nullable=False)
 
 
 class FieldCategoryToolWhitelist(Base):

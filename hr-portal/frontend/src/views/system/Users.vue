@@ -15,7 +15,7 @@
         <el-form-item>
           <el-input
             v-model="query.q"
-            placeholder="登录名/姓名/邮箱"
+            placeholder="姓名/管理单元/账号"
             clearable
             style="width: 220px"
             @change="onSearch"
@@ -48,17 +48,49 @@
           style="width: 100%"
           max-height="600"
         >
-          <el-table-column prop="login_name" label="登录名" min-width="120" />
-          <el-table-column prop="display_name" label="姓名" min-width="100" />
-          <el-table-column prop="email" label="邮箱" min-width="180">
-            <template #default="{ row }">{{ row.email || '—' }}</template>
+          <el-table-column prop="display_name" label="姓名" min-width="120" />
+          <el-table-column label="组织管理单元" min-width="220">
+            <template #default="{ row }">
+              <div v-if="row.org_scope_names.length" class="scope-tag-list">
+                <el-tag
+                  v-for="name in visibleScopeNames(row.org_scope_names)"
+                  :key="name"
+                  size="small"
+                  effect="plain"
+                >
+                  {{ name }}
+                </el-tag>
+                <el-tag v-if="hiddenScopeCount(row.org_scope_names)" size="small" type="info" effect="plain">
+                  +{{ hiddenScopeCount(row.org_scope_names) }}
+                </el-tag>
+              </div>
+              <span v-else class="empty-text">未分配</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="成本中心管理单元" min-width="220">
+            <template #default="{ row }">
+              <div v-if="row.cost_center_scope_names.length" class="scope-tag-list">
+                <el-tag
+                  v-for="name in visibleScopeNames(row.cost_center_scope_names)"
+                  :key="name"
+                  size="small"
+                  effect="plain"
+                >
+                  {{ name }}
+                </el-tag>
+                <el-tag v-if="hiddenScopeCount(row.cost_center_scope_names)" size="small" type="info" effect="plain">
+                  +{{ hiddenScopeCount(row.cost_center_scope_names) }}
+                </el-tag>
+              </div>
+              <span v-else class="empty-text">未分配</span>
+            </template>
           </el-table-column>
           <el-table-column label="角色" min-width="160">
             <template #default="{ row }">
               <el-tag v-for="rn in row.role_names" :key="rn" size="small" style="margin-right: 4px">
                 {{ rn }}
               </el-tag>
-              <span v-if="!row.role_names.length" style="color: var(--color-text-placeholder); font-size: 12px">未分配</span>
+              <span v-if="!row.role_names.length" class="empty-text">未分配</span>
             </template>
           </el-table-column>
           <el-table-column label="状态" width="90">
@@ -505,6 +537,10 @@ function tagSummary(t: ScopeTagItem): string {
   return parts.length ? `（${parts.join(' / ')}）` : ''
 }
 
+const MAX_SCOPE_TAGS = 3
+const visibleScopeNames = (names: string[]) => names.slice(0, MAX_SCOPE_TAGS)
+const hiddenScopeCount = (names: string[]) => Math.max(0, names.length - MAX_SCOPE_TAGS)
+
 async function loadAllTags() {
   try {
     allTags.value = await scopesApi.list()
@@ -550,6 +586,18 @@ async function saveTags() {
 </script>
 
 <style scoped>
+.scope-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.empty-text {
+  color: var(--color-text-placeholder);
+  font-size: 12px;
+}
+
 .tag-group-title {
   font-size: 12px;
   font-weight: 600;

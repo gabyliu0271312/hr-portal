@@ -13,6 +13,8 @@ class UserListItem(BaseModel):
     last_login_at: datetime | None
     locked_until: datetime | None
     role_names: list[str] = []
+    org_scope_names: list[str] = []
+    cost_center_scope_names: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -48,6 +50,8 @@ class UserDetail(BaseModel):
     locked_until: datetime | None
     role_ids: list[int]
     role_names: list[str]
+    org_scope_names: list[str] = []
+    cost_center_scope_names: list[str] = []
 
 
 class ResetPasswordIn(BaseModel):

@@ -42,7 +42,7 @@ class CategoryOut(BaseModel):
 
 class AssignmentItem(BaseModel):
     table_name: str = Field(..., min_length=1, max_length=64)
-    column_name: str = Field(..., min_length=1, max_length=64)
+    column_name: str = Field(..., min_length=1, max_length=128)
 
 
 class SetAssignmentsIn(BaseModel):
