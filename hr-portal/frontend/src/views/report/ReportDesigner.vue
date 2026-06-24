@@ -711,7 +711,7 @@ watch(
         />
 
         <div class="section-title">访问授权（谁能查看/运行此报表）</div>
-        <AclEditor v-model="form.acl" :owner-name="form.name ? null : null" />
+        <AclEditor v-model="form.acl" :owner-name="form.name ? null : null" :load-options="reportsApi.aclOptions" />
 
         <div class="section-title section-title-row">
           <span>报表设置（{{ form.selected_codes.length }} 个字段）</span>

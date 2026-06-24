@@ -15,10 +15,10 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.core.deps import current_user, require_op
+from app.core.deps import current_user, require_any_op, require_op
 from app.permissions.strategy import ensure_scope_strategy
 from app.reports.models import Report, ReportAcl
-from app.users.models import User, UserRole
+from app.users.models import Role, User, UserRole
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 logger = logging.getLogger(__name__)
@@ -61,6 +61,22 @@ class ReportAclIn(BaseModel):
 
 class ReportAclOut(ReportAclIn):
     id: int
+
+
+class AclRoleOption(BaseModel):
+    id: int
+    name: str
+
+
+class AclUserOption(BaseModel):
+    id: int
+    login_name: str
+    display_name: str
+
+
+class AclOptionsOut(BaseModel):
+    roles: list[AclRoleOption]
+    users: list[AclUserOption]
 
 
 class ReportIn(BaseModel):
@@ -294,6 +310,35 @@ async def list_reports(
     rows = (await db.execute(stmt)).scalars().all()
     visible = [row for row in rows if await _can_access(user, row, db)]
     return [await _to_out(row, db, user) for row in visible]
+
+
+@router.get(
+    "/_acl-options",
+    response_model=AclOptionsOut,
+    dependencies=[Depends(require_any_op(("report.list", "C"), ("report.list", "U")))],
+)
+async def report_acl_options(db: AsyncSession = Depends(get_session)) -> AclOptionsOut:
+    roles = (
+        (await db.execute(select(Role).where(Role.is_active.is_(True)).order_by(Role.id)))
+        .scalars()
+        .all()
+    )
+    users = (
+        (await db.execute(select(User).where(User.is_active.is_(True)).order_by(User.id)))
+        .scalars()
+        .all()
+    )
+    return AclOptionsOut(
+        roles=[AclRoleOption(id=role.id, name=role.name) for role in roles],
+        users=[
+            AclUserOption(
+                id=user.id,
+                login_name=user.login_name,
+                display_name=user.display_name,
+            )
+            for user in users
+        ],
+    )
 
 
 @router.post(

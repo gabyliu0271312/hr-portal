@@ -18,14 +18,14 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.core.deps import current_user, require_op
+from app.core.deps import current_user, require_any_op, require_op
 from app.data.models import DATA_TABLES, TableColumn
 from app.datasets.metadata import table_label, table_label_map, table_options
 from app.datasets.models import DataSet, DataSetAcl, DataSetRelation, DataSetTable
 from app.datasets.single_table import ensure_single_table_dataset as ensure_single_table_dataset_impl
 from app.permissions.strategy import ensure_scope_strategy
 from app.reports.models import Report
-from app.users.models import User, UserRole
+from app.users.models import Role, User, UserRole
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -82,6 +82,22 @@ class DatasetRelationOut(DatasetRelationIn):
 
 class DatasetAclOut(DatasetAclIn):
     id: int
+
+
+class AclRoleOption(BaseModel):
+    id: int
+    name: str
+
+
+class AclUserOption(BaseModel):
+    id: int
+    login_name: str
+    display_name: str
+
+
+class AclOptionsOut(BaseModel):
+    roles: list[AclRoleOption]
+    users: list[AclUserOption]
 
 
 class DatasetOut(BaseModel):
@@ -343,6 +359,37 @@ async def list_visible_tables(
 ) -> list[dict[str, str]]:
     """数据集可纳入的源表清单"""
     return await table_options(db)
+
+
+@router.get(
+    "/_acl-options",
+    response_model=AclOptionsOut,
+    dependencies=[
+        Depends(require_any_op(("datasource.datasets", "C"), ("datasource.datasets", "U")))
+    ],
+)
+async def dataset_acl_options(db: AsyncSession = Depends(get_session)) -> AclOptionsOut:
+    roles = (
+        (await db.execute(select(Role).where(Role.is_active.is_(True)).order_by(Role.id)))
+        .scalars()
+        .all()
+    )
+    users = (
+        (await db.execute(select(User).where(User.is_active.is_(True)).order_by(User.id)))
+        .scalars()
+        .all()
+    )
+    return AclOptionsOut(
+        roles=[AclRoleOption(id=role.id, name=role.name) for role in roles],
+        users=[
+            AclUserOption(
+                id=user.id,
+                login_name=user.login_name,
+                display_name=user.display_name,
+            )
+            for user in users
+        ],
+    )
 
 
 @router.get("/{ds_id}", response_model=DatasetOut)

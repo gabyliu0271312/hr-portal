@@ -20,6 +20,15 @@ from app.users.models import RoleMenu, User
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+_OP_FLAGS = {
+    "V": RoleMenu.can_view,
+    "C": RoleMenu.can_create,
+    "U": RoleMenu.can_update,
+    "D": RoleMenu.can_delete,
+    "E": RoleMenu.can_export,
+}
+
+
 async def current_user(
     request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
@@ -55,6 +64,29 @@ async def current_user(
     # 把 user 挂在 request.state 上，便于其他中间件使用
     request.state.user = user
     return user
+
+
+async def user_has_op(user: User, db: AsyncSession, menu_code: str, op: str) -> bool:
+    op = op.upper()
+    if op not in _OP_FLAGS:
+        raise ValueError(f"unknown op: {op}")
+
+    from app.users.models import Menu, Role, UserRole  # 閬垮紑寰幆
+
+    stmt = (
+        select(RoleMenu.id)
+        .join(Role, Role.id == RoleMenu.role_id)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .join(Menu, Menu.id == RoleMenu.menu_id)
+        .where(
+            UserRole.user_id == user.id,
+            Role.is_active.is_(True),
+            Menu.code == menu_code,
+            _OP_FLAGS[op].is_(True),
+        )
+        .limit(1)
+    )
+    return (await db.execute(stmt)).first() is not None
 
 
 def require_op(menu_code: str, op: str) -> Callable[..., Awaitable[User]]:
@@ -101,6 +133,31 @@ def require_op(menu_code: str, op: str) -> Callable[..., Awaitable[User]]:
                 detail=f"无权限执行 {op} 操作 ({menu_code})",
             )
         return user
+
+    return dep
+
+
+def require_any_op(*permissions: tuple[str, str]) -> Callable[..., Awaitable[User]]:
+    if not permissions:
+        raise ValueError("at least one permission is required")
+
+    normalized = [(menu_code, op.upper()) for menu_code, op in permissions]
+    unknown = [op for _, op in normalized if op not in _OP_FLAGS]
+    if unknown:
+        raise ValueError(f"unknown op: {unknown[0]}")
+
+    async def dep(
+        user: User = Depends(current_user),
+        db: AsyncSession = Depends(get_session),
+    ) -> User:
+        for menu_code, op in normalized:
+            if await user_has_op(user, db, menu_code, op):
+                return user
+        readable = " / ".join(f"{op} ({menu_code})" for menu_code, op in normalized)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied for any of: {readable}",
+        )
 
     return dep
 

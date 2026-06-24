@@ -10,14 +10,31 @@ export interface AclRow {
   user_id: number | null
 }
 
+export interface AclRoleOption {
+  id: number
+  name: string
+}
+
+export interface AclUserOption {
+  id: number
+  login_name: string
+  display_name: string
+}
+
+export interface AclOptions {
+  roles: AclRoleOption[]
+  users: AclUserOption[]
+}
+
 const props = defineProps<{
   modelValue: AclRow[]
   ownerName?: string | null
+  loadOptions?: () => Promise<AclOptions>
 }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: AclRow[]): void }>()
 
-const roles = ref<RoleListItem[]>([])
-const users = ref<UserListItem[]>([])
+const roles = ref<AclRoleOption[]>([])
+const users = ref<AclUserOption[]>([])
 
 const rows = computed({
   get: () => props.modelValue,
@@ -48,12 +65,22 @@ function setUser(i: number, val: number | null) {
 
 onMounted(async () => {
   try {
+    if (props.loadOptions) {
+      const options = await props.loadOptions()
+      roles.value = options.roles || []
+      users.value = options.users || []
+      return
+    }
     const [r, u] = await Promise.all([
       rolesApi.list(),
       usersApi.list({ page_size: 100 } as any),
     ])
-    roles.value = r.items || []
-    users.value = (u as any).items || []
+    roles.value = (r.items || []).map((item: RoleListItem) => ({ id: item.id, name: item.name }))
+    users.value = ((u as any).items || []).map((item: UserListItem) => ({
+      id: item.id,
+      login_name: item.login_name,
+      display_name: item.display_name,
+    }))
   } catch {
     /* 列表加载失败不阻塞 */
   }

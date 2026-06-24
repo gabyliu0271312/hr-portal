@@ -131,6 +131,22 @@ export interface ReportAclItem {
   user_id: number | null
 }
 
+export interface AclRoleOption {
+  id: number
+  name: string
+}
+
+export interface AclUserOption {
+  id: number
+  login_name: string
+  display_name: string
+}
+
+export interface AclOptions {
+  roles: AclRoleOption[]
+  users: AclUserOption[]
+}
+
 export interface ReportItem {
   id: number
   name: string
@@ -201,6 +217,9 @@ export interface ReportConfigExplainResult {
 export const reportsApi = {
   list: (params: { dataset_id?: number; keyword?: string } = {}) =>
     api.get<ReportItem[]>('/reports', { params }).then((r) => r.data),
+
+  aclOptions: () =>
+    api.get<AclOptions>('/reports/_acl-options').then((r) => r.data),
 
   get: (id: number) => api.get<ReportItem>(`/reports/${id}`).then((r) => r.data),
 
