@@ -42,6 +42,9 @@ from app.tools.router import (
     _calc_core as calculate_compensation_impl,
     search_compensation_employees,
 )
+from app.data.models import CostCenterNode, OrgNode
+from app.permissions.scope_filter import _is_super_admin
+from app.scopes.models import ScopeTag, ScopeTagFilter, ScopeTagSelection, UserScopeTag
 from app.users.models import User
 
 
@@ -1072,6 +1075,175 @@ async def _handle_compensation_chat(
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# 能力：查询我的数据权限范围（scope.describe_my_scope）
+# 纯只读、无参 query：读当前用户绑定的数据范围标签，翻译成人话，不查数据明细。
+# 与 permissions/scope_filter.py 的 fail-closed 语义对齐（超管放行全部 / 无标签看不到行）。
+# ──────────────────────────────────────────────────────────────────────────
+
+_SCOPE_FIELD_CN = {
+    "employment_type": "员工类型",
+    "employment_entity": "公司名称",
+    "person": "姓名",
+}
+_SCOPE_OP_CN = {"eq": "属于", "neq": "排除"}
+
+
+async def _extract_my_scope_request(
+    payload: AiChatIn,
+    session: ChatSession,
+    db: AsyncSession,
+    timer: AiAuditTimer,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
+    """无参 query：无需模型解析，固定返回空参数。"""
+    return {}, None, "noop"
+
+
+async def _load_my_scope_bundles(user: User, db: AsyncSession) -> list[dict[str, Any]]:
+    """查当前用户绑定的所有标签，组装成翻译用结构（节点 node_id 已映射为中文名）。"""
+    tags = (
+        await db.execute(
+            select(ScopeTag)
+            .join(UserScopeTag, UserScopeTag.tag_id == ScopeTag.id)
+            .where(UserScopeTag.user_id == user.id)
+            .order_by(ScopeTag.dimension, ScopeTag.name)
+        )
+    ).scalars().all()
+
+    bundles: list[dict[str, Any]] = []
+    for tag in tags:
+        sels = (
+            await db.execute(
+                select(ScopeTagSelection)
+                .where(
+                    ScopeTagSelection.tag_id == tag.id,
+                    ScopeTagSelection.node_id.is_not(None),
+                )
+                .order_by(ScopeTagSelection.id)
+            )
+        ).scalars().all()
+        filters = (
+            await db.execute(
+                select(ScopeTagFilter)
+                .where(ScopeTagFilter.tag_id == tag.id)
+                .order_by(ScopeTagFilter.order_index, ScopeTagFilter.id)
+            )
+        ).scalars().all()
+
+        NodeModel = CostCenterNode if tag.dimension == "cost_center" else OrgNode
+        selections: list[dict[str, Any]] = []
+        for s in sels:
+            node = await db.get(NodeModel, s.node_id)
+            selections.append(
+                {
+                    "name": node.name if node is not None else None,
+                    "include_descendants": s.include_descendants,
+                }
+            )
+
+        bundles.append(
+            {
+                "name": tag.name,
+                "description": tag.description,
+                "dimension": tag.dimension,
+                "org_scope_enabled": tag.org_scope_enabled,
+                "org_scope_unlimited": tag.org_scope_unlimited,
+                "person_scope_enabled": tag.person_scope_enabled,
+                "selections": selections,
+                "filters": [
+                    {
+                        "field_code": f.field_code,
+                        "operator": f.operator,
+                        "values": list(f.values or []),
+                    }
+                    for f in filters
+                ],
+            }
+        )
+    return bundles
+
+
+def _describe_my_scope(is_super: bool, bundles: list[dict[str, Any]]) -> str:
+    """把数据范围标签翻译成中文段落（与过滤引擎行为对齐）。"""
+    if is_super:
+        return "你是超级管理员，不受数据范围限制，可以查看系统内全部数据。"
+    if not bundles:
+        return (
+            "你当前没有被授予任何数据范围标签，因此暂时看不到任何业务数据。"
+            "请联系系统管理员为你分配数据范围。"
+        )
+
+    lines = [f"你当前共有 {len(bundles)} 个数据范围标签："]
+    for i, t in enumerate(bundles, start=1):
+        title = f"{i}. 「{t['name']}」"
+        if t.get("description"):
+            title += f"（{t['description']}）"
+        seg = [title]
+
+        # 组织范围段
+        if not t["org_scope_enabled"]:
+            seg.append("   · 组织范围：未启用（该标签不限定组织维度）")
+        elif t["org_scope_unlimited"]:
+            dim = "成本中心" if t["dimension"] == "cost_center" else "组织"
+            seg.append(f"   · 组织范围：不限（{dim}维度下全部节点）")
+        else:
+            dim = "成本中心" if t["dimension"] == "cost_center" else "组织部门"
+            phrases = []
+            for s in t["selections"]:
+                name = s["name"] or "（已失效节点）"
+                phrases.append(name + ("及下级" if s["include_descendants"] else ""))
+            nodes = "、".join(phrases) if phrases else "（未选择有效节点）"
+            seg.append(f"   · 组织范围（{dim}）：{nodes}")
+
+        # 人员范围段（同一标签多条 filter = AND）
+        if not t["person_scope_enabled"]:
+            seg.append("   · 人员范围：未启用（不额外限定人员）")
+        else:
+            conds = [
+                f"{_SCOPE_FIELD_CN.get(f['field_code'], f['field_code'])} "
+                f"{_SCOPE_OP_CN.get(f['operator'], f['operator'])} "
+                f"[{'、'.join(f['values'])}]"
+                for f in t["filters"]
+            ]
+            seg.append("   · 人员范围（需同时满足）：" + " 且 ".join(conds))
+
+        if t["org_scope_enabled"] and t["person_scope_enabled"]:
+            seg.append("   · 该标签内：上述组织范围与人员范围需【同时满足】")
+        lines.append("\n".join(seg))
+
+    if len(bundles) > 1:
+        lines.append("说明：你拥有多个标签时，可见范围是各标签的【并集】（满足任意一个标签即可见）。")
+    return "\n\n".join(lines)
+
+
+async def _handle_my_scope_chat(
+    payload: AiChatIn,
+    extracted: dict[str, Any],
+    session: ChatSession,
+    user: User,
+    db: AsyncSession,
+    timer: AiAuditTimer,
+) -> AiChatOut:
+    capability = _ensure_capability("scope.describe_my_scope")
+    validate_capability_policy(capability, used_tools=[])
+    session.clear_active()
+    is_super = await _is_super_admin(user, db)
+    bundles = [] if is_super else await _load_my_scope_bundles(user, db)
+    answer = _describe_my_scope(is_super, bundles)
+    timer.add_event(
+        "capability",
+        capability_id=capability.capability_id,
+        is_super_admin=is_super,
+        tag_count=len(bundles),
+    )
+    return AiChatOut(
+        intent="scope.describe_my_scope",
+        status="ok",
+        answer=answer,
+        trace_id=timer.trace_id,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # 全局 AI chat 通用路由（LLM-first 底层组件）。
 # 规则（所有 chat 能力统一遵循,新增能力只追加 ChatRoute,不改本段）:
 #   1. 路由完全由大模型意图分类决定,不用关键词匹配。
@@ -1095,6 +1267,13 @@ CHAT_ROUTES: tuple[ChatRoute, ...] = (
         description="员工离职补偿金 / 赔偿金的只读试算与跳转(含修改上一轮的员工/离职日期/方案)",
         extractor=_extract_compensation_request_with_model,
         handler=_handle_compensation_chat,
+    ),
+    ChatRoute(
+        intent="scope.describe_my_scope",
+        capability_id="scope.describe_my_scope",
+        description="查询/解释当前登录用户自己的数据权限范围（能看到哪些组织、成本中心、人员范围）。是翻译范围规则本身，不是查询具体员工或业务数据。",
+        extractor=_extract_my_scope_request,
+        handler=_handle_my_scope_chat,
     ),
 )
 
@@ -1265,7 +1444,7 @@ async def global_ai_chat(
                 out = AiChatOut(
                     intent="general_question",
                     status="unsupported",
-                    answer="当前全局 AI 试点只支持补偿金只读试算和跳转。你可以说：帮我计算某某的补偿金。",
+                    answer="当前全局 AI 支持：补偿金只读试算、查询你的数据权限范围。你可以说：帮我算某某的补偿金 / 我能看到哪些数据权限范围。",
                     trace_id=timer.trace_id,
                 )
             else:

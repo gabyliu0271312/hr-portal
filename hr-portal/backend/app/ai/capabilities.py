@@ -314,6 +314,22 @@ CAPABILITIES: tuple[CapabilityDefinition, ...] = (
         examples=["这批社保表帮我提一组标准字段和映射", "北京公积金这张表的列怎么对到标准字段"],
         failure_modes=["AI 未配置或超时", "模型未返回合法 JSON", "口径歧义列需人工定夺", "表头解析失败"],
     ),
+    CapabilityDefinition(
+        capability_id="scope.describe_my_scope",
+        name="查询我的数据权限范围",
+        module="scopes",
+        type="query",
+        description="用自然语言解释当前登录用户被授予的数据范围（能看到哪些组织/成本中心、哪些人员范围），只翻译范围规则，不查数据明细。",
+        required_permission=None,
+        risk_level="low",
+        side_effect_tags=[],
+        tools=[],
+        policy_profile={"output_contract": "ai_chat_schema", "allowed_side_effect": "none"},
+        model_profile="none",
+        sensitive_context="none",
+        examples=["我能看到哪些数据权限范围？", "我的数据范围是什么", "我有哪些数据权限标签"],
+        failure_modes=["用户未绑定任何标签", "树节点已失效"],
+    ),
 )
 
 
