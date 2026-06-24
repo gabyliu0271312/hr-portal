@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import ast
+import calendar
 import re
 from collections.abc import Callable
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
@@ -92,6 +94,34 @@ def _fn_isblank(value: Any = None) -> bool:
     return value in (None, "")
 
 
+def _to_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _fn_eomonth(start_date: Any, months: Any = 0) -> str:
+    base = _to_date(start_date)
+    offset = _to_number(months)
+    if base is None or offset is None:
+        return ""
+    total = base.year * 12 + (base.month - 1) + int(offset)
+    year, month = divmod(total, 12)
+    month += 1
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, last_day).strftime("%Y-%m-%d")
+
+
 def _builtin_functions() -> dict[str, Callable[..., Any]]:
     return {
         "IF": _fn_if,
@@ -109,6 +139,7 @@ def _builtin_functions() -> dict[str, Callable[..., Any]]:
         "LEN": lambda value="": len(str(value or "")),
         "UPPER": lambda value="": str(value or "").upper(),
         "LOWER": lambda value="": str(value or "").lower(),
+        "EOMONTH": _fn_eomonth,
     }
 
 

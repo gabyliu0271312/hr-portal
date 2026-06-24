@@ -166,6 +166,32 @@ def test_evaluate_formula_subset():
     assert value == 1000.0
 
 
+@pytest.mark.parametrize(
+    "formula,expected",
+    [
+        ('=EOMONTH("2026-01-15", 0)', "2026-01-31"),
+        ('=EOMONTH("2026-01-15", 1)', "2026-02-28"),
+        ('=EOMONTH("2026-03-10", -1)', "2026-02-28"),
+        ('=EOMONTH("2026-11-20", 3)', "2027-02-28"),
+        ('=EOMONTH("2026-01-05", -2)', "2025-11-30"),
+        ('=EOMONTH("2024-02-01", 0)', "2024-02-29"),
+        ('=EOMONTH("2026/06/15", 1)', "2026-07-31"),
+        ('=EOMONTH("", 0)', ""),
+        ('=EOMONTH("abc", 0)', ""),
+    ],
+)
+def test_eomonth_matches_excel_semantics(formula, expected):
+    assert evaluate_formula(formula, field_resolver=lambda _: "") == expected
+
+
+def test_eomonth_registered_as_executable_builtin():
+    from app.ai_formula.formula_evaluator import _builtin_functions
+    from app.ai_formula.function_catalog import base_formula_function_codes
+
+    assert "EOMONTH" in base_formula_function_codes()
+    assert "EOMONTH" in _builtin_functions()
+
+
 def test_formula_safety_blocks_external_access():
     assert safety_issues('=HYPERLINK("https://example.com")')
 

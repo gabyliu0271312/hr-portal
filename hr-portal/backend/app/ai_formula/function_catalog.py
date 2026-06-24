@@ -117,6 +117,16 @@ EXECUTABLE_BASE_FUNCTIONS: tuple[dict[str, Any], ...] = (
         "parameters": [{"name": "text", "type": "string", "description": "待处理文本"}],
         "return_type": "string",
     },
+    {
+        "code": "EOMONTH",
+        "name": "月末日期",
+        "description": "返回起始日期向前或向后偏移指定月数后那个月的最后一天。",
+        "parameters": [
+            {"name": "start_date", "type": "string", "description": "起始日期，如 2026-01-15"},
+            {"name": "months", "type": "number", "description": "偏移的月数，正数向后、负数向前、0 为当月"},
+        ],
+        "return_type": "string",
+    },
 )
 
 
