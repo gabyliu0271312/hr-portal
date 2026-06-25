@@ -1149,7 +1149,20 @@ async def _sync_to_table_impl(
                     r.pop(k, None)
 
     # 写入业务表（统一走 upsert + 删孤儿）
-    inserted = await _dynamic_upsert(table_name, rows or [], db, period_ym=cur_ym)
+    # field 模式下源端可能含多月数据（如北森一次返回多月），分组分别写入
+    if period_cfg and period_cfg.get("period_source", "inject") == "field" and rows:
+        _groups: dict[str, list] = {}
+        for _r in rows:
+            if isinstance(_r, dict):
+                _rv = _normalize_yyyymm(str(_r.get(period_col, "")))
+                _groups.setdefault(_rv or cur_ym, []).append(_r)
+        inserted = 0
+        for _ym, _grp in sorted(_groups.items()):
+            inserted += await _dynamic_upsert(table_name, _grp, db, period_ym=_ym)
+        if _groups:
+            cur_ym = max(_groups)  # 最近期（供后续树构建用）
+    else:
+        inserted = await _dynamic_upsert(table_name, rows or [], db, period_ym=cur_ym)
 
     # 派发到树构建：成本中心 → cc_tree；组织单元 → org_tree
     if table_name == "cost_center_monthly":
