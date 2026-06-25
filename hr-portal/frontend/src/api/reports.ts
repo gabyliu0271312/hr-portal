@@ -25,7 +25,9 @@ export interface SortCond {
 
 export interface ValueRule {
   target: string
-  factor: string
+  factors: string[]
+  /** @deprecated 旧单系数字段,仅用于读取兼容 */
+  factor?: string
 }
 
 export type AggregationFunc = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'count_distinct'
@@ -39,11 +41,15 @@ export interface ColumnSetting {
   metric_filters?: FilterCond[]
   metric_filter_logic?: FilterLogic | null
   split_mode?: SplitMode
+  split_factors?: string[]
+  /** @deprecated 旧单系数字段,仅用于读取兼容 */
   split_factor?: string
 }
 
 export interface DefaultSplitRule {
   enabled: boolean
+  factors?: string[]
+  /** @deprecated 旧单系数字段,仅用于读取兼容 */
   factor?: string
 }
 

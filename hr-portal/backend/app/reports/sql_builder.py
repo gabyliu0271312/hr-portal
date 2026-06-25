@@ -1564,13 +1564,18 @@ async def run_dataset_query(
         )
 
     # ===== 行数据 =====
-    # 数值拆分规则：target 列出值 = round(num(target) × num(factor), 2)，非数值/空 → 空
-    rules_by_target: dict[str, str] = {}
+    # 数值拆分规则：target 列出值 = round(num(target) × ∏ num(factor_i), 2)，非数值/空 → 空
+    rules_by_target: dict[str, list[str]] = {}
     for vr in (value_rules or []):
         t = (vr or {}).get("target")
-        f = (vr or {}).get("factor")
-        if t and f and "." in t and "." in f:
-            rules_by_target[t] = f
+        # 兼容旧单系数字段 factor；新字段 factors 为数组
+        raw_factors = (vr or {}).get("factors")
+        if not raw_factors:
+            single = (vr or {}).get("factor")
+            raw_factors = [single] if single else []
+        factors = [f for f in raw_factors if isinstance(f, str) and "." in f]
+        if t and factors and "." in t:
+            rules_by_target[t] = factors
 
     full_items: list[dict[str, Any]] = []
     custom_functions = await executable_functions(db)
@@ -1592,13 +1597,15 @@ async def run_dataset_query(
                 if v not in (None, ""):
                     v = "******"
             else:
-                # 行级乘系数：round(target × factor, 2)；同时存未取整乘积供余差收口用
-                factor_qual = rules_by_target.get(qual)
-                if factor_qual is not None and not factor_qual.startswith("calc."):
-                    fa, _, fc = factor_qual.partition(".")
-                    factor_val = d.get(_select_label(fa, fc))
+                # 行级连乘系数：round(target × ∏ factor_i, 2)；同时存未取整乘积供余差收口用
+                # 仅当所有系数均为物理列时在此阶段计算；含 calc 系数则留到下方第二阶段
+                factor_quals = rules_by_target.get(qual)
+                if factor_quals and not any(fq.startswith("calc.") for fq in factor_quals):
                     try:
-                        raw_prod = _num(raw_value) * _num(factor_val)
+                        raw_prod = _num(raw_value)
+                        for fq in factor_quals:
+                            fa, _, fc = fq.partition(".")
+                            raw_prod = raw_prod * _num(d.get(_select_label(fa, fc)))
                         item[f"__rawprod__{qual}"] = raw_prod  # 未取整，用于余差收口
                         v = round(raw_prod, 2)
                     except (TypeError, ValueError):
@@ -1615,19 +1622,21 @@ async def run_dataset_query(
             if field.is_sensitive and value not in (None, ""):
                 value = "******"
             item[qual] = value
-        for target_qual, factor_qual in rules_by_target.items():
-            if not (target_qual.startswith("calc.") or factor_qual.startswith("calc.")):
+        for target_qual, factor_quals in rules_by_target.items():
+            if not (target_qual.startswith("calc.") or any(fq.startswith("calc.") for fq in factor_quals)):
                 continue
             if target_qual not in item:
                 continue
             try:
-                # 取系数时用原始未乘值，避免第一阶段已乘系数的字段被二次放大
-                if not factor_qual.startswith("calc."):
-                    fa, _, fc = factor_qual.partition(".")
-                    factor_val = d.get(_select_label(fa, fc))
-                else:
-                    factor_val = item.get(factor_qual)
-                raw_prod = _num(item.get(target_qual)) * _num(factor_val)
+                raw_prod = _num(item.get(target_qual))
+                for fq in factor_quals:
+                    # 取系数时用原始未乘值，避免第一阶段已乘系数的字段被二次放大
+                    if not fq.startswith("calc."):
+                        fa, _, fc = fq.partition(".")
+                        factor_val = d.get(_select_label(fa, fc))
+                    else:
+                        factor_val = item.get(fq)
+                    raw_prod = raw_prod * _num(factor_val)
                 item[f"__rawprod__{target_qual}"] = raw_prod
                 item[target_qual] = round(raw_prod, 2)
             except (TypeError, ValueError):
@@ -1749,10 +1758,9 @@ async def run_dataset_query(
                 if rp is None:
                     continue
                 expected_sums[gk][tc] = expected_sums[gk].get(tc, 0.0) + rp
-        # 对每组末行补差
+        # 对每组补差：余差落在该列「非空且 ≠0」的最后一行；整组该列无数则不补
         for gk in rc_order:
             rows_in_group = rc_groups[gk]
-            last_row = rows_in_group[-1]
             for tc in target_cols:
                 raw_sum = expected_sums.get(gk, {}).get(tc)
                 if raw_sum is None:
@@ -1760,9 +1768,19 @@ async def run_dataset_query(
                 expected = round(raw_sum, 2)
                 actual_sum = round(sum(_to_num(row.get(tc)) or 0.0 for row in rows_in_group), 2)
                 diff = round(expected - actual_sum, 2)
-                if diff != 0:
-                    cur = _to_num(last_row.get(tc)) or 0.0
-                    last_row[tc] = round(cur + diff, 2)
+                if diff == 0:
+                    continue
+                # 倒序找该列最后一个有数（非空且 ≠0）的行
+                target_row = None
+                for row in reversed(rows_in_group):
+                    n = _to_num(row.get(tc))
+                    if n is not None and n != 0:
+                        target_row = row
+                        break
+                if target_row is None:
+                    continue
+                cur = _to_num(target_row.get(tc)) or 0.0
+                target_row[tc] = round(cur + diff, 2)
 
     # Python 端排序（聚合结果上）
     for s in reversed(sorts or []):

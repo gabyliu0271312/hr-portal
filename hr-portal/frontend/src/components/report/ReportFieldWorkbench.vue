@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowDown, ArrowRight, Close, Edit, Filter, Hide, Plus, Rank, View } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Close, Delete, Edit, Filter, Hide, Plus, Rank, View } from '@element-plus/icons-vue'
 import type { ColumnInfo } from '@/api/data'
 import type { AggregationFunc, ColumnSetting, DefaultSplitRule, FilterCond, FilterLogic, SortCond } from '@/api/reports'
 import { REPORT_AGG_FUNCS, reportAggLabel } from '@/constants/reportAggregation'
@@ -309,12 +309,49 @@ function toggleHidden(code: string) {
 
 function setSplitMode(code: string, value: string) {
   const patch: ColumnSetting = { split_mode: value as ColumnSetting['split_mode'] }
-  if (value !== 'custom') patch.split_factor = ''
+  if (value !== 'custom') patch.split_factors = []
   updateSetting(code, patch)
 }
 
-function setSplitFactor(code: string, value: string) {
-  updateSetting(code, { split_mode: 'custom', split_factor: value })
+function splitFactors(code: string): string[] {
+  const s = colSetting(code)
+  return s.split_factors ?? (s.split_factor ? [s.split_factor] : [])
+}
+
+function setSplitFactor(code: string, i: number, value: string) {
+  const next = [...splitFactors(code)]
+  next[i] = value
+  updateSetting(code, { split_mode: 'custom', split_factors: next, split_factor: undefined })
+}
+
+function addSplitFactor(code: string) {
+  updateSetting(code, { split_mode: 'custom', split_factors: [...splitFactors(code), ''], split_factor: undefined })
+}
+
+function removeSplitFactor(code: string, i: number) {
+  const next = [...splitFactors(code)]
+  next.splice(i, 1)
+  updateSetting(code, { split_mode: 'custom', split_factors: next, split_factor: undefined })
+}
+
+function defaultFactors(): string[] {
+  return props.defaultSplitRule.factors ?? (props.defaultSplitRule.factor ? [props.defaultSplitRule.factor] : [])
+}
+
+function setDefaultFactor(i: number, value: string) {
+  const next = [...defaultFactors()]
+  next[i] = value
+  emit('update:defaultSplitRule', { ...props.defaultSplitRule, factors: next, factor: undefined })
+}
+
+function addDefaultFactor() {
+  emit('update:defaultSplitRule', { ...props.defaultSplitRule, factors: [...defaultFactors(), ''], factor: undefined })
+}
+
+function removeDefaultFactor(i: number) {
+  const next = [...defaultFactors()]
+  next.splice(i, 1)
+  emit('update:defaultSplitRule', { ...props.defaultSplitRule, factors: next, factor: undefined })
 }
 
 function sourceCollapsed(key: string) {
@@ -652,18 +689,32 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
                           <el-option label="不拆分" value="none" />
                           <el-option label="自定义系数" value="custom" />
                         </el-select>
-                        <el-select
-                          v-if="colSetting(col.code).split_mode === 'custom'"
-                          :model-value="colSetting(col.code).split_factor || ''"
-                          size="small"
-                          filterable
-                          clearable
-                          placeholder="选择系数字段"
-                          style="width: 180px; margin-top: 8px"
-                          @update:model-value="(v: string) => setSplitFactor(col.code, v)"
-                        >
-                          <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
-                        </el-select>
+                        <template v-if="colSetting(col.code).split_mode === 'custom'">
+                          <div
+                            v-for="(fac, i) in splitFactors(col.code)"
+                            :key="i"
+                            style="display: flex; gap: 4px; align-items: center; margin-top: 8px"
+                          >
+                            <span v-if="i > 0" style="color: var(--color-text-secondary); font-size: 12px">×</span>
+                            <el-select
+                              :model-value="fac"
+                              size="small"
+                              filterable
+                              clearable
+                              placeholder="选择系数字段"
+                              style="width: 150px"
+                              @update:model-value="(v: string) => setSplitFactor(col.code, i, v)"
+                            >
+                              <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
+                            </el-select>
+                            <el-button link type="danger" size="small" @click="removeSplitFactor(col.code, i)">
+                              <el-icon><Delete /></el-icon>
+                            </el-button>
+                          </div>
+                          <el-button link type="primary" size="small" style="margin-top: 6px" @click="addSplitFactor(col.code)">
+                            <el-icon style="margin-right: 2px"><Plus /></el-icon>添加系数
+                          </el-button>
+                        </template>
                       </div>
 
                       <div class="menu-block">
@@ -778,18 +829,37 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
                     inactive-text="关闭"
                     @update:model-value="(v: boolean) => emit('update:defaultSplitRule', { ...defaultSplitRule, enabled: v })"
                   />
-                  <el-select
-                    :model-value="defaultSplitRule.factor || ''"
-                    :disabled="!defaultSplitRule.enabled"
-                    filterable
-                    clearable
-                    placeholder="选择统一系数字段"
-                    style="width: min(320px, 100%)"
-                    @update:model-value="(v: string) => emit('update:defaultSplitRule', { ...defaultSplitRule, factor: v })"
+                  <div
+                    v-for="(fac, i) in defaultFactors()"
+                    :key="i"
+                    style="display: flex; gap: 6px; align-items: center; margin-top: 6px"
                   >
-                    <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
-                  </el-select>
-                  <p>适合需要按统一比例分摊指标的场景，单个字段仍可覆盖默认规则。</p>
+                    <span v-if="i > 0" style="color: var(--color-text-secondary); font-size: 13px">×</span>
+                    <el-select
+                      :model-value="fac"
+                      :disabled="!defaultSplitRule.enabled"
+                      filterable
+                      clearable
+                      placeholder="选择系数字段"
+                      style="width: min(280px, 100%)"
+                      @update:model-value="(v: string) => setDefaultFactor(i, v)"
+                    >
+                      <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
+                    </el-select>
+                    <el-button link type="danger" :disabled="!defaultSplitRule.enabled" @click="removeDefaultFactor(i)">
+                      <el-icon><Delete /></el-icon>
+                    </el-button>
+                  </div>
+                  <el-button
+                    link
+                    type="primary"
+                    :disabled="!defaultSplitRule.enabled"
+                    style="margin-top: 6px"
+                    @click="addDefaultFactor"
+                  >
+                    <el-icon style="margin-right: 2px"><Plus /></el-icon>添加系数
+                  </el-button>
+                  <p>多个系数会连乘（金额 × 系数1 × 系数2 …）；单个字段仍可覆盖默认规则。</p>
                 </div>
 
                 <div v-if="isDataset" class="rule-item rule-item-wide">

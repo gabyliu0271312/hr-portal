@@ -46,12 +46,12 @@ const form = reactive({
   scope_strategy: null as ScopeStrategy | null,
   selected_codes: [] as string[],
   column_settings: {} as Record<string, ColumnSetting>,
-  default_split_rule: { enabled: false, factor: '' } as DefaultSplitRule,
+  default_split_rule: { enabled: false, factors: [] } as DefaultSplitRule,
   rounding_group_by: [] as string[],
   filters: [] as any[],
   filter_logic: null as FilterLogic | null,
   sorts: [] as any[],
-  value_rules: [] as { target: string; factor: string }[],
+  value_rules: [] as { target: string; factors: string[] }[],
   aggregate: false,
   default_aggregation: 'sum' as AggregationFunc,
   aggregations: {} as Record<string, string>,
@@ -169,12 +169,15 @@ async function loadReport() {
     form.column_settings = { ...(r.config.column_settings ?? {}) }
     form.default_split_rule = {
       enabled: !!r.config.default_split_rule?.enabled,
-      factor: r.config.default_split_rule?.factor || '',
+      factors: r.config.default_split_rule?.factors ?? (r.config.default_split_rule?.factor ? [r.config.default_split_rule.factor] : []),
     }
     form.filters = (r.config.filters ?? []).map((f) => ({ ...f }))
     form.filter_logic = r.config.filter_logic ?? null
     form.sorts = (r.config.sorts ?? []).map((s) => ({ ...s }))
-    form.value_rules = (r.config.value_rules ?? []).map((v) => ({ ...v }))
+    form.value_rules = (r.config.value_rules ?? []).map((v: any) => ({
+      target: v.target,
+      factors: v.factors ?? (v.factor ? [v.factor] : []),
+    }))
     form.aggregate = r.config.aggregate ?? false
     form.default_aggregation = (r.config.default_aggregation || 'sum') as AggregationFunc
     form.aggregations = { ...(r.config.aggregations ?? {}) }
@@ -250,7 +253,7 @@ async function loadReport() {
 function resetForm() {
   form.selected_codes = []
   form.column_settings = {}
-  form.default_split_rule = { enabled: false, factor: '' }
+  form.default_split_rule = { enabled: false, factors: [] }
   form.rounding_group_by = []
   form.filters = []
   form.filter_logic = null
@@ -353,25 +356,29 @@ function buildPayload() {
     form.filter_logic?.mode === 'custom' && form.filter_logic.expression?.trim()
       ? { mode: 'custom', expression: form.filter_logic.expression.trim() }
       : null
-  const valueRulesByTarget = new Map<string, string>()
-  if (form.default_split_rule.enabled && form.default_split_rule.factor) {
+  const valueRulesByTarget = new Map<string, string[]>()
+  const defaultFactors = (form.default_split_rule.factors ?? []).filter(Boolean)
+  if (form.default_split_rule.enabled && defaultFactors.length) {
     for (const measure of selectedPhysicalMeasureCodes) {
       const setting = form.column_settings[measure] || {}
       if (setting.split_mode === 'none') continue
-      if (setting.split_mode === 'custom' && setting.split_factor) {
-        valueRulesByTarget.set(measure, setting.split_factor)
+      const customFactors = (setting.split_factors ?? (setting.split_factor ? [setting.split_factor] : [])).filter(Boolean)
+      if (setting.split_mode === 'custom' && customFactors.length) {
+        valueRulesByTarget.set(measure, customFactors)
       } else {
-        valueRulesByTarget.set(measure, form.default_split_rule.factor)
+        valueRulesByTarget.set(measure, defaultFactors)
       }
     }
   }
   for (const rule of form.value_rules) {
-    if (rule.target && rule.factor) valueRulesByTarget.set(rule.target, rule.factor)
+    const factors = (rule.factors ?? []).filter(Boolean)
+    if (rule.target && factors.length) valueRulesByTarget.set(rule.target, factors)
   }
   for (const measure of selectedPhysicalMeasureCodes) {
     const setting = form.column_settings[measure] || {}
     if (setting.split_mode === 'none') valueRulesByTarget.delete(measure)
-    if (setting.split_mode === 'custom' && setting.split_factor) valueRulesByTarget.set(measure, setting.split_factor)
+    const customFactors = (setting.split_factors ?? (setting.split_factor ? [setting.split_factor] : [])).filter(Boolean)
+    if (setting.split_mode === 'custom' && customFactors.length) valueRulesByTarget.set(measure, customFactors)
   }
 
   return {
@@ -390,7 +397,7 @@ function buildPayload() {
       filters: normalizeFilters(form.filters, true),
       filter_logic: filterLogic,
       sorts: form.sorts.filter((s) => s.column),
-      value_rules: [...valueRulesByTarget.entries()].map(([target, factor]) => ({ target, factor })),
+      value_rules: [...valueRulesByTarget.entries()].map(([target, factors]) => ({ target, factors })),
       aggregate: form.aggregate,
       default_aggregation: form.default_aggregation || 'sum',
       aggregations: form.aggregate
@@ -647,7 +654,7 @@ watch(
         name: '', description: '', dataset_id: datasets.value.find((d) => d.is_active)?.id ?? datasets.value[0]?.id ?? null,
         is_published: false, scope_strategy: null, selected_codes: [], filters: [], sorts: [],
         value_rules: [], aggregate: false, default_aggregation: 'sum', aggregations: {},
-        column_settings: {}, default_split_rule: { enabled: false, factor: '' }, rounding_group_by: [], filter_logic: null,
+        column_settings: {}, default_split_rule: { enabled: false, factors: [] }, rounding_group_by: [], filter_logic: null,
         transpose: {
           enabled: false,
           drop_zero_measures: true,
