@@ -121,6 +121,24 @@ def _select_label(alias: str, code: str) -> str:
     return f"__{alias}__{code}"
 
 
+def _calc_field_dangling_dep(field, alias_to_model, columns_by_alias) -> str | None:
+    """检测计算字段是否存在悬空依赖（依赖的表/列已不在数据集）。
+
+    返回 None 表示依赖完整；否则返回中文缺失描述，用于警告文案。
+    """
+    for dep in getattr(field, "depends_on", None) or []:
+        if not isinstance(dep, str) or "." not in dep:
+            continue
+        alias, _, code = dep.partition(".")
+        if alias not in alias_to_model:
+            return f"依赖的「{alias}」表已不在数据集中"
+        cols = columns_by_alias.get(alias, {})
+        model = alias_to_model[alias]
+        if code not in cols and code not in model.__table__.columns:
+            return f"依赖的字段「{alias}.{code}」已不存在"
+    return None
+
+
 def _normalize_report_value(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -1227,12 +1245,30 @@ async def run_dataset_query(
     selected: list[tuple[str, str]] = []
     display_selected: list[tuple[str, str]] = []
     selected_calc_fields: list[DatasetCalculatedField] = []
+
+    # 计算字段悬空依赖检测：依赖的表/列已不在数据集时跳过该字段并记警告
+    dangling_calc_codes: set[str] = set()
+    for cf in calc_fields:
+        miss = _calc_field_dangling_dep(cf, alias_to_model, columns_by_alias)
+        if miss:
+            dangling_calc_codes.add(cf.code)
+            if warnings_sink is not None:
+                msg = (
+                    f"计算字段「{cf.label or cf.code}」{miss}，已自动跳过。"
+                    f"如该字段用于数值拆分或汇总，结果可能受影响，"
+                    f"请到数据集修复依赖或删除该计算字段。"
+                )
+                if msg not in warnings_sink:
+                    warnings_sink.append(msg)
+
     if columns:
         for q in columns:
             if q.startswith("calc."):
                 calc_field = calc_by_qual.get(q)
                 if calc_field is None:
                     raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"计算字段不存在: {q}")
+                if calc_field.code in dangling_calc_codes:
+                    continue
                 selected_calc_fields.append(calc_field)
             else:
                 _reject_hidden_ref(q, "字段")
@@ -1246,7 +1282,7 @@ async def run_dataset_query(
                     pair = (alias, c.column_code)
                     display_selected.append(pair)
                     selected.append(pair)
-        selected_calc_fields = list(calc_fields)
+        selected_calc_fields = [f for f in calc_fields if f.code not in dangling_calc_codes]
 
     calc_filter_on = any(str((f or {}).get("column") or "").startswith("calc.") for f in filters or [])
     calc_sort_on = any(str((s or {}).get("column") or "").startswith("calc.") for s in sorts or [])
@@ -1258,22 +1294,19 @@ async def run_dataset_query(
                 calc_rule_quals.add(raw)
     internal_calc_fields: list[DatasetCalculatedField] = []
     selected_calc_quals = {calc_qual(f.code) for f in selected_calc_fields}
+
+    def _maybe_add_internal_calc(field) -> None:
+        if field and field.code not in dangling_calc_codes and field not in internal_calc_fields:
+            internal_calc_fields.append(field)
+
     for qual in set(selected_calc_quals) | calc_rule_quals:
-        field = calc_by_qual.get(qual)
-        if field and field not in internal_calc_fields:
-            internal_calc_fields.append(field)
+        _maybe_add_internal_calc(calc_by_qual.get(qual))
     for f in filters or []:
-        field = calc_by_qual.get(str((f or {}).get("column") or ""))
-        if field and field not in internal_calc_fields:
-            internal_calc_fields.append(field)
+        _maybe_add_internal_calc(calc_by_qual.get(str((f or {}).get("column") or "")))
     for s in sorts or []:
-        field = calc_by_qual.get(str((s or {}).get("column") or ""))
-        if field and field not in internal_calc_fields:
-            internal_calc_fields.append(field)
+        _maybe_add_internal_calc(calc_by_qual.get(str((s or {}).get("column") or "")))
     for raw in _metric_filter_refs(column_settings):
-        field = calc_by_qual.get(str(raw or ""))
-        if field and field not in internal_calc_fields:
-            internal_calc_fields.append(field)
+        _maybe_add_internal_calc(calc_by_qual.get(str(raw or "")))
 
     for field in internal_calc_fields:
         for dep in field.depends_on or []:

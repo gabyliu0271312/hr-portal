@@ -576,6 +576,71 @@ async def test_report_calculated_field_uses_selected_entity_dependencies():
     assert_no_raw_sql(db)
 
 
+async def test_report_skips_calc_field_with_dangling_dependency_and_warns():
+    table_name = "report_calc_dangling"
+    model = make_entity_model(table_name, [Column("amount", Numeric)])
+    old = register_table(table_name, model)
+    ds = DataSet(id=44, name="dangling")
+    table = DataSetTable(dataset_id=44, table_name=table_name, alias="r")
+    # 计算字段依赖一个未挂进数据集的 alias（gone.col）→ 悬空依赖
+    calc = DatasetCalculatedField(
+        id=2,
+        dataset_id=44,
+        code="bad_field",
+        label="坏字段",
+        formula='=FIELD("gone.col") + 1',
+        data_type="number",
+        agg_role="measure",
+        depends_on=["gone.col"],
+        used_functions=[],
+        is_sensitive=False,
+        is_active=True,
+    )
+    db = FakeSession(
+        get_map={(DataSet, 44): ds},
+        results=[
+            *dataset_rows(44, [table]),
+            FakeResult(rows=[make_column(table_name, "amount", column_label="金额", data_type="number")]),
+            # warnings_sink 触发的 RegisteredTable 友好表名查询
+            FakeResult(rows=[(table_name, "明细表")]),
+            FakeResult(rows=[calc]),  # active_calculated_fields
+            FakeResult(value=1),  # count
+            FakeResult(rows=[FakeRow(__r__id=1, __r__amount=Decimal("10"))]),
+        ],
+    )
+
+    warnings: list[str] = []
+    try:
+        cols, items, total = await sql_builder.run_dataset_query(
+            dataset_id=44,
+            columns=["r.amount", "calc.bad_field"],
+            filters=[],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[{"target": "calc.bad_field", "factors": ["r.amount"]}],
+            aggregate=False,
+            aggregations={},
+            transpose={},
+            rounding_corrections=[],
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+            warnings_sink=warnings,
+        )
+    finally:
+        restore_table(table_name, old)
+
+    # 不抛 KeyError，正常出数
+    assert total == 1
+    # 警告非空，含字段名与"已跳过"
+    assert len(warnings) == 1
+    assert "坏字段" in warnings[0]
+    assert "已自动跳过" in warnings[0]
+    # 坏计算字段不在返回列里
+    assert all(c["code"] != "calc.bad_field" for c in cols)
+
+
 async def test_report_query_rejects_legacy_raw_source_table():
     table_name = "report_legacy_source"
     old = register_table(table_name, make_legacy_raw_model(table_name))

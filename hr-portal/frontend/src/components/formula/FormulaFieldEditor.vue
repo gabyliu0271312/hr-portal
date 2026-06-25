@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Close, Plus, Search, Position } from '@element-plus/icons-vue'
+import { Check, Close, Plus, Search, Position, Delete } from '@element-plus/icons-vue'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import type { ColumnInfo } from '@/api/data'
 import { aiFormulaApi, type FormulaValidation } from '@/api/aiFormula'
 import { datasetsApi, type DatasetCalculatedField } from '@/api/datasets'
 import { functionLibraryApi, type FormulaFunction } from '@/api/functionLibrary'
+import { useUserStore } from '@/stores/user'
 
 const props = defineProps<{
   visible: boolean
@@ -33,6 +34,9 @@ const form = reactive({
 const generating = ref(false)
 const validating = ref(false)
 const saving = ref(false)
+const deleting = ref(false)
+const userStore = useUserStore()
+const canDeleteField = computed(() => userStore.hasOp('datasource.datasets', 'D'))
 const validation = ref<FormulaValidation | null>(null)
 const functions = ref<FormulaFunction[]>([])
 const fieldKeyword = ref('')
@@ -640,6 +644,32 @@ async function save() {
     saving.value = false
   }
 }
+
+async function removeField() {
+  if (!props.datasetId || !props.editField?.id) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除计算字段「${props.editField.label || props.editField.code}」吗？` +
+        '删除后，引用了该字段的报表/拆分规则将自动跳过它，结果可能变化。',
+      '删除计算字段',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  deleting.value = true
+  try {
+    await datasetsApi.removeCalculatedField(props.datasetId, props.editField.id)
+    ElMessage.success('计算字段已删除')
+    dirty.value = false
+    emit('saved', props.editField)
+    open.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
+  } finally {
+    deleting.value = false
+  }
+}
 </script>
 
 <template>
@@ -663,6 +693,16 @@ async function save() {
           <div class="designer-subtitle">用自然语言生成公式，也可以手动插入字段、函数和常量。</div>
         </div>
         <div class="title-actions">
+          <el-button
+            v-if="editField?.id && canDeleteField"
+            type="danger"
+            plain
+            :loading="deleting"
+            @click="removeField"
+          >
+            <el-icon><Delete /></el-icon>
+            删除
+          </el-button>
           <el-button @click="requestClose()">
             <el-icon><Close /></el-icon>
             取消
