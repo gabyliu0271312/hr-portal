@@ -641,6 +641,53 @@ async def test_report_skips_calc_field_with_dangling_dependency_and_warns():
     assert all(c["code"] != "calc.bad_field" for c in cols)
 
 
+async def test_report_skips_deleted_calc_field_referenced_as_column_and_warns():
+    table_name = "report_calc_deleted"
+    model = make_entity_model(table_name, [Column("amount", Numeric)])
+    old = register_table(table_name, model)
+    ds = DataSet(id=45, name="deleted_calc")
+    table = DataSetTable(dataset_id=45, table_name=table_name, alias="r")
+    db = FakeSession(
+        get_map={(DataSet, 45): ds},
+        results=[
+            *dataset_rows(45, [table]),
+            FakeResult(rows=[make_column(table_name, "amount", column_label="金额", data_type="number")]),
+            FakeResult(rows=[(table_name, "明细表")]),  # 友好表名
+            FakeResult(rows=[]),  # active_calculated_fields 为空（field 已删）
+            FakeResult(value=1),  # count
+            FakeResult(rows=[FakeRow(__r__id=1, __r__amount=Decimal("10"))]),
+        ],
+    )
+
+    warnings: list[str] = []
+    try:
+        cols, items, total = await sql_builder.run_dataset_query(
+            dataset_id=45,
+            columns=["r.amount", "calc.field"],
+            filters=[],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[{"target": "calc.field", "factors": ["r.amount"]}],
+            aggregate=False,
+            aggregations={},
+            transpose={},
+            rounding_corrections=[],
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+            warnings_sink=warnings,
+        )
+    finally:
+        restore_table(table_name, old)
+
+    assert total == 1
+    assert len(warnings) == 1
+    assert "calc.field" in warnings[0]
+    assert "已被删除" in warnings[0]
+    assert all(c["code"] != "calc.field" for c in cols)
+
+
 async def test_report_query_rejects_legacy_raw_source_table():
     table_name = "report_legacy_source"
     old = register_table(table_name, make_legacy_raw_model(table_name))

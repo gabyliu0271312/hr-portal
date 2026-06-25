@@ -1266,7 +1266,16 @@ async def run_dataset_query(
             if q.startswith("calc."):
                 calc_field = calc_by_qual.get(q)
                 if calc_field is None:
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"计算字段不存在: {q}")
+                    # 计算字段已被删除（不在 active 列表），跳过该列并记警告
+                    if warnings_sink is not None:
+                        msg = (
+                            f"报表引用的计算字段「{q}」已被删除，已自动跳过。"
+                            f"如该字段用于数值拆分或汇总，结果可能受影响，"
+                            f"请到报表配置中移除该字段引用。"
+                        )
+                        if msg not in warnings_sink:
+                            warnings_sink.append(msg)
+                    continue
                 if calc_field.code in dangling_calc_codes:
                     continue
                 selected_calc_fields.append(calc_field)
