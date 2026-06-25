@@ -57,6 +57,7 @@ export interface AllocationRunOut {
   triggered_by: number | null
   started_at: string
   finished_at: string | null
+  warnings?: string[]
 }
 
 export interface ResultTableItem {

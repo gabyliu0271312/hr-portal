@@ -22,6 +22,7 @@ const report = ref<ReportItem | null>(null)
 const columns = ref<RunResult['columns']>([])
 const items = ref<RunResult['items']>([])
 const total = ref(0)
+const runWarnings = ref<string[]>([])
 const page = ref(1)
 const pageSize = ref(50)
 const loading = ref(false)
@@ -76,6 +77,7 @@ async function run() {
     columns.value = res.columns
     items.value = res.items
     total.value = res.total
+    runWarnings.value = res.warnings || []
     if (report.value) {
       report.value.last_run_at = new Date().toISOString()
       report.value.run_count = (report.value.run_count || 0) + 1
@@ -206,6 +208,19 @@ defineExpose({ run })
       <div style="margin-top: 6px; font-size: 12px">
         请到「系统设置 → 数据接入 → 表间关联」修复后再回到此页运行。
       </div>
+    </el-alert>
+
+    <el-alert
+      v-if="runWarnings.length"
+      type="warning"
+      :closable="true"
+      show-icon
+      style="margin-bottom: 16px"
+    >
+      <strong>字段类型不一致已自动兼容（结果可能存在漏匹配）：</strong>
+      <ul style="margin: 6px 0 0; padding-left: 20px">
+        <li v-for="(w, i) in runWarnings" :key="i">{{ w }}</li>
+      </ul>
     </el-alert>
 
     <ReportPreviewTable

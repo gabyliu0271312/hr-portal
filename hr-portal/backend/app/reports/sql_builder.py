@@ -68,6 +68,55 @@ def _entity_text(model, col_code: str) -> ColumnElement:
     return cast(_entity_column(model, col_code), SAString)
 
 
+_TYPE_FAMILY_LABELS = {
+    "number": "数字",
+    "integer": "数字",
+    "date": "日期",
+    "datetime": "日期",
+}
+
+
+def _type_family(data_type: str | None) -> str:
+    """把字段类型归到「类型族」：数值/日期/文本。仅跨族才需兜底 cast。"""
+    key = (data_type or "string").strip().lower()
+    if key in {"number", "integer"}:
+        return "number"
+    if key in {"date", "datetime"}:
+        return "date"
+    return "text"
+
+
+def _type_cn(data_type: str | None) -> str:
+    return _TYPE_FAMILY_LABELS.get((data_type or "string").strip().lower(), "文本")
+
+
+def _join_eq(
+    lm,
+    left_code: str,
+    left_type: str | None,
+    rm,
+    right_code: str,
+    right_type: str | None,
+    *,
+    left_table_label: str,
+    right_table_label: str,
+    warnings_sink: list[str] | None,
+) -> ColumnElement:
+    """构造 JOIN 等值条件。两边类型同族直接比较；跨族则统一转文本兜底，并记一条警告。"""
+    if _type_family(left_type) == _type_family(right_type):
+        return _entity_column(lm, left_code) == _entity_column(rm, right_code)
+    if warnings_sink is not None:
+        field_desc = left_code if left_code == right_code else f"{left_code} / {right_code}"
+        msg = (
+            f"数据集关系「{left_table_label} ↔ {right_table_label}」的关联字段 {field_desc} "
+            f"两边类型不一致（{_type_cn(left_type)} / {_type_cn(right_type)}），"
+            f"已自动按文本兼容比较，可能因格式差异(如前导零)漏匹配，建议在字段管理中统一类型。"
+        )
+        if msg not in warnings_sink:
+            warnings_sink.append(msg)
+    return _entity_text(lm, left_code) == _entity_text(rm, right_code)
+
+
 def _select_label(alias: str, code: str) -> str:
     return f"__{alias}__{code}"
 
@@ -1053,6 +1102,7 @@ async def run_dataset_query(
     filter_logic: dict[str, Any] | None = None,
     list_lookup: dict[str, Any] | None = None,
     scope_strategy: str | None = None,
+    warnings_sink: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     """执行数据集多表查询
 
@@ -1094,6 +1144,21 @@ async def run_dataset_query(
         for alias, cols in alias_columns.items()
     }
     _validate_list_lookup_types(list_lookup, columns_by_alias=columns_by_alias)
+    # 关系警告用的友好表名：alias -> registered_tables.table_label，取不到回退表名/alias
+    table_label_by_alias: dict[str, str] = {}
+    if warnings_sink is not None:
+        label_rows = (
+            await db.execute(
+                select(RegisteredTable.table_name, RegisteredTable.table_label).where(
+                    RegisteredTable.table_name.in_(list(alias_to_table.values()))
+                )
+            )
+        ).all()
+        label_by_table = {tn: (lbl or tn) for tn, lbl in label_rows}
+        table_label_by_alias = {
+            alias: label_by_table.get(table, table)
+            for alias, table in alias_to_table.items()
+        }
     calc_fields = await active_calculated_fields(dataset_id, db)
     calc_by_code = {f.code: f for f in calc_fields}
     calc_by_qual = {calc_qual(f.code): f for f in calc_fields}
@@ -1250,12 +1315,30 @@ async def run_dataset_query(
                     left_col = k.get("left")
                     right_col = k.get("right")
                     if known == r.left_alias:
+                        # lm=left_alias 表，rm=right_alias 表
+                        lt = (columns_by_alias.get(known, {}).get(left_col))
+                        rt = (columns_by_alias.get(new, {}).get(right_col))
                         conds.append(
-                            _entity_column(lm, left_col) == _entity_column(rm, right_col)
+                            _join_eq(
+                                lm, left_col, lt.data_type if lt else None,
+                                rm, right_col, rt.data_type if rt else None,
+                                left_table_label=table_label_by_alias.get(known, known),
+                                right_table_label=table_label_by_alias.get(new, new),
+                                warnings_sink=warnings_sink,
+                            )
                         )
                     else:
+                        # lm=right_alias 表，rm=left_alias 表
+                        lt = (columns_by_alias.get(known, {}).get(right_col))
+                        rt = (columns_by_alias.get(new, {}).get(left_col))
                         conds.append(
-                            _entity_column(lm, right_col) == _entity_column(rm, left_col)
+                            _join_eq(
+                                lm, right_col, lt.data_type if lt else None,
+                                rm, left_col, rt.data_type if rt else None,
+                                left_table_label=table_label_by_alias.get(known, known),
+                                right_table_label=table_label_by_alias.get(new, new),
+                                warnings_sink=warnings_sink,
+                            )
                         )
                 join_cond = and_(*conds) if conds else true()
                 join_kind = (r.join_type or "left").lower()

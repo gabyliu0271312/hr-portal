@@ -117,6 +117,7 @@ class RunResult(BaseModel):
     total: int
     page: int
     page_size: int
+    warnings: list[str] = []
 
 
 class RunOverrides(BaseModel):
@@ -552,6 +553,7 @@ async def run_report(
 
     from app.reports.sql_builder import run_dataset_query
 
+    warnings: list[str] = []
     columns_meta, items, total = await run_dataset_query(
         dataset_id=report.dataset_id,
         columns=cfg.columns,
@@ -570,6 +572,7 @@ async def run_report(
         user=user,
         db=db,
         scope_strategy=report.scope_strategy,
+        warnings_sink=warnings,
     )
 
     report.last_run_at = datetime.utcnow()
@@ -577,7 +580,10 @@ async def run_report(
     await db.commit()
 
     out_cols, out_items = _project_report_output(columns_meta, items, cfg)
-    return RunResult(columns=out_cols, items=out_items, total=total, page=page, page_size=page_size)
+    return RunResult(
+        columns=out_cols, items=out_items, total=total,
+        page=page, page_size=page_size, warnings=warnings,
+    )
 
 
 async def _collect_export_rows(

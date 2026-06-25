@@ -184,6 +184,7 @@ export interface RunResult {
   total: number
   page: number
   page_size: number
+  warnings?: string[]
 }
 
 export interface ReportConfigExplainPayload {

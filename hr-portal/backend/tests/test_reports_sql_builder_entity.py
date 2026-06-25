@@ -268,6 +268,81 @@ async def test_report_join_query_uses_entity_columns_in_join_condition():
     assert "jsonb" not in sql
 
 
+async def test_report_join_type_mismatch_falls_back_to_text_and_warns():
+    salary_table = "report_mm_salary"
+    bonus_table = "report_mm_bonus"
+    # 工资表 employee_no = 数字；年终奖表 employee_no = 文本 → 跨族
+    salary_model = make_entity_model(
+        salary_table,
+        [Column("employee_no", Numeric), Column("amount", Numeric)],
+    )
+    bonus_model = make_entity_model(bonus_table, [Column("employee_no", String)])
+    old_salary = register_table(salary_table, salary_model)
+    old_bonus = register_table(bonus_table, bonus_model)
+    ds = DataSet(id=77, name="mismatch")
+    tables = [
+        DataSetTable(dataset_id=77, table_name=salary_table, alias="s"),
+        DataSetTable(dataset_id=77, table_name=bonus_table, alias="b"),
+    ]
+    rel = DataSetRelation(
+        dataset_id=77,
+        left_alias="s",
+        right_alias="b",
+        join_type="left",
+        keys=[{"left": "employee_no", "right": "employee_no"}],
+    )
+    db = FakeSession(
+        get_map={(DataSet, 77): ds},
+        results=[
+            *dataset_rows(77, tables, [rel]),
+            FakeResult(rows=[
+                make_column(salary_table, "employee_no", column_label="工号", data_type="number"),
+                make_column(salary_table, "amount", column_label="金额", data_type="number"),
+            ]),
+            FakeResult(rows=[make_column(bonus_table, "employee_no", column_label="工号")]),
+            # warnings_sink 触发的 RegisteredTable 友好表名查询
+            FakeResult(rows=[(salary_table, "员工月度工资表"), (bonus_table, "员工年终奖金发放表")]),
+            FakeResult(rows=[]),  # active_calculated_fields
+            FakeResult(value=1),  # count
+            FakeResult(rows=[FakeRow(__s__id=1, __b__id=2, __s__amount=Decimal("10.00"))]),
+        ],
+    )
+
+    warnings: list[str] = []
+    try:
+        _cols, items, total = await sql_builder.run_dataset_query(
+            dataset_id=77,
+            columns=["s.amount"],
+            filters=[],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[],
+            aggregate=False,
+            aggregations={},
+            transpose={},
+            rounding_corrections=[],
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+            warnings_sink=warnings,
+        )
+    finally:
+        restore_table(salary_table, old_salary)
+        restore_table(bonus_table, old_bonus)
+
+    # 出数不再因 text=numeric 报错
+    assert total == 1
+    # 警告非空且指明字段与类型不一致
+    assert len(warnings) == 1
+    assert "employee_no" in warnings[0]
+    assert "类型不一致" in warnings[0]
+    assert "员工年终奖金发放表" in warnings[0]
+    # JOIN 两边都做了文本 cast
+    sql = "\n".join(str(statement) for statement, _ in db.executed).lower()
+    assert "cast" in sql
+
+
 async def test_report_aggregate_keeps_database_numeric_values():
     table_name = "report_entity_aggregate"
     model = make_entity_model(

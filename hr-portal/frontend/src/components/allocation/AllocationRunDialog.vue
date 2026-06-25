@@ -66,6 +66,14 @@ async function confirm() {
   try {
     const run = await allocationApi.runScheme(props.scheme.id, filters.value)
     ElMessage.success(`存档成功，共写入 ${run.rows_written} 行（${run.period_ym}）`)
+    if (run.warnings && run.warnings.length) {
+      ElMessage({
+        type: 'warning',
+        message: '字段类型不一致已自动兼容（可能漏匹配）：\n' + run.warnings.join('\n'),
+        duration: 0,
+        showClose: true,
+      })
+    }
     emit('update:visible', false)
     emit('done', run)
   } catch (e: any) {

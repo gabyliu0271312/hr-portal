@@ -93,6 +93,7 @@ class RunOut(BaseModel):
     triggered_by: int | None
     started_at: str
     finished_at: str | None
+    warnings: list[str] = []
 
 
 class ResultTableItem(BaseModel):
@@ -145,7 +146,7 @@ async def _scheme_out(s: AllocationScheme, db: AsyncSession) -> SchemeOut:
     )
 
 
-def _run_out(r: AllocationRun) -> RunOut:
+def _run_out(r: AllocationRun, warnings: list[str] | None = None) -> RunOut:
     return RunOut(
         id=r.id,
         scheme_id=r.scheme_id,
@@ -156,6 +157,7 @@ def _run_out(r: AllocationRun) -> RunOut:
         triggered_by=r.triggered_by,
         started_at=r.started_at.isoformat(),
         finished_at=r.finished_at.isoformat() if r.finished_at else None,
+        warnings=warnings or [],
     )
 
 
@@ -331,6 +333,7 @@ async def run_scheme(
 
     try:
         from app.reports.sql_builder import run_dataset_query
+        run_warnings: list[str] = []
         cols_meta, items, _ = await run_dataset_query(
             dataset_id=dataset_id_ref,
             columns=merged_cfg.columns,
@@ -348,6 +351,7 @@ async def run_scheme(
             page_size=0,
             user=user,
             db=db,
+            warnings_sink=run_warnings,
         )
 
         if not items:
@@ -381,7 +385,7 @@ async def run_scheme(
 
     await db.commit()
     await db.refresh(run)
-    return _run_out(run)
+    return _run_out(run, run_warnings)
 
 
 # ===== 执行历史 =====
