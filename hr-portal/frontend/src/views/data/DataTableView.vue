@@ -402,10 +402,7 @@ onMounted(async () => {
               <el-tag v-if="isEditable(col)" size="small" type="warning" effect="plain" style="margin-left: 4px">可编辑</el-tag>
             </template>
             <template #default="{ row }">
-              <span v-if="col.is_sensitive" style="color: var(--color-text-placeholder); font-family: monospace">
-                ▘▘▘▘▘
-              </span>
-              <template v-else-if="isEditable(col)">
+              <template v-if="isEditable(col)">
                 <!-- 值列表：直接下拉选择，选中即保存 -->
                 <el-select
                   v-if="col.data_type === 'enum'"
