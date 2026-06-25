@@ -222,6 +222,61 @@ async def delete_calculated_field(
     row = await db.get(DatasetCalculatedField, field_id)
     if row is None or row.dataset_id != ds_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="计算字段不存在")
+
+    reasons = await _calc_field_reference_reasons(ds_id, row, db)
+    if reasons:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"计算字段「{row.label or row.code}」正被以下使用，无法删除，请先移除引用："
+            + "；".join(reasons),
+        )
+
     row.is_active = False
     await db.commit()
     return {"ok": True}
+
+
+async def _calc_field_reference_reasons(
+    ds_id: int,
+    field: DatasetCalculatedField,
+    db: AsyncSession,
+) -> list[str]:
+    """检查计算字段是否仍被报表 / 成本分摊方案 / 其它计算字段引用。"""
+    from app.data.columns_router import _json_refs_column
+
+    qual = calc_qual(field.code)
+    quals = {qual}
+    reasons: list[str] = []
+
+    from app.reports.models import Report
+
+    reports = (
+        await db.execute(select(Report).where(Report.dataset_id == ds_id))
+    ).scalars().all()
+    for report in reports:
+        if _json_refs_column(report.config or {}, qual, quals):
+            reasons.append(f"报表「{report.name}」")
+
+    from app.allocation.models import AllocationScheme
+
+    schemes = (
+        await db.execute(select(AllocationScheme).where(AllocationScheme.dataset_id == ds_id))
+    ).scalars().all()
+    for scheme in schemes:
+        if _json_refs_column(scheme.config or {}, qual, quals):
+            reasons.append(f"成本分摊方案「{scheme.name}」")
+
+    other_fields = (
+        await db.execute(
+            select(DatasetCalculatedField).where(
+                DatasetCalculatedField.dataset_id == ds_id,
+                DatasetCalculatedField.is_active.is_(True),
+                DatasetCalculatedField.id != field.id,
+            )
+        )
+    ).scalars().all()
+    for cf in other_fields:
+        if _json_refs_column(cf.depends_on or [], qual, quals):
+            reasons.append(f"计算字段「{cf.label or cf.code}」")
+
+    return reasons
