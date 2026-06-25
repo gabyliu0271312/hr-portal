@@ -54,11 +54,16 @@ async def validate_dataset_formula(
         for row in function_rows
         if row.is_sensitive_output and row.function_type in {"system_builtin", "expression"}
     } | sensitive_system_builtin_codes()
-    is_sensitive = (
-        any(field_by_code[code].is_sensitive for code in depends_on if code in field_by_code)
-        or any(code in sensitive_functions for code in used_functions)
-    )
+    referenced_sensitive_fields = [
+        code for code in depends_on if code in field_by_code and field_by_code[code].is_sensitive
+    ]
+    sensitive_function_hits = [code for code in used_functions if code in sensitive_functions]
+    is_sensitive = bool(sensitive_function_hits)
     warnings: list[str] = []
+    if referenced_sensitive_fields:
+        warnings.append(
+            "公式引用了敏感源字段；计算字段不继承字段分类/可见分类授权，请按结果含义单独决定是否标记敏感。"
+        )
     preview_value = None
     if not issues and sample_row is not None:
         preview_value = evaluate_formula(

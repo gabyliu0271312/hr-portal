@@ -614,6 +614,45 @@ def _calc_role(field: DatasetCalculatedField) -> str:
     return getattr(field, "agg_role", "dimension") or "dimension"
 
 
+def _calc_field_masked(
+    field: DatasetCalculatedField,
+    calc_by_code: dict[str, DatasetCalculatedField],
+    sensitive_by_alias: dict[str, set[str]],
+    alias_columns: dict[str, list[TableColumn]],
+    _seen: set[str] | None = None,
+) -> bool:
+    """计算字段对当前用户是否应脱敏。
+
+    两层裁决（与物理列结构对称）：
+    1. field.is_sensitive 为「绝密」强制标记 → 对所有人(含超管)脱敏。
+    2. 否则递归依赖：任一物理依赖列对当前用户脱敏 → 整体脱敏。
+       物理列脱敏口径复用 col.is_sensitive ∪ get_sensitive_columns(user)（即 sensitive_by_alias，
+       已按用户算、超管豁免）。依赖里的 calc.* 下钻其依赖，_seen 防环。
+    """
+    if field.is_sensitive:
+        return True
+    seen = _seen if _seen is not None else set()
+    seen.add(field.code)
+    for dep in field.depends_on or []:
+        if not isinstance(dep, str):
+            continue
+        if dep.startswith("calc."):
+            sub = calc_by_code.get(dep[len("calc."):])
+            if sub is not None and sub.code not in seen:
+                if _calc_field_masked(sub, calc_by_code, sensitive_by_alias, alias_columns, seen):
+                    return True
+        elif "." in dep:
+            alias, _, code = dep.partition(".")
+            col = next(
+                (c for c in alias_columns.get(alias, []) if c.column_code == code), None
+            )
+            if col is not None and (
+                col.is_sensitive or code in sensitive_by_alias.get(alias, set())
+            ):
+                return True
+    return False
+
+
 def _row_filter_value_match(value: Any, op: str, expected: Any) -> bool:
     op = (op or "eq").lower()
     if op == "eq":
@@ -1553,13 +1592,20 @@ async def run_dataset_query(
                     "is_sensitive": mask,
                 }
             )
+    # 预计算每个计算字段对当前用户是否脱敏（绝密强制 ∪ 递归依赖授权裁决）
+    calc_masked: dict[str, bool] = {
+        field.code: _calc_field_masked(
+            field, calc_by_code, sensitive_by_alias, alias_columns
+        )
+        for field in selected_calc_fields
+    }
     for field in selected_calc_fields:
         columns_meta.append(
             {
                 "code": calc_qual(field.code),
                 "label": field.label,
                 "data_type": field.data_type,
-                "is_sensitive": field.is_sensitive,
+                "is_sensitive": calc_masked.get(field.code, False),
             }
         )
 
@@ -1618,8 +1664,8 @@ async def run_dataset_query(
                 field_resolver=row_field_resolver(formula_item),
                 custom_functions=custom_functions,
             )
-            formula_item[qual] = value
-            if field.is_sensitive and value not in (None, ""):
+            formula_item[qual] = value  # 供下游计算字段引用，始终用真实值
+            if calc_masked.get(field.code) and value not in (None, ""):
                 value = "******"
             item[qual] = value
         for target_qual, factor_quals in rules_by_target.items():

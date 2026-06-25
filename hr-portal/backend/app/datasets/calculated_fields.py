@@ -110,7 +110,7 @@ async def _normalize_payload(dataset_id: int, payload: CalculatedFieldIn, db: As
         "formula_display": internal_to_display(validation["formula"], fields),
         "depends_on": validation["depends_on"],
         "used_functions": validation["used_functions"],
-        "is_sensitive": bool(payload.is_sensitive or validation["is_sensitive"]),
+        "is_sensitive": bool(payload.is_sensitive),
     }
 
 

@@ -485,7 +485,6 @@ async function applyDraftToFormula(draft: any): Promise<DraftApplyResult> {
     if (result.valid) {
       form.formula = normalizeDisplayFormula(internalFormulaToDisplay(result.formula))
     }
-    form.is_sensitive = result.is_sensitive || form.is_sensitive
     return { valid: result.valid, validationErrors: result.valid ? [] : result.errors }
   } catch (e: any) {
     return {
@@ -573,7 +572,6 @@ async function validate() {
     validation.value = result
     if (result.valid) {
       form.formula = normalizeDisplayFormula(internalFormulaToDisplay(result.formula))
-      form.is_sensitive = result.is_sensitive || form.is_sensitive
       ElMessage.success('公式校验通过')
       return true
     }
@@ -613,7 +611,6 @@ async function save() {
   }
   validation.value = latestValidation
   form.formula = normalizeDisplayFormula(internalFormulaToDisplay(latestValidation.formula))
-  form.is_sensitive = latestValidation.is_sensitive || form.is_sensitive
   saving.value = true
   try {
     const payload = {
@@ -898,7 +895,10 @@ async function save() {
               />
             </el-form-item>
             <el-form-item>
-              <el-switch v-model="form.is_sensitive" active-text="敏感字段" inactive-text="非敏感" @change="markDirty" />
+              <el-switch v-model="form.is_sensitive" active-text="绝密（所有人脱敏）" inactive-text="按依赖裁决" @change="markDirty" />
+              <span style="margin-left: 8px; font-size: 12px; color: var(--color-text-placeholder)">
+                开启后该字段对所有人（含超管）脱敏；关闭则按公式依赖字段的授权自动裁决
+              </span>
             </el-form-item>
           </el-form>
         </section>
@@ -918,7 +918,7 @@ async function save() {
             <div v-if="validation?.used_functions?.length" class="validate-line">
               使用函数：{{ validation.used_functions.join('，') }}
             </div>
-            <div v-if="validation?.is_sensitive" class="validate-line">结果将按敏感字段处理。</div>
+            <div v-if="validation?.is_sensitive" class="validate-line">公式含敏感函数/字段：结果默认对无权用户脱敏；如需对所有人绝密，请开启上方「绝密」开关。</div>
             <div v-for="err in validation?.errors || []" :key="err" class="validate-error">{{ err }}</div>
             <div v-for="warn in validation?.warnings || []" :key="warn" class="validate-warn">{{ warn }}</div>
           </div>

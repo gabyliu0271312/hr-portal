@@ -12,6 +12,7 @@ from app.ai_formula.formula_evaluator import evaluate_formula, formula_syntax_is
 from app.ai_formula.formula_parser import extract_formula_meta, normalize_formula
 from app.ai_formula.formula_safety import safety_issues
 from app.ai_formula.router import FormulaDraftIn, _formula_draft_error_detail, draft_formula_impl
+from app.ai_formula.validator import validate_dataset_formula
 
 
 def test_extract_field_refs_keeps_order_and_dedupes():
