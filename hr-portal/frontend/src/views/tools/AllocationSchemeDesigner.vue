@@ -303,10 +303,6 @@ function buildPayload(): AllocationSchemeIn {
       }
     }
   }
-  for (const rule of form.value_rules) {
-    const factors = (rule.factors ?? []).filter(Boolean)
-    if (rule.target && factors.length) valueRulesByTarget.set(rule.target, factors)
-  }
   for (const measure of selectedPhysicalMeasureCodes) {
     const setting = form.column_settings[measure] || {}
     if (setting.split_mode === 'none') valueRulesByTarget.delete(measure)
