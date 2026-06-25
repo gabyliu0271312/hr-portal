@@ -1131,7 +1131,7 @@ async def _sync_to_table_impl(
             cur_ym = _resolve_period_ym(period_cfg, settings)
             if rows:
                 rows = [
-                    {period_col: cur_ym, **r} for r in rows if isinstance(r, dict)
+                    {**r, period_col: cur_ym} for r in rows if isinstance(r, dict)
                 ]
         else:
             # field 模式：从第一行数据里读月份值（用于孤儿删除范围）
