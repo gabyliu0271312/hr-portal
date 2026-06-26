@@ -668,24 +668,34 @@ async def _dynamic_upsert(
     # 4) 同批次去重（多行同 PK 取最后一行），保留顺序
     deduped: list[tuple[str, dict]] = []
     index_of: dict[str, int] = {}
-    _collisions: list[str] = []
+    _groups: dict[str, list[dict]] = {}
     for r in rows:
         if not isinstance(r, dict):
             continue
         h = _calc_pk_hash(r, pk_columns)
+        _groups.setdefault(h, []).append(r)
         if h in index_of:
-            if len(_collisions) < 20:
-                _collisions.append(
-                    "|".join(f"{c}={r.get(c)}" for c in pk_columns)
-                )
             deduped[index_of[h]] = (h, r)
         else:
             index_of[h] = len(deduped)
             deduped.append((h, r))
+    # ===== 诊断：自报家底，区分「整行重复(分页拉重)」vs「仅主键列重复(该扩主键)」=====
+    _valid = [r for r in rows if isinstance(r, dict)]
+    # 整行去重(对整行做稳定 hash)
+    _whole = {hashlib.sha256(json.dumps(r, sort_keys=True, ensure_ascii=False).encode()).hexdigest() for r in _valid}
+    # 全列去重(年月+工号+维度值+编码+系数 等所有实体列)
+    _all_cols = [c.column_code for c in table_columns]
+    _by_allcols = {tuple(str(r.get(c, "")) for c in _all_cols) for r in _valid}
+    # 撞车组完整内容(同主键多行)
+    _dup_samples: list[str] = []
+    for h, grp in _groups.items():
+        if len(grp) > 1 and len(_dup_samples) < 5:
+            _dup_samples.append(" || ".join(json.dumps(g, ensure_ascii=False) for g in grp))
     logger.info(
-        "[upsert] table=%s 入参=%d 去重后=%d 主键列=%s 折叠样本=%s",
-        table_name, len([r for r in rows if isinstance(r, dict)]),
-        len(deduped), pk_columns, _collisions,
+        "[upsert-diag] table=%s 入参=%d | 主键列=%s 去重后=%d | 整行去重=%d | 全列去重=%d(列=%s) | 撞车组数=%d 样本=%s",
+        table_name, len(_valid), pk_columns, len(deduped),
+        len(_whole), len(_by_allcols), _all_cols,
+        sum(1 for g in _groups.values() if len(g) > 1), _dup_samples,
     )
     if not deduped:
         return 0
