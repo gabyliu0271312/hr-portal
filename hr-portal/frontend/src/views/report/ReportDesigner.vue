@@ -346,6 +346,11 @@ function normalizeColumnSettings() {
 
 function buildPayload() {
   const tailCode = (q: string) => (q.includes('.') ? q.slice(q.indexOf('.') + 1) : q)
+  // 剔除数据集里已不存在的字段引用（如已删除的计算字段），避免脏引用被持久化后在查看时反复告警。
+  // 守卫 allColumns 非空：字段尚未加载完时保持原样，不误清空。
+  const validSelectedCodes = allColumns.value.length
+    ? form.selected_codes.filter((code) => allColumns.value.some((c) => c.code === code))
+    : form.selected_codes
   const selectedDimCodes = selectedDimensions.value.map((c) => c.code)
   const selectedMeasureCodes = selectedMeasures.value.map((c) => c.code)
   const selectedPhysicalMeasureCodes = selectedMeasures.value.filter((c) => c.agg_role === 'measure').map((c) => c.code)
@@ -371,7 +376,7 @@ function buildPayload() {
       .filter((a) => a.role_id != null || a.user_id != null)
       .map((a) => ({ role_id: a.role_id, user_id: a.user_id })),
     config: {
-      columns: form.selected_codes,
+      columns: validSelectedCodes,
       column_settings: normalizeColumnSettings(),
       default_split_rule: form.default_split_rule,
       filters: normalizeFilters(form.filters, true),
