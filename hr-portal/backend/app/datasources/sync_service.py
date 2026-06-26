@@ -668,15 +668,25 @@ async def _dynamic_upsert(
     # 4) 同批次去重（多行同 PK 取最后一行），保留顺序
     deduped: list[tuple[str, dict]] = []
     index_of: dict[str, int] = {}
+    _collisions: list[str] = []
     for r in rows:
         if not isinstance(r, dict):
             continue
         h = _calc_pk_hash(r, pk_columns)
         if h in index_of:
+            if len(_collisions) < 20:
+                _collisions.append(
+                    "|".join(f"{c}={r.get(c)}" for c in pk_columns)
+                )
             deduped[index_of[h]] = (h, r)
         else:
             index_of[h] = len(deduped)
             deduped.append((h, r))
+    logger.info(
+        "[upsert] table=%s 入参=%d 去重后=%d 主键列=%s 折叠样本=%s",
+        table_name, len([r for r in rows if isinstance(r, dict)]),
+        len(deduped), pk_columns, _collisions,
+    )
     if not deduped:
         return 0
 
