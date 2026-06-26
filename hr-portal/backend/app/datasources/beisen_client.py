@@ -9,6 +9,8 @@ Token 缓存：每个 (AppKey, AppSecret) 独立缓存到内存。
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -149,53 +151,60 @@ class BeisenReportClient:
                 # 表头与数据接口之间也加间隔
                 await asyncio.sleep(1.2)
 
-            # 2) 拉首页
-            first_resp = await _get_with_retry(
-                client,
-                self.data_url,
-                {"reportId": self.report_id, "page": 1, "pageSize": page_size},
-            )
-            first_json = first_resp.json()
-            data_section = first_json.get("data") or {}
-            total = int(data_section.get("totalRecords", 0))
-            datas = list(data_section.get("datas") or [])
+            # 2) 翻页拉取（抗分页重叠）：北森报表分页可能出现相邻页重叠返回同一行，
+            #    若只按「累计 >= total」停，会把重复行凑满 total 而漏掉真实尾页数据。
+            #    改为：边拉边按整行去重，打印每页「返回/新增/累计」，
+            #    直到某页不再产生任何新行（或返回空页）才停。
+            def _row_hash(r) -> str | None:
+                try:
+                    return hashlib.sha256(
+                        json.dumps(r, sort_keys=True, ensure_ascii=False).encode("utf-8")
+                    ).hexdigest()
+                except (TypeError, ValueError):
+                    return None
 
-            # 3) 后续页：北森报表单页实际返回行数可能远小于请求 pageSize（服务端有硬上限），
-            #    不能用 total/pageSize 预算页数，否则会漏掉尾页。改为按实际返回翻页：
-            #    一直翻到「已收齐 total」或「某页返回为空」为止。
-            page = 1
-            first_page_count = len(datas)
-            while True:
-                # 收齐了就停
-                if total and len(datas) >= total:
-                    break
-                # 服务端返回空页 → 没有更多数据
-                if page >= 2 and not page_datas:
-                    break
-                # 首页就拿不到任何数据，且没有 total 兜底 → 停
-                if not first_page_count and not total:
-                    break
+            seen_hashes: set[str] = set()
+            datas: list = []
+            total = 0
+            page = 0
+            MAX_PAGES = 500  # 安全阀，防止异常分页导致死循环
+            while page < MAX_PAGES:
                 page += 1
-                await asyncio.sleep(1.2)
+                if page > 1:
+                    await asyncio.sleep(1.2)
                 resp = await _get_with_retry(
                     client,
                     self.data_url,
                     {"reportId": self.report_id, "page": page, "pageSize": page_size},
                 )
-                page_datas = (resp.json().get("data") or {}).get("datas") or []
-                if not page_datas:
+                section = resp.json().get("data") or {}
+                if page == 1:
+                    total = int(section.get("totalRecords", 0))
+                page_rows = section.get("datas") or []
+                if not page_rows:
+                    logger.info("[beisen] page=%d 返回=0 → 结束翻页", page)
                     break
-                datas.extend(page_datas)
-                # 安全阀：防止服务端 total 异常导致死循环（按首页实际行数估算上限页数 + 余量）
-                if page > (total // max(first_page_count, 1) + 5):
-                    logger.warning(
-                        "[beisen] 翻页超出预期上限，已拉 %d 行 / total=%d，提前结束",
-                        len(datas), total,
-                    )
+                new_count = 0
+                for r in page_rows:
+                    h = _row_hash(r)
+                    if h is None or h not in seen_hashes:
+                        if h is not None:
+                            seen_hashes.add(h)
+                        datas.append(r)
+                        new_count += 1
+                logger.info(
+                    "[beisen] page=%d 返回=%d 新增=%d 累计=%d total=%s",
+                    page, len(page_rows), new_count, len(datas), total,
+                )
+                # 本页没有任何新行 → 已到数据末尾（或纯重叠页），停
+                if new_count == 0:
+                    break
+                # 已收齐去重后的全部数据
+                if total and len(datas) >= total:
                     break
 
             logger.info(
-                "[beisen] 报表拉取完成 report=%s total=%s 实拉=%d 页数=%d",
+                "[beisen] 报表拉取完成 report=%s total=%s 实拉(去重后)=%d 页数=%d",
                 self.report_id, total, len(datas), page,
             )
 
