@@ -167,7 +167,14 @@ def _json_refs_column(value: Any, column_code: str, qualified_codes: set[str]) -
     if isinstance(value, str):
         return value == column_code or value in qualified_codes
     if isinstance(value, dict):
-        return any(_json_refs_column(v, column_code, qualified_codes) for v in value.values())
+        # 同时检查 key：column_settings 等结构以字段限定名(如 calc.xxx)作为 key 持有引用，
+        # 只看 value 会漏检，导致被引用的字段被误删后在报表里留下孤儿引用。
+        for k, v in value.items():
+            if isinstance(k, str) and (k == column_code or k in qualified_codes):
+                return True
+            if _json_refs_column(v, column_code, qualified_codes):
+                return True
+        return False
     if isinstance(value, (list, tuple, set)):
         return any(_json_refs_column(v, column_code, qualified_codes) for v in value)
     return False
