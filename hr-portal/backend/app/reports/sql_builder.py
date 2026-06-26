@@ -1333,8 +1333,13 @@ async def run_dataset_query(
             _reject_hidden_ref(raw, "排序字段")
             selected.append(_split_qualified(raw))
     for vr in value_rules or []:
-        for key in ("target", "factor"):
-            raw = str((vr or {}).get(key) or "")
+        refs: list[str] = [str((vr or {}).get("target") or "")]
+        raw_factors = (vr or {}).get("factors")
+        if not raw_factors:
+            single = (vr or {}).get("factor")
+            raw_factors = [single] if single else []
+        refs.extend(str(f or "") for f in raw_factors)
+        for raw in refs:
             if raw and not raw.startswith("calc.") and "." in raw:
                 _reject_hidden_ref(raw, "拆分字段")
                 selected.append(_split_qualified(raw))

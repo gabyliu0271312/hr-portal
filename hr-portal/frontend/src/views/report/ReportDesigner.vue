@@ -174,10 +174,9 @@ async function loadReport() {
     form.filters = (r.config.filters ?? []).map((f) => ({ ...f }))
     form.filter_logic = r.config.filter_logic ?? null
     form.sorts = (r.config.sorts ?? []).map((s) => ({ ...s }))
-    form.value_rules = (r.config.value_rules ?? []).map((v: any) => ({
-      target: v.target,
-      factors: v.factors ?? (v.factor ? [v.factor] : []),
-    }))
+    // 拆分规则只由 column_settings + default_split_rule 派生（见 buildPayload），
+    // 不再回写旧 value_rules，否则历史脏规则会反复复活。
+    form.value_rules = []
     form.aggregate = r.config.aggregate ?? false
     form.default_aggregation = (r.config.default_aggregation || 'sum') as AggregationFunc
     form.aggregations = { ...(r.config.aggregations ?? {}) }
@@ -369,10 +368,6 @@ function buildPayload() {
         valueRulesByTarget.set(measure, defaultFactors)
       }
     }
-  }
-  for (const rule of form.value_rules) {
-    const factors = (rule.factors ?? []).filter(Boolean)
-    if (rule.target && factors.length) valueRulesByTarget.set(rule.target, factors)
   }
   for (const measure of selectedPhysicalMeasureCodes) {
     const setting = form.column_settings[measure] || {}
