@@ -96,7 +96,7 @@ class BeisenReportClient:
 
     async def get_grid_data(
         self,
-        page_size: int = 5000,
+        page_size: int = 1000,
         timeout: float = 60.0,
         uuid_to_code: dict[str, str] | None = None,
         title_to_code: dict[str, str] | None = None,
@@ -151,10 +151,8 @@ class BeisenReportClient:
                 # 表头与数据接口之间也加间隔
                 await asyncio.sleep(1.2)
 
-            # 2) 翻页拉取（抗分页重叠）：北森报表分页可能出现相邻页重叠返回同一行，
-            #    若只按「累计 >= total」停，会把重复行凑满 total 而漏掉真实尾页数据。
-            #    改为：边拉边按整行去重，打印每页「返回/新增/累计」，
-            #    直到某页不再产生任何新行（或返回空页）才停。
+            # 2) 探测北森可接受的最大单页大小（pageSize 过大会 400），从大到小降级。
+            #    目的：用尽量大的单页一次拉全，绕开北森分页无稳定排序导致的页间重叠丢数。
             def _row_hash(r) -> str | None:
                 try:
                     return hashlib.sha256(
@@ -163,49 +161,99 @@ class BeisenReportClient:
                 except (TypeError, ValueError):
                     return None
 
-            seen_hashes: set[str] = set()
-            datas: list = []
-            total = 0
-            page = 0
-            MAX_PAGES = 500  # 安全阀，防止异常分页导致死循环
-            while page < MAX_PAGES:
-                page += 1
-                if page > 1:
-                    await asyncio.sleep(1.2)
+            async def _fetch_page(p: int, size: int):
                 resp = await _get_with_retry(
                     client,
                     self.data_url,
-                    {"reportId": self.report_id, "page": page, "pageSize": page_size},
+                    {"reportId": self.report_id, "page": p, "pageSize": size},
                 )
-                section = resp.json().get("data") or {}
-                if page == 1:
-                    total = int(section.get("totalRecords", 0))
-                page_rows = section.get("datas") or []
-                if not page_rows:
-                    logger.info("[beisen] page=%d 返回=0 → 结束翻页", page)
+                return (resp.json().get("data") or {})
+
+            # 候选单页大小：从传入值起步，仅向下降级（不超过传入上限，避免无谓的 400 探测）
+            _cands: list[int] = []
+            for c in (page_size, 1000, 500):
+                if isinstance(c, int) and 0 < c <= page_size and c not in _cands:
+                    _cands.append(c)
+            _cands.sort(reverse=True)
+
+            effective_size = 0
+            first_section: dict | None = None
+            for cand in _cands:
+                try:
+                    first_section = await _fetch_page(1, cand)
+                    effective_size = cand
+                    logger.info("[beisen] 单页大小探测：pageSize=%d 可用", cand)
                     break
-                new_count = 0
-                for r in page_rows:
+                except httpx.HTTPStatusError as e:
+                    if e.response is not None and e.response.status_code == 400:
+                        logger.warning("[beisen] pageSize=%d 被拒(400)，降级重试", cand)
+                        await asyncio.sleep(1.2)
+                        continue
+                    raise
+            if first_section is None:
+                raise RuntimeError("北森报表所有候选 pageSize 均被拒绝(400)")
+
+            # 3) 拉取（抗分页重叠 + 乱序）：北森分页查询无稳定排序，单页可能整页与他页重叠。
+            #    策略：一轮翻完所有页并整行去重；若未收齐 total，再整轮重扫，
+            #    直到收齐 total 或某一整轮零新增为止（乱序下多轮可逐步把漏行捞全）。
+            seen_hashes: set[str] = set()
+            datas: list = []
+            total = int(first_section.get("totalRecords", 0))
+            MAX_PAGES = 500       # 单轮安全阀
+            MAX_ROUNDS = 8        # 多轮重扫上限
+            total_requests = 0
+
+            def _absorb(rows: list) -> int:
+                added = 0
+                for r in rows:
                     h = _row_hash(r)
                     if h is None or h not in seen_hashes:
                         if h is not None:
                             seen_hashes.add(h)
                         datas.append(r)
-                        new_count += 1
-                logger.info(
-                    "[beisen] page=%d 返回=%d 新增=%d 累计=%d total=%s",
-                    page, len(page_rows), new_count, len(datas), total,
-                )
-                # 本页没有任何新行 → 已到数据末尾（或纯重叠页），停
-                if new_count == 0:
-                    break
-                # 已收齐去重后的全部数据
-                if total and len(datas) >= total:
-                    break
+                        added += 1
+                return added
 
+            done = False
+            for rnd in range(1, MAX_ROUNDS + 1):
+                round_added = 0
+                page = 1
+                section = first_section if rnd == 1 else await _fetch_page(1, effective_size)
+                if rnd > 1:
+                    total_requests += 1
+                while page <= MAX_PAGES:
+                    page_rows = section.get("datas") or []
+                    if not page_rows:
+                        break
+                    added = _absorb(page_rows)
+                    round_added += added
+                    logger.info(
+                        "[beisen] round=%d page=%d 返回=%d 新增=%d 累计=%d/%s pageSize=%d",
+                        rnd, page, len(page_rows), added, len(datas), total, effective_size,
+                    )
+                    if total and len(datas) >= total:
+                        done = True
+                        break
+                    page += 1
+                    await asyncio.sleep(1.2)
+                    section = await _fetch_page(page, effective_size)
+                    total_requests += 1
+                if done:
+                    break
+                logger.info("[beisen] round=%d 完成,本轮新增=%d 累计=%d/%s", rnd, round_added, len(datas), total)
+                # 一整轮没捞到任何新行 → 北森已无更多可返回的数据,停
+                if round_added == 0:
+                    break
+                await asyncio.sleep(1.2)
+
+            if total and len(datas) < total:
+                logger.warning(
+                    "[beisen] ⚠ 多轮重扫后仍未收齐:实拉=%d / total=%d (报表 report=%s)",
+                    len(datas), total, self.report_id,
+                )
             logger.info(
-                "[beisen] 报表拉取完成 report=%s total=%s 实拉(去重后)=%d 页数=%d",
-                self.report_id, total, len(datas), page,
+                "[beisen] 报表拉取完成 report=%s total=%s 实拉(去重后)=%d 请求次数=%d pageSize=%d",
+                self.report_id, total, len(datas), total_requests + 1, effective_size,
             )
 
             # 4) key 翻译:UUID锚点 > title对应已建code > title(中文,新字段) > 原key
