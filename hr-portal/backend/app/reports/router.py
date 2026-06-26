@@ -621,7 +621,21 @@ async def _collect_export_rows(
     columns_meta, items = _project_report_output(columns_meta, items, cfg)
     codes = [column["code"] for column in columns_meta]
     labels = [column["label"] for column in columns_meta]
-    rows = [[item.get(code, "") for code in codes] for item in items]
+    # 数字型字段空值导出为 0（与页面显示一致）；脱敏列不转，避免污染占位
+    numeric_zero_codes = {
+        column["code"]
+        for column in columns_meta
+        if not column.get("is_sensitive")
+        and column.get("data_type") in ("number", "integer")
+    }
+
+    def _export_value(item: dict[str, Any], code: str) -> Any:
+        v = item.get(code, "")
+        if code in numeric_zero_codes and v in (None, ""):
+            return 0
+        return v
+
+    rows = [[_export_value(item, code) for code in codes] for item in items]
     return labels, rows, codes
 
 

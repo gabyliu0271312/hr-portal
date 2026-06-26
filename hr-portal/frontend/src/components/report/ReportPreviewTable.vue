@@ -18,9 +18,11 @@ const emit = defineEmits<{
   'page-change': []
 }>()
 
-function formatCell(row: Record<string, any>, code: string): string {
-  const v = row[code]
-  if (v === null || v === undefined || v === '') return '—'
+function formatCell(row: Record<string, any>, col: RunResult['columns'][number]): string {
+  const v = row[col.code]
+  if (v === null || v === undefined || v === '') {
+    return col.data_type === 'number' || col.data_type === 'integer' ? '0' : '—'
+  }
   return String(v)
 }
 </script>
@@ -54,7 +56,7 @@ function formatCell(row: Record<string, any>, code: string): string {
           </template>
           <template #default="{ row }">
             <span v-if="col.is_sensitive" style="color: var(--color-text-placeholder); font-family: monospace">******</span>
-            <span v-else>{{ formatCell(row, col.code) }}</span>
+            <span v-else>{{ formatCell(row, col) }}</span>
           </template>
         </el-table-column>
         <template #empty>
