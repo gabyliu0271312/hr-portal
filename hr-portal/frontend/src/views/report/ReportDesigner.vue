@@ -327,8 +327,15 @@ function normalizeFilters(filters: any[], withViewControls = false) {
 }
 
 function normalizeColumnSettings() {
+  // 剔除指向数据集中已不存在字段（如已删除计算字段）的孤儿设置键，避免脏引用被持久化。
+  // 守卫 allColumns 非空：字段尚未加载完时不过滤，防误删。
+  const known = allColumns.value.length
+    ? new Set(allColumns.value.map((c) => c.code))
+    : null
   return Object.fromEntries(
-    Object.entries(form.column_settings).map(([code, setting]) => {
+    Object.entries(form.column_settings)
+      .filter(([code]) => !known || known.has(code))
+      .map(([code, setting]) => {
       const next: ColumnSetting = { ...setting }
       next.metric_filters = normalizeFilters(next.metric_filters || [])
       next.metric_filter_logic =
