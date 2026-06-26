@@ -9,10 +9,13 @@ Token 缓存：每个 (AppKey, AppSecret) 独立缓存到内存。
 """
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -157,16 +160,44 @@ class BeisenReportClient:
             total = int(data_section.get("totalRecords", 0))
             datas = list(data_section.get("datas") or [])
 
-            # 3) 后续页（每页间至少 sleep 1.2s）
-            total_pages = (total + page_size - 1) // page_size if total else 1
-            for p in range(2, total_pages + 1):
+            # 3) 后续页：北森报表单页实际返回行数可能远小于请求 pageSize（服务端有硬上限），
+            #    不能用 total/pageSize 预算页数，否则会漏掉尾页。改为按实际返回翻页：
+            #    一直翻到「已收齐 total」或「某页返回为空」为止。
+            page = 1
+            first_page_count = len(datas)
+            while True:
+                # 收齐了就停
+                if total and len(datas) >= total:
+                    break
+                # 服务端返回空页 → 没有更多数据
+                if page >= 2 and not page_datas:
+                    break
+                # 首页就拿不到任何数据，且没有 total 兜底 → 停
+                if not first_page_count and not total:
+                    break
+                page += 1
                 await asyncio.sleep(1.2)
                 resp = await _get_with_retry(
                     client,
                     self.data_url,
-                    {"reportId": self.report_id, "page": p, "pageSize": page_size},
+                    {"reportId": self.report_id, "page": page, "pageSize": page_size},
                 )
-                datas.extend((resp.json().get("data") or {}).get("datas") or [])
+                page_datas = (resp.json().get("data") or {}).get("datas") or []
+                if not page_datas:
+                    break
+                datas.extend(page_datas)
+                # 安全阀：防止服务端 total 异常导致死循环（按首页实际行数估算上限页数 + 余量）
+                if page > (total // max(first_page_count, 1) + 5):
+                    logger.warning(
+                        "[beisen] 翻页超出预期上限，已拉 %d 行 / total=%d，提前结束",
+                        len(datas), total,
+                    )
+                    break
+
+            logger.info(
+                "[beisen] 报表拉取完成 report=%s total=%s 实拉=%d 页数=%d",
+                self.report_id, total, len(datas), page,
+            )
 
             # 4) key 翻译:UUID锚点 > title对应已建code > title(中文,新字段) > 原key
             def translate_key(k: str) -> str:
