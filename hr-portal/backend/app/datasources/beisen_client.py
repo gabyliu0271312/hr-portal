@@ -96,7 +96,7 @@ class BeisenReportClient:
 
     async def get_grid_data(
         self,
-        page_size: int = 500,
+        page_size: int = 5000,
         timeout: float = 60.0,
         uuid_to_code: dict[str, str] | None = None,
         title_to_code: dict[str, str] | None = None,
