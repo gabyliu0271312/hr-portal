@@ -11,7 +11,7 @@ import ReportListLookupConfig from '@/components/report/ReportListLookupConfig.v
 import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import AclEditor from '@/components/AclEditor.vue'
-import { reportsApi, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ListLookupConfig, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
+import { reportsApi, deriveValueRules, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ListLookupConfig, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 import { useTableOptions } from '@/composables/useTableOptions'
@@ -355,26 +355,11 @@ function buildPayload() {
     form.filter_logic?.mode === 'custom' && form.filter_logic.expression?.trim()
       ? { mode: 'custom', expression: form.filter_logic.expression.trim() }
       : null
-  const valueRulesByTarget = new Map<string, string[]>()
-  const defaultFactors = (form.default_split_rule.factors ?? []).filter(Boolean)
-  if (form.default_split_rule.enabled && defaultFactors.length) {
-    for (const measure of selectedPhysicalMeasureCodes) {
-      const setting = form.column_settings[measure] || {}
-      if (setting.split_mode === 'none') continue
-      const customFactors = (setting.split_factors ?? (setting.split_factor ? [setting.split_factor] : [])).filter(Boolean)
-      if (setting.split_mode === 'custom' && customFactors.length) {
-        valueRulesByTarget.set(measure, customFactors)
-      } else {
-        valueRulesByTarget.set(measure, defaultFactors)
-      }
-    }
-  }
-  for (const measure of selectedPhysicalMeasureCodes) {
-    const setting = form.column_settings[measure] || {}
-    if (setting.split_mode === 'none') valueRulesByTarget.delete(measure)
-    const customFactors = (setting.split_factors ?? (setting.split_factor ? [setting.split_factor] : [])).filter(Boolean)
-    if (setting.split_mode === 'custom' && customFactors.length) valueRulesByTarget.set(measure, customFactors)
-  }
+  const valueRules = deriveValueRules(
+    form.column_settings,
+    form.default_split_rule,
+    selectedPhysicalMeasureCodes,
+  )
 
   return {
     name: form.name.trim(),
@@ -392,7 +377,7 @@ function buildPayload() {
       filters: normalizeFilters(form.filters, true),
       filter_logic: filterLogic,
       sorts: form.sorts.filter((s) => s.column),
-      value_rules: [...valueRulesByTarget.entries()].map(([target, factors]) => ({ target, factors })),
+      value_rules: valueRules,
       aggregate: form.aggregate,
       default_aggregation: form.default_aggregation || 'sum',
       aggregations: form.aggregate

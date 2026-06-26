@@ -53,6 +53,47 @@ export interface DefaultSplitRule {
   factor?: string
 }
 
+/**
+ * 从界面可见状态(每列拆分设置 + 默认拆分规则)派生数值拆分规则。
+ *
+ * 这是报表设计器与成本分摊方案设计器共用的「所见即所得」拆分派生逻辑:
+ * value_rules 不再独立持久化回写,只由 column_settings + default_split_rule
+ * 重新计算,避免历史脏规则反复复活(界面看不到却删不掉)。
+ *
+ * @param columnSettings 每列设置(含 split_mode / split_factors)
+ * @param defaultSplitRule 默认拆分规则
+ * @param measureCodes 参与拆分的指标列 code(物理指标,排除维度/计数指标)
+ */
+export function deriveValueRules(
+  columnSettings: Record<string, ColumnSetting>,
+  defaultSplitRule: DefaultSplitRule,
+  measureCodes: string[],
+): ValueRule[] {
+  const factorsOf = (s: ColumnSetting) =>
+    (s.split_factors ?? (s.split_factor ? [s.split_factor] : [])).filter(Boolean)
+  const byTarget = new Map<string, string[]>()
+  const defaultFactors = (defaultSplitRule.factors ?? []).filter(Boolean)
+  if (defaultSplitRule.enabled && defaultFactors.length) {
+    for (const measure of measureCodes) {
+      const setting = columnSettings[measure] || {}
+      if (setting.split_mode === 'none') continue
+      const customFactors = factorsOf(setting)
+      if (setting.split_mode === 'custom' && customFactors.length) {
+        byTarget.set(measure, customFactors)
+      } else {
+        byTarget.set(measure, defaultFactors)
+      }
+    }
+  }
+  for (const measure of measureCodes) {
+    const setting = columnSettings[measure] || {}
+    if (setting.split_mode === 'none') byTarget.delete(measure)
+    const customFactors = factorsOf(setting)
+    if (setting.split_mode === 'custom' && customFactors.length) byTarget.set(measure, customFactors)
+  }
+  return [...byTarget.entries()].map(([target, factors]) => ({ target, factors }))
+}
+
 export interface TransposeRule {
   source_col: string
   dim_updates: Record<string, string>

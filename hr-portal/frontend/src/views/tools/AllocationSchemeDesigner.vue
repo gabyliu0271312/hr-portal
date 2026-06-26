@@ -12,6 +12,7 @@ import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import { allocationApi, type AllocationSchemeIn } from '@/api/allocation'
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
+import { deriveValueRules } from '@/api/reports'
 import type { AggregationFunc, ColumnSetting, DefaultSplitRule, FilterLogic, ReshapeConflictStrategy, RunResult } from '@/api/reports'
 import { useTableOptions } from '@/composables/useTableOptions'
 
@@ -132,10 +133,9 @@ async function loadScheme() {
     form.filters = (cfg.filters ?? []).map((f: any) => ({ ...f }))
     form.filter_logic = cfg.filter_logic ?? null
     form.sorts = (cfg.sorts ?? []).map((s: any) => ({ ...s }))
-    form.value_rules = (cfg.value_rules ?? []).map((v: any) => ({
-      target: v.target,
-      factors: v.factors ?? (v.factor ? [v.factor] : []),
-    }))
+    // 拆分规则只由 column_settings + default_split_rule 派生(见 buildPayload 的
+    // deriveValueRules),不回写旧 value_rules,否则历史脏规则会反复复活。
+    form.value_rules = []
     form.aggregate = cfg.aggregate ?? false
     form.default_aggregation = (cfg.default_aggregation || 'sum') as AggregationFunc
     form.aggregations = { ...(cfg.aggregations ?? {}) }
@@ -289,26 +289,11 @@ function buildPayload(): AllocationSchemeIn {
     form.filter_logic?.mode === 'custom' && form.filter_logic.expression?.trim()
       ? { mode: 'custom', expression: form.filter_logic.expression.trim() }
       : null
-  const valueRulesByTarget = new Map<string, string[]>()
-  const defaultFactors = (form.default_split_rule.factors ?? []).filter(Boolean)
-  if (form.default_split_rule.enabled && defaultFactors.length) {
-    for (const measure of selectedPhysicalMeasureCodes) {
-      const setting = form.column_settings[measure] || {}
-      if (setting.split_mode === 'none') continue
-      const customFactors = (setting.split_factors ?? (setting.split_factor ? [setting.split_factor] : [])).filter(Boolean)
-      if (setting.split_mode === 'custom' && customFactors.length) {
-        valueRulesByTarget.set(measure, customFactors)
-      } else {
-        valueRulesByTarget.set(measure, defaultFactors)
-      }
-    }
-  }
-  for (const measure of selectedPhysicalMeasureCodes) {
-    const setting = form.column_settings[measure] || {}
-    if (setting.split_mode === 'none') valueRulesByTarget.delete(measure)
-    const customFactors = (setting.split_factors ?? (setting.split_factor ? [setting.split_factor] : [])).filter(Boolean)
-    if (setting.split_mode === 'custom' && customFactors.length) valueRulesByTarget.set(measure, customFactors)
-  }
+  const valueRules = deriveValueRules(
+    form.column_settings,
+    form.default_split_rule,
+    selectedPhysicalMeasureCodes,
+  )
 
   return {
     name: form.name.trim(),
@@ -323,7 +308,7 @@ function buildPayload(): AllocationSchemeIn {
       filters: normalizeFilters(form.filters, true),
       filter_logic: filterLogic,
       sorts: form.sorts.filter((s) => s.column),
-      value_rules: [...valueRulesByTarget.entries()].map(([target, factors]) => ({ target, factors })),
+      value_rules: valueRules,
       aggregate: form.aggregate,
       default_aggregation: form.default_aggregation || 'sum',
       aggregations: form.aggregate
