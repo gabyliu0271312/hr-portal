@@ -50,7 +50,7 @@ async def _handler_datasource_sync(
 
     ds = await db.get(DataSource, job.business_id)
     if ds is None:
-        raise RuntimeError(f"DataSource {job.business_id} 涓嶅瓨鍦?)
+        raise RuntimeError(f"DataSource {job.business_id} not found")
 
     secrets = {k: decrypt(v) for k, v in (ds.secrets_encrypted or {}).items()}
     rows, message = await sync_to_table(
@@ -98,7 +98,7 @@ async def _handler_report_run(
 
     report = await db.get(Report, job.business_id)
     if report is None:
-        raise RuntimeError(f"Report {job.business_id} 涓嶅瓨鍦?)
+        raise RuntimeError(f"Report {job.business_id} not found")
 
     # 灏濊瘯澶嶇敤鎶ヨ〃鎵ц鏈嶅姟
     try:
@@ -143,7 +143,7 @@ async def _handler_report_run(
     except Exception:
         logger.warning("[report_run] 鍙戝竷鎶ヨ〃浜嬩欢澶辫触 report_id=%d", report.id)
 
-    return rows, f"鎶ヨ〃 '{report.name}' 杩愯鎴愬姛锛屽叡 {rows} 琛?
+    return rows, f"Report {report.name!r} executed successfully, rows={rows}"
 
 
 # ===== 娉ㄥ唽琛?=====
@@ -158,5 +158,5 @@ JOB_HANDLERS: dict[str, HandlerFn] = {
 def get_handler(kind: str) -> HandlerFn:
     h = JOB_HANDLERS.get(kind)
     if h is None:
-        raise RuntimeError(f"鏈敞鍐岀殑 job kind: {kind}锛堝彲閫?{list(JOB_HANDLERS.keys())}锛?)
+        raise RuntimeError(f"Unregistered job kind: {kind}; available={list(JOB_HANDLERS.keys())}")
     return h
