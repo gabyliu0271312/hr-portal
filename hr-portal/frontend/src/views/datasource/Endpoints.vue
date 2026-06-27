@@ -8,12 +8,12 @@ import { formatDateTime } from '@/utils/datetime'
 import PushTargetList from '@/components/push/PushTargetList.vue'
 import {
   SOURCE_TYPES,
-  SCHEDULE_OPTIONS,
   findSourceType,
   initFormForType,
 } from '@/config/dataSources'
 import { datasourcesApi, type DataSourceListItem } from '@/api/datasources'
 import { adminTablesApi } from '@/api/admin_tables'
+import ScheduleSelector from '@/components/common/ScheduleSelector.vue'
 
 const router = useRouter()
 
@@ -452,14 +452,10 @@ onMounted(() => {
             <div class="field-group">
               <div class="section-title">调度与状态</div>
               <el-form-item label="调度计划">
-                <el-select v-model="form.schedule" style="width: 100%">
-                  <el-option
-                    v-for="opt in SCHEDULE_OPTIONS"
-                    :key="opt.value"
-                    :label="opt.label"
-                    :value="opt.value"
-                  />
-                </el-select>
+                <ScheduleSelector
+                  v-model:schedule="form.schedule"
+                  :show-start-time="false"
+                />
               </el-form-item>
               <el-form-item label="启用">
                 <el-switch v-model="form.is_active" active-text="启用" inactive-text="停用" />

@@ -198,6 +198,30 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/costAllocation/Entry.vue'),
         meta: { label: '成本分摊后台入口', menuCode: 'cost_allocation.admin', entryType: 'admin' },
       },
+      {
+        path: 'automation/rules',
+        name: 'AutomationRuleList',
+        component: () => import('@/views/automation/AutomationRuleList.vue'),
+        meta: { label: '自动通知', menuCode: 'automation.rules' },
+      },
+      {
+        path: 'automation/rules/create',
+        name: 'AutomationRuleCreate',
+        component: () => import('@/views/automation/AutomationRuleEditor.vue'),
+        meta: { label: '新建通知', menuCode: 'automation.rules', hideAside: true },
+      },
+      {
+        path: 'automation/rules/:id',
+        name: 'AutomationRuleEdit',
+        component: () => import('@/views/automation/AutomationRuleEditor.vue'),
+        meta: { label: '编辑通知', menuCode: 'automation.rules', hideAside: true },
+      },
+      {
+        path: 'automation/executions',
+        name: 'AutomationExecutions',
+        component: () => import('@/views/automation/AutomationExecutions.vue'),
+        meta: { label: '通知记录', menuCode: 'automation.rules' },
+      },
     ],
   },
   {

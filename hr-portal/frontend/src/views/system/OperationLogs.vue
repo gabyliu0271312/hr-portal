@@ -19,7 +19,10 @@ interface SystemLog {
 }
 
 // 日志类型字典：后续新增日志类型只在此加一项
-const LOG_TYPES = [{ value: 'compensation_calc', label: '补偿金计算' }]
+const LOG_TYPES = [
+  { value: 'compensation_calc', label: '补偿金计算' },
+  { value: 'automation_notification', label: '自动通知' },
+]
 
 const logType = ref('compensation_calc')
 const loading = ref(false)
@@ -82,6 +85,31 @@ onMounted(load)
             </template>
           </el-table-column>
 
+          <!-- 自动通知专属列 -->
+          <template v-if="logType === 'automation_notification'">
+            <el-table-column label="规则名称" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.metadata_json?.rule_name || '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="触发类型" min-width="120">
+              <template #default="{ row }">
+                {{ row.metadata_json?.trigger_type || '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="业务范围" min-width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.metadata_json?.biz_type || '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" min-width="90" />
+            <el-table-column label="详情" min-width="120">
+              <template #default="{ row }">
+                {{ row.response_summary || '-' }}
+              </template>
+            </el-table-column>
+          </template>
+
           <!-- 补偿金计算专属列：被查员工 -->
           <template v-if="logType === 'compensation_calc'">
             <el-table-column label="被查员工" min-width="140">
@@ -104,7 +132,7 @@ onMounted(load)
             </el-table-column>
           </template>
 
-          <el-table-column prop="status" label="状态" min-width="90" />
+          <el-table-column v-if="logType !== 'automation_notification'" prop="status" label="状态" min-width="90" />
         </el-table>
       </div>
     </el-card>

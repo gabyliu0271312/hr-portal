@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     FEISHU_APP_SECRET: str = ""
     # 飞书 OAuth 回调地址，必须与开放平台「安全设置-重定向 URL」白名单完全一致
     FEISHU_REDIRECT_URI: str = "http://localhost:8080/auth/feishu/callback"
+    # 飞书事件回调验证 Token（开放平台「事件订阅-Encrypt Key」/Verification Token）
+    FEISHU_VERIFICATION_TOKEN: str = ""
+    # 飞书事件回调最大时间偏差（秒），防重放
+    FEISHU_CALLBACK_MAX_TIMESTAMP_DIFF: int = 300
 
     LOGIN_FAIL_LIMIT: int = 5
     LOGIN_LOCK_MINUTES: int = 15

@@ -68,6 +68,7 @@ MENU_TREE: list[dict] = [
                     {"code": "system.document_templates", "label": "模板维护", "icon": "Document"},
                     {"code": "system.ai_config", "label": "AI 基础配置", "icon": "Cpu"},
                     {"code": "system.function_library", "label": "函数库管理", "icon": "Collection"},
+                    {"code": "system.feishu_notification_config", "label": "飞书通知配置", "icon": "ChatDotSquare"},
                 ],
             },
             # 二级 1.4：日志管理
@@ -114,6 +115,7 @@ MENU_TREE: list[dict] = [
                     {"code": "tools.income_certificate", "label": "证明开具", "icon": "Document"},
                     {"code": "tools.cost_allocation", "label": "成本分摊", "icon": "Histogram"},
                     {"code": "table_tools", "label": "表格归集", "icon": "Grid"},
+                    {"code": "automation.rules", "label": "自动通知", "icon": "Notification"},
                 ],
             },
         ],

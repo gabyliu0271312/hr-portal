@@ -12,6 +12,7 @@ class UserListItem(BaseModel):
     is_active: bool
     last_login_at: datetime | None
     locked_until: datetime | None
+    feishu_user_id: str | None = None
     role_names: list[str] = []
     org_scope_names: list[str] = []
     cost_center_scope_names: list[str] = []

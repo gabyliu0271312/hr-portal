@@ -163,6 +163,8 @@ class SchedulerEngine:
                     "[scheduler] job %d (%s) success: %d rows",
                     job.id, job.kind, rows,
                 )
+                # 发布标准调度事件（success），供自动化规则引擎消费
+                await self._publish_job_events(job_id, job.kind, run.id, "success", rows, message, db)
             except Exception as e:
                 await db.rollback()
                 # 重新建一个 session 写失败历史（前一个事务已 rollback）
@@ -185,10 +187,69 @@ class SchedulerEngine:
                         job2.last_message = str(e)[:1000]
                     await db2.commit()
                     logger.exception("[scheduler] job %d (%s) failed", job_id, run2.kind)
+                    # 发布标准调度事件（failed）
+                    await self._publish_job_events(job_id, run2.kind, run2.id, "failed", 0, str(e)[:500], db2)
                     return run2
 
             await db.refresh(run)
             return run
+
+
+    async def _publish_job_events(
+        self,
+        job_id: int,
+        kind: str,
+        run_id: int,
+        status: str,
+        rows: int,
+        message: str,
+        db,
+    ) -> None:
+        """发布标准调度事件到自动化规则引擎。
+
+        Scheduler 自身不直接发飞书消息；通过事件让自动化引擎决定动作。
+        """
+        try:
+            from app.automation.events import AutomationEvent, publish_event
+
+            # 通用 scheduled_job_* 事件
+            finished_trigger = f"scheduled_job_{status}"
+            async with self._session_factory() as new_db:
+                await publish_event(
+                    AutomationEvent(
+                        trigger_type=finished_trigger,
+                        biz_type="scheduler",
+                        biz_id=str(job_id),
+                        payload={
+                            "job_id": job_id,
+                            "kind": kind,
+                            "run_id": run_id,
+                            "status": status,
+                            "rows": rows,
+                            "message": message,
+                        },
+                    ),
+                    new_db,
+                )
+                # 也发布 scheduled_job_finished（无论成功失败）
+                await publish_event(
+                    AutomationEvent(
+                        trigger_type="scheduled_job_finished",
+                        biz_type="scheduler",
+                        biz_id=str(job_id),
+                        payload={
+                            "job_id": job_id,
+                            "kind": kind,
+                            "run_id": run_id,
+                            "status": status,
+                            "rows": rows,
+                            "message": message,
+                        },
+                    ),
+                    new_db,
+                )
+        except Exception:
+            logger.exception("[scheduler] 发布事件失败 job_id=%d", job_id)
 
 
 # ===== 单例 =====

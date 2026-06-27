@@ -171,6 +171,7 @@ class AiChatOut(BaseModel):
     compensation: CompensationCalcOut | None = None
     missing_fields: list[str] = Field(default_factory=list)
     extracted: dict[str, Any] = Field(default_factory=dict)
+    artifact: dict[str, Any] | None = Field(default=None)
 
 
 class AiBadCaseCaptureIn(BaseModel):
@@ -1244,6 +1245,314 @@ async def _handle_my_scope_chat(
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# 能力：生成自动化规则草稿（automation.rule.create_draft）
+# LLM-first 语义解析：用大模型从自然语言提取触发器、动作、接收人等槽位。
+# 信息不足时返回追问，草稿生成后调用规则校验。
+# ──────────────────────────────────────────────────────────────────────────
+
+def _automation_trigger_types() -> list[str]:
+    """?????????????????????? AI ??????????"""
+    from app.automation.trigger_registry import list_triggers
+
+    return [meta.trigger_type for meta in list_triggers()]
+
+
+def _automation_trigger_types_text() -> str:
+    return ", ".join(_automation_trigger_types())
+
+
+async def _extract_automation_rule_request(
+    payload: AiChatIn,
+    session: ChatSession,
+    db: AsyncSession,
+    timer: AiAuditTimer,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
+    """LLM extractor：从自然语言提取自动化规则槽位。
+
+    返回 (extracted, artifact, parse_mode):
+    - extracted: 提取的槽位字典
+    - artifact: 规则草稿 artifact（信息充足时）；否则 None
+    - parse_mode: "llm_extract" 或 "missing_slots"
+    """
+    config = await active_ai_config(db)
+    model = (config.model_reasoning or config.model_fast_json or "").strip()
+    if not model or not config.api_key_encrypted:
+        return None, None, "no_model"
+    trigger_types_text = _automation_trigger_types_text()
+
+    # 构建 prompt：让 LLM 提取结构化槽位
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是 HR Portal 自动化规则助手。根据用户自然语言描述，提取自动化规则的结构化槽位。\n"
+                "可提取的槽位：\n"
+                "1. trigger_type: 触发器类型，必须从以下值选其一：\n"
+                f"   {trigger_types_text}\n"
+                "2. trigger_biz_id: 关联的业务 ID（如报表 ID），不知道可不填\n"
+                "3. action_type: 动作类型，当前只支持 feishu_send_message\n"
+                "4. feishu_receivers: 飞书接收人描述（如'薪酬组群'、'张三'）\n"
+                "5. feishu_message_template: 消息模板描述（如'附上报表链接'）\n"
+                "6. rule_name: 规则名称，可根据描述自动生成\n"
+                "7. missing_slots: 缺失的关键槽位数组\n"
+                "8. follow_up_question: 追问用户的问题（如有缺失槽位）\n\n"
+                "只输出 JSON 对象，格式：\n"
+                '{"trigger_type": "...", "trigger_biz_id": "...", "action_type": "...", '
+                '"feishu_receivers": "...", "feishu_message_template": "...", '
+                '"rule_name": "...", "missing_slots": [...], "follow_up_question": "..."}\n'
+                "不要输出解释文字，只输出 JSON。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "message": payload.message,
+                    "history": [item.model_dump() for item in payload.history[-6:]],
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+
+    timer.add_event("model_call", capability_id="automation.rule.create_draft", purpose="extract_slots", model=model)
+    try:
+        _, content, usage = await chat_completion_openai_compatible(
+            api_key=decrypt(config.api_key_encrypted),
+            base_url=config.base_url,
+            model=model,
+            messages=messages,
+            timeout=int(config.timeout_seconds or 30),
+            response_format={"type": "json_object"},
+        )
+        raw = parse_json_content(content)
+        timer.add_event("model_call", status="success", purpose="extract_slots", usage=usage)
+    except Exception as exc:
+        timer.add_event("model_call", status="error", purpose="extract_slots", reason=str(exc)[:300])
+        return None, None, "error"
+
+    trigger_type = raw.get("trigger_type")
+    missing_slots = raw.get("missing_slots") or []
+    follow_up = raw.get("follow_up_question") or ""
+
+    # 校验 trigger_type 合法性
+    if trigger_type and trigger_type not in _automation_trigger_types():
+        missing_slots.append("trigger_type")
+        follow_up = follow_up or f"触发器类型「{trigger_type}」不合法，请明确说明触发条件（如'报表运行成功后'）。"
+
+    extracted = {
+        "trigger_type": trigger_type,
+        "trigger_biz_id": raw.get("trigger_biz_id"),
+        "action_type": raw.get("action_type") or "feishu_send_message",
+        "feishu_receivers": raw.get("feishu_receivers"),
+        "feishu_message_template": raw.get("feishu_message_template"),
+        "rule_name": raw.get("rule_name"),
+    }
+
+    # 信息不足 → 追问
+    if missing_slots:
+        artifact = {
+            "artifact_type": "automation_rule",
+            "status": "draft",
+            "rule_draft": None,
+            "validation_errors": [],
+            "missing_slots": missing_slots,
+            "follow_up_question": follow_up,
+        }
+        return extracted, artifact, "missing_slots"
+
+    # 信息充足 → 生成草稿 artifact
+    rule_draft = _build_automation_rule_draft(extracted)
+    artifact = {
+        "artifact_type": "automation_rule",
+        "status": "draft",
+        "rule_draft": rule_draft,
+        "validation_errors": [],
+        "missing_slots": [],
+        "follow_up_question": None,
+    }
+    return extracted, artifact, "llm_extract"
+
+
+def _build_automation_rule_draft(extracted: dict[str, Any]) -> dict[str, Any]:
+    """根据提取的槽位构建 AutomationRuleCreate 草稿内容。"""
+    trigger_type = extracted.get("trigger_type") or "scheduled_report_success"
+    trigger_config = {}
+    biz_id = extracted.get("trigger_biz_id")
+    if biz_id:
+        trigger_config["biz_id"] = str(biz_id)
+
+    # 构建飞书消息动作配置
+    feishu_receivers = extracted.get("feishu_receivers") or ""
+    feishu_template = extracted.get("feishu_message_template") or "任务已完成，请查看详情。"
+
+    # 接收人规则：AI 不猜测具体 ID，生成符合 NotificationConfig 的结构
+    # 群聊：chat_ids 由前端/后端 resolver 填充；用户：user_ids 同理
+    receivers: list[dict[str, Any]] = []
+    receiver_query = feishu_receivers or None
+    if feishu_receivers:
+        if "群" in feishu_receivers:
+            receivers.append({"type": "fixed_chats", "chat_ids": []})
+        else:
+            receivers.append({"type": "fixed_users", "user_ids": []})
+
+    actions_config = [
+        {
+            "type": "feishu_send_message",
+            "name": "发送飞书消息",
+            "enabled": True,
+            "config": {
+                "receivers": receivers,
+                "message": {
+                    "message_format": "markdown",
+                    "title_template": "{{rule_name}} 触发通知",
+                    "content_template": feishu_template,
+                    "resources": [],
+                },
+                "require_completion": False,
+            },
+        }
+    ]
+
+    rule_name = extracted.get("rule_name") or f"自动规则-{trigger_type}"
+    return {
+        "name": rule_name,
+        "description": f"由 AI 生成的自动化规则，触发器：{trigger_type}",
+        "biz_type": None,
+        "trigger_type": trigger_type,
+        "trigger_config": trigger_config,
+        "condition_config": [],
+        "actions_config": actions_config,
+        "enabled": False,  # 草稿默认不启用
+        "source": "ai_generated",
+        # AI 无法解析具体 ID，附加自然语言查询供前端选择器降级
+        "receiver_query": receiver_query,
+    }
+
+
+async def _handle_automation_rule_chat(
+    payload: AiChatIn,
+    extracted: dict[str, Any],
+    session: ChatSession,
+    user: User,
+    db: AsyncSession,
+    timer: AiAuditTimer,
+) -> AiChatOut:
+    """处理自动化规则草稿生成请求。
+
+    流程：
+    1. 如果 extractor 返回了 artifact（含草稿或追问），直接使用
+    2. 调用规则校验（如果草稿存在）
+    3. 返回 AiChatOut 含 artifact
+    """
+    capability = _ensure_capability("automation.rule.create_draft")
+    validate_capability_policy(capability, used_tools=[])
+
+    # extractor 已经生成了 artifact，直接从 session 或 extracted 获取
+    # 这里重新生成以确保一致性（extractor 已设置 session.active_capability_id）
+    session.active_capability_id = capability.capability_id
+
+    rule_draft = _build_automation_rule_draft(extracted)
+    missing_slots = []
+    needs_config = []  # 槽位已提取但缺少具体配置（如 receiver_query 有值但无 ID）
+    follow_up = None
+
+    # 校验必填槽位
+    if not extracted.get("trigger_type"):
+        missing_slots.append("trigger_type")
+    if not extracted.get("feishu_receivers"):
+        missing_slots.append("feishu_receivers")
+
+    # 检查接收人配置：如果有 receiver_query 但 action 中 receiver IDs 为空，标记 needs_config
+    if extracted.get("feishu_receivers"):
+        actions = rule_draft.get("actions_config", [])
+        for action in actions:
+            if action.get("type") == "feishu_send_message":
+                recvs = action.get("config", {}).get("receivers", [])
+                has_ids = any(
+                    (r.get("type") == "fixed_chats" and r.get("chat_ids"))
+                    or (r.get("type") == "fixed_users" and r.get("user_ids"))
+                    for r in recvs
+                )
+                if not has_ids and recvs:
+                    needs_config.append("receiver_ids (请在前端选择具体用户/群)")
+
+    if missing_slots:
+        follow_up = "请补充以下信息：" + "、".join(missing_slots)
+        artifact = {
+            "artifact_type": "automation_rule",
+            "status": "draft",
+            "rule_draft": rule_draft,
+            "validation_errors": [],
+            "missing_slots": missing_slots,
+            "needs_config": needs_config,
+            "follow_up_question": follow_up,
+        }
+        return AiChatOut(
+            intent="automation.rule.create_draft",
+            status="missing_slots",
+            answer=follow_up,
+            trace_id=timer.trace_id,
+            conversation_id=session.conversation_id,
+            artifact=artifact,
+            extracted=extracted,
+        )
+
+    # 信息充足：生成草稿并校验
+    from app.automation.schemas import AutomationRuleCreate
+    try:
+        validate_model_payload(AutomationRuleCreate, AutomationRuleCreate(**rule_draft), label="automation_rule_draft")
+    except Exception as ve:
+        timer.add_event("validation", status="error", reason=str(ve)[:300])
+        # 校验失败 → 返回带错误的草稿
+        artifact = {
+            "artifact_type": "automation_rule",
+            "status": "draft",
+            "rule_draft": rule_draft,
+            "validation_errors": [str(ve)[:500]],
+            "missing_slots": [],
+            "needs_config": needs_config,
+            "follow_up_question": f"规则草稿校验失败：{ve}",
+        }
+        return AiChatOut(
+            intent="automation.rule.create_draft",
+            status="validation_error",
+            answer=f"规则草稿校验失败：{ve}",
+            trace_id=timer.trace_id,
+            conversation_id=session.conversation_id,
+            artifact=artifact,
+            extracted=extracted,
+        )
+
+    artifact = {
+        "artifact_type": "automation_rule",
+        "status": "draft",
+        "rule_draft": rule_draft,
+        "validation_errors": [],
+        "missing_slots": [],
+        "needs_config": needs_config,
+        "follow_up_question": None,
+    }
+    config_notice = "⚠️ 提示：接收人已识别但待配置具体用户/群，请在前端选择器中选择。\n" if needs_config else ""
+    answer = (
+        f"已为你生成自动化规则草稿「{rule_draft['name']}」：\n"
+        f"- 触发器：{rule_draft['trigger_type']}\n"
+        f"- 动作：发送飞书消息\n"
+        f"{config_notice}"
+        f"请在下方预览并确认，确认后可保存并启用。"
+    )
+    return AiChatOut(
+        intent="automation.rule.create_draft",
+        status="draft_created",
+        answer=answer,
+        trace_id=timer.trace_id,
+        conversation_id=session.conversation_id,
+        artifact=artifact,
+        extracted=extracted,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # 全局 AI chat 通用路由（LLM-first 底层组件）。
 # 规则（所有 chat 能力统一遵循,新增能力只追加 ChatRoute,不改本段）:
 #   1. 路由完全由大模型意图分类决定,不用关键词匹配。
@@ -1274,6 +1583,16 @@ CHAT_ROUTES: tuple[ChatRoute, ...] = (
         description="查询/解释当前登录用户自己的数据权限范围（能看到哪些组织、成本中心、人员范围）。是翻译范围规则本身，不是查询具体员工或业务数据。",
         extractor=_extract_my_scope_request,
         handler=_handle_my_scope_chat,
+    ),
+    ChatRoute(
+        intent="automation.rule.create_draft",
+        capability_id="automation.rule.create_draft",
+        description=(
+            "根据用户自然语言描述生成自动化规则草稿（触发器 + 飞书消息动作）。"
+            "例如：当月度成本报表每天早上 9 点运行完成后，给薪酬组飞书群发消息。"
+        ),
+        extractor=_extract_automation_rule_request,
+        handler=_handle_automation_rule_chat,
     ),
 )
 

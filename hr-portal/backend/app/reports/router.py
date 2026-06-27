@@ -551,33 +551,85 @@ async def run_report(
     )
     _log_list_lookup_filters("report.run", report, cfg.list_lookup)
 
+    from app.automation.events import AutomationEvent, publish_event
+    from app.core.db import get_session_factory
     from app.reports.sql_builder import run_dataset_query
 
     warnings: list[str] = []
-    columns_meta, items, total = await run_dataset_query(
-        dataset_id=report.dataset_id,
-        columns=cfg.columns,
-        filters=[item.model_dump() for item in cfg.filters],
-        filter_logic=cfg.filter_logic,
-        sorts=[item.model_dump() for item in cfg.sorts],
-        value_rules=cfg.value_rules,
-        aggregate=cfg.aggregate,
-        aggregations=cfg.aggregations,
-        column_settings=cfg.column_settings,
-        transpose=cfg.transpose,
-        rounding_corrections=cfg.rounding_corrections,
-        list_lookup=cfg.list_lookup,
-        page=page,
-        page_size=page_size,
-        user=user,
-        db=db,
-        scope_strategy=report.scope_strategy,
-        warnings_sink=warnings,
-    )
+    status = "success"
+    error_message = ""
+    try:
+        columns_meta, items, total = await run_dataset_query(
+            dataset_id=report.dataset_id,
+            columns=cfg.columns,
+            filters=[item.model_dump() for item in cfg.filters],
+            filter_logic=cfg.filter_logic,
+            sorts=[item.model_dump() for item in cfg.sorts],
+            value_rules=cfg.value_rules,
+            aggregate=cfg.aggregate,
+            aggregations=cfg.aggregations,
+            column_settings=cfg.column_settings,
+            transpose=cfg.transpose,
+            rounding_corrections=cfg.rounding_corrections,
+            list_lookup=cfg.list_lookup,
+            page=page,
+            page_size=page_size,
+            user=user,
+            db=db,
+            scope_strategy=report.scope_strategy,
+            warnings_sink=warnings,
+        )
+    except Exception as e:
+        status = "failed"
+        error_message = str(e)[:500]
+        # 发布报表运行失败事件（使用独立session，避免事务边界问题）
+        try:
+            async with get_session_factory()() as new_db:
+                await publish_event(
+                    AutomationEvent(
+                        trigger_type="report_run_failed",
+                        biz_type="report",
+                        biz_id=str(report.id),
+                        payload={
+                            "report_id": report.id,
+                            "report_name": report.name,
+                            "status": "failed",
+                            "error_message": error_message,
+                            "triggered_by": "manual",
+                        },
+                    ),
+                    new_db,
+                )
+        except Exception:
+            logger.warning("[report_run] 发布失败事件异常 report_id=%d", report.id)
+        raise
 
     report.last_run_at = datetime.utcnow()
     report.run_count = (report.run_count or 0) + 1
     await db.commit()
+
+    # 发布报表运行成功事件（使用独立session，避免事务边界问题）
+    try:
+        async with get_session_factory()() as new_db:
+            await publish_event(
+                AutomationEvent(
+                    trigger_type="report_run_success",
+                    biz_type="report",
+                    biz_id=str(report.id),
+                    payload={
+                        "report_id": report.id,
+                        "report_name": report.name,
+                        "dataset_id": report.dataset_id,
+                        "status": "success",
+                        "total_rows": total,
+                        "run_time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                        "triggered_by": "manual",
+                    },
+                ),
+                new_db,
+            )
+    except Exception:
+        logger.warning("[report_run] 发布成功事件异常 report_id=%d", report.id)
 
     out_cols, out_items = _project_report_output(columns_meta, items, cfg)
     return RunResult(

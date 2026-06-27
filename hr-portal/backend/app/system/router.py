@@ -17,6 +17,7 @@ router = APIRouter(prefix="/system-logs", tags=["system-logs"])
 # 日志分类 → 查看该分类所需的菜单权限码
 _CATEGORY_MENU = {
     "ai_call": "system.logs.ai",
+    "automation_notification": "system.logs.operation",
     "compensation_calc": "system.logs.operation",
 }
 

@@ -38,3 +38,16 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+def get_session_factory():
+    """返回一个新的 async session factory，用于需要独立事务的场景。
+
+    例如：在 scheduler handler 或业务 router 中调用 publish_event() 时，
+    应避免复用当前业务 session，而是创建独立 session 以明确事务边界。
+
+    用法：
+        async with get_session_factory()() as new_db:
+            await publish_event(event, new_db)
+    """
+    return AsyncSessionLocal

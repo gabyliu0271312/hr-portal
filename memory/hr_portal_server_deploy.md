@@ -54,6 +54,12 @@
 
 > 改的是服务器上的 Dockerfile,**未推回 GitHub**。重新 clone 会丢失这些改动,需重做(或哪天把换源 commit 回仓库)。
 
+### ✅ 换源已正式入库(2026-06-25,commit c8ee6e3)
+坑②的根治:换源已写进仓库的两个 Dockerfile,`git pull` 后构建即走国内源,不再依赖服务器手改、不会再丢。
+- **后端** `backend/Dockerfile`:apt 用 sed 换清华源,**兼容两种格式**——Debian 12 的 `/etc/apt/sources.list` 与 Debian 13 的 deb822 `/etc/apt/sources.list.d/debian.sources`;pip 用清华 pypi。
+- **前端** `frontend/Dockerfile`:`npm config set registry https://registry.npmmirror.com`。
+- **触发这次踩坑的原因**:`python:3.11-slim` 上游 base 从 Debian 12 升到 **Debian 13(trixie)**,旧的 apt 缓存层失效、apt 重跑,而仓库 Dockerfile 从来没有换源(之前部署成功是命中了 base 镜像缓存层没重跑 apt),于是卡死在 `deb.debian.org` 国外源。Debian 13 换成了 deb822 格式,sed 必须同时处理 `debian.sources` 才生效。
+
 ### ⚠️ 坑③:base 镜像复用
 4 个 base 镜像:`python:3.11-slim` / `node:20-alpine` / `nginx:1.27-alpine` / `postgres:15-alpine`。
 - `postgres:15-alpine` 服务器已有(成本分摊系统用的同款,直接复用)。
@@ -77,6 +83,26 @@ docker compose restart
 docker compose logs backend  | tail -30
 docker compose logs frontend | tail -30
 ```
+
+### 4.1 纯后端代码更新(只重建 backend,推荐)
+
+本次改动只动后端 Python、没碰前端 / 依赖 / 迁移时,**只重建 backend**,不要全量 `--build`:
+
+```bash
+cd /opt/hr-portal/hr-portal
+git pull
+docker compose up -d --build backend          # 只重建后端镜像
+docker compose ps
+docker compose logs backend | tail -30
+curl -s http://localhost:37801/api/v1/        # 期望 {"message":"HR Portal API","docs":"/docs"}
+```
+
+为什么这样更安全:
+- 后端是 `build: ./backend`,代码 COPY 进镜像,**改了 Python 必须 `--build`,光 restart 不生效**。
+- 不重建 frontend 就不会触发 npm 拉国外源(坑②);后端依赖没变能命中缓存,构建很快。
+- **关键**:只要本次 commit 没改 Dockerfile,`git pull` 不会动服务器上手改的换源(坑② 不触发);改了 Dockerfile / requirements / 加了 alembic 迁移才需走 §4 全量流程。
+- 回退:`git reset --hard <上一个commit>` 后再 `docker compose up -d --build backend`。
+
 
 - 首次/重建启动:backend 的 entrypoint 自动跑 `alembic upgrade head` + seed(建表+注入admin+数据源/调度种子)。
 - 健康判断:db `healthy`,backend 日志出现 `Application startup complete`,`curl http://localhost:37801` 返回 200,`curl http://localhost:37801/api/v1/` 返回 `{"message":"HR Portal API"}`。

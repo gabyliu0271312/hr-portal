@@ -28,4 +28,6 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   'tools.income_certificate': '/tools/income-certificate',
   'tools.cost_allocation': '/tools/cost-allocation',
   'table_tools': '/tools/table-merge',
+  // 自动通知（原自动化规则）
+  'automation.rules': '/automation/rules',
 }

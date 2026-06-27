@@ -35,6 +35,33 @@ export interface AiChatResult {
   compensation?: CompensationResult | null
   missing_fields: string[]
   extracted: Record<string, any>
+  artifact?: AutomationRuleArtifact | null
+}
+
+export interface AutomationRuleArtifact {
+  artifact_type: string
+  rule_draft: {
+    name: string
+    description: string | null
+    biz_type: string | null
+    trigger_type: string
+    trigger_config: Record<string, any>
+    condition_config: any[]
+    actions_config: Array<{
+      type: string
+      name: string
+      enabled: boolean
+      run_on_error?: boolean
+      config: Record<string, any>
+    }>
+    enabled: boolean
+    source: string
+    receiver_query?: string | null
+  } | null
+  validation_errors: string[]
+  missing_slots: string[]
+  needs_config: string[]
+  follow_up_question: string | null
 }
 
 export const aiApi = {

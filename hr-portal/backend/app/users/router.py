@@ -74,6 +74,7 @@ async def _user_to_list_item(
         is_active=user.is_active,
         last_login_at=user.last_login_at,
         locked_until=user.locked_until,
+        feishu_user_id=user.feishu_user_id,
         role_names=[r.name for r in user.roles],
         org_scope_names=names.get("org", []),
         cost_center_scope_names=names.get("cost_center", []),

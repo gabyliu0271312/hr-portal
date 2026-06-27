@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { Money, Document, Histogram, Grid } from '@element-plus/icons-vue'
+import { Money, Document, Histogram, Grid, Notification } from '@element-plus/icons-vue'
 
 /**
  * HR 工具清单 —— 单一事实源。
@@ -42,5 +42,12 @@ export const TOOLS_CATALOG: ToolItem[] = [
     desc: '上传多源 Excel 文件，按人合并为标准字段表格，支持 AI 自动识别映射关系。',
     path: '/tools/table-merge',
     icon: Grid,
+  },
+  {
+    code: 'automation.rules',
+    title: '自动通知',
+    desc: '按事件触发器配置飞书消息通知，任务完成、报表生成后自动推送提醒。',
+    path: '/automation/rules',
+    icon: Notification,
   },
 ]

@@ -29,6 +29,13 @@
 - [ChatBI 走 QuerySpec 不走裸 SQL](./hr_portal_chatbi_queryspec.md) — NL 查数定调 Text-to-QuerySpec + 指标语义层；权限编译期注入；口径治理待办；已写入 specs/004
 - [表格处理工具(社保多源归集)](./hr_portal_excel_table_tools.md) — specs/006；多源异构→按人(姓名+证件)归集到标准模板；7种表头结构；AI分级介入(规则认模板+AI猜陌生表映射,②第一版必做)；复用现有 ai/provider.py；节奏=先文档→demo→工程
 - [公式引擎是公共组件](./hr_portal_formula_engine_shared.md) — app/ai_formula 是顶层公共模块(reports/datasets/table_tools 平级复用)；要做"按公式算字段"一律复用 evaluate_formula+executable_functions，禁止重写求值器；table_tools 派生已删 eval_expr 改用它(2026-06-21)
+- [飞书单点登录](./hr_portal_feishu_sso.md) — 用飞书账号登录 Portal 本身；邮箱匹配为主+首次回写 feishu_user_id+匹配不到拒绝登录；启用前必做填凭证开开关+飞书白名单；配置三处同步(.env/.env.example/compose)
+- [操作日志](./hr_portal_operation_logs.md) — 复用 system_logs 按 category 多路复用，加新日志类型零建表；查询接口按 category 动态鉴权(不能用 require_op 绑死)；补偿金计算已埋点(谁/何时/查了谁)
+- [报表脏字段引用告警](./hr_portal_report_dangling_field_ref.md) — 查询弹"计算字段已被删除/已自动跳过"=config.columns 残留已删字段;已修(commit dbfe7a4),但需重新保存报表才清除,光查询照报
+- [报表脏字段引用·完整版](./hr_portal_report_orphan_calc_ref.md) — 同款告警彻底排查:孤儿藏 columns+column_settings,删除守卫漏检 key(f23a38d修),总症结=改了代码但生产前端没 --build 部署
+- [L3 字段权限两条语义](./hr_portal_field_permission_semantics.md) — 「敏感」是字段分类管控总开关(非敏感分类零效果)；报表含无权敏感字段→整张 403(授权该角色实际无效)；被问"是不是 bug"直接引用，符合设计
+- [三套敏感开关](./hr_portal_sensitive_three_switches.md) — "关了敏感还脱敏/超管也脱敏"=三套独立开关关错地方;列级 is_sensitive 和计算字段绝密对超管强制脱敏,分类敏感才超管豁免;计算字段引用列级敏感列→超管也脱敏(设计非bug)
+- [北森报表分页两个坑](./hr_portal_beisen_report_pagination.md) — 行数拉不全(944→714):①pageSize有上限(5000报400,1000可用)②分页无序页间随机重叠;应对=pageSize自适应降级+多轮重扫整行去重;排查铁律=从北森源头导出文件直接数,别信中途推断
 
 ## 主要文档导航
 

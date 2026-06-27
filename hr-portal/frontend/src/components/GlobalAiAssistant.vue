@@ -5,7 +5,9 @@ import { ElMessage } from 'element-plus'
 import { MagicStick, Position } from '@element-plus/icons-vue'
 import { aiApi, type AiAction, type AiChatMessage } from '@/api/ai'
 import type { CompensationResult, EmployeeCandidate } from '@/api/tools'
+import type { AutomationRuleArtifact } from '@/api/ai'
 import DocumentActionPreview from '@/components/document/DocumentActionPreview.vue'
+import AutomationRuleArtifactPreview from '@/components/automation/AutomationRuleArtifactPreview.vue'
 
 interface ChatMessage {
   id: number
@@ -15,6 +17,7 @@ interface ChatMessage {
   candidates?: EmployeeCandidate[]
   actions?: AiAction[]
   compensation?: CompensationResult | null
+  artifact?: AutomationRuleArtifact | null
 }
 
 const route = useRoute()
@@ -121,6 +124,7 @@ async function sendMessage(
       candidates: result.candidates || source?.candidates || [],
       actions,
       compensation: result.compensation,
+      artifact: result.artifact || null,
     })
     runAutoActions(actions)
     scrollToBottom()
@@ -134,6 +138,15 @@ async function sendMessage(
   } finally {
     sending.value = false
   }
+}
+
+function handleArtifactSaved(item: ChatMessage) {
+  ElMessage.success('自动化规则已保存，请在自动化规则页面查看')
+  item.artifact = null // 清除 artifact，避免重复操作
+}
+
+function handleArtifactDismissed(item: ChatMessage) {
+  item.artifact = null // 清除 artifact
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -201,6 +214,12 @@ function handleKeydown(event: KeyboardEvent) {
               </el-button>
             </div>
             <div v-if="item.traceId" class="trace-line">trace_id: {{ item.traceId }}</div>
+            <AutomationRuleArtifactPreview
+              v-if="item.artifact?.artifact_type === 'automation_rule'"
+              :artifact="item.artifact"
+              @saved="handleArtifactSaved(item)"
+              @dismissed="handleArtifactDismissed(item)"
+            />
           </div>
         </div>
         <div v-if="sending" class="chat-message assistant">
