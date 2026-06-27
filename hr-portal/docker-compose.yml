@@ -1,4 +1,4 @@
-﻿services:
+services:
   db:
     image: postgres:15-alpine
     container_name: hr-portal-db
@@ -39,7 +39,7 @@
       BEISEN_BASE_URL: ${BEISEN_BASE_URL:-}
       BEISEN_APP_KEY: ${BEISEN_APP_KEY:-}
       BEISEN_APP_SECRET: ${BEISEN_APP_SECRET:-}
-      ORG_ROOT_NAME: ${ORG_ROOT_NAME:-鍒涙ⅵ澶╁湴}
+      ORG_ROOT_NAME: ${ORG_ROOT_NAME:-创梦天地}
       COST_ALLOCATION_APP_URL: ${COST_ALLOCATION_APP_URL:-http://192.168.10.13:37800/}
       COST_ALLOCATION_ADMIN_PATH: ${COST_ALLOCATION_ADMIN_PATH:-/admin/workbench}
       FEISHU_SSO_ENABLED: ${FEISHU_SSO_ENABLED:-false}
@@ -72,4 +72,3 @@
       - backend
     ports:
       - "${FRONTEND_PORT:-8080}:80"
-
