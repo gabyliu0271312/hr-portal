@@ -1,4 +1,4 @@
-services:
+﻿services:
   db:
     image: postgres:15-alpine
     container_name: hr-portal-db
@@ -39,13 +39,15 @@ services:
       BEISEN_BASE_URL: ${BEISEN_BASE_URL:-}
       BEISEN_APP_KEY: ${BEISEN_APP_KEY:-}
       BEISEN_APP_SECRET: ${BEISEN_APP_SECRET:-}
-      ORG_ROOT_NAME: ${ORG_ROOT_NAME:-创梦天地}
+      ORG_ROOT_NAME: ${ORG_ROOT_NAME:-鍒涙ⅵ澶╁湴}
       COST_ALLOCATION_APP_URL: ${COST_ALLOCATION_APP_URL:-http://192.168.10.13:37800/}
       COST_ALLOCATION_ADMIN_PATH: ${COST_ALLOCATION_ADMIN_PATH:-/admin/workbench}
       FEISHU_SSO_ENABLED: ${FEISHU_SSO_ENABLED:-false}
       FEISHU_APP_ID: ${FEISHU_APP_ID:-}
       FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
       FEISHU_REDIRECT_URI: ${FEISHU_REDIRECT_URI:-}
+      FEISHU_VERIFICATION_TOKEN: ${FEISHU_VERIFICATION_TOKEN:-}
+      FEISHU_CALLBACK_MAX_TIMESTAMP_DIFF: ${FEISHU_CALLBACK_MAX_TIMESTAMP_DIFF:-300}
       GOTENBERG_URL: ${GOTENBERG_URL:-http://gotenberg:3000}
 
   gotenberg:
@@ -70,3 +72,4 @@ services:
       - backend
     ports:
       - "${FRONTEND_PORT:-8080}:80"
+
