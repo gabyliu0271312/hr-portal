@@ -50,3 +50,4 @@
 - AI 原生一期实施蓝图：[specs/004-ai-native-workbench/implementation-blueprint.md](../specs/004-ai-native-workbench/implementation-blueprint.md)
 - AI 平台完整路线图：[specs/004-ai-native-workbench/ai-platform-roadmap.md](../specs/004-ai-native-workbench/ai-platform-roadmap.md)
 - AI + Excel 计算字段 MVP：[specs/004-ai-native-workbench/formula-calculated-field-mvp.md](../specs/004-ai-native-workbench/formula-calculated-field-mvp.md)
+- 2026-06-27: 飞书事件订阅/卡片回调公网化待办见 `memory/hr_portal_feishu_notification_callback_todo.md`；本机回调验证成功，飞书平台验证失败疑似内网/公网 HTTPS 限制。

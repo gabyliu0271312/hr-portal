@@ -97,6 +97,9 @@ const hasCardButton = ref(false)
 const cardButtonText = ref('查看详情')
 const cardButtonUrl = ref('')
 const requireCompletion = ref(false)
+const testContextJson = ref('')
+const testing = ref(false)
+const testResult = ref<any | null>(null)
 const actionName = ref('')
 
 // 接收人类型选项（已迁移为 checkbox 模式，见上方 receiverCheckOptions）
@@ -324,6 +327,82 @@ function goToConfigure() {
 
 function goBackToSelect() { currentStep.value = 'select' }
 
+function buildReceiversFromForm(): ReceiverRule[] {
+  const builtReceivers: ReceiverRule[] = []
+  for (const key of checkedReceiverKeys.value) {
+    const val = receiverInputValues.value[key]
+    if (key === 'fixed_users') builtReceivers.push({ type: 'fixed_users', user_ids: val || [] })
+    else if (key === 'fixed_chats') builtReceivers.push({ type: 'fixed_chats', chat_ids: val || [] })
+    else if (key === 'employee_field_user') builtReceivers.push({ type: 'employee_field_user', target_field: val || '' })
+    else if (key === 'employee_department_manager') builtReceivers.push({ type: 'employee_department_manager', department_field: val || '' })
+  }
+  return builtReceivers
+}
+
+function buildMessageConfig(): MessageConfig {
+  return {
+    message_format: messageFormat.value,
+    title_template: titleTemplate.value,
+    content_template: contentTemplate.value,
+    resources: [],
+  }
+}
+
+function buildNotificationConfig() {
+  return {
+    enabled: true,
+    receivers: buildReceiversFromForm(),
+    message: buildMessageConfig(),
+    require_completion: requireCompletion.value,
+    card_button: {
+      enabled: hasCardButton.value,
+      text: cardButtonText.value || '查看详情',
+      url: cardButtonUrl.value || '',
+    },
+  }
+}
+
+async function handleTestSend() {
+  testing.value = true
+  testResult.value = null
+  try {
+    let context: Record<string, any> = {}
+    if (testContextJson.value.trim()) {
+      try {
+        context = JSON.parse(testContextJson.value)
+      } catch {
+        ElMessage.warning('测试上下文 JSON 格式不正确，已忽略')
+      }
+    }
+
+    const preview = await feishuApi.previewMessage({
+      message: buildMessageConfig(),
+      context,
+    })
+    const result = await feishuApi.testSend({
+      config: buildNotificationConfig(),
+      context,
+    })
+    testResult.value = {
+      ...result,
+      preview: {
+        rendered_title: preview.rendered_title,
+        rendered_content: preview.rendered_content,
+        missing_variables: preview.missing_variables || [],
+      },
+    }
+    if (result.ok) {
+      ElMessage.success(`测试发送完成：${result.success_count} 成功${result.failed_count > 0 ? `，${result.failed_count} 失败` : ''}`)
+    } else {
+      ElMessage.error('测试发送失败：' + (result.errors?.[0] || '未知错误'))
+    }
+  } catch (e: any) {
+    const detail = e?.response?.data?.detail || e?.message || '未知错误'
+    ElMessage.error('测试发送异常：' + detail)
+  } finally {
+    testing.value = false
+  }
+}
 async function handleConfirm() {
   // ── 动作名称：使用类型标签作默认名称（规则级名称已在首页编辑）────────────────────
   const actionTypeDef = actionTypeDefs.find(d => d.value === selectedType.value)
@@ -659,6 +738,38 @@ const currentStepIndex = computed(() => steps.findIndex(s => s.key === currentSt
                         <div class="toggle-desc">消息附带「标记完成」按钮，已完成的人下次自动过滤</div>
                       </div>
                       <el-switch v-model="requireCompletion" size="small" />
+                    </div>
+                  </div>
+                  <!-- 测试发送 -->
+                  <div class="wiz-section test-send-section">
+                    <div class="wiz-section-header">
+                      <h4 class="wiz-section-title">测试发送</h4>
+                      <span class="test-desc">保存前用真实配置发送一条测试消息</span>
+                    </div>
+                    <el-input
+                      v-model="testContextJson"
+                      type="textarea"
+                      :rows="3"
+                      placeholder='可选测试上下文 JSON，如：{"employee_name":"张三","report_name":"月度报表"}'
+                      size="small"
+                      style="margin-bottom:8px"
+                    />
+                    <el-button type="primary" plain size="small" :loading="testing" @click="handleTestSend">
+                      发送测试消息
+                    </el-button>
+                    <div v-if="testResult" class="test-result" :class="testResult.ok ? 'result-ok' : 'result-err'">
+                      <div v-if="testResult.ok">✅ 发送成功：{{ testResult.success_count }} 成功，{{ testResult.failed_count }} 失败</div>
+                      <div v-else>❌ 发送失败</div>
+                      <div v-if="testResult.preview" class="test-preview">
+                        <div class="test-preview-title">{{ testResult.preview.rendered_title }}</div>
+                        <div class="test-preview-content">{{ testResult.preview.rendered_content }}</div>
+                        <div v-if="testResult.preview.missing_variables?.length" class="test-preview-warn">
+                          ⚠️ 未知变量：{{ testResult.preview.missing_variables.join(', ') }}
+                        </div>
+                      </div>
+                      <div v-if="testResult.errors?.length" class="test-errors">
+                        <div v-for="err in testResult.errors" :key="err">{{ err }}</div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1046,4 +1157,47 @@ const currentStepIndex = computed(() => steps.findIndex(s => s.key === currentSt
 .wizard-slide-leave-active { transition: transform 0.25s cubic-bezier(0.4, 0, 1, 1); }
 .wizard-slide-enter-from { transform: translateX(100%); }
 .wizard-slide-leave-to { transform: translateX(100%); }
+.test-send-section {
+  background: #f8fafc;
+  border: 1px dashed #c7d2fe;
+  border-radius: 12px;
+  padding: 14px;
+}
+.test-desc {
+  font-size: 12px;
+  color: #64748b;
+}
+.test-result {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.result-ok {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+.result-err {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+.test-preview {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0,0,0,.08);
+}
+.test-preview-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.test-preview-content {
+  white-space: pre-wrap;
+}
+.test-preview-warn,
+.test-errors {
+  margin-top: 6px;
+  color: #b45309;
+}
 </style>
