@@ -24,6 +24,7 @@ from app.integrations.feishu.feishu_client import (
     FeishuClientError,
     build_action_card,
     build_completion_card,
+    build_markdown_card,
     get_feishu_client,
 )
 from app.integrations.feishu.models import (
@@ -294,17 +295,18 @@ async def _send_to_one(
                 resp = await client.send_interactive_card_to_chat(receiver.receiver_id, card_json)
             message_id = resp.get("data", {}).get("message_id")
         else:
-            # 普通消息
-            if receiver.receiver_type == "user":
-                if config.message.message_format == "markdown":
-                    await client.send_markdown_to_user(receiver.receiver_id, title, content)
+            # Normal message: send markdown as interactive card to avoid Feishu post content 230001 validation errors.
+            if config.message.message_format == "markdown":
+                card_json = build_markdown_card(title=title, content=content)
+                if receiver.receiver_type == "user":
+                    resp = await client.send_interactive_card_to_user(receiver.receiver_id, card_json)
                 else:
-                    await client.send_text_to_user(receiver.receiver_id, content)
+                    resp = await client.send_interactive_card_to_chat(receiver.receiver_id, card_json)
+                message_id = resp.get("data", {}).get("message_id")
+            elif receiver.receiver_type == "user":
+                await client.send_text_to_user(receiver.receiver_id, content)
             else:  # chat
-                if config.message.message_format == "markdown":
-                    await client.send_markdown_to_chat(receiver.receiver_id, title, content)
-                else:
-                    await client.send_text_to_chat(receiver.receiver_id, content)
+                await client.send_text_to_chat(receiver.receiver_id, content)
         return {"status": "success", "message_id": message_id}
     except FeishuClientError as e:
         logger.warning("[feishu] 发送失败 receiver=%s: %s", receiver.receiver_id, e)

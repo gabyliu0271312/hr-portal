@@ -492,6 +492,33 @@ def _card_progress_bar(percent: int) -> dict:
     }
 
 
+
+def build_markdown_card(
+    title: str,
+    content: str,
+) -> str:
+    """构建只包含标题和正文的飞书交互式卡片。
+
+    用于普通 markdown 通知。相比 im post 富文本消息，卡片 lark_md 对中文、换行、
+    简单 markdown 更稳定，也能与后续按钮/标记完成能力保持同一消息形态。
+    """
+    import json
+
+    card = {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": title or "通知"},
+            "template": "blue",
+        },
+        "elements": [
+            {
+                "tag": "div",
+                "text": {"tag": "lark_md", "content": content or " "},
+            },
+        ],
+    }
+    return json.dumps(card, ensure_ascii=False)
+
 def build_action_card(
     title: str,
     content: str,
