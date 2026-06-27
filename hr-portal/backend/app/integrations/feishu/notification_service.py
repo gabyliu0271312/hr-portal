@@ -165,12 +165,33 @@ async def send_notification(
         rendered_content = rendered_content + resource_text
 
     # 3. 发送
+    # 3. Create log before sending. Completion cards need notification_log_id in button callback data.
+    receiver_snapshot = [r.model_dump() for r in resolve_result.receivers]
+    log = FeishuNotificationLog(
+        biz_type=biz_type,
+        biz_id=biz_id,
+        is_test=is_test,
+        message_format=config.message.message_format,
+        title=rendered_title,
+        rendered_content=rendered_content,
+        receiver_snapshot=receiver_snapshot,
+        result_snapshot=[],
+        status="pending",
+        success_count=0,
+        failed_count=0,
+        error_message=None,
+        triggered_by=triggered_by,
+        automation_execution_id=automation_execution_id,
+    )
+    db.add(log)
+    await db.flush()
+
     client = get_feishu_client()
     success_count = 0
     failed_count = 0
     result_snapshot: list[dict] = []
 
-    # 处理接收人解析错误
+    # Handle receiver resolving errors.
     for err in resolve_result.errors:
         failed_count += 1
         result_snapshot.append({"source": err.rule_type, "status": "resolve_error", "msg": err.message})
@@ -203,27 +224,11 @@ async def send_notification(
     else:
         status = "partial_success"
 
-    receiver_snapshot = [r.model_dump() for r in resolve_result.receivers]
-
-    log = FeishuNotificationLog(
-        biz_type=biz_type,
-        biz_id=biz_id,
-        is_test=is_test,
-        message_format=config.message.message_format,
-        title=rendered_title,
-        rendered_content=rendered_content,
-        receiver_snapshot=receiver_snapshot,
-        result_snapshot=result_snapshot,
-        status=status,
-        success_count=success_count,
-        failed_count=failed_count,
-        error_message=(
-            f"{failed_count} 个接收人发送失败" if failed_count > 0 else None
-        ),
-        triggered_by=triggered_by,
-        automation_execution_id=automation_execution_id,
-    )
-    db.add(log)
+    log.result_snapshot = result_snapshot
+    log.status = status
+    log.success_count = success_count
+    log.failed_count = failed_count
+    log.error_message = f"{failed_count} receivers failed" if failed_count > 0 else None
     await db.flush()
 
     logger.info(

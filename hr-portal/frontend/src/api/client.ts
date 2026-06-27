@@ -55,8 +55,12 @@ api.interceptors.response.use(
     const detail = formatDetail(error.response?.data, error.message || '网络异常')
 
     // 把格式化后的字符串挂回 response.data.detail，方便业务页面统一读
-    if (error.response?.data) {
-      ;(error.response.data as any).detail = detail
+    if (error.response) {
+      if (error.response.data && typeof error.response.data === 'object') {
+        ;(error.response.data as any).detail = detail
+      } else {
+        error.response.data = { detail } as any
+      }
     }
 
     if (status === 401) {
