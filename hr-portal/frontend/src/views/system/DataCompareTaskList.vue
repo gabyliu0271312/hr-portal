@@ -2,7 +2,7 @@
   <div class="data-compare-page">
     <div class="page-header">
       <h2>数据对比</h2>
-      <el-button type="primary" @click="showCreateDialog = true">新建对比</el-button>
+      <el-button type="primary" @click="openCreateDialog">新建对比</el-button>
     </div>
 
     <!-- 筛选 -->
@@ -61,31 +61,46 @@
     </el-dialog>
 
     <!-- 创建/编辑弹窗 -->
-    <el-dialog v-model="showCreateDialog" :title="editingSkill ? '编辑对比配置' : '新建对比'" width="600px" destroy-on-close>
+    <el-dialog v-model="showCreateDialog" :title="editingSkill ? '编辑对比配置' : '新建对比'" width="760px" destroy-on-close>
       <el-form :model="form" label-position="top">
         <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="如：6月花名册 vs 工资表名单核对" />
+          <el-input v-model="form.name" placeholder="如：2026年5月分摊表 vs 工资表名单核对" />
         </el-form-item>
-        <el-form-item label="原始需求描述" required>
+        <el-form-item label="自然语言需求" required>
           <el-input
             v-model="form.instruction"
             type="textarea"
-            :rows="3"
-            placeholder="描述你的对比需求，如：对比6月月度花名册和月度工资表的员工名单，找出差异人员"
+            :rows="4"
+            placeholder="例：对员工月度成本分摊表emp_monthly_allocation中的名单与员工月度工资表emp_monthly_salary中的名单进行对比，对比月份是2026.05"
           />
         </el-form-item>
-        <el-form-item label="CompareSpec 参数 (JSON)">
-          <el-input
-            v-model="form.paramsJson"
-            type="textarea"
-            :rows="8"
-            placeholder='{"compare_type":"roster","source_a":{"table":"emp_monthly_roster","period":"202606",...}'
+        <el-form-item label="AI 生成配置">
+          <div class="generate-row">
+            <el-button type="primary" plain :loading="generating" @click="generateParams">AI生成配置</el-button>
+            <span class="generate-tip">优先输入自然语言；后端会自动规范化月份、period 和 join_keys。</span>
+          </div>
+          <el-alert
+            v-if="generatedSummary"
+            class="generated-summary"
+            type="success"
+            :closable="false"
+            :title="generatedSummary"
           />
         </el-form-item>
+        <el-collapse>
+          <el-collapse-item title="高级：查看/编辑 CompareSpec JSON" name="json">
+            <el-input
+              v-model="form.paramsJson"
+              type="textarea"
+              :rows="10"
+              placeholder="点击 AI生成配置 后自动填充；如需高级调试可手工修改"
+            />
+          </el-collapse-item>
+        </el-collapse>
       </el-form>
       <template #footer>
         <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveSkill" :loading="saving">保存</el-button>
+        <el-button type="primary" @click="saveSkill" :loading="saving || generating">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -99,6 +114,7 @@ import CompareResultCard from '@/components/ai/CompareResultCard.vue'
 
 const loading = ref(false)
 const saving = ref(false)
+const generating = ref(false)
 const skills = ref<SkillOut[]>([])
 const filterStatus = ref('')
 const showCreateDialog = ref(false)
@@ -106,12 +122,24 @@ const showResult = ref(false)
 const editingSkill = ref<SkillOut | null>(null)
 const runningId = ref<number | null>(null)
 const lastResult = ref<CompareResult | null>(null)
+const generatedSummary = ref('')
 
 const form = ref({
   name: '',
   instruction: '',
   paramsJson: '',
 })
+
+function resetForm() {
+  editingSkill.value = null
+  generatedSummary.value = ''
+  form.value = { name: '', instruction: '', paramsJson: '' }
+}
+
+function openCreateDialog() {
+  resetForm()
+  showCreateDialog.value = true
+}
 
 function statusType(status: string) {
   return status === 'active' ? 'success' : status === 'archived' ? 'info' : 'warning'
@@ -161,6 +189,9 @@ async function runSkill(id: number) {
 
 function editSkill(skill: SkillOut) {
   editingSkill.value = skill
+  generatedSummary.value = skill.params?.compare_type
+    ? `${compareTypeLabel(skill.params.compare_type)}：${skill.params.source_a?.table || ''} → ${skill.params.source_b?.table || ''}`
+    : ''
   form.value = {
     name: skill.name,
     instruction: skill.instruction,
@@ -169,10 +200,38 @@ function editSkill(skill: SkillOut) {
   showCreateDialog.value = true
 }
 
+async function generateParams() {
+  if (!form.value.instruction) {
+    ElMessage.warning('请先输入自然语言需求')
+    return false
+  }
+  generating.value = true
+  try {
+    const data = await dataCompareApi.generateSkill({
+      instruction: form.value.instruction,
+      name: form.value.name || undefined,
+    })
+    form.value.paramsJson = JSON.stringify(data.params, null, 2)
+    generatedSummary.value = data.summary
+    ElMessage.success('CompareSpec 已生成并完成规范化')
+    return true
+  } catch (e: any) {
+    ElMessage.error('生成失败: ' + (e?.response?.data?.detail || e?.message || '未知错误'))
+    return false
+  } finally {
+    generating.value = false
+  }
+}
+
 async function saveSkill() {
   if (!form.value.name || !form.value.instruction) {
     ElMessage.warning('名称和需求描述为必填')
     return
+  }
+
+  if (!form.value.paramsJson) {
+    const ok = await generateParams()
+    if (!ok) return
   }
 
   let params: any
@@ -201,7 +260,7 @@ async function saveSkill() {
       ElMessage.success('创建成功')
     }
     showCreateDialog.value = false
-    editingSkill.value = null
+    resetForm()
     await loadSkills()
   } catch (e: any) {
     ElMessage.error('保存失败: ' + (e?.response?.data?.detail || e?.message || '未知错误'))
@@ -246,6 +305,21 @@ onMounted(() => {
 
 .filter-bar {
   margin-bottom: 16px;
+}
+
+.generate-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.generate-tip {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.generated-summary {
+  margin-top: 10px;
 }
 
 .skill-cards {

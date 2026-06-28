@@ -3,12 +3,14 @@ import { nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { MagicStick, Position } from '@element-plus/icons-vue'
-import { aiApi, type AiAction, type AiChatMessage } from '@/api/ai'
+import { aiApi, type AiAction, type AiChatMessage, type AutomationRuleArtifact } from '@/api/ai'
 import type { CompensationResult, EmployeeCandidate } from '@/api/tools'
 import type { CompareResult } from '@/api/data-compare'
 import DocumentActionPreview from '@/components/document/DocumentActionPreview.vue'
 import AutomationRuleArtifactPreview from '@/components/automation/AutomationRuleArtifactPreview.vue'
 import CompareResultCard from '@/components/ai/CompareResultCard.vue'
+
+type AssistantArtifact = AutomationRuleArtifact | CompareResult
 
 interface ChatMessage {
   id: number
@@ -18,7 +20,7 @@ interface ChatMessage {
   candidates?: EmployeeCandidate[]
   actions?: AiAction[]
   compensation?: CompensationResult | null
-  artifact?: Record<string, any> | null
+  artifact?: AssistantArtifact | null
 }
 
 const route = useRoute()
@@ -32,6 +34,28 @@ const messages = ref<ChatMessage[]>([])
 // 多轮会话:前端只持有后端发的 conversation_id,任务状态/槽位由后端 PG 持久化。
 const conversationId = ref<number | null>(null)
 let messageId = 0
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object'
+}
+
+function isAutomationRuleArtifact(value: unknown): value is AutomationRuleArtifact {
+  return isObject(value) && value.artifact_type === 'automation_rule'
+}
+
+function isCompareResultArtifact(value: unknown): value is CompareResult {
+  return isObject(value)
+    && typeof value.compare_type === 'string'
+    && isObject(value.summary)
+    && Array.isArray(value.details)
+}
+
+function toAssistantArtifact(value: unknown): AssistantArtifact | null {
+  if (isAutomationRuleArtifact(value) || isCompareResultArtifact(value)) {
+    return value
+  }
+  return null
+}
 
 function chatHistory(): AiChatMessage[] {
   return messages.value.slice(-8).map((item) => ({
@@ -125,7 +149,7 @@ async function sendMessage(
       candidates: result.candidates || source?.candidates || [],
       actions,
       compensation: result.compensation,
-      artifact: result.artifact || null,
+      artifact: toAssistantArtifact(result.artifact),
     })
     runAutoActions(actions)
     scrollToBottom()
@@ -216,14 +240,14 @@ function handleKeydown(event: KeyboardEvent) {
             </div>
             <div v-if="item.traceId" class="trace-line">trace_id: {{ item.traceId }}</div>
             <AutomationRuleArtifactPreview
-              v-if="item.artifact?.artifact_type === 'automation_rule'"
+              v-if="isAutomationRuleArtifact(item.artifact)"
               :artifact="item.artifact"
               @saved="handleArtifactSaved(item)"
               @dismissed="handleArtifactDismissed(item)"
             />
             <CompareResultCard
-              v-if="item.artifact?.compare_type"
-              :result="(item.artifact as CompareResult)"
+              v-if="isCompareResultArtifact(item.artifact)"
+              :result="item.artifact"
             />
           </div>
         </div>

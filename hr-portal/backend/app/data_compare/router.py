@@ -1,4 +1,4 @@
-"""Data comparison skill REST API endpoints.
+﻿"""Data comparison skill REST API endpoints.
 
 Permission model:
   - system.data_compare "V" — required to list/view/execute skills and query metadata
@@ -11,13 +11,19 @@ Permission model:
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+
+from app.ai.provider import chat_completion_openai_compatible
+from app.ai.service import active_ai_config
+from app.core.secret_box import decrypt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
-from app.data_compare.chat_handler import run_data_compare
+from app.data_compare.chat_handler import extract_compare_spec, run_data_compare
 from app.data_compare.executor import ScopeDeniedError, _build_scope_sql
 from app.data_compare.metadata import MetadataLoader
+from app.data_compare.normalizer import normalize_compare_spec
 from app.data_compare.schemas import (
     CompareSpec,
     CompareResult,
@@ -27,7 +33,7 @@ from app.data_compare.schemas import (
     SkillOut,
     SkillUpdate,
 )
-from app.data_compare.validator import SchemaValidationError
+from app.data_compare.validator import SchemaValidationError, validate_compare_spec
 from app.data_compare import service
 from app.permissions.scope_filter import _is_super_admin
 from app.users.models import User
@@ -41,6 +47,71 @@ _require_u = require_op("system.data_compare", "U")
 _require_d = require_op("system.data_compare", "D")
 
 
+class SkillGenerateRequest(BaseModel):
+    instruction: str
+    name: str | None = None
+
+
+class SkillGenerateResponse(BaseModel):
+    params: dict
+    summary: str
+
+
+def _spec_summary(spec: CompareSpec) -> str:
+    type_label = {
+        "roster": "名单对比",
+        "field": "字段对比",
+        "amount": "金额对比",
+    }.get(spec.compare_type.value, spec.compare_type.value)
+    period = spec.source_a.period or spec.source_b.period or "未指定"
+    join_keys = "、".join(spec.join_keys) or "未指定"
+    return (
+        f"{type_label}：{spec.source_a.table} → {spec.source_b.table}；"
+        f"期间={period}；关联键={join_keys}"
+    )
+
+async def _normalize_and_validate_params(
+    params: dict,
+    db: AsyncSession,
+    *,
+    instruction: str | None = None,
+) -> CompareSpec:
+    if not params:
+        raise HTTPException(status_code=400, detail="请先通过 AI 生成 CompareSpec；params 不能为空")
+    loader = MetadataLoader(db)
+    try:
+        spec = await normalize_compare_spec(params, loader, instruction=instruction)
+        await validate_compare_spec(spec, loader)
+        return spec
+    except SchemaValidationError as e:
+        raise HTTPException(status_code=400, detail=f"参数校验失败: {'; '.join(e.errors)}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"技能参数不合法: {e}")
+
+
+async def _data_compare_model_call(db: AsyncSession):
+    config = await active_ai_config(db)
+    if not config:
+        raise HTTPException(status_code=400, detail="No active AI provider configured. Please enable an AI model first")
+    model = (config.model_reasoning or config.model_fast_json or "").strip()
+    api_key = decrypt(config.api_key_encrypted or "")
+    if not model or not api_key:
+        raise HTTPException(status_code=400, detail="AI config is incomplete: missing model or API Key")
+
+    async def call(prompt: str) -> str:
+        _, content, _usage = await chat_completion_openai_compatible(
+            api_key=api_key,
+            base_url=config.base_url,
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=int(config.timeout_seconds or 60),
+            response_format={"type": "json_object"},
+        )
+        return content
+
+    return call
+
+
 # ── ai_skills CRUD ──────────────────────────────────────────────────────
 
 
@@ -51,6 +122,8 @@ async def create_skill(
     user: User = Depends(current_user),
     _perm: User = Depends(_require_c),
 ):
+    spec = await _normalize_and_validate_params(data.params, db, instruction=data.instruction)
+    data = data.model_copy(update={"params": spec.model_dump(mode="json")})
     skill = await service.create_skill(db, data, user.id)
     return SkillOut.model_validate(skill)
 
@@ -75,6 +148,34 @@ async def list_skills(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.post("/skills/generate", response_model=SkillGenerateResponse)
+async def generate_skill_params(
+    data: SkillGenerateRequest,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    _perm: User = Depends(_require_c),
+):
+    """Generate and normalize CompareSpec from natural-language instruction."""
+    instruction = (data.instruction or "").strip()
+    if not instruction:
+        raise HTTPException(status_code=400, detail="自然语言需求不能为空")
+
+    loader = MetadataLoader(db)
+    model_call = await _data_compare_model_call(db)
+    try:
+        spec = await extract_compare_spec(instruction, loader, model_call)
+        spec = await normalize_compare_spec(spec, loader, instruction=instruction)
+        await validate_compare_spec(spec, loader)
+    except SchemaValidationError as e:
+        raise HTTPException(status_code=400, detail=f"参数校验失败: {'; '.join(e.errors)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"生成 CompareSpec 失败: {e}")
+
+    return SkillGenerateResponse(params=spec.model_dump(mode="json"), summary=_spec_summary(spec))
 
 
 @router.get("/skills/{skill_id}", response_model=SkillOut)
@@ -105,6 +206,10 @@ async def update_skill(
         raise HTTPException(status_code=404, detail="Skill not found")
     if not await service.user_can_access(skill, user.id, db):
         raise HTTPException(status_code=403, detail="Access denied")
+    if data.params is not None:
+        instruction = data.instruction or skill.instruction
+        spec = await _normalize_and_validate_params(data.params, db, instruction=instruction)
+        data = data.model_copy(update={"params": spec.model_dump(mode="json")})
     skill = await service.update_skill(db, skill_id, data)
     return SkillOut.model_validate(skill)
 
@@ -140,14 +245,15 @@ async def invoke_skill(
         raise HTTPException(status_code=403, detail="Access denied")
 
     try:
-        spec = CompareSpec.model_validate(skill.params)
+        loader = MetadataLoader(db)
+        spec = await normalize_compare_spec(skill.params, loader, instruction=skill.instruction)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid skill params: {e}")
+        raise HTTPException(status_code=400, detail=f"技能参数不合法: {e}")
 
     try:
-        result_dict = await run_data_compare(spec, user, db)
+        result_dict = await run_data_compare(spec, user, db, instruction=skill.instruction)
     except SchemaValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Parameter validation failed: {'; '.join(e.errors)}")
+        raise HTTPException(status_code=400, detail=f"参数校验失败: {'; '.join(e.errors)}")
     except ScopeDeniedError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
@@ -163,7 +269,7 @@ async def invoke_skill(
 
 @router.post("/invoke", response_model=CompareResult)
 async def invoke_adhoc(
-    spec: CompareSpec,
+    spec: dict,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(current_user),
     _perm: User = Depends(_require_v),
@@ -172,7 +278,7 @@ async def invoke_adhoc(
     try:
         result_dict = await run_data_compare(spec, user, db)
     except SchemaValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Parameter validation failed: {'; '.join(e.errors)}")
+        raise HTTPException(status_code=400, detail=f"参数校验失败: {'; '.join(e.errors)}")
     except ScopeDeniedError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
@@ -257,3 +363,5 @@ async def get_table_columns(
             for c in meta.columns.values()
         ],
     }
+
+

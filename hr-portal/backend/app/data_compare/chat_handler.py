@@ -15,6 +15,7 @@ from app.data_compare.executor import execute_compare, build_scope_for_compare, 
 from app.data_compare.formatter import format_result
 from app.data_compare.metadata import MetadataLoader
 from app.data_compare.schemas import CompareSpec, CompareType
+from app.data_compare.normalizer import normalize_compare_spec, normalize_compare_spec_data
 from app.data_compare.validator import validate_compare_spec, SchemaValidationError
 
 
@@ -97,18 +98,21 @@ async def extract_compare_spec(
         raise ValueError(f"LLM 输出不是合法 JSON: {e}\n原始输出: {response_text[:500]}")
 
     try:
-        spec = CompareSpec.model_validate(data)
+        normalized = await normalize_compare_spec_data(data, loader, instruction=user_message)
+        spec = CompareSpec.model_validate(normalized)
     except PydanticValidationError as e:
-        raise ValueError(f"CompareSpec 结构校验失败: {e}")
+        raise ValueError(f"CompareSpec structure validation failed: {e}")
 
     return spec
 
 
+
 async def run_data_compare(
-    spec: CompareSpec,
+    spec: CompareSpec | dict,
     user,
     db,
     model_call: callable | None = None,
+    instruction: str | None = None,
 ) -> dict:
     """完整的对比执行流程：Scope → 校验 → 编译 → 执行 → 格式化。
 
@@ -124,7 +128,10 @@ async def run_data_compare(
     # 1. 加载表结构元数据
     loader = MetadataLoader(db)
 
-    # 2. Schema 校验
+    # 2. Deterministic normalization + schema validation. This protects both
+    # LLM-generated specs and stored/manual specs from common natural-language
+    # parsing drift, e.g. period in join_keys or YYYY.MM periods.
+    spec = await normalize_compare_spec(spec, loader, instruction=instruction)
     await validate_compare_spec(spec, loader)
 
     # 3. 构建行级权限 scope（P0 fix: scope built BEFORE compilation）

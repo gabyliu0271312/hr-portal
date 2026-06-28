@@ -1,4 +1,4 @@
-import { api } from './client'
+﻿import { api } from './client'
 
 // ──────────────────────────────────────────────
 // CompareSpec types
@@ -136,6 +136,11 @@ export interface SkillInvokeResponse {
   result: CompareResult
 }
 
+export interface SkillGenerateResponse {
+  params: CompareSpec
+  summary: string
+}
+
 // ──────────────────────────────────────────────
 // API
 // ──────────────────────────────────────────────
@@ -151,6 +156,9 @@ export const dataCompareApi = {
   createSkill: (data: SkillCreate) =>
     api.post<SkillOut>('/data-compare/skills', data).then(r => r.data),
 
+  generateSkill: (data: { instruction: string; name?: string | null }) =>
+    api.post<SkillGenerateResponse>('/data-compare/skills/generate', data).then(r => r.data),
+
   updateSkill: (id: number, data: SkillUpdate) =>
     api.patch<SkillOut>(`/data-compare/skills/${id}`, data).then(r => r.data),
 
@@ -162,5 +170,5 @@ export const dataCompareApi = {
     api.post<SkillInvokeResponse>(`/data-compare/skills/${id}/invoke`).then(r => r.data),
 
   invokeAdhoc: (spec: CompareSpec) =>
-    api.post<CompareResult>('/data-compare/invoke', spec).then(r => r.data),
+    api.post<CompareResult>('/data-compare/invoke', spec).then(r => r.data)
 }
