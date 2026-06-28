@@ -157,3 +157,64 @@ async def test_join_keys_fallback_to_employee_no_when_pk_not_common():
     )
 
     assert normalized["join_keys"] == ["employee_no"]
+
+@pytest.mark.asyncio
+async def test_display_defaults_for_roster_template():
+    meta_a = _meta("a", columns=["employee_no", "employee_name"], pk_cols=["employee_no"])
+    meta_b = _meta("b", columns=["employee_no", "employee_name"], pk_cols=["employee_no"])
+    loader = _FakeLoader({"a": meta_a, "b": meta_b})
+
+    normalized = await normalize_compare_spec_data(
+        {"compare_type": "roster", "source_a": {"table": "a"}, "source_b": {"table": "b"}},
+        loader,
+        instruction="对比两张表名单差异",
+    )
+
+    assert normalized["display"]["template"] == "roster"
+    assert normalized["display"]["primary_metric"] == "diff_count"
+    assert "employee_no" in normalized["display"]["columns"]
+    assert "diff_type" in normalized["display"]["highlight_columns"]
+
+
+@pytest.mark.asyncio
+async def test_display_uses_prompt_mentioned_columns_as_highlight():
+    meta_a = _meta("a", columns=["employee_no", "employee_name", "dept_name"], pk_cols=["employee_no"])
+    meta_b = _meta("b", columns=["employee_no", "employee_name", "dept_name"], pk_cols=["employee_no"])
+    loader = _FakeLoader({"a": meta_a, "b": meta_b})
+
+    normalized = await normalize_compare_spec_data(
+        {"compare_type": "roster", "source_a": {"table": "a"}, "source_b": {"table": "b"}},
+        loader,
+        instruction="对比名单，重点看 dept_name",
+    )
+
+    assert "dept_name" in normalized["display"]["columns"]
+    assert "dept_name" in normalized["display"]["highlight_columns"]
+
+
+@pytest.mark.asyncio
+async def test_display_amount_sort_by_diff_desc_from_instruction():
+    meta_a = _meta("a", columns=["employee_no", "amount"], pk_cols=["employee_no"])
+    meta_b = _meta("b", columns=["employee_no", "amount"], pk_cols=["employee_no"])
+    loader = _FakeLoader({"a": meta_a, "b": meta_b})
+
+    normalized = await normalize_compare_spec_data(
+        {
+            "compare_type": "amount",
+            "source_a": {"table": "a"},
+            "source_b": {"table": "b"},
+            "amount": {
+                "metric_a": {"agg": "sum", "field": "amount"},
+                "metric_b": {"agg": "sum", "field": "amount"},
+                "group_by": ["employee_no"],
+                "tolerance": {"type": "absolute", "value": 0},
+            },
+        },
+        loader,
+        instruction="对比金额差额，并按差额从高到低排序",
+    )
+
+    assert normalized["display"]["template"] == "amount"
+    assert normalized["display"]["primary_metric"] == "amount_diff"
+    assert normalized["display"]["sort_by"] == "diff"
+    assert normalized["display"]["sort_order"] == "desc"

@@ -92,6 +92,31 @@ class OutputConfig(BaseModel):
     max_detail: int = Field(200, ge=1, le=1000, description="差异明细最大条数")
 
 
+class DisplayConfig(BaseModel):
+    """结果面板展示控制。
+
+    该配置允许自然语言提示词影响展示层，但只控制安全的 UI 选项：
+    - 采用哪类展示模板；
+    - 明细表展示哪些列、强调哪些列；
+    - 是否显示解释区/上下文区；
+    - 明细排序和标题/说明。
+    """
+
+    template: Literal["auto", "roster", "field", "amount"] = Field(
+        "auto", description="结果展示模板，auto 表示按 compare_type 自动选择"
+    )
+    title: str | None = Field(None, max_length=120, description="结果面板标题")
+    subtitle: str | None = Field(None, max_length=300, description="结果面板副标题/说明")
+    columns: list[str] = Field(default_factory=list, description="明细表优先展示列；为空则前端按类型自动选择")
+    highlight_columns: list[str] = Field(default_factory=list, description="需要高亮的明细列")
+    hidden_columns: list[str] = Field(default_factory=list, description="需要隐藏的明细列")
+    primary_metric: str | None = Field(None, description="首要关注指标，如 diff_count/amount_diff/only_in_a_count")
+    show_context: bool = Field(True, description="是否展示来源A/B、期间、耗时等上下文")
+    show_explanation: bool = Field(True, description="是否展示差异解释")
+    sort_by: str | None = Field(None, description="明细默认排序字段")
+    sort_order: Literal["asc", "desc"] = "desc"
+
+
 # ──────────────────────────────────────────────
 # 三类引擎专属参数
 # ──────────────────────────────────────────────
@@ -166,6 +191,7 @@ class CompareSpec(BaseModel):
 
     join_keys: list[str] = Field(..., min_length=1, description="关联键（支持多字段复合键）")
     output: OutputConfig = Field(default_factory=OutputConfig)
+    display: DisplayConfig = Field(default_factory=DisplayConfig)
 
     # 以下三个互斥 —— 根据 compare_type 选填一个
     roster: RosterSpec | None = None
@@ -275,6 +301,7 @@ class CompareResult(BaseModel):
     details: list[dict] = Field(default_factory=list, description="差异明细（最多 max_detail 条）")
     conclusion: str = ""
     duration_ms: int | None = None
+    display: DisplayConfig = Field(default_factory=DisplayConfig)
 
 
 class SkillInvokeResponse(BaseModel):

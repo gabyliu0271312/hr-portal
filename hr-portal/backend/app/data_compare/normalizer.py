@@ -42,6 +42,13 @@ PERIOD_COLUMN_CANDIDATES = {
     "biz_month",
 }
 
+DISPLAY_METRIC_KEYWORDS = {
+    "diff_count": ("差异", "异常", "不一致"),
+    "only_in_a_count": ("仅a", "仅A", "只在a", "只在A", "a有", "A有", "a表", "A表"),
+    "only_in_b_count": ("仅b", "仅B", "只在b", "只在B", "b有", "B有", "b表", "B表"),
+    "amount_diff": ("差额", "金额差", "差异金额"),
+}
+
 
 def normalize_period_text(value: Any, *, today: date | None = None) -> str | None:
     """Normalize common month expressions to YYYYMM.
@@ -181,6 +188,100 @@ def _compare_type_value(value: Any) -> str | None:
     return str(value)
 
 
+def _instruction_mentions_any(instruction: str, words: tuple[str, ...]) -> bool:
+    return any(w in instruction for w in words)
+
+
+def _columns_from_instruction(
+    instruction: str,
+    meta_a: TableMeta | None,
+    meta_b: TableMeta | None,
+) -> list[str]:
+    """Infer display columns explicitly mentioned by the user's instruction."""
+    cols: list[str] = []
+    all_cols: dict[str, str] = {}
+    for meta in (meta_a, meta_b):
+        if not meta:
+            continue
+        for code, col in meta.columns.items():
+            all_cols[code] = col.column_label or code
+
+    for code, label in all_cols.items():
+        if code in instruction or (label and label in instruction):
+            if code not in cols:
+                cols.append(code)
+    return cols
+
+
+def _default_display_config(
+    *,
+    compare_type: str | None,
+    instruction: str,
+    join_keys: list[str],
+    meta_a: TableMeta | None,
+    meta_b: TableMeta | None,
+    existing: dict[str, Any],
+) -> dict[str, Any]:
+    display = dict(existing or {})
+    template = display.get("template") or "auto"
+    if template == "auto" and compare_type in {"roster", "field", "amount"}:
+        template = compare_type
+    display["template"] = template
+
+    mentioned_cols = _columns_from_instruction(instruction, meta_a, meta_b)
+
+    if compare_type == CompareType.ROSTER.value:
+        default_cols = [*join_keys, "employee_name", "diff_type"]
+        display.setdefault("primary_metric", "diff_count")
+        display.setdefault("title", "名单对比结果")
+    elif compare_type == CompareType.FIELD.value:
+        default_cols = [*join_keys, "field", "field_a", "field_b", "diff_type", "status"]
+        display.setdefault("primary_metric", "diff_count")
+        display.setdefault("title", "字段对比结果")
+    elif compare_type == CompareType.AMOUNT.value:
+        default_cols = [*join_keys, "amount_a", "amount_b", "diff", "status"]
+        display.setdefault("primary_metric", "amount_diff")
+        display.setdefault("title", "金额对比结果")
+    else:
+        default_cols = [*join_keys, "diff_type", "status"]
+
+    columns = [str(c) for c in display.get("columns") or [] if str(c or "").strip()]
+    if not columns:
+        columns = [*mentioned_cols, *default_cols]
+    # Keep stable unique order
+    seen: set[str] = set()
+    display["columns"] = [c for c in columns if not (c in seen or seen.add(c))]
+
+    hidden = [str(c) for c in display.get("hidden_columns") or [] if str(c or "").strip()]
+    display["hidden_columns"] = list(dict.fromkeys(hidden))
+
+    highlights = [str(c) for c in display.get("highlight_columns") or [] if str(c or "").strip()]
+    if compare_type == CompareType.ROSTER.value:
+        highlights.extend(["diff_type"])
+    elif compare_type == CompareType.FIELD.value:
+        highlights.extend(["field", "field_a", "field_b"])
+    elif compare_type == CompareType.AMOUNT.value:
+        highlights.extend(["diff", "amount_a", "amount_b"])
+    for c in mentioned_cols:
+        highlights.append(c)
+    display["highlight_columns"] = list(dict.fromkeys(highlights))
+
+    if not display.get("sort_by"):
+        if _instruction_mentions_any(instruction, ("排序", "降序", "从高到低", "最大", "差额")):
+            display["sort_by"] = "diff" if compare_type == CompareType.AMOUNT.value else "diff_type"
+            display["sort_order"] = "desc"
+    display.setdefault("sort_order", "desc")
+    display.setdefault("show_context", True)
+    display.setdefault("show_explanation", True)
+
+    for metric, words in DISPLAY_METRIC_KEYWORDS.items():
+        if _instruction_mentions_any(instruction, words):
+            display["primary_metric"] = metric
+            break
+
+    return display
+
+
 async def normalize_compare_spec_data(
     data: dict[str, Any],
     loader: MetadataLoader,
@@ -220,6 +321,16 @@ async def normalize_compare_spec_data(
     normalized["output"] = output
 
     compare_type = _compare_type_value(normalized.get("compare_type"))
+    display = normalized.get("display") if isinstance(normalized.get("display"), dict) else {}
+    normalized["display"] = _default_display_config(
+        compare_type=compare_type,
+        instruction=instruction or "",
+        join_keys=join_keys,
+        meta_a=meta_a,
+        meta_b=meta_b,
+        existing=display,
+    )
+
     if compare_type == CompareType.ROSTER.value:
         roster = normalized.get("roster") if isinstance(normalized.get("roster"), dict) else {}
         roster.setdefault("direction", "both")

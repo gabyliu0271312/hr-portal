@@ -5,6 +5,7 @@ from app.data_compare.schemas import (
     CompareResult,
     CompareResultSummary,
     CompareType,
+    DisplayConfig,
 )
 
 
@@ -18,6 +19,7 @@ def format_result(
     duration_ms: int | None = None,
     max_detail: int = 200,
     sensitive_columns: set[str] | None = None,
+    display: DisplayConfig | None = None,
 ) -> CompareResult:
     """Format raw query rows into a structured CompareResult.
 
@@ -73,6 +75,8 @@ def format_result(
 
     conclusion = _build_conclusion(compare_type, summary, table_a_label, table_b_label)
 
+    display_config = display or DisplayConfig()
+
     return CompareResult(
         compare_type=compare_type.value,
         table_a=table_a_label,
@@ -84,6 +88,7 @@ def format_result(
         details=rows[:max_detail],  # use spec-configured limit
         conclusion=conclusion,
         duration_ms=duration_ms,
+        display=display_config,
     )
 
 

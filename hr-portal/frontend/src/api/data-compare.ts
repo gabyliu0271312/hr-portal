@@ -1,4 +1,4 @@
-﻿import { api } from './client'
+import { api } from './client'
 
 // ──────────────────────────────────────────────
 // CompareSpec types
@@ -20,6 +20,20 @@ export interface OutputConfig {
   only_diff: boolean
   group_count_by?: string | null
   max_detail: number
+}
+
+export interface DisplayConfig {
+  template: 'auto' | 'roster' | 'field' | 'amount'
+  title?: string | null
+  subtitle?: string | null
+  columns: string[]
+  highlight_columns: string[]
+  hidden_columns: string[]
+  primary_metric?: string | null
+  show_context: boolean
+  show_explanation: boolean
+  sort_by?: string | null
+  sort_order: 'asc' | 'desc'
 }
 
 export interface RosterSpec {
@@ -61,6 +75,7 @@ export interface CompareSpec {
   source_b: DataSource
   join_keys: string[]
   output: OutputConfig
+  display?: DisplayConfig | null
   roster?: RosterSpec | null
   field?: FieldSpec | null
   amount?: AmountSpec | null
@@ -129,6 +144,7 @@ export interface CompareResult {
   details: Record<string, any>[]
   conclusion: string
   duration_ms: number | null
+  display?: DisplayConfig | null
 }
 
 export interface SkillInvokeResponse {

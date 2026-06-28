@@ -65,6 +65,19 @@ async def extract_compare_spec(
   "source_b": {{ "table": "...", "period": "...", "prefilter": [...] }},
   "join_keys": ["关联键字段名"],
   "output": {{ "only_diff": true, "max_detail": 200 }},
+  "display": {{
+    "template": "auto|roster|field|amount",
+    "title": "结果面板标题或 null",
+    "subtitle": "结果面板说明或 null",
+    "columns": ["用户希望优先展示的明细列"],
+    "highlight_columns": ["用户要求重点关注/高亮的列"],
+    "hidden_columns": ["用户要求隐藏的列"],
+    "primary_metric": "diff_count|only_in_a_count|only_in_b_count|amount_diff|null",
+    "show_context": true,
+    "show_explanation": true,
+    "sort_by": "排序字段或 null",
+    "sort_order": "asc|desc"
+  }},
   "roster": null | {{ "direction": "both|only_in_a|only_in_b", "display_fields": ["..." ] }},
   "field": null | {{ "pairs": [{{"field_a": "...", "field_b": "...", "mode": "exact|trim|numeric", "tolerance": null}}] }},
   "amount": null | {{ "metric_a": {{"agg": "sum|count|avg", "field": "..."}}, "metric_b": {{...}}, "group_by": ["..."], "tolerance": {{"type": "absolute|percent", "value": 0.0}} }}
@@ -78,6 +91,7 @@ async def extract_compare_spec(
 - 月度表必须输出 period
 - 字段对比（field）必须输出 field.pairs
 - 金额对比（amount）必须输出 amount.group_by + amount.metric_a/b
+- display 用于结果展示，不影响 SQL；如果用户提到“只展示/重点看/按...排序/隐藏...”等展示要求，写入 display
 - 不知道的值填 null
 
 用户需求：
@@ -207,6 +221,7 @@ async def run_data_compare(
         max_detail=spec.output.max_detail if spec.output else 200,
         duration_ms=int((time.time() - start) * 1000),
         sensitive_columns=sensitive_columns or None,
+        display=spec.display,
     )
 
     return result.model_dump()
