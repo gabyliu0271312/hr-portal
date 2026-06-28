@@ -485,6 +485,55 @@ CAPABILITIES: tuple[CapabilityDefinition, ...] = (
         examples=["测试发送给薪酬组群"],
         failure_modes=["接收人无飞书 ID", "飞书接口调用失败", "用户无发送权限"],
     ),
+    # ========== 数据对比 Capability ==========
+    CapabilityDefinition(
+        capability_id="data.compare",
+        name="跨表数据对比检查",
+        module="data_compare",
+        type="query",
+        description=(
+            "根据自然语言描述对比两张表的数据一致性。支持三种对比类型："
+            "1) 名单对比 — 检查双方员工是否一致；"
+            "2) 字段对比 — 检查指定字段值是否一致，支持跨表不同字段名映射；"
+            "3) 金额对比 — 按维度汇总后对比金额是否一致，支持多维分组与绝对/百分比容差。"
+            "LLM 只输出结构化 CompareSpec JSON，后端 CompareTemplateEngine 编译为参数化 SQL，零注入风险。"
+        ),
+        required_permission=("system.data_compare", "V"),
+        risk_level="low",
+        side_effect_tags=[],
+        confirmation="none",
+        tools=[
+            "data_compare.list_comparable_tables",
+            "data_compare.get_table_columns",
+            "data_compare.execute_compare",
+        ],
+        policy_profile={
+            "output_contract": "data_compare_compare_spec_schema",
+            "allowed_side_effect": "none",
+            "deny_patterns": [],
+            "table_whitelist": "registered_tables_only",
+            "column_whitelist": "table_columns_metadata_only",
+            "row_filter": "scope_strategy_auto_inject",
+        },
+        model_profile="reasoning",
+        sensitive_context="metadata_only",
+        examples=[
+            "对比6月月度花名册和月度工资表的员工名单",
+            "检查6月工资表和花名册的部门、岗位信息是否一致",
+            "对比6月工资表的应发合计和分摊表的分摊金额，按部门汇总",
+            "对比花名册和实时花名册的部门、岗位、职级",
+            "检查7月工资表和个税表名单，只对比正式员工",
+        ],
+        failure_modes=[
+            "表不存在或未注册",
+            "月份参数缺失（月度表必须指定 period_ym）",
+            "关联键字段不存在于其中一张表",
+            "对比字段不存在于其中一张表",
+            "用户无权访问其中一张表（scope_strategy 拒绝）",
+            "CompareSpec Schema 校验失败（字段白名单/类型不匹配）",
+            "金额字段类型不兼容（非 number 类型）",
+        ],
+    ),
 )
 
 

@@ -1,0 +1,56 @@
+<svg viewBox="0 0 680 520" width="100%" role="img">
+  <title>Skill文件存储结构</title>
+  <desc>展示WorkBuddy Skill的完整文件结构，包括SKILL.md、scripts、references、assets四个组成部分的存储位置</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke"
+        stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <style>
+    .th{font-family:system-ui;font-size:14px;font-weight:500;fill:#2C2C2A}
+    .ts{font-family:system-ui;font-size:12px;fill:#5F5E5A}
+    .tc{font-family:system-ui;font-size:11px;fill:#888780}
+    .mono{font-family:monospace;font-size:11px;fill:#444441}
+  </style>
+
+  <text class="th" x="40" y="36" font-size="15">Skill 完整文件结构</text>
+  <text class="ts" x="40" y="56">SKILL.md 是第一个文件，另外三个目录和它在同一个文件夹里</text>
+
+  <g>
+    <rect x="40" y="80" width="600" height="420" rx="16" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
+    <text class="th" x="60" y="108" fill="#085041">~/.workbuddy/skills/{skill_id}/</text>
+    <text class="ts" x="60" y="126" fill="#0F6E56">用户级 — 跨项目可用　|　项目级: .workbuddy/skills/{skill_id}/</text>
+
+    <rect x="60" y="148" width="270" height="100" rx="10" fill="#fff" stroke="#5DCAA5" stroke-width="1"/>
+    <text class="th" x="80" y="176" fill="#085041">1. SKILL.md</text>
+    <text class="ts" x="80" y="196">第一个文件 — 核心指令</text>
+    <text class="ts" x="80" y="214">纯中文自然语言描述</text>
+    <text class="ts" x="80" y="232">触发词、执行步骤、参数定义</text>
+
+    <rect x="350" y="148" width="270" height="100" rx="10" fill="#fff" stroke="#5DCAA5" stroke-width="1"/>
+    <text class="th" x="370" y="176" fill="#085041">2. scripts/</text>
+    <text class="ts" x="370" y="196">辅助脚本目录</text>
+    <text class="ts" x="370" y="214">.py / .sh 脚本</text>
+    <text class="ts" x="370" y="232">SKILL.md 可通过指令调用</text>
+
+    <rect x="60" y="268" width="270" height="100" rx="10" fill="#fff" stroke="#5DCAA5" stroke-width="1"/>
+    <text class="th" x="80" y="296" fill="#085041">3. references/</text>
+    <text class="ts" x="80" y="316">参考文档目录</text>
+    <text class="ts" x="80" y="334">补充说明、最佳实践</text>
+    <text class="ts" x="80" y="352">表结构说明、字段字典等</text>
+
+    <rect x="350" y="268" width="270" height="100" rx="10" fill="#fff" stroke="#5DCAA5" stroke-width="1"/>
+    <text class="th" x="370" y="296" fill="#085041">4. assets/</text>
+    <text class="ts" x="370" y="316">静态资源目录</text>
+    <text class="ts" x="370" y="334">模板文件、示例 JSON</text>
+    <text class="ts" x="370" y="352">图片、配置样板等</text>
+
+    <rect x="60" y="390" width="560" height="90" rx="8" fill="#FAEEDA" stroke="#EF9F27" stroke-width="0.5"/>
+    <text class="th" x="80" y="416" fill="#633806">你现有的 impeccable 技能示例</text>
+    <text class="mono" x="80" y="438">~/.workbuddy/skills/skill_2053082862415904768/</text>
+    <text class="mono" x="100" y="456">SKILL.md　　　 _skillhub_meta.json</text>
+    <text class="mono" x="100" y="472">references/　　 adapt.md, animate.md, audit.md ...</text>
+  </g>
+</svg>

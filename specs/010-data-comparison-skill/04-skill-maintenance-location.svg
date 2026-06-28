@@ -1,0 +1,102 @@
+<svg viewBox="0 0 680 460" width="100%" role="img">
+  <title>Skill维护位置与入口</title>
+  <desc>展示数据对比Skill的三个维护入口：代码层、AI能力注册层、前端管理层</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke"
+        stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <style>
+    .th{font-family:system-ui;font-size:14px;font-weight:500;fill:#2C2C2A}
+    .ts{font-family:system-ui;font-size:12px;fill:#5F5E5A}
+    .tc{font-family:system-ui;font-size:11px;fill:#888780}
+    .mono{font-family:monospace;font-size:10px;fill:#444441}
+  </style>
+
+  <text class="th" x="40" y="30" font-size="15">数据对比 Skill 维护位置</text>
+  <text class="ts" x="40" y="50">日常用页面管，改代码时去对应目录</text>
+
+  <g>
+    <rect x="40" y="80" width="190" height="200" rx="12" fill="#E1F5EE" stroke="#1D9E75" stroke-width="0.5"/>
+    <rect x="40" y="80" width="190" height="36" rx="12" fill="#1D9E75"/>
+    <text class="th" x="135" y="103" text-anchor="middle" fill="#fff">改对比逻辑</text>
+
+    <text class="ts" x="55" y="138" fill="#085041">去哪</text>
+    <text class="mono" x="55" y="156">backend/app/automation/</text>
+    <text class="mono" x="55" y="171">  data_compare/</text>
+    <text class="mono" x="55" y="188">  metadata.py</text>
+    <text class="mono" x="55" y="203">  validator.py</text>
+    <text class="mono" x="55" y="218">  generator.py</text>
+    <text class="mono" x="55" y="233">  formatter.py</text>
+    <text class="mono" x="55" y="248">  executor.py</text>
+    <text class="ts" x="55" y="270" fill="#085041">做什么</text>
+    <text class="tc" x="55" y="288">改对比规则、安全策略</text>
+  </g>
+
+  <g>
+    <rect x="245" y="80" width="190" height="200" rx="12" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+    <rect x="245" y="80" width="190" height="36" rx="12" fill="#534AB7"/>
+    <text class="th" x="340" y="103" text-anchor="middle" fill="#fff">注册AI能力</text>
+
+    <text class="ts" x="260" y="138" fill="#3C3489">去哪</text>
+    <text class="mono" x="260" y="156">backend/app/ai/</text>
+    <text class="mono" x="260" y="171">  capabilities.py</text>
+    <text class="ts" x="260" y="200" fill="#3C3489">做什么</text>
+    <text class="tc" x="260" y="218">改 data.compare 的</text>
+    <text class="tc" x="260" y="236">CapabilityDefinition</text>
+    <text class="tc" x="260" y="258">触发词</text>
+    <text class="tc" x="260" y="276">参数 schema</text>
+    <text class="tc" x="260" y="294">路由策略</text>
+  </g>
+
+  <g>
+    <rect x="450" y="80" width="190" height="200" rx="12" fill="#E6F1FB" stroke="#378ADD" stroke-width="0.5"/>
+    <rect x="450" y="80" width="190" height="36" rx="12" fill="#378ADD"/>
+    <text class="th" x="545" y="103" text-anchor="middle" fill="#fff">日常管理</text>
+
+    <text class="ts" x="465" y="138" fill="#0C447C">去哪</text>
+    <text class="mono" x="465" y="156">Portal 界面</text>
+    <text class="mono" x="465" y="171">系统管理</text>
+    <text class="mono" x="465" y="186">  AI 技能管理</text>
+    <text class="ts" x="465" y="214" fill="#0C447C">做什么</text>
+    <text class="tc" x="465" y="232">创建/编辑/删除技能</text>
+    <text class="tc" x="465" y="250">启用/停用</text>
+    <text class="tc" x="465" y="268">查看执行记录</text>
+    <text class="tc" x="465" y="286">手动触发执行</text>
+  </g>
+
+  <g>
+    <rect x="40" y="310" width="190" height="130" rx="12" fill="#FAEEDA" stroke="#EF9F27" stroke-width="0.5"/>
+    <rect x="40" y="310" width="190" height="36" rx="12" fill="#EF9F27"/>
+    <text class="th" x="135" y="333" text-anchor="middle" fill="#fff">配置飞书推送</text>
+    <text class="ts" x="55" y="368" fill="#633806">去哪</text>
+    <text class="mono" x="55" y="386">Portal 界面</text>
+    <text class="mono" x="55" y="401">自动通知</text>
+    <text class="mono" x="55" y="416">  规则配置</text>
+    <text class="tc" x="55" y="435">复用已有自动通知模块</text>
+  </g>
+
+  <g>
+    <rect x="245" y="310" width="190" height="130" rx="12" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.5"/>
+    <rect x="245" y="310" width="190" height="36" rx="12" fill="#5F5E5A"/>
+    <text class="th" x="340" y="333" text-anchor="middle" fill="#fff">改前端界面</text>
+    <text class="ts" x="260" y="368" fill="#444441">去哪</text>
+    <text class="mono" x="260" y="386">frontend/src/views/</text>
+    <text class="mono" x="260" y="401">  system/</text>
+    <text class="mono" x="260" y="416">    AiSkillManagement.vue</text>
+    <text class="tc" x="260" y="435">改技能管理页面</text>
+  </g>
+
+  <g>
+    <rect x="450" y="310" width="190" height="130" rx="12" fill="#FBEAF0" stroke="#D4537E" stroke-width="0.5"/>
+    <rect x="450" y="310" width="190" height="36" rx="12" fill="#D4537E"/>
+    <text class="th" x="545" y="333" text-anchor="middle" fill="#fff">存档/调用技能</text>
+    <text class="ts" x="465" y="368" fill="#72243E">去哪</text>
+    <text class="mono" x="465" y="386">AI 助手抽屉</text>
+    <text class="mono" x="465" y="401">  技能库 Tab</text>
+    <text class="tc" x="465" y="420">点击卡片直接调用</text>
+    <text class="tc" x="465" y="435">对话结果可存为技能</text>
+  </g>
+</svg>

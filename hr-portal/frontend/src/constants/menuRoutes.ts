@@ -30,4 +30,6 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   'table_tools': '/tools/table-merge',
   // 自动通知（原自动化规则）
   'automation.rules': '/automation/rules',
+  // 数据对比
+  'system.data_compare': '/system/data-compare',
 }

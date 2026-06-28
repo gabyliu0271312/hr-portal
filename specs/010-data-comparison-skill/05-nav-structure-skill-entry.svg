@@ -1,0 +1,97 @@
+<svg viewBox="0 0 680 560" width="100%" role="img">
+  <title>现有导航结构与Skill入口位置</title>
+  <desc>展示HR Portal现有侧边栏菜单结构，标注新增的AI技能管理入口位置</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke"
+        stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <style>
+    .th{font-family:system-ui;font-size:14px;font-weight:500;fill:#2C2C2A}
+    .ts{font-family:system-ui;font-size:12px;fill:#5F5E5A}
+    .tc{font-family:system-ui;font-size:11px;fill:#888780}
+    .mono{font-family:monospace;font-size:10px;fill:#444441}
+    .new{fill:#E1F5EE;stroke:#1D9E75;stroke-width:1}
+    .exist{fill:#F1EFE8;stroke:#B4B2A9;stroke-width:0.5}
+  </style>
+
+  <text class="th" x="40" y="30" font-size="15">现有导航结构与 Skill 入口位置</text>
+  <text class="ts" x="40" y="50">侧边栏菜单 — 绿色标注为新增项</text>
+
+  <g>
+    <rect x="40" y="75" width="280" height="465" rx="8" fill="#fff" stroke="#B4B2A9" stroke-width="0.5"/>
+    <rect x="40" y="75" width="280" height="32" rx="8" fill="#5F5E5A"/>
+    <text class="th" x="180" y="96" text-anchor="middle" fill="#fff">侧边栏菜单</text>
+
+    <rect x="55" y="120" width="250" height="32" rx="6" class="exist"/>
+    <text class="ts" x="70" y="140">数据管理</text>
+
+    <rect x="55" y="158" width="250" height="32" rx="6" class="exist"/>
+    <text class="ts" x="85" y="178">实时花名册</text>
+
+    <rect x="55" y="196" width="250" height="32" rx="6" class="exist"/>
+    <text class="ts" x="85" y="216">月度花名册</text>
+
+    <rect x="55" y="234" width="250" height="32" rx="6" class="exist"/>
+    <text class="ts" x="85" y="254">月度工资</text>
+
+    <rect x="55" y="272" width="250" height="32" rx="6" class="exist"/>
+    <text class="ts" x="85" y="292">成本管理</text>
+
+    <rect x="55" y="314" width="250" height="32" rx="6" class="exist"/>
+    <text class="ts" x="70" y="334">报表中心</text>
+
+    <rect x="55" y="352" width="250" height="32" rx="6" class="exist"/>
+    <text class="ts" x="70" y="372">自动通知</text>
+
+    <rect x="55" y="394" width="250" height="32" rx="6" class="exist"/>
+    <text class="ts" x="70" y="414">HR调整助手</text>
+
+    <rect x="55" y="436" width="250" height="32" rx="6" class="exist"/>
+    <text class="ts" x="70" y="456">系统管理</text>
+
+    <rect x="75" y="448" width="230" height="28" rx="5" class="exist"/>
+    <text class="tc" x="90" y="466">用户与权限</text>
+
+    <rect x="75" y="480" width="230" height="28" rx="5" class="exist"/>
+    <text class="tc" x="90" y="498">AI 基础配置</text>
+
+    <rect x="75" y="514" width="230" height="28" rx="5" class="new"/>
+    <text class="th" x="90" y="532" fill="#085041">AI 技能管理（新增）</text>
+  </g>
+
+  <g>
+    <line x1="335" y1="528" x2="380" y2="528" stroke="#1D9E75" stroke-width="1" marker-end="url(#arrow)"/>
+
+    <rect x="390" y="85" width="250" height="170" rx="10" fill="#E1F5EE" stroke="#1D9E75" stroke-width="0.5"/>
+    <text class="th" x="515" y="110" text-anchor="middle" fill="#085041">入口1：系统管理</text>
+    <text class="th" x="515" y="128" text-anchor="middle" fill="#085041">AI 技能管理</text>
+    <text class="ts" x="515" y="155" text-anchor="middle">技能列表页</text>
+    <text class="tc" x="410" y="180">查看所有存档技能</text>
+    <text class="tc" x="410" y="198">编辑指令</text>
+    <text class="tc" x="410" y="216">删除 / 启用 / 停用</text>
+    <text class="tc" x="410" y="234">手动调用</text>
+    <text class="mono" x="410" y="255">/system/ai-skills</text>
+  </g>
+
+  <g>
+    <rect x="390" y="275" width="250" height="130" rx="10" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+    <text class="th" x="515" y="300" text-anchor="middle" fill="#3C3489">入口2：AI 助手</text>
+    <text class="th" x="515" y="318" text-anchor="middle" fill="#3C3489">技能库 Tab</text>
+    <text class="tc" x="410" y="345">对话 | 技能库 切换</text>
+    <text class="tc" x="410" y="363">点击卡片直接执行</text>
+    <text class="tc" x="410" y="381">不用重新打字</text>
+    <text class="mono" x="410" y="400">GlobalAiAssistant.vue</text>
+  </g>
+
+  <g>
+    <rect x="390" y="425" width="250" height="115" rx="10" fill="#FAEEDA" stroke="#EF9F27" stroke-width="0.5"/>
+    <text class="th" x="515" y="450" text-anchor="middle" fill="#633806">入口3：对话结果</text>
+    <text class="th" x="515" y="468" text-anchor="middle" fill="#633806">存为技能按钮</text>
+    <text class="tc" x="410" y="495">调试满意后一键存档</text>
+    <text class="tc" x="410" y="513">保存中文指令 + 参数</text>
+    <text class="tc" x="410" y="531">下次直接调用</text>
+  </g>
+</svg>

@@ -1,0 +1,92 @@
+<svg viewBox="0 0 680 620" width="100%" role="img">
+  <title>数据对比Skill交互流程</title>
+  <desc>展示用户从输入对比问题到获得结果的完整交互流程，包括AI理解、元数据读取、SQL生成、安全执行、结果返回等环节</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke"
+        stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <style>
+    .th{font-family:system-ui;font-size:14px;font-weight:500;fill:#2C2C2A}
+    .ts{font-family:system-ui;font-size:12px;fill:#5F5E5A}
+    .tc{font-family:system-ui;font-size:11px;fill:#888780}
+    .mono{font-family:monospace;font-size:10px;fill:#444441}
+  </style>
+
+  <text class="th" x="40" y="30" font-size="15">数据对比 Skill 完整交互流程</text>
+
+  <g>
+    <rect x="180" y="55" width="320" height="44" rx="8" fill="#E6F1FB" stroke="#378ADD" stroke-width="0.5"/>
+    <text class="th" x="340" y="82" text-anchor="middle" fill="#0C447C">用户在 AI 助手中输入</text>
+  </g>
+  <line x1="340" y1="99" x2="340" y2="115" stroke="#888780" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="140" y="120" width="400" height="44" rx="8" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.5"/>
+    <text class="ts" x="340" y="147" text-anchor="middle" fill="#444441">"对比6月月度花名册和实时花名册的名单一致性"</text>
+  </g>
+  <line x1="340" y1="164" x2="340" y2="180" stroke="#888780" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="180" y="185" width="320" height="50" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+    <text class="th" x="340" y="206" text-anchor="middle" fill="#3C3489">AI Orchestrator 理解意图</text>
+    <text class="ts" x="340" y="224" text-anchor="middle">匹配 data.compare 能力</text>
+  </g>
+  <line x1="340" y1="235" x2="340" y2="251" stroke="#888780" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="180" y="256" width="320" height="50" rx="8" fill="#E1F5EE" stroke="#1D9E75" stroke-width="0.5"/>
+    <text class="th" x="340" y="277" text-anchor="middle" fill="#085041">MetadataLoader 读取元数据</text>
+    <text class="ts" x="340" y="295" text-anchor="middle">查 table_columns + registered_tables</text>
+  </g>
+  <line x1="340" y1="306" x2="340" y2="322" stroke="#888780" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="180" y="327" width="320" height="50" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+    <text class="th" x="340" y="348" text-anchor="middle" fill="#3C3489">QueryGenerator 生成对比SQL</text>
+    <text class="ts" x="340" y="366" text-anchor="middle">LLM 根据表结构生成 FULL OUTER JOIN</text>
+  </g>
+  <line x1="340" y1="377" x2="340" y2="393" stroke="#888780" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="100" y="398" width="480" height="56" rx="8" fill="#FAEEDA" stroke="#EF9F27" stroke-width="0.5"/>
+    <text class="th" x="340" y="420" text-anchor="middle" fill="#633806">QueryExecutor 安全执行</text>
+    <text class="tc" x="140" y="442">SQL 白名单校验</text>
+    <text class="tc" x="300" y="442">scope 行级过滤</text>
+    <text class="tc" x="440" y="442">敏感字段脱敏</text>
+  </g>
+  <line x1="340" y1="454" x2="340" y2="470" stroke="#888780" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="180" y="475" width="320" height="50" rx="8" fill="#E1F5EE" stroke="#1D9E75" stroke-width="0.5"/>
+    <text class="th" x="340" y="496" text-anchor="middle" fill="#085041">ResultFormatter 格式化差异</text>
+    <text class="ts" x="340" y="514" text-anchor="middle">差异高亮 + 摘要统计</text>
+  </g>
+  <line x1="340" y1="525" x2="340" y2="541" stroke="#888780" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="120" y="546" width="440" height="60" rx="8" fill="#E6F1FB" stroke="#378ADD" stroke-width="0.5"/>
+    <text class="th" x="340" y="570" text-anchor="middle" fill="#0C447C">对比结果卡片（AI 助手中渲染）</text>
+    <text class="tc" x="160" y="590">仅花名册 3 人</text>
+    <text class="tc" x="300" y="590">仅工资表 1 人</text>
+    <text class="tc" x="440" y="590">差异合计 4 人</text>
+  </g>
+
+  <line x1="560" y1="200" x2="560" y2="200" stroke="none"/>
+
+  <g>
+    <rect x="510" y="256" width="130" height="50" rx="6" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.5"/>
+    <text class="tc" x="575" y="277" text-anchor="middle">table_columns</text>
+    <text class="tc" x="575" y="294" text-anchor="middle">动态列元数据</text>
+    <line x1="510" y1="281" x2="500" y2="281" stroke="#B4B2A9" stroke-width="0.5" marker-end="url(#arrow)"/>
+  </g>
+
+  <g>
+    <rect x="40" y="398" width="60" height="56" rx="6" fill="#FBEAF0" stroke="#D4537E" stroke-width="0.5"/>
+    <text class="tc" x="70" y="422" text-anchor="middle" fill="#72243E">安全</text>
+    <text class="tc" x="70" y="440" text-anchor="middle" fill="#72243E">四层</text>
+    <line x1="100" y1="426" x2="100" y2="426" stroke="none"/>
+  </g>
+</svg>

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from sqlalchemy import String, and_, false, inspect, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql import ColumnElement, cast
 
 from app.data.models import CostCenterNode, DATA_TABLES, OrgNode, TableColumn
@@ -321,7 +322,12 @@ async def _build_tag_clause_with_passthrough(
     """先用本表能解析的维度；缺的维度通过花名册子查询补齐。"""
     direct_parts: list[ColumnElement] = []
     roster_parts: list[ColumnElement] = []
-    roster_model = DATA_TABLES.get(ROSTER_TABLE)
+    # Explicitly alias roster model in subquery to avoid anonymous aliases
+    # in compiled SQL (e.g. "scope_roster"."employee_no" instead of auto-generated).
+    raw_roster_model = DATA_TABLES.get(ROSTER_TABLE)
+    if raw_roster_model is None:
+        return false()
+    roster_model = aliased(raw_roster_model, name="scope_roster")
 
     org_part = await _build_org_clause(tag, sels, Model, role_cols, db)
     if org_part is not None:
@@ -357,6 +363,7 @@ async def _build_scope_filter_for_model(
     Model,
     db: AsyncSession,
     strategy: str | None = DEFAULT_SCOPE_STRATEGY,
+    table_alias: str | None = None,
 ) -> ColumnElement:
     """返回拼到查询的 where 表达式
 
@@ -372,11 +379,23 @@ async def _build_scope_filter_for_model(
     G3 穿透：本表无自有 scope_role 列、但声明了 roster_join_col 时，
     人员/组织维度经实时花名册子查询解析：
         本表.<join_col> IN (SELECT 花名册.employee_no FROM 花名册 WHERE <标签子句>)
+
+    table_alias: 当传入时，使用 SQLAlchemy aliased() 生成带别名的列表达式。
+    编译后的 SQL 中列引用会带上别名前缀（如 "t_a"."col"），避免在 data_compare
+    engine 的 aliased subquery 中出现 "invalid reference to FROM-clause entry"。
     """
     strategy = normalize_scope_strategy(strategy)
 
     if await _is_super_admin(user, db):
         return true()
+
+    # When called from data_compare with a table alias, use aliased() so that
+    # _entity_text() generates alias-prefixed column references (e.g.
+    # "t_a"."cost_center_code" instead of bare table.cost_center_code).
+    # This avoids fragile regex post-processing in executor.py.
+    EffectiveModel = Model
+    if table_alias:
+        EffectiveModel = aliased(Model, name=table_alias)
 
     role_cols = await _get_role_columns(table, db)
     roster_join_col = None
@@ -405,7 +424,7 @@ async def _build_scope_filter_for_model(
                 tag,
                 sels,
                 filters,
-                Model,
+                EffectiveModel,
                 role_cols,
                 db,
                 roster_join_col=roster_join_col,
@@ -427,8 +446,13 @@ async def build_scope_filter(
     table: str,
     db: AsyncSession,
     strategy: str | None = DEFAULT_SCOPE_STRATEGY,
+    table_alias: str | None = None,
 ) -> ColumnElement:
-    """返回拼到查询的 where 表达式。"""
+    """返回拼到查询的 where 表达式。
+
+    table_alias: 指定表别名（如 "t_a"、"v"），编译后列引用会带别名前缀。
+    用于 data_compare engine 的 aliased subquery 场景。不传则保留默认行为。
+    """
     if table not in DATA_TABLES:
         return false()
     return await _build_scope_filter_for_model(
@@ -437,6 +461,7 @@ async def build_scope_filter(
         DATA_TABLES[table],
         db,
         strategy=strategy,
+        table_alias=table_alias,
     )
 
 

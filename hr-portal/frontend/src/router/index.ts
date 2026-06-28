@@ -97,6 +97,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '操作日志', menuCode: 'system.logs.operation' },
       },
       {
+        path: 'system/data-compare',
+        name: 'DataCompareTaskList',
+        component: () => import('@/views/system/DataCompareTaskList.vue'),
+        meta: { label: '数据对比', menuCode: 'system.data_compare' },
+      },
+      {
         path: 'datasource/endpoints',
         name: 'DatasourceEndpoints',
         component: () => import('@/views/datasource/Endpoints.vue'),

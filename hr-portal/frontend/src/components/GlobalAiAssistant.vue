@@ -5,9 +5,10 @@ import { ElMessage } from 'element-plus'
 import { MagicStick, Position } from '@element-plus/icons-vue'
 import { aiApi, type AiAction, type AiChatMessage } from '@/api/ai'
 import type { CompensationResult, EmployeeCandidate } from '@/api/tools'
-import type { AutomationRuleArtifact } from '@/api/ai'
+import type { CompareResult } from '@/api/data-compare'
 import DocumentActionPreview from '@/components/document/DocumentActionPreview.vue'
 import AutomationRuleArtifactPreview from '@/components/automation/AutomationRuleArtifactPreview.vue'
+import CompareResultCard from '@/components/ai/CompareResultCard.vue'
 
 interface ChatMessage {
   id: number
@@ -17,7 +18,7 @@ interface ChatMessage {
   candidates?: EmployeeCandidate[]
   actions?: AiAction[]
   compensation?: CompensationResult | null
-  artifact?: AutomationRuleArtifact | null
+  artifact?: Record<string, any> | null
 }
 
 const route = useRoute()
@@ -219,6 +220,10 @@ function handleKeydown(event: KeyboardEvent) {
               :artifact="item.artifact"
               @saved="handleArtifactSaved(item)"
               @dismissed="handleArtifactDismissed(item)"
+            />
+            <CompareResultCard
+              v-if="item.artifact?.compare_type"
+              :result="(item.artifact as CompareResult)"
             />
           </div>
         </div>

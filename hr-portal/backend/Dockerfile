@@ -18,7 +18,10 @@ RUN { [ -f /etc/apt/sources.list ] && sed -i 's@deb.debian.org@mirrors.tuna.tsin
 
 COPY pyproject.toml ./
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
-    && pip install --upgrade pip && pip install -e .
+    && pip install --upgrade pip && pip install -e ".[dev]"
+
+# Install test dependencies (kept in image for regression testing)
+RUN pip install pytest pytest-asyncio
 
 COPY . .
 

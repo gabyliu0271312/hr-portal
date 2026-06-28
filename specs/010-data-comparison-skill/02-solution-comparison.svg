@@ -1,0 +1,102 @@
+<svg viewBox="0 0 680 520" width="100%" role="img">
+  <title>三种方案对比评估</title>
+  <desc>对比方案A传统程序、方案B对话式Skill、方案C Skill+自动化的优劣</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke"
+        stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <style>
+    .th{font-family:system-ui;font-size:14px;font-weight:500;fill:#2C2C2A}
+    .ts{font-family:system-ui;font-size:12px;fill:#5F5E5A}
+    .tc{font-family:system-ui;font-size:11px;fill:#888780}
+    .mono{font-family:monospace;font-size:10px;fill:#444441}
+  </style>
+
+  <text class="th" x="40" y="30" font-size="15">三种方案对比评估</text>
+
+  <g>
+    <rect x="40" y="60" width="185" height="440" rx="12" fill="#FCEBEB" stroke="#E24B4A" stroke-width="0.5"/>
+    <rect x="40" y="60" width="185" height="40" rx="12" fill="#E24B4A"/>
+    <text class="th" x="132" y="85" text-anchor="middle" fill="#fff">方案A 传统程序</text>
+
+    <text class="ts" x="55" y="125" fill="#791F1F">优点</text>
+    <text class="tc" x="55" y="145">性能确定</text>
+    <text class="tc" x="55" y="163">逻辑明确</text>
+
+    <text class="ts" x="55" y="195" fill="#791F1F">缺点</text>
+    <text class="tc" x="55" y="215">表结构变化需改代码</text>
+    <text class="tc" x="55" y="233">对比维度固定</text>
+    <text class="tc" x="55" y="251">过滤条件硬编码</text>
+    <text class="tc" x="55" y="269">结果格式单一</text>
+    <text class="tc" x="55" y="287">临时查询另写代码</text>
+
+    <text class="ts" x="55" y="325" fill="#791F1F">适合</text>
+    <text class="tc" x="55" y="345">固定不变的</text>
+    <text class="tc" x="55" y="363">高频标准流程</text>
+
+    <rect x="55" y="400" width="155" height="40" rx="6" fill="#fff" stroke="#E24B4A" stroke-width="0.5"/>
+    <text class="tc" x="132" y="418" text-anchor="middle">灵活度</text>
+    <text class="th" x="132" y="435" text-anchor="middle" fill="#791F1F">低</text>
+    <rect x="65" y="445" width="135" height="6" rx="3" fill="#F1EFE8"/>
+    <rect x="65" y="445" width="34" height="6" rx="3" fill="#E24B4A"/>
+  </g>
+
+  <g>
+    <rect x="248" y="60" width="185" height="440" rx="12" fill="#E1F5EE" stroke="#1D9E75" stroke-width="0.5"/>
+    <rect x="248" y="60" width="185" height="40" rx="12" fill="#1D9E75"/>
+    <text class="th" x="340" y="85" text-anchor="middle" fill="#fff">方案B 对话式 Skill</text>
+
+    <text class="ts" x="263" y="125" fill="#085041">优点</text>
+    <text class="tc" x="263" y="145">表结构动态理解</text>
+    <text class="tc" x="263" y="163">对比维度灵活</text>
+    <text class="tc" x="263" y="181">自然语言加条件</text>
+    <text class="tc" x="263" y="199">结果格式随需</text>
+    <text class="tc" x="263" y="217">临时查询即问即答</text>
+
+    <text class="ts" x="263" y="255" fill="#085041">缺点</text>
+    <text class="tc" x="263" y="275">需手动触发</text>
+    <text class="tc" x="263" y="293">无法定期自动跑</text>
+
+    <text class="ts" x="263" y="325" fill="#085041">适合</text>
+    <text class="tc" x="263" y="345">临时探索性查询</text>
+    <text class="tc" x="263" y="363">表结构频繁变化</text>
+
+    <rect x="263" y="400" width="155" height="40" rx="6" fill="#fff" stroke="#1D9E75" stroke-width="0.5"/>
+    <text class="tc" x="340" y="418" text-anchor="middle">灵活度</text>
+    <text class="th" x="340" y="435" text-anchor="middle" fill="#085041">高</text>
+    <rect x="273" y="445" width="135" height="6" rx="3" fill="#F1EFE8"/>
+    <rect x="273" y="445" width="115" height="6" rx="3" fill="#1D9E75"/>
+  </g>
+
+  <g>
+    <rect x="456" y="60" width="185" height="440" rx="12" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+    <rect x="456" y="60" width="185" height="40" rx="12" fill="#534AB7"/>
+    <text class="th" x="548" y="85" text-anchor="middle" fill="#fff">方案C Skill+自动化</text>
+
+    <text class="ts" x="471" y="125" fill="#3C3489">优点</text>
+    <text class="tc" x="471" y="145">继承方案B全部优势</text>
+    <text class="tc" x="471" y="163">定时自动执行</text>
+    <text class="tc" x="471" y="181">飞书推送结果</text>
+    <text class="tc" x="471" y="199">执行记录可审计</text>
+    <text class="tc" x="471" y="217">复用已有基础设施</text>
+
+    <text class="ts" x="471" y="255" fill="#3C3489">缺点</text>
+    <text class="tc" x="471" y="275">开发量略大</text>
+    <text class="tc" x="471" y="293">需分两阶段</text>
+
+    <text class="ts" x="471" y="325" fill="#3C3489">适合</text>
+    <text class="tc" x="471" y="345">定期+临时并存</text>
+    <text class="tc" x="471" y="363">长期运营场景</text>
+
+    <rect x="471" y="400" width="155" height="40" rx="6" fill="#fff" stroke="#534AB7" stroke-width="0.5"/>
+    <text class="tc" x="548" y="418" text-anchor="middle">灵活度</text>
+    <text class="th" x="548" y="435" text-anchor="middle" fill="#3C3489">最高</text>
+    <rect x="481" y="445" width="135" height="6" rx="3" fill="#F1EFE8"/>
+    <rect x="481" y="445" width="130" height="6" rx="3" fill="#534AB7"/>
+  </g>
+
+  <text class="ts" x="340" y="490" text-anchor="middle" fill="#534AB7" font-weight="500">推荐：方案C（先B后C，分阶段交付）</text>
+</svg>

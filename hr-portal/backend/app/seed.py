@@ -68,7 +68,7 @@ MENU_TREE: list[dict] = [
                     {"code": "system.document_templates", "label": "模板维护", "icon": "Document"},
                     {"code": "system.ai_config", "label": "AI 基础配置", "icon": "Cpu"},
                     {"code": "system.function_library", "label": "函数库管理", "icon": "Collection"},
-                    {"code": "system.feishu_notification_config", "label": "飞书通知配置", "icon": "ChatDotSquare"},
+                    {"code": "system.data_compare", "label": "数据对比", "icon": "DataAnalysis"},
                 ],
             },
             # 二级 1.4：日志管理

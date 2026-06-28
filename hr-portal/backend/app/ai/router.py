@@ -31,6 +31,10 @@ from app.ai_formula.router import FormulaDraftIn, FormulaDraftOut, FormulaValida
 from app.ai_formula.router import draft_formula_impl, validate_formula_impl
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
+from app.data_compare.chat_handler import extract_compare_spec, run_data_compare
+from app.data_compare.metadata import MetadataLoader
+from app.data_compare.schemas import CompareSpec
+from app.data_compare.validator import validate_compare_spec, SchemaValidationError
 from app.core.secret_box import decrypt, encrypt
 from app.datasets.calculated_fields import CalculatedFieldIn, CalculatedFieldOut
 from app.datasets.calculated_fields import create_calculated_field as create_calculated_field_impl
@@ -1553,6 +1557,113 @@ async def _handle_automation_rule_chat(
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# 能力：跨表数据对比（data.compare）
+# LLM extractor：解析自然语言 → CompareSpec JSON（不生成 SQL）
+# handler：CompareSpec → 校验 → 编译模板 → 执行 → 格式化结果
+# ──────────────────────────────────────────────────────────────────────────
+
+async def _extract_data_compare_request(
+    payload: AiChatIn,
+    session: ChatSession,
+    db: AsyncSession,
+    timer: AiAuditTimer,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
+    """LLM extractor：从自然语言提取 CompareSpec JSON。"""
+    config = await active_ai_config(db)
+    model = (config.model_reasoning or config.model_fast_json or "").strip()
+    if not model or not config.api_key_encrypted:
+        return None, None, "no_model"
+
+    loader = MetadataLoader(db)
+
+    # 构建 LLM 调用函数
+    async def model_call(prompt: str) -> str:
+        messages = [{"role": "user", "content": prompt}]
+        timer.add_event("model_call", capability_id="data.compare", purpose="extract_compare_spec", model=model)
+        try:
+            _, content, usage = await chat_completion_openai_compatible(
+                api_key=decrypt(config.api_key_encrypted),
+                base_url=config.base_url,
+                model=model,
+                messages=messages,
+                timeout=int(config.timeout_seconds or 60),
+                response_format={"type": "json_object"},
+            )
+            timer.add_event("model_call", status="success", purpose="extract_compare_spec", usage=usage)
+            return content
+        except Exception as exc:
+            timer.add_event("model_call", status="error", purpose="extract_compare_spec", reason=str(exc)[:300])
+            raise
+
+    try:
+        spec = await extract_compare_spec(payload.message, loader, model_call)
+    except ValueError as e:
+        return None, None, "error"
+    except Exception:
+        return None, None, "error"
+
+    # 返回 extracted（供 handler 使用）
+    return spec.model_dump(), None, "llm_extract"
+
+
+async def _handle_data_compare_chat(
+    payload: AiChatIn,
+    extracted: dict[str, Any],
+    session: ChatSession,
+    user: User,
+    db: AsyncSession,
+    timer: AiAuditTimer,
+) -> AiChatOut:
+    """Handler：执行对比并返回结果。"""
+    capability = _ensure_capability("data.compare")
+    validate_capability_policy(capability, used_tools=[])
+
+    try:
+        spec = CompareSpec.model_validate(extracted)
+    except Exception as e:
+        return AiChatOut(
+            intent="data.compare",
+            status="error",
+            answer=f"无法解析对比参数: {e}",
+            trace_id=timer.trace_id,
+        )
+
+    try:
+        result = await run_data_compare(spec, user, db)
+    except SchemaValidationError as e:
+        return AiChatOut(
+            intent="data.compare",
+            status="error",
+            answer=f"参数校验失败: {'; '.join(e.errors)}",
+            trace_id=timer.trace_id,
+        )
+    except ValueError as e:
+        return AiChatOut(
+            intent="data.compare",
+            status="error",
+            answer=str(e),
+            trace_id=timer.trace_id,
+        )
+
+    timer.add_event("capability", capability_id="data.compare", compare_type=result.get("compare_type"))
+
+    # 格式化自然语言回答
+    answer = result.get("conclusion", "")
+    if result.get("summary", {}).get("diff_count", 0) > 0:
+        answer += f"\n\n详细差异数据已展现在结果卡片中。"
+
+    session.clear_active()
+
+    return AiChatOut(
+        intent="data.compare",
+        status="ok",
+        answer=answer,
+        trace_id=timer.trace_id,
+        artifact=result,  # 前端通过 artifact 渲染 CompareResultCard
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # 全局 AI chat 通用路由（LLM-first 底层组件）。
 # 规则（所有 chat 能力统一遵循,新增能力只追加 ChatRoute,不改本段）:
 #   1. 路由完全由大模型意图分类决定,不用关键词匹配。
@@ -1593,6 +1704,17 @@ CHAT_ROUTES: tuple[ChatRoute, ...] = (
         ),
         extractor=_extract_automation_rule_request,
         handler=_handle_automation_rule_chat,
+    ),
+    ChatRoute(
+        intent="data.compare",
+        capability_id="data.compare",
+        description=(
+            "跨表数据对账：对比两张HR数据表（月报/花名册/工资/个税等）的名单、字段值或金额汇总是否一致。"
+            "支持名单对比（FULL OUTER JOIN）、字段对比（INNER JOIN+WHERE）、金额对比（GROUP BY+FULL OUTER JOIN）。"
+            "可指定月份、员工范围、对比字段、汇总维度、容差。"
+        ),
+        extractor=_extract_data_compare_request,
+        handler=_handle_data_compare_chat,
     ),
 )
 

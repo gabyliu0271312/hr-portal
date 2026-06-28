@@ -35,7 +35,7 @@ export interface AiChatResult {
   compensation?: CompensationResult | null
   missing_fields: string[]
   extracted: Record<string, any>
-  artifact?: AutomationRuleArtifact | null
+  artifact?: AutomationRuleArtifact | Record<string, any> | null
 }
 
 export interface AutomationRuleArtifact {
