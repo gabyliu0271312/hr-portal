@@ -97,7 +97,7 @@ class DistinctValueOut(BaseModel):
 
 
 _ROSTER_TABLE = "emp_realtime_roster"
-_STATUS_COL = "employee_status"
+_STATUS_COL = "active_status"
 
 
 def _roster_model():
