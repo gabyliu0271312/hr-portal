@@ -317,16 +317,18 @@ async def handle_card_action(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-    # 安全校验
-    _verify_feishu_callback(request, body)
-
-    # URL 验证（首次配置飞书回调时）
+    # URL 验证必须在签名校验之前处理（飞书不带签名 header）
     if body.get("type") == "url_verification":
-        challenge = body.get("challenge", "")
         token = body.get("token", "")
-        # 生产环境应校验 token
-        logger.info("[feishu] URL 验证 token=%s", token)
-        return {"challenge": challenge}
+        expected = _settings().FEISHU_VERIFICATION_TOKEN
+        if expected and token != expected:
+            logger.warning("[feishu] URL 验证 token 不匹配")
+            raise HTTPException(status_code=403, detail="verification token mismatch")
+        logger.info("[feishu] URL 验证成功 token=%s", token)
+        return {"challenge": body.get("challenge", "")}
+
+    # 安全校验（仅对非 URL 验证请求）
+    _verify_feishu_callback(request, body)
 
     # 卡片按钮点击事件
     if body.get("type") != "card.action.trigger":
