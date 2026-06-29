@@ -18,6 +18,8 @@ const props = defineProps<{
   roundingGroupBy: string[]
   sorts?: SortCond[]
   lookupEnabled?: boolean
+  pushEnabled?: boolean
+  pushTargetCount?: number
   isDataset?: boolean
   loading?: boolean
   canCreateField?: boolean
@@ -71,9 +73,10 @@ const numericAllCols = computed(() =>
   props.allColumns.filter((item) => item.agg_role === 'measure' || item.data_type === 'number')
 )
 const draggingCode = ref('')
+type AdvancedTab = 'rules' | 'reshape' | 'lookup' | 'push'
 const collapsedSourceKeys = ref<Set<string>>(new Set())
 const advancedOpen = ref(false)
-const advancedTab = ref<'rules' | 'reshape' | 'lookup'>('rules')
+const advancedTab = ref<AdvancedTab>('rules')
 const metricFilterOpen = ref(false)
 const metricFilterCol = ref<ColumnInfo | null>(null)
 const metricFilterDraft = ref<FilterCond[]>([])
@@ -92,7 +95,11 @@ const advancedMeta = computed(() => {
       title: '名单回查',
       desc: '先从字段值或筛选结果生成名单，再用集合运算回查完整记录。',
     },
-  }
+    push: {
+      title: '推送目标',
+      desc: '为当前报表配置一个或多个对外推送目标，保存后可在报表列表手动推送。',
+    },
+  } as Record<AdvancedTab, { title: string; desc: string }>
   return map[advancedTab.value]
 })
 
@@ -393,7 +400,7 @@ function clearFieldSort(code: string) {
   emit('update:sorts', (props.sorts || []).filter((item) => item.column !== code))
 }
 
-function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
+function openAdvanced(tab: AdvancedTab) {
   advancedTab.value = tab
   advancedOpen.value = true
 }
@@ -483,6 +490,16 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
               @click="openAdvanced('lookup')"
             >
               名单回查
+            </el-button>
+            <el-button
+              v-if="$slots.push"
+              size="small"
+              :type="pushEnabled ? 'primary' : 'default'"
+              :plain="!pushEnabled"
+              @click="openAdvanced('push')"
+            >
+              推送目标
+              <span v-if="pushTargetCount" class="menu-command-badge">{{ pushTargetCount }}</span>
             </el-button>
           </span>
         </div>
@@ -886,6 +903,9 @@ function openAdvanced(tab: 'rules' | 'reshape' | 'lookup') {
           </el-tab-pane>
           <el-tab-pane v-if="$slots.lookup" label="名单回查" name="lookup">
             <slot name="lookup" />
+          </el-tab-pane>
+          <el-tab-pane v-if="$slots.push" label="推送目标" name="push">
+            <slot name="push" />
           </el-tab-pane>
         </el-tabs>
       </div>

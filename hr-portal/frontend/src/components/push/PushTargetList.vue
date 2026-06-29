@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, VideoPlay } from '@element-plus/icons-vue'
 import { formatDateTime } from '@/utils/datetime'
@@ -9,7 +9,17 @@ import PushRunHistory from './PushRunHistory.vue'
 import type { PushTargetOut } from '@/api/push_targets'
 import { pushTargetsApi } from '@/api/push_targets'
 
-const props = defineProps<{ sourceTable: string; sourceColumns?: any[] }>()
+const props = withDefaults(defineProps<{
+  sourceTable: string
+  sourceColumns?: any[]
+  compact?: boolean
+  hideHeader?: boolean
+}>(), {
+  compact: false,
+  hideHeader: false,
+})
+
+const emit = defineEmits<{ 'targets-change': [targets: PushTargetOut[]] }>()
 
 const targets = ref<PushTargetOut[]>([])
 const loading = ref(false)
@@ -17,11 +27,15 @@ const running = ref<number | null>(null)
 const historyTarget = ref<PushTargetOut | null>(null)
 const dialogRef = ref<InstanceType<typeof PushTargetDialog> | null>(null)
 const historyRef = ref<InstanceType<typeof PushRunHistory> | null>(null)
+const activeTargets = computed(() => targets.value.filter((item) => item.is_active).length)
+const tableMaxHeight = computed(() => (props.compact ? 300 : 400))
 
 async function load() {
+  if (!props.sourceTable) return
   loading.value = true
   try {
     targets.value = await pushTargetsApi.list(props.sourceTable)
+    emit('targets-change', targets.value)
   } catch {
     ElMessage.error('加载推送目标失败')
   } finally {
@@ -63,21 +77,28 @@ const PUSH_TYPE_LABELS: Record<string, string> = {
   feishu_sheet: '飞书表格',
 }
 
+watch(() => props.sourceTable, () => load())
 onMounted(load)
 </script>
 
 <template>
-  <div>
-    <div style="display: flex; justify-content: flex-end; margin-bottom: 12px">
+  <div class="push-target-list" :class="{ 'is-compact': compact }">
+    <div v-if="!hideHeader" class="push-list-header">
       <PermissionButton menu="system.users" op="C" type="primary" @click="dialogRef?.open()">
         <el-icon style="margin-right: 4px"><Plus /></el-icon>新建推送目标
       </PermissionButton>
     </div>
+    <div v-else class="push-list-toolbar">
+      <span class="push-summary">{{ targets.length }} targets / {{ activeTargets }} active</span>
+      <PermissionButton menu="system.users" op="C" type="primary" plain @click="dialogRef?.open()">
+        <el-icon style="margin-right: 4px"><Plus /></el-icon>????
+      </PermissionButton>
+    </div>
 
-    <el-empty v-if="!loading && !targets.length" description="暂无推送目标" />
+    <el-empty v-if="!loading && !targets.length" :image-size="compact ? 72 : 120" description="暂无推送目标" />
 
-    <div v-loading="loading" style="overflow-x: auto">
-      <el-table v-if="targets.length" :data="targets" stripe style="width: 100%" max-height="400">
+    <div v-loading="loading" class="push-table-wrap">
+      <el-table v-if="targets.length" :data="targets" stripe style="width: 100%" :max-height="tableMaxHeight">
         <el-table-column label="名称" min-width="140" prop="name" />
         <el-table-column label="推送方式" width="120">
           <template #default="{ row }">
@@ -144,3 +165,13 @@ onMounted(load)
     />
   </div>
 </template>
+
+
+<style scoped>
+.push-target-list { display: grid; gap: 12px; }
+.push-list-header, .push-list-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.push-summary { color: var(--color-text-secondary); font-size: 12px; }
+.push-table-wrap { min-width: 0; overflow-x: auto; }
+.is-compact :deep(.el-empty) { padding: 18px 0; }
+@media (max-width: 900px) { .push-list-header, .push-list-toolbar { align-items: flex-start; flex-direction: column; } }
+</style>

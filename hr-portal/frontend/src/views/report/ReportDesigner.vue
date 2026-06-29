@@ -12,6 +12,7 @@ import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import AclEditor from '@/components/AclEditor.vue'
 import PushTargetList from '@/components/push/PushTargetList.vue'
+import type { PushTargetOut } from '@/api/push_targets'
 import { reportsApi, deriveValueRules, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ListLookupConfig, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
@@ -116,6 +117,8 @@ const reportPushColumns = computed(() => selectedColsDetail.value.map((c) => ({
   agg_role: c.agg_role || '',
   is_computed: !!c.is_computed,
 })))
+const reportPushTargets = ref<PushTargetOut[]>([])
+const reportPushEnabled = computed(() => reportPushTargets.value.length > 0)
 
 const transposeRef = ref<InstanceType<typeof ReportTransposeConfig> | null>(null)
 const filterRef = ref<InstanceType<typeof ReportFilterList> | null>(null)
@@ -744,21 +747,6 @@ watch(
         <div class="section-title">访问授权（谁能查看/运行此报表）</div>
         <AclEditor v-model="form.acl" :owner-name="form.name ? null : null" :load-options="reportsApi.aclOptions" />
 
-        <div class="section-title">报表推送配置</div>
-        <el-alert
-          v-if="saveCreatesReport"
-          type="info"
-          :closable="false"
-          show-icon
-          title="保存为你的报表后，可为该报表配置对外推送；从他人报表进入编辑时不会带入原报表推送配置。"
-          style="margin-bottom: 12px"
-        />
-        <PushTargetList
-          v-else-if="reportPushSourceTable"
-          :source-table="reportPushSourceTable"
-          :source-columns="reportPushColumns"
-        />
-
         <div class="section-title section-title-row">
           <span>报表设置（{{ form.selected_codes.length }} 个字段）</span>
           <el-button size="small" type="primary" plain :loading="explaining" @click="explainConfig">
@@ -788,6 +776,8 @@ watch(
               :current-dataset-tables="currentDataset?.tables"
               :loading="loading"
               :lookup-enabled="form.list_lookup.enabled"
+              :push-enabled="reportPushEnabled"
+              :push-target-count="reportPushTargets.length"
               :is-dataset="isDataset"
               :can-create-field="canCreateField"
               @create-field="createField"
@@ -818,6 +808,25 @@ watch(
                   v-model:list-lookup="form.list_lookup"
                   :all-columns="allColumns"
                   :current-dataset-tables="currentDataset?.tables"
+                />
+              </template>
+
+              <template #push>
+                <el-alert
+                  v-if="saveCreatesReport"
+                  type="info"
+                  :closable="false"
+                  show-icon
+                  title="保存为你的报表后，可为该报表配置多个对外推送目标；从他人报表进入编辑时不会带入原报表推送配置。"
+                  style="margin-bottom: 12px"
+                />
+                <PushTargetList
+                  v-else-if="reportPushSourceTable"
+                  :source-table="reportPushSourceTable"
+                  :source-columns="reportPushColumns"
+                  compact
+                  hide-header
+                  @targets-change="reportPushTargets = $event"
                 />
               </template>
             </ReportFieldWorkbench>
