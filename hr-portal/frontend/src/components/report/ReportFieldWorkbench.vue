@@ -793,21 +793,27 @@ function openAdvanced(tab: AdvancedTab) {
 
     <el-drawer
       v-model="advancedOpen"
-      title="高级配置"
+      :with-header="false"
       size="min(1120px, 92vw)"
       append-to-body
-      class="workbench-drawer"
+      class="workbench-drawer advanced-config-drawer"
     >
       <div class="advanced-shell">
-        <section class="advanced-intro">
-          <div>
-            <span>当前配置</span>
-            <strong>{{ advancedMeta.title }}</strong>
-            <p>{{ advancedMeta.desc }}</p>
+        <div class="advanced-topbar">
+          <div class="advanced-tab-buttons">
+            <button class="advanced-tab-btn" :class="{ active: advancedTab === 'rules' }" @click="advancedTab = 'rules'">统计规则</button>
+            <button class="advanced-tab-btn" :class="{ active: advancedTab === 'reshape' }" @click="advancedTab = 'reshape'">数据重塑</button>
+            <button v-if="$slots.lookup" class="advanced-tab-btn" :class="{ active: advancedTab === 'lookup' }" @click="advancedTab = 'lookup'">名单回查</button>
+            <button v-if="$slots.push" class="advanced-tab-btn" :class="{ active: advancedTab === 'push' }" @click="advancedTab = 'push'">推送配置</button>
           </div>
-        </section>
+          <div class="advanced-meta-inline">
+            <strong>{{ advancedMeta.title }}</strong>
+            <span>{{ advancedMeta.desc }}</span>
+          </div>
+          <el-button class="advanced-close" text circle :icon="Close" @click="advancedOpen = false" />
+        </div>
 
-        <el-tabs v-model="advancedTab" class="advanced-tabs">
+        <el-tabs v-model="advancedTab" class="advanced-tabs advanced-tabs-content-only">
           <el-tab-pane label="统计规则" name="rules">
             <div class="rules-panel">
               <div class="rules-banner">
@@ -1103,49 +1109,81 @@ function openAdvanced(tab: AdvancedTab) {
   width: 100%;
   min-height: 0;
 }
-.advanced-intro {
-  padding: 18px 22px 14px;
-  border-bottom: 1px solid var(--color-border-light);
-  background:
-    radial-gradient(circle at 0 0, rgba(20, 86, 240, 0.12), transparent 28%),
-    linear-gradient(135deg, #fff 0%, var(--color-bg-soft) 100%);
-}
-.advanced-intro > div {
+.advanced-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
   display: grid;
-  gap: 4px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 10px 18px 8px 22px;
+  border-bottom: 1px solid var(--color-border-light);
+  background: rgba(247, 249, 252, 0.96);
+  backdrop-filter: blur(10px);
 }
-.advanced-intro span {
+.advanced-tab-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.advanced-tab-btn {
+  position: relative;
+  border: 0;
+  border-radius: 9px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--color-text-regular);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  transition: all 0.18s ease;
+}
+.advanced-tab-btn:hover {
   color: var(--color-primary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  background: rgba(47, 107, 255, 0.08);
 }
-.advanced-intro strong {
-  color: var(--color-text-primary);
-  font-size: 18px;
-  line-height: 1.3;
+.advanced-tab-btn.active {
+  color: var(--color-primary);
+  background: #fff;
+  box-shadow: inset 0 -2px 0 var(--color-primary), 0 1px 4px rgba(15, 23, 42, 0.06);
 }
-.advanced-intro p {
-  max-width: 760px;
-  margin: 0;
+.advanced-meta-inline {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
   color: var(--color-text-secondary);
+}
+.advanced-meta-inline strong {
+  flex: 0 0 auto;
+  color: var(--color-primary);
   font-size: 13px;
-  line-height: 1.7;
+  font-weight: 800;
+}
+.advanced-meta-inline span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.advanced-close {
+  color: var(--color-text-secondary);
 }
 .advanced-tabs {
   display: flex;
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  padding: 0 22px 22px;
+  padding: 16px 22px 22px;
 }
-.advanced-tabs :deep(.el-tabs__header) {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  margin: 0 0 16px;
-  padding-top: 10px;
-  background: var(--color-bg-page);
+.advanced-tabs-content-only :deep(.el-tabs__header) {
+  display: none;
 }
 .advanced-tabs :deep(.el-tabs__content) {
   flex: 1;
@@ -1519,8 +1557,20 @@ function openAdvanced(tab: AdvancedTab) {
   .advanced-tabs {
     padding: 0 14px 16px;
   }
-  .advanced-intro {
-    padding: 16px;
+  .advanced-topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: flex-start;
+    padding: 10px 12px;
+  }
+  .advanced-tab-buttons {
+    flex-wrap: wrap;
+  }
+  .advanced-meta-inline {
+    grid-column: 1 / -1;
+    order: 2;
+  }
+  .advanced-meta-inline span {
+    white-space: normal;
   }
   .rule-grid {
     grid-template-columns: 1fr;
