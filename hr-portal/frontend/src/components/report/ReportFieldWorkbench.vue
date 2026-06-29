@@ -1182,10 +1182,10 @@ function openAdvanced(tab: AdvancedTab) {
   flex-direction: column;
   padding: 16px 22px 22px;
 }
-.advanced-tabs-content-only :deep(.el-tabs__header) {
+.advanced-tabs-content-only > :deep(.el-tabs__header) {
   display: none;
 }
-.advanced-tabs :deep(.el-tabs__content) {
+.advanced-tabs > :deep(.el-tabs__content) {
   flex: 1;
   min-height: 0;
   overflow: auto;
