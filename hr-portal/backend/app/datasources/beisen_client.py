@@ -540,11 +540,15 @@ class FeishuSheetClient:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
                 url,
-                params={"token": token},
+                params={"token": token, "obj_type": "wiki"},
                 headers={"Authorization": f"Bearer {tenant_token}"},
             )
-            resp.raise_for_status()
-            data = resp.json()
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            if resp.status_code >= 400 and not data:
+                resp.raise_for_status()
         if str(data.get("code", "0")) != "0":
             raise RuntimeError(f"飞书 Wiki 节点解析失败 (code={data.get('code')}): {data.get('msg') or data}")
         node = (data.get("data") or {}).get("node") or {}
@@ -574,8 +578,12 @@ class FeishuSheetClient:
         url = f"{self.base_url}/open-apis/sheets/v3/spreadsheets/{spreadsheet_token}/sheets/query"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
-            resp.raise_for_status()
-            data = resp.json()
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            if resp.status_code >= 400 and not data:
+                resp.raise_for_status()
         if str(data.get("code", "0")) != "0":
             raise RuntimeError(f"飞书工作表列表读取失败 (code={data.get('code')}): {data.get('msg') or data}")
         sheets = ((data.get("data") or {}).get("sheets")) or []
@@ -632,8 +640,12 @@ class FeishuSheetClient:
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
-            resp.raise_for_status()
-            data = resp.json()
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            if resp.status_code >= 400 and not data:
+                resp.raise_for_status()
 
         if isinstance(data, dict) and str(data.get("code", "0")) not in ("0",):
             raise RuntimeError(f"飞书表格读取失败 (code={data.get('code')}): {data.get('msg') or data}")
