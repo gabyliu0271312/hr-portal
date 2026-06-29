@@ -15,9 +15,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
+import time
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -353,6 +356,259 @@ async def push_http(
     return total, f"HTTP 推送成功：{total} 行"
 
 
+# ===== feishu_sheet 推送 =====
+
+_feishu_token_cache: dict[str, tuple[str, float]] = {}
+
+
+def _setting_str(source: dict, *keys: str, default: str = "") -> str:
+    for key in keys:
+        value = source.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return default
+
+
+def _setting_int(source: dict, *keys: str, default: int) -> int:
+    raw = _setting_str(source, *keys)
+    try:
+        value = int(raw)
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _setting_bool(source: dict, *keys: str, default: bool = False) -> bool:
+    raw = _setting_str(source, *keys)
+    if not raw:
+        return default
+    return raw.lower() in ("true", "1", "yes", "y", "是")
+
+
+def _col_name(index: int) -> str:
+    if index <= 0:
+        raise RuntimeError("列序号必须大于 0")
+    chars: list[str] = []
+    while index:
+        index, rem = divmod(index - 1, 26)
+        chars.append(chr(65 + rem))
+    return "".join(reversed(chars))
+
+
+def _parse_cell(cell: str) -> tuple[str, int]:
+    m = re.fullmatch(r"\$?([A-Za-z]+)\$?(\d+)", (cell or "").strip())
+    if not m:
+        raise RuntimeError(f"飞书表格起始单元格格式不正确: {cell or '空'}，示例：A1")
+    return m.group(1).upper(), int(m.group(2))
+
+
+def _col_index(col: str) -> int:
+    n = 0
+    for ch in col.upper():
+        n = n * 26 + (ord(ch) - 64)
+    return n
+
+
+def _extract_feishu_wiki_token_and_sheet_id(raw: str) -> tuple[str, str]:
+    raw = (raw or "").strip()
+    if not raw:
+        return "", ""
+    if raw.startswith("http://") or raw.startswith("https://"):
+        parsed = urlparse(raw)
+        parts = [p for p in parsed.path.split("/") if p]
+        token = ""
+        for i, part in enumerate(parts):
+            if part == "wiki" and i + 1 < len(parts):
+                token = parts[i + 1]
+                break
+        qs = parse_qs(parsed.query or "")
+        return token, (qs.get("sheet") or [""])[0]
+    return raw, ""
+
+
+async def _get_feishu_tenant_token(base_url: str, token_url: str, app_id: str, app_secret: str) -> str:
+    import httpx
+
+    if not app_id or not app_secret:
+        raise RuntimeError("飞书推送配置缺失: App ID / App Secret")
+    token_url = token_url or f"{base_url}/open-apis/auth/v3/tenant_access_token/internal"
+    cache_key = f"feishu_push|{token_url}|{app_id}"
+    now = time.time()
+    cached = _feishu_token_cache.get(cache_key)
+    if cached and cached[1] > now + 60:
+        return cached[0]
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            token_url,
+            json={"app_id": app_id, "app_secret": app_secret},
+            headers={"Content-Type": "application/json; charset=utf-8"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    if data.get("code") not in (0, "0", None) and "tenant_access_token" not in data:
+        raise RuntimeError(f"飞书 token 接口返回错误: {data.get('msg') or data}")
+    token = data.get("tenant_access_token")
+    if not token:
+        raise RuntimeError(f"飞书 token 接口返回异常: {data}")
+    _feishu_token_cache[cache_key] = (token, now + int(data.get("expire", 7200)))
+    return token
+
+
+async def _resolve_feishu_spreadsheet_token(base_url: str, tenant_token: str, wiki_token: str) -> str:
+    import httpx
+
+    url = f"{base_url}/open-apis/wiki/v2/spaces/get_node"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            url,
+            params={"token": wiki_token, "obj_type": "wiki"},
+            headers={"Authorization": f"Bearer {tenant_token}"},
+        )
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        if resp.status_code >= 400 and not data:
+            resp.raise_for_status()
+    if str(data.get("code", "0")) != "0":
+        raise RuntimeError(f"飞书 Wiki 节点解析失败 (code={data.get('code')}): {data.get('msg') or data}")
+    node = (data.get("data") or {}).get("node") or {}
+    obj_type = str(node.get("obj_type") or "")
+    obj_token = str(node.get("obj_token") or "")
+    if obj_type not in ("sheet", "sheets", "spreadsheet"):
+        raise RuntimeError(f"该 Wiki 节点不是电子表格，当前类型为: {obj_type or '未知'}")
+    if not obj_token:
+        raise RuntimeError(f"飞书 Wiki 节点未返回电子表格 token: {data}")
+    return obj_token
+
+
+async def _ensure_feishu_sheet_id(base_url: str, tenant_token: str, spreadsheet_token: str, sheet_id: str) -> str:
+    import httpx
+
+    if sheet_id:
+        return sheet_id
+    url = f"{base_url}/open-apis/sheets/v3/spreadsheets/{spreadsheet_token}/sheets/query"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(url, headers={"Authorization": f"Bearer {tenant_token}"})
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        if resp.status_code >= 400 and not data:
+            resp.raise_for_status()
+    if str(data.get("code", "0")) != "0":
+        raise RuntimeError(f"飞书工作表列表读取失败 (code={data.get('code')}): {data.get('msg') or data}")
+    sheets = ((data.get("data") or {}).get("sheets")) or []
+    if not sheets:
+        raise RuntimeError("飞书电子表格未返回任何工作表，请手动填写 Sheet ID")
+    first = sheets[0] or {}
+    resolved = first.get("sheet_id") or first.get("sheetId") or first.get("id")
+    if not resolved:
+        raise RuntimeError(f"无法从工作表列表中识别 Sheet ID: {first}")
+    return str(resolved)
+
+
+async def _put_feishu_values(
+    base_url: str,
+    tenant_token: str,
+    spreadsheet_token: str,
+    write_range: str,
+    values: list[list[Any]],
+) -> None:
+    import httpx
+
+    url = f"{base_url}/open-apis/sheets/v2/spreadsheets/{spreadsheet_token}/values"
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.put(
+            url,
+            json={"valueRange": {"range": write_range, "values": values}},
+            headers={"Authorization": f"Bearer {tenant_token}", "Content-Type": "application/json; charset=utf-8"},
+        )
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        if resp.status_code >= 400 and not data:
+            resp.raise_for_status()
+    if str(data.get("code", "0")) != "0":
+        raise RuntimeError(f"飞书表格写入失败 (code={data.get('code')}): {data.get('msg') or data}")
+
+
+async def push_feishu_sheet(
+    source_table: str,
+    settings: dict,
+    secrets: dict,
+    field_mappings: list[dict],
+    db: AsyncSession,
+) -> tuple[int, str]:
+    """把本地业务表推送/覆盖写入飞书在线表格。"""
+    base_url = _setting_str(settings, "base_url", "FEISHU_BASE_URL", default="https://open.feishu.cn").rstrip("/")
+    token_url = _setting_str(settings, "token_url", "FEISHU_TOKEN_URL")
+    app_id = _setting_str(secrets, "app_id", "FEISHU_APP_ID")
+    app_secret = _setting_str(secrets, "app_secret", "FEISHU_APP_SECRET")
+    spreadsheet_token = _setting_str(settings, "spreadsheet_token", "FEISHU_SPREADSHEET_TOKEN")
+    wiki_url_or_token = _setting_str(settings, "wiki_url_or_token", "FEISHU_WIKI_URL_OR_TOKEN")
+    sheet_id = _setting_str(settings, "sheet_id", "FEISHU_SHEET_ID")
+    start_cell = _setting_str(settings, "start_cell", "FEISHU_START_CELL", default="A1")
+    include_header = _setting_bool(settings, "include_header", "FEISHU_INCLUDE_HEADER", default=True)
+    batch_size = min(_setting_int(settings, "batch_size", "FEISHU_BATCH_SIZE", default=1000), 5000)
+    period_ym = _setting_str(settings, "period_ym")
+
+    if not spreadsheet_token and not wiki_url_or_token:
+        raise RuntimeError("飞书推送配置缺失: Spreadsheet Token 或 Wiki 链接/节点 Token")
+
+    tenant_token = await _get_feishu_tenant_token(base_url, token_url, app_id, app_secret)
+    if not spreadsheet_token:
+        wiki_token, sheet_from_query = _extract_feishu_wiki_token_and_sheet_id(wiki_url_or_token)
+        if sheet_from_query and not sheet_id:
+            sheet_id = sheet_from_query
+        if not wiki_token:
+            raise RuntimeError("Wiki 链接/节点 Token 未识别到有效 token")
+        spreadsheet_token = await _resolve_feishu_spreadsheet_token(base_url, tenant_token, wiki_token)
+    sheet_id = await _ensure_feishu_sheet_id(base_url, tenant_token, spreadsheet_token, sheet_id)
+
+    rows = await _load_source_rows(source_table, db, period_ym)
+    mapped_rows = [json_ready_row(apply_field_mappings(r, field_mappings)) for r in rows]
+
+    if mapped_rows:
+        headers = list(mapped_rows[0].keys())
+        for row in mapped_rows[1:]:
+            for key in row.keys():
+                if key not in headers:
+                    headers.append(key)
+    else:
+        headers = [m.get("target") or m.get("source") for m in field_mappings if m.get("target") or m.get("source")]
+    if not headers:
+        return 0, "源表无可推送字段，飞书推送跳过"
+    if len(headers) > 100:
+        raise RuntimeError(f"飞书单次写入最多支持 100 列，当前 {len(headers)} 列；请通过字段映射减少列数")
+
+    start_col, start_row = _parse_cell(start_cell)
+    start_col_idx = _col_index(start_col)
+    end_col = _col_name(start_col_idx + len(headers) - 1)
+
+    total = 0
+    current_row = start_row
+    if include_header:
+        header_range = f"{sheet_id}!{start_col}{current_row}:{end_col}{current_row}"
+        await _put_feishu_values(base_url, tenant_token, spreadsheet_token, header_range, [headers])
+        current_row += 1
+
+    for i in range(0, len(mapped_rows), batch_size):
+        batch = mapped_rows[i: i + batch_size]
+        values = [[row.get(h, "") for h in headers] for row in batch]
+        if not values:
+            continue
+        end_row = current_row + len(values) - 1
+        write_range = f"{sheet_id}!{start_col}{current_row}:{end_col}{end_row}"
+        await _put_feishu_values(base_url, tenant_token, spreadsheet_token, write_range, values)
+        current_row = end_row + 1
+        total += len(values)
+
+    return total, f"飞书表格推送成功：{total} 行，写入 {sheet_id}!{start_cell} 起始区域"
+
+
+
 # ===== api_expose（只读 token 接口，对方主动拉）=====
 # 实际数据由 push_router 里的 GET /push-targets/{id}/data 接口提供
 # 此处只做 token 生成占位
@@ -526,6 +782,7 @@ PUSH_HANDLERS = {
     "http_push": push_http,
     "api_expose": push_api_expose,
     "db_expose": push_db_expose,
+    "feishu_sheet": push_feishu_sheet,
 }
 
 

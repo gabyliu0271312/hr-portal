@@ -59,6 +59,8 @@ const PUSH_TYPE_LABELS: Record<string, string> = {
   external_db: '写入数据库',
   http_push: 'HTTP 推送',
   api_expose: 'API 暴露',
+  db_expose: '数据库暴露',
+  feishu_sheet: '飞书表格',
 }
 
 onMounted(load)

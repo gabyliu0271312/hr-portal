@@ -40,6 +40,7 @@ const PUSH_TYPES = [
   { value: 'http_push', label: 'POST JSON 到接口' },
   { value: 'api_expose', label: '暴露只读 API（对方主动拉取）' },
   { value: 'db_expose', label: '暴露只读数据库账号（对方直连 PostgreSQL）' },
+  { value: 'feishu_sheet', label: '写入飞书在线表格' },
 ]
 
 const DIALECTS = [
@@ -71,12 +72,23 @@ const form = reactive<{
   app_id: string
   app_secret: string
   ip_whitelist: string
+  feishu_app_id: string
+  feishu_app_secret: string
+  feishu_wiki_url_or_token: string
+  feishu_spreadsheet_token: string
+  feishu_sheet_id: string
+  feishu_start_cell: string
+  feishu_include_header: boolean
+  feishu_batch_size: string
 }>({
   name: '', description: '', push_type: 'external_db',
   is_active: true, schedule: '手动触发', field_mappings: [], period_ym: '',
   dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
   url: '', method: 'POST', bearer_token: '', batch_size: '500',
   app_id: '', app_secret: '', ip_whitelist: '',
+  feishu_app_id: '', feishu_app_secret: '', feishu_wiki_url_or_token: '',
+  feishu_spreadsheet_token: '', feishu_sheet_id: '', feishu_start_cell: 'A1',
+  feishu_include_header: true, feishu_batch_size: '1000',
 })
 
 async function open(target?: PushTargetOut | null) {
@@ -107,6 +119,13 @@ async function open(target?: PushTargetOut | null) {
       form.batch_size = String(s.batch_size ?? 500)
     } else if (target.push_type === 'api_expose') {
       form.app_id = s.app_id ?? ''
+    } else if (target.push_type === 'feishu_sheet') {
+      form.feishu_wiki_url_or_token = s.wiki_url_or_token ?? ''
+      form.feishu_spreadsheet_token = s.spreadsheet_token ?? ''
+      form.feishu_sheet_id = s.sheet_id ?? ''
+      form.feishu_start_cell = s.start_cell ?? 'A1'
+      form.feishu_include_header = s.include_header ?? true
+      form.feishu_batch_size = String(s.batch_size ?? 1000)
     }
   } else {
     Object.assign(form, {
@@ -115,6 +134,9 @@ async function open(target?: PushTargetOut | null) {
       dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
       url: '', method: 'POST', bearer_token: '', batch_size: '500',
       app_id: '', app_secret: '',
+      feishu_app_id: '', feishu_app_secret: '', feishu_wiki_url_or_token: '',
+      feishu_spreadsheet_token: '', feishu_sheet_id: '', feishu_start_cell: 'A1',
+      feishu_include_header: true, feishu_batch_size: '1000',
     })
   }
   visible.value = true
@@ -153,6 +175,19 @@ function buildPayload(): PushTargetIn {
     if (form.app_secret) base.secrets = { app_secret: form.app_secret }
   } else if (form.push_type === 'db_expose') {
     base.settings = { ip_whitelist: parseIpWhitelist() }
+  } else if (form.push_type === 'feishu_sheet') {
+    base.settings = {
+      period_ym: form.period_ym,
+      wiki_url_or_token: form.feishu_wiki_url_or_token,
+      spreadsheet_token: form.feishu_spreadsheet_token,
+      sheet_id: form.feishu_sheet_id,
+      start_cell: form.feishu_start_cell || 'A1',
+      include_header: form.feishu_include_header,
+      batch_size: Number(form.feishu_batch_size || 1000),
+    }
+    if (form.feishu_app_id || form.feishu_app_secret) {
+      base.secrets = { app_id: form.feishu_app_id, app_secret: form.feishu_app_secret }
+    }
   }
   return base
 }
@@ -333,6 +368,42 @@ defineExpose({ open })
               <el-button @click="copyUrl(currentTarget.id)">复制</el-button>
             </template>
           </el-input>
+        </el-form-item>
+      </template>
+
+      <!-- feishu_sheet -->
+      <template v-else-if="form.push_type === 'feishu_sheet'">
+        <div class="section-title">飞书表格配置</div>
+        <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
+          将当前业务表数据写入飞书在线表格。请确保飞书应用已开通 sheets 读写权限，并已获得目标表格编辑权限。
+        </el-alert>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
+          <el-form-item label="App ID" required>
+            <el-input v-model="form.feishu_app_id" placeholder="飞书开放平台应用 App ID" />
+          </el-form-item>
+          <el-form-item label="App Secret" required>
+            <el-input v-model="form.feishu_app_secret" type="password" show-password placeholder="不修改可留空" />
+          </el-form-item>
+        </div>
+        <el-form-item label="Wiki 链接或节点 Token">
+          <el-input v-model="form.feishu_wiki_url_or_token" placeholder="https://xxx.feishu.cn/wiki/xxxx 或 wiki node token" />
+        </el-form-item>
+        <el-form-item label="Spreadsheet Token">
+          <el-input v-model="form.feishu_spreadsheet_token" placeholder="与 Wiki 链接二选一；两者都填时优先使用 Spreadsheet Token" />
+        </el-form-item>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px">
+          <el-form-item label="Sheet ID">
+            <el-input v-model="form.feishu_sheet_id" placeholder="可留空，默认第一个工作表" />
+          </el-form-item>
+          <el-form-item label="起始单元格">
+            <el-input v-model="form.feishu_start_cell" placeholder="A1" />
+          </el-form-item>
+          <el-form-item label="批次行数">
+            <el-input v-model="form.feishu_batch_size" placeholder="1000" />
+          </el-form-item>
+        </div>
+        <el-form-item label="写入表头">
+          <el-switch v-model="form.feishu_include_header" active-text="是" inactive-text="否" />
         </el-form-item>
       </template>
 

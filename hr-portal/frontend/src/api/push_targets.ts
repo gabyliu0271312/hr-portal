@@ -1,6 +1,6 @@
 import { api } from './client'
 
-export type PushType = 'external_db' | 'http_push' | 'api_expose' | 'db_expose'
+export type PushType = 'external_db' | 'http_push' | 'api_expose' | 'db_expose' | 'feishu_sheet'
 
 export interface PushTargetIn {
   source_table: string
