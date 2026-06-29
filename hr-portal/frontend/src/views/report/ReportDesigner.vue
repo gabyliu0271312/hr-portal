@@ -17,7 +17,7 @@ import { reportsApi, deriveValueRules, type AggregationFunc, type ColumnSetting,
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 import { useTableOptions } from '@/composables/useTableOptions'
-import type { ScopeStrategy } from '@/constants/scopeStrategy'
+import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
 
 const { tables: TABLES } = useTableOptions()
 
@@ -119,6 +119,21 @@ const reportPushColumns = computed(() => selectedColsDetail.value.map((c) => ({
 })))
 const reportPushTargets = ref<PushTargetOut[]>([])
 const reportPushEnabled = computed(() => reportPushTargets.value.length > 0)
+const basicSettingsOpen = ref(false)
+const aclSettingsOpen = ref(false)
+const currentDatasetName = computed(() => currentDataset.value?.name || datasets.value.find((d) => d.id === form.dataset_id)?.name || '未选择数据集')
+const publishStatusLabel = computed(() => form.is_published ? '已发布' : '草稿')
+const scopeStrategyLabel = computed(() => SCOPE_STRATEGY_OPTIONS.find((item) => item.value === form.scope_strategy)?.label || '继承默认')
+const aclRoleCount = computed(() => form.acl.filter((item) => item.role_id).length)
+const aclUserCount = computed(() => form.acl.filter((item) => item.user_id).length)
+const aclSummary = computed(() => {
+  const parts: string[] = []
+  if (aclRoleCount.value) parts.push(`${aclRoleCount.value} 个角色`)
+  if (aclUserCount.value) parts.push(`${aclUserCount.value} 个用户`)
+  return parts.length ? parts.join(' / ') : '未添加授权'
+})
+const filterSummary = computed(() => form.filters.length ? `${form.filters.length} 条筛选` : '未设置筛选')
+const pushSummary = computed(() => reportPushTargets.value.length ? `${reportPushTargets.value.length} 个推送配置` : '未配置推送')
 
 const transposeRef = ref<InstanceType<typeof ReportTransposeConfig> | null>(null)
 const filterRef = ref<InstanceType<typeof ReportFilterList> | null>(null)
@@ -706,18 +721,19 @@ watch(
 
 <template>
   <div class="designer-page">
-    <el-card>
+    <el-card class="designer-card">
       <template #header>
-        <div style="display: flex; justify-content: space-between; align-items: center">
-          <div>
-            <el-button link @click="router.push('/report/list')">
+        <div class="designer-header">
+          <div class="designer-title-wrap">
+            <el-button link class="back-button" @click="router.push('/report/list')">
               <el-icon><ArrowLeft /></el-icon>返回列表
             </el-button>
-            <span style="font-size: 16px; font-weight: 600; margin-left: 8px">
-              {{ pageTitle }}
-            </span>
+            <div class="designer-title-block">
+              <span class="designer-title">{{ pageTitle }}</span>
+              <span class="designer-subtitle">{{ currentDatasetName }} · {{ publishStatusLabel }} · {{ form.selected_codes.length }} 个字段</span>
+            </div>
           </div>
-          <div>
+          <div class="designer-actions">
             <el-button :loading="explaining" @click="explainConfig">
               <el-icon style="margin-right: 4px"><MagicStick /></el-icon>AI 解释
             </el-button>
@@ -731,24 +747,25 @@ watch(
         </div>
       </template>
 
-      <el-form label-position="top">
-        <div class="section-title">基本信息</div>
-        <ReportBasicInfo
-          v-model:name="form.name"
-          v-model:description="form.description"
-          v-model:dataset-id="form.dataset_id"
-          v-model:is-published="form.is_published"
-          v-model:scope-strategy="form.scope_strategy"
-          :datasets="datasets"
-          :current-dataset="currentDataset"
-          @dataset-change="onDatasetChange"
-        />
+      <el-form label-position="top" class="designer-form">
+        <div class="report-summary-bar">
+          <div class="summary-main">
+            <span class="summary-item"><strong>报表</strong>{{ form.name || '未命名报表' }}</span>
+            <span class="summary-item"><strong>数据集</strong>{{ currentDatasetName }}</span>
+            <span class="summary-item"><strong>状态</strong>{{ publishStatusLabel }}</span>
+            <span class="summary-item"><strong>数据范围</strong>{{ scopeStrategyLabel }}</span>
+            <span class="summary-item"><strong>权限</strong>{{ aclSummary }}</span>
+            <span class="summary-item"><strong>筛选</strong>{{ filterSummary }}</span>
+            <span class="summary-item"><strong>推送</strong>{{ pushSummary }}</span>
+          </div>
+          <div class="summary-actions">
+            <el-button size="small" plain @click="basicSettingsOpen = true">基础设置</el-button>
+            <el-button size="small" plain @click="aclSettingsOpen = true">访问授权</el-button>
+          </div>
+        </div>
 
-        <div class="section-title">访问授权（谁能查看/运行此报表）</div>
-        <AclEditor v-model="form.acl" :owner-name="form.name ? null : null" :load-options="reportsApi.aclOptions" />
-
-        <div class="section-title section-title-row">
-          <span>报表设置（{{ form.selected_codes.length }} 个字段）</span>
+        <div class="section-title section-title-row compact-section-title">
+          <span>字段编排（{{ form.selected_codes.length }} 个字段）</span>
           <el-button size="small" type="primary" plain :loading="explaining" @click="explainConfig">
             <el-icon><MagicStick /></el-icon>
             AI 解释
@@ -849,6 +866,41 @@ watch(
         </template>
       </el-form>
     </el-card>
+
+    <el-drawer
+      v-model="basicSettingsOpen"
+      title="报表基础设置"
+      size="min(720px, 92vw)"
+      append-to-body
+      class="report-settings-drawer"
+    >
+      <el-form label-position="top">
+        <ReportBasicInfo
+          v-model:name="form.name"
+          v-model:description="form.description"
+          v-model:dataset-id="form.dataset_id"
+          v-model:is-published="form.is_published"
+          v-model:scope-strategy="form.scope_strategy"
+          :datasets="datasets"
+          :current-dataset="currentDataset"
+          @dataset-change="onDatasetChange"
+        />
+      </el-form>
+    </el-drawer>
+
+    <el-drawer
+      v-model="aclSettingsOpen"
+      title="访问授权"
+      size="min(720px, 92vw)"
+      append-to-body
+      class="report-settings-drawer"
+    >
+      <div class="acl-drawer-summary">
+        <strong>{{ aclSummary }}</strong>
+        <span>未添加任何授权时，仅创建者与超级管理员可访问。添加角色/用户后，命中者可访问；行级数据仍受其数据范围限制。</span>
+      </div>
+      <AclEditor v-model="form.acl" :owner-name="form.name ? null : null" :load-options="reportsApi.aclOptions" />
+    </el-drawer>
 
     <el-drawer
       v-model="explainOpen"
@@ -992,6 +1044,135 @@ watch(
 .section-title-row :deep(.el-button) {
   text-transform: none;
   letter-spacing: 0;
+}
+
+
+.designer-card :deep(.el-card__header) {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+}
+.designer-card :deep(.el-card__body) {
+  padding: 12px 16px 16px;
+}
+.designer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.designer-title-wrap {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+.back-button {
+  flex: 0 0 auto;
+}
+.designer-title-block {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.designer-title {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.designer-subtitle {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.designer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.designer-form {
+  display: grid;
+  gap: 12px;
+}
+.report-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fff 0%, var(--color-bg-soft) 100%);
+}
+.summary-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.summary-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 260px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.summary-item strong {
+  color: var(--color-text-primary);
+  font-weight: 700;
+}
+.summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.compact-section-title {
+  margin-top: 0;
+}
+.report-settings-drawer :deep(.el-drawer__body) {
+  padding: 16px;
+  background: var(--color-bg-page);
+}
+.report-settings-drawer :deep(.report-basic-info) {
+  border-radius: 12px;
+}
+.report-settings-drawer :deep(.basic-grid) {
+  grid-template-columns: 1fr;
+}
+.acl-drawer-summary {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 12px;
+  background: #fff;
+}
+.acl-drawer-summary strong {
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+.acl-drawer-summary span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .report-ai-chat {
