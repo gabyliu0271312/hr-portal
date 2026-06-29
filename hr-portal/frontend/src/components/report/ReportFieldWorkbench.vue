@@ -96,8 +96,8 @@ const advancedMeta = computed(() => {
       desc: '先从字段值或筛选结果生成名单，再用集合运算回查完整记录。',
     },
     push: {
-      title: '推送目标',
-      desc: '为当前报表配置一个或多个对外推送目标，保存后可在报表列表手动推送。',
+      title: '推送配置',
+      desc: '为当前报表配置一个或多个对外推送配置，保存后可在报表列表手动推送。',
     },
   } as Record<AdvancedTab, { title: string; desc: string }>
   return map[advancedTab.value]
@@ -498,7 +498,7 @@ function openAdvanced(tab: AdvancedTab) {
               :plain="!pushEnabled"
               @click="openAdvanced('push')"
             >
-              推送目标
+              推送配置
               <span v-if="pushTargetCount" class="menu-command-badge">{{ pushTargetCount }}</span>
             </el-button>
           </span>
@@ -904,7 +904,7 @@ function openAdvanced(tab: AdvancedTab) {
           <el-tab-pane v-if="$slots.lookup" label="名单回查" name="lookup">
             <slot name="lookup" />
           </el-tab-pane>
-          <el-tab-pane v-if="$slots.push" label="推送目标" name="push">
+          <el-tab-pane v-if="$slots.push" label="推送配置" name="push">
             <slot name="push" />
           </el-tab-pane>
         </el-tabs>

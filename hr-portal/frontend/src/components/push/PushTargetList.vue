@@ -37,7 +37,7 @@ async function load() {
     targets.value = await pushTargetsApi.list(props.sourceTable)
     emit('targets-change', targets.value)
   } catch {
-    ElMessage.error('加载推送目标失败')
+    ElMessage.error('加载推送配置失败')
   } finally {
     loading.value = false
   }
@@ -57,7 +57,7 @@ async function runNow(target: PushTargetOut) {
 }
 
 async function remove(target: PushTargetOut) {
-  await ElMessageBox.confirm(`确认删除推送目标「${target.name}」？`, '确认删除', {
+  await ElMessageBox.confirm(`确认删除推送配置「${target.name}」？`, '确认删除', {
     type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
   })
   try {
@@ -85,17 +85,17 @@ onMounted(load)
   <div class="push-target-list" :class="{ 'is-compact': compact }">
     <div v-if="!hideHeader" class="push-list-header">
       <PermissionButton menu="system.users" op="C" type="primary" @click="dialogRef?.open()">
-        <el-icon style="margin-right: 4px"><Plus /></el-icon>新建推送目标
+        <el-icon style="margin-right: 4px"><Plus /></el-icon>新增推送
       </PermissionButton>
     </div>
     <div v-else class="push-list-toolbar">
-      <span class="push-summary">{{ targets.length }} targets / {{ activeTargets }} active</span>
+      <span class="push-summary">已配置 {{ targets.length }} 个推送配置，启用 {{ activeTargets }} 个</span>
       <PermissionButton menu="system.users" op="C" type="primary" plain @click="dialogRef?.open()">
-        <el-icon style="margin-right: 4px"><Plus /></el-icon>????
+        <el-icon style="margin-right: 4px"><Plus /></el-icon>新增推送
       </PermissionButton>
     </div>
 
-    <el-empty v-if="!loading && !targets.length" :image-size="compact ? 72 : 120" description="暂无推送目标" />
+    <el-empty v-if="!loading && !targets.length" :image-size="compact ? 72 : 120" description="暂无推送配置" />
 
     <div v-loading="loading" class="push-table-wrap">
       <el-table v-if="targets.length" :data="targets" stripe style="width: 100%" :max-height="tableMaxHeight">

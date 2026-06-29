@@ -817,7 +817,7 @@ watch(
                   type="info"
                   :closable="false"
                   show-icon
-                  title="保存为你的报表后，可为该报表配置多个对外推送目标；从他人报表进入编辑时不会带入原报表推送配置。"
+                  title="保存为你的报表后，可为该报表配置多个对外推送配置；从他人报表进入编辑时不会带入原报表推送配置。"
                   style="margin-bottom: 12px"
                 />
                 <PushTargetList
