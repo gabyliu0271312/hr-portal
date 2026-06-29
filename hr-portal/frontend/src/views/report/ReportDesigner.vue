@@ -730,10 +730,12 @@ watch(
             </el-button>
             <div class="designer-title-block">
               <span class="designer-title">{{ pageTitle }}</span>
-              <span class="designer-subtitle">{{ currentDatasetName }} · {{ publishStatusLabel }} · {{ form.selected_codes.length }} 个字段</span>
+              <span class="designer-subtitle">{{ currentDatasetName }} · {{ publishStatusLabel }} · {{ form.selected_codes.length }} 个字段 · {{ filterSummary }}</span>
             </div>
           </div>
           <div class="designer-actions">
+            <el-button plain @click="basicSettingsOpen = true">基础设置</el-button>
+            <el-button plain @click="aclSettingsOpen = true">访问授权</el-button>
             <el-button :loading="explaining" @click="explainConfig">
               <el-icon style="margin-right: 4px"><MagicStick /></el-icon>AI 解释
             </el-button>
@@ -748,28 +750,8 @@ watch(
       </template>
 
       <el-form label-position="top" class="designer-form">
-        <div class="report-summary-bar">
-          <div class="summary-main">
-            <span class="summary-item"><strong>报表</strong>{{ form.name || '未命名报表' }}</span>
-            <span class="summary-item"><strong>数据集</strong>{{ currentDatasetName }}</span>
-            <span class="summary-item"><strong>状态</strong>{{ publishStatusLabel }}</span>
-            <span class="summary-item"><strong>数据范围</strong>{{ scopeStrategyLabel }}</span>
-            <span class="summary-item"><strong>权限</strong>{{ aclSummary }}</span>
-            <span class="summary-item"><strong>筛选</strong>{{ filterSummary }}</span>
-            <span class="summary-item"><strong>推送</strong>{{ pushSummary }}</span>
-          </div>
-          <div class="summary-actions">
-            <el-button size="small" plain @click="basicSettingsOpen = true">基础设置</el-button>
-            <el-button size="small" plain @click="aclSettingsOpen = true">访问授权</el-button>
-          </div>
-        </div>
-
-        <div class="section-title section-title-row compact-section-title">
-          <span>字段编排（{{ form.selected_codes.length }} 个字段）</span>
-          <el-button size="small" type="primary" plain :loading="explaining" @click="explainConfig">
-            <el-icon><MagicStick /></el-icon>
-            AI 解释
-          </el-button>
+        <div class="section-title compact-section-title">
+          字段编排（{{ form.selected_codes.length }} 个字段）
         </div>
         <CalculatedFieldBridge
           :dataset-id="form.dataset_id"
@@ -1063,6 +1045,7 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  min-width: 0;
 }
 .designer-title-wrap {
   display: flex;
@@ -1096,56 +1079,29 @@ watch(
 .designer-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex: 0 0 auto;
+  flex-wrap: wrap;
 }
 .designer-form {
   display: grid;
   gap: 12px;
 }
-.report-summary-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border-light);
-  border-radius: 12px;
-  background: linear-gradient(135deg, #fff 0%, var(--color-bg-soft) 100%);
-}
-.summary-main {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-.summary-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 260px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #fff;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.4;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-.summary-item strong {
-  color: var(--color-text-primary);
-  font-weight: 700;
-}
-.summary-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-}
 .compact-section-title {
-  margin-top: 0;
+  margin: 0 0 2px;
 }
+@media (max-width: 900px) {
+  .designer-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .designer-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
 .report-settings-drawer :deep(.el-drawer__body) {
   padding: 16px;
   background: var(--color-bg-page);
