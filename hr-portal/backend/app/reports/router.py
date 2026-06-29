@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -90,6 +90,21 @@ class ReportIn(BaseModel):
     acl: list[ReportAclIn] = Field(default_factory=list)
 
 
+class PushTargetSummary(BaseModel):
+    id: int
+    name: str
+    push_type: str
+    is_active: bool
+
+
+class ReportPushResult(BaseModel):
+    target_id: int
+    target_name: str
+    ok: bool
+    rows: int = 0
+    message: str = ""
+
+
 class ReportOut(BaseModel):
     id: int
     name: str
@@ -109,6 +124,8 @@ class ReportOut(BaseModel):
     updated_at: datetime
     acl: list[ReportAclOut] = Field(default_factory=list)
     can_edit: bool = True
+    push_target_count: int = 0
+    active_push_target_count: int = 0
 
 
 class RunResult(BaseModel):
@@ -257,6 +274,7 @@ async def _replace_report_acl(
 
 async def _to_out(r: Report, db: AsyncSession, user: User | None = None) -> ReportOut:
     from app.datasets.models import DataSet
+    from app.push.models import PushTarget
 
     owner_name: str | None = None
     if r.owner_id:
@@ -273,6 +291,17 @@ async def _to_out(r: Report, db: AsyncSession, user: User | None = None) -> Repo
         .scalars()
         .all()
     )
+
+    source_table = f"report:{r.id}"
+    push_total = (await db.execute(
+        select(func.count()).select_from(PushTarget).where(PushTarget.source_table == source_table)
+    )).scalar_one()
+    push_active = (await db.execute(
+        select(func.count()).select_from(PushTarget).where(
+            PushTarget.source_table == source_table,
+            PushTarget.is_active.is_(True),
+        )
+    )).scalar_one()
 
     return ReportOut(
         id=r.id,
@@ -293,6 +322,8 @@ async def _to_out(r: Report, db: AsyncSession, user: User | None = None) -> Repo
         updated_at=r.updated_at,
         acl=[ReportAclOut(id=a.id, role_id=a.role_id, user_id=a.user_id) for a in acls],
         can_edit=(await _can_edit(user, r, db)) if user else True,
+        push_target_count=push_total,
+        active_push_target_count=push_active,
     )
 
 
@@ -689,6 +720,117 @@ async def _collect_export_rows(
 
     rows = [[_export_value(item, code) for code in codes] for item in items]
     return labels, rows, codes
+
+
+
+async def collect_report_push_rows(
+    report: Report,
+    db: AsyncSession,
+    runtime_filters: list[dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Collect report output rows for push targets using the report owner's data scope."""
+    if report.owner_id is None:
+        raise RuntimeError("报表缺少创建人，无法按报表权限范围推送")
+    owner = await db.get(User, report.owner_id)
+    if owner is None:
+        raise RuntimeError("报表创建人不存在，无法执行报表推送")
+    labels, matrix, codes = await _collect_export_rows(report, owner, db, runtime_filters)
+    rows = [dict(zip(codes, row, strict=False)) for row in matrix]
+    return rows, dict(zip(codes, labels, strict=False))
+
+
+async def get_report_push_columns(report: Report, db: AsyncSession) -> list[dict[str, Any]]:
+    if report.dataset_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
+    owner = await db.get(User, report.owner_id) if report.owner_id else None
+    if owner is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表创建人不存在")
+    cfg = ReportConfig(**(report.config or {}))
+    from app.reports.sql_builder import run_dataset_query
+    columns_meta, items, _ = await run_dataset_query(
+        dataset_id=report.dataset_id,
+        columns=cfg.columns,
+        filters=[item.model_dump() for item in cfg.filters],
+        filter_logic=cfg.filter_logic,
+        sorts=[item.model_dump() for item in cfg.sorts],
+        value_rules=cfg.value_rules,
+        aggregate=cfg.aggregate,
+        aggregations=cfg.aggregations,
+        column_settings=cfg.column_settings,
+        transpose=cfg.transpose,
+        rounding_corrections=cfg.rounding_corrections,
+        list_lookup=cfg.list_lookup,
+        page=1,
+        page_size=1,
+        user=owner,
+        db=db,
+        scope_strategy=report.scope_strategy,
+    )
+    columns_meta, _ = _project_report_output(columns_meta, items, cfg)
+    return columns_meta
+
+
+@router.get(
+    "/{report_id}/push-columns",
+    dependencies=[Depends(require_any_op(("report.list", "C"), ("report.list", "U")))],
+)
+async def report_push_columns(
+    report_id: int,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> list[dict[str, Any]]:
+    report = await db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
+    if not await _can_edit(user, report, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="仅报表创建人可配置推送")
+    return await get_report_push_columns(report, db)
+
+
+@router.post(
+    "/{report_id}/push",
+    response_model=list[ReportPushResult],
+    dependencies=[Depends(require_op("report.list", "C"))],
+)
+async def push_report(
+    report_id: int,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> list[ReportPushResult]:
+    from app.push.models import PushTarget
+    from app.push.push_service import execute_push
+
+    report = await db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
+    if not await _can_edit(user, report, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="仅报表创建人可推送")
+
+    targets = (await db.execute(
+        select(PushTarget)
+        .where(PushTarget.source_table == f"report:{report_id}", PushTarget.is_active.is_(True))
+        .order_by(PushTarget.id)
+    )).scalars().all()
+    if not targets:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="该报表未配置启用的推送目标")
+
+    results: list[ReportPushResult] = []
+    for target in targets:
+        try:
+            rows, message = await execute_push(target.id, db)
+            results.append(ReportPushResult(
+                target_id=target.id, target_name=target.name, ok=True, rows=rows, message=message
+            ))
+        except Exception as exc:
+            target.last_push_at = datetime.utcnow()
+            target.last_status = "failed"
+            target.last_rows = 0
+            target.last_message = str(exc)[:1000]
+            results.append(ReportPushResult(
+                target_id=target.id, target_name=target.name, ok=False, rows=0, message=str(exc)
+            ))
+    await db.commit()
+    return results
 
 
 @router.get(

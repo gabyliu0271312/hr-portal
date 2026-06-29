@@ -7,7 +7,7 @@ import { dataApi, type ColumnInfo } from '@/api/data'
 import { SCHEDULE_OPTIONS } from '@/config/dataSources'
 import PushFieldMapper from './PushFieldMapper.vue'
 
-const props = defineProps<{ sourceTable: string }>()
+const props = defineProps<{ sourceTable: string; sourceColumns?: ColumnInfo[] }>()
 const emit = defineEmits<{ 'done': [target: PushTargetOut] }>()
 
 const visible = ref(false)
@@ -94,7 +94,7 @@ const form = reactive<{
 async function open(target?: PushTargetOut | null) {
   currentTarget.value = target ?? null
   revealedSecrets.value = {}
-  sourceColumns.value = await dataApi.columns(props.sourceTable).catch(() => [])
+  sourceColumns.value = props.sourceColumns?.length ? [...props.sourceColumns] : await dataApi.columns(props.sourceTable).catch(() => [])
 
   if (target) {
     const s = target.settings || {}

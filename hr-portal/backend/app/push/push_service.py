@@ -101,12 +101,73 @@ def _quote_pg_literal(value: str) -> str:
 
 # ===== 读取源数据 =====
 
+def is_report_source(source_table: str) -> bool:
+    return str(source_table or "").startswith("report:")
+
+
+def parse_report_source_id(source_table: str) -> int:
+    if not is_report_source(source_table):
+        raise RuntimeError(f"不是有效的报表推送源: {source_table}")
+    try:
+        return int(str(source_table).split(":", 1)[1])
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"报表推送源格式不正确: {source_table}") from exc
+
+
+async def _load_report_source_rows(source_table: str, db: AsyncSession) -> list[dict[str, Any]]:
+    from app.reports.models import Report
+    from app.reports.router import collect_report_push_rows
+
+    report_id = parse_report_source_id(source_table)
+    report = await db.get(Report, report_id)
+    if report is None:
+        raise RuntimeError(f"报表不存在: {report_id}")
+    rows, _labels = await collect_report_push_rows(report, db)
+    return rows
+
+
+async def _load_source_columns_meta(source_table: str, db: AsyncSession) -> tuple[list[str], dict[str, str]]:
+    if is_report_source(source_table):
+        from app.reports.models import Report
+        from app.reports.router import get_report_push_columns
+
+        report_id = parse_report_source_id(source_table)
+        report = await db.get(Report, report_id)
+        if report is None:
+            raise RuntimeError(f"报表不存在: {report_id}")
+        cols = await get_report_push_columns(report, db)
+        codes = [str(c.get("code")) for c in cols if c.get("code")]
+        labels = {
+            str(c.get("code")): str(c.get("label") or c.get("code"))
+            for c in cols
+            if c.get("code")
+        }
+        return codes, labels
+
+    source_cols = (
+        await db.execute(
+            select(TableColumn)
+            .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
+            .order_by(TableColumn.display_order)
+        )
+    ).scalars().all()
+    codes = [c.column_code for c in source_cols]
+    labels = {
+        c.column_code: (c.column_label or c.column_code).strip() or c.column_code
+        for c in source_cols
+    }
+    return codes, labels
+
+
 async def _load_source_rows(
     source_table: str,
     db: AsyncSession,
     period_ym: str = "",
 ) -> list[dict]:
-    """从本地表读取要推送的行，月度表按 period_ym 过滤"""
+    """从本地表/报表读取要推送的行，月度表按 period_ym 过滤"""
+    if is_report_source(source_table):
+        return await _load_report_source_rows(source_table, db)
+
     Model = DATA_TABLES.get(source_table)
     if Model is None:
         raise RuntimeError(f"未知数据表: {source_table}")
@@ -336,7 +397,6 @@ async def push_http(
         headers["Authorization"] = f"Bearer {token}"
     batch_size = int(settings.get("batch_size", 500))
 
-    period_cfg = PERIOD_TABLES.get(source_table)
     period_ym = settings.get("period_ym", "")
 
     rows = await _load_source_rows(source_table, db, period_ym)
@@ -570,17 +630,7 @@ async def push_feishu_sheet(
     rows = await _load_source_rows(source_table, db, period_ym)
     mapped_rows = [json_ready_row(apply_field_mappings(r, field_mappings)) for r in rows]
 
-    source_cols = (
-        await db.execute(
-            select(TableColumn)
-            .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
-            .order_by(TableColumn.display_order)
-        )
-    ).scalars().all()
-    label_by_code = {
-        c.column_code: (c.column_label or c.column_code).strip() or c.column_code
-        for c in source_cols
-    }
+    source_col_codes, label_by_code = await _load_source_columns_meta(source_table, db)
     mapping_pairs = [
         (m.get("source"), m.get("target"))
         for m in field_mappings
@@ -602,7 +652,7 @@ async def push_feishu_sheet(
                     data_keys.append(key)
         header_labels = [label_by_code.get(key, key) for key in data_keys]
     else:
-        data_keys = [c.column_code for c in source_cols]
+        data_keys = source_col_codes
         header_labels = [label_by_code.get(key, key) for key in data_keys]
 
     if not data_keys:
@@ -662,6 +712,9 @@ async def push_db_expose(
     import string
     from sqlalchemy import text, select as sa_select
     from app.core.config import settings as app_settings
+
+    if is_report_source(source_table):
+        raise RuntimeError("报表推送暂不支持 db_expose，请选择 HTTP、API 暴露或飞书表格")
 
     Model = DATA_TABLES.get(source_table)
     if Model is None:

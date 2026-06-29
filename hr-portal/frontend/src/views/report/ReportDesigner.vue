@@ -11,6 +11,7 @@ import ReportListLookupConfig from '@/components/report/ReportListLookupConfig.v
 import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import AclEditor from '@/components/AclEditor.vue'
+import PushTargetList from '@/components/push/PushTargetList.vue'
 import { reportsApi, deriveValueRules, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ListLookupConfig, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
@@ -102,6 +103,19 @@ const previewItems = ref<RunResult['items']>([])
 const previewTotal = ref(0)
 const previewPage = ref(1)
 const previewPageSize = ref(20)
+const reportPushSourceTable = computed(() => reportId.value ? `report:${reportId.value}` : '')
+const reportPushColumns = computed(() => selectedColsDetail.value.map((c) => ({
+  code: c.code,
+  label: form.column_settings[c.code]?.display_name || c.label || c.code,
+  data_type: c.data_type || 'text',
+  is_pk_part: false,
+  is_sensitive: !!c.is_sensitive,
+  is_visible: true,
+  display_order: form.selected_codes.indexOf(c.code),
+  auto_discovered: false,
+  agg_role: c.agg_role || '',
+  is_computed: !!c.is_computed,
+})))
 
 const transposeRef = ref<InstanceType<typeof ReportTransposeConfig> | null>(null)
 const filterRef = ref<InstanceType<typeof ReportFilterList> | null>(null)
@@ -729,6 +743,21 @@ watch(
 
         <div class="section-title">访问授权（谁能查看/运行此报表）</div>
         <AclEditor v-model="form.acl" :owner-name="form.name ? null : null" :load-options="reportsApi.aclOptions" />
+
+        <div class="section-title">报表推送配置</div>
+        <el-alert
+          v-if="saveCreatesReport"
+          type="info"
+          :closable="false"
+          show-icon
+          title="保存为你的报表后，可为该报表配置对外推送；从他人报表进入编辑时不会带入原报表推送配置。"
+          style="margin-bottom: 12px"
+        />
+        <PushTargetList
+          v-else-if="reportPushSourceTable"
+          :source-table="reportPushSourceTable"
+          :source-columns="reportPushColumns"
+        />
 
         <div class="section-title section-title-row">
           <span>报表设置（{{ form.selected_codes.length }} 个字段）</span>

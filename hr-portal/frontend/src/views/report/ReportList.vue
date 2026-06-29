@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Document, Edit, Delete, View } from '@element-plus/icons-vue'
+import { Plus, Document, Edit, Delete, View, Position } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { formatDateTime } from '@/utils/datetime'
 import { reportsApi, type ReportItem } from '@/api/reports'
@@ -13,6 +13,7 @@ const router = useRouter()
 const list = ref<ReportItem[]>([])
 const datasets = ref<DatasetItem[]>([])
 const loading = ref(false)
+const pushing = ref<number | null>(null)
 const filterDataset = ref<number | null>(null)
 const filterKeyword = ref('')
 
@@ -48,6 +49,26 @@ function openDesigner(row?: ReportItem) {
 
 function openRun(row: ReportItem) {
   router.push(`/report/run/${row.id}`)
+}
+
+async function handlePush(row: ReportItem) {
+  if (!row.can_edit || !row.active_push_target_count) return
+  pushing.value = row.id
+  try {
+    const results = await reportsApi.push(row.id)
+    const failed = results.filter((r) => !r.ok)
+    if (failed.length) {
+      ElMessage.error(`推送完成，但 ${failed.length} 个目标失败：${failed[0].message || failed[0].target_name}`)
+    } else {
+      const rows = results.reduce((sum, r) => sum + (r.rows || 0), 0)
+      ElMessage.success(`报表推送成功：${results.length} 个目标，${rows} 行`)
+    }
+    await load()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '推送失败')
+  } finally {
+    pushing.value = null
+  }
 }
 
 async function handleDelete(row: ReportItem) {
@@ -150,7 +171,7 @@ onMounted(async () => {
               {{ formatDateTime(row.updated_at) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="280" fixed="right">
+          <el-table-column label="操作" width="360" fixed="right">
             <template #default="{ row }">
               <PermissionButton menu="report.list" op="V" size="small" @click="openRun(row)">
                 <el-icon style="margin-right: 4px"><View /></el-icon>查看
@@ -160,6 +181,17 @@ onMounted(async () => {
               </PermissionButton>
               <PermissionButton v-else menu="report.list" op="C" size="small" @click="openDesigner(row)">
                 <el-icon style="margin-right: 4px"><Edit /></el-icon>编辑
+              </PermissionButton>
+              <PermissionButton
+                v-if="row.can_edit && row.active_push_target_count"
+                menu="report.list"
+                op="C"
+                size="small"
+                type="success"
+                :loading="pushing === row.id"
+                @click="handlePush(row)"
+              >
+                <el-icon style="margin-right: 4px"><Position /></el-icon>推送
               </PermissionButton>
               <PermissionButton v-if="row.can_edit" menu="report.list" op="D" size="small" type="danger" @click="handleDelete(row)">
                 <el-icon style="margin-right: 4px"><Delete /></el-icon>删除

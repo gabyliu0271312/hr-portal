@@ -9,7 +9,7 @@ import PushRunHistory from './PushRunHistory.vue'
 import type { PushTargetOut } from '@/api/push_targets'
 import { pushTargetsApi } from '@/api/push_targets'
 
-const props = defineProps<{ sourceTable: string }>()
+const props = defineProps<{ sourceTable: string; sourceColumns?: any[] }>()
 
 const targets = ref<PushTargetOut[]>([])
 const loading = ref(false)
@@ -139,6 +139,7 @@ onMounted(load)
     <PushTargetDialog
       ref="dialogRef"
       :source-table="sourceTable"
+      :source-columns="sourceColumns"
       @done="load"
     />
   </div>

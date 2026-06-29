@@ -19,7 +19,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.core.deps import current_user, require_op
+from app.core.deps import current_user, require_any_op, require_op, user_has_op
 from app.push.models import PushTarget
 from app.users.models import User
 
@@ -82,14 +82,48 @@ def _to_out(pt: PushTarget) -> PushTargetOut:
     )
 
 
+async def _ensure_report_push_editable(source_table: str, user: User, db: AsyncSession) -> None:
+    if not str(source_table or "").startswith("report:"):
+        return
+    from app.reports.models import Report
+    from app.reports.router import _can_edit
+
+    try:
+        report_id = int(str(source_table).split(":", 1)[1])
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表推送源格式不正确") from exc
+    report = await db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
+    if not await _can_edit(user, report, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="仅报表创建人可配置/执行该报表推送")
+
+
+def _is_report_source(source_table: str | None) -> bool:
+    return str(source_table or "").startswith("report:")
+
+
+async def _ensure_system_op_for_non_report(
+    source_table: str, user: User, db: AsyncSession, op: str
+) -> None:
+    if _is_report_source(source_table):
+        return
+    if not await user_has_op(user, db, "system.users", op):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail=f"无权限执行 {op} 操作 (system.users)",
+        )
+
 # ===== CRUD =====
 
 @router.get("", response_model=list[PushTargetOut])
 async def list_push_targets(
     source_table: str | None = Query(None),
-    _: User = Depends(current_user),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[PushTargetOut]:
+    if _is_report_source(source_table):
+        await _ensure_report_push_editable(source_table or "", user, db)
     stmt = select(PushTarget).order_by(desc(PushTarget.updated_at))
     if source_table:
         stmt = stmt.where(PushTarget.source_table == source_table)
@@ -98,7 +132,7 @@ async def list_push_targets(
 
 
 @router.post("", response_model=PushTargetOut,
-             dependencies=[Depends(require_op("system.users", "C"))])
+             dependencies=[Depends(require_any_op(("system.users", "C"), ("report.list", "C")))])
 async def create_push_target(
     payload: PushTargetIn,
     user: User = Depends(current_user),
@@ -106,6 +140,8 @@ async def create_push_target(
 ) -> PushTargetOut:
     from app.core.secret_box import encrypt
 
+    await _ensure_report_push_editable(payload.source_table, user, db)
+    await _ensure_system_op_for_non_report(payload.source_table, user, db, "C")
     secrets_enc = {k: encrypt(v) for k, v in payload.secrets.items()}
 
     # api_expose：自动生成 AppID + AppSecret（如果未填）
@@ -163,20 +199,22 @@ async def create_push_target(
 @router.get("/{pt_id}", response_model=PushTargetOut)
 async def get_push_target(
     pt_id: int,
-    _: User = Depends(current_user),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> PushTargetOut:
     pt = await db.get(PushTarget, pt_id)
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
+    await _ensure_report_push_editable(pt.source_table, user, db)
     return _to_out(pt)
 
 
 @router.put("/{pt_id}", response_model=PushTargetOut,
-            dependencies=[Depends(require_op("system.users", "U"))])
+            dependencies=[Depends(require_any_op(("system.users", "U"), ("report.list", "U")))])
 async def update_push_target(
     pt_id: int,
     payload: PushTargetIn,
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> PushTargetOut:
     from app.core.secret_box import encrypt
@@ -184,6 +222,10 @@ async def update_push_target(
     pt = await db.get(PushTarget, pt_id)
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
+    await _ensure_report_push_editable(pt.source_table, user, db)
+    await _ensure_report_push_editable(payload.source_table, user, db)
+    await _ensure_system_op_for_non_report(pt.source_table, user, db, "U")
+    await _ensure_system_op_for_non_report(payload.source_table, user, db, "U")
 
     pt.name = payload.name
     pt.description = payload.description
@@ -212,15 +254,18 @@ async def update_push_target(
 
 
 @router.delete("/{pt_id}",
-               dependencies=[Depends(require_op("system.users", "D"))])
+               dependencies=[Depends(require_any_op(("system.users", "D"), ("report.list", "D")))])
 async def delete_push_target(
     pt_id: int,
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, bool]:
     from sqlalchemy import text
     pt = await db.get(PushTarget, pt_id)
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
+    await _ensure_report_push_editable(pt.source_table, user, db)
+    await _ensure_system_op_for_non_report(pt.source_table, user, db, "D")
 
     if pt.push_type == "db_expose":
         readonly_user = (pt.settings or {}).get("readonly_user")
@@ -235,14 +280,20 @@ async def delete_push_target(
 # ===== 手动触发 =====
 
 @router.post("/{pt_id}/run",
-             dependencies=[Depends(require_op("system.users", "C"))])
+             dependencies=[Depends(require_any_op(("system.users", "C"), ("report.list", "C")))])
 async def run_push_target(
     pt_id: int,
     payload: RunIn,
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     from app.push.push_service import execute_push
 
+    pt = await db.get(PushTarget, pt_id)
+    if pt is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
+    await _ensure_report_push_editable(pt.source_table, user, db)
+    await _ensure_system_op_for_non_report(pt.source_table, user, db, "C")
     rows, message = await execute_push(pt_id, db, period_ym=payload.period_ym)
     await db.commit()
     return {"ok": True, "rows": rows, "message": message}

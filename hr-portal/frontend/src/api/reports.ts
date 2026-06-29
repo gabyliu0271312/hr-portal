@@ -213,6 +213,8 @@ export interface ReportItem {
   updated_at: string
   acl: ReportAclItem[]
   can_edit: boolean
+  push_target_count?: number
+  active_push_target_count?: number
 }
 
 export interface ReportPayload {
@@ -248,6 +250,21 @@ export interface ReportConfigExplainPayload {
   history?: { role: 'user' | 'assistant'; content: string }[]
 }
 
+export interface ReportPushResult {
+  target_id: number
+  target_name: string
+  ok: boolean
+  rows: number
+  message: string
+}
+
+export interface ReportPushColumn {
+  code: string
+  label: string
+  data_type?: string
+  is_sensitive?: boolean
+}
+
 export interface ReportConfigExplainResult {
   answer?: string | null
   summary: string
@@ -279,6 +296,12 @@ export const reportsApi = {
 
   remove: (id: number) =>
     api.delete<{ ok: boolean }>(`/reports/${id}`).then((r) => r.data),
+
+  push: (id: number) =>
+    api.post<ReportPushResult[]>(`/reports/${id}/push`).then((r) => r.data),
+
+  pushColumns: (id: number) =>
+    api.get<ReportPushColumn[]>(`/reports/${id}/push-columns`).then((r) => r.data),
 
   run: (id: number, page = 1, page_size = 50, filters: FilterCond[] = []) => {
     const safePageSize = Math.min(Math.max(Number(page_size) || 50, 1), REPORT_RUN_MAX_PAGE_SIZE)
