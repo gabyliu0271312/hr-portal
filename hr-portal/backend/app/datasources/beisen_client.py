@@ -15,6 +15,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -454,7 +455,8 @@ class FeishuSheetClient:
     配置约定：
     - FEISHU_BASE_URL：默认 https://open.feishu.cn
     - FEISHU_SPREADSHEET_TOKEN：电子表格 token
-    - FEISHU_SHEET_ID：工作表 ID（可选；若 FEISHU_SHEET_RANGE 已包含 "!" 则可不填）
+    - FEISHU_WIKI_URL_OR_TOKEN：知识库 Wiki URL 或 node_token（可选；填写后自动解析 obj_token）
+    - FEISHU_SHEET_ID：工作表 ID（可选；若不填则读取第一个工作表）
     - FEISHU_RANGE：单元格范围，如 A1:Z1000，默认 A1:ZZ10000
     - FEISHU_SHEET_RANGE：完整范围，如 6e5ed3!A1:Z1000；优先级高于 SHEET_ID + RANGE
     - FEISHU_HEADER_ROW：表头所在行（相对于读取范围的第几行，1-based），默认 1
@@ -468,6 +470,7 @@ class FeishuSheetClient:
             f"{self.base_url}/open-apis/auth/v3/tenant_access_token/internal",
         )
         self.spreadsheet_token = settings.get("FEISHU_SPREADSHEET_TOKEN", "")
+        self.wiki_url_or_token = settings.get("FEISHU_WIKI_URL_OR_TOKEN", "")
         self.sheet_id = settings.get("FEISHU_SHEET_ID", "")
         self.cell_range = settings.get("FEISHU_RANGE", "A1:ZZ10000")
         self.full_range = settings.get("FEISHU_SHEET_RANGE", "")
@@ -495,18 +498,90 @@ class FeishuSheetClient:
             n for n, v in [
                 ("FEISHU_APP_ID", self.app_id),
                 ("FEISHU_APP_SECRET", self.app_secret),
-                ("FEISHU_SPREADSHEET_TOKEN", self.spreadsheet_token),
             ] if not v
         ]
-        if not self.full_range and not self.sheet_id:
-            missing.append("FEISHU_SHEET_ID 或 FEISHU_SHEET_RANGE")
+        if not self.spreadsheet_token and not self.wiki_url_or_token:
+            missing.append("FEISHU_SPREADSHEET_TOKEN 或 FEISHU_WIKI_URL_OR_TOKEN")
         if missing:
             raise RuntimeError(f"飞书在线表格配置缺失: {', '.join(missing)}")
 
-    def _range(self) -> str:
+    def _extract_wiki_token_and_sheet_id(self) -> tuple[str, str]:
+        raw = (self.wiki_url_or_token or "").strip()
+        if not raw:
+            return "", ""
+        if raw.startswith("http://") or raw.startswith("https://"):
+            parsed = urlparse(raw)
+            parts = [p for p in parsed.path.split("/") if p]
+            token = ""
+            for i, p in enumerate(parts):
+                if p == "wiki" and i + 1 < len(parts):
+                    token = parts[i + 1]
+                    break
+            qs = parse_qs(parsed.query or "")
+            sheet_from_query = (qs.get("sheet") or [""])[0]
+            return token, sheet_from_query
+        return raw, ""
+
+    async def _resolve_spreadsheet_token(self, token: str) -> str:
+        """把 Wiki node token 解析为真实电子表格 obj_token。"""
+        tenant_token = await self.get_token()
+        url = f"{self.base_url}/open-apis/wiki/v2/spaces/get_node"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                url,
+                params={"token": token},
+                headers={"Authorization": f"Bearer {tenant_token}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        if str(data.get("code", "0")) != "0":
+            raise RuntimeError(f"飞书 Wiki 节点解析失败 (code={data.get('code')}): {data.get('msg') or data}")
+        node = (data.get("data") or {}).get("node") or {}
+        obj_type = str(node.get("obj_type") or "")
+        obj_token = str(node.get("obj_token") or "")
+        if obj_type not in ("sheet", "sheets", "spreadsheet"):
+            raise RuntimeError(f"该 Wiki 节点不是电子表格，当前类型为: {obj_type or '未知'}")
+        if not obj_token:
+            raise RuntimeError(f"飞书 Wiki 节点未返回电子表格 token: {data}")
+        return obj_token
+
+    async def _ensure_spreadsheet_token(self) -> str:
+        if self.spreadsheet_token:
+            return self.spreadsheet_token
+        wiki_token, sheet_from_query = self._extract_wiki_token_and_sheet_id()
+        if sheet_from_query and not self.sheet_id:
+            self.sheet_id = sheet_from_query
+        if not wiki_token:
+            raise RuntimeError("FEISHU_WIKI_URL_OR_TOKEN 未识别到 Wiki token")
+        self.spreadsheet_token = await self._resolve_spreadsheet_token(wiki_token)
+        return self.spreadsheet_token
+
+    async def _ensure_sheet_id(self, spreadsheet_token: str) -> str:
+        if self.sheet_id:
+            return self.sheet_id
+        token = await self.get_token()
+        url = f"{self.base_url}/open-apis/sheets/v3/spreadsheets/{spreadsheet_token}/sheets/query"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            resp.raise_for_status()
+            data = resp.json()
+        if str(data.get("code", "0")) != "0":
+            raise RuntimeError(f"飞书工作表列表读取失败 (code={data.get('code')}): {data.get('msg') or data}")
+        sheets = ((data.get("data") or {}).get("sheets")) or []
+        if not sheets:
+            raise RuntimeError("飞书电子表格未返回任何工作表，请手动填写 Sheet ID")
+        first = sheets[0] or {}
+        sheet_id = first.get("sheet_id") or first.get("sheetId") or first.get("id")
+        if not sheet_id:
+            raise RuntimeError(f"无法从工作表列表中识别 Sheet ID: {first}")
+        self.sheet_id = str(sheet_id)
+        return self.sheet_id
+
+    async def _range(self, spreadsheet_token: str) -> str:
         if self.full_range:
             return self.full_range
-        return f"{self.sheet_id}!{self.cell_range or 'A1:ZZ10000'}"
+        sheet_id = await self._ensure_sheet_id(spreadsheet_token)
+        return f"{sheet_id}!{self.cell_range or 'A1:ZZ10000'}"
 
     async def get_token(self, timeout: float = 15.0) -> str:
         """获取 tenant_access_token，带内存缓存。"""
@@ -537,10 +612,11 @@ class FeishuSheetClient:
     async def fetch(self, timeout: float = 60.0) -> list[dict]:
         self._validate()
         token = await self.get_token()
-        read_range = self._range()
+        spreadsheet_token = await self._ensure_spreadsheet_token()
+        read_range = await self._range(spreadsheet_token)
         url = (
             f"{self.base_url}/open-apis/sheets/v2/spreadsheets/"
-            f"{self.spreadsheet_token}/values/{read_range}"
+            f"{spreadsheet_token}/values/{read_range}"
         )
 
         async with httpx.AsyncClient(timeout=timeout) as client:

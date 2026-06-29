@@ -177,9 +177,10 @@ export const SOURCE_TYPES: SourceTypeDef[] = [
       {
         title: '表格定位',
         fields: [
-          { key: 'FEISHU_SPREADSHEET_TOKEN', label: 'Spreadsheet Token', type: 'text', required: true, placeholder: '表格 URL 中 /sheets/ 后的 token' },
-          { key: 'FEISHU_SHEET_ID', label: 'Sheet ID', type: 'text', required: true, placeholder: '工作表 gid/sheetId，如：6e5ed3', hint: '如果下方填写完整范围（含 !），后端也支持不依赖该字段；前端默认仍要求填写，避免配置不完整。' },
-          { key: 'FEISHU_RANGE', label: '读取范围', type: 'text', required: true, default: 'A1:ZZ10000', placeholder: 'A1:Z1000', hint: '与 Sheet ID 拼成 SheetID!A1:Z1000。第一行通常作为表头。' },
+          { key: 'FEISHU_WIKI_URL_OR_TOKEN', label: 'Wiki 链接或节点 Token', type: 'text', placeholder: 'https://xxx.feishu.cn/wiki/xxxx 或 wiki node token', hint: '如果表格挂在知识库里，可直接填 Wiki 页面地址，系统会自动解析真实 Spreadsheet Token。' },
+          { key: 'FEISHU_SPREADSHEET_TOKEN', label: 'Spreadsheet Token', type: 'text', placeholder: '表格 URL 中 /sheets/ 后的 token', hint: '与 Wiki 链接二选一；如果两者都填，优先使用 Spreadsheet Token。' },
+          { key: 'FEISHU_SHEET_ID', label: 'Sheet ID', type: 'text', placeholder: '工作表 gid/sheetId，如：6e5ed3', hint: '可选；留空时系统会读取第一个工作表。' },
+          { key: 'FEISHU_RANGE', label: '读取范围', type: 'text', required: true, default: 'A1:ZZ10000', placeholder: 'A1:Z1000', hint: '与 Sheet ID 拼成 SheetID!A1:Z1000。表头行通常在该范围内第 1 行。' },
           { key: 'FEISHU_SHEET_RANGE', label: '完整范围（可选）', type: 'text', placeholder: '6e5ed3!A1:Z1000', hint: '填写后优先使用，可覆盖 Sheet ID + 读取范围。' },
           { key: 'FEISHU_HEADER_ROW', label: '表头行号', type: 'text', required: true, default: '1', placeholder: '1', hint: '相对于读取范围的第几行作为表头，默认 1。' },
           { key: 'FEISHU_SKIP_EMPTY_ROWS', label: '跳过空行', type: 'select', default: 'true', options: [
