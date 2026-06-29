@@ -464,16 +464,19 @@ class FeishuSheetClient:
     """
 
     def __init__(self, settings: dict, secrets: dict):
-        self.base_url = (settings.get("FEISHU_BASE_URL") or "https://open.feishu.cn").rstrip("/")
-        self.token_url = settings.get(
+        self.base_url = self._str_setting(
+            settings, "FEISHU_BASE_URL", "https://open.feishu.cn"
+        ).rstrip("/")
+        self.token_url = self._str_setting(
+            settings,
             "FEISHU_TOKEN_URL",
             f"{self.base_url}/open-apis/auth/v3/tenant_access_token/internal",
         )
-        self.spreadsheet_token = settings.get("FEISHU_SPREADSHEET_TOKEN", "")
-        self.wiki_url_or_token = settings.get("FEISHU_WIKI_URL_OR_TOKEN", "")
-        self.sheet_id = settings.get("FEISHU_SHEET_ID", "")
-        self.cell_range = settings.get("FEISHU_RANGE", "A1:ZZ10000")
-        self.full_range = settings.get("FEISHU_SHEET_RANGE", "")
+        self.spreadsheet_token = self._str_setting(settings, "FEISHU_SPREADSHEET_TOKEN")
+        self.wiki_url_or_token = self._str_setting(settings, "FEISHU_WIKI_URL_OR_TOKEN")
+        self.sheet_id = self._str_setting(settings, "FEISHU_SHEET_ID")
+        self.cell_range = self._str_setting(settings, "FEISHU_RANGE", "A1:ZZ10000")
+        self.full_range = self._str_setting(settings, "FEISHU_SHEET_RANGE")
         self.header_row = self._int_setting(settings.get("FEISHU_HEADER_ROW"), default=1)
         self.skip_empty_rows = str(settings.get("FEISHU_SKIP_EMPTY_ROWS", "true")).lower() in (
             "true",
@@ -482,8 +485,16 @@ class FeishuSheetClient:
             "y",
             "是",
         )
-        self.app_id = secrets.get("FEISHU_APP_ID", "")
-        self.app_secret = secrets.get("FEISHU_APP_SECRET", "")
+        self.app_id = self._str_setting(secrets, "FEISHU_APP_ID")
+        self.app_secret = self._str_setting(secrets, "FEISHU_APP_SECRET")
+
+    @staticmethod
+    def _str_setting(source: dict, key: str, default: str = "") -> str:
+        value = source.get(key)
+        if value is None:
+            return default
+        value = str(value).strip()
+        return value or default
 
     @staticmethod
     def _int_setting(value, default: int) -> int:
