@@ -3,6 +3,7 @@
 支持两套：
 - BeisenReportClient：报表中心（GridHeader / GridData）
 - BeisenApiClient：通用 OpenAPI（如 SearchCostCenter）
+- FeishuSheetClient：飞书在线表格读取
 
 Token 缓存：每个 (AppKey, AppSecret) 独立缓存到内存。
 失败重试：调用方负责（这里只暴露原始错误，让 router 决定如何记录到 sync_runs）。
@@ -444,6 +445,149 @@ class HttpGenericClient:
             return []
 
 
+# ===== 飞书在线表格 =====
+
+
+class FeishuSheetClient:
+    """读取飞书在线表格并转换为 list[dict]。
+
+    配置约定：
+    - FEISHU_BASE_URL：默认 https://open.feishu.cn
+    - FEISHU_SPREADSHEET_TOKEN：电子表格 token
+    - FEISHU_SHEET_ID：工作表 ID（可选；若 FEISHU_SHEET_RANGE 已包含 "!" 则可不填）
+    - FEISHU_RANGE：单元格范围，如 A1:Z1000，默认 A1:ZZ10000
+    - FEISHU_SHEET_RANGE：完整范围，如 6e5ed3!A1:Z1000；优先级高于 SHEET_ID + RANGE
+    - FEISHU_HEADER_ROW：表头所在行（相对于读取范围的第几行，1-based），默认 1
+    - FEISHU_SKIP_EMPTY_ROWS：是否跳过空行，默认 true
+    """
+
+    def __init__(self, settings: dict, secrets: dict):
+        self.base_url = (settings.get("FEISHU_BASE_URL") or "https://open.feishu.cn").rstrip("/")
+        self.token_url = settings.get(
+            "FEISHU_TOKEN_URL",
+            f"{self.base_url}/open-apis/auth/v3/tenant_access_token/internal",
+        )
+        self.spreadsheet_token = settings.get("FEISHU_SPREADSHEET_TOKEN", "")
+        self.sheet_id = settings.get("FEISHU_SHEET_ID", "")
+        self.cell_range = settings.get("FEISHU_RANGE", "A1:ZZ10000")
+        self.full_range = settings.get("FEISHU_SHEET_RANGE", "")
+        self.header_row = self._int_setting(settings.get("FEISHU_HEADER_ROW"), default=1)
+        self.skip_empty_rows = str(settings.get("FEISHU_SKIP_EMPTY_ROWS", "true")).lower() in (
+            "true",
+            "1",
+            "yes",
+            "y",
+            "是",
+        )
+        self.app_id = secrets.get("FEISHU_APP_ID", "")
+        self.app_secret = secrets.get("FEISHU_APP_SECRET", "")
+
+    @staticmethod
+    def _int_setting(value, default: int) -> int:
+        try:
+            parsed = int(value)
+            return parsed if parsed > 0 else default
+        except (TypeError, ValueError):
+            return default
+
+    def _validate(self) -> None:
+        missing = [
+            n for n, v in [
+                ("FEISHU_APP_ID", self.app_id),
+                ("FEISHU_APP_SECRET", self.app_secret),
+                ("FEISHU_SPREADSHEET_TOKEN", self.spreadsheet_token),
+            ] if not v
+        ]
+        if not self.full_range and not self.sheet_id:
+            missing.append("FEISHU_SHEET_ID 或 FEISHU_SHEET_RANGE")
+        if missing:
+            raise RuntimeError(f"飞书在线表格配置缺失: {', '.join(missing)}")
+
+    def _range(self) -> str:
+        if self.full_range:
+            return self.full_range
+        return f"{self.sheet_id}!{self.cell_range or 'A1:ZZ10000'}"
+
+    async def get_token(self, timeout: float = 15.0) -> str:
+        """获取 tenant_access_token，带内存缓存。"""
+        self._validate()
+        cache_key = f"feishu|{self.token_url}|{self.app_id}"
+        now = time.time()
+        cached = _token_store.get(cache_key)
+        if cached and cached.expires_at > now + 60:
+            return cached.token
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                self.token_url,
+                json={"app_id": self.app_id, "app_secret": self.app_secret},
+                headers={"Content-Type": "application/json; charset=utf-8"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("code") not in (0, "0", None) and "tenant_access_token" not in data:
+                raise RuntimeError(f"飞书 token 接口返回错误: {data.get('msg') or data}")
+            token = data.get("tenant_access_token")
+            if not token:
+                raise RuntimeError(f"飞书 token 接口返回异常: {data}")
+            ttl = int(data.get("expire", 7200))
+            _token_store[cache_key] = _TokenCache(token=token, expires_at=now + ttl)
+            return token
+
+    async def fetch(self, timeout: float = 60.0) -> list[dict]:
+        self._validate()
+        token = await self.get_token()
+        read_range = self._range()
+        url = (
+            f"{self.base_url}/open-apis/sheets/v2/spreadsheets/"
+            f"{self.spreadsheet_token}/values/{read_range}"
+        )
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            resp.raise_for_status()
+            data = resp.json()
+
+        if isinstance(data, dict) and str(data.get("code", "0")) not in ("0",):
+            raise RuntimeError(f"飞书表格读取失败 (code={data.get('code')}): {data.get('msg') or data}")
+
+        value_range = (data.get("data") or {}).get("valueRange") or {}
+        values = value_range.get("values") or []
+        if not values:
+            return []
+        if self.header_row > len(values):
+            raise RuntimeError(
+                f"飞书表格表头行超出读取范围: header_row={self.header_row}, rows={len(values)}"
+            )
+
+        header_idx = self.header_row - 1
+        raw_headers = values[header_idx] or []
+        headers: list[str] = []
+        used: dict[str, int] = {}
+        for i, h in enumerate(raw_headers):
+            name = str(h or "").strip() or f"列{i + 1}"
+            # 避免重复表头覆盖数据
+            if name in used:
+                used[name] += 1
+                name = f"{name}_{used[name]}"
+            else:
+                used[name] = 1
+            headers.append(name)
+
+        rows: list[dict] = []
+        for raw in values[header_idx + 1 :]:
+            if not isinstance(raw, list):
+                continue
+            if self.skip_empty_rows and all(v in (None, "") for v in raw):
+                continue
+            row = {
+                headers[i]: raw[i] if i < len(raw) else None
+                for i in range(len(headers))
+            }
+            rows.append(row)
+        return rows
+
+
 # ===== 调度器：根据 source_type 选择客户端 =====
 
 
@@ -454,4 +598,6 @@ def make_client(source_type: str, settings: dict, secrets: dict):
         return BeisenApiClient(settings, secrets)
     if source_type == "http_generic":
         return HttpGenericClient(settings, secrets)
+    if source_type == "feishu_sheet":
+        return FeishuSheetClient(settings, secrets)
     raise RuntimeError(f"暂不支持的接入类型: {source_type}")

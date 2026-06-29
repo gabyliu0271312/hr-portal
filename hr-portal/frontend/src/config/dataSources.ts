@@ -161,6 +161,43 @@ export const SOURCE_TYPES: SourceTypeDef[] = [
     ],
   },
   {
+    code: 'feishu_sheet',
+    label: '飞书在线表格',
+    description: '通过飞书开放平台读取在线电子表格，将表头行后的数据转换为业务表数据并落库',
+    testable: true,
+    defaultSchedule: '每日 06:00',
+    groups: [
+      {
+        title: '认证信息',
+        fields: [
+          { key: 'FEISHU_APP_ID', label: 'App ID', type: 'text', required: true, placeholder: '飞书开放平台应用 App ID' },
+          { key: 'FEISHU_APP_SECRET', label: 'App Secret', type: 'password', required: true },
+        ],
+      },
+      {
+        title: '表格定位',
+        fields: [
+          { key: 'FEISHU_SPREADSHEET_TOKEN', label: 'Spreadsheet Token', type: 'text', required: true, placeholder: '表格 URL 中 /sheets/ 后的 token' },
+          { key: 'FEISHU_SHEET_ID', label: 'Sheet ID', type: 'text', required: true, placeholder: '工作表 gid/sheetId，如：6e5ed3', hint: '如果下方填写完整范围（含 !），后端也支持不依赖该字段；前端默认仍要求填写，避免配置不完整。' },
+          { key: 'FEISHU_RANGE', label: '读取范围', type: 'text', required: true, default: 'A1:ZZ10000', placeholder: 'A1:Z1000', hint: '与 Sheet ID 拼成 SheetID!A1:Z1000。第一行通常作为表头。' },
+          { key: 'FEISHU_SHEET_RANGE', label: '完整范围（可选）', type: 'text', placeholder: '6e5ed3!A1:Z1000', hint: '填写后优先使用，可覆盖 Sheet ID + 读取范围。' },
+          { key: 'FEISHU_HEADER_ROW', label: '表头行号', type: 'text', required: true, default: '1', placeholder: '1', hint: '相对于读取范围的第几行作为表头，默认 1。' },
+          { key: 'FEISHU_SKIP_EMPTY_ROWS', label: '跳过空行', type: 'select', default: 'true', options: [
+            { label: '是', value: 'true' },
+            { label: '否', value: 'false' },
+          ] },
+        ],
+      },
+      {
+        title: '接口地址',
+        fields: [
+          { key: 'FEISHU_BASE_URL', label: '飞书 OpenAPI Base URL', type: 'url', required: true, default: 'https://open.feishu.cn' },
+          { key: 'FEISHU_TOKEN_URL', label: 'Token 接口（可选）', type: 'url', placeholder: '默认自动使用 /open-apis/auth/v3/tenant_access_token/internal' },
+        ],
+      },
+    ],
+  },
+  {
     code: 'database',
     label: '数据库直连',
     description: '直连业务系统数据库（MySQL / PostgreSQL / SQL Server），适合内部仓库类场景',

@@ -25,6 +25,7 @@ const DATASOURCE_TYPES = [
   { value: 'upload', label: '手动上传' },
   { value: 'beisen_report', label: '北森报表' },
   { value: 'beisen_api', label: '北森接口' },
+  { value: 'feishu_sheet', label: '飞书在线表格' },
   { value: 'http_generic', label: '通用 HTTP' },
 ]
 

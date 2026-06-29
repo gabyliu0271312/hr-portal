@@ -107,6 +107,8 @@ const SECRET_KEY_SET = new Set([
   'HTTP_CREDENTIAL',
   'WEBHOOK_TOKEN',
   'DB_PASSWORD',
+  'FEISHU_APP_ID',
+  'FEISHU_APP_SECRET',
 ])
 
 function onTypeChange(newType: string) {
@@ -311,7 +313,7 @@ onMounted(() => {
         style="margin-bottom: 16px"
       >
         <p style="margin: 0; line-height: 1.6">
-          每张数据表对应一行配置。支持的接入类型：北森报表 API / 北森接口 API / 内部上传 / 通用 HTTP API / 数据库直连。
+          每张数据表对应一行配置。支持的接入类型：北森报表 API / 北森接口 API / 飞书在线表格 / 内部上传 / 通用 HTTP API / 数据库直连。
           点「配置」编辑凭证与调度；点「立即拉取」触发同步并落库。同类型可一键复制非敏感配置。
         </p>
       </el-alert>
