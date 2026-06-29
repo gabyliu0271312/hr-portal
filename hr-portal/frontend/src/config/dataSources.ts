@@ -183,6 +183,7 @@ export const SOURCE_TYPES: SourceTypeDef[] = [
           { key: 'FEISHU_RANGE', label: '读取范围', type: 'text', required: true, default: 'A1:ZZ10000', placeholder: 'A1:Z1000', hint: '与 Sheet ID 拼成 SheetID!A1:Z1000。表头行通常在该范围内第 1 行。' },
           { key: 'FEISHU_SHEET_RANGE', label: '完整范围（可选）', type: 'text', placeholder: '6e5ed3!A1:Z1000', hint: '填写后优先使用，可覆盖 Sheet ID + 读取范围。' },
           { key: 'FEISHU_HEADER_ROW', label: '表头行号', type: 'text', required: true, default: '1', placeholder: '1', hint: '相对于读取范围的第几行作为表头，默认 1。' },
+          { key: 'FEISHU_ROW_CHUNK_SIZE', label: '分片行数', type: 'text', default: '1000', placeholder: '1000', hint: '单次读取的行数，默认 1000；遇到飞书 10MB 限制时后端会自动缩小分片重试。' },
           { key: 'FEISHU_SKIP_EMPTY_ROWS', label: '跳过空行', type: 'select', default: 'true', options: [
             { label: '是', value: 'true' },
             { label: '否', value: 'false' },

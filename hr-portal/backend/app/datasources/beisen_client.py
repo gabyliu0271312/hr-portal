@@ -16,6 +16,7 @@ import logging
 import time
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
+import re
 
 import httpx
 
@@ -460,6 +461,7 @@ class FeishuSheetClient:
     - FEISHU_RANGE：单元格范围，如 A1:Z1000，默认 A1:ZZ10000
     - FEISHU_SHEET_RANGE：完整范围，如 6e5ed3!A1:Z1000；优先级高于 SHEET_ID + RANGE
     - FEISHU_HEADER_ROW：表头所在行（相对于读取范围的第几行，1-based），默认 1
+    - FEISHU_ROW_CHUNK_SIZE：按行分片读取大小，默认 1000；遇到飞书 10MB 限制会自动缩小
     - FEISHU_SKIP_EMPTY_ROWS：是否跳过空行，默认 true
     """
 
@@ -478,6 +480,7 @@ class FeishuSheetClient:
         self.cell_range = self._str_setting(settings, "FEISHU_RANGE", "A1:ZZ10000")
         self.full_range = self._str_setting(settings, "FEISHU_SHEET_RANGE")
         self.header_row = self._int_setting(settings.get("FEISHU_HEADER_ROW"), default=1)
+        self.row_chunk_size = self._int_setting(settings.get("FEISHU_ROW_CHUNK_SIZE"), default=1000)
         self.skip_empty_rows = str(settings.get("FEISHU_SKIP_EMPTY_ROWS", "true")).lower() in (
             "true",
             "1",
@@ -628,30 +631,109 @@ class FeishuSheetClient:
             _token_store[cache_key] = _TokenCache(token=token, expires_at=now + ttl)
             return token
 
-    async def fetch(self, timeout: float = 60.0) -> list[dict]:
-        self._validate()
-        token = await self.get_token()
-        spreadsheet_token = await self._ensure_spreadsheet_token()
-        read_range = await self._range(spreadsheet_token)
+    @staticmethod
+    def _parse_range_for_chunking(read_range: str) -> tuple[str, str, int, str, int] | None:
+        """解析 SheetID!A1:ZZ10000，返回 (sheet_id, start_col, start_row, end_col, end_row)。"""
+        m = re.fullmatch(
+            r"([^!]+)!\$?([A-Za-z]+)\$?(\d+)\s*:\s*\$?([A-Za-z]+)\$?(\d+)",
+            (read_range or "").strip(),
+        )
+        if not m:
+            return None
+        sheet_id, start_col, start_row, end_col, end_row = m.groups()
+        start_row_i = int(start_row)
+        end_row_i = int(end_row)
+        if end_row_i < start_row_i:
+            return None
+        return sheet_id, start_col.upper(), start_row_i, end_col.upper(), end_row_i
+
+    @staticmethod
+    def _is_payload_too_large(data: dict) -> bool:
+        return str((data or {}).get("code", "")) == "90221"
+
+    async def _fetch_value_range(
+        self,
+        client: httpx.AsyncClient,
+        spreadsheet_token: str,
+        token: str,
+        read_range: str,
+    ) -> list:
         url = (
             f"{self.base_url}/open-apis/sheets/v2/spreadsheets/"
             f"{spreadsheet_token}/values/{read_range}"
         )
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
-            try:
-                data = resp.json()
-            except Exception:
-                data = {}
-            if resp.status_code >= 400 and not data:
-                resp.raise_for_status()
-
+        resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        if resp.status_code >= 400 and not data:
+            resp.raise_for_status()
         if isinstance(data, dict) and str(data.get("code", "0")) not in ("0",):
             raise RuntimeError(f"飞书表格读取失败 (code={data.get('code')}): {data.get('msg') or data}")
-
         value_range = (data.get("data") or {}).get("valueRange") or {}
-        values = value_range.get("values") or []
+        return value_range.get("values") or []
+
+    async def _fetch_values_chunked(
+        self,
+        client: httpx.AsyncClient,
+        spreadsheet_token: str,
+        token: str,
+        read_range: str,
+    ) -> list:
+        parsed = self._parse_range_for_chunking(read_range)
+        if not parsed:
+            try:
+                return await self._fetch_value_range(client, spreadsheet_token, token, read_range)
+            except RuntimeError as exc:
+                if "code=90221" in str(exc):
+                    raise RuntimeError(
+                        "飞书表格读取失败：单次读取数据超过 10MB。请把读取范围配置为类似 "
+                        "SheetID!A1:ZZ10000 或 A1:ZZ10000，系统才能自动分片读取；"
+                        "也可以缩小 FEISHU_RANGE。"
+                    ) from exc
+                raise
+
+        sheet_id, start_col, start_row, end_col, end_row = parsed
+        header_abs_row = start_row + self.header_row - 1
+        if header_abs_row > end_row:
+            raise RuntimeError(
+                f"飞书表格表头行超出读取范围: header_row={self.header_row}, range={read_range}"
+            )
+
+        values: list = []
+        current = start_row
+        chunk_size = max(50, self.row_chunk_size or 1000)
+        while current <= end_row:
+            current_chunk = chunk_size
+            while True:
+                chunk_end = min(end_row, current + current_chunk - 1)
+                chunk_range = f"{sheet_id}!{start_col}{current}:{end_col}{chunk_end}"
+                try:
+                    chunk_values = await self._fetch_value_range(
+                        client, spreadsheet_token, token, chunk_range
+                    )
+                    values.extend(chunk_values)
+                    logger.info(
+                        "[feishu_sheet] fetched range=%s rows=%d chunk_size=%d",
+                        chunk_range,
+                        len(chunk_values),
+                        current_chunk,
+                    )
+                    current = chunk_end + 1
+                    break
+                except RuntimeError as exc:
+                    if "code=90221" not in str(exc) or current_chunk <= 50:
+                        raise
+                    current_chunk = max(50, current_chunk // 2)
+                    logger.warning(
+                        "[feishu_sheet] range too large, shrink chunk: range=%s next_chunk_size=%d",
+                        chunk_range,
+                        current_chunk,
+                    )
+        return values
+
+    def _values_to_rows(self, values: list) -> list[dict]:
         if not values:
             return []
         if self.header_row > len(values):
@@ -685,6 +767,16 @@ class FeishuSheetClient:
             }
             rows.append(row)
         return rows
+
+    async def fetch(self, timeout: float = 60.0) -> list[dict]:
+        self._validate()
+        token = await self.get_token()
+        spreadsheet_token = await self._ensure_spreadsheet_token()
+        read_range = await self._range(spreadsheet_token)
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            values = await self._fetch_values_chunked(client, spreadsheet_token, token, read_range)
+        return self._values_to_rows(values)
 
 
 # ===== 调度器：根据 source_type 选择客户端 =====
