@@ -570,33 +570,60 @@ async def push_feishu_sheet(
     rows = await _load_source_rows(source_table, db, period_ym)
     mapped_rows = [json_ready_row(apply_field_mappings(r, field_mappings)) for r in rows]
 
-    if mapped_rows:
-        headers = list(mapped_rows[0].keys())
+    source_cols = (
+        await db.execute(
+            select(TableColumn)
+            .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
+            .order_by(TableColumn.display_order)
+        )
+    ).scalars().all()
+    label_by_code = {
+        c.column_code: (c.column_label or c.column_code).strip() or c.column_code
+        for c in source_cols
+    }
+    mapping_pairs = [
+        (m.get("source"), m.get("target"))
+        for m in field_mappings
+        if m.get("source") and m.get("target")
+    ]
+
+    if mapping_pairs:
+        data_keys = [target for _, target in mapping_pairs]
+        # 字段映射的目标名通常就是用户希望写入飞书的表头名称；若目标名等于源字段编码，则兜底显示源字段名称。
+        header_labels = [
+            target if target != source else label_by_code.get(source, source)
+            for source, target in mapping_pairs
+        ]
+    elif mapped_rows:
+        data_keys = list(mapped_rows[0].keys())
         for row in mapped_rows[1:]:
             for key in row.keys():
-                if key not in headers:
-                    headers.append(key)
+                if key not in data_keys:
+                    data_keys.append(key)
+        header_labels = [label_by_code.get(key, key) for key in data_keys]
     else:
-        headers = [m.get("target") or m.get("source") for m in field_mappings if m.get("target") or m.get("source")]
-    if not headers:
+        data_keys = [c.column_code for c in source_cols]
+        header_labels = [label_by_code.get(key, key) for key in data_keys]
+
+    if not data_keys:
         return 0, "源表无可推送字段，飞书推送跳过"
-    if len(headers) > 100:
-        raise RuntimeError(f"飞书单次写入最多支持 100 列，当前 {len(headers)} 列；请通过字段映射减少列数")
+    if len(data_keys) > 100:
+        raise RuntimeError(f"飞书单次写入最多支持 100 列，当前 {len(data_keys)} 列；请通过字段映射减少列数")
 
     start_col, start_row = _parse_cell(start_cell)
     start_col_idx = _col_index(start_col)
-    end_col = _col_name(start_col_idx + len(headers) - 1)
+    end_col = _col_name(start_col_idx + len(data_keys) - 1)
 
     total = 0
     current_row = start_row
     if include_header:
         header_range = f"{sheet_id}!{start_col}{current_row}:{end_col}{current_row}"
-        await _put_feishu_values(base_url, tenant_token, spreadsheet_token, header_range, [headers])
+        await _put_feishu_values(base_url, tenant_token, spreadsheet_token, header_range, [header_labels])
         current_row += 1
 
     for i in range(0, len(mapped_rows), batch_size):
         batch = mapped_rows[i: i + batch_size]
-        values = [[row.get(h, "") for h in headers] for row in batch]
+        values = [[row.get(key, "") for key in data_keys] for row in batch]
         if not values:
             continue
         end_row = current_row + len(values) - 1
