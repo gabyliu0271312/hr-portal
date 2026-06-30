@@ -103,6 +103,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '数据对比', menuCode: 'system.data_compare' },
       },
       {
+        path: 'system/data-compare/runs/:runId',
+        name: 'DataCompareRunDetail',
+        component: () => import('@/views/system/DataCompareRunDetail.vue'),
+        meta: { label: '执行记录详情' },
+      },
+      {
         path: 'datasource/endpoints',
         name: 'DatasourceEndpoints',
         component: () => import('@/views/datasource/Endpoints.vue'),
@@ -274,6 +280,12 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+router.onError((error, to) => {
+  if (/Failed to fetch dynamically imported module|Unable to preload CSS|Load failed/.test(error.message)) {
+    window.location.href = to.fullPath
+  }
 })
 
 router.beforeEach(async (to) => {
