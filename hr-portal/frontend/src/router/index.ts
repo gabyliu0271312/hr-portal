@@ -103,12 +103,6 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '数据对比', menuCode: 'system.data_compare' },
       },
       {
-        path: 'system/data-compare/runs/:runId',
-        name: 'DataCompareRunDetail',
-        component: () => import('@/views/system/DataCompareRunDetail.vue'),
-        meta: { label: '执行记录详情' },
-      },
-      {
         path: 'datasource/endpoints',
         name: 'DatasourceEndpoints',
         component: () => import('@/views/datasource/Endpoints.vue'),
