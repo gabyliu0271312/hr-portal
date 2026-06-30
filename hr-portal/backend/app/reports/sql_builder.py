@@ -23,7 +23,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, desc, except_, func, inspect, intersect, or_, select, true, union
+from sqlalchemy import and_, desc, except_, func, inspect, intersect, or_, select, text, true, union
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement, cast
 from sqlalchemy.types import Boolean as SABoolean
@@ -1598,7 +1598,10 @@ async def run_dataset_query(
     need_all = agg_on or transpose_on or structural_reshape_on or calc_filter_on or calc_sort_on
     total = 0
     if need_all:
+        # 全量取数前设置 statement_timeout，防止超大数据量挂死连接
+        await db.execute(text("SET LOCAL statement_timeout = '120s'"))
         rows = (await db.execute(stmt)).all()
+        await db.execute(text("SET LOCAL statement_timeout = '0'"))
     else:
         total = (await db.execute(count_stmt)).scalar_one()
         if page_size > 0:

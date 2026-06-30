@@ -20,6 +20,7 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    pool_recycle=1800,
     echo=False,
 )
 
@@ -36,7 +37,11 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
         except Exception:
-            await session.rollback()
+            try:
+                await session.rollback()
+            except Exception:
+                # rollback 本身也可能失败（连接已断），关闭会话让连接池丢弃该连接
+                await session.close()
             raise
 
 
