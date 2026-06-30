@@ -20,17 +20,17 @@ const emit = defineEmits<{
 }>()
 
 const FILTER_OPS = [
-  { value: 'eq', label: '绛変簬' },
-  { value: 'neq', label: '涓嶇瓑浜? },
-  { value: 'contains', label: '鍖呭惈' },
-  { value: 'gt', label: '澶т簬' },
-  { value: 'gte', label: '鈮? },
-  { value: 'lt', label: '灏忎簬' },
-  { value: 'lte', label: '鈮? },
-  { value: 'between', label: '浠嬩簬' },
-  { value: 'in', label: '灞炰簬' },
-  { value: 'is_null', label: '涓虹┖' },
-  { value: 'is_not_null', label: '闈炵┖' },
+  { value: 'eq', label: '等于' },
+  { value: 'neq', label: '不等于' },
+  { value: 'contains', label: '包含' },
+  { value: 'gt', label: '大于' },
+  { value: 'gte', label: '≥' },
+  { value: 'lt', label: '小于' },
+  { value: 'lte', label: '≤' },
+  { value: 'between', label: '介于' },
+  { value: 'in', label: '属于' },
+  { value: 'is_null', label: '为空' },
+  { value: 'is_not_null', label: '非空' },
 ]
 
 type DistinctOpt = { value: string; label: string }
@@ -177,12 +177,12 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
       <el-tag class="rule-label" effect="plain">{{ filterLabel(i) }}</el-tag>
       <el-select
         :model-value="f.column"
-        placeholder="瀛楁"
+        placeholder="字段"
         class="filter-column-select"
         filterable
         @update:model-value="(value: string) => onFilterColumnChange(i, value)"
       >
-        <el-option label="鍏ㄩ儴" value="" />
+        <el-option label="全部" value="" />
         <el-option v-for="c in allColumns" :key="c.code" :label="c.label" :value="c.code" />
       </el-select>
       <el-select
@@ -200,7 +200,7 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
         allow-create
         default-first-option
         :reserve-keyword="false"
-        placeholder="閫夋嫨鎴栬緭鍏ュ€?
+        placeholder="选择或输入值"
         class="filter-value-control"
         @update:model-value="(value: any) => onFilterValueChange(i, value)"
         @visible-change="(v: boolean) => v && ensureOptions(f.column)"
@@ -210,7 +210,7 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
       <el-input
         v-else
         :model-value="f.value"
-        :placeholder="valueRequiresArray(f.op) ? '澶氫釜鍊肩敤閫楀彿鍒嗛殧' : '鍊?"
+        :placeholder="valueRequiresArray(f.op) ? '多个值用逗号分隔' : '值'"
         :disabled="valueDisabled(f.op)"
         class="filter-value-control"
         @update:model-value="(value: string) => onFilterValueChange(i, value)"
@@ -219,7 +219,7 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
         <el-icon><Delete /></el-icon>
       </el-button>
       <template v-if="showViewControls !== false">
-        <el-tooltip :content="f.visible === false ? '鏌ョ湅椤典笉鏄剧ず' : '鏌ョ湅椤垫樉绀?" placement="top">
+        <el-tooltip :content="f.visible === false ? '查看页不显示' : '查看页显示'" placement="top">
           <el-button
             link
             :type="f.visible === false ? 'info' : 'primary'"
@@ -234,28 +234,28 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
           :model-value="f.locked ?? false"
           :disabled="f.visible === false"
           @update:model-value="(value: string | number | boolean) => onFilterLockedChange(i, !!value)"
-        >閿佸畾</el-checkbox>
+        >锁定</el-checkbox>
       </template>
     </div>
     <div v-if="filters.length > 1" class="logic-row">
-      <span class="logic-label">缁勫悎閫昏緫</span>
+      <span class="logic-label">组合逻辑</span>
       <el-radio-group
         :model-value="logicMode"
         @update:model-value="(v: string | number) => setLogicMode(v as 'and' | 'custom')"
       >
-        <el-radio-button label="and">鍏ㄩ儴 AND</el-radio-button>
-        <el-radio-button label="custom">鑷畾涔?/el-radio-button>
+        <el-radio-button label="and">全部 AND</el-radio-button>
+        <el-radio-button label="custom">自定义</el-radio-button>
       </el-radio-group>
       <el-input
         v-if="logicMode === 'custom'"
         :model-value="logicExpression"
-        placeholder="渚嬪锛?A AND B) OR C"
+        placeholder="例如：(A AND B) OR C"
         style="max-width: 360px"
         @update:model-value="setLogicExpression"
       />
     </div>
     <el-button link type="primary" @click="addFilter">
-      <el-icon style="margin-right: 4px"><Plus /></el-icon>娣诲姞绛涢€?    </el-button>
+      <el-icon style="margin-right: 4px"><Plus /></el-icon>添加筛选
   </div>
 </template>
 
