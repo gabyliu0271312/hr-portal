@@ -85,7 +85,7 @@ class ReportIn(BaseModel):
     table_name: str = ""
     dataset_id: int
     config: ReportConfig = Field(default_factory=ReportConfig)
-    is_published: bool = False
+    visibility: str = "private"
     scope_strategy: str | None = None
     acl: list[ReportAclIn] = Field(default_factory=list)
 
@@ -116,6 +116,7 @@ class ReportOut(BaseModel):
     config: ReportConfig
     owner_id: int | None
     owner_name: str | None
+    visibility: str
     is_published: bool
     scope_strategy: str | None
     last_run_at: datetime | None
@@ -222,6 +223,67 @@ def _project_report_output(
     return visible_columns, visible_items
 
 
+VISIBILITY_VALUES = {"private", "scoped", "public"}
+
+
+async def _report_dataset_can_access(user: User, r: Report, db: AsyncSession) -> bool:
+    """报表访问者是否拥有该报表所绑数据集的权限（复用数据集授权口径）。"""
+    from app.datasets.models import DataSet
+    from app.datasets.router import _can_access as dataset_can_access
+
+    if r.dataset_id is None:
+        return False
+    ds = await db.get(DataSet, r.dataset_id)
+    if ds is None:
+        return False
+    return await dataset_can_access(user, ds, db)
+
+
+async def _dataset_authorized_principals(
+    dataset_id: int, db: AsyncSession
+) -> tuple[set[int], set[int]]:
+    """返回对该数据集有权的 (角色 id 集, 用户 id 集)。
+
+    与 datasets._can_access 同口径：
+    - 有权角色 = 超级管理员角色 ∪ dataset_acl.role_id
+    - 有权用户 = dataset.created_by ∪ dataset_acl.user_id ∪ 有权角色的成员
+    """
+    from app.datasets.models import DataSet, DataSetAcl
+
+    role_ids: set[int] = set()
+    user_ids: set[int] = set()
+
+    ds = await db.get(DataSet, dataset_id)
+    if ds and ds.created_by:
+        user_ids.add(ds.created_by)
+
+    super_role_ids = (
+        await db.execute(
+            select(Role.id).where(Role.name == "超级管理员", Role.is_active.is_(True))
+        )
+    ).scalars().all()
+    role_ids.update(super_role_ids)
+
+    acls = (
+        await db.execute(select(DataSetAcl).where(DataSetAcl.dataset_id == dataset_id))
+    ).scalars().all()
+    for a in acls:
+        if a.role_id is not None:
+            role_ids.add(a.role_id)
+        if a.user_id is not None:
+            user_ids.add(a.user_id)
+
+    if role_ids:
+        members = (
+            await db.execute(
+                select(UserRole.user_id).where(UserRole.role_id.in_(role_ids))
+            )
+        ).scalars().all()
+        user_ids.update(members)
+
+    return role_ids, user_ids
+
+
 async def _can_access(user: User, r: Report, db: AsyncSession) -> bool:
     if r.owner_id == user.id:
         return True
@@ -229,9 +291,20 @@ async def _can_access(user: User, r: Report, db: AsyncSession) -> bool:
 
     if await _is_super_admin(user, db):
         return True
-    if r.is_published:
+
+    vis = r.visibility or "private"
+    if vis == "private":
+        # 私密：仅创建者 + 超管，不查 ACL
+        return False
+
+    # scoped / public 共用前置闸：访问者须拥有该数据集权限
+    if not await _report_dataset_can_access(user, r, db):
+        return False
+
+    if vis == "public":
         return True
 
+    # scoped：再要报表 ACL 命中
     acls = (
         (await db.execute(select(ReportAcl).where(ReportAcl.report_id == r.id)))
         .scalars()
@@ -270,6 +343,24 @@ async def _replace_report_acl(
         if item.role_id is None and item.user_id is None:
             continue
         db.add(ReportAcl(report_id=report_id, role_id=item.role_id, user_id=item.user_id))
+
+
+async def _validate_acl_principals(
+    dataset_id: int, items: list[ReportAclIn], db: AsyncSession
+) -> None:
+    """保存报表 ACL 时强校验：被授权角色/用户必须本就拥有该数据集权限。"""
+    role_ids, user_ids = await _dataset_authorized_principals(dataset_id, db)
+    for item in items:
+        if item.role_id is not None and item.role_id not in role_ids:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="只能授权给拥有该数据集权限的角色",
+            )
+        if item.user_id is not None and item.user_id not in user_ids:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="只能授权给拥有该数据集权限的用户",
+            )
 
 
 async def _to_out(r: Report, db: AsyncSession, user: User | None = None) -> ReportOut:
@@ -314,7 +405,8 @@ async def _to_out(r: Report, db: AsyncSession, user: User | None = None) -> Repo
         config=ReportConfig(**(r.config or {})),
         owner_id=r.owner_id,
         owner_name=owner_name,
-        is_published=r.is_published,
+        visibility=r.visibility or "private",
+        is_published=(r.visibility or "private") == "public",
         scope_strategy=r.scope_strategy,
         last_run_at=r.last_run_at,
         run_count=r.run_count,
@@ -327,7 +419,11 @@ async def _to_out(r: Report, db: AsyncSession, user: User | None = None) -> Repo
     )
 
 
-@router.get("", response_model=list[ReportOut])
+@router.get(
+    "",
+    response_model=list[ReportOut],
+    dependencies=[Depends(require_op("report.list", "V"))],
+)
 async def list_reports(
     dataset_id: int | None = None,
     keyword: str | None = None,
@@ -349,14 +445,33 @@ async def list_reports(
     response_model=AclOptionsOut,
     dependencies=[Depends(require_any_op(("report.list", "C"), ("report.list", "U")))],
 )
-async def report_acl_options(db: AsyncSession = Depends(get_session)) -> AclOptionsOut:
+async def report_acl_options(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_session),
+) -> AclOptionsOut:
+    # 只返回对该数据集有权的角色/用户，作为报表授权候选
+    allowed_role_ids, allowed_user_ids = await _dataset_authorized_principals(
+        dataset_id, db
+    )
     roles = (
-        (await db.execute(select(Role).where(Role.is_active.is_(True)).order_by(Role.id)))
+        (
+            await db.execute(
+                select(Role)
+                .where(Role.is_active.is_(True), Role.id.in_(allowed_role_ids or {-1}))
+                .order_by(Role.id)
+            )
+        )
         .scalars()
         .all()
     )
     users = (
-        (await db.execute(select(User).where(User.is_active.is_(True)).order_by(User.id)))
+        (
+            await db.execute(
+                select(User)
+                .where(User.is_active.is_(True), User.id.in_(allowed_user_ids or {-1}))
+                .order_by(User.id)
+            )
+        )
         .scalars()
         .all()
     )
@@ -394,6 +509,13 @@ async def create_report(
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的数据范围策略") from exc
 
+    visibility = payload.visibility or "private"
+    if visibility not in VISIBILITY_VALUES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的可见性")
+    acl_items = payload.acl if visibility == "scoped" else []
+    if acl_items:
+        await _validate_acl_principals(payload.dataset_id, acl_items, db)
+
     report = Report(
         name=payload.name,
         description=payload.description,
@@ -401,19 +523,24 @@ async def create_report(
         dataset_id=payload.dataset_id,
         config=payload.config.model_dump(),
         owner_id=user.id,
-        is_published=payload.is_published,
+        visibility=visibility,
+        is_published=(visibility == "public"),
         scope_strategy=scope_strategy,
     )
     db.add(report)
     await db.flush()
     _log_list_lookup_filters("report.create", report, report.config.get("list_lookup"))
-    await _replace_report_acl(db, report.id, payload.acl)
+    await _replace_report_acl(db, report.id, acl_items)
     await db.commit()
     await db.refresh(report)
     return await _to_out(report, db, user)
 
 
-@router.get("/{report_id}", response_model=ReportOut)
+@router.get(
+    "/{report_id}",
+    response_model=ReportOut,
+    dependencies=[Depends(require_op("report.list", "V"))],
+)
 async def get_report(
     report_id: int,
     user: User = Depends(current_user),
@@ -449,18 +576,26 @@ async def update_report(
     if dataset is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="数据集不存在")
 
+    visibility = payload.visibility or "private"
+    if visibility not in VISIBILITY_VALUES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的可见性")
+    acl_items = payload.acl if visibility == "scoped" else []
+    if acl_items:
+        await _validate_acl_principals(payload.dataset_id, acl_items, db)
+
     report.name = payload.name
     report.description = payload.description
     report.table_name = ""
     report.dataset_id = payload.dataset_id
     report.config = payload.config.model_dump()
-    report.is_published = payload.is_published
+    report.visibility = visibility
+    report.is_published = (visibility == "public")
     _log_list_lookup_filters("report.update", report, report.config.get("list_lookup"))
     try:
         report.scope_strategy = ensure_scope_strategy(payload.scope_strategy)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的数据范围策略") from exc
-    await _replace_report_acl(db, report.id, payload.acl)
+    await _replace_report_acl(db, report.id, acl_items)
     await db.commit()
     await db.refresh(report)
     return await _to_out(report, db, user)
@@ -559,7 +694,11 @@ def _parse_runtime_filters(raw: str | None) -> list[dict[str, Any]]:
     return [item for item in parsed if isinstance(item, dict)]
 
 
-@router.post("/{report_id}/run", response_model=RunResult)
+@router.post(
+    "/{report_id}/run",
+    response_model=RunResult,
+    dependencies=[Depends(require_op("report.list", "V"))],
+)
 async def run_report(
     report_id: int,
     overrides: RunOverrides | None = None,

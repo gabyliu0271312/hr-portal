@@ -53,6 +53,10 @@ class Report(Base):
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 可见性三档：private(仅创建者+超管) / scoped(数据集有权者中由 ACL 圈定) / public(数据集有权者全体)
+    visibility: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="private", server_default="private"
+    )
     scope_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     last_run_at: Mapped[datetime | None] = mapped_column(

@@ -36,6 +36,7 @@
 - [L3 字段权限两条语义](./hr_portal_field_permission_semantics.md) — 「敏感」是字段分类管控总开关(非敏感分类零效果)；报表含无权敏感字段→整张 403(授权该角色实际无效)；被问"是不是 bug"直接引用，符合设计
 - [三套敏感开关](./hr_portal_sensitive_three_switches.md) — "关了敏感还脱敏/超管也脱敏"=三套独立开关关错地方;列级 is_sensitive 和计算字段绝密对超管强制脱敏,分类敏感才超管豁免;计算字段引用列级敏感列→超管也脱敏(设计非bug)
 - [北森报表分页两个坑](./hr_portal_beisen_report_pagination.md) — 行数拉不全(944→714):①pageSize有上限(5000报400,1000可用)②分页无序页间随机重叠;应对=pageSize自适应降级+多轮重扫整行去重;排查铁律=从北森源头导出文件直接数,别信中途推断
+- [报表可见性三档模型](./hr_portal_report_visibility_model.md) — private/scoped/public 三档(migration 0055);scoped/public 共用"数据集权限闸";改报表权限前必读
 
 ## 主要文档导航
 

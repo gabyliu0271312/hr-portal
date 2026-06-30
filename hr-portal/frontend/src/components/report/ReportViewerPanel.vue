@@ -7,7 +7,7 @@ import PermissionButton from '@/components/PermissionButton.vue'
 import { formatDateTime } from '@/utils/datetime'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import ReportRuntimeFilters from '@/components/report/ReportRuntimeFilters.vue'
-import { reportsApi, type FilterCond, type ReportItem, type RunResult } from '@/api/reports'
+import { reportsApi, REPORT_VISIBILITY_LABELS, type FilterCond, type ReportItem, type RunResult } from '@/api/reports'
 import { datasetsApi, type DatasetItem } from '@/api/datasets'
 import { dataApi } from '@/api/data'
 import { getToken } from '@/api/client'
@@ -19,6 +19,10 @@ const props = defineProps<{
 const router = useRouter()
 
 const report = ref<ReportItem | null>(null)
+const visibilityTagType = computed<'info' | 'warning' | 'success'>(() => {
+  const v = report.value?.visibility
+  return v === 'public' ? 'success' : v === 'scoped' ? 'warning' : 'info'
+})
 const columns = ref<RunResult['columns']>([])
 const items = ref<RunResult['items']>([])
 const total = ref(0)
@@ -165,8 +169,9 @@ defineExpose({ run })
             </template>
             <el-icon class="info-icon"><InfoFilled /></el-icon>
           </el-tooltip>
-          <el-tag v-if="report.is_published" size="small" type="success" effect="plain">已发布</el-tag>
-          <el-tag v-else size="small" type="info" effect="plain">草稿</el-tag>
+          <el-tag :type="visibilityTagType" size="small" effect="plain">
+            {{ REPORT_VISIBILITY_LABELS[report.visibility] }}
+          </el-tag>
         </div>
         <div class="viewer-actions">
           <slot name="toolbar-extra" />

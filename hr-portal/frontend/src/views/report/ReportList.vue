@@ -5,10 +5,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Document, Edit, Delete, View, Position } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { formatDateTime } from '@/utils/datetime'
-import { reportsApi, type ReportItem } from '@/api/reports'
+import { reportsApi, REPORT_VISIBILITY_LABELS, type ReportItem, type ReportVisibility } from '@/api/reports'
 import { datasetsApi, type DatasetItem } from '@/api/datasets'
 
 const router = useRouter()
+
+function visibilityTagType(v: ReportVisibility): 'info' | 'warning' | 'success' {
+  return v === 'public' ? 'success' : v === 'scoped' ? 'warning' : 'info'
+}
 
 const list = ref<ReportItem[]>([])
 const datasets = ref<DatasetItem[]>([])
@@ -135,8 +139,9 @@ onMounted(async () => {
               <button class="report-name-link" type="button" @click="openRun(row)">
                 {{ row.name }}
               </button>
-              <el-tag v-if="!row.is_published" size="small" type="info" style="margin-left: 8px">草稿</el-tag>
-              <el-tag v-else size="small" type="success" style="margin-left: 8px">已发布</el-tag>
+              <el-tag :type="visibilityTagType(row.visibility)" size="small" style="margin-left: 8px">
+                {{ REPORT_VISIBILITY_LABELS[(row.visibility as ReportVisibility)] }}
+              </el-tag>
               <div v-if="row.description" style="color: var(--color-text-secondary); font-size: 12px; margin-top: 2px">
                 {{ row.description }}
               </div>

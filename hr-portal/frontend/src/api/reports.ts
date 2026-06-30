@@ -194,6 +194,14 @@ export interface AclOptions {
   users: AclUserOption[]
 }
 
+export type ReportVisibility = 'private' | 'scoped' | 'public'
+
+export const REPORT_VISIBILITY_LABELS: Record<ReportVisibility, string> = {
+  private: '私密',
+  scoped: '指定范围',
+  public: '公开',
+}
+
 export interface ReportItem {
   id: number
   name: string
@@ -205,6 +213,7 @@ export interface ReportItem {
   config: ReportConfig
   owner_id: number | null
   owner_name: string | null
+  visibility: ReportVisibility
   is_published: boolean
   scope_strategy: ScopeStrategy | null
   last_run_at: string | null
@@ -222,7 +231,7 @@ export interface ReportPayload {
   description?: string | null
   dataset_id: number
   config: ReportConfig
-  is_published: boolean
+  visibility: ReportVisibility
   scope_strategy?: ScopeStrategy | null
   acl: ReportAclItem[]
 }
@@ -283,8 +292,10 @@ export const reportsApi = {
   list: (params: { dataset_id?: number; keyword?: string } = {}) =>
     api.get<ReportItem[]>('/reports', { params }).then((r) => r.data),
 
-  aclOptions: () =>
-    api.get<AclOptions>('/reports/_acl-options').then((r) => r.data),
+  aclOptions: (dataset_id: number) =>
+    api
+      .get<AclOptions>('/reports/_acl-options', { params: { dataset_id } })
+      .then((r) => r.data),
 
   get: (id: number) => api.get<ReportItem>(`/reports/${id}`).then((r) => r.data),
 

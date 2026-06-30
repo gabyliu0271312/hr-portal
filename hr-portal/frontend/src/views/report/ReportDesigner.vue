@@ -10,10 +10,9 @@ import ReportFilterList from '@/components/report/ReportFilterList.vue'
 import ReportListLookupConfig from '@/components/report/ReportListLookupConfig.vue'
 import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
-import AclEditor from '@/components/AclEditor.vue'
 import PushTargetList from '@/components/push/PushTargetList.vue'
 import type { PushTargetOut } from '@/api/push_targets'
-import { reportsApi, deriveValueRules, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ListLookupConfig, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
+import { reportsApi, deriveValueRules, REPORT_VISIBILITY_LABELS, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ListLookupConfig, type ReportVisibility, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 import { useTableOptions } from '@/composables/useTableOptions'
@@ -44,7 +43,7 @@ const form = reactive({
   name: '',
   description: '',
   dataset_id: null as number | null,
-  is_published: false,
+  visibility: 'private' as ReportVisibility,
   scope_strategy: null as ScopeStrategy | null,
   selected_codes: [] as string[],
   column_settings: {} as Record<string, ColumnSetting>,
@@ -120,18 +119,9 @@ const reportPushColumns = computed(() => selectedColsDetail.value.map((c) => ({
 const reportPushTargets = ref<PushTargetOut[]>([])
 const reportPushEnabled = computed(() => reportPushTargets.value.length > 0)
 const basicSettingsOpen = ref(false)
-const aclSettingsOpen = ref(false)
 const currentDatasetName = computed(() => currentDataset.value?.name || datasets.value.find((d) => d.id === form.dataset_id)?.name || '未选择数据集')
-const publishStatusLabel = computed(() => form.is_published ? '已发布' : '草稿')
+const publishStatusLabel = computed(() => REPORT_VISIBILITY_LABELS[form.visibility])
 const scopeStrategyLabel = computed(() => SCOPE_STRATEGY_OPTIONS.find((item) => item.value === form.scope_strategy)?.label || '继承默认')
-const aclRoleCount = computed(() => form.acl.filter((item) => item.role_id).length)
-const aclUserCount = computed(() => form.acl.filter((item) => item.user_id).length)
-const aclSummary = computed(() => {
-  const parts: string[] = []
-  if (aclRoleCount.value) parts.push(`${aclRoleCount.value} 个角色`)
-  if (aclUserCount.value) parts.push(`${aclUserCount.value} 个用户`)
-  return parts.length ? parts.join(' / ') : '未添加授权'
-})
 const filterSummary = computed(() => form.filters.length ? `${form.filters.length} 条筛选` : '未设置筛选')
 const pushSummary = computed(() => reportPushTargets.value.length ? `${reportPushTargets.value.length} 个推送配置` : '未配置推送')
 
@@ -192,7 +182,7 @@ async function loadReport() {
     form.name = r.can_edit ? r.name : `${r.name} - 副本`
     form.description = r.description ?? ''
     form.dataset_id = r.dataset_id
-    form.is_published = r.can_edit ? r.is_published : false
+    form.visibility = r.can_edit ? (r.visibility ?? 'private') : 'private'
     form.scope_strategy = r.scope_strategy
     form.acl = r.can_edit
       ? (r.acl || []).map((a) => ({ id: a.id, role_id: a.role_id, user_id: a.user_id }))
@@ -409,11 +399,13 @@ function buildPayload() {
     name: form.name.trim(),
     description: form.description.trim() || null,
     dataset_id: form.dataset_id!,
-    is_published: form.is_published,
+    visibility: form.visibility,
     scope_strategy: form.scope_strategy || null,
-    acl: form.acl
-      .filter((a) => a.role_id != null || a.user_id != null)
-      .map((a) => ({ role_id: a.role_id, user_id: a.user_id })),
+    acl: form.visibility === 'scoped'
+      ? form.acl
+          .filter((a) => a.role_id != null || a.user_id != null)
+          .map((a) => ({ role_id: a.role_id, user_id: a.user_id }))
+      : [],
     config: {
       columns: validSelectedCodes,
       column_settings: normalizeColumnSettings(),
@@ -676,7 +668,7 @@ watch(
       copySourceId.value = null
       Object.assign(form, {
         name: '', description: '', dataset_id: datasets.value.find((d) => d.is_active)?.id ?? datasets.value[0]?.id ?? null,
-        is_published: false, scope_strategy: null, selected_codes: [], filters: [], sorts: [],
+        visibility: 'private', scope_strategy: null, selected_codes: [], filters: [], sorts: [],
         value_rules: [], aggregate: false, default_aggregation: 'sum', aggregations: {},
         column_settings: {}, default_split_rule: { enabled: false, factors: [] }, rounding_group_by: [], filter_logic: null,
         transpose: {
@@ -735,7 +727,6 @@ watch(
           </div>
           <div class="designer-actions">
             <el-button plain @click="basicSettingsOpen = true">基础设置</el-button>
-            <el-button plain @click="aclSettingsOpen = true">访问授权</el-button>
             <el-button :loading="explaining" @click="explainConfig">
               <el-icon style="margin-right: 4px"><MagicStick /></el-icon>AI 解释
             </el-button>
@@ -861,27 +852,14 @@ watch(
           v-model:name="form.name"
           v-model:description="form.description"
           v-model:dataset-id="form.dataset_id"
-          v-model:is-published="form.is_published"
+          v-model:visibility="form.visibility"
           v-model:scope-strategy="form.scope_strategy"
+          v-model:acl="form.acl"
           :datasets="datasets"
           :current-dataset="currentDataset"
           @dataset-change="onDatasetChange"
         />
       </el-form>
-    </el-drawer>
-
-    <el-drawer
-      v-model="aclSettingsOpen"
-      title="访问授权"
-      size="min(720px, 92vw)"
-      append-to-body
-      class="report-settings-drawer"
-    >
-      <div class="acl-drawer-summary">
-        <strong>{{ aclSummary }}</strong>
-        <span>未添加任何授权时，仅创建者与超级管理员可访问。添加角色/用户后，命中者可访问；行级数据仍受其数据范围限制。</span>
-      </div>
-      <AclEditor v-model="form.acl" :owner-name="form.name ? null : null" :load-options="reportsApi.aclOptions" />
     </el-drawer>
 
     <el-drawer
@@ -1112,25 +1090,6 @@ watch(
 .report-settings-drawer :deep(.basic-grid) {
   grid-template-columns: 1fr;
 }
-.acl-drawer-summary {
-  display: grid;
-  gap: 4px;
-  margin-bottom: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--color-border-light);
-  border-radius: 12px;
-  background: #fff;
-}
-.acl-drawer-summary strong {
-  color: var(--color-text-primary);
-  font-size: 14px;
-}
-.acl-drawer-summary span {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
 .report-ai-chat {
   display: flex;
   flex-direction: column;

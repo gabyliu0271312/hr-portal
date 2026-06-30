@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { DatasetItem } from '@/api/datasets'
+import { reportsApi, type ReportAclItem, type ReportVisibility } from '@/api/reports'
+import AclEditor from '@/components/AclEditor.vue'
 import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
 
 const props = defineProps<{
   name: string
   description: string
   datasetId: number | null
-  isPublished: boolean
+  visibility: ReportVisibility
   scopeStrategy: ScopeStrategy | null
+  acl: ReportAclItem[]
   datasets: DatasetItem[]
   currentDataset: DatasetItem | null
 }>()
@@ -17,8 +20,9 @@ const emit = defineEmits<{
   'update:name': [v: string]
   'update:description': [v: string]
   'update:datasetId': [v: number | null]
-  'update:isPublished': [v: boolean]
+  'update:visibility': [v: ReportVisibility]
   'update:scopeStrategy': [v: ScopeStrategy | null]
+  'update:acl': [v: ReportAclItem[]]
   'dataset-change': []
 }>()
 
@@ -34,14 +38,24 @@ const datasetIdModel = computed({
   get: () => props.datasetId,
   set: (v) => emit('update:datasetId', v),
 })
-const isPublishedModel = computed({
-  get: () => props.isPublished,
-  set: (v) => emit('update:isPublished', v),
+const visibilityModel = computed({
+  get: () => props.visibility,
+  set: (v) => emit('update:visibility', v),
 })
 const scopeStrategyModel = computed({
   get: () => props.scopeStrategy,
   set: (v) => emit('update:scopeStrategy', v),
 })
+const aclModel = computed({
+  get: () => props.acl,
+  set: (v) => emit('update:acl', v),
+})
+
+const VISIBILITY_OPTIONS: { value: ReportVisibility; label: string; desc: string }[] = [
+  { value: 'private', label: '私密', desc: '仅创建者与超级管理员可见' },
+  { value: 'scoped', label: '指定范围', desc: '在拥有该数据集权限的角色/用户中,指定可见者' },
+  { value: 'public', label: '公开', desc: '所有拥有该数据集权限的角色/用户均可见' },
+]
 
 const showDescription = ref(!!props.description)
 watch(
@@ -86,13 +100,23 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
         </div>
       </el-form-item>
 
-      <el-form-item class="status-field" label="发布状态">
+      <el-form-item class="status-field" label="可见性">
         <div class="status-row">
-          <el-switch v-model="isPublishedModel" />
-          <span class="status-text">{{ isPublished ? '已发布' : '草稿' }}</span>
+          <el-radio-group v-model="visibilityModel" size="small">
+            <el-radio-button
+              v-for="opt in VISIBILITY_OPTIONS"
+              :key="opt.value"
+              :value="opt.value"
+            >
+              {{ opt.label }}
+            </el-radio-button>
+          </el-radio-group>
           <el-button size="small" link @click="showDescription = !showDescription">
             {{ showDescription ? '收起描述' : descModel ? '查看描述' : '添加描述' }}
           </el-button>
+        </div>
+        <div class="visibility-hint">
+          {{ VISIBILITY_OPTIONS.find((o) => o.value === visibilityModel)?.desc }}
         </div>
       </el-form-item>
 
@@ -111,6 +135,24 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
     <el-form-item v-if="showDescription" class="description-field" label="描述">
       <el-input v-model="descModel" type="textarea" :rows="2" maxlength="500" placeholder="可选" />
     </el-form-item>
+
+    <div v-if="visibilityModel === 'scoped'" class="acl-inline">
+      <div class="acl-inline-title">访问授权</div>
+      <el-alert
+        v-if="!datasetId"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="请先选择数据集,再添加授权对象"
+        style="margin-bottom: 12px"
+      />
+      <AclEditor
+        v-else
+        v-model="aclModel"
+        :dataset-id="datasetId"
+        :load-options="reportsApi.aclOptions"
+      />
+    </div>
   </div>
 </template>
 
@@ -154,6 +196,23 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
   color: var(--color-text-secondary);
   font-size: 12px;
   white-space: nowrap;
+}
+.visibility-hint {
+  margin-top: 4px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.acl-inline {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-border-light);
+}
+.acl-inline-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 .description-field {
   margin-top: 8px;

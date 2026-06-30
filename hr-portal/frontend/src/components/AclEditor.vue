@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Plus, Delete } from '@element-plus/icons-vue'
 import { rolesApi, type RoleListItem } from '@/api/roles'
 import { usersApi, type UserListItem } from '@/api/users'
@@ -29,7 +29,8 @@ export interface AclOptions {
 const props = defineProps<{
   modelValue: AclRow[]
   ownerName?: string | null
-  loadOptions?: () => Promise<AclOptions>
+  datasetId?: number | null
+  loadOptions?: (datasetId: number) => Promise<AclOptions>
 }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: AclRow[]): void }>()
 
@@ -63,10 +64,15 @@ function setUser(i: number, val: number | null) {
   rows.value = next
 }
 
-onMounted(async () => {
+async function loadCandidates() {
   try {
     if (props.loadOptions) {
-      const options = await props.loadOptions()
+      if (!props.datasetId) {
+        roles.value = []
+        users.value = []
+        return
+      }
+      const options = await props.loadOptions(props.datasetId)
       roles.value = options.roles || []
       users.value = options.users || []
       return
@@ -84,7 +90,13 @@ onMounted(async () => {
   } catch {
     /* 列表加载失败不阻塞 */
   }
-})
+}
+
+onMounted(loadCandidates)
+watch(
+  () => props.datasetId,
+  () => loadCandidates(),
+)
 </script>
 
 <template>
@@ -96,8 +108,7 @@ onMounted(async () => {
       style="margin-bottom: 12px"
     >
       <p style="margin: 0; line-height: 1.6; font-size: 13px">
-        未添加任何授权时，仅创建者{{ ownerName ? `（${ownerName}）` : '' }}与超级管理员可访问。
-        添加角色/用户后，命中者可访问；行级数据仍受其数据范围限制。
+        仅可授权给拥有该数据集权限的角色/用户;命中者可访问本报表,行级数据仍受其数据范围限制。
       </p>
     </el-alert>
 
