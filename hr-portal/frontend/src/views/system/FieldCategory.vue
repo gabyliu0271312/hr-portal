@@ -129,15 +129,12 @@
           class="field-select-table"
           @selection-change="onColumnSelectionChange"
         >
-          <el-table-column type="selection" width="42" :selectable="isColumnSelectable" />
+          <el-table-column type="selection" width="42" />
           <el-table-column label="字段" min-width="220">
             <template #default="{ row }">
               <div class="field-name">
                 <span>{{ row.column_label }}</span>
                 <el-tag v-if="row.is_sensitive" size="small" type="warning" effect="plain">敏感</el-tag>
-                <el-tag v-if="assignedKeys.has(assignmentKey(currentTable, row.column_code))" size="small" type="info" effect="plain">
-                  已加入
-                </el-tag>
               </div>
               <div class="field-code">{{ row.column_code }}</div>
             </template>
@@ -298,10 +295,11 @@ const selectedAssignableCodes = computed(() =>
 
 const filteredTableColumns = computed(() => {
   const keyword = fieldKeyword.value.trim().toLowerCase()
-  if (!keyword) return tableColumns.value
-  return tableColumns.value.filter((c) =>
-    `${c.column_label} ${c.column_code}`.toLowerCase().includes(keyword)
-  )
+  return tableColumns.value.filter((c) => {
+    if (assignedKeys.value.has(assignmentKey(currentTable.value, c.column_code))) return false
+    if (!keyword) return true
+    return `${c.column_label} ${c.column_code}`.toLowerCase().includes(keyword)
+  })
 })
 
 async function load() {
@@ -431,10 +429,6 @@ async function openAssignments(cat: FieldCategory) {
 
 function onColumnSelectionChange(rows: TableColumn[]) {
   selectedColumns.value = rows
-}
-
-function isColumnSelectable(row: TableColumn) {
-  return !assignedKeys.value.has(assignmentKey(currentTable.value, row.column_code))
 }
 
 function addSelectedAssignments() {
