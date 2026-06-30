@@ -177,10 +177,7 @@
 
       <template #footer>
         <div style="text-align: right">
-          <el-button @click="assignmentDrawer = false">取消</el-button>
-          <el-button type="primary" :loading="assignSaving" @click="saveAssignments">
-            保存分配
-          </el-button>
+          <el-button @click="assignmentDrawer = false">关闭</el-button>
         </div>
       </template>
     </el-drawer>
@@ -233,7 +230,6 @@ const saving = ref(false)
 const assignmentDrawer = ref(false)
 const assignmentCat = ref<FieldCategory | null>(null)
 const assignments = ref<Assignment[]>([])
-const assignSaving = ref(false)
 const tables = ref<TableMeta[]>([])
 const currentTable = ref('')
 const tableColumns = ref<TableColumn[]>([])
@@ -431,7 +427,13 @@ function onColumnSelectionChange(rows: TableColumn[]) {
   selectedColumns.value = rows
 }
 
-function addSelectedAssignments() {
+async function persistAssignments() {
+  if (!assignmentCat.value) return
+  await fieldCategoriesApi.setAssignments(assignmentCat.value.id, assignments.value)
+  load()
+}
+
+async function addSelectedAssignments() {
   if (!currentTable.value) {
     ElMessage.warning('请先选择业务表')
     return
@@ -451,28 +453,21 @@ function addSelectedAssignments() {
   )
   selectedColumns.value = []
   fieldSelectTableRef.value?.clearSelection()
-  ElMessage.success(`已加入 ${next.length} 个字段`)
-}
-
-function removeAssignment(idx: number) {
-  assignments.value.splice(idx, 1)
-}
-
-async function saveAssignments() {
-  if (!assignmentCat.value) return
-  assignSaving.value = true
   try {
-    await fieldCategoriesApi.setAssignments(
-      assignmentCat.value.id,
-      assignments.value
-    )
-    ElMessage.success('分配已保存')
-    assignmentDrawer.value = false
-    load()
+    await persistAssignments()
+    ElMessage.success(`已加入 ${next.length} 个字段`)
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '保存失败')
-  } finally {
-    assignSaving.value = false
+  }
+}
+
+async function removeAssignment(idx: number) {
+  assignments.value.splice(idx, 1)
+  try {
+    await persistAssignments()
+    ElMessage.success('已移除')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
   }
 }
 
