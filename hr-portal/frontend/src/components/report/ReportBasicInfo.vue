@@ -53,7 +53,7 @@ const aclModel = computed({
 
 const VISIBILITY_OPTIONS: { value: ReportVisibility; label: string; desc: string }[] = [
   { value: 'private', label: '私密', desc: '仅创建者与超级管理员可见' },
-  { value: 'scoped', label: '指定范围', desc: '在拥有该数据集权限的角色/用户中,指定可见者' },
+  { value: 'scoped', label: '指定', desc: '在拥有该数据集权限的角色/用户中,指定可见者' },
   { value: 'public', label: '公开', desc: '所有拥有该数据集权限的角色/用户均可见' },
 ]
 
@@ -165,7 +165,7 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
 }
 .basic-grid {
   display: grid;
-  grid-template-columns: minmax(240px, 1.2fr) minmax(260px, 1fr) minmax(160px, 0.6fr) minmax(180px, 0.7fr);
+  grid-template-columns: minmax(240px, 1.2fr) minmax(260px, 1fr) minmax(220px, 0.9fr) minmax(180px, 0.7fr);
   gap: 8px 12px;
   align-items: start;
 }

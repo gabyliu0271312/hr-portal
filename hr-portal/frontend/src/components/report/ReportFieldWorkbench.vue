@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowDown, ArrowRight, Close, Delete, Edit, Filter, Hide, Plus, Rank, View } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Close, Delete, Edit, Filter, Hide, Plus, Rank, Search, View } from '@element-plus/icons-vue'
 import type { ColumnInfo } from '@/api/data'
 import type { AggregationFunc, ColumnSetting, DefaultSplitRule, FilterCond, FilterLogic, SortCond } from '@/api/reports'
 import { REPORT_AGG_FUNCS, reportAggLabel } from '@/constants/reportAggregation'
@@ -45,9 +45,14 @@ const selectedCols = computed(() =>
     .filter((item): item is ColumnInfo => !!item)
 )
 
-const availableCols = computed(() =>
-  props.allColumns.filter((item) => !props.selectedCodes.includes(item.code))
-)
+const availableCols = computed(() => {
+  const kw = fieldSearch.value.trim().toLowerCase()
+  return props.allColumns.filter((item) => {
+    if (props.selectedCodes.includes(item.code)) return false
+    if (!kw) return true
+    return cleanFieldLabel(item).toLowerCase().includes(kw) || item.code.toLowerCase().includes(kw)
+  })
+})
 
 const availableColumnGroups = computed(() => groupColumns(availableCols.value))
 
@@ -73,6 +78,7 @@ const numericAllCols = computed(() =>
   props.allColumns.filter((item) => item.agg_role === 'measure' || item.data_type === 'number')
 )
 const draggingCode = ref('')
+const fieldSearch = ref('')
 type AdvancedTab = 'rules' | 'reshape' | 'lookup' | 'push'
 const collapsedSourceKeys = ref<Set<string>>(new Set())
 const advancedOpen = ref(false)
@@ -425,6 +431,14 @@ function openAdvanced(tab: AdvancedTab) {
           <span>{{ availableCols.length }} 个</span>
         </span>
       </div>
+      <el-input
+        v-model="fieldSearch"
+        size="small"
+        clearable
+        :prefix-icon="Search"
+        placeholder="搜索字段名称/编码"
+        style="margin-bottom: 8px"
+      />
       <div v-if="availableColumnGroups.length" class="source-groups">
         <section v-for="group in availableColumnGroups" :key="group.key" class="source-group">
           <button class="source-head" type="button" @click="toggleSourceGroup(group.key)">
@@ -436,7 +450,7 @@ function openAdvanced(tab: AdvancedTab) {
             </span>
             <span>{{ group.columns.length }} 个</span>
           </button>
-            <div v-show="!sourceCollapsed(group.key)" class="available-list">
+            <div v-show="!sourceCollapsed(group.key) || !!fieldSearch.trim()" class="available-list">
             <button
               v-for="col in group.columns"
               :key="col.code"
