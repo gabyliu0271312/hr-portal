@@ -34,7 +34,7 @@ const integrity = ref<{ ok: boolean; issues: string[] } | null>(null)
 const runtimeFilters = ref<FilterCond[]>([])
 const runtimeFilterRef = ref<InstanceType<typeof ReportRuntimeFilters> | null>(null)
 const columnLabels = ref<Record<string, string>>({})
-const datasetTables = ref<DatasetItem['tables']>([]))
+const datasetTables = ref<DatasetItem['tables']>([])
 
 function datasetTableName(table: DatasetItem['tables'][number]): string {
   return table.table_label || table.table_name
