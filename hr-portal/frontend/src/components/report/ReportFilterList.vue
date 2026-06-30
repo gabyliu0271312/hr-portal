@@ -256,6 +256,7 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
     </div>
     <el-button link type="primary" @click="addFilter">
       <el-icon style="margin-right: 4px"><Plus /></el-icon>添加筛选
+    </el-button>
   </div>
 </template>
 
