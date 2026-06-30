@@ -1598,10 +1598,7 @@ async def run_dataset_query(
     need_all = agg_on or transpose_on or structural_reshape_on or calc_filter_on or calc_sort_on
     total = 0
     if need_all:
-        # 全量取数前设置 statement_timeout，防止超大数据量挂死连接
-        await db.execute(text("SET LOCAL statement_timeout = '120s'"))
         rows = (await db.execute(stmt)).all()
-        await db.execute(text("SET LOCAL statement_timeout = '0'"))
     else:
         total = (await db.execute(count_stmt)).scalar_one()
         if page_size > 0:
