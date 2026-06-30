@@ -430,14 +430,136 @@ async def list_reports(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[ReportOut]:
+    from app.datasets.models import DataSet
+    from app.push.models import PushTarget
+    from app.permissions.scope_filter import _is_super_admin
+
     stmt = select(Report).order_by(desc(Report.updated_at))
     if dataset_id:
         stmt = stmt.where(Report.dataset_id == dataset_id)
     if keyword:
         stmt = stmt.where(Report.name.ilike(f"%{keyword}%"))
     rows = (await db.execute(stmt)).scalars().all()
-    visible = [row for row in rows if await _can_access(user, row, db)]
-    return [await _to_out(row, db, user) for row in visible]
+
+    # 权限过滤（逻辑不变，但把超管判断提前一次，避免每行重复查）
+    is_super = await _is_super_admin(user, db)
+    user_role_ids: set[int] = {
+        row[0]
+        for row in (
+            await db.execute(select(UserRole.role_id).where(UserRole.user_id == user.id))
+        ).all()
+    }
+
+    # 批量预加载：owner、dataset、ACL、push count
+    report_ids = [r.id for r in rows]
+    owner_ids = {r.owner_id for r in rows if r.owner_id}
+    ds_ids = {r.dataset_id for r in rows if r.dataset_id}
+
+    owners: dict[int, User] = {}
+    if owner_ids:
+        for u in (await db.execute(select(User).where(User.id.in_(owner_ids)))).scalars().all():
+            owners[u.id] = u
+
+    datasets: dict[int, DataSet] = {}
+    if ds_ids:
+        for ds in (await db.execute(select(DataSet).where(DataSet.id.in_(ds_ids)))).scalars().all():
+            datasets[ds.id] = ds
+
+    # 批量查 ACL（scoped 权限过滤 + 响应组装都要用）
+    acls_by_report: dict[int, list[ReportAcl]] = {rid: [] for rid in report_ids}
+    if report_ids:
+        for a in (await db.execute(select(ReportAcl).where(ReportAcl.report_id.in_(report_ids)))).scalars().all():
+            acls_by_report[a.report_id].append(a)
+
+    # 批量查数据集 ACL（用于 _report_dataset_can_access）
+    from app.datasets.models import DataSetAcl
+    ds_acls_by_ds: dict[int, list[DataSetAcl]] = {}
+    if ds_ids:
+        for da in (await db.execute(select(DataSetAcl).where(DataSetAcl.dataset_id.in_(ds_ids)))).scalars().all():
+            ds_acls_by_ds.setdefault(da.dataset_id, []).append(da)
+
+    # 批量查 push count（source_table = "report:{id}"）
+    source_tables = [f"report:{rid}" for rid in report_ids]
+    push_total_map: dict[str, int] = {}
+    push_active_map: dict[str, int] = {}
+    if source_tables:
+        for st, cnt in (await db.execute(
+            select(PushTarget.source_table, func.count())
+            .where(PushTarget.source_table.in_(source_tables))
+            .group_by(PushTarget.source_table)
+        )).all():
+            push_total_map[st] = cnt
+        for st, cnt in (await db.execute(
+            select(PushTarget.source_table, func.count())
+            .where(PushTarget.source_table.in_(source_tables), PushTarget.is_active.is_(True))
+            .group_by(PushTarget.source_table)
+        )).all():
+            push_active_map[st] = cnt
+
+    def _can_access_fast(r: Report) -> bool:
+        if r.owner_id == user.id or is_super:
+            return True
+        vis = r.visibility or "private"
+        if vis == "private":
+            return False
+        # 数据集权限前置闸（复用批量查到的 ds_acls）
+        if r.dataset_id:
+            ds = datasets.get(r.dataset_id)
+            if ds is None:
+                return False
+            ds_acls = ds_acls_by_ds.get(r.dataset_id, [])
+            if ds_acls:
+                has_ds = any(
+                    da.user_id == user.id or (da.role_id is not None and da.role_id in user_role_ids)
+                    for da in ds_acls
+                )
+            else:
+                # 无 ACL 行 = 仅创建者可访问
+                has_ds = (ds.created_by == user.id)
+            if not has_ds:
+                return False
+        if vis == "public":
+            return True
+        # scoped
+        acls = acls_by_report.get(r.id, [])
+        if not acls:
+            return False
+        return any(
+            a.user_id == user.id or (a.role_id is not None and a.role_id in user_role_ids)
+            for a in acls
+        )
+
+    visible = [r for r in rows if _can_access_fast(r)]
+
+    result: list[ReportOut] = []
+    for r in visible:
+        owner = owners.get(r.owner_id) if r.owner_id else None
+        ds = datasets.get(r.dataset_id) if r.dataset_id else None
+        st = f"report:{r.id}"
+        result.append(ReportOut(
+            id=r.id,
+            name=r.name,
+            description=r.description,
+            table_name=r.table_name,
+            table_label=_TABLE_LABELS.get(r.table_name, r.table_name) if r.table_name else None,
+            dataset_id=r.dataset_id,
+            dataset_name=ds.name if ds else None,
+            config=ReportConfig(**(r.config or {})),
+            owner_id=r.owner_id,
+            owner_name=owner.display_name if owner else None,
+            visibility=r.visibility or "private",
+            is_published=(r.visibility or "private") == "public",
+            scope_strategy=r.scope_strategy,
+            last_run_at=r.last_run_at,
+            run_count=r.run_count,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+            acl=[ReportAclOut(id=a.id, role_id=a.role_id, user_id=a.user_id) for a in acls_by_report.get(r.id, [])],
+            can_edit=(r.owner_id == user.id or is_super),
+            push_target_count=push_total_map.get(st, 0),
+            active_push_target_count=push_active_map.get(st, 0),
+        ))
+    return result
 
 
 @router.get(
