@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from functools import lru_cache
 from typing import Any
 
 from app.ai_formula.formula_safety import ensure_safe
@@ -155,10 +156,8 @@ class SafeFormulaEvaluator:
         self.functions.update({k.upper(): v for k, v in (custom_functions or {}).items()})
 
     def evaluate(self, formula: str) -> Any:
-        ensure_safe(formula)
-        expr = self._to_python_expr(formula)
         try:
-            tree = ast.parse(expr, mode="eval")
+            tree = _compile_formula(formula)  # ensure_safe 在 _compile_formula 首次调用时已检查
             return self._eval_node(tree)
         except Exception:
             return ""
@@ -325,6 +324,20 @@ def formula_syntax_issues(
 
     check(tree)
     return issues
+
+
+@lru_cache(maxsize=512)
+def _compile_formula(formula: str) -> ast.Expression:
+    """将公式字符串解析为 AST，结果按公式内容缓存，避免每行重复解析。"""
+    ensure_safe(formula)
+    expr = (formula or "").strip()
+    if expr.startswith("="):
+        expr = expr[1:]
+    expr = expr.replace("<>", "!=")
+    expr = re.sub(r"(?<![<>=!])=(?!=)", "==", expr)
+    for pattern, replacement in _BOOL_REPLACEMENTS:
+        expr = pattern.sub(replacement, expr)
+    return ast.parse(expr, mode="eval")
 
 
 def evaluate_formula(
