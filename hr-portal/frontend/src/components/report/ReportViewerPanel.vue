@@ -34,6 +34,7 @@ const integrity = ref<{ ok: boolean; issues: string[] } | null>(null)
 const runtimeFilters = ref<FilterCond[]>([])
 const runtimeFilterRef = ref<InstanceType<typeof ReportRuntimeFilters> | null>(null)
 const columnLabels = ref<Record<string, string>>({})
+const datasetTables = ref<DatasetItem['tables']>([]))
 
 function datasetTableName(table: DatasetItem['tables'][number]): string {
   return table.table_label || table.table_name
@@ -56,6 +57,7 @@ async function loadReport() {
 async function loadDatasetColumnLabels(datasetId: number) {
   try {
     const ds = await datasetsApi.get(datasetId)
+    datasetTables.value = ds.tables
     const entries: [string, string][] = []
     for (const table of ds.tables) {
       const cols = await dataApi.columns(table.table_name)
@@ -196,6 +198,7 @@ defineExpose({ run })
       :filters="report.config.filters || []"
       :filter-logic="report.config.filter_logic"
       :column-labels="columnLabels"
+      :current-dataset-tables="datasetTables"
       @apply="applyRuntimeFilters"
     />
 
