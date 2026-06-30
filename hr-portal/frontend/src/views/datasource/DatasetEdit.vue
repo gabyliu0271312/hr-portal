@@ -472,7 +472,7 @@ onMounted(async () => {
         </el-button>
 
         <div class="section-title">访问授权（谁能使用此数据集）</div>
-        <AclEditor v-model="form.acl" :load-options="datasetsApi.aclOptions" />
+        <AclEditor v-model="form.acl" />
       </el-form>
     </el-card>
   </div>
