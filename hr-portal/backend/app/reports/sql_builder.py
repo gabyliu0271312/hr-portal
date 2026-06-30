@@ -1606,39 +1606,13 @@ async def run_dataset_query(
         rows = (await db.execute(stmt)).all()
 
     # ===== 列元数据 =====
+    # 按 columns 里的原始顺序遍历，物理列和计算字段混排，保留拖动后的顺序。
     columns_meta: list[dict[str, Any]] = []
     labels_by_alias = {
         alias: await effective_column_label_map(cols, db)
         for alias, cols in alias_columns.items()
     }
 
-    for alias, code in display_selected:
-        col = next(
-            (c for c in alias_columns.get(alias, []) if c.column_code == code), None
-        )
-        if col is None:
-            columns_meta.append(
-                {
-                    "code": f"{alias}.{code}",
-                    "label": code,
-                    "data_type": "string",
-                    "is_sensitive": False,
-                }
-            )
-        else:
-            mask = col.is_sensitive or (
-                code in sensitive_by_alias.get(alias, set())
-            )
-            columns_meta.append(
-                {
-                    "code": f"{alias}.{code}",
-                    "label": labels_by_alias.get(alias, {}).get(
-                        code, col.column_label or col.column_code
-                    ),
-                    "data_type": col.data_type,
-                    "is_sensitive": mask,
-                }
-            )
     # 预计算每个计算字段对当前用户是否脱敏（绝密强制 ∪ 递归依赖授权裁决）
     calc_masked: dict[str, bool] = {
         field.code: _calc_field_masked(
@@ -1646,15 +1620,53 @@ async def run_dataset_query(
         )
         for field in selected_calc_fields
     }
-    for field in selected_calc_fields:
-        columns_meta.append(
-            {
-                "code": calc_qual(field.code),
-                "label": field.label,
-                "data_type": field.data_type,
-                "is_sensitive": calc_masked.get(field.code, False),
-            }
-        )
+
+    selected_calc_codes = {calc_qual(f.code): f for f in selected_calc_fields}
+    display_selected_set = {f"{a}.{c}" for a, c in display_selected}
+
+    for q in (columns if columns else [f"{a}.{c}" for a, c in display_selected] + [calc_qual(f.code) for f in selected_calc_fields]):
+        if q.startswith("calc."):
+            field = selected_calc_codes.get(q)
+            if field is None:
+                continue
+            columns_meta.append(
+                {
+                    "code": calc_qual(field.code),
+                    "label": field.label,
+                    "data_type": field.data_type,
+                    "is_sensitive": calc_masked.get(field.code, False),
+                }
+            )
+        else:
+            if q not in display_selected_set:
+                continue
+            alias, code = _split_qualified(q)
+            col = next(
+                (c for c in alias_columns.get(alias, []) if c.column_code == code), None
+            )
+            if col is None:
+                columns_meta.append(
+                    {
+                        "code": f"{alias}.{code}",
+                        "label": code,
+                        "data_type": "string",
+                        "is_sensitive": False,
+                    }
+                )
+            else:
+                mask = col.is_sensitive or (
+                    code in sensitive_by_alias.get(alias, set())
+                )
+                columns_meta.append(
+                    {
+                        "code": f"{alias}.{code}",
+                        "label": labels_by_alias.get(alias, {}).get(
+                            code, col.column_label or col.column_code
+                        ),
+                        "data_type": col.data_type,
+                        "is_sensitive": mask,
+                    }
+                )
 
     # ===== 行数据 =====
     # 数值拆分规则：target 列出值 = round(num(target) × ∏ num(factor_i), 2)，非数值/空 → 空
