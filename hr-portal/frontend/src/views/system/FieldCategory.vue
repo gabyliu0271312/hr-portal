@@ -241,6 +241,7 @@ const columnsLoading = ref(false)
 const selectedColumns = ref<TableColumn[]>([])
 const fieldKeyword = ref('')
 const fieldSelectTableRef = ref<TableInstance>()
+const columnLabelCache = ref<Record<string, string>>({})
 
 // ===== 授权工具白名单 =====
 const tools = ref<ToolOption[]>([])
@@ -334,6 +335,9 @@ async function loadTableColumns() {
   selectedColumns.value = []
   try {
     tableColumns.value = await tableColumnsApi.list(currentTable.value)
+    tableColumns.value.forEach((c) => {
+      columnLabelCache.value[`${currentTable.value}.${c.column_code}`] = c.column_label
+    })
   } catch (e: any) {
     tableColumns.value = []
     ElMessage.error(e?.response?.data?.detail || '加载字段失败')
@@ -421,6 +425,20 @@ async function openAssignments(cat: FieldCategory) {
     if (!currentTable.value && tables.value[0]) {
       currentTable.value = tables.value[0].table_name
     }
+    // 预加载已分配字段所在的所有表，填充 columnLabelCache
+    const assignedTables = [...new Set(assignments.value.map((a) => a.table_name))]
+    await Promise.all(
+      assignedTables
+        .filter((t) => t !== currentTable.value)
+        .map(async (t) => {
+          try {
+            const cols = await tableColumnsApi.list(t)
+            cols.forEach((c) => {
+              columnLabelCache.value[`${t}.${c.column_code}`] = c.column_label
+            })
+          } catch {}
+        })
+    )
     await loadTableColumns()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载失败')
@@ -496,8 +514,7 @@ const dataTypeLabel = (val: string) =>
   DATA_TYPES.find((t) => t.value === val)?.label ?? val
 
 function columnLabel(a: Assignment) {
-  if (a.table_name !== currentTable.value) return a.column_name
-  return tableColumns.value.find((c) => c.column_code === a.column_name)?.column_label ?? a.column_name
+  return columnLabelCache.value[`${a.table_name}.${a.column_name}`] ?? a.column_name
 }
 
 onMounted(async () => {
