@@ -1686,7 +1686,9 @@ async def run_dataset_query(
             rules_by_target[t] = factors
 
     full_items: list[dict[str, Any]] = []
-    custom_functions = await executable_functions(db)
+    from app.core.db import get_session_factory
+    async with get_session_factory()() as fn_db:
+        custom_functions = await executable_functions(fn_db)
     for r in rows:
         d = r._mapping if hasattr(r, "_mapping") else dict(zip(r.keys(), r))
         item: dict[str, Any] = {}

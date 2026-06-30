@@ -874,6 +874,7 @@ async def run_report(
     except Exception as e:
         status = "failed"
         error_message = str(e)[:500]
+        logger.exception("[report_run] report_id=%d 运行失败: %s", report_id, error_message)
         # 发布报表运行失败事件（使用独立session，避免事务边界问题）
         try:
             async with get_session_factory()() as new_db:
