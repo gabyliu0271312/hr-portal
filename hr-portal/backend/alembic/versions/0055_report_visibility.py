@@ -6,14 +6,14 @@
 - 其余                          -> private
 
 Revision ID: 0055_report_visibility
-Revises: 0054_data_compare_tasks
+Revises: 0053_add_data_compare_remove_feishu_config_menu
 Create Date: 2026-06-30
 """
 import sqlalchemy as sa
 from alembic import op
 
 revision = "0055_report_visibility"
-down_revision = "0054_data_compare_tasks"
+down_revision = "0053_add_data_compare_remove_feishu_config_menu"
 branch_labels = None
 depends_on = None
 
