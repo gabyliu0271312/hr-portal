@@ -123,6 +123,91 @@ def _fn_eomonth(start_date: Any, months: Any = 0) -> str:
     return date(year, month, last_day).strftime("%Y-%m-%d")
 
 
+def _fn_date(year: Any, month: Any, day: Any) -> str:
+    y = _to_number(year)
+    m = _to_number(month)
+    d = _to_number(day)
+    if y is None or m is None or d is None:
+        return ""
+    try:
+        total = int(y) * 12 + (int(m) - 1)
+        normalized_year, normalized_month = divmod(total, 12)
+        normalized_month += 1
+        base = date(normalized_year, normalized_month, 1)
+        return date.fromordinal(base.toordinal() + int(d) - 1).strftime("%Y-%m-%d")
+    except (OverflowError, ValueError):
+        return ""
+
+
+def _add_months(base: date, months: int) -> date:
+    total = base.year * 12 + (base.month - 1) + months
+    year, month = divmod(total, 12)
+    month += 1
+    day = min(base.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _fn_edate(start_date: Any, months: Any = 0) -> str:
+    base = _to_date(start_date)
+    offset = _to_number(months)
+    if base is None or offset is None:
+        return ""
+    try:
+        return _add_months(base, int(offset)).strftime("%Y-%m-%d")
+    except (OverflowError, ValueError):
+        return ""
+
+
+def _fn_datedif(start_date: Any, end_date: Any, unit: Any = "D") -> Any:
+    start = _to_date(start_date)
+    end = _to_date(end_date)
+    if start is None or end is None or end < start:
+        return ""
+    unit_text = str(unit or "D").upper()
+    years = end.year - start.year - ((end.month, end.day) < (start.month, start.day))
+    months = (end.year - start.year) * 12 + end.month - start.month - (end.day < start.day)
+    if unit_text == "Y":
+        return years
+    if unit_text == "M":
+        return months
+    if unit_text == "D":
+        return (end - start).days
+    if unit_text == "YM":
+        return months % 12
+    if unit_text == "YD":
+        anniversary = _add_months(start, years * 12)
+        return (end - anniversary).days
+    if unit_text == "MD":
+        month_start = _add_months(start, months)
+        return (end - month_start).days
+    return ""
+
+
+def _fn_today() -> str:
+    return date.today().strftime("%Y-%m-%d")
+
+
+def _fn_year(value: Any) -> Any:
+    parsed = _to_date(value)
+    return parsed.year if parsed else ""
+
+
+def _fn_text(value: Any, format_text: Any = "") -> str:
+    fmt = str(format_text or "")
+    parsed = _to_date(value)
+    if parsed and any(token in fmt.lower() for token in ("y", "m", "d")):
+        py_fmt = fmt.replace("yyyy", "%Y").replace("yy", "%y").replace("mm", "%m").replace("dd", "%d")
+        return parsed.strftime(py_fmt)
+    num = _to_number(value)
+    if num is None:
+        return "" if value is None else str(value)
+    if "." in fmt:
+        return f"{num:.{len(fmt.rsplit('.', 1)[1])}f}"
+    if fmt:
+        return str(int(round(num)))
+    return str(num)
+
+
 def _builtin_functions() -> dict[str, Callable[..., Any]]:
     return {
         "IF": _fn_if,
@@ -141,6 +226,12 @@ def _builtin_functions() -> dict[str, Callable[..., Any]]:
         "UPPER": lambda value="": str(value or "").upper(),
         "LOWER": lambda value="": str(value or "").lower(),
         "EOMONTH": _fn_eomonth,
+        "DATE": _fn_date,
+        "DATEDIF": _fn_datedif,
+        "EDATE": _fn_edate,
+        "TODAY": _fn_today,
+        "YEAR": _fn_year,
+        "TEXT": _fn_text,
     }
 
 

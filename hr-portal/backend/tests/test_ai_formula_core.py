@@ -193,6 +193,59 @@ def test_eomonth_registered_as_executable_builtin():
     assert "EOMONTH" in _builtin_functions()
 
 
+@pytest.mark.parametrize(
+    "formula,expected",
+    [
+        ('=DATE(2026, 7, 1)', "2026-07-01"),
+        ('=YEAR("2026-07-01")', 2026),
+        ('=TEXT("2026-07-01", "yyyy-mm-dd")', "2026-07-01"),
+        ('=TEXT(1234.567, "0.00")', "1234.57"),
+    ],
+)
+def test_date_text_year_functions(formula, expected):
+    assert evaluate_formula(formula, field_resolver=lambda _: "") == expected
+
+
+def test_date_text_year_registered_as_executable_builtins():
+    from app.ai_formula.formula_evaluator import _builtin_functions
+    from app.ai_formula.function_catalog import base_formula_function_codes
+
+    codes = base_formula_function_codes()
+    functions = _builtin_functions()
+    assert {"DATE", "TEXT", "YEAR"} <= codes
+    assert {"DATE", "TEXT", "YEAR"} <= set(functions)
+
+
+@pytest.mark.parametrize(
+    "formula,expected",
+    [
+        ('=EDATE("2026-01-31", 1)', "2026-02-28"),
+        ('=EDATE("2026-01-15", -2)', "2025-11-15"),
+        ('=DATEDIF("2020-01-01", "2026-07-01", "Y")', 6),
+        ('=DATEDIF("2026-01-01", "2026-07-01", "M")', 6),
+        ('=DATEDIF("2026-01-01", "2026-07-01", "D")', 181),
+    ],
+)
+def test_datedif_edate_functions(formula, expected):
+    assert evaluate_formula(formula, field_resolver=lambda _: "") == expected
+
+
+def test_today_returns_current_date():
+    from datetime import date
+
+    assert evaluate_formula("=TODAY()", field_resolver=lambda _: "") == date.today().strftime("%Y-%m-%d")
+
+
+def test_datedif_edate_today_registered_as_executable_builtins():
+    from app.ai_formula.formula_evaluator import _builtin_functions
+    from app.ai_formula.function_catalog import base_formula_function_codes
+
+    codes = base_formula_function_codes()
+    functions = _builtin_functions()
+    assert {"DATEDIF", "EDATE", "TODAY"} <= codes
+    assert {"DATEDIF", "EDATE", "TODAY"} <= set(functions)
+
+
 def test_formula_safety_blocks_external_access():
     assert safety_issues('=HYPERLINK("https://example.com")')
 

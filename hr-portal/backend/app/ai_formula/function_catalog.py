@@ -127,6 +127,62 @@ EXECUTABLE_BASE_FUNCTIONS: tuple[dict[str, Any], ...] = (
         ],
         "return_type": "string",
     },
+    {
+        "code": "DATE",
+        "name": "日期构造",
+        "description": "根据年、月、日返回日期。",
+        "parameters": [
+            {"name": "year", "type": "number", "description": "年份"},
+            {"name": "month", "type": "number", "description": "月份"},
+            {"name": "day", "type": "number", "description": "日期"},
+        ],
+        "return_type": "string",
+    },
+    {
+        "code": "DATEDIF",
+        "name": "日期差",
+        "description": "计算两个日期之间的年、月或日差值。",
+        "parameters": [
+            {"name": "start_date", "type": "string", "description": "开始日期，如 2026-01-01"},
+            {"name": "end_date", "type": "string", "description": "结束日期，如 2026-07-01"},
+            {"name": "unit", "type": "string", "description": "单位：Y、M、D、YM、YD、MD"},
+        ],
+        "return_type": "number",
+    },
+    {
+        "code": "EDATE",
+        "name": "日期偏移",
+        "description": "返回指定日期前后若干个月的同日日期。",
+        "parameters": [
+            {"name": "start_date", "type": "string", "description": "起始日期，如 2026-01-15"},
+            {"name": "months", "type": "number", "description": "偏移月数"},
+        ],
+        "return_type": "string",
+    },
+    {
+        "code": "TODAY",
+        "name": "今天",
+        "description": "返回当前日期。",
+        "parameters": [],
+        "return_type": "string",
+    },
+    {
+        "code": "YEAR",
+        "name": "年份",
+        "description": "返回日期对应的年份。",
+        "parameters": [{"name": "date", "type": "string", "description": "日期，如 2026-01-15"}],
+        "return_type": "number",
+    },
+    {
+        "code": "TEXT",
+        "name": "文本格式化",
+        "description": "按格式将数值或日期转换为文本。",
+        "parameters": [
+            {"name": "value", "type": "any", "description": "待格式化的值"},
+            {"name": "format_text", "type": "string", "description": "格式，如 yyyy-mm-dd 或 0.00"},
+        ],
+        "return_type": "string",
+    },
 )
 
 
@@ -144,7 +200,6 @@ BLOCKED_CATALOG_CODES = {
     "RAND",
     "RANDBETWEEN",
     "RTD",
-    "TODAY",
     "WEBSERVICE",
 }
 
