@@ -238,7 +238,7 @@ defineExpose({ run })
       :page="page"
       :page-size="pageSize"
       :loading="loading"
-      :max-height="600"
+      fill-viewport
       :page-sizes="[20, 50, 100]"
       @update:page="page = $event"
       @update:page-size="pageSize = $event"
@@ -254,10 +254,21 @@ defineExpose({ run })
 </template>
 
 <style scoped>
+.report-view-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
 .report-view-card :deep(.el-card__header) {
+  flex: 0 0 auto;
   padding: 12px 16px;
 }
 .report-view-card :deep(.el-card__body) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   padding: 0;
 }
 .viewer-head {
@@ -306,13 +317,19 @@ defineExpose({ run })
 .tip-desc strong {
   line-height: 1.5;
 }
-.report-view-card :deep(.el-alert),
-.report-view-card :deep(.el-table),
-.report-view-card :deep(.el-pagination) {
+.report-view-card :deep(.runtime-filter-bar) {
+  flex: 0 0 auto;
+}
+.report-view-card :deep(.el-alert) {
+  flex: 0 0 auto;
   margin-left: 16px;
   margin-right: 16px;
 }
-.report-view-card :deep(.el-pagination) {
+.report-view-card :deep(.report-preview-table) {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+.report-view-card :deep(.report-table-pagination) {
   padding-bottom: 16px;
 }
 @media (max-width: 900px) {

@@ -9,6 +9,8 @@ const props = defineProps<{
   pageSize: number
   loading?: boolean
   maxHeight?: number
+  height?: number | string
+  fillViewport?: boolean
   pageSizes?: number[]
 }>()
 
@@ -28,14 +30,17 @@ function formatCell(row: Record<string, any>, col: RunResult['columns'][number])
 </script>
 
 <template>
-  <div>
-    <div style="overflow-x: auto">
+  <div class="report-preview-table" :class="{ 'is-fill-viewport': fillViewport }">
+    <div class="report-table-shell">
       <el-table
         v-loading="loading"
         :data="items"
         stripe
+        border
+        class="report-result-table"
         style="width: 100%"
-        :max-height="maxHeight ?? 400"
+        :height="height ?? (fillViewport ? '100%' : undefined)"
+        :max-height="height || fillViewport ? undefined : (maxHeight ?? 400)"
       >
         <el-table-column
           v-for="col in columns"
@@ -67,7 +72,7 @@ function formatCell(row: Record<string, any>, col: RunResult['columns'][number])
       </el-table>
     </div>
     <el-pagination
-      style="margin-top: 12px; justify-content: flex-end"
+      class="report-table-pagination"
       :current-page="page"
       :page-size="pageSize"
       :total="total"
@@ -78,3 +83,55 @@ function formatCell(row: Record<string, any>, col: RunResult['columns'][number])
     />
   </div>
 </template>
+
+
+<style scoped>
+.report-preview-table {
+  min-width: 0;
+}
+
+.report-preview-table.is-fill-viewport {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.report-table-shell {
+  min-width: 0;
+}
+
+.report-preview-table.is-fill-viewport .report-table-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.report-result-table {
+  --el-table-border-color: var(--color-border-light);
+}
+
+.report-result-table :deep(.el-table__cell) {
+  vertical-align: top;
+}
+
+.report-result-table :deep(.cell) {
+  white-space: nowrap;
+}
+
+.report-result-table :deep(.el-table__header-wrapper) {
+  position: relative;
+  z-index: 2;
+}
+
+.report-table-pagination {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.report-preview-table.is-fill-viewport .report-table-pagination {
+  margin-top: 0;
+  padding: 12px 0 0;
+  background: #fff;
+}
+</style>
