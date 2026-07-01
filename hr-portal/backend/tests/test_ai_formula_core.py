@@ -198,6 +198,8 @@ def test_eomonth_registered_as_executable_builtin():
     [
         ('=DATE(2026, 7, 1)', "2026-07-01"),
         ('=YEAR("2026-07-01")', 2026),
+        ('=MONTH("2026-07-01")', 7),
+        ('=DAY("2026-07-01")', 1),
         ('=TEXT("2026-07-01", "yyyy-mm-dd")', "2026-07-01"),
         ('=TEXT(1234.567, "0.00")', "1234.57"),
     ],
@@ -212,8 +214,8 @@ def test_date_text_year_registered_as_executable_builtins():
 
     codes = base_formula_function_codes()
     functions = _builtin_functions()
-    assert {"DATE", "TEXT", "YEAR"} <= codes
-    assert {"DATE", "TEXT", "YEAR"} <= set(functions)
+    assert {"DATE", "TEXT", "YEAR", "MONTH", "DAY"} <= codes
+    assert {"DATE", "TEXT", "YEAR", "MONTH", "DAY"} <= set(functions)
 
 
 @pytest.mark.parametrize(

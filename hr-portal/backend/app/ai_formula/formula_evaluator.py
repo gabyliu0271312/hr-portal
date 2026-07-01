@@ -192,6 +192,16 @@ def _fn_year(value: Any) -> Any:
     return parsed.year if parsed else ""
 
 
+def _fn_month(value: Any) -> Any:
+    parsed = _to_date(value)
+    return parsed.month if parsed else ""
+
+
+def _fn_day(value: Any) -> Any:
+    parsed = _to_date(value)
+    return parsed.day if parsed else ""
+
+
 def _fn_text(value: Any, format_text: Any = "") -> str:
     fmt = str(format_text or "")
     parsed = _to_date(value)
@@ -231,6 +241,8 @@ def _builtin_functions() -> dict[str, Callable[..., Any]]:
         "EDATE": _fn_edate,
         "TODAY": _fn_today,
         "YEAR": _fn_year,
+        "MONTH": _fn_month,
+        "DAY": _fn_day,
         "TEXT": _fn_text,
     }
 

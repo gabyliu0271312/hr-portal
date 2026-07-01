@@ -174,6 +174,20 @@ EXECUTABLE_BASE_FUNCTIONS: tuple[dict[str, Any], ...] = (
         "return_type": "number",
     },
     {
+        "code": "MONTH",
+        "name": "月份",
+        "description": "返回日期对应的月份。",
+        "parameters": [{"name": "date", "type": "string", "description": "日期，如 2026-01-15"}],
+        "return_type": "number",
+    },
+    {
+        "code": "DAY",
+        "name": "日",
+        "description": "返回日期对应的日。",
+        "parameters": [{"name": "date", "type": "string", "description": "日期，如 2026-01-15"}],
+        "return_type": "number",
+    },
+    {
         "code": "TEXT",
         "name": "文本格式化",
         "description": "按格式将数值或日期转换为文本。",
