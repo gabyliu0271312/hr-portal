@@ -158,6 +158,64 @@ export interface SkillGenerateResponse {
 }
 
 // ──────────────────────────────────────────────
+// Phase 2: Task (对比任务) + Run (执行记录)
+// ──────────────────────────────────────────────
+
+export interface TaskCreate {
+  name: string
+  skill_id?: number | null
+  description?: string | null
+  enabled?: boolean
+  cron_expression?: string | null
+}
+
+export interface TaskUpdate {
+  name?: string | null
+  description?: string | null
+  enabled?: boolean | null
+  cron_expression?: string | null
+}
+
+export interface TaskOut {
+  id: number
+  skill_id: number | null
+  name: string
+  description: string | null
+  compare_type: string
+  table_a: string
+  table_b: string
+  join_keys: string[]
+  enabled: boolean
+  cron_expression: string | null
+  scheduled_job_id: number | null
+  last_run_at: string | null
+  last_status: string | null
+  last_diff_count: number
+  created_by: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RunOut {
+  id: number
+  task_id: number
+  trigger_type: string
+  status: string
+  diff_count: number
+  summary: Record<string, any> | null
+  duration_ms: number | null
+  error_message: string | null
+  triggered_by: number | null
+  started_at: string
+  finished_at: string | null
+}
+
+export interface RunDetail extends RunOut {
+  detail: Record<string, any> | null
+  execution_sql: string | null
+}
+
+// ──────────────────────────────────────────────
 // API
 // ──────────────────────────────────────────────
 
@@ -186,5 +244,32 @@ export const dataCompareApi = {
     api.post<SkillInvokeResponse>(`/data-compare/skills/${id}/invoke`).then(r => r.data),
 
   invokeAdhoc: (spec: CompareSpec) =>
-    api.post<CompareResult>('/data-compare/invoke', spec).then(r => r.data)
+    api.post<CompareResult>('/data-compare/invoke', spec).then(r => r.data),
+
+  // Phase 2: 任务 CRUD
+  listTasks: (params?: { enabled?: boolean; limit?: number; offset?: number }) =>
+    api.get<{ items: TaskOut[]; total: number }>('/data-compare/tasks', { params }).then(r => r.data),
+
+  getTask: (id: number) =>
+    api.get<TaskOut>(`/data-compare/tasks/${id}`).then(r => r.data),
+
+  createTask: (data: TaskCreate) =>
+    api.post<TaskOut>('/data-compare/tasks', data).then(r => r.data),
+
+  updateTask: (id: number, data: TaskUpdate) =>
+    api.patch<TaskOut>(`/data-compare/tasks/${id}`, data).then(r => r.data),
+
+  deleteTask: (id: number) =>
+    api.delete(`/data-compare/tasks/${id}`).then(r => r.data),
+
+  // Phase 2: 任务执行
+  runTask: (id: number) =>
+    api.post<RunOut>(`/data-compare/tasks/${id}/run`).then(r => r.data),
+
+  // Phase 2: 执行记录
+  listRuns: (taskId: number, params?: { limit?: number; offset?: number }) =>
+    api.get<{ items: RunOut[]; total: number }>(`/data-compare/tasks/${taskId}/runs`, { params }).then(r => r.data),
+
+  getRun: (runId: number) =>
+    api.get<RunDetail>(`/data-compare/runs/${runId}`).then(r => r.data),
 }

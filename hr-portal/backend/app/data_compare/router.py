@@ -1,4 +1,4 @@
-﻿"""Data comparison skill REST API endpoints.
+"""Data comparison skill REST API endpoints.
 
 Permission model:
   - system.data_compare "V" — required to list/view/execute skills and query metadata
@@ -34,7 +34,7 @@ from app.data_compare.schemas import (
     SkillUpdate,
 )
 from app.data_compare.validator import SchemaValidationError, validate_compare_spec
-from app.data_compare import service
+from app.data_compare import service, task_service
 from app.permissions.scope_filter import _is_super_admin
 from app.users.models import User
 
@@ -365,3 +365,264 @@ async def get_table_columns(
     }
 
 
+# ── Phase 2: Task CRUD + Execution ──────────────────────────────────
+
+
+class TaskCreate(BaseModel):
+    name: str
+    skill_id: int | None = None
+    description: str | None = None
+    enabled: bool = False
+    cron_expression: str | None = None
+
+
+class TaskUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    enabled: bool | None = None
+    cron_expression: str | None = None
+
+
+class TaskOut(BaseModel):
+    id: int
+    skill_id: int | None
+    name: str
+    description: str | None
+    compare_type: str
+    table_a: str
+    table_b: str
+    join_keys: list
+    enabled: bool
+    cron_expression: str | None
+    scheduled_job_id: int | None
+    last_run_at: str | None
+    last_status: str | None
+    last_diff_count: int
+    created_by: int | None
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_orm(cls, task) -> "TaskOut":
+        return cls(
+            id=task.id,
+            skill_id=task.skill_id,
+            name=task.name,
+            description=task.description,
+            compare_type=task.compare_type,
+            table_a=task.table_a,
+            table_b=task.table_b,
+            join_keys=task.join_keys,
+            enabled=task.enabled,
+            cron_expression=task.cron_expression,
+            scheduled_job_id=task.scheduled_job_id,
+            last_run_at=task.last_run_at.isoformat() if task.last_run_at else None,
+            last_status=task.last_status,
+            last_diff_count=task.last_diff_count,
+            created_by=task.created_by,
+            created_at=task.created_at.isoformat() if task.created_at else "",
+            updated_at=task.updated_at.isoformat() if task.updated_at else "",
+        )
+
+
+class RunOut(BaseModel):
+    id: int
+    task_id: int
+    trigger_type: str
+    status: str
+    diff_count: int
+    summary: dict | None
+    duration_ms: int | None
+    error_message: str | None
+    triggered_by: int | None
+    started_at: str
+    finished_at: str | None
+
+    @classmethod
+    def from_orm(cls, run) -> "RunOut":
+        return cls(
+            id=run.id,
+            task_id=run.task_id,
+            trigger_type=run.trigger_type,
+            status=run.status,
+            diff_count=run.diff_count,
+            summary=run.summary,
+            duration_ms=run.duration_ms,
+            error_message=run.error_message,
+            triggered_by=run.triggered_by,
+            started_at=run.started_at.isoformat() if run.started_at else "",
+            finished_at=run.finished_at.isoformat() if run.finished_at else None,
+        )
+
+
+@router.post("/tasks", response_model=TaskOut)
+async def create_task(
+    data: TaskCreate,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    _perm: User = Depends(_require_c),
+):
+    if data.skill_id is not None:
+        skill = await service.get_skill(db, data.skill_id)
+        if skill is None:
+            raise HTTPException(status_code=404, detail="Skill not found")
+        if not await service.user_can_access(skill, user.id, db):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    task = await task_service.create_task(
+        db,
+        name=data.name,
+        skill_id=data.skill_id,
+        description=data.description,
+        enabled=data.enabled,
+        cron_expression=data.cron_expression,
+        user_id=user.id,
+    )
+    return TaskOut.from_orm(task)
+
+
+@router.get("/tasks", response_model=dict)
+async def list_tasks(
+    enabled: bool | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    _perm: User = Depends(_require_v),
+):
+    is_admin = await _is_super_admin(user, db)
+    rows, total = await task_service.list_tasks(
+        db,
+        enabled=enabled,
+        user_id=None if is_admin else user.id,
+        limit=limit,
+        offset=offset,
+    )
+    return {
+        "items": [TaskOut.from_orm(r) for r in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/tasks/{task_id}", response_model=TaskOut)
+async def get_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    _perm: User = Depends(_require_v),
+):
+    task = await task_service.get_task(db, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not await task_service.user_can_access_task(task, user.id, db):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return TaskOut.from_orm(task)
+
+
+@router.patch("/tasks/{task_id}", response_model=TaskOut)
+async def update_task(
+    task_id: int,
+    data: TaskUpdate,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    _perm: User = Depends(_require_u),
+):
+    task = await task_service.get_task(db, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not await task_service.user_can_access_task(task, user.id, db):
+        raise HTTPException(status_code=403, detail="Access denied")
+    task = await task_service.update_task(
+        db,
+        task_id,
+        name=data.name,
+        description=data.description,
+        enabled=data.enabled,
+        cron_expression=data.cron_expression,
+    )
+    return TaskOut.from_orm(task)
+
+
+@router.delete("/tasks/{task_id}")
+async def delete_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    _perm: User = Depends(_require_d),
+):
+    task = await task_service.get_task(db, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not await task_service.user_can_access_task(task, user.id, db):
+        raise HTTPException(status_code=403, detail="Access denied")
+    deleted = await task_service.delete_task(db, task_id)
+    return {"ok": deleted}
+
+
+@router.post("/tasks/{task_id}/run", response_model=RunOut)
+async def run_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    _perm: User = Depends(_require_v),
+):
+    """Manually trigger a compare task execution."""
+    task = await task_service.get_task(db, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not await task_service.user_can_access_task(task, user.id, db):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    run = await task_service.execute_task(
+        db, task, trigger_type="manual", triggered_by=user.id
+    )
+    return RunOut.from_orm(run)
+
+
+@router.get("/tasks/{task_id}/runs", response_model=dict)
+async def list_task_runs(
+    task_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    _perm: User = Depends(_require_v),
+):
+    task = await task_service.get_task(db, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not await task_service.user_can_access_task(task, user.id, db):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    runs, total = await task_service.list_runs(db, task_id, limit=limit, offset=offset)
+    return {
+        "items": [RunOut.from_orm(r) for r in runs],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/runs/{run_id}", response_model=dict)
+async def get_run_detail(
+    run_id: int,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    _perm: User = Depends(_require_v),
+):
+    """Get full run detail including diff rows."""
+    run = await task_service.get_run(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Check ownership via task
+    task = await task_service.get_task(db, run.task_id)
+    if task and not await task_service.user_can_access_task(task, user.id, db):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    result = RunOut.from_orm(run).model_dump()
+    result["detail"] = run.detail
+    result["execution_sql"] = run.execution_sql
+    return result
