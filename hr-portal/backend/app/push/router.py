@@ -103,6 +103,16 @@ def _is_report_source(source_table: str | None) -> bool:
     return str(source_table or "").startswith("report:")
 
 
+def _validate_db_expose_password(payload: PushTargetIn) -> None:
+    if payload.push_type != "db_expose" or not payload.secrets.get("readonly_password"):
+        return
+    from app.auth.password import is_strong_enough
+
+    ok, message = is_strong_enough(payload.secrets["readonly_password"])
+    if not ok:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=message or "密码不符合复杂度要求")
+
+
 async def _ensure_system_op_for_non_report(
     source_table: str, user: User, db: AsyncSession, op: str
 ) -> None:
@@ -142,6 +152,7 @@ async def create_push_target(
 
     await _ensure_report_push_editable(payload.source_table, user, db)
     await _ensure_system_op_for_non_report(payload.source_table, user, db, "C")
+    _validate_db_expose_password(payload)
     secrets_enc = {k: encrypt(v) for k, v in payload.secrets.items()}
 
     # api_expose：自动生成 AppID + AppSecret（如果未填）
@@ -226,6 +237,7 @@ async def update_push_target(
     await _ensure_report_push_editable(payload.source_table, user, db)
     await _ensure_system_op_for_non_report(pt.source_table, user, db, "U")
     await _ensure_system_op_for_non_report(payload.source_table, user, db, "U")
+    _validate_db_expose_password(payload)
 
     pt.name = payload.name
     pt.description = payload.description
@@ -272,7 +284,7 @@ async def delete_push_target(
         from app.data.ddl import make_identifier
         from app.push.push_service import _quote_pg_identifier
         readonly_user = (pt.settings or {}).get("readonly_user")
-        schema_name = (pt.settings or {}).get("schema") or make_identifier("finebi_", pt.source_table)
+        schema_name = (pt.settings or {}).get("schema") or make_identifier("finebi_", f"{pt.source_table}_{pt.id}")
         db_name_q = _quote_pg_identifier(app_settings.DB_NAME)
         if readonly_user:
             readonly_user_q = _quote_pg_identifier(readonly_user)
@@ -288,11 +300,22 @@ async def delete_push_target(
                     {"schema_name": schema_name},
                 )
             ).scalar_one()
+            schema_in_use = False
+            if schema_exists:
+                other_targets = (
+                    await db.execute(
+                        select(PushTarget).where(
+                            PushTarget.id != pt_id,
+                            PushTarget.push_type == "db_expose",
+                        )
+                    )
+                ).scalars().all()
+                schema_in_use = any((other.settings or {}).get("schema") == schema_name for other in other_targets)
             if role_exists and schema_exists:
                 schema_q = _quote_pg_identifier(schema_name)
                 await db.execute(text(f"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {schema_q} FROM {readonly_user_q}"))
                 await db.execute(text(f"REVOKE ALL PRIVILEGES ON SCHEMA {schema_q} FROM {readonly_user_q}"))
-            if schema_exists:
+            if schema_exists and not schema_in_use:
                 schema_q = _quote_pg_identifier(schema_name)
                 await db.execute(text(f"DROP SCHEMA IF EXISTS {schema_q} CASCADE"))
             if role_exists:

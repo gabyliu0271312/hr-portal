@@ -5,6 +5,7 @@ import type { PushTargetIn, PushTargetOut } from '@/api/push_targets'
 import { pushTargetsApi } from '@/api/push_targets'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import { SCHEDULE_OPTIONS } from '@/config/dataSources'
+import { PASSWORD_POLICY_HINT, generateStrongPassword } from '@/utils/passwordPolicy'
 import PushFieldMapper from './PushFieldMapper.vue'
 
 const props = defineProps<{ sourceTable: string; sourceColumns?: ColumnInfo[] }>()
@@ -71,6 +72,7 @@ const form = reactive<{
   batch_size: string
   app_id: string
   app_secret: string
+  readonly_password: string
   ip_whitelist: string
   feishu_app_id: string
   feishu_app_secret: string
@@ -85,7 +87,7 @@ const form = reactive<{
   is_active: true, schedule: '手动触发', field_mappings: [], period_ym: '',
   dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
   url: '', method: 'POST', bearer_token: '', batch_size: '500',
-  app_id: '', app_secret: '', ip_whitelist: '',
+  app_id: '', app_secret: '', readonly_password: '', ip_whitelist: '',
   feishu_app_id: '', feishu_app_secret: '', feishu_wiki_url_or_token: '',
   feishu_spreadsheet_token: '', feishu_sheet_id: '', feishu_start_cell: 'A1',
   feishu_include_header: true, feishu_batch_size: '1000',
@@ -133,7 +135,7 @@ async function open(target?: PushTargetOut | null) {
       schedule: '手动触发', field_mappings: [], period_ym: '', ip_whitelist: '',
       dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
       url: '', method: 'POST', bearer_token: '', batch_size: '500',
-      app_id: '', app_secret: '',
+      app_id: '', app_secret: '', readonly_password: '',
       feishu_app_id: '', feishu_app_secret: '', feishu_wiki_url_or_token: '',
       feishu_spreadsheet_token: '', feishu_sheet_id: '', feishu_start_cell: 'A1',
       feishu_include_header: true, feishu_batch_size: '1000',
@@ -144,6 +146,12 @@ async function open(target?: PushTargetOut | null) {
 
 function parseIpWhitelist(): string[] {
   return form.ip_whitelist.split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
+}
+
+function resetPassword(field: 'password' | 'readonly_password' | 'app_secret' | 'feishu_app_secret') {
+  form[field] = generateStrongPassword(20)
+  if (field === 'readonly_password') delete revealedSecrets.value.readonly_password
+  ElMessage.success('已生成随机强密码')
 }
 
 function buildPayload(): PushTargetIn {
@@ -175,6 +183,7 @@ function buildPayload(): PushTargetIn {
     if (form.app_secret) base.secrets = { app_secret: form.app_secret }
   } else if (form.push_type === 'db_expose') {
     base.settings = { ip_whitelist: parseIpWhitelist() }
+    if (form.readonly_password) base.secrets = { readonly_password: form.readonly_password }
   } else if (form.push_type === 'feishu_sheet') {
     base.settings = {
       period_ym: form.period_ym,
@@ -284,7 +293,11 @@ defineExpose({ open })
             <el-input v-model="form.db_user" />
           </el-form-item>
           <el-form-item label="密码">
-            <el-input v-model="form.password" type="password" placeholder="不修改留空" show-password />
+            <div class="password-row">
+              <el-input v-model="form.password" type="password" placeholder="不修改留空" show-password />
+              <el-button plain @click="resetPassword('password')">随机重置</el-button>
+            </div>
+            <div class="password-hint">{{ PASSWORD_POLICY_HINT }}</div>
           </el-form-item>
         </div>
       </template>
@@ -426,6 +439,7 @@ defineExpose({ open })
                 <el-button link size="small" :loading="revealing" @click="revealSecret('readonly_password')">
                   {{ revealedSecrets['readonly_password'] !== undefined ? '隐藏' : '显示' }}
                 </el-button>
+                <el-button size="small" plain @click="resetPassword('readonly_password')">随机重置</el-button>
               </div>
             </el-descriptions-item>
             <el-descriptions-item label="连接 URL">
@@ -436,6 +450,13 @@ defineExpose({ open })
         <el-alert v-else type="info" :closable="false" show-icon>
           保存后系统将自动创建只读账号，连接信息将在此处显示。
         </el-alert>
+        <el-form-item label="新密码（可选）">
+          <div class="password-row">
+            <el-input v-model="form.readonly_password" type="password" placeholder="不修改留空；填写后保存即重置" show-password />
+            <el-button plain @click="resetPassword('readonly_password')">随机重置</el-button>
+          </div>
+          <div class="password-hint">{{ PASSWORD_POLICY_HINT }}</div>
+        </el-form-item>
       </template>
 
       <!-- 字段映射：仅主动推送类型显示 -->
@@ -462,5 +483,17 @@ defineExpose({ open })
   text-transform: uppercase; letter-spacing: 0.5px;
   margin: 16px 0 12px; padding-bottom: 6px;
   border-bottom: 1px solid var(--color-border-light);
+}
+.password-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  width: 100%;
+}
+.password-hint {
+  margin-top: 4px;
+  color: var(--color-text-placeholder);
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

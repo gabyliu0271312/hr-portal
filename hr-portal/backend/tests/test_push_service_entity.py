@@ -358,7 +358,7 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
         restore_table(table_name, old_model, old_period)
 
     assert rows == 3
-    assert "finebi_push_db_entity.t_push_db_entity" in message
+    assert "finebi_push_db_entity_77.t_push_db_entity_77" in message
     full_sql = "\n".join(sql_texts(db))
     assert "raw" not in full_sql.lower()
     assert "jsonb" not in full_sql.lower()

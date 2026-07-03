@@ -707,7 +707,7 @@ async def push_db_expose(
     field_mappings: list[dict],
     db: AsyncSession,
 ) -> tuple[int, str]:
-    """每张源表独立 schema（finebi_{source_table}），确保 FineBI 用户只能看到自己的表。"""
+    """每个推送配置独立 schema/table，支持同一源表暴露多个只读账号。"""
     import secrets as py_secrets
     import string
     from sqlalchemy import text, select as sa_select
@@ -721,16 +721,17 @@ async def push_db_expose(
         raise RuntimeError(f"未知数据表: {source_table}")
     _ensure_entity_model(Model, source_table)
 
-    pt_id = settings.get("_pt_id", "")
-    readonly_user = settings.get("readonly_user") or f"ro_{source_table}_{pt_id}"[:63]
+    pt_id = str(settings.get("_pt_id") or "").strip()
+    target_key = f"{source_table}_{pt_id}" if pt_id else source_table
+    readonly_user = settings.get("readonly_user") or f"ro_{target_key}"[:63]
     password = secrets.get("readonly_password", "")
     if not password:
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
         password = "".join(py_secrets.choice(alphabet) for _ in range(20))
 
     source_table_q = quote_ident(source_table, kind="table")
-    schema_name = make_identifier("finebi_", source_table)
-    finebi_table = make_identifier("t_", source_table)
+    schema_name = make_identifier("finebi_", target_key)
+    finebi_table = make_identifier("t_", target_key)
     schema_q = _quote_pg_identifier(schema_name)
     finebi_table_q = _quote_pg_identifier(finebi_table)
     readonly_user_q = _quote_pg_identifier(readonly_user)
@@ -845,6 +846,7 @@ async def push_db_expose(
             "port": app_settings.DB_PORT,
             "database": app_settings.DB_NAME,
             "schema": schema_name,
+            "table": finebi_table,
             "conn_url": conn_url,
         }
         flag_modified(pts, "secrets_encrypted")
