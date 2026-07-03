@@ -315,6 +315,8 @@ async def delete_push_target(
                 schema_q = _quote_pg_identifier(schema_name)
                 await db.execute(text(f"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {schema_q} FROM {readonly_user_q}"))
                 await db.execute(text(f"REVOKE ALL PRIVILEGES ON SCHEMA {schema_q} FROM {readonly_user_q}"))
+            if role_exists:
+                await db.execute(text(f"DROP OWNED BY {readonly_user_q}"))
             if schema_exists and not schema_in_use:
                 schema_q = _quote_pg_identifier(schema_name)
                 await db.execute(text(f"DROP SCHEMA IF EXISTS {schema_q} CASCADE"))
