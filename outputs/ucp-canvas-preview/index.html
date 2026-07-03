@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UCP · 配置画布</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #f6f7f9;
+    color: #1a1d23;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; cursor: pointer; }
+  input, select, textarea { font: inherit; color: inherit; }
+
+  .app { display: flex; min-height: 100vh; }
+
+  /* === Sidebar === */
+  .side {
+    width: 220px;
+    background: #ffffff;
+    border-right: 1px solid #eceef2;
+    padding: 22px 14px;
+    flex-shrink: 0;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; padding: 0 8px; }
+  .logo .mark {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: linear-gradient(135deg, #2e6ef5 0%, #7c4dff 100%);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 13px; font-weight: 700;
+  }
+  .logo .name { font-weight: 600; font-size: 14px; letter-spacing: -0.2px; }
+  .logo .ver { font-size: 10px; color: #9aa0a8; margin-top: 1px; }
+  .group { margin-bottom: 20px; }
+  .gt {
+    font-size: 10.5px; color: #9aa0a8;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 0 10px; margin-bottom: 6px; font-weight: 500;
+  }
+  .gi {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 10px; border-radius: 6px;
+    color: #525866; cursor: pointer; font-size: 13.5px;
+    margin-bottom: 1px;
+  }
+  .gi:hover { background: #f4f6fa; }
+  .gi.active { background: #eef3ff; color: #2e6ef5; font-weight: 500; }
+  .gi .ic { width: 14px; height: 14px; opacity: 0.85; flex-shrink: 0; }
+
+  /* === Main === */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar {
+    height: 56px; background: #fff;
+    border-bottom: 1px solid #eceef2;
+    display: flex; align-items: center;
+    padding: 0 28px; gap: 16px;
+  }
+  .crumbs { color: #9aa0a8; font-size: 13px; }
+  .crumbs b { color: #1a1d23; font-weight: 500; }
+  .topbar .spacer { flex: 1; }
+  .env-tabs { display: flex; gap: 4px; background: #f4f6fa; padding: 3px; border-radius: 7px; }
+  .env-tabs button {
+    border: none; background: transparent; padding: 4px 12px;
+    font-size: 12.5px; color: #525866; border-radius: 4px;
+  }
+  .env-tabs button.on { background: #fff; color: #1a1d23; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+  .view-tabs { display: flex; gap: 0; margin-left: 8px; }
+  .view-tabs button {
+    border: 1px solid #eceef2; background: #fff; padding: 5px 12px;
+    font-size: 12.5px; color: #525866;
+  }
+  .view-tabs button:first-child { border-radius: 6px 0 0 6px; }
+  .view-tabs button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+  .view-tabs button.on { background: #1a1d23; color: #fff; border-color: #1a1d23; }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 6px;
+    border: 1px solid #eceef2; background: #fff;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .canvas-wrap { flex: 1; padding: 24px 28px; overflow: auto; }
+  .canvas {
+    position: relative;
+    background: #ffffff;
+    border: 1px solid #eceef2;
+    border-radius: 10px;
+    min-height: 700px;
+    padding: 24px;
+  }
+  .canvas-head {
+    display: flex; align-items: flex-start;
+    margin-bottom: 16px;
+  }
+  .canvas-head h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.3px; }
+  .canvas-head .sub { color: #6b7280; font-size: 13px; }
+  .canvas-head .legend { display: flex; gap: 14px; margin-left: auto; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #525866; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* === Canvas area (SVG layered) === */
+  .board {
+    position: relative;
+    height: 600px;
+    margin-top: 8px;
+  }
+  .edges {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  .nodes {
+    position: absolute; inset: 0;
+  }
+  .node {
+    position: absolute;
+    width: 200px;
+    border-radius: 12px;
+    padding: 14px 16px;
+    text-align: center;
+    border: 1.5px solid;
+    cursor: pointer;
+    transition: transform .12s, box-shadow .12s;
+    user-select: none;
+  }
+  .node:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(20, 30, 60, 0.06); }
+  .node.sel { box-shadow: 0 0 0 2px #1a1d23; }
+  .node .nt { font-size: 14.5px; font-weight: 600; margin-bottom: 2px; }
+  .node .nd { font-size: 11.5px; opacity: 0.7; }
+  .node .npill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 8px; border-radius: 999px;
+    font-size: 10.5px; margin-top: 8px;
+    background: rgba(255,255,255,0.7);
+  }
+  .node .npill .d { width: 5px; height: 5px; border-radius: 50%; }
+  .node .add {
+    position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #ff8a3d; color: #fff; border: 2.5px solid #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 600; line-height: 1;
+    box-shadow: 0 2px 8px rgba(255,138,61,0.4);
+    cursor: pointer; z-index: 5;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .node .add::before {
+    content: ''; position: absolute; inset: -10px; border-radius: 50%;
+  }
+  .node .add:hover { transform: translateY(-50%) scale(1.12); box-shadow: 0 4px 12px rgba(255,138,61,0.55); }
+  .node .meta {
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px dashed rgba(0,0,0,0.08);
+    display: flex; justify-content: space-between; font-size: 11px;
+  }
+  .node .meta .v { font-weight: 600; }
+  .node .meta .l { opacity: 0.55; }
+
+  /* node color tints (pale) */
+  .n-cred  { background: #eaf2ff; border-color: #c5d8f5; color: #2e6ef5; }
+  .n-conn  { background: #f0eaff; border-color: #d4c5f5; color: #6f3fef; }
+  .n-adp   { background: #e6f7ee; border-color: #b8e2c8; color: #1f8a4c; }
+  .n-pipe  { background: #ffeede; border-color: #ffcfa8; color: #d96a16; }
+  .n-trig  { background: #ffe3ee; border-color: #f7c4d6; color: #c43c75; }
+  .n-mon   { background: #e6f7ee; border-color: #b8e2c8; color: #1f8a4c; }
+
+  .n-cred .add  { background: #2e6ef5; }
+  .n-conn .add  { background: #6f3fef; }
+  .n-adp .add   { background: #1f8a4c; }
+  .n-pipe .add  { background: #d96a16; }
+  .n-trig .add  { background: #c43c75; }
+  .n-mon .add   { background: #1f8a4c; }
+
+  /* node positions (step layout) */
+  .p-cred  { top:  20px;  left:  60px; }
+  .p-conn  { top:  20px;  left: 340px; }
+  .p-adp   { top: 220px;  left:  60px; }
+  .p-pipe  { top: 220px;  left: 340px; }
+  .p-trig  { top: 420px;  left: 200px; }
+  .p-mon   { top: 420px;  left: 480px; }
+
+  /* === Drawer === */
+  .mask {
+    position: fixed; inset: 0; background: rgba(20, 25, 40, 0.18);
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+    z-index: 90;
+  }
+  .mask.on { opacity: 1; pointer-events: auto; }
+  .drawer {
+    position: fixed; top: 0; right: 0; height: 100vh;
+    width: 440px; background: #fff;
+    border-left: 1px solid #eceef2;
+    transform: translateX(100%);
+    transition: transform .25s ease;
+    z-index: 100;
+    display: flex; flex-direction: column;
+  }
+  .drawer.on { transform: translateX(0); }
+  .drawer-head {
+    padding: 18px 22px 14px; border-bottom: 1px solid #eceef2;
+    display: flex; align-items: flex-start; gap: 12px;
+  }
+  .drawer-head .h { flex: 1; }
+  .drawer-head .bc { color: #9aa0a8; font-size: 11.5px; margin-bottom: 4px; }
+  .drawer-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  .drawer-head .x {
+    width: 26px; height: 26px; border-radius: 6px;
+    border: 1px solid #eceef2; background: #fff; color: #525866;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .drawer-body { flex: 1; overflow: auto; padding: 18px 22px; }
+  .drawer-foot {
+    padding: 14px 22px; border-top: 1px solid #eceef2;
+    display: flex; gap: 8px; justify-content: flex-end;
+  }
+  .btn {
+    border: 1px solid #eceef2; background: #fff; color: #1a1d23;
+    padding: 7px 14px; border-radius: 6px; font-size: 13px;
+  }
+  .btn.pri { background: #1a1d23; color: #fff; border-color: #1a1d23; }
+  .btn.warn { background: #ff8a3d; color: #fff; border-color: #ff8a3d; }
+
+  .progress {
+    height: 4px; background: #f4f6fa; border-radius: 4px; overflow: hidden;
+    margin: 6px 0 4px;
+  }
+  .progress .bar { height: 100%; background: #1a1d23; border-radius: 4px; }
+  .meta-row { display: flex; justify-content: space-between; font-size: 12px; color: #525866; margin-bottom: 14px; }
+  .meta-row b { color: #1a1d23; }
+
+  .sec-title { font-size: 12px; color: #9aa0a8; text-transform: uppercase; letter-spacing: 0.5px; margin: 18px 0 8px; font-weight: 500; }
+  .step {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 12px; border-radius: 8px;
+    border: 1px solid #eceef2; margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .step.done { background: #f4fbf6; border-color: #cfe9d8; }
+  .step.doing { border-color: #1a1d23; border-width: 1.5px; padding: 9.5px 11.5px; }
+  .step .sn {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; border: 1.5px solid #c8ccd5;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; color: #6b7280; flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .step.done .sn { background: #1f8a4c; color: #fff; border-color: #1f8a4c; }
+  .step.doing .sn { border-color: #1a1d23; color: #1a1d23; }
+  .step .st { flex: 1; }
+  .step .stt { font-weight: 500; margin-bottom: 1px; }
+  .step .std { font-size: 11.5px; color: #6b7280; }
+  .step .sa { font-size: 11.5px; color: #2e6ef5; flex-shrink: 0; cursor: pointer; }
+
+  .kv { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #eceef2; font-size: 13px; }
+  .kv:last-child { border-bottom: none; }
+  .kv .k { color: #6b7280; }
+  .kv .v { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+
+  .timeline { padding-left: 14px; border-left: 2px solid #eceef2; }
+  .tl-item { position: relative; padding: 0 0 14px 16px; }
+  .tl-item::before {
+    content: ''; position: absolute; left: -7px; top: 4px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #fff; border: 2px solid #c5d8f5;
+  }
+  .tl-item.lg::before { border-color: #1f8a4c; }
+  .tl-item .when { font-size: 11px; color: #9aa0a8; }
+  .tl-item .what { font-size: 13px; margin-top: 1px; }
+
+  /* === Toast === */
+  .toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: #1a1d23; color: #fff; padding: 10px 18px; border-radius: 8px;
+    font-size: 13px; opacity: 0; transition: all .25s; z-index: 200;
+    pointer-events: none;
+  }
+  .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .hint {
+    margin-top: 18px; padding: 12px 16px;
+    background: #f4f6fa; border-radius: 8px;
+    display: flex; align-items: center; gap: 12px;
+    font-size: 13px; color: #525866;
+  }
+  .hint .ic {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #2e6ef5; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; flex-shrink: 0;
+  }
+  .hint .go {
+    margin-left: auto; color: #2e6ef5; cursor: pointer; font-size: 12.5px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="side">
+    <div class="logo">
+      <div class="mark">U</div>
+      <div>
+        <div class="name">UCP 控制台</div>
+        <div class="ver">v 1.4.0</div>
+      </div>
+    </div>
+    <div class="group">
+      <div class="gt">配置中心</div>
+      <div class="gi active">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        配置画布
+      </div>
+      <div class="gi"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 1-.2 1.7l2 1.5-2 3.4-2.3-.9a7 7 0 0 1-3 1.7L13 22h-4l-.5-2.6a7 7 0 0 1-3-1.7L3.2 18.6l-2-3.4 2-1.5A7 7 0 0 1 3 12a7 7 0 0 1 .2-1.7l-2-1.5 2-3.4 2.3.9a7 7 0 0 1 3-1.7L9 2h4l.5 2.6a7 7 0 0 1 3 1.7l2.3-.9 2 3.4-2 1.5c.1.5.2 1.1.2 1.7z"/></svg>凭证管理</div>
+      <div class="gi"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>连接器</div>
+      <div class="gi"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>适配器</div>
+    </div>
+    <div class="group">
+      <div class="gt">运行与监控</div>
+      <div class="gi"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>流水线</div>
+      <div class="gi"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>触发器</div>
+      <div class="gi"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 12l3-3 4 4 5-5"/></svg>监控</div>
+      <div class="gi"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>执行历史</div>
+    </div>
+    <div class="group">
+      <div class="gt">业务扩展</div>
+      <div class="gi"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>外部账号</div>
+      <div class="gi"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>审批中心</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+
+    <div class="topbar">
+      <div class="crumbs">数据集成 / <b>配置画布</b></div>
+      <div class="spacer"></div>
+      <div class="env-tabs">
+        <button class="on">全环境</button>
+        <button>生产</button>
+        <button>预发</button>
+        <button>开发</button>
+      </div>
+      <div class="view-tabs">
+        <button class="on">流程图</button>
+        <button>列表</button>
+      </div>
+      <button class="icon-btn" title="刷新">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#525866" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      </button>
+      <button class="icon-btn" title="更多">···</button>
+    </div>
+
+    <div class="canvas-wrap">
+      <div class="canvas">
+        <div class="canvas-head">
+          <div>
+            <h1>UCP 配置画布</h1>
+            <div class="sub">按依赖关系展开 · 点击节点进入下一步 · 点 + 直接添加</div>
+          </div>
+          <div class="legend">
+            <div class="legend-item"><span class="legend-dot" style="background:#1f8a4c"></span>已就绪</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#ff8a3d"></span>待补全</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#d63a3a"></span>异常</div>
+          </div>
+        </div>
+
+        <div class="board" id="board">
+          <!-- SVG edges (dashed arrows) -->
+          <svg class="edges" id="edges" preserveAspectRatio="none"></svg>
+
+          <!-- Nodes -->
+          <div class="nodes">
+
+            <div class="node n-cred p-cred" data-key="cred">
+              <div class="add" data-add="cred" title="添加凭证">+</div>
+              <div class="nt">凭证</div>
+              <div class="nd">Credentials</div>
+              <div class="npill"><span class="d" style="background:#1f8a4c"></span>已就绪</div>
+              <div class="meta"><span><span class="l">数量</span> <span class="v" data-count="cred">12</span></span><span><span class="l">过期</span> <span class="v">1</span></span></div>
+            </div>
+
+            <div class="node n-conn p-conn" data-key="conn">
+              <div class="add" data-add="conn" title="添加连接器">+</div>
+              <div class="nt">连接器</div>
+              <div class="nd">Connectors</div>
+              <div class="npill"><span class="d" style="background:#1f8a4c"></span>已就绪</div>
+              <div class="meta"><span><span class="l">活跃</span> <span class="v" data-count="conn">18</span></span><span><span class="l">禁用</span> <span class="v">2</span></span></div>
+            </div>
+
+            <div class="node n-adp p-adp" data-key="adp">
+              <div class="add" data-add="adp" title="添加适配器">+</div>
+              <div class="nt">适配器</div>
+              <div class="nd">Adapters</div>
+              <div class="npill"><span class="d" style="background:#1f8a4c"></span>已就绪</div>
+              <div class="meta"><span><span class="l">内置</span> <span class="v" data-count="adp">11</span></span><span><span class="l">自定义</span> <span class="v">0</span></span></div>
+            </div>
+
+            <div class="node n-pipe p-pipe sel" data-key="pipe">
+              <div class="add" data-add="pipe" title="添加流水线">+</div>
+              <div class="nt">流水线</div>
+              <div class="nd">Pipelines</div>
+              <div class="npill"><span class="d" style="background:#ff8a3d"></span>待补全</div>
+              <div class="meta"><span><span class="l">已建</span> <span class="v" data-count="pipe">7</span></span><span><span class="l">草稿</span> <span class="v">3</span></span></div>
+            </div>
+
+            <div class="node n-trig p-trig" data-key="trig">
+              <div class="add" data-add="trig" title="添加触发器">+</div>
+              <div class="nt">触发器</div>
+              <div class="nd">Triggers</div>
+              <div class="npill"><span class="d" style="background:#1f8a4c"></span>已就绪</div>
+              <div class="meta"><span><span class="l">启用</span> <span class="v" data-count="trig">9</span></span><span><span class="l">暂停</span> <span class="v">1</span></span></div>
+            </div>
+
+            <div class="node n-mon p-mon" data-key="mon">
+              <div class="add" data-add="mon" title="添加监控规则">+</div>
+              <div class="nt">监控</div>
+              <div class="nd">Monitor</div>
+              <div class="npill"><span class="d" style="background:#d63a3a"></span>1 项异常</div>
+              <div class="meta"><span><span class="l">告警</span> <span class="v" data-count="mon">3</span></span><span><span class="l">在线</span> <span class="v">12</span></span></div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="hint">
+          <div class="ic">i</div>
+          <div>检测到 <b>1</b> 条 Pipeline 缺少失败处理策略，建议补全：<b>「HR-月度调整-主流程」</b></div>
+          <div class="go">去处理 →</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Drawer -->
+<div class="mask" id="mask"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div class="h">
+      <div class="bc">UCP / 配置画布 / <span id="dn-bc">流水线</span></div>
+      <h2 id="dn-title">流水线</h2>
+    </div>
+    <button class="x" id="close">✕</button>
+  </div>
+  <div class="drawer-body" id="dn-body"></div>
+  <div class="drawer-foot">
+    <button class="btn" id="dn-cancel">关闭</button>
+    <button class="btn pri" id="dn-go">进入管理</button>
+  </div>
+</aside>
+
+<div class="toast" id="toast">已添加</div>
+
+<script>
+  // === Data for each node ===
+  const NODE_DATA = {
+    cred: {
+      title: '凭证', en: 'Credentials', bc: '凭证',
+      count: 12, progress: 88, status: '已就绪',
+      steps: [
+        { s: 'done', t: '创建凭证编码', d: '已命名' },
+        { s: 'done', t: '配置鉴权方式', d: 'OAuth 2.0 / API Key' },
+        { s: 'done', t: '密钥脱敏入库', d: 'AES-256' },
+        { s: 'doing', t: '连通性测试', d: '5/6 通过' },
+        { s: 'todo', t: '启用自动轮换', d: '90 天' }
+      ],
+      kv: [
+        { k: '最近更新', v: '2 小时前' },
+        { k: '使用中', v: '7 个连接器' },
+        { k: '即将过期', v: '1 条' }
+      ]
+    },
+    conn: {
+      title: '连接器', en: 'Connectors', bc: '连接器',
+      count: 18, progress: 95, status: '已就绪',
+      steps: [
+        { s: 'done', t: '选择数据源', d: '北森 / 飞书' },
+        { s: 'done', t: '绑定凭证', d: '已绑定' },
+        { s: 'done', t: '字段映射', d: '43 字段' },
+        { s: 'done', t: '同步规则', d: '增量 + 实时' }
+      ],
+      kv: [
+        { k: '活跃', v: '18' }, { k: '禁用', v: '2' },
+        { k: '平均耗时', v: '1.2s' }
+      ]
+    },
+    adp: {
+      title: '适配器', en: 'Adapters', bc: '适配器',
+      count: 11, progress: 100, status: '已就绪',
+      steps: [
+        { s: 'done', t: '注册适配器', d: '11 个' },
+        { s: 'done', t: '字段类型校验', d: '已通过' },
+        { s: 'done', t: '示例数据测试', d: '全部通过' }
+      ],
+      kv: [
+        { k: '内置', v: '11' }, { k: '自定义', v: '0' }
+      ]
+    },
+    pipe: {
+      title: '流水线', en: 'Pipelines', bc: '流水线',
+      count: 7, progress: 70, status: '待补全',
+      steps: [
+        { s: 'done', t: '基本配置', d: '编码 / 名称 / 分组' },
+        { s: 'done', t: '触发器', d: '手动 + 定时' },
+        { s: 'done', t: '步骤编排', d: '5 步' },
+        { s: 'doing', t: '失败处理', d: '3 条未配' },
+        { s: 'todo', t: '通知 & 权限', d: '未设置' }
+      ],
+      kv: [
+        { k: '已建', v: '7' }, { k: '草稿', v: '3' },
+        { k: '近 7 日执行', v: '142 次' }
+      ]
+    },
+    trig: {
+      title: '触发器', en: 'Triggers', bc: '触发器',
+      count: 9, progress: 92, status: '已就绪',
+      steps: [
+        { s: 'done', t: '选择触发方式', d: '手动/定时/事件' },
+        { s: 'done', t: '配置 cron', d: '已校验' },
+        { s: 'doing', t: '飞书事件订阅', d: '8/9' }
+      ],
+      kv: [
+        { k: '启用', v: '9' }, { k: '暂停', v: '1' }
+      ]
+    },
+    mon: {
+      title: '监控', en: 'Monitor', bc: '监控',
+      count: 3, progress: 60, status: '1 项异常',
+      steps: [
+        { s: 'done', t: '失败率阈值', d: '> 50%' },
+        { s: 'done', t: '超时阈值', d: '> 5 min' },
+        { s: 'doing', t: '死信告警', d: '1 条未处理' }
+      ],
+      kv: [
+        { k: '告警', v: '3' }, { k: '在线', v: '12' }
+      ]
+    }
+  };
+
+  // === Draw dashed arrows between nodes ===
+  function drawEdges() {
+    const board = document.getElementById('board');
+    const svg = document.getElementById('edges');
+    const W = board.clientWidth, H = board.clientHeight;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    // define arrow marker (filled triangle, dark grey for clear direction)
+    svg.innerHTML = `
+      <defs>
+        <marker id="ah" viewBox="0 0 12 12" refX="10" refY="6"
+                markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+          <path d="M 0 0 L 12 6 L 0 12 L 3 6 z" fill="#7a8294"></path>
+        </marker>
+        <marker id="ah-loop" viewBox="0 0 12 12" refX="10" refY="6"
+                markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+          <path d="M 0 0 L 12 6 L 0 12 L 3 6 z" fill="#a5acbb"></path>
+        </marker>
+      </defs>`;
+
+    // pairs: from -> to
+    const links = [
+      ['cred', 'conn'],
+      ['cred', 'adp'],
+      ['conn', 'pipe'],
+      ['adp',  'pipe'],
+      ['pipe', 'trig'],
+      ['trig', 'mon'],
+      ['mon',  'cred']  // dashed feedback loop (extra long curve)
+    ];
+
+    // node center (used as anchor)
+    function center(key) {
+      const el = board.querySelector(`.node[data-key="${key}"]`);
+      const r  = el.getBoundingClientRect();
+      const br = board.getBoundingClientRect();
+      return { x: r.left - br.left + r.width / 2, y: r.top - br.top + r.height / 2 };
+    }
+    // node edge point along the direction from other -> self (clipped to node border)
+    function edgePoint(from, toKey) {
+      const c = center(toKey);
+      const dx = c.x - from.x, dy = c.y - from.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      // node half-size + a small padding
+      const pad = 110; // 200/2 + ~10px gap
+      return { x: c.x - ux * pad, y: c.y - uy * pad };
+    }
+
+    links.forEach(([a, b]) => {
+      const A = center(a), B = center(b);
+      const isLoop = (a === 'mon' && b === 'cred');
+      // clip ends to node borders
+      const startPt = isLoop ? A : edgePoint(B, a);
+      const endPt   = isLoop ? B : edgePoint(A, b);
+      let d;
+      if (isLoop) {
+        // S-curve from monitor (bottom-right) back to cred (top-left)
+        const c1x = endPt.x - 220, c1y = startPt.y + 60;
+        const c2x = startPt.x - 60,  c2y = endPt.y + 60;
+        d = `M ${startPt.x} ${startPt.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${endPt.x} ${endPt.y}`;
+      } else {
+        const mx = (startPt.x + endPt.x) / 2;
+        const my = (startPt.y + endPt.y) / 2;
+        d = `M ${startPt.x} ${startPt.y} Q ${mx} ${my - 22}, ${endPt.x} ${endPt.y}`;
+      }
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', isLoop ? '#a5acbb' : '#7a8294');
+      path.setAttribute('stroke-width', isLoop ? '1.3' : '1.6');
+      path.setAttribute('stroke-dasharray', isLoop ? '4 4' : '6 4');
+      path.setAttribute('marker-end', isLoop ? 'url(#ah-loop)' : 'url(#ah)');
+      if (isLoop) path.setAttribute('opacity', '0.75');
+      else path.setAttribute('opacity', '0.9');
+      svg.appendChild(path);
+    });
+  }
+
+  // === Drawer ===
+  function openDrawer(key) {
+    const data = NODE_DATA[key];
+    if (!data) return;
+    document.getElementById('dn-bc').textContent = data.bc;
+    document.getElementById('dn-title').textContent = data.title;
+
+    const stepsHtml = data.steps.map((st, i) => {
+      const sn = st.s === 'done' ? '✓' : (st.s === 'doing' ? '' : (i + 1));
+      return `
+        <div class="step ${st.s}">
+          <div class="sn">${sn}</div>
+          <div class="st">
+            <div class="stt">${st.t}</div>
+            <div class="std">${st.d}</div>
+          </div>
+          <div class="sa">查看</div>
+        </div>`;
+    }).join('');
+
+    const kvHtml = data.kv.map(k => `<div class="kv"><span class="k">${k.k}</span><span class="v">${k.v}</span></div>`).join('');
+
+    const tl = `
+      <div class="sec-title">最近变更</div>
+      <div class="timeline">
+        <div class="tl-item lg"><div class="when">10:24</div><div class="what">新增 1 条</div></div>
+        <div class="tl-item"><div class="when">昨天 16:02</div><div class="what">配置更新</div></div>
+        <div class="tl-item"><div class="when">7 月 1 日</div><div class="what">初始化</div></div>
+      </div>`;
+
+    document.getElementById('dn-body').innerHTML = `
+      <div class="progress"><div class="bar" style="width:${data.progress}%"></div></div>
+      <div class="meta-row"><span>完成度</span><b>${data.progress}%</b></div>
+      <div class="sec-title">步骤清单</div>
+      ${stepsHtml}
+      <div class="sec-title">关键配置</div>
+      ${kvHtml}
+      ${tl}
+    `;
+
+    document.getElementById('drawer').classList.add('on');
+    document.getElementById('mask').classList.add('on');
+  }
+  function closeDrawer() {
+    document.getElementById('drawer').classList.remove('on');
+    document.getElementById('mask').classList.remove('on');
+  }
+
+  // === Toast ===
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('on');
+    clearTimeout(window._tt);
+    window._tt = setTimeout(() => t.classList.remove('on'), 1600);
+  }
+
+  // === Bind events ===
+  document.querySelectorAll('.node').forEach(n => {
+    const key = n.dataset.key;
+    n.addEventListener('click', (e) => {
+      if (e.target.closest('.add')) return; // + button handled separately
+      document.querySelectorAll('.node').forEach(x => x.classList.remove('sel'));
+      n.classList.add('sel');
+      openDrawer(key);
+    });
+  });
+
+  document.querySelectorAll('.add').forEach(b => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const key = b.dataset.add;
+      // increment count in node
+      const span = document.querySelector(`.node[data-key="${key}"] [data-count="${key}"]`);
+      if (span) span.textContent = (parseInt(span.textContent, 10) || 0) + 1;
+      const label = ({cred:'凭证', conn:'连接器', adp:'适配器', pipe:'流水线', trig:'触发器', mon:'监控规则'})[key];
+      toast(`已新增 1 个${label}`);
+    });
+  });
+
+  document.getElementById('close').addEventListener('click', closeDrawer);
+  document.getElementById('mask').addEventListener('click', closeDrawer);
+  document.getElementById('dn-cancel').addEventListener('click', closeDrawer);
+  document.getElementById('dn-go').addEventListener('click', () => toast('即将跳转…'));
+  document.querySelector('.hint .go').addEventListener('click', () => {
+    openDrawer('pipe');
+  });
+
+  // initial render
+  window.addEventListener('load', () => {
+    drawEdges();
+    openDrawer('pipe');
+  });
+  window.addEventListener('resize', drawEdges);
+</script>
+</body>
+</html>
