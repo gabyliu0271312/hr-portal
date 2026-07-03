@@ -20,7 +20,7 @@ import time
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,6 +97,10 @@ def _quote_pg_identifier(identifier: str) -> str:
 
 def _quote_pg_literal(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
+
+
+def _quote_conn_part(value: str) -> str:
+    return quote(str(value), safe="")
 
 
 # ===== 读取源数据 =====
@@ -814,13 +818,16 @@ async def push_db_expose(
         await db.execute(text(f"REVOKE ALL ON SCHEMA finebi FROM {readonly_user_q}"))
     await db.execute(text(f"GRANT USAGE ON SCHEMA {schema_q} TO {readonly_user_q}"))
     await db.execute(text(f"GRANT SELECT ON {schema_q}.{finebi_table_q} TO {readonly_user_q}"))
+    await db.execute(text(f"ALTER ROLE {readonly_user_q} SET search_path TO {schema_q}"))
 
     await db.commit()
 
     conn_url = (
-        f"postgresql://{readonly_user}:{password}"
+        f"postgresql://{_quote_conn_part(readonly_user)}:{_quote_conn_part(password)}"
         f"@127.0.0.1:{app_settings.DB_PORT}/{app_settings.DB_NAME}"
+        f"?options=-csearch_path%3D{_quote_conn_part(schema_name)}"
     )
+    jdbc_url = f"jdbc:postgresql://127.0.0.1:{app_settings.DB_PORT}/{app_settings.DB_NAME}?currentSchema={_quote_conn_part(schema_name)}"
 
     # 5. 回写连接信息到 PushTarget（按 pt_id 精确匹配，防止同表多推送目标写错行）
     from app.push.models import PushTarget
@@ -848,13 +855,14 @@ async def push_db_expose(
             "schema": schema_name,
             "table": finebi_table,
             "conn_url": conn_url,
+            "jdbc_url": jdbc_url,
         }
         flag_modified(pts, "secrets_encrypted")
         flag_modified(pts, "settings")
         await db.commit()
 
     rows = (await db.execute(text(f"SELECT COUNT(*) FROM {schema_q}.{finebi_table_q}"))).scalar_one()
-    return rows, f"FineBI 表已刷新：{schema_name}.{finebi_table}，只读账号：{readonly_user}，连接：{conn_url}"
+    return rows, f"FineBI 表已刷新：{schema_name}.{finebi_table}，只读账号：{readonly_user}，连接：{conn_url}，JDBC：{jdbc_url}"
 
 
 # ===== 统一调度入口 =====

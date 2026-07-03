@@ -447,6 +447,9 @@ defineExpose({ open })
                 </el-button>
               </div>
             </el-descriptions-item>
+            <el-descriptions-item label="JDBC URL">
+              <el-text copyable>{{ currentTarget.settings.jdbc_url || currentTarget.settings.conn_url }}</el-text>
+            </el-descriptions-item>
             <el-descriptions-item label="连接 URL">
               <el-text copyable>{{ currentTarget.settings.conn_url }}</el-text>
             </el-descriptions-item>

@@ -338,6 +338,7 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
             FakeResult(),  # REVOKE finebi
             FakeResult(),  # GRANT schema
             FakeResult(),  # GRANT table
+            FakeResult(),  # ALTER ROLE search_path
             FakeResult(value=3),
         ]
     )
@@ -369,6 +370,9 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
     assert 'SELECT id, synced_at, "month" AS "月份"' in full_sql
     assert '"amount" AS "金额"' in full_sql
     assert 'FROM public."push_db_entity" WHERE "month" = :period_ym' in full_sql
+    assert 'ALTER ROLE "ro_push_db_entity" SET search_path TO "finebi_push_db_entity_77"' in full_sql
+    assert 'postgresql://ro_push_db_entity:p%27wd@127.0.0.1' in message
+    assert 'options=-csearch_path%3Dfinebi_push_db_entity_77' in message
     insert_calls = [
         params
         for sql, params in db.executed

@@ -419,6 +419,7 @@ async def test_result_table_can_be_exposed_to_finebi_with_entity_types():
             FakeResult(value=False),  # old finebi schema exists
             FakeResult(),  # GRANT schema
             FakeResult(),  # GRANT table
+            FakeResult(),  # ALTER ROLE search_path
             FakeResult(value=1),
         ]
     )
