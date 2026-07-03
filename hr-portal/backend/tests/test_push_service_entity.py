@@ -334,8 +334,11 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
             FakeResult(),  # CREATE USER
             FakeResult(),  # GRANT CONNECT
             FakeResult(),  # REVOKE public
-            FakeResult(value=True),  # old finebi schema exists
-            FakeResult(),  # REVOKE finebi
+            FakeResult(rows=["finebi", "finebi_other_target"]),  # existing FineBI schemas
+            FakeResult(),  # REVOKE old finebi tables
+            FakeResult(),  # REVOKE old finebi schema
+            FakeResult(),  # REVOKE other finebi tables
+            FakeResult(),  # REVOKE other finebi schema
             FakeResult(),  # GRANT schema
             FakeResult(),  # GRANT table
             FakeResult(),  # ALTER ROLE search_path
@@ -371,6 +374,7 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
     assert '"amount" AS "金额"' in full_sql
     assert 'FROM public."push_db_entity" WHERE "month" = :period_ym' in full_sql
     assert 'ALTER ROLE "ro_push_db_entity" SET search_path TO "finebi_push_db_entity_77"' in full_sql
+    assert 'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA "finebi_other_target" FROM "ro_push_db_entity"' in full_sql
     assert 'postgresql://ro_push_db_entity:p%27wd@127.0.0.1' in message
     assert 'options=-csearch_path%3Dfinebi_push_db_entity_77' in message
     insert_calls = [

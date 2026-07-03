@@ -806,16 +806,17 @@ async def push_db_expose(
         await db.execute(text(f"CREATE USER {readonly_user_q} WITH PASSWORD {_quote_pg_literal(password)}"))
     await db.execute(text(f"GRANT CONNECT ON DATABASE {db_name_q} TO {readonly_user_q}"))
 
-    # 4. 只授权独立 schema，撤销 public 及旧共享 finebi schema 的访问（旧 schema 可能不存在）
+    # 4. 先撤销该账号对所有 FineBI 暴露 schema 的权限，再只授权当前表
     await db.execute(text(f"REVOKE ALL ON SCHEMA public FROM {readonly_user_q}"))
-    finebi_schema_exists = (
+    finebi_schemas = (
         await db.execute(
-            text("SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = :schema_name)"),
-            {"schema_name": "finebi"},
+            text("SELECT nspname FROM pg_namespace WHERE nspname = 'finebi' OR nspname LIKE 'finebi\\_%' ESCAPE '\\'")
         )
-    ).scalar_one()
-    if finebi_schema_exists:
-        await db.execute(text(f"REVOKE ALL ON SCHEMA finebi FROM {readonly_user_q}"))
+    ).scalars().all()
+    for existing_schema in finebi_schemas:
+        existing_schema_q = _quote_pg_identifier(existing_schema)
+        await db.execute(text(f"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {existing_schema_q} FROM {readonly_user_q}"))
+        await db.execute(text(f"REVOKE ALL PRIVILEGES ON SCHEMA {existing_schema_q} FROM {readonly_user_q}"))
     await db.execute(text(f"GRANT USAGE ON SCHEMA {schema_q} TO {readonly_user_q}"))
     await db.execute(text(f"GRANT SELECT ON {schema_q}.{finebi_table_q} TO {readonly_user_q}"))
     await db.execute(text(f"ALTER ROLE {readonly_user_q} SET search_path TO {schema_q}"))
