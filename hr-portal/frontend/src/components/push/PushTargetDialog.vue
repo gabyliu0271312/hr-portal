@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Hide, Refresh, View } from '@element-plus/icons-vue'
 import type { PushTargetIn, PushTargetOut } from '@/api/push_targets'
 import { pushTargetsApi } from '@/api/push_targets'
 import { dataApi, type ColumnInfo } from '@/api/data'
@@ -434,12 +435,16 @@ defineExpose({ open })
             <el-descriptions-item label="端口">{{ currentTarget.settings.port }}</el-descriptions-item>
             <el-descriptions-item label="用户名">{{ currentTarget.settings.readonly_user }}</el-descriptions-item>
             <el-descriptions-item label="密码">
-              <div style="display: flex; align-items: center; gap: 8px">
-                <span>{{ revealedSecrets['readonly_password'] !== undefined ? revealedSecrets['readonly_password'] : '••••••••••••' }}</span>
-                <el-button link size="small" :loading="revealing" @click="revealSecret('readonly_password')">
-                  {{ revealedSecrets['readonly_password'] !== undefined ? '隐藏' : '显示' }}
+              <div class="secret-actions">
+                <span class="secret-value">
+                  {{ form.readonly_password || (revealedSecrets['readonly_password'] !== undefined ? revealedSecrets['readonly_password'] : '••••••••••••') }}
+                </span>
+                <el-button link size="small" :loading="revealing" :title="revealedSecrets['readonly_password'] !== undefined ? '隐藏密码' : '显示密码'" @click="revealSecret('readonly_password')">
+                  <el-icon><Hide v-if="revealedSecrets['readonly_password'] !== undefined" /><View v-else /></el-icon>
                 </el-button>
-                <el-button size="small" plain @click="resetPassword('readonly_password')">随机重置</el-button>
+                <el-button size="small" plain @click="resetPassword('readonly_password')">
+                  <el-icon><Refresh /></el-icon>随机重置
+                </el-button>
               </div>
             </el-descriptions-item>
             <el-descriptions-item label="连接 URL">
@@ -450,13 +455,6 @@ defineExpose({ open })
         <el-alert v-else type="info" :closable="false" show-icon>
           保存后系统将自动创建只读账号，连接信息将在此处显示。
         </el-alert>
-        <el-form-item label="新密码（可选）">
-          <div class="password-row">
-            <el-input v-model="form.readonly_password" type="password" placeholder="不修改留空；填写后保存即重置" show-password />
-            <el-button plain @click="resetPassword('readonly_password')">随机重置</el-button>
-          </div>
-          <div class="password-hint">{{ PASSWORD_POLICY_HINT }}</div>
-        </el-form-item>
       </template>
 
       <!-- 字段映射：仅主动推送类型显示 -->
@@ -495,5 +493,18 @@ defineExpose({ open })
   color: var(--color-text-placeholder);
   font-size: 12px;
   line-height: 1.5;
+}
+.secret-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.secret-value {
+  min-width: 160px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
