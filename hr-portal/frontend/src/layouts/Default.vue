@@ -44,7 +44,7 @@
               v-for="c in grp.children"
               :key="c.id"
               class="leaf-item"
-              :class="{ active: c.routePath === route.path }"
+              :class="{ active: isLeafActive(c) }"
               @click="router.push(c.routePath)"
             >
               {{ c.label }}
@@ -53,7 +53,7 @@
           <template v-else>
             <div
               class="leaf-item leaf-item--single"
-              :class="{ active: grp.routePath === route.path }"
+              :class="{ active: isLeafActive(grp) }"
               @click="router.push(grp.routePath)"
             >
               {{ grp.label }}
@@ -126,6 +126,62 @@ const tabGroups = computed<TabMenu[]>(() => {
   })
 })
 
+/**
+ * 收敛 UCP 菜单：所有 datasource.ucp_* 合并为单个「数据接入」菜单项
+ * 让用户看到的左侧菜单更清爽
+ */
+function collapseUcpMenus(groups: GroupMenu[]): GroupMenu[] {
+  const result: GroupMenu[] = []
+  const ucpMenus: LeafMenu[] = []
+  for (const g of groups) {
+    if (g.children.length > 0) {
+      // 分组下还有子菜单：先看是否全是 ucp_*
+      const allUcp = g.children.every(
+        (c) => c.code.startsWith('datasource.ucp_') || c.code === 'datasource.ucp_config'
+      )
+      if (allUcp) {
+        // 全部收起为 1 个数据接入入口
+        ucpMenus.push(...g.children)
+      } else {
+        // 子菜单中可能也有 ucp_*
+        const nonUcp = g.children.filter((c) => !c.code.startsWith('datasource.ucp_'))
+        if (nonUcp.length < g.children.length && nonUcp.length > 0) {
+          // 混合：保留非 ucp 的，把 ucp 的加到收集
+          for (const c of g.children) {
+            if (c.code.startsWith('datasource.ucp_')) ucpMenus.push(c)
+          }
+          result.push({ ...g, children: nonUcp })
+        } else {
+          result.push(g)
+        }
+      }
+    } else {
+      // 分组本身是个叶子（code 形如 datasource.ucp_config）
+      if (g.code.startsWith('datasource.ucp_') || g.code === 'datasource.ucp_config') {
+        ucpMenus.push({
+          id: g.id,
+          code: g.code,
+          label: g.label,
+          routePath: '/datasource/ucp',
+        })
+      } else {
+        result.push(g)
+      }
+    }
+  }
+  if (ucpMenus.length > 0) {
+    // 取第一个的 id 作为合并后的 id，label 用「数据接入」
+    result.push({
+      id: ucpMenus[0].id,
+      code: 'datasource.ucp_config',
+      label: '数据接入',
+      routePath: '/datasource/ucp',
+      children: [],
+    })
+  }
+  return result
+}
+
 function tabContainsMenuCode(tab: TabMenu, code: string) {
   return tab.code === code
     || tab.children.some((g) => g.code === code || g.children.some((leaf) => leaf.code === code))
@@ -155,8 +211,21 @@ const hideAside = computed(() => route.meta.hideAside === true)
 const leftMenu = computed<GroupMenu[]>(() => {
   if (hideAside.value) return []
   const tab = tabGroups.value.find((t) => t.id === activeTabId.value)
-  return tab?.children ?? []
+  if (!tab) return []
+  return collapseUcpMenus(tab.children)
 })
+
+/**
+ * 叶子高亮判断：
+ * 1) 优先用 menuCode 严格匹配（不同菜单即使误映射到同一 path 也只高亮一个）
+ * 2) 兜底用 routePath 匹配（处理动态路由没有 menuCode 的场景）
+ */
+function isLeafActive(leaf: LeafMenu): boolean {
+  const currentCode = route.meta.menuCode as string | null | undefined
+  if (currentCode && leaf.code === currentCode) return true
+  if (leaf.routePath && leaf.routePath === route.path) return true
+  return false
+}
 
 function onTabClick(tab: TabMenu) {
   // 跳到该 tab 下第一个可达的叶子或分组

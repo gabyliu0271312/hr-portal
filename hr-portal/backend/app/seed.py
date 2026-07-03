@@ -54,6 +54,10 @@ MENU_TREE: list[dict] = [
                 "children": [
                     {"code": "datasource.endpoints", "label": "接口配置", "icon": "Link"},
                     {"code": "datasource.sync_runs", "label": "同步历史", "icon": "Clock"},
+                    {"code": "datasource.ucp_executions", "label": "Pipeline 执行", "icon": "Connection"},
+                    {"code": "datasource.ucp_config", "label": "Pipeline 配置", "icon": "Setting"},
+                    {"code": "datasource.ucp_events", "label": "事件总线", "icon": "BellFilled"},
+                    {"code": "datasource.ucp_external_accounts", "label": "外部账号", "icon": "UserFilled"},
                     {"code": "datasource.datasets", "label": "表间关联", "icon": "Share"},
                     {"code": "data.view", "label": "数据视图", "icon": "DataAnalysis"},
                 ],

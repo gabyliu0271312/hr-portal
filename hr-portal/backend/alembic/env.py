@@ -31,6 +31,7 @@ from app.ai import models as _ai_models  # noqa: F401
 from app.ai_formula import models as _ai_formula_models  # noqa: F401
 from app.system import models as _system_models  # noqa: F401
 from app.table_tools import models as _table_tools_models  # noqa: F401
+from app.ucp import models as _ucp_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.db_url_async)

@@ -42,6 +42,7 @@ from app.system.router import router as system_logs_router
 from app.tools.router import router as tools_router
 from app.table_tools.router import router as table_tools_router
 from app.users.router import router as users_router
+from app.ucp.router import router as ucp_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger("hr-portal")
@@ -184,3 +185,4 @@ app.include_router(push_router, prefix=settings.API_PREFIX)
 app.include_router(feishu_router, prefix=settings.API_PREFIX)
 app.include_router(automation_router, prefix=settings.API_PREFIX)
 app.include_router(data_compare_router, prefix=settings.API_PREFIX)
+app.include_router(ucp_router, prefix=settings.API_PREFIX)
