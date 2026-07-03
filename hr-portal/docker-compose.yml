@@ -50,6 +50,14 @@ services:
       FEISHU_CALLBACK_MAX_TIMESTAMP_DIFF: ${FEISHU_CALLBACK_MAX_TIMESTAMP_DIFF:-300}
       GOTENBERG_URL: ${GOTENBERG_URL:-http://gotenberg:3000}
 
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app:cached
+      - ./backend/data:/app/data
+      - ./backend/logs:/app/logs
+      - ./backend/docker/fonts:/usr/share/fonts/truetype/custom:ro
+
   gotenberg:
     image: gotenberg/gotenberg:8
     container_name: hr-portal-gotenberg

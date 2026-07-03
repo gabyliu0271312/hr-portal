@@ -1,0 +1,953 @@
+通用连接器平台（Universal Connector Platform）—— 完整 Spec 设计文档
+文档信息
+项目	内容
+文档名称	通用连接器平台（UCP）完整设计文档
+版本号	V11.0
+撰写日期	2026-07-01
+文档状态	定稿
+目标用户	HR Portal 系统架构师、开发团队、IT管理员、HRIS管理员
+一、项目背景
+1.1 业务背景
+公司已建设 HR数据中台（HR Portal） ，作为人力资源主数据管理中心。当前 HR Portal 已具备基础的数据对接能力，但随着业务发展，需要对接的外部系统和数据源越来越多，现有的“每个系统定制开发”模式已无法满足快速交付的需求。
+
+因此，需要建设一个通用连接器平台（UCP） ，将现有的数据对接能力进行整合升级，实现配置驱动、即插即用的数据接入与分发能力。
+
+1.2 设计目标
+序号	目标	说明
+1	保留现有能力	所有现有拉取/推送/定时/视图配置功能完整保留
+2	配置驱动	新系统接入通过配置完成，无需代码开发
+3	增量扩展	新增事件触发、流水线编排、连通性测试等能力
+4	权限隔离	连接器数据访问受限于用户数据权限，防止越权
+5	高组件化	所有能力模块独立、可复用，包括消息通知组件
+6	可观测性	数据流转全链路可追踪，执行状态可通知
+二、系统现状
+2.1 已对接的外部系统
+序号	系统	对接方式	数据流向	状态
+1	北森	Report ID	北森 → HR Portal	✅ 已实现
+2	北森	API 接口	北森 → HR Portal	✅ 已实现
+3	飞书	拉取报表	飞书 → HR Portal	✅ 已实现
+4	飞书	推送报表	HR Portal → 飞书	✅ 已实现
+5	帆软 BI	JDBC 数据库连接	HR Portal → 帆软	✅ 已实现
+2.2 已有通用基础能力
+HR Portal 已具备以下通用组件，所有组件均采用高组件化开发模式，可在连接器平台中直接复用：
+
+序号	组件名称	功能说明	复用方式
+1	通用拉取接口组件	支持从外部系统拉取数据（Report ID / API）	作为 Pull Executor 的执行内核
+2	通用推送接口组件	支持向外部系统推送数据	作为 Push Executor 的执行内核
+3	定时执行组件	基于 Cron 表达式的定时任务调度框架	作为定时触发器的调度引擎
+4	定时拉取功能	定时从外部系统拉取数据	定时执行组件 + 拉取接口组件
+5	定时推送功能	定时向外部系统推送数据	定时执行组件 + 推送接口组件
+6	审计日志组件	记录操作人、时间、内容、结果	全链路审计的基础
+7	权限校验组件	基于角色的访问控制（RBAC）	功能权限 + 数据权限的基础
+8	消息通知组件	支持飞书消息、邮件等多种通知方式	连接器执行状态通知的出口
+2.3 消息通知组件现状
+现有能力：
+
+✅ 支持飞书消息推送（群聊/私聊）
+
+✅ 支持邮件通知
+
+✅ 支持消息模板配置
+
+✅ 支持多接收人配置
+
+✅ 已在其他模块中使用
+
+在连接器平台中的定位：
+
+作为连接器执行状态的通知出口
+
+拉取/推送成功时通知相关人
+
+拉取/推送失败时告警通知
+
+支持不同连接器配置不同的通知策略
+
+2.4 视图级配置现状
+现有视图配置方式：每个视图（数据表）独立配置自己的拉取和推送规则。这些配置是当前系统运行的核心资产，必须完整保留。
+
+配置类型	说明	当前状态
+视图拉取配置	每个视图独立配置从哪个源拉取、拉取频率等	✅ 运行中
+视图推送配置	每个视图独立配置推送到哪个目标、推送格式等	✅ 运行中
+定时任务配置	每个视图独立配置 Cron 表达式	✅ 运行中
+2.5 当前映射规则现状
+连接器	是否需要映射	当前状态	说明
+北森拉取（Report ID / API）	❌ 否	直接创建字段	字段名保持源字段原名
+飞书拉取	❌ 否	直接创建字段	字段名保持源字段原名
+飞书推送	❌ 否	不需要映射	直接按表头推送，飞书能识别
+滴滴推送（规划中）	✅ 是	—	需映射为目标系统字段
+曹操推送（规划中）	✅ 是	—	需映射为目标系统字段
+2.6 数据来源说明（重要）
+数据类型	来源系统	获取方式	说明
+待入职人员列表	北森	API 接口	包含候选人姓名、手机号、投递 ID（application_id） 等信息
+Offer 详情信息	飞书招聘	API 接口	通过投递 ID 拉取 Offer 薪酬等信息
+关键说明：
+
+✅ 待入职人员列表从 北森 拉取，拉取时同时获取投递 ID
+
+✅ Offer 详情（含薪酬）从 飞书招聘 拉取，使用投递 ID 作为查询条件
+
+❌ Offer 数据不是从北森拉取
+
+2.7 现有能力保留原则
+⚠️ 关键约束：连接器平台是对现有能力的整合升级，而非替换重做。所有现有功能必须完整保留。
+
+序号	必须保留的能力	说明
+1	通用拉取接口组件的所有功能	Report ID、API 等所有已支持的拉取方式
+2	通用推送接口组件的所有功能	飞书等所有已支持的推送目标
+3	定时执行组件的所有功能	保留所有现有调用方式，其他模块可继续独立调用
+4	定时拉取功能	定时执行组件 + 拉取接口组件的组合
+5	定时推送功能	定时执行组件 + 推送接口组件的组合
+6	视图级拉取/推送配置	每个视图独立配置的能力完整保留
+7	所有现有连接器的映射行为	拉取不映射、飞书推送不映射
+8	现有审计日志格式	保持与现有日志格式一致
+9	消息通知组件的所有功能	飞书消息、邮件等所有通知方式完整保留
+三、业务需求
+3.1 已实现需求（维持现状）
+序号	需求描述	当前实现方式	映射规则
+1	通过北森 Report ID 定时拉取报表数据	定时执行组件 + 拉取接口组件	❌ 不需要
+2	通过北森 API 接口拉取数据	拉取接口组件	❌ 不需要
+3	从飞书拉取报表数据	拉取接口组件	❌ 不需要
+4	推送报表数据到飞书	推送接口组件	❌ 不需要（直接按表头推送）
+5	帆软 BI 通过 JDBC 读取数据	数据库开放	❌ 不需要
+3.2 规划中需求
+需求一：飞书人员变动 → 自动创建/删除外部账号
+步骤	说明	触发方式	涉及系统	状态
+1	飞书员工入职/离职事件触发	事件	飞书 → HR Portal	📋 规划中
+2	接收事件，解析员工信息	—	HR Portal	📋 规划中
+3	调用滴滴企业管理API创建/删除账号	推送	HR Portal → 滴滴	📋 规划中
+4	调用曹操出行企业管理API创建/删除账号	推送	HR Portal → 曹操	📋 规划中
+5	执行结果通知相关人员	通知	HR Portal → 飞书/邮件	📋 规划中
+需求二：待入职人员 Offer 数据同步（两步拉取） ★修正★
+数据来源说明：
+
+第一步：从北森拉取待入职人员列表，获取候选人信息及投递 ID
+
+第二步：使用投递 ID，从飞书招聘拉取 Offer 详情（含薪酬信息）
+
+步骤	说明	触发方式	来源系统	目标系统	状态
+1	定时拉取待入职人员列表（含投递 ID）	定时	北森	HR Portal	📋 规划中
+2	提取投递 ID 列表	—	HR Portal	—	📋 规划中
+3	循环拉取 Offer 详情（薪酬等信息）	定时	飞书招聘	HR Portal	📋 规划中
+4	合并数据写入本地表	—	HR Portal	HR Portal	📋 规划中
+5	同步结果通知相关人员	通知	HR Portal	飞书/邮件	📋 规划中
+需求三：Excel 文件数据导入
+步骤	说明	触发方式	涉及系统	状态
+1	用户定时脚本上传 Excel 文件	定时/手动	外部 → HR Portal	📋 规划中
+2	解析 Excel 数据，校验转换	—	HR Portal	📋 规划中
+3	写入目标数据表	—	HR Portal	📋 规划中
+4	导入结果通知上传人	通知	HR Portal → 飞书/邮件	📋 规划中
+需求四：组织架构变更 → OA 系统同步
+步骤	说明	触发方式	涉及系统	状态
+1	北森组织架构变更事件触发	事件	北森 → HR Portal	📋 规划中
+2	推送到 OA 系统	推送	HR Portal → OA	📋 规划中
+3	同步结果通知相关人员	通知	HR Portal → 飞书/邮件	📋 规划中
+需求五：连接器执行状态通知（新增核心需求）
+所有连接器执行完成后，无论成功或失败，都需要能够通知相关人员。
+
+触发场景	通知内容	接收人
+定时拉取成功	拉取成功，共 N 条数据	连接器配置人 + 视图负责人
+定时拉取失败	拉取失败，错误原因	连接器配置人 + 视图负责人 + IT 值班
+定时推送成功	推送成功，共 N 条数据	连接器配置人 + 视图负责人
+定时推送失败	推送失败，错误原因	连接器配置人 + 视图负责人 + IT 值班
+事件触发执行成功	事件处理成功（如：已创建滴滴账号）	连接器配置人 + 事件触发人
+事件触发执行失败	事件处理失败，错误原因	连接器配置人 + 事件触发人 + IT 值班
+流水线执行完成	流水线执行结果汇总	流水线配置人
+四、解决方案概述
+4.1 方案定位
+构建 通用连接器平台（Universal Connector Platform，UCP） ，作为 HR Portal 数据对接的统一底座。
+
+4.2 核心设计理念
+原则	说明
+配置驱动	新系统接入只需在配置中心注册，无需编写代码
+双重触发	同时支持定时触发（复用现有组件）和事件触发（新增）
+流水线编排	支持多步骤数据拉取/推送串成工作流，含通知步骤
+协议无关	支持 Report ID、REST API、文件上传、JDBC 等多种协议
+连接器级映射	映射是连接器的可选能力，每个连接器独立配置
+权限隔离	连接器数据访问范围受限于用户数据权限，防止越权
+测试优先	所有连接器必须先通过连通性测试，才能启用
+通知闭环	每个连接器/流水线执行后，通过消息通知组件发送状态通知
+组件复用	定时执行、拉取/推送接口、消息通知等现有组件直接复用
+审计完整	所有调用全链路可追溯
+五、整体架构设计
+5.1 架构全景图
+text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        通用连接器平台（UCP）                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        连接器配置中心（Config Center）                 │   │
+│  │  统一管理所有连接器的配置：系统注册、策略定义、映射规则、流水线定义    │   │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐               │   │
+│  │  │北森Report│ │北森API   │ │飞书连接器│ │帆软连接器│               │   │
+│  │  │连接器    │ │连接器    │ │(已实现)  │ │(已实现)  │               │   │
+│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘               │   │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐               │   │
+│  │  │滴滴连接器│ │曹操连接器│ │Excel连接器│ │飞书招聘  │               │   │
+│  │  │(规划中)  │ │(规划中)  │ │(规划中)  │ │连接器    │               │   │
+│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘               │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                      ↓                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                   连接器测试引擎 ★新增核心能力★                      │   │
+│  │  连通性测试 | 预览测试 | 推送模拟测试 | 测试报告生成                 │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                      ↓                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                   权限校验引擎 ★新增核心能力★                        │   │
+│  │  功能权限：用户能否访问连接器平台及其操作                            │   │
+│  │  数据权限：连接器能访问哪些数据源/字段（受限于用户数据权限）         │   │
+│  │  ★复用已有权限校验组件                                              │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                      ↓                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        触发源接入层（Trigger Layer）                  │   │
+│  │  ┌────────────────────┐  ┌────────────────────┐  ┌───────────────┐  │   │
+│  │  │   定时触发器        │  │   事件触发器        │  │  手动触发器   │  │   │
+│  │  │   ★复用定时组件    │  │   (Webhook/长连接)  │  │  (API/界面)   │  │   │
+│  │  └────────────────────┘  └────────────────────┘  └───────────────┘  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                      ↓                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        事件总线层（Event Bus）                       │   │
+│  │  将定时/事件/手动触发统一转化为标准化事件对象，投递至消息队列        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                      ↓                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                   流水线执行引擎（Pipeline Engine） ★核心能力★       │   │
+│  │  步骤类型：CONNECTOR / CONNECTOR_LOOP / TRANSFORM / WAIT / NOTIFY   │   │
+│  │  数据传递：步骤间自动传递上下文（Context）                           │   │
+│  │  错误处理：STOP_ON_ERROR / CONTINUE_ON_ERROR / RETRY_ON_ERROR       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                      ↓                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        连接器执行引擎（Connector Engine）            │   │
+│  │  ┌──────────────────────┐  ┌──────────────────────┐                │   │
+│  │  │   Pull Executor      │  │   Push Executor      │                │   │
+│  │  │  ★复用拉取接口组件  │  │  ★复用推送接口组件  │                │   │
+│  │  └──────────────────────┘  └──────────────────────┘                │   │
+│  │  ┌──────────────────────┐  ┌──────────────────────┐                │   │
+│  │  │   Bridge Executor    │  │   File Parser        │                │   │
+│  │  └──────────────────────┘  └──────────────────────┘                │   │
+│  │  ┌──────────────────────────────────────────────────────────────────┐│   │
+│  │  │              统一映射引擎 ★连接器级别按需启用★                   ││   │
+│  │  │  映射是连接器的可选能力，由每个连接器独立决定是否启用             ││   │
+│  │  └──────────────────────────────────────────────────────────────────┘│   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                      ↓                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                   通知执行器（Notify Executor） ★新增★              │   │
+│  │  ★复用已有消息通知组件                                              │   │
+│  │  支持飞书消息、邮件等多种通知方式                                   │   │
+│  │  支持多接收人、消息模板、条件触发                                   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                      ↓                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        基础能力层（全部复用已有组件）                 │   │
+│  │  拉取接口组件 ｜ 推送接口组件 ｜ 审计日志组件 ｜ 定时执行组件        │   │
+│  │  权限校验组件 ｜ 报表集成组件 ｜ 视图配置组件 ｜ 消息通知组件        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+5.2 待入职 Offer 同步数据流（核心修正）
+text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    待入职 Offer 同步 —— 数据流                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Step 1: 从北森拉取待入职人员列表                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  来源：北森 API                                                    │   │
+│  │  数据：候选人姓名、手机号、投递ID（application_id）、预计入职日期   │   │
+│  │  触发：定时任务（每天凌晨3点）                                     │   │
+│  │  输出：待入职人员列表 → Context.pending_list                       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    ↓                                      │
+│  Step 2: 提取投递 ID 列表                                                  │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  操作：从 pending_list 中提取 application_id                       │   │
+│  │  输出：投递 ID 列表 → Context.application_ids                       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    ↓                                      │
+│  Step 3: 从飞书招聘拉取 Offer 详情                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  来源：飞书招聘 API                                                │   │
+│  │  接口：通过投递 ID 查询 Offer                                      │   │
+│  │  数据：薪酬信息、Offer 状态、岗位信息等                            │   │
+│  │  执行：循环调用（CONNECTOR_LOOP）                                  │   │
+│  │  输出：Offer 详情列表 → Context.offer_details                      │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    ↓                                      │
+│  Step 4: 合并数据并写入本地表                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  操作：按 application_id 合并 Step 1 和 Step 3 的数据              │   │
+│  │  输出：写入 hr_pending_employee_full 表                            │   │
+│  │  包含：候选人信息 + Offer 薪酬信息                                 │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  数据来源总结：                                                              │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐              │
+│  │   北森       │ ──→ │  HR Portal   │ ──→ │  飞书招聘    │              │
+│  │ (待入职列表) │     │  (合并数据)  │     │  (Offer)     │              │
+│  └──────────────┘     └──────────────┘     └──────────────┘              │
+└─────────────────────────────────────────────────────────────────────────────┘
+5.3 已有组件复用关系
+text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        已有组件 → 连接器平台映射关系                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                      已有通用拉取接口组件                           │   │
+│  │         → 直接作为 Pull Executor 执行内核                          │   │
+│  │         → 所有现有拉取能力完整保留                                  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                      已有通用推送接口组件                           │   │
+│  │         → 直接作为 Push Executor 执行内核                          │   │
+│  │         → 所有现有推送能力完整保留                                  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                      已有定时执行组件                               │   │
+│  │         → 作为定时触发器的调度引擎                                  │   │
+│  │         → 保留原有调用方式，其他模块可继续独立调用                  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                      已有消息通知组件                               │   │
+│  │         → 作为通知执行器的出口                                      │   │
+│  │         → 飞书消息、邮件等所有通知方式完整保留                      │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                      已有视图配置组件                               │   │
+│  │         → 每个视图独立配置的拉取/推送规则完整保留                   │   │
+│  │         → 连接器平台通过"适配器"方式挂载现有视图配置                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                      已有权限校验组件                               │   │
+│  │         → 功能权限和数据权限均复用已有权限校验逻辑                  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  保留能力清单：                                                      │   │
+│  │  ✅ 通用拉取接口组件所有功能                                         │   │
+│  │  ✅ 通用推送接口组件所有功能                                         │   │
+│  │  ✅ 定时执行组件所有功能（其他模块可继续独立调用）                   │   │
+│  │  ✅ 定时拉取/推送功能                                                │   │
+│  │  ✅ 视图级拉取/推送配置（每个视图独立配置）                         │   │
+│  │  ✅ 飞书推送不映射（直接按表头推送）                                 │   │
+│  │  ✅ 北森/飞书拉取不映射（直接创建字段）                              │   │
+│  │  ✅ 消息通知组件所有功能（飞书消息、邮件等）                         │   │
+│  │  ✅ 所有现有审计日志格式                                            │   │
+│  │  ✅ 所有现有权限校验逻辑                                            │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+六、核心组件详细设计
+6.1 配置中心组件
+6.1.1 视图配置兼容
+现有视图配置完全保留，连接器平台通过“适配器”方式挂载。
+
+6.1.2 通知策略配置（新增）
+每个连接器和流水线可独立配置通知策略：
+
+配置项	说明	可选值
+enabled	是否启用通知	true/false
+on_success.enabled	成功时是否通知	true/false
+on_failure.enabled	失败时是否通知	true/false
+on_partial_success.enabled	部分成功时是否通知	true/false
+message_type	通知方式	feishu/email/both
+receivers	接收人列表	config_owner/view_owner/it_oncall/custom
+template	消息模板	预置模板或自定义
+6.1.3 映射规则配置
+映射是连接器级别的可选能力，每个连接器独立配置：
+
+json
+// 不需要映射的连接器（现有行为）
+"mapping_config": {
+  "enabled": false,
+  "description": "直接按表头推送，飞书能识别"
+}
+
+// 需要映射的连接器（新对接系统）
+"mapping_config": {
+  "enabled": true,
+  "rules": [
+    {"source": "employee_name", "target": "name"},
+    {"source": "mobile_phone", "target": "mobile"}
+  ]
+}
+6.2 触发器组件
+6.2.1 定时触发器（复用已有定时执行组件）
+yaml
+trigger:
+  type: SCHEDULED
+  implementation: "复用已有定时执行组件"
+  config:
+    cron: "0 0 2 * * ?"
+    timezone: "Asia/Shanghai"
+6.2.2 事件触发器（新增）
+方式	说明	适用场景
+Webhook	外部系统向公网地址发送 HTTP POST 请求	生产环境
+长连接	通过 SDK 建立全双工通道接收事件	开发测试
+6.2.3 手动触发器（新增）
+通过 HR Portal 界面或 API 手动触发。
+
+6.3 权限校验引擎
+6.3.1 功能权限
+操作	HRBP	SSC管理员	IT管理员	HRVP
+查看连接器列表	✅	✅	✅	✅
+查看执行日志	✅	✅	✅	✅
+创建/编辑连接器	❌	✅	✅	✅
+测试连接器	❌	✅	✅	✅
+手动触发同步	✅	✅	✅	✅
+配置映射规则	❌	❌	✅	❌
+配置通知策略	❌	✅	✅	✅
+启用/停用连接器	❌	❌	✅	❌
+6.3.2 数据权限
+原则：连接器的数据访问范围 ≤ 当前用户的数据权限范围。
+
+6.4 连接器测试引擎（新增）
+测试类型	说明	通过标准
+认证测试	验证凭证是否有效	返回认证成功
+连通性测试	验证目标系统是否可达	HTTP 200
+预览测试	拉取 1-5 条数据预览，不写入	返回数据样本
+推送模拟测试	模拟推送，不实际执行	返回模拟成功
+6.5 事件总线组件（新增）
+标准化事件对象：
+
+json
+{
+  "event_id": "evt_20260701_103000_001",
+  "event_type": "EMPLOYEE_ONBOARDING",
+  "source": "FEISHU",
+  "trigger": "REALTIME",
+  "timestamp": "2026-07-01T10:30:00Z",
+  "payload": {...},
+  "trace_id": "trace_20260701_103000"
+}
+6.6 流水线执行引擎
+6.6.1 步骤类型
+步骤类型	说明	输入	输出
+CONNECTOR	调用单个连接器	Context 中的指定 key	连接器执行结果
+CONNECTOR_LOOP	循环调用连接器	Context 中的列表	聚合结果
+TRANSFORM	数据转换处理	Context 中的指定 key	转换后的数据
+WAIT	等待指定时间	—	—
+NOTIFY ★新增	发送消息通知	Context 中的指定 key	通知发送结果
+6.6.2 NOTIFY 步骤详细设计
+NOTIFY 步骤的配置示例：
+
+json
+{
+  "step_id": "step_notify",
+  "step_name": "发送执行结果通知",
+  "type": "NOTIFY",
+  "config": {
+    "trigger_condition": "ON_COMPLETION",
+    "message_type": "feishu",
+    "receivers": ["${config_owner}", "${view_owner}"],
+    "template": "connector_execution_result",
+    "template_vars": {
+      "connector_name": "${connector.name}",
+      "execution_status": "${execution.status}",
+      "record_count": "${execution.record_count}",
+      "duration": "${execution.duration}",
+      "error_message": "${execution.error_message}"
+    },
+    "condition": "${execution.status != 'SUCCESS'}"
+  }
+}
+6.6.3 错误处理策略
+策略	说明
+STOP_ON_ERROR	任一步骤失败则停止整个流水线
+CONTINUE_ON_ERROR	失败步骤跳过，继续执行
+RETRY_ON_ERROR	失败步骤自动重试
+6.7 通知执行器（新增）
+6.7.1 核心职责
+职责	说明
+策略判断	根据配置判断是否需要发送通知
+消息组装	使用执行结果填充消息模板
+接收人解析	解析接收人列表
+消息发送	调用已有消息通知组件发送
+日志记录	记录通知发送结果
+6.7.2 接收人解析规则
+接收人类型	解析方式
+config_owner	连接器配置人
+view_owner	视图负责人
+it_oncall	IT 值班人员
+event_trigger	事件触发人
+custom	自定义接收人列表
+pipeline_owner	流水线配置人
+七、配置中心设计
+7.1 核心配置表结构
+connector_system_config（系统注册表）
+
+sql
+CREATE TABLE connector_system_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    system_code VARCHAR(64) NOT NULL UNIQUE COMMENT '系统编码',
+    system_name VARCHAR(128) NOT NULL COMMENT '系统名称',
+    description VARCHAR(255) COMMENT '描述',
+    
+    -- 连接器类型
+    connector_type VARCHAR(32) NOT NULL COMMENT 'REPORT/PULL/PUSH/BRIDGE/OPEN/FILE',
+    fetch_type VARCHAR(32) NOT NULL COMMENT 'REPORT_ID/API/FILE',
+    direction VARCHAR(32) NOT NULL COMMENT 'INBOUND/OUTBOUND/BI_DIRECTIONAL',
+    
+    -- 协议配置
+    protocol JSON NOT NULL COMMENT '协议配置',
+    report_config JSON COMMENT 'Report ID配置（REPORT类型专用）',
+    scheduling JSON COMMENT '调度配置',
+    
+    -- 映射配置
+    mapping_config JSON COMMENT '映射规则配置',
+    
+    -- 文件配置（FILE类型专用）
+    file_config JSON COMMENT '文件配置',
+    
+    -- 重试与熔断配置
+    retry_config JSON COMMENT '重试配置',
+    circuit_breaker_config JSON COMMENT '熔断配置',
+    
+    -- 通知策略配置
+    notification_config JSON COMMENT '通知策略配置',
+    
+    -- 测试状态
+    test_status VARCHAR(32) DEFAULT 'NOT_TESTED',
+    test_result JSON COMMENT '最近一次测试结果',
+    test_time TIMESTAMP,
+    
+    -- 权限相关
+    connector_owner VARCHAR(64) COMMENT '连接器所有者',
+    connector_type_level VARCHAR(32) DEFAULT 'USER' COMMENT 'USER/SYSTEM',
+    approval_log JSON COMMENT '系统连接器审批日志',
+    
+    status TINYINT DEFAULT 0 COMMENT '0-未启用 1-启用 2-停用',
+    version INT DEFAULT 1,
+    created_by VARCHAR(64),
+    updated_by VARCHAR(64),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+connector_pipeline_config（流水线定义表）
+
+sql
+CREATE TABLE connector_pipeline_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    pipeline_code VARCHAR(64) NOT NULL UNIQUE,
+    pipeline_name VARCHAR(128) NOT NULL,
+    description VARCHAR(255),
+    steps JSON NOT NULL COMMENT '步骤列表（含NOTIFY类型）',
+    trigger_type VARCHAR(32) NOT NULL COMMENT 'SCHEDULED/EVENT/MANUAL',
+    trigger_config JSON,
+    error_handling VARCHAR(32) DEFAULT 'STOP_ON_ERROR',
+    
+    -- 流水线级别通知配置
+    notification_config JSON COMMENT '流水线通知策略配置',
+    
+    status TINYINT DEFAULT 0,
+    created_by VARCHAR(64),
+    updated_by VARCHAR(64),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+connector_test_log（测试日志表）
+
+sql
+CREATE TABLE connector_test_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    connector_code VARCHAR(64) NOT NULL,
+    test_id VARCHAR(64) NOT NULL UNIQUE,
+    test_type VARCHAR(32) NOT NULL,
+    overall_status VARCHAR(32) NOT NULL,
+    test_details JSON NOT NULL,
+    preview_data JSON,
+    total_duration_ms INT,
+    tested_by VARCHAR(64),
+    tested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+connector_execution_log（执行日志表）
+
+sql
+CREATE TABLE connector_execution_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    trace_id VARCHAR(64) NOT NULL,
+    connector_code VARCHAR(64),
+    pipeline_code VARCHAR(64),
+    trigger_type VARCHAR(32) NOT NULL,
+    request_url VARCHAR(512),
+    request_body JSON,
+    response_body JSON,
+    status VARCHAR(32) NOT NULL,
+    error_message TEXT,
+    duration_ms INT,
+    
+    -- 权限审计字段
+    executor VARCHAR(64) NOT NULL,
+    data_source VARCHAR(128),
+    data_scope JSON,
+    permission_checked TINYINT DEFAULT 1,
+    
+    -- 通知发送记录
+    notification_sent TINYINT DEFAULT 0,
+    notification_result JSON,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+connector_notification_log（通知发送日志表）★新增
+
+sql
+CREATE TABLE connector_notification_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    trace_id VARCHAR(64) NOT NULL,
+    connector_code VARCHAR(64),
+    pipeline_code VARCHAR(64),
+    
+    message_type VARCHAR(32) NOT NULL,
+    receivers JSON NOT NULL,
+    template_name VARCHAR(64) NOT NULL,
+    message_content JSON NOT NULL,
+    
+    send_status VARCHAR(32) NOT NULL,
+    send_result JSON,
+    error_message TEXT,
+    
+    sent_by VARCHAR(64),
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_trace_id (trace_id),
+    INDEX idx_connector (connector_code),
+    INDEX idx_sent_at (sent_at)
+);
+八、典型场景配置示例
+8.1 已实现场景：飞书推送（不需要映射 + 通知）
+json
+{
+  "system_code": "FEISHU_REPORT_PUSH",
+  "system_name": "飞书-报表推送",
+  "connector_type": "PUSH",
+  "direction": "OUTBOUND",
+  "protocol": {
+    "base_url": "https://open.feishu.cn/open-apis",
+    "auth_type": "bearer_token",
+    "auth_config": {"token": "encrypted_value"}
+  },
+  "scheduling": {"cron": "0 30 8 * * ?"},
+  "mapping_config": {"enabled": false},
+  "notification_config": {
+    "enabled": true,
+    "on_success": {
+      "enabled": true,
+      "message_type": "feishu",
+      "receivers": ["config_owner", "view_owner"],
+      "template": "connector_success"
+    },
+    "on_failure": {
+      "enabled": true,
+      "message_type": "both",
+      "receivers": ["config_owner", "view_owner", "it_oncall"],
+      "template": "connector_failure"
+    }
+  }
+}
+8.2 规划场景：待入职 Offer 同步（两步拉取，跨系统） ★核心修正★
+json
+{
+  "pipeline_code": "PENDING_OFFER_SYNC",
+  "pipeline_name": "待入职Offer数据同步",
+  "description": "从北森拉取待入职人员列表，从飞书招聘拉取Offer详情，合并后写入本地表",
+  "trigger_type": "SCHEDULED",
+  "trigger_config": {"cron": "0 0 3 * * ?"},
+  "steps": [
+    {
+      "step_id": "step_1",
+      "step_name": "从北森拉取待入职人员列表",
+      "type": "CONNECTOR",
+      "connector_code": "BEISEN_PENDING_LIST",
+      "description": "拉取待入职人员信息，含投递ID(application_id)",
+      "output_key": "pending_list",
+      "error_handling": "STOP_ON_ERROR"
+    },
+    {
+      "step_id": "step_2",
+      "step_name": "提取投递ID列表",
+      "type": "TRANSFORM",
+      "input_key": "pending_list",
+      "transform_config": {
+        "source_field": "application_id",
+        "output_field": "application_ids",
+        "description": "提取投递ID列表用于后续Offer拉取"
+      },
+      "output_key": "application_ids"
+    },
+    {
+      "step_id": "step_3",
+      "step_name": "从飞书招聘拉取Offer详情",
+      "type": "CONNECTOR_LOOP",
+      "connector_code": "FEISHU_OFFER_DETAIL",
+      "description": "通过投递ID从飞书招聘拉取Offer薪酬等信息",
+      "loop_input": "${application_ids}",
+      "loop_output": "offer_details",
+      "parallelism": 5,
+      "batch_size": 10,
+      "error_handling": "CONTINUE_ON_ERROR"
+    },
+    {
+      "step_id": "step_4",
+      "step_name": "合并数据并写入本地表",
+      "type": "TRANSFORM",
+      "input_key": "offer_details",
+      "transform_config": {
+        "join_key": "application_id",
+        "target_table": "hr_pending_employee_full",
+        "description": "按application_id合并待入职人员信息和Offer信息"
+      }
+    },
+    {
+      "step_id": "step_5",
+      "step_name": "发送同步结果通知",
+      "type": "NOTIFY",
+      "config": {
+        "trigger_condition": "ON_COMPLETION",
+        "message_type": "feishu",
+        "receivers": ["config_owner", "view_owner"],
+        "template": "offer_sync_result",
+        "template_vars": {
+          "pending_count": "${step_1.result.row_count}",
+          "offer_count": "${step_3.result.row_count}",
+          "merged_count": "${step_4.result.row_count}",
+          "status": "${execution.status}",
+          "duration": "${execution.duration}"
+        }
+      }
+    }
+  ],
+  "notification_config": {
+    "enabled": true,
+    "on_success": {
+      "enabled": true,
+      "message_type": "feishu",
+      "receivers": ["config_owner", "view_owner"],
+      "template": "connector_success"
+    },
+    "on_failure": {
+      "enabled": true,
+      "message_type": "both",
+      "receivers": ["config_owner", "view_owner", "it_oncall"],
+      "template": "connector_failure"
+    }
+  }
+}
+对应连接器配置：
+
+json
+// 连接器1：北森待入职列表
+{
+  "system_code": "BEISEN_PENDING_LIST",
+  "system_name": "北森-待入职人员列表",
+  "connector_type": "PULL",
+  "direction": "INBOUND",
+  "protocol": {
+    "base_url": "https://api.beisen.com/v1",
+    "auth_type": "api_key",
+    "auth_config": {"api_key": "encrypted_value"},
+    "endpoint": "/employee/pending/list",
+    "method": "GET"
+  },
+  "mapping_config": {"enabled": false}
+}
+
+// 连接器2：飞书招聘Offer详情
+{
+  "system_code": "FEISHU_OFFER_DETAIL",
+  "system_name": "飞书招聘-Offer详情",
+  "connector_type": "PULL",
+  "direction": "INBOUND",
+  "protocol": {
+    "base_url": "https://open.feishu.cn/open-apis/hire/v1",
+    "auth_type": "bearer_token",
+    "auth_config": {"token": "encrypted_value"},
+    "endpoint": "/applications/{application_id}/offer",
+    "method": "GET"
+  },
+  "mapping_config": {
+    "enabled": true,
+    "rules": [
+      {"source": "salary_info.total", "target": "offer_salary"},
+      {"source": "offer_type", "target": "offer_type"},
+      {"source": "expected_hire_date", "target": "expected_hire_date"}
+    ]
+  }
+}
+8.3 规划场景：飞书入职 → 创建滴滴/曹操账号
+json
+{
+  "pipeline_code": "ONBOARDING_ACCOUNT_CREATE",
+  "pipeline_name": "入职账号创建流水线",
+  "trigger_type": "EVENT",
+  "trigger_config": {
+    "event_source": "FEISHU",
+    "event_type": "contact.user.created_v3"
+  },
+  "steps": [
+    {
+      "step_id": "step_1",
+      "step_name": "创建滴滴账号",
+      "type": "CONNECTOR",
+      "connector_code": "DIDI_ACCOUNT_PUSH",
+      "input_mapping": {
+        "employee_name": "${event.payload.name}",
+        "mobile_phone": "${event.payload.mobile}"
+      }
+    },
+    {
+      "step_id": "step_2",
+      "step_name": "创建曹操账号",
+      "type": "CONNECTOR",
+      "connector_code": "CAOCAO_ACCOUNT_PUSH",
+      "input_mapping": {
+        "employeeName": "${event.payload.name}",
+        "phone": "${event.payload.mobile}"
+      }
+    },
+    {
+      "step_id": "step_3",
+      "step_name": "发送执行结果通知",
+      "type": "NOTIFY",
+      "config": {
+        "trigger_condition": "ON_COMPLETION",
+        "message_type": "feishu",
+        "receivers": ["config_owner", "event_trigger"],
+        "template": "pipeline_account_create_result",
+        "template_vars": {
+          "employee_name": "${event.payload.name}",
+          "didi_result": "${step_1.result}",
+          "caocao_result": "${step_2.result}"
+        }
+      }
+    }
+  ]
+}
+九、开发任务清单
+序号	任务	优先级	工作量	依赖
+Phase 1：基础框架				
+1	创建数据库表结构	P0	1.5天	无
+2	实现配置中心服务	P0	3天	任务1
+3	实现视图配置适配器	P0	2天	任务2
+4	实现事件总线	P0	3天	无
+Phase 2：权限引擎				
+5	复用已有权限校验组件 → 功能权限封装	P0	1天	任务2
+6	实现数据权限校验	P0	2天	任务5
+Phase 3：映射引擎				
+7	实现统一映射引擎	P0	2天	任务2
+8	实现映射能力	P0	2天	任务7
+Phase 4：测试引擎				
+9	实现连通性测试	P0	2天	任务2
+10	实现预览测试（含权限校验）	P0	2天	任务6,9
+Phase 5：执行引擎				
+11	复用拉取接口组件 → Pull Executor	P0	2天	任务2
+12	复用推送接口组件 → Push Executor	P0	2天	任务2
+13	实现统一认证处理器	P0	3天	无
+Phase 6：通知引擎				
+14	实现通知执行器	P0	3天	任务2
+15	复用消息通知组件 → 消息发送出口封装	P0	1天	任务14
+Phase 7：流水线引擎				
+16	实现流水线执行引擎	P0	5天	任务11,12,14
+17	实现循环调用能力	P0	2天	任务16
+18	实现 NOTIFY 步骤类型	P0	2天	任务16
+Phase 8：触发器				
+19	复用定时执行组件 → 定时触发器	P0	1天	任务2
+20	实现事件触发器	P0	3天	任务4
+Phase 9：管理界面				
+21	开发连接器管理界面	P1	5天	任务2
+22	开发测试界面	P1	2天	任务10
+23	开发执行日志界面	P1	2天	—
+24	开发通知配置界面	P1	2天	任务2
+Phase 10：测试与上线				
+25	单元测试 + 集成测试	P0	5天	全部
+26	已有功能回归测试	P0	3天	全部
+27	权限隔离安全测试	P0	2天	全部
+28	通知功能专项测试	P0	2天	全部
+29	部署上线	P0	2天	全部
+合计工作量：约 60 人天（约 12 周，2-3 人并行开发可缩短至 7-8 周）
+
+十、实施路线图
+阶段	时间	内容	里程碑
+Phase 1	第1-2周	基础框架 + 配置中心 + 视图适配器 + 事件总线	配置中心可用
+Phase 2	第3-4周	权限引擎 + 映射引擎 + 测试引擎	权限校验可用
+Phase 3	第5-6周	执行引擎 + 通知引擎	执行+通知链路可用
+Phase 4	第7-9周	流水线引擎（含NOTIFY步骤）	流水线可运行
+Phase 5	第10周	触发器 + 管理界面	端到端流程可用
+Phase 6	第11-12周	完整测试 + 回归 + 安全测试 + 上线	全功能上线
+十一、验收标准
+11.1 现有能力保留验收
+序号	能力	验收标准
+1	通用拉取接口组件	所有现有拉取方式仍可正常使用
+2	通用推送接口组件	所有现有推送目标仍可正常推送
+3	飞书推送不映射	推送给飞书时，直接按表头推送
+4	北森/飞书拉取不映射	拉取时直接创建字段
+5	视图级配置	每个视图独立配置的拉取/推送规则完整保留
+6	定时执行组件	其他模块对定时执行组件的调用不受影响
+7	消息通知组件	飞书消息、邮件等所有通知方式完整保留
+11.2 新增能力验收
+序号	能力	验收标准
+1	配置中心	新系统接入通过配置完成
+2	连接器测试	测试通过后才能启用连接器
+3	事件触发	飞书入职事件能触发连接器执行
+4	流水线编排	多步骤任务能正常执行
+5	跨系统两步拉取	从北森拉取待入职列表，从飞书招聘拉取Offer
+6	权限隔离	无数据权限的用户无法越权访问
+7	执行通知	拉取/推送成功/失败时，相关人员收到通知
+8	自定义通知	流水线中可插入NOTIFY步骤自定义通知
+十二、核心设计原则总结
+① 配置驱动，零代码接入新系统 —— 新增连接器只需在配置中心注册
+
+② 双重触发，定时与事件并行 —— 复用已有定时组件，新增事件触发
+
+③ 流水线编排，包含通知步骤 —— 支持 CONNECTOR / CONNECTOR_LOOP / TRANSFORM / WAIT / NOTIFY
+
+④ 连接器级映射，按需配置 —— 映射是连接器的可选能力，独立配置
+
+⑤ 权限隔离，防止越权 —— 连接器数据访问受限于用户数据权限
+
+⑥ 视图配置完整保留 —— 现有视图级配置通过适配器挂载
+
+⑦ 通知闭环，执行可感知 —— 每个连接器/流水线执行后自动发送状态通知
+
+⑧ 组件复用，最大化利用已有资产 —— 拉取、推送、定时、消息通知全部复用
+
+⑨ 数据来源明确 —— 北森拉取待入职列表（含投递ID），飞书招聘拉取Offer详情
+
+⑩ 完整审计，全链路可追溯 —— 含通知发送记录
+
+十三、附录
+附录A：数据来源对照表
+数据内容	来源系统	获取方式	关键字段	说明
+待入职人员列表	北森	API	姓名、手机号、投递ID、预计入职日期	拉取时同时获取投递ID
+Offer 详情	飞书招聘	API	薪酬信息、Offer状态、岗位信息	通过投递ID查询
+员工主数据	北森	Report ID / API	员工ID、姓名、部门、岗位	已实现
+组织架构	北森	Report ID / API	组织ID、名称、上级组织	已实现
+飞书报表	飞书	API	各类HR报表数据	已实现
+附录B：术语表
+术语	说明
+UCP	Universal Connector Platform，通用连接器平台
+投递 ID	application_id，飞书招聘中标识候选人投递的唯一ID
+连接器	连接到特定外部系统的配置单元
+流水线	多个步骤串成的工作流，含通知步骤
+NOTIFY	流水线中的通知步骤类型
+通知执行器	负责判断、组装、发送通知的组件
+以上为 通用连接器平台（UCP） 的完整 Spec 设计文档 V11.0。
+
+本次修正要点：
+
+✅ 待入职人员列表从北森拉取，同时获取投递 ID
+
+✅ Offer 详情从飞书招聘拉取，使用投递 ID 作为查询条件
+
+✅ 两步拉取流程中明确标注了数据来源系统
+
+✅ 新增数据来源对照表，便于开发时确认
+

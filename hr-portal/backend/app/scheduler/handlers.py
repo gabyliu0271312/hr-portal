@@ -1,4 +1,4 @@
-﻿"""鎵€鏈?handler 鐨勫疄鐜?+ JOB_HANDLERS 娉ㄥ唽琛?
+"""鎵€鏈?handler 鐨勫疄鐜?+ JOB_HANDLERS 娉ㄥ唽琛?
 ========== 骞冲彴绾у叕鍏辩粍浠惰竟鐣?==========
 
 Scheduler 鏄?HR Portal 鐨勫钩鍙扮骇鍏叡璋冨害缁勪欢锛?*涓嶄笌浠讳綍涓氬姟妯″潡鑰﹀悎**銆?
@@ -146,12 +146,30 @@ async def _handler_report_run(
     return rows, f"Report {report.name!r} executed successfully, rows={rows}"
 
 
-# ===== 娉ㄥ唽琛?=====
+# ===== data_compare handler =====
+# Phase 2: 定时数据对比任务通过此 handler 执行
+# business_id = data_compare_tasks.id
+# 执行完成后发布 scheduled_data_compare_success/failed 事件，触发飞书通知自动化规则
+async def _handler_data_compare(
+    job: ScheduledJob,
+    db: AsyncSession,
+    triggered_by: str,
+) -> tuple[int, str]:
+    """执行定时数据对比任务。business_id = data_compare_tasks.id"""
+    from app.data_compare.task_service import execute_for_scheduler
+
+    task_id = job.business_id
+    diffs, message = await execute_for_scheduler(db, task_id, triggered_by=triggered_by)
+    return diffs, message
+
+
+# ===== 注册表 =====
 
 JOB_HANDLERS: dict[str, HandlerFn] = {
     "datasource_sync": _handler_datasource_sync,
     "push_target": _handler_push_target,
     "report_run": _handler_report_run,
+    "data_compare": _handler_data_compare,
 }
 
 
