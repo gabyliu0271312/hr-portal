@@ -15,7 +15,7 @@ from datetime import datetime, UTC
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -268,10 +268,44 @@ async def delete_push_target(
     await _ensure_system_op_for_non_report(pt.source_table, user, db, "D")
 
     if pt.push_type == "db_expose":
+        from app.core.config import settings as app_settings
+        from app.data.ddl import make_identifier
+        from app.push.push_service import _quote_pg_identifier
         readonly_user = (pt.settings or {}).get("readonly_user")
+        schema_name = (pt.settings or {}).get("schema") or make_identifier("finebi_", pt.source_table)
+        db_name_q = _quote_pg_identifier(app_settings.DB_NAME)
         if readonly_user:
-            await db.execute(text(f'DROP USER IF EXISTS "{readonly_user}"'))
+            readonly_user_q = _quote_pg_identifier(readonly_user)
+            role_exists = (
+                await db.execute(
+                    text("SELECT EXISTS (SELECT FROM pg_roles WHERE rolname = :rolname)"),
+                    {"rolname": readonly_user},
+                )
+            ).scalar_one()
+            schema_exists = (
+                await db.execute(
+                    text("SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = :schema_name)"),
+                    {"schema_name": schema_name},
+                )
+            ).scalar_one()
+            if role_exists and schema_exists:
+                schema_q = _quote_pg_identifier(schema_name)
+                await db.execute(text(f"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {schema_q} FROM {readonly_user_q}"))
+                await db.execute(text(f"REVOKE ALL PRIVILEGES ON SCHEMA {schema_q} FROM {readonly_user_q}"))
+            if schema_exists:
+                schema_q = _quote_pg_identifier(schema_name)
+                await db.execute(text(f"DROP SCHEMA IF EXISTS {schema_q} CASCADE"))
+            if role_exists:
+                await db.execute(text(f"REVOKE CONNECT ON DATABASE {db_name_q} FROM {readonly_user_q}"))
+                await db.execute(text(f"DROP USER IF EXISTS {readonly_user_q}"))
 
+    from app.scheduler.models import JobRun, ScheduledJob
+    await db.execute(
+        delete(JobRun).where(JobRun.kind == "push_target", JobRun.business_id == pt_id)
+    )
+    await db.execute(
+        delete(ScheduledJob).where(ScheduledJob.kind == "push_target", ScheduledJob.business_id == pt_id)
+    )
     await db.delete(pt)
     await db.commit()
     return {"ok": True}
