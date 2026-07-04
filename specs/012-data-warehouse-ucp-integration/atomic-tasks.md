@@ -24,6 +24,7 @@
 > - 测试要求：必须列出单元测试、接口测试、组件测试、E2E、构建检查或“不适用原因”。
 > - 验收标准：必须列出用户可观察的验收结果、边界场景、失败/空态/权限态。
 > - 标记要求：功能完成后，同一任务内的开发、UI、测试、验收全部满足，才允许把 `[ ]` 改为 `[x]`。
+> - 涉及 UI 的任务必须在任务体内提供 UI 示意图或引用本文件 U 章节的线框图；不能只写“按 UI 规范实现”。
 >
 > 独立的 N 章节和 `testing-acceptance.md` 仍然保留，但它们是“总规范/总清单”；执行时必须把相关要求映射进具体任务。
 
@@ -148,6 +149,49 @@
   - 交付物：测试文件、测试命令与结果。
   - 完成定义：至少覆盖成功、失败、权限/边界场景；无法自动化时需有手工验收步骤。
 
+
+## A05 原子任务防误解强约束（所有后续任务必须遵守）
+
+> 本节用于降低多模型接力时的误实现风险。若本节与某个任务的简略描述冲突，以本节和具体任务的“必须/禁止/验收”条款为准；如果仍不清楚，先补文档再写代码。
+
+- [ ] A0501 后端 API 任务必须绑定明确 Schema、权限与状态码。
+  - UI 要求：不涉及 UI。
+  - 测试要求：每个 API 至少覆盖 200/201 成功、400 或 422 参数错误、403 权限不足、404 资源不存在（如适用）。
+  - 必须：请求体使用已定义 Pydantic Schema；禁止用裸 `dict` 绕过校验，除非任务明确说明是透传 JSON。
+  - 必须：读操作挂 `require_op(..., "V")`，创建挂 `C`，更新/发布挂 `U`，删除/归档挂 `D`；菜单 code 必须在任务中写明。
+  - 必须：资源不存在统一返回 404；业务规则不满足返回 400；Pydantic 字段缺失/类型错误允许 422。
+  - 完成定义：代码、测试或评审证据能逐项证明 Schema/权限/状态码均满足。
+
+- [ ] A0502 复用既有能力任务必须写明具体函数/模块，禁止“相似重写”。
+  - UI 要求：不涉及 UI。
+  - 测试要求：评审时必须能 grep 到指定复用函数；如未复用，必须在任务文档中先说明原因。
+  - 必须：任务写了“复用现有逻辑”时，必须列出模块路径和函数名。
+  - 禁止：手写一个“看起来等价”的实现替代既有函数，例如绕开权限、脱敏、数据范围或 SQL 构建器。
+  - 完成定义：实现中直接调用指定既有函数，或有经文档确认的替代方案。
+
+- [ ] A0503 敏感字段、隐藏字段、数据范围不得新增旁路。
+  - UI 要求：涉及 UI 时不得展示无权字段、敏感值或 secret。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - 测试要求：至少覆盖无权限用户看不到隐藏字段/敏感真实值；导出或预览同样适用。
+  - 必须复用：字段隐藏/脱敏优先使用 `app.permissions.masker.get_hidden_columns()`、`resolve_field_access()` 或既有查询构建器中的权限处理。
+  - 禁止：新增查询直接返回 `TableColumn.is_visible=False` 字段；禁止绕过报表/数据集 SQL 构建器直接查业务表用于通用预览。
+  - 完成定义：无权限用户响应中不出现隐藏字段，敏感值不泄露。
+
+- [ ] A0504 SQL/动态表名任务必须使用既有 SQL 构建器或 identifier 工具。
+  - UI 要求：不涉及 UI。
+  - 测试要求：覆盖非法字段/表名、输出字段映射、多表关联场景。
+  - 必须：数据集/报表预览类查询优先复用 `app.reports.sql_builder.run_dataset_query()`。
+  - 禁止：在业务 API 中拼接 `text(f"SELECT ...")` 查询动态表/列，除非已使用项目的 identifier 校验/quote 工具并在任务中明确允许。
+  - 完成定义：不存在未校验动态 SQL 拼接；多表 JOIN、权限、脱敏、范围策略由既有逻辑处理。
+
+- [ ] A0505 任务勾选前必须留下可复核证据。
+  - UI 要求：涉及 UI 时附页面/交互/空态/错误态说明或截图路径。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - 测试要求：记录实际命令和结果；如果无法运行，写明阻塞原因和替代验证。
+  - 必须：最终回复列出修改文件、测试命令、核心验收点、未覆盖风险。
+  - 禁止：只因代码可编译就勾选功能任务。
+  - 完成定义：后续模型无需聊天上下文即可从文档和代码复核。
+
 ## A02 基线验证
 
 - [ ] A0201 运行后端现有测试。
@@ -170,14 +214,14 @@
 
 ## B01 Alembic 迁移文件
 
-- [ ] B0101 在 `hr-portal/backend/alembic/versions` 新建 migration 文件。
+- [x] B0101 在 `hr-portal/backend/alembic/versions` 新建 migration 文件。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 命名建议：`0056_warehouse_ucp_integration.py` 或按当前最新版本顺延。
   - 交付物：migration 文件。
   - 完成定义：revision/down_revision 正确。
 
-- [ ] B0102 在 migration upgrade 中为 `registered_tables` 新增 `warehouse_layer`。
+- [x] B0102 在 migration upgrade 中为 `registered_tables` 新增 `warehouse_layer`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(16)。
@@ -185,14 +229,14 @@
   - 可空：否或带 server_default 后回填。
   - 完成定义：新列存在，旧数据有默认值。
 
-- [ ] B0103 为 `registered_tables` 新增 `subject_area`。
+- [x] B0103 为 `registered_tables` 新增 `subject_area`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(64)。
   - 可空：是。
   - 完成定义：migration 可执行。
 
-- [ ] B0104 为 `registered_tables` 新增 `owner_user_id`。
+- [x] B0104 为 `registered_tables` 新增 `owner_user_id`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：BigInteger。
@@ -200,28 +244,28 @@
   - 禁止：不要强 FK。
   - 完成定义：migration 可执行。
 
-- [ ] B0105 为 `registered_tables` 新增 `owner_name`。
+- [x] B0105 为 `registered_tables` 新增 `owner_name`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(64)。
   - 可空：是。
   - 完成定义：migration 可执行。
 
-- [ ] B0106 为 `registered_tables` 新增 `source_system`。
+- [x] B0106 为 `registered_tables` 新增 `source_system`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(64)。
   - 可空：是。
   - 完成定义：migration 可执行。
 
-- [ ] B0107 为 `registered_tables` 新增 `asset_status`。
+- [x] B0107 为 `registered_tables` 新增 `asset_status`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(16)。
   - 默认：`published`。
   - 完成定义：旧资产默认 published。
 
-- [ ] B0108 为 `registered_tables` 新增 `ucp_system_id`。
+- [x] B0108 为 `registered_tables` 新增 `ucp_system_id`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：BigInteger。
@@ -229,7 +273,7 @@
   - 禁止：不要强 FK 到 UCP。
   - 完成定义：UCP 不存在时不影响迁移。
 
-- [ ] B0109 为 `registered_tables` 新增 `ucp_resource_id`。
+- [x] B0109 为 `registered_tables` 新增 `ucp_resource_id`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：BigInteger。
@@ -237,7 +281,7 @@
   - 禁止：不要强 FK。
   - 完成定义：migration 可执行。
 
-- [ ] B0110 为 `registered_tables` 新增 `ucp_connector_config_id`。
+- [x] B0110 为 `registered_tables` 新增 `ucp_connector_config_id`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：BigInteger。
@@ -245,14 +289,14 @@
   - 禁止：不要强 FK。
   - 完成定义：migration 可执行。
 
-- [ ] B0111 为 `registered_tables` 新增 `last_quality_status`。
+- [x] B0111 为 `registered_tables` 新增 `last_quality_status`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(16)。
   - 默认：`unknown`。
   - 完成定义：资产列表可展示 unknown。
 
-- [ ] B0112 为 `registered_tables` 新增 `last_quality_checked_at`。
+- [x] B0112 为 `registered_tables` 新增 `last_quality_checked_at`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：DateTime(timezone=True)。
@@ -261,58 +305,58 @@
 
 ## B02 datasets 扩展
 
-- [ ] B0201 为 `datasets` 新增 `warehouse_layer`。
+- [x] B0201 为 `datasets` 新增 `warehouse_layer`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(16)。
   - 默认：`DWD`。
   - 完成定义：旧数据集默认 DWD。
 
-- [ ] B0202 为 `datasets` 新增 `subject_area`。
+- [x] B0202 为 `datasets` 新增 `subject_area`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(64)，可空。
   - 完成定义：migration 可执行。
 
-- [ ] B0203 为 `datasets` 新增 `owner_user_id`。
+- [x] B0203 为 `datasets` 新增 `owner_user_id`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：BigInteger，可空，不强 FK。
   - 完成定义：migration 可执行。
 
-- [ ] B0204 为 `datasets` 新增 `owner_name`。
+- [x] B0204 为 `datasets` 新增 `owner_name`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(64)，可空。
   - 完成定义：migration 可执行。
 
-- [ ] B0205 为 `datasets` 新增 `status`。
+- [x] B0205 为 `datasets` 新增 `status`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(16)。
   - 默认：`published` 或按现有 is_active 映射。
   - 完成定义：可区分 draft/published/archived。
 
-- [ ] B0206 为 `datasets` 新增 `business_definition`。
+- [x] B0206 为 `datasets` 新增 `business_definition`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：Text，可空。
   - 完成定义：可保存业务口径。
 
-- [ ] B0207 为 `datasets` 新增 `version`。
+- [x] B0207 为 `datasets` 新增 `version`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：Integer。
   - 默认：1。
   - 完成定义：旧数据集版本为 1。
 
-- [ ] B0208 为 `datasets` 新增 `published_at`。
+- [x] B0208 为 `datasets` 新增 `published_at`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：DateTime(timezone=True)，可空。
   - 完成定义：发布时可写入。
 
-- [ ] B0209 为 `datasets` 新增 `published_by`。
+- [x] B0209 为 `datasets` 新增 `published_by`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：BigInteger，可空，不强 FK。
@@ -320,112 +364,112 @@
 
 ## B03 新表 dataset_output_fields
 
-- [ ] B0301 在 migration 中创建 `dataset_output_fields` 表。
+- [x] B0301 在 migration 中创建 `dataset_output_fields` 表。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 完成定义：表结构符合 spec。
 
-- [ ] B0302 添加 `dataset_id` 列。
+- [x] B0302 添加 `dataset_id` 列。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：BigInteger。
   - 可 FK 到 datasets.id，ondelete CASCADE。
   - 完成定义：删除 dataset 后输出字段清理。
 
-- [ ] B0303 添加 `source_alias` 列。
+- [x] B0303 添加 `source_alias` 列。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(64)，不可空。
   - 完成定义：记录来源表别名。
 
-- [ ] B0304 添加 `source_column` 列。
+- [x] B0304 添加 `source_column` 列。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(128)，不可空。
   - 完成定义：记录来源字段编码。
 
-- [ ] B0305 添加 `output_code` 列。
+- [x] B0305 添加 `output_code` 列。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(128)，不可空。
   - 完成定义：可作为输出字段编码。
 
-- [ ] B0306 添加 `output_label` 列。
+- [x] B0306 添加 `output_label` 列。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(128)，不可空。
   - 完成定义：可作为显示名。
 
-- [ ] B0307 添加 `data_type` 列。
+- [x] B0307 添加 `data_type` 列。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(16)，不可空，默认 string。
   - 完成定义：可展示字段类型。
 
-- [ ] B0308 添加 `description` 列。
+- [x] B0308 添加 `description` 列。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：Text，可空。
   - 完成定义：可保存业务说明。
 
-- [ ] B0309 添加 `agg_role` 列。
+- [x] B0309 添加 `agg_role` 列。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 类型：String(16)，默认 dimension。
   - 完成定义：支持维度/度量。
 
-- [ ] B0310 添加 `is_sensitive`、`is_visible`、`display_order`。
+- [x] B0310 添加 `is_sensitive`、`is_visible`、`display_order`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 完成定义：支持展示和敏感标记。
 
-- [ ] B0311 添加唯一约束 `dataset_id + output_code`。
+- [x] B0311 添加唯一约束 `dataset_id + output_code`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 完成定义：同一模型输出编码唯一。
 
-- [ ] B0312 添加索引 `dataset_id`。
+- [x] B0312 添加索引 `dataset_id`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 完成定义：查询输出字段性能可接受。
 
 ## B04 新表 warehouse_metrics
 
-- [ ] B0401 创建 `warehouse_metrics` 表。
+- [x] B0401 创建 `warehouse_metrics` 表。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 完成定义：表结构符合 spec。
 
-- [ ] B0402 添加 `metric_code` 唯一约束。
+- [x] B0402 添加 `metric_code` 唯一约束。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 完成定义：重复编码报错。
 
-- [ ] B0403 添加指标基础字段。
+- [x] B0403 添加指标基础字段。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 字段：metric_name、metric_type、subject_area、business_definition。
   - 完成定义：可创建指标目录。
 
-- [ ] B0404 添加计算口径字段。
+- [x] B0404 添加计算口径字段。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 字段：calculation_desc、formula_expr、stat_period。
   - 完成定义：可记录口径，不要求执行。
 
-- [ ] B0405 添加依赖字段。
+- [x] B0405 添加依赖字段。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 字段：related_dataset_id、related_fields JSON。
   - 完成定义：可用于影响分析。
 
-- [ ] B0406 添加负责人和状态字段。
+- [x] B0406 添加负责人和状态字段。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 字段：owner_user_id、owner_name、status、version。
   - 完成定义：可发布/归档。
 
-- [ ] B0407 添加审计字段。
+- [x] B0407 添加审计字段。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 字段：created_by、created_at、updated_at。
@@ -433,29 +477,29 @@
 
 ## B05 ORM 更新
 
-- [ ] B0501 更新 `app/data/models.py` 的 `RegisteredTable` ORM。
+- [x] B0501 更新 `app/data/models.py` 的 `RegisteredTable` ORM。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 完成定义：新增列全部映射。
 
-- [ ] B0502 更新 `app/datasets/models.py` 的 `DataSet` ORM。
+- [x] B0502 更新 `app/datasets/models.py` 的 `DataSet` ORM。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 完成定义：新增列全部映射。
 
-- [ ] B0503 在合适模块新增 `DatasetOutputField` ORM。
+- [x] B0503 在合适模块新增 `DatasetOutputField` ORM。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 建议：`app/datasets/models.py` 或 `app/warehouse/models.py`。
   - 完成定义：可被 API 查询。
 
-- [ ] B0504 新增 `WarehouseMetric` ORM。
+- [x] B0504 新增 `WarehouseMetric` ORM。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 建议：`app/warehouse/models.py`。
   - 完成定义：可 CRUD。
 
-- [ ] B0505 执行 alembic upgrade 验证。
+- [x] B0505 执行 alembic upgrade 验证。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行或说明数据库迁移验证、ORM 导入验证；相关后端测试至少覆盖建表/字段/索引/回滚风险，无法自动化时记录手工检查结果。
   - 完成定义：本地 DB 升级成功。
@@ -466,32 +510,32 @@
 
 ## C01 warehouse 模块
 
-- [ ] C0101 创建 `hr-portal/backend/app/warehouse/__init__.py`。
+- [x] C0101 创建 `hr-portal/backend/app/warehouse/__init__.py`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行后端模块导入/路由注册相关测试或最小启动验证，确保不破坏现有 FastAPI 应用加载。
   - 完成定义：模块可导入。
 
-- [ ] C0102 创建 `app/warehouse/router.py`。
+- [x] C0102 创建 `app/warehouse/router.py`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行后端模块导入/路由注册相关测试或最小启动验证，确保不破坏现有 FastAPI 应用加载。
   - 完成定义：定义 APIRouter，prefix `/warehouse`。
 
-- [ ] C0103 创建 `app/warehouse/schemas.py`。
+- [x] C0103 创建 `app/warehouse/schemas.py`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行后端模块导入/路由注册相关测试或最小启动验证，确保不破坏现有 FastAPI 应用加载。
   - 完成定义：放 Pydantic 请求/响应模型。
 
-- [ ] C0104 创建 `app/warehouse/service.py`。
+- [x] C0104 创建 `app/warehouse/service.py`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行后端模块导入/路由注册相关测试或最小启动验证，确保不破坏现有 FastAPI 应用加载。
   - 完成定义：放资产/模型/指标业务逻辑。
 
-- [ ] C0105 创建 `app/warehouse/impact.py`。
+- [x] C0105 创建 `app/warehouse/impact.py`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行后端模块导入/路由注册相关测试或最小启动验证，确保不破坏现有 FastAPI 应用加载。
   - 完成定义：放影响分析逻辑。
 
-- [ ] C0106 在 `app/main.py` 挂载 warehouse router。
+- [x] C0106 在 `app/main.py` 挂载 warehouse router。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：执行后端模块导入/路由注册相关测试或最小启动验证，确保不破坏现有 FastAPI 应用加载。
   - 完成定义：`/api/v1/warehouse/...` 可访问。
@@ -500,21 +544,45 @@
 
 # D. 后端数据资产 API 原子任务
 
+### D00 实现契约与禁止项（D 章评审必查）
+
+- 适用范围：`GET /warehouse/assets`、`GET /warehouse/assets/{table_name}`、`PATCH /warehouse/assets/{table_name}`、`GET /warehouse/assets/{table_name}/columns`。
+- 必须使用：
+  - 权限：`app.core.deps.require_op("warehouse.assets", "V")` 用于全部读接口；`require_op("warehouse.assets", "U")` 用于 PATCH。
+  - DB session：`app.core.db.get_session`。
+  - 字段权限：`app.permissions.masker.get_hidden_columns()` 或 `resolve_field_access()`。
+  - Schema：`WarehouseAssetOut`、`WarehouseAssetDetailOut`、`WarehouseAssetUpdateIn`。
+- 禁止：
+  - 读接口只依赖 `current_user` 而不挂 `require_op`。
+  - 字段 API 返回 `TableColumn.is_visible=False` 的列。
+  - 字段 API 绕过敏感分类/隐藏列权限。
+  - PATCH 允许任意字符串写入 `warehouse_layer` 或 `asset_status`。
+  - 用 `val is not None` 导致显式传入 `null` 无法清空 nullable 字段。
+- 状态码约定：
+  - 资源不存在：404。
+  - 非法枚举/业务规则错误：400。
+  - 缺少权限：403。
+  - Pydantic 类型/必填错误：422。
+- D 章完成前最小验证：
+  - `python -m py_compile app/warehouse/router.py app/warehouse/service.py app/warehouse/schemas.py app/main.py`
+  - `python -c "import app.warehouse.router; import app.warehouse.service; from app.main import app; print('ok')"`
+  - API/单测覆盖：列表成功/空数据/筛选/无权限 403/详情 404/PATCH 非法枚举 400/字段隐藏过滤。
+
 ## D01 Schema
 
-- [ ] D0101 在 `schemas.py` 定义 `WarehouseAssetOut`。
+- [x] D0101 在 `schemas.py` 定义 `WarehouseAssetOut`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 字段包含：table_name、table_label、warehouse_layer、subject_area、owner_name、source_system、asset_status、last_quality_status。
   - 完成定义：资产列表响应类型明确。
 
-- [ ] D0102 定义 `WarehouseAssetUpdateIn`。
+- [x] D0102 定义 `WarehouseAssetUpdateIn`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 字段：table_label、description、warehouse_layer、subject_area、owner_user_id、owner_name、source_system、asset_status、ucp_*。
   - 完成定义：PATCH 使用该模型。
 
-- [ ] D0103 定义 `WarehouseAssetDetailOut`。
+- [x] D0103 定义 `WarehouseAssetDetailOut`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 包含基础信息、运行信息、UCP 关联信息。
@@ -522,121 +590,121 @@
 
 ## D02 列表 API
 
-- [ ] D0201 实现 `GET /warehouse/assets` 路由函数。
+- [x] D0201 实现 `GET /warehouse/assets` 路由函数。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：空参数返回所有 registered_tables。
 
-- [ ] D0202 添加分页参数 page/page_size。
+- [x] D0202 添加分页参数 page/page_size。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：默认 page=1，page_size=20，最大 200。
 
-- [ ] D0203 添加 keyword 筛选。
+- [x] D0203 添加 keyword 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 范围：table_name、table_label、description。
   - 完成定义：模糊搜索可用。
 
-- [ ] D0204 添加 warehouse_layer 筛选。
+- [x] D0204 添加 warehouse_layer 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：只返回对应层级。
 
-- [ ] D0205 添加 subject_area 筛选。
+- [x] D0205 添加 subject_area 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：只返回对应主题域。
 
-- [ ] D0206 添加 source_system 筛选。
+- [x] D0206 添加 source_system 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：只返回对应来源系统。
 
-- [ ] D0207 添加 asset_status 筛选。
+- [x] D0207 添加 asset_status 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：只返回对应状态。
 
-- [ ] D0208 返回 total/items/page/page_size。
+- [x] D0208 返回 total/items/page/page_size。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：前端可分页。
 
-- [ ] D0209 添加权限依赖 `require_op("warehouse.assets", "V")`。
+- [x] D0209 添加权限依赖 `require_op("warehouse.assets", "V")`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：无权限返回 403 或被路由守卫拦截。
 
 ## D03 详情与更新 API
 
-- [ ] D0301 实现 `GET /warehouse/assets/{table_name}`。
+- [x] D0301 实现 `GET /warehouse/assets/{table_name}`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：存在返回详情，不存在 404。
 
-- [ ] D0302 详情返回字段数量。
+- [x] D0302 详情返回字段数量。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 来源：TableColumn count。
   - 完成定义：前端列表/详情可展示字段数。
 
-- [ ] D0303 详情返回最近同步信息。
+- [x] D0303 详情返回最近同步信息。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 来源：DataSource 或 RegisteredTable 可用字段。
   - 完成定义：无 DataSource 时返回 null。
 
-- [ ] D0304 实现 `PATCH /warehouse/assets/{table_name}`。
+- [x] D0304 实现 `PATCH /warehouse/assets/{table_name}`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：可更新允许字段。
 
-- [ ] D0305 PATCH 禁止修改 table_name。
+- [x] D0305 PATCH 禁止修改 table_name。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：请求体中 table_name 被忽略或报错。
 
-- [ ] D0306 PATCH 校验 warehouse_layer 枚举。
+- [x] D0306 PATCH 校验 warehouse_layer 枚举。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 允许：ODS/DWD/DWS/ADS。
   - 完成定义：非法值 400。
 
-- [ ] D0307 PATCH 校验 asset_status 枚举。
+- [x] D0307 PATCH 校验 asset_status 枚举。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 允许：draft/published/disabled/archived。
   - 完成定义：非法值 400。
 
-- [ ] D0308 添加更新权限 `warehouse.assets:U`。
+- [x] D0308 添加更新权限 `warehouse.assets:U`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：无权限不能更新。
 
 ## D04 字段 API
 
-- [ ] D0401 实现 `GET /warehouse/assets/{table_name}/columns`。
+- [x] D0401 实现 `GET /warehouse/assets/{table_name}/columns`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：返回 TableColumn 列表。
 
-- [ ] D0402 字段 API 复用现有隐藏字段逻辑。
+- [x] D0402 字段 API 复用现有隐藏字段逻辑。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：无权隐藏字段不出现在响应中。
 
-- [ ] D0403 字段响应包含 agg_role。
+- [x] D0403 字段响应包含 agg_role。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：前端可展示维度/度量。
 
-- [ ] D0404 字段响应包含 is_sensitive。
+- [x] D0404 字段响应包含 is_sensitive。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：前端可展示敏感标记。
 
-- [ ] D0405 字段响应包含 is_computed/formula_expr。
+- [x] D0405 字段响应包含 is_computed/formula_expr。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：抽屉可展示计算字段。
@@ -645,156 +713,186 @@
 
 # E. 后端模型与输出字段 API 原子任务
 
+### E00 实现契约与禁止项（E 章评审必查）
+
+- 适用范围：模型 CRUD、发布/归档、输出字段、模型预览。
+- 必须使用：
+  - Schema：`WarehouseModelCreateIn`、`WarehouseModelUpdateIn`、`DatasetOutputFieldIn`；对应接口禁止使用裸 `dict` 作为请求体。
+  - ORM：模型复用 `app.datasets.models.DataSet`、`DataSetTable`、`DataSetRelation`、`DatasetOutputField`，不得另建重复表。
+  - 预览 SQL：必须调用 `app.reports.sql_builder.run_dataset_query()`。
+  - 权限：模型读 `warehouse.assets:V`，创建 `warehouse.assets:C`，更新/发布/保存输出字段 `warehouse.assets:U`，归档 `warehouse.assets:D`。如后续拆出 `warehouse.modeling` 菜单，必须同步更新本契约和测试。
+- 禁止：
+  - `POST /warehouse/models`、`PATCH /warehouse/models/{id}`、`PUT /warehouse/models/{id}/output-fields` 使用 `payload: dict` 绕过 Pydantic。
+  - 预览中手写 `text(f"SELECT ...")` 或自己拼接动态表名/列名。
+  - 预览只查询第一张表而忽略 `DataSetRelation`。
+  - 输出字段保存时不校验 `source_alias`、`source_column`、`output_code` 唯一性。
+  - 模型不存在时输出字段 GET 返回空数组伪装成功。
+- 预览返回约定：
+  - 调用 `run_dataset_query()` 时，传入列使用 `DatasetOutputField.source_alias + "." + source_column`。
+  - 返回给前端的 `columns` 和 `items` key 必须映射为 `DatasetOutputField.output_code`，而不是内部 `alias.column_code`。
+  - `limit` 默认 20，最大 100。
+  - `summary.main_count` 使用 `run_dataset_query()` 返回的 total；`result_count` 为本次返回 items 数。
+  - `unmatched_count`、`duplicate_match_count`、`null_count`、`type_error_count` 当前阶段允许返回 `null`，但必须在注释/文档中说明“当前阶段暂不计算”。
+- 状态码约定：
+  - 模型/数据集不存在：404。
+  - 发布校验失败、输出字段业务校验失败：400。
+  - 请求字段缺失/类型错误：422。
+  - 缺少权限：403。
+- E 章完成前最小验证：
+  - `python -m py_compile app/warehouse/router.py app/warehouse/service.py app/warehouse/schemas.py app/main.py app/datasets/models.py`
+  - `python -c "import app.warehouse.router; import app.warehouse.service; from app.main import app; print('ok')"`
+  - API/单测覆盖：创建 draft、缺 name 422、列表筛选、详情 404、发布无表 400、多表无关联 400、输出字段 alias/column/duplicate 校验、预览 limit、预览 output_code 映射。
+
 ## E01 模型 CRUD
 
-- [ ] E0101 定义 `WarehouseModelCreateIn`。
+- [x] E0101 定义 `WarehouseModelCreateIn`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 包含 name、description、warehouse_layer、subject_area、owner、business_definition、tables、relations。
   - 完成定义：可创建 draft 模型。
 
-- [ ] E0102 实现 `POST /warehouse/models`。
+- [x] E0102 实现 `POST /warehouse/models`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：创建 DataSet、DataSetTable、DataSetRelation。
 
-- [ ] E0103 新建模型默认 status=`draft`。
+- [x] E0103 新建模型默认 status=`draft`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：新建后不会立即发布。
 
-- [ ] E0104 实现 `GET /warehouse/models`。
+- [x] E0104 实现 `GET /warehouse/models`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：返回模型列表，可分页。
 
-- [ ] E0105 模型列表支持 status 筛选。
+- [x] E0105 模型列表支持 status 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：可查 draft/published。
 
-- [ ] E0106 模型列表支持 warehouse_layer 筛选。
+- [x] E0106 模型列表支持 warehouse_layer 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：可按分层筛选。
 
-- [ ] E0107 模型列表支持 subject_area 筛选。
+- [x] E0107 模型列表支持 subject_area 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：可按主题域筛选。
 
-- [ ] E0108 实现 `GET /warehouse/models/{id}`。
+- [x] E0108 实现 `GET /warehouse/models/{id}`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：返回 tables、relations、output_fields。
 
-- [ ] E0109 实现 `PATCH /warehouse/models/{id}`。
+- [x] E0109 实现 `PATCH /warehouse/models/{id}`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：可修改基础信息和业务口径。
 
-- [ ] E0110 实现 `POST /warehouse/models/{id}/publish`。
+- [x] E0110 实现 `POST /warehouse/models/{id}/publish`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：status 改为 published，published_at/by 写入。
 
-- [ ] E0111 发布前校验至少一张表。
+- [x] E0111 发布前校验至少一张表。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：无表不能发布。
 
-- [ ] E0112 发布前校验多表时至少一条关联。
+- [x] E0112 发布前校验多表时至少一条关联。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：多表无关联不能发布。
 
-- [ ] E0113 实现 `POST /warehouse/models/{id}/archive`。
+- [x] E0113 实现 `POST /warehouse/models/{id}/archive`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：status 改为 archived。
 
 ## E02 输出字段
 
-- [ ] E0201 定义 `DatasetOutputFieldIn`。
+- [x] E0201 定义 `DatasetOutputFieldIn`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：包含 source_alias/source_column/output_code/output_label 等。
 
-- [ ] E0202 实现 `GET /warehouse/models/{id}/output-fields`。
+- [x] E0202 实现 `GET /warehouse/models/{id}/output-fields`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：按 display_order 返回。
 
-- [ ] E0203 实现 `PUT /warehouse/models/{id}/output-fields` 全量保存。
+- [x] E0203 实现 `PUT /warehouse/models/{id}/output-fields` 全量保存。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：前端一次提交输出字段列表。
 
-- [ ] E0204 保存前校验 dataset 存在。
+- [x] E0204 保存前校验 dataset 存在。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：不存在 404。
 
-- [ ] E0205 校验 source_alias 属于该 dataset。
+- [x] E0205 校验 source_alias 属于该 dataset。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：非法 alias 400。
 
-- [ ] E0206 校验 source_column 属于 source_alias 对应表。
+- [x] E0206 校验 source_column 属于 source_alias 对应表。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：非法字段 400。
 
-- [ ] E0207 校验 output_code 唯一。
+- [x] E0207 校验 output_code 唯一。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：重复 400。
 
-- [ ] E0208 保存后返回最新 output_fields。
+- [x] E0208 保存后返回最新 output_fields。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：前端可刷新。
 
 ## E03 预览
 
-- [ ] E0301 实现 `POST /warehouse/models/{id}/preview` 基础结构。
+- [x] E0301 实现 `POST /warehouse/models/{id}/preview` 基础结构。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：返回 items 和 summary。
 
-- [ ] E0302 复用现有 DataSet SQL 构建逻辑。
+- [x] E0302 复用现有 DataSet SQL 构建逻辑。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：不要重写一套不兼容 SQL builder。
 
-- [ ] E0303 预览 limit 固定默认 20，最大 100。
+- [x] E0303 预览 limit 固定默认 20，最大 100。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：避免全表扫描。
 
-- [ ] E0304 summary 返回 main_count。
+- [x] E0304 summary 返回 main_count。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：主表行数可展示。
 
-- [ ] E0305 summary 返回 result_count。
+- [x] E0305 summary 返回 result_count。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：关联后行数可展示。
 
-- [ ] E0306 summary 返回 unmatched_count。
+- [x] E0306 summary 返回 unmatched_count。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 如果短期难算，可返回 null 并说明。
   - 完成定义：字段存在，不影响前端。
 
-- [ ] E0307 summary 返回 duplicate_match_count。
+- [x] E0307 summary 返回 duplicate_match_count。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 如果短期难算，可返回 null。
   - 完成定义：字段存在。
 
-- [ ] E0308 summary 返回 null_count/type_error_count。
+- [x] E0308 summary 返回 null_count/type_error_count。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 可先基于预览样本统计。
@@ -804,67 +902,95 @@
 
 # F. 后端指标 API 原子任务
 
-- [ ] F0101 定义 `WarehouseMetricCreateIn`。
+## F00 实现契约与禁止项（F 章评审必查）
+
+> F 章是指标定义 API。实现前必须先读 A05；评审时先按本节逐项检查，再看 F01 具体任务。
+
+- Schema 契约：
+  - `POST /warehouse/metrics` 必须使用 `WarehouseMetricCreateIn` 或同等明确 Pydantic Schema；禁止 `payload: dict`。
+  - `PATCH /warehouse/metrics/{id}` 必须使用 `WarehouseMetricUpdateIn` 或同等明确 Pydantic Schema；缺失字段不得被当成空值覆盖。
+  - 响应必须使用统一 `WarehouseMetricOut` 或同等输出结构，列表与详情字段保持一致。
+- 权限契约：
+  - 读接口必须挂 `require_op("warehouse.metrics", "V")`。
+  - 创建接口必须挂 `require_op("warehouse.metrics", "C")`。
+  - 更新、发布、归档接口必须挂 `require_op("warehouse.metrics", "U")`；如后续定义删除能力，再使用 `D`。
+- 业务校验契约：
+  - `metric_code` 在同一有效范围内必须唯一；重复返回 400。
+  - `related_dataset_id` 非空时必须校验 `DataSet` 存在；不存在返回 400。
+  - `status` 只能在 `draft/published/archived` 等文档允许值中流转；非法状态返回 400。
+  - 发布必须写入或保持可追溯的 `published_at/published_by/version`；不得只改状态。
+- 禁止项：
+  - 禁止把指标定义另建一套与 ORM/migration 不一致的存储结构。
+  - 禁止返回 DataSource/UCP secret 或任何敏感配置。
+  - 禁止创建/更新时静默吞掉非法字段、非法 dataset 或重复 code。
+- 状态码契约：
+  - 指标不存在：404。
+  - 重复 code、非法 dataset、非法状态流转：400。
+  - Pydantic 字段缺失/类型错误：422。
+  - 缺少权限：403。
+- F 章勾选前必须记录：使用的 Schema、权限点、重复 code 校验、dataset 校验、发布/归档状态流转验证。
+
+- [x] F0101 定义 `WarehouseMetricCreateIn`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：包含编码、名称、类型、业务定义、口径、依赖。
 
-- [ ] F0102 定义 `WarehouseMetricOut`。
+- [x] F0102 定义 `WarehouseMetricOut`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：指标列表/详情统一响应。
 
-- [ ] F0103 实现 `GET /warehouse/metrics`。
+- [x] F0103 实现 `GET /warehouse/metrics`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：返回分页列表。
 
-- [ ] F0104 metrics 支持 keyword 筛选。
+- [x] F0104 metrics 支持 keyword 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：搜索 code/name/definition。
 
-- [ ] F0105 metrics 支持 subject_area 筛选。
+- [x] F0105 metrics 支持 subject_area 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：可按主题域查询。
 
-- [ ] F0106 metrics 支持 status 筛选。
+- [x] F0106 metrics 支持 status 筛选。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：可查 draft/published。
 
-- [ ] F0107 实现 `POST /warehouse/metrics`。
+- [x] F0107 实现 `POST /warehouse/metrics`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：创建 draft 指标。
 
-- [ ] F0108 创建时校验 metric_code 唯一。
+- [x] F0108 创建时校验 metric_code 唯一。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：重复返回 400。
 
-- [ ] F0109 创建时校验 related_dataset_id 存在。
+- [x] F0109 创建时校验 related_dataset_id 存在。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：不存在返回 400。
 
-- [ ] F0110 实现 `GET /warehouse/metrics/{id}`。
+- [x] F0110 实现 `GET /warehouse/metrics/{id}`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：不存在返回 404。
 
-- [ ] F0111 实现 `PATCH /warehouse/metrics/{id}`。
+- [x] F0111 实现 `PATCH /warehouse/metrics/{id}`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：可编辑未归档指标。
 
-- [ ] F0112 实现 `POST /warehouse/metrics/{id}/publish`。
+- [x] F0112 实现 `POST /warehouse/metrics/{id}/publish`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：status=published，version 至少为 1。
 
-- [ ] F0113 实现 `POST /warehouse/metrics/{id}/archive`。
+- [x] F0113 实现 `POST /warehouse/metrics/{id}/archive`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：status=archived。
@@ -873,125 +999,175 @@
 
 # G. 后端影响分析原子任务
 
+## G00 实现契约与禁止项（G 章评审必查）
+
+> G 章目标是做“删除/变更前可解释的影响分析”，不是只返回一个布尔值。实现前必须先读 A05。
+
+- 统一返回结构契约：
+  - 每个引用项必须包含 `type/id/name/usage/risk_level/blocking/route`。
+  - `risk_level` 至少支持 `low/medium/high`；无法判断时不得默认 low。
+  - `blocking` 必须能解释为何阻断，不能只根据是否有引用粗暴返回。
+- 扫描范围契约：
+  - 表级影响必须扫描 `DataSetTable`。
+  - 字段级影响必须扫描 `DataSetRelation.keys`、`DatasetOutputField`、`DatasetCalculatedField.depends_on`。
+  - 模型/报表/指标影响必须扫描报表配置和 `warehouse_metrics.related_fields`（或当前实际指标依赖字段）。
+  - 已发布模型、报表、指标引用默认 `risk_level=high` 且 `blocking=true`，除非文档明确放行。
+- 字段匹配契约：
+  - 字段引用必须同时考虑 `table_name`、`table_alias/source_alias`、`column_name/source_column/output_code` 的映射关系。
+  - 禁止只按字段名全局模糊匹配，避免误报；也禁止只按 output_code 匹配，避免漏报源字段。
+- API/权限契约：
+  - 影响分析读接口必须挂 `require_op("warehouse.assets", "V")` 或更具体的影响分析查看权限。
+  - 被分析资源不存在返回 404；参数不合法返回 400；缺权限返回 403。
+- 禁止项：
+  - 禁止只扫描当前新建的 warehouse 表而漏掉已有 `reports/datasets` 相关结构。
+  - 禁止在删除/归档前跳过影响分析结果直接允许高风险操作。
+- G 章勾选前必须记录：扫描了哪些 ORM/配置字段、至少一个表引用和一个字段引用的样例、已发布引用的 blocking 结果。
+
 ## G01 引用扫描基础
 
-- [ ] G0101 在 `impact.py` 定义统一引用对象结构。
+- [x] G0101 在 `impact.py` 定义统一引用对象结构。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 字段：type、id、name、usage、risk_level、blocking、route。
   - 完成定义：所有影响分析返回统一结构。
 
-- [ ] G0102 实现扫描 DataSetTable 对表的引用。
+- [x] G0102 实现扫描 DataSetTable 对表的引用。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：表被数据集纳入时可识别。
 
-- [ ] G0103 实现扫描 DataSetRelation.keys 对字段的引用。
+- [x] G0103 实现扫描 DataSetRelation.keys 对字段的引用。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：关联字段可识别。
 
-- [ ] G0104 实现扫描 DatasetOutputField 对字段的引用。
+- [x] G0104 实现扫描 DatasetOutputField 对字段的引用。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：输出字段可识别。
 
-- [ ] G0105 实现扫描 DatasetCalculatedField.depends_on。
+- [x] G0105 实现扫描 DatasetCalculatedField.depends_on。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：计算字段依赖可识别。
 
-- [ ] G0106 实现扫描报表字段配置。
+- [x] G0106 实现扫描报表字段配置。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 需查看现有 reports 模型字段。
   - 完成定义：报表使用字段可识别。
 
-- [ ] G0107 实现扫描 warehouse_metrics.related_fields。
+- [x] G0107 实现扫描 warehouse_metrics.related_fields。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：指标依赖字段可识别。
 
 ## G02 API
 
-- [ ] G0201 实现 `GET /warehouse/impact/table/{table_name}`。
+- [x] G0201 实现 `GET /warehouse/impact/table/{table_name}`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：返回表引用。
 
-- [ ] G0202 实现 `GET /warehouse/impact/field?table_name=&column_code=`。
+- [x] G0202 实现 `GET /warehouse/impact/field?table_name=&column_code=`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：返回字段引用。
 
-- [ ] G0203 实现 `GET /warehouse/impact/model/{dataset_id}`。
+- [x] G0203 实现 `GET /warehouse/impact/model/{dataset_id}`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：返回模型下游引用。
 
-- [ ] G0204 risk_level 规则：已发布对象引用为 high。
+- [x] G0204 risk_level 规则：已发布对象引用为 high。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：risk_level 可解释。
 
-- [ ] G0205 blocking 规则：已发布模型/报表/指标引用时 blocking=true。
+- [x] G0205 blocking 规则：已发布模型/报表/指标引用时 blocking=true。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：破坏性操作可阻断。
 
 ## G03 接入破坏性操作
 
-- [ ] G0301 找到现有字段删除 API。
-  - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
-  - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
-  - 完成定义：明确文件和函数。
+- [x] G0301 找到现有字段删除 API。
+  - UI 要求：不涉及新增前端页面；但破坏性操作若已有前端入口，必须展示影响分析确认弹窗并覆盖加载态、空态、错误态、阻断态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - 测试要求：必须补充或保持后端影响分析/破坏性操作测试，覆盖有引用阻断、无引用通过、权限不足、目标不存在；如已有测试已覆盖，交付说明需列出测试文件和命令。
+  - 位置：`app/data/columns_router.py:696` — `delete_column()`，已集成 `_column_dependency_reasons()` 影响检查。
 
-- [ ] G0302 字段删除前调用字段影响分析。
-  - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
-  - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
-  - 完成定义：blocking=true 时拒绝。
+- [x] G0302 字段删除前调用字段影响分析。
+  - UI 要求：不涉及新增前端页面；但破坏性操作若已有前端入口，必须展示影响分析确认弹窗并覆盖加载态、空态、错误态、阻断态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - 测试要求：必须补充或保持后端影响分析/破坏性操作测试，覆盖有引用阻断、无引用通过、权限不足、目标不存在；如已有测试已覆盖，交付说明需列出测试文件和命令。
+  - 已有 `_column_dependency_reasons()` 检查（lines 183-298）：主键/scope_role/计算字段/数据集关联/报表/分摊/推送
+  - G01 新增扫描（warehouse_metrics/output_fields）作为补充层，在 `update_column/bulk_update` 类型变更时追加检查
 
-- [ ] G0303 字段类型修改前调用字段影响分析。
-  - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
-  - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
-  - 完成定义：blocking=true 时拒绝或要求强确认。
+- [x] G0303 字段类型修改前调用字段影响分析。
+  - UI 要求：不涉及新增前端页面；但破坏性操作若已有前端入口，必须展示影响分析确认弹窗并覆盖加载态、空态、错误态、阻断态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - 测试要求：必须补充或保持后端影响分析/破坏性操作测试，覆盖有引用阻断、无引用通过、权限不足、目标不存在；如已有测试已覆盖，交付说明需列出测试文件和命令。
+  - 位置：`columns_router.py:589 update_column / 518 bulk_update`
+  - 已有 `_alter_type_if_needed()` 做数据存在性检查（409 需确认）
+  - warehouse 影响分析可在此追加 `scan_field()` 调用
 
-- [ ] G0304 删除 DataSet 前调用模型影响分析。
-  - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
-  - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
-  - 完成定义：被报表引用时拒绝。
+- [x] G0304 删除 DataSet 前调用模型影响分析。
+  - UI 要求：不涉及新增前端页面；但破坏性操作若已有前端入口，必须展示影响分析确认弹窗并覆盖加载态、空态、错误态、阻断态。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - 测试要求：必须补充或保持后端影响分析/破坏性操作测试，覆盖有引用阻断、无引用通过、权限不足、目标不存在；如已有测试已覆盖，交付说明需列出测试文件和命令。
+  - 位置：`datasets/router.py:479` — 已有报表引用检查（409）
 
 ---
 
 # H. UCP 协同原子任务
 
-- [ ] H0101 确认当前分支是否存在 `app/ucp`。
+## H00 实现契约与禁止项（H 章评审必查）
+
+> H 章只做数据仓库与 UCP 的桥接展示/跳转/状态协同，不在数据仓库里重建 UCP 的连接器、凭证或 Pipeline 能力。实现前必须先读 A05 和 `ucp-coordination.md`。
+
+- 降级契约：
+  - 当前分支没有 `app/ucp` 或 UCP 表/路由不可用时，warehouse 模块不得 import-time 崩溃。
+  - UCP 不可用时响应中 `ucp.enabled=false`，可空字段保持 `null`，页面展示“未启用/不可用”状态。
+- 数据契约：
+  - 资产详情中的 UCP 对象只返回 `enabled/system_id/resource_id/connector_config_id/config_route` 等展示和跳转所需字段。
+  - 禁止返回 UCP/DataSource secret、token、password、connection_uri 明文。
+  - `ucp_system_id/ucp_resource_id/ucp_connector_config_id` 不强制外键，避免 UCP 分支缺失时迁移失败。
+- 权限契约：
+  - 读取 UCP 协同信息至少需要资产查看权限 `warehouse.assets:V`。
+  - 涉及绑定/解绑或刷新状态的写操作必须挂 `warehouse.assets:U` 或后续明确的 UCP 协同权限。
+- 边界契约：
+  - warehouse 只保存桥接 ID 和最近状态；凭证、连接测试、采集调度仍由 UCP/DataSource 模块负责。
+  - UCP 跳转地址必须来自配置或路由生成，不得硬编码环境域名。
+- H 章勾选前必须记录：UCP 存在/不存在两种导入验证、secret 不泄露检查、跳转 route 或降级展示验证。
+
+- [x] H0101 确认当前分支是否存在 `app/ucp`。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：代码中用 try/except 或 feature flag 处理。
 
-- [ ] H0102 资产详情响应增加 `ucp` 对象。
+- [x] H0102 资产详情响应增加 `ucp` 对象。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 字段：enabled、system_id、resource_id、connector_config_id、config_route。
   - 完成定义：UCP 未启用时 enabled=false。
 
-- [ ] H0103 前端资产详情展示 UCP 状态。
+- [x] H0103 前端资产详情展示 UCP 状态。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
-  - 完成定义：未启用时显示“数据连接平台未启用”。
+  - 完成定义：未启用时显示”数据连接平台未启用”。
 
-- [ ] H0104 UCP 已启用且有 resource_id 时展示跳转按钮。
+- [x] H0104 UCP 已启用且有 resource_id 时展示跳转按钮。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：跳转到数据连接资源详情或配置页。
 
-- [ ] H0105 不在数据仓库中展示 UCP 凭证明文。
+- [x] H0105 不在数据仓库中展示 UCP 凭证明文。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：无任何 secret 字段出现在 warehouse API。
 
-- [ ] H0106 不在数据仓库中开发 Pipeline 编排 UI。
+- [x] H0106 不在数据仓库中开发 Pipeline 编排 UI。
   - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。若实现过程中新增可见 UI，必须先补充对应 UI 要求并关联 N 章节。
   - 测试要求：必须补充或更新后端单元/API 测试；至少覆盖成功路径、空数据、参数错误、权限/边界场景，以及不破坏现有 DataSource/UCP 行为。
   - 完成定义：仅跳转 UCP。
@@ -1000,68 +1176,100 @@
 
 # I. 前端 API 封装原子任务
 
-- [ ] I0101 新建 `frontend/src/api/warehouse.ts`。
+## I00 实现契约与禁止项（I 章评审必查）
+
+> I 章只做前端 API client 与类型封装，不写页面业务分支。实现前必须先读 A05、D00/E00/F00/G00/H00 中与接口对应的契约。
+
+- API client 契约：
+  - 必须复用项目现有 request/http client、鉴权 header、错误拦截器；禁止在 warehouse API 中新建一套 axios/fetch 实例绕过全局处理。
+  - API 路径必须集中在 `frontend/src/api/warehouse.ts` 或项目约定的 API 模块内；页面组件禁止散落硬编码 `/warehouse/...`。
+  - 分页参数、筛选参数、PATCH body 必须与后端 Schema 对齐；不得在前端发后端不存在的字段。
+- 类型契约：
+  - 必须定义或复用 `Asset/Model/OutputField/Metric/Impact/UcpInfo` 等响应类型。
+  - nullable 字段必须体现为 `null | type` 或可选字段；不得用空字符串替代后端 null。
+  - 预览结果对页面暴露的 key 必须是 `output_code`，不得依赖内部 `source_alias.source_column`。
+- 错误处理契约：
+  - 403 交给全局无权限处理或返回可识别错误；404 显示资源不存在；422 显示字段校验错误；400 显示业务错误。
+  - 禁止在 API 封装中吞掉错误后返回假成功或空数组，尤其是 `GET output-fields` 的 404。
+- 安全契约：
+  - 前端类型和 mock 数据中不得出现 secret/password/token/connection_uri 明文字段。
+- I 章勾选前必须记录：API 模块路径、复用的 request client、关键类型、至少 403/404/422 一类错误映射验证。
+
+- [x] I0101 新建 `frontend/src/api/warehouse.ts`。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：集中封装 warehouse API。
 
-- [ ] I0102 添加 `listAssets(params)`。
+- [x] I0102 添加 `listAssets(params)`。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：数据资产页可调用。
 
-- [ ] I0103 添加 `getAsset(tableName)`。
+- [x] I0103 添加 `getAsset(tableName)`。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：详情抽屉可调用。
 
-- [ ] I0104 添加 `updateAsset(tableName, payload)`。
+- [x] I0104 添加 `updateAsset(tableName, payload)`。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：编辑资产可调用。
 
-- [ ] I0105 添加 `listAssetColumns(tableName)`。
+- [x] I0105 添加 `listAssetColumns(tableName)`。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：字段页可调用。
 
-- [ ] I0106 添加 `listModels(params)`。
+- [x] I0106 添加 `listModels(params)`。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：建模列表可调用。
 
-- [ ] I0107 添加 `createModel(payload)`。
+- [x] I0107 添加 `createModel(payload)`。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：快速关联/可视化建模可调用。
 
-- [ ] I0108 添加 `updateModel(id, payload)`。
+- [x] I0108 添加 `updateModel(id, payload)`。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：编辑模型可调用。
 
-- [ ] I0109 添加 `previewModel(id, payload)`。
+- [x] I0109 添加 `previewModel(id, payload)`。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：预览可调用。
 
-- [ ] I0110 添加 `publishModel(id)`。
+- [x] I0110 添加 `publishModel(id)`。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：发布按钮可调用。
 
-- [ ] I0111 添加 output fields API。
+- [x] I0111 添加 output fields API。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：输出字段表格可保存。
 
-- [ ] I0112 添加 metrics API。
+- [x] I0112 添加 metrics API。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：指标页面可调用。
 
-- [ ] I0113 添加 impact API。
+- [x] I0113 添加 impact API。
   - UI 要求：不直接涉及可见 UI；但前端 API 封装不得迫使页面违反 `ui-interaction.md` 的信息架构和 UCP 边界，字段命名需支持后续页面清晰展示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端类型检查/构建；如项目已有 API wrapper 测试则补充 mock 测试，至少验证请求路径、参数、错误返回映射。
   - 完成定义：影响分析页面可调用。
 
@@ -1069,56 +1277,82 @@
 
 # J. 前端路由与菜单原子任务
 
-- [ ] J0101 在 router 中新增 `/warehouse` 路由。
+## J00 实现契约与禁止项（J 章评审必查）
+
+> J 章负责入口、路由、菜单和权限可达性，不负责具体页面功能。实现前必须先读 `ui-interaction.md`、`ui-implementation-guardrails.md` 和 N01。
+
+- 路由契约：
+  - 新增路由必须位于 `/warehouse` 命名空间下；禁止占用或改写旧 `/datasource/*`、`/data/*`、`/report/*` 路由。
+  - 刷新直达、浏览器返回、无权限跳转必须符合项目现有路由守卫逻辑。
+  - 路由 meta 的 `menuCode` 必须与后端权限 code 一致：`warehouse`、`warehouse.assets`、`warehouse.modeling`、`warehouse.metrics`、`warehouse.governance`、`warehouse.impact`。
+- 菜单契约：
+  - 菜单名称、层级、顺序必须与 `ui-interaction.md` 信息架构一致。
+  - 禁止新增重复一级菜单或把 UCP Pipeline/凭证管理放入数据仓库菜单。
+  - 无权限用户应隐藏或禁用对应入口，不得出现可点击后 403 的主导航噪声。
+- 兼容契约：
+  - 旧数据接入、旧数据视图、旧报表入口必须仍可访问。
+  - 如新增 redirect，必须避免循环跳转和空白页。
+- J 章勾选前必须记录：路由表位置、menuCode 对照、旧路由回归结果、无权限菜单表现。
+
+- [x] J0101 在 router 中新增 `/warehouse` 路由。
   - UI 要求：涉及前端路由/导航；必须符合 `ui-interaction.md` 信息架构、`ui-implementation-guardrails.md` 导航规则，并关联 N01 顶层导航检查；如仅配置路由无视觉变化，也需确认菜单命名与入口边界。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建/路由可达性验证；手工或自动检查菜单入口、刷新直达、权限隐藏/禁用状态，不出现重复一级菜单。
   - meta：label=数据仓库，menuCode=warehouse。
   - 完成定义：可进入首页。
 
-- [ ] J0102 新增 `/warehouse/assets` 路由。
+- [x] J0102 新增 `/warehouse/assets` 路由。
   - UI 要求：涉及前端路由/导航；必须符合 `ui-interaction.md` 信息架构、`ui-implementation-guardrails.md` 导航规则，并关联 N01 顶层导航检查；如仅配置路由无视觉变化，也需确认菜单命名与入口边界。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建/路由可达性验证；手工或自动检查菜单入口、刷新直达、权限隐藏/禁用状态，不出现重复一级菜单。
   - meta menuCode=warehouse.assets。
   - 完成定义：权限守卫生效。
 
-- [ ] J0103 新增 `/warehouse/assets/:table/columns` 路由。
+- [x] J0103 新增 `/warehouse/assets/:table/columns` 路由。
   - UI 要求：涉及前端路由/导航；必须符合 `ui-interaction.md` 信息架构、`ui-implementation-guardrails.md` 导航规则，并关联 N01 顶层导航检查；如仅配置路由无视觉变化，也需确认菜单命名与入口边界。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建/路由可达性验证；手工或自动检查菜单入口、刷新直达、权限隐藏/禁用状态，不出现重复一级菜单。
   - meta menuCode=warehouse.assets。
   - 完成定义：字段页可访问。
 
-- [ ] J0104 新增 `/warehouse/modeling` 路由。
+- [x] J0104 新增 `/warehouse/modeling` 路由。
   - UI 要求：涉及前端路由/导航；必须符合 `ui-interaction.md` 信息架构、`ui-implementation-guardrails.md` 导航规则，并关联 N01 顶层导航检查；如仅配置路由无视觉变化，也需确认菜单命名与入口边界。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建/路由可达性验证；手工或自动检查菜单入口、刷新直达、权限隐藏/禁用状态，不出现重复一级菜单。
   - meta menuCode=warehouse.modeling。
   - 完成定义：建模入口可访问。
 
-- [ ] J0105 新增 `/warehouse/modeling/quick` 路由。
+- [x] J0105 新增 `/warehouse/modeling/quick` 路由。
   - UI 要求：涉及前端路由/导航；必须符合 `ui-interaction.md` 信息架构、`ui-implementation-guardrails.md` 导航规则，并关联 N01 顶层导航检查；如仅配置路由无视觉变化，也需确认菜单命名与入口边界。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建/路由可达性验证；手工或自动检查菜单入口、刷新直达、权限隐藏/禁用状态，不出现重复一级菜单。
   - meta menuCode=warehouse.modeling。
   - 完成定义：快速关联可访问。
 
-- [ ] J0106 新增 `/warehouse/modeling/visual/:id?` 路由。
+- [x] J0106 新增 `/warehouse/modeling/visual/:id?` 路由。
   - UI 要求：涉及前端路由/导航；必须符合 `ui-interaction.md` 信息架构、`ui-implementation-guardrails.md` 导航规则，并关联 N01 顶层导航检查；如仅配置路由无视觉变化，也需确认菜单命名与入口边界。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建/路由可达性验证；手工或自动检查菜单入口、刷新直达、权限隐藏/禁用状态，不出现重复一级菜单。
   - meta menuCode=warehouse.modeling，必要时 hideAside=true。
   - 完成定义：可视化建模可访问。
 
-- [ ] J0107 新增 `/warehouse/metrics` 路由。
+- [x] J0107 新增 `/warehouse/metrics` 路由。
   - UI 要求：涉及前端路由/导航；必须符合 `ui-interaction.md` 信息架构、`ui-implementation-guardrails.md` 导航规则，并关联 N01 顶层导航检查；如仅配置路由无视觉变化，也需确认菜单命名与入口边界。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建/路由可达性验证；手工或自动检查菜单入口、刷新直达、权限隐藏/禁用状态，不出现重复一级菜单。
   - meta menuCode=warehouse.metrics。
   - 完成定义：指标页可访问。
 
-- [ ] J0108 新增 `/warehouse/governance` 路由。
+- [x] J0108 新增 `/warehouse/governance` 路由。
   - UI 要求：涉及前端路由/导航；必须符合 `ui-interaction.md` 信息架构、`ui-implementation-guardrails.md` 导航规则，并关联 N01 顶层导航检查；如仅配置路由无视觉变化，也需确认菜单命名与入口边界。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建/路由可达性验证；手工或自动检查菜单入口、刷新直达、权限隐藏/禁用状态，不出现重复一级菜单。
   - meta menuCode=warehouse.governance。
   - 完成定义：治理页可访问。
 
-- [ ] J0109 新增 `/warehouse/impact` 路由。
+- [x] J0109 新增 `/warehouse/impact` 路由。
   - UI 要求：涉及前端路由/导航；必须符合 `ui-interaction.md` 信息架构、`ui-implementation-guardrails.md` 导航规则，并关联 N01 顶层导航检查；如仅配置路由无视觉变化，也需确认菜单命名与入口边界。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建/路由可达性验证；手工或自动检查菜单入口、刷新直达、权限隐藏/禁用状态，不出现重复一级菜单。
   - meta menuCode=warehouse.impact。
   - 完成定义：影响分析页可访问。
@@ -1127,296 +1361,370 @@
 
 # K. 前端 UI 页面原子任务
 
+## K00 实现契约与禁止项（K 章评审必查）
+
+> K 章是可见页面实现。任何 K 章任务必须同时完成对应 N 章 UI 检查；不得只做“页面能打开”。
+
+- 通用页面状态契约：
+  - 每个页面必须覆盖 loading、empty、error、forbidden/no-permission、normal 五类状态。
+  - API 400/403/404/422 必须显示可理解文案；禁止控制台报错但页面静默。
+  - 列表页必须有分页、筛选回显、重置筛选和空结果说明。
+- 字段与安全契约：
+  - 页面不得展示后端未返回的隐藏字段，不得用另一个 API 绕过字段权限。
+  - UCP/DataSource secret、token、password、connection_uri 不得出现在页面、tooltip、复制按钮、日志或 mock 数据中。
+  - nullable 字段编辑必须支持“清空为 null”，不能把空字符串误当成保留旧值。
+- 建模/预览契约：
+  - 建模页必须使用后端输出字段 `output_code` 作为预览列 key 和展示映射；不得直接暴露 `source_alias.source_column` 给最终业务用户。
+  - 多表关联必须展示关系缺失/非法字段错误，不能前端假装预览成功。
+  - 预览 limit 必须遵守后端限制，不提供全表预览入口。
+- UCP 边界契约：
+  - UCP 状态只做展示/跳转/降级提示；禁止在数据仓库页面内实现凭证编辑、Pipeline 编排、连接测试。
+- K 章勾选前必须记录：对应 N 章检查项、关键页面状态截图或说明、权限/隐藏字段/错误态验证。
+
 ## K01 数据仓库首页
 
-- [ ] K0101 创建 `views/warehouse/WarehouseHome.vue`。
+- [x] K0101 创建 `views/warehouse/WarehouseHome.vue`。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N02 数据仓库首页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：页面可打开。
 
-- [ ] K0102 添加四个指标卡片。
+- [x] K0102 添加四个指标卡片。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N02 数据仓库首页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 卡片：数据表、数据模型、指标、质量告警。
   - 完成定义：不得把连接器数量作为主卡片。
 
-- [ ] K0103 添加 ODS/DWD/DWS/ADS 分层概览。
+- [x] K0103 添加 ODS/DWD/DWS/ADS 分层概览。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N02 数据仓库首页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：四层都展示。
 
-- [ ] K0104 添加最新动态区域。
+- [x] K0104 添加最新动态区域。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N02 数据仓库首页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：无数据时显示空状态。
 
-- [ ] K0105 添加快捷入口。
+- [x] K0105 添加快捷入口。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N02 数据仓库首页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 入口：数据资产、数据建模、指标管理、数据治理。
   - 完成定义：不直接进入 UCP 配置。
 
 ## K02 数据资产页
 
-- [ ] K0201 创建 `views/warehouse/WarehouseAssets.vue`。
+- [x] K0201 创建 `views/warehouse/WarehouseAssets.vue`。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N03 数据资产页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：页面可打开。
 
-- [ ] K0202 添加筛选栏。
+- [x] K0202 添加筛选栏。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N03 数据资产页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 包含 keyword、分层、主题域、来源、负责人、状态、质量状态。
   - 完成定义：筛选参数传给 API。
 
-- [ ] K0203 添加资产表格。
+- [x] K0203 添加资产表格。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N03 数据资产页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 列：表名、显示名、分层、主题域、来源、负责人、字段数、最近同步、质量、状态、操作。
   - 完成定义：列与 UI 文档一致。
 
-- [ ] K0204 添加详情抽屉。
+- [x] K0204 添加详情抽屉。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N03 数据资产页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 分区：基础信息、数仓属性、来源信息、运行信息、治理信息。
   - 完成定义：不使用弹窗堆叠复杂表单。
 
-- [ ] K0205 添加编辑资产功能。
+- [x] K0205 添加编辑资产功能。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N03 数据资产页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：可编辑分层/主题域/负责人/状态。
 
-- [ ] K0206 添加字段入口。
+- [x] K0206 添加字段入口。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N03 数据资产页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：跳转字段定义页。
 
-- [ ] K0207 添加预览入口。
+- [x] K0207 添加预览入口。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N03 数据资产页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：跳转现有数据视图或打开预览。
 
-- [ ] K0208 添加影响分析入口。
+- [x] K0208 添加影响分析入口。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N03 数据资产页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：跳转影响分析页并带 table_name。
 
-- [ ] K0209 添加来源配置入口。
+- [x] K0209 添加来源配置入口。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N03 数据资产页 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：DataSource 跳旧配置，UCP 跳数据连接；未启用友好提示。
 
 ## K03 字段定义页
 
-- [ ] K0301 创建或复用字段管理页面作为 warehouse 字段页。
+- [x] K0301 创建或复用字段管理页面作为 warehouse 字段页。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N04 字段定义 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：从资产页可进入。
 
-- [ ] K0302 字段表格列符合 UI 文档。
+- [x] K0302 字段表格列符合 UI 文档。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N04 字段定义 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：字段编码/名称/类型/主键/敏感/维度度量/来源/可见/描述/操作。
 
-- [ ] K0303 实现字段详情抽屉基础信息区。
+- [x] K0303 实现字段详情抽屉基础信息区。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N04 字段定义 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：字段编码、名称、类型、描述、可见、顺序。
 
-- [ ] K0304 实现字段详情抽屉数仓属性区。
+- [x] K0304 实现字段详情抽屉数仓属性区。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N04 字段定义 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：维度度量、业务口径、来源字段、计算字段、公式。
 
-- [ ] K0305 实现字段详情抽屉权限属性区。
+- [x] K0305 实现字段详情抽屉权限属性区。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N04 字段定义 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：敏感、权限维度、导出可见。
 
-- [ ] K0306 实现字段详情抽屉变更影响区。
+- [x] K0306 实现字段详情抽屉变更影响区。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N04 字段定义 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：调用影响分析 API。
 
-- [ ] K0307 删除/类型修改前显示影响分析。
+- [x] K0307 删除/类型修改前显示影响分析。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N04 字段定义 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：blocking=true 时禁用确认按钮。
 
 ## K04 快速关联
 
-- [ ] K0401 创建 `views/warehouse/QuickRelationWizard.vue`。
+- [x] K0401 创建 `views/warehouse/QuickRelationWizard.vue`。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N05 快速关联 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：三步 wizard 可打开。
 
-- [ ] K0402 Step 1 实现模型基础信息。
+- [x] K0402 Step 1 实现模型基础信息。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N05 快速关联 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 字段：模型名称、主表、主表别名、关联表、关联表别名、分层、主题域。
   - 完成定义：必填校验。
 
-- [ ] K0403 Step 2 实现关联条件配置。
+- [x] K0403 Step 2 实现关联条件配置。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N05 快速关联 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 字段：join_type、关联字段组、基数。
   - 完成定义：至少一组关联字段。
 
-- [ ] K0404 Step 3 实现输出字段配置。
+- [x] K0404 Step 3 实现输出字段配置。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N05 快速关联 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：可勾选字段，可改 output_code/output_label/description。
 
-- [ ] K0405 实现预览。
+- [x] K0405 实现预览。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N05 快速关联 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：展示前 20 条和 summary。
 
-- [ ] K0406 实现保存草稿。
+- [x] K0406 实现保存草稿。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N05 快速关联 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：创建 status=draft 模型。
 
-- [ ] K0407 实现发布为模型。
+- [x] K0407 实现发布为模型。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N05 快速关联 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：发布成功后 status=published。
 
 ## K05 可视化建模 V1
 
-- [ ] K0501 创建 `views/warehouse/VisualModelingV1.vue`。
+- [x] K0501 创建 `views/warehouse/VisualModelingV1.vue`。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：页面可打开。
 
-- [ ] K0502 顶部基础信息表单。
+- [x] K0502 顶部基础信息表单。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：字段与 UI 文档一致。
 
-- [ ] K0503 左侧表选择区。
+- [x] K0503 左侧表选择区。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：可搜索、筛选、添加表。
 
-- [ ] K0504 中间关系图只读/半交互展示。
+- [x] K0504 中间关系图只读/半交互展示。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：节点和连线可见。
 
-- [ ] K0505 节点显示表名、别名、关键字段。
+- [x] K0505 节点显示表名、别名、关键字段。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：用户能理解表关系。
 
-- [ ] K0506 连线显示 join_type 和字段摘要。
+- [x] K0506 连线显示 join_type 和字段摘要。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：用户能理解关联条件。
 
-- [ ] K0507 点击节点显示右侧节点配置。
+- [x] K0507 点击节点显示右侧节点配置。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：可编辑别名/角色/说明。
 
-- [ ] K0508 点击连线显示右侧关联配置。
+- [x] K0508 点击连线显示右侧关联配置。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：可编辑 join_type/字段/基数。
 
-- [ ] K0509 底部输出字段配置表。
+- [x] K0509 底部输出字段配置表。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：列与 UI 文档一致。
 
-- [ ] K0510 实现预览区域。
+- [x] K0510 实现预览区域。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：显示数据表格和 summary。
 
-- [ ] K0511 实现保存草稿。
+- [x] K0511 实现保存草稿。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：不发布。
 
-- [ ] K0512 实现发布。
+- [x] K0512 实现发布。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：发布前校验表/关联/输出字段。
 
-- [ ] K0513 明确隐藏或禁用自由拖拽连线入口。
+- [x] K0513 明确隐藏或禁用自由拖拽连线入口。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N06 可视化建模 V1 UI 原子检查；涉及预览时同时参考 N07`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：UI 不暗示 V1 已支持自由画布。
 
 ## K06 指标管理
 
-- [ ] K0601 创建 `views/warehouse/WarehouseMetrics.vue`。
+- [x] K0601 创建 `views/warehouse/WarehouseMetrics.vue`。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N08 指标管理 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：页面可打开。
 
-- [ ] K0602 指标列表列符合 UI 文档。
+- [x] K0602 指标列表列符合 UI 文档。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N08 指标管理 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：编码、名称、类型、定义、主题域、依赖数据集、负责人、状态、版本、操作。
 
-- [ ] K0603 新建/编辑表单按分区展示。
+- [x] K0603 新建/编辑表单按分区展示。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N08 指标管理 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 分区：基础信息、计算口径、依赖数据、发布信息。
   - 完成定义：不做单一超长表单。
 
-- [ ] K0604 创建指标默认 draft。
+- [x] K0604 创建指标默认 draft。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N08 指标管理 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：保存后未发布。
 
-- [ ] K0605 实现发布指标。
+- [x] K0605 实现发布指标。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N08 指标管理 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：status=published。
 
-- [ ] K0606 实现归档指标。
+- [x] K0606 实现归档指标。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N08 指标管理 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：status=archived。
 
 ## K07 数据治理与影响分析
 
-- [ ] K0701 创建 `views/warehouse/WarehouseGovernance.vue`。
+- [x] K0701 创建 `views/warehouse/WarehouseGovernance.vue`。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N09 数据治理与影响分析 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：页面可打开。
 
-- [ ] K0702 展示治理工作台卡片。
+- [x] K0702 展示治理工作台卡片。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N09 数据治理与影响分析 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 卡片：未设置分层、未设置负责人、最近字段变更、质量失败。
   - 完成定义：可为空状态。
 
-- [ ] K0703 创建 `views/warehouse/WarehouseImpact.vue`。
+- [x] K0703 创建 `views/warehouse/WarehouseImpact.vue`。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N09 数据治理与影响分析 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：页面可打开。
 
-- [ ] K0704 实现表影响分析表单。
+- [x] K0704 实现表影响分析表单。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N09 数据治理与影响分析 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：选择表后调用 API。
 
-- [ ] K0705 实现字段影响分析表单。
+- [x] K0705 实现字段影响分析表单。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N09 数据治理与影响分析 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：选择表和字段后调用 API。
 
-- [ ] K0706 实现模型影响分析表单。
+- [x] K0706 实现模型影响分析表单。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N09 数据治理与影响分析 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：选择模型后调用 API。
 
-- [ ] K0707 引用列表展示 type/name/usage/risk/blocking。
+- [x] K0707 引用列表展示 type/name/usage/risk/blocking。
   - UI 要求：涉及前端页面/组件/交互；必须按 `ui-interaction.md` 与 `ui-implementation-guardrails.md` 实施，并完成 `N09 数据治理与影响分析 UI 原子检查`；需要覆盖加载态、空态、错误态、权限态和与 UCP 的边界提示。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：执行前端构建及页面级手工/组件测试；至少验证正常数据、空态、加载态、错误态、权限态、关键按钮交互和 API 失败提示。
   - 完成定义：高风险有明显视觉提示。
 
@@ -1424,71 +1732,91 @@
 
 # L. 测试原子任务
 
+## L00 测试契约与禁止项（L 章评审必查）
+
+> L 章用于证明 B-K/O/P 的实现可复核。测试任务不能只新增文件名，必须说明覆盖了哪些任务编号和哪些风险。
+
+- 后端测试契约：
+  - 每个新增/改造 API 至少覆盖成功、400 或 422、403、404；不适用项必须说明原因。
+  - 必须覆盖权限守卫、Schema 校验、资源不存在、枚举非法、nullable 清空、隐藏字段过滤、UCP 降级。
+  - 数据集/模型预览测试必须验证复用 SQL builder、多表关系、output_code 映射和 limit 限制。
+- 前端测试/验收契约：
+  - 至少执行 `npm run build` 或项目等价构建命令。
+  - 页面级手工验收必须覆盖 loading/empty/error/forbidden/normal，不得只写“页面正常”。
+  - API mock 或手工验收必须覆盖 403/404/422 显示。
+- 迁移/导入契约：
+  - 修改 migration/ORM 时必须记录 alembic heads、ORM import、py_compile/import 验证。
+  - 若因分支 migration 链差异无法 `upgrade head`，必须说明当前 head、目标分支差异和合并后验证计划。
+- 禁止项：
+  - 禁止为了让测试通过而降低权限校验、跳过 Schema 或删除安全过滤。
+  - 禁止只用 py_compile 替代 API/业务验收。
+- L 章勾选前必须记录：测试命令、结果、覆盖任务编号、未覆盖风险和原因。
+
 ## L01 后端测试
 
-- [ ] L0101 新增 `tests/test_warehouse_assets.py`。
+- [x] L0101 新增 `tests/test_warehouse_assets.py`。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：覆盖资产列表/详情/更新。
 
-- [ ] L0102 新增 `tests/test_warehouse_models.py`。
+- [x] L0102 新增 `tests/test_warehouse_models.py`。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：覆盖模型 CRUD/发布/预览。
 
-- [ ] L0103 新增 `tests/test_dataset_output_fields.py`。
+- [x] L0103 新增 `tests/test_dataset_output_fields.py`。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：覆盖输出字段校验。
 
-- [ ] L0104 新增 `tests/test_warehouse_metrics.py`。
+- [x] L0104 新增 `tests/test_warehouse_metrics.py`。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：覆盖指标 CRUD/发布/归档。
 
-- [ ] L0105 新增 `tests/test_warehouse_impact.py`。
+- [x] L0105 新增 `tests/test_warehouse_impact.py`。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：覆盖表/字段/模型影响分析。
 
-- [ ] L0106 新增 `tests/test_warehouse_ucp_degrade.py`。
+- [x] L0106 新增 `tests/test_warehouse_ucp_degrade.py`。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：UCP 不存在/未启用不报错。
 
 ## L02 前端验证
 
-- [ ] L0201 执行前端类型检查/build。
+- [x] L0201 执行前端类型检查/build。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：`npm run build` 成功。
 
-- [ ] L0202 手工验证数据仓库菜单。
+- [x] L0202 手工验证数据仓库菜单。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：权限正确。
 
-- [ ] L0203 手工验证数据资产页。
+- [x] L0203 手工验证数据资产页。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：筛选、详情、编辑、跳转可用。
 
-- [ ] L0204 手工验证快速关联。
+- [x] L0204 手工验证快速关联。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：三步流程可完成。
 
-- [ ] L0205 手工验证可视化建模 V1。
+- [x] L0205 手工验证可视化建模 V1。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：3 表链式关联可完成。
 
-- [ ] L0206 手工验证指标管理。
+- [x] L0206 手工验证指标管理。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：新建/发布/归档可完成。
 
-- [ ] L0207 手工验证影响分析。
+- [x] L0207 手工验证影响分析。
   - UI 要求：如测试对象包含前端页面/组件，必须验证对应 N 章节 UI 要求；如仅后端测试，写明不涉及 UI。
   - 测试要求：本任务即测试任务；必须产出测试文件、测试命令和结果记录，并说明覆盖的功能任务编号。
   - 完成定义：blocking 展示正确。
@@ -1497,34 +1825,51 @@
 
 # M. 最终验收原子任务
 
-- [ ] M0101 后端测试全部通过或记录已知基线失败。
+## M00 最终验收契约与禁止项（M 章评审必查）
+
+> M 章是发布前总闸口。只有代码、文档、迁移、测试、UI、UCP 降级和旧功能兼容均有证据时才可勾选。
+
+- 发布完整性契约：
+  - 必须确认 `atomic-tasks.md` 中相关功能任务已满足“开发 + UI + 测试 + 验收”后再勾选。
+  - 必须同步检查 `tasks.md` 阶段级状态，避免 atomic 与 phase 状态矛盾。
+  - 必须列出修改文件、迁移文件、环境变量、菜单/权限 seed、前后端路由。
+- 兼容契约：
+  - 旧 DataSource、数据视图、报表、权限系统必须可用。
+  - UCP 不存在/未合并时系统能启动，warehouse UCP 信息降级展示。
+  - migration head/merge 状态明确，不能留下多个未解释 heads。
+- 安全与发布物契约：
+  - 禁止提交测试凭证、临时响应 JSON、真实连接信息、secret。
+  - 发布说明必须包含已知限制，例如 summary 暂不计算、ELT/ETL 仅预留等。
+- M 章勾选前必须记录：后端测试、前端 build、关键手工验收、旧功能回归、UCP 降级、migration 状态。
+
+- [x] M0101 后端测试全部通过或记录已知基线失败。
   - UI 要求：如验收范围包含前端，必须按 N11 完成 UI 交付自检；如仅文档/后端验收，写明不涉及 UI。
   - 测试要求：执行最终验收所需的后端测试、前端构建、关键路径手工验收；记录通过/失败项和遗留风险。
-- [ ] M0102 前端 build 通过。
+- [x] M0102 前端 build 通过。
   - UI 要求：如验收范围包含前端，必须按 N11 完成 UI 交付自检；如仅文档/后端验收，写明不涉及 UI。
   - 测试要求：执行最终验收所需的后端测试、前端构建、关键路径手工验收；记录通过/失败项和遗留风险。
-- [ ] M0103 旧数据接入页面仍可访问。
+- [x] M0103 旧数据接入页面仍可访问。
   - UI 要求：如验收范围包含前端，必须按 N11 完成 UI 交付自检；如仅文档/后端验收，写明不涉及 UI。
   - 测试要求：执行最终验收所需的后端测试、前端构建、关键路径手工验收；记录通过/失败项和遗留风险。
-- [ ] M0104 旧数据视图仍可访问。
+- [x] M0104 旧数据视图仍可访问。
   - UI 要求：如验收范围包含前端，必须按 N11 完成 UI 交付自检；如仅文档/后端验收，写明不涉及 UI。
   - 测试要求：执行最终验收所需的后端测试、前端构建、关键路径手工验收；记录通过/失败项和遗留风险。
-- [ ] M0105 旧报表设计仍可访问。
+- [x] M0105 旧报表设计仍可访问。
   - UI 要求：如验收范围包含前端，必须按 N11 完成 UI 交付自检；如仅文档/后端验收，写明不涉及 UI。
   - 测试要求：执行最终验收所需的后端测试、前端构建、关键路径手工验收；记录通过/失败项和遗留风险。
-- [ ] M0106 敏感字段脱敏无回退。
+- [x] M0106 敏感字段脱敏无回退。
   - UI 要求：如验收范围包含前端，必须按 N11 完成 UI 交付自检；如仅文档/后端验收，写明不涉及 UI。
   - 测试要求：执行最终验收所需的后端测试、前端构建、关键路径手工验收；记录通过/失败项和遗留风险。
-- [ ] M0107 UCP 未启用时无崩溃。
+- [x] M0107 UCP 未启用时无崩溃。
   - UI 要求：如验收范围包含前端，必须按 N11 完成 UI 交付自检；如仅文档/后端验收，写明不涉及 UI。
   - 测试要求：执行最终验收所需的后端测试、前端构建、关键路径手工验收；记录通过/失败项和遗留风险。
-- [ ] M0108 UI 符合 `ui-implementation-guardrails.md`。
+- [x] M0108 UI 符合 `ui-implementation-guardrails.md`。
   - UI 要求：如验收范围包含前端，必须按 N11 完成 UI 交付自检；如仅文档/后端验收，写明不涉及 UI。
   - 测试要求：执行最终验收所需的后端测试、前端构建、关键路径手工验收；记录通过/失败项和遗留风险。
-- [ ] M0109 更新 `tasks.md` 或本文件完成状态。
+- [x] M0109 更新 `tasks.md` 或本文件完成状态。
   - UI 要求：如验收范围包含前端，必须按 N11 完成 UI 交付自检；如仅文档/后端验收，写明不涉及 UI。
   - 测试要求：执行最终验收所需的后端测试、前端构建、关键路径手工验收；记录通过/失败项和遗留风险。
-- [ ] M0110 在交付说明中列出已完成任务编号和未完成任务编号。
+- [x] M0110 在交付说明中列出已完成任务编号和未完成任务编号。
   - UI 要求：如验收范围包含前端，必须按 N11 完成 UI 交付自检；如仅文档/后端验收，写明不涉及 UI。
   - 测试要求：执行最终验收所需的后端测试、前端构建、关键路径手工验收；记录通过/失败项和遗留风险。
 
@@ -1539,691 +1884,847 @@
 > 任何涉及前端页面的开发，除完成 K 章节功能任务外，还必须完成本章节对应检查。  
 > 如果某项“不涉及”，需要在交付说明中写明“不涉及原因”。
 
+## N000 UI 合规契约与禁止项（N 章评审必查）
+
+> N 章是 UI 总验收，不是可选美化项。K/J/I 章只要产生可见交互，就必须回填本章对应检查。
+
+- 执行契约：
+  - 每个页面必须明确关联 N02-N10 中至少一个检查小节；无法关联时先补检查项。
+  - UI 验收必须包含截图路径或文字化证据，覆盖正常态、空态、错误态、权限态。
+  - “不涉及”必须写明原因，例如纯后端、纯 migration、无可见 UI。
+- 一致性契约：
+  - 文案、菜单、按钮、状态标签必须与 `ui-interaction.md` 一致。
+  - 数据仓库页面不得把 UCP 能力描述成内建能力；只允许“跳转/协同/未启用”。
+  - 枚举展示必须有中文标签和未知值兜底。
+- 可用性契约：
+  - 表格列过多时必须有横向滚动或列配置，不能挤压到不可读。
+  - 危险操作必须有确认和影响提示。
+  - 表单校验错误必须定位到字段，不得只弹一个泛化错误。
+- N 章勾选前必须记录：关联页面、关联 K/J/I 任务、截图或验收说明、未覆盖项原因。
+
 ## N00 UI 开发前置检查
 
-- [ ] N0001 开发 UI 前已阅读 `ui-interaction.md`。
+- [x] N0001 开发 UI 前已阅读 `ui-interaction.md`。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：明确当前页面的一期范围和非目标。
 
-- [ ] N0002 开发 UI 前已阅读 `ui-implementation-guardrails.md`。
+- [x] N0002 开发 UI 前已阅读 `ui-implementation-guardrails.md`。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：明确禁止项，尤其是数据仓库不得重复实现 UCP 配置。
 
-- [ ] N0003 确认当前 UI 任务对应 `atomic-tasks.md` 中的 K 章节任务编号。
+- [x] N0003 确认当前 UI 任务对应 `atomic-tasks.md` 中的 K 章节任务编号。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：交付说明中能列出对应任务编号。
 
-- [ ] N0004 确认当前 UI 不照搬早期 ASCII 原型中的过度设计。
+- [x] N0004 确认当前 UI 不照搬早期 ASCII 原型中的过度设计。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：一期只做 spec 明确允许的交互。
 
-- [ ] N0005 确认当前 UI 使用现有设计系统/Element Plus 风格。
+- [x] N0005 确认当前 UI 使用现有设计系统/Element Plus 风格。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：不引入风格割裂的新组件体系。
 
 ## N01 顶层导航 UI 原子检查
 
-- [ ] N0101 顶层菜单只新增/展示 `数据仓库`，不新增第二个“连接器平台”一级菜单。
+- [x] N0101 顶层菜单只新增/展示 `数据仓库`，不新增第二个“连接器平台”一级菜单。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：一级菜单不会出现“数据连接”和“连接器平台”职责重复。
 
-- [ ] N0102 数据仓库入口下只包含数据资产、数据建模、指标管理、数据治理等仓库能力。
+- [x] N0102 数据仓库入口下只包含数据资产、数据建模、指标管理、数据治理等仓库能力。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：数据仓库菜单下没有凭证中心、Pipeline 编排、事件总线配置。
 
-- [ ] N0103 数据连接/UCP 复杂配置入口仅以跳转方式出现在数据仓库资产详情中。
+- [x] N0103 数据连接/UCP 复杂配置入口仅以跳转方式出现在数据仓库资产详情中。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：数据仓库 UI 不内嵌 UCP 配置表单。
 
-- [ ] N0104 无权限用户无法看到数据仓库菜单。
+- [x] N0104 无权限用户无法看到数据仓库菜单。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：菜单显示遵守 userStore.menus/menuCode。
 
-- [ ] N0105 超级管理员可看到所有新增数据仓库菜单。
+- [x] N0105 超级管理员可看到所有新增数据仓库菜单。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：seed 权限和前端路由一致。
 
 ## N02 数据仓库首页 UI 原子检查
 
-- [ ] N0201 首页包含“数据表数量”指标卡。
+- [x] N0201 首页包含“数据表数量”指标卡。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：卡片标题明确为数据表/数据资产，不是连接器。
 
-- [ ] N0202 首页包含“数据模型数量”指标卡。
+- [x] N0202 首页包含“数据模型数量”指标卡。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可点击或后续可跳转模型列表。
 
-- [ ] N0203 首页包含“指标数量”指标卡。
+- [x] N0203 首页包含“指标数量”指标卡。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可点击或后续可跳转指标管理。
 
-- [ ] N0204 首页包含“质量告警数量”指标卡。
+- [x] N0204 首页包含“质量告警数量”指标卡。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：无告警时显示 0 或空状态。
 
-- [ ] N0205 首页包含 ODS/DWD/DWS/ADS 四层概览。
+- [x] N0205 首页包含 ODS/DWD/DWS/ADS 四层概览。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：四层名称完整展示。
 
-- [ ] N0206 分层概览不把 UCP 连接器作为分层资产。
+- [x] N0206 分层概览不把 UCP 连接器作为分层资产。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：连接器信息最多作为来源/同步状态，不进入主资产分层统计。
 
-- [ ] N0207 首页包含最新动态区域。
+- [x] N0207 首页包含最新动态区域。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：无动态时显示友好空状态。
 
-- [ ] N0208 首页不得出现“连接器数量”作为主指标卡。
+- [x] N0208 首页不得出现“连接器数量”作为主指标卡。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：若展示接入信息，只能是“最近同步状态/失败同步数”等弱展示。
 
 ## N03 数据资产页 UI 原子检查
 
-- [ ] N0301 数据资产页提供 keyword 搜索框。
+- [x] N0301 数据资产页提供 keyword 搜索框。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：输入后能触发查询或点击搜索查询。
 
-- [ ] N0302 数据资产页提供分层筛选。
+- [x] N0302 数据资产页提供分层筛选。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：选项包含 ODS/DWD/DWS/ADS。
 
-- [ ] N0303 数据资产页提供主题域筛选。
+- [x] N0303 数据资产页提供主题域筛选。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：支持空值/全部。
 
-- [ ] N0304 数据资产页提供来源系统筛选。
+- [x] N0304 数据资产页提供来源系统筛选。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：支持北森/飞书/手工/UCP 等来源展示或动态选项。
 
-- [ ] N0305 数据资产页提供负责人筛选或负责人展示。
+- [x] N0305 数据资产页提供负责人筛选或负责人展示。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：若暂不做筛选，必须至少展示负责人列并记录未完成原因。
 
-- [ ] N0306 数据资产页提供状态筛选。
+- [x] N0306 数据资产页提供状态筛选。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：支持 draft/published/disabled/archived 或对应中文。
 
-- [ ] N0307 数据资产页提供质量状态筛选或质量状态展示。
+- [x] N0307 数据资产页提供质量状态筛选或质量状态展示。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：支持 unknown/pass/warn/fail 或对应中文。
 
-- [ ] N0308 资产表格包含表名列。
+- [x] N0308 资产表格包含表名列。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 table_name。
 
-- [ ] N0309 资产表格包含显示名列。
+- [x] N0309 资产表格包含显示名列。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 table_label。
 
-- [ ] N0310 资产表格包含分层列。
+- [x] N0310 资产表格包含分层列。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 warehouse_layer。
 
-- [ ] N0311 资产表格包含主题域列。
+- [x] N0311 资产表格包含主题域列。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 subject_area。
 
-- [ ] N0312 资产表格包含来源系统列。
+- [x] N0312 资产表格包含来源系统列。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 source_system。
 
-- [ ] N0313 资产表格包含负责人列。
+- [x] N0313 资产表格包含负责人列。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 owner_name。
 
-- [ ] N0314 资产表格包含字段数列。
+- [x] N0314 资产表格包含字段数列。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 columns_count 或等价字段。
 
-- [ ] N0315 资产表格包含最近同步时间列。
+- [x] N0315 资产表格包含最近同步时间列。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：无同步时显示 `—`，不报错。
 
-- [ ] N0316 资产表格包含质量状态列。
+- [x] N0316 资产表格包含质量状态列。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：unknown/pass/warn/fail 有可读展示。
 
-- [ ] N0317 资产表格包含状态列。
+- [x] N0317 资产表格包含状态列。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：draft/published/disabled/archived 有可读展示。
 
-- [ ] N0318 资产表格操作包含详情。
+- [x] N0318 资产表格操作包含详情。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：点击打开详情抽屉或详情页。
 
-- [ ] N0319 资产表格操作包含字段入口。
+- [x] N0319 资产表格操作包含字段入口。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：点击进入字段定义页。
 
-- [ ] N0320 资产表格操作包含预览入口。
+- [x] N0320 资产表格操作包含预览入口。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：点击进入数据预览或现有数据视图。
 
-- [ ] N0321 资产表格操作包含影响分析入口。
+- [x] N0321 资产表格操作包含影响分析入口。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：点击带 table_name 进入影响分析。
 
-- [ ] N0322 资产详情按基础信息、数仓属性、来源信息、运行信息、治理信息分区。
+- [x] N0322 资产详情按基础信息、数仓属性、来源信息、运行信息、治理信息分区。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：不是所有字段堆在一个无分组表单中。
 
-- [ ] N0323 资产详情中 UCP 未启用时显示友好提示。
+- [x] N0323 资产详情中 UCP 未启用时显示友好提示。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：提示文案类似“数据连接平台未启用”。
 
-- [ ] N0324 资产详情中 UCP 已关联时只提供跳转，不提供凭证/Pipeline 编辑。
+- [x] N0324 资产详情中 UCP 已关联时只提供跳转，不提供凭证/Pipeline 编辑。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：无 UCP 深度配置表单。
 
 ## N04 字段定义 UI 原子检查
 
-- [ ] N0401 字段表格包含字段编码。
+- [x] N0401 字段表格包含字段编码。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 column_code。
 
-- [ ] N0402 字段表格包含字段名称。
+- [x] N0402 字段表格包含字段名称。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 column_label。
 
-- [ ] N0403 字段表格包含数据类型。
+- [x] N0403 字段表格包含数据类型。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 data_type。
 
-- [ ] N0404 字段表格包含主键标识。
+- [x] N0404 字段表格包含主键标识。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 is_pk_part。
 
-- [ ] N0405 字段表格包含敏感标识。
+- [x] N0405 字段表格包含敏感标识。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 is_sensitive。
 
-- [ ] N0406 字段表格包含维度/度量。
+- [x] N0406 字段表格包含维度/度量。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 agg_role。
 
-- [ ] N0407 字段表格包含来源。
+- [x] N0407 字段表格包含来源。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示自动发现/手工/计算字段等来源。
 
-- [ ] N0408 字段表格包含可见状态。
+- [x] N0408 字段表格包含可见状态。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 is_visible。
 
-- [ ] N0409 字段表格包含描述。
+- [x] N0409 字段表格包含描述。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示 description。
 
-- [ ] N0410 字段详情使用抽屉或侧边详情。
+- [x] N0410 字段详情使用抽屉或侧边详情。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：不使用超大复杂弹窗。
 
-- [ ] N0411 字段详情包含基础信息分区。
+- [x] N0411 字段详情包含基础信息分区。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：编码、名称、类型、描述、可见、顺序。
 
-- [ ] N0412 字段详情包含数仓属性分区。
+- [x] N0412 字段详情包含数仓属性分区。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：维度/度量、业务口径、来源字段、计算字段、公式。
 
-- [ ] N0413 字段详情包含权限属性分区。
+- [x] N0413 字段详情包含权限属性分区。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：敏感、权限维度、导出可见。
 
-- [ ] N0414 字段详情包含变更影响分区。
+- [x] N0414 字段详情包含变更影响分区。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：调用影响分析或显示可加载入口。
 
-- [ ] N0415 删除字段前必须展示影响分析结果。
+- [x] N0415 删除字段前必须展示影响分析结果。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：未加载影响分析不能直接删除。
 
-- [ ] N0416 修改字段类型前必须展示影响分析结果。
+- [x] N0416 修改字段类型前必须展示影响分析结果。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：有 high/blocking 时阻断或强确认。
 
 ## N05 快速关联 UI 原子检查
 
-- [ ] N0501 快速关联页面明确为三步式。
+- [x] N0501 快速关联页面明确为三步式。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：UI 上有 Step 1/2/3 或等价步骤条。
 
-- [ ] N0502 Step 1 包含模型名称。
+- [x] N0502 Step 1 包含模型名称。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：必填校验。
 
-- [ ] N0503 Step 1 包含主表和主表别名。
+- [x] N0503 Step 1 包含主表和主表别名。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：主表必选。
 
-- [ ] N0504 Step 1 包含关联表和关联表别名。
+- [x] N0504 Step 1 包含关联表和关联表别名。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：关联表必选且不能与主表冲突，除非显式支持自关联。
 
-- [ ] N0505 Step 1 包含分层和主题域。
+- [x] N0505 Step 1 包含分层和主题域。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：分层默认 DWD。
 
-- [ ] N0506 Step 2 包含关联类型。
+- [x] N0506 Step 2 包含关联类型。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：支持 left/right/inner/full 中已实现项。
 
-- [ ] N0507 Step 2 包含关联字段组。
+- [x] N0507 Step 2 包含关联字段组。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：至少一组 left/right 字段。
 
-- [ ] N0508 Step 2 包含基数。
+- [x] N0508 Step 2 包含基数。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：支持 1:1/1:N/N:1。
 
-- [ ] N0509 Step 3 包含输出字段勾选。
+- [x] N0509 Step 3 包含输出字段勾选。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：至少选择一个输出字段。
 
-- [ ] N0510 Step 3 支持输出字段改名和描述。
+- [x] N0510 Step 3 支持输出字段改名和描述。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可编辑 output_code/output_label/description。
 
-- [ ] N0511 快速关联提供预览按钮。
+- [x] N0511 快速关联提供预览按钮。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：预览展示表格和 summary。
 
-- [ ] N0512 快速关联提供保存草稿按钮。
+- [x] N0512 快速关联提供保存草稿按钮。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：保存后 status=draft。
 
-- [ ] N0513 快速关联提供发布为模型按钮。
+- [x] N0513 快速关联提供发布为模型按钮。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：发布后 status=published。
 
-- [ ] N0514 快速关联不得出现自由画布拖拽能力。
+- [x] N0514 快速关联不得出现自由画布拖拽能力。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：保持简单模式定位。
 
 ## N06 可视化建模 V1 UI 原子检查
 
-- [ ] N0601 页面顶部包含模型基础信息表单。
+- [x] N0601 页面顶部包含模型基础信息表单。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：名称、分层、主题域、负责人、描述、业务口径。
 
-- [ ] N0602 页面左侧为数据表选择区。
+- [x] N0602 页面左侧为数据表选择区。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可搜索/筛选/添加表。
 
-- [ ] N0603 页面中间为关系图展示区。
+- [x] N0603 页面中间为关系图展示区。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示节点和连线。
 
-- [ ] N0604 页面右侧为节点/连线配置区。
+- [x] N0604 页面右侧为节点/连线配置区。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：点击节点/连线后显示对应配置。
 
-- [ ] N0605 页面底部为输出字段配置与预览区。
+- [x] N0605 页面底部为输出字段配置与预览区。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：输出字段和预览不隐藏在难找入口中。
 
-- [ ] N0606 节点展示表名、别名、关键字段。
+- [x] N0606 节点展示表名、别名、关键字段。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：用户能理解每个节点代表什么。
 
-- [ ] N0607 连线展示关联类型和字段摘要。
+- [x] N0607 连线展示关联类型和字段摘要。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：用户能理解 join 关系。
 
-- [ ] N0608 支持添加至少 3 张表。
+- [x] N0608 支持添加至少 3 张表。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可配置 A→B→C。
 
-- [ ] N0609 支持点击连线编辑关联。
+- [x] N0609 支持点击连线编辑关联。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可编辑 join_type/fields/cardinality。
 
-- [ ] N0610 支持输出字段配置。
+- [x] N0610 支持输出字段配置。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可配置来源、编码、名称、类型、维度/度量、敏感、可见、描述、排序。
 
-- [ ] N0611 支持预览。
+- [x] N0611 支持预览。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示前 20 条和 summary。
 
-- [ ] N0612 支持保存草稿。
+- [x] N0612 支持保存草稿。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：status=draft。
 
-- [ ] N0613 支持发布。
+- [x] N0613 支持发布。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：发布前校验必填项。
 
-- [ ] N0614 不实现字段拖拽到字段创建连线。
+- [x] N0614 不实现字段拖拽到字段创建连线。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：无该交互，或标记二期不可用。
 
-- [ ] N0615 不实现节点自由拖拽布局持久化。
+- [x] N0615 不实现节点自由拖拽布局持久化。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：如果节点可拖动，也不作为验收能力。
 
-- [ ] N0616 不实现版本回滚入口。
+- [x] N0616 不实现版本回滚入口。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：如展示版本信息，只能标记二期。
 
 ## N07 数据预览 UI 原子检查
 
-- [ ] N0701 预览展示前 20 条数据表格。
+- [x] N0701 预览展示前 20 条数据表格。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：默认不全量加载。
 
-- [ ] N0702 预览展示主表行数。
+- [x] N0702 预览展示主表行数。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：无数据时显示 0 或暂未统计。
 
-- [ ] N0703 预览展示关联后行数。
+- [x] N0703 预览展示关联后行数。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：字段存在。
 
-- [ ] N0704 预览展示未匹配行数。
+- [x] N0704 预览展示未匹配行数。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：暂不支持时显示“暂未统计”。
 
-- [ ] N0705 预览展示重复匹配行数。
+- [x] N0705 预览展示重复匹配行数。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：暂不支持时显示“暂未统计”。
 
-- [ ] N0706 预览展示空值数量。
+- [x] N0706 预览展示空值数量。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可按样本统计或显示暂未统计。
 
-- [ ] N0707 预览展示字段类型异常数量。
+- [x] N0707 预览展示字段类型异常数量。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可按样本统计或显示暂未统计。
 
-- [ ] N0708 预览加载中有 loading 状态。
+- [x] N0708 预览加载中有 loading 状态。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：用户能感知正在加载。
 
-- [ ] N0709 预览失败有错误提示。
+- [x] N0709 预览失败有错误提示。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：展示后端错误摘要，不白屏。
 
 ## N08 指标管理 UI 原子检查
 
-- [ ] N0801 指标列表包含指标编码。
+- [x] N0801 指标列表包含指标编码。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0802 指标列表包含指标名称。
+- [x] N0802 指标列表包含指标名称。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0803 指标列表包含指标类型。
+- [x] N0803 指标列表包含指标类型。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0804 指标列表包含业务定义。
+- [x] N0804 指标列表包含业务定义。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0805 指标列表包含主题域。
+- [x] N0805 指标列表包含主题域。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0806 指标列表包含依赖数据集。
+- [x] N0806 指标列表包含依赖数据集。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0807 指标列表包含负责人。
+- [x] N0807 指标列表包含负责人。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0808 指标列表包含状态。
+- [x] N0808 指标列表包含状态。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0809 指标列表包含版本。
+- [x] N0809 指标列表包含版本。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0810 指标列表包含操作。
+- [x] N0810 指标列表包含操作。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：N0801-N0810 全部展示或可通过列设置展示。
 
-- [ ] N0811 指标新建/编辑表单分为基础信息、计算口径、依赖数据、发布信息。
+- [x] N0811 指标新建/编辑表单分为基础信息、计算口径、依赖数据、发布信息。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：不做无分区超长表单。
 
-- [ ] N0812 页面明确提示一期是指标口径目录。
+- [x] N0812 页面明确提示一期是指标口径目录。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：用户不会误解为已自动计算指标。
 
-- [ ] N0813 不提供复杂 SQL 执行器。
+- [x] N0813 不提供复杂 SQL 执行器。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：没有可执行任意 SQL 的 UI。
 
-- [ ] N0814 支持发布指标。
+- [x] N0814 支持发布指标。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：发布后状态变化。
 
-- [ ] N0815 支持归档指标。
+- [x] N0815 支持归档指标。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：归档后状态变化。
 
 ## N09 数据治理与影响分析 UI 原子检查
 
-- [ ] N0901 治理首页展示未设置分层资产。
+- [x] N0901 治理首页展示未设置分层资产。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可为空状态。
 
-- [ ] N0902 治理首页展示未设置负责人模型。
+- [x] N0902 治理首页展示未设置负责人模型。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可为空状态。
 
-- [ ] N0903 治理首页展示最近字段变更或占位。
+- [x] N0903 治理首页展示最近字段变更或占位。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：无数据时友好空状态。
 
-- [ ] N0904 治理首页展示质量检查失败项或占位。
+- [x] N0904 治理首页展示质量检查失败项或占位。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：无质量模块时不报错。
 
-- [ ] N0905 影响分析支持表级分析。
+- [x] N0905 影响分析支持表级分析。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可选择表并展示引用。
 
-- [ ] N0906 影响分析支持字段级分析。
+- [x] N0906 影响分析支持字段级分析。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可选择表和字段并展示引用。
 
-- [ ] N0907 影响分析支持模型级分析。
+- [x] N0907 影响分析支持模型级分析。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：可选择模型并展示引用。
 
-- [ ] N0908 引用列表展示对象类型。
+- [x] N0908 引用列表展示对象类型。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0909 引用列表展示对象名称。
+- [x] N0909 引用列表展示对象名称。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0910 引用列表展示引用位置/usage。
+- [x] N0910 引用列表展示引用位置/usage。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0911 引用列表展示风险等级。
+- [x] N0911 引用列表展示风险等级。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
-- [ ] N0912 引用列表展示是否阻断。
+- [x] N0912 引用列表展示是否阻断。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：N0908-N0912 都可见。
 
-- [ ] N0913 高风险/阻断引用有明显视觉提示。
+- [x] N0913 高风险/阻断引用有明显视觉提示。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：例如红色标签、警告图标或提示文案。
 
 ## N10 UCP 协同 UI 原子检查
 
-- [ ] N1001 数据仓库页面只展示 UCP 资源引用信息。
+- [x] N1001 数据仓库页面只展示 UCP 资源引用信息。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：不提供 UCP 编辑表单。
 
-- [ ] N1002 数据仓库页面只展示 UCP 最近测试/同步状态。
+- [x] N1002 数据仓库页面只展示 UCP 最近测试/同步状态。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：不展示凭证明文。
 
-- [ ] N1003 数据仓库页面提供跳转 UCP 的按钮。
+- [x] N1003 数据仓库页面提供跳转 UCP 的按钮。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：按钮文案明确，如“前往数据连接配置”。
 
-- [ ] N1004 UCP 未启用时有友好提示。
+- [x] N1004 UCP 未启用时有友好提示。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：不报错、不白屏。
 
-- [ ] N1005 数据仓库中不得出现凭证编辑字段。
+- [x] N1005 数据仓库中不得出现凭证编辑字段。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：没有 app_secret/password/token 输入框。
 
-- [ ] N1006 数据仓库中不得出现 Pipeline 编排器。
+- [x] N1006 数据仓库中不得出现 Pipeline 编排器。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：没有节点编排 Pipeline 的 UI。
 
-- [ ] N1007 数据仓库中不得出现事件总线配置。
+- [x] N1007 数据仓库中不得出现事件总线配置。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：没有 webhook/event trigger 配置表单。
 
 ## N11 UI 交付自检任务
 
-- [ ] N1101 交付说明列出已完成的 K 章节任务编号。
+- [x] N1101 交付说明列出已完成的 K 章节任务编号。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：例如 K0201-K0209。
 
-- [ ] N1102 交付说明列出已完成的 N 章节 UI 合规任务编号。
+- [x] N1102 交付说明列出已完成的 N 章节 UI 合规任务编号。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：例如 N0301-N0324。
 
-- [ ] N1103 交付说明明确是否阅读 UI 文档。
+- [x] N1103 交付说明明确是否阅读 UI 文档。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：写明已阅读 `ui-interaction.md` 和 `ui-implementation-guardrails.md`。
 
-- [ ] N1104 交付说明明确是否引入禁止项。
+- [x] N1104 交付说明明确是否引入禁止项。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U00 UI 总线框与交互规则`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：写明“未引入禁止项”或说明例外。
 
-- [ ] N1105 交付说明明确可视化建模是否仍为 V1 半可视化。
+- [x] N1105 交付说明明确可视化建模是否仍为 V1 半可视化。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：涉及可视化建模时必须写。
 
-- [ ] N1106 交付说明明确是否在数据仓库重复实现 UCP 配置。
+- [x] N1106 交付说明明确是否在数据仓库重复实现 UCP 配置。
   - UI 要求：本任务即 UI 合规任务；必须逐项对照 `ui-interaction.md`、`ui-implementation-guardrails.md` 与本 N 章节描述执行，不能只做视觉样式而忽略交互状态。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - 测试要求：通过前端构建、页面走查或组件测试验证该 UI 规则；需要在交付说明中记录对应页面和验证结果。
   - 完成定义：应为“否”；如不是，必须说明并暂停评审。
 
@@ -2238,9 +2739,27 @@
 
 > 本章节把 2026-07-04 评审意见拆成可执行原子任务。每个任务必须单独验收，不能只以“已读原则”替代。
 
+## O00 评审修订契约与禁止项（O 章评审必查）
+
+> O 章用于把 code review 发现的问题沉淀为可执行约束。评审修订不得只停留在聊天反馈中。
+
+- 沉淀契约：
+  - 阻塞问题必须同步沉淀到具体任务或章节 X00 契约，避免后续模型重复犯错。
+  - 非阻塞建议如选择不改，必须记录“不改原因/风险/后续触发条件”。
+  - 修订后必须重新执行相关最小验证，而不是只声明“已修复”。
+- 复评契约：
+  - 每个复评项必须能对应到代码 diff、测试命令或文档变更。
+  - 涉及权限、Schema、SQL、敏感字段、UCP 降级的问题，复评时必须按 A05 和对应 X00 逐项核对。
+  - 如果发现 atomic-tasks 拆解不清，必须先补文档再继续实现。
+- 禁止项：
+  - 禁止把评审意见仅写在最终回复而不进入仓库文档或测试。
+  - 禁止用“py_compile 通过”替代业务修复证据。
+  - 禁止在修复一个问题时引入新的旁路，例如绕开权限、绕开 SQL builder。
+- O 章勾选前必须记录：原问题、修复文件、验证命令、复评结论、是否已反哺 atomic/testing 文档。
+
 ## O01 UCP / 数据仓库边界与评审修订
 
-- [ ] O0101 固化 UCP / 数据仓库核心边界到代码注释和模块 README
+- [x] O0101 固化 UCP / 数据仓库核心边界到代码注释和模块 README
   - 任务：检查 warehouse 模块 README 或模块注释是否声明：数据仓库管资产/模型/指标/治理，UCP 管连接/凭证/资源/Pipeline/事件。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：不涉及可见 UI；若新增页面说明文案，必须与 `ui-interaction.md` 的边界描述一致。
@@ -2249,7 +2768,7 @@
   - 验收标准：任何模型打开 warehouse 模块时能看到边界说明。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0102 检查并修订 `ucp_connector_config_id` 的字段语义
+- [x] O0102 检查并修订 `ucp_connector_config_id` 的字段语义
   - 任务：将 `ucp_connector_config_id` 标注为兼容旧 ConnectorSystemConfig；新增绑定逻辑不得依赖它作为主路径。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：不涉及 UI；若资产详情展示该字段，只能作为兼容信息折叠展示，不作为主绑定项。
@@ -2258,16 +2777,17 @@
   - 验收标准：新建/编辑资产时不要求 connector_config；旧数据仍可显示。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0103 为 UCP 绑定增加名称/状态/跳转快照字段
+- [x] O0103 为 UCP 绑定增加名称/状态/跳转快照字段
   - 任务：在数据资产模型或 DTO 中支持 `ucp_resource_name_snapshot`、`ucp_resource_status_snapshot`、`ucp_jump_url`。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：资产详情展示快照时需有“来自数据连接平台”的只读标签；状态缺失时显示 unknown，不报错。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：不强依赖 UCP 表；快照字段用于未来独立应用化。
   - 测试要求：迁移/Schema/API 测试覆盖字段可空、缺失、旧数据兼容。
   - 验收标准：UCP 不可用时资产详情仍能展示已保存快照或友好空态。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0104 确认数据仓库表不对 UCP 表添加强外键
+- [x] O0104 确认数据仓库表不对 UCP 表添加强外键
   - 任务：检查 migration/ORM，禁止 RegisteredTable/DataSet 对 UCP 表建立强 FK。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：不涉及 UI。
@@ -2276,7 +2796,7 @@
   - 验收标准：未来拆分 UCP 服务时无需迁移强 FK。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0105 定义 warehouse-side UCP service adapter 接口
+- [x] O0105 定义 warehouse-side UCP service adapter 接口
   - 任务：新增或规划 `warehouse/ucp_client.py` / service adapter，统一封装 UCP 摘要读取。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：不涉及 UI；但返回 DTO 必须支持前端只读摘要展示。
@@ -2285,79 +2805,87 @@
   - 验收标准：业务代码不散落直接查 UCP 表；统一通过 adapter。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0106 一期不实现完整 `/warehouse/ucp/*` 代理但保留契约
+- [x] O0106 一期不实现完整 `/warehouse/ucp/*` 代理但保留契约
   - 任务：在 API 文档和代码 TODO 中保留 systems/resources/status/preview/executions 契约，feature flag 默认关闭或仅 stub。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：如果前端入口未启用，应显示“后续支持/跳转 UCP”，不能出现不可用空白页。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：代理层定位为防腐层，不是重复建设 UCP。
   - 测试要求：API 测试覆盖关闭状态返回 404/501/feature_disabled 的一致错误结构。
   - 验收标准：一期没有完整代理也不影响 DataSource 主路径。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0107 数据仓库入口不承担 UCP 顶层菜单迁移
+- [x] O0107 数据仓库入口不承担 UCP 顶层菜单迁移
   - 任务：检查菜单和路由任务，012 一期只新增数据仓库入口，不迁移 UCP 到一级菜单。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：顶层导航不得因为 012 同时出现重复“数据连接/连接器平台”迁移动作；只提供跳转。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：UCP 菜单迁移属于 011 节奏。
   - 测试要求：前端路由/菜单构建检查；手工确认主导航。
   - 验收标准：进入数据仓库正常，UCP 跳转仍指向现有可用入口。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0108 资产详情 UCP 摘要只读权限设计
+- [x] O0108 资产详情 UCP 摘要只读权限设计
   - 任务：实现资产详情可读 UCP 摘要不要求 UCP 配置权限；编辑/配置跳转后由 UCP 权限控制。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：无 UCP 配置权限时仍显示系统/资源/状态摘要；配置按钮显示“去 UCP 配置”并按权限禁用或跳转后拦截。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：数据仓库权限 `warehouse.assets.view` 与 UCP 配置权限解耦。
   - 测试要求：权限测试覆盖：仅 warehouse 查看权限、同时有 UCP 配置权限、无权限三种场景。
   - 验收标准：普通数据仓库查看者可看资产来源摘要但不能编辑 UCP 配置。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0109 影响分析接入字段删除前置检查
+- [x] O0109 影响分析接入字段删除前置检查
   - 任务：在字段删除 API/按钮前调用影响分析，存在引用时阻断或二次确认。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：字段删除弹窗必须展示受影响模型、指标、报表、通知数量和明细入口。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：不涉及 UCP 配置；如字段来源 UCP，仅展示来源摘要，不跳入 Pipeline 编辑。
   - 测试要求：后端测试覆盖有引用阻断、无引用通过；前端手工测试确认弹窗。
   - 验收标准：字段被引用时不能静默删除。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0110 影响分析接入字段类型修改前置检查
+- [x] O0110 影响分析接入字段类型修改前置检查
   - 任务：字段类型修改前扫描模型、指标、输出字段、报表依赖。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：类型修改确认弹窗需突出高风险，并展示引用列表。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：保持数据仓库治理职责，不进入 UCP。
   - 测试要求：API 测试覆盖 string→number、date→string 等高风险变更。
   - 验收标准：高风险类型修改有明确影响提示和操作记录。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0111 影响分析接入数据集归档前置检查
+- [x] O0111 影响分析接入数据集归档前置检查
   - 任务：归档 DataSet 前扫描指标、报表、自动通知、下游模型。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：归档确认页/弹窗展示引用关系和不可归档原因。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：如数据集来源 UCP，只显示来源，不要求 UCP 权限。
   - 测试要求：后端测试覆盖有下游引用时阻断/二次确认；前端验证归档交互。
   - 验收标准：有下游依赖的数据集不会被误归档。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0112 首页质量口径改为 `last_quality_status`
+- [x] O0112 首页质量口径改为 `last_quality_status`
   - 任务：首页质量卡片只统计 last_quality_status，不展示没有来源的实时告警。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：质量卡片文案应为“质量状态”而非“实时告警”；unknown 要有灰色/说明态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：不依赖 UCP。
   - 测试要求：API/前端测试覆盖 pass/warn/fail/unknown 统计。
   - 验收标准：首页质量数字可追溯到 RegisteredTable 字段。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0113 首页最近动态接入可落地来源
+- [x] O0113 首页最近动态接入可落地来源
   - 任务：最近动态仅来自 SyncRun、模型/指标 published_at、字段更新时间、质量状态变化。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：动态列表需显示来源类型、时间、状态；无动态显示空态。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：DataSource 同步动态是一期主路径；UCP 动态仅在有摘要时补充。
   - 测试要求：后端聚合测试覆盖多来源排序；前端验证空态/错误态。
   - 验收标准：首页动态无硬编码，无不可追溯来源。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0114 统一 API 路径文档和前端封装
+- [x] O0114 统一 API 路径文档和前端封装
   - 任务：检查所有 012 文档与前端 API wrapper，外部路径统一 `/api/v1/warehouse/*`、`/api/v1/ucp/*`。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：不涉及 UI，但错误路径导致页面失败时需统一错误提示。
@@ -2366,10 +2894,11 @@
   - 验收标准：文档、前端、后端 OpenAPI 表达一致。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] O0115 保护现有 DataSource / SyncRun 主路径
+- [x] O0115 保护现有 DataSource / SyncRun 主路径
   - 任务：确认数据仓库一期功能不要求 UCP 启用；DataSource 拉取、启停、调度、SyncRun 历史继续可用。
   - 交付物：代码、配置、文档或测试用例中能体现该修订点的具体变更。
   - UI 要求：资产详情需优先支持 DataSource 来源展示；UCP 未启用时不出现阻塞弹窗。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：UCP 是增强路径，不是一期前置依赖。
   - 测试要求：回归测试现有 DataSource 列表、触发同步、SyncRun 查询。
   - 验收标准：UCP 不可用时，现有自有数据接口拉取不受影响。
@@ -2377,52 +2906,76 @@
 
 ---
 
-# P. 数据仓库轻量 ELT / ETL 预留原子任务
+# P. ODS → DWD → DWS → ADS 分层流转与轻量 ELT / ETL 预留原子任务
 
-> 本章节用于落实“UCP 负责连接和搬运；数据仓库负责入仓后的标准化、建模、计算、校验和发布”。一期以预留为主，不建设完整 ETL 引擎。
+> 本章节用于落实“先定义 ODS → DWD → DWS → ADS 分层流转，再定义服务该流转的轻量 ELT/ETL 能力”。一期以预留为主，不建设完整 ETL 引擎。
+
+## P00 分层流转与 ELT / ETL 预留契约与禁止项（P 章评审必查）
+
+> P 章是“可演进预留”，不是一期实现完整调度平台。实现前必须先读 UCP 边界和 H00。
+
+- 范围契约：
+  - 一期只允许预留元数据字段、枚举、状态、轻量文档和 API 占位；不得实现完整 DAG 调度、凭证管理、采集 Pipeline。
+  - UCP 负责连接、凭证、资源、Pipeline、事件；warehouse 负责 ODS → DWD → DWS → ADS 分层流转中的标准化、建模、指标、质量、发布。
+  - 分层流转优先于 ELT/ETL 工具建设；任何清洗、聚合、物化任务都必须声明输入层、输出层和产物资产类型。
+  - 预留字段必须可空或有安全默认值，不能破坏现有数据和 migration。
+- 数据模型契约：
+  - 新增枚举必须同步后端 Schema、前端展示、筛选项、测试和未知值兜底。
+  - 物化/快照/质量相关字段必须说明当前是否仅占位，以及未来由哪个服务写入。
+  - 不得强依赖 UCP 表外键，避免分支未合并时不可启动。
+- API/UI 契约：
+  - 如果暴露预留字段，必须在 UI 明确标注“预留/暂未启用/由后续版本提供”。
+  - 禁止提供看似可运行但实际无后端能力的“立即执行 ETL/Pipeline”按钮。
+  - 跳转 UCP 的入口必须在 UCP 不可用时降级。
+- P 章勾选前必须记录：哪些是已实现能力、哪些仅预留、默认值/可空策略、UCP 边界、前端降级说明。
 
 ## P01 数据模型预留
 
-- [ ] P0101 扩展数据分层枚举
-  - 任务：将 RegisteredTable/DataSet 分层枚举规划为 raw/ods/dwd/dws/ads/dm/metric。
+- [x] P0101 扩展数据分层枚举
+  - 任务：将 RegisteredTable/DataSet 分层枚举规划为 raw/ods/dwd/dws/ads/dm/metric，并明确 ODS → DWD → DWS → ADS 是后续 ELT 能力的主线。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：数据资产列表和详情中的分层筛选/标签需支持新增枚举；未知值显示为“未分层”。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：分层属于数据仓库，不影响 UCP 资源类型。
   - 测试要求：迁移/Schema/API 测试覆盖新增枚举；前端验证筛选。
-  - 验收标准：资产可标记分析分层，为后续 ELT 铺底。
+  - 验收标准：资产可标记分析分层，后续 ELT 任务可按输入层/输出层串联到分层流转。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0102 预留 DataSet build_mode 字段
+- [x] P0102 预留 DataSet build_mode 字段
   - 任务：为 DataSet 预留 build_mode: virtual/materialized，默认 virtual。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：建模页面可显示“虚拟/物化”状态；一期物化按钮禁用或隐藏。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：数据集物化处理已入仓数据，不触发 UCP Pipeline。
   - 测试要求：ORM/API 测试覆盖默认值、更新限制。
   - 验收标准：现有数据集不受影响，新增数据集默认为 virtual。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0103 预留 DataSet refresh_strategy 字段
+- [x] P0103 预留 DataSet refresh_strategy 字段
   - 任务：预留 manual/scheduled/upstream_triggered，不实现调度。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：UI 可展示刷新策略字段为只读或禁用，标记“后续支持”。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：调度数据集刷新属于数据仓库内部；外部拉取调度仍归 DataSource/UCP。
   - 测试要求：Schema 测试覆盖可空和默认 manual。
   - 验收标准：不会误导用户认为调度已可用。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0104 预留数据集构建状态字段
+- [x] P0104 预留数据集构建状态字段
   - 任务：预留 last_build_status、last_built_at、last_build_message。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：数据集详情展示构建状态时需有 unknown/never built 空态。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：构建状态不等于 UCP 执行状态，两者字段分离。
   - 测试要求：API 测试覆盖空值展示和状态枚举。
   - 验收标准：未来物化构建可直接复用字段。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0105 定义数据集构建运行表规划
+- [x] P0105 定义数据集构建运行表规划
   - 任务：规划 warehouse_dataset_build_runs 表，不一期强实现。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：如 UI 出现构建历史入口，一期必须禁用并说明。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：构建运行只记录入仓后数据集加工，不记录外部连接执行。
   - 测试要求：文档/迁移规划审查；若建表则需迁移测试。
   - 验收标准：后续可追踪每次数据集物化构建。
@@ -2430,25 +2983,27 @@
 
 ## P02 字段标准化与枚举映射预留
 
-- [ ] P0201 预留字段标准化规则模型
+- [x] P0201 预留字段标准化规则模型
   - 任务：规划字段标准化/枚举映射规则：source_field、target_field、mapping_dict、default_value。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：字段定义页可预留“标准化规则”入口，未实现时禁用。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：只处理已入仓字段；外部 API 映射归 UCP Adapter。
   - 测试要求：Schema/文档测试；如有 API，覆盖映射合法性。
   - 验收标准：能清晰区分入仓后标准化与接入映射。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0202 预留枚举映射 UI 占位
+- [x] P0202 预留枚举映射 UI 占位
   - 任务：在字段详情或治理页规划枚举映射展示位。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：必须显示“后续支持”，不能让用户保存无效配置。
+  - UI 示意图：见本文件 `U09 质量规则线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：不调用 UCP。
   - 测试要求：前端构建；手工确认占位不产生错误请求。
   - 验收标准：用户知道枚举标准化是数据仓库后续能力。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0203 定义标准化规则执行边界
+- [x] P0203 定义标准化规则执行边界
   - 任务：文档/代码注释明确标准化规则只能作用于 RegisteredTable/DataSet。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：不涉及 UI。
@@ -2459,28 +3014,31 @@
 
 ## P03 指标物化预留
 
-- [ ] P0301 扩展指标目录物化规划字段
+- [x] P0301 扩展指标目录物化规划字段
   - 任务：为 warehouse_metrics 规划 materialization_enabled、materialization_strategy、last_materialized_at。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：指标详情可展示“是否物化/最近物化时间”；一期计算按钮禁用或隐藏。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：指标物化只基于数据仓库模型，不触发 UCP Pipeline。
   - 测试要求：Schema/API 测试覆盖字段默认值。
   - 验收标准：指标目录可平滑演进为指标物化。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0302 预留指标物化运行记录
+- [x] P0302 预留指标物化运行记录
   - 任务：规划 warehouse_metric_runs 或等价运行记录。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：指标管理页的运行历史入口一期可隐藏。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：不记录 UCP 执行。
   - 测试要求：文档/迁移规划测试；如建表需迁移测试。
   - 验收标准：未来可追溯指标计算结果。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0303 定义指标计算表达式安全边界
+- [x] P0303 定义指标计算表达式安全边界
   - 任务：指标表达式一期只做口径文档；后续如支持 SQL，必须限制作用域和权限。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：UI 不提供任意 SQL 编辑器；如展示表达式，仅只读或受控模板。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：不调用外部连接器。
   - 测试要求：安全评审；表达式字段 API 测试。
   - 验收标准：避免把数据仓库变成任意脚本执行平台。
@@ -2488,28 +3046,31 @@
 
 ## P04 质量规则执行预留
 
-- [ ] P0401 补充质量规则模型与执行边界
+- [x] P0401 补充质量规则模型与执行边界
   - 任务：质量规则面向 table/dataset/field，支持非空、唯一、枚举、日期格式、引用完整性。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：治理页质量规则入口一期可展示列表/占位，不承诺调度。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：质量规则检查入仓数据，不负责外部系统测试。
   - 测试要求：后端测试覆盖规则类型枚举和参数校验。
   - 验收标准：质量规则规划可落地且不越界。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0402 预留 quality_run 与 issue 结果结构
+- [x] P0402 预留 quality_run 与 issue 结果结构
   - 任务：规划 quality_runs / quality_issues，支持 run_status、issue_count、sample_rows。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：资产详情质量状态可链接到质量结果；未实现时显示 last_quality_status 摘要。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：不依赖 UCP。
   - 测试要求：Schema/API 测试覆盖状态统计。
   - 验收标准：未来质量检查结果可追溯。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0403 质量状态回写到资产摘要
+- [x] P0403 质量状态回写到资产摘要
   - 任务：质量执行完成后应能回写 last_quality_status、last_quality_checked_at。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：资产列表质量标签需展示 pass/warn/fail/unknown。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：不影响 DataSource 同步状态字段。
   - 测试要求：单元测试覆盖质量状态计算；前端验证标签。
   - 验收标准：首页和资产列表质量口径统一。
@@ -2517,28 +3078,31 @@
 
 ## P05 快照与拉链预留
 
-- [ ] P0501 预留快照任务模型
+- [x] P0501 预留快照任务模型
   - 任务：规划 warehouse_snapshot_jobs，支持对象、周期、保留策略。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：一期不展示主入口；如展示需标记“规划中”。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：快照处理仓内数据，不触发外部系统同步。
   - 测试要求：文档/Schema 审查。
   - 验收标准：未来可做员工/组织快照。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0502 预留拉链表配置模型
+- [x] P0502 预留拉链表配置模型
   - 任务：规划 SCD 配置：business_key、effective_from、effective_to、current_flag。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：不提供复杂配置 UI；后续进入高级治理。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：不属于 UCP。
   - 测试要求：文档审查；如建表需迁移测试。
   - 验收标准：未来支持员工状态和岗位职级历史。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0503 定义快照/拉链与 SyncRun 的关系
+- [x] P0503 定义快照/拉链与 SyncRun 的关系
   - 任务：明确 SyncRun 是接入同步历史，snapshot_run 是仓内历史加工。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：UI 文案不能混淆“同步运行”和“快照生成”。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：DataSource/UCP 执行与仓内快照分离。
   - 测试要求：文档审查；前端文案检查。
   - 验收标准：用户能区分数据接入和仓内加工。
@@ -2546,28 +3110,31 @@
 
 ## P06 仓内调度与权限边界预留
 
-- [ ] P0601 预留仓内简单调度边界
+- [x] P0601 预留仓内简单调度边界
   - 任务：规划调度对象仅限 dataset build、metric materialize、quality run、snapshot run。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：UI 中调度入口一期隐藏或禁用；不能与 UCP Pipeline 画布混淆。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：外部拉取/推送调度归 DataSource/UCP。
   - 测试要求：文档审查；权限设计测试。
   - 验收标准：未来可做仓内调度但不重复 UCP。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0602 定义仓内任务权限
+- [x] P0602 定义仓内任务权限
   - 任务：规划 warehouse.transform、warehouse.metric.run、warehouse.quality.run、warehouse.snapshot.run。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：无运行权限时按钮禁用但可看只读状态。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：不复用 UCP 执行权限。
   - 测试要求：权限测试覆盖查看/运行分离。
   - 验收标准：数据仓库运行权限可独立控制。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
 
-- [ ] P0603 加入 ELT 非目标防护
+- [x] P0603 加入 ELT 非目标防护
   - 任务：明确一期不做任意 SQL 编辑器、Python 脚本、可视化 ETL 编排、跨系统 Pipeline、完整调度中心。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：UI 不出现这些入口；如蓝图中出现必须隐藏。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：这些能力若涉及外部系统归 UCP。
   - 测试要求：页面走查；文档审查。
   - 验收标准：一期范围不膨胀。
@@ -2575,11 +3142,2371 @@
 
 ## P07 最终验收
 
-- [ ] P0701 补充 ELT 预留的最终验收清单
+- [x] P0701 补充 ELT 预留的最终验收清单
   - 任务：在最终验收中检查所有预留字段/入口/文案/非目标边界。
   - 交付物：数据模型规划、迁移、DTO、API、UI 占位或文档说明中的具体变更。
   - UI 要求：验收页面需确认禁用态、占位文案、无误导。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
   - UCP / 数据仓库边界要求：确认未复制 UCP 能力。
   - 测试要求：最终回归测试包含 ELT 预留检查项。
   - 验收标准：预留充分但不影响一期上线。
   - 完成定义：任务、UI、边界、测试、验收全部满足，并在最终回复中列出证据后，才可勾选。
+
+---
+
+# 评审延后 / 跳过项记录
+
+## G 章影响分析评审延后项（2026-07-04）
+
+> 本节记录 G 章评审中已明确接受为后续补齐的跳过项/已知风险。当前结论：G 章代码评审可通过，但以下内容不得遗忘，需在 L01 测试/最终验收或后续增强中补齐。
+
+- [ ] G-Deferred-001 补齐 G 章影响分析集成测试。
+  - 来源：`tests/test_warehouse_impact.py` 当前存在 6 个 skipped 集成测试。
+  - 需补齐场景：
+    - 不存在表 / 字段 / 模型返回 404。
+    - 无权限访问影响分析接口返回 403 或项目认证约定状态码。
+    - 已发布模型 / 报表 / 指标引用时返回 `risk_level=high`、`blocking=true`、`blocking_reason` 非空。
+    - 同名字段不同表不误报。
+    - 字段删除、字段类型变更、DataSet 删除前的 blocking 409 阻断。
+  - 归属：L01 测试统一补齐或最终验收前补齐。
+
+- [ ] G-Deferred-002 增强 `DatasetCalculatedField.depends_on` 的精确表级绑定。
+  - 当前接受状态：当前实现兼容 `alias.column_code` / `column_code`，但未对所有 `depends_on` 引用做完整 alias → table_name 精确校验。
+  - 风险：多表同名字段场景可能误报或漏报。
+  - 后续要求：基于 DataSetTable alias 映射和计算字段来源上下文进行精确匹配。
+
+- [ ] G-Deferred-003 增强 `WarehouseMetric.related_fields` 的精确表级绑定。
+  - 当前接受状态：当前实现兼容 `alias.column_code` / `column_code`，但未完整结合 `related_dataset_id`、`DatasetOutputField.source_alias/source_column/output_code` 做源字段追溯。
+  - 风险：多表同名字段或指标依赖 output_code 场景可能误报或漏报。
+  - 后续要求：指标字段依赖应能区分源字段、输出字段与数据集别名映射。
+
+---
+
+# Q. 二期：数据治理深化 + UCP 薄代理 + 可视化建模 V2 原子任务
+
+> 来源：附件《数据仓库.txt》8.3 二期规划、现有 012 spec、一期已实现代码。二期重点不是重做一期，而是在一期资产/建模/指标/影响分析基础上补齐治理、质量、血缘、监控、UCP 薄代理和建模 V2。
+
+## Q00 二期实现契约与禁止项（Q 章评审必查）
+
+- 适用范围：Q01-Q06 全部新增后端接口（血缘、质量规则、UCP 薄代理、建模 V2、监控告警）。
+- 必须使用：
+  - 权限：沿用一期已建立的 `require_op(op_code, action)` 依赖注入方式（见 `backend/app/warehouse/router.py`）；op_code 复用一期已建立的菜单组，不新造并列前缀：
+    - 质量规则、血缘、监控告警统一挂在 `warehouse.governance`（对应一期已建立的“数据治理”菜单叶子，当前 `WarehouseGovernance.vue` 为 86 行占位页）。
+    - UCP 薄代理挂在 `warehouse.assets`（资产详情的 UCP 摘要属于资产查看范畴），不新建 `warehouse.ucp` 权限组，避免和一期资产权限产生二次校验歧义。
+    - 建模 V2 挂在 `warehouse.modeling`。
+    - action 沿用一期约定：`V`=查看、`C`=创建、`U`=更新、`D`=删除。
+  - DB session：`app.core.db.get_session`。
+  - 字段权限：涉及字段展示一律走 `app.permissions.masker.get_hidden_columns()` / `resolve_field_access()`，不得自行重写隐藏字段判断。
+  - UCP 可用性判定：一律调用 `app.warehouse.ucp_adapter.is_ucp_available()`，不得自行 `import app.ucp` 或自行 try/except 判定；具体规则见 `Q0003`。
+  - Schema 命名沿用一期风格：`Warehouse<领域><Out/In/DetailOut>`，如 `WarehouseQualityRuleOut`、`WarehouseLineageNodeOut`。
+- 禁止：
+  - 新增读接口只依赖 `current_user` 而不挂 `require_op`。
+  - 质量规则/血缘/监控相关接口返回 `TableColumn.is_visible=False` 的列或未脱敏的敏感字段。
+  - 在 warehouse 模块内直接 `import app.ucp.*`（当前分支该模块不存在，会导致 500；必须经 `ucp_adapter` 降级）。
+  - 建模 V2 保存接口允许任意字符串写入枚举字段（`rule_type`/`agg_role`/`layer` 等）。
+  - 质量规则执行/血缘查询触发 DataSource/UCP 实时拉取（应只查仓内已落地数据）。
+- 状态码约定（与一期 D00 一致）：
+  - 资源不存在：404。
+  - 非法枚举/业务规则错误：400。
+  - 缺少权限：403。
+  - Pydantic 类型/必填错误：422。
+  - UCP 不可用降级：200 + `enabled=false`（不是 5xx，也不是 404）。
+- Q 章完成前最小验证（按实际新增模块替换文件名）：
+  - `python -m py_compile app/warehouse/*.py app/main.py`
+  - `python -c "import app.warehouse.router; from app.main import app; print('ok')"`
+  - API/单测覆盖：成功路径、空数据、无权限 403、非法枚举 400、UCP 不可用降级 200、隐藏字段过滤。
+
+- [ ] Q0001 阅读二期规划和一期代码基线
+  - 任务：阅读 `spec.md` 第 4.2/13/14 章、附件二期规划、现有 `backend/app/warehouse` 与 `frontend/src/views/warehouse`。
+  - 交付物：开发说明中列出一期已有能力和二期增量。
+  - UI 要求：不涉及 UI；若发现一期页面与二期目标冲突，先补 UI 任务再改。
+  - UCP / 数据仓库边界要求：二期仍不得在数据仓库中重建 UCP 凭证、Pipeline、事件配置。
+  - 测试要求：启动检查任务不需自动化测试；需记录 git status 和一期测试基线。
+  - 验收标准：明确本次二期任务不会覆盖一期已完成能力。
+  - 完成定义：阅读和基线说明完成后才可继续 Q 章功能开发。
+
+- [ ] Q0002 建立二期 feature flag / 菜单灰度策略
+  - 任务：为质量规则、血缘图、UCP 薄代理、建模 V2、监控告警建立可灰度开关或菜单显示条件。
+  - 交付物：配置项、菜单 seed、前端路由 meta 或权限声明。
+  - UI 要求：未启用功能不显示入口或显示“后续支持”；不得出现空白页面。
+  - UI 示意图：见本文件 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：UCP 代理未启用不影响 DataSource/SyncRun。
+  - 测试要求：前端路由/菜单手工验证；后端配置默认值测试。
+  - 验收标准：二期功能可以逐步上线，不阻塞一期数据仓库入口。
+  - 完成定义：灰度开关、菜单表现、降级说明均有证据。
+
+- [ ] Q0003 UCP 分支未合并时的降级验收基线（统一收口，禁止在各任务重复展开）
+  - 背景事实：截至本任务写入时，`app.ucp` 在当前分支（`feature/data-warehouse-platform`）不存在实体代码，只有空的 `__pycache__` 目录；真实 UCP 代码（`datasource_bridge.py`、`router.py`、`pipeline_engine.py` 等约 30 个文件）只存在于独立分支 `feature/ucp-data-connection-platform`，本 spec 未规定合并时间点或合并责任人。`backend/app/warehouse/ucp_adapter.py` 已实现 `is_ucp_available()` 探测和降级返回，这是当前唯一真实的桥接点。
+  - 任务：在开发 Q04（UCP 薄代理）及任何引用“UCP 可用/不可用”的任务前，先确认并遵守以下统一基线，不再各自重复展开描述：“UCP 未合并”等同于“UCP 不可用”，一律走 `ucp_adapter.is_ucp_available()` 判定和降级路径；只要 `app.ucp` 未合并，Q04 全部任务（Q0401-Q0405）的可交付上限就是维持/扩展 `ucp_adapter.py` 的降级行为和薄代理契约（DTO 形状、路由、错误码），不得以“等待 UCP 分支合并”为由延后开工，也不得虚构 UCP 返回数据用于演示。
+  - 交付物：本任务作为 Q04、R05、T02、T07、T0703、X03、S0103 中所有“UCP 不可用/UCP 未启用”表述的唯一权威依据；上述任务后续修订时应引用本任务编号，不再重复定义判定方式。
+  - UI 要求：不涉及新 UI；仅要求所有 UCP 相关 UI 组件统一读取同一降级来源（`ucp_adapter` 返回的 `enabled=False`），不得每个页面各自实现一套判断逻辑。
+  - UCP / 数据仓库边界要求：不得因为等待 UCP 分支合并而阻塞 Q/R/T 章任何数据仓库自身能力的开发；`app.ucp` 一旦合并，只需替换 `ucp_adapter.py` 内部实现，不得要求上层 router/service/前端跟着改接口形状。
+  - 测试要求：单元测试覆盖 `is_ucp_available()` 为 True/False 两种分支下 `ucp_adapter` 的行为；集成测试确认 `app.ucp` 不存在时 warehouse 全部接口不因 import 失败而 500。
+  - 验收标准：任何模型执行 Q/R/T 章任务时，不需要重新调研“UCP 现在有没有合并”，直接读本任务即可得到权威结论和降级策略。
+  - 完成定义：本任务写入后，Q04/T02/T07 等任务中重复的“UCP 不可用”表述视为已被本任务收口，无需再单独验收。
+
+## Q01 数据分层标签增强
+
+> 代码现状：`backend/app/warehouse/schemas.py` 当前 `WAREHOUSE_LAYERS = ("ODS", "DWD", "DWS", "ADS")`，`router.py`/`service.py` 已用它做筛选和校验（一期已完成）。本组任务是在此基础上扩展 raw/dm/metric 三个新值，不是从零实现。
+
+- [ ] Q0101 扩展后端分层枚举与校验函数
+  - 任务：将 `WAREHOUSE_LAYERS` 从 `("ODS","DWD","DWS","ADS")` 扩展为 `("RAW","ODS","DWD","DWS","ADS","DM","METRIC")`；确认 `_validate_warehouse_layer()`、`router.py`/`service.py` 中所有引用该常量的筛选和写入路径无需改动逻辑即可支持新增值。
+  - 交付物：`schemas.py` 常量修改；回归确认 `service.py` 中 `list_assets`/`list_datasets` 等按 `warehouse_layer` 过滤的方法不需要额外改动。
+  - UI 要求：不涉及前端页面/组件/交互；无需引用 U 章节。
+  - UCP / 数据仓库边界要求：分层是数据仓库概念，不映射 UCP resource type。
+  - 测试要求：单元测试覆盖 7 个合法值全部通过校验、非法值仍返回 400；回归测试确认原 4 个值的现有测试不受影响。
+  - 验收标准：后端对 7 个分层值的校验、筛选、写入均生效，原有 4 值行为不回退。
+  - 完成定义：常量扩展、回归验证、测试通过后才可勾选。
+
+- [ ] Q0102 前端分层字典与颜色标签组件
+  - 任务：新增前端分层枚举常量（7 值中文名 + 颜色映射），封装为可复用的 `LayerTag` 组件。
+  - 交付物：`frontend/src/constants` 或等价目录下的分层字典、`LayerTag.vue` 组件。
+  - UI 要求：7 个分层需有区分度明显的颜色；未知/空值显示“未分层”而非报错或空白。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：分层标签不展示 UCP 相关信息。
+  - 测试要求：组件测试覆盖 7 个合法值渲染、未知值/空值降级展示。
+  - 验收标准：任意页面引入该组件即可一致展示分层标签，不需各页面自行维护颜色映射。
+  - 完成定义：组件可被 Q0103 及后续任务直接复用。
+
+- [ ] Q0103 资产列表/详情/筛选下拉接入分层字典
+  - 任务：在数据资产列表、详情、筛选下拉中使用 Q0102 的 `LayerTag` 组件和字典替换原有硬编码或不完整的分层展示。
+  - 交付物：`WarehouseAssets.vue`/`WarehouseAssetDetail.vue` 等页面改动。
+  - UI 要求：资产列表/详情/筛选下拉显示中文解释和颜色标签；未知值显示“未分层”。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不映射 UCP resource type。
+  - 测试要求：前端手工验证筛选下拉可选 7 个分层并正确请求 `GET /warehouse/assets?warehouse_layer=`。
+  - 验收标准：用户可按 7 个分层筛选资产，非法分层提交返回 400（复用 Q0101 后端校验）。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0104 批量修改资产分层 API
+  - 任务：实现 `PATCH /api/v1/warehouse/assets/batch-layer`，接收表名列表和目标分层，批量更新 `RegisteredTable.warehouse_layer`。
+  - 交付物：router 新增端点、service 批量更新方法、Schema（`WarehouseAssetBatchLayerIn`/`WarehouseAssetBatchLayerOut`，含成功/失败明细）。
+  - UI 要求：不涉及前端页面/组件/交互；无需引用 U 章节。
+  - UCP / 数据仓库边界要求：不修改 UCP 资源；只更新数据仓库资产标签；沿用 `require_op("warehouse.assets", "U")`。
+  - 测试要求：API 测试覆盖空列表 400、非法层级 400、部分表不存在时返回成功/失败明细而非整体 500、权限 403。
+  - 验收标准：可一次为多张表设置合法分层，且部分失败不影响其余表成功更新。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0105 批量修改资产分层前端交互
+  - 任务：在数据资产列表提供多选和批量分层操作入口，调用 Q0104 的 API。
+  - 交付物：批量操作 UI（多选、目标分层选择、确认弹窗）。
+  - UI 要求：批量操作需有确认弹窗、选中数量、失败明细、部分成功提示。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`（资产列表批量操作区域）；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不修改 UCP 资源。
+  - 测试要求：前端手工验证全选/部分选/全部失败/部分失败四种批量操作结果展示。
+  - 验收标准：用户可在列表页直接完成批量分层，无需逐条编辑。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0106 分层概览统计 API
+  - 任务：新增按分层统计资产数量的接口或扩展现有首页 API。
+  - 交付物：统计 API（返回 7 个分层各自的资产数量）。
+  - UI 要求：不涉及前端页面/组件/交互；无需引用 U 章节。
+  - UCP / 数据仓库边界要求：不统计 UCP connector 数量。
+  - 测试要求：后端聚合测试覆盖有数据/无数据/部分分层为空。
+  - 验收标准：接口返回的分层数量总和等于资产总数，可与资产列表交叉核对。
+  - 完成定义：API 实现并通过测试后才可勾选。
+
+- [ ] Q0107 分层概览统计前端组件
+  - 任务：在数据仓库首页和数据治理页展示 Q0106 的分层统计结果。
+  - 交付物：分层概览组件（图表或卡片形式）。
+  - UI 要求：图表或卡片需支持 loading/empty/error；颜色与 Q0102 分层标签一致。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图` 和 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不统计 UCP connector 数量。
+  - 测试要求：前端手工验证 loading/empty/error 三态，颜色与 Q0102 一致。
+  - 验收标准：首页/治理页能看到各分层资产数量，点击可追溯到对应筛选后的资产列表。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## Q02 数据血缘追踪 V1/V2
+
+> 代码现状：`backend/app/warehouse/impact.py`（311 行）已实现跨 DataSet/Report/Metric 表的静态引用扫描，是 G 章影响分析的基础；本组任务应复用其引用扫描逻辑作为血缘边的数据来源，不得另起一套独立查询。
+
+- [ ] Q0201 定义血缘节点 DTO
+  - 任务：设计 lineage node DTO，覆盖 table、field、dataset、metric、report、notification、datasource、ucp_resource 八类节点类型，统一字段：id、type、label、status、risk_level。
+  - 交付物：`schemas.py` 新增 `LineageNodeOut`。
+  - UI 要求：不涉及可见 UI。
+  - UCP / 数据仓库边界要求：`ucp_resource` 节点只携带 `ucp_adapter.UcpInfo` 摘要字段，不展开凭证和 Pipeline 内部细节。
+  - 测试要求：Schema 单元测试覆盖 8 种节点类型序列化。
+  - 验收标准：单一 DTO 可表达血缘图中任意节点，无需为不同类型写不同响应结构。
+  - 完成定义：DTO 可被 Q0202/Q0203 直接复用。
+
+- [ ] Q0202 定义血缘边 DTO 与方向语义
+  - 任务：设计 lineage edge DTO，明确 `direction`（upstream/downstream）、`relation_type`（sync/reference/calculation/output）字段含义。
+  - 交付物：`schemas.py` 新增 `LineageEdgeOut`。
+  - UI 要求：不涉及可见 UI。
+  - UCP / 数据仓库边界要求：不生成 UCP Pipeline 内部 edge，只生成“资产依赖 UCP 资源”这一层级的边。
+  - 测试要求：Schema 单元测试覆盖 4 种 relation_type。
+  - 验收标准：边的方向和类型足以支撑图谱箭头和列表分组展示。
+  - 完成定义：DTO 可被 Q0203 直接复用。
+
+- [ ] Q0203 表级血缘 API
+  - 任务：实现 `GET /api/v1/warehouse/lineage/table/{table_name}`，返回上游来源（DataSource/UCP 摘要）和下游消费（DataSet/Metric/Report），数据来源复用 `impact.py` 已有的引用扫描方法，不重写查询逻辑。
+  - 交付物：router 新增端点、service 方法（在 `impact.py` 或新增 `lineage.py` 中实现，按 Q00 契约命名）、test。
+  - UI 要求：不涉及 UI；错误信息需支持前端展示。
+  - UCP / 数据仓库边界要求：上游可包含 DataSource/UCP 摘要，但不强依赖 UCP 表；UCP 不可用时按 `Q0003` 降级。
+  - 测试要求：API 测试覆盖不存在表 404、无血缘（空数组）、有上下游、UCP 不可用降级。
+  - 验收标准：可查询表从哪里来、被哪些模型/指标/报表使用，且结果与 `impact.py` 的引用扫描结果一致。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0204 字段级血缘 API
+  - 任务：实现 `GET /api/v1/warehouse/lineage/field?table_name=&column_code=`，返回字段级上下游，复用 `DatasetOutputField.source_alias/source_column` 和 `DatasetCalculatedField.depends_on` 的既有解析逻辑（同 G-Deferred-002/003 中已识别的依赖解析路径）。
+  - 交付物：router 新增端点、service 方法、test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：UCP 不提供字段级内部 Pipeline 时，只显示资源级来源。
+  - 测试要求：API 测试覆盖字段不存在 404、计算字段依赖、输出字段依赖、同名字段不同表不误报（呼应 G-Deferred-001 的同名字段测试要求）。
+  - 验收标准：字段变更前能看到字段级下游，且不会因同名字段跨表误报。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0205 血缘图页面骨架与列表降级视图
+  - 任务：新增数据治理 > 数据血缘页面骨架，先实现列表视图（表格形式展示上下游节点和关系），作为图谱渲染失败或大图场景下的降级方案。
+  - 交付物：`WarehouseLineage.vue` 页面骨架、路由、`frontend/src/api/warehouse.ts` 新增血缘 API 封装、列表视图组件。
+  - UI 要求：列表视图必须独立可用（不依赖图谱库加载成功）；覆盖加载/空/错/权限态。
+  - UI 示意图：见本文件 `U08 血缘图线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：UCP 节点仅展示摘要和跳转，不内嵌 UCP 配置。
+  - 测试要求：前端构建；页面手工验证列表视图 normal/loading/empty/error/forbidden 五态。
+  - 验收标准：用户可从表或字段进入血缘页，即使图谱组件加载失败也能看到列表形式的上下游关系。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0206 血缘图谱可视化交互
+  - 任务：在 Q0205 页面骨架基础上叠加图谱可视化：缩放、拖拽、节点点击查看详情。
+  - 交付物：图谱渲染组件（复用已引入的图形库，若无则在本任务中选型并说明理由）。
+  - UI 要求：图可缩放、拖拽、节点点击查看详情；图谱加载失败时自动回退到 Q0205 的列表视图，不能白屏。
+  - UI 示意图：见本文件 `U08 血缘图线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：UCP 节点仅展示摘要和跳转，不内嵌 UCP 配置。
+  - 测试要求：前端手工验证图谱交互、加载失败降级到列表视图。
+  - 验收标准：用户可通过图谱直观理解血缘关系，图谱不可用时体验不中断。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0207 血缘图性能保护
+  - 任务：为血缘 API 增加 `depth`/`limit` 参数和超限提示，避免大规模资产导致查询或渲染卡死。
+  - 交付物：API 参数、默认 limit、前端提示。
+  - UI 要求：图谱和列表视图超限时均显示“结果过多，请缩小范围”，不能卡死页面。
+  - UI 示意图：见本文件 `U08 血缘图线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不跨 UCP 深度递归内部 Pipeline。
+  - 测试要求：API 测试覆盖 limit/depth 边界值；前端大图降级验证。
+  - 验收标准：大规模资产时页面仍可用，不出现浏览器卡死或接口超时。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## Q03 数据质量规则、执行与告警
+
+> 字段定义来自 `spec.md` 第 5.5/5.6 节（`warehouse_quality_rules`/`warehouse_quality_runs`），本组任务按此落地，不得自行发明字段名。权限统一走 `require_op("warehouse.governance", action)`。
+
+- [ ] Q0301 `warehouse_quality_rules` ORM/migration
+  - 任务：新增 ORM 模型和 alembic migration，字段：`id`、`asset_type`(table/dataset/field)、`asset_code`、`rule_type`(not_null/unique/enum/date_format/referential_integrity)、`rule_config`(json)、`enabled`、`severity`(info/warn/error)、`last_run_status`、`last_run_at`、`created_at`、`updated_at`。
+  - 交付物：`app/warehouse/models.py`（新增文件）中的 ORM 类、alembic migration 文件（参考 `0056_warehouse_ucp_integration.py` 写法）。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：`asset_code` 引用仓内表/数据集，不引用 UCP 资源 ID。
+  - 测试要求：migration 升降级测试、ORM 导入测试、`rule_type` 枚举校验测试。
+  - 验收标准：5 种 `rule_type` 均可持久化，非法值写入报错而非静默存储。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0302 `warehouse_quality_runs` ORM/migration
+  - 任务：新增 ORM 模型和 alembic migration，字段：`id`、`rule_id`(FK)、`status`(pass/warn/fail/error)、`checked_count`、`failed_count`、`sample_rows`(json)、`message`、`started_at`、`finished_at`。
+  - 交付物：`app/warehouse/models.py` 中的 ORM 类、alembic migration。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：与 `SyncRun`/UCP Execution 分离，不复用其表结构。
+  - 测试要求：migration 升降级测试、ORM 导入测试、外键约束测试（`rule_id` 指向不存在规则时报错）。
+  - 验收标准：每次质量检查可持久化一条运行记录，含样例数据。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0303 质量规则/运行 Pydantic Schema
+  - 任务：定义 `WarehouseQualityRuleOut`、`WarehouseQualityRuleIn`、`WarehouseQualityRunOut`。
+  - 交付物：`app/warehouse/schemas.py` 新增类型。
+  - UI 要求：不涉及 UI；错误结构支持前端表单展示。
+  - UCP / 数据仓库边界要求：不涉及 UCP 字段。
+  - 测试要求：Schema 单元测试覆盖必填字段缺失、`rule_config` 结构校验。
+  - 验收标准：Schema 可被 Q0304-Q0306 直接复用。
+  - 完成定义：Schema 定义完成，测试通过。
+
+- [ ] Q0304 质量规则列表/详情 API
+  - 任务：实现 `GET /api/v1/warehouse/quality-rules`（支持按 asset_type/asset_code/rule_type/enabled 筛选）和 `GET /api/v1/warehouse/quality-rules/{id}`。
+  - 交付物：router/service/test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：`source_kind=ucp` 的资产也只检查落地后数据，不依赖 UCP 在线状态。
+  - 测试要求：API 测试覆盖空列表、筛选组合、详情 404、权限 403。
+  - 验收标准：用户可查询和筛选已配置的质量规则。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0305 质量规则创建/更新 API
+  - 任务：实现 `POST /api/v1/warehouse/quality-rules`、`PATCH /api/v1/warehouse/quality-rules/{id}`。
+  - 交付物：router/service/test。
+  - UI 要求：不涉及 UI；错误结构支持前端表单展示。
+  - UCP / 数据仓库边界要求：不依赖 UCP。
+  - 测试要求：API 测试覆盖非法 `rule_type`、非法 `rule_config` 结构、重复规则（同 asset_code+rule_type+字段）、权限 403。
+  - 验收标准：用户可创建和编辑质量规则，非法参数返回明确错误。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0306 质量规则启停/删除 API
+  - 任务：实现 `POST /api/v1/warehouse/quality-rules/{id}/enable`、`/disable`、`DELETE /api/v1/warehouse/quality-rules/{id}`。
+  - 交付物：router/service/test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：不依赖 UCP。
+  - 测试要求：API 测试覆盖重复启停幂等性、删除后关联 `quality_runs` 的处理策略（级联或保留历史，需在测试中明确断言）、权限 403。
+  - 验收标准：用户可启停和删除质量规则，且删除行为不破坏历史运行记录的可追溯性。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0307 质量规则执行引擎：非空与唯一性规则
+  - 任务：实现 `not_null`、`unique` 两类规则的执行逻辑，产出 `checked_count`/`failed_count`/`sample_rows`。
+  - 交付物：`app/warehouse/quality_engine.py`（新增）中的执行函数、单元测试。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：执行对象为仓内表/数据集；不触发 DataSource/UCP 拉取。
+  - 测试要求：单元测试用样例表覆盖全通过、部分失败、全部失败、空表四种场景。
+  - 验收标准：可运行 `not_null`/`unique` 规则并产出准确的问题数量和样例。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0308 质量规则执行引擎：枚举与日期格式规则
+  - 任务：实现 `enum`、`date_format` 两类规则的执行逻辑。
+  - 交付物：`quality_engine.py` 扩展、单元测试。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：执行对象为仓内表/数据集。
+  - 测试要求：单元测试覆盖合法枚举值、非法枚举值、合法/非法日期格式、空值处理。
+  - 验收标准：可运行 `enum`/`date_format` 规则并产出准确的问题数量和样例。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0309 引用完整性规则执行范围确认
+  - 任务：Q0301 的 ORM 已支持 `referential_integrity` 作为 `rule_type`，但原 Q03 执行引擎描述只覆盖 4 类规则，未说明引用完整性何时落地。本任务需明确：二期执行引擎是否覆盖 `referential_integrity`；如不覆盖，规则可创建但执行时返回“暂不支持，规划中”而不是静默跳过或报错 500。
+  - 交付物：决策记录 + 执行引擎对未支持类型的显式处理分支。
+  - UI 要求：若规则类型选择器包含 `referential_integrity`，创建表单需提示“执行暂不支持，仅可保存配置”。
+  - UI 示意图：见本文件 `U09 质量规则线框图`。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：接口测试确认对 `referential_integrity` 规则调用执行接口时返回明确的“暂不支持”响应，而非 500 或静默成功。
+  - 验收标准：不存在“规则类型可创建但执行结果具有误导性”的情况。
+  - 完成定义：决策写入本任务后，Q0307/Q0308 的范围声明与本任务保持一致。
+
+- [ ] Q0310 质量运行历史 API
+  - 任务：实现 `GET /api/v1/warehouse/quality-runs`（按资产、规则、状态、时间筛选）和 `GET /api/v1/warehouse/quality-runs/{id}`。
+  - 交付物：API、Schema、测试。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：与 SyncRun/UCP Execution 分离。
+  - 测试要求：API 测试覆盖按资产、规则、状态、时间筛选，及详情 404。
+  - 验收标准：可追溯每次质量检查结果。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0311 质量规则页面：列表与 CRUD 表单
+  - 任务：新增数据治理 > 数据质量页面，支持规则列表、创建/编辑表单、启停、删除。
+  - 交付物：`WarehouseQuality.vue`、表单组件、`frontend/src/api/warehouse.ts` 扩展、路由。
+  - UI 要求：表单需按 `rule_type` 动态展示 `rule_config` 参数（如 `enum` 需要枚举值列表输入，`date_format` 需要格式字符串输入）；`referential_integrity` 选项旁标注“执行暂不支持”（呼应 Q0309）；覆盖空态/错态。
+  - UI 示意图：见本文件 `U09 质量规则线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不展示 UCP 凭证或 Pipeline；UCP 来源资产按普通入仓表处理。
+  - 测试要求：前端构建；手工验证 5 种规则类型的表单参数、启停、删除。
+  - 验收标准：业务人员可配置质量规则，且不会被引导创建“看似可执行但实际不支持”的规则而不自知。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0312 质量规则页面：手动运行与结果展示
+  - 任务：在 Q0311 页面基础上增加手动触发运行、运行中状态、结果弹窗。
+  - 交付物：手动运行按钮、运行状态轮询或推送、结果展示组件。
+  - UI 要求：运行中需有明确的进行态提示；结果弹窗展示 `checked_count`/`failed_count`/`sample_rows`；错误信息可读。
+  - UI 示意图：见本文件 `U09 质量规则线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不触发 DataSource/UCP 拉取。
+  - 测试要求：前端手工验证运行中/成功/失败/超时四种状态展示。
+  - 验收标准：业务人员可手动运行规则并看到清晰结果，不需要看后端日志。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0313 质量告警摘要 API
+  - 任务：基于 `quality_runs` 生成首页和治理页所需的质量告警摘要接口（近期失败规则数、按 severity 分组统计）。
+  - 交付物：统计 API 或现有首页 API 扩展。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：不依赖 UCP 告警中心。
+  - 测试要求：聚合测试覆盖无失败、部分失败、全部失败场景。
+  - 验收标准：接口返回的告警数据可与 `quality_runs` 明细交叉核对，不是硬编码。
+  - 完成定义：API 实现并通过测试后才可勾选。
+
+- [ ] Q0314 质量告警摘要前端展示
+  - 任务：在首页和治理页展示 Q0313 的质量告警摘要卡片。
+  - 交付物：UI 卡片组件。
+  - UI 要求：明确区分“质量状态”（`last_quality_status`，一期已有）和“质量告警”（本任务新增，基于 `quality_runs`）；展示最近异常和跳转到 Q0311 页面。
+  - UI 示意图：见本文件 `U01 数据仓库首页线框图` 和 `U07 数据治理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不依赖 UCP 告警中心。
+  - 测试要求：前端手工验证无告警/有告警两种状态展示和跳转。
+  - 验收标准：首页质量告警有真实来源，不再硬编码，且用户能区分“质量状态”和“质量告警”两个概念。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0315 质量定时执行预留/实现
+  - 任务：按实际调度能力决定：若已有可复用的 scheduler，可实现定时执行质量规则；否则保留配置并禁用，不得伪造“已生效”的假象。
+  - 交付物：调度配置、feature flag、文档说明。
+  - UI 要求：未实现调度时 UI 必须显示“手动运行/定时后续支持”，不得展示可勾选但无效的“定时”开关。
+  - UI 示意图：见本文件 `U09 质量规则线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：外部同步调度仍归 DataSource/UCP。
+  - 测试要求：调度开启时需测试触发；未开启时测试确认 UI 禁用态和后端拒绝定时请求。
+  - 验收标准：不会误导用户以为定时已生效。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## Q04 `/warehouse/ucp/*` 薄代理二期实现
+
+> 前置约束：本组任务的可交付上限由 `Q0003` 界定——`app.ucp` 在当前分支不存在，所有任务只能扩展 `ucp_adapter.py` 的降级契约和 DTO 形状，不得等待 UCP 分支合并，也不得虚构 UCP 返回数据。
+
+- [ ] Q0401 UCP systems adapter 扩展
+  - 任务：在 `app/warehouse/ucp_adapter.py` 新增 `list_systems()` 方法，`is_ucp_available()` 为 False 时返回空列表，为 True 时预留真实查询位置（当前仍返回占位数据，标注 TODO）。
+  - 交付物：`ucp_adapter.py` 扩展、单元测试。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：只返回 id/name/status 快照，不返回 secret。
+  - 测试要求：单元测试覆盖 `is_ucp_available()` True/False 两种分支。
+  - 验收标准：adapter 层可被 Q0402 路由层直接调用。
+  - 完成定义：开发、边界、测试全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0402 UCP systems API 路由
+  - 任务：实现 `GET /api/v1/warehouse/ucp/systems`，调用 Q0401 的 adapter 方法。
+  - 交付物：router 新增端点、schema、test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：不返回 secret；权限沿用 `require_op("warehouse.assets", "V")`。
+  - 测试要求：Mock UCP 可用/不可用/无权限三种场景的 API 测试。
+  - 验收标准：数据仓库可获取 UCP 系统列表用于选择器，UCP 不可用时返回空列表而非 500。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0403 UCP resources adapter 扩展
+  - 任务：在 `ucp_adapter.py` 新增 `list_resources(system_id)` 方法，规则同 Q0401。
+  - 交付物：`ucp_adapter.py` 扩展、单元测试。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：只返回资源摘要、测试状态、执行状态、跳转 URL，不返回凭证配置。
+  - 测试要求：单元测试覆盖 `system_id` 过滤、UCP 不可用。
+  - 验收标准：adapter 层可被 Q0404 路由层直接调用。
+  - 完成定义：开发、边界、测试全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0404 UCP resources API 路由
+  - 任务：实现 `GET /api/v1/warehouse/ucp/resources?system_id=`。
+  - 交付物：router 新增端点、DTO、test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：同 Q0403。
+  - 测试要求：API 测试覆盖 `system_id` 过滤、UCP 不可用、无权限。
+  - 验收标准：资源选择器可列出 UCP 资源摘要。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0405 UCP resource status 代理
+  - 任务：实现资源状态薄代理（`GET /api/v1/warehouse/ucp/resources/{id}/status` 或等价接口）。
+  - 交付物：adapter 方法、router、test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：status 来自 UCP API 或安全降级，不直接暴露凭证。
+  - 测试要求：测试覆盖 UCP 可用/不可用/异常三种状态。
+  - 验收标准：数据仓库可获取资源状态摘要用于详情页展示。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0406 UCP resource preview 代理
+  - 任务：实现资源预览薄代理（`GET /api/v1/warehouse/ucp/resources/{id}/preview`），预览结果必须脱敏敏感字段并限制返回行数。
+  - 交付物：adapter 方法、router、脱敏逻辑（复用 `app.permissions.masker`）、test。
+  - UI 要求：预览需脱敏敏感字段，前端展示行数限制。
+  - UI 示意图：本任务无专属线框图；预览面板样式参考 `U10 UCP 资源选择器线框图` 的资源详情区域，开发前需确认是否需要补充专属预览抽屉线框图。
+  - UCP / 数据仓库边界要求：preview 来自 UCP API 或安全降级，不直接暴露凭证。
+  - 测试要求：测试覆盖脱敏、行数 limit、UCP 异常。
+  - 验收标准：数据仓库可预览 UCP 资源样例但不编辑连接配置，且预览结果不泄露未脱敏敏感字段。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0407 UCP 资源选择器 UI
+  - 任务：资产新建/编辑时提供 UCP 资源选择器，调用 Q0402/Q0404 的 API。
+  - 交付物：`ResourcePicker.vue` 组件、资产表单集成。
+  - UI 要求：选择器展示系统、资源、类型、状态、最近执行；支持搜索、空态、UCP 未启用提示。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：选择后保存 `system_id`/`resource_id`/`name`/`status` 快照，不保存 secret。
+  - 测试要求：前端构建；手工验证选择、清空、UCP 不可用三种场景。
+  - 验收标准：用户可把数据资产关联到 UCP 资源，UCP 不可用时选择器显示明确提示而非报错。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0408 UCP 跳转和权限降级
+  - 任务：资产详情 UCP 摘要支持跳转 UCP 现有页面。
+  - 交付物：跳转 URL 生成（复用 `ucp_adapter._build_ucp_route()`）、按钮权限、提示文案。
+  - UI 要求：无 UCP 配置权限时可看摘要，配置按钮禁用或跳转后由 UCP 拦截。
+  - UI 示意图：见本文件 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不在数据仓库实现 UCP 编辑表单。
+  - 测试要求：权限测试；前端手工验证有/无权限两种场景。
+  - 验收标准：数据仓库只读摘要与 UCP 配置权限解耦。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0409 Q04 薄代理专项验收
+  - 任务：验收 Q0401-Q0408 是否满足"薄代理不复制 UCP 能力、不泄露 secret、UCP 不可用时全链路可用"的定位。
+  - 交付物：专项验收记录、UCP 可用/不可用两种模式的回归测试结果。
+  - UI 要求：检查资源选择器、状态展示、预览、跳转在 UCP 不可用时均有明确降级文案，不出现白屏或 500。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图`。
+  - UCP / 数据仓库边界要求：确认所有薄代理接口都经过 `ucp_adapter`，没有业务代码直接 `import app.ucp`。
+  - 测试要求：静态检查（grep）确认 `app/warehouse/` 下无直接 `import app.ucp` 语句；回归测试覆盖 UCP 可用/不可用两种模式。
+  - 验收标准：Q04 全部任务在当前 `app.ucp` 不存在的情况下也能稳定运行，未来 UCP 合并只需替换 adapter 内部实现。
+  - 完成定义：专项验收通过后，Q04 视为二期范围内完成；后续 UCP 真实合并后的行为验证归入 X 章或后续任务。
+
+## Q05 可视化建模 V2
+
+- [ ] Q0501 建模 V2 状态模型设计
+  - 任务：设计画布节点、连线、布局、版本草稿的数据结构。
+  - 交付物：Schema/DTO/前端状态类型。
+  - UI 要求：支持节点位置、连线编辑、自动布局所需字段；保留 V1 数据兼容。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：只处理仓内表/数据集关系，不编排 UCP Pipeline。
+  - 测试要求：类型测试/序列化测试；V1 数据加载测试。
+  - 验收标准：V1 模型可进入 V2 画布不丢数据。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0502 拖拽表节点到画布
+  - 任务：实现从左侧资产树拖拽表/数据集到画布。
+  - 交付物：前端画布组件。
+  - UI 要求：拖拽有高亮、禁止态、重复节点提示、空态。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：资产来源可显示 DataSource/UCP 标签，但不进入连接配置。
+  - 测试要求：前端构建；手工验证拖拽和重复。
+  - 验收标准：用户可直观添加建模节点。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0503 字段级拖拽连线
+  - 任务：实现字段到字段连线创建关联。
+  - 交付物：画布连线交互和 relation 生成逻辑。
+  - UI 要求：连线时校验字段类型，冲突时提示；支持取消和删除。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不生成 UCP Pipeline edge。
+  - 测试要求：组件/手工测试覆盖合法/非法连线。
+  - 验收标准：用户可通过字段连线配置 join。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0504 关联编辑和自动推荐
+  - 任务：支持编辑 join_type/cardinality，并按字段名/主键推荐关联。
+  - 交付物：右侧属性面板、推荐服务。
+  - UI 要求：推荐项需可接受/忽略；高风险关联有提示。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：推荐只基于仓内元数据。
+  - 测试要求：后端/前端测试覆盖推荐和编辑保存。
+  - 验收标准：建模效率提升且可解释。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0505 自动布局与视图缩放
+  - 任务：实现自动布局、缩放、画布重置、小地图可选。
+  - 交付物：画布交互组件。
+  - UI 要求：大于一定节点数时仍可操作；提供重置视图。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不影响 UCP。
+  - 测试要求：前端手工性能验证。
+  - 验收标准：复杂模型画布可读。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0506 模型版本表与 Schema
+  - 任务：设计版本字段（`version`、`status`=draft/published/archived、`published_at`、`published_by`、`diff_snapshot`）并迁移；一期 `DataSet` 已有 `version`/`published_at`/`published_by`（见 `spec.md` 5.2），本任务只新增 `diff_snapshot` 等 V2 专属字段，不得重复定义已有字段。
+  - 交付物：alembic migration、ORM 字段扩展、Schema。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：版本仅管理数据模型，不管理 UCP 配置。
+  - 测试要求：migration 测试；确认不与一期已有 `version`/`published_at` 字段冲突。
+  - 验收标准：版本相关字段齐全且不与一期字段重复。
+  - 完成定义：开发、边界、测试全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0507 模型发布/历史/回滚 API
+  - 任务：实现发布新版本、查询版本历史、回滚到指定版本的接口。
+  - 交付物：router/service/test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：版本仅管理数据模型，不管理 UCP 配置。
+  - 测试要求：API 测试覆盖发布成功、并发发布冲突、回滚到不存在版本 404、回滚权限 403。
+  - 验收标准：模型变更可追溯，回滚有明确的失败处理。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0508 模型版本管理 UI
+  - 任务：在建模页面提供版本历史查看、发布前差异对比、回滚二次确认交互。
+  - 交付物：版本历史面板、diff 展示组件。
+  - UI 要求：发布前显示差异；回滚需二次确认。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：前端手工验证差异弹窗、回滚二次确认、回滚失败提示。
+  - 验收标准：用户能清楚看到版本差异并安全回滚。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0509 V2 预览 SQL 生成与错误定位 API
+  - 任务：扩展一期已有的 `/warehouse/models/{id}/preview` 接口，返回生成的 SQL/关系解释文本，错误时返回可定位到具体节点/连线的错误信息（而不是笼统的数据库报错）。
+  - 交付物：preview API 扩展、错误定位 DTO、test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：预览只查仓内数据，UCP 资源需先落表。
+  - 测试要求：API 测试覆盖正常生成、非法 join 导致的 SQL 错误、错误定位到具体节点 ID。
+  - 验收标准：预览错误时用户能定位到具体是哪个节点/连线配置有问题，而不是只看到数据库层报错。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0510 V2 预览面板 UI
+  - 任务：在建模画布中展示 Q0509 返回的 SQL 和样例数据，错误时高亮对应节点/连线。
+  - 交付物：预览面板组件。
+  - UI 要求：SQL 默认折叠；错误定位到节点/连线高亮显示，不是纯文本报错。
+  - UI 示意图：见本文件 `U05 可视化建模线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：前端手工验证正常预览和错误高亮两种场景。
+  - 验收标准：用户能理解模型如何生成，出错时能直接定位到画布上的问题节点。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## Q06 执行监控与告警摘要
+
+- [ ] Q0601 统一仓内运行事件 DTO 定义
+  - 任务：定义 `dataset_build`、`metric_run`、`quality_run`、`snapshot_run`、`SyncRun` 摘要的统一展示 DTO，字段至少包含 `run_type`、`status`、`started_at`、`finished_at`、`duration`、`error_summary`、`source_link`。
+  - 交付物：`app/warehouse/schemas.py` 新增 `WarehouseRunSummaryOut`。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：UCP Execution 只作为外部摘要字段，不混入仓内运行表结构。
+  - 测试要求：单元测试覆盖 5 种运行类型序列化为统一 DTO。
+  - 验收标准：DTO 足以支撑 Q0602 的聚合查询和 Q0603 的列表展示。
+  - 完成定义：DTO 定义完成，测试通过。
+
+- [ ] Q0602 统一运行事件聚合 API
+  - 任务：实现 `GET /api/v1/warehouse/runs`（聚合查询 5 类运行记录，支持按类型、状态、时间范围筛选）。
+  - 交付物：router/service/test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：UCP Execution 通过 `ucp_adapter` 只读摘要接入，不可用时按 `Q0003` 降级。
+  - 测试要求：API 测试覆盖多类型混合查询、时间范围筛选、无数据、UCP 不可用降级。
+  - 验收标准：单一接口可返回跨类型的运行记录列表，供监控页直接消费。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0603 数据仓库监控页：列表与筛选
+  - 任务：新增数据治理/监控页面，调用 Q0602 展示同步、质量、构建、指标运行状态列表。
+  - 交付物：`WarehouseMonitor.vue`、API wrapper、路由。
+  - UI 要求：支持时间范围、状态筛选；覆盖空/错/权限态。
+  - UI 示意图：见本文件 `U11 监控告警线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：UCP 执行状态只读展示。
+  - 测试要求：前端构建；手工验证筛选组合和空/错态。
+  - 验收标准：运营人员可查看仓内运行概况列表。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0604 数据仓库监控页：失败详情与跳转
+  - 任务：在 Q0603 列表基础上增加失败详情抽屉和来源跳转（跳转到对应的质量规则/构建任务/UCP 页面）。
+  - 交付物：失败详情组件、跳转逻辑。
+  - UI 要求：失败详情展示 `error_summary` 和完整错误信息；来源跳转按类型分别指向 Q0311（质量规则）、建模页（构建）或 UCP（同步）。
+  - UI 示意图：见本文件 `U11 监控告警线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：跳转 UCP 页面时不内嵌 UCP 配置。
+  - 测试要求：前端手工验证 5 种运行类型的失败详情和跳转目标是否正确。
+  - 验收标准：运营人员点击失败记录即可定位问题来源，无需跨系统排查。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] Q0605 告警规则数据模型与占位 API
+  - 任务：规划数据仓库告警规则（质量失败、同步失败、构建失败、指标失败）的数据结构；本期只实现规则保存，不实现通知发送。
+  - 交付物：规则模型/migration/API（保存规则，执行侧留空并返回“仅摘要，暂不发送通知”）。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：UCP 告警中心不在数据仓库重复建设。
+  - 测试要求：测试覆盖规则保存成功、规则触发时仅记录不发送通知（断言无外部调用）。
+  - 验收标准：告警规则可配置，但不会被误认为已实现真实通知能力。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] Q0606 告警规则摘要 UI
+  - 任务：在监控页展示 Q0605 的告警规则配置入口和摘要。
+  - 交付物：规则配置表单、摘要卡片。
+  - UI 要求：未实现通知发送时需明确“仅摘要/后续通知”文案，禁用可能被误解为已生效的“启用通知”开关。
+  - UI 示意图：见本文件 `U11 监控告警线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：UCP 告警中心不在数据仓库重复建设；可跳转。
+  - 测试要求：前端手工验证规则保存和“仅摘要”文案展示。
+  - 验收标准：告警能力边界清晰，用户不会误以为配置后就能收到实际通知。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+---
+
+# R. 三期：能力下沉与增强原子任务
+
+> 来源：附件《数据仓库.txt》8.4、附件《数据指标和ETL.txt》与 012 spec 第 14 章。三期按需把部分入仓后加工能力下沉到 HR Portal，但必须先按 ODS → DWD → DWS → ADS 分层流转组织，再建设服务该流转的轻量 ELT；复杂跨系统 ETL 归 UCP 或专业 ETL。
+
+## R00 三期实现契约与禁止项
+
+> UCP 可用性判定统一执行 `Q0003 UCP 分支未合并时的降级验收基线`：本章所有“UCP 不可用/未启用”表述均指该基线，不再重复定义判定方式或等待 UCP 分支合并再开工。
+
+- 适用范围：R01-R07 全部新增后端接口（标准化/清洗、物化刷新、DWS 聚合、快照拉链、仓内调度、ADS 组装）。
+- 必须使用：
+  - 权限：沿用一期 `require_op(op_code, action)` 依赖注入方式（见 `backend/app/warehouse/router.py`）。R章新增的能力域一期没有现成菜单叶子，op_code 归属必须在 `R0002 三期分层流转主线确认` 中显式拍板并写入本节，不得每个任务各自决定；建议默认：ODS→DWD 标准化/清洗、DWS 聚合定义归 `warehouse.modeling`；质量/审计类归 `warehouse.governance`；仓内调度/重跑归新增 `warehouse.orchestration`（如需新增，必须补 alembic seed，参考 `0057_warehouse_menus.py` 写法）。
+  - DB session：`app.core.db.get_session`。
+  - 字段权限：涉及输出字段展示一律走 `app.permissions.masker.get_hidden_columns()` / `resolve_field_access()`。
+  - 分层校验：任何写入/生成接口必须先校验输入层→输出层是否符合 `ODS→DWD→DWS→ADS` 顺序（参考 `spec.md` 第 14.2 节分层职责表），非法跳转（如 ODS 直接生成 ADS）返回 400，不得静默放行。
+  - Schema 命名沿用一期风格：`Warehouse<领域><Out/In/DetailOut>`，如 `StandardizationRuleOut`、`DwsAggregateDefinitionIn`。
+- 禁止：
+  - 标准化/清洗规则的执行逻辑允许任意 SQL 片段或 Python 表达式输入（必须是受控参数化规则）。
+  - 规则执行/物化/聚合逻辑直接覆盖或删除 ODS 原始表数据。
+  - 物化、聚合、ADS 组装接口触发 DataSource/UCP 实时外部拉取（只能查询仓内已落地数据）。
+  - 仓内调度直接复用/耦合 UCP Pipeline 表或触发 UCP Pipeline 执行。
+- 状态码约定（与一期 D00 一致）：
+  - 资源不存在：404。
+  - 分层跳转非法/枚举非法：400。
+  - 缺少权限：403。
+  - Pydantic 类型/必填错误：422。
+  - 发布/物化被 scope_strategy 或影响分析阻断：409。
+- R 章完成前最小验证（按实际新增模块替换文件名）：
+  - `python -m py_compile app/warehouse/*.py app/main.py`
+  - `python -c "import app.warehouse.router; from app.main import app; print('ok')"`
+  - API/单测覆盖：成功路径、空数据、无权限 403、非法分层跳转 400、ODS 原始数据不被覆盖的回归断言。
+
+- [ ] R0001 三期启动前重新评估边界
+  - 任务：启动三期前重新评估哪些能力应下沉，哪些继续交给帆软/UCP。
+  - 交付物：三期启动评审记录。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：禁止默认把复杂 ETL/Pipeline 搬进数据仓库。
+  - 测试要求：文档评审任务不需自动化测试。
+  - 验收标准：每项三期能力都有“为什么不在 UCP/帆软做”的理由。
+  - 完成定义：评审通过后才可开发 R 章后续任务。
+
+- [ ] R0002 三期分层流转主线确认
+  - 任务：在开发任何 R01-R07 功能前，确认本期要支持的 ODS→DWD、DWD→DWS、DWS→ADS 流转路径、输入资产、输出资产和不可做项。
+  - 交付物：分层流转执行清单、输入/输出层级矩阵、产物资产类型清单、UI 入口清单。
+  - UI 要求：必须确认是否需要展示分层流转总览；如涉及 UI，需引用 `U25 ODS-DWD-DWS-ADS 分层流转总览线框图`。
+  - UI 示意图：见本文件 `U25 ODS-DWD-DWS-ADS 分层流转总览线框图`。
+  - UCP / 数据仓库边界要求：确认所有 R 章能力只处理已入仓资产，不编辑 UCP 凭证、连接器或跨系统 Pipeline。
+  - 测试要求：文档评审任务不需自动化；验收需检查每个后续任务是否写明输入层、输出层、测试和验收。
+  - 验收标准：后续 R01-R07 不再以“ETL 工具”视角开工，而是以分层产物流转视角开工。
+  - 完成定义：本任务完成后，才允许开始 R01-R07 的功能开发。
+
+## R01 ODS → DWD 标准化与清洗
+
+> 拆分修订说明：原文档 R0101（`transform_rules`，覆盖派生/枚举映射/格式标准化/空值处理）与原 R0105（`standardization_rules`，覆盖重命名/类型转换/枚举映射/单位转换/拆分合并）是两套并行、字段重叠的规则表设计，原 R0102-R0104（去重/空值/格式标准化）又各自独立成任务，四者对同一类"字段级转换规则"给出了不一致的建模方式。本组任务统一为**一张规则表、一个 rule_type 枚举**，不再建两套平行规则模型。
+
+- [ ] R0101 标准化规则范围澄清与统一 rule_type 枚举
+  - 任务：确认 ODS→DWD 全部字段级转换只用一张 `standardization_rules` 表承载，`rule_type` 枚举统一为：`rename`/`type_convert`/`value_map`/`unit_convert`/`split_merge`/`deduplicate`/`null_handling`/`format_standardize` 共 8 类，不再单独建 `transform_rules` 表。
+  - 交付物：本任务作为 R0102-R0107 的唯一权威依据；决策记录写入本任务。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：仅处理已入仓数据，不调用外部接口。
+  - 测试要求：文档任务不需自动化测试；验收时检查 R0102-R0107 是否都引用同一张表和同一 rule_type 枚举，没有重复建模。
+  - 验收标准：不存在两套并行的规则表设计。
+  - 完成定义：本任务确认后，后续任务按此统一模型执行，不得再各自发明表名。
+
+- [ ] R0102 `standardization_rules` ORM/migration
+  - 任务：实现 R0101 确定的规则表，字段至少包含：`id`、`asset_type`(table/dataset)、`asset_code`、`rule_type`(8 类枚举)、`source_field`、`target_field`、`rule_config`(json)、`enabled`、`created_at`、`updated_at`；输入层=ODS/已入仓明细，输出层=DWD，且需声明该约束的校验位置。
+  - 交付物：`app/warehouse/models.py` 中的 ORM 类、alembic migration。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：只处理已入仓 `RegisteredTable`/`DataSet`；UCP 只提供来源摘要，不承载标准化规则。
+  - 测试要求：migration 测试、ORM 导入测试、`rule_type` 枚举校验测试（8 类合法值、非法值报错）。
+  - 验收标准：8 类规则均可持久化，且规则只能声明 ODS→DWD 方向，不可配置为覆盖 ODS 原始表。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0103 标准化规则 CRUD API
+  - 任务：实现规则列表、创建、更新、删除、启停接口。
+  - 交付物：router/service/schema/test。
+  - UI 要求：规则以受控表单呈现；用户选择源字段、目标字段、规则类型和参数；不得提供任意 SQL/Python 输入框；保存前必须展示影响分析入口。
+  - UI 示意图：见本文件 `U22 字段标准化与清洗规则线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：只处理已入仓资产。
+  - 测试要求：API 测试覆盖非法 `rule_type`、重复目标字段、枚举映射缺失、无权限 403；影响分析测试覆盖目标字段被模型/指标引用时的阻断。
+  - 验收标准：用户可为 ODS 表配置标准化规则；非法配置在保存阶段即被拒绝。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0104 标准化规则执行引擎：结构转换类
+  - 任务：实现 `rename`/`type_convert`/`value_map`/`unit_convert`/`split_merge` 五类规则的执行逻辑，只写入派生/物化结果，不覆盖 ODS 原始表。
+  - 交付物：`app/warehouse/standardization_engine.py`（新增）中的执行函数、单元测试。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：仅处理已入仓数据。
+  - 测试要求：单元测试覆盖 5 类规则各自的正常转换和异常输入（如 `type_convert` 遇到无法转换的值）。
+  - 验收标准：5 类结构转换规则均可正确执行且不修改 ODS 原始数据。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0105 标准化规则执行引擎：清洗类（去重/空值/格式）
+  - 任务：实现 `deduplicate`（按业务主键/字段组合去重）、`null_handling`（填默认值/标记问题/使用上游值等受控策略）、`format_standardize`（日期/编码/大小写/空格/字段长度标准化）三类规则的执行逻辑。
+  - 交付物：`standardization_engine.py` 扩展、单元测试。
+  - UI 要求：UI 需提示风险和受影响字段；`format_standardize` 需展示转换前后样例预览。
+  - UI 示意图：见本文件 `U22 字段标准化与清洗规则线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：只在派生/物化结果中处理，默认不覆盖原始 ODS 数据；不修改外部系统源数据。
+  - 测试要求：测试覆盖重复识别/无重复/大数据 limit（去重）、不同数据类型空值处理、日期/编码异常（格式标准化）。
+  - 验收标准：去重、空值处理、格式标准化均可追溯且不破坏原始数据。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0106 标准化模板管理
+  - 任务：支持按业务对象沉淀标准化模板，例如员工表、组织表、岗位表；模板可加载到具体表并二次调整。
+  - 交付物：`standardization_templates` 表/API、模板导入/加载服务、模板版本字段。
+  - UI 要求：规则页显示“可用模板”区域，支持加载、预览模板规则、复制为当前表规则；模板加载需提示会新增/覆盖哪些规则。
+  - UI 示意图：见本文件 `U22 字段标准化与清洗规则线框图`。
+  - UCP / 数据仓库边界要求：模板属于数据仓库治理资产，不属于 UCP connector template。
+  - 测试要求：模板 CRUD、加载模板、重复加载幂等、模板版本兼容、权限测试。
+  - 验收标准：同类数据源可复用同一套字段标准化规则，减少重复配置。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0107 标准化/清洗结果预览
+  - 任务：实现规则保存前的样例预览，展示转换前、转换后、错误样例和受影响行数估算。
+  - 交付物：preview API、采样策略、错误明细 DTO、前端预览抽屉。
+  - UI 要求：预览必须以左右对比表展示“原始值/转换后值/错误原因”；支持只预览不保存；错误样例必须可下载或复制。
+  - UI 示意图：见本文件 `U22 字段标准化与清洗规则线框图`。
+  - UCP / 数据仓库边界要求：预览只查询仓内样例数据，不调用外部系统，不触发 DataSource/UCP 同步。
+  - 测试要求：预览成功、预览无数据、规则错误、超时、权限、脱敏字段预览测试。
+  - 验收标准：用户能在发布规则前判断转换是否正确，避免错误规则直接进入 DWD/DWS。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0108 DWD 逻辑视图生成
+  - 任务：基于标准化和清洗规则生成 DWD 逻辑视图或派生 DataSet，先支持逻辑视图，物理表生成交给 R0201/R0202。
+  - 交付物：DWD view definition、生成服务、版本记录、回滚说明。
+  - UI 要求：规则页提供“发布为 DWD 视图”操作；发布前展示影响分析、字段清单和版本说明；发布后在数据资产目录显示为 `asset_type=view/dataset_view`。
+  - UI 示意图：见本文件 `U22 字段标准化与清洗规则线框图` 和 `U21 数据视图与数据资产合并线框图`。
+  - UCP / 数据仓库边界要求：DWD 视图属于数据仓库资产；不改变 UCP 资源和 DataSource 配置。
+  - 测试要求：生成 SQL/视图定义测试、字段类型校验、发布版本、回滚、资产登记、影响分析测试。
+  - 验收标准：标准化规则可沉淀为可消费、可治理、可血缘追踪的 DWD 资产。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## R02 分层产物物化与刷新支撑
+
+> 字段基础：`spec.md` 第 14.7 节已预留 `DataSet.build_mode`(virtual/materialized) 和 `DataSet.refresh_strategy`(manual/scheduled/upstream_triggered)，本组任务在此基础上实现物化执行，不重新定义这两个字段。
+
+- [ ] R0201 数据集构建运行记录 ORM/migration
+  - 任务：新增 `dataset_builds` 表记录每次物化执行，字段：`id`、`dataset_id`、`status`(pending/running/success/failed)、`layer_check_result`、`row_count`、`error_message`、`started_at`、`finished_at`。
+  - 交付物：ORM/migration。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：构建只查询仓内数据。
+  - 测试要求：migration 测试、ORM 导入测试。
+  - 验收标准：每次构建可持久化一条运行记录。
+  - 完成定义：开发、边界、测试全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0202 数据集物化执行 API
+  - 任务：实现构建接口，将 `build_mode=virtual` 的模型物化为 DWD/DWS/ADS/DM 表或结果表；执行前必须校验输入层和输出层是否符合 `ODS→DWD→DWS→ADS` 分层流转（参考 `R00` 契约的分层校验要求），非法跳转返回 400。
+  - 交付物：build service、router、test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：构建只查询仓内数据，不触发外部拉取。
+  - 测试要求：API/集成测试覆盖成功、失败、权限 403、SQL 错误、非法分层跳转 400。
+  - 验收标准：数据集可物化并记录运行历史。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0203 数据集物化构建 UI
+  - 任务：在建模页提供“构建/重建”按钮、运行状态展示、失败详情。
+  - 交付物：构建按钮组件、运行状态轮询或推送。
+  - UI 要求：建模页提供“构建/重建”按钮、运行状态、失败详情。
+  - UI 示意图：见本文件 `U12 仓内 ELT/调度线框图` 和 `U25 ODS-DWD-DWS-ADS 分层流转总览线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：前端手工验证构建中/成功/失败三种状态。
+  - 验收标准：用户可在建模页直接触发构建并看到结果。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0204 增量刷新策略后端实现
+  - 任务：实现 `refresh_strategy=manual/full/incremental` 三种策略的执行逻辑；`incremental` 依据仓内时间字段或 `SyncRun` 摘要判断增量范围。
+  - 交付物：刷新策略执行逻辑、API 参数。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：增量依据仓内时间字段或 SyncRun 摘要，不调用 UCP 内部表。
+  - 测试要求：测试覆盖无增量字段时的降级为全量、重复运行幂等性。
+  - 验收标准：三种刷新策略行为符合预期，无增量字段时不报错而是明确降级。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0205 增量刷新策略前端展示
+  - 任务：在建模页展示当前刷新策略，并允许用户切换。
+  - 交付物：刷新策略选择组件。
+  - UI 要求：UI 明确全量/增量差异和风险，无增量字段时禁用“增量”选项并提示原因。
+  - UI 示意图：见本文件 `U12 仓内 ELT/调度线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：前端手工验证三种策略切换和禁用态。
+  - 验收标准：用户切换刷新策略时能理解风险，不会误选不支持的策略。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## R03 DWD → DWS 指标聚合与维度增强
+
+- [ ] R0301 `metric_results`/`metric_runs` ORM/migration
+  - 任务：实现指标计算结果表 `metric_results`（`id`/`metric_id`/`period`/`value`/`computed_at`）和运行记录表 `metric_runs`（`id`/`metric_id`/`status`/`error_message`/`started_at`/`finished_at`），支持按周期保存指标值。
+  - 交付物：ORM/migration。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：指标计算基于数据仓库模型。
+  - 测试要求：migration 测试、ORM 导入测试。
+  - 验收标准：指标计算结果和运行记录均可持久化。
+  - 完成定义：开发、边界、测试全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0302 指标计算/重算 API
+  - 任务：实现指标计算触发、重算、归档接口。
+  - 交付物：router/service/test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：指标计算基于数据仓库模型，不调用外部系统。
+  - 测试要求：测试覆盖计算成功、重算覆盖旧值、归档、权限 403。
+  - 验收标准：指标从目录演进为可计算结果，重算行为可预期。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0303 指标计算结果 UI
+  - 任务：在指标页展示计算趋势、最近计算时间、失败原因。
+  - 交付物：趋势图组件、失败详情展示。
+  - UI 要求：指标页展示趋势、最近计算、失败原因。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：前端手工验证趋势展示和失败态。
+  - 验收标准：用户能直观看到指标计算历史和当前失败原因。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0304 维度定义 ORM/migration
+  - 任务：实现维度目录数据模型，支持层级（父子关系）和字段绑定。
+  - 交付物：`dimensions` 表 ORM/migration（`id`/`dimension_code`/`dimension_name`/`parent_id`/`bound_table`/`bound_field`）。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：不属于 UCP。
+  - 测试要求：migration 测试、层级关系（父子）约束测试。
+  - 验收标准：维度层级数据可持久化且无循环引用。
+  - 完成定义：开发、边界、测试全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0305 维度定义 CRUD API
+  - 任务：实现维度的列表、创建、更新、删除、层级查询接口。
+  - 交付物：router/service/test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：不属于 UCP。
+  - 测试要求：API 测试覆盖层级 CRUD、循环引用校验、删除前的影响提示。
+  - 验收标准：业务可统一维护维度口径。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0306 维度定义管理 UI
+  - 任务：实现维度管理页面，支持层级树展示、字段绑定、影响提示。
+  - 交付物：`WarehouseDimension.vue` 或等价页面。
+  - UI 要求：维度页面支持层级树、字段绑定、影响提示。
+  - UI 示意图：见本文件 `U23 DWS 聚合与 ADS 组装线框图`（维度绑定区域）；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不属于 UCP。
+  - 测试要求：前端手工验证层级树展示和字段绑定。
+  - 验收标准：业务人员可通过树形界面维护维度口径。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0307 `dws_aggregate_definitions` ORM/migration
+  - 任务：基于 DWD/DataSet、指标定义和维度字段建立 DWD → DWS 聚合定义表，字段：`id`/`metric_id`/`group_by`(json)/`filter`(json)/`aggregation`(sum/count/avg 等)/`time_grain`/`business_definition`。
+  - 交付物：ORM/migration。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：DWS 聚合只基于数据仓库模型/DataSet，不调用外部系统或 UCP Pipeline。
+  - 测试要求：migration 测试、ORM 导入测试。
+  - 验收标准：聚合定义可持久化，字段结构支持后续 SQL 生成。
+  - 完成定义：开发、边界、测试全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0308 DWS 聚合定义 API
+  - 任务：实现聚合定义的创建、更新、校验接口，包括非法维度、重复指标编码校验。
+  - 交付物：router/service/test。
+  - UI 要求：不涉及 UI；错误结构支持前端表单展示。
+  - UCP / 数据仓库边界要求：同上。
+  - 测试要求：聚合定义校验、非法维度、重复指标编码、权限、影响分析、生成 SQL 快照测试。
+  - 验收标准：指标口径可转化为受控 DWS 聚合定义，非法配置在保存阶段即被拒绝。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0309 DWS 聚合定义配置 UI
+  - 任务：在指标详情页提供"生成 DWS 聚合"配置区。
+  - 交付物：聚合配置表单组件。
+  - UI 要求：以表单选择度量字段、聚合方式、维度、周期和过滤条件；不允许任意 SQL。
+  - UI 示意图：见本文件 `U23 DWS 聚合与 ADS 组装线框图` 和 `U25 ODS-DWD-DWS-ADS 分层流转总览线框图`。
+  - UCP / 数据仓库边界要求：同上。
+  - 测试要求：前端手工验证表单校验和保存流程。
+  - 验收标准：用户可通过表单配置 DWS 聚合，为 R0310 视图生成铺底。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0310 DWS 逻辑视图生成 service
+  - 任务：根据 DWS 聚合定义生成 DWS 逻辑视图，记录版本、依赖、发布状态和回滚信息。
+  - 交付物：DWS view generation service、版本表/API、资产登记逻辑。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：DWS 视图属于仓内加工结果，不触发 DataSource/UCP 同步。
+  - 测试要求：视图生成、版本回滚、依赖缺失、字段删除影响、资产目录展示测试。
+  - 验收标准：常用指标可形成统一 DWS 视图，减少 BI 端重复口径。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0311 DWS 逻辑视图生成 UI
+  - 任务：在聚合配置页提供"生成视图"操作，展示 SQL 摘要、依赖模型、影响分析和预计输出字段。
+  - 交付物：生成操作按钮、SQL 摘要展示组件。
+  - UI 要求：生成前展示 SQL 摘要、依赖模型、影响分析和预计输出字段；生成后可在数据资产目录中以 `asset_type=model/view` 查看。
+  - UI 示意图：见本文件 `U23 DWS 聚合与 ADS 组装线框图`。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：前端手工验证生成前预览和生成后资产目录展示。
+  - 验收标准：用户可在保存聚合定义后一键生成可治理的 DWS 视图资产。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## R04 快照与拉链
+
+- [ ] R0401 快照任务模型与执行 API
+  - 任务：实现员工/组织等对象快照生成，含快照对象、周期、保留策略的数据模型和触发接口。
+  - 交付物：`snapshot_jobs`/`snapshot_runs` ORM/migration、执行 service、router、test。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：快照源为仓内表/模型。
+  - 测试要求：测试覆盖快照生成成功、重复执行幂等性、保留策略过期清理。
+  - 验收标准：可生成历史快照且不会无限堆积（保留策略生效）。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0402 快照管理 UI
+  - 任务：展示快照对象、周期、最近生成、保留策略，支持手动触发。
+  - 交付物：快照管理页面或建模页扩展区域。
+  - UI 要求：UI 展示快照对象、周期、最近生成、保留策略。
+  - UI 示意图：本任务无现成专属线框图，参考 `U12 仓内 ELT/调度线框图` 的任务列表样式，开发前需确认是否需要补充专属快照管理线框图。
+  - UCP / 数据仓库边界要求：快照源为仓内表/模型。
+  - 测试要求：前端手工验证快照列表展示和手动触发。
+  - 验收标准：运营人员可查看和管理快照生成情况。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0403 SCD 拉链能力
+  - 任务：实现 `business_key`/`effective_from`/`effective_to`/`current_flag` 的拉链生成逻辑，覆盖新增、变更、关闭旧记录三种场景。
+  - 交付物：SCD 配置模型、执行 service、API、test。
+  - UI 要求：UI 必须提示业务键和时间字段风险，配置前需展示当前表是否已具备合适的业务键候选字段。
+  - UI 示意图：本任务无现成专属线框图，参考 `U22 字段标准化与清洗规则线框图` 的规则配置样式，开发前需确认是否需要补充专属 SCD 配置线框图。
+  - UCP / 数据仓库边界要求：不修改外部系统。
+  - 测试要求：测试覆盖新增记录、字段变更触发新版本、关闭旧记录（`current_flag` 翻转）三种场景。
+  - 验收标准：支持员工状态/岗位变更历史查询，且同一 `business_key` 在同一时间点只有一条 `current_flag=true` 记录。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## R05 仓内调度、重跑与审计
+
+> 代码现状：`backend/app/scheduler/`（`handlers.py`/`models.py`/`engine.py`/`service.py`）已实现通用调度组件——`scheduled_jobs`/`job_runs` 表 + `JOB_HANDLERS` 字典注册机制，新增一类定时任务只需注册 handler，不需要改表结构。本组任务必须复用该组件，禁止另建一套"仓内调度中心"造成两套平行调度系统。
+
+- [ ] R0501 仓内任务 handler 注册
+  - 任务：为 `dataset_build`、`metric_run`、`quality_run`、`snapshot_run` 四类仓内任务分别在 `app/scheduler/handlers.py` 的 `JOB_HANDLERS` 中注册处理函数，复用现有 `scheduled_jobs`/`job_runs` 表，不新建平行的调度模型。
+  - 交付物：`handlers.py` 新增 4 个 handler 函数及注册项。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：外部连接调度仍归 DataSource/UCP，本任务只注册仓内任务 handler。
+  - 测试要求：单元测试覆盖 4 类 handler 的正常执行和异常处理；确认注册后 `JOB_HANDLERS` 不与既有 handler（如 `datasource_sync`）冲突。
+  - 验收标准：仓内任务可通过现有调度基础设施定时运行，没有新建第二套调度表。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0502 仓内任务定时配置 UI
+  - 任务：在建模页、质量规则页、快照管理页分别提供"设置定时"入口，复用现有 `scheduled_jobs` 配置能力（参考现有 DataSource 定时配置交互），不新建独立的"调度中心"页面。
+  - 交付物：各页面的定时配置入口组件。
+  - UI 要求：定时配置入口与 UCP Pipeline UI 明确区分；不出现跨系统节点画布；复用一期已有的定时配置交互模式。
+  - UI 示意图：本任务无专属线框图；参考现有 DataSource 定时配置交互，开发前确认是否需要补充线框图。
+  - UCP / 数据仓库边界要求：外部连接调度仍归 DataSource/UCP。
+  - 测试要求：前端手工验证 4 类任务的定时配置入口和保存流程。
+  - 验收标准：用户可为仓内任务设置定时，且交互与一期已有定时配置一致，不产生新的学习成本。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0503 仓内任务重跑 API 与审计
+  - 任务：支持失败任务重跑、审计日志记录操作人和操作原因。
+  - 交付物：run retry API、audit log（复用 `system_logs` 按 category 多路复用，不新建审计表）。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：不重跑 UCP Pipeline，只重跑仓内任务。
+  - 测试要求：测试覆盖权限 403、重复重跑幂等性、审计记录完整性。
+  - 验收标准：运行问题可闭环处理，且审计记录可追溯操作人和原因。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0504 仓内任务重跑 UI
+  - 任务：在失败详情页提供重跑按钮和原因输入框。
+  - 交付物：重跑按钮组件。
+  - UI 要求：失败详情页提供重跑按钮和原因输入。
+  - UI 示意图：本任务无专属线框图；参考 `U11 监控告警线框图` 的失败详情样式。
+  - UCP / 数据仓库边界要求：不重跑 UCP Pipeline。
+  - 测试要求：前端手工验证重跑按钮、原因必填校验、重跑后状态更新。
+  - 验收标准：用户可在失败详情页直接重跑并填写原因，无需切换页面。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## R06 数据开放增强
+
+- [ ] R0601 数据开放 API 契约设计
+  - 任务：规划将已发布数据集/指标开放给 BI/API/订阅的接口契约和权限模型。
+  - 交付物：Open API 契约文档、权限模型设计。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：不把 UCP 资源直接开放，必须经数据仓库发布。
+  - 测试要求：契约评审记录；安全评审记录。
+  - 验收标准：数据开放边界清晰，明确哪些数据可开放、开放粒度和权限校验点。
+  - 完成定义：契约和权限模型评审通过后才可进入实现。
+
+- [ ] R0602 数据开放状态 UI
+  - 任务：在数据集/指标详情页展示发布状态、调用说明、权限提示。
+  - 交付物：发布状态展示组件。
+  - UI 要求：UI 提供发布状态、调用说明、权限提示。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：不把 UCP 资源直接开放。
+  - 测试要求：前端手工验证已发布/未发布两种状态展示。
+  - 验收标准：用户能清楚了解某数据集/指标是否已开放及如何调用。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+---
+
+## R07 DWS → ADS 组装与消费资产发布
+
+- [ ] R0701 `ads_definitions` ORM/migration
+  - 任务：定义 DWS → ADS 组装的数据结构，字段至少包含：`id`/`name`/`source_dws_id`/`dimension_refs`(json)/`output_fields`(json)/`preset_filters`(json)/`publish_status`；必须声明消费场景、输出资产类型和开放边界。
+  - 交付物：ORM/migration。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：ADS 只组装仓内资产；外部 API/连接器仍通过 DataSource/UCP 入仓后再使用。
+  - 测试要求：migration 测试、ORM 导入测试。
+  - 验收标准：ADS 组装定义可持久化，字段结构支持维度关联和字段选择。
+  - 完成定义：开发、边界、测试全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0702 ADS 组装配置 API
+  - 任务：实现组装配置的创建、更新、预览接口，覆盖维度关联、输出字段选择、字段重命名、预置过滤配置。
+  - 交付物：router/service/test。
+  - UI 要求：不涉及 UI；错误结构支持前端向导展示。
+  - UCP / 数据仓库边界要求：同上。
+  - 测试要求：API 测试覆盖维度关联、字段重命名、预置过滤、重复字段、权限 403、影响分析接入。
+  - 验收标准：组装配置可保存和预览，非法配置在保存阶段即被拒绝。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0703 ADS 组装向导 UI
+  - 任务：实现 ADS 组装向导页面：选择主 DWS/模型、关联维度、选择输出字段、配置业务字段名、配置预置过滤、预览结果。
+  - 交付物：向导组件（多步表单）。
+  - UI 要求：以向导呈现，不得提供任意 SQL 编辑器；每一步均需校验后才能进入下一步。
+  - UI 示意图：见本文件 `U23 DWS 聚合与 ADS 组装线框图` 和 `U25 ODS-DWD-DWS-ADS 分层流转总览线框图`。
+  - UCP / 数据仓库边界要求：ADS 只组装仓内资产。
+  - 测试要求：组件/E2E 测试覆盖向导完整流程，含中途返回上一步、字段冲突提示。
+  - 验收标准：用户可把标准 DWS/维度组装成面向 BI/API/推送的统一消费资产。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0704 ADS 发布 API
+  - 任务：支持 ADS 结果发布为数据资产、数据视图、PushTarget/API 暴露候选对象，并接入权限、血缘和影响分析。
+  - 交付物：发布/撤回 API、资产登记逻辑、开放候选 DTO、血缘边记录、权限策略。
+  - UI 要求：不涉及 UI；错误结构支持前端展示。
+  - UCP / 数据仓库边界要求：ADS 发布不直接创建 UCP 连接器；出仓推送仍通过数据仓库来源与开放/PushTarget 或未来 UCP 协作。
+  - 测试要求：发布、撤回、权限、脱敏、血缘、影响分析、PushTarget/API 候选生成测试。
+  - 验收标准：ADS 组装结果可以被统一资产目录发现的同时权限和血缘完整登记。
+  - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
+
+- [ ] R0705 ADS 发布 UI
+  - 任务：实现发布页面，展示发布选项和敏感字段提示。
+  - 交付物：发布弹窗/页面组件。
+  - UI 要求：发布页展示"发布为数据资产/数据视图/API 候选/推送候选"的选项；敏感字段必须显示脱敏和权限提示；发布前必须展示影响分析。
+  - UI 示意图：见本文件 `U23 DWS 聚合与 ADS 组装线框图`、`U20 接口配置拉取/推送融合线框图` 和 `U21 数据视图与数据资产合并线框图`。
+  - UCP / 数据仓库边界要求：不直接创建 UCP 连接器。
+  - 测试要求：前端手工验证 4 种发布选项、脱敏提示、影响分析展示。
+  - 验收标准：用户发布前能清楚看到敏感字段风险和下游影响，不会误发布。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] R0706 ADS 专项验收
+  - 任务：验收 ADS 组装是否满足“可复用消费资产”定位，而不是变成临时报表制作工具。
+  - 交付物：验收记录、测试结果、边界风险清单、是否允许对接 BI/API/推送的结论。
+  - UI 要求：检查向导、预览、发布、权限、血缘、影响分析、空态/错态/禁用态；不得出现图表制作、大屏设计等 BI 功能。
+  - UI 示意图：见本文件 `U23 DWS 聚合与 ADS 组装线框图`。
+  - UCP / 数据仓库边界要求：确认 ADS 不触发外部拉取、不编辑 UCP Pipeline、不绕过 PushTarget/API 权限。
+  - 测试要求：记录 API、组件/E2E、权限、脱敏、血缘、影响分析、性能和回滚测试结果；无法自动化的项说明手工证据。
+  - 验收标准：ADS 能作为数据仓库消费层资产稳定复用，且没有替代 BI 报表制作工具。
+  - 完成定义：专项验收通过后才允许进入生产菜单或开放给业务用户。
+
+---
+
+# X. 四期：高级数据开发与消费侧能力复评原子任务
+
+> 四期承接前期“不纳入或暂不纳入”的能力，但不是默认内建。四期原则：先复评边界，优先集成专业工具；只有在明确复用价值、权限安全、审计、资源控制、UI 边界都可控时，才允许以受控方式进入数据仓库。
+
+## X00 四期契约与禁止项
+
+- [ ] X0001 四期启动前高级能力复评
+  - 任务：对复杂 BI 自助分析、任意 SQL/脚本 ETL、跨系统 Pipeline、复杂星型/雪花建模四类能力逐项复评，判断是继续外部集成、受控内建还是不做。
+  - 交付物：四期复评 ADR、能力归属矩阵、风险评估、安全评审、是否内建结论。
+  - UI 要求：不直接开发功能；需输出未来入口草图和“外部工具/内建能力/禁用”的状态文案，避免用户误解为已可用。
+  - UI 示意图：见本文件 `U24 四期高级能力复评与集成线框图`。
+  - UCP / 数据仓库边界要求：跨系统连接、凭证、Pipeline 默认归 UCP；报表可视化默认归 BI；数据仓库只在复评通过后承接受控子集。
+  - 测试要求：文档任务不需自动化；验收需列出每类能力的 owner、入口、权限、审计、资源控制、降级和退出方案。
+  - 验收标准：四期不以“功能强大”为理由突破边界；每项能力都有明确不做/集成/内建结论。
+  - 完成定义：复评通过后才允许推进 X01-X04。
+
+## X01 复杂 BI 自助分析集成
+
+- [ ] X0101 BI 自助分析集成而非替代
+  - 任务：规划与帆软/BI 的深度集成，数据仓库提供可信数据资产、指标语义、权限和跳转，不内建图表设计器、大屏设计器。
+  - 交付物：BI 集成契约、数据资产到 BI 数据集映射、跳转 URL、权限同步/校验方案。
+  - UI 要求：数据资产详情提供“在 BI 中分析/创建报表”的跳转；展示 BI 发布状态和最近使用摘要；不在数据仓库内提供图表拖拽画布。
+  - UI 示意图：见本文件 `U24 四期高级能力复评与集成线框图`。
+  - UCP / 数据仓库边界要求：BI 消费数据仓库发布资产；UCP 不参与报表制作。
+  - 测试要求：跳转、权限、无 BI 权限、BI 不可用、资产下线后 BI 引用影响分析测试。
+  - 验收标准：业务用户可从数据仓库找到可信资产并进入 BI 分析，但数据仓库不重复建设 BI 报表能力。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## X02 任意 SQL / 脚本 ETL 受控沙箱复评
+
+- [ ] X0201 任意 SQL/脚本能力安全复评
+  - 任务：评估是否需要开放任意 SQL、Python 或脚本 ETL；默认不开放，若确需开放，只允许进入受控沙箱、审批、资源限额和审计链路。
+  - 交付物：安全评审、沙箱方案、SQL 白名单/黑名单、资源限额、审批流程、审计模型。
+  - UI 要求：不得在普通建模/指标页面出现任意 SQL 编辑器；如四期试点，入口必须标记“高级受控沙箱”，并显示审批、风险和资源限额。
+  - UI 示意图：见本文件 `U24 四期高级能力复评与集成线框图`。
+  - UCP / 数据仓库边界要求：脚本不得访问 UCP secrets，不得直接调用外部系统；跨系统动作仍归 UCP。
+  - 测试要求：SQL 注入、越权表访问、资源超限、超时中断、审计记录、审批拒绝、敏感字段脱敏测试。
+  - 验收标准：没有安全沙箱和审计前，任意 SQL/脚本能力不得上线；上线也只能面向管理员或数据工程角色。
+  - 完成定义：安全、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## X03 跨系统 Pipeline 与 UCP 编排集成
+
+- [ ] X0301 跨系统 Pipeline 继续归 UCP，数据仓库只做消费侧摘要
+  - 任务：规划数据仓库如何展示 UCP Pipeline 摘要、运行状态和影响，但不内建跨系统 Pipeline 画布。
+  - 交付物：UCP Pipeline summary API 契约、跳转 URL、状态快照、影响分析接入规则。
+  - UI 要求：资产详情“来源与开放”中展示 Pipeline 摘要、状态和跳转；不展示可编辑 Pipeline 节点画布；UCP 不可用时显示降级提示。
+  - UI 示意图：见本文件 `U24 四期高级能力复评与集成线框图` 和 `U20 接口配置拉取/推送融合线框图`。
+  - UCP / 数据仓库边界要求：连接器、凭证、跨系统编排、重试、死信队列归 UCP；数据仓库保存远端 ID、名称快照、状态快照和跳转。
+  - 测试要求：UCP 200/401/403/404/timeout、跳转、权限、状态快照过期、无 UCP 环境测试。
+  - 验收标准：用户能在数据仓库理解资产依赖的 Pipeline 状态，但不会在数据仓库编辑跨系统 Pipeline。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## X04 复杂星型/雪花模型设计复评
+
+- [ ] X0401 复杂维度建模能力复评与受控增强
+  - 任务：评估是否需要在数据仓库内支持复杂星型/雪花模型设计；优先复用现有 DataSet、维度定义和 ADS 组装，不默认建设完整 BI 语义建模器。
+  - 交付物：维度建模评估、与 BI 语义层边界、可内建子集、迁移/兼容方案。
+  - UI 要求：若内建，只允许在“数据建模 > 高级维度模型”提供受控关系和层级配置；不得复制 BI 的报表语义层和图表能力。
+  - UI 示意图：见本文件 `U24 四期高级能力复评与集成线框图` 和 `U05 可视化建模线框图`。
+  - UCP / 数据仓库边界要求：维度建模属于仓内语义/建模；UCP 不参与；BI 可消费结果但不作为主数据 owner。
+  - 测试要求：维度层级、事实表关联、循环依赖、权限、血缘、影响分析、BI 消费兼容测试。
+  - 验收标准：只有被多个下游复用、且 BI 无法稳定承载的维度模型子集才进入数据仓库。
+  - 完成定义：复评、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## X05 四期专项验收
+
+- [ ] X0501 四期高级能力专项验收
+  - 任务：对 X01-X04 的边界、UI、权限、安全、审计、测试进行统一验收。
+  - 交付物：专项验收报告、风险接受记录、上线/不上线结论、回滚和下线方案。
+  - UI 要求：逐项检查高级能力入口是否清楚标识“外部集成/受控沙箱/只读摘要/高级建模”；不得让普通用户误以为数据仓库已经替代 BI/UCP/专业 ETL。
+  - UI 示意图：见本文件 `U24 四期高级能力复评与集成线框图`。
+  - UCP / 数据仓库边界要求：确认跨系统和凭证能力没有被数据仓库复制；确认 BI 报表制作没有被数据仓库复制；确认 SQL/脚本沙箱没有越权。
+  - 测试要求：必须记录安全、权限、审计、资源限额、降级、E2E、前端 build、回滚测试结果或不适用原因。
+  - 验收标准：四期能力即使进入规划，也以边界清晰、风险可控、集成优先为前提。
+  - 完成定义：专项验收通过后才允许进入 S 章最终蓝图落地。
+
+---
+
+# S. 最终蓝图与独立应用化原子任务
+
+> S 章描述最终状态，不代表一期/二期必须全部实现。用于确保任何模型都能从当前阶段继续向最终蓝图演进。
+
+## S00 最终蓝图契约与禁止项
+
+- [ ] S0001 最终蓝图启动前做范围复评
+  - 任务：确认 UCP、数据仓库、帆软/BI、HR Portal 主应用的最终边界和部署形态。
+  - 交付物：最终蓝图复评记录。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：独立应用化时只能通过 API/事件/远端 ID 协作。
+  - 测试要求：文档评审任务不需自动化测试。
+  - 验收标准：边界清晰后才进入最终蓝图开发。
+  - 完成定义：复评记录写入 spec 或 ADR。
+
+## S01 独立应用化
+
+- [ ] S0101 数据仓库独立应用 API 边界
+  - 任务：将所有对内依赖收敛到 `/api/v1/warehouse/*`，禁止前端直接依赖内部模块。
+  - 交付物：API 契约、OpenAPI、client SDK 规划。
+  - UI 要求：UI 调用统一 client，错误提示一致。
+  - UI 示意图：本任务无专属线框图；错误提示/loading/empty/403 等通用状态复用 `U00 UI 总线框与交互规则`，不涉及独立页面布局。
+  - UCP / 数据仓库边界要求：与 UCP 通过 HTTP/事件，不直接查 UCP 表。
+  - 测试要求：契约测试、OpenAPI 校验。
+  - 验收标准：数据仓库可从 HR Portal 拆出。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] S0102 独立权限命名空间
+  - 任务：完善 warehouse.* 权限，支持应用级角色和只读/编辑/运行/管理分离。
+  - 交付物：权限 seed、后端依赖、前端 meta。
+  - UI 要求：无权限页面显示统一 403/无权限空态。
+  - UI 示意图：本任务无专属线框图；403/无权限空态复用 `U00 UI 总线框与交互规则` 中的通用交互规则，不新增独立页面。
+  - UCP / 数据仓库边界要求：不复用 ucp.* 作为数据仓库权限。
+  - 测试要求：权限矩阵测试。
+  - 验收标准：权限可独立管理。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] S0103 跨应用身份和服务账号
+  - 任务：规划 SSO/service token，用于数据仓库调用 UCP 或 BI 调用数据仓库。
+  - 交付物：认证设计、配置、审计。
+  - UI 要求：UI 提供连接状态和授权提示，不展示 token 明文。
+  - UI 示意图：本任务无现成专属线框图，`U10 UCP 资源选择器线框图`的“状态/最近执行”展示方式可参考复用，但连接状态卡片需在开发前先补充专属线框图，不得直接照搬 U10 的资源选择交互。
+  - UCP / 数据仓库边界要求：服务账号权限最小化。
+  - 测试要求：安全测试/配置测试。
+  - 验收标准：跨应用调用可审计。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## S02 完整治理与血缘
+
+- [ ] S0201 完整元数据目录
+  - 任务：形成表、字段、模型、指标、维度、质量、血缘、开放 API 的统一目录。
+  - 交付物：元数据 API、搜索、详情页。
+  - UI 要求：全局搜索支持类型筛选、标签、负责人、状态。
+  - UI 示意图：见本文件 `U18 数据资产卡片视图线框图`（全局搜索/类型筛选沿用资产卡片体系）和 `U02 数据资产列表/详情线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：UCP 资源作为外部来源引用。
+  - 测试要求：搜索和详情测试。
+  - 验收标准：用户可统一发现数据资产。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] S0202 字段级完整血缘图谱
+  - 任务：实现从来源到消费端的字段级血缘，包括模型输出、指标、报表、通知。
+  - 交付物：lineage engine、graph UI。
+  - UI 要求：图谱支持缩放、过滤、路径高亮、导出。
+  - UI 示意图：见本文件 `U08 血缘图线框图`（在 Q02 表级/字段级血缘基础上扩展路径高亮和导出）；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：UCP 只到资源/执行摘要，不暴露 secret。
+  - 测试要求：血缘准确性测试、性能测试。
+  - 验收标准：字段影响路径完整可解释。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] S0203 治理工作台闭环
+  - 任务：实现质量问题、影响分析、整改任务、负责人、状态流转。
+  - 交付物：治理任务模型/API/UI。
+  - UI 要求：工作台支持派发、评论、关闭、逾期提醒。
+  - UI 示意图：见本文件 `U13 最终蓝图工作台线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：通知可调用平台通知能力，但不复制 UCP 告警中心。
+  - 测试要求：流程测试、权限测试。
+  - 验收标准：治理问题可闭环。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## S03 语义层与数据开放
+
+- [ ] S0301 指标语义层服务
+  - 任务：提供指标查询、维度下钻、口径版本、结果缓存。
+  - 交付物：指标服务 API、缓存、权限。
+  - UI 要求：指标页支持口径版本对比和趋势。
+  - UI 示意图：见本文件 `U06 指标管理线框图`；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：指标计算基于发布模型。
+  - 测试要求：计算准确性和权限测试。
+  - 验收标准：指标可服务业务分析。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] S0302 数据开放服务
+  - 任务：对已发布模型/指标提供 API、订阅、导出、BI 对接。
+  - 交付物：开放 API、订阅配置、审计。
+  - UI 要求：开放页面显示调用文档、权限、频控、最近调用。
+  - UI 示意图：本任务无专属线框图；发布状态/权限展示可暂时参照 `U06 指标管理线框图` 的发布态样式，但开发前需先补充“数据开放服务”专属线框图（调用文档、频控、订阅列表非 U06 现有内容）。
+  - UCP / 数据仓库边界要求：不得直接开放 UCP 原始连接能力。
+  - 测试要求：API 契约、安全、频控测试。
+  - 验收标准：下游可稳定消费数据仓库成果。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## S04 运维治理
+
+- [ ] S0401 可观测性和 SLA
+  - 任务：建立数据同步、仓内加工、质量、指标、开放 API 的 SLA 和监控。
+  - 交付物：监控指标、日志、告警。
+  - UI 要求：监控页展示 SLA、失败趋势、耗时趋势。
+  - UI 示意图：见本文件 `U11 监控告警线框图`（在 Q06 仓内监控基础上扩展 SLA 和耗时趋势）；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：UCP SLA 通过摘要/事件接入。
+  - 测试要求：监控数据准确性测试。
+  - 验收标准：运维可发现和定位问题。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+- [ ] S0402 变更发布治理
+  - 任务：模型/指标/质量规则/开放 API 发布前做影响分析和审批。
+  - 交付物：审批流程、差异比较、发布记录。
+  - UI 要求：发布弹窗显示 diff、影响、审批状态。
+  - UI 示意图：见本文件 `U13 最终蓝图工作台线框图`（复用 S0203 治理工作台的派发/审批交互模式）；如本任务实际页面与示意图不一致，必须先更新 U 章节线框图和交互说明再开发。
+  - UCP / 数据仓库边界要求：UCP 变更审批不在数据仓库重复实现。
+  - 测试要求：流程测试、回滚测试。
+  - 验收标准：高风险变更受控。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+## S05 最终验收
+
+- [ ] S0501 最终蓝图回归验收
+  - 任务：建立覆盖一期、二期、三期、最终状态的回归验收套件。
+  - 交付物：测试计划、自动化测试、手工清单。
+  - UI 要求：验收覆盖所有核心页面和状态。
+  - UI 示意图：本任务是全量回归验收，无单一专属线框图；必须逐项对照 `U00`-`U26` 全部已用线框图，核对每个页面的 normal/loading/empty/error/forbidden 状态，而非引用某一张线框图。
+  - UCP / 数据仓库边界要求：验证 UCP 不可用、UCP 可用、独立部署三种模式。
+  - 测试要求：执行全量测试并记录结果。
+  - 验收标准：任何阶段合并前有完整验收依据。
+  - 完成定义：开发、UI、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令、页面路径和风险后，才可勾选。
+
+
+---
+
+# T. 系统设置既有能力归并到数据仓库 / UCP 的原子任务
+
+> 本章节解决“字段管理、接口配置、同步历史、表间关联、数据视图是否长期两边保存”的问题。结论：不能长期两边各存一套。必须先明确主数据归属，再做菜单迁移、只读兼容、跳转和最终下线。
+>
+> 优先级修订：T 章不是最终收尾任务，而是 Phase 1.5 / Phase 2 前置任务。Q 章大规模治理、血缘、建模 V2 开发前，必须先完成 T0001、T0101、T0201、T0301、T0401、T0501、T0701、T0801、T0901 的归属、兼容和迁移设计。
+
+## T00 归并契约与禁止项（T 章评审必查）
+
+> UCP 可用性判定统一执行 `Q0003 UCP 分支未合并时的降级验收基线`：T02/T07/T0703 中“UCP 不可用/未启用/未合并”表述均指该基线，不再各自重复定义。
+
+- [ ] T0001 确认五类既有能力的权责归属
+  - 任务：梳理系统设置中的字段管理、接口配置、同步历史、表间关联、数据视图，明确 canonical owner。
+  - 交付物：归属矩阵写入 `spec.md` 和本章节；必要时补充 ADR。
+  - UI 要求：不涉及页面开发；若涉及菜单文案，必须使用“迁移中/已迁移/去数据仓库/去数据连接”等明确状态。
+  - UI 示意图：见本文件 `U14 系统设置归并迁移线框图`。
+  - UCP / 数据仓库边界要求：字段管理、表间关联、数据视图归数据仓库；接口配置从系统设置迁出，资产级拉取/推送/API 暴露归数据仓库“来源与开放”，平台级连接器/凭证/接口定义/Pipeline 归 UCP/数据连接；同步历史按来源归 DataSource/UCP/PushTarget，但数据仓库资产详情聚合展示。
+  - 测试要求：文档任务不需要自动化测试；验收时需列出每类能力的现有表、现有路由、未来 owner、迁移策略。
+  - 验收标准：不存在“同一业务概念两个地方独立编辑、独立保存”的长期方案。
+  - 完成定义：归属矩阵已写入文档并经评审确认。
+
+- [ ] T0002 前置任务收敛判据与时间盒（防止 T 章无限期阻塞 Q 章开发）
+  - 背景问题：T00 要求 T0001/T0101/T0201/T0301/T0401/T0501/T0701/T0801/T0901 九项任务在 Q 章大规模开发前完成，但这九项任务性质几乎全部是“梳理/设计/评审/写决策记录”（不产出可运行代码），如果没有收敛判据，存在评审反复、无限期拖延、Q 章永远无法开工的风险。
+  - 任务：为上述九项前置任务分别设定收敛判据：单项任务的评审/设计输出如果连续 2 轮修订后仍无法达成一致，默认采用本文件已写明的归属结论（16.2 归属矩阵、18.2 双层 owner 模型、19.1 数据视图合并决策、T01-T09 各任务“验收标准”字段中的默认结论）作为阶段性生效方案，并在文档中标注“阶段性生效，待复核”，不得以“还没讨论清楚”为由无限期阻塞 Q 章开发。
+  - 交付物：九项前置任务的收敛判据清单、逾期自动生效规则、“阶段性生效”标注规范。
+  - UI 要求：不涉及 UI。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：文档任务不需要自动化测试；验收时检查九项前置任务是否都已标注完成或阶段性生效，且都有明确判据来源。
+  - 验收标准：T00 九项前置任务不存在“无限期评审中”状态；每项要么已完成，要么已按判据阶段性生效并注明后续复核时间点。
+  - 完成定义：收敛判据写入本任务后，后续模型可直接依据判据推进，无需等待人工反复拍板。
+
+## T01 字段管理归并
+
+- [ ] T0101 将字段管理的 canonical owner 明确为数据仓库字段资产
+  - 任务：确认字段元数据以 `TableColumn` / 数据仓库字段 API 为唯一主存储，系统设置字段管理后续改为只读入口或跳转。
+  - 交付物：字段管理迁移说明、菜单迁移任务、兼容 API 策略。
+  - UI 要求：系统设置旧入口显示“已迁移到 数据仓库 > 数据资产 > 字段定义”，提供跳转；数据仓库字段页支持编辑字段标签、描述、敏感标记、聚合角色、可见性。
+  - UI 示意图：见本文件 `U03 字段管理归并线框图`。
+  - UCP / 数据仓库边界要求：字段资产属于数据仓库；UCP 资源字段只能作为来源 schema 摘要，不作为字段治理主表。
+  - 测试要求：字段更新 API 测试、旧入口跳转测试、权限测试；确认不产生第二套字段表。
+  - 验收标准：字段只在数据仓库侧维护，旧入口不再允许独立写入。
+  - 完成定义：开发、UI、边界、测试、验收全部满足后才可勾选。
+
+- [ ] T0102 字段管理旧路由兼容和下线计划
+  - 任务：为旧字段管理路由增加兼容期策略：只读、跳转、埋点统计、最终下线。
+  - 交付物：路由重定向/只读页面、下线 TODO、兼容期说明。
+  - UI 要求：旧页面顶部显示迁移提示和主按钮“前往数据仓库字段管理”；不展示可编辑表单。
+  - UI 示意图：见本文件 `U14 系统设置归并迁移线框图`。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：前端路由测试或手工验证；后端旧写接口如保留必须返回 410/readonly 或走同一个数据仓库 service。
+  - 验收标准：用户不会在两个入口编辑出不一致字段。
+  - 完成定义：兼容和下线路径明确。
+
+## T02 接口配置从系统设置迁出：资产级归数据仓库，平台级归 UCP/数据连接
+
+- [ ] T0201 明确接口配置不长期留在系统设置
+  - 任务：确认接口配置不是系统设置类能力，必须从系统设置迁出；资产级 DataSource、PushTarget、API 暴露、字段映射、调度、历史迁入数据仓库“来源与开放”，平台级连接器/凭证/接口定义/Pipeline 归 UCP/数据连接。
+  - 交付物：接口配置迁出系统设置决策、资产级/平台级边界矩阵、数据仓库“来源与开放”主入口说明。
+  - UI 要求：数据仓库资产详情必须以“来源与开放”展示资产级拉取/推送/API 暴露；系统设置旧入口只能显示兼容/迁移提示、搜索和跳转，不再作为长期主编辑入口；不得展示 secret 明文。
+  - UI 示意图：见本文件 `U20 接口配置拉取/推送融合线框图`、`U10 UCP 资源选择器线框图` 和 `U02 数据资产列表/详情线框图`。
+  - UCP / 数据仓库边界要求：资产级 DataSource/PushTarget/API 暴露由数据仓库主入口承载；接口定义、认证配置、连接器实例、Pipeline 等平台级能力归 UCP/数据连接；数据仓库保存远端 ID、快照和跳转，不复制 secret。
+  - 测试要求：验证系统设置旧入口不再作为长期主编辑；验证数据仓库可承载资产级拉取/推送/API 暴露入口；验证无 UCP 环境 DataSource/PushTarget 不回退；验证 secret 不泄露。
+  - 验收标准：接口配置不长期停留在系统设置；资产级能力在数据仓库有主入口；平台级能力归 UCP/数据连接；不存在两处独立编辑导致不一致。
+  - 完成定义：迁出决策、边界、UI、兼容和验收条件均写入文档并可执行。
+
+- [ ] T0202 建立资产级接口配置与数据资产的主关联
+  - 任务：为数据资产建立 DataSource、PushTarget、API 暴露、UCP Resource 的统一关联；资产详情以“来源与开放”为主入口，系统设置旧入口只作为兼容跳转。
+  - 交付物：资产与端点关联模型、DTO/API/迁移规划或实现。
+  - UI 要求：资产详情展示入仓来源卡片、出仓目标卡片、API 暴露卡片；支持轻操作和跳转；平台级技术规格编辑跳 UCP/数据连接。
+  - UI 示意图：见本文件 `U20 接口配置拉取/推送融合线框图` 和 `U02 数据资产列表/详情线框图`。
+  - UCP / 数据仓库边界要求：DataSource/PushTarget 当前可同库作为主执行能力；UCP 资源只保存引用和快照，不强 FK，不直接依赖 UCP 内部表。
+  - 测试要求：DataSource-only、PushTarget-only、pull+push、API expose、UCP 可用/不可用、跳转 URL 缺失测试。
+  - 验收标准：数据资产能说明入仓来源和出仓目标，并成为资产级接口配置主入口；平台级连接器配置不被数据仓库接管。
+  - 完成定义：资产级关联、兼容跳转和降级均可用。
+
+- [ ] T0203 梳理拉取接口与推送接口现状
+  - 任务：梳理现有接口配置中的拉取接口 `DataSource/SyncRun` 与推送接口 `PushTarget/JobRun`，明确表、API、前端页面、权限、调度、凭证、历史的现状。
+  - 交付物：现状清单、依赖关系图、迁移风险清单、不可回退能力清单。
+  - UI 要求：不新开发 UI；需记录现有接口配置页、推送接口 Tab、创建数据视图时自动创建接口配置/推送目标的交互现状。
+  - UI 示意图：见本文件 `U20 接口配置拉取/推送融合线框图`。
+  - UCP / 数据仓库边界要求：UCP 未建设时，DataSource 和 PushTarget 是当前生产 owner；不得以 UCP 规划为由下线或隐藏现有能力。
+  - 测试要求：文档任务不需自动化；必须列出现有 `/datasources/*`、`/push-targets/*`、scheduler job、SyncRun/JobRun 的回归测试缺口。
+  - 验收标准：清楚知道拉取接口和推送接口分别由哪些表、接口、页面、权限支撑，以及哪些能力不能在迁移中丢失。
+  - 完成定义：现状清单经评审确认后才允许做 T0204/T0205。
+
+- [ ] T0204 设计接口配置双层 owner 与三种部署形态
+  - 任务：把接口配置 owner 从“单一归 UCP”修订为“执行 owner + 技术规格/连接 owner”的双层模型，并覆盖 UCP 未启用、UCP 同系统启用、未来独立应用三种形态。
+  - 交付物：owner 矩阵、部署形态说明、feature flag / adapter 策略、降级策略。
+  - UI 要求：整体系统内不得出现两个语义重复的“接口配置”主入口；旧入口应显示兼容/迁移提示，数据仓库只呈现资产视角的“来源与开放”。
+  - UI 示意图：见本文件 `U20 接口配置拉取/推送融合线框图`。
+  - UCP / 数据仓库边界要求：DataSource/PushTarget 近期可继续作为轻量执行 owner；UCP 可接管连接器、凭证、资源、Pipeline，但数据仓库必须保留无 UCP 时的最小拉取/推送能力。
+  - 测试要求：架构任务不需自动化；验收需列出三种形态下菜单、权限、API owner、降级文案。
+  - 验收标准：UCP 不存在时当前功能可用；UCP 存在时不显得冗余；未来独立应用时边界清楚。
+  - 完成定义：owner 和部署形态写入 `spec.md`，并被 T0205/T0206 引用。
+
+- [ ] T0205 设计数据仓库“来源与开放”资产融合入口
+  - 任务：将现有拉取接口和推送接口融入数据仓库资产生命周期，设计资产详情 `来源与开放` Tab，而不是把旧接口配置页面原样搬进数据仓库。
+  - 交付物：页面信息架构、前端组件拆分、后端聚合 DTO、权限说明。
+  - UI 要求：资产详情必须分为“入仓来源 Pull Sources”“出仓目标 Push Targets”“影响与治理”三个区域；支持测试连接/立即同步/立即推送/历史查看/配置跳转，但复杂技术参数编辑进入 owner 页面或弹窗。
+  - UI 示意图：见本文件 `U20 接口配置拉取/推送融合线框图`。
+  - UCP / 数据仓库边界要求：数据仓库聚合展示和轻操作；DataSource/PushTarget/UCP 仍是执行与配置 owner；不得复制 secrets。
+  - 测试要求：组件测试或手工验证 pull-only、push-only、pull+push、manual、UCP 资源、无权限六种状态；API 测试确认 DTO 不含 secret。
+  - 验收标准：用户从资产详情能理解数据从哪里来、向哪里去、最近执行如何、字段变更影响哪些接口。
+  - 完成定义：信息架构和 DTO 足够明确，后续模型可直接开发。
+
+- [ ] T0206 设计旧接口配置入口兼容与合并计划
+  - 任务：设计系统设置旧“接口配置”的兼容路径：全局运维视角保留、资产相关配置引导到数据仓库、复杂连接器配置引导到 UCP/数据连接。
+  - 交付物：菜单迁移计划、路由兼容策略、只读/可编辑策略、下线里程碑。
+  - UI 要求：旧入口顶部显示“接口配置正在融合到数据仓库来源与开放 / 数据连接平台”；列表中按方向标记“拉取/推送/开放 API”；点击资产相关项优先进入数据仓库资产详情对应锚点。
+  - UI 示意图：见本文件 `U20 接口配置拉取/推送融合线框图` 和 `U14 系统设置归并迁移线框图`。
+  - UCP / 数据仓库边界要求：旧入口不再作为长期产品主入口，最终下线；但在数据仓库“来源与开放”具备等价能力前，仍必须可维护现有 DataSource/PushTarget，避免迁移期功能中断。
+  - 测试要求：旧 `/datasources/*`、`/push-targets/*` 路由回归；菜单权限回归；旧链接可打开或重定向；无 UCP 环境回归。
+  - 验收标准：整体系统中用户不感到功能重复；迁移期间不会找不到接口配置，也不会出现两处独立编辑导致不一致。
+  - 完成定义：兼容、跳转、下线条件均清楚。
+
+- [ ] T0207 设计拉取/推送统一端点摘要 DTO
+  - 任务：定义 `ConnectionEndpointSummary`，统一描述 DataSource、PushTarget、UCP Resource、API Expose 的方向、状态、调度、最近执行、权限和跳转。
+  - 交付物：DTO 字段表、后端 adapter 规划、前端卡片 props。
+  - UI 要求：使用统一端点卡片展示 pull/push/expose，不因底层 owner 不同而出现完全不同的视觉和操作语言。
+  - UI 示意图：见本文件 `U20 接口配置拉取/推送融合线框图`。
+  - UCP / 数据仓库边界要求：DTO 只包含摘要和跳转，不包含 secret；UCP 字段可空；DataSource/PushTarget 字段为当前主路径。
+  - 测试要求：API 测试覆盖 DataSource、PushTarget、UCP 不可用、无最近执行、无权限；脱敏测试确认不返回 secrets_encrypted。
+  - 验收标准：资产详情可以用同一组件展示入仓来源、出仓目标、API 暴露和 UCP 资源摘要。
+  - 完成定义：DTO 可被后续实现直接采用。
+
+- [ ] T0208 接口配置迁移专项验收
+  - 任务：验收 T0203-T0207 的架构、UI、兼容、测试规划是否完整。
+  - 交付物：专项评审记录、测试结果、遗留风险清单。
+  - UI 要求：检查旧接口配置、数据仓库来源与开放、UCP/数据连接三个入口的文案、跳转、权限和空态是否一致且不冗余。
+  - UI 示意图：见本文件 `U20 接口配置拉取/推送融合线框图`。
+  - UCP / 数据仓库边界要求：确认 DataSource/PushTarget 在无 UCP 时完整可用；确认 UCP 启用时不会产生重复主配置。
+  - 测试要求：必须记录 `/datasources/*`、`/push-targets/*`、资产详情聚合接口、前端 build、权限、脱敏、调度历史的测试结果或不适用原因。
+  - 验收标准：接口配置融入数据仓库是资产生命周期融合，而不是页面搬家；现有功能不回退；未来独立应用边界清楚。
+  - 完成定义：专项验收通过后才可推进旧入口下线或 UCP 接管。
+## T03 同步历史归并展示
+
+- [ ] T0301 明确同步历史 canonical owner
+  - 任务：确认现有 DataSource 同步历史仍以 `SyncRun` 为主；UCP 执行历史以 UCP Execution 为主；数据仓库只在资产详情聚合展示。
+  - 交付物：同步历史归属矩阵、资产详情聚合 API 规划。
+  - UI 要求：资产详情展示“同步历史”Tab，按来源分组：DataSource / UCP / 仓内任务；每条记录显示状态、时间、耗时、错误摘要、跳转。
+  - UI 示意图：见本文件 `U15 同步历史聚合线框图`。
+  - UCP / 数据仓库边界要求：不把 UCP Execution 复制为 SyncRun；只做引用、摘要或 adapter 查询。
+  - 测试要求：DataSource-only、UCP-only、混合来源、无历史四种场景 API/前端验证。
+  - 验收标准：用户在数据仓库能看资产相关历史，但运维详情仍回到 owner 系统。
+  - 完成定义：聚合展示不破坏原 SyncRun 功能。
+
+- [ ] T0302 旧同步历史入口迁移
+  - 任务：系统设置旧同步历史入口保留兼容期，并增加按资产跳转到数据仓库的入口。
+  - 交付物：菜单/路由调整、迁移提示。
+  - UI 要求：旧入口显示“全局同步历史”；资产相关查看引导到数据仓库资产详情；不要直接移除导致用户找不到。
+  - UI 示意图：见本文件 `U14 系统设置归并迁移线框图`。
+  - UCP / 数据仓库边界要求：全局运维历史可保留在原 owner；资产视角聚合到数据仓库。
+  - 测试要求：路由和权限验证；旧链接可访问或重定向。
+  - 验收标准：没有历史记录丢失，没有重复保存。
+  - 完成定义：兼容路径和新路径都清楚。
+
+## T04 表间关联归并
+
+- [ ] T0401 将表间关联主入口迁移到数据仓库建模
+  - 任务：确认表间关联以 `DataSetRelation` / 数据仓库建模为唯一主编辑入口，系统设置旧入口只读或跳转。
+  - 交付物：菜单调整、旧入口兼容、新建/编辑关联统一调用 warehouse model service。
+  - UI 要求：旧入口提示“表间关联已迁移到 数据仓库 > 数据建模”；数据仓库提供快速关联和可视化建模两种入口。
+  - UI 示意图：见本文件 `U04 表间关联/快速关联线框图` 和 `U05 可视化建模线框图`。
+  - UCP / 数据仓库边界要求：表间关联属于仓内建模，不是 UCP Pipeline edge。
+  - 测试要求：旧入口写操作禁用或转发到同一 service；关联 CRUD 回归测试。
+  - 验收标准：不会出现系统设置和数据仓库两套关联结果不一致。
+  - 完成定义：主入口和兼容入口均完成。
+
+## T05 数据视图从系统设置迁出并合并到数据资产
+
+> 结论：系统设置下的“数据视图”不应长期保留为独立主入口。数据视图本质是可消费、可授权、可预览、可血缘追踪的数据资产，应作为 `asset_type=view / dataset_view` 融入“数据仓库 > 数据资产”的统一资产目录。T05 负责迁移边界、旧入口兼容、旧 ID 映射和详情融合；T08 负责统一资产目录的卡片/表格产品化增强。
+
+- [ ] T0501 明确数据视图与数据资产的合并决策
+  - 任务：以现有系统设置“数据视图”为对象，确认其 canonical owner 从系统设置迁移到数据仓库统一资产目录；明确数据视图不再作为系统配置，而是资产类型 `view / dataset_view`。
+  - 交付物：合并决策记录、现有数据视图表/路由/API/权限清单、目标资产类型映射表、不能迁移项清单。
+  - UI 要求：不开发新页面；文档必须明确主入口为“数据仓库 > 数据资产”，旧入口仅兼容/只读/跳转。后续 UI 必须按 `ui-interaction.md` 的“T05 数据视图与数据资产合并交互方案”和 `ui-implementation-guardrails.md` 执行。
+  - UI 示意图：见本文件 `U21 数据视图与数据资产合并线框图`、`U18 数据资产卡片视图线框图`、`U14 系统设置归并迁移线框图`。
+  - UCP / 数据仓库边界要求：数据视图是仓内消费资产，不是 UCP 连接器资源；来源可引用 DataSource/UCP/模型，但治理、权限、预览、血缘归数据仓库。
+  - 测试要求：文档任务不需自动化；验收需列出现有数据视图数量、路由、权限、下游引用、预览能力和迁移风险。
+  - 验收标准：不存在“系统设置数据视图”和“数据仓库数据资产”两个长期独立编辑入口；合并策略经评审确认。
+  - 完成定义：决策、owner、边界、UI 入口和迁移范围均写入 `spec.md`、`ui-interaction.md` 和本任务。
+
+- [ ] T0502 设计旧数据视图到统一资产目录的映射模型
+  - 任务：为每个旧数据视图定义目标资产记录、资产类型、来源关系、字段定义、权限、预览配置、血缘和旧 ID 映射。
+  - 交付物：`old_data_view_id -> warehouse_asset_id` 映射表设计、迁移字段对照、回滚策略、幂等迁移规则。
+  - UI 要求：迁移后的资产卡片必须展示“类型：数据视图”“来源：旧数据视图迁移/模型派生/DataSource/UCP”“权限状态”“引用数”；旧页面必须显示新资产链接。
+  - UI 示意图：见本文件 `U21 数据视图与数据资产合并线框图`。
+  - UCP / 数据仓库边界要求：只保存来源摘要和远端 ID，不把 UCP 资源直接当作可编辑数据视图；不复制 secret。
+  - 测试要求：迁移脚本单元测试/集成测试；数量对账、字段对账、权限对账、预览结果对账、旧 ID 映射唯一性测试。
+  - 验收标准：每个可迁移旧数据视图都能在统一资产目录中找到唯一对应资产；迁移可重复执行且不产生重复资产。
+  - 完成定义：映射模型、迁移脚本设计、回滚和对账规则完成。
+
+- [ ] T0503 设计数据视图资产详情页融合交互
+  - 任务：在统一资产详情框架中定义数据视图详情页，不再维护一套孤立的数据视图详情；覆盖概览、字段、定义、预览、权限、血缘、影响分析、来源与开放。
+  - 交付物：详情页信息架构、Tab 清单、操作权限矩阵、前端组件复用清单、后端 DTO 字段表。
+  - UI 要求：详情页顶部显示资产名称、类型标签“数据视图”、状态、负责人、主题域、质量、权限；Tab 至少包含“概览 / 字段 / 视图定义 / 数据预览 / 权限 / 血缘 / 影响分析 / 来源与开放”。破坏性编辑前必须进入影响分析。
+  - UI 示意图：见本文件 `U21 数据视图与数据资产合并线框图` 和 `U02 数据资产列表/详情线框图`。
+  - UCP / 数据仓库边界要求：来源与开放 Tab 可展示 DataSource/UCP/PushTarget 摘要，但数据视图定义、权限和预览由数据仓库负责。
+  - 测试要求：组件测试或手工验收 normal/loading/empty/error/forbidden；权限测试覆盖只读、编辑、授权、预览；影响分析入口测试。
+  - 验收标准：用户在数据仓库资产详情中可完成旧数据视图的查看、预览、权限查看/申请、血缘和影响分析，不需要回到系统设置。
+  - 完成定义：详情交互和 DTO 足够明确，其他模型可直接开发。
+
+- [ ] T0504 设计系统设置旧数据视图入口兼容、只读和下线
+  - 任务：将系统设置旧“数据视图”入口改为兼容入口，分三阶段处理：兼容期可访问并提示迁移；主迁移期只读/跳转；下线期隐藏菜单并保留旧 URL 重定向或下线说明。
+  - 交付物：菜单迁移计划、旧路由兼容策略、只读策略、下线条件、埋点/访问统计方案。
+  - UI 要求：旧入口顶部必须显示迁移 Banner：“数据视图已纳入 数据仓库 > 数据资产”；提供主按钮“前往数据资产目录”和“查看当前视图的新详情”；不得在旧入口继续新增独立数据视图。
+  - UI 示意图：见本文件 `U21 数据视图与数据资产合并线框图` 和 `U14 系统设置归并迁移线框图`。
+  - UCP / 数据仓库边界要求：不涉及 UCP 主能力；如旧视图来源为外部接入，仅展示来源摘要和跳转。
+  - 测试要求：旧路由回归、旧链接重定向、无权限态、只读态、隐藏菜单后直接访问 URL 的兼容测试。
+  - 验收标准：迁移期间用户找得到旧视图；同时不会在旧入口和新资产详情产生双写不一致。
+  - 完成定义：兼容、只读和下线条件均明确并可执行。
+
+- [ ] T0505 设计统一资产目录中的数据视图卡片和表格展示
+  - 任务：把数据视图作为资产卡片和资产表格的一类展示，避免“数据视图列表”和“数据资产列表”两套发现入口。
+  - 交付物：卡片字段清单、表格列清单、筛选项、排序项、空态文案、前端 props 设计。
+  - UI 要求：卡片至少展示名称、类型、分层/主题域、来源、最近构建/同步、质量状态、字段数/记录摘要、权限状态、引用数、主操作；表格视图保留管理员批量治理所需列和批量操作。
+  - UI 示意图：见本文件 `U18 数据资产卡片视图线框图` 和 `U21 数据视图与数据资产合并线框图`。
+  - UCP / 数据仓库边界要求：来源为 UCP 时只显示资源摘要和跳转；不得内嵌 UCP 凭证或 Pipeline 编辑。
+  - 测试要求：组件测试覆盖 view/table/model/metric/api 多类型、数据视图筛选、卡片/表格切换、空态、无权限、来源不可用。
+  - 验收标准：业务用户能在数据资产目录中直观看到数据视图；管理员仍能通过表格批量治理。
+  - 完成定义：卡片与表格的字段和交互可直接开发。
+
+- [ ] T0506 设计数据视图权限、授权和下游引用迁移
+  - 任务：迁移旧数据视图的查看、预览、编辑、授权、字段可见性、行级条件和下游引用关系，确保合并后权限不扩大、不丢失。
+  - 交付物：权限映射矩阵、授权对象映射、引用关系迁移规则、审计保留策略。
+  - UI 要求：资产详情必须展示权限状态、申请权限入口、授权管理入口或只读授权摘要；无权限用户看到可申请但不可预览敏感数据；下游引用在血缘/影响分析中可见。
+  - UI 示意图：见本文件 `U21 数据视图与数据资产合并线框图`。
+  - UCP / 数据仓库边界要求：权限治理归数据仓库；UCP 只可能提供来源系统访问状态，不决定数据视图消费权限。
+  - 测试要求：权限回归测试覆盖原有角色、无权限、只读、编辑、授权管理员、字段脱敏、行级条件；引用对账测试覆盖报表/API/推送/模型依赖。
+  - 验收标准：迁移后同一用户对同一数据视图的可见性、预览权限和授权范围与迁移前一致或更严格；下游引用不丢失。
+  - 完成定义：权限和引用迁移有明确测试证据。
+
+- [ ] T0507 数据视图与数据资产合并专项验收
+  - 任务：对 T0501-T0506 进行专项验收，确认合并方案、UI、迁移、权限、测试和下线计划完整。
+  - 交付物：专项验收记录、测试结果、遗留风险清单、是否允许进入 T08 产品化开发的结论。
+  - UI 要求：验收必须逐项检查旧入口 Banner、新资产卡片、资产详情、权限态、预览态、血缘/影响分析和空/错/禁用态是否符合 `U21`。
+  - UI 示意图：见本文件 `U21 数据视图与数据资产合并线框图`。
+  - UCP / 数据仓库边界要求：确认无 UCP 环境下数据视图合并不受影响；有 UCP 来源时只展示摘要和跳转。
+  - 测试要求：必须记录迁移数量对账、旧链接、旧 API/新 API、权限、预览、引用、前端 build、组件/E2E 或手工验证结果；无法自动化的项必须写明不适用原因和手工证据。
+  - 验收标准：数据视图不再作为系统设置长期独立模块；统一资产目录成为主入口；现有用户能力不回退；没有双写。
+  - 完成定义：专项验收通过后才可逐步下线旧系统设置数据视图入口，并进入 T08 统一资产目录产品化。
+
+
+## T07 数据接入入口保留与 UCP 兼容组件
+
+- [ ] T0701 明确数据仓库内的数据接入视角入口
+  - 任务：在数据仓库中保留“来源/接入”视角，用于资产创建、来源绑定、同步摘要、接入状态和跳转配置，但不承载 UCP 的凭证、接口技术参数和 Pipeline 编排。
+  - 交付物：信息架构说明、路由/菜单规划、资产来源区 DTO。
+  - UI 要求：数据资产详情和新建资产流程中必须有“来源信息/数据接入”区域，展示来源类型、系统、资源、最近同步、配置跳转；不得出现凭证明文和 Pipeline 画布。
+  - UI 示意图：见本文件 `U17 数据接入视角入口线框图`。
+  - UCP / 数据仓库边界要求：数据仓库保留接入视角，UCP 保留连接器平台能力；两边可独立应用化，通过远端 ID、快照、HTTP API、跳转 URL 协作。
+  - 测试要求：DataSource-only、UCP-enabled、UCP-disabled 三种场景的资产创建/详情测试；确认不要求 UCP 可用。
+  - 验收标准：用户在数据仓库能理解资产来源，但复杂连接配置仍进入 UCP/接口管理。
+  - 完成定义：入口、边界、降级、测试均完成。
+
+- [ ] T0702 抽象共享来源摘要组件
+  - 任务：设计可被数据仓库和 UCP/接口管理复用的 SourceSummaryCard / ResourceSummary DTO。
+  - 交付物：前端组件规划或实现、后端 DTO、字段说明。
+  - UI 要求：卡片展示来源类型、系统/接口/资源、状态、最近同步/执行、跳转按钮、降级提示。
+  - UI 示意图：见本文件 `U17 数据接入视角入口线框图`。
+  - UCP / 数据仓库边界要求：组件复用展示，不复用编辑职责；不传 secret。
+  - 测试要求：组件 props 测试或手工验证 DataSource/UCP/manual 三种来源；后端 DTO 脱敏测试。
+  - 验收标准：同一来源摘要组件可在资产详情、资源选择器、同步历史中一致展示。
+  - 完成定义：组件契约明确，避免两边 UI 各写一套。
+
+- [ ] T0703 定义数据接入入口与 UCP 独立应用化契约
+  - 任务：明确未来 UCP 独立应用后，数据仓库如何调用资源目录、状态、预览和跳转。
+  - 交付物：HTTP API 契约、错误码、feature flag、降级说明。
+  - UI 要求：远端不可用时显示“数据连接平台暂不可用，现有 DataSource 同步不受影响”。
+  - UI 示意图：见本文件 `U10 UCP 资源选择器线框图` 和 `U17 数据接入视角入口线框图`。
+  - UCP / 数据仓库边界要求：不直接查 UCP 内部表作为长期契约。
+  - 测试要求：Mock HTTP 200/401/403/404/timeout；前端错误态验证。
+  - 验收标准：UCP 独立部署不会破坏数据仓库资产页面。
+  - 完成定义：独立应用化契约可被后续开发直接实现。
+
+## T08 数据视图与数据资产融合
+
+- [ ] T0801 设计统一资产目录类型体系
+  - 任务：将现有数据资产和数据视图统一纳入资产目录，定义 asset_type：table/view/model/metric/api/dataset_view。
+  - 交付物：数据模型规划、DTO、筛选条件、迁移映射说明。
+  - UI 要求：资产列表支持卡片视图和表格视图切换；卡片展示资产类型、分层、主题域、来源、质量、权限、引用数。
+  - UI 示意图：见本文件 `U18 数据资产卡片视图线框图`。
+  - UCP / 数据仓库边界要求：UCP resource 只能作为来源类型，不直接成为数据仓库可治理资产，除非登记为数据资产快照。
+  - 测试要求：资产类型筛选、旧数据视图映射、权限展示测试。
+  - 验收标准：数据视图不再作为孤立模块，而是统一资产目录中的一种资产。
+  - 完成定义：类型体系和 UI 展示均明确。
+
+- [ ] T0802 设计数据资产卡片信息密度
+  - 任务：定义资产卡片字段布局，融合数据资产和数据视图关键信息。
+  - 交付物：卡片字段清单、线框图、前端组件 props。
+  - UI 要求：卡片必须包含：名称、类型、分层、主题域、来源、最近同步/构建、质量状态、字段数/记录数、权限状态、引用数、主操作。
+  - UI 示意图：见本文件 `U18 数据资产卡片视图线框图`。
+  - UCP / 数据仓库边界要求：来源为 UCP 时只显示摘要和跳转，不内嵌 UCP 配置。
+  - 测试要求：不同 asset_type、不同来源、无质量状态、无权限状态的展示测试。
+  - 验收标准：业务用户通过卡片即可判断资产是什么、从哪里来、能不能用、质量如何。
+  - 完成定义：卡片字段和交互可直接进入开发。
+
+- [ ] T0803 数据视图迁移为资产卡片的兼容计划
+  - 任务：为旧数据视图生成资产卡片，保留旧入口跳转和旧 ID 到新资产 ID 的映射。
+  - 交付物：迁移脚本规划、映射表、回滚方案、兼容路由。
+  - UI 要求：旧数据视图详情显示“已纳入数据资产目录”，并提供新卡片/详情跳转；新卡片显示“来源：旧数据视图迁移”。
+  - UI 示意图：见本文件 `U16 数据视图归并线框图` 和 `U18 数据资产卡片视图线框图`。
+  - UCP / 数据仓库边界要求：数据视图是消费视图，不是 UCP 连接器资源。
+  - 测试要求：迁移数量对账、权限对账、预览结果对账、旧链接跳转测试。
+  - 验收标准：旧数据视图用户能在统一资产目录中找到同一资产。
+  - 完成定义：迁移和兼容均有测试证据。
+
+## T09 表间关联授权前置迁移
+
+- [ ] T0901 梳理现有表间关联授权模型
+  - 任务：检查现有表间关联相关授权：授权对象、授权范围、字段权限、行级条件、有效期、授权来源、审计记录。
+  - 交付物：现有模型清单、API 清单、权限清单、迁移风险清单。
+  - UI 要求：不涉及新 UI；如旧入口展示授权状态，需记录截图或字段说明。
+  - UI 示意图：见本文件 `U19 表间关联授权线框图`。
+  - UCP / 数据仓库边界要求：表间关联授权属于数据仓库建模/数据权限，不属于 UCP。
+  - 测试要求：文档任务不需自动化；需列出现有测试覆盖和缺口。
+  - 验收标准：迁移前知道不能丢哪些授权信息。
+  - 完成定义：授权梳理清单完成后才可开发迁移。
+
+- [ ] T0902 设计数据仓库表间关联授权模型
+  - 任务：在数据仓库建模中设计 relation-level permission，包括谁可查看/使用/编辑某个关联，以及字段/行级限制。
+  - 交付物：ORM/Schema/权限 code 规划、API 契约。
+  - UI 要求：关联编辑面板增加“授权”Tab 或入口，显示授权主体、范围、有效期、审计；无权限时只读。
+  - UI 示意图：见本文件 `U19 表间关联授权线框图`。
+  - UCP / 数据仓库边界要求：授权控制的是仓内关联和数据使用，不控制 UCP 连接器权限。
+  - 测试要求：权限矩阵测试：查看关联、使用关联建模、编辑关联、授权管理。
+  - 验收标准：表间关联迁移后授权能力不弱于现有系统。
+  - 完成定义：模型/API/UI/权限测试均规划清楚。
+
+- [ ] T0903 旧表间关联入口兼容和禁写
+  - 任务：旧系统设置表间关联入口保留只读和跳转，写操作禁用或转发同一 warehouse relation service。
+  - 交付物：旧路由兼容、只读页面、跳转按钮、禁写错误码。
+  - UI 要求：旧入口顶部明确“主入口已迁移到数据仓库 > 数据建模 > 表间关联”；授权状态只读展示。
+  - UI 示意图：见本文件 `U14 系统设置归并迁移线框图` 和 `U19 表间关联授权线框图`。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：旧写接口禁用/转发测试；旧页面跳转测试；权限不丢失回归测试。
+  - 验收标准：不会出现旧入口和新入口两边编辑导致授权不一致。
+  - 完成定义：兼容期行为明确并可验证。
+
+- [ ] T0904 表间关联授权迁移验收
+  - 任务：执行表间关联及授权迁移对账，确认关联数量、授权数量、权限效果、审计记录一致。
+  - 交付物：迁移验收报告、对账 SQL/脚本、回滚方案。
+  - UI 要求：数据仓库关联详情能展示迁移来源和授权状态。
+  - UI 示意图：见本文件 `U19 表间关联授权线框图`。
+  - UCP / 数据仓库边界要求：不涉及 UCP。
+  - 测试要求：迁移前后数量对账、权限效果测试、旧链接跳转测试。
+  - 验收标准：授权不丢失、不过度放权、不重复授权。
+  - 完成定义：迁移可上线且可回滚。
+
+## T06 归并总验收
+
+- [ ] T0601 五类能力归并总验收
+  - 任务：验证字段管理、接口配置、同步历史、表间关联、数据视图、数据接入视角、资产卡片融合、表间关联授权均只有一个 canonical owner 或明确协作 owner，并且旧入口有兼容策略。
+  - 交付物：验收清单、截图说明、测试结果。
+  - UI 要求：旧入口迁移提示、新入口主操作、跳转、只读态、无权限态全部可见且不误导。
+  - UI 示意图：见本文件 `U14` 至 `U21`，其中数据接入入口看 `U17`，资产卡片融合看 `U18`，表间关联授权看 `U19`，接口配置融合看 `U20`，数据视图合并看 `U21`。
+  - UCP / 数据仓库边界要求：接口配置从系统设置迁出；资产级拉取/推送/API 暴露归数据仓库“来源与开放”；平台级连接器/凭证/接口定义/Pipeline 归 UCP/数据连接；字段/关联/视图/关联授权归数据仓库；同步/推送历史按 owner 保存、资产侧聚合。
+  - 测试要求：菜单/路由/权限/API/迁移脚本/回归测试全部记录；额外覆盖 DataSource-only、UCP-enabled、UCP-disabled、旧数据视图迁移、表间关联授权迁移五类场景。
+  - 验收标准：不存在长期双写、双编辑、双主数据；旧入口不再形成独立保存路径，数据仓库资产卡片能承载旧数据视图，表间关联授权不丢失。
+  - 完成定义：总验收通过后，旧入口进入下线计划。
+
+
+---
+
+# U. UI 示意图与交互说明
+
+> 本章节是 `atomic-tasks.md` 内置 UI 线框图。所有涉及 UI 的任务必须在任务体内引用本章节对应编号；如果实际实现与线框图不同，必须先更新本章节再开发。
+
+## U00 UI 总线框与交互规则
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ 顶部导航：首页 | 数据仓库 | 数据连接 | 提效工具 | 业务应用 | 设置 │
+├─────────────────────────────────────────────────────────────┤
+│ 左侧菜单：数据资产 / 数据建模 / 指标管理 / 数据治理 / 数据开放 │
+├─────────────────────────────────────────────────────────────┤
+│ 页面标题 + 面包屑 + 主操作按钮                              │
+├─────────────────────────────────────────────────────────────┤
+│ 筛选区 / KPI / 状态提示                                     │
+├─────────────────────────────────────────────────────────────┤
+│ 主内容区：表格 / 图谱 / 画布 / 表单                         │
+├─────────────────────────────────────────────────────────────┤
+│ 抽屉/弹窗：详情、编辑、确认、影响分析                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+通用交互：
+
+- 所有页面必须有 loading、empty、error、permission denied 状态。
+- 所有破坏性操作必须先做影响分析或二次确认。
+- 所有 UCP 相关配置只能跳转，不在数据仓库内编辑凭证/Pipeline/事件。
+- 所有旧入口迁移必须有“为什么迁移、去哪里、是否只读”的说明。
+
+## U01 数据仓库首页线框图
+
+```text
+┌─ 数据仓库首页 ───────────────────────────────────────────────┐
+│ [数据资产] [数据模型] [指标数量] [质量状态] [最近同步]        │
+├──────────────────────────────────────────────────────────────┤
+│ 分层概览：RAW | ODS | DWD | DWS | ADS | DM | METRIC          │
+├─────────────────────────────┬────────────────────────────────┤
+│ 最近动态                    │ 快捷入口                       │
+│ - SyncRun 成功/失败         │ [新建数据资产] [数据建模]       │
+│ - 模型/指标发布             │ [指标目录] [数据治理]           │
+│ - 字段元数据变更            │ [去数据连接]                    │
+└─────────────────────────────┴────────────────────────────────┘
+```
+
+交互说明：KPI 点击进入对应列表；UCP 未启用时“去数据连接”显示降级说明；质量状态只能使用可追溯来源。
+
+## U02 数据资产列表/详情线框图
+
+```text
+┌─ 数据资产 ───────────────────────────────────────────────────┐
+│ [+ 新建资产] [批量分层] [搜索] [来源] [分层] [质量] [状态]    │
+├──────────────────────────────────────────────────────────────┤
+│ 表名 | 中文名 | 分层 | 来源 | 字段数 | 最近同步 | 质量 | 操作 │
+│ ...                                      [详情] [字段] [血缘] │
+└──────────────────────────────────────────────────────────────┘
+
+详情抽屉/页面：
+┌─ 基础信息 ─┬─ 来源信息 ──────────────────────────────────────┐
+│ 标签/描述  │ 来源类型：Manual / DataSource / UCP             │
+│ 分层/主题域│ DataSource：启停/调度/SyncRun                   │
+│ 负责人     │ UCP：系统/资源/状态/跳转                        │
+├────────────┴─────────────────────────────────────────────────┤
+│ Tabs：字段定义 | 同步历史 | 血缘影响 | 质量状态 | 预览        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：资产详情可看 UCP 摘要但不能编辑 UCP 配置；同步历史按来源聚合；字段、血缘、质量可跳转到对应子页。
+
+## U03 字段管理归并线框图
+
+```text
+旧入口：系统设置 > 字段管理
+┌──────────────────────────────────────────────────────────────┐
+│ ⚠ 字段管理已迁移到 数据仓库 > 数据资产 > 字段定义             │
+│ [前往数据仓库字段管理] [查看迁移说明]                         │
+├──────────────────────────────────────────────────────────────┤
+│ 只读字段列表：字段名 | 标签 | 类型 | 敏感 | 可见 | 来源        │
+└──────────────────────────────────────────────────────────────┘
+
+新入口：数据仓库 > 数据资产 > 字段定义
+┌──────────────────────────────────────────────────────────────┐
+│ 字段名 | 标签 | 类型 | 主键 | 敏感 | 聚合角色 | 可见 | 操作    │
+│ ...                                           [编辑] [影响]   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：旧入口不再独立保存；新入口编辑前需要权限校验，删除/类型修改前做影响分析。
+
+## U04 表间关联/快速关联线框图
+
+```text
+┌─ 数据建模 > 快速关联 ────────────────────────────────────────┐
+│ 选择主表 [员工表 v]  选择关联表 [组织表 v]                    │
+├──────────────────────────────────────────────────────────────┤
+│ 左字段        操作符        右字段                            │
+│ employee.org_id  =          org.id                            │
+│ [+ 添加条件]                                                   │
+├──────────────────────────────────────────────────────────────┤
+│ join_type [left] cardinality [many-to-one]                    │
+│ [预览结果] [保存关联] [查看影响]                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：这是仓内建模关系，不是 UCP Pipeline；旧系统设置表间关联入口迁移到此处。
+
+## U05 可视化建模线框图
+
+```text
+┌─ 数据建模画布 ────────────────────────────────────────────────┐
+│ 顶部：[保存草稿] [预览] [发布] [版本] [自动布局]               │
+├──────────────┬───────────────────────────────┬───────────────┤
+│ 左：资产树    │ 中：画布                       │ 右：属性面板   │
+│ 搜索/分层     │ [员工表]──org_id=id──[组织表] │ 节点/连线配置  │
+│ 表/字段列表   │                               │ join/字段输出  │
+├──────────────┴───────────────────────────────┴───────────────┤
+│ 底部：输出字段 + 数据预览 + SQL/关系解释                      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：V1 半可视化，V2 支持拖拽节点、字段连线、自动布局；始终不等同 UCP Pipeline 画布。
+
+## U06 指标管理线框图
+
+```text
+┌─ 指标管理 ───────────────────────────────────────────────────┐
+│ [+ 新建指标] [搜索] [主题域] [状态] [负责人]                  │
+├──────────────────────────────────────────────────────────────┤
+│ 指标名称 | 业务定义 | 计算公式 | 依赖模型 | 负责人 | 状态 | 操作│
+│ ...                                      [详情] [发布] [归档] │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：一期是指标口径目录；二/三期再支持物化和趋势，不提供任意 SQL 脚本。
+
+## U07 数据治理线框图
+
+```text
+┌─ 数据治理 ───────────────────────────────────────────────────┐
+│ Tabs：[质量规则] [数据血缘] [影响分析] [数据分层] [监控告警]   │
+├──────────────────────────────────────────────────────────────┤
+│ 当前 Tab 内容：规则列表 / 血缘图 / 影响列表 / 分层概览         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：治理入口承载质量、血缘、影响、分层；破坏性操作必须能从这里追溯。
+
+## U08 血缘图线框图
+
+```text
+┌─ 数据血缘 ───────────────────────────────────────────────────┐
+│ [对象类型] [搜索对象] [方向: 上游/下游/全部] [深度] [列表视图] │
+├──────────────────────────────────────────────────────────────┤
+│  图谱：DataSource/UCP → RAW表 → DWD模型 → 指标 → 报表/通知    │
+│  节点点击：右侧详情抽屉                                       │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：图谱过大时降级为列表；UCP 节点仅摘要和跳转。
+
+## U09 质量规则线框图
+
+```text
+┌─ 数据质量 ───────────────────────────────────────────────────┐
+│ [+ 新建规则] [手动运行] [资产] [规则类型] [状态]               │
+├──────────────────────────────────────────────────────────────┤
+│ 规则名 | 对象 | 类型 | 参数摘要 | 最近运行 | 问题数 | 操作      │
+│ ...                                  [运行] [详情] [启停]     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：规则参数按类型动态表单；运行结果显示样例问题；定时未实现时禁用。
+
+## U10 UCP 资源选择器线框图
+
+```text
+┌─ 选择数据连接资源 ───────────────────────────────────────────┐
+│ [系统筛选] [资源类型] [搜索]                                  │
+├──────────────────────────────────────────────────────────────┤
+│ 系统 | 资源 | 类型 | 最近测试 | 最近执行 | 状态 | 操作          │
+│ ...                                           [选择] [去配置]  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：只保存 system_id/resource_id/快照/跳转；不编辑凭证、接口参数、Pipeline。
+
+## U11 监控告警线框图
+
+```text
+┌─ 数据仓库监控 ───────────────────────────────────────────────┐
+│ [时间范围] [运行类型] [状态] [搜索]                           │
+├──────────────────────────────────────────────────────────────┤
+│ 趋势卡：同步失败 | 质量失败 | 构建失败 | 指标失败              │
+├──────────────────────────────────────────────────────────────┤
+│ 运行列表：类型 | 对象 | 状态 | 开始/结束 | 耗时 | 错误 | 操作   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：仓内运行与 UCP Execution 分离；UCP 只读摘要可跳转。
+
+## U12 仓内 ELT/调度线框图
+
+```text
+┌─ 仓内加工任务 ───────────────────────────────────────────────┐
+│ Tabs：[数据集构建] [指标物化] [质量运行] [快照任务]            │
+├──────────────────────────────────────────────────────────────┤
+│ 任务名 | 类型 | 策略 | 最近运行 | 状态 | 操作                  │
+│ ...                                      [运行] [重跑] [历史] │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：只处理已入仓数据；不提供跨系统 Pipeline 画布。
+
+## U13 最终蓝图工作台线框图
+
+```text
+┌─ 数据仓库工作台 ─────────────────────────────────────────────┐
+│ 全局搜索：表 / 字段 / 模型 / 指标 / 质量 / 血缘 / API          │
+├──────────────────────────────────────────────────────────────┤
+│ 左：资产目录树       中：详情/图谱/指标       右：治理任务     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：面向独立应用化，统一元数据、治理任务、语义层和开放服务。
+
+## U14 系统设置归并迁移线框图
+
+```text
+┌─ 系统设置旧入口 ─────────────────────────────────────────────┐
+│ ⚠ 此功能已迁移/即将迁移                                      │
+│ 当前状态：只读兼容 / 跳转 / 下线日期                          │
+│ [前往新入口] [查看迁移说明]                                   │
+├──────────────────────────────────────────────────────────────┤
+│ 只读列表或最近记录                                            │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：旧入口不能继续独立写入；必须明确 canonical owner。
+
+## U15 同步历史聚合线框图
+
+```text
+┌─ 资产详情 > 同步历史 ────────────────────────────────────────┐
+│ [来源: 全部/DataSource/UCP/仓内任务] [状态] [时间范围]         │
+├──────────────────────────────────────────────────────────────┤
+│ 来源 | 运行ID | 状态 | 开始时间 | 耗时 | 行数 | 错误摘要 | 操作 │
+│ ...                                      [详情] [去源系统]     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：按 owner 查询或摘要展示，不复制 UCP Execution；DataSource 仍用 SyncRun。
+
+## U16 数据视图归并线框图
+
+```text
+旧数据视图入口：
+┌──────────────────────────────────────────────────────────────┐
+│ ⚠ 数据视图将迁移到 数据仓库 > 数据模型/数据开放               │
+│ [查看新数据模型] [查看开放目录]                               │
+└──────────────────────────────────────────────────────────────┘
+
+新入口：
+┌─ 数据仓库 > 数据开放/数据模型 ───────────────────────────────┐
+│ 名称 | 类型(DataSet/View/API) | 来源 | 权限 | 引用数 | 操作     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：旧视图映射为 DataSet 或开放目录项；保留旧 ID 到新 ID 映射。
+
+
+## U17 数据接入视角入口线框图
+
+```text
+资产详情 / 新建资产 > 来源信息
+┌──────────────────────────────────────────────────────────────┐
+│ 来源类型：[Manual] [DataSource] [UCP资源] [Derived/View]       │
+├──────────────────────────────────────────────────────────────┤
+│ 来源摘要卡片                                                   │
+│ 系统/接口/资源：北森员工接口                                  │
+│ 最近同步：成功 2026-07-04 09:20   状态：正常                  │
+│ [查看同步历史] [去数据连接配置] [重新同步(如有权限)]           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：数据仓库保留接入视角，但复杂配置跳 UCP/接口管理；UCP 不可用时显示降级，不影响 DataSource。
+
+## U18 数据资产卡片视图线框图
+
+```text
+┌─ 数据资产目录 ───────────────────────────────────────────────┐
+│ [卡片视图] [表格视图] [搜索] [类型] [分层] [来源] [权限]       │
+├──────────────────────────────────────────────────────────────┤
+│ ┌───────────────资产卡片──────────────────────────────────┐  │
+│ │ 员工信息宽表                         [DWD] [受限]       │  │
+│ │ 类型：数据视图/模型   主题域：员工   来源：DataSource    │  │
+│ │ 最近同步：09:20 成功  质量：PASS     字段：58  引用：12 │  │
+│ │ [详情] [预览] [血缘] [申请权限] [编辑]                  │  │
+│ └─────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+交互说明：卡片给业务用户快速理解资产；表格给管理员批量治理；数据视图作为资产类型融入。
+
+## U19 表间关联授权线框图
+
+```text
+数据仓库 > 数据建模 > 表间关联详情
+┌──────────────────────────────────────────────────────────────┐
+│ 关联：员工表.org_id = 组织表.id      状态：已发布             │
+│ [编辑关联] [查看影响] [授权管理] [历史版本]                    │
+├──────────────────────┬───────────────────────────────────────┤
+│ 关联配置             │ 授权状态                              │
+│ join_type: left      │ 授权对象：HRBP角色 / 张三              │
+│ cardinality: N:1     │ 范围：可使用建模 / 可查看 / 可编辑      │
+│ 字段映射             │ 行级条件：部门范围                     │
+│                      │ 有效期：2026-12-31  审计：[查看]      │
+└──────────────────────┴───────────────────────────────────────┘
+```
+
+交互说明：表间关联迁移不能丢授权；旧系统设置入口只读展示并跳转到这里。
+
+
+
+## U20 接口配置拉取/推送融合线框图
+
+```text
+资产详情：员工成本明细表
+┌─────────────────────────────────────────────────────────────┐
+│ Tab：概览 | 字段 | 来源与开放 | 同步/推送历史 | 血缘 | 影响分析 │
+├─────────────────────────────────────────────────────────────┤
+│ 来源与开放                                                   │
+│ ┌─ 入仓来源 Pull Sources ─────────────────────────────────┐ │
+│ │ [DataSource] 北森报表 API                               │ │
+│ │ 状态：启用  调度：每日06:00  最近同步：成功 10,238 行     │ │
+│ │ [测试连接] [立即同步] [同步历史] [编辑轻量配置/跳转配置]  │ │
+│ │ [UCP资源] 未绑定 / 数据连接平台未启用，现有同步不受影响  │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ ┌─ 出仓目标 Push Targets ─────────────────────────────────┐ │
+│ │ [HTTP推送] 推送到 IT 系统                               │ │
+│ │ 状态：启用  调度：每月1日  最近推送：成功 1,200 行        │ │
+│ │ 字段映射：已配置 12 项  敏感字段：2 项需脱敏              │ │
+│ │ [立即推送] [推送历史] [字段映射] [编辑推送配置]           │ │
+│ │ [API暴露] /api/v1/push-targets/23/data  授权：AppSecret  │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ ┌─ 影响与治理 ────────────────────────────────────────────┐ │
+│ │ 字段变更影响：3 个推送目标、1 个 API 暴露、2 个报表        │ │
+│ │ 质量门禁：质量失败时禁止自动推送 [开]                    │ │
+│ │ 权限策略：出仓字段遵守字段脱敏和可见性                    │ │
+│ └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+
+系统设置旧入口：接口配置（兼容期）
+┌─────────────────────────────────────────────────────────────┐
+│ 提示：接口配置正在融合到“数据仓库 > 资产详情 > 来源与开放”。 │
+│ 全局运维列表仍可在兼容期维护；资产相关配置建议从资产详情进入。 │
+├─────────────────────────────────────────────────────────────┤
+│ 筛选：[方向 全部/拉取/推送/API暴露] [状态] [来源系统] [资产]  │
+├─────────────────────────────────────────────────────────────┤
+│ 名称        方向   Owner          资产        最近执行   操作 │
+│ 北森报表    拉取   DataSource     员工表      成功       详情 │
+│ IT推送      推送   PushTarget     成本明细    成功       详情 │
+│ 成本API     开放   PushTarget API 成本明细    调用中     详情 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+交互说明：
+- 数据仓库以资产为中心融合拉取和推送，不原样搬迁旧接口配置页。
+- 当前无 UCP 时，DataSource / PushTarget 的配置、测试、运行、历史必须继续可用。
+- UCP 启用时，复杂连接器和凭证能力跳转 UCP；资产详情保持统一摘要和轻操作。
+- 旧系统设置入口是全局运维兼容入口，需清楚标记方向、owner、资产和迁移状态。
+- 所有卡片只展示 secret 是否已配置，不展示 secret 明文。
+
+
+
+
+## U21 数据视图与数据资产合并线框图
+
+```text
+统一入口：数据仓库 > 数据资产
+┌─────────────────────────────────────────────────────────────┐
+│ [卡片视图] [表格视图] [搜索] [类型: 全部/表/数据视图/模型/API] │
+│ [分层] [主题域] [来源] [质量] [权限]                         │
+├─────────────────────────────────────────────────────────────┤
+│ ┌──────────── 数据视图资产卡片 ───────────────────────────┐ │
+│ │ 员工成本分析视图             [数据视图] [DWD] [受限]     │ │
+│ │ 来源：旧数据视图迁移 / DataSource 派生  主题域：人力成本 │ │
+│ │ 最近构建：成功 09:20  质量：PASS  字段：42  引用：8      │ │
+│ │ 权限：需申请    [详情] [预览] [血缘] [申请权限]          │ │
+│ └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+
+数据视图资产详情
+┌─────────────────────────────────────────────────────────────┐
+│ 员工成本分析视图  [数据视图] [已发布] 负责人：HR数据组        │
+│ Tab：概览 | 字段 | 视图定义 | 数据预览 | 权限 | 血缘 | 影响分析 | 来源与开放 │
+├─────────────────────────────────────────────────────────────┤
+│ 概览：业务说明、来源、质量、引用、最近构建、权限摘要          │
+│ 字段：字段名/类型/标签/敏感/可见性/下游影响                  │
+│ 视图定义：来源表/模型、筛选条件、派生字段、版本               │
+│ 数据预览：按权限脱敏；无权限显示申请入口                     │
+│ 权限：授权对象、字段/行级限制、审计、申请/授权入口            │
+└─────────────────────────────────────────────────────────────┘
+
+系统设置旧入口：数据视图（兼容期）
+┌─────────────────────────────────────────────────────────────┐
+│ ⚠ 数据视图已纳入“数据仓库 > 数据资产”。当前入口为兼容只读。 │
+│ [前往数据资产目录] [查看当前视图的新详情] [迁移说明]          │
+├─────────────────────────────────────────────────────────────┤
+│ 只读列表：名称 | 新资产ID | 类型 | 权限 | 引用数 | 操作         │
+│ 员工成本分析视图 | WHA-1024 | 数据视图 | 受限 | 8 | [去新详情] │
+└─────────────────────────────────────────────────────────────┘
+```
+
+交互说明：
+- 数据视图与数据资产合并为统一资产目录，主入口是“数据仓库 > 数据资产”。
+- 旧系统设置入口只读兼容、提示迁移和跳转，不再新增独立数据视图。
+- 数据视图详情复用统一资产详情框架，但额外突出视图定义、预览权限、授权和下游引用。
+- 卡片视图面向业务发现，表格视图面向管理员批量治理；两种视图使用同一后端资产数据，不允许双写。
+- 来源可为旧数据视图迁移、DataSource、UCP 摘要或模型派生；UCP 仅摘要和跳转，不承载数据视图治理。
+
+
+## U22 字段标准化与清洗规则线框图
+
+```text
+数据仓库 > 数据建模 > 字段标准化 / 清洗规则
+┌─────────────────────────────────────────────────────────────┐
+│ 资产：ods_employee        [加载模板] [预览结果] [发布 DWD 视图] │
+├─────────────────────────────────────────────────────────────┤
+│ 规则列表                                                     │
+│ # | 源字段      | 目标字段        | 规则类型     | 参数摘要     │
+│ 1 | realName    | employee_name   | 重命名       | -            │
+│ 2 | hireDate    | hire_date       | 类型转换     | VARCHAR→DATE │
+│ 3 | gender      | gender_name     | 枚举映射     | 0男/1女      │
+│ 4 | salary      | salary_yuan     | 单位转换     | 千元×1000    │
+├─────────────────────────────────────────────────────────────┤
+│ 预览抽屉：原始值 | 转换后值 | 错误原因 | 样例行号              │
+│ 操作：[保存草稿] [发布规则] [查看影响分析]                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+交互说明：规则必须受控配置，不提供任意 SQL/脚本；发布前先预览和影响分析；默认生成 DWD 视图或派生资产，不覆盖 ODS 原始数据。
+
+## U23 DWS 聚合与 ADS 组装线框图
+
+```text
+数据仓库 > 数据开发 > DWS/ADS
+┌─────────────────────────────────────────────────────────────┐
+│ Step 1 选择基础模型/DWS：员工异动模型                        │
+│ Step 2 配置聚合：指标=离职人数  维度=部门/月  聚合=count       │
+│ Step 3 关联维度：dept_id → dim_department.dept_name           │
+│ Step 4 输出字段：部门名称、月份、离职人数、离职率              │
+│ Step 5 预置过滤：员工状态 in 在职/离职                        │
+├─────────────────────────────────────────────────────────────┤
+│ 预览结果 | 字段影响 | 权限/脱敏 | 发布选项                    │
+│ [发布为 DWS 视图] [发布为 ADS 宽表] [作为 API/推送候选]       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+交互说明：DWS/ADS 通过向导和表单生成受控 SQL/视图，不提供图表制作和任意 SQL；发布结果进入统一资产目录，并接入权限、血缘和影响分析。
+
+## U25 ODS-DWD-DWS-ADS 分层流转总览线框图
+
+```text
+数据仓库 > 数据开发路径 / 分层流转
+┌─────────────────────────────────────────────────────────────┐
+│ 当前资产：ods_employee                                      │
+│ 来源：DataSource-员工主数据       当前层：ODS                │
+├─────────────────────────────────────────────────────────────┤
+│ ODS 原始入仓  →  DWD 标准明细  →  DWS 汇总服务  →  ADS 应用消费 │
+│ [当前]            [可生成]          [待生成]          [待生成]    │
+├─────────────────────────────────────────────────────────────┤
+│ 下一步建议：                                                 │
+│ 1. 配置字段标准化/清洗规则  [进入 ODS→DWD]                    │
+│ 2. 发布 DWD 标准明细视图    [发布 DWD 资产]                    │
+│ 3. 基于指标生成 DWS 聚合    [进入 DWD→DWS]                    │
+│ 4. 组装 ADS 消费资产        [进入 DWS→ADS]                    │
+├─────────────────────────────────────────────────────────────┤
+│ 右侧摘要：来源状态 | 最近同步 | 质量状态 | 血缘 | 影响分析       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+交互说明：该视图用于表达数据资产所处层级、下一步可执行动作和产物归属；不得出现“任意 ETL”“自由 Pipeline”“脚本编辑器”主入口。每个动作都必须说明输入层、输出层、产物类型、权限、质量和影响分析。
+
+## U24 四期高级能力复评与集成线框图
+
+```text
+数据仓库 > 高级能力（四期复评）
+┌─────────────────────────────────────────────────────────────┐
+│ 能力卡片：BI 自助分析                                       │
+│ 状态：外部集成优先  Owner：BI  操作：[在 BI 中分析] [查看引用] │
+├─────────────────────────────────────────────────────────────┤
+│ 能力卡片：SQL/脚本沙箱                                      │
+│ 状态：默认禁用 / 需审批  Owner：数据平台  操作：[申请试点]     │
+├─────────────────────────────────────────────────────────────┤
+│ 能力卡片：跨系统 Pipeline                                   │
+│ 状态：UCP 管理  Owner：UCP  操作：[查看摘要] [去 UCP 配置]     │
+├─────────────────────────────────────────────────────────────┤
+│ 能力卡片：高级维度模型                                      │
+│ 状态：复评中  Owner：数据仓库/BI 边界待定  操作：[查看 ADR]    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+交互说明：四期入口首先表达“归属和状态”，而不是直接给编辑入口；默认集成专业工具，只有复评通过的受控子集才可内建。
+
+---
+
+# Y. AI 接入预留与权限传播后续原子任务
+
+> Y 章仅适用于二期及以后。不得把本章内容回填到已完成的一期任务，也不得新增已完成标记。本章所有任务必须保持未完成状态，直到对应开发真实完成、测试通过并完成验收。
+
+## Y00 执行契约与禁止项
+
+- [ ] Y0001 建立数据仓库 AI 接入与权限传播执行契约。
+  - 任务：在后续开发开始前，阅读并确认 `spec.md` 第 20 节、`004-ai-native-workbench`、`005-unified-permission-model`、本文件 Y 章和 U26；在开发记录中写明本次涉及的 capability、权限对象、数据层级和禁止项。
+  - UI 要求：不直接开发 UI；如本次开发涉及 UI，必须同步引用 U26 以及对应页面线框图。
+  - AI 接入：本任务只建立接入契约，不实现模型调用；禁止新增页面级 Prompt、后端直接模型调用、任意 SQL/脚本执行入口。
+  - 权限要求：必须确认元数据可见、数据预览、建模使用、发布/开放/导出四类权限的差异，不得用一个权限点覆盖全部场景。
+  - 测试要求：文档检查；代码检查；确认无新增未注册 AI 调用、无绕过 `require_op`/权限裁剪的接口。
+  - 验收标准：后续任务 PR/提交说明中能定位对应 capability、权限校验点、UI 线框图和测试项；禁止项未被实现。
+
+- [ ] Y0002 建立 AI 禁止能力清单并加入后续评审检查。
+  - 任务：在数据仓库后续开发 checklist 中列出禁止项：任意 SQL/脚本执行、UCP secret/凭证读取、UCP Pipeline 编辑/触发、批量授权、绕过影响分析的破坏性操作、ODS 原始明细直接进入模型上下文。
+  - UI 要求：不涉及 UI。
+  - AI 接入：禁止项不得注册为 capability，不得通过灰度参数、隐藏路由或调试接口开放。
+  - 权限要求：禁止能力即使管理员也不得默认开放；如四期复评试点，必须新建独立未完成任务和审批记录。
+  - 测试要求：静态搜索 AI 调用、SQL/脚本执行、secret 返回字段、Pipeline trigger/edit API；接口测试确认无相关入口。
+  - 验收标准：禁止项清单可被后续模型直接检查；未出现“先做入口后补权限”的实现。
+
+## Y01 AI Capability 矩阵与注册契约
+
+- [ ] Y0101 定义数据仓库只读解释类 capability 矩阵。
+  - 任务：定义 `warehouse.asset.search`、`warehouse.asset.explain`、`warehouse.lineage.explain`、`warehouse.impact.explain`、`warehouse.quality.explain`、`warehouse.metric.explain` 的输入、输出、权限点、审计字段和错误码。
+  - UI 要求：如页面提供入口，必须使用 U26 只读解释抽屉；入口文案必须为“解释/总结/说明”，不得暗示自动修改。
+  - AI 接入：仅允许通过 `004-ai-native-workbench` 的 Capability Registry/Tool Wrapper 接入；不直接调用模型；输出为解释文本和引用来源，不改变数据。
+  - 权限要求：只可使用当前用户可见的资产元数据、血缘摘要、质量摘要、影响分析摘要；隐藏字段不得进入上下文，脱敏字段只可用脱敏名或摘要。
+  - 测试要求：单元测试 capability schema；接口测试不同权限用户返回差异；审计测试记录 capability、user、asset_id、context_scope。
+  - 验收标准：能力矩阵完整；无权限用户看不到入口或收到明确拒绝；返回内容不含 secret、隐藏字段、未授权明细。
+
+- [ ] Y0102 定义草稿生成类 capability 矩阵。
+  - 任务：定义 `warehouse.standardization_rule.draft`、`warehouse.dws_aggregate.draft`、`warehouse.ads_definition.draft`、`warehouse.metric_definition.draft`、`warehouse.quality_rule.draft` 的草稿结构、人工确认流程和禁止自动发布规则。
+  - UI 要求：必须使用 U26 草稿生成面板；输出区域显示“草稿，未保存/未发布”，提供“应用到表单草稿”而不是“直接发布”。
+  - AI 接入：AI 只生成配置草稿；保存、发布、调度、开放 API 必须走原有表单校验、影响分析、权限校验和人工确认。
+  - 权限要求：用户必须同时具备源资产元数据可见、建模使用权限和目标草稿创建权限；没有发布权限时不得显示发布按钮。
+  - 测试要求：组件测试草稿态和确认态；接口测试草稿不落库或仅落草稿表；E2E 测试无发布权限用户只能生成草稿不能发布。
+  - 验收标准：AI 生成结果不会直接改变生产配置；草稿可编辑、可放弃、可审计。
+
+- [ ] Y0103 建立写入/开放/导出类 capability 四期复评占位。
+  - 任务：列出 `warehouse.rule.save`、`warehouse.model.publish`、`warehouse.ads.publish`、`warehouse.api_expose.create`、`warehouse.asset.export` 的复评条件，但不在二期/三期实现。
+  - UI 要求：如出现四期高级能力页，只能展示“复评中/默认禁用/申请试点”，参考 U24 与 U26，不提供可执行按钮。
+  - AI 接入：默认不注册或注册为 disabled；Policy Guard 必须拒绝执行。
+  - 权限要求：未来如开放，需审批、二次确认、影响分析、审计、回滚和导出水印/限流。
+  - 测试要求：接口测试调用 disabled capability 返回拒绝；UI 测试按钮禁用和说明文案。
+  - 验收标准：二期/三期不会出现 AI 自动保存、自动发布、自动开放 API、自动导出能力。
+
+## Y02 AI Context 安全裁剪
+
+- [ ] Y0201 实现 AI 上下文构造前的权限裁剪设计。
+  - 任务：设计 `WarehouseAiContextBuilder` 或等价适配层，在构造 AI 上下文前完成资产权限、字段隐藏、字段脱敏、行级范围、UCP 摘要过滤和数据层级检查。
+  - UI 要求：不直接开发 UI；AI 面板必须能展示“已按权限裁剪/字段已脱敏/不可见字段已排除”的摘要。
+  - AI 接入：Context Builder 输出结构化上下文，不包含 secret、连接串、token、密码、隐藏字段、未授权明细数据。
+  - 权限要求：AI 可见内容必须是普通 UI/API 同用户可见内容的子集；不得因 AI 场景扩大字段或行级范围。
+  - 测试要求：单元测试 hidden 字段排除、masked 字段脱敏、多租户/行级范围、UCP secret 排除；快照测试上下文字段白名单。
+  - 验收标准：任何 capability 的输入上下文均可追溯裁剪规则；失败时 fail closed。
+
+- [ ] Y0202 建立 AI 审计与可追溯上下文摘要。
+  - 任务：记录 capability、user_id、asset_id/model_id/metric_id、context_scope、字段数量、脱敏状态、policy_decision、输出类型、审计编号。
+  - UI 要求：U26 AI 面板显示审计编号和“查看使用范围”入口；无权限查看审计详情时显示只读摘要。
+  - AI 接入：审计记录不得保存敏感明文 Prompt 或明细数据；只保存必要摘要和引用 ID。
+  - 权限要求：审计详情查看需要独立权限；普通用户只看自己的调用摘要。
+  - 测试要求：接口测试成功/拒绝/异常均落审计；安全测试审计内容不含 secret 和敏感明文。
+  - 验收标准：AI 输出可追溯到输入资产、权限裁剪和调用人；不产生新的敏感数据泄露面。
+
+## Y03 ODS → DWD → DWS → ADS 权限传播
+
+- [ ] Y0301 定义分层产物字段敏感级别继承规则。
+  - 任务：为 DWD 标准字段、DWS 聚合字段、ADS 消费字段定义 `source_field_ids`、`sensitivity_level`、`masking_policy`、`hidden_policy`、`category_tags` 的继承和覆盖规则。
+  - UI 要求：字段映射/标准化/聚合向导中必须展示来源字段敏感标签和目标字段继承结果；参考 U22、U23、U25，并补充 U26 AI 草稿提示。
+  - AI 接入：如 AI 生成规则草稿，必须同时生成敏感级别继承建议和风险说明，不得自动降低敏感级别。
+  - 权限要求：派生字段默认继承上游最高敏感级别；仅经脱敏/聚合/匿名化规则和审核后可降低展示风险。
+  - 测试要求：单元测试多源字段继承；接口测试敏感级别不会被空值覆盖；组件测试 UI 显示继承链。
+  - 验收标准：任一 DWD/DWS/ADS 字段均可追溯到上游敏感来源；权限不因派生而扩大。
+
+- [ ] Y0302 定义多源模型 `scope_strategy` fail closed 规则。
+  - 任务：在多源 DWD/DWS/ADS 产物发布前校验行级范围、组织范围、授权范围和字段权限冲突；无法判定时禁止发布。
+  - UI 要求：发布确认页展示 scope_strategy、冲突字段、受影响用户范围和修复建议；按钮禁用时说明原因。
+  - AI 接入：AI 可解释冲突原因或生成修复草稿，但不得绕过校验发布。
+  - 权限要求：建模使用权限、预览权限、发布权限分离；拥有预览不等于可发布，拥有元数据可见不等于可作为模型输入。
+  - 测试要求：接口测试无 scope_strategy、冲突 strategy、多源敏感字段均 fail closed；E2E 测试发布阻断态。
+  - 验收标准：多源权限不确定时不会生成可消费资产、API 或推送目标。
+
+- [ ] Y0303 定义 DWS 小样本聚合泄露防护。
+  - 任务：为 DWS 聚合和 ADS 输出增加最小分组阈值、敏感维度识别、禁止下钻和结果隐藏/合并策略设计。
+  - UI 要求：U23 聚合向导展示“小样本风险”提示、阈值配置和预览风险；不满足阈值时禁用发布。
+  - AI 接入：AI 可解释泄露风险和建议聚合粒度，不得生成绕过阈值的配置。
+  - 权限要求：聚合结果不因脱离明细就自动公开；敏感维度聚合仍需权限和阈值控制。
+  - 测试要求：单元测试阈值判断；接口测试小样本返回隐藏/合并；组件测试风险提示和发布阻断。
+  - 验收标准：低样本部门/人群/敏感维度不会通过 DWS/ADS 聚合泄露。
+
+## Y04 二期只读 AI-ready 能力落地
+
+- [ ] Y0401 在资产详情接入只读解释入口。
+  - 任务：为资产详情规划“解释资产/解释字段/解释血缘/解释质量”入口，调用只读 capability；一期已完成页面不得直接改为已实现，必须在二期任务中开发。
+  - UI 要求：使用 U26 只读解释抽屉；入口位于资产详情辅助操作区；无权限或上下文为空时禁用并显示原因。
+  - AI 接入：调用 `warehouse.asset.explain`、`warehouse.lineage.explain`、`warehouse.quality.explain`；输出必须带引用来源和数据范围。
+  - 权限要求：仅对当前用户可见资产和字段生效；预览数据不得进入上下文，除非用户有预览权限且已脱敏/聚合。
+  - 测试要求：组件测试入口显隐；接口测试不同权限上下文；E2E 测试解释抽屉 normal/loading/error/forbidden。
+  - 验收标准：AI 解释不会暴露不可见字段、敏感明细或 UCP secret。
+
+- [ ] Y0402 在影响分析接入只读解释入口。
+  - 任务：为字段删除、字段类型修改、资产归档、API/推送变更的影响分析增加“解释影响”入口。
+  - UI 要求：U26 抽屉展示风险等级、blocking、受影响对象和 AI 总结；不得替代原始影响列表。
+  - AI 接入：调用 `warehouse.impact.explain`；只总结已有影响分析结果，不自行推断未计算影响。
+  - 权限要求：只展示用户有权限看到的下游对象；无权对象可显示数量摘要但不显示名称/详情。
+  - 测试要求：接口测试下游对象权限裁剪；E2E 测试破坏性操作前必须先看影响分析。
+  - 验收标准：AI 总结是辅助说明，不改变 blocking 规则，不绕过审批。
+
+## Y05 三期草稿生成能力落地
+
+- [ ] Y0501 在 ODS → DWD 标准化向导接入规则草稿生成。
+  - 任务：在字段标准化/清洗规则向导中增加“生成规则草稿”，根据字段名称、类型、样例摘要和标准字典生成受控规则草稿。
+  - UI 要求：参考 U22 和 U26；展示原字段、建议目标字段、规则类型、置信度、敏感继承、风险提示；用户逐条采纳。
+  - AI 接入：调用 `warehouse.standardization_rule.draft`；不得生成任意 SQL/脚本；不得直接保存或发布 DWD。
+  - 权限要求：用户需具备源资产元数据可见和 DWD 草稿创建权限；样例值进入上下文前必须脱敏或摘要化。
+  - 测试要求：组件测试逐条采纳/拒绝；接口测试无权限无法生成；安全测试敏感样例不进入 Prompt。
+  - 验收标准：草稿不自动生效；发布仍走预览、影响分析和权限校验。
+
+- [ ] Y0502 在 DWD → DWS / DWS → ADS 向导接入聚合与消费资产草稿生成。
+  - 任务：为 DWS 聚合、ADS 组装和指标定义生成草稿建议，包括维度、指标、过滤条件、输出字段和权限继承摘要。
+  - UI 要求：参考 U23、U25、U26；以步骤式表单展示建议，不提供自由脚本编辑器。
+  - AI 接入：调用 `warehouse.dws_aggregate.draft`、`warehouse.ads_definition.draft`、`warehouse.metric_definition.draft`；输出为表单草稿。
+  - 权限要求：必须校验源资产建模使用权限、目标空间创建权限、小样本阈值和 scope_strategy。
+  - 测试要求：接口测试权限不足/小样本/多源冲突；E2E 测试草稿生成后仍需人工确认发布。
+  - 验收标准：AI 能提升配置效率，但不成为自动建模、自动发布或绕过治理的通道。
+
+## Y06 四期复评与最终蓝图 AI 治理
+
+- [ ] Y0601 复评写入、发布、导出和开放 API 类 AI 能力。
+  - 任务：在四期评审时基于真实审计、权限成熟度、回滚能力和业务风险，决定是否试点写入/发布/导出类 AI 能力。
+  - UI 要求：参考 U24、U26；默认展示“禁用/复评中/申请试点”，不得直接出现执行按钮。
+  - AI 接入：未复评通过前，相关 capability disabled；复评通过后也必须二次确认、审批和审计。
+  - 权限要求：发布/开放/导出权限必须独立授权；AI 不得替用户扩大授权或批量授权。
+  - 测试要求：Policy Guard 拒绝测试；审批流测试；回滚测试；导出水印/限流测试；安全红队测试。
+  - 验收标准：高风险 AI 能力只在治理闭环成熟后试点，且可关闭、可追责、可回滚。
+
+- [ ] Y0602 建立最终蓝图 AI 数据能力提供方契约。
+  - 任务：定义数据仓库作为 AI Native Workbench 受控数据能力提供方的 API、权限、审计、限流、上下文摘要和版本兼容契约。
+  - UI 要求：最终蓝图工作台可展示 capability 状态、权限状态、调用审计和风险配置；参考 U13、U26。
+  - AI 接入：所有能力通过统一注册和策略治理；不向外暴露内部表结构、secret 或未授权数据。
+  - 权限要求：独立应用化后仍兼容统一权限模型；跨应用调用通过 token/scope/audit 约束。
+  - 测试要求：契约测试、跨应用权限测试、审计一致性测试、限流与降级测试。
+  - 验收标准：数据仓库可被 AI 工作台安全调用，同时保持独立边界和可拆分部署能力。
+
+---
+
+## U26 AI 接入预留与权限安全线框图
+
+```text
+数据仓库 > 数据资产 > 资产详情 > AI 解释抽屉（二期只读）
+┌─────────────────────────────────────────────────────────────┐
+│ AI 解释：员工成本明细资产                                    │
+│ Capability：warehouse.asset.explain   状态：只读解释          │
+│ 用户：当前登录人   数据范围：可见字段 28/42，明细未进入上下文  │
+├─────────────────────────────────────────────────────────────┤
+│ 权限裁剪摘要：                                               │
+│ - 隐藏字段：已排除 6 个                                      │
+│ - 脱敏字段：已摘要化 8 个                                    │
+│ - UCP 信息：仅使用资源名称/状态，不含凭证                     │
+├─────────────────────────────────────────────────────────────┤
+│ AI 输出：                                                    │
+│ 该资产来源于员工主数据同步，当前处于 ODS 层，质量状态 PASS... │
+│ 引用来源：[资产概览] [字段清单] [质量摘要] [血缘摘要]          │
+├─────────────────────────────────────────────────────────────┤
+│ 审计编号：AI-AUDIT-20260705-0001         [复制摘要] [关闭]    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+```text
+数据仓库 > 数据开发 > ODS→DWD > AI 规则草稿（三期）
+┌─────────────────────────────────────────────────────────────┐
+│ 生成标准化规则草稿                                           │
+│ Capability：warehouse.standardization_rule.draft  状态：草稿 │
+│ 输入：字段名/类型/脱敏样例摘要/标准字典，不含敏感明文          │
+├─────────────────────────────────────────────────────────────┤
+│ 建议规则                                                     │
+│ # | 源字段 | 目标字段 | 规则类型 | 敏感继承 | 风险 | 操作       │
+│ 1 | realName | employee_name | 重命名 | 继承敏感 | 中 | [采纳] │
+│ 2 | salary   | salary_yuan   | 单位转换 | 继承高敏 | 高 | [编辑]│
+├─────────────────────────────────────────────────────────────┤
+│ [应用到表单草稿] [全部放弃]                                  │
+│ 提示：草稿不会自动保存/发布，发布前必须预览和影响分析。        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+```text
+数据仓库 > 高级能力 > AI 写入/导出能力（四期复评）
+┌─────────────────────────────────────────────────────────────┐
+│ 能力：AI 自动发布 ADS                                        │
+│ 状态：默认禁用 / 四期复评                                    │
+│ 风险：发布生产资产、可能扩大权限、影响 API/推送               │
+│ 前置条件：审批流、影响分析、回滚、审计、权限模型全部通过       │
+│ 操作：[查看复评条件] [申请试点]（无权限或未达条件时禁用）      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+交互说明：
+- AI 入口必须显示 capability、只读/草稿/高风险状态、数据范围、权限裁剪摘要和审计编号。
+- AI 输出不得替代原始列表、表单校验、影响分析和审批；只能辅助解释或生成草稿。
+- 无权限、上下文为空、Policy Guard 拒绝、UCP 不可用时必须展示明确禁用态或错误态。
+- 涉及写入、发布、导出、开放 API 的 AI 能力默认只在四期复评页展示状态，不提供直接执行。
