@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     JSON,
     String,
     Text,
@@ -50,6 +51,23 @@ class DataSet(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    # === 数据仓库扩展字段 (012) ===
+    warehouse_layer: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="DWD", server_default="DWD"
+    )
+    subject_area: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    owner_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="published", server_default="published"
+    )
+    business_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    published_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class DataSetTable(Base):
@@ -139,6 +157,90 @@ class DatasetCalculatedField(Base):
     created_by: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+# === 数据仓库扩展 ORM (012) ===
+
+class DatasetOutputField(Base):
+    """数据集输出字段定义。
+
+    对应当前 DataSetTable 与 DataSetRelation 的输出投影。
+    source_alias / source_column 指向数据集内的来源表和字段，
+    output_code / output_label 定义对外输出编码和显示名。
+    """
+    __tablename__ = "dataset_output_fields"
+    __table_args__ = (
+        UniqueConstraint("dataset_id", "output_code", name="uq_dataset_output_code"),
+        Index("ix_dataset_output_fields_dataset_id", "dataset_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    dataset_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False
+    )
+    source_alias: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_column: Mapped[str] = mapped_column(String(128), nullable=False)
+    output_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    output_label: Mapped[str] = mapped_column(String(128), nullable=False)
+    data_type: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="string", server_default="string"
+    )
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    agg_role: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="dimension", server_default="dimension"
+    )
+    is_sensitive: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    is_visible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+
+class WarehouseMetric(Base):
+    """数据仓库指标定义（一期为口径目录，不自动计算）。"""
+    __tablename__ = "warehouse_metrics"
+    __table_args__ = (
+        UniqueConstraint("metric_code", name="uq_warehouse_metric_code"),
+        Index("ix_warehouse_metrics_subject_area", "subject_area"),
+        Index("ix_warehouse_metrics_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    metric_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    metric_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    metric_type: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="derived", server_default="derived"
+    )
+    subject_area: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    business_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    calculation_desc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    formula_expr: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stat_period: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    related_dataset_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True
+    )
+    related_fields: Mapped[list] = mapped_column(
+        JSON, nullable=False, default=list, server_default="[]"
+    )
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    owner_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="draft", server_default="draft"
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    published_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

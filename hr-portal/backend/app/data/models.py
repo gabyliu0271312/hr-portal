@@ -191,6 +191,34 @@ class RegisteredTable(Base):
 
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=999)
 
+    # === 数据仓库扩展字段 (012) ===
+    # 数据分层：ODS/DWD/DWS/ADS
+    warehouse_layer: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="ODS", server_default="ODS"
+    )
+    # 主题域
+    subject_area: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 负责人
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    owner_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 来源系统
+    source_system: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 资产状态：draft/published/disabled/archived
+    asset_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="published", server_default="published"
+    )
+    # UCP 关联（不强 FK）
+    ucp_system_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    ucp_resource_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    ucp_connector_config_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # 质量状态
+    last_quality_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="unknown", server_default="unknown"
+    )
+    last_quality_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

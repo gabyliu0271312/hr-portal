@@ -1,0 +1,937 @@
+# -*- coding: utf-8 -*-
+"""数据仓库业务逻辑层
+
+资产、模型、指标、影响分析的 service 实现。
+"""
+from typing import Optional
+
+from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.data.models import RegisteredTable, TableColumn
+from app.datasets.models import (
+    DataSet,
+    DataSetTable,
+    DataSetRelation,
+    DatasetOutputField,
+    DatasetCalculatedField,
+)
+from app.permissions.masker import get_hidden_columns
+from app.users.models import User
+from app.warehouse.schemas import (
+    WAREHOUSE_LAYERS,
+    ASSET_STATUSES,
+    WarehouseAssetOut,
+    WarehouseAssetDetailOut,
+    UcpInfoOut,
+)
+from app.warehouse.ucp_adapter import get_asset_ucp_info
+
+DEFAULT_PAGE = 1
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 200
+
+
+class WarehouseService:
+    """数据仓库业务服务"""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    # ==================== 资产 ====================
+
+    async def list_assets(
+        self,
+        *,
+        page: int = DEFAULT_PAGE,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        keyword: Optional[str] = None,
+        warehouse_layer: Optional[str] = None,
+        subject_area: Optional[str] = None,
+        source_system: Optional[str] = None,
+        asset_status: Optional[str] = None,
+    ) -> dict:
+        """查询资产列表（分页+筛选）"""
+        page_size = min(max(page_size, 1), MAX_PAGE_SIZE)
+
+        # 子查询：columns_count
+        col_count_subq = (
+            select(func.count(TableColumn.id))
+            .where(TableColumn.table_name == RegisteredTable.table_name)
+            .correlate(RegisteredTable)
+            .scalar_subquery()
+        )
+
+        base = select(RegisteredTable, col_count_subq.label("columns_count"))
+
+        # 筛选条件
+        if keyword:
+            kw = f"%{keyword}%"
+            base = base.where(
+                or_(
+                    RegisteredTable.table_name.ilike(kw),
+                    RegisteredTable.table_label.ilike(kw),
+                    RegisteredTable.description.ilike(kw),
+                )
+            )
+        if warehouse_layer:
+            base = base.where(RegisteredTable.warehouse_layer == warehouse_layer)
+        if subject_area:
+            base = base.where(RegisteredTable.subject_area == subject_area)
+        if source_system:
+            base = base.where(RegisteredTable.source_system == source_system)
+        if asset_status:
+            base = base.where(RegisteredTable.asset_status == asset_status)
+
+        # count
+        count_q = select(func.count()).select_from(base.subquery())
+        total = (await self.session.execute(count_q)).scalar_one()
+
+        # items
+        offset = (page - 1) * page_size
+        items_q = base.order_by(RegisteredTable.display_order, RegisteredTable.id).offset(offset).limit(page_size)
+        result = await self.session.execute(items_q)
+        rows = result.all()
+
+        items = []
+        for row in rows:
+            rt = row[0]
+            items.append(
+                WarehouseAssetOut(
+                    table_name=rt.table_name,
+                    table_label=rt.table_label,
+                    description=rt.description,
+                    warehouse_layer=rt.warehouse_layer,
+                    subject_area=rt.subject_area,
+                    owner_name=rt.owner_name,
+                    source_system=rt.source_system,
+                    asset_status=rt.asset_status,
+                    last_quality_status=rt.last_quality_status,
+                    columns_count=row.columns_count,
+                    # 当前无 DataSource/SyncRun 可追溯来源，返回 null
+                    last_synced_at=None,
+                )
+            )
+
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+    async def get_asset(self, table_name: str) -> Optional[WarehouseAssetDetailOut]:
+        """获取资产详情（含 UCP 协同摘要）"""
+        rt = (
+            await self.session.execute(
+                select(RegisteredTable).where(RegisteredTable.table_name == table_name)
+            )
+        ).scalar_one_or_none()
+        if rt is None:
+            return None
+
+        # 字段数
+        col_count = (
+            await self.session.execute(
+                select(func.count(TableColumn.id)).where(
+                    TableColumn.table_name == table_name
+                )
+            )
+        ).scalar_one()
+
+        # UCP 协同信息（降级安全：UCP 不可用时 enabled=False）
+        ucp_info = await get_asset_ucp_info(
+            self.session,
+            table_name,
+            ucp_system_id=rt.ucp_system_id,
+            ucp_resource_id=rt.ucp_resource_id,
+            ucp_connector_config_id=rt.ucp_connector_config_id,
+        )
+
+        return WarehouseAssetDetailOut(
+            table_name=rt.table_name,
+            table_label=rt.table_label,
+            description=rt.description,
+            warehouse_layer=rt.warehouse_layer,
+            subject_area=rt.subject_area,
+            owner_name=rt.owner_name,
+            owner_user_id=rt.owner_user_id,
+            source_system=rt.source_system,
+            asset_status=rt.asset_status,
+            last_quality_status=rt.last_quality_status,
+            last_quality_checked_at=rt.last_quality_checked_at,
+            columns_count=col_count,
+            # 当前无 DataSource/SyncRun 可追溯来源，返回 null
+            last_synced_at=None,
+            is_builtin=rt.is_builtin,
+            display_order=rt.display_order,
+            created_at=rt.created_at,
+            # UCP 协同结构化对象
+            ucp=UcpInfoOut(**ucp_info.to_dict()),
+            # 保留原始桥接 ID（向后兼容）
+            ucp_system_id=rt.ucp_system_id,
+            ucp_resource_id=rt.ucp_resource_id,
+            ucp_connector_config_id=rt.ucp_connector_config_id,
+            period_col=rt.period_col,
+            period_source=rt.period_source,
+            scope_strategy=rt.scope_strategy,
+        )
+
+    async def update_asset(self, table_name: str, payload: dict, exclude_unset: bool = False) -> Optional[RegisteredTable]:
+        """更新资产字段。
+
+        当 exclude_unset=True 时，payload 中的值为 None 意味着"清空该字段"，
+        而非"未传入"。调用方应使用 Pydantic 的 model_dump(exclude_unset=True)
+        并将结果传入。
+        """
+        rt = (
+            await self.session.execute(
+                select(RegisteredTable).where(RegisteredTable.table_name == table_name)
+            )
+        ).scalar_one_or_none()
+        if rt is None:
+            return None
+
+        allowed_fields = {
+            "table_label", "description", "warehouse_layer", "subject_area",
+            "owner_user_id", "owner_name", "source_system", "asset_status",
+            "ucp_system_id", "ucp_resource_id", "ucp_connector_config_id",
+        }
+        for key, val in payload.items():
+            if key not in allowed_fields:
+                continue
+            # exclude_unset 时允许 None 表示清空 nullable 字段
+            if val is not None or exclude_unset:
+                setattr(rt, key, val)
+        return rt
+
+    async def get_asset_columns(
+        self, table_name: str, user: Optional[User] = None
+    ) -> Optional[list[dict]]:
+        """获取资产字段列表。
+
+        返回 None 表示表不存在（调用方应返回 404）。
+        自动过滤 is_visible=False 的列和用户无权查看的隐藏列。
+
+        权限逻辑：
+        1. 只返回 is_visible=True 的列
+        2. 调用 get_hidden_columns 过滤用户无权查看的敏感列
+        """
+        rt = (
+            await self.session.execute(
+                select(RegisteredTable).where(RegisteredTable.table_name == table_name)
+            )
+        ).scalar_one_or_none()
+        if rt is None:
+            return None
+
+        columns = (
+            await self.session.execute(
+                select(TableColumn)
+                .where(
+                    TableColumn.table_name == table_name,
+                    TableColumn.is_visible == True,
+                )
+                .order_by(TableColumn.display_order, TableColumn.id)
+            )
+        ).scalars().all()
+
+        # 过滤用户无权查看的隐藏列
+        if user is not None:
+            hidden = await get_hidden_columns(user, table_name, self.session)
+            columns = [c for c in columns if c.column_code not in hidden]
+
+        return [
+            {
+                "column_code": col.column_code,
+                "column_label": col.column_label,
+                "data_type": col.data_type,
+                "is_pk_part": col.is_pk_part,
+                "is_sensitive": col.is_sensitive,
+                "agg_role": col.agg_role,
+                "is_visible": col.is_visible,
+                "description": col.description,
+                "source": "auto" if col.auto_discovered else "manual",
+                "is_computed": col.is_computed,
+                "formula_expr": col.formula_expr,
+                "display_order": col.display_order,
+            }
+            for col in columns
+        ]
+
+    # ==================== 模型 ====================
+
+    async def list_models(
+        self,
+        *,
+        page: int = DEFAULT_PAGE,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        status: Optional[str] = None,
+        warehouse_layer: Optional[str] = None,
+        subject_area: Optional[str] = None,
+        keyword: Optional[str] = None,
+    ) -> dict:
+        """查询模型列表（分页+筛选）"""
+        page_size = min(max(page_size, 1), MAX_PAGE_SIZE)
+
+        # 每个模型的表数量子查询
+        table_count_subq = (
+            select(func.count(DataSetTable.id))
+            .where(DataSetTable.dataset_id == DataSet.id)
+            .correlate(DataSet)
+            .scalar_subquery()
+        )
+
+        base = select(DataSet, table_count_subq.label("table_count"))
+
+        if keyword:
+            kw = f"%{keyword}%"
+            base = base.where(
+                or_(
+                    DataSet.name.ilike(kw),
+                    DataSet.description.ilike(kw),
+                    DataSet.business_definition.ilike(kw),
+                )
+            )
+        if status:
+            base = base.where(DataSet.status == status)
+        if warehouse_layer:
+            base = base.where(DataSet.warehouse_layer == warehouse_layer)
+        if subject_area:
+            base = base.where(DataSet.subject_area == subject_area)
+
+        count_q = select(func.count()).select_from(base.subquery())
+        total = (await self.session.execute(count_q)).scalar_one()
+
+        offset = (page - 1) * page_size
+        items_q = base.order_by(DataSet.id.desc()).offset(offset).limit(page_size)
+        result = await self.session.execute(items_q)
+        rows = result.all()
+
+        items = [
+            {
+                "id": row[0].id,
+                "name": row[0].name,
+                "description": row[0].description,
+                "warehouse_layer": row[0].warehouse_layer,
+                "subject_area": row[0].subject_area,
+                "owner_name": row[0].owner_name,
+                "status": row[0].status,
+                "version": row[0].version,
+                "table_count": row.table_count,
+                "published_at": row[0].published_at,
+                "created_at": row[0].created_at,
+            }
+            for row in rows
+        ]
+
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+    async def create_model(self, payload: dict, user_id: int | None = None) -> dict:
+        """创建模型（默认 status=draft）"""
+        ds = DataSet(
+            name=payload["name"],
+            description=payload.get("description"),
+            warehouse_layer=payload.get("warehouse_layer", "DWD"),
+            subject_area=payload.get("subject_area"),
+            owner_user_id=payload.get("owner_user_id") or user_id,
+            owner_name=payload.get("owner_name"),
+            business_definition=payload.get("business_definition"),
+            status="draft",
+            version=1,
+            created_by=user_id,
+        )
+        self.session.add(ds)
+        await self.session.flush()
+
+        # 添加表
+        for t in payload.get("tables", []):
+            dt = DataSetTable(
+                dataset_id=ds.id,
+                table_name=t["table_name"],
+                alias=t.get("alias", t["table_name"]),
+            )
+            self.session.add(dt)
+
+        # 添加关联
+        for r in payload.get("relations", []):
+            rel = DataSetRelation(
+                dataset_id=ds.id,
+                left_alias=r["left_alias"],
+                right_alias=r["right_alias"],
+                join_type=r.get("join_type", "left"),
+                cardinality=r.get("cardinality", "1:N"),
+                keys=[
+                    {"left": lk, "right": rk}
+                    for lk, rk in zip(
+                        r.get("left_keys", []), r.get("right_keys", [])
+                    )
+                ],
+            )
+            self.session.add(rel)
+
+        return {"id": ds.id, "name": ds.name, "status": ds.status, "version": ds.version}
+
+    async def get_model(self, model_id: int) -> Optional[dict]:
+        """获取模型详情（含 tables、relations、output_fields）"""
+        ds = await self.session.get(DataSet, model_id)
+        if ds is None:
+            return None
+
+        # tables
+        tables_q = select(DataSetTable).where(DataSetTable.dataset_id == model_id)
+        tables = (await self.session.execute(tables_q)).scalars().all()
+
+        # relations
+        rels_q = select(DataSetRelation).where(DataSetRelation.dataset_id == model_id)
+        relations = (await self.session.execute(rels_q)).scalars().all()
+
+        # output fields
+        of_q = select(DatasetOutputField).where(
+            DatasetOutputField.dataset_id == model_id
+        ).order_by(DatasetOutputField.display_order)
+        output_fields = (await self.session.execute(of_q)).scalars().all()
+
+        return {
+            "id": ds.id,
+            "name": ds.name,
+            "description": ds.description,
+            "warehouse_layer": ds.warehouse_layer,
+            "subject_area": ds.subject_area,
+            "owner_user_id": ds.owner_user_id,
+            "owner_name": ds.owner_name,
+            "status": ds.status,
+            "version": ds.version,
+            "business_definition": ds.business_definition,
+            "published_at": ds.published_at,
+            "published_by": ds.published_by,
+            "created_at": ds.created_at,
+            "tables": [
+                {"id": t.id, "table_name": t.table_name, "alias": t.alias}
+                for t in tables
+            ],
+            "relations": [
+                {
+                    "id": r.id,
+                    "left_alias": r.left_alias,
+                    "right_alias": r.right_alias,
+                    "join_type": r.join_type,
+                    "cardinality": r.cardinality,
+                    "keys": r.keys,
+                }
+                for r in relations
+            ],
+            "output_fields": [
+                {
+                    "id": f.id,
+                    "source_alias": f.source_alias,
+                    "source_column": f.source_column,
+                    "output_code": f.output_code,
+                    "output_label": f.output_label,
+                    "data_type": f.data_type,
+                    "description": f.description,
+                    "agg_role": f.agg_role,
+                    "is_sensitive": f.is_sensitive,
+                    "is_visible": f.is_visible,
+                    "display_order": f.display_order,
+                }
+                for f in output_fields
+            ],
+            "table_count": len(tables),
+        }
+
+    async def update_model(self, model_id: int, payload: dict) -> Optional[DataSet]:
+        """更新模型元数据"""
+        ds = await self.session.get(DataSet, model_id)
+        if ds is None:
+            return None
+
+        allowed = {
+            "name", "description", "warehouse_layer", "subject_area",
+            "owner_user_id", "owner_name", "business_definition",
+        }
+        for key, val in payload.items():
+            if key in allowed and val is not None:
+                setattr(ds, key, val)
+        return ds
+
+    async def publish_model(self, model_id: int, user_id: int) -> Optional[dict]:
+        """发布模型。
+
+        校验：
+        - 至少一张表
+        - 多表时至少一条关联
+        """
+        ds = await self.session.get(DataSet, model_id)
+        if ds is None:
+            return None
+
+        # 校验至少一张表
+        table_count = (
+            await self.session.execute(
+                select(func.count(DataSetTable.id)).where(
+                    DataSetTable.dataset_id == model_id
+                )
+            )
+        ).scalar_one()
+        if table_count == 0:
+            raise ValueError("发布失败：模型至少需要包含一张表")
+
+        # 多表时校验至少一条关联
+        if table_count > 1:
+            rel_count = (
+                await self.session.execute(
+                    select(func.count(DataSetRelation.id)).where(
+                        DataSetRelation.dataset_id == model_id
+                    )
+                )
+            ).scalar_one()
+            if rel_count == 0:
+                raise ValueError("发布失败：多表模型至少需要一条表间关联")
+
+        ds.status = "published"
+        ds.published_at = func.now()
+        ds.published_by = user_id
+        if ds.version is None:
+            ds.version = 1
+
+        return {"id": ds.id, "status": ds.status, "version": ds.version}
+
+    async def archive_model(self, model_id: int) -> Optional[DataSet]:
+        """归档模型"""
+        ds = await self.session.get(DataSet, model_id)
+        if ds is None:
+            return None
+        ds.status = "archived"
+        return ds
+
+    # ==================== 输出字段 ====================
+
+    async def get_output_fields(self, model_id: int) -> list[dict]:
+        """获取输出字段列表（按 display_order 排序）。
+
+        先校验 DataSet 是否存在，不存在时抛出 ValueError。
+        """
+        ds = await self.session.get(DataSet, model_id)
+        if ds is None:
+            raise ValueError(f"数据集不存在: {model_id}")
+
+        fields = (
+            await self.session.execute(
+                select(DatasetOutputField)
+                .where(DatasetOutputField.dataset_id == model_id)
+                .order_by(DatasetOutputField.display_order)
+            )
+        ).scalars().all()
+        return [
+            {
+                "id": f.id,
+                "dataset_id": f.dataset_id,
+                "source_alias": f.source_alias,
+                "source_column": f.source_column,
+                "output_code": f.output_code,
+                "output_label": f.output_label,
+                "data_type": f.data_type,
+                "description": f.description,
+                "agg_role": f.agg_role,
+                "is_sensitive": f.is_sensitive,
+                "is_visible": f.is_visible,
+                "display_order": f.display_order,
+            }
+            for f in fields
+        ]
+
+    async def save_output_fields(self, model_id: int, fields_data: list[dict]) -> list[dict]:
+        """全量保存输出字段（先删后插）。
+
+        校验：
+        - dataset 存在
+        - source_alias 属于该 dataset 的表
+        - source_column 属于对应表的字段
+        - output_code 唯一
+        """
+        ds = await self.session.get(DataSet, model_id)
+        if ds is None:
+            raise ValueError(f"数据集不存在: {model_id}")
+
+        # 获取该模型已注册的表别名集
+        tables_q = select(DataSetTable.alias).where(DataSetTable.dataset_id == model_id)
+        valid_aliases = {
+            row[0]
+            for row in (await self.session.execute(tables_q)).all()
+        }
+
+        # 获取全局字段元数据（table_name -> column_codes）
+        table_name_by_alias: dict[str, str] = {}
+        alias_q = select(DataSetTable.alias, DataSetTable.table_name).where(
+            DataSetTable.dataset_id == model_id
+        )
+        for row in (await self.session.execute(alias_q)).all():
+            table_name_by_alias[row[0]] = row[1]
+
+        # 校验
+        output_codes = set()
+        for i, f in enumerate(fields_data):
+            alias = f.get("source_alias", "")
+            col = f.get("source_column", "")
+            code = f.get("output_code", "")
+
+            if alias not in valid_aliases:
+                raise ValueError(f"输出字段[{i}]: source_alias '{alias}' 不属于该模型")
+            if not code:
+                raise ValueError(f"输出字段[{i}]: output_code 不能为空")
+
+            table = table_name_by_alias.get(alias, "")
+            if table:
+                col_exists = (
+                    await self.session.execute(
+                        select(func.count(TableColumn.id)).where(
+                            TableColumn.table_name == table,
+                            TableColumn.column_code == col,
+                        )
+                    )
+                ).scalar_one()
+                if col_exists == 0:
+                    raise ValueError(
+                        f"输出字段[{i}]: source_column '{col}' 在表 '{table}' 中不存在"
+                    )
+
+            if code in output_codes:
+                raise ValueError(f"output_code '{code}' 重复")
+            output_codes.add(code)
+
+        # 删除旧数据
+        await self.session.execute(
+            DatasetOutputField.__table__.delete().where(
+                DatasetOutputField.dataset_id == model_id
+            )
+        )
+
+        # 插入新数据
+        for f in fields_data:
+            of = DatasetOutputField(
+                dataset_id=model_id,
+                source_alias=f["source_alias"],
+                source_column=f["source_column"],
+                output_code=f["output_code"],
+                output_label=f.get("output_label", f["output_code"]),
+                data_type=f.get("data_type", "string"),
+                description=f.get("description"),
+                agg_role=f.get("agg_role", "dimension"),
+                is_sensitive=f.get("is_sensitive", False),
+                is_visible=f.get("is_visible", True),
+                display_order=f.get("display_order", 0),
+            )
+            self.session.add(of)
+
+        # 返回保存后的结果
+        return await self.get_output_fields(model_id)
+
+    # ==================== 预览 ====================
+
+    async def preview_model(
+        self, model_id: int, limit: int = 20, user: "User | None" = None
+    ) -> dict:
+        """预览模型数据（复用 DataSet SQL 构建器）。
+
+        通过 run_dataset_query 获取列元数据和数据行，支持：
+        - 多表 JOIN（基于 DataSetRelation）
+        - 输出字段投影（基于 DatasetOutputField）
+        - 字段权限过滤 / 脱敏
+        - 数据范围权限注入
+
+        summary 中的 unmatched_count / duplicate_match_count / null_count /
+        type_error_count 当前阶段暂不计算，统一返回 null。
+        """
+        from app.reports.sql_builder import run_dataset_query
+
+        limit = min(max(limit, 1), 100)
+
+        ds = await self.session.get(DataSet, model_id)
+        if ds is None:
+            raise ValueError(f"数据集不存在: {model_id}")
+
+        # 获取输出字段作为预览列
+        of_q = (
+            select(DatasetOutputField)
+            .where(DatasetOutputField.dataset_id == model_id)
+            .order_by(DatasetOutputField.display_order)
+        )
+        output_fields = (await self.session.execute(of_q)).scalars().all()
+
+        # 构建 alias.column_code → output_code 映射 + SQL 列引用
+        code_map: dict[str, str] = {}
+        sql_columns: list[str] = []
+        for f in output_fields:
+            src = f"{f.source_alias}.{f.source_column}"
+            code_map[src] = f.output_code
+            sql_columns.append(src)
+
+        try:
+            warnings: list[str] = []
+            columns_meta, items, total = await run_dataset_query(
+                dataset_id=model_id,
+                columns=sql_columns,
+                filters=[],
+                sorts=[],
+                value_rules=[],
+                aggregate=False,
+                aggregations={},
+                column_settings={},
+                transpose={},
+                rounding_corrections=[],
+                filter_logic=None,
+                list_lookup={},
+                page=1,
+                page_size=limit,
+                user=user,
+                db=self.session,
+                scope_strategy=ds.scope_strategy,
+                warnings_sink=warnings,
+            )
+
+            # 将 alias.column_code 映射为 output_code
+            remapped_items = [
+                {code_map.get(k, k): v for k, v in row.items()}
+                for row in items
+            ]
+            remapped_columns = [
+                code_map.get(m["code"], m["code"]) for m in columns_meta
+            ]
+
+            return {
+                "items": remapped_items,
+                "columns": remapped_columns,
+                "summary": {
+                    "main_count": total,
+                    "result_count": len(items),
+                    # 以下统计当前阶段暂不计算
+                    "unmatched_count": None,
+                    "duplicate_match_count": None,
+                    "null_count": None,
+                    "type_error_count": None,
+                },
+                "warnings": warnings,
+            }
+        except Exception as exc:
+            return {
+                "items": [],
+                "columns": [],
+                "summary": {
+                    "main_count": None,
+                    "result_count": 0,
+                    "unmatched_count": None,
+                    "duplicate_match_count": None,
+                    "null_count": None,
+                    "type_error_count": None,
+                },
+                "error": str(exc),
+            }
+
+    # ==================== 指标 ====================
+
+    async def list_metrics(
+        self,
+        *,
+        page: int = DEFAULT_PAGE,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        keyword: str | None = None,
+        subject_area: str | None = None,
+        status: str | None = None,
+    ) -> dict:
+        """查询指标列表（分页+筛选）"""
+        from app.datasets.models import WarehouseMetric
+
+        page_size = min(max(page_size, 1), MAX_PAGE_SIZE)
+
+        base = select(WarehouseMetric)
+
+        if keyword:
+            kw = f"%{keyword}%"
+            base = base.where(
+                or_(
+                    WarehouseMetric.metric_code.ilike(kw),
+                    WarehouseMetric.metric_name.ilike(kw),
+                    WarehouseMetric.business_definition.ilike(kw),
+                )
+            )
+        if subject_area:
+            base = base.where(WarehouseMetric.subject_area == subject_area)
+        if status:
+            base = base.where(WarehouseMetric.status == status)
+
+        count_q = select(func.count()).select_from(base.subquery())
+        total = (await self.session.execute(count_q)).scalar_one()
+
+        offset = (page - 1) * page_size
+        items_q = base.order_by(WarehouseMetric.id.desc()).offset(offset).limit(page_size)
+        rows = (await self.session.execute(items_q)).scalars().all()
+
+        items = [
+            {
+                "id": m.id,
+                "metric_code": m.metric_code,
+                "metric_name": m.metric_name,
+                "metric_type": m.metric_type,
+                "business_definition": m.business_definition,
+                "subject_area": m.subject_area,
+                "related_dataset_id": m.related_dataset_id,
+                "owner_name": m.owner_name,
+                "status": m.status,
+                "version": m.version,
+                "published_at": m.published_at,
+                "created_at": m.created_at,
+            }
+            for m in rows
+        ]
+
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+    async def create_metric(self, payload: dict, user_id: int | None = None) -> dict:
+        """创建指标（默认 status=draft）。
+
+        校验：metric_code 唯一、related_dataset_id 存在。
+        """
+        from app.datasets.models import WarehouseMetric
+
+        # 校验 metric_code 唯一
+        exists = (
+            await self.session.execute(
+                select(func.count(WarehouseMetric.id)).where(
+                    WarehouseMetric.metric_code == payload["metric_code"]
+                )
+            )
+        ).scalar_one()
+        if exists > 0:
+            raise ValueError(f"指标编码已存在: {payload['metric_code']}")
+
+        # 校验 related_dataset_id 存在
+        if payload.get("related_dataset_id"):
+            ds = await self.session.get(DataSet, payload["related_dataset_id"])
+            if ds is None:
+                raise ValueError(f"关联数据集不存在: {payload['related_dataset_id']}")
+
+        m = WarehouseMetric(
+            metric_code=payload["metric_code"],
+            metric_name=payload["metric_name"],
+            metric_type=payload.get("metric_type", "derived"),
+            subject_area=payload.get("subject_area"),
+            business_definition=payload.get("business_definition"),
+            calculation_desc=payload.get("calculation_desc"),
+            formula_expr=payload.get("formula_expr"),
+            stat_period=payload.get("stat_period"),
+            related_dataset_id=payload.get("related_dataset_id"),
+            related_fields=payload.get("related_fields", []),
+            owner_user_id=payload.get("owner_user_id") or user_id,
+            owner_name=payload.get("owner_name"),
+            status="draft",
+            version=1,
+            created_by=user_id,
+        )
+        self.session.add(m)
+        await self.session.flush()
+        await self.session.refresh(m)
+        # 返回完整详情，与 GET /metrics/{id} 输出结构一致
+        return await self.get_metric(m.id)
+
+    async def get_metric(self, metric_id: int) -> dict | None:
+        """获取指标详情"""
+        from app.datasets.models import WarehouseMetric
+
+        m = await self.session.get(WarehouseMetric, metric_id)
+        if m is None:
+            return None
+
+        return {
+            "id": m.id,
+            "metric_code": m.metric_code,
+            "metric_name": m.metric_name,
+            "metric_type": m.metric_type,
+            "subject_area": m.subject_area,
+            "business_definition": m.business_definition,
+            "calculation_desc": m.calculation_desc,
+            "formula_expr": m.formula_expr,
+            "stat_period": m.stat_period,
+            "related_dataset_id": m.related_dataset_id,
+            "related_fields": m.related_fields,
+            "owner_user_id": m.owner_user_id,
+            "owner_name": m.owner_name,
+            "status": m.status,
+            "version": m.version,
+            "published_at": m.published_at,
+            "published_by": m.published_by,
+            "created_at": m.created_at,
+            "updated_at": m.updated_at,
+        }
+
+    async def update_metric(self, metric_id: int, payload: dict, exclude_unset: bool = False) -> "WarehouseMetric | None":
+        """更新指标元数据（已归档指标不可编辑）。"""
+        from app.datasets.models import WarehouseMetric
+
+        m = await self.session.get(WarehouseMetric, metric_id)
+        if m is None:
+            return None
+
+        if m.status == "archived":
+            raise ValueError("已归档指标不可编辑")
+
+        allowed = {
+            "metric_name", "metric_type", "subject_area", "business_definition",
+            "calculation_desc", "formula_expr", "stat_period",
+            "related_dataset_id", "related_fields",
+            "owner_user_id", "owner_name",
+        }
+        for key, val in payload.items():
+            if key not in allowed:
+                continue
+            if val is not None or exclude_unset:
+                setattr(m, key, val)
+
+        # 校验 related_dataset_id
+        if "related_dataset_id" in payload and payload.get("related_dataset_id") is not None:
+            ds = await self.session.get(DataSet, payload["related_dataset_id"])
+            if ds is None:
+                raise ValueError(f"关联数据集不存在: {payload['related_dataset_id']}")
+
+        return m
+
+    async def publish_metric(self, metric_id: int, user_id: int) -> dict | None:
+        """发布指标。
+
+        状态校验：只有 draft 可发布。
+        """
+        from app.datasets.models import WarehouseMetric
+
+        m = await self.session.get(WarehouseMetric, metric_id)
+        if m is None:
+            return None
+
+        if m.status != "draft":
+            raise ValueError(f"仅 draft 状态可发布，当前状态: {m.status}")
+
+        m.status = "published"
+        m.version = (m.version or 0) + 1
+        m.published_at = func.now()
+        m.published_by = user_id
+        await self.session.flush()
+        await self.session.refresh(m)
+        return await self.get_metric(metric_id)
+
+    async def archive_metric(self, metric_id: int) -> dict | None:
+        """归档指标。
+
+        状态校验：只有 published 可归档。
+        """
+        from app.datasets.models import WarehouseMetric
+
+        m = await self.session.get(WarehouseMetric, metric_id)
+        if m is None:
+            return None
+
+        if m.status != "published":
+            raise ValueError(f"仅 published 状态可归档，当前状态: {m.status}")
+
+        m.status = "archived"
+        await self.session.flush()
+        await self.session.refresh(m)
+        return await self.get_metric(metric_id)
+
+
+# 便捷工厂
+def get_warehouse_service(session: AsyncSession) -> WarehouseService:
+    return WarehouseService(session)

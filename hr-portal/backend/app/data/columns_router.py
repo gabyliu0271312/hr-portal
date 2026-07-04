@@ -34,6 +34,7 @@ from app.data.dynamic_loader import register_source_table_model
 from app.data.models import DATA_TABLES, TableColumn
 from app.datasets.metadata import table_options
 from app.users.models import User
+from app.warehouse.impact import get_impact_analyzer
 
 
 router = APIRouter(prefix="/table-columns", tags=["table-columns"])
@@ -545,6 +546,17 @@ async def bulk_update(
                     detail=f"字段「{col.column_label}」是接口字段，不能设为计算字段",
                 )
             await _validate_formula(table, col.column_code, item.get("formula_expr"), db)
+        if "data_type" in item and item.get("data_type") != col.data_type:
+            # G0303: 类型变更前影响分析（bulk_update 路径）
+            impact_analyzer = get_impact_analyzer(db)
+            impact_refs = await impact_analyzer.scan_field(table, col.column_code)
+            blocking_refs = [r for r in impact_refs if r.get("blocking")]
+            if blocking_refs and not bool(item.get("confirm_type_change")):
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail=f"字段「{col.column_label}」类型变更存在阻断级引用，设置 confirm_type_change=true 确认操作："
+                    + "；".join(r.get("blocking_reason", "") for r in blocking_refs),
+                )
         if "data_type" in item:
             ddl_changed = await _alter_type_if_needed(
                 db,
@@ -609,6 +621,18 @@ async def update_column(
                 detail="接口字段不能设为计算字段",
             )
         await _validate_formula(table, col.column_code, payload.formula_expr, db)
+    # G0303: 类型变更前影响分析（必须在 DDL 之前）
+    if payload.data_type != col.data_type:
+        impact_analyzer = get_impact_analyzer(db)
+        impact_refs = await impact_analyzer.scan_field(table, col.column_code)
+        blocking_refs = [r for r in impact_refs if r.get("blocking")]
+        if blocking_refs and not payload.confirm_type_change:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="字段类型变更存在阻断级引用，设置 confirm_type_change=true 确认操作："
+                + "；".join(r.get("blocking_reason", "") for r in blocking_refs),
+            )
+
     ddl_changed = await _alter_type_if_needed(
         db,
         table,
@@ -713,6 +737,17 @@ async def delete_column(
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail=f"字段「{col.column_label}」存在依赖，不能删除：" + "；".join(reasons),
+        )
+
+    # G0302: 仓库影响分析 — 追加仓库指标/输出字段引用检查
+    impact_analyzer = get_impact_analyzer(db)
+    impact_refs = await impact_analyzer.scan_field(table, column_code)
+    blocking_refs = [r for r in impact_refs if r.get("blocking")]
+    if blocking_refs:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"字段「{col.column_label}」存在阻断级引用，不能删除："
+            + "；".join(r.get("blocking_reason", r.get("usage", "")) for r in blocking_refs),
         )
 
     # 1) 删物理列

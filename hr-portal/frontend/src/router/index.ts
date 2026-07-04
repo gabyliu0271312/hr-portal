@@ -204,6 +204,66 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/costAllocation/Entry.vue'),
         meta: { label: '成本分摊后台入口', menuCode: 'cost_allocation.admin', entryType: 'admin' },
       },
+      // ==================== 数据仓库 ====================
+      {
+        path: 'warehouse',
+        name: 'Warehouse',
+        component: () => import('@/views/warehouse/WarehouseHome.vue'),
+        meta: { label: '数据仓库', menuCode: 'warehouse' },
+      },
+      {
+        path: 'warehouse/assets',
+        name: 'WarehouseAssets',
+        component: () => import('@/views/warehouse/WarehouseAssets.vue'),
+        meta: { label: '数据资产', menuCode: 'warehouse.assets' },
+      },
+      {
+        path: 'warehouse/assets/:tableName',
+        name: 'WarehouseAssetDetail',
+        component: () => import('@/views/warehouse/WarehouseAssetDetail.vue'),
+        meta: { label: '资产详情', menuCode: 'warehouse.assets' },
+      },
+      {
+        path: 'warehouse/assets/:table/columns',
+        name: 'WarehouseAssetColumns',
+        component: () => import('@/views/warehouse/WarehouseAssetColumns.vue'),
+        meta: { label: '字段管理', menuCode: 'warehouse.assets' },
+      },
+      {
+        path: 'warehouse/modeling',
+        name: 'WarehouseModeling',
+        component: () => import('@/views/warehouse/WarehouseModeling.vue'),
+        meta: { label: '数据建模', menuCode: 'warehouse.modeling' },
+      },
+      {
+        path: 'warehouse/modeling/quick',
+        redirect: '/warehouse/modeling/visual',
+        meta: { label: '快速关联', menuCode: 'warehouse.modeling' },
+      },
+      {
+        path: 'warehouse/modeling/visual/:id?',
+        name: 'WarehouseModelingVisual',
+        component: () => import('@/views/warehouse/WarehouseModelingVisual.vue'),
+        meta: { label: '可视化建模', menuCode: 'warehouse.modeling', hideAside: true },
+      },
+      {
+        path: 'warehouse/metrics',
+        name: 'WarehouseMetrics',
+        component: () => import('@/views/warehouse/WarehouseMetrics.vue'),
+        meta: { label: '指标管理', menuCode: 'warehouse.metrics' },
+      },
+      {
+        path: 'warehouse/governance',
+        name: 'WarehouseGovernance',
+        component: () => import('@/views/warehouse/WarehouseGovernance.vue'),
+        meta: { label: '数据治理', menuCode: 'warehouse.governance' },
+      },
+      {
+        path: 'warehouse/impact',
+        name: 'WarehouseImpact',
+        component: () => import('@/views/warehouse/WarehouseImpact.vue'),
+        meta: { label: '影响分析', menuCode: 'warehouse.impact' },
+      },
       {
         path: 'automation/rules',
         name: 'AutomationRuleList',

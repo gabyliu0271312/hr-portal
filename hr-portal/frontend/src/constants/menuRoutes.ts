@@ -32,4 +32,11 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   'automation.rules': '/automation/rules',
   // 数据对比
   'system.data_compare': '/system/data-compare',
+  // 数据仓库
+  'warehouse': '/warehouse',
+  'warehouse.assets': '/warehouse/assets',
+  'warehouse.modeling': '/warehouse/modeling',
+  'warehouse.metrics': '/warehouse/metrics',
+  'warehouse.governance': '/warehouse/governance',
+  'warehouse.impact': '/warehouse/impact',
 }

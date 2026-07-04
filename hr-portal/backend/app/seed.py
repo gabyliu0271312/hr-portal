@@ -83,7 +83,20 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
-    # 一级 2：报表管理
+    # 一级 2：数据仓库
+    {
+        "code": "warehouse",
+        "label": "数据仓库",
+        "icon": "DataBoard",
+        "children": [
+            {"code": "warehouse.assets", "label": "数据资产", "icon": "Folder"},
+            {"code": "warehouse.modeling", "label": "数据建模", "icon": "Edit"},
+            {"code": "warehouse.metrics", "label": "指标管理", "icon": "TrendCharts"},
+            {"code": "warehouse.governance", "label": "数据治理", "icon": "Checked"},
+            {"code": "warehouse.impact", "label": "影响分析", "icon": "Connection"},
+        ],
+    },
+    # 一级 3：报表管理
     {
         "code": "report",
         "label": "报表管理",

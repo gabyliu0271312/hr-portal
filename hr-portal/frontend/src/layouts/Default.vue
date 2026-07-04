@@ -159,7 +159,12 @@ const leftMenu = computed<GroupMenu[]>(() => {
 })
 
 function onTabClick(tab: TabMenu) {
-  // 跳到该 tab 下第一个可达的叶子或分组
+  // 如果该 tab 有自己的首页路由（如 /warehouse），直接跳转
+  if (tab.routePath && tab.routePath !== '/home') {
+    router.push(tab.routePath)
+    return
+  }
+  // 否则跳到该 tab 下第一个可达的叶子或分组
   const firstGroup = tab.children[0]
   if (!firstGroup) return
   const firstLeaf = firstGroup.children[0]

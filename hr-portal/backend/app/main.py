@@ -38,6 +38,7 @@ from app.data_compare.router import router as data_compare_router
 from app.allocation.router import router as allocation_router
 from app.ai_formula.router import router as ai_formula_router
 from app.cost_allocation.router import router as cost_allocation_router
+from app.warehouse.router import router as warehouse_router
 from app.system.router import router as system_logs_router
 from app.tools.router import router as tools_router
 from app.table_tools.router import router as table_tools_router
@@ -184,3 +185,4 @@ app.include_router(push_router, prefix=settings.API_PREFIX)
 app.include_router(feishu_router, prefix=settings.API_PREFIX)
 app.include_router(automation_router, prefix=settings.API_PREFIX)
 app.include_router(data_compare_router, prefix=settings.API_PREFIX)
+app.include_router(warehouse_router, prefix=settings.API_PREFIX)

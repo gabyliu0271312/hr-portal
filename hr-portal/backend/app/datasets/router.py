@@ -26,6 +26,7 @@ from app.datasets.single_table import ensure_single_table_dataset as ensure_sing
 from app.permissions.strategy import ensure_scope_strategy
 from app.reports.models import Report
 from app.users.models import Role, User, UserRole
+from app.warehouse.impact import get_impact_analyzer
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -493,6 +494,18 @@ async def delete_dataset(
             status.HTTP_409_CONFLICT,
             detail=f"该数据集被 {len(ref)} 个报表引用，无法删除",
         )
+
+    # G0304: 仓库影响分析 — 检查仓库指标引用
+    impact_analyzer = get_impact_analyzer(db)
+    impact_refs, _ = await impact_analyzer.scan_model(ds_id)
+    blocking_refs = [r for r in impact_refs if r.get("blocking")]
+    if blocking_refs:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"该数据集存在阻断级引用，无法删除："
+            + "；".join(r.get("blocking_reason", "") for r in blocking_refs),
+        )
+
     await db.delete(ds)
     await db.commit()
     return {"ok": True}
