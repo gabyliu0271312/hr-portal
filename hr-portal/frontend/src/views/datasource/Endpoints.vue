@@ -298,6 +298,28 @@ onMounted(() => {
 
 <template>
   <div style="padding: 24px">
+    <!-- T02: 迁移提示 -->
+    <el-alert
+      type="warning"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 16px"
+    >
+      <template #title>
+        <span style="font-weight: 600">接口配置已融合到 数据仓库 &gt; 资产详情 &gt; 来源与开放</span>
+      </template>
+      <template #default>
+        <div style="margin-top: 4px">
+          当前页面为全局运维兼容入口。资产级拉取/推送/API 暴露的配置建议从数据仓库资产详情进入。
+        </div>
+        <div style="margin-top: 8px">
+          <el-button type="primary" size="small" @click="router.push({ name: 'WarehouseAssets' })">
+            前往数据资产目录
+          </el-button>
+        </div>
+      </template>
+    </el-alert>
+
     <el-card>
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">

@@ -49,6 +49,28 @@ onMounted(loadTables)
 
 <template>
   <div style="padding: 24px">
+    <!-- T0504: 迁移提示 -->
+    <el-alert
+      type="warning"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 16px"
+    >
+      <template #title>
+        <span style="font-weight: 600">数据视图已纳入 数据仓库 &gt; 数据资产</span>
+      </template>
+      <template #default>
+        <div style="margin-top: 4px">
+          当前页面为兼容入口。数据视图将作为资产类型融入统一资产目录，建议前往数据资产目录查看和管理。
+        </div>
+        <div style="margin-top: 8px">
+          <el-button type="primary" size="small" @click="router.push({ name: 'WarehouseAssets' })">
+            前往数据资产目录
+          </el-button>
+        </div>
+      </template>
+    </el-alert>
+
     <el-card>
       <template #header>
         <div style="display: flex; align-items: center; justify-content: space-between">

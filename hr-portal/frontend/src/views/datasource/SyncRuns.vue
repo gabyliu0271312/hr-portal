@@ -86,6 +86,28 @@ onMounted(async () => {
 
 <template>
   <div style="padding: 24px">
+    <!-- T0302: 迁移提示 -->
+    <el-alert
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 16px"
+    >
+      <template #title>
+        各资产的同步历史已聚合到 数据仓库 &gt; 数据资产 &gt; 资产详情 &gt; 同步历史
+      </template>
+      <template #default>
+        <div style="margin-top: 4px">
+          当前页面为全局同步历史兼容入口。资产视角的同步历史请从数据仓库资产详情查看。
+        </div>
+        <div style="margin-top: 8px">
+          <el-button type="primary" size="small" @click="$router.push({ name: 'WarehouseAssets' })">
+            前往数据资产目录
+          </el-button>
+        </div>
+      </template>
+    </el-alert>
+
     <el-card>
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">
@@ -95,19 +117,6 @@ onMounted(async () => {
           </el-button>
         </div>
       </template>
-
-      <el-alert
-        title="数据接入的所有同步运行历史 · 含定时调度与手动「立即拉取」"
-        type="info"
-        :closable="false"
-        show-icon
-        style="margin-bottom: 16px"
-      >
-        <p style="margin: 0; line-height: 1.6">
-          后端 APScheduler 按各接口的「调度计划」自动跑；失败会记录错误信息便于排查。
-          管理员可在「接口配置」页修改调度计划或临时停用。
-        </p>
-      </el-alert>
 
       <el-form inline style="margin-bottom: 16px">
         <el-form-item label="数据表">

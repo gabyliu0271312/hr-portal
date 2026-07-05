@@ -2,13 +2,18 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh, View, Edit, DataAnalysis, Connection, Link, List, ArrowDown } from '@element-plus/icons-vue'
+import { Search, Refresh, View, Edit, DataAnalysis, Connection, Link, List, ArrowDown, Grid, Menu, Plus } from '@element-plus/icons-vue'
 import { listAssets, updateAsset, type Asset } from '@/api/warehouse'
 import { useUserStore } from '@/stores/user'
+import CreateTableDialog from '@/components/data/CreateTableDialog.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 const canEditAsset = () => userStore.hasOp('warehouse.assets', 'U')
+
+// 视图模式
+type ViewMode = 'card' | 'table'
+const viewMode = ref<ViewMode>('card')
 
 // 列表
 const assets = ref<Asset[]>([])
@@ -32,10 +37,12 @@ const editAsset = ref<Asset | null>(null)
 const editForm = ref({ warehouse_layer: '', subject_area: '', owner_name: '', asset_status: '' })
 const editSaving = ref(false)
 
-// 质量状态筛选
+const createDialogRef = ref<InstanceType<typeof CreateTableDialog> | null>(null)
+const assetTypeFilter = ref('')
+const typeOptions = ['', 'table', 'view', 'model', 'metric', 'api']
+const TYPE_LABELS: Record<string, string> = { table: '数据表', view: '数据视图', model: '数据模型', metric: '指标', api: '数据API' }
 const qualityFilter = ref('')
 
-// 筛选选项
 const layerOptions = ['', 'ODS', 'DWD', 'DWS', 'ADS']
 const statusOptions = ['', 'draft', 'published', 'disabled', 'archived']
 
@@ -83,19 +90,10 @@ function handleReset() {
   load()
 }
 
-// 详情跳转
 function goDetail(tableName: string) { router.push(`/warehouse/assets/${encodeURIComponent(tableName)}`) }
-
-// 字段入口
 function goFields(tableName: string) { router.push(`/warehouse/assets/${encodeURIComponent(tableName)}/columns`) }
-
-// 预览 → 跳转 DataView
-function goPreview(tableName: string) { router.push(`/data/${encodeURIComponent(tableName)}`) }
-
-// 影响分析
+function goPreview(tableName: string) { router.push(`/warehouse/assets/${encodeURIComponent(tableName)}?tab=preview`) }
 function goImpact(tableName: string) { router.push(`/warehouse/impact?table=${encodeURIComponent(tableName)}`) }
-
-// 来源配置
 function goSource(asset: Asset) {
   if (asset.source_system && asset.source_system !== 'internal') {
     router.push('/datasource/endpoints')
@@ -104,7 +102,6 @@ function goSource(asset: Asset) {
   }
 }
 
-// 编辑
 function openEdit(asset: Asset) {
   editAsset.value = asset
   editForm.value = {
@@ -136,6 +133,19 @@ async function saveEdit() {
   }
 }
 
+// 卡片：格式化最近同步时间
+function formatSyncTime(asset: Asset): string {
+  if (!asset.last_synced_at) return '—'
+  const d = new Date(asset.last_synced_at)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
+  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+}
+
+function onCreated() { load() }
+
 watch([page, pageSize], () => load())
 onMounted(load)
 </script>
@@ -144,6 +154,17 @@ onMounted(load)
   <div class="warehouse-assets">
     <div class="page-header">
       <h2>数据资产</h2>
+      <div class="page-header-right">
+        <el-button v-if="userStore.hasOp('warehouse.assets','C')" type="primary" size="small" :icon="Plus" @click="createDialogRef?.open()">新建资产</el-button>
+        <el-radio-group v-model="viewMode" size="small">
+          <el-radio-button value="card">
+            <el-icon><Grid /></el-icon> 卡片
+          </el-radio-button>
+          <el-radio-button value="table">
+            <el-icon><Menu /></el-icon> 表格
+          </el-radio-button>
+        </el-radio-group>
+      </div>
     </div>
 
     <!-- 筛选栏 -->
@@ -162,6 +183,11 @@ onMounted(load)
             <el-option v-for="s in statusOptions" :key="s" :label="s ? STATUS_LABELS[s] : '全部'" :value="s" />
           </el-select>
         </el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="assetTypeFilter" clearable placeholder="全部" style="width: 120px" @change="handleSearch">
+            <el-option v-for="t in typeOptions.slice(1)" :key="t" :label="TYPE_LABELS[t]" :value="t" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="质量">
           <el-select v-model="qualityFilter" clearable placeholder="全部" style="width: 110px" @change="load">
             <el-option label="通过" value="pass" />
@@ -176,8 +202,68 @@ onMounted(load)
       </el-form>
     </el-card>
 
-    <!-- 表格 -->
-    <el-card shadow="never">
+    <!-- ============ 卡片视图 ============ -->
+    <div v-if="viewMode === 'card'" v-loading="loading" class="asset-card-grid">
+      <div v-if="!loading && assets.length === 0" class="card-empty">
+        <span>暂无数据资产</span>
+      </div>
+      <div
+        v-for="a in assets"
+        :key="a.table_name"
+        class="asset-card"
+      >
+        <!-- 卡片头部 -->
+        <div class="card-header">
+          <span class="card-name" @click="goDetail(a.table_name)">{{ a.table_label }}</span>
+          <div class="card-badges">
+            <el-tag type="info" size="small" effect="plain">{{ TYPE_LABELS['table'] || '数据表' }}</el-tag>
+            <el-tag :type="LAYER_TAG[a.warehouse_layer] || 'info'" size="small" effect="plain">
+              {{ a.warehouse_layer }}
+            </el-tag>
+            <el-tag :type="QUALITY_TAG[a.last_quality_status] || 'info'" size="small">
+              {{ QUALITY_LABELS[a.last_quality_status] || a.last_quality_status }}
+            </el-tag>
+          </div>
+        </div>
+
+        <!-- 卡片体 -->
+        <div class="card-body">
+          <div class="card-meta">
+            <span v-if="a.subject_area" class="meta-item">
+              <span class="meta-label">主题域</span>
+              <span>{{ a.subject_area }}</span>
+            </span>
+            <span class="meta-item">
+              <span class="meta-label">来源</span>
+              <span>{{ a.source_system || '—' }}</span>
+            </span>
+            <span class="meta-item">
+              <span class="meta-label">负责人</span>
+              <span>{{ a.owner_name || '—' }}</span>
+            </span>
+          </div>
+          <div class="card-stats">
+            <span class="stat-item">字段 {{ a.columns_count ?? '—' }}</span>
+            <span class="stat-item">同步 {{ formatSyncTime(a) }}</span>
+            <span class="stat-item" :class="{ 'text-warning': a.last_quality_status === 'fail' || a.last_quality_status === 'warn' }">
+              质量 {{ QUALITY_LABELS[a.last_quality_status] || a.last_quality_status }}
+            </span>
+          </div>
+        </div>
+
+        <!-- 卡片操作 -->
+        <div class="card-actions">
+          <el-button text size="small" :icon="View" @click="goDetail(a.table_name)">详情</el-button>
+          <el-button text size="small" :icon="List" @click="goFields(a.table_name)">字段</el-button>
+          <el-button text size="small" :icon="DataAnalysis" @click="goPreview(a.table_name)">预览</el-button>
+          <el-button text size="small" :icon="Connection" @click="goImpact(a.table_name)">血缘</el-button>
+          <el-button v-if="canEditAsset()" text size="small" :icon="Edit" @click="openEdit(a)">编辑</el-button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 表格视图 ============ -->
+    <el-card v-else shadow="never">
       <el-table v-loading="loading" :data="assets" border stripe size="small" empty-text="暂无数据资产">
         <el-table-column prop="table_name" label="表名" min-width="160" show-overflow-tooltip />
         <el-table-column prop="table_label" label="显示名" min-width="130" show-overflow-tooltip />
@@ -236,6 +322,13 @@ onMounted(load)
       </div>
     </el-card>
 
+    <!-- 新建资产对话框 -->
+    <CreateTableDialog
+      ref="createDialogRef"
+      :existing-table-names="assets.map((a) => a.table_name)"
+      @done="onCreated"
+    />
+
     <!-- 编辑弹窗 -->
     <el-dialog v-model="editVisible" title="编辑资产" width="480px" @close="editAsset = null">
       <el-form v-if="editAsset" label-width="80px" size="small" @submit.prevent="saveEdit">
@@ -275,10 +368,99 @@ onMounted(load)
   padding: 24px;
 }
 .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 16px;
 }
 .page-header h2 {
   margin: 0;
   font-size: 20px;
+}
+.page-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ====== 卡片视图 ====== */
+.asset-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+.card-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 48px 0;
+  color: var(--color-text-placeholder);
+  font-size: 14px;
+}
+.asset-card {
+  background: var(--color-bg-card, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 16px;
+  transition: box-shadow 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.asset-card:hover {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+.card-name:hover {
+  text-decoration: underline;
+}
+.card-badges {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 13px;
+}
+.meta-item {
+  display: flex;
+  gap: 4px;
+}
+.meta-label {
+  color: var(--color-text-secondary);
+}
+.card-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.text-warning {
+  color: #e6a23c;
+}
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-lighter);
 }
 </style>

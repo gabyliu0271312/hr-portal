@@ -191,6 +191,7 @@ class WarehouseService:
             "table_label", "description", "warehouse_layer", "subject_area",
             "owner_user_id", "owner_name", "source_system", "asset_status",
             "ucp_system_id", "ucp_resource_id", "ucp_connector_config_id",
+            "scope_strategy",
         }
         for key, val in payload.items():
             if key not in allowed_fields:
@@ -238,18 +239,22 @@ class WarehouseService:
 
         return [
             {
+                "id": col.id,
                 "column_code": col.column_code,
                 "column_label": col.column_label,
                 "data_type": col.data_type,
                 "is_pk_part": col.is_pk_part,
                 "is_sensitive": col.is_sensitive,
-                "agg_role": col.agg_role,
+                "agg_role": col.agg_role or "dimension",
                 "is_visible": col.is_visible,
                 "description": col.description,
                 "source": "auto" if col.auto_discovered else "manual",
-                "is_computed": col.is_computed,
+                "is_computed": bool(col.is_computed),
                 "formula_expr": col.formula_expr,
                 "display_order": col.display_order,
+                "scope_role": col.scope_role,
+                "copy_from_last_month": bool(col.copy_from_last_month),
+                "enum_options": col.enum_options,
             }
             for col in columns
         ]

@@ -2,8 +2,10 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Refresh, View, Edit, VideoPlay, Finished } from '@element-plus/icons-vue'
+import { Plus, Search, Refresh, View, Edit, VideoPlay, Finished, Lock } from '@element-plus/icons-vue'
 import { listModels, publishModel, archiveModel, type ModelListItem } from '@/api/warehouse'
+import { datasetsApi } from '@/api/datasets'
+import AclEditor, { type AclRow } from '@/components/AclEditor.vue'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -15,6 +17,12 @@ const page = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
 const statusFilter = ref('')
+
+// 授权弹窗
+const aclVisible = ref(false)
+const aclModel = ref<ModelListItem | null>(null)
+const aclRows = ref<AclRow[]>([])
+const aclSaving = ref(false)
 
 const STATUS_LABELS: Record<string, string> = { draft: '草稿', published: '已发布', archived: '已归档' }
 const STATUS_TAG: Record<string, string> = { draft: 'info', published: 'success', archived: 'info' }
@@ -36,6 +44,30 @@ async function load() {
 
 function goCreate() { router.push('/warehouse/modeling/visual') }
 function goEdit(id: number) { router.push(`/warehouse/modeling/visual/${id}`) }
+
+async function openAcl(model: ModelListItem) {
+  aclModel.value = model
+  aclRows.value = []
+  try {
+    const detail = await datasetsApi.get(model.id)
+    aclRows.value = (detail as any).acl?.map((a: any) => ({ id: a.id, role_id: a.role_id, user_id: a.user_id })) || []
+  } catch {
+    aclRows.value = []
+  }
+  aclVisible.value = true
+}
+
+async function saveAcl() {
+  if (!aclModel.value) return
+  aclSaving.value = true
+  try {
+    await datasetsApi.update(aclModel.value.id, { acl: aclRows.value } as any)
+    ElMessage.success('授权已保存')
+    aclVisible.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally { aclSaving.value = false }
+}
 
 async function doPublish(model: ModelListItem) {
   try {
@@ -80,36 +112,36 @@ onMounted(load)
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :icon="Search" @click="(page=1,load())">查询</el-button>
-          <el-button :icon="Refresh" @click="(keyword='',statusFilter='',page=1,load())">重置</el-button>
+          <el-button type="primary" :icon="Search" size="small" @click="(page=1,load())">查询</el-button>
+          <el-button :icon="Refresh" size="small" @click="(page=1,keyword='',statusFilter='',load())">重置</el-button>
         </el-form-item>
       </el-form>
     </el-card>
 
-    <!-- 表格 -->
+    <!-- 模型列表 -->
     <el-card shadow="never">
       <el-table v-loading="loading" :data="models" border stripe size="small" empty-text="暂无数据模型">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="warehouse_layer" label="分层" width="80">
+        <el-table-column prop="name" label="模型名称" min-width="160" />
+        <el-table-column label="分层" width="100">
           <template #default="{ row }">{{ LAYER_LABELS[row.warehouse_layer] || row.warehouse_layer }}</template>
         </el-table-column>
         <el-table-column prop="subject_area" label="主题域" width="90" />
-        <el-table-column prop="owner_name" label="负责人" width="80" />
-        <el-table-column prop="table_count" label="表数" width="60" align="center" />
-        <el-table-column prop="status" label="状态" width="80">
+        <el-table-column prop="owner_name" label="负责人" width="90" />
+        <el-table-column prop="table_count" label="关联表数" width="80" align="center" />
+        <el-table-column label="状态" width="80" align="center">
           <template #default="{ row }">
             <el-tag size="small" :type="STATUS_TAG[row.status] || 'info'">{{ STATUS_LABELS[row.status] || row.status }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="published_at" label="发布时间" width="140">
-          <template #default="{ row }">{{ row.published_at ? new Date(row.published_at).toLocaleString() : '—' }}</template>
+        <el-table-column label="版本" width="60" align="center">
+          <template #default="{ row }">{{ row.version || 1 }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <el-button text size="small" :icon="Edit" @click="goEdit(row.id)">编辑</el-button>
-            <el-button v-if="row.status==='draft'&&userStore.hasOp('warehouse.assets','U')" text size="small" type="success" :icon="Finished" @click="doPublish(row)">发布</el-button>
-            <el-button v-if="row.status==='published'&&userStore.hasOp('warehouse.assets','D')" text size="small" type="warning" :icon="VideoPlay" @click="doArchive(row)">归档</el-button>
+            <el-button text size="small" :icon="View" @click="goEdit(row.id)">编辑</el-button>
+            <el-button v-if="userStore.hasOp('warehouse.assets','U')" text size="small" :icon="Lock" @click="openAcl(row)">授权</el-button>
+            <el-button v-if="row.status === 'draft' && userStore.hasOp('warehouse.assets','U')" text size="small" :icon="Finished" type="success" @click="doPublish(row)">发布</el-button>
+            <el-button v-if="row.status !== 'archived' && userStore.hasOp('warehouse.assets','U')" text size="small" type="warning" @click="doArchive(row)">归档</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -117,5 +149,17 @@ onMounted(load)
         <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20,50,100]" layout="total,sizes,prev,pager,next" />
       </div>
     </el-card>
+
+    <!-- 授权弹窗 -->
+    <el-dialog v-model="aclVisible" title="访问授权" width="480px" @close="aclModel = null">
+      <template v-if="aclModel">
+        <p style="color: #909399; font-size: 13px; margin: 0 0 12px">模型「{{ aclModel.name }}」— 控制谁可以使用此数据集进行建模和预览</p>
+        <AclEditor v-model="aclRows" />
+      </template>
+      <template #footer>
+        <el-button @click="aclVisible = false">取消</el-button>
+        <el-button type="primary" :loading="aclSaving" @click="saveAcl">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
