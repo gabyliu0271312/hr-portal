@@ -50,6 +50,8 @@ export interface SyncRunItem {
 export const datasourcesApi = {
   list: () => api.get<DataSourceListItem[]>('/datasources').then((r) => r.data),
   get: (id: number) => api.get<DataSourceListItem>(`/datasources/${id}`).then((r) => r.data),
+  create: (body: { table_name: string; table_label?: string; source_type?: string; schedule?: string; is_active?: boolean }) =>
+    api.post<DataSourceListItem>('/datasources', body).then((r) => r.data),
   update: (id: number, body: DataSourceUpdatePayload) =>
     api.put<DataSourceListItem>(`/datasources/${id}`, body).then((r) => r.data),
   test: (id: number, body?: DataSourceUpdatePayload) =>

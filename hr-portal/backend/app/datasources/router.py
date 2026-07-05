@@ -58,8 +58,18 @@ class DataSourceOut(BaseModel):
     last_message: str | None
 
 
+class DataSourceCreateIn(BaseModel):
+    """创建 DataSource（T0211）"""
+    table_name: str
+    table_label: str = ""
+    source_type: str = "http_api"
+    schedule: str = ""
+    is_active: bool = True
+
+
 class DataSourceUpdateIn(BaseModel):
-    source_type: str
+    table_label: str | None = None
+    source_type: str | None = None
     schedule: str = "手动触发"
     settings: dict[str, Any] = Field(default_factory=dict)
     # secrets 是明文输入；后端加密后存
@@ -127,6 +137,27 @@ async def list_datasources(
         (await db.execute(select(DataSource).order_by(DataSource.id))).scalars().all()
     )
     return [_to_out(r) for r in rows]
+
+
+@router.post("", response_model=DataSourceOut, status_code=status.HTTP_201_CREATED,
+              dependencies=[Depends(require_op("datasource.endpoints", "C"))])
+async def create_datasource(
+    body: DataSourceCreateIn,
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> DataSourceOut:
+    """创建新的 DataSource（T0211 仓库侧创建入口）"""
+    ds = DataSource(
+        table_name=body.table_name,
+        table_label=body.table_label or body.table_name,
+        source_type=body.source_type,
+        schedule=body.schedule or "",
+        is_active=body.is_active,
+    )
+    db.add(ds)
+    await db.commit()
+    await db.refresh(ds)
+    return _to_out(ds)
 
 
 @router.get("/{ds_id}", response_model=DataSourceOut)

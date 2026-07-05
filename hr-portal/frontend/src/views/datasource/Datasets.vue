@@ -58,6 +58,19 @@ onMounted(load)
 
 <template>
   <div style="padding: 24px">
+    <!-- T0903: 迁移提示 -->
+    <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 16px">
+      <template #title>
+        <span style="font-weight: 600">表间关联已迁移到 数据仓库 &gt; 数据建模</span>
+      </template>
+      <template #default>
+        <div style="margin-top: 4px">当前页面为兼容入口。表间关联的主编辑入口在数据仓库建模（快速关联 / 可视化建模）。</div>
+        <div style="margin-top: 8px">
+          <el-button type="primary" size="small" @click="router.push({ name: 'WarehouseModeling' })">前往数据仓库建模</el-button>
+        </div>
+      </template>
+    </el-alert>
+
     <el-card>
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">

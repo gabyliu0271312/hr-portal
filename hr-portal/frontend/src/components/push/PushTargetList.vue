@@ -84,13 +84,13 @@ onMounted(load)
 <template>
   <div class="push-target-list" :class="{ 'is-compact': compact }">
     <div v-if="!hideHeader" class="push-list-header">
-      <PermissionButton menu="system.users" op="C" type="primary" @click="dialogRef?.open()">
+      <PermissionButton menu="warehouse.assets" op="C" type="primary" @click="dialogRef?.open()">
         <el-icon style="margin-right: 4px"><Plus /></el-icon>新增推送
       </PermissionButton>
     </div>
     <div v-else class="push-list-toolbar">
       <span class="push-summary">已配置 {{ targets.length }} 个推送配置，启用 {{ activeTargets }} 个</span>
-      <PermissionButton menu="system.users" op="C" type="primary" plain @click="dialogRef?.open()">
+      <PermissionButton menu="warehouse.assets" op="C" type="primary" plain @click="dialogRef?.open()">
         <el-icon style="margin-right: 4px"><Plus /></el-icon>新增推送
       </PermissionButton>
     </div>
@@ -128,17 +128,17 @@ onMounted(load)
         </el-table-column>
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <PermissionButton menu="system.users" op="C" size="small" type="primary"
+            <PermissionButton menu="warehouse.assets" op="C" size="small" type="primary"
               :loading="running === row.id" @click="runNow(row)">
               <el-icon><VideoPlay /></el-icon>立即推送
             </PermissionButton>
             <el-button size="small" style="margin-left: 8px"
               @click="historyTarget = row">历史</el-button>
-            <PermissionButton menu="system.users" op="U" size="small" style="margin-left: 8px"
+            <PermissionButton menu="warehouse.assets" op="U" size="small" style="margin-left: 8px"
               @click="dialogRef?.open(row)">
               <el-icon><Edit /></el-icon>
             </PermissionButton>
-            <PermissionButton menu="system.users" op="D" size="small" type="danger" style="margin-left: 8px"
+            <PermissionButton menu="warehouse.assets" op="D" size="small" type="danger" style="margin-left: 8px"
               @click="remove(row)">
               <el-icon><Delete /></el-icon>
             </PermissionButton>

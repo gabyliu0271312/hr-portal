@@ -73,22 +73,27 @@ export interface AssetUpdatePayload {
   ucp_system_id?: number | null
   ucp_resource_id?: number | null
   ucp_connector_config_id?: number | null
+  scope_strategy?: string | null
 }
 
 /** 资产字段信息（对齐后端 get_asset_columns 实际返回） */
 export interface AssetColumn {
+  id: number
   column_code: string
   column_label: string
   data_type: string
   is_pk_part: boolean
   is_sensitive: boolean
-  agg_role: string
   is_visible: boolean
+  display_order: number
   description: string | null
-  source: string
+  scope_role: string | null
+  copy_from_last_month: boolean
+  enum_options: string[] | null
+  agg_role: string
   is_computed: boolean
   formula_expr: string | null
-  display_order: number
+  source: string
 }
 
 // ==================== 数据模型 ====================
@@ -353,6 +358,63 @@ export function updateAsset(
 /** 资产字段列表 */
 export function listAssetColumns(tableName: string): Promise<{ table_name: string; columns: AssetColumn[] }> {
   return api.get(`/warehouse/assets/${encodeURIComponent(tableName)}/columns`).then(r => r.data)
+}
+
+// ==================== 来源与开放 (T0202) ====================
+
+/** 端点方向 */
+export type EndpointDirection = 'pull' | 'push' | 'expose' | 'ucp_resource'
+
+/** 统一端点摘要 */
+export interface ConnectionEndpointSummary {
+  endpoint_type: EndpointDirection
+  endpoint_id: number
+  name: string
+  owner: string
+  status: string
+  is_active: boolean
+  schedule: string | null
+  last_run_at: string | null
+  last_status: string | null
+  last_rows: number | null
+  last_message: string | null
+  has_secrets: boolean
+  config_route: string | null
+  summary_extra: Record<string, any>
+}
+
+/** 资产端点聚合 */
+export interface AssetEndpoints {
+  table_name: string
+  pulls: ConnectionEndpointSummary[]
+  pushes: ConnectionEndpointSummary[]
+  exposes: ConnectionEndpointSummary[]
+  ucp_resources: ConnectionEndpointSummary[]
+}
+
+/** 获取资产级端点聚合（来源与开放） */
+export function getAssetEndpoints(tableName: string): Promise<AssetEndpoints> {
+  return api.get(`/warehouse/assets/${encodeURIComponent(tableName)}/endpoints`).then(r => r.data)
+}
+
+// ==================== 同步历史 (T0210) ====================
+
+export interface SyncHistoryEntry {
+  source_type: string
+  source_name: string
+  source_id: number
+  run_id: number
+  status: string
+  started_at: string | null
+  finished_at: string | null
+  rows: number | null
+  message: string | null
+  triggered_by: string | null
+}
+
+/** 获取资产同步/推送历史聚合 */
+export function getAssetSyncHistory(tableName: string, limit = 20): Promise<{ table_name: string; entries: SyncHistoryEntry[] }> {
+  return api.get(`/warehouse/assets/${encodeURIComponent(tableName)}/sync-history`, { params: { limit } }).then(r => r.data)
 }
 
 // ==================== 模型 API ====================

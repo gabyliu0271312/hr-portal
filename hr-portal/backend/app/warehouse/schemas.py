@@ -82,6 +82,7 @@ class WarehouseAssetUpdateIn(BaseModel):
     owner_name: Optional[str] = None
     source_system: Optional[str] = None
     asset_status: Optional[str] = None
+    scope_strategy: Optional[str] = None
     ucp_system_id: Optional[int] = None
     ucp_resource_id: Optional[int] = None
     ucp_connector_config_id: Optional[int] = None
@@ -286,3 +287,58 @@ class PaginatedResponse(BaseModel):
     page: int
     page_size: int
     items: list
+
+
+# ==================== 来源与开放 (T0202) ====================
+
+class SyncHistoryEntryOut(BaseModel):
+    """同步历史条目（T0210）"""
+    source_type: str = Field(description="datasource / pushtarget")
+    source_name: str
+    source_id: int
+    run_id: int
+    status: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    rows: Optional[int] = None
+    message: Optional[str] = None
+    triggered_by: Optional[str] = None
+
+
+class SyncHistoryOut(BaseModel):
+    """同步历史聚合响应"""
+    table_name: str
+    entries: list[SyncHistoryEntryOut] = []
+
+class ConnectionEndpointSummary(BaseModel):
+    """统一端点摘要 DTO — 覆盖 DataSource/PushTarget/UCP Resource/API Expose
+
+    用于资产详情"来源与开放"Tab 聚合展示。不包含 secret。
+    """
+    endpoint_type: Literal["pull", "push", "expose", "ucp_resource"] = Field(
+        description="端点方向: pull=入仓来源, push=出仓目标, expose=API暴露, ucp_resource=UCP资源"
+    )
+    endpoint_id: int = Field(description="DataSource.id / PushTarget.id / ConnectorResource.id")
+    name: str = Field(description="端点名称（如 DataSource table_label / PushTarget name）")
+    owner: str = Field(description="底层 owner: datasource / pushtarget / ucp")
+    status: str = Field("unknown", description="运行状态: active/inactive/unknown")
+    is_active: bool = False
+    schedule: Optional[str] = Field(None, description="调度 cron 或文字描述")
+    last_run_at: Optional[datetime] = Field(None, description="最近执行时间")
+    last_status: Optional[str] = Field(None, description="最近执行状态: success/failed/running")
+    last_rows: Optional[int] = Field(None, description="最近执行影响行数")
+    last_message: Optional[str] = Field(None, description="最近执行消息/错误摘要")
+    has_secrets: bool = Field(False, description="是否已配置凭证（仅布尔，不泄露内容）")
+    config_route: Optional[str] = Field(None, description="配置页跳转路由名")
+    summary_extra: dict = Field(default_factory=dict, description="附加摘要（字段数、映射数、UCP系统名等）")
+
+    model_config = {"from_attributes": False}
+
+
+class AssetEndpointsOut(BaseModel):
+    """资产级端点聚合响应"""
+    table_name: str
+    pulls: list[ConnectionEndpointSummary] = []
+    pushes: list[ConnectionEndpointSummary] = []
+    exposes: list[ConnectionEndpointSummary] = []
+    ucp_resources: list[ConnectionEndpointSummary] = []

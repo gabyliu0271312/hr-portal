@@ -457,7 +457,7 @@ async def list_columns(
 @router.post(
     "/{table}",
     response_model=ColumnOut,
-    dependencies=[Depends(require_op("system.field_categories", "C"))],
+    dependencies=[Depends(require_op("warehouse.assets", "C"))],
 )
 async def create_column(
     table: str,
@@ -514,7 +514,7 @@ async def create_column(
 
 @router.put(
     "/{table}/bulk",
-    dependencies=[Depends(require_op("system.field_categories", "U"))],
+    dependencies=[Depends(require_op("warehouse.assets", "U"))],
 )
 async def bulk_update(
     table: str,
@@ -596,7 +596,7 @@ async def bulk_update(
 @router.put(
     "/{table}/{column_id}",
     response_model=ColumnOut,
-    dependencies=[Depends(require_op("system.field_categories", "U"))],
+    dependencies=[Depends(require_op("warehouse.assets", "U"))],
 )
 async def update_column(
     table: str,
@@ -664,7 +664,7 @@ async def update_column(
 
 @router.post(
     "/{table}/recompute",
-    dependencies=[Depends(require_op("system.field_categories", "U"))],
+    dependencies=[Depends(require_op("warehouse.assets", "U"))],
 )
 async def recompute_computed_columns(
     table: str,
@@ -719,7 +719,7 @@ async def recompute_computed_columns(
 
 @router.delete(
     "/{table}/{column_id}",
-    dependencies=[Depends(require_op("system.field_categories", "D"))],
+    dependencies=[Depends(require_op("warehouse.assets", "D"))],
 )
 async def delete_column(
     table: str,
@@ -767,7 +767,7 @@ async def delete_column(
 
 @router.post(
     "/{table}/clean-orphans",
-    dependencies=[Depends(require_op("system.field_categories", "D"))],
+    dependencies=[Depends(require_op("warehouse.assets", "D"))],
 )
 async def clean_orphan_columns(
     table: str,

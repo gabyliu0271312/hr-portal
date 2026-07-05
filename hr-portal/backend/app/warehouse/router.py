@@ -4,6 +4,7 @@
 路由前缀: /api/v1/warehouse
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -22,6 +23,8 @@ from app.warehouse.schemas import (
     WarehouseMetricDetailOut,
     MetricPaginatedOut,
     ImpactRefOut,
+    AssetEndpointsOut,
+    SyncHistoryOut,
 )
 from app.warehouse.service import WarehouseService, get_warehouse_service
 from app.warehouse.impact import get_impact_analyzer
@@ -157,6 +160,211 @@ async def list_asset_columns(
     if columns is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"资产不存在: {table_name}")
     return {"table_name": table_name, "columns": columns}
+
+
+# ==================== 来源与开放 (T0202) ====================
+
+@router.get(
+    "/assets/{table_name}/endpoints",
+    response_model=AssetEndpointsOut,
+    summary="资产级端点聚合（来源与开放）",
+    dependencies=[Depends(require_op("warehouse.assets", "V"))],
+)
+async def get_asset_endpoints(
+    table_name: str,
+    db: AsyncSession = Depends(get_session),
+):
+    """获取资产关联的入仓来源、出仓目标、API 暴露和 UCP 资源摘要。
+
+    从不返回 secret 明文。UCP 不可用时对应字段可空。
+    """
+    from app.datasources.models import DataSource, SyncRun
+    from app.push.models import PushTarget
+    from app.scheduler.models import JobRun as PushJobRun
+    from app.warehouse.schemas import AssetEndpointsOut, ConnectionEndpointSummary
+
+    # DataSource 拉取接口
+    ds_q = select(DataSource).where(
+        DataSource.table_name == table_name
+    ).order_by(DataSource.created_at.desc())
+    ds_list = (await db.execute(ds_q)).scalars().all()
+
+    pulls: list[ConnectionEndpointSummary] = []
+    for ds in ds_list:
+        last_run_q = (
+            select(SyncRun)
+            .where(SyncRun.datasource_id == ds.id)
+            .order_by(SyncRun.started_at.desc())
+            .limit(1)
+        )
+        last_run = (await db.execute(last_run_q)).scalar()
+        pulls.append(ConnectionEndpointSummary(
+            endpoint_type="pull",
+            endpoint_id=ds.id,
+            name=ds.table_label or ds.table_name,
+            owner="datasource",
+            status="active" if ds.is_active else "inactive",
+            is_active=ds.is_active,
+            schedule=ds.schedule,
+            last_run_at=last_run.started_at if last_run else ds.last_sync_at,
+            last_status=last_run.status if last_run else ds.last_status,
+            last_rows=last_run.rows if last_run else ds.last_rows,
+            last_message=last_run.message if last_run else ds.last_message,
+            has_secrets=bool(ds.secrets_encrypted),
+            config_route="DatasourceEndpoints",
+            summary_extra={"source_type": ds.source_type or ""},
+        ))
+
+    # PushTarget 推送接口
+    pt_q = select(PushTarget).where(
+        PushTarget.source_table == table_name
+    ).order_by(PushTarget.created_at.desc())
+    pt_list = (await db.execute(pt_q)).scalars().all()
+
+    pushes: list[ConnectionEndpointSummary] = []
+    exposes: list[ConnectionEndpointSummary] = []
+    for pt in pt_list:
+        last_run_q = (
+            select(PushJobRun)
+            .where(PushJobRun.business_id == pt.id, PushJobRun.kind == "push_target")
+            .order_by(PushJobRun.started_at.desc())
+            .limit(1)
+        )
+        last_run = (await db.execute(last_run_q)).scalar()
+
+        ep = ConnectionEndpointSummary(
+            endpoint_type="push" if pt.push_type != "api_expose" else "expose",
+            endpoint_id=pt.id,
+            name=pt.name or f"PushTarget #{pt.id}",
+            owner="pushtarget",
+            status="active" if pt.is_active else "inactive",
+            is_active=pt.is_active,
+            schedule=pt.settings.get("schedule") if pt.settings else None,
+            last_run_at=last_run.started_at if last_run else pt.last_push_at,
+            last_status=last_run.status if last_run else pt.last_status,
+            last_rows=last_run.rows if last_run else pt.last_rows,
+            last_message=last_run.message if last_run else pt.last_message,
+            has_secrets=bool(pt.secrets_encrypted),
+            config_route="DatasourceEndpoints",
+            summary_extra={
+                "push_type": pt.push_type or "",
+                "mapping_count": len(pt.field_mappings) if pt.field_mappings else 0,
+            },
+        )
+        if pt.push_type == "api_expose":
+            exposes.append(ep)
+        else:
+            pushes.append(ep)
+
+    # UCP 资源（降级：UCP 未合并/不可用时为空）
+    ucp_resources: list[ConnectionEndpointSummary] = []
+    try:
+        from app.warehouse.ucp_adapter import get_asset_ucp_info
+        ucp_info = await get_asset_ucp_info(db, table_name)
+        if ucp_info and ucp_info.get("ucp_system_id"):
+            ucp_resources.append(ConnectionEndpointSummary(
+                endpoint_type="ucp_resource",
+                endpoint_id=ucp_info.get("ucp_resource_id") or 0,
+                name=ucp_info.get("ucp_resource_name") or "UCP 资源",
+                owner="ucp",
+                status="unknown",
+                config_route=ucp_info.get("ucp_jump_url") or None,
+                summary_extra={
+                    "system_name": ucp_info.get("ucp_system_name", ""),
+                    "resource_status": ucp_info.get("ucp_resource_status", ""),
+                },
+            ))
+    except Exception:
+        pass  # UCP 不可用时跳过
+
+    return AssetEndpointsOut(
+        table_name=table_name,
+        pulls=pulls,
+        pushes=pushes,
+        exposes=exposes,
+        ucp_resources=ucp_resources,
+    )
+
+
+# ==================== 同步历史聚合 (T0210) ====================
+
+@router.get(
+    "/assets/{table_name}/sync-history",
+    response_model=SyncHistoryOut,
+    summary="资产同步/推送历史聚合",
+    dependencies=[Depends(require_op("warehouse.assets", "V"))],
+)
+async def get_asset_sync_history(
+    table_name: str,
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_session),
+):
+    """获取资产相关的同步/推送历史，按时间倒序。
+
+    聚合 DataSource SyncRun 和 PushTarget JobRun。
+    """
+    from datetime import datetime
+    from app.datasources.models import DataSource, SyncRun
+    from app.push.models import PushTarget
+    from app.scheduler.models import JobRun as PushJobRun
+
+    entries: list[dict] = []
+
+    # DataSource 同步历史
+    ds_q = select(DataSource).where(DataSource.table_name == table_name)
+    ds_list = (await db.execute(ds_q)).scalars().all()
+    for ds in ds_list:
+        runs_q = (
+            select(SyncRun)
+            .where(SyncRun.datasource_id == ds.id)
+            .order_by(SyncRun.started_at.desc())
+            .limit(limit)
+        )
+        runs = (await db.execute(runs_q)).scalars().all()
+        for r in runs:
+            entries.append({
+                "source_type": "datasource",
+                "source_name": ds.table_label or ds.table_name,
+                "source_id": ds.id,
+                "run_id": r.id,
+                "status": r.status,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "rows": r.rows,
+                "message": r.message,
+                "triggered_by": r.triggered_by,
+            })
+
+    # PushTarget 推送历史
+    pt_q = select(PushTarget).where(PushTarget.source_table == table_name)
+    pt_list = (await db.execute(pt_q)).scalars().all()
+    for pt in pt_list:
+        runs_q = (
+            select(PushJobRun)
+            .where(PushJobRun.business_id == pt.id, PushJobRun.kind == "push_target")
+            .order_by(PushJobRun.started_at.desc())
+            .limit(limit)
+        )
+        runs = (await db.execute(runs_q)).scalars().all()
+        for r in runs:
+            entries.append({
+                "source_type": "pushtarget",
+                "source_name": pt.name or f"Push #{pt.id}",
+                "source_id": pt.id,
+                "run_id": r.id,
+                "status": r.status,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "rows": r.rows,
+                "message": r.message,
+                "triggered_by": r.triggered_by,
+            })
+
+    # 按时间倒序
+    entries.sort(key=lambda x: x.get("started_at") or "", reverse=True)
+    entries = entries[:limit]
+
+    return {"table_name": table_name, "entries": entries}
 
 
 # ==================== 数据模型 ====================
