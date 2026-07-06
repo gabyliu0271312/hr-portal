@@ -408,6 +408,7 @@ python -c "import app.warehouse.router; import app.warehouse.service; from app.m
 
 二期 Q 章必须新增或更新：
 
+- 分层口径纠偏测试：`warehouse_layer` 仅允许 ODS/DWD/DWS/ADS，RAW/DM/METRIC 不出现在分层写入和筛选中；RAW 仅作为来源/血缘节点，METRIC 仅作为 asset_type。
 - 血缘 API 测试。
 - 质量规则 CRUD 和执行测试。
 - UCP 薄代理降级测试。
@@ -420,7 +421,7 @@ python -c "import app.warehouse.router; import app.warehouse.service; from app.m
 - ODS → DWD 字段标准化规则、模板、预览、DWD 视图生成测试；必须校验输入层/输出层和不覆盖 ODS 原始数据。
 - DWD → DWS 聚合定义、DWS 视图生成测试；必须校验指标口径、维度绑定和资产登记。
 - DWS → ADS 组装、发布、权限、脱敏、血缘和影响分析测试；必须校验 ADS 不绕过 BI/API/PushTarget 权限。
-- 数据集物化运行测试。
+- 数据集物化运行测试；物化输出层只允许 DWD/DWS/ADS，DM 只能作为消费域/主题域标签。
 - 指标物化计算测试。
 - 快照 / 拉链测试。
 - 仓内调度、重跑、审计测试。
@@ -506,7 +507,7 @@ python -c "import app.warehouse.router; import app.warehouse.service; from app.m
 - [ ] 数据仓库同时提供“快速关联”和“可视化建模”两种入口维护表间关联，二者作用于同一底层数据，不产生并行结果。
 - [ ] 数据仓库资产创建/详情中存在“来源/接入”区域，展示来源类型、系统、资源、最近同步、配置跳转，且不出现凭证明文或 Pipeline 编排入口。
 - [ ] `SourceSummaryCard` / `ResourceSummary` 一类共享组件在资产详情、资源选择器、同步历史中展示一致；不存在数据仓库和 UCP/接口管理各自实现一套来源摘要 UI。
-- [ ] 统一资产目录中 `asset_type` 覆盖 table/view/model/metric/api/dataset_view；资产列表支持卡片视图和表格视图切换，两种视图对同一资产展示一致的核心字段（分层、来源、质量、权限、引用数）。
+- [ ] 统一资产目录中 `asset_type` 覆盖 table/view/model/metric/api/dataset_view；资产列表支持卡片视图和表格视图切换，两种视图对同一资产展示一致的核心字段（数仓分层、资产类型、来源、质量、权限、引用数）。`warehouse_layer` 只展示 ODS/DWD/DWS/ADS，RAW/DM/METRIC 不混入分层。
 - [ ] DataSource-only、UCP-enabled、UCP-disabled 三种场景下，资产创建和详情流程均不要求 UCP 可用。
 
 ---
@@ -563,7 +564,7 @@ python -c "import app.warehouse.router; import app.warehouse.service; from app.m
 
 ### 11.2 DWD → DWS 聚合与维度增强验收（R02/R03）
 
-- [ ] 数据集物化（build）执行前校验输入层/输出层是否符合 ODS→DWD→DWS→ADS 顺序，非法层级跳转被拒绝。
+- [ ] 数据集物化（build）执行前校验输入层/输出层是否符合 ODS→DWD→DWS→ADS 顺序，非法层级跳转被拒绝；RAW/DM/METRIC 不得作为输出层。
 - [ ] DWS 聚合定义支持 group_by/filter/aggregation/time_grain，且不提供任意 SQL 输入框。
 - [ ] DWS 逻辑视图生成记录版本、依赖和回滚信息；字段删除前必须先看依赖该字段的 DWS 定义。
 - [ ] 指标物化结果（metric_results/metric_runs）可按周期查询、可重算、可归档。
@@ -649,3 +650,4 @@ python -c "import app.warehouse.router; import app.warehouse.service; from app.m
 - [ ] 审计不保存 secret、凭证明文、敏感明细或完整未脱敏 Prompt。
 - [ ] 普通用户只能查看自己的调用摘要；审计详情需要独立权限。
 - [ ] 安全测试覆盖越权资产、隐藏字段、脱敏字段、UCP 不可用、Policy Guard 拒绝和高风险 capability disabled 场景。
+

@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Link, Edit, List, DataAnalysis, Connection, Refresh } from '@element-plus/icons-vue'
+import ResourcePicker from '@/components/warehouse/ResourcePicker.vue'
 import {
   getAsset, updateAsset, getAssetEndpoints, getAssetSyncHistory,
   getUcpRoute,
@@ -250,12 +251,12 @@ const activeTab = ref('overview')
 // 编辑模式
 const editMode = ref(false)
 import { SCOPE_STRATEGY_OPTIONS } from '@/constants/scopeStrategy'
+import LayerTag from '@/components/warehouse/LayerTag.vue'
+import { WAREHOUSE_LAYER_OPTIONS } from '@/constants/warehouseLayers'
 
-const editForm = ref({ warehouse_layer: '', subject_area: '', owner_name: '', asset_status: '', description: '', scope_strategy: '' })
+const editForm = ref({ warehouse_layer: '', subject_area: '', owner_name: '', asset_status: '', description: '', scope_strategy: '', ucp_system_id: null as number | null, ucp_resource_id: null as number | null, ucp_resource_name: '' })
 const editSaving = ref(false)
 
-const LAYER_OPTIONS = ['ODS', 'DWD', 'DWS', 'ADS']
-const LAYER_LABELS: Record<string, string> = { ODS: 'ODS 原始数据层', DWD: 'DWD 明细数据层', DWS: 'DWS 汇总数据层', ADS: 'ADS 应用数据层' }
 const STATUS_OPTIONS = ['draft', 'published', 'disabled', 'archived']
 const STATUS_LABELS: Record<string, string> = { draft: '草稿', published: '已发布', disabled: '已禁用', archived: '已归档' }
 
@@ -323,6 +324,9 @@ function enterEdit() {
     asset_status: asset.value.asset_status,
     description: asset.value.description || '',
     scope_strategy: asset.value.scope_strategy || '',
+    ucp_system_id: asset.value.ucp_system_id ?? null,
+    ucp_resource_id: asset.value.ucp_resource_id ?? null,
+    ucp_resource_name: '',
   }
   editMode.value = true
 }
@@ -337,6 +341,8 @@ async function saveEdit() {
       warehouse_layer: editForm.value.warehouse_layer,
       subject_area: editForm.value.subject_area || null,
       owner_name: editForm.value.owner_name || null,
+      ucp_system_id: editForm.value.ucp_system_id,
+      ucp_resource_id: editForm.value.ucp_resource_id,
       asset_status: editForm.value.asset_status,
       description: editForm.value.description || null,
       scope_strategy: editForm.value.scope_strategy || null,
@@ -361,7 +367,6 @@ function epFlat(): ConnectionEndpointSummary[] {
   return [...endpoints.value.pulls, ...endpoints.value.pushes, ...endpoints.value.exposes, ...endpoints.value.ucp_resources]
 }
 
-const layerTagType: Record<string, string> = { ODS: '', DWD: 'success', DWS: 'warning', ADS: 'danger' }
 const statusTagType: Record<string, string> = { draft: 'info', published: 'success', disabled: 'warning', archived: 'info' }
 
 onMounted(() => {
@@ -395,9 +400,7 @@ onMounted(() => {
           <el-tag :type="statusTagType[asset.asset_status] || 'info'" size="small">
             {{ STATUS_LABELS[asset.asset_status] || asset.asset_status }}
           </el-tag>
-          <el-tag :type="layerTagType[asset.warehouse_layer] || 'info'" size="small" effect="plain">
-            {{ asset.warehouse_layer }}
-          </el-tag>
+          <LayerTag :layer="asset.warehouse_layer" />
         </div>
         <div style="display: flex; gap: 4px; flex-shrink: 0">
           <el-button v-if="userStore.hasOp('warehouse.assets','U')" size="small" :icon="Edit" :type="editMode ? 'default' : 'primary'" @click="editMode ? cancelEdit() : enterEdit()">
@@ -418,7 +421,7 @@ onMounted(() => {
           </el-form-item>
           <el-form-item label="分层">
             <el-select v-model="editForm.warehouse_layer" style="width: 100%">
-              <el-option v-for="l in LAYER_OPTIONS" :key="l" :label="LAYER_LABELS[l]" :value="l" />
+              <el-option v-for="o in WAREHOUSE_LAYER_OPTIONS.slice(1)" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
           </el-form-item>
           <el-form-item label="主题域">
@@ -437,6 +440,13 @@ onMounted(() => {
               <el-option v-for="item in SCOPE_STRATEGY_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
             <div style="font-size: 12px; color: #909399; margin-top: 2px">控制该表多个权限标签之间的取数关系</div>
+          </el-form-item>
+          <el-form-item label="UCP 资源">
+            <ResourcePicker
+              :model-value="{ system_id: editForm.ucp_system_id, resource_id: editForm.ucp_resource_id, resource_name: editForm.ucp_resource_name }"
+              @update:model-value="(v: any) => { editForm.ucp_system_id = v.system_id; editForm.ucp_resource_id = v.resource_id; editForm.ucp_resource_name = v.resource_name || '' }"
+            />
+            <div style="font-size: 12px; color: #909399; margin-top: 2px">关联 UCP 数据连接资源（可选）</div>
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="editSaving" @click="saveEdit">保存</el-button>

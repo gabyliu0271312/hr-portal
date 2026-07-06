@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     LOGIN_FAIL_LIMIT: int = 5
     LOGIN_LOCK_MINUTES: int = 15
 
+    # 数据仓库二期灰度开关（Q0002）
+    WAREHOUSE_PHASE2_ENABLED: bool = True
+    WAREHOUSE_FEATURE_QUALITY_RULES: bool = True
+    WAREHOUSE_FEATURE_LINEAGE: bool = True
+    WAREHOUSE_FEATURE_UCP_PROXY: bool = False
+    WAREHOUSE_FEATURE_MODELING_V2: bool = False
+    WAREHOUSE_FEATURE_MONITORING: bool = False
+    WAREHOUSE_FEATURE_LAYER_ENHANCEMENT: bool = True
+
     @property
     def db_url_async(self) -> str:
         return (

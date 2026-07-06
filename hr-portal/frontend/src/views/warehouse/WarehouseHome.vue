@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { DataBoard, Folder, Edit, TrendCharts, Checked, Warning } from '@element-plus/icons-vue'
 import { listAssets, listModels, listMetrics, type Asset, type ModelListItem, type MetricListItem } from '@/api/warehouse'
+import LayerStatsPanel from '@/components/warehouse/LayerStatsPanel.vue'
 
 const router = useRouter()
 
@@ -13,15 +14,6 @@ const modelTotal = ref<number | null>(null)
 const metricTotal = ref<number | null>(null)
 const alertCount = ref<number | null>(null)
 const statsLoading = ref(false)
-
-// 分层概览
-const layers = ref([
-  { code: 'ODS', label: '原始数据层', icon: 'Folder', tables: null as number | null, models: null as number | null },
-  { code: 'DWD', label: '明细数据层', icon: 'Document', tables: null as number | null, models: null as number | null },
-  { code: 'DWS', label: '汇总数据层', icon: 'DataAnalysis', tables: null as number | null, models: null as number | null },
-  { code: 'ADS', label: '应用数据层', icon: 'TrendCharts', tables: null as number | null, models: null as number | null },
-])
-const layersLoading = ref(false)
 
 // 最新动态（当前阶段拉取最近发布/创建作为简易动态）
 const activities = ref<{ time: string; text: string; type: string }[]>([])
@@ -34,8 +26,6 @@ const quickLinks = [
   { label: '指标管理', icon: TrendCharts, route: '/warehouse/metrics' },
   { label: '数据治理', icon: Checked, route: '/warehouse/governance' },
 ]
-
-const LAYER_COLORS: Record<string, string> = { ODS: '#909399', DWD: '#67C23A', DWS: '#E6A23C', ADS: '#F56C6C' }
 
 async function loadStats() {
   statsLoading.value = true
@@ -56,30 +46,6 @@ async function loadStats() {
     ElMessage.error('加载统计指标失败')
   } finally {
     statsLoading.value = false
-  }
-}
-
-async function loadLayers() {
-  layersLoading.value = true
-  try {
-    const results = await Promise.all([
-      listAssets({ page_size: 1, warehouse_layer: 'ODS' }),
-      listAssets({ page_size: 1, warehouse_layer: 'DWD' }),
-      listAssets({ page_size: 1, warehouse_layer: 'DWS' }),
-      listAssets({ page_size: 1, warehouse_layer: 'ADS' }),
-      listModels({ page_size: 1, warehouse_layer: 'ODS' }),
-      listModels({ page_size: 1, warehouse_layer: 'DWD' }),
-      listModels({ page_size: 1, warehouse_layer: 'DWS' }),
-      listModels({ page_size: 1, warehouse_layer: 'ADS' }),
-    ])
-    for (let i = 0; i < 4; i++) {
-      layers.value[i].tables = results[i].total
-      layers.value[i].models = results[i + 4].total
-    }
-  } catch {
-    ElMessage.error('加载分层概览失败')
-  } finally {
-    layersLoading.value = false
   }
 }
 
@@ -116,7 +82,6 @@ async function loadActivities() {
 
 onMounted(() => {
   loadStats()
-  loadLayers()
   loadActivities()
 })
 </script>
@@ -163,21 +128,7 @@ onMounted(() => {
     <!-- 分层概览 -->
     <el-card style="margin-bottom: 16px">
       <template #header><span style="font-weight: 600">数据分层概览</span></template>
-      <el-row :gutter="16" v-loading="layersLoading">
-        <el-col :xs="12" :sm="6" v-for="l in layers" :key="l.code" style="margin-bottom: 8px">
-          <div class="layer-item">
-            <div class="layer-header">
-              <span class="layer-dot" :style="{ background: LAYER_COLORS[l.code] || '#909399' }"></span>
-              <span class="layer-code">{{ l.code }}</span>
-              <span class="layer-label">{{ l.label }}</span>
-            </div>
-            <div class="layer-stats">
-              <span>表 {{ l.tables ?? '—' }}</span>
-              <span style="margin-left: 12px">模型 {{ l.models ?? '—' }}</span>
-            </div>
-          </div>
-        </el-col>
-      </el-row>
+      <LayerStatsPanel />
     </el-card>
 
     <!-- 最新动态 + 快捷入口 -->

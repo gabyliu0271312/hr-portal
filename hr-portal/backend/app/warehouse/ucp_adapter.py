@@ -5,6 +5,7 @@
 - 安全检测 UCP 模块是否可用
 - 提供 UCP 摘要信息（仅展示/跳转所需字段）
 - UCP 不可用时返回降级数据，不影响 DataSource 主路径
+- Q04 薄代理：只读查询、资源摘要、状态、预览，不复制 UCP 能力
 
 禁止：
 - 返回 UCP/DataSource secret、token、password、connection_uri 明文
@@ -42,10 +43,8 @@ def is_ucp_available() -> bool:
             if spec is None:
                 _ucp_available = False
             elif spec.origin is not None:
-                # 有 __init__.py 的普通包
                 _ucp_available = True
             else:
-                # 命名空间包 — 检查是否有至少一个可用的子模块
                 _ucp_available = _importlib_util.find_spec("app.ucp.router") is not None
         except Exception:
             _ucp_available = False
@@ -87,6 +86,118 @@ class UcpInfo:
             "connector_config_id": self.connector_config_id,
             "config_route": self.config_route,
         }
+
+
+# ---------------------------------------------------------------
+# Q0401: UCP Systems 查询
+# ---------------------------------------------------------------
+
+async def list_systems() -> list[dict]:
+    """获取 UCP 系统列表（只读摘要）。
+
+    is_ucp_available() 为 False 时返回空列表。
+    为 True 时预留真实查询位置（TODO: 对接 UCP API）。
+    只返回 id/name/status 快照，不返回 secret。
+    """
+    if not is_ucp_available():
+        return []
+
+    # TODO: 当 app.ucp 模块合并后，通过 UCP API 查询：
+    #   from app.ucp.models import ConnectorSystem
+    #   return [{"id": s.id, "name": s.name, "status": s.status} for s in systems]
+    return []
+
+
+# ---------------------------------------------------------------
+# Q0403: UCP Resources 查询
+# ---------------------------------------------------------------
+
+async def list_resources(system_id: int | None = None) -> list[dict]:
+    """获取 UCP 资源列表（只读摘要）。
+
+    system_id 为 None 时返回全部，否则按系统过滤。
+    is_ucp_available() 为 False 时返回空列表。
+    只返回资源摘要、测试状态、执行状态、跳转 URL，不返回凭证配置。
+    """
+    if not is_ucp_available():
+        return []
+
+    # TODO: 当 app.ucp 模块合并后，通过 UCP API 查询：
+    #   from app.ucp.models import ConnectorResource
+    #   q = select(ConnectorResource)
+    #   if system_id is not None:
+    #       q = q.where(ConnectorResource.system_id == system_id)
+    #   return [{
+    #       "id": r.id, "system_id": r.system_id, "name": r.name,
+    #       "resource_type": r.resource_type, "status": r.status,
+    #       "last_test_at": ..., "last_run_at": ..., "config_route": ...,
+    #   } for r in rows]
+    return []
+
+
+# ---------------------------------------------------------------
+# Q0405: UCP Resource Status
+# ---------------------------------------------------------------
+
+async def get_resource_status(resource_id: int) -> dict | None:
+    """获取 UCP 资源状态摘要。
+
+    UCP 不可用时返回降级对象。
+    不暴露凭证明文。
+    """
+    if not is_ucp_available():
+        return {
+            "resource_id": resource_id,
+            "status": "unknown",
+            "message": "UCP 不可用",
+            "enabled": False,
+        }
+
+    # TODO: 对接 UCP API 查询资源状态
+    return {
+        "resource_id": resource_id,
+        "status": "unknown",
+        "message": "UCP 已启用，资源状态待对接",
+        "enabled": True,
+    }
+
+
+# ---------------------------------------------------------------
+# Q0406: UCP Resource Preview
+# ---------------------------------------------------------------
+
+async def preview_resource(
+    resource_id: int,
+    limit: int = 20,
+    masker=None,
+) -> dict | None:
+    """获取 UCP 资源预览数据。
+
+    预览结果必须脱敏敏感字段并限制返回行数。
+    limit 默认 20，最大 100。
+    masker: 可选脱敏函数/对象，用于敏感字段脱敏。
+    """
+    if not is_ucp_available():
+        return {
+            "resource_id": resource_id,
+            "columns": [],
+            "rows": [],
+            "total": 0,
+            "truncated": False,
+            "message": "UCP 不可用，无法预览",
+        }
+
+    # TODO: 对接 UCP API 获取预览数据
+    #   rows = await ucp_api.preview(resource_id, limit)
+    #   rows = apply_masker(rows, masker)
+    return {
+        "resource_id": resource_id,
+        "columns": [],
+        "rows": [],
+        "total": 0,
+        "truncated": False,
+        "message": "UCP 已启用，预览数据待对接",
+    }
 
 
 # ---------------------------------------------------------------

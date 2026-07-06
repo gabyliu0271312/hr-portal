@@ -936,6 +936,68 @@ class WarehouseService:
         await self.session.refresh(m)
         return await self.get_metric(metric_id)
 
+    # ==================== 批量分层 (Q0104) ====================
+
+    async def batch_update_asset_layer(
+        self, *, table_names: list[str], warehouse_layer: str
+    ) -> dict:
+        """批量更新资产分层。
+
+        去重 table_names，存在的更新，不存在的写入失败明细。
+        部分失败不影响其余成功。
+        """
+        from app.warehouse.schemas import WarehouseAssetBatchLayerItemOut
+
+        unique_names = list(dict.fromkeys(table_names))
+        items: list[dict] = []
+        success_count = 0
+        fail_count = 0
+
+        for name in unique_names:
+            rt = (
+                await self.session.execute(
+                    select(RegisteredTable).where(RegisteredTable.table_name == name)
+                )
+            ).scalar_one_or_none()
+            if rt is None:
+                items.append({"table_name": name, "success": False, "message": f"资产不存在: {name}"})
+                fail_count += 1
+            else:
+                rt.warehouse_layer = warehouse_layer
+                items.append({"table_name": name, "success": True, "message": ""})
+                success_count += 1
+
+        return {
+            "warehouse_layer": warehouse_layer,
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "items": items,
+        }
+
+    # ==================== 分层统计 (Q0106) ====================
+
+    async def get_layer_stats(self) -> dict:
+        """按分层统计资产数量，7 层均返回（缺失层 count=0）。"""
+        from app.warehouse.schemas import WAREHOUSE_LAYERS
+
+        q = (
+            select(
+                RegisteredTable.warehouse_layer,
+                func.count(RegisteredTable.id),
+            )
+            .group_by(RegisteredTable.warehouse_layer)
+        )
+        rows = (await self.session.execute(q)).all()
+        layer_counts: dict[str, int] = {row[0]: row[1] for row in rows}
+
+        items = [
+            {"code": layer, "count": layer_counts.get(layer, 0)}
+            for layer in WAREHOUSE_LAYERS
+        ]
+        total = sum(item["count"] for item in items)
+
+        return {"total": total, "items": items}
+
 
 # 便捷工厂
 def get_warehouse_service(session: AsyncSession) -> WarehouseService:

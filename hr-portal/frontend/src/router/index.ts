@@ -259,6 +259,24 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '数据治理', menuCode: 'warehouse.governance' },
       },
       {
+        path: 'warehouse/lineage',
+        name: 'WarehouseLineage',
+        component: () => import('@/views/warehouse/WarehouseLineage.vue'),
+        meta: { label: '数据血缘', menuCode: 'warehouse.governance' },
+      },
+      {
+        path: 'warehouse/quality',
+        name: 'WarehouseQuality',
+        component: () => import('@/views/warehouse/WarehouseQuality.vue'),
+        meta: { label: '数据质量', menuCode: 'warehouse.governance' },
+      },
+      {
+        path: 'warehouse/monitor',
+        name: 'WarehouseMonitor',
+        component: () => import('@/views/warehouse/WarehouseMonitor.vue'),
+        meta: { label: '执行监控', menuCode: 'warehouse.governance' },
+      },
+      {
         path: 'warehouse/impact',
         name: 'WarehouseImpact',
         component: () => import('@/views/warehouse/WarehouseImpact.vue'),

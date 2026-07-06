@@ -2,9 +2,9 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Connection } from '@element-plus/icons-vue'
 import { listAssets } from '@/api/warehouse'
 import type { Asset } from '@/api/warehouse'
+import LayerStatsPanel from '@/components/warehouse/LayerStatsPanel.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -36,6 +36,37 @@ onMounted(load)
 <template>
   <div style="padding: 24px; max-width: 1000px; margin: 0 auto">
     <h2 style="margin: 0 0 16px; font-size: 20px">数据治理</h2>
+
+    <!-- 治理功能入口 -->
+    <el-row :gutter="16" style="margin-bottom: 16px">
+      <el-col :sm="8" style="margin-bottom: 12px">
+        <el-card shadow="hover" class="gov-entry-card" @click="router.push('/warehouse/lineage')">
+          <div class="gov-entry-icon" style="color: #409eff">&#8599;</div>
+          <div class="gov-entry-title">数据血缘</div>
+          <div class="gov-entry-desc">表/字段级上下游依赖追踪</div>
+        </el-card>
+      </el-col>
+      <el-col :sm="8" style="margin-bottom: 12px">
+        <el-card shadow="hover" class="gov-entry-card" @click="router.push('/warehouse/quality')">
+          <div class="gov-entry-icon" style="color: #e6a23c">&#9888;</div>
+          <div class="gov-entry-title">数据质量</div>
+          <div class="gov-entry-desc">规则配置、执行与告警</div>
+        </el-card>
+      </el-col>
+      <el-col :sm="8" style="margin-bottom: 12px">
+        <el-card shadow="hover" class="gov-entry-card" @click="router.push('/warehouse/monitor')">
+          <div class="gov-entry-icon" style="color: #67c23a">&#9783;</div>
+          <div class="gov-entry-title">执行监控</div>
+          <div class="gov-entry-desc">运行聚合、告警规则</div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 分层概览 (Q0107) -->
+    <el-card style="margin-bottom: 16px" shadow="never">
+      <template #header><span style="font-weight: 600">分层概览</span></template>
+      <LayerStatsPanel />
+    </el-card>
 
     <el-row :gutter="16" v-loading="loading" style="margin-bottom: 16px">
       <el-col :sm="8" style="margin-bottom: 12px">
@@ -69,16 +100,15 @@ onMounted(load)
         </el-card>
       </el-col>
     </el-row>
-
-    <el-card shadow="never">
-      <template #header><span style="font-weight: 600">快捷操作</span></template>
-      <el-button :icon="Connection" @click="router.push('/warehouse/impact')" style="margin-right: 8px">影响分析</el-button>
-      <el-button @click="router.push('/warehouse/assets')">数据资产</el-button>
-    </el-card>
   </div>
 </template>
 
 <style scoped>
+.gov-entry-card { cursor: pointer; text-align: center; transition: box-shadow .2s; }
+.gov-entry-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.12); }
+.gov-entry-icon { font-size: 28px; margin-bottom: 8px; }
+.gov-entry-title { font-size: 15px; font-weight: 600; color: #303133; margin-bottom: 4px; }
+.gov-entry-desc { font-size: 12px; color: #909399; }
 .gov-card { text-align: center; }
 .gov-num { font-size: 32px; font-weight: 600; color: #303133; }
 .gov-label { font-size: 13px; color: #909399; margin-top: 4px; }
