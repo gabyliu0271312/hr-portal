@@ -342,3 +342,286 @@ class AssetEndpointsOut(BaseModel):
     pushes: list[ConnectionEndpointSummary] = []
     exposes: list[ConnectionEndpointSummary] = []
     ucp_resources: list[ConnectionEndpointSummary] = []
+
+
+# ==================== 二期 Feature Flag (Q0002) ====================
+
+class WarehouseFeatureFlagsOut(BaseModel):
+    """二期灰度开关（供前端统一读取，避免每页各自判断）"""
+    ucp_available: bool = False
+    phase2_enabled: bool = False
+    quality_rules: bool = False
+    lineage: bool = False
+    ucp_proxy: bool = False
+    modeling_v2: bool = False
+    monitoring: bool = False
+    layer_enhancement: bool = True
+
+
+# ==================== 批量分层 (Q0104) ====================
+
+class WarehouseAssetBatchLayerIn(BaseModel):
+    """批量修改资产分层入参"""
+    table_names: list[str] = Field(..., min_length=1, max_length=200)
+    warehouse_layer: str
+
+
+class WarehouseAssetBatchLayerItemOut(BaseModel):
+    """单项结果"""
+    table_name: str
+    success: bool
+    message: str = ""
+
+
+class WarehouseAssetBatchLayerOut(BaseModel):
+    """批量修改结果"""
+    warehouse_layer: str
+    success_count: int = 0
+    fail_count: int = 0
+    items: list[WarehouseAssetBatchLayerItemOut] = []
+
+
+# ==================== 分层统计 (Q0106) ====================
+
+class WarehouseLayerStatOut(BaseModel):
+    """单个分层的资产统计"""
+    code: str
+    count: int = 0
+
+
+class WarehouseLayerStatsOut(BaseModel):
+    """分层统计聚合"""
+    total: int = 0
+    items: list[WarehouseLayerStatOut] = []
+
+
+# ==================== 血缘 (Q02) ====================
+
+# 血缘节点类型（Q0201）
+LINEAGE_NODE_TYPES = (
+    "table", "field", "dataset", "metric",
+    "report", "notification", "datasource", "ucp_resource",
+)
+
+# 血缘边关系类型（Q0202）
+LINEAGE_RELATION_TYPES = ("sync", "reference", "calculation", "output")
+
+
+class LineageNodeOut(BaseModel):
+    """血缘节点 DTO（Q0201）
+
+    统一字段：id、type、label、status、risk_level。
+    8 种节点类型：table/field/dataset/metric/report/notification/datasource/ucp_resource。
+    """
+    id: str = Field(description="节点唯一标识，格式: {type}:{id}")
+    type: str = Field(description=f"节点类型: {'/'.join(LINEAGE_NODE_TYPES)}")
+    label: str = Field(description="节点显示名称")
+    status: str = Field("unknown", description="节点状态: draft/published/archived/active/unknown")
+    risk_level: str = Field("low", description="风险级别: low/medium/high")
+    detail_route: Optional[str] = Field(None, description="详情页跳转路由")
+    # UCP 资源节点扩展（仅 ucp_resource 类型有值）
+    ucp_summary: Optional[dict] = Field(None, description="UCP 资源摘要，不含 secret")
+
+
+class LineageEdgeOut(BaseModel):
+    """血缘边 DTO（Q0202）
+
+    direction: upstream（上游来源）/ downstream（下游影响）
+    relation_type: sync（同步）/ reference（引用）/ calculation（计算依赖）/ output（输出字段）
+    """
+    source_id: str = Field(description="源节点 id")
+    target_id: str = Field(description="目标节点 id")
+    direction: str = Field(description="方向: upstream / downstream")
+    relation_type: str = Field(description=f"关系类型: {'/'.join(LINEAGE_RELATION_TYPES)}")
+    label: str = Field("", description="关系标签（如 '关联', '输出字段', '计算依赖'）")
+    detail_route: Optional[str] = Field(None, description="关联详情跳转路由")
+
+
+class LineageGraphOut(BaseModel):
+    """血缘图响应 DTO"""
+    nodes: list[LineageNodeOut] = []
+    edges: list[LineageEdgeOut] = []
+    truncated: bool = Field(False, description="是否因 depth/limit 截断")
+    truncation_message: Optional[str] = Field(None, description="截断提示信息")
+
+
+# ==================== 质量规则 (Q03) ====================
+
+QUALITY_RULE_TYPES = (
+    "not_null", "unique", "enum", "date_format",
+    "referential_integrity", "custom_sql",
+)
+QUALITY_SEVERITIES = ("info", "warn", "error")
+QUALITY_RUN_STATUSES = ("pass", "warn", "fail", "error")
+
+# 二期可执行的规则类型（Q0309: referential_integrity/custom_sql 暂不支持）
+EXECUTABLE_RULE_TYPES = ("not_null", "unique", "enum", "date_format")
+
+
+class WarehouseQualityRuleIn(BaseModel):
+    """质量规则创建/更新入参"""
+    asset_type: str = Field(..., max_length=16, description="table/dataset/field")
+    asset_code: str = Field(..., max_length=256, description="资产编码")
+    rule_type: str = Field(..., max_length=32, description="规则类型")
+    rule_config: dict = Field(default_factory=dict, description="规则参数 JSON")
+    enabled: bool = True
+    severity: str = Field("warn", description="info/warn/error")
+
+
+class WarehouseQualityRuleUpdateIn(BaseModel):
+    """质量规则部分更新入参"""
+    rule_config: Optional[dict] = None
+    enabled: Optional[bool] = None
+    severity: Optional[str] = None
+
+
+class WarehouseQualityRuleOut(BaseModel):
+    """质量规则响应"""
+    id: int
+    asset_type: str
+    asset_code: str
+    rule_type: str
+    rule_config: dict
+    enabled: bool
+    severity: str
+    last_run_status: Optional[str] = None
+    last_run_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class WarehouseQualityRunOut(BaseModel):
+    """质量运行记录响应"""
+    id: int
+    rule_id: Optional[int] = None
+    status: str
+    checked_count: int = 0
+    failed_count: int = 0
+    sample_rows: Optional[list] = None
+    message: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class QualityRunTriggerOut(BaseModel):
+    """质量规则执行触发响应"""
+    run_id: int
+    status: str
+    message: str = ""
+
+
+class QualityAlertSummaryOut(BaseModel):
+    """质量告警摘要（Q0313）"""
+    total_rules: int = 0
+    failed_rules: int = 0
+    warning_rules: int = 0
+    by_severity: dict = Field(default_factory=dict, description="按 severity 分组：{info:n, warn:n, error:n}")
+
+
+# ==================== UCP 薄代理 (Q04) ====================
+
+
+class UcpSystemOut(BaseModel):
+    """UCP 系统摘要（Q0401/Q0402）"""
+    id: int
+    name: str
+    status: str = "unknown"
+
+
+class UcpResourceOut(BaseModel):
+    """UCP 资源摘要（Q0403/Q0404）"""
+    id: int
+    system_id: int
+    name: str
+    resource_type: str = ""
+    status: str = "unknown"
+    last_test_at: Optional[str] = None
+    last_run_at: Optional[str] = None
+    config_route: Optional[str] = None
+
+
+class UcpResourceStatusOut(BaseModel):
+    """UCP 资源状态（Q0405）"""
+    resource_id: int
+    status: str = "unknown"
+    message: str = ""
+    enabled: bool = False
+
+
+class UcpResourcePreviewOut(BaseModel):
+    """UCP 资源预览（Q0406）"""
+    resource_id: int
+    columns: list[str] = []
+    rows: list[dict] = []
+    total: int = 0
+    truncated: bool = False
+    message: str = ""
+
+
+# ==================== 建模 V2 (Q05) ====================
+
+
+class ModelVersionOut(BaseModel):
+    """模型版本历史条目（Q0507）"""
+    version: int
+    status: str
+    published_at: Optional[datetime] = None
+    published_by: Optional[int] = None
+    diff_snapshot: Optional[dict] = None
+
+
+class ModelVersionRollbackIn(BaseModel):
+    """回滚入参（Q0507）"""
+    target_version: int = Field(..., ge=1)
+
+
+class ModelPreviewV2Out(BaseModel):
+    """V2 预览响应（Q0509）"""
+    sql: str = ""
+    sql_explanation: str = ""
+    items: list[dict] = []
+    columns: list[str] = []
+    total: Optional[int] = None
+    errors: list[dict] = Field(default_factory=list, description="错误定位列表 [{node_id, message}]")
+
+
+# ==================== 执行监控 (Q06) ====================
+
+class WarehouseRunSummaryOut(BaseModel):
+    """统一仓内运行事件 DTO（Q0601）"""
+    run_type: str = Field(description="sync/quality/dataset_build/metric_run/snapshot")
+    run_id: int
+    status: str
+    target_label: str = ""
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    duration: Optional[float] = Field(None, description="耗时秒数")
+    error_summary: Optional[str] = None
+    source_link: Optional[str] = Field(None, description="来源跳转路由")
+
+
+class WarehouseAlertRuleIn(BaseModel):
+    """告警规则创建/更新入参（Q0605）"""
+    alert_type: str = Field(..., max_length=32, description="quality_fail/sync_fail/build_fail/metric_fail")
+    target_code: str = Field(..., max_length=256)
+    enabled: bool = True
+    severity: str = Field("warn")
+    notify_channels: Optional[dict] = None
+
+
+class WarehouseAlertRuleOut(BaseModel):
+    """告警规则响应（Q0605）"""
+    id: int
+    alert_type: str
+    target_code: str
+    enabled: bool
+    severity: str
+    notify_channels: Optional[dict] = None
+    last_triggered_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}

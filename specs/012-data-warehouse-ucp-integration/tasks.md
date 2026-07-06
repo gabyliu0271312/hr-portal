@@ -287,7 +287,8 @@
 
 ### 后续阶段 2：数据治理深化 + UCP 薄代理 + 可视化建模 V2
 
-- 数据分层标签增强。
+- 数据分层标签增强与口径纠偏：`warehouse_layer` 保持 ODS/DWD/DWS/ADS，RAW/DM/METRIC 分别进入来源阶段、消费域标签、资产类型。
+- 统一资产目录增强：asset_type 覆盖 table/view/model/metric/api，分层筛选只筛 ODS/DWD/DWS/ADS。
 - 数据血缘追踪。
 - 数据质量规则、执行、告警摘要。
 - `/api/v1/warehouse/ucp/*` 薄代理。
@@ -298,8 +299,8 @@
 ### 后续阶段 3：能力下沉与增强
 
 - ODS → DWD 标准化与清洗。
-- 分层产物物化与刷新。
-- DWD → DWS 指标物化、维度管理和 DWS 聚合。
+- 分层产物物化与刷新；物化输出只允许 DWD/DWS/ADS，数据集市用消费域/主题域标签表达。
+- DWD → DWS 指标物化、维度管理和 DWS 聚合；指标作为 asset_type=metric 或语义对象，不作为 warehouse_layer。
 - DWD → DWS 聚合视图生成。
 - DWS → ADS 组装与消费资产发布。
 - 快照与拉链。
@@ -368,3 +369,6 @@
 - 所有数据上下文必须遵循 `005-unified-permission-model`；AI 可见上下文只能是当前用户普通 UI/API 可见数据的子集。
 - 所有涉及 UI 的任务必须引用 `atomic-tasks.md` U26，并在原子任务中写明 normal/loading/empty/error/forbidden/policy-denied 状态。
 - 所有涉及测试的任务必须在原子任务中列出单元测试、接口测试、组件测试、E2E 或不适用原因。
+
+
+

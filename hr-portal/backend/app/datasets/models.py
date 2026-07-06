@@ -68,6 +68,7 @@ class DataSet(Base):
         DateTime(timezone=True), nullable=True
     )
     published_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    diff_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="发布差异快照（V2 版本管理）")
 
 
 class DataSetTable(Base):

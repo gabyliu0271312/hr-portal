@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, View, Edit, DataAnalysis, Connection, Link, List, ArrowDown, Grid, Menu, Plus } from '@element-plus/icons-vue'
-import { listAssets, updateAsset, type Asset } from '@/api/warehouse'
+import { listAssets, updateAsset, batchUpdateAssetLayer, type Asset } from '@/api/warehouse'
 import { useUserStore } from '@/stores/user'
 import CreateTableDialog from '@/components/data/CreateTableDialog.vue'
+import LayerTag from '@/components/warehouse/LayerTag.vue'
+import { WAREHOUSE_LAYER_OPTIONS, WAREHOUSE_LAYER_LABELS, WAREHOUSE_LAYER_CODES } from '@/constants/warehouseLayers'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -43,15 +45,49 @@ const typeOptions = ['', 'table', 'view', 'model', 'metric', 'api']
 const TYPE_LABELS: Record<string, string> = { table: '数据表', view: '数据视图', model: '数据模型', metric: '指标', api: '数据API' }
 const qualityFilter = ref('')
 
-const layerOptions = ['', 'ODS', 'DWD', 'DWS', 'ADS']
 const statusOptions = ['', 'draft', 'published', 'disabled', 'archived']
-
-const LAYER_LABELS: Record<string, string> = { ODS: 'ODS 原始数据', DWD: 'DWD 明细数据', DWS: 'DWS 汇总数据', ADS: 'ADS 应用数据' }
 const STATUS_LABELS: Record<string, string> = { draft: '草稿', published: '已发布', disabled: '已禁用', archived: '已归档' }
 const QUALITY_LABELS: Record<string, string> = { unknown: '未知', pass: '通过', warn: '告警', fail: '失败' }
-const LAYER_TAG: Record<string, string> = { ODS: '', DWD: 'success', DWS: 'warning', ADS: 'danger' }
 const STATUS_TAG: Record<string, string> = { draft: 'info', published: 'success', disabled: 'warning', archived: 'info' }
 const QUALITY_TAG: Record<string, string> = { unknown: 'info', pass: 'success', warn: 'warning', fail: 'danger' }
+
+// 批量分层 (Q0105)
+const tableSelection = ref<Asset[]>([])
+const batchLayerTarget = ref('')
+const batchLayerVisible = ref(false)
+const batchLayerSaving = ref(false)
+const hasSelection = computed(() => tableSelection.value.length > 0)
+
+function openBatchLayer() {
+  if (!hasSelection.value) { ElMessage.warning('请先选中资产'); return }
+  batchLayerTarget.value = ''
+  batchLayerVisible.value = true
+}
+
+async function confirmBatchLayer() {
+  if (!batchLayerTarget.value) { ElMessage.warning('请选择目标分层'); return }
+  batchLayerSaving.value = true
+  try {
+    const names = tableSelection.value.map(a => a.table_name)
+    const res = await batchUpdateAssetLayer({ table_names: names, warehouse_layer: batchLayerTarget.value })
+    const msg = `成功 ${res.success_count} 项`
+    if (res.fail_count > 0) {
+      const fails = res.items.filter(i => !i.success).map(i => `${i.table_name}: ${i.message}`).join('; ')
+      ElMessage.warning(`${msg}，失败 ${res.fail_count} 项: ${fails}`)
+    } else {
+      ElMessage.success(msg)
+    }
+    batchLayerVisible.value = false
+    tableSelection.value = []
+    load()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '批量操作失败')
+  } finally {
+    batchLayerSaving.value = false
+  }
+}
+
+function handleTableSelection(val: Asset[]) { tableSelection.value = val }
 
 async function load() {
   loading.value = true
@@ -174,8 +210,8 @@ onMounted(load)
           <el-input v-model="filters.keyword" placeholder="表名 / 显示名 / 描述" clearable style="width: 200px" @keyup.enter="handleSearch" />
         </el-form-item>
         <el-form-item label="分层">
-          <el-select v-model="filters.warehouse_layer" clearable placeholder="全部" style="width: 140px" @change="handleSearch">
-            <el-option v-for="l in layerOptions" :key="l" :label="l ? LAYER_LABELS[l] : '全部'" :value="l" />
+          <el-select v-model="filters.warehouse_layer" clearable placeholder="全部" style="width: 160px" @change="handleSearch">
+            <el-option v-for="o in WAREHOUSE_LAYER_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -217,9 +253,7 @@ onMounted(load)
           <span class="card-name" @click="goDetail(a.table_name)">{{ a.table_label }}</span>
           <div class="card-badges">
             <el-tag type="info" size="small" effect="plain">{{ TYPE_LABELS['table'] || '数据表' }}</el-tag>
-            <el-tag :type="LAYER_TAG[a.warehouse_layer] || 'info'" size="small" effect="plain">
-              {{ a.warehouse_layer }}
-            </el-tag>
+            <LayerTag :layer="a.warehouse_layer" />
             <el-tag :type="QUALITY_TAG[a.last_quality_status] || 'info'" size="small">
               {{ QUALITY_LABELS[a.last_quality_status] || a.last_quality_status }}
             </el-tag>
@@ -264,14 +298,26 @@ onMounted(load)
 
     <!-- ============ 表格视图 ============ -->
     <el-card v-else shadow="never">
-      <el-table v-loading="loading" :data="assets" border stripe size="small" empty-text="暂无数据资产">
+      <!-- 批量操作栏 -->
+      <div v-if="canEditAsset()" style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px">
+        <el-button size="small" @click="openBatchLayer" :disabled="!hasSelection">
+          批量修改分层
+          <span v-if="hasSelection">（{{ tableSelection.length }} 项）</span>
+        </el-button>
+      </div>
+      <el-table
+        v-loading="loading"
+        :data="assets"
+        border stripe size="small"
+        empty-text="暂无数据资产"
+        @selection-change="handleTableSelection"
+      >
+        <el-table-column v-if="canEditAsset()" type="selection" width="40" />
         <el-table-column prop="table_name" label="表名" min-width="160" show-overflow-tooltip />
         <el-table-column prop="table_label" label="显示名" min-width="130" show-overflow-tooltip />
         <el-table-column prop="warehouse_layer" label="分层" width="140">
           <template #default="{ row }">
-            <el-tag size="small" :type="LAYER_TAG[row.warehouse_layer] || 'info'">
-              {{ LAYER_LABELS[row.warehouse_layer] || row.warehouse_layer }}
-            </el-tag>
+            <LayerTag :layer="row.warehouse_layer" />
           </template>
         </el-table-column>
         <el-table-column prop="subject_area" label="主题域" width="90" show-overflow-tooltip />
@@ -340,7 +386,7 @@ onMounted(load)
         </el-form-item>
         <el-form-item label="分层">
           <el-select v-model="editForm.warehouse_layer" style="width: 100%">
-            <el-option v-for="l in layerOptions.slice(1)" :key="l" :label="LAYER_LABELS[l]" :value="l" />
+            <el-option v-for="o in WAREHOUSE_LAYER_OPTIONS.slice(1)" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="主题域">
@@ -358,6 +404,20 @@ onMounted(load)
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" :loading="editSaving" @click="saveEdit">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 批量分层弹窗 -->
+    <el-dialog v-model="batchLayerVisible" title="批量修改分层" width="420px">
+      <div style="margin-bottom: 12px; color: #606266">
+        已选中 <strong>{{ tableSelection.length }}</strong> 项资产，请选择目标分层：
+      </div>
+      <el-select v-model="batchLayerTarget" placeholder="选择目标分层" style="width: 100%">
+        <el-option v-for="o in WAREHOUSE_LAYER_OPTIONS.slice(1)" :key="o.value" :label="o.label" :value="o.value" />
+      </el-select>
+      <template #footer>
+        <el-button @click="batchLayerVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchLayerSaving" @click="confirmBatchLayer">确认</el-button>
       </template>
     </el-dialog>
   </div>

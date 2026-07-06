@@ -546,3 +546,479 @@ export const UCP_DISABLED_TEXT = '数据连接平台未启用'
 
 /** UCP 已启用但未关联时的提示文案 */
 export const UCP_NOT_CONNECTED_TEXT = '未关联 UCP 资源'
+
+// ==================== Feature Flags (Q0002) ====================
+
+/** 二期灰度开关 */
+export interface WarehouseFeatureFlags {
+  ucp_available: boolean
+  phase2_enabled: boolean
+  quality_rules: boolean
+  lineage: boolean
+  ucp_proxy: boolean
+  modeling_v2: boolean
+  monitoring: boolean
+  layer_enhancement: boolean
+}
+
+/** 获取二期灰度开关 */
+export function getWarehouseFeatures(): Promise<WarehouseFeatureFlags> {
+  return api.get('/warehouse/features').then(r => r.data)
+}
+
+// ==================== 批量分层 (Q0104/Q0105) ====================
+
+/** 批量分层请求 */
+export interface BatchLayerPayload {
+  table_names: string[]
+  warehouse_layer: string
+}
+
+/** 单项结果 */
+export interface BatchLayerItem {
+  table_name: string
+  success: boolean
+  message: string
+}
+
+/** 批量分层结果 */
+export interface BatchLayerResult {
+  warehouse_layer: string
+  success_count: number
+  fail_count: number
+  items: BatchLayerItem[]
+}
+
+/** 批量修改资产分层 */
+export function batchUpdateAssetLayer(payload: BatchLayerPayload): Promise<BatchLayerResult> {
+  return api.patch('/warehouse/assets/batch-layer', payload).then(r => r.data)
+}
+
+// ==================== 分层统计 (Q0106/Q0107) ====================
+
+/** 单个分层统计 */
+export interface LayerStat {
+  code: string
+  count: number
+}
+
+/** 分层统计聚合 */
+export interface LayerStatsResult {
+  total: number
+  items: LayerStat[]
+}
+
+/** 获取分层概览统计 */
+export function getLayerStats(): Promise<LayerStatsResult> {
+  return api.get('/warehouse/assets/layer-stats').then(r => r.data)
+}
+
+// ==================== 血缘 API (Q02) ====================
+
+/** 血缘节点 */
+export interface LineageNode {
+  id: string
+  type: string
+  label: string
+  status: string
+  risk_level: string
+  detail_route: string | null
+  ucp_summary?: Record<string, any> | null
+}
+
+/** 血缘边 */
+export interface LineageEdge {
+  source_id: string
+  target_id: string
+  direction: string
+  relation_type: string
+  label: string
+}
+
+/** 血缘图响应 */
+export interface LineageGraph {
+  nodes: LineageNode[]
+  edges: LineageEdge[]
+  truncated: boolean
+  truncation_message: string | null
+}
+
+/** 表级血缘 */
+export function getTableLineage(
+  tableName: string,
+  depth = 3,
+  limit = 50
+): Promise<LineageGraph> {
+  return api.get(`/warehouse/lineage/table/${encodeURIComponent(tableName)}`, {
+    params: { depth, limit },
+  }).then(r => r.data)
+}
+
+/** 字段级血缘 */
+export function getFieldLineage(
+  tableName: string,
+  columnCode: string,
+  depth = 3,
+  limit = 50
+): Promise<LineageGraph> {
+  return api.get('/warehouse/lineage/field', {
+    params: { table_name: tableName, column_code: columnCode, depth, limit },
+  }).then(r => r.data)
+}
+
+/** 血缘节点类型配置 */
+export const LINEAGE_NODE_COLORS: Record<string, string> = {
+  table: '#409EFF',
+  field: '#67C23A',
+  dataset: '#E6A23C',
+  metric: '#F56C6C',
+  report: '#909399',
+  datasource: '#337ECC',
+  ucp_resource: '#01C9B8',
+  notification: '#B37FEB',
+}
+
+/** 血缘节点类型中文 */
+export const LINEAGE_NODE_LABELS: Record<string, string> = {
+  table: '数据表',
+  field: '字段',
+  dataset: '数据集',
+  metric: '指标',
+  report: '报表',
+  datasource: '数据源',
+  ucp_resource: 'UCP资源',
+  notification: '通知',
+}
+
+/** 血缘关系类型中文 */
+export const LINEAGE_EDGE_LABELS: Record<string, string> = {
+  sync: '同步',
+  reference: '引用',
+  calculation: '计算',
+  output: '输出',
+}
+
+// ==================== 质量规则 API (Q03) ====================
+
+/** 质量规则 */
+export interface QualityRule {
+  id: number
+  asset_type: string
+  asset_code: string
+  rule_type: string
+  rule_config: Record<string, any>
+  enabled: boolean
+  severity: string
+  last_run_status: string | null
+  last_run_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+/** 质量规则创建入参 */
+export interface QualityRuleCreatePayload {
+  asset_type: string
+  asset_code: string
+  rule_type: string
+  rule_config: Record<string, any>
+  enabled?: boolean
+  severity?: string
+}
+
+/** 质量规则更新入参 */
+export interface QualityRuleUpdatePayload {
+  rule_config?: Record<string, any>
+  enabled?: boolean
+  severity?: string
+}
+
+/** 质量运行记录 */
+export interface QualityRun {
+  id: number
+  rule_id: number | null
+  status: string
+  checked_count: number
+  failed_count: number
+  sample_rows: Record<string, any>[] | null
+  message: string | null
+  started_at: string | null
+  finished_at: string | null
+}
+
+/** 质量规则执行触发响应 */
+export interface QualityRunTriggerResult {
+  run_id: number
+  status: string
+  message: string
+}
+
+/** 质量告警摘要 */
+export interface QualityAlertSummary {
+  total_rules: number
+  failed_rules: number
+  warning_rules: number
+  by_severity: Record<string, number>
+}
+
+/** 质量规则类型中文 */
+export const QUALITY_RULE_TYPE_LABELS: Record<string, string> = {
+  not_null: '非空检查',
+  unique: '唯一性检查',
+  enum: '枚举检查',
+  date_format: '日期格式检查',
+  referential_integrity: '引用完整性',
+  custom_sql: '自定义 SQL',
+}
+
+/** 质量严重级别中文 */
+export const QUALITY_SEVERITY_LABELS: Record<string, string> = {
+  info: '提示',
+  warn: '警告',
+  error: '严重',
+}
+
+/** 质量规则列表 */
+export function listQualityRules(params: {
+  asset_type?: string
+  asset_code?: string
+  rule_type?: string
+  enabled?: boolean
+  page?: number
+  page_size?: number
+}): Promise<PaginatedResponse<QualityRule>> {
+  return api.get('/warehouse/quality-rules', { params }).then(r => r.data)
+}
+
+/** 质量规则详情 */
+export function getQualityRule(id: number): Promise<QualityRule> {
+  return api.get(`/warehouse/quality-rules/${id}`).then(r => r.data)
+}
+
+/** 创建质量规则 */
+export function createQualityRule(payload: QualityRuleCreatePayload): Promise<QualityRule> {
+  return api.post('/warehouse/quality-rules', payload).then(r => r.data)
+}
+
+/** 更新质量规则 */
+export function updateQualityRule(id: number, payload: QualityRuleUpdatePayload): Promise<QualityRule> {
+  return api.patch(`/warehouse/quality-rules/${id}`, payload).then(r => r.data)
+}
+
+/** 启用质量规则 */
+export function enableQualityRule(id: number): Promise<QualityRule> {
+  return api.post(`/warehouse/quality-rules/${id}/enable`).then(r => r.data)
+}
+
+/** 禁用质量规则 */
+export function disableQualityRule(id: number): Promise<QualityRule> {
+  return api.post(`/warehouse/quality-rules/${id}/disable`).then(r => r.data)
+}
+
+/** 删除质量规则 */
+export function deleteQualityRule(id: number): Promise<void> {
+  return api.delete(`/warehouse/quality-rules/${id}`)
+}
+
+/** 手动执行质量规则 */
+export function runQualityRule(id: number): Promise<QualityRunTriggerResult> {
+  return api.post(`/warehouse/quality-rules/${id}/run`).then(r => r.data)
+}
+
+/** 质量运行历史列表 */
+export function listQualityRuns(params: {
+  rule_id?: number
+  asset_code?: string
+  status?: string
+  page?: number
+  page_size?: number
+}): Promise<PaginatedResponse<QualityRun>> {
+  return api.get('/warehouse/quality-runs', { params }).then(r => r.data)
+}
+
+/** 质量运行详情 */
+export function getQualityRun(id: number): Promise<QualityRun> {
+  return api.get(`/warehouse/quality-runs/${id}`).then(r => r.data)
+}
+
+/** 质量告警摘要 */
+export function getQualityAlerts(): Promise<QualityAlertSummary> {
+  return api.get('/warehouse/quality-alerts').then(r => r.data)
+}
+
+// ==================== UCP 薄代理 API (Q04) ====================
+
+/** UCP 系统 */
+export interface UcpSystem {
+  id: number
+  name: string
+  status: string
+}
+
+/** UCP 资源 */
+export interface UcpResource {
+  id: number
+  system_id: number
+  name: string
+  resource_type: string
+  status: string
+  last_test_at: string | null
+  last_run_at: string | null
+  config_route: string | null
+}
+
+/** UCP 资源状态 */
+export interface UcpResourceStatus {
+  resource_id: number
+  status: string
+  message: string
+  enabled: boolean
+}
+
+/** UCP 资源预览 */
+export interface UcpResourcePreview {
+  resource_id: number
+  columns: string[]
+  rows: Record<string, any>[]
+  total: number
+  truncated: boolean
+  message: string
+}
+
+/** UCP 系统列表 */
+export function listUcpSystems(): Promise<UcpSystem[]> {
+  return api.get('/warehouse/ucp/systems').then(r => r.data)
+}
+
+/** UCP 资源列表 */
+export function listUcpResources(systemId?: number): Promise<UcpResource[]> {
+  return api.get('/warehouse/ucp/resources', { params: systemId ? { system_id: systemId } : {} }).then(r => r.data)
+}
+
+/** UCP 资源状态 */
+export function getUcpResourceStatus(id: number): Promise<UcpResourceStatus> {
+  return api.get(`/warehouse/ucp/resources/${id}/status`).then(r => r.data)
+}
+
+/** UCP 资源预览 */
+export function previewUcpResource(id: number, limit = 20): Promise<UcpResourcePreview> {
+  return api.get(`/warehouse/ucp/resources/${id}/preview`, { params: { limit } }).then(r => r.data)
+}
+
+// ==================== 建模 V2 API (Q05) ====================
+
+/** 模型版本历史 */
+export interface ModelVersion {
+  version: number
+  status: string
+  published_at: string | null
+  published_by: number | null
+  diff_snapshot: Record<string, any> | null
+}
+
+/** V2 预览结果 */
+export interface ModelPreviewV2 {
+  sql: string
+  sql_explanation: string
+  items: Record<string, any>[]
+  columns: string[]
+  total: number | null
+  errors: { node_id: string; message: string }[]
+}
+
+/** V2 发布模型（含差异快照） */
+export function publishModelV2(id: number): Promise<{ id: number; status: string; version: number; diff_snapshot: any }> {
+  return api.post(`/warehouse/models/${id}/publish-v2`).then(r => r.data)
+}
+
+/** 模型版本历史 */
+export function listModelVersions(id: number): Promise<ModelVersion[]> {
+  return api.get(`/warehouse/models/${id}/versions`).then(r => r.data)
+}
+
+/** 回滚模型版本 */
+export function rollbackModel(id: number, targetVersion: number): Promise<{ id: number; version: number; message: string }> {
+  return api.post(`/warehouse/models/${id}/rollback`, { target_version: targetVersion }).then(r => r.data)
+}
+
+/** V2 模型预览（含 SQL 和错误定位） */
+export function previewModelV2(id: number, limit = 20): Promise<ModelPreviewV2> {
+  return api.post(`/warehouse/models/${id}/preview-v2`, { limit }).then(r => r.data)
+}
+
+// ==================== 执行监控 API (Q06) ====================
+
+/** 仓内运行事件 */
+export interface WarehouseRunSummary {
+  run_type: string
+  run_id: number
+  status: string
+  target_label: string
+  started_at: string | null
+  finished_at: string | null
+  duration: number | null
+  error_summary: string | null
+  source_link: string | null
+}
+
+/** 告警规则 */
+export interface AlertRule {
+  id: number
+  alert_type: string
+  target_code: string
+  enabled: boolean
+  severity: string
+  notify_channels: Record<string, any> | null
+  last_triggered_at: string | null
+  created_at: string | null
+}
+
+/** 告警规则创建入参 */
+export interface AlertRuleCreatePayload {
+  alert_type: string
+  target_code: string
+  enabled?: boolean
+  severity?: string
+  notify_channels?: Record<string, any> | null
+}
+
+/** 仓内运行事件聚合 */
+export function listWarehouseRuns(params: {
+  run_type?: string
+  status?: string
+  page?: number
+  page_size?: number
+}): Promise<WarehouseRunSummary[]> {
+  return api.get('/warehouse/runs', { params }).then(r => r.data)
+}
+
+/** 告警规则列表 */
+export function listAlertRules(): Promise<AlertRule[]> {
+  return api.get('/warehouse/alert-rules').then(r => r.data)
+}
+
+/** 创建告警规则 */
+export function createAlertRule(payload: AlertRuleCreatePayload): Promise<AlertRule> {
+  return api.post('/warehouse/alert-rules', payload).then(r => r.data)
+}
+
+/** 删除告警规则 */
+export function deleteAlertRule(id: number): Promise<void> {
+  return api.delete(`/warehouse/alert-rules/${id}`)
+}
+
+/** 运行类型中文 */
+export const RUN_TYPE_LABELS: Record<string, string> = {
+  sync: '数据同步',
+  quality: '质量检查',
+  dataset_build: '数据集构建',
+  metric_run: '指标运行',
+  snapshot: '快照任务',
+}
+
+/** 告警类型中文 */
+export const ALERT_TYPE_LABELS: Record<string, string> = {
+  quality_fail: '质量失败',
+  sync_fail: '同步失败',
+  build_fail: '构建失败',
+  metric_fail: '指标失败',
+}
