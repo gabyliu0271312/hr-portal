@@ -2,8 +2,10 @@
 import { onMounted, ref } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, VideoPlay, Edit, Delete } from '@element-plus/icons-vue'
+import { Plus, Refresh, VideoPlay, Edit, Delete, Clock, RefreshRight } from '@element-plus/icons-vue'
 import { api } from '@/api/client'
+import { schedulerApi } from '@/api/scheduler'
+import ScheduleConfigDialog from '@/components/common/ScheduleConfigDialog.vue'
 
 const userStore = useUserStore()
 const jobs = ref<any[]>([])
@@ -40,7 +42,8 @@ async function doDelete(id: number) {
 }
 
 const triggerVisible = ref(false); const triggerJobId = ref<number | null>(null); const triggerPeriod = ref(''); const triggering = ref(false)
-const runsVisible = ref(false)
+const runsVisible = ref(false); const runsJobId = ref(0)
+const retrying = ref<Set<number>>(new Set())
 
 function openTrigger(jobId: number) { triggerJobId.value = jobId; triggerPeriod.value = new Date().toISOString().substring(0, 7); triggerVisible.value = true }
 async function doTrigger() {
@@ -50,7 +53,29 @@ async function doTrigger() {
 }
 
 async function showRuns(jobId: number) {
+  runsJobId.value = jobId
   try { const res = await api.get('/warehouse/snapshots/runs', { params: { job_id: jobId, page_size: 50 } }); runs.value = res.data.items; runsVisible.value = true } catch { runs.value = [] }
+}
+
+async function retryRun(runId: number) {
+  retrying.value.add(runId)
+  try {
+    const res = await schedulerApi.retryRun(runId, '手动重试快照')
+    if (res.ok) { ElMessage.success('重跑成功'); showRuns(runsJobId.value) }
+    else { ElMessage.error(res.message || '重跑失败') }
+  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '重跑失败') }
+  finally { retrying.value.delete(runId) }
+}
+
+// 定时配置
+const scheduleVisible = ref(false)
+const scheduleBizId = ref(0)
+const scheduleBizName = ref('')
+
+function openSchedule(j: any) {
+  scheduleBizId.value = j.id
+  scheduleBizName.value = j.name
+  scheduleVisible.value = true
 }
 
 onMounted(load)
@@ -71,11 +96,12 @@ onMounted(load)
         <el-table-column prop="retention" label="保留期" width="70" align="center"><template #default="{ row }">{{ row.retention }} 期</template></el-table-column>
         <el-table-column label="状态" width="70" align="center"><template #default="{ row }"><el-tag size="small" :type="row.enabled?'success':'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag></template></el-table-column>
         <el-table-column label="上次执行" width="140"><template #default="{ row }">{{ row.last_run_at?.substring(0, 19) || '—' }}</template></el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button text size="small" :icon="VideoPlay" type="success" @click="openTrigger(row.id)">执行</el-button>
             <el-button text size="small" :icon="Edit" @click="openEdit(row)">编辑</el-button>
             <el-button text size="small" @click="showRuns(row.id)">记录</el-button>
+            <el-button text size="small" :icon="Clock" @click="openSchedule(row)">定时</el-button>
             <el-button text size="small" type="danger" :icon="Delete" @click="doDelete(row.id)">删除</el-button>
           </template>
         </el-table-column>
@@ -102,15 +128,29 @@ onMounted(load)
     </el-dialog>
 
     <!-- 运行记录 -->
-    <el-dialog v-model="runsVisible" title="快照记录" width="700px" @close="runs = []">
+    <el-dialog v-model="runsVisible" title="快照记录" width="780px" @close="runs = []">
       <el-table :data="runs" size="small" border max-height="400">
         <el-table-column prop="period_value" label="周期值" width="100" />
         <el-table-column prop="status" label="状态" width="80"><template #default="{ row }"><el-tag size="small" :type="row.status==='success'?'success':'danger'">{{ row.status }}</el-tag></template></el-table-column>
         <el-table-column prop="row_count" label="行数" width="80" align="center" />
         <el-table-column prop="started_at" label="开始时间" width="150"><template #default="{ row }">{{ row.started_at?.substring(0, 19) }}</template></el-table-column>
         <el-table-column prop="finished_at" label="结束时间" width="150"><template #default="{ row }">{{ row.finished_at?.substring(0, 19) }}</template></el-table-column>
-        <el-table-column prop="error_message" label="错误" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="error_message" label="错误" min-width="120" show-overflow-tooltip />
+        <el-table-column label="操作" width="70" fixed="right">
+          <template #default="{ row }">
+            <el-button v-if="row.status === 'failed'" text size="small" type="warning" :icon="RefreshRight" :loading="retrying.has(row.id)" @click="retryRun(row.id)">重跑</el-button>
+          </template>
+        </el-table-column>
       </el-table>
     </el-dialog>
+
+    <!-- 定时配置弹窗 -->
+    <ScheduleConfigDialog
+      v-model:visible="scheduleVisible"
+      kind="snapshot_run"
+      :business-id="scheduleBizId"
+      :business-name="scheduleBizName"
+      :payload="{ job_id: scheduleBizId }"
+    />
   </div>
 </template>

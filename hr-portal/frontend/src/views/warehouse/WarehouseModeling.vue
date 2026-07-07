@@ -2,11 +2,12 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Refresh, View, Edit, VideoPlay, Finished, Lock } from '@element-plus/icons-vue'
+import { Plus, Search, Refresh, View, Edit, VideoPlay, Finished, Lock, Clock } from '@element-plus/icons-vue'
 import { listModels, publishModel, archiveModel, buildDataset, type ModelListItem } from '@/api/warehouse'
 import { api } from '@/api/client'
 import { datasetsApi } from '@/api/datasets'
 import AclEditor, { type AclRow } from '@/components/AclEditor.vue'
+import ScheduleConfigDialog from '@/components/common/ScheduleConfigDialog.vue'
 import { useUserStore } from '@/stores/user'
 import WarehouseDimension from './WarehouseDimension.vue'
 import WarehouseDwsAggregate from './WarehouseDwsAggregate.vue'
@@ -64,6 +65,21 @@ const refreshStrategies = ref<Record<number, string>>({})
 const strategyLoading = ref<Set<number>>(new Set())
 const buildingIds = ref<Set<number>>(new Set())
 const buildStatuses = ref<Record<number, { status: string; msg?: string }>>({})
+
+// 定时配置
+const scheduleVisible = ref(false)
+const scheduleKind = ref('dataset_build')
+const scheduleBizId = ref(0)
+const scheduleBizName = ref('')
+const schedulePayload = ref<Record<string, any>>({})
+
+function openSchedule(model: ModelListItem) {
+  scheduleKind.value = 'dataset_build'
+  scheduleBizId.value = model.id
+  scheduleBizName.value = model.name
+  schedulePayload.value = { dataset_id: model.id }
+  scheduleVisible.value = true
+}
 
 async function loadStrategy(datasetId: number) {
   try {
@@ -236,10 +252,11 @@ onMounted(loadWithStrategies)
           <el-table-column label="版本" width="60" align="center">
             <template #default="{ row }">{{ row.version || 1 }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="280" fixed="right">
+          <el-table-column label="操作" width="340" fixed="right">
             <template #default="{ row }">
               <el-button text size="small" :icon="View" @click="goEdit(row.id)">编辑</el-button>
               <el-button v-if="userStore.hasOp('warehouse.assets','U')" text size="small" :icon="Lock" @click="openAcl(row)">授权</el-button>
+              <el-button text size="small" :icon="Clock" @click="openSchedule(row)">定时</el-button>
               <el-tooltip
                 v-if="row.status === 'published'"
                 :content="buildStatuses[row.id]?.status === 'failed' ? buildStatuses[row.id]?.msg : buildStatuses[row.id]?.status === 'success' ? buildStatuses[row.id]?.msg : ''"
@@ -284,6 +301,15 @@ onMounted(loadWithStrategies)
     <div v-show="activeTab === 'dws'" class="tab-content">
       <WarehouseDwsAggregate />
     </div>
+
+    <!-- 定时配置弹窗 -->
+    <ScheduleConfigDialog
+      v-model:visible="scheduleVisible"
+      :kind="scheduleKind"
+      :business-id="scheduleBizId"
+      :business-name="scheduleBizName"
+      :payload="schedulePayload"
+    />
   </div>
 </template>
 

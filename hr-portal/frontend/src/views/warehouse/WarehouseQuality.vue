@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Refresh, VideoPlay, Switch, Delete, Edit, InfoFilled, Loading } from '@element-plus/icons-vue'
+import { Plus, Search, Refresh, VideoPlay, Switch, Delete, Edit, InfoFilled, Loading, Clock, RefreshRight } from '@element-plus/icons-vue'
 import {
   listQualityRules,
   createQualityRule,
@@ -11,6 +11,7 @@ import {
   deleteQualityRule,
   runQualityRule,
   getQualityAlerts,
+  listQualityRuns,
   QUALITY_RULE_TYPE_LABELS,
   QUALITY_SEVERITY_LABELS,
 } from '@/api/warehouse'
@@ -18,8 +19,10 @@ import type {
   QualityRule,
   QualityRuleCreatePayload,
   QualityRunTriggerResult,
+  QualityRun,
   QualityAlertSummary,
 } from '@/api/warehouse'
+import ScheduleConfigDialog from '@/components/common/ScheduleConfigDialog.vue'
 
 // ==================== 状态 ====================
 
@@ -55,6 +58,49 @@ const runLoading = ref(false)
 
 // 告警摘要
 const alerts = ref<QualityAlertSummary | null>(null)
+
+// 运行历史 + 重跑
+const runsVisible = ref(false)
+const runs = ref<QualityRun[]>([])
+const runsRuleId = ref(0)
+const runsTotal = ref(0)
+const retrying = ref<Set<number>>(new Set())
+
+async function showRuns(ruleId: number) {
+  runsRuleId.value = ruleId
+  try {
+    const res = await listQualityRuns({ rule_id: ruleId, page_size: 20 })
+    runs.value = res.items
+    runsTotal.value = res.total
+  } catch { runs.value = [] }
+  runsVisible.value = true
+}
+
+async function retryQualityRun(ruleId: number) {
+  retrying.value.add(ruleId)
+  try {
+    await runQualityRule(ruleId)
+    ElMessage.success('已重新执行')
+    runsVisible.value = false
+    load()
+    loadAlerts()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '重试失败')
+  } finally {
+    retrying.value.delete(ruleId)
+  }
+}
+
+// 定时配置
+const scheduleVisible = ref(false)
+const scheduleBizId = ref(0)
+const scheduleBizName = ref('')
+
+function openSchedule(rule: QualityRule) {
+  scheduleBizId.value = rule.id
+  scheduleBizName.value = `${rule.asset_code} (${QUALITY_RULE_TYPE_LABELS[rule.rule_type] || rule.rule_type})`
+  scheduleVisible.value = true
+}
 
 // ==================== 计算 ====================
 
@@ -332,7 +378,7 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="240" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button link size="small" type="primary" :icon="VideoPlay" @click="handleRun(row)"
               :loading="runLoading" :disabled="isUnexecutable(row.rule_type)">
@@ -342,6 +388,8 @@ onMounted(() => {
               {{ row.enabled ? '禁用' : '启用' }}
             </el-button>
             <el-button link size="small" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+            <el-button link size="small" :icon="Clock" @click="openSchedule(row)">定时</el-button>
+            <el-button link size="small" @click="showRuns(row.id)">记录</el-button>
             <el-button link size="small" type="danger" :icon="Delete" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -437,10 +485,9 @@ onMounted(() => {
           <el-switch v-model="form.enabled" />
         </el-form-item>
 
-        <!-- Q0315: 定时执行预留 -->
+        <!-- Q0315: 定时执行 — 保存后在列表操作栏配置 -->
         <el-form-item label="定时执行">
-          <el-switch :model-value="false" disabled />
-          <span style="margin-left: 8px; font-size: 12px; color: #909399">后续支持</span>
+          <span style="font-size: 12px; color: #909399">保存规则后，在列表操作栏点击「定时」配置</span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -448,6 +495,46 @@ onMounted(() => {
         <el-button type="primary" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- ==================== 运行历史对话框 ==================== -->
+    <el-dialog v-model="runsVisible" title="质量运行历史" width="780px" @close="runs = []">
+      <el-table :data="runs" size="small" border max-height="400">
+        <el-table-column prop="id" label="运行ID" width="80" />
+        <el-table-column prop="status" label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="runStatusTagType(row.status)">{{ runStatusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="checked_count" label="检查数" width="80" align="center" />
+        <el-table-column prop="failed_count" label="失败数" width="80" align="center" />
+        <el-table-column prop="started_at" label="开始时间" width="150">
+          <template #default="{ row }">{{ row.started_at?.substring(0, 19) }}</template>
+        </el-table-column>
+        <el-table-column prop="finished_at" label="结束时间" width="150">
+          <template #default="{ row }">{{ row.finished_at?.substring(0, 19) }}</template>
+        </el-table-column>
+        <el-table-column prop="message" label="消息" min-width="120" show-overflow-tooltip />
+        <el-table-column label="操作" width="70" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.status === 'fail' || row.status === 'error'"
+              text size="small" type="warning" :icon="RefreshRight"
+              :loading="retrying.has(row.rule_id)"
+              @click="retryQualityRun(row.rule_id)"
+            >重跑</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <!-- 定时配置弹窗 -->
+    <ScheduleConfigDialog
+      v-model:visible="scheduleVisible"
+      kind="quality_run"
+      :business-id="scheduleBizId"
+      :business-name="scheduleBizName"
+      :payload="{ rule_id: scheduleBizId }"
+    />
 
     <!-- ==================== 运行结果对话框 ==================== -->
     <el-dialog v-model="runDialogVisible" title="运行结果" width="500px">

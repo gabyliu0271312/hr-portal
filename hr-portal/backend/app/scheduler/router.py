@@ -2,15 +2,17 @@
 
 - GET /api/v1/job-runs            通用历史，支持按 kind / business_id / status / 时间范围过滤
 - GET /api/v1/scheduled-jobs      任务定义列表（管理员排查用）
+- POST /api/v1/scheduled-jobs     创建任务定义
+- PATCH /api/v1/scheduled-jobs/{id}  更新任务定义
+- DELETE /api/v1/scheduled-jobs/{id}  删除任务定义
 - POST /api/v1/scheduled-jobs/{id}/run-now  手动立即跑一次
-
-注：业务侧"立即拉取"按钮也走 run_job_now，不需要走这个路由。本路由是给管理员"调度管理"用的。
+- POST /api/v1/job-runs/{run_id}/retry  重跑失败任务
 """
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,6 +49,24 @@ class ScheduledJobOut(BaseModel):
     last_run_at: datetime | None
     last_status: str | None
     last_message: str | None
+
+
+class ScheduledJobCreateIn(BaseModel):
+    kind: str = Field(..., max_length=32)
+    business_id: int
+    cron: str = Field(default="手动触发", max_length=64)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class ScheduledJobUpdateIn(BaseModel):
+    cron: str | None = None
+    payload: dict[str, Any] | None = None
+    enabled: bool | None = None
+
+
+class RetryIn(BaseModel):
+    reason: str = Field(default="", max_length=500)
 
 
 @router.get("/job-runs", response_model=list[JobRunOut])
@@ -109,6 +129,67 @@ async def list_scheduled_jobs(
     ]
 
 
+@router.post("/scheduled-jobs", response_model=ScheduledJobOut, status_code=201)
+async def create_scheduled_job(
+    body: ScheduledJobCreateIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> ScheduledJobOut:
+    from app.scheduler.service import upsert_job
+    job = await upsert_job(db, body.kind, body.business_id, body.cron, body.payload, body.enabled)
+    await db.commit()
+    engine = get_engine()
+    await engine.reload_job(job.id)
+    return ScheduledJobOut(
+        id=job.id, kind=job.kind, business_id=job.business_id,
+        cron=job.cron, payload=job.payload or {}, enabled=job.enabled,
+        last_run_at=job.last_run_at, last_status=job.last_status, last_message=job.last_message,
+    )
+
+
+@router.patch("/scheduled-jobs/{job_id}", response_model=ScheduledJobOut)
+async def update_scheduled_job(
+    job_id: int,
+    body: ScheduledJobUpdateIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> ScheduledJobOut:
+    job = await db.get(ScheduledJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="定时任务不存在")
+    if body.cron is not None:
+        job.cron = body.cron
+    if body.payload is not None:
+        job.payload = body.payload
+    if body.enabled is not None:
+        job.enabled = body.enabled
+    await db.commit()
+    await db.refresh(job)
+    engine = get_engine()
+    await engine.reload_job(job.id)
+    return ScheduledJobOut(
+        id=job.id, kind=job.kind, business_id=job.business_id,
+        cron=job.cron, payload=job.payload or {}, enabled=job.enabled,
+        last_run_at=job.last_run_at, last_status=job.last_status, last_message=job.last_message,
+    )
+
+
+@router.delete("/scheduled-jobs/{job_id}")
+async def delete_scheduled_job(
+    job_id: int,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    job = await db.get(ScheduledJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="定时任务不存在")
+    await db.delete(job)
+    await db.commit()
+    engine = get_engine()
+    await engine.reload_job(job.id)
+    return {"ok": "deleted"}
+
+
 @router.post("/scheduled-jobs/{job_id}/run-now")
 async def run_now(
     job_id: int,
@@ -122,4 +203,50 @@ async def run_now(
         "status": run.status,
         "rows": run.rows,
         "message": run.message,
+    }
+
+
+@router.post("/job-runs/{run_id}/retry")
+async def retry_job_run(
+    run_id: int,
+    body: RetryIn = RetryIn(),
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """重跑失败任务。基于原 run 的 job_id 重新执行。"""
+    run = await db.get(JobRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="运行记录不存在")
+    if run.job_id is None:
+        raise HTTPException(status_code=400, detail="该运行记录未关联定时任务，无法重跑")
+
+    # 写审计日志
+    from app.system.models import SystemLog
+    audit = SystemLog(
+        category="scheduler.retry",
+        action="retry_run",
+        status="success",
+        user_id=user.id,
+        request_summary=f"retry run {run_id} (kind={run.kind}, job_id={run.job_id})",
+        response_summary=f"reason: {body.reason}",
+        metadata_json={
+            "run_id": run_id,
+            "job_id": run.job_id,
+            "kind": run.kind,
+            "business_id": run.business_id,
+            "reason": body.reason,
+            "operator": user.login_name,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+
+    engine = get_engine()
+    new_run = await engine.run_job_now(run.job_id, triggered_by=f"retry:{user.login_name}")
+    return {
+        "ok": new_run.status == "success",
+        "run_id": new_run.id,
+        "status": new_run.status,
+        "rows": new_run.rows,
+        "message": new_run.message,
     }
