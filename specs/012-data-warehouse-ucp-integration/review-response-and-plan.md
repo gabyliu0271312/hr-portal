@@ -559,61 +559,135 @@ P0 闭环不以文档接受为准，以以下条件全部满足为准：
 
 ## 9.4 原子任务清单
 
-### P0：必须做（立即执行，预计 0.5 天）
+> **注意**：`seed.py` 中 `warehouse.cleaning`、`warehouse.service` 菜单项已存在；`menuRoutes.ts` 路由映射已存在；`/warehouse/data-recipe`、`/warehouse/service` 路由已存在。以下任务只涉及页面层改造，不涉及菜单/路由新建。
 
-#### P0-A1：数据清洗页只显示 ODS 表
+### P0a：治理红线（必须先做，预计 1.5 天）
 
-- 文件：`WarehouseDataRecipe.vue`
-- 改 `listAssets({ page_size: 200 })` → `listAssets({ warehouse_layer: 'ODS', page_size: 200 })`
-- 验收：清洗页下拉只出现 ODS 表，无 DWD/DWS/ADS
+> 这些是分层治理的底线约束，前端过滤 + 后端校验双保险。
 
-#### P0-A2：数据建模页只显示 DWD 表
+#### P0a-1：数据清洗入口只允许 ODS
 
-- 文件：`WarehouseModelingVisual.vue` + 其他建模入口
-- 改 `listAssets()` → `listAssets({ warehouse_layer: 'DWD' })`
-- 验收：建模页资产选择只出现 DWD 表
+- 前端：`WarehouseDataRecipe.vue` → `listAssets({ warehouse_layer: 'ODS' })`
+- 后端：`execute_full` 校验 `source_table` 在 `registered_tables.warehouse_layer == "ODS"`，否则 400
+- 验收：清洗下拉只有 ODS；API 传非 ODS 表名→400
 
-#### P0-A3：后端创建/更新模型校验输入表层级
+#### P0a-2：数据建模所有入口只允许 DWD
 
-- 文件：`router.py`（模型创建/更新端点）
-- 校验：`DataSetTable.table_name` 对应 `RegisteredTable.warehouse_layer == "DWD"`
+- 前端（3 个文件）：`WarehouseModelingVisual.vue`、`WarehouseModelingQuick.vue`、`WarehouseModeling.vue`（快速关联）→ 全部 `listAssets({ warehouse_layer: 'DWD' })`
+- 后端（统一校验函数）：`validate_model_sources_are_dwd()` → 检查所有 `DataSetTable.table_name` 对应 `RegisteredTable.warehouse_layer == "DWD"`
+- 接入端点：`create_model` / `update_model` / `publish_model` / `copy_model` / 快速建模
 - 不满足 → 400：`数据建模只能使用 DWD 标准表，请先完成数据清洗`
-- 验收：ODS 表创建模型被 400 拒绝
+- 验收：建模所有入口下拉只有 DWD；API 传 ODS 表→400
 
-#### P0-A4：数据资产页增加资产类型 Tab
+#### P0a-3：清洗目标表后端安全兜底
+
+- 后端 `execute_full`：
+  - 普通模式：前端不传 `target_table` 或传空，后端根据 `ods_xxx` 自动推导 `dwd_xxx`
+  - 高级模式（管理员）：可传自定义 `target_table`，后端校验：
+    - `dwd_` 前缀
+    - 非 `ods_`/`dws_`/`ads_` 前缀
+    - 走 `validate_ddl_operation` 完整 DDL 安全链
+- 前端：普通用户不显示目标表输入框，只读展示"将发布为 DWD 标准表 / `dwd_xxx`"
+- 验收：API 直接传 `target_table=ods_xxx` → 400
+
+#### P0a-4：ODS 禁止消费（前端 + 后端）
+
+- 前端 `WarehouseAssetDetail.vue`：
+  - "来源与开放"Tab → "来源与服务"
+  - ODS：不显示 `PushTargetList` 组件，不显示消费状态卡片，改为"去清洗"链接
+  - DWD/DWS/ADS：不直接嵌入 `PushTargetList`，改为"创建数据服务"跳转按钮
+- 后端（新建校验端点或中间件）：
+  - 创建推送/API/订阅/消费资产时，校验 `source_layer != "ODS"`，否则 400
+- 验收：ODS 详情页无推送组件；API 对 ODS 创建推送→400
+
+#### P0a-5：过渡期旧模型处理
+
+- 新建模型：禁止 ODS 输入（P0a-2 覆盖）
+- 已有 ODS 模型：
+  - 可查看、不可发布（`publish_model` 拒绝已含 ODS 输入的模型）
+  - 编辑时不可新增 ODS 表关联
+  - 保存时提示"该模型包含 ODS 原始表，请迁移到 DWD 标准表"
+  - 管理员可临时豁免发布（标记 `raw_model=true`，记录审计日志）
+- 验收：旧 ODS 模型发布被 400 拒绝；管理员豁免后可发布
+
+#### P0a-6：自动化测试
+
+| 测试 | 预期 |
+|------|------|
+| ODS 表创建模型 | 400 |
+| DWD 表创建模型 | 成功 |
+| 旧 ODS 模型发布 | 400 |
+| 管理员豁免后发布 ODS 模型 | 成功 + `raw_model=true` |
+| 清洗 `target_table` 非 `dwd_` 前缀 | 400 |
+| ODS 创建推送/API/消费资产 | 400 |
+| DWD 创建推送但无权限摘要 | 按规则 400 |
+| 建模快速入口传 ODS 表 | 400 |
+
+### P0b：轻量信息架构调整（预计 0.5 天）
+
+> 菜单/路由基础已有，只需调整页面 Tab 和文案。治理红线通过后再做。
+
+#### P0b-1：数据建模 Tab 调整
+
+- 文件：`WarehouseModeling.vue`
+- 移除"数据加工"Tab（已独立为数据清洗菜单）
+- Tab 最终：`模型设计 | 维度管理 | 汇总视图 | 快照管理 | 拉链管理`
+- 验收：建模页只有 5 个 Tab
+
+#### P0b-2：数据资产页增加资产类型 Tab
 
 - 文件：`WarehouseAssets.vue`
-- 新增 Tab 栏：`表格资产 | 模型资产`
-- 表格资产：复用现有 `listAssets()`
-- 模型资产：调用 `listModels()`，展示模型名称/层/状态/表数
-- 验收：切换 Tab 看到不同资产类型
+- 新增 Tab 栏：`表格资产`（复用 `listAssets()`）、`模型资产`（新增 `listModels()`）
+- **不建底层统一资产表**。只是 UI 层并列展示 `RegisteredTable` 和 `DataSet`
+- "模型资产"Tab 复用数据建模页已有的模型列表渲染逻辑
+- 指标资产、消费资产放 P1
+- 验收：切换 Tab 看到表资产和模型资产两套列表
 
-#### P0-A5：资产详情页按分层限制消费展示
+#### P0b-3：资产详情页消费展示修正
 
 - 文件：`WarehouseAssetDetail.vue`
 - "来源与开放"Tab → "来源与服务"
-- 消费状态卡片改为按 `warehouse_layer` 差异化：
-  - ODS → "禁止消费"（红色）+ "请先完成数据清洗生成 DWD 标准表"
-  - DWD → "受控消费"（橙色）+ "需配置字段脱敏和访问权限"
-  - DWS/ADS → 现有逻辑（绿色"可查询"）
-- 验收：ODS 资产详情不显示"可查询"
+- ODS：不渲染 `PushTargetList`，不显示 API/推送入口
+- DWD/DWS/ADS：消费状态卡片按层级差异化展示，提供"创建数据服务"跳转按钮（P0 仅支持 `source_type=table`）
+- 验收：ODS 详情页无推送组件、无"可查询"标识
 
-#### P0-A6：清洗目标表自动推导
+#### P0b-4："消费资产"命名说明
 
-- 文件：`WarehouseDataRecipe.vue`
-- 规则：`ods_xxx` → `dwd_xxx`（自动填充，只读展示）
-- 页面显示："将发布为 DWD 标准表 / `dwd_xxx`"
-- 移除普通用户的目标表输入框
-- 高级模式（管理员）：可展开修改，校验 `dwd_` 前缀 + 完整 DDL 安全链
-- 验收：普通用户不看到目标表输入框
+- 数据资产 > 消费资产（P1）：资产目录视角，查看有哪些 ADS/消费资产
+- 数据服务 > 消费资产（已存在）：服务配置视角，创建、发布、授权、监控
+- 文档需注明两者区别，避免用户困惑
 
-#### P0-A7：数据建模页快速关联入口纳入 DWD 约束
+### P1：数据服务统一（预计 2 天）
 
-- 文件：`WarehouseModeling.vue`（快速关联按钮）
-- 确保所有建模入口（快速建模、可视化建模、快速关联、模型编辑）统一使用 DWD-only 数据源
-- 验收：快速关联下拉只出现 DWD 表
+#### P1-C1：统一 AssetRef
 
-### P1：下一迭代（预计 1 天）
+- 后端：定义 `AssetRef(source_type, source_id)` — 支持 `table / dataset / metric / ads`
+- 数据服务所有接口（推送/API/订阅）从 `sourceTable: string` 升级为接收 `AssetRef`
+- 验收：数据服务可基于任意资产类型创建消费服务
+
+#### P1-C2：改造 PushTargetList 支持多类型来源
+
+- 当前：`sourceTable: string`（只认表名）
+- 改为：`sourceType: 'table' | 'dataset' | 'metric' | 'ads'` + `sourceId: string | number`
+- 内部根据 `sourceType` 解析对应资产标识
+- 验收：从建模页（dataset）、指标页（metric）、ADS 页跳转后能正确配置推送
+
+#### P1-C3：数据服务扩展
+
+- 新增 API 服务、数据推送、订阅管理、服务监控页面
+- 验收：数据服务 Tab 栏 5 项全部可用
+
+#### P1-C4：ADS 接口权限迁移
+
+- 文件：`router.py`（ADS 端点）
+- `require_op("warehouse.modeling", ...)` → `require_op("warehouse.service", ...)`
+- 验收：ADS 接口受数据服务权限控制
+
+#### P1-C5：数据资产补齐四类 Tab
+
+- 文件：`WarehouseAssets.vue`
+- 在 P0b-2 基础上新增：指标资产（`listMetrics()`）、消费资产（`GET /ads-definitions`）
+- 验收：4 个 Tab 完整展示
 
 #### P1-B1：数据资产页补指标资产和消费资产 Tab
 
@@ -661,203 +735,60 @@ P0 闭环不以文档接受为准，以以下条件全部满足为准：
 | 9 | 前端 `npm build` 零 error | CI 验证 |
 | 10 | 后端 `pytest` 全量通过 | CI 验证 |
 
-## 9.6 统一"创建数据服务"入口 — 组件化实现
+## 9.6 统一"创建数据服务"入口
 
-### 9.6.1 目标
+### 9.6.1 约束：P0 只支持 table 类型
 
-各资产生产完成后（清洗、建模、指标、ADS），提供统一的"创建数据服务"入口，跳转到数据服务模块进行 API/推送/订阅配置。
+**现有 `PushTargetList.vue` 接口是 `sourceTable: string`，只认表名**。在 P1 完成 `AssetRef` 改造前，不能假装支持 `dataset / metric / ads`。
 
-**不是**在各创建流程中内嵌推送组件，**而是**通过统一的跳转组件，将"生产完成"→"创建消费服务"连接起来。
+因此 P0 的"创建数据服务"入口：
+- **支持**：`source_type=table`，传表名（如 `dwd_employee`）
+- **不支持**：`source_type=dataset / metric / ads`（传 ID 会被当表名使用，造成错误）
+
+数据清洗产出的是 DWD 物理表 → 可以用 `source_type=table`。
+数据建模产出的是 DataSet（ID）→ P0 暂不跳转，P1 改造 `PushTargetList` 后再接。
 
 ### 9.6.2 实现方案
 
-**原则：不新建组件，复用现有推送组件，重点是在各创建流程中嵌入"跳转到数据服务"的入口。**
-
-现有资产：新建资产模块已有推送接口组件（`PushTargetList.vue` 或等价组件），可直接配置推送目标。该组件保留不动。
-
-需新增的是：在各生产流程完成节点，提供跳转到数据服务页的按钮——让用户"完成生产后知道去哪里配置消费"，而不是重新实现推送功能。
-
-#### 核心逻辑：跳转按钮
-
-不建新组件。在各接入点直接使用 `<el-button>` + `router.push`，携带来源资产参数：
+在各接入点（只限输出为物理表的场景）使用 `<el-button>` + `router.push` 跳转：
 
 ```typescript
-// 各接入点复用此模式
-function goCreateService(sourceType: string, sourceId: string | number, sourceLabel?: string) {
-  const query: Record<string, string> = { source_type: sourceType, source_id: String(sourceId) }
+function goCreateService(sourceTable: string, sourceLabel?: string) {
+  const query: Record<string, string> = { source_type: 'table', source_id: sourceTable }
   if (sourceLabel) query.source_label = sourceLabel
   router.push({ path: '/warehouse/service', query })
 }
 ```
 
 ```html
-<el-button type="primary" :icon="Share" @click="goCreateService('table', 'dwd_employee', '员工标准表')">
+<el-button type="primary" :icon="Share" @click="goCreateService('dwd_employee', '员工标准表')">
   创建数据服务
 </el-button>
 ```
 
-#### 数据服务页接收参数后嵌入现有推送组件
-
-文件：`WarehouseDataService.vue`
-
-解析 URL query 参数，在对应 Tab 内嵌入已有的 `PushTargetList.vue` 组件：
+数据服务页接收参数后，嵌入现有 `PushTargetList`：
 
 ```vue
-<script setup lang="ts">
-import { ref } from 'vue'
-import { useRoute } from 'vue-router'
-import PushTargetList from '@/components/push/PushTargetList.vue'
-
-const route = useRoute()
-const pushSourceTable = ref((route.query.source_id as string) || '')
-const pushSourceLabel = ref((route.query.source_label as string) || '')
-</script>
-
-<template>
-  <div v-show="activeTab === 'push'">
-    <el-alert v-if="pushSourceTable" type="info" :closable="false" style="margin-bottom:12px">
-      为「{{ pushSourceLabel || pushSourceTable }}」创建数据推送
-    </el-alert>
-    <PushTargetList v-if="pushSourceTable" :key="pushSourceTable" :source-table="pushSourceTable" />
-    <el-empty v-else description="请从数据资产/清洗/建模/ADS 页面跳转创建推送" />
-  </div>
-</template>
+<PushTargetList v-if="pushSourceTable" :source-table="pushSourceTable" />
 ```
 
-#### 接入点一：数据清洗完成
+### 9.6.3 P0 接入点（仅 table 类型）
 
-文件：`WarehouseDataRecipe.vue`
+| 入口 | 文件 | 触发时机 | source_id |
+|------|------|----------|-----------|
+| 数据清洗完成 | `WarehouseDataRecipe.vue` | `executeStandardization` 成功 | `target_table`（DWD 物理表名） |
+| 数据资产详情 | `WarehouseAssetDetail.vue` | `warehouse_layer !== 'ODS'` 时 | `asset.table_name` |
+| 新建资产弹窗 | 已有推送组件处 | 追加"全量管理"链接 | `router.push('/warehouse/service')` |
 
-`executeStandardization` 成功后，结果区增加跳转按钮：
+### 9.6.4 P1 扩展（等 AssetRef 改造后）
 
-```
-当前状态：[执行按钮] [发布DWD按钮]
-改为：    [执行按钮] [发布DWD按钮] → 成功后追加 [创建数据服务] 按钮
-```
+| 入口 | source_type | 说明 |
+|------|-------------|------|
+| 数据建模发布 | `dataset` | `PushTargetList` 改造后支持 |
+| ADS 发布 | `ads` | 同上 |
+| 指标计算完成 | `metric` | 同上 |
 
-```html
-<el-button v-if="executeResult?.success" type="primary" :icon="Share"
-  @click="goCreateService('table', executeResult.target_table, executeResult.target_table)">
-  创建数据服务
-</el-button>
-```
-
-#### 接入点二：数据建模发布/构建完成
-
-文件：`WarehouseModeling.vue`
-
-`doBuild` / `publishModel` 成功后，在成功消息旁增加跳转按钮：
-
-```html
-<el-button v-if="buildStatuses[row.id]?.status === 'success'" text size="small" :icon="Share"
-  @click="goCreateService('dataset', row.id, row.name)">
-  创建数据服务
-</el-button>
-```
-
-#### 接入点三：ADS 发布完成
-
-文件：`WarehouseAds.vue`
-
-Step 5 发布成功后显示跳转按钮：
-
-```html
-<el-button v-if="publishResult?.status === 'published'" type="primary" :icon="Share"
-  @click="goCreateService('ads', publishResult.id, publishResult.name)">
-  创建数据服务
-</el-button>
-```
-
-#### 接入点四：数据资产详情页"来源与服务"Tab
-
-文件：`WarehouseAssetDetail.vue`
-
-消费状态卡片内，对 DWD/DWS/ADS 层增加跳转按钮：
-
-```html
-<el-button v-if="asset.warehouse_layer !== 'ODS'" :icon="Share"
-  @click="goCreateService('table', asset.table_name, asset.table_label)">
-  创建数据服务
-</el-button>
-```
-
-#### 接入点五：现有新建资产推送入口保留
-
-文件：新建资产弹窗组件（已有推送组件处）
-
-现有的 `PushTargetList` 组件调用方式**保持不变**。该入口作为"生产即消费"的快捷路径，同时补充按钮跳转到数据服务查看全量推送配置：
-
-```html
-<!-- 现有推送组件 -->
-<PushTargetList :source-table="newTableName" />
-
-<!-- 追加：查看全量推送配置 -->
-<el-button link type="primary" @click="router.push('/warehouse/service')">
-  在数据服务中管理全部推送 →
-</el-button>
-```
-
-### 9.6.3 数据服务页接收参数
-
-文件：`WarehouseDataService.vue`
-
-增加对 URL query 参数的解析，传递给相关 Tab：
-
-```vue
-<script setup lang="ts">
-import { useRoute } from 'vue-router'
-
-const route = useRoute()
-
-// 从 URL 接收来源资产参数，传递给消费资产 Tab
-const sourceType = (route.query.source_type as string) || ''
-const sourceId = (route.query.source_id as string) || ''
-const sourceLabel = (route.query.source_label as string) || ''
-</script>
-```
-
-消费资产 Tab 中的 `WarehouseAds` 组件接收这些参数，新建 ADS 时预填来源信息。
-
-### 9.6.4 原子任务
-
-#### P0-C1：数据服务页接收 URL 参数 + 嵌入现有推送组件
-
-- 文件：`WarehouseDataService.vue`
-- 解析 `source_type` / `source_id` / `source_label` query 参数
-- 推送 Tab 内直接嵌入已有的 `PushTargetList` 组件，传入 `source-table` prop
-- 消费资产 Tab 将参数传给 `WarehouseAds` 预填来源
-- 验收：从清洗/建模/ADS 跳转过来时，推送 Tab 直接显示该来源表的推送配置界面
-
-#### P0-C2：数据清洗完成接入
-
-- 文件：`WarehouseDataRecipe.vue`
-- `executeStandardization` 成功后追加 `router.push` 跳转按钮
-- 验收：清洗成功后出现"创建数据服务"按钮
-
-#### P0-C3：数据建模发布/构建完成接入
-
-- 文件：`WarehouseModeling.vue`
-- `doBuild` / `publishModel` 成功后，操作列追加"创建数据服务"按钮
-- 验收：模型构建/发布成功后出现入口
-
-#### P0-C4：ADS 发布完成接入
-
-- 文件：`WarehouseAds.vue`
-- Step 5 发布成功后显示跳转按钮
-- 验收：ADS 发布成功后出现入口
-
-#### P0-C5：数据资产详情页接入
-
-- 文件：`WarehouseAssetDetail.vue`
-- "来源与服务"Tab 卡片内，`warehouse_layer !== 'ODS'` 时显示跳转按钮
-- 验收：DWD/DWS/ADS 详情页显示"创建数据服务"按钮，ODS 不显示
-
-#### P0-C6：新建资产弹窗增加"全量管理"入口
-
-- 文件：新建资产弹窗组件
-- 现有 `PushTargetList` 组件调用保持不变
-- 追加链接：`router.push('/warehouse/service')` → "在数据服务中管理全部推送"
-- 验收：新建资产页的推送区域下方出现管理入口链接
+**P0 不做**：数据建模发布后、ADS 发布后、指标计算后的跳转按钮。等 `PushTargetList` 改造为支持多类型后再接入。
 
 ## 9.7 不做项
 
