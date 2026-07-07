@@ -222,7 +222,9 @@ class AdsService:
         d.lineage_snapshot = lineage
         # Z02/P0-5: 自动血缘边 + metadata
         from app.warehouse.service import write_lineage_edge
-        await write_lineage_edge(self.session, d.source_label or str(d.source_id), f"ads:{d.name}", "ads_publish")
+        await write_lineage_edge(self.session, d.source_label or str(d.source_id), f"ads:{d.name}", "ads_publish", metadata={
+            "definition_id": def_id, "version": 1, "rule_ids": [],
+        })
         await self.session.commit(); await self.session.refresh(d)
 
         result = self._def_out(d)

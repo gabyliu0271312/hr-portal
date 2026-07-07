@@ -160,7 +160,10 @@ class StandardizationRuleService:
         except Exception: await self.session.rollback()
         # Z02: 自动血缘边
         from app.warehouse.service import write_lineage_edge
-        await write_lineage_edge(self.session, asset_code, target, "standardize")
+        rule_ids = [r.id for r in rules]
+        await write_lineage_edge(self.session, asset_code, target, "standardize", metadata={
+            "definition_id": None, "rule_ids": rule_ids, "version": 1,
+        })
         # P0-3: 空结果警告
         result = {"total": total, "success": success, "failed": failed, "errors": [], "target_table": target}
         if success == 0:

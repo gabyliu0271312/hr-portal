@@ -60,13 +60,19 @@ class SnapshotService:
         # P0-6: SQL identifier 安全校验
         validate_identifier(j.source_table)
         validate_identifier(j.target_table)
-        # Fix3: period_value 安全校验
-        safe_period = period_value.replace("-", "_").replace("Q", "Q")
+        # Fix3: period_value 格式白名单 + 安全前缀
+        import re as _re
+        if not _re.match(r'^\d{4}-\d{2}$|^\d{4}Q[1-4]$|^\d{6,8}$', period_value):
+            raise ValueError(f"period_value 格式不合法: {period_value!r}，允许: 2026-07 / 2026Q1 / 202607")
+        safe_period = "p_" + period_value.replace("-", "_")
         validate_identifier(safe_period)
         started = dt.utcnow()
         run = SnapshotRun(job_id=job_id, status="running", period_value=period_value, started_at=started)
         self.session.add(run); await self.session.flush()
         try:
+            # P0-1: 分层流转校验 — 快照在 DWS 层
+            from app.warehouse.layer_policy import validate_layer_transition
+            validate_layer_transition("DWS", "DWS", "snapshot")
             # Fix1: DROP+CREATE → REPLACE 语义
             from app.warehouse.layer_policy import validate_ddl_operation, DDL_DROP, DDL_CREATE, DDL_REPLACE
             from app.warehouse.layer_policy import get_registered_layer as _get_registered_layer
@@ -83,7 +89,14 @@ class SnapshotService:
             # COPY to target
             await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{snap_target}`"))
             await self.session.execute(sa_text(f"CREATE TABLE `{snap_target}` AS SELECT * FROM `{j.source_table}`"))
-            # Fix2: 清理旧快照加 DDL_DROP 校验
+            # Fix1: 创建后注册到 registered_tables
+            from app.data.models import RegisteredTable
+            self.session.add(RegisteredTable(
+                table_name=snap_target, table_label=snap_target,
+                warehouse_layer="DWS", asset_status="published",
+                source_system="snapshot",
+            ))
+            # Fix2: 清理旧快照 — DDL_DROP + 同时清理注册记录
             all_tables = await self.session.execute(sa_text(
                 f"SELECT table_name FROM information_schema.tables WHERE table_name LIKE :pat"
             ).bindparams(pat=f"{j.target_table}_%"))
@@ -92,11 +105,19 @@ class SnapshotService:
                 validate_identifier(old_table)
                 await validate_ddl_operation(self.session, old_table, DDL_DROP)
                 await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{old_table}`"))
+                # 同步删除注册记录
+                rt = (await self.session.execute(
+                    select(RegisteredTable).where(RegisteredTable.table_name == old_table)
+                )).scalar_one_or_none()
+                if rt:
+                    await self.session.delete(rt)
             run.status = "success"; run.row_count = row_count
             j.last_run_at = dt.utcnow(); j.last_status = "success"
-            # Z02: 自动血缘边
+            # Fix4: 血缘 metadata
             from app.warehouse.service import write_lineage_edge
-            await write_lineage_edge(self.session, j.source_table, snap_target, "snapshot")
+            await write_lineage_edge(self.session, j.source_table, snap_target, "snapshot", metadata={
+                "definition_id": job_id, "version": 1, "rule_ids": [],
+            })
         except Exception as e:
             run.status = "failed"; run.error_message = str(e)[:1000]
             j.last_run_at = dt.utcnow(); j.last_status = "failed"
@@ -222,9 +243,9 @@ class ScdService:
         self.session.add(run); await self.session.flush()
 
         try:
-            # P0-1: 分层流转校验 — SCD 在 DWD/DWS 层做快照
+            # P0-1: 分层流转校验 — SCD
             from app.warehouse.layer_policy import validate_layer_transition
-            validate_layer_transition("DWD", "DWS", "snapshot")
+            validate_layer_transition("DWD", "DWS", "scd")
             # 1. 确保 target 表存在
 
             # 检查 target 是否存在，不存在则从 source 结构创建
@@ -336,7 +357,9 @@ class ScdService:
             run.finished_at = dt.utcnow()
             # Z02: 自动血缘边
             from app.warehouse.service import write_lineage_edge
-            await write_lineage_edge(self.session, c.source_table, c.target_table, "scd")
+            await write_lineage_edge(self.session, c.source_table, c.target_table, "scd", metadata={
+                "definition_id": config_id, "version": 1, "rule_ids": [],
+            })
             await self.session.commit()
 
             return {

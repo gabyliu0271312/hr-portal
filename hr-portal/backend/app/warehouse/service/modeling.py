@@ -43,7 +43,9 @@ class MetricComputeService:
             run.status = "success"; run.result_id = result.id; run.finished_at = dt.utcnow()
             # Z02: 自动血缘边
             from app.warehouse.service import write_lineage_edge
-            await write_lineage_edge(self.session, f"metric:{m.metric_code}", f"result:{period}", "metric_compute")
+            await write_lineage_edge(self.session, f"metric:{m.metric_code}", f"result:{period}", "metric_compute", metadata={
+                "definition_id": metric_id, "version": 1, "rule_ids": [],
+            })
             return {"run_id": run.id, "metric_id": metric_id, "status": "success", "period": period, "value": result.value, "error_message": None}
         except Exception as exc:
             run.status = "failed"; run.error_message = str(exc)[:1000]; run.finished_at = dt.utcnow()

@@ -39,15 +39,15 @@ _IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 LAYER_ORDER = {"ODS": 0, "DWD": 1, "DWS": 2, "ADS": 3}
 
-# 允许的流转路径 source→target
+# 允许的流转路径 (source→target) → {allowed_operations}
 ALLOWED_TRANSITIONS = {
-    ("ODS", "DWD"): "standardize",
-    ("DWD", "DWS"): "aggregate",
-    ("DWS", "ADS"): "consume",
-    ("DWD", "ADS"): "consume",
-    ("DWD", "DWD"): "snapshot",
-    ("DWS", "DWS"): "snapshot",
-    ("ADS", "ADS"): "snapshot",
+    ("ODS", "DWD"): {"standardize"},
+    ("DWD", "DWS"): {"aggregate", "snapshot", "scd"},
+    ("DWS", "ADS"): {"consume"},
+    ("DWD", "ADS"): {"consume"},
+    ("DWD", "DWD"): {"snapshot"},
+    ("DWS", "DWS"): {"snapshot"},
+    ("ADS", "ADS"): {"snapshot"},
 }
 
 
@@ -116,14 +116,18 @@ def validate_layer_transition(source_layer: str, target_layer: str, operation: s
     """校验分层流转是否合法"""
     src = source_layer.upper().strip()
     tgt = target_layer.upper().strip()
+    op = operation.lower().strip()
     key = (src, tgt)
     if key not in ALLOWED_TRANSITIONS:
         allowed = ", ".join([f"{s}→{t}" for s, t in ALLOWED_TRANSITIONS])
         raise ValueError(f"分层流转 {src}→{tgt} 不允许。合法路径: {allowed}")
+    allowed_ops = ALLOWED_TRANSITIONS[key]
+    if op not in allowed_ops:
+        raise ValueError(f"分层流转 {src}→{tgt} 不支持操作 {op!r}，允许: {sorted(allowed_ops)}")
     # 源层不能高于目标层（反向流转）
     src_order = LAYER_ORDER.get(src, -1)
     tgt_order = LAYER_ORDER.get(tgt, -1)
-    if src_order > tgt_order and operation != "snapshot":
+    if src_order > tgt_order and op != "snapshot":
         raise ValueError(f"反向分层流转 {src}({src_order})→{tgt}({tgt_order}) 不允许")
 
 
