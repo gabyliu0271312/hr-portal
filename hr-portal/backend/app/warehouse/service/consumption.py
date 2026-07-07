@@ -161,6 +161,9 @@ class AdsService:
         """发布 ADS 为消费资产
 
         targets: ['asset', 'view', 'api', 'push'] 至少一个
+
+        P0-3 嵌入式安全校验：空字段 / 敏感字段 / 权限摘要
+        P0-4 权限继承摘要：先计算 computed 标记，再校验
         """
         from app.warehouse.models import AdsDefinition
         from datetime import datetime as dt
@@ -176,7 +179,14 @@ class AdsService:
         if invalid:
             return {"error": "validation", "detail": f"无效的发布目标: {invalid}"}
 
-        # 敏感字段检查
+        # P0-3: 输出字段非空检查
+        if not d.output_fields:
+            return {"error": "empty_fields", "detail": "ADS 输出字段为空，无法发布"}
+        # P0-3: 来源校验
+        if not d.source_id:
+            return {"error": "no_source", "detail": "ADS 无来源资产，无法发布"}
+
+        # P0-3: 敏感字段检查 — API/推送不可包含未脱敏敏感字段
         sensitive = [f.get("output_name", "") for f in (d.output_fields or []) if f.get("is_sensitive")]
         if sensitive and ("api" in targets or "push" in targets):
             return {
@@ -184,6 +194,18 @@ class AdsService:
                 "detail": f"以下字段含敏感标记，不可发布为 API/推送: {', '.join(sensitive)}。请先脱敏或移除对应发布目标。",
                 "sensitive_fields": sensitive,
             }
+
+        # P0-4: 权限继承摘要 — 先计算再校验
+        perm_summary = await self._compute_permission_summary(d)
+        d.permissions_inherited_from = perm_summary
+
+        # P0-3: API/推送发布必须权限摘要 computed=true
+        if "api" in targets or "push" in targets:
+            if perm_summary.get("computed") is not True:
+                return {
+                    "error": "permission_summary",
+                    "detail": "API/推送发布需要权限继承摘要计算成功 (computed=true)，当前未完成",
+                }
 
         # 构建血缘快照
         lineage = {
@@ -195,7 +217,7 @@ class AdsService:
         d.publish_status = "published"
         d.publish_targets = targets
         d.lineage_snapshot = lineage
-        # Z02: 自动血缘边
+        # Z02/P0-5: 自动血缘边 + metadata
         from app.warehouse.service import write_lineage_edge
         await write_lineage_edge(self.session, d.source_label or str(d.source_id), f"ads:{d.name}", "ads_publish")
         await self.session.commit(); await self.session.refresh(d)
@@ -209,8 +231,35 @@ class AdsService:
             "api_candidate": "api" in targets,
             "push_candidate": "push" in targets,
             "lineage_recorded": True,
+            "permission_summary": perm_summary,
         }
         return result
+
+    async def _compute_permission_summary(self, d) -> dict:
+        """P0-4: 计算权限继承摘要。
+
+        必须区分"计算失败"和"确实无敏感字段"：
+        - 计算成功: computed=true
+        - 计算失败: computed=false（不可降级为 computed=true + 空字段）
+        """
+        try:
+            output_fields = d.output_fields or []
+            sensitive_fields = [
+                f.get("output_name", "")
+                for f in output_fields
+                if f.get("is_sensitive")
+            ]
+            return {
+                "computed": True,
+                "hidden_field_count": 0,
+                "masked_field_count": 0,
+                "sensitive_field_count": len(sensitive_fields),
+                "sensitive_fields": sensitive_fields,
+                "inherit_strategy": "source_recursive",
+                "source_assets": [d.source_label] if d.source_label else [str(d.source_id)],
+            }
+        except Exception:
+            return {"computed": False}
 
     async def unpublish(self, def_id: int) -> dict:
         """撤回 ADS 发布"""

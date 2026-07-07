@@ -106,8 +106,11 @@ def _rule_to_sql_expr(rule, src_field: str, tgt_field: str) -> str:
 
 # ── 血缘边写入（Z02）────────────────────────
 
-async def write_lineage_edge(db, source_asset: str, target_asset: str, operation: str, operator: str = "", run_id: int = None):
-    """在关键操作执行成功后写入血缘边记录。"""
+async def write_lineage_edge(db, source_asset: str, target_asset: str, operation: str, operator: str = "", run_id: int = None, metadata: dict = None):
+    """在关键操作执行成功后写入血缘边记录。
+
+    P0-5: metadata 包含 definition_id / rule_ids / version 等可解释上下文。
+    """
     from app.warehouse.models import WarehouseLineageEdge
     edge = WarehouseLineageEdge(
         source_asset=source_asset,
@@ -115,6 +118,7 @@ async def write_lineage_edge(db, source_asset: str, target_asset: str, operation
         operation=operation,
         operator=operator or "system",
         run_id=run_id,
+        metadata=metadata,
     )
     db.add(edge)
 

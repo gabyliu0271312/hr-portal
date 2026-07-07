@@ -64,14 +64,18 @@ class SnapshotService:
         run = SnapshotRun(job_id=job_id, status="running", period_value=period_value, started_at=started)
         self.session.add(run); await self.session.flush()
         try:
+            # P0-1: DDL 安全校验
+            from app.warehouse.layer_policy import validate_ddl_operation, DDL_DROP, DDL_CREATE
+            snap_target = f"{j.target_table}_{period_value}"
+            await validate_ddl_operation(self.session, snap_target, DDL_CREATE, target_layer="DWS")
             result = await self.session.execute(sa_text(f"SELECT * FROM `{j.source_table}`"))
             rows = result.fetchall()
             cols = list(result.keys())
             row_count = len(rows)
             # COPY to target
-            await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{j.target_table}_{period_value}`"))
+            await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{snap_target}`"))
             col_defs = ", ".join([f"`{c}` TEXT" for c in cols])
-            await self.session.execute(sa_text(f"CREATE TABLE `{j.target_table}_{period_value}` AS SELECT * FROM `{j.source_table}`"))
+            await self.session.execute(sa_text(f"CREATE TABLE `{snap_target}` AS SELECT * FROM `{j.source_table}`"))
             # Cleanup old snapshots beyond retention
             from sqlalchemy import inspect
             all_tables = await self.session.execute(sa_text(f"SELECT table_name FROM information_schema.tables WHERE table_name LIKE '{j.target_table}_%' ORDER BY table_name DESC"))
@@ -217,6 +221,9 @@ class ScdService:
             )
             target_exists = check.fetchone() is not None
             if not target_exists:
+                # P0-1: DDL 安全校验 — CREATE SCD 拉链表
+                from app.warehouse.layer_policy import validate_ddl_operation, DDL_CREATE
+                await validate_ddl_operation(self.session, c.target_table, DDL_CREATE, target_layer="DWS")
                 await self.session.execute(
                     sa_text(f"CREATE TABLE `{c.target_table}` LIKE `{c.source_table}`")
                 )

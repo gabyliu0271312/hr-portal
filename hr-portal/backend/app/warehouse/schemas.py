@@ -636,6 +636,7 @@ STANDARDIZATION_RULE_TYPES = (
 
 
 class StandardizationRuleIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """标准化规则创建/更新入参"""
     asset_type: str = Field(..., max_length=16, description="table/dataset")
     asset_code: str = Field(..., max_length=256, description="ODS 表名或 DataSet ID")
@@ -649,6 +650,7 @@ class StandardizationRuleIn(BaseModel):
 
 
 class StandardizationRuleUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """标准化规则部分更新入参"""
     rule_config: Optional[dict] = None
     enabled: Optional[bool] = None
@@ -688,6 +690,7 @@ class TemplateRuleEntry(BaseModel):
 
 
 class StandardizationTemplateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """创建/更新模板入参"""
     name: str = Field(..., max_length=128)
     description: Optional[str] = Field(None, max_length=512)
@@ -696,6 +699,7 @@ class StandardizationTemplateIn(BaseModel):
 
 
 class StandardizationTemplateUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """部分更新模板"""
     name: Optional[str] = Field(None, max_length=128)
     description: Optional[str] = Field(None, max_length=512)
@@ -717,6 +721,7 @@ class StandardizationTemplateOut(BaseModel):
 
 
 class TemplateLoadRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     """模板加载请求"""
     asset_code: str = Field(..., max_length=256, description="目标 ODS 表名或 DataSet ID")
     asset_type: str = Field("table", max_length=16, description="table/dataset")
@@ -736,6 +741,7 @@ class PreviewRuleInput(BaseModel):
 
 
 class PreviewRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     """预览请求"""
     asset_code: str = Field(..., max_length=256, description="ODS 表名或 DataSet ID")
     sample_size: int = Field(20, ge=1, le=500, description="采样行数")
@@ -783,6 +789,7 @@ class PreviewOut(BaseModel):
 
 
 class DwdViewGenerateRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     """DWD 视图生成请求"""
     asset_code: str = Field(..., max_length=256, description="ODS 表名")
     asset_type: str = Field("table", max_length=16, description="table/dataset")
@@ -824,6 +831,7 @@ REFRESH_STRATEGIES = ("manual", "full", "incremental")
 
 
 class RefreshStrategyUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     refresh_strategy: str = Field(..., max_length=32, description="manual/full/incremental")
 
 
@@ -866,6 +874,7 @@ class MetricRunOut(BaseModel):
 
 
 class MetricComputeIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """触发指标计算入参"""
     period: str = Field(..., max_length=32, description="计算周期: 2026-07/2026Q3/2026H1")
 
@@ -881,6 +890,7 @@ class MetricComputeOut(BaseModel):
 
 
 class MetricRecalcIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """触发指标重算入参"""
     period: str = Field(..., max_length=32, description="重算周期")
 
@@ -897,6 +907,7 @@ class MetricResultsPaginatedOut(BaseModel):
 
 
 class DimensionCreateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     dimension_code: str = Field(..., max_length=64)
     dimension_name: str = Field(..., max_length=128)
     parent_id: Optional[int] = None
@@ -907,6 +918,7 @@ class DimensionCreateIn(BaseModel):
 
 
 class DimensionUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     dimension_name: Optional[str] = None
     parent_id: Optional[int] = None
     bound_table: Optional[str] = None
@@ -962,6 +974,7 @@ DWS_AGG_STATUSES = ("draft", "published", "archived")
 
 
 class DwsAggregateDefinitionCreateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     name: str = Field(..., max_length=128)
     metric_id: Optional[int] = None
     source_dataset_id: Optional[int] = None
@@ -974,6 +987,7 @@ class DwsAggregateDefinitionCreateIn(BaseModel):
 
 
 class DwsAggregateDefinitionUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     name: Optional[str] = None
     group_by: Optional[list[str]] = None
     filter: Optional[dict] = None
@@ -1002,6 +1016,7 @@ class DwsAggregateDefinitionOut(BaseModel):
 
 
 class DwsViewGenerateRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     """DWS 视图生成请求"""
     aggregate_id: int = Field(..., description="聚合定义 ID")
 
@@ -1020,6 +1035,7 @@ class DwsViewGenerateOut(BaseModel):
 # ==================== R04 快照任务 Schema ====================
 
 class SnapshotJobIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """快照任务创建/更新入参"""
     name: str = Field(..., max_length=128)
     source_table: str = Field(..., max_length=128)
@@ -1030,6 +1046,7 @@ class SnapshotJobIn(BaseModel):
 
 
 class SnapshotJobUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """快照任务部分更新"""
     name: Optional[str] = Field(None, max_length=128)
     snapshot_keys: Optional[list[str]] = None
@@ -1039,6 +1056,7 @@ class SnapshotJobUpdateIn(BaseModel):
 
 
 class SnapshotTriggerIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """快照触发入参"""
     period_value: str = Field(..., max_length=32)
 
@@ -1046,6 +1064,7 @@ class SnapshotTriggerIn(BaseModel):
 # ==================== R0403 SCD Schema ====================
 
 class ScdConfigIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """SCD 配置创建/更新入参"""
     name: str = Field(..., max_length=128)
     source_table: str = Field(..., max_length=128)
@@ -1058,6 +1077,7 @@ class ScdConfigIn(BaseModel):
 
 
 class ScdConfigUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """SCD 配置部分更新"""
     name: Optional[str] = Field(None, max_length=128)
     business_key: Optional[str] = None
@@ -1096,6 +1116,7 @@ class AdsPresetFilter(BaseModel):
 
 
 class AdsDefinitionIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """ADS 组装定义创建/更新入参"""
     name: str = Field(..., max_length=256)
     description: Optional[str] = Field(None, max_length=2000)
@@ -1111,6 +1132,7 @@ class AdsDefinitionIn(BaseModel):
 
 
 class AdsDefinitionUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """ADS 定义部分更新"""
     name: Optional[str] = Field(None, max_length=256)
     description: Optional[str] = Field(None, max_length=2000)

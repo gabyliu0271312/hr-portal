@@ -420,4 +420,5 @@ class WarehouseLineageEdge(Base):
     operation = Column(String(64), nullable=False, comment="操作类型")
     operator = Column(String(64), nullable=True, comment="操作人")
     run_id = Column(BigInteger, nullable=True, comment="关联运行 ID")
+    edge_metadata = Column(JSON, nullable=True, comment="血缘 metadata（definition_id/rule_ids/version）")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

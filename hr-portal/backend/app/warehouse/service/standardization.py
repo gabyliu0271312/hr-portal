@@ -112,6 +112,9 @@ class StandardizationRuleService:
         if not target_table: return {"error": "no_target", "detail": "未指定目标表名"}
         target = target_table.strip().replace("`", "")
         try:
+            # P0-1: DDL 安全校验 — CREATE DWD 标准化输出表
+            from app.warehouse.layer_policy import validate_ddl_operation, DDL_CREATE
+            await validate_ddl_operation(self.session, target, DDL_CREATE, target_layer="DWD")
             await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{target}`"))
             if transformed:
                 sample = transformed[0]
@@ -148,7 +151,11 @@ class StandardizationRuleService:
         # Z02: 自动血缘边
         from app.warehouse.service import write_lineage_edge
         await write_lineage_edge(self.session, asset_code, target, "standardize")
-        return {"total": total, "success": success, "failed": failed, "errors": [], "target_table": target}
+        # P0-3: 空结果警告
+        result = {"total": total, "success": success, "failed": failed, "errors": [], "target_table": target}
+        if success == 0:
+            result["warning"] = "标准化结果为空（0 行），请检查源数据和规则配置"
+        return result
 
     async def generate_dwd_view(self, *, asset_code: str, asset_type: str = "table", owner_user_id=None, owner_name=None) -> dict:
         """基于规则生成 DWD 视图（更新已有单表数据集，避免重复建）"""
