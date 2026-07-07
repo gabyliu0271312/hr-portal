@@ -265,6 +265,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: 'SCD 拉链', menuCode: 'warehouse.modeling' },
       },
       {
+        path: 'warehouse/ads',
+        name: 'WarehouseAds',
+        component: () => import('@/views/warehouse/WarehouseAds.vue'),
+        meta: { label: 'ADS 消费资产', menuCode: 'warehouse.modeling' },
+      },
+      {
         path: 'warehouse/metrics',
         name: 'WarehouseMetrics',
         component: () => import('@/views/warehouse/WarehouseMetrics.vue'),

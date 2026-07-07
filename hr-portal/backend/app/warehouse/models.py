@@ -375,3 +375,33 @@ class ScdRun(Base):
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# ==================== ads_definitions (R0701) ====================
+
+class AdsDefinition(Base):
+    """DWS → ADS 消费资产组装定义
+
+    将 DWS 聚合/数据集/模型组装为面向 BI/API/推送/报表的消费资产。
+    """
+
+    __tablename__ = "ads_definitions"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    name = Column(String(256), nullable=False, comment="ADS 消费资产名称")
+    description = Column(Text, nullable=True, comment="描述")
+    source_type = Column(String(32), nullable=False, comment="来源类型: dws_aggregate/dataset/model")
+    source_id = Column(BigInteger, nullable=False, comment="来源 DWS 聚合/数据集/模型 ID")
+    source_label = Column(String(128), nullable=True, comment="来源可读标签")
+    dimension_refs = Column(JSON, nullable=False, default=list, comment="关联维度")
+    output_fields = Column(JSON, nullable=False, default=list, comment="输出字段定义")
+    preset_filters = Column(JSON, nullable=True, comment="预置过滤条件")
+    subject_area = Column(String(64), nullable=True, comment="主题域")
+    consume_domain = Column(String(64), nullable=True, comment="消费域")
+    owner_name = Column(String(64), nullable=True, comment="负责人")
+    publish_status = Column(String(16), nullable=False, default="draft", comment="draft/published/archived")
+    publish_targets = Column(JSON, nullable=True, comment="发布目标")
+    permissions_inherited_from = Column(JSON, nullable=True, comment="权限继承来源")
+    lineage_snapshot = Column(JSON, nullable=True, comment="血缘快照")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

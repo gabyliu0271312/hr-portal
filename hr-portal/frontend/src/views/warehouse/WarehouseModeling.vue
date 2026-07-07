@@ -24,6 +24,7 @@ const tabs = [
   { name: 'dws', label: '汇总视图' },
   { name: 'snapshots', label: '快照管理' },
   { name: 'scd', label: 'SCD 拉链' },
+  { name: 'ads', label: 'ADS 消费资产' },
 ]
 const activeTab = ref('modeling')
 
@@ -35,6 +36,7 @@ function onTabChange(name: string) {
   if (name === 'recipe') { router.push('/warehouse/data-recipe'); return }
   if (name === 'snapshots') { router.push('/warehouse/snapshots'); return }
   if (name === 'scd') { router.push('/warehouse/scd'); return }
+  if (name === 'ads') { router.push('/warehouse/ads'); return }
   activeTab.value = name
   router.replace({ query: { tab: name === 'modeling' ? undefined : name } })
 }
