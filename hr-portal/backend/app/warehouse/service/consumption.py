@@ -173,6 +173,9 @@ class AdsService:
 
         if not targets:
             return {"error": "validation", "detail": "至少需选择一个发布目标"}
+        # P0-1: 分层流转校验
+        from app.warehouse.layer_policy import validate_layer_transition
+        validate_layer_transition("DWS", "ADS", "consume")
 
         valid_targets = {"asset", "view", "api", "push"}
         invalid = set(targets) - valid_targets

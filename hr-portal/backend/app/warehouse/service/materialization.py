@@ -60,33 +60,43 @@ class SnapshotService:
         # P0-6: SQL identifier 安全校验
         validate_identifier(j.source_table)
         validate_identifier(j.target_table)
+        # Fix3: period_value 安全校验
+        safe_period = period_value.replace("-", "_").replace("Q", "Q")
+        validate_identifier(safe_period)
         started = dt.utcnow()
         run = SnapshotRun(job_id=job_id, status="running", period_value=period_value, started_at=started)
         self.session.add(run); await self.session.flush()
         try:
-            # P0-1: DDL 安全校验
-            from app.warehouse.layer_policy import validate_ddl_operation, DDL_DROP, DDL_CREATE
-            snap_target = f"{j.target_table}_{period_value}"
-            await validate_ddl_operation(self.session, snap_target, DDL_CREATE, target_layer="DWS")
+            # Fix1: DROP+CREATE → REPLACE 语义
+            from app.warehouse.layer_policy import validate_ddl_operation, DDL_DROP, DDL_CREATE, DDL_REPLACE
+            from app.warehouse.layer_policy import get_registered_layer as _get_registered_layer
+            snap_target = f"{j.target_table}_{safe_period}"
+            existing = await _get_registered_layer(self.session, snap_target)
+            if existing is not None:
+                await validate_ddl_operation(self.session, snap_target, DDL_REPLACE)
+            else:
+                await validate_ddl_operation(self.session, snap_target, DDL_CREATE, target_layer="DWS")
             result = await self.session.execute(sa_text(f"SELECT * FROM `{j.source_table}`"))
             rows = result.fetchall()
             cols = list(result.keys())
             row_count = len(rows)
             # COPY to target
             await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{snap_target}`"))
-            col_defs = ", ".join([f"`{c}` TEXT" for c in cols])
             await self.session.execute(sa_text(f"CREATE TABLE `{snap_target}` AS SELECT * FROM `{j.source_table}`"))
-            # Cleanup old snapshots beyond retention
-            from sqlalchemy import inspect
-            all_tables = await self.session.execute(sa_text(f"SELECT table_name FROM information_schema.tables WHERE table_name LIKE '{j.target_table}_%' ORDER BY table_name DESC"))
+            # Fix2: 清理旧快照加 DDL_DROP 校验
+            all_tables = await self.session.execute(sa_text(
+                f"SELECT table_name FROM information_schema.tables WHERE table_name LIKE :pat"
+            ).bindparams(pat=f"{j.target_table}_%"))
             snap_tables = [r[0] for r in all_tables.fetchall()]
             for old_table in snap_tables[j.retention:]:
+                validate_identifier(old_table)
+                await validate_ddl_operation(self.session, old_table, DDL_DROP)
                 await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{old_table}`"))
             run.status = "success"; run.row_count = row_count
             j.last_run_at = dt.utcnow(); j.last_status = "success"
             # Z02: 自动血缘边
             from app.warehouse.service import write_lineage_edge
-            await write_lineage_edge(self.session, j.source_table, f"{j.target_table}_{period_value}", "snapshot")
+            await write_lineage_edge(self.session, j.source_table, snap_target, "snapshot")
         except Exception as e:
             run.status = "failed"; run.error_message = str(e)[:1000]
             j.last_run_at = dt.utcnow(); j.last_status = "failed"
@@ -212,6 +222,9 @@ class ScdService:
         self.session.add(run); await self.session.flush()
 
         try:
+            # P0-1: 分层流转校验 — SCD 在 DWD/DWS 层做快照
+            from app.warehouse.layer_policy import validate_layer_transition
+            validate_layer_transition("DWD", "DWS", "snapshot")
             # 1. 确保 target 表存在
 
             # 检查 target 是否存在，不存在则从 source 结构创建

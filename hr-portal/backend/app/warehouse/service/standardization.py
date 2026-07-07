@@ -16,6 +16,11 @@ class StandardizationRuleService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def _get_layer(self, table_name: str) -> str | None:
+        from app.data.models import RegisteredTable
+        r = await self.session.scalar(select(RegisteredTable).where(RegisteredTable.table_name == table_name))
+        return r.warehouse_layer if r else None
+
     async def list_rules(self, *, page=1, page_size=20, asset_type=None, asset_code=None, rule_type=None, enabled=None):
         from app.warehouse.models import StandardizationRule
         page_size = min(max(page_size, 1), 200)
@@ -112,9 +117,14 @@ class StandardizationRuleService:
         if not target_table: return {"error": "no_target", "detail": "未指定目标表名"}
         target = target_table.strip().replace("`", "")
         try:
-            # P0-1: DDL 安全校验 — CREATE DWD 标准化输出表
-            from app.warehouse.layer_policy import validate_ddl_operation, DDL_CREATE
-            await validate_ddl_operation(self.session, target, DDL_CREATE, target_layer="DWD")
+            # P0-1: DDL 安全校验 — DROP+CREATE = REPLACE 语义
+            from app.warehouse.layer_policy import validate_ddl_operation, validate_layer_transition, DDL_REPLACE, DDL_CREATE
+            validate_layer_transition("ODS", "DWD", "standardize")
+            existing = await self._get_layer(target)
+            if existing is not None:
+                await validate_ddl_operation(self.session, target, DDL_REPLACE)
+            else:
+                await validate_ddl_operation(self.session, target, DDL_CREATE, target_layer="DWD")
             await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{target}`"))
             if transformed:
                 sample = transformed[0]

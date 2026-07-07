@@ -251,6 +251,9 @@ class DwsAggregateService:
         return {"valid": len(errors) == 0, "errors": errors}
 
     async def generate_dws_view(self, agg_id: int):
+        # P0-1: 分层流转校验
+        from app.warehouse.layer_policy import validate_layer_transition
+        validate_layer_transition("DWD", "DWS", "aggregate")
         from datetime import datetime as dt
         from app.warehouse.models import DwsAggregateDefinition, Dimension
         agg = await self.session.get(DwsAggregateDefinition, agg_id)

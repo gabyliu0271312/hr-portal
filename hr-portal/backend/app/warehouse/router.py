@@ -2227,6 +2227,7 @@ async def generate_dwd_view(
 
 
 class ExecuteFullRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     asset_code: str = Field(..., description="ODS 来源表名")
     target_table: str = Field(..., description="DWD 目标表名")
 

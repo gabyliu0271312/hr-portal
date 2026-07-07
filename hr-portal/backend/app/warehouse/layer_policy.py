@@ -77,7 +77,7 @@ def _normalize_operation(op: str) -> str:
     return upper
 
 
-async def _get_registered_layer(db: AsyncSession, table_name: str) -> str | None:
+async def get_registered_layer(db: AsyncSession, table_name: str) -> str | None:
     """查询 registered_tables 中该表的真实 warehouse_layer"""
     from app.data.models import RegisteredTable
     r = await db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == table_name))
@@ -92,8 +92,8 @@ async def _table_exists_physically(db: AsyncSession, table_name: str) -> bool:
             .bindparams(t=table_name)
         )
         return result.fetchone() is not None
-    except Exception:
-        return False
+    except Exception as e:
+        raise ValueError(f"无法确认物理表是否存在，拒绝执行 DDL: {e}") from e
 
 
 # ── 公共 API ─────────────────────────────────
@@ -145,7 +145,7 @@ async def validate_ddl_operation(
 
     # ── 破坏性 DDL：必须查真实元数据 ──
     if op in DESTRUCTIVE_DDL:
-        actual_layer = await _get_registered_layer(db, table_name)
+        actual_layer = await get_registered_layer(db, table_name)
         if actual_layer is None:
             raise ValueError(
                 f"未注册资产 {table_name!r} 禁止 {op}。"
@@ -165,7 +165,7 @@ async def validate_ddl_operation(
         assert_not_ods_write(layer)
 
         # 命名冲突检查：不能与已有 ODS 资产同名
-        existing_layer = await _get_registered_layer(db, table_name)
+        existing_layer = await get_registered_layer(db, table_name)
         if existing_layer is not None and existing_layer.upper() == "ODS":
             raise ValueError(f"表名 {table_name!r} 与 ODS 资产冲突，禁止创建")
 

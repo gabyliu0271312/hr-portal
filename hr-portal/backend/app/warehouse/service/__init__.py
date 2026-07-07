@@ -118,7 +118,7 @@ async def write_lineage_edge(db, source_asset: str, target_asset: str, operation
         operation=operation,
         operator=operator or "system",
         run_id=run_id,
-        metadata=metadata,
+        edge_metadata=metadata,
     )
     db.add(edge)
 
