@@ -142,11 +142,7 @@ class StandardizationRuleService:
                     for i, row in enumerate(batch):
                         for c in bcols: params[f"{c}_{i}"] = row.get(c)
                     await self.session.execute(sa_text(f"INSERT INTO `{target}` ({', '.join([f'`{c}`' for c in bcols])}) VALUES {placeholders}"), params)
-            await self.session.commit()
-        except Exception as e: return {"error": "write_failed", "detail": str(e), "total": total, "success": 0, "failed": total, "errors": []}
-        # Fix4: 注册 DWD 目标表 — 独立 try，失败不影响已写入的数据
-        reg_error = None
-        try:
+            # P0-1: 注册 DWD 目标表 — 在同一事务内，失败则回滚全部
             existing_rt = (await self.session.execute(
                 select(RegisteredTable).where(RegisteredTable.table_name == target)
             )).scalars().first()
@@ -163,9 +159,9 @@ class StandardizationRuleService:
                 seen.add(tgt)
                 self.session.add(TableColumn(table_name=target, column_name=tgt, column_code=tgt, column_label=tgt, data_type="string", is_visible=True, display_order=(i + 1) * 10))
             await self.session.commit()
-        except Exception as exc:
-            reg_error = str(exc)[:500]
+        except Exception as e:
             await self.session.rollback()
+            return {"error": "write_failed", "detail": str(e)[:500], "total": total, "success": 0, "failed": total, "target_table": target, "errors": []}
         # Z02: 自动血缘边
         from app.warehouse.service import write_lineage_edge
         rule_ids = [r.id for r in rules]
@@ -176,8 +172,6 @@ class StandardizationRuleService:
         result = {"total": total, "success": success, "failed": failed, "errors": [], "target_table": target}
         if success == 0:
             result["warning"] = "标准化结果为空（0 行），请检查源数据和规则配置"
-        if reg_error:
-            result["reg_warning"] = f"资产注册失败: {reg_error}"
         return result
 
     async def generate_dwd_view(self, *, asset_code: str, asset_type: str = "table", owner_user_id=None, owner_name=None) -> dict:

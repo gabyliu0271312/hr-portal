@@ -269,13 +269,21 @@ class ScdService:
                 await self.session.execute(
                     sa_text(f"CREATE TABLE `{c.target_table}` LIKE `{c.source_table}`")
                 )
-                # Fix2: 创建后注册到 registered_tables
+                # Fix2: 创建后 upsert 到 registered_tables（防元数据存在但物理表缺失场景）
                 from app.data.models import RegisteredTable
-                self.session.add(RegisteredTable(
-                    table_name=c.target_table, table_label=c.target_table,
-                    warehouse_layer="DWS", asset_status="published",
-                    source_system="scd",
-                ))
+                rt = (await self.session.execute(
+                    select(RegisteredTable).where(RegisteredTable.table_name == c.target_table)
+                )).scalars().first()
+                if rt:
+                    rt.warehouse_layer = "DWS"
+                    rt.asset_status = "published"
+                    rt.source_system = "scd"
+                else:
+                    self.session.add(RegisteredTable(
+                        table_name=c.target_table, table_label=c.target_table,
+                        warehouse_layer="DWS", asset_status="published",
+                        source_system="scd",
+                    ))
                 # 添加拉链字段
                 for col_def in [
                     (c.effective_from_field, "DATETIME NOT NULL"),
