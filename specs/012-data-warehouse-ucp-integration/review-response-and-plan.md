@@ -661,53 +661,199 @@ P0 闭环不以文档接受为准，以以下条件全部满足为准：
 | 9 | 前端 `npm build` 零 error | CI 验证 |
 | 10 | 后端 `pytest` 全量通过 | CI 验证 |
 
-## 9.6 推送组件在各资产创建流程中的定位
+## 9.6 统一"创建数据服务"入口 — 组件化实现
 
-### 9.6.1 问题
+### 9.6.1 目标
 
-新建资产模块中已可调用创建推送组件，是否在其他资产创建流程（数据清洗、数据建模、指标、ADS）中也嵌入推送组件？
+各资产生产完成后（清洗、建模、指标、ADS），提供统一的"创建数据服务"入口，跳转到数据服务模块进行 API/推送/订阅配置。
 
-### 9.6.2 评估结论：不应该在各创建流程中内嵌推送配置
+**不是**在各创建流程中内嵌推送组件，**而是**通过统一的跳转组件，将"生产完成"→"创建消费服务"连接起来。
 
-**数据仓库专家**：
+### 9.6.2 实现方案
 
-创建资产和配置消费是两个不同的用户任务：
-- 创建资产：用户心智是"我要建一个标准表/模型/汇总"
-- 配置推送：用户心智是"我要把这个资产推给飞书/下游系统"
+#### 组件：`CreateServiceButton.vue`
 
-混在一个流程里会造成困惑——用户不知道"创建时配了推送"和"创建后去数据服务配推送"有什么区别。
-
-**交互专家**：
-
-不是所有资产都需要推送。如果在每个创建流程里都嵌入推送组件，大部分时候用户会跳过——这是无效的界面存在：
-
-| 资产类型 | 推送需求 | 理由 |
-|----------|----------|------|
-| ODS 表 | 禁止 | 原始层不能消费 |
-| DWD 标准表 | 少数 | 员工主数据可能推给权限系统，非每次清洗都要推 |
-| DWS 汇总 | 部分 | 月度人力成本推给预算系统等场景 |
-| ADS 消费资产 | 最可能需要 | 本身为消费而生 |
-
-### 9.6.3 正确做法
-
-推送配置统一走**数据服务模块**。各创建流程完成后给"下一步"入口：
+新建通用组件，接收来源资产参数，渲染"创建数据服务"按钮：
 
 ```
-创建完成 → 成功提示 + "创建数据服务"入口 → 跳转数据服务模块配置推送/API/订阅
+frontend/src/components/warehouse/CreateServiceButton.vue
 ```
 
-**规则**：
+```vue
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { Share } from '@element-plus/icons-vue'
 
-| 场景 | 行为 |
-|------|------|
-| 新建资产模块已有推送入口 | 保留，但理解为"快捷跳转"，实际职责在数据服务 |
-| 数据清洗/建模/指标/ADS 创建 | 完成后给"创建数据服务"入口，不嵌入推送组件 |
-| 数据服务模块 | 统一管理所有 API、推送、订阅、消费资产的配置 |
+const props = defineProps<{
+  sourceType: 'table' | 'dataset' | 'metric' | 'ads'
+  sourceId: string | number
+  sourceLabel?: string
+  disabled?: boolean
+}>()
 
-### 9.6.4 对已有推送组件的处理
+const emit = defineEmits<{ click: [] }>()
 
-不删除现有创建推送组件。它作为"快捷方式"存在，但产品文档中应明确定位为：
-> 推送配置的标准路径是"数据服务 > 数据推送"。各资产创建页的推送入口为快捷跳转，实际推送管理仍以数据服务模块为准。
+const router = useRouter()
+
+const link = computed(() => {
+  const params = new URLSearchParams({
+    source_type: props.sourceType,
+    source_id: String(props.sourceId),
+  })
+  if (props.sourceLabel) params.set('source_label', props.sourceLabel)
+  return `/warehouse/service?${params.toString()}`
+})
+
+function go() {
+  emit('click')
+  router.push(link.value)
+}
+</script>
+
+<template>
+  <el-button type="primary" :icon="Share" :disabled="disabled" @click="go">
+    创建数据服务
+  </el-button>
+</template>
+```
+
+#### 接入点一：数据清洗完成
+
+文件：`WarehouseDataRecipe.vue`
+
+当前"执行"按钮回调拿到结果后，显示结果卡片：
+
+```vue
+<!-- 执行成功后的结果卡片 -->
+<el-result v-if="executeResult" icon="success" :title="`已发布为 DWD 标准表 ${executeResult.target_table}`">
+  <template #extra>
+    <CreateServiceButton
+      source-type="table"
+      :source-id="executeResult.target_table"
+      :source-label="executeResult.target_table"
+    />
+    <el-button @click="executeResult = null">继续清洗</el-button>
+  </template>
+</el-result>
+```
+
+#### 接入点二：数据建模发布完成
+
+文件：`WarehouseModeling.vue` 或 `WarehouseModelingVisual.vue`
+
+模型发布成功后，在发布成功提示旁增加按钮：
+
+```vue
+<CreateServiceButton
+  source-type="dataset"
+  :source-id="publishedModel.id"
+  :source-label="publishedModel.name"
+/>
+```
+
+#### 接入点三：ADS 发布完成
+
+文件：`WarehouseAds.vue`
+
+ADS 向导 Step 5 发布成功后：
+
+```vue
+<CreateServiceButton
+  source-type="ads"
+  :source-id="publishedAds.id"
+  :source-label="publishedAds.name"
+/>
+```
+
+#### 接入点四：数据资产详情页"来源与服务"Tab
+
+文件：`WarehouseAssetDetail.vue`
+
+将现有的"开放"状态卡片中，对 DWD/DWS/ADS 层增加跳转按钮：
+
+```vue
+<CreateServiceButton
+  v-if="asset.warehouse_layer !== 'ODS'"
+  source-type="table"
+  :source-id="asset.table_name"
+  :source-label="asset.table_label"
+/>
+```
+
+#### 接入点五：已有新建资产模块的推送入口
+
+文件：新建资产弹窗组件
+
+现有推送入口中的"创建推送"逻辑，改为调用 `CreateServiceButton` 组件，或直接 `router.push` 跳转到 `/warehouse/service`。
+
+### 9.6.3 数据服务页接收参数
+
+文件：`WarehouseDataService.vue`
+
+增加对 URL query 参数的解析，传递给相关 Tab：
+
+```vue
+<script setup lang="ts">
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
+
+// 从 URL 接收来源资产参数，传递给消费资产 Tab
+const sourceType = (route.query.source_type as string) || ''
+const sourceId = (route.query.source_id as string) || ''
+const sourceLabel = (route.query.source_label as string) || ''
+</script>
+```
+
+消费资产 Tab 中的 `WarehouseAds` 组件接收这些参数，新建 ADS 时预填来源信息。
+
+### 9.6.4 原子任务
+
+#### P0-C1：创建 `CreateServiceButton.vue` 通用组件
+
+- 文件：`frontend/src/components/warehouse/CreateServiceButton.vue`
+- Props：`sourceType` / `sourceId` / `sourceLabel` / `disabled`
+- 行为：点击跳转 `/warehouse/service?source_type=...&source_id=...&source_label=...`
+- 验收：组件渲染正常，点击跳转正确
+
+#### P0-C2：数据清洗完成接入
+
+- 文件：`WarehouseDataRecipe.vue`
+- 位置：`executeStandardization` 成功后
+- 验收：清洗执行成功后出现"创建数据服务"按钮，点击跳转到数据服务页
+
+#### P0-C3：数据建模发布完成接入
+
+- 文件：`WarehouseModeling.vue` / `WarehouseModelingVisual.vue`
+- 位置：`publishModel` 或 `buildDataset` 成功后
+- 验收：模型发布成功后出现"创建数据服务"按钮
+
+#### P0-C4：ADS 发布完成接入
+
+- 文件：`WarehouseAds.vue`
+- 位置：Step 5 发布成功后
+- 验收：ADS 发布成功后出现"创建数据服务"按钮
+
+#### P0-C5：数据资产详情页接入
+
+- 文件：`WarehouseAssetDetail.vue`
+- 位置："来源与服务"Tab 的消费状态卡片内
+- 条件：`warehouse_layer !== 'ODS'`
+- 验收：DWD/DWS/ADS 详情页显示"创建数据服务"按钮，ODS 不显示
+
+#### P0-C6：新建资产推送入口改为跳转
+
+- 文件：新建资产弹窗组件（已有推送组件处）
+- 改为使用 `CreateServiceButton` 或直接跳转
+- 验收：新建资产页的推送入口跳转到数据服务页
+
+#### P0-C7：数据服务页接收 URL 参数
+
+- 文件：`WarehouseDataService.vue`
+- 解析 `source_type` / `source_id` / `source_label` query 参数
+- 传递给 `WarehouseAds` 组件用于预填来源信息
+- 验收：从清洗/建模/ADS 跳转过来时，数据服务页预填了正确来源
 
 ## 9.7 不做项
 
