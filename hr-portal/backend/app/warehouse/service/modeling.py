@@ -2,6 +2,7 @@
 """指标计算 + 维度 + DWS 聚合服务"""
 from __future__ import annotations
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # ==================== 指标计算 (R0302) ====================
