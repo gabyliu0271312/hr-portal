@@ -104,7 +104,10 @@ class SnapshotService:
                     source_system="snapshot",
                 ))
             # Fix2: 清理旧快照 — DDL_DROP + 清理注册记录
-            # 按 table_name 字母序 DESC 保证删除最旧的（p_2026_01 < p_2026_07）
+            # 约束: ORDER BY table_name ASC 依赖同一 job 固定 period 格式
+            # (p_2026_01 < p_2026_07，字母序=时序)。
+            # 若未来支持混合周期(2026-07/2026Q3/20260701)，
+            # 需改为按 run.created_at 或独立 period_value 列排序
             all_tables = await self.session.execute(sa_text(
                 f"SELECT table_name FROM information_schema.tables WHERE table_name LIKE :pat ORDER BY table_name ASC"
             ).bindparams(pat=f"{j.target_table}_%"))

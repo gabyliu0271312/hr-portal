@@ -158,16 +158,16 @@ class StandardizationRuleService:
                 if tgt in seen: continue
                 seen.add(tgt)
                 self.session.add(TableColumn(table_name=target, column_name=tgt, column_code=tgt, column_label=tgt, data_type="string", is_visible=True, display_order=(i + 1) * 10))
+            # Z02: 血缘写入与主流程同一事务
+            from app.warehouse.service import write_lineage_edge
+            rule_ids = [r.id for r in rules]
+            await write_lineage_edge(self.session, asset_code, target, "standardize", metadata={
+                "definition_id": None, "rule_ids": rule_ids, "version": 1,
+            })
             await self.session.commit()
         except Exception as e:
             await self.session.rollback()
             return {"error": "write_failed", "detail": str(e)[:500], "total": total, "success": 0, "failed": total, "target_table": target, "errors": []}
-        # Z02: 自动血缘边
-        from app.warehouse.service import write_lineage_edge
-        rule_ids = [r.id for r in rules]
-        await write_lineage_edge(self.session, asset_code, target, "standardize", metadata={
-            "definition_id": None, "rule_ids": rule_ids, "version": 1,
-        })
         # P0-3: 空结果警告
         result = {"total": total, "success": success, "failed": failed, "errors": [], "target_table": target}
         if success == 0:
