@@ -1022,3 +1022,314 @@ export const ALERT_TYPE_LABELS: Record<string, string> = {
   build_fail: '构建失败',
   metric_fail: '指标失败',
 }
+
+/** 数据集构建结果 */
+export interface BuildResult {
+  build_id: number
+  status: string  // running/success/failed
+  row_count?: number
+  error_message?: string
+}
+
+/** 触发数据集物化构建 */
+export function buildDataset(datasetId: number) {
+  return api.post(`/warehouse/datasets/${datasetId}/build`).then(r => r.data as BuildResult)
+}
+
+// ==================== R0302 指标计算 ====================
+
+/** 指标计算结果 */
+export interface MetricResult {
+  id: number
+  metric_id: number
+  period: string
+  value: Record<string, any>
+  computed_at: string | null
+}
+
+/** 指标运行记录 */
+export interface MetricRun {
+  id: number
+  metric_id: number
+  status: string
+  error_message: string | null
+  period: string | null
+  result_id: number | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string | null
+}
+
+/** 触发指标计算 */
+export function computeMetric(metricId: number, period: string) {
+  return api.post(`/warehouse/metrics/${metricId}/compute`, { period }).then(r => r.data as {
+    run_id: number; metric_id: number; status: string; period: string; value: any; error_message: string | null
+  })
+}
+
+/** 触发指标重算 */
+export function recalcMetric(metricId: number, period: string) {
+  return api.post(`/warehouse/metrics/${metricId}/recalc`, { period }).then(r => r.data)
+}
+
+/** 指标计算结果列表 */
+export function listMetricResults(metricId: number, page = 1, pageSize = 20) {
+  return api.get(`/warehouse/metrics/${metricId}/results`, { params: { page, page_size: pageSize } })
+    .then(r => r.data as PaginatedResponse<MetricResult>)
+}
+
+/** 指标运行记录列表 */
+export function listMetricRuns(metricId: number, page = 1, pageSize = 20) {
+  return api.get(`/warehouse/metrics/${metricId}/runs`, { params: { page, page_size: pageSize } })
+    .then(r => r.data as PaginatedResponse<MetricRun>)
+}
+
+// ==================== R0305 维度定义 ====================
+
+/** 维度定义 */
+export interface Dimension {
+  id: number
+  dimension_code: string
+  dimension_name: string
+  parent_id: number | null
+  bound_table: string | null
+  bound_field: string | null
+  description: string | null
+  display_order: number
+  children?: Dimension[]
+  created_at?: string
+  updated_at?: string
+}
+
+/** 维度列表 */
+export function listDimensions() {
+  return api.get('/warehouse/dimensions').then(r => r.data as Dimension[])
+}
+
+/** 维度层级树 */
+export function getDimensionTree() {
+  return api.get('/warehouse/dimensions/tree').then(r => r.data as Dimension[])
+}
+
+/** 维度详情 */
+export function getDimension(id: number) {
+  return api.get(`/warehouse/dimensions/${id}`).then(r => r.data as Dimension)
+}
+
+/** 创建维度 */
+export function createDimension(payload: Omit<Dimension, 'id' | 'children' | 'created_at' | 'updated_at'>) {
+  return api.post('/warehouse/dimensions', payload).then(r => r.data as Dimension)
+}
+
+/** 更新维度 */
+export function updateDimension(id: number, payload: Partial<Dimension>) {
+  return api.patch(`/warehouse/dimensions/${id}`, payload).then(r => r.data as Dimension)
+}
+
+/** 删除维度 */
+export function deleteDimension(id: number) {
+  return api.delete(`/warehouse/dimensions/${id}`)
+}
+
+/** 维度删除影响分析 */
+export function getDimensionImpact(id: number) {
+  return api.get(`/warehouse/dimensions/${id}/impact`).then(r => r.data as {
+    dimension_id: number; dimension_code: string; referenced_by_aggregates: any[]
+    referenced_by_children: any[]; can_delete: boolean
+  })
+}
+
+// ==================== R0308 DWS 聚合定义 ====================
+
+/** DWS 聚合定义 */
+export interface DwsAggregate {
+  id: number
+  name: string
+  metric_id: number | null
+  source_dataset_id: number | null
+  group_by: string[]
+  filter: Record<string, any> | null
+  aggregation: string
+  measure_field: string | null
+  time_grain: string | null
+  business_definition: string | null
+  status: string
+  created_at?: string
+  updated_at?: string
+}
+
+/** 聚合定义列表 */
+export function listDwsAggregates(params: { metric_id?: number; status?: string; page?: number; page_size?: number } = {}) {
+  return api.get('/warehouse/dws-aggregates', { params }).then(r => r.data as PaginatedResponse<DwsAggregate>)
+}
+
+/** 聚合定义详情 */
+export function getDwsAggregate(id: number) {
+  return api.get(`/warehouse/dws-aggregates/${id}`).then(r => r.data as DwsAggregate)
+}
+
+/** 创建聚合定义 */
+export function createDwsAggregate(payload: Omit<DwsAggregate, 'id' | 'status' | 'created_at' | 'updated_at'>) {
+  return api.post('/warehouse/dws-aggregates', payload).then(r => r.data as DwsAggregate)
+}
+
+/** 更新聚合定义 */
+export function updateDwsAggregate(id: number, payload: Partial<DwsAggregate>) {
+  return api.patch(`/warehouse/dws-aggregates/${id}`, payload).then(r => r.data as DwsAggregate)
+}
+
+/** 删除聚合定义 */
+export function deleteDwsAggregate(id: number) {
+  return api.delete(`/warehouse/dws-aggregates/${id}`)
+}
+
+/** 发布聚合定义 */
+export function publishDwsAggregate(id: number) {
+  return api.post(`/warehouse/dws-aggregates/${id}/publish`).then(r => r.data as DwsAggregate)
+}
+
+/** 归档聚合定义 */
+export function archiveDwsAggregate(id: number) {
+  return api.post(`/warehouse/dws-aggregates/${id}/archive`).then(r => r.data as DwsAggregate)
+}
+
+/** 校验聚合定义 */
+export function validateDwsAggregate(payload: any) {
+  return api.post('/warehouse/dws-aggregates/validate', payload).then(r => r.data)
+}
+
+/** 生成 DWS 逻辑视图 */
+export function generateDwsView(aggId: number) {
+  return api.post(`/warehouse/dws-aggregates/${aggId}/generate-view`).then(r => r.data as {
+    aggregate_id: number; view_name: string; sql_summary: string
+    output_fields: string[]; dependencies: any[]; version: number; status: string
+  })
+}
+
+/** DWS 视图生成影响分析 */
+export function getDwsViewImpact(aggId: number) {
+  return api.get(`/warehouse/dws-aggregates/${aggId}/view-impact`).then(r => r.data as {
+    aggregate_id: number; aggregate_name: string; dependencies: any[]
+    warnings: string[]; estimated_output_fields: number
+  })
+}
+
+/** 聚合方式中文 */
+export const AGGREGATION_LABELS: Record<string, string> = {
+  sum: '求和', count: '计数', avg: '平均值', max: '最大值', min: '最小值',
+}
+
+/** 运行状态中文（指标运行） */
+export const METRIC_RUN_STATUS_LABELS: Record<string, string> = {
+  pending: '待运行', running: '运行中', success: '成功', failed: '失败',
+}
+
+// ==================== R01 标准化规则 ====================
+
+/** 标准化规则类型 */
+export const STANDARDIZATION_RULE_TYPES = [
+  'rename', 'type_convert', 'value_map', 'unit_convert',
+  'split_merge', 'deduplicate', 'null_handling', 'format_standardize',
+] as const
+
+/** 标准化规则类型中文 */
+export const STANDARDIZATION_RULE_LABELS: Record<string, string> = {
+  rename: '字段重命名', type_convert: '类型转换', value_map: '枚举映射',
+  unit_convert: '单位转换', split_merge: '拆分合并', deduplicate: '去重',
+  null_handling: '空值处理', format_standardize: '格式标准化',
+}
+
+/** 标准化规则 */
+export interface StandardizationRule {
+  id: number
+  asset_type: string
+  asset_code: string
+  rule_type: string
+  source_field: string
+  target_field: string
+  rule_config: Record<string, any>
+  enabled: boolean
+  display_order: number
+  description: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+/** 标准化模板 */
+export interface StandardizationTemplate {
+  id: number
+  name: string
+  description: string | null
+  business_object: string
+  template_rules: any[]
+  version: number
+  created_at?: string
+  updated_at?: string
+}
+
+export function listStandardizationRules(params: {
+  asset_type?: string; asset_code?: string; rule_type?: string
+  enabled?: boolean; page?: number; page_size?: number
+} = {}) {
+  return api.get('/warehouse/standardization-rules', { params }).then(r => r.data as PaginatedResponse<StandardizationRule>)
+}
+
+export function getStandardizationRule(id: number) {
+  return api.get(`/warehouse/standardization-rules/${id}`).then(r => r.data as StandardizationRule)
+}
+
+export function createStandardizationRule(payload: Partial<StandardizationRule>) {
+  return api.post('/warehouse/standardization-rules', payload).then(r => r.data as StandardizationRule)
+}
+
+export function updateStandardizationRule(id: number, payload: Partial<StandardizationRule>) {
+  return api.patch(`/warehouse/standardization-rules/${id}`, payload).then(r => r.data as StandardizationRule)
+}
+
+export function deleteStandardizationRule(id: number) {
+  return api.delete(`/warehouse/standardization-rules/${id}`)
+}
+
+export function enableStandardizationRule(id: number) {
+  return api.post(`/warehouse/standardization-rules/${id}/enable`).then(r => r.data as StandardizationRule)
+}
+
+export function disableStandardizationRule(id: number) {
+  return api.post(`/warehouse/standardization-rules/${id}/disable`).then(r => r.data as StandardizationRule)
+}
+
+export function listStandardizationTemplates(params: { business_object?: string; page?: number; page_size?: number } = {}) {
+  return api.get('/warehouse/standardization-templates', { params }).then(r => r.data as PaginatedResponse<StandardizationTemplate>)
+}
+
+export function createStandardizationTemplate(payload: Partial<StandardizationTemplate>) {
+  return api.post('/warehouse/standardization-templates', payload).then(r => r.data as StandardizationTemplate)
+}
+
+export function deleteStandardizationTemplate(id: number) {
+  return api.delete(`/warehouse/standardization-templates/${id}`)
+}
+
+export function loadTemplateToAsset(templateId: number, assetCode: string, assetType = 'table', onConflict = 'skip') {
+  return api.post(`/warehouse/standardization-templates/${templateId}/load`, {
+    asset_code: assetCode, asset_type: assetType, on_conflict: onConflict,
+  }).then(r => r.data)
+}
+
+export function previewStandardization(payload: {
+  asset_code: string; rule_ids: number[]; inline_rules: any[]; sample_size?: number
+}) {
+  return api.post('/warehouse/standardization-rules/preview', payload).then(r => r.data)
+}
+
+export function executeStandardization(assetCode: string, targetTable: string) {
+  return api.post('/warehouse/standardization-rules/execute', {
+    asset_code: assetCode, target_table: targetTable,
+  }).then(r => r.data as { total: number; success: number; failed: number; errors: any[]; target_table: string })
+}
+
+export function generateDwdView(assetCode: string, assetType = 'table') {
+  return api.post('/warehouse/standardization-rules/generate-dwd-view', {
+    asset_code: assetCode, asset_type: assetType,
+  }).then(r => r.data as { dataset_id: number; view_name: string; version: number })
+}

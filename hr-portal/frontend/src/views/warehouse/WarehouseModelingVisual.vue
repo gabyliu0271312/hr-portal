@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Delete, Finished, Search, Clock, Plus, Loading } from '@element-plus/icons-vue'
+import { ArrowLeft, Delete, Finished, Search, Clock, Plus, Loading, MagicStick } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import dagre from 'dagre'
 import {
@@ -11,10 +11,20 @@ import {
   type OutputFieldPayload, type PreviewResult, type Asset,
   type ModelVersion, type ModelPreviewV2,
 } from '@/api/warehouse'
+import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
+import type { DatasetCalculatedField } from '@/api/datasets'
 
 const route = useRoute(); const router = useRouter()
 const userStore = useUserStore()
 const modelId = route.params.id ? Number(route.params.id) : null
+
+// 计算字段弹窗
+const cfDialogVisible = ref(false)
+const cfLoading = ref(false)
+function onCalculatedFieldSaved(_field: DatasetCalculatedField) {
+  cfDialogVisible.value = false
+  ElMessage.success('计算字段已保存，请刷新输出字段列表')
+}
 const isNew = !modelId
 const canEdit = computed(() => isNew ? userStore.hasOp('warehouse.assets','C') : userStore.hasOp('warehouse.assets','U'))
 
@@ -314,7 +324,7 @@ onMounted(load)
       <div class="vm-right-panel">
         <el-tabs v-model="rightTab" class="vm-tabs" stretch>
           <el-tab-pane label="输出字段" name="fields">
-            <div class="vm-rp-header"><span style="font-size:12px;color:#909399">{{ outputFields.length }} 个字段</span><el-button size="small" :icon="Plus" @click="addOF">添加</el-button></div>
+            <div class="vm-rp-header"><span style="font-size:12px;color:#909399">{{ outputFields.length }} 个字段</span><div style="display:flex;gap:6px"><el-button v-if="modelId" size="small" :icon="MagicStick" @click="cfDialogVisible = true">计算字段</el-button><el-button size="small" :icon="Plus" @click="addOF">添加</el-button></div></div>
             <div class="vm-of-list">
               <div v-for="(f,i) in outputFields" :key="i" class="vm-of-card">
                 <div class="vm-of-row">
@@ -385,6 +395,11 @@ onMounted(load)
         <el-table-column label="发布时间" width="160"><template #default="{ row }">{{ row.published_at || '-' }}</template></el-table-column>
       </el-table>
       <el-empty v-if="!versions.length" description="暂无版本历史" :image-size="60" />
+    </el-dialog>
+
+    <!-- 计算字段弹窗 -->
+    <el-dialog v-model="cfDialogVisible" title="管理计算字段" width="800px" v-if="modelId">
+      <CalculatedFieldBridge :dataset-id="modelId" @saved="onCalculatedFieldSaved" />
     </el-dialog>
   </div>
 </template>

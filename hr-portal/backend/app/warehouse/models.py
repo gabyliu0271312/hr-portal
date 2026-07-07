@@ -123,3 +123,211 @@ class WarehouseModelVersion(Base):
     published_by = Column(BigInteger, nullable=True, comment="发布人 user.id")
     published_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# ==================== standardization_rules (R0102) ====================
+
+class StandardizationRule(Base):
+    """ODS→DWD 字段标准化规则
+
+    R0101 统一决策：全部字段级转换只用一张表承载，rule_type 8 类枚举。
+    规则执行顺序：rename → type_convert → value_map → unit_convert → split_merge → deduplicate → null_handling → format_standardize
+    """
+
+    __tablename__ = "standardization_rules"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    asset_type = Column(String(16), nullable=False, comment="table/dataset")
+    asset_code = Column(String(256), nullable=False, comment="ODS 表名或 DataSet ID")
+    rule_type = Column(
+        String(32), nullable=False,
+        comment="rename/type_convert/value_map/unit_convert/split_merge/deduplicate/null_handling/format_standardize",
+    )
+    source_field = Column(String(128), nullable=False, comment="ODS 源字段名")
+    target_field = Column(String(128), nullable=False, comment="DWD 目标字段名")
+    rule_config = Column(JSON, nullable=False, default=dict, comment="规则参数 JSON")
+    enabled = Column(Boolean, nullable=False, default=True, comment="是否启用")
+    display_order = Column(Integer, nullable=False, default=0, comment="同字段多条规则的执行顺序")
+    description = Column(String(512), nullable=True, comment="规则说明/备注")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==================== standardization_templates (R0106) ====================
+
+class StandardizationTemplate(Base):
+    """标准化规则模板
+
+    按业务对象（员工表、组织表等）沉淀可复用的标准化规则集。
+    template_rules 存储规则快照 JSON 数组，加载时写入 standardization_rules。
+    """
+
+    __tablename__ = "standardization_templates"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, comment="模板名称")
+    description = Column(String(512), nullable=True, comment="模板描述")
+    business_object = Column(String(64), nullable=False, comment="业务对象: 员工表/组织表/岗位表等")
+    template_rules = Column(JSON, nullable=False, default=list, comment="规则快照 JSON 数组")
+    version = Column(Integer, nullable=False, default=1, comment="版本号")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==================== dataset_builds (R0201) ====================
+
+class DatasetBuild(Base):
+    """数据集构建运行记录
+
+    记录每次数据集物化执行的状态和结果。"""
+    __tablename__ = "dataset_builds"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    dataset_id = Column(BigInteger, nullable=False, comment="关联 datasets.id")
+    status = Column(String(16), nullable=False, default="pending", comment="pending/running/success/failed")
+    layer_check_result = Column(JSON, nullable=True, comment="分层校验结果")
+    row_count = Column(Integer, nullable=True, comment="输出行数")
+    error_message = Column(Text, nullable=True, comment="错误摘要")
+    started_at = Column(DateTime, nullable=True, comment="开始时间")
+    finished_at = Column(DateTime, nullable=True, comment="结束时间")
+
+
+# ==================== metric_results / metric_runs (R0301) ====================
+
+class MetricResult(Base):
+    """指标计算结果
+
+    R0301: 按周期保存指标计算值，支持趋势展示和历史追溯。
+    """
+
+    __tablename__ = "metric_results"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    metric_id = Column(
+        BigInteger, ForeignKey("warehouse_metrics.id", ondelete="CASCADE"),
+        nullable=False, comment="关联 warehouse_metrics.id",
+    )
+    period = Column(String(32), nullable=False, comment="计算周期，如 2026-07/2026Q3/2026H1")
+    value = Column(JSON, nullable=False, comment="指标值（支持单值和复合值）")
+    computed_at = Column(DateTime, nullable=False, default=datetime.utcnow, comment="计算时间")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class MetricRun(Base):
+    """指标计算运行记录
+
+    R0301: 记录每次指标计算的执行状态和结果。
+    """
+
+    __tablename__ = "metric_runs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    metric_id = Column(
+        BigInteger, ForeignKey("warehouse_metrics.id", ondelete="CASCADE"),
+        nullable=False, comment="关联 warehouse_metrics.id",
+    )
+    status = Column(String(16), nullable=False, default="pending", comment="pending/running/success/failed")
+    error_message = Column(Text, nullable=True, comment="错误信息")
+    period = Column(String(32), nullable=True, comment="本次计算的周期")
+    result_id = Column(BigInteger, ForeignKey("metric_results.id", ondelete="SET NULL"), nullable=True, comment="关联计算结果")
+    started_at = Column(DateTime, nullable=True, comment="开始时间")
+    finished_at = Column(DateTime, nullable=True, comment="结束时间")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# ==================== dimensions (R0304) ====================
+
+class Dimension(Base):
+    """维度目录
+
+    R0304: 支持层级（父子关系）和字段绑定，为指标聚合提供统一维度口径。
+    使用 parent_id 自引用实现树形结构，bound_table + bound_field 绑定物理字段。
+    """
+
+    __tablename__ = "dimensions"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    dimension_code = Column(String(64), nullable=False, unique=True, comment="维度编码")
+    dimension_name = Column(String(128), nullable=False, comment="维度名称")
+    parent_id = Column(
+        BigInteger, ForeignKey("dimensions.id", ondelete="SET NULL"),
+        nullable=True, comment="父维度 ID，NULL 表示根节点",
+    )
+    bound_table = Column(String(128), nullable=True, comment="绑定物理表名")
+    bound_field = Column(String(128), nullable=True, comment="绑定物理字段名")
+    description = Column(String(512), nullable=True, comment="维度说明")
+    display_order = Column(Integer, nullable=False, default=0, comment="同级排序")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==================== dws_aggregate_definitions (R0307) ====================
+
+class DwsAggregateDefinition(Base):
+    """DWD → DWS 聚合定义
+
+    R0307: 基于指标定义和维度字段，定义从 DWD 明细到 DWS 汇总的聚合口径。
+    为后续 SQL/View 自动生成提供结构化输入。
+    """
+
+    __tablename__ = "dws_aggregate_definitions"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, comment="聚合定义名称")
+    metric_id = Column(
+        BigInteger, ForeignKey("warehouse_metrics.id", ondelete="SET NULL"),
+        nullable=True, comment="关联指标 ID",
+    )
+    source_dataset_id = Column(
+        BigInteger, ForeignKey("datasets.id", ondelete="SET NULL"),
+        nullable=True, comment="来源 DWD DataSet ID",
+    )
+    group_by = Column(JSON, nullable=False, default=list, comment="分组维度字段列表")
+    filter = Column(JSON, nullable=True, comment="过滤条件 JSON")
+    aggregation = Column(String(16), nullable=False, default="sum", comment="聚合方式: sum/count/avg/max/min")
+    measure_field = Column(String(128), nullable=True, comment="度量字段名")
+    time_grain = Column(String(16), nullable=True, comment="时间粒度: day/week/month/quarter/year")
+    business_definition = Column(Text, nullable=True, comment="业务口径说明")
+    status = Column(String(16), nullable=False, default="draft", comment="draft/published/archived")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==================== snapshot_jobs / snapshot_runs (R0401) ====================
+
+class SnapshotJob(Base):
+    """快照任务定义
+
+    R0401: 定义快照对象、周期和保留策略。
+    """
+
+    __tablename__ = "snapshot_jobs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, comment="快照任务名称")
+    source_table = Column(String(128), nullable=False, comment="源表名")
+    target_table = Column(String(128), nullable=False, comment="快照目标表名")
+    snapshot_keys = Column(JSON, nullable=False, default=list, comment="快照对象标识字段（如 employee_id）")
+    period = Column(String(16), nullable=False, default="monthly", comment="周期: daily/weekly/monthly/quarterly/yearly")
+    retention = Column(Integer, nullable=False, default=12, comment="保留最近 N 期，超出自动清理")
+    enabled = Column(Boolean, nullable=False, default=True)
+    last_run_at = Column(DateTime, nullable=True, comment="上次执行时间")
+    last_status = Column(String(16), nullable=True, comment="上次执行状态")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SnapshotRun(Base):
+    """快照任务执行记录"""
+
+    __tablename__ = "snapshot_runs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    job_id = Column(BigInteger, ForeignKey("snapshot_jobs.id", ondelete="CASCADE"), nullable=False, comment="关联快照任务")
+    status = Column(String(16), nullable=False, default="pending", comment="pending/running/success/failed")
+    period_value = Column(String(32), nullable=False, comment="快照周期值，如 2026-07")
+    row_count = Column(Integer, nullable=True, comment="快照行数")
+    error_message = Column(Text, nullable=True, comment="错误信息")
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

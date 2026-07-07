@@ -484,6 +484,32 @@ onMounted(() => {
           <!-- ====== 来源与开放 T0202 ====== -->
           <el-tab-pane label="来源与开放" name="endpoints">
             <div v-loading="endpointsLoading">
+              <!-- R0602: 开放状态摘要 -->
+              <el-card shadow="never" class="ep-section" style="border-left:3px solid" :style="{ borderLeftColor: asset.asset_status === 'published' ? '#10b981' : '#f59e0b' }">
+                <template #header><span style="font-weight:600">开放状态</span></template>
+                <div style="display:flex;gap:24px;flex-wrap:wrap">
+                  <div>
+                    <div style="font-size:11px;color:#909399;margin-bottom:4px">资产状态</div>
+                    <el-tag :type="asset.asset_status==='published'?'success':asset.asset_status==='draft'?'warning':'info'" size="default">{{ asset.asset_status==='published'?'已发布':asset.asset_status==='draft'?'草稿':asset.asset_status==='archived'?'已归档':asset.asset_status }}</el-tag>
+                  </div>
+                  <div>
+                    <div style="font-size:11px;color:#909399;margin-bottom:4px">BI / 报表消费</div>
+                    <el-tag :type="asset.asset_status==='published'?'success':'info'" size="default">{{ asset.asset_status==='published'?'可查询':'未开放' }}</el-tag>
+                  </div>
+                  <div>
+                    <div style="font-size:11px;color:#909399;margin-bottom:4px">API 暴露</div>
+                    <el-tag :type="(endpoints?.exposes?.length||0)>0?'success':'info'" size="default">{{ (endpoints?.exposes?.length||0)>0?`${endpoints?.exposes.length} 个端点`:'未配置' }}</el-tag>
+                  </div>
+                  <div>
+                    <div style="font-size:11px;color:#909399;margin-bottom:4px">推送目标</div>
+                    <el-tag :type="(endpoints?.pushes?.length||0)>0?'success':'info'" size="default">{{ (endpoints?.pushes?.length||0)>0?`${endpoints?.pushes.length} 个目标`:'未配置' }}</el-tag>
+                  </div>
+                </div>
+                <div v-if="asset.asset_status !== 'published'" style="margin-top:10px;font-size:12px;color:#e6a23c">
+                  资产未发布，外部系统无法消费。请先发布资产后再配置消费方式。
+                </div>
+              </el-card>
+
               <!-- 入仓来源 -->
               <el-card shadow="never" class="ep-section">
                 <template #header>

@@ -165,11 +165,55 @@ async def _handler_data_compare(
 
 # ===== 注册表 =====
 
+# ===== R0501: 仓内任务 handler =====
+
+async def _handler_dataset_build(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
+    """数据集构建 handler（占位）"""
+    dataset_id = (job.config or {}).get("dataset_id")
+    if not dataset_id:
+        raise ValueError("config.dataset_id is required")
+    return 0, f"dataset_build placeholder: dataset_id={dataset_id}"
+
+
+async def _handler_snapshot_run(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
+    """快照任务 handler"""
+    from app.warehouse.service import get_snapshot_service
+    period_value = (job.config or {}).get("period_value") or ""
+    if not period_value:
+        import datetime
+        period_value = datetime.datetime.utcnow().strftime("%Y-%m")
+    svc = get_snapshot_service(db)
+    result = await svc.trigger_snapshot((job.config or {}).get("job_id", 0), period_value)
+    if "error" in result:
+        raise RuntimeError(result.get("detail", "snapshot failed"))
+    return result.get("row_count", 0), f"snapshot: {result.get('status', 'unknown')}"
+
+
+async def _handler_metric_compute(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
+    """指标计算 handler（占位）"""
+    metric_id = (job.config or {}).get("metric_id")
+    if not metric_id:
+        raise ValueError("config.metric_id is required")
+    return 0, f"metric_compute placeholder: metric_id={metric_id}"
+
+
+async def _handler_quality_run(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
+    """质量检查 handler（占位）"""
+    rule_id = (job.config or {}).get("rule_id")
+    if not rule_id:
+        raise ValueError("config.rule_id is required")
+    return 0, f"quality_run placeholder: rule_id={rule_id}"
+
+
 JOB_HANDLERS: dict[str, HandlerFn] = {
     "datasource_sync": _handler_datasource_sync,
     "push_target": _handler_push_target,
     "report_run": _handler_report_run,
     "data_compare": _handler_data_compare,
+    "dataset_build": _handler_dataset_build,
+    "snapshot_run": _handler_snapshot_run,
+    "metric_compute": _handler_metric_compute,
+    "quality_run": _handler_quality_run,
 }
 
 

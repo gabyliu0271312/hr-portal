@@ -25,13 +25,12 @@ const isCreateMode = ref(false)
 const newColumnCode = ref('')
 const existingColumnCodes = computed(() => columns.value.map((c) => c.column_code))
 const editForm = ref({
-  column_label: '', data_type: 'string', agg_role: 'dimension',
+  column_label: '', agg_role: 'dimension',
   is_pk_part: false, is_sensitive: false, is_visible: true, copy_from_last_month: false,
-  is_computed: false, formula_expr: '', scope_role: '', display_order: 0, description: '',
+  scope_role: '', display_order: 0, description: '',
   enum_options: [] as string[],
 })
 const editSaving = ref(false)
-const originalDataType = ref('')
 
 // 影响分析
 const impactVisible = ref(false)
@@ -94,11 +93,10 @@ function openCreate() {
   isCreateMode.value = true
   selectedColumn.value = null
   newColumnCode.value = ''
-  originalDataType.value = ''
   editForm.value = {
-    column_label: '', data_type: 'string', agg_role: 'dimension',
+    column_label: '', agg_role: 'dimension',
     is_pk_part: false, is_sensitive: false, is_visible: true, copy_from_last_month: false,
-    is_computed: false, formula_expr: '', scope_role: '',
+    scope_role: '',
     display_order: (columns.value[columns.value.length - 1]?.display_order ?? 0) + 10,
     description: '', enum_options: [],
   }
@@ -109,11 +107,10 @@ function openCreate() {
 function enterEdit(col: AssetColumn) {
   isCreateMode.value = false
   selectedColumn.value = col
-  originalDataType.value = col.data_type
   editForm.value = {
-    column_label: col.column_label, data_type: col.data_type, agg_role: col.agg_role || 'dimension',
+    column_label: col.column_label, agg_role: col.agg_role || 'dimension',
     is_pk_part: col.is_pk_part, is_sensitive: col.is_sensitive, is_visible: col.is_visible,
-    copy_from_last_month: false, is_computed: col.is_computed, formula_expr: col.formula_expr || '',
+    copy_from_last_month: false,
     scope_role: col.scope_role || '', display_order: col.display_order, description: col.description || '',
     enum_options: Array.isArray(col.enum_options) ? [...col.enum_options] : [],
   }
@@ -125,27 +122,18 @@ function buildPayload(): ColumnUpdatePayload {
   const p: Record<string, any> = {
     column_code: isCreateMode.value ? newColumnCode.value : selectedColumn.value!.column_code,
     column_label: f.column_label,
-    data_type: f.data_type, is_pk_part: f.is_pk_part, is_sensitive: f.is_sensitive,
+    is_pk_part: f.is_pk_part, is_sensitive: f.is_sensitive,
     is_visible: f.is_visible, display_order: f.display_order,
     description: f.description || null, scope_role: f.scope_role || null,
     copy_from_last_month: f.copy_from_last_month, agg_role: f.agg_role,
-    is_computed: f.is_computed, formula_expr: f.is_computed ? (f.formula_expr || '') : null,
-    enum_options: f.data_type === 'enum' ? f.enum_options : null,
+    enum_options: null,
   }
-  if (!isCreateMode.value && originalDataType.value && originalDataType.value !== f.data_type) p.confirm_type_change = true
   return p as ColumnUpdatePayload
 }
 
 async function saveEdit() {
   if (!editForm.value.column_label.trim()) { ElMessage.warning('字段名称必填'); return }
   if (isCreateMode.value && !newColumnCode.value.trim()) { ElMessage.warning('字段编码必填'); return }
-  if (editForm.value.is_computed && !editForm.value.formula_expr.trim()) { ElMessage.warning('计算字段必须填写公式'); return }
-  if (!isCreateMode.value && selectedColumn.value && originalDataType.value && originalDataType.value !== editForm.value.data_type) {
-    try {
-      await ElMessageBox.confirm('已修改该字段的数据类型。若列中已有数据，系统会尝试按新类型转换；转换失败会拒绝保存。是否继续？',
-        '确认修改字段类型', { type: 'warning', confirmButtonText: '确认修改', cancelButtonText: '取消' })
-    } catch { return }
-  }
   editSaving.value = true
   try {
     if (isCreateMode.value) {
@@ -179,7 +167,8 @@ onMounted(load)
         <h2 style="margin: 0; font-size: 18px">{{ tableName }} · 字段定义</h2>
         <span style="color: #909399; font-size: 12px">拖拽行可调整排序</span>
       </div>
-      <el-button v-if="userStore.hasOp('warehouse.assets','C')" type="primary" size="small" :icon="Plus" @click="openCreate">新建</el-button>
+      <!-- 新建字段/计算字段已迁移至数据建模页 -->
+      <el-button size="small" @click="router.push('/warehouse/modeling')">去建模页管理字段</el-button>
     </div>
 
     <el-alert v-if="error" type="error" :title="error" show-icon :closable="false" style="margin-bottom: 16px" />
@@ -252,33 +241,10 @@ onMounted(load)
             <div style="font-size: 12px; color: #909399; margin-top: 2px">字段编码与源端 key 绑定，不可修改</div>
           </el-form-item>
 
-          <el-form-item label="数据类型">
-            <el-select v-model="editForm.data_type" style="width: 100%">
-              <el-option v-for="t in DATA_TYPES" :key="t" :label="DATA_TYPE_LABELS[t]" :value="t" />
-            </el-select>
-          </el-form-item>
-          <el-form-item v-if="editForm.data_type === 'enum'" label="可选项">
-            <el-select v-model="editForm.enum_options" multiple filterable allow-create default-first-option
-              :reserve-keyword="false" placeholder="输入一个选项后回车" style="width: 100%" />
-            <div v-if="editForm.enum_options.length" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px">
-              <span style="font-size: 12px; color: #909399">预览：</span>
-              <el-tag v-for="(opt, i) in editForm.enum_options" :key="opt" size="small" :type="i === 0 ? 'primary' : 'info'" :effect="i === 0 ? 'dark' : 'plain'">{{ opt }}<template v-if="i === 0"> · 默认</template></el-tag>
-            </div>
-          </el-form-item>
           <el-form-item label="维度/度量">
             <el-radio-group v-model="editForm.agg_role">
               <el-radio-button v-for="r in AGG_ROLES" :key="r.value" :value="r.value">{{ r.label }}</el-radio-button>
             </el-radio-group>
-          </el-form-item>
-          <el-form-item label="计算字段">
-            <el-switch v-model="editForm.is_computed" active-text="用本表已有字段做四则运算" />
-          </el-form-item>
-          <el-form-item v-if="editForm.is_computed" label="公式">
-            <el-input v-model="editForm.formula_expr" type="textarea" :rows="2" placeholder="如：[应发工资] + [社保] - 5000" />
-            <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center">
-              <span style="font-size: 12px; color: #909399">插入字段：</span>
-              <el-tag v-for="c in refOptions" :key="c.column_code" size="small" effect="plain" style="cursor: pointer" @click="insertRef(c.column_code)">{{ c.column_label }}</el-tag>
-            </div>
           </el-form-item>
           <el-form-item label="字段属性">
             <el-checkbox v-model="editForm.is_pk_part">参与业务主键</el-checkbox>

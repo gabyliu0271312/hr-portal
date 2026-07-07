@@ -4,6 +4,7 @@
 路由前缀: /api/v1/warehouse
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,8 +59,33 @@ from app.warehouse.lineage import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
 )
-from app.warehouse.models import WarehouseQualityRule, WarehouseQualityRun, WarehouseAlertRule, WarehouseModelVersion
+from app.warehouse.models import WarehouseQualityRule, WarehouseQualityRun, WarehouseAlertRule, WarehouseModelVersion, StandardizationRule, StandardizationTemplate
+from app.warehouse.models import MetricResult, MetricRun, Dimension, DwsAggregateDefinition
 from app.warehouse.quality_engine import execute_quality_rule, _safe_ident
+from app.warehouse.schemas import (
+    STANDARDIZATION_RULE_TYPES,
+    StandardizationRuleIn,
+    StandardizationRuleUpdateIn,
+    StandardizationRuleOut,
+    StandardizationTemplateIn,
+    StandardizationTemplateUpdateIn,
+    StandardizationTemplateOut,
+    TemplateLoadRequest,
+)
+from app.warehouse.service import get_standardization_rule_service, get_standardization_template_service
+from app.warehouse.service import get_metric_compute_service, get_dimension_service, get_dws_aggregate_service
+from app.warehouse.schemas import (
+    PreviewRequest, DwdViewGenerateRequest, DwdViewGenerateOut,
+    REFRESH_STRATEGIES, RefreshStrategyUpdateIn, RefreshStrategyOut,
+)
+from app.warehouse.schemas import (
+    MetricComputeIn, MetricComputeOut, MetricRecalcIn,
+    MetricResultOut, MetricRunOut, MetricResultsPaginatedOut,
+    DimensionCreateIn, DimensionUpdateIn, DimensionOut, DimensionTreeNode, DimensionImpactOut,
+    DwsAggregateDefinitionCreateIn, DwsAggregateDefinitionUpdateIn, DwsAggregateDefinitionOut,
+    DwsViewGenerateRequest, DwsViewGenerateOut,
+    DWS_AGGREGATIONS, DWS_TIME_GRAINS,
+)
 
 router = APIRouter(prefix="/warehouse", tags=["数据仓库"])
 
@@ -1859,3 +1885,928 @@ async def delete_alert_rule(rule_id: int, db: AsyncSession = Depends(get_session
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"告警规则不存在: {rule_id}")
     await db.delete(rule)
     await db.commit()
+
+
+# ==================== R0103 标准化规则 CRUD ====================
+
+
+def _validate_std_rule_type(value: str) -> None:
+    if value not in STANDARDIZATION_RULE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的 rule_type: {value}，允许值: {', '.join(STANDARDIZATION_RULE_TYPES)}",
+        )
+
+
+# --- R0103: 规则列表 ---
+
+@router.get(
+    "/standardization-rules",
+    summary="标准化规则列表",
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def list_std_rules(
+    asset_type: str | None = Query(None),
+    asset_code: str | None = Query(None),
+    rule_type: str | None = Query(None),
+    enabled: bool | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: AsyncSession = Depends(get_session),
+):
+    svc = get_standardization_rule_service(db)
+    return await svc.list_rules(
+        page=page, page_size=page_size,
+        asset_type=asset_type, asset_code=asset_code,
+        rule_type=rule_type, enabled=enabled,
+    )
+
+
+# --- R0103: 规则详情 ---
+
+@router.get(
+    "/standardization-rules/{rule_id}",
+    summary="标准化规则详情",
+    response_model=StandardizationRuleOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def get_std_rule(rule_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_standardization_rule_service(db)
+    rule = await svc.get_rule(rule_id)
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"标准化规则不存在: {rule_id}")
+    return rule
+
+
+# --- R0103: 创建规则 ---
+
+@router.post(
+    "/standardization-rules",
+    summary="创建标准化规则",
+    response_model=StandardizationRuleOut,
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.modeling", "C"))],
+)
+async def create_std_rule(
+    payload: StandardizationRuleIn,
+    db: AsyncSession = Depends(get_session),
+):
+    _validate_std_rule_type(payload.rule_type)
+    svc = get_standardization_rule_service(db)
+    return await svc.create_rule(payload.model_dump())
+
+
+# --- R0103: 更新规则 ---
+
+@router.patch(
+    "/standardization-rules/{rule_id}",
+    summary="更新标准化规则",
+    response_model=StandardizationRuleOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def update_std_rule(
+    rule_id: int,
+    payload: StandardizationRuleUpdateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    svc = get_standardization_rule_service(db)
+    rule = await svc.update_rule(rule_id, payload.model_dump(exclude_unset=True))
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"标准化规则不存在: {rule_id}")
+    return rule
+
+
+# --- R0103: 启用 ---
+
+@router.post(
+    "/standardization-rules/{rule_id}/enable",
+    summary="启用标准化规则",
+    response_model=StandardizationRuleOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def enable_std_rule(rule_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_standardization_rule_service(db)
+    rule = await svc.set_enabled(rule_id, True)
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"标准化规则不存在: {rule_id}")
+    return rule
+
+
+# --- R0103: 禁用 ---
+
+@router.post(
+    "/standardization-rules/{rule_id}/disable",
+    summary="禁用标准化规则",
+    response_model=StandardizationRuleOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def disable_std_rule(rule_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_standardization_rule_service(db)
+    rule = await svc.set_enabled(rule_id, False)
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"标准化规则不存在: {rule_id}")
+    return rule
+
+
+# --- R0103: 删除 ---
+
+@router.delete(
+    "/standardization-rules/{rule_id}",
+    summary="删除标准化规则",
+    status_code=204,
+    dependencies=[Depends(require_op("warehouse.modeling", "D"))],
+)
+async def delete_std_rule(rule_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_standardization_rule_service(db)
+    ok = await svc.delete_rule(rule_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"标准化规则不存在: {rule_id}")
+    return None
+
+
+# ==================== R0106 标准化模板 CRUD ====================
+
+
+@router.get(
+    "/standardization-templates",
+    summary="模板列表",
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def list_templates(
+    business_object: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: AsyncSession = Depends(get_session),
+):
+    svc = get_standardization_template_service(db)
+    return await svc.list_templates(page=page, page_size=page_size, business_object=business_object)
+
+
+@router.get(
+    "/standardization-templates/{template_id}",
+    summary="模板详情",
+    response_model=StandardizationTemplateOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def get_template(template_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_standardization_template_service(db)
+    tpl = await svc.get_template(template_id)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail=f"模板不存在: {template_id}")
+    return tpl
+
+
+@router.post(
+    "/standardization-templates",
+    summary="创建模板",
+    response_model=StandardizationTemplateOut,
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.modeling", "C"))],
+)
+async def create_template(
+    payload: StandardizationTemplateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    svc = get_standardization_template_service(db)
+    return await svc.create_template(payload.model_dump())
+
+
+@router.patch(
+    "/standardization-templates/{template_id}",
+    summary="更新模板",
+    response_model=StandardizationTemplateOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def update_template(
+    template_id: int,
+    payload: StandardizationTemplateUpdateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    svc = get_standardization_template_service(db)
+    tpl = await svc.update_template(template_id, payload.model_dump(exclude_unset=True))
+    if tpl is None:
+        raise HTTPException(status_code=404, detail=f"模板不存在: {template_id}")
+    return tpl
+
+
+@router.delete(
+    "/standardization-templates/{template_id}",
+    summary="删除模板",
+    status_code=204,
+    dependencies=[Depends(require_op("warehouse.modeling", "D"))],
+)
+async def delete_template(template_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_standardization_template_service(db)
+    ok = await svc.delete_template(template_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"模板不存在: {template_id}")
+    return None
+
+
+@router.post(
+    "/standardization-templates/{template_id}/load",
+    summary="加载模板到表",
+    status_code=200,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def load_template(
+    template_id: int,
+    payload: TemplateLoadRequest,
+    db: AsyncSession = Depends(get_session),
+):
+    svc = get_standardization_template_service(db)
+    result = await svc.load_template_to_asset(
+        template_id, payload.asset_code, payload.asset_type, payload.on_conflict,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"模板不存在: {template_id}")
+    return result
+
+
+# ==================== R0107 标准化预览 ====================
+
+
+@router.post(
+    "/standardization-rules/preview",
+    summary="预览标准化结果",
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def preview_standardization(
+    payload: PreviewRequest,
+    db: AsyncSession = Depends(get_session),
+):
+    """对 ODS 数据采样并预览标准化结果。
+
+    支持两种方式传入规则：
+    - rule_ids: 已保存的规则 ID（从 DB 加载）
+    - inline_rules: 未保存的规则配置（保存前预览）
+    两种方式可同时使用，inline_rules 会排在已保存规则之后执行。
+    """
+    svc = get_standardization_rule_service(db)
+    rules = []
+
+    # 加载已保存的规则
+    for rid in payload.rule_ids:
+        r = await svc.get_rule(rid)
+        if r:
+            rules.append({
+                "rule_type": r.rule_type,
+                "source_field": r.source_field,
+                "target_field": r.target_field,
+                "rule_config": r.rule_config,
+                "display_order": r.display_order,
+            })
+
+    # 追加 inline 规则
+    for ir in payload.inline_rules:
+        rules.append({
+            "rule_type": ir.rule_type,
+            "source_field": ir.source_field,
+            "target_field": ir.target_field,
+            "rule_config": ir.rule_config,
+            "display_order": ir.display_order,
+        })
+
+    if not rules:
+        raise HTTPException(status_code=400, detail="至少提供一条规则（rule_ids 或 inline_rules）")
+
+    preview_result = await svc.preview(
+        asset_code=payload.asset_code,
+        rules=rules,
+        sample_size=payload.sample_size,
+    )
+    if preview_result is None:
+        raise HTTPException(status_code=404, detail=f"ODS 表不存在: {payload.asset_code}")
+
+    if "error" in preview_result:
+        raise HTTPException(status_code=400, detail=preview_result["error"])
+
+    return preview_result
+
+
+# ==================== R0108 DWD 视图生成 ====================
+
+
+@router.post(
+    "/standardization-rules/generate-dwd-view",
+    summary="发布为 DWD 视图",
+    response_model=DwdViewGenerateOut,
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.modeling", "C"))],
+)
+async def generate_dwd_view(
+    payload: DwdViewGenerateRequest,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """基于 ODS 表的标准化规则生成 DWD 逻辑视图（DataSet）。
+
+    - 首次生成创建新 DataSet（warehouse_layer=DWD）
+    - 重复生成更新已有 DataSet，版本号 +1
+    - 输出字段和 SQL 视图定义自动刷新
+    """
+    svc = get_standardization_rule_service(db)
+    result = await svc.generate_dwd_view(
+        asset_code=payload.asset_code,
+        asset_type=payload.asset_type,
+        owner_user_id=user.id if user else None,
+        owner_name=user.username if user else None,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"ODS 表 {payload.asset_code} 没有启用的标准化规则，无法生成 DWD 视图",
+        )
+    return result
+
+
+# ==================== R01 全量执行 ODS→DWD ====================
+
+
+class ExecuteFullRequest(BaseModel):
+    asset_code: str = Field(..., description="ODS 来源表名")
+    target_table: str = Field(..., description="DWD 目标表名")
+
+
+@router.post(
+    "/standardization-rules/execute",
+    summary="全量执行 ODS→DWD 标准化",
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def execute_standardization(
+    payload: ExecuteFullRequest,
+    db: AsyncSession = Depends(get_session),
+):
+    """对 ODS 表全量执行所有已启用的标准化规则，写入 DWD 目标表。
+
+    - 读取 ODS 全部数据 → 逐规则转换 → 写入目标表
+    - 目标表已存在时 DROP + CREATE 重建
+    - 自动注册到数据资产目录（warehouse_layer=DWD）
+    - 返回成功/失败行数和错误明细
+
+    权限要求：warehouse.modeling:U
+    """
+    svc = get_standardization_rule_service(db)
+    result = await svc.execute_full(
+        asset_code=payload.asset_code,
+        target_table=payload.target_table,
+    )
+    if "error" in result:
+        code_map = {"no_rules": 400, "empty": 200, "read_failed": 500, "transform_failed": 500, "no_target": 400, "invalid_target": 400, "write_failed": 500}
+        status = code_map.get(result["error"], 500)
+        raise HTTPException(status_code=status, detail=result.get("detail", str(result)))
+    return result
+
+
+# ==================== R0202 数据集物化构建 ====================
+
+
+@router.post(
+    "/datasets/{dataset_id}/build",
+    summary="构建/物化数据集",
+    status_code=202,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def build_dataset(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """将 virtual DataSet 物化为物理表。
+
+    - 校验分层流转（ODS→DWD→DWS→ADS），非法跳转返回 400
+    - 只处理已入仓数据，不触发 UCP/DataSource 实时拉取
+    """
+    svc = _svc(db)
+    result = await svc.build_dataset(dataset_id)
+
+    if "error" in result:
+        code_map = {"not_found": 404, "build_mode": 400, "layer_check": 400}
+        raise HTTPException(
+            status_code=code_map.get(result["error"], 500),
+            detail=result["detail"],
+        )
+
+    return result
+
+
+# ==================== R0204 刷新策略 ====================
+
+
+@router.get(
+    "/datasets/{dataset_id}/refresh-strategy",
+    summary="获取数据集刷新策略",
+    response_model=RefreshStrategyOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def get_refresh_strategy(dataset_id: int, db: AsyncSession = Depends(get_session)):
+    """获取数据集的 build_mode 和 refresh_strategy。"""
+    from app.datasets.models import DataSet
+    ds = await db.get(DataSet, dataset_id)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {dataset_id}")
+    return RefreshStrategyOut(
+        dataset_id=ds.id,
+        refresh_strategy=getattr(ds, "refresh_strategy", "manual") or "manual",
+        build_mode=getattr(ds, "build_mode", "virtual") or "virtual",
+    )
+
+
+@router.patch(
+    "/datasets/{dataset_id}/refresh-strategy",
+    summary="更新数据集刷新策略",
+    response_model=RefreshStrategyOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def update_refresh_strategy(
+    dataset_id: int,
+    payload: RefreshStrategyUpdateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    from app.datasets.models import DataSet
+    from app.warehouse.schemas import REFRESH_STRATEGIES
+
+    if payload.refresh_strategy not in REFRESH_STRATEGIES:
+        raise HTTPException(status_code=400, detail=f"无效策略: {payload.refresh_strategy}，允许: {', '.join(REFRESH_STRATEGIES)}")
+
+    ds = await db.get(DataSet, dataset_id)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {dataset_id}")
+    ds.refresh_strategy = payload.refresh_strategy
+    await db.commit()
+    await db.refresh(ds)
+    return RefreshStrategyOut(
+        dataset_id=ds.id,
+        refresh_strategy=ds.refresh_strategy,
+        build_mode=getattr(ds, "build_mode", "virtual") or "virtual",
+    )
+
+
+# ==================== R0302 指标计算 ====================
+
+
+@router.post(
+    "/metrics/{metric_id}/compute",
+    summary="触发指标计算",
+    response_model=MetricComputeOut,
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def compute_metric(
+    metric_id: int,
+    payload: MetricComputeIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """触发单次指标计算，同步返回结果。
+
+    已归档指标不可计算（400）。
+    权限要求：warehouse.metrics:U
+    """
+    svc = get_metric_compute_service(db)
+    result = await svc.compute_metric(metric_id, payload.period, user.id)
+    if "error" in result:
+        code_map = {"not_found": 404, "bad_request": 400}
+        raise HTTPException(status_code=code_map.get(result["error"], 500), detail=result["detail"])
+    await db.commit()
+    return result
+
+
+@router.post(
+    "/metrics/{metric_id}/recalc",
+    summary="重算指标",
+    response_model=MetricComputeOut,
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def recalc_metric(
+    metric_id: int,
+    payload: MetricRecalcIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """重算指标，覆盖同周期已有结果。
+
+    权限要求：warehouse.metrics:U
+    """
+    svc = get_metric_compute_service(db)
+    result = await svc.recalc_metric(metric_id, payload.period, user.id)
+    if "error" in result:
+        code_map = {"not_found": 404, "bad_request": 400}
+        raise HTTPException(status_code=code_map.get(result["error"], 500), detail=result["detail"])
+    await db.commit()
+    return result
+
+
+@router.get(
+    "/metrics/{metric_id}/results",
+    summary="指标计算结果历史",
+    response_model=MetricResultsPaginatedOut,
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def list_metric_results(
+    metric_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: AsyncSession = Depends(get_session),
+):
+    """查询指标计算结果列表（按周期倒序）。
+
+    指标不存在时返回 404。
+    权限要求：warehouse.metrics:V
+    """
+    from app.datasets.models import WarehouseMetric
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+
+    svc = get_metric_compute_service(db)
+    return await svc.list_results(metric_id, page=page, page_size=page_size)
+
+
+@router.get(
+    "/metrics/{metric_id}/runs",
+    summary="指标运行记录",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def list_metric_runs(
+    metric_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: AsyncSession = Depends(get_session),
+):
+    """查询指标计算运行记录（按时间倒序）。
+
+    指标不存在时返回 404。
+    权限要求：warehouse.metrics:V
+    """
+    from app.datasets.models import WarehouseMetric
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+
+    svc = get_metric_compute_service(db)
+    return await svc.list_runs(metric_id, page=page, page_size=page_size)
+
+
+# ==================== R0305 维度定义 CRUD ====================
+
+
+@router.get(
+    "/dimensions",
+    summary="维度列表",
+    response_model=list[DimensionOut],
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def list_dimensions(db: AsyncSession = Depends(get_session)):
+    """获取所有维度的平铺列表。
+
+    权限要求：warehouse.modeling:V
+    """
+    svc = get_dimension_service(db)
+    return await svc.list_dimensions()
+
+
+@router.get(
+    "/dimensions/tree",
+    summary="维度层级树",
+    response_model=list[DimensionTreeNode],
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def get_dimension_tree(db: AsyncSession = Depends(get_session)):
+    """获取维度的层级树结构。
+
+    权限要求：warehouse.modeling:V
+    """
+    svc = get_dimension_service(db)
+    return await svc.get_tree()
+
+
+@router.get(
+    "/dimensions/{dim_id}",
+    summary="维度详情",
+    response_model=DimensionOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def get_dimension(dim_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_dimension_service(db)
+    result = await svc.get_dimension(dim_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"维度不存在: {dim_id}")
+    return result
+
+
+@router.post(
+    "/dimensions",
+    summary="创建维度",
+    response_model=DimensionOut,
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.modeling", "C"))],
+)
+async def create_dimension(payload: DimensionCreateIn, db: AsyncSession = Depends(get_session)):
+    """创建维度（dimension_code 唯一；parent_id 校验循环引用）。
+
+    权限要求：warehouse.modeling:C
+    """
+    svc = get_dimension_service(db)
+    try:
+        result = await svc.create_dimension(payload.model_dump())
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch(
+    "/dimensions/{dim_id}",
+    summary="更新维度",
+    response_model=DimensionOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def update_dimension(
+    dim_id: int,
+    payload: DimensionUpdateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    svc = get_dimension_service(db)
+    try:
+        d = await svc.update_dimension(dim_id, payload.model_dump(exclude_unset=True))
+        if d is None:
+            raise HTTPException(status_code=404, detail=f"维度不存在: {dim_id}")
+        await db.commit()
+        await db.refresh(d)
+        return await svc.get_dimension(dim_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete(
+    "/dimensions/{dim_id}",
+    summary="删除维度",
+    status_code=204,
+    dependencies=[Depends(require_op("warehouse.modeling", "D"))],
+)
+async def delete_dimension(dim_id: int, db: AsyncSession = Depends(get_session)):
+    """删除维度，子维度自动置为根节点。
+
+    权限要求：warehouse.modeling:D
+    """
+    svc = get_dimension_service(db)
+    ok = await svc.delete_dimension(dim_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"维度不存在: {dim_id}")
+    await db.commit()
+    return None
+
+
+@router.get(
+    "/dimensions/{dim_id}/impact",
+    summary="维度删除影响分析",
+    response_model=DimensionImpactOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def get_dimension_impact(dim_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_dimension_service(db)
+    result = await svc.get_impact(dim_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"维度不存在: {dim_id}")
+    return result
+
+
+# ==================== R0308 DWS 聚合定义 CRUD ====================
+
+
+def _validate_aggregation(value: str) -> None:
+    if value not in DWS_AGGREGATIONS:
+        raise HTTPException(400, detail=f"无效的 aggregation: {value}，允许值: {', '.join(DWS_AGGREGATIONS)}")
+
+
+@router.get(
+    "/dws-aggregates",
+    summary="DWS 聚合定义列表",
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def list_dws_aggregates(
+    metric_id: int | None = Query(None),
+    status: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: AsyncSession = Depends(get_session),
+):
+    svc = get_dws_aggregate_service(db)
+    return await svc.list_aggregates(metric_id=metric_id, status=status, page=page, page_size=page_size)
+
+
+@router.get(
+    "/dws-aggregates/{agg_id}",
+    summary="DWS 聚合定义详情",
+    response_model=DwsAggregateDefinitionOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def get_dws_aggregate(agg_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_dws_aggregate_service(db)
+    result = await svc.get_aggregate(agg_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"聚合定义不存在: {agg_id}")
+    return result
+
+
+@router.post(
+    "/dws-aggregates",
+    summary="创建 DWS 聚合定义",
+    response_model=DwsAggregateDefinitionOut,
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.modeling", "C"))],
+)
+async def create_dws_aggregate(
+    payload: DwsAggregateDefinitionCreateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    _validate_aggregation(payload.aggregation)
+    svc = get_dws_aggregate_service(db)
+    try:
+        result = await svc.create_aggregate(payload.model_dump())
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch(
+    "/dws-aggregates/{agg_id}",
+    summary="更新 DWS 聚合定义",
+    response_model=DwsAggregateDefinitionOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def update_dws_aggregate(
+    agg_id: int,
+    payload: DwsAggregateDefinitionUpdateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    svc = get_dws_aggregate_service(db)
+    data = payload.model_dump(exclude_unset=True)
+    if "aggregation" in data:
+        _validate_aggregation(data["aggregation"])
+    try:
+        a = await svc.update_aggregate(agg_id, data)
+        if a is None:
+            raise HTTPException(status_code=404, detail=f"聚合定义不存在: {agg_id}")
+        await db.commit()
+        await db.refresh(a)
+        return await svc.get_aggregate(agg_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete(
+    "/dws-aggregates/{agg_id}",
+    summary="删除 DWS 聚合定义",
+    status_code=204,
+    dependencies=[Depends(require_op("warehouse.modeling", "D"))],
+)
+async def delete_dws_aggregate(agg_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_dws_aggregate_service(db)
+    ok = await svc.delete_aggregate(agg_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"聚合定义不存在: {agg_id}")
+    await db.commit()
+    return None
+
+
+@router.post(
+    "/dws-aggregates/{agg_id}/publish",
+    summary="发布 DWS 聚合定义",
+    response_model=DwsAggregateDefinitionOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def publish_dws_aggregate(agg_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_dws_aggregate_service(db)
+    try:
+        result = await svc.publish_aggregate(agg_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"聚合定义不存在: {agg_id}")
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/dws-aggregates/{agg_id}/archive",
+    summary="归档 DWS 聚合定义",
+    response_model=DwsAggregateDefinitionOut,
+    dependencies=[Depends(require_op("warehouse.modeling", "U"))],
+)
+async def archive_dws_aggregate(agg_id: int, db: AsyncSession = Depends(get_session)):
+    svc = get_dws_aggregate_service(db)
+    try:
+        result = await svc.archive_aggregate(agg_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"聚合定义不存在: {agg_id}")
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/dws-aggregates/validate",
+    summary="校验 DWS 聚合定义",
+    dependencies=[Depends(require_op("warehouse.modeling", "C"))],
+)
+async def validate_dws_aggregate(
+    payload: DwsAggregateDefinitionCreateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    """保存前校验聚合定义的合法性。
+
+    权限要求：warehouse.modeling:C
+    """
+    svc = get_dws_aggregate_service(db)
+    return await svc.validate_aggregate(payload.model_dump())
+
+
+# ==================== R0310 DWS 视图生成 ====================
+
+
+@router.post(
+    "/dws-aggregates/{agg_id}/generate-view",
+    summary="生成 DWS 逻辑视图",
+    response_model=DwsViewGenerateOut,
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.modeling", "C"))],
+)
+async def generate_dws_view(
+    agg_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """根据已发布的聚合定义生成 DWS 逻辑视图（DataSet 资产）。
+
+    聚合定义不存在时返回 404。
+    权限要求：warehouse.modeling:C
+    """
+    svc = get_dws_aggregate_service(db)
+    result = await svc.generate_dws_view(agg_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"聚合定义不存在: {agg_id}")
+    await db.commit()
+    return result
+
+
+@router.get(
+    "/dws-aggregates/{agg_id}/view-impact",
+    summary="DWS 视图生成影响分析",
+    dependencies=[Depends(require_op("warehouse.modeling", "V"))],
+)
+async def get_dws_view_impact(agg_id: int, db: AsyncSession = Depends(get_session)):
+    """生成视图前的影响分析：依赖模型、警告信息、预计输出字段。
+
+    权限要求：warehouse.modeling:V
+    """
+    svc = get_dws_aggregate_service(db)
+    result = await svc.get_view_impact(agg_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"聚合定义不存在: {agg_id}")
+    return result
+
+
+# ==================== R04 快照管理 ====================
+
+from app.warehouse.service import get_snapshot_service
+
+
+@router.get("/snapshots", summary="快照任务列表", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
+async def list_snapshots(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200), db: AsyncSession = Depends(get_session)):
+    return await get_snapshot_service(db).list_jobs(page=page, page_size=page_size)
+
+
+@router.post("/snapshots", summary="创建快照任务", status_code=201, dependencies=[Depends(require_op("warehouse.modeling", "C"))])
+async def create_snapshot(payload: dict, db: AsyncSession = Depends(get_session)):
+    return await get_snapshot_service(db).create_job(payload)
+
+
+@router.patch("/snapshots/{job_id}", summary="更新快照任务", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
+async def update_snapshot(job_id: int, payload: dict, db: AsyncSession = Depends(get_session)):
+    result = await get_snapshot_service(db).update_job(job_id, payload)
+    if result is None: raise HTTPException(status_code=404, detail=f"快照任务不存在: {job_id}")
+    return result
+
+
+@router.delete("/snapshots/{job_id}", summary="删除快照任务", status_code=204, dependencies=[Depends(require_op("warehouse.modeling", "D"))])
+async def delete_snapshot(job_id: int, db: AsyncSession = Depends(get_session)):
+    ok = await get_snapshot_service(db).delete_job(job_id)
+    if not ok: raise HTTPException(status_code=404, detail=f"快照任务不存在: {job_id}")
+
+
+@router.post("/snapshots/{job_id}/trigger", summary="手动触发快照", status_code=201, dependencies=[Depends(require_op("warehouse.modeling", "U"))])
+async def trigger_snapshot(job_id: int, payload: dict, db: AsyncSession = Depends(get_session)):
+    period = payload.get("period_value", "")
+    if not period: raise HTTPException(status_code=400, detail="period_value 为必填")
+    result = await get_snapshot_service(db).trigger_snapshot(job_id, period)
+    if "error" in result: raise HTTPException(status_code=404, detail="快照任务不存在")
+    return result
+
+
+@router.get("/snapshots/runs", summary="快照运行记录", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
+async def list_snapshot_runs(job_id: int = Query(None), page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200), db: AsyncSession = Depends(get_session)):
+    return await get_snapshot_service(db).list_runs(job_id=job_id, page=page, page_size=page_size)

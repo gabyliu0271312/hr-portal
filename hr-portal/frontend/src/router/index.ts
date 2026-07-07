@@ -247,10 +247,34 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '可视化建模', menuCode: 'warehouse.modeling', hideAside: true },
       },
       {
+        path: 'warehouse/data-recipe',
+        name: 'WarehouseDataRecipe',
+        component: () => import('@/views/warehouse/WarehouseDataRecipe.vue'),
+        meta: { label: '数据加工', menuCode: 'warehouse.modeling' },
+      },
+      {
+        path: 'warehouse/snapshots',
+        name: 'WarehouseSnapshots',
+        component: () => import('@/views/warehouse/WarehouseSnapshots.vue'),
+        meta: { label: '快照管理', menuCode: 'warehouse.modeling' },
+      },
+      {
         path: 'warehouse/metrics',
         name: 'WarehouseMetrics',
         component: () => import('@/views/warehouse/WarehouseMetrics.vue'),
         meta: { label: '指标管理', menuCode: 'warehouse.metrics' },
+      },
+      {
+        path: 'warehouse/dimensions',
+        name: 'WarehouseDimension',
+        component: () => import('@/views/warehouse/WarehouseDimension.vue'),
+        meta: { label: '维度管理', menuCode: 'warehouse.dimensions' },
+      },
+      {
+        path: 'warehouse/dws-aggregates',
+        name: 'WarehouseDwsAggregate',
+        component: () => import('@/views/warehouse/WarehouseDwsAggregate.vue'),
+        meta: { label: 'DWS 聚合', menuCode: 'warehouse.dws_aggregates' },
       },
       {
         path: 'warehouse/governance',

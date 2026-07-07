@@ -625,3 +625,393 @@ class WarehouseAlertRuleOut(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+# ==================== 标准化规则 (R0102-R0107) ====================
+
+STANDARDIZATION_RULE_TYPES = (
+    "rename", "type_convert", "value_map", "unit_convert",
+    "split_merge", "deduplicate", "null_handling", "format_standardize",
+)
+
+
+class StandardizationRuleIn(BaseModel):
+    """标准化规则创建/更新入参"""
+    asset_type: str = Field(..., max_length=16, description="table/dataset")
+    asset_code: str = Field(..., max_length=256, description="ODS 表名或 DataSet ID")
+    rule_type: str = Field(..., max_length=32, description="8 类枚举之一")
+    source_field: str = Field(..., max_length=128, description="ODS 源字段名")
+    target_field: str = Field(..., max_length=128, description="DWD 目标字段名")
+    rule_config: dict = Field(default_factory=dict, description="规则参数 JSON")
+    enabled: bool = True
+    display_order: int = Field(0, ge=0)
+    description: Optional[str] = Field(None, max_length=512)
+
+
+class StandardizationRuleUpdateIn(BaseModel):
+    """标准化规则部分更新入参"""
+    rule_config: Optional[dict] = None
+    enabled: Optional[bool] = None
+    display_order: Optional[int] = Field(None, ge=0)
+    description: Optional[str] = Field(None, max_length=512)
+
+
+class StandardizationRuleOut(BaseModel):
+    """标准化规则响应"""
+    id: int
+    asset_type: str
+    asset_code: str
+    rule_type: str
+    source_field: str
+    target_field: str
+    rule_config: dict
+    enabled: bool
+    display_order: int = 0
+    description: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ==================== 标准化模板 (R0106) ====================
+
+
+class TemplateRuleEntry(BaseModel):
+    """模板内单条规则快照"""
+    rule_type: str = Field(..., max_length=32)
+    source_field: str = Field(..., max_length=128)
+    target_field: str = Field(..., max_length=128)
+    rule_config: dict = Field(default_factory=dict)
+    display_order: int = Field(0, ge=0)
+    description: Optional[str] = Field(None, max_length=512)
+
+
+class StandardizationTemplateIn(BaseModel):
+    """创建/更新模板入参"""
+    name: str = Field(..., max_length=128)
+    description: Optional[str] = Field(None, max_length=512)
+    business_object: str = Field(..., max_length=64, description="业务对象: 员工表/组织表/岗位表等")
+    template_rules: list[TemplateRuleEntry] = Field(default_factory=list, description="规则快照列表")
+
+
+class StandardizationTemplateUpdateIn(BaseModel):
+    """部分更新模板"""
+    name: Optional[str] = Field(None, max_length=128)
+    description: Optional[str] = Field(None, max_length=512)
+    template_rules: Optional[list[TemplateRuleEntry]] = None
+
+
+class StandardizationTemplateOut(BaseModel):
+    """模板响应"""
+    id: int
+    name: str
+    description: Optional[str] = None
+    business_object: str
+    template_rules: list[dict] = []
+    version: int = 1
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class TemplateLoadRequest(BaseModel):
+    """模板加载请求"""
+    asset_code: str = Field(..., max_length=256, description="目标 ODS 表名或 DataSet ID")
+    asset_type: str = Field("table", max_length=16, description="table/dataset")
+    on_conflict: str = Field("skip", description="冲突策略: skip(跳过已有规则) / overwrite(覆盖已有规则)")
+
+
+# ==================== 预览 (R0107) ====================
+
+
+class PreviewRuleInput(BaseModel):
+    """预览用规则输入（不要求已保存）"""
+    rule_type: str = Field(..., max_length=32)
+    source_field: str = Field(..., max_length=128)
+    target_field: str = Field(..., max_length=128)
+    rule_config: dict = Field(default_factory=dict)
+    display_order: int = Field(0, ge=0)
+
+
+class PreviewRequest(BaseModel):
+    """预览请求"""
+    asset_code: str = Field(..., max_length=256, description="ODS 表名或 DataSet ID")
+    sample_size: int = Field(20, ge=1, le=500, description="采样行数")
+    rule_ids: list[int] = Field(default_factory=list, description="已保存规则 ID 列表")
+    inline_rules: list[PreviewRuleInput] = Field(
+        default_factory=list, description="未保存的规则（用于保存前预览）"
+    )
+
+
+class FieldChangeOut(BaseModel):
+    """单字段变更"""
+    field: str
+    before: Optional[str] = None
+    after: Optional[str] = None
+    changed: bool = False
+    error: Optional[str] = None
+
+
+class PreviewRowOut(BaseModel):
+    """预览单行"""
+    row_index: int
+    fields: list[FieldChangeOut] = []
+
+
+class PreviewSummary(BaseModel):
+    """预览摘要"""
+    total_sampled: int = 0
+    rows_with_changes: int = 0
+    fields_changed: int = 0
+    errors: int = 0
+    rows_to_drop: int = 0  # null_handling drop_row 会丢弃的行数
+    rows_to_dedup: int = 0  # deduplicate 会移除的重复行数
+
+
+class PreviewOut(BaseModel):
+    """预览响应"""
+    asset_code: str
+    sample_size: int
+    columns: list[str] = []
+    rows: list[PreviewRowOut] = []
+    summary: PreviewSummary = PreviewSummary()
+
+
+# ==================== DWD 视图生成 (R0108) ====================
+
+
+class DwdViewGenerateRequest(BaseModel):
+    """DWD 视图生成请求"""
+    asset_code: str = Field(..., max_length=256, description="ODS 表名")
+    asset_type: str = Field("table", max_length=16, description="table/dataset")
+
+
+class DwdViewGenerateOut(BaseModel):
+    """DWD 视图生成响应"""
+    dataset_id: int
+    dataset_name: str
+    warehouse_layer: str = "DWD"
+    version: int = 1
+    view_sql: str = ""
+    output_fields_count: int = 0
+    rules_count: int = 0
+
+
+# ==================== 数据集构建 (R0201-R0202) ====================
+
+BUILD_STATUSES = ("pending", "running", "success", "failed")
+
+
+class DatasetBuildOut(BaseModel):
+    """构建运行记录响应"""
+    id: int
+    dataset_id: int
+    status: str
+    layer_check_result: Optional[dict] = None
+    row_count: Optional[int] = None
+    error_message: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ==================== 刷新策略 (R0204) ====================
+
+REFRESH_STRATEGIES = ("manual", "full", "incremental")
+
+
+class RefreshStrategyUpdateIn(BaseModel):
+    refresh_strategy: str = Field(..., max_length=32, description="manual/full/incremental")
+
+
+class RefreshStrategyOut(BaseModel):
+    dataset_id: int
+    refresh_strategy: str = "manual"
+    build_mode: str = "virtual"
+
+
+# ==================== 指标计算 (R0302) ====================
+
+METRIC_RUN_STATUSES = ("pending", "running", "success", "failed")
+METRIC_COMPUTE_PERIODS = ("day", "week", "month", "quarter", "year")
+
+
+class MetricResultOut(BaseModel):
+    """指标计算结果"""
+    id: int
+    metric_id: int
+    period: str
+    value: dict
+    computed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class MetricRunOut(BaseModel):
+    """指标计算运行记录"""
+    id: int
+    metric_id: int
+    status: str
+    error_message: Optional[str] = None
+    period: Optional[str] = None
+    result_id: Optional[int] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class MetricComputeIn(BaseModel):
+    """触发指标计算入参"""
+    period: str = Field(..., max_length=32, description="计算周期: 2026-07/2026Q3/2026H1")
+
+
+class MetricComputeOut(BaseModel):
+    """指标计算结果出参"""
+    run_id: int
+    metric_id: int
+    status: str
+    period: str
+    value: Optional[dict] = None
+    error_message: Optional[str] = None
+
+
+class MetricRecalcIn(BaseModel):
+    """触发指标重算入参"""
+    period: str = Field(..., max_length=32, description="重算周期")
+
+
+class MetricResultsPaginatedOut(BaseModel):
+    """指标结果分页"""
+    total: int
+    page: int
+    page_size: int
+    items: list[MetricResultOut]
+
+
+# ==================== 维度定义 (R0305) ====================
+
+
+class DimensionCreateIn(BaseModel):
+    dimension_code: str = Field(..., max_length=64)
+    dimension_name: str = Field(..., max_length=128)
+    parent_id: Optional[int] = None
+    bound_table: Optional[str] = None
+    bound_field: Optional[str] = None
+    description: Optional[str] = None
+    display_order: int = 0
+
+
+class DimensionUpdateIn(BaseModel):
+    dimension_name: Optional[str] = None
+    parent_id: Optional[int] = None
+    bound_table: Optional[str] = None
+    bound_field: Optional[str] = None
+    description: Optional[str] = None
+    display_order: Optional[int] = None
+
+
+class DimensionOut(BaseModel):
+    id: int
+    dimension_code: str
+    dimension_name: str
+    parent_id: Optional[int] = None
+    bound_table: Optional[str] = None
+    bound_field: Optional[str] = None
+    description: Optional[str] = None
+    display_order: int = 0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class DimensionTreeNode(BaseModel):
+    """维度树节点"""
+    id: int
+    dimension_code: str
+    dimension_name: str
+    parent_id: Optional[int] = None
+    bound_table: Optional[str] = None
+    bound_field: Optional[str] = None
+    description: Optional[str] = None
+    display_order: int = 0
+    children: list["DimensionTreeNode"] = []
+
+    model_config = {"from_attributes": True}
+
+
+class DimensionImpactOut(BaseModel):
+    """维度删除前影响分析"""
+    dimension_id: int
+    dimension_code: str
+    referenced_by_aggregates: list[dict] = Field(default_factory=list, description="引用该维度的聚合定义")
+    referenced_by_children: list[dict] = Field(default_factory=list, description="引用该维度的子维度")
+    can_delete: bool = False
+
+
+# ==================== DWS 聚合定义 (R0308) ====================
+
+DWS_AGGREGATIONS = ("sum", "count", "avg", "max", "min")
+DWS_TIME_GRAINS = ("day", "week", "month", "quarter", "year")
+DWS_AGG_STATUSES = ("draft", "published", "archived")
+
+
+class DwsAggregateDefinitionCreateIn(BaseModel):
+    name: str = Field(..., max_length=128)
+    metric_id: Optional[int] = None
+    source_dataset_id: Optional[int] = None
+    group_by: list[str] = Field(default_factory=list, description="分组维度字段列表")
+    filter: Optional[dict] = None
+    aggregation: str = Field("sum", description="聚合方式: sum/count/avg/max/min")
+    measure_field: Optional[str] = None
+    time_grain: Optional[str] = None
+    business_definition: Optional[str] = None
+
+
+class DwsAggregateDefinitionUpdateIn(BaseModel):
+    name: Optional[str] = None
+    group_by: Optional[list[str]] = None
+    filter: Optional[dict] = None
+    aggregation: Optional[str] = None
+    measure_field: Optional[str] = None
+    time_grain: Optional[str] = None
+    business_definition: Optional[str] = None
+
+
+class DwsAggregateDefinitionOut(BaseModel):
+    id: int
+    name: str
+    metric_id: Optional[int] = None
+    source_dataset_id: Optional[int] = None
+    group_by: list = []
+    filter: Optional[dict] = None
+    aggregation: str = "sum"
+    measure_field: Optional[str] = None
+    time_grain: Optional[str] = None
+    business_definition: Optional[str] = None
+    status: str = "draft"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class DwsViewGenerateRequest(BaseModel):
+    """DWS 视图生成请求"""
+    aggregate_id: int = Field(..., description="聚合定义 ID")
+
+
+class DwsViewGenerateOut(BaseModel):
+    """DWS 视图生成响应"""
+    aggregate_id: int
+    view_name: str
+    sql_summary: str = ""
+    output_fields: list[str] = Field(default_factory=list)
+    dependencies: list[dict] = Field(default_factory=list)
+    version: int = 1
+    status: str = "draft"

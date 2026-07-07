@@ -1002,3 +1002,622 @@ class WarehouseService:
 # 便捷工厂
 def get_warehouse_service(session: AsyncSession) -> WarehouseService:
     return WarehouseService(session)
+
+
+# ==================== 标准化规则 (R01) ====================
+
+STANDARDIZATION_RULE_TYPES = ("rename", "type_convert", "value_map", "unit_convert", "split_merge", "deduplicate", "null_handling", "format_standardize")
+
+
+class StandardizationRuleService:
+    """ODS→DWD 标准化规则 CRUD + 预览 + 执行 + DWD 视图生成"""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def list_rules(self, *, page=1, page_size=20, asset_type=None, asset_code=None, rule_type=None, enabled=None):
+        from app.warehouse.models import StandardizationRule
+        page_size = min(max(page_size, 1), 200)
+        base = select(StandardizationRule)
+        if asset_type: base = base.where(StandardizationRule.asset_type == asset_type)
+        if asset_code: base = base.where(StandardizationRule.asset_code == asset_code)
+        if rule_type: base = base.where(StandardizationRule.rule_type == rule_type)
+        if enabled is not None: base = base.where(StandardizationRule.enabled == enabled)
+        count_q = select(func.count()).select_from(base.subquery())
+        total = (await self.session.execute(count_q)).scalar_one()
+        offset = (page - 1) * page_size
+        rows = (await self.session.execute(base.order_by(StandardizationRule.display_order, StandardizationRule.id).offset(offset).limit(page_size))).scalars().all()
+        return {"total": total, "page": page, "page_size": page_size, "items": [{"id": r.id, "asset_type": r.asset_type, "asset_code": r.asset_code, "rule_type": r.rule_type, "source_field": r.source_field, "target_field": r.target_field, "rule_config": r.rule_config, "enabled": r.enabled, "display_order": r.display_order, "description": r.description, "created_at": r.created_at.isoformat() if r.created_at else None, "updated_at": r.updated_at.isoformat() if r.updated_at else None} for r in rows]}
+
+    async def get_rule(self, rule_id: int):
+        from app.warehouse.models import StandardizationRule
+        return await self.session.get(StandardizationRule, rule_id)
+
+    async def create_rule(self, payload: dict):
+        from app.warehouse.models import StandardizationRule
+        if payload.get("rule_type") not in STANDARDIZATION_RULE_TYPES:
+            raise ValueError(f"非法 rule_type: {payload.get('rule_type')}")
+        rule = StandardizationRule(**{k: v for k, v in payload.items() if k in ("asset_type", "asset_code", "rule_type", "source_field", "target_field", "rule_config", "enabled", "display_order", "description")})
+        self.session.add(rule); await self.session.commit(); await self.session.refresh(rule)
+        return rule
+
+    async def update_rule(self, rule_id: int, payload: dict):
+        from app.warehouse.models import StandardizationRule
+        rule = await self.session.get(StandardizationRule, rule_id)
+        if rule is None: return None
+        allowed = {"source_field", "target_field", "rule_config", "enabled", "display_order", "description"}
+        for k, v in payload.items():
+            if k in allowed: setattr(rule, k, v)
+        await self.session.commit(); await self.session.refresh(rule)
+        return rule
+
+    async def set_enabled(self, rule_id: int, enabled: bool):
+        from app.warehouse.models import StandardizationRule
+        rule = await self.session.get(StandardizationRule, rule_id)
+        if rule is None: return None
+        rule.enabled = enabled; await self.session.commit(); await self.session.refresh(rule)
+        return rule
+
+    async def delete_rule(self, rule_id: int) -> bool:
+        from app.warehouse.models import StandardizationRule
+        rule = await self.session.get(StandardizationRule, rule_id)
+        if rule is None: return False
+        await self.session.delete(rule); await self.session.commit()
+        return True
+
+    async def preview(self, *, asset_code: str, rules: list, sample_size: int = 20):
+        """预览标准化规则效果（采样）"""
+        from app.warehouse.models import StandardizationRule
+        from app.warehouse.standardization_engine import execute_rules
+        from sqlalchemy import text as sa_text
+        try:
+            result = await self.session.execute(sa_text(f"SELECT * FROM `{asset_code}` LIMIT {sample_size}"))
+            rows_raw = result.fetchall()
+            if not rows_raw: return {"error": "empty"}
+            cols = list(result.keys())
+            rows = [dict(zip(cols, row)) for row in rows_raw]
+            rule_objs = []
+            for r in rules:
+                if r.get("id"):
+                    existing = await self.session.get(StandardizationRule, r["id"])
+                    if existing: rule_objs.append(existing)
+                else:
+                    rule_objs.append(StandardizationRule(**r))
+            transformed = execute_rules(rule_objs, rows)
+            return {"columns": list(transformed[0].keys()) if transformed else cols, "items": rows, "preview_items": transformed}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def execute_full(self, *, asset_code: str, target_table: str) -> dict:
+        """全量执行 ODS→DWD 标准化并写入目标物理表。"""
+        from app.warehouse.models import StandardizationRule
+        from app.warehouse.standardization_engine import execute_rules
+        from app.data.models import RegisteredTable, TableColumn
+        from sqlalchemy import text as sa_text, delete as sa_delete
+        q = select(StandardizationRule).where(StandardizationRule.asset_code == asset_code, StandardizationRule.enabled == True).order_by(StandardizationRule.display_order)
+        rules = (await self.session.execute(q)).scalars().all()
+        if not rules: return {"error": "no_rules", "detail": f"表 {asset_code} 没有启用的标准化规则"}
+        try:
+            result = await self.session.execute(sa_text(f"SELECT * FROM `{asset_code}`"))
+            rows_raw = result.fetchall()
+            if not rows_raw: return {"error": "empty", "detail": "ODS 表无数据", "total": 0, "success": 0, "failed": 0, "errors": [], "target_table": target_table}
+            cols = list(result.keys())
+            rows = [dict(zip(cols, row)) for row in rows_raw]
+        except Exception as e: return {"error": "read_failed", "detail": str(e)}
+        total = len(rows)
+        try: transformed = execute_rules(rules, rows)
+        except Exception as e: return {"error": "transform_failed", "detail": str(e), "total": total, "success": 0, "failed": total, "errors": []}
+        success = len(transformed); failed = total - success
+        if not target_table: return {"error": "no_target", "detail": "未指定目标表名"}
+        target = target_table.strip().replace("`", "")
+        try:
+            await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{target}`"))
+            if transformed:
+                sample = transformed[0]
+                col_defs = []
+                for k, v in sample.items():
+                    ctype = "BOOLEAN" if isinstance(v, bool) else "BIGINT" if isinstance(v, int) else "DOUBLE PRECISION" if isinstance(v, float) else "TEXT"
+                    col_defs.append(f"`{k}` {ctype}")
+                await self.session.execute(sa_text(f"CREATE TABLE `{target}` ({', '.join(col_defs)})"))
+                batch_size = 1000
+                for bs in range(0, len(transformed), batch_size):
+                    batch = transformed[bs:bs + batch_size]
+                    bcols = list(batch[0].keys())
+                    placeholders = ", ".join([f"({', '.join([f':{c}_{i}' for c in bcols])})" for i in range(len(batch))])
+                    params = {}
+                    for i, row in enumerate(batch):
+                        for c in bcols: params[f"{c}_{i}"] = row.get(c)
+                    await self.session.execute(sa_text(f"INSERT INTO `{target}` ({', '.join([f'`{c}`' for c in bcols])}) VALUES {placeholders}"), params)
+            await self.session.commit()
+        except Exception as e: return {"error": "write_failed", "detail": str(e), "total": total, "success": 0, "failed": total, "errors": []}
+        try:
+            existing_rt = (await self.session.execute(select(RegisteredTable).where(RegisteredTable.table_name == target))).scalar().first()
+            if existing_rt: existing_rt.warehouse_layer = "DWD"
+            else: self.session.add(RegisteredTable(table_name=target, table_label=target, warehouse_layer="DWD", source_system="数据加工", asset_status="published"))
+            await self.session.flush()
+            await self.session.execute(sa_delete(TableColumn).where(TableColumn.table_name == target))
+            seen = set()
+            for i, r in enumerate(rules):
+                tgt = r.target_field or r.source_field
+                if tgt in seen: continue
+                seen.add(tgt)
+                self.session.add(TableColumn(table_name=target, column_name=tgt, column_code=tgt, column_label=tgt, data_type="string", is_visible=True, display_order=(i + 1) * 10))
+            await self.session.commit()
+        except Exception: await self.session.rollback()
+        return {"total": total, "success": success, "failed": failed, "errors": [], "target_table": target}
+
+    async def generate_dwd_view(self, *, asset_code: str, asset_type: str = "table", owner_user_id=None, owner_name=None) -> dict:
+        """基于规则生成 DWD 视图（更新已有单表数据集，避免重复建）"""
+        from app.warehouse.models import StandardizationRule
+        from app.datasets.models import DataSet, DataSetTable, DatasetOutputField
+        from app.data.models import TableColumn
+        from app.warehouse.standardization_engine import RULE_ORDER
+        q = select(StandardizationRule).where(StandardizationRule.asset_code == asset_code, StandardizationRule.enabled == True).order_by(StandardizationRule.display_order)
+        rules = (await self.session.execute(q)).scalars().all()
+        if not rules: return None
+        from app.datasets.single_table import find_single_table_dataset, ensure_single_table_dataset
+        ds = await find_single_table_dataset(asset_code, self.session)
+        if ds is None: ds = await ensure_single_table_dataset(asset_code, self.session)
+        ds.warehouse_layer = "DWD"; ds.status = "published"; ds.version = (ds.version or 1) + 1
+        from sqlalchemy import delete as sa_delete
+        await self.session.execute(sa_delete(DatasetOutputField).where(DatasetOutputField.dataset_id == ds.id))
+        # Generate output fields from rules
+        rule_by_source = {}
+        for r in rules:
+            rule_by_source.setdefault(r.source_field, []).append(r)
+        output_fields = []
+        for i, r in enumerate(rules):
+            target_col = r.target_field or r.source_field
+            output_fields.append({"source_alias": "t", "source_column": r.source_field, "output_code": target_col, "output_label": r.description or target_col, "data_type": "string", "agg_role": "dimension"})
+        for i, of in enumerate(output_fields):
+            self.session.add(DatasetOutputField(dataset_id=ds.id, source_alias=of["source_alias"], source_column=of["source_column"], output_code=of["output_code"], output_label=of["output_label"], data_type=of["data_type"], agg_role=of["agg_role"], description="", display_order=i))
+        await self.session.commit(); await self.session.refresh(ds)
+        return {"dataset_id": ds.id, "view_name": ds.name, "version": ds.version}
+
+
+def get_standardization_rule_service(session: AsyncSession) -> StandardizationRuleService:
+    return StandardizationRuleService(session)
+
+
+# ==================== 标准化模板 (R0106) ====================
+
+class StandardizationTemplateService:
+    """标准化模板 CRUD + 加载到表"""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def list_templates(self, *, page=1, page_size=20, business_object=None):
+        from app.warehouse.models import StandardizationTemplate
+        page_size = min(max(page_size, 1), 200)
+        base = select(StandardizationTemplate)
+        if business_object: base = base.where(StandardizationTemplate.business_object == business_object)
+        count_q = select(func.count()).select_from(base.subquery())
+        total = (await self.session.execute(count_q)).scalar_one()
+        offset = (page - 1) * page_size
+        rows = (await self.session.execute(base.order_by(StandardizationTemplate.id.desc()).offset(offset).limit(page_size))).scalars().all()
+        items = [{"id": t.id, "name": t.name, "description": t.description, "business_object": t.business_object, "template_rules": t.template_rules, "version": t.version, "created_at": t.created_at.isoformat() if t.created_at else None, "updated_at": t.updated_at.isoformat() if t.updated_at else None} for t in rows]
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+    async def get_template(self, template_id: int):
+        from app.warehouse.models import StandardizationTemplate
+        return await self.session.get(StandardizationTemplate, template_id)
+
+    async def create_template(self, payload: dict):
+        from app.warehouse.models import StandardizationTemplate
+        t = StandardizationTemplate(**{k: v for k, v in payload.items() if k in ("name", "description", "business_object", "template_rules")})
+        self.session.add(t); await self.session.commit(); await self.session.refresh(t)
+        return t
+
+    async def update_template(self, template_id: int, payload: dict):
+        from app.warehouse.models import StandardizationTemplate
+        t = await self.session.get(StandardizationTemplate, template_id)
+        if t is None: return None
+        for k, v in payload.items():
+            if k in ("name", "description", "business_object", "template_rules"): setattr(t, k, v)
+        t.version = (t.version or 1) + 1; await self.session.commit(); await self.session.refresh(t)
+        return t
+
+    async def delete_template(self, template_id: int) -> bool:
+        from app.warehouse.models import StandardizationTemplate
+        t = await self.session.get(StandardizationTemplate, template_id)
+        if t is None: return False
+        await self.session.delete(t); await self.session.commit()
+        return True
+
+    async def load_template_to_asset(self, template_id: int, asset_code: str, asset_type: str = "table", on_conflict: str = "skip"):
+        from app.warehouse.models import StandardizationTemplate, StandardizationRule
+        t = await self.session.get(StandardizationTemplate, template_id)
+        if t is None: return None
+        if not t.template_rules: return {"loaded": 0, "skipped": 0, "template_id": template_id}
+        existing = (await self.session.execute(select(StandardizationRule).where(StandardizationRule.asset_code == asset_code))).scalars().all()
+        existing_keys = {(r.source_field, r.rule_type) for r in existing}
+        loaded = 0; skipped = 0
+        max_order = max((r.display_order for r in existing), default=0)
+        for i, rule_data in enumerate(t.template_rules):
+            key = (rule_data.get("source_field", ""), rule_data.get("rule_type", ""))
+            if key in existing_keys:
+                if on_conflict == "skip": skipped += 1; continue
+            rule = StandardizationRule(asset_type=asset_type, asset_code=asset_code, rule_type=rule_data["rule_type"], source_field=rule_data.get("source_field", ""), target_field=rule_data.get("target_field", ""), rule_config=rule_data.get("rule_config", {}), enabled=True, display_order=max_order + (i + 1) * 10)
+            self.session.add(rule); loaded += 1
+        await self.session.commit()
+        return {"loaded": loaded, "skipped": skipped, "template_id": template_id}
+
+
+def get_standardization_template_service(session: AsyncSession) -> StandardizationTemplateService:
+    return StandardizationTemplateService(session)
+
+
+# ==================== 指标计算 (R0302) ====================
+
+class MetricComputeService:
+    """指标计算与结果管理"""
+    def __init__(self, session: AsyncSession): self.session = session
+
+    async def compute_metric(self, metric_id: int, period: str, user_id=None):
+        from datetime import datetime as dt
+        from app.datasets.models import WarehouseMetric
+        from app.warehouse.models import MetricResult, MetricRun
+        from app.ai_formula.evaluator import evaluate_formula
+        from sqlalchemy import text as sa_text
+        m = await self.session.get(WarehouseMetric, metric_id)
+        if m is None: return {"error": "not_found", "detail": f"指标不存在: {metric_id}"}
+        if m.status == "archived": return {"error": "bad_request", "detail": "已归档指标不可计算"}
+        started = dt.utcnow()
+        run = MetricRun(metric_id=metric_id, status="running", period=period, started_at=started)
+        self.session.add(run); await self.session.flush()
+        try:
+            value = None
+            if m.formula_expr:
+                row_data = {}
+                if m.related_dataset_id:
+                    try:
+                        ds = await self.session.get(DataSet, m.related_dataset_id)
+                        if ds and ds.tables:
+                            fst = ds.tables[0]
+                            rr = await self.session.execute(sa_text(f"SELECT * FROM {fst.table_name} LIMIT 1"))
+                            row = rr.fetchone()
+                            if row: row_data = dict(row._mapping)
+                    except: pass
+                eval_result = evaluate_formula(m.formula_expr, row_data)
+                value = eval_result if eval_result is not None else None
+            result = MetricResult(metric_id=metric_id, period=period, value={"value": value, "metric_code": m.metric_code}, computed_at=dt.utcnow())
+            self.session.add(result); await self.session.flush()
+            run.status = "success"; run.result_id = result.id; run.finished_at = dt.utcnow()
+            return {"run_id": run.id, "metric_id": metric_id, "status": "success", "period": period, "value": result.value, "error_message": None}
+        except Exception as exc:
+            run.status = "failed"; run.error_message = str(exc)[:1000]; run.finished_at = dt.utcnow()
+            return {"run_id": run.id, "metric_id": metric_id, "status": "failed", "period": period, "value": None, "error_message": run.error_message}
+
+    async def recalc_metric(self, metric_id: int, period: str, user_id=None):
+        from app.warehouse.models import MetricResult
+        old = await self.session.execute(select(MetricResult).where(MetricResult.metric_id == metric_id, MetricResult.period == period))
+        for r in old.scalars().all(): await self.session.delete(r)
+        await self.session.flush()
+        return await self.compute_metric(metric_id, period, user_id)
+
+    async def list_results(self, metric_id: int, page=1, page_size=20):
+        from app.warehouse.models import MetricResult
+        page_size = min(max(page_size, 1), 200)
+        base = select(MetricResult).where(MetricResult.metric_id == metric_id)
+        total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        rows = (await self.session.execute(base.order_by(MetricResult.computed_at.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
+        items = [{"id": r.id, "metric_id": r.metric_id, "period": r.period, "value": r.value, "computed_at": r.computed_at.isoformat() if r.computed_at else None} for r in rows]
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+    async def list_runs(self, metric_id: int, page=1, page_size=20):
+        from app.warehouse.models import MetricRun
+        page_size = min(max(page_size, 1), 200)
+        base = select(MetricRun).where(MetricRun.metric_id == metric_id)
+        total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        rows = (await self.session.execute(base.order_by(MetricRun.created_at.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
+        items = [{"id": r.id, "metric_id": r.metric_id, "status": r.status, "error_message": r.error_message, "period": r.period, "result_id": r.result_id, "started_at": r.started_at.isoformat() if r.started_at else None, "finished_at": r.finished_at.isoformat() if r.finished_at else None, "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+def get_metric_compute_service(session: AsyncSession) -> MetricComputeService:
+    return MetricComputeService(session)
+
+
+# ==================== 维度定义 (R0305) ====================
+
+class DimensionService:
+    """维度目录管理"""
+    def __init__(self, session: AsyncSession): self.session = session
+
+    async def list_dimensions(self):
+        from app.warehouse.models import Dimension
+        rows = (await self.session.execute(select(Dimension).order_by(Dimension.display_order, Dimension.id))).scalars().all()
+        return [{"id": d.id, "dimension_code": d.dimension_code, "dimension_name": d.dimension_name, "parent_id": d.parent_id, "bound_table": d.bound_table, "bound_field": d.bound_field, "description": d.description, "display_order": d.display_order, "created_at": d.created_at.isoformat() if d.created_at else None, "updated_at": d.updated_at.isoformat() if d.updated_at else None} for d in rows]
+
+    async def get_dimension(self, dim_id: int):
+        from app.warehouse.models import Dimension
+        d = await self.session.get(Dimension, dim_id)
+        if d is None: return None
+        return {"id": d.id, "dimension_code": d.dimension_code, "dimension_name": d.dimension_name, "parent_id": d.parent_id, "bound_table": d.bound_table, "bound_field": d.bound_field, "description": d.description, "display_order": d.display_order}
+
+    async def get_tree(self):
+        dims = {d["id"]: {**d, "children": []} for d in await self.list_dimensions()}
+        roots = []
+        for d_id, node in dims.items():
+            parent_id = next((x["parent_id"] for x in [dims.get(d_id, {})] if x.get("parent_id")), None)
+            pid = node.get("parent_id")
+            if pid and pid in dims: dims[pid]["children"].append(node)
+            else: roots.append(node)
+        return roots
+
+    async def create_dimension(self, payload: dict):
+        from app.warehouse.models import Dimension
+        exists = (await self.session.execute(select(func.count(Dimension.id)).where(Dimension.dimension_code == payload["dimension_code"]))).scalar_one()
+        if exists > 0: raise ValueError(f"维度编码已存在: {payload['dimension_code']}")
+        parent_id = payload.get("parent_id")
+        if parent_id:
+            parent = await self.session.get(Dimension, parent_id)
+            if parent is None: raise ValueError(f"父维度不存在: {parent_id}")
+        d = Dimension(dimension_code=payload["dimension_code"], dimension_name=payload["dimension_name"], parent_id=parent_id, bound_table=payload.get("bound_table"), bound_field=payload.get("bound_field"), description=payload.get("description"), display_order=payload.get("display_order", 0))
+        self.session.add(d); await self.session.commit(); await self.session.refresh(d)
+        return await self.get_dimension(d.id)
+
+    async def update_dimension(self, dim_id: int, payload: dict):
+        from app.warehouse.models import Dimension
+        d = await self.session.get(Dimension, dim_id)
+        if d is None: return None
+        if "parent_id" in payload:
+            new_parent = payload["parent_id"]
+            if new_parent == dim_id: raise ValueError("不能将维度设为自身的父维度")
+            if new_parent is not None:
+                parent = await self.session.get(Dimension, new_parent)
+                if parent is None: raise ValueError(f"父维度不存在: {new_parent}")
+        for key in ("dimension_name", "parent_id", "bound_table", "bound_field", "description", "display_order"):
+            if key in payload and payload[key] is not None: setattr(d, key, payload[key])
+        return d
+
+    async def delete_dimension(self, dim_id: int) -> bool:
+        from app.warehouse.models import Dimension
+        d = await self.session.get(Dimension, dim_id)
+        if d is None: return False
+        children = (await self.session.execute(select(Dimension).where(Dimension.parent_id == dim_id))).scalars().all()
+        for child in children: child.parent_id = None
+        await self.session.delete(d); await self.session.commit()
+        return True
+
+    async def get_impact(self, dim_id: int):
+        from app.warehouse.models import Dimension, DwsAggregateDefinition
+        d = await self.session.get(Dimension, dim_id)
+        if d is None: return None
+        aggs = (await self.session.execute(select(DwsAggregateDefinition).where(DwsAggregateDefinition.group_by.contains([d.dimension_code])))).scalars().all()
+        children = (await self.session.execute(select(Dimension).where(Dimension.parent_id == dim_id))).scalars().all()
+        return {"dimension_id": dim_id, "dimension_code": d.dimension_code, "referenced_by_aggregates": [{"id": a.id, "name": a.name} for a in aggs], "referenced_by_children": [{"id": c.id, "dimension_code": c.dimension_code} for c in children], "can_delete": len(list(aggs)) == 0}
+
+
+def get_dimension_service(session: AsyncSession) -> DimensionService:
+    return DimensionService(session)
+
+
+# ==================== DWS 聚合定义 (R0308) ====================
+
+DWS_AGGREGATIONS = ("sum", "count", "avg", "max", "min")
+
+
+class DwsAggregateService:
+    """DWD → DWS 聚合定义管理"""
+    def __init__(self, session: AsyncSession): self.session = session
+
+    async def list_aggregates(self, metric_id=None, status=None, page=1, page_size=20):
+        from app.warehouse.models import DwsAggregateDefinition
+        page_size = min(max(page_size, 1), 200)
+        base = select(DwsAggregateDefinition)
+        if metric_id is not None: base = base.where(DwsAggregateDefinition.metric_id == metric_id)
+        if status: base = base.where(DwsAggregateDefinition.status == status)
+        total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        rows = (await self.session.execute(base.order_by(DwsAggregateDefinition.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
+        items = [{"id": a.id, "name": a.name, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "aggregation": a.aggregation, "measure_field": a.measure_field, "time_grain": a.time_grain, "business_definition": a.business_definition, "status": a.status} for a in rows]
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+    async def get_aggregate(self, agg_id: int):
+        from app.warehouse.models import DwsAggregateDefinition
+        a = await self.session.get(DwsAggregateDefinition, agg_id)
+        if a is None: return None
+        return {"id": a.id, "name": a.name, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "aggregation": a.aggregation, "measure_field": a.measure_field, "time_grain": a.time_grain, "business_definition": a.business_definition, "status": a.status}
+
+    async def create_aggregate(self, payload: dict):
+        from app.warehouse.models import DwsAggregateDefinition, Dimension
+        from app.datasets.models import WarehouseMetric
+        if payload.get("aggregation") not in DWS_AGGREGATIONS: raise ValueError(f"非法聚合方式: {payload['aggregation']}")
+        if payload.get("metric_id"):
+            m = await self.session.get(WarehouseMetric, payload["metric_id"])
+            if m is None: raise ValueError(f"指标不存在: {payload['metric_id']}")
+        if payload.get("source_dataset_id"):
+            ds = await self.session.get(DataSet, payload["source_dataset_id"])
+            if ds is None: raise ValueError(f"数据集不存在: {payload['source_dataset_id']}")
+        group_by = payload.get("group_by", [])
+        if group_by:
+            existing_dims = (await self.session.execute(select(Dimension.dimension_code).where(Dimension.dimension_code.in_(group_by)))).scalars().all()
+            existing_set = set(existing_dims)
+            for code in group_by:
+                if code not in existing_set: raise ValueError(f"维度 code 不存在: {code}")
+        a = DwsAggregateDefinition(name=payload["name"], metric_id=payload.get("metric_id"), source_dataset_id=payload.get("source_dataset_id"), group_by=group_by, filter=payload.get("filter"), aggregation=payload.get("aggregation", "sum"), measure_field=payload.get("measure_field"), time_grain=payload.get("time_grain"), business_definition=payload.get("business_definition"), status="draft")
+        self.session.add(a); await self.session.commit(); await self.session.refresh(a)
+        return await self.get_aggregate(a.id)
+
+    async def update_aggregate(self, agg_id: int, payload: dict):
+        from app.warehouse.models import DwsAggregateDefinition, Dimension
+        a = await self.session.get(DwsAggregateDefinition, agg_id)
+        if a is None: return None
+        if a.status == "archived": raise ValueError("已归档聚合定义不可编辑")
+        if "group_by" in payload and payload["group_by"]:
+            existing_dims = (await self.session.execute(select(Dimension.dimension_code).where(Dimension.dimension_code.in_(payload["group_by"])))).scalars().all()
+            for code in payload["group_by"]:
+                if code not in set(existing_dims): raise ValueError(f"维度 code 不存在: {code}")
+        allowed = {"name", "group_by", "filter", "aggregation", "measure_field", "time_grain", "business_definition"}
+        for key, val in payload.items():
+            if key in allowed: setattr(a, key, val)
+        if "aggregation" in payload and payload["aggregation"] not in DWS_AGGREGATIONS: raise ValueError(f"非法聚合方式")
+        return a
+
+    async def delete_aggregate(self, agg_id: int) -> bool:
+        from app.warehouse.models import DwsAggregateDefinition
+        a = await self.session.get(DwsAggregateDefinition, agg_id)
+        if a is None: return False
+        await self.session.delete(a); await self.session.commit()
+        return True
+
+    async def publish_aggregate(self, agg_id: int):
+        from app.warehouse.models import DwsAggregateDefinition
+        a = await self.session.get(DwsAggregateDefinition, agg_id)
+        if a is None: return None
+        if a.status != "draft": raise ValueError("仅 draft 可发布")
+        a.status = "published"; await self.session.commit(); await self.session.refresh(a)
+        return await self.get_aggregate(agg_id)
+
+    async def archive_aggregate(self, agg_id: int):
+        from app.warehouse.models import DwsAggregateDefinition
+        a = await self.session.get(DwsAggregateDefinition, agg_id)
+        if a is None: return None
+        if a.status != "published": raise ValueError("仅 published 可归档")
+        a.status = "archived"; await self.session.commit(); await self.session.refresh(a)
+        return await self.get_aggregate(agg_id)
+
+    async def validate_aggregate(self, payload: dict):
+        from app.warehouse.models import Dimension
+        errors = []
+        if not payload.get("name"): errors.append({"field": "name", "message": "名称为必填"})
+        if not payload.get("group_by"): errors.append({"field": "group_by", "message": "至少需要一个分组维度"})
+        elif payload["group_by"]:
+            existing = (await self.session.execute(select(Dimension.dimension_code).where(Dimension.dimension_code.in_(payload["group_by"])))).scalars().all()
+            for code in payload["group_by"]:
+                if code not in set(existing): errors.append({"field": "group_by", "message": f"维度 code 不存在: {code}"})
+        if not payload.get("measure_field"): errors.append({"field": "measure_field", "message": "度量字段为必填"})
+        return {"valid": len(errors) == 0, "errors": errors}
+
+    async def generate_dws_view(self, agg_id: int):
+        from datetime import datetime as dt
+        from app.warehouse.models import DwsAggregateDefinition, Dimension
+        agg = await self.session.get(DwsAggregateDefinition, agg_id)
+        if agg is None: return None
+        dim_map = {}
+        if agg.group_by:
+            dims = (await self.session.execute(select(Dimension).where(Dimension.dimension_code.in_(agg.group_by)))).scalars().all()
+            for d in dims:
+                dim_map[d.dimension_code] = f"{d.bound_table}.{d.bound_field}" if d.bound_table and d.bound_field else d.dimension_code
+        measure = agg.measure_field or "*"
+        agg_func = agg.aggregation.upper() if agg.aggregation else "SUM"
+        resolved_cols = [dim_map.get(c, c) for c in (agg.group_by or [])]
+        group_cols = ", ".join(resolved_cols) if resolved_cols else ""
+        view_name = f"dws_{agg.name.replace(' ', '_').lower()}"
+        sql_summary = f"CREATE VIEW {view_name} AS\nSELECT {group_cols + ', ' if group_cols else ''}{agg_func}({measure}) AS {agg_func}_{measure}\nFROM datasets.id={agg.source_dataset_id}\nGROUP BY {group_cols if group_cols else '()'}"
+        ds_name = view_name
+        existing = (await self.session.execute(select(DataSet).where(DataSet.name == ds_name))).scalars().first()
+        if existing: ds = existing; ds.version = (ds.version or 0) + 1
+        else:
+            ds = DataSet(name=ds_name, description=agg.business_definition or f"从 {agg.name} 生成", warehouse_layer="DWS", status="published", version=1, published_at=dt.utcnow())
+            self.session.add(ds); await self.session.flush()
+        return {"aggregate_id": agg_id, "view_name": ds_name, "sql_summary": sql_summary, "output_fields": list(agg.group_by or []) + [f"{agg_func}_{measure}"], "dependencies": [], "version": ds.version, "status": "published"}
+
+    async def get_view_impact(self, agg_id: int):
+        from app.warehouse.models import DwsAggregateDefinition
+        agg = await self.session.get(DwsAggregateDefinition, agg_id)
+        if agg is None: return None
+        deps = []; warnings = []
+        if not agg.measure_field: warnings.append("未指定度量字段")
+        if not agg.group_by: warnings.append("未指定分组维度")
+        return {"aggregate_id": agg_id, "aggregate_name": agg.name, "dependencies": deps, "warnings": warnings, "estimated_output_fields": len(agg.group_by or []) + 1}
+
+
+def get_dws_aggregate_service(session: AsyncSession) -> DwsAggregateService:
+    return DwsAggregateService(session)
+
+
+# ==================== 快照任务 (R0401) ====================
+
+class SnapshotService:
+    """快照任务管理 + 执行"""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def list_jobs(self, page=1, page_size=20):
+        from app.warehouse.models import SnapshotJob
+        page_size = min(max(page_size, 1), 200)
+        base = select(SnapshotJob).order_by(SnapshotJob.id.desc())
+        total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        rows = (await self.session.execute(base.offset((page - 1) * page_size).limit(page_size))).scalars().all()
+        items = [{"id": j.id, "name": j.name, "source_table": j.source_table, "target_table": j.target_table, "snapshot_keys": j.snapshot_keys, "period": j.period, "retention": j.retention, "enabled": j.enabled, "last_run_at": j.last_run_at.isoformat() if j.last_run_at else None, "last_status": j.last_status} for j in rows]
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+    async def get_job(self, job_id: int):
+        from app.warehouse.models import SnapshotJob
+        j = await self.session.get(SnapshotJob, job_id)
+        if j is None: return None
+        return {"id": j.id, "name": j.name, "source_table": j.source_table, "target_table": j.target_table, "snapshot_keys": j.snapshot_keys, "period": j.period, "retention": j.retention, "enabled": j.enabled}
+
+    async def create_job(self, payload: dict):
+        from app.warehouse.models import SnapshotJob
+        j = SnapshotJob(name=payload["name"], source_table=payload["source_table"], target_table=payload["target_table"], snapshot_keys=payload.get("snapshot_keys", []), period=payload.get("period", "monthly"), retention=payload.get("retention", 12))
+        self.session.add(j); await self.session.commit(); await self.session.refresh(j)
+        return await self.get_job(j.id)
+
+    async def update_job(self, job_id: int, payload: dict):
+        from app.warehouse.models import SnapshotJob
+        j = await self.session.get(SnapshotJob, job_id)
+        if j is None: return None
+        for k in ("name", "snapshot_keys", "period", "retention", "enabled"):
+            if k in payload: setattr(j, k, payload[k])
+        await self.session.commit(); await self.session.refresh(j)
+        return await self.get_job(j.id)
+
+    async def delete_job(self, job_id: int) -> bool:
+        from app.warehouse.models import SnapshotJob
+        j = await self.session.get(SnapshotJob, job_id)
+        if j is None: return False
+        await self.session.delete(j); await self.session.commit()
+        return True
+
+    async def trigger_snapshot(self, job_id: int, period_value: str) -> dict:
+        """手动触发快照执行"""
+        from datetime import datetime as dt
+        from app.warehouse.models import SnapshotJob, SnapshotRun
+        from sqlalchemy import text as sa_text
+        j = await self.session.get(SnapshotJob, job_id)
+        if j is None: return {"error": "not_found"}
+        started = dt.utcnow()
+        run = SnapshotRun(job_id=job_id, status="running", period_value=period_value, started_at=started)
+        self.session.add(run); await self.session.flush()
+        try:
+            result = await self.session.execute(sa_text(f"SELECT * FROM `{j.source_table}`"))
+            rows = result.fetchall()
+            cols = list(result.keys())
+            row_count = len(rows)
+            # COPY to target
+            await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{j.target_table}_{period_value}`"))
+            col_defs = ", ".join([f"`{c}` TEXT" for c in cols])
+            await self.session.execute(sa_text(f"CREATE TABLE `{j.target_table}_{period_value}` AS SELECT * FROM `{j.source_table}`"))
+            # Cleanup old snapshots beyond retention
+            from sqlalchemy import inspect
+            all_tables = await self.session.execute(sa_text(f"SELECT table_name FROM information_schema.tables WHERE table_name LIKE '{j.target_table}_%' ORDER BY table_name DESC"))
+            snap_tables = [r[0] for r in all_tables.fetchall()]
+            for old_table in snap_tables[j.retention:]:
+                await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{old_table}`"))
+            run.status = "success"; run.row_count = row_count
+            j.last_run_at = dt.utcnow(); j.last_status = "success"
+        except Exception as e:
+            run.status = "failed"; run.error_message = str(e)[:1000]
+            j.last_run_at = dt.utcnow(); j.last_status = "failed"
+        run.finished_at = dt.utcnow()
+        await self.session.commit()
+        return {"run_id": run.id, "status": run.status, "row_count": run.row_count, "error_message": run.error_message}
+
+    async def list_runs(self, job_id: int = None, page=1, page_size=20):
+        from app.warehouse.models import SnapshotRun
+        page_size = min(max(page_size, 1), 200)
+        base = select(SnapshotRun)
+        if job_id: base = base.where(SnapshotRun.job_id == job_id)
+        base = base.order_by(SnapshotRun.id.desc())
+        total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        rows = (await self.session.execute(base.offset((page - 1) * page_size).limit(page_size))).scalars().all()
+        items = [{"id": r.id, "job_id": r.job_id, "status": r.status, "period_value": r.period_value, "row_count": r.row_count, "error_message": r.error_message, "started_at": r.started_at.isoformat() if r.started_at else None, "finished_at": r.finished_at.isoformat() if r.finished_at else None} for r in rows]
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+def get_snapshot_service(session: AsyncSession) -> SnapshotService:
+    return SnapshotService(session)

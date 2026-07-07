@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Refresh, Edit, Finished, FolderDelete } from '@element-plus/icons-vue'
-import { listMetrics, createMetric, updateMetric, getMetric, publishMetric, archiveMetric, type MetricListItem, type MetricDetail, type MetricCreatePayload, type MetricUpdatePayload } from '@/api/warehouse'
+import { Plus, Search, Refresh, Edit, Finished, FolderDelete, TrendCharts, VideoPlay, DataAnalysis } from '@element-plus/icons-vue'
+import {
+  listMetrics, createMetric, updateMetric, getMetric, publishMetric, archiveMetric,
+  computeMetric, recalcMetric, listMetricResults, listMetricRuns,
+  METRIC_RUN_STATUS_LABELS,
+  type MetricListItem, type MetricDetail, type MetricCreatePayload, type MetricUpdatePayload,
+  type MetricResult, type MetricRun,
+} from '@/api/warehouse'
 
 const userStore = useUserStore()
 const metrics = ref<MetricListItem[]>([])
@@ -18,6 +24,17 @@ const TYPE_LABELS: Record<string, string> = { count: '计数', sum: '求和', ra
 const STATUS_LABELS: Record<string, string> = { draft: '草稿', published: '已发布', archived: '已归档' }
 const STATUS_TAG: Record<string, string> = { draft: 'info', published: 'success', archived: 'info' }
 
+// 详情面板（R0303）
+const detailVisible = ref(false)
+const detailMetricId = ref<number | null>(null)
+const detailMetric = ref<MetricDetail | null>(null)
+const results = ref<MetricResult[]>([])
+const runs = ref<MetricRun[]>([])
+const resultsLoading = ref(false)
+const runsLoading = ref(false)
+const computePeriod = ref('')
+const computing = ref(false)
+
 async function load() {
   loading.value = true
   try {
@@ -27,14 +44,75 @@ async function load() {
     const res = await listMetrics(params)
     metrics.value = res.items
     total.value = res.total
-  } catch {
-    ElMessage.error('加载指标列表失败')
-  } finally { loading.value = false }
+  } catch { ElMessage.error('加载指标列表失败') }
+  finally { loading.value = false }
 }
+
+async function openDetail(id: number) {
+  detailMetricId.value = id
+  detailVisible.value = true
+  try {
+    detailMetric.value = await getMetric(id)
+  } catch { ElMessage.error('加载指标详情失败'); return }
+  loadResults()
+  loadRuns()
+}
+
+async function loadResults() {
+  if (!detailMetricId.value) return
+  resultsLoading.value = true
+  try {
+    const res = await listMetricResults(detailMetricId.value)
+    results.value = res.items
+  } catch { results.value = [] }
+  finally { resultsLoading.value = false }
+}
+
+async function loadRuns() {
+  if (!detailMetricId.value) return
+  runsLoading.value = true
+  try {
+    const res = await listMetricRuns(detailMetricId.value)
+    runs.value = res.items
+  } catch { runs.value = [] }
+  finally { runsLoading.value = false }
+}
+
+async function doCompute() {
+  if (!computePeriod.value || !detailMetricId.value) return
+  computing.value = true
+  try {
+    const res = await computeMetric(detailMetricId.value, computePeriod.value)
+    if (res.status === 'success') { ElMessage.success('计算完成'); loadResults(); loadRuns() }
+    else ElMessage.warning(res.error_message || '计算失败')
+  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '计算失败') }
+  finally { computing.value = false }
+}
+
+async function doRecalc() {
+  if (!computePeriod.value || !detailMetricId.value) return
+  try {
+    await ElMessageBox.confirm('重算将覆盖同周期已有结果，确定？', '确认重算', { type: 'warning' })
+    computing.value = true
+    try {
+      const res = await recalcMetric(detailMetricId.value, computePeriod.value)
+      if (res.status === 'success') { ElMessage.success('重算完成'); loadResults(); loadRuns() }
+      else ElMessage.warning(res.error_message || '重算失败')
+    } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '重算失败') }
+    finally { computing.value = false }
+  } catch { /* 取消 */ }
+}
+
+const trendData = computed(() => {
+  return [...results.value].reverse().map(r => ({
+    period: r.period,
+    value: typeof r.value?.value === 'number' ? r.value.value : 0,
+  }))
+})
 
 // 新建/编辑弹窗
 const dialogVisible = ref(false)
-const dialogMode = ref<'create'|'edit'>('create')
+const dialogMode = ref<'create' | 'edit'>('create')
 const editId = ref<number | null>(null)
 const form = ref({
   metric_code: '', metric_name: '', metric_type: 'derived' as MetricCreatePayload['metric_type'],
@@ -117,7 +195,7 @@ onMounted(load)
     </el-card>
 
     <el-card shadow="never">
-      <el-table v-loading="loading" :data="metrics" border stripe size="small" empty-text="暂无指标">
+      <el-table v-loading="loading" :data="metrics" border stripe size="small" empty-text="暂无指标" highlight-current-row @row-click="(row: any) => openDetail(row.id)" style="cursor: pointer">
         <el-table-column prop="metric_code" label="编码" width="120" />
         <el-table-column prop="metric_name" label="名称" min-width="120" />
         <el-table-column prop="metric_type" label="类型" width="70">
@@ -131,11 +209,12 @@ onMounted(load)
           <template #default="{ row }"><el-tag size="small" :type="STATUS_TAG[row.status]||'info'">{{ STATUS_LABELS[row.status]||row.status }}</el-tag></template>
         </el-table-column>
         <el-table-column prop="version" label="版本" width="60" align="center" />
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
+            <el-button text size="small" :icon="TrendCharts" type="primary" @click="openDetail(row.id)">趋势</el-button>
             <el-button v-if="userStore.hasOp('warehouse.metrics','U')" text size="small" :icon="Edit" @click="openEdit(row.id)">编辑</el-button>
-            <el-button v-if="row.status==='draft'&&userStore.hasOp('warehouse.metrics','U')" text size="small" type="success" :icon="Finished" @click="doPublish(row.id)">发布</el-button>
-            <el-button v-if="row.status==='published'&&userStore.hasOp('warehouse.metrics','U')" text size="small" type="warning" :icon="FolderDelete" @click="doArchive(row.id)">归档</el-button>
+            <el-button v-if="row.status==='draft'&&userStore.hasOp('warehouse.metrics','U')" text size="small" type="success" :icon="Finished" @click.stop="doPublish(row.id)">发布</el-button>
+            <el-button v-if="row.status==='published'&&userStore.hasOp('warehouse.metrics','U')" text size="small" type="warning" :icon="FolderDelete" @click.stop="doArchive(row.id)">归档</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -143,6 +222,82 @@ onMounted(load)
         <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20,50,100]" layout="total,sizes,prev,pager,next" />
       </div>
     </el-card>
+
+    <!-- 指标详情抽屉（R0303：趋势 + 计算 + 运行记录） -->
+    <el-drawer v-model="detailVisible" title="指标计算结果" size="650px" :close-on-click-modal="false">
+      <template v-if="detailMetric">
+        <el-descriptions :column="2" size="small" border style="margin-bottom: 16px">
+          <el-descriptions-item label="编码">{{ detailMetric.metric_code }}</el-descriptions-item>
+          <el-descriptions-item label="名称">{{ detailMetric.metric_name }}</el-descriptions-item>
+          <el-descriptions-item label="类型">{{ TYPE_LABELS[detailMetric.metric_type] || detailMetric.metric_type }}</el-descriptions-item>
+          <el-descriptions-item label="状态"><el-tag size="small" :type="STATUS_TAG[detailMetric.status]||'info'">{{ STATUS_LABELS[detailMetric.status]||detailMetric.status }}</el-tag></el-descriptions-item>
+          <el-descriptions-item v-if="detailMetric.formula_expr" label="公式" :span="2">{{ detailMetric.formula_expr }}</el-descriptions-item>
+        </el-descriptions>
+
+        <!-- 计算操作区 -->
+        <el-card shadow="never" size="small" style="margin-bottom: 16px">
+          <template #header><span style="font-weight: 600">触发计算</span></template>
+          <el-form :inline="true" size="small">
+            <el-form-item label="周期">
+              <el-input v-model="computePeriod" placeholder="2026-07 / 2026Q3 / 2026H1" style="width: 200px" clearable />
+            </el-form-item>
+            <el-form-item>
+              <el-button v-if="userStore.hasOp('warehouse.metrics','U')" type="primary" :icon="VideoPlay" :loading="computing" @click="doCompute">计算</el-button>
+              <el-button v-if="userStore.hasOp('warehouse.metrics','U')" :icon="Refresh" :loading="computing" @click="doRecalc">重算</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+
+        <!-- 趋势图 -->
+        <el-card shadow="never" size="small" style="margin-bottom: 16px">
+          <template #header><span style="font-weight: 600">计算趋势</span></template>
+          <div v-if="trendData.length === 0" style="text-align:center;color:#909399;padding:24px 0">
+            <el-empty description="暂无计算结果" :image-size="80" />
+          </div>
+          <div v-else style="display:flex;align-items:flex-end;gap:4px;height:120px;padding:8px 0">
+            <div v-for="(d, i) in trendData" :key="i" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+              <span style="font-size:11px;margin-bottom:4px;color:#303133;font-weight:600">{{ d.value }}</span>
+              <div :style="{height: Math.max(4, (d.value / Math.max(...trendData.map(x=>x.value),1)) * 100)+'%', width:'100%', maxWidth:'40px', background:'#409eff', borderRadius:'4px 4px 0 0', minHeight:'4px'}"></div>
+              <span style="font-size:10px;color:#909399;margin-top:4px;writing-mode:horizontal-tb">{{ d.period }}</span>
+            </div>
+          </div>
+        </el-card>
+
+        <!-- 计算结果列表 -->
+        <el-card shadow="never" size="small" style="margin-bottom: 16px">
+          <template #header><span style="font-weight: 600">计算结果</span></template>
+          <el-table v-loading="resultsLoading" :data="results" size="small" border empty-text="暂无结果" max-height="200">
+            <el-table-column prop="period" label="周期" width="120" />
+            <el-table-column prop="value.value" label="计算结果" min-width="100" />
+            <el-table-column prop="computed_at" label="计算时间" width="160">
+              <template #default="{ row }">{{ row.computed_at?.substring(0, 19) }}</template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+
+        <!-- 运行记录 -->
+        <el-card shadow="never" size="small">
+          <template #header><span style="font-weight: 600">运行记录</span></template>
+          <el-table v-loading="runsLoading" :data="runs" size="small" border empty-text="暂无记录" max-height="200">
+            <el-table-column prop="status" label="状态" width="80">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.status==='success'?'success':row.status==='failed'?'danger':row.status==='running'?'warning':'info'">
+                  {{ METRIC_RUN_STATUS_LABELS[row.status] || row.status }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="period" label="周期" width="100" />
+            <el-table-column prop="error_message" label="错误信息" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="started_at" label="开始时间" width="160">
+              <template #default="{ row }">{{ row.started_at?.substring(0, 19) }}</template>
+            </el-table-column>
+            <el-table-column prop="finished_at" label="结束时间" width="160">
+              <template #default="{ row }">{{ row.finished_at?.substring(0, 19) }}</template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </template>
+    </el-drawer>
 
     <!-- 新建/编辑弹窗 -->
     <el-dialog v-model="dialogVisible" :title="dialogMode==='create'?'新建指标':'编辑指标'" width="600px" @close="editId=null">
