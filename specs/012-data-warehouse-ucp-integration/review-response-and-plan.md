@@ -1,3 +1,143 @@
+﻿# 对《Code Review 改进建议评估与开发计划》的二次强批判性评估（2026-07-07）
+
+> 评估对象：本文档下方“对 Code Review 建议的回应与开发计划”。  
+> 评估结论：该回应文档在“控制工程复杂度、避免过度平台化”方面有合理性，但整体对数据仓库类功能的风险判断偏乐观，部分“YAGNI”判断过早，存在把“当前团队小 / 消费者内部”误当作“治理要求可降低”的倾向。建议保留其轻量化原则，但必须调整优先级：**SQL/DDL 安全、分层策略、发布门禁、权限传播与可审计性不应被延后到平台化之后，而应作为轻量数仓上线的底线能力。**
+
+---
+
+## 一、总体批判性结论
+
+回应文档的核心立场是：当前是 1 人 + AI、内部消费者、先跑起来，所以大量平台化建议应延后。这个立场有现实价值，但也有明显盲点：
+
+1. **数据仓库风险不是由团队规模决定，而是由数据影响面决定。** 即使只有一个开发者，只要系统具备 DWD/DWS/ADS 发布、物化、SCD、调度、数据开放能力，就已经具备破坏下游报表口径、泄露敏感字段、误删/误覆盖数据的能力。
+2. **“内部消费者”不等于低风险消费者。** HR 数据通常包含薪酬、组织、员工身份、绩效等敏感信息；内部 BI 报表一旦口径错误或权限继承错误，对业务决策和合规同样有影响。
+3. **当前功能已不是单纯展示型资产目录，而是可写入、可发布、可物化的数据加工系统。** 因此不能只用“应用内模块”的治理标准评估。
+4. **YAGNI 适用于功能扩展，不适用于安全底线。** SQL 安全、ODS 只读、防越权、审计可追溯属于底线，不应被归为过度设计。
+
+因此，下方计划可以作为“轻量化改造草案”，但不宜直接作为最终执行计划。建议改为：**轻量实现，但不降低安全和治理底线。**
+
+---
+
+## 二、逐项再评估
+
+### 1. Service 拆分：方向正确，但不应列为最高 P0
+
+回应文档计划 P0 拆成 5 个 service 文件。这个方案比 14 个目录更实际，值得采纳。但其优先级需要下调：Service 拆分主要解决可维护性；SQL/DDL 安全、分层策略、权限传播错误会直接导致生产风险。
+
+**修正建议：** Service 拆分可以做，但不应压过 SQL 安全和分层策略。若只能做一天，优先做安全收敛，而不是文件搬家。
+
+### 2. SQL 安全层：回应文档明显低估风险
+
+回应文档认为 `validate_identifier()` 足够，完整 SQL Builder 过度。这一判断不充分。
+
+原因：
+
+1. 代码中存在 `DROP TABLE`、`CREATE TABLE`、`ALTER TABLE`、`CREATE TABLE AS SELECT` 等高危 DDL。
+2. 仅校验 identifier 不能表达“哪些层允许写、哪些层只读、哪些表名前缀可删除、哪些操作需要审计”。
+3. DB 层 GRANT 只读保护有价值，但不能替代应用层校验；尤其当前应用很可能使用同一数据库账号访问多类 schema。
+4. 若未来迁移 MySQL/PostgreSQL 或多 schema，分散拼接 SQL 会迅速变成维护风险。
+
+**修正建议：** 不一定建设大型 SQL Builder，但必须建设轻量 SQL Guard：
+
+```text
+- validate_identifier(name)
+- quote_identifier(name)
+- assert_writable_layer(target_layer)
+- assert_not_ods_write(target_table)
+- assert_managed_table_prefix(target_table)
+- safe_drop_managed_table(target_table)
+- safe_create_materialized_table(...)
+```
+
+这不是过度设计，而是当前已有 DDL 能力的安全底座。
+
+### 3. LayerPolicyService：不应以“规则少”为由延后
+
+回应文档认为 4 层 × 3 操作规则少，不必抽象。这忽略了当前分层校验分散在多个链路中：标准化、物化、DWS 生成、ADS 发布、SCD、快照、调度重跑。问题不在规则数量，而在**规则分散导致绕过**。
+
+**修正建议：** 不必建设复杂 service，但应至少提供统一函数：`validate_layer_transition(source_layer, target_layer, operation)`。所有生成/发布/物化 API 必须调用。
+
+### 4. 自动血缘：采纳正确，但“只写 LineageEdge”可能不足
+
+回应文档采纳自动血缘，这是正确的。但只写 source/target/operation/run_id 仍偏弱。数据仓库血缘至少需要支持产物版本、规则 ID、聚合定义 ID、ADS 定义 ID、字段映射摘要、操作人、运行记录 ID。
+
+**修正建议：** 可以复用现有 lineage 表，但写入 payload/snapshot 字段或关联 audit log，避免只形成“有边但不可解释”的血缘。
+
+### 5. Quality Gate：不应等多人协作后再做
+
+回应文档认为质量门禁要等多人协作和审批流再做，这个判断偏晚。质量门禁的价值不是审批，而是防止明显错误数据发布，例如 DWD 输出主键为空、枚举映射后大量 unknown、DWS 聚合行数异常、ADS 发布包含未脱敏敏感字段、小样本维度被开放。
+
+**修正建议：** 先做轻量门禁，不做复杂审批：`pass / warn / block`。先覆盖 ADS 发布、DWS 视图生成、DWD 执行三个关键点。
+
+### 6. ADS Consumer Contract：完全不做的判断过激
+
+回应文档认为 ADS Contract 面向外部付费消费者，内部 BI 不需要。这一判断不成立。内部 BI 同样需要字段语义稳定、schema 变更提醒、刷新语义、owner、下游引用、废弃说明，否则 ADS 会退化成“临时报表宽表”。
+
+**修正建议：** 不做重型 SLA/付费契约，但应做轻量消费契约：`owner`、`consumer_type`、`refresh_semantics`、`field_schema_version`、`breaking_change_flag`、`deprecation_note`。
+
+### 7. 产品红线：仅文档确认不够
+
+回应文档认为红线已有文档声明、无需代码变更。这个结论过于乐观。红线必须有代码层保护，否则后续迭代容易突破。
+
+**修正建议：** 增加红线测试：禁止任意 SQL 入参、禁止 warehouse API 接受 UCP 凭证/Pipeline 配置、禁止 ADS 保存 BI 图表布局。
+
+### 8. 权限传播：只用递归查询不足以满足审计
+
+回应文档认为权限继承应通过 SQL 递归查询，不做快照。这个方案在实时判断上可以，但在审计、回滚、解释上不足。发布当时的权限规则可能后续变化；ADS 消费者和 AI 解释需要可复现上下文。
+
+**修正建议：** 不一定新建权限快照表，但发布记录中应保存权限裁剪摘要，例如 hidden_fields、masked_fields、sensitive_fields、inherit_strategy、source_assets。
+
+### 9. 统一运行中心：API 聚合可接受，但需统一 Trace ID
+
+回应文档选择 API UNION 聚合而非新表，短期可以接受。但若没有统一 run_id / trace_id，跨步骤链路会断：ODS 标准化 → DWD 视图 → DWS 聚合 → ADS 发布无法串起来。
+
+**修正建议：** 暂不建 `warehouse_runs` 表可以，但每类 run 表应统一 `run_uid / trace_id / asset_code / operation / status / triggered_by / error_code` 等字段。
+
+---
+
+## 三、对当前开发计划的优先级修正建议
+
+回应文档提出：P0 Service 拆分 + 自动血缘；P1 ODS DB 保护 + 运行记录聚合。
+
+建议调整为：
+
+### 必须 P0
+
+1. SQL Guard 全量接入：所有 DDL/DML 动态表名、字段名、DROP/CREATE/ALTER 必须走统一安全函数。
+2. ODS 只读双层保护：DB GRANT + 应用层禁止写 ODS。
+3. 集中分层校验函数：所有生成、发布、物化调用同一校验入口。
+4. 关键链路自动血缘：DWD、DWS、ADS、SCD、快照、指标计算至少写入可解释 lineage payload。
+5. 红线测试：禁止任意 SQL、禁止 UCP 凭证/Pipeline 入参、禁止 BI 图表布局保存。
+
+### 应列为 P1
+
+1. Service 拆分为 5 个文件。
+2. 运行记录 API 聚合。
+3. ADS 轻量消费契约。
+4. 权限传播摘要快照。
+5. 轻量 Quality Gate。
+
+### 可以暂缓
+
+1. 完整 SQL Builder DSL。
+2. 独立应用化目录大重构。
+3. 多租户。
+4. AI 自动发布。
+5. 复杂审批流。
+
+---
+
+## 四、最终判断
+
+下方回应文档有一个正确出发点：避免把当前 HR Portal 内嵌数据仓库过早建设成企业级大平台。但它的问题是把一些“安全底线能力”也归入了“平台化过度设计”。
+
+更准确的原则应是：
+
+> **功能可以轻量，安全不能轻量；平台化可以延后，治理底线不能延后。**
+
+因此，建议不要直接按下方计划执行，而是先重排 P0：把 SQL/DDL 安全、ODS 只读、分层策略、红线测试、关键血缘放到最高优先级；Service 拆分从 P0 降到 P1。
+
+---
 # Code Review 改进建议评估与开发计划
 
 **日期**：2026-07-07
@@ -206,3 +346,4 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA ods GRANT SELECT ON TABLES TO warehouse_app;
 3. **停止**：不建 SQL Builder、LayerPolicyService、Quality Gate、ADS Contract、权限快照、统一运行表
 
 核心原则：**在正确的时机做正确的事。当前时机是让系统安全稳定跑起来。**
+

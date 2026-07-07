@@ -405,3 +405,19 @@ class AdsDefinition(Base):
     lineage_snapshot = Column(JSON, nullable=True, comment="血缘快照")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==================== warehouse_lineage_edges (Z02) ====================
+
+class WarehouseLineageEdge(Base):
+    """自动血缘边 — 关键操作（标准化/SCD/快照/ADS发布/指标计算）执行时自动写入"""
+
+    __tablename__ = "warehouse_lineage_edges"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    source_asset = Column(String(256), nullable=False, comment="源资产标识")
+    target_asset = Column(String(256), nullable=False, comment="目标资产标识")
+    operation = Column(String(64), nullable=False, comment="操作类型")
+    operator = Column(String(64), nullable=True, comment="操作人")
+    run_id = Column(BigInteger, nullable=True, comment="关联运行 ID")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
