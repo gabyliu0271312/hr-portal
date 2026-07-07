@@ -93,6 +93,7 @@ MENU_TREE: list[dict] = [
             {"code": "warehouse.cleaning", "label": "数据清洗", "icon": "Brush"},
             {"code": "warehouse.modeling", "label": "数据建模", "icon": "Edit"},
             {"code": "warehouse.metrics", "label": "指标管理", "icon": "TrendCharts"},
+            {"code": "warehouse.service", "label": "数据服务", "icon": "Share"},
             {"code": "warehouse.governance", "label": "数据治理", "icon": "Checked"},
             {"code": "warehouse.impact", "label": "影响分析", "icon": "Connection"},
         ],

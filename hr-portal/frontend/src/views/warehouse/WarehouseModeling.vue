@@ -18,12 +18,11 @@ const userStore = useUserStore()
 
 /** tabs: activeTab 支持从 query 参数恢复 */
 const tabs = [
-  { name: 'modeling', label: '数据建模' },
+  { name: 'modeling', label: '模型设计' },
   { name: 'dimensions', label: '维度管理' },
   { name: 'dws', label: '汇总视图' },
   { name: 'snapshots', label: '快照管理' },
-  { name: 'scd', label: '历史拉链' },
-  { name: 'ads', label: '消费资产' },
+  { name: 'scd', label: '拉链管理' },
 ]
 const activeTab = ref('modeling')
 
@@ -34,7 +33,6 @@ watch(routeTab, (v) => { if (tabs.some(t => t.name === v)) activeTab.value = v }
 function onTabChange(name: string) {
   if (name === 'snapshots') { router.push('/warehouse/snapshots'); return }
   if (name === 'scd') { router.push('/warehouse/scd'); return }
-  if (name === 'ads') { router.push('/warehouse/ads'); return }
   activeTab.value = name
   router.replace({ query: { tab: name === 'modeling' ? undefined : name } })
 }
