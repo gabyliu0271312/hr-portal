@@ -1,142 +1,4 @@
-﻿# 对《Code Review 改进建议评估与开发计划》的二次强批判性评估（2026-07-07）
-
-> 评估对象：本文档下方“对 Code Review 建议的回应与开发计划”。  
-> 评估结论：该回应文档在“控制工程复杂度、避免过度平台化”方面有合理性，但整体对数据仓库类功能的风险判断偏乐观，部分“YAGNI”判断过早，存在把“当前团队小 / 消费者内部”误当作“治理要求可降低”的倾向。建议保留其轻量化原则，但必须调整优先级：**SQL/DDL 安全、分层策略、发布门禁、权限传播与可审计性不应被延后到平台化之后，而应作为轻量数仓上线的底线能力。**
-
----
-
-## 一、总体批判性结论
-
-回应文档的核心立场是：当前是 1 人 + AI、内部消费者、先跑起来，所以大量平台化建议应延后。这个立场有现实价值，但也有明显盲点：
-
-1. **数据仓库风险不是由团队规模决定，而是由数据影响面决定。** 即使只有一个开发者，只要系统具备 DWD/DWS/ADS 发布、物化、SCD、调度、数据开放能力，就已经具备破坏下游报表口径、泄露敏感字段、误删/误覆盖数据的能力。
-2. **“内部消费者”不等于低风险消费者。** HR 数据通常包含薪酬、组织、员工身份、绩效等敏感信息；内部 BI 报表一旦口径错误或权限继承错误，对业务决策和合规同样有影响。
-3. **当前功能已不是单纯展示型资产目录，而是可写入、可发布、可物化的数据加工系统。** 因此不能只用“应用内模块”的治理标准评估。
-4. **YAGNI 适用于功能扩展，不适用于安全底线。** SQL 安全、ODS 只读、防越权、审计可追溯属于底线，不应被归为过度设计。
-
-因此，下方计划可以作为“轻量化改造草案”，但不宜直接作为最终执行计划。建议改为：**轻量实现，但不降低安全和治理底线。**
-
----
-
-## 二、逐项再评估
-
-### 1. Service 拆分：方向正确，但不应列为最高 P0
-
-回应文档计划 P0 拆成 5 个 service 文件。这个方案比 14 个目录更实际，值得采纳。但其优先级需要下调：Service 拆分主要解决可维护性；SQL/DDL 安全、分层策略、权限传播错误会直接导致生产风险。
-
-**修正建议：** Service 拆分可以做，但不应压过 SQL 安全和分层策略。若只能做一天，优先做安全收敛，而不是文件搬家。
-
-### 2. SQL 安全层：回应文档明显低估风险
-
-回应文档认为 `validate_identifier()` 足够，完整 SQL Builder 过度。这一判断不充分。
-
-原因：
-
-1. 代码中存在 `DROP TABLE`、`CREATE TABLE`、`ALTER TABLE`、`CREATE TABLE AS SELECT` 等高危 DDL。
-2. 仅校验 identifier 不能表达“哪些层允许写、哪些层只读、哪些表名前缀可删除、哪些操作需要审计”。
-3. DB 层 GRANT 只读保护有价值，但不能替代应用层校验；尤其当前应用很可能使用同一数据库账号访问多类 schema。
-4. 若未来迁移 MySQL/PostgreSQL 或多 schema，分散拼接 SQL 会迅速变成维护风险。
-
-**修正建议：** 不一定建设大型 SQL Builder，但必须建设轻量 SQL Guard：
-
-```text
-- validate_identifier(name)
-- quote_identifier(name)
-- assert_writable_layer(target_layer)
-- assert_not_ods_write(target_table)
-- assert_managed_table_prefix(target_table)
-- safe_drop_managed_table(target_table)
-- safe_create_materialized_table(...)
-```
-
-这不是过度设计，而是当前已有 DDL 能力的安全底座。
-
-### 3. LayerPolicyService：不应以“规则少”为由延后
-
-回应文档认为 4 层 × 3 操作规则少，不必抽象。这忽略了当前分层校验分散在多个链路中：标准化、物化、DWS 生成、ADS 发布、SCD、快照、调度重跑。问题不在规则数量，而在**规则分散导致绕过**。
-
-**修正建议：** 不必建设复杂 service，但应至少提供统一函数：`validate_layer_transition(source_layer, target_layer, operation)`。所有生成/发布/物化 API 必须调用。
-
-### 4. 自动血缘：采纳正确，但“只写 LineageEdge”可能不足
-
-回应文档采纳自动血缘，这是正确的。但只写 source/target/operation/run_id 仍偏弱。数据仓库血缘至少需要支持产物版本、规则 ID、聚合定义 ID、ADS 定义 ID、字段映射摘要、操作人、运行记录 ID。
-
-**修正建议：** 可以复用现有 lineage 表，但写入 payload/snapshot 字段或关联 audit log，避免只形成“有边但不可解释”的血缘。
-
-### 5. Quality Gate：不应等多人协作后再做
-
-回应文档认为质量门禁要等多人协作和审批流再做，这个判断偏晚。质量门禁的价值不是审批，而是防止明显错误数据发布，例如 DWD 输出主键为空、枚举映射后大量 unknown、DWS 聚合行数异常、ADS 发布包含未脱敏敏感字段、小样本维度被开放。
-
-**修正建议：** 先做轻量门禁，不做复杂审批：`pass / warn / block`。先覆盖 ADS 发布、DWS 视图生成、DWD 执行三个关键点。
-
-### 6. ADS Consumer Contract：完全不做的判断过激
-
-回应文档认为 ADS Contract 面向外部付费消费者，内部 BI 不需要。这一判断不成立。内部 BI 同样需要字段语义稳定、schema 变更提醒、刷新语义、owner、下游引用、废弃说明，否则 ADS 会退化成“临时报表宽表”。
-
-**修正建议：** 不做重型 SLA/付费契约，但应做轻量消费契约：`owner`、`consumer_type`、`refresh_semantics`、`field_schema_version`、`breaking_change_flag`、`deprecation_note`。
-
-### 7. 产品红线：仅文档确认不够
-
-回应文档认为红线已有文档声明、无需代码变更。这个结论过于乐观。红线必须有代码层保护，否则后续迭代容易突破。
-
-**修正建议：** 增加红线测试：禁止任意 SQL 入参、禁止 warehouse API 接受 UCP 凭证/Pipeline 配置、禁止 ADS 保存 BI 图表布局。
-
-### 8. 权限传播：只用递归查询不足以满足审计
-
-回应文档认为权限继承应通过 SQL 递归查询，不做快照。这个方案在实时判断上可以，但在审计、回滚、解释上不足。发布当时的权限规则可能后续变化；ADS 消费者和 AI 解释需要可复现上下文。
-
-**修正建议：** 不一定新建权限快照表，但发布记录中应保存权限裁剪摘要，例如 hidden_fields、masked_fields、sensitive_fields、inherit_strategy、source_assets。
-
-### 9. 统一运行中心：API 聚合可接受，但需统一 Trace ID
-
-回应文档选择 API UNION 聚合而非新表，短期可以接受。但若没有统一 run_id / trace_id，跨步骤链路会断：ODS 标准化 → DWD 视图 → DWS 聚合 → ADS 发布无法串起来。
-
-**修正建议：** 暂不建 `warehouse_runs` 表可以，但每类 run 表应统一 `run_uid / trace_id / asset_code / operation / status / triggered_by / error_code` 等字段。
-
----
-
-## 三、对当前开发计划的优先级修正建议
-
-回应文档提出：P0 Service 拆分 + 自动血缘；P1 ODS DB 保护 + 运行记录聚合。
-
-建议调整为：
-
-### 必须 P0
-
-1. SQL Guard 全量接入：所有 DDL/DML 动态表名、字段名、DROP/CREATE/ALTER 必须走统一安全函数。
-2. ODS 只读双层保护：DB GRANT + 应用层禁止写 ODS。
-3. 集中分层校验函数：所有生成、发布、物化调用同一校验入口。
-4. 关键链路自动血缘：DWD、DWS、ADS、SCD、快照、指标计算至少写入可解释 lineage payload。
-5. 红线测试：禁止任意 SQL、禁止 UCP 凭证/Pipeline 入参、禁止 BI 图表布局保存。
-
-### 应列为 P1
-
-1. Service 拆分为 5 个文件。
-2. 运行记录 API 聚合。
-3. ADS 轻量消费契约。
-4. 权限传播摘要快照。
-5. 轻量 Quality Gate。
-
-### 可以暂缓
-
-1. 完整 SQL Builder DSL。
-2. 独立应用化目录大重构。
-3. 多租户。
-4. AI 自动发布。
-5. 复杂审批流。
-
----
-
-## 四、最终判断
-
-下方回应文档有一个正确出发点：避免把当前 HR Portal 内嵌数据仓库过早建设成企业级大平台。但它的问题是把一些“安全底线能力”也归入了“平台化过度设计”。
-
-更准确的原则应是：
-
-> **功能可以轻量，安全不能轻量；平台化可以延后，治理底线不能延后。**
-
-因此，建议不要直接按下方计划执行，而是先重排 P0：把 SQL/DDL 安全、ODS 只读、分层策略、红线测试、关键血缘放到最高优先级；Service 拆分从 P0 降到 P1。
-
+﻿
 ---
 # Code Review 改进建议评估与开发计划
 
@@ -336,14 +198,240 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA ods GRANT SELECT ON TABLES TO warehouse_app;
 
 ---
 
-## 五、最终结论
+## 五、六轮评审讨论终局
 
-当前 R 章功能方向正确，已具备可演示、可试点的完整链路。
-下一步不应继续快速扩功能，而应：
+### 5.1 讨论过程
 
-1. **P0**：Service 拆分 + 自动血缘（1 天）
-2. **P1**：ODS DB 保护 + 运行记录聚合
-3. **停止**：不建 SQL Builder、LayerPolicyService、Quality Gate、ADS Contract、权限快照、统一运行表
+| 轮次 | 核心分歧 | 结论 |
+|------|----------|------|
+| 第一轮 | 9 项建议：SQL Builder / Quality Gate / ADS Contract / LayerPolicy / 权限快照 / 统一运行表 / 14 目录拆分 / 自动血缘 / Trace ID | 采纳自动血缘 + 5 文件拆分；拒绝 SQL Builder / Quality Gate / ADS Contract / 权限快照 / 14 目录 / Trace ID |
+| 第二轮 | SQL Guard 7 函数、Quality Gate 独立系统、ADS Contract 全量、LayerPolicy Service | 拒绝；改用 `validate_identifier` + 嵌入式校验 |
+| 第三轮 | DDL 安全、Schema `extra="forbid"` 范围、Quality Gate 嵌入还是独立 | 接受 `layer_policy.py` + Schema `extra="forbid"`；嵌入式校验接受 |
+| 第四轮 | DDL 是否查询真实 `registered_tables`、`extra="forbid"` 覆盖 6 还是 20+ Schema、`assert_managed_write_target` | 接受查真实元数据；`extra="forbid"` 仍需讨论范围 |
+| 第五轮 | `target_layer` 参数不可信、`extra="forbid"` 全 Schema 覆盖的技术可行性 | **接受两个核心原则：DDL 不信任入参 layer，Schema 不静默吞红线字段** |
+| 第六轮 | 5 项补充：ALTER 破坏性 / CREATE OR REPLACE / 物理冲突 / `extra` 范围精确化 / `computed` 不可伪造 | **全部接受** |
 
-核心原则：**在正确的时机做正确的事。当前时机是让系统安全稳定跑起来。**
+### 5.2 核心共识
 
+> **函数可以少，概念可以轻，但安全语义不能缩水。**
+> **安全判断不靠调用方自觉传对参数；红线字段不被 Schema 静默吞掉。**
+> **评审闭环不以文字承认为准，以代码和测试为准。**
+
+---
+
+## 六、最终执行计划
+
+### 6.1 P0 任务清单（立即执行，预计 1 天）
+
+#### P0-1：`layer_policy.py` — DDL 安全与分层校验
+
+**新建文件**：`backend/app/warehouse/layer_policy.py`
+
+**DDL 操作白名单**：
+
+```python
+DDL_CREATE   = "CREATE"
+DDL_DROP     = "DROP"
+DDL_REPLACE  = "REPLACE"
+DDL_ALTER    = "ALTER"
+DDL_TRUNCATE = "TRUNCATE"
+
+ALLOWED_DDL_OPERATIONS = {DDL_CREATE, DDL_DROP, DDL_REPLACE, DDL_ALTER, DDL_TRUNCATE}
+DESTRUCTIVE_DDL = {DDL_DROP, DDL_REPLACE, DDL_ALTER, DDL_TRUNCATE}
+```
+
+**不可妥协的语义规则**：
+
+| 规则 | 约束 |
+|------|------|
+| **operation 非白名单拒绝** | `operation not in ALLOWED_DDL_OPERATIONS` → `ValueError` |
+| **DROP / REPLACE / ALTER / TRUNCATE** | **必须查真实 `registered_tables.warehouse_layer`**，不信任入参 `target_layer` |
+| **ODS 一律拒绝破坏性 DDL** | `actual.warehouse_layer == "ODS"` → 拒绝 |
+| **未注册资产禁止破坏性 DDL** | `actual is None` → 拒绝（含"元数据缺失"提示） |
+| **CREATE OR REPLACE** | **按 REPLACE 处理**，不按 CREATE。`INSERT OVERWRITE` → REPLACE |
+| **CREATE 新表** | 允许未注册，但检查 `target_layer in (DWD,DWS,ADS)` + 命名不与已有 ODS 冲突 |
+| **CREATE 物理冲突** | 查真实 DB schema（`information_schema.tables`）；物理表存在但 `registered_tables` 缺失 → **拒绝** + 提示"请先修复注册信息" |
+| **CREATE 成功后再注册元数据** | 不能先注册后 CREATE；CREATE 失败必须 rollback，不留下半注册状态 |
+| **CREATE 失败不留下 published 元数据** | 事务回滚 |
+
+**函数签名**：
+
+```python
+async def validate_ddl_operation(db, table_name: str, operation: str, target_layer: str = None)
+
+def validate_layer_transition(source_layer: str, target_layer: str, operation: str)
+
+def assert_not_ods_write(layer: str)
+```
+
+**接入点**：`trigger_snapshot`、`execute_scd`、`execute_full`、`build_dataset_from_model`、`publish_ads` 中的 DDL 操作前。
+
+#### P0-2：Schema `extra="forbid"` — 全量覆盖
+
+**覆盖范围**：所有对外暴露的 R 章写入/执行类 **Request Schema**（不覆盖 Response / ORM / 内部 DTO）。
+
+**完整清单（23 个）**：
+
+| 模块 | Schema | 类型 |
+|------|--------|------|
+| ADS | `AdsDefinitionIn` | Create |
+| ADS | `AdsDefinitionUpdateIn` | Update |
+| SCD | `ScdConfigIn` | Create |
+| SCD | `ScdConfigUpdateIn` | Update |
+| 快照 | `SnapshotJobIn` | Create |
+| 快照 | `SnapshotJobUpdateIn` | Update |
+| 快照 | `SnapshotTriggerIn` | Trigger |
+| 标准化 | `StandardizationRuleIn` | Create |
+| 标准化 | `StandardizationRuleUpdateIn` | Update |
+| 标准化 | `StandardizationTemplateIn` | Create |
+| 标准化 | `StandardizationTemplateUpdateIn` | Update |
+| 标准化 | `TemplateLoadRequest` | Load |
+| 标准化 | `PreviewRequest` | Preview |
+| 标准化 | `DwdViewGenerateRequest` | Generate |
+| 标准化 | `ExecuteFullRequest` | Execute |
+| 刷新策略 | `RefreshStrategyUpdateIn` | Update |
+| 维度 | `DimensionCreateIn` | Create |
+| 维度 | `DimensionUpdateIn` | Update |
+| DWS | `DwsAggregateDefinitionCreateIn` | Create |
+| DWS | `DwsAggregateDefinitionUpdateIn` | Update |
+| DWS | `DwsViewGenerateRequest` | Generate |
+| 指标 | `MetricComputeIn` | Compute |
+| 指标 | `MetricRecalcIn` | Recalc |
+
+**元测试**：
+
+```python
+def test_all_warehouse_write_schemas_forbid_extra():
+    schemas = [
+        AdsDefinitionIn, AdsDefinitionUpdateIn,
+        ScdConfigIn, ScdConfigUpdateIn,
+        SnapshotJobIn, SnapshotJobUpdateIn, SnapshotTriggerIn,
+        StandardizationRuleIn, StandardizationRuleUpdateIn,
+        StandardizationTemplateIn, StandardizationTemplateUpdateIn,
+        TemplateLoadRequest, PreviewRequest, DwdViewGenerateRequest, ExecuteFullRequest,
+        RefreshStrategyUpdateIn,
+        DimensionCreateIn, DimensionUpdateIn,
+        DwsAggregateDefinitionCreateIn, DwsAggregateDefinitionUpdateIn, DwsViewGenerateRequest,
+        MetricComputeIn, MetricRecalcIn,
+    ]
+    for schema in schemas:
+        assert schema.model_config.get("extra") == "forbid", f"{schema.__name__} missing extra='forbid'"
+```
+
+**抽样测试**（4 类，验证 422 拒绝）：
+
+| Schema | 传入红线字段 | 期望结果 |
+|--------|-------------|----------|
+| `StandardizationRuleIn` | `raw_sql` | 422 |
+| `DwsAggregateDefinitionCreateIn` | `raw_sql` | 422 |
+| `ExecuteFullRequest` | `raw_sql` | 422 |
+| `AdsDefinitionIn` | `chart_config` / `ucp_secret` | 422 |
+
+**说明**：`extra="forbid"` 限制的是**顶层键**。Schema 中已声明的 `rule_config: dict` / `filter: dict` / `template_rules: list` 等自由 JSON 字段的**内容不受限制**——前端仍可传入任意嵌套子字段。这不会破坏任何现有功能。
+
+#### P0-3：嵌入式安全校验 — 发布/物化不可绕过的阻断
+
+**不建独立 Quality Gate 系统**。校验逻辑直接嵌入 `publish_ads`、`execute_full`、`execute_scd`、`trigger_snapshot` 等方法。
+
+| 场景 | 约束 | 语义 |
+|------|------|------|
+| ADS 输出字段为空 | `publish_ads` 前检查 `output_fields` | **400** — 字段为空不可发布 |
+| API/push 发布含未脱敏敏感字段 | `targets` 含 `api`/`push` + `output_fields` 中有 `is_sensitive=True` | **400** — 敏感字段不得通过 API/推送暴露 |
+| API/push 发布权限摘要缺失 | `computed is not True` | **400** — 权限摘要未计算不可发布 |
+| DWD 标准化结果 0 行 | `execute_full` 后检查 `row_count == 0` | **warn** — 不阻断，但写日志 |
+| DWS 聚合无来源资产 | `source_id` 无效或不存在 | **400** |
+| 目标层级非法 | `target_layer not in (DWD,DWS,ADS)` | **400** |
+
+#### P0-4：权限继承摘要
+
+**在 `publish_ads` 中，先计算权限摘要写入 `permissions_inherited_from`，再执行发布目标校验。**
+
+**摘要结构**：
+
+```json
+{
+  "computed": true,
+  "hidden_field_count": 0,
+  "masked_field_count": 0,
+  "sensitive_field_count": 2,
+  "sensitive_fields": ["salary", "bonus"],
+  "inherit_strategy": "source_recursive",
+  "source_assets": ["dws_employee_summary"]
+}
+```
+
+**不可妥协的约束**：
+
+| 规则 | 约束 |
+|------|------|
+| `computed: true` 不可伪造 | 只有完整计算成功才能写 `computed: true` |
+| 计算失败 | `computed: false` 或直接阻断，**不能降级为 `computed: true` + 空字段** |
+| 计算成功且无敏感字段 | `computed: true, sensitive_field_count: 0` → 允许 |
+| API/push 发布前的校验 | `computed is not True` → **400**（不是 `json 非空`） |
+
+#### P0-5：血缘 metadata 补充
+
+在现有 Z02 的 `write_lineage_edge` 基础上，5 处写入均增加 `definition_id` + `rule_ids` + `version`：
+
+| 操作 | `definition_id` | `rule_ids` | `version` |
+|------|----------------|-----------|-----------|
+| ADS 发布 | `ads_definition.id` | — | `ads_definition.version` |
+| DWD 标准化 | — | 启用的 `standardization_rules` ID 列表 | — |
+| SCD 执行 | `scd_config.id` | — | — |
+| 快照生成 | `snapshot_job.id` | — | — |
+| 指标计算 | `metric.id` | — | — |
+
+#### P0-6：测试清单
+
+**基础测试（已覆盖）**：
+
+1. ODS 写入被拒绝
+2. 非法层级跳转被拒绝
+3. 新建 DWD/DWS/ADS 产物成功
+4. 覆盖已有 ODS 被拒绝
+
+**新增测试（本轮硬约束）**：
+
+5. **`target_layer` 伪造测试**：`table_name` = 已注册 ODS 表，`target_layer` = "DWD"，`operation` = DROP/REPLACE → **必须拒绝**（验证不信任入参 layer）
+6. **全 Schema `extra="forbid"` 元测试**：`test_all_warehouse_write_schemas_forbid_extra`
+7. **`extra="forbid"` 422 抽样测试**（4 类）：传入 `raw_sql` / `chart_config` / `ucp_secret` → 422
+8. **CREATE 物理表冲突测试**：物理表存在但 `registered_tables` 缺失 → CREATE 拒绝
+9. **TRUNCATE 破坏性处理测试**：TRUNCATE ODS → 按 DROP/REPLACE 同级拒绝
+10. **CREATE OR REPLACE 覆盖 ODS 测试**：registered ODS 表 + `CREATE OR REPLACE` + `target_layer="DWD"` → 拒绝
+11. **ADS 空字段发布测试**：`output_fields` 为空 → 400
+12. **ADS API/push 敏感字段发布测试**：含 `is_sensitive=True` + `targets` 含 api → 400
+13. **ADS API/push 权限摘要缺失测试**：`computed is not True` → 400
+14. **血缘 metadata 写入测试**：`definition_id` / `rule_ids` / `version` 非空
+
+---
+
+## 七、仍然不做（定论，不再争论）
+
+| 项目 | 理由 |
+|------|------|
+| 完整 SQL Builder DSL | `validate_ddl_operation` + `validate_identifier` + 白名单已覆盖所有 DDL 风险 |
+| 独立 Quality Gate 系统 | 嵌入式校验（P0-3）已实现不可绕过的阻断，不建新概念 |
+| 重型 ADS Consumer Contract | `owner` + `consume_domain` + `refresh_semantics` + `version` 足够当前阶段 |
+| `breaking_change_flag` / `deprecation_note` | 等有多于一个消费者时再做 |
+| 权限传播快照表 | 权限摘要 JSON（P0-4）覆盖，不建新表 |
+| 统一 `warehouse_runs` 表 | API 聚合 VIEW 足够，先不建新表 |
+| 统一 Trace ID | 等出现异步/分布式链路时再做 |
+| 独立应用化 / 多租户 / UCP 防腐层 | 无需求 |
+| AI 自动化生成与发布 | 治理未闭环前不谈 |
+
+---
+
+## 八、验收标准
+
+P0 闭环不以文档接受为准，以以下条件全部满足为准：
+
+1. [ ] `layer_policy.py` 存在，`validate_ddl_operation` / `validate_layer_transition` / `assert_not_ods_write` 通过测试
+2. [ ] 全部 23 个 R 章写入 Request Schema 通过元测试 `extra="forbid"`
+3. [ ] 13 个 pytest 全部通过
+4. [ ] `publish_ads` 中：空字段→400 / 敏感字段→400 / `computed is not True`→400 全部可验证
+5. [ ] DDL 破坏性操作通过真实 `registered_tables` 校验，不信任入参 `target_layer`
+6. [ ] CREATE OR REPLACE 按 REPLACE 处理，不被当作 CREATE 绕过
+7. [ ] 权限摘要 `computed` 字段不可伪造；计算失败不降级为 `computed: true`
+8. [ ] 前端 `npm build` 零 error / 零 warning
+9. [ ] Docker 运行 + API 可达
+10. [ ] `router import OK` + `pytest 全量`
