@@ -250,7 +250,7 @@ const routes: RouteRecordRaw[] = [
         path: 'warehouse/data-recipe',
         name: 'WarehouseDataRecipe',
         component: () => import('@/views/warehouse/WarehouseDataRecipe.vue'),
-        meta: { label: '数据加工', menuCode: 'warehouse.modeling' },
+        meta: { label: '数据清洗', menuCode: 'warehouse.cleaning' },
       },
       {
         path: 'warehouse/snapshots',

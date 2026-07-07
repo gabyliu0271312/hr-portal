@@ -18,13 +18,12 @@ const userStore = useUserStore()
 
 /** tabs: activeTab 支持从 query 参数恢复 */
 const tabs = [
-  { name: 'recipe', label: '数据加工' },
   { name: 'modeling', label: '数据建模' },
   { name: 'dimensions', label: '维度管理' },
   { name: 'dws', label: '汇总视图' },
   { name: 'snapshots', label: '快照管理' },
-  { name: 'scd', label: 'SCD 拉链' },
-  { name: 'ads', label: 'ADS 消费资产' },
+  { name: 'scd', label: '历史拉链' },
+  { name: 'ads', label: '消费资产' },
 ]
 const activeTab = ref('modeling')
 
@@ -33,7 +32,6 @@ const routeTab = computed(() => (route.query.tab as string) || 'modeling')
 watch(routeTab, (v) => { if (tabs.some(t => t.name === v)) activeTab.value = v }, { immediate: true })
 
 function onTabChange(name: string) {
-  if (name === 'recipe') { router.push('/warehouse/data-recipe'); return }
   if (name === 'snapshots') { router.push('/warehouse/snapshots'); return }
   if (name === 'scd') { router.push('/warehouse/scd'); return }
   if (name === 'ads') { router.push('/warehouse/ads'); return }
