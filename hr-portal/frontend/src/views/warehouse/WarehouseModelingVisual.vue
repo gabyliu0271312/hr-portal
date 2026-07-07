@@ -399,7 +399,7 @@ onMounted(load)
 
     <!-- 计算字段弹窗 -->
     <el-dialog v-model="cfDialogVisible" title="管理计算字段" width="800px" v-if="modelId">
-      <CalculatedFieldBridge :dataset-id="modelId" @saved="onCalculatedFieldSaved" />
+      <CalculatedFieldBridge :dataset-id="modelId" :datasets="[]" :tables="[]" @saved="onCalculatedFieldSaved" />
     </el-dialog>
   </div>
 </template>

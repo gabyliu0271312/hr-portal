@@ -1015,3 +1015,108 @@ class DwsViewGenerateOut(BaseModel):
     dependencies: list[dict] = Field(default_factory=list)
     version: int = 1
     status: str = "draft"
+
+
+# ==================== R04 快照任务 Schema ====================
+
+class SnapshotJobIn(BaseModel):
+    """快照任务创建/更新入参"""
+    name: str = Field(..., max_length=128)
+    source_table: str = Field(..., max_length=128)
+    target_table: str = Field(..., max_length=128)
+    snapshot_keys: list[str] = Field(default_factory=list)
+    period: str = Field(default="monthly", max_length=16)
+    retention: int = Field(default=12, ge=1, le=120)
+
+
+class SnapshotJobUpdateIn(BaseModel):
+    """快照任务部分更新"""
+    name: Optional[str] = Field(None, max_length=128)
+    snapshot_keys: Optional[list[str]] = None
+    period: Optional[str] = Field(None, max_length=16)
+    retention: Optional[int] = Field(None, ge=1, le=120)
+    enabled: Optional[bool] = None
+
+
+class SnapshotTriggerIn(BaseModel):
+    """快照触发入参"""
+    period_value: str = Field(..., max_length=32)
+
+
+# ==================== R0403 SCD Schema ====================
+
+class ScdConfigIn(BaseModel):
+    """SCD 配置创建/更新入参"""
+    name: str = Field(..., max_length=128)
+    source_table: str = Field(..., max_length=128)
+    target_table: str = Field(..., max_length=128)
+    business_key: str = Field(..., max_length=256)
+    effective_from_field: str = Field(default="effective_from", max_length=64)
+    effective_to_field: str = Field(default="effective_to", max_length=64)
+    current_flag_field: str = Field(default="current_flag", max_length=64)
+    compare_fields: list[str] = Field(default_factory=list)
+
+
+class ScdConfigUpdateIn(BaseModel):
+    """SCD 配置部分更新"""
+    name: Optional[str] = Field(None, max_length=128)
+    business_key: Optional[str] = None
+    effective_from_field: Optional[str] = None
+    effective_to_field: Optional[str] = None
+    current_flag_field: Optional[str] = None
+    compare_fields: Optional[list[str]] = None
+    enabled: Optional[bool] = None
+
+
+# ==================== R07 ADS Schema ====================
+
+class AdsDimensionRef(BaseModel):
+    """ADS 关联维度"""
+    code: str = Field(..., max_length=64)
+    name: str = Field(default="", max_length=128)
+    field: str = Field(default="", max_length=128)
+    ref_table: str = Field(default="", max_length=128)
+
+
+class AdsOutputField(BaseModel):
+    """ADS 输出字段定义"""
+    source_field: str = Field(..., max_length=128)
+    output_name: str = Field(..., max_length=128)
+    output_label: str = Field(default="", max_length=128)
+    data_type: str = Field(default="string", max_length=32)
+    agg_role: str = Field(default="dimension", max_length=32)
+    is_sensitive: bool = False
+
+
+class AdsPresetFilter(BaseModel):
+    """ADS 预置过滤"""
+    field: str = Field(..., max_length=128)
+    operator: str = Field(default="eq", max_length=16)
+    value: str = Field(default="", max_length=256)
+
+
+class AdsDefinitionIn(BaseModel):
+    """ADS 组装定义创建/更新入参"""
+    name: str = Field(..., max_length=256)
+    description: Optional[str] = Field(None, max_length=2000)
+    source_type: str = Field(default="dws_aggregate", max_length=32)
+    source_id: int = Field(...)
+    source_label: Optional[str] = Field(None, max_length=128)
+    dimension_refs: list[AdsDimensionRef] = Field(default_factory=list)
+    output_fields: list[AdsOutputField] = Field(default_factory=list)
+    preset_filters: Optional[list[AdsPresetFilter]] = None
+    subject_area: Optional[str] = Field(None, max_length=64)
+    consume_domain: Optional[str] = Field(None, max_length=64)
+    owner_name: Optional[str] = Field(None, max_length=64)
+
+
+class AdsDefinitionUpdateIn(BaseModel):
+    """ADS 定义部分更新"""
+    name: Optional[str] = Field(None, max_length=256)
+    description: Optional[str] = Field(None, max_length=2000)
+    dimension_refs: Optional[list[AdsDimensionRef]] = None
+    output_fields: Optional[list[AdsOutputField]] = None
+    preset_filters: Optional[list[AdsPresetFilter]] = None
+    subject_area: Optional[str] = Field(None, max_length=64)
+    consume_domain: Optional[str] = Field(None, max_length=64)
+    owner_name: Optional[str] = Field(None, max_length=64)

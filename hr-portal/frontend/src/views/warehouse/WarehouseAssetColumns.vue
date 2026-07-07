@@ -29,6 +29,7 @@ const editForm = ref({
   is_pk_part: false, is_sensitive: false, is_visible: true, copy_from_last_month: false,
   scope_role: '', display_order: 0, description: '',
   enum_options: [] as string[],
+  formula_expr: '' as string,
 })
 const editSaving = ref(false)
 
@@ -98,7 +99,7 @@ function openCreate() {
     is_pk_part: false, is_sensitive: false, is_visible: true, copy_from_last_month: false,
     scope_role: '',
     display_order: (columns.value[columns.value.length - 1]?.display_order ?? 0) + 10,
-    description: '', enum_options: [],
+    description: '', enum_options: [], formula_expr: '',
   }
   editMode.value = true; drawerVisible.value = true
 }
@@ -113,6 +114,7 @@ function enterEdit(col: AssetColumn) {
     copy_from_last_month: false,
     scope_role: col.scope_role || '', display_order: col.display_order, description: col.description || '',
     enum_options: Array.isArray(col.enum_options) ? [...col.enum_options] : [],
+    formula_expr: col.formula_expr || '',
   }
   editMode.value = true; drawerVisible.value = true
 }

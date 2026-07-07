@@ -85,6 +85,9 @@ from app.warehouse.schemas import (
     DwsAggregateDefinitionCreateIn, DwsAggregateDefinitionUpdateIn, DwsAggregateDefinitionOut,
     DwsViewGenerateRequest, DwsViewGenerateOut,
     DWS_AGGREGATIONS, DWS_TIME_GRAINS,
+    SnapshotJobIn, SnapshotJobUpdateIn, SnapshotTriggerIn,
+    ScdConfigIn, ScdConfigUpdateIn,
+    AdsDefinitionIn, AdsDefinitionUpdateIn,
 )
 
 router = APIRouter(prefix="/warehouse", tags=["数据仓库"])
@@ -2781,13 +2784,13 @@ async def list_snapshots(page: int = Query(1, ge=1), page_size: int = Query(20, 
 
 
 @router.post("/snapshots", summary="创建快照任务", status_code=201, dependencies=[Depends(require_op("warehouse.modeling", "C"))])
-async def create_snapshot(payload: dict, db: AsyncSession = Depends(get_session)):
-    return await get_snapshot_service(db).create_job(payload)
+async def create_snapshot(payload: SnapshotJobIn, db: AsyncSession = Depends(get_session)):
+    return await get_snapshot_service(db).create_job(payload.model_dump())
 
 
 @router.patch("/snapshots/{job_id}", summary="更新快照任务", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
-async def update_snapshot(job_id: int, payload: dict, db: AsyncSession = Depends(get_session)):
-    result = await get_snapshot_service(db).update_job(job_id, payload)
+async def update_snapshot(job_id: int, payload: SnapshotJobUpdateIn, db: AsyncSession = Depends(get_session)):
+    result = await get_snapshot_service(db).update_job(job_id, payload.model_dump(exclude_none=True))
     if result is None: raise HTTPException(status_code=404, detail=f"快照任务不存在: {job_id}")
     return result
 
@@ -2799,10 +2802,8 @@ async def delete_snapshot(job_id: int, db: AsyncSession = Depends(get_session)):
 
 
 @router.post("/snapshots/{job_id}/trigger", summary="手动触发快照", status_code=201, dependencies=[Depends(require_op("warehouse.modeling", "U"))])
-async def trigger_snapshot(job_id: int, payload: dict, db: AsyncSession = Depends(get_session)):
-    period = payload.get("period_value", "")
-    if not period: raise HTTPException(status_code=400, detail="period_value 为必填")
-    result = await get_snapshot_service(db).trigger_snapshot(job_id, period)
+async def trigger_snapshot(job_id: int, payload: SnapshotTriggerIn, db: AsyncSession = Depends(get_session)):
+    result = await get_snapshot_service(db).trigger_snapshot(job_id, payload.period_value)
     if "error" in result: raise HTTPException(status_code=404, detail="快照任务不存在")
     return result
 
@@ -2823,13 +2824,13 @@ async def list_scd_configs(page: int = Query(1, ge=1), page_size: int = Query(20
 
 
 @router.post("/scd-configs", summary="创建 SCD 配置", status_code=201, dependencies=[Depends(require_op("warehouse.modeling", "C"))])
-async def create_scd_config(payload: dict, db: AsyncSession = Depends(get_session)):
-    return await get_scd_service(db).create_config(payload)
+async def create_scd_config(payload: ScdConfigIn, db: AsyncSession = Depends(get_session)):
+    return await get_scd_service(db).create_config(payload.model_dump())
 
 
 @router.patch("/scd-configs/{config_id}", summary="更新 SCD 配置", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
-async def update_scd_config(config_id: int, payload: dict, db: AsyncSession = Depends(get_session)):
-    result = await get_scd_service(db).update_config(config_id, payload)
+async def update_scd_config(config_id: int, payload: ScdConfigUpdateIn, db: AsyncSession = Depends(get_session)):
+    result = await get_scd_service(db).update_config(config_id, payload.model_dump(exclude_none=True))
     if result is None: raise HTTPException(status_code=404, detail="SCD 配置不存在")
     return result
 
@@ -2868,13 +2869,13 @@ async def list_ads_definitions(page: int = Query(1, ge=1), page_size: int = Quer
 
 
 @router.post("/ads-definitions", summary="创建 ADS 定义", status_code=201, dependencies=[Depends(require_op("warehouse.modeling", "C"))])
-async def create_ads_definition(payload: dict, db: AsyncSession = Depends(get_session)):
+async def create_ads_definition(payload: AdsDefinitionIn, db: AsyncSession = Depends(get_session)):
     svc = get_ads_service(db)
-    # 保存前校验
-    validate_result = await svc.validate(payload)
+    data = payload.model_dump()
+    validate_result = await svc.validate(data)
     if not validate_result["valid"]:
         raise HTTPException(status_code=400, detail={"validation_errors": validate_result["errors"]})
-    return await svc.create_definition(payload)
+    return await svc.create_definition(data)
 
 
 @router.get("/ads-definitions/{def_id}", summary="ADS 定义详情", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
@@ -2885,8 +2886,8 @@ async def get_ads_definition(def_id: int, db: AsyncSession = Depends(get_session
 
 
 @router.patch("/ads-definitions/{def_id}", summary="更新 ADS 定义", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
-async def update_ads_definition(def_id: int, payload: dict, db: AsyncSession = Depends(get_session)):
-    result = await get_ads_service(db).update_definition(def_id, payload)
+async def update_ads_definition(def_id: int, payload: AdsDefinitionUpdateIn, db: AsyncSession = Depends(get_session)):
+    result = await get_ads_service(db).update_definition(def_id, payload.model_dump(exclude_none=True))
     if result is None: raise HTTPException(status_code=404, detail="ADS 定义不存在")
     return result
 
@@ -2905,8 +2906,8 @@ async def preview_ads(def_id: int, db: AsyncSession = Depends(get_session)):
 
 
 @router.post("/ads-definitions/validate", summary="校验 ADS 配置", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
-async def validate_ads_definition(payload: dict, db: AsyncSession = Depends(get_session)):
-    return await get_ads_service(db).validate(payload)
+async def validate_ads_definition(payload: AdsDefinitionIn, db: AsyncSession = Depends(get_session)):
+    return await get_ads_service(db).validate(payload.model_dump())
 
 
 @router.post("/ads-definitions/{def_id}/publish", summary="发布 ADS 为消费资产", dependencies=[Depends(require_op("warehouse.modeling", "U"))])

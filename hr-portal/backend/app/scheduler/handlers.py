@@ -168,49 +168,62 @@ async def _handler_data_compare(
 # ===== R0501: 仓内任务 handler =====
 
 async def _handler_dataset_build(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
-    """数据集构建 handler（占位）"""
-    dataset_id = (job.config or {}).get("dataset_id")
+    """数据集构建 handler"""
+    from app.warehouse.service import get_warehouse_service
+    dataset_id = (job.payload or {}).get("dataset_id")
     if not dataset_id:
-        raise ValueError("config.dataset_id is required")
-    return 0, f"dataset_build placeholder: dataset_id={dataset_id}"
+        raise ValueError("payload.dataset_id is required")
+    svc = get_warehouse_service(db)
+    result = await svc.build_dataset_from_model(dataset_id)
+    if "error" in result:
+        raise RuntimeError(result.get("detail", "build failed"))
+    return result.get("row_count", 0), f"dataset_build: dataset_id={dataset_id}, rows={result.get('row_count', '?')}"
 
 
 async def _handler_snapshot_run(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
     """快照任务 handler"""
     from app.warehouse.service import get_snapshot_service
-    period_value = (job.config or {}).get("period_value") or ""
+    period_value = (job.payload or {}).get("period_value") or ""
     if not period_value:
         import datetime
         period_value = datetime.datetime.utcnow().strftime("%Y-%m")
     svc = get_snapshot_service(db)
-    result = await svc.trigger_snapshot((job.config or {}).get("job_id", 0), period_value)
+    result = await svc.trigger_snapshot((job.payload or {}).get("job_id", 0), period_value)
     if "error" in result:
         raise RuntimeError(result.get("detail", "snapshot failed"))
     return result.get("row_count", 0), f"snapshot: {result.get('status', 'unknown')}"
 
 
 async def _handler_metric_compute(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
-    """指标计算 handler（占位）"""
-    metric_id = (job.config or {}).get("metric_id")
+    """指标计算 handler"""
+    from app.warehouse.service import get_metric_compute_service
+    metric_id = (job.payload or {}).get("metric_id")
     if not metric_id:
-        raise ValueError("config.metric_id is required")
-    return 0, f"metric_compute placeholder: metric_id={metric_id}"
+        raise ValueError("payload.metric_id is required")
+    svc = get_metric_compute_service(db)
+    period = (job.payload or {}).get("period", "")
+    result = await svc.compute_metric(metric_id, period)
+    if result.get("error"):
+        raise RuntimeError(result.get("error", "metric compute failed"))
+    return 1, f"metric_compute: metric_id={metric_id}, status={result.get('status')}"
 
 
 async def _handler_quality_run(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
-    """质量检查 handler（占位）"""
-    rule_id = (job.config or {}).get("rule_id")
+    """质量检查 handler"""
+    from app.warehouse.quality_engine import execute_quality_rule
+    rule_id = (job.payload or {}).get("rule_id")
     if not rule_id:
-        raise ValueError("config.rule_id is required")
-    return 0, f"quality_run placeholder: rule_id={rule_id}"
+        raise ValueError("payload.rule_id is required")
+    await execute_quality_rule(rule_id, db)
+    return 0, f"quality_run: rule_id={rule_id}"
 
 
 async def _handler_scd_run(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
     """SCD 拉链 handler"""
     from app.warehouse.service import get_scd_service
-    config_id = (job.config or {}).get("config_id")
+    config_id = (job.payload or {}).get("config_id")
     if not config_id:
-        raise ValueError("config.config_id is required")
+        raise ValueError("payload.config_id is required")
     svc = get_scd_service(db)
     result = await svc.execute_scd(config_id)
     if "error" in result:

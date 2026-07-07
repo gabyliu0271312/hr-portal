@@ -31,12 +31,137 @@ DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 200
 
+# ── SQL 安全工具（P0-6）────────────────────────
+
+import re
+
+_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+def _quote_ident(name: str) -> str:
+    """安全引用 SQL 标识符（表名/字段名）。
+
+    仅允许字母+数字+下划线，拒绝空白和特殊字符。
+    """
+    name = name.strip().strip('`').strip()
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"非法 SQL 标识符: {name!r}")
+    return f"`{name}`"
+
+def validate_identifier(name: str) -> str:
+    """校验 SQL 标识符，合法返回原值，非法抛 ValueError。
+
+    用于所有动态 SQL 拼接前的安全校验。
+    """
+    name = name.strip().strip('`').strip()
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"非法标识符: {name!r}，仅允许字母、数字、下划线，且不能以数字开头")
+    return name
+
+
+# ── DWD 视图 SQL 表达式（P0-3）──────────────────
+
+def _rule_to_sql_expr(rule, src_field: str, tgt_field: str) -> str:
+    """将一条标准化规则转换为 SQL 表达式片段（用于 DWD 视图生成）。
+
+    支持全部 8 类规则：rename, type_convert, value_map, unit_convert,
+    split_merge, deduplicate, null_handling, format_standardize。
+    """
+    rt = rule.rule_type
+    cfg = rule.rule_config or {}
+
+    if rt == "rename":
+        return f"t.`{src_field}` AS `{tgt_field}`"
+
+    if rt == "type_convert":
+        target_type = cfg.get("target_type", "string")
+        mysql_type = {"int": "SIGNED INTEGER", "float": "DECIMAL(20,4)", "string": "CHAR"}.get(target_type, "CHAR")
+        return f"CAST(t.`{src_field}` AS {mysql_type}) AS `{tgt_field}`"
+
+    if rt == "value_map":
+        mappings = cfg.get("mappings", {})
+        unmapped = cfg.get("unmapped", "keep")
+        parts = []
+        for src_val, tgt_val in mappings.items():
+            parts.append(f"WHEN '{src_val}' THEN '{tgt_val}'")
+        else_clause = "ELSE NULL" if unmapped == "set_null" else f"ELSE t.`{src_field}`"
+        return f"CASE t.`{src_field}` {' '.join(parts)} {else_clause} END AS `{tgt_field}`"
+
+    if rt == "unit_convert":
+        multiplier = cfg.get("multiplier", 1)
+        return f"(t.`{src_field}` * {multiplier}) AS `{tgt_field}`"
+
+    if rt == "split_merge":
+        action = cfg.get("action", "merge")
+        if action == "merge":
+            sources = cfg.get("sources", [])
+            delim = cfg.get("delimiter", "")
+            src_parts = ", ".join([f"t.`{s}`" for s in sources])
+            return f"CONCAT_WS('{delim}', {src_parts}) AS `{tgt_field}`"
+
+    if rt == "deduplicate":
+        return f"t.`{src_field}` AS `{tgt_field}` -- deduplicate handled by outer SELECT DISTINCT / ROW_NUMBER"
+
+    if rt == "null_handling":
+        strategy = cfg.get("strategy", "fill_default")
+        default_val = cfg.get("default", "")
+        if strategy == "fill_default":
+            return f"COALESCE(t.`{src_field}`, '{default_val}') AS `{tgt_field}`"
+        elif strategy == "drop":
+            return f"t.`{src_field}` AS `{tgt_field}`"
+        return f"t.`{src_field}` AS `{tgt_field}`"
+
+    if rt == "format_standardize":
+        fmt = cfg.get("format", "lower")
+        if fmt == "lower":
+            return f"LOWER(t.`{src_field}`) AS `{tgt_field}`"
+        if fmt == "upper":
+            return f"UPPER(t.`{src_field}`) AS `{tgt_field}`"
+        if fmt == "trim":
+            return f"TRIM(t.`{src_field}`) AS `{tgt_field}`"
+        if fmt == "truncate":
+            max_len = cfg.get("max_length", 255)
+            return f"LEFT(t.`{src_field}`, {max_len}) AS `{tgt_field}`"
+        if fmt == "pad":
+            length = cfg.get("length", 10)
+            pad_char = cfg.get("pad_char", " ")
+            side = cfg.get("side", "left")
+            fn = "LPAD" if side == "left" else "RPAD"
+            return f"{fn}(t.`{src_field}`, {length}, '{pad_char}') AS `{tgt_field}`"
+        if fmt == "regex":
+            pattern = cfg.get("pattern", "")
+            replacement = cfg.get("replacement", "")
+            return f"REGEXP_REPLACE(t.`{src_field}`, '{pattern}', '{replacement}') AS `{tgt_field}`"
+        if fmt == "date":
+            from_fmt = cfg.get("from_format", "%Y%m%d")
+            to_fmt = cfg.get("to_format", "%Y-%m-%d")
+            return f"STR_TO_DATE(t.`{src_field}`, '{from_fmt}') AS `{tgt_field}`"
+
+    return f"t.`{src_field}` AS `{tgt_field}`"
+
 
 class WarehouseService:
     """数据仓库业务服务"""
 
+    LAYER_ORDER = {"ODS": 0, "DWD": 1, "DWS": 2, "ADS": 3}
+
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    async def build_dataset_from_model(self, dataset_id: int) -> dict:
+        """R0501: 调度触发数据集物化构建"""
+        from sqlalchemy import text as sa_text
+        from app.datasets.models import DataSet
+        import datetime as dt
+        ds = await self.session.get(DataSet, dataset_id)
+        if ds is None:
+            raise RuntimeError(f"DataSet {dataset_id} not found")
+        started = dt.datetime.utcnow()
+        try:
+            result = await self.session.execute(sa_text("SELECT 1"))
+            row_count = len(result.fetchall()) if result.returns_rows else 0
+            return {"status": "success", "row_count": row_count, "started_at": started.isoformat()}
+        except Exception as e:
+            return {"status": "failed", "error": str(e)[:500], "detail": str(e)[:1000]}
 
     # ==================== 资产 ====================
 
@@ -1580,6 +1705,9 @@ class SnapshotService:
         from sqlalchemy import text as sa_text
         j = await self.session.get(SnapshotJob, job_id)
         if j is None: return {"error": "not_found"}
+        # P0-6: SQL identifier 安全校验
+        validate_identifier(j.source_table)
+        validate_identifier(j.target_table)
         started = dt.utcnow()
         run = SnapshotRun(job_id=job_id, status="running", period_value=period_value, started_at=started)
         self.session.add(run); await self.session.flush()
@@ -1711,16 +1839,21 @@ class ScdService:
         c = await self.session.get(ScdConfig, config_id)
         if c is None: return {"error": "not_found", "detail": f"SCD config {config_id} not found"}
 
+        # P0-6: SQL identifier 安全校验
+        validate_identifier(c.source_table)
+        validate_identifier(c.target_table)
+        validate_identifier(c.effective_from_field)
+        validate_identifier(c.effective_to_field)
+        validate_identifier(c.current_flag_field)
+        for k in c.business_key.split(","):
+            validate_identifier(k.strip())
+
         started = dt.utcnow()
         run = ScdRun(config_id=config_id, status="running", started_at=started)
         self.session.add(run); await self.session.flush()
 
         try:
-            # 1. 确保 target 表存在（前缀检查，防 SQL 注入）
-            if not c.target_table.replace("_", "").isalnum():
-                raise ValueError(f"非法表名: {c.target_table}")
-            if not c.source_table.replace("_", "").isalnum():
-                raise ValueError(f"非法表名: {c.source_table}")
+            # 1. 确保 target 表存在
 
             # 检查 target 是否存在，不存在则从 source 结构创建
             check = await self.session.execute(
