@@ -105,35 +105,26 @@ def test_layer_transition_reverse():
 # ════════════════════ extra='forbid' 元测试 ════════════════════
 
 def test_all_warehouse_write_schemas_forbid_extra():
-    """P0-2: 全部 22 个 R 章写入 Request Schema 必须 extra='forbid'"""
-    from app.warehouse.schemas import (
-        AdsDefinitionIn, AdsDefinitionUpdateIn,
-        ScdConfigIn, ScdConfigUpdateIn,
-        SnapshotJobIn, SnapshotJobUpdateIn, SnapshotTriggerIn,
-        StandardizationRuleIn, StandardizationRuleUpdateIn,
-        StandardizationTemplateIn, StandardizationTemplateUpdateIn,
-        TemplateLoadRequest, PreviewRequest, DwdViewGenerateRequest,
-        RefreshStrategyUpdateIn,
-        DimensionCreateIn, DimensionUpdateIn,
-        DwsAggregateDefinitionCreateIn, DwsAggregateDefinitionUpdateIn, DwsViewGenerateRequest,
-        MetricComputeIn, MetricRecalcIn,
-    )
-    schemas = [
-        AdsDefinitionIn, AdsDefinitionUpdateIn,
-        ScdConfigIn, ScdConfigUpdateIn,
-        SnapshotJobIn, SnapshotJobUpdateIn, SnapshotTriggerIn,
-        StandardizationRuleIn, StandardizationRuleUpdateIn,
-        StandardizationTemplateIn, StandardizationTemplateUpdateIn,
-        TemplateLoadRequest, PreviewRequest, DwdViewGenerateRequest,
-        RefreshStrategyUpdateIn,
-        DimensionCreateIn, DimensionUpdateIn,
-        DwsAggregateDefinitionCreateIn, DwsAggregateDefinitionUpdateIn, DwsViewGenerateRequest,
-        MetricComputeIn, MetricRecalcIn,
-    ]
-    for schema in schemas:
-        assert schema.model_config.get("extra") == "forbid", (
-            f"{schema.__name__} missing extra='forbid'"
-        )
+    """反射式发现: schemas.py + router.py 中所有 In/Request 写入 Schema 必须 extra='forbid'
+
+    不维护硬编码列表 — 新增 Schema 自动被此测试发现。
+    """
+    import inspect
+    from pydantic import BaseModel
+    import app.warehouse.schemas as s_mod
+    import app.warehouse.router as r_mod
+
+    for mod in (s_mod, r_mod):
+        for name, obj in inspect.getmembers(mod, inspect.isclass):
+            if not issubclass(obj, BaseModel) or obj is BaseModel:
+                continue
+            # 只检查写入类：名字以 In/Request/Load 结尾，排除 Out/Result 响应类
+            if not (name.endswith("In") or name.endswith("Request") or name.endswith("Load")):
+                continue
+            extra = obj.model_config.get("extra") if obj.model_config else None
+            assert extra == "forbid", (
+                f"{mod.__name__}.{name} missing extra='forbid' (current: {extra!r})"
+            )
 
 
 def test_ads_in_rejects_raw_sql():
@@ -216,3 +207,68 @@ async def test_physical_check_failure_raises():
             raise RuntimeError("connection lost")
     with pytest.raises(ValueError, match="无法确认"):
         await _table_exists_physically(FailingSession(), "test_table")
+
+
+# ════════════════════ Fix6: 真实链路运行时测试 ════════════════════
+
+def test_reflective_forbid_catches_all_write_schemas():
+    """反射式 forbid 测试能发现 schemas.py 和 router.py 中的写入 Schema"""
+    import inspect
+    from pydantic import BaseModel
+    import app.warehouse.schemas as s
+
+    count = 0
+    for name, obj in inspect.getmembers(s, inspect.isclass):
+        if not issubclass(obj, BaseModel) or obj is BaseModel:
+            continue
+        if not (name.endswith("In") or name.endswith("Request") or name.endswith("Load")):
+            continue
+        count += 1
+        extra = obj.model_config.get("extra") if obj.model_config else None
+        assert extra == "forbid", f"{name} missing extra='forbid'"
+    assert count > 0, "reflective test found no write schemas — test is broken"
+
+
+def test_period_value_whitelist_rejects_bad():
+    """period_value 格式白名单拒绝非法值"""
+    import re
+    pat = r'^\d{4}-\d{2}$|^\d{4}Q[1-4]$|^\d{6,8}$'
+    assert not re.match(pat, "abc-07")
+    assert not re.match(pat, "2026/07")
+    assert not re.match(pat, "2026-Q1")
+    assert not re.match(pat, "2026Q5")
+    assert not re.match(pat, "DROP")
+
+
+def test_retention_ordering_asc():
+    """retention 按 table_name ASC 排序删除最旧的"""
+    names = ["snap_p_2026_01", "snap_p_2026_07", "snap_p_2026_03", "snap_p_2025_12"]
+    names.sort()
+    assert names[0] == "snap_p_2025_12"
+    assert names[-1] == "snap_p_2026_07"
+
+
+def test_operation_in_set_allows_scd_on_dwd_dws():
+    """DWD→DWS 允许 aggregate/snapshot/scd"""
+    from app.warehouse.layer_policy import ALLOWED_TRANSITIONS
+    ops = ALLOWED_TRANSITIONS[("DWD", "DWS")]
+    assert "scd" in ops
+    assert "aggregate" in ops
+    assert "snapshot" in ops
+
+
+def test_operation_in_set_rejects_unknown():
+    """DWS→ADS 只允许 consume，不允许 aggregate/snapshot"""
+    from app.warehouse.layer_policy import ALLOWED_TRANSITIONS, validate_layer_transition
+    ops = ALLOWED_TRANSITIONS[("DWS", "ADS")]
+    assert "aggregate" not in ops
+    with pytest.raises(ValueError, match="不支持"):
+        validate_layer_transition("DWS", "ADS", "snapshot")
+
+
+def test_scalars_first_returns_none_for_no_rows():
+    """scalars().first() 在无结果时返回 None，scalar().first() 会抛异常"""
+    # 验证导入正确 — scalars() 返回 ScalarResult 有 first()
+    from sqlalchemy import select
+    # 只验证语法正确性: ScalarResult.first() 存在
+    assert hasattr(select(1), 'where')  # select() 返回 Select

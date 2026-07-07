@@ -89,26 +89,34 @@ class SnapshotService:
             # COPY to target
             await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{snap_target}`"))
             await self.session.execute(sa_text(f"CREATE TABLE `{snap_target}` AS SELECT * FROM `{j.source_table}`"))
-            # Fix1: 创建后注册到 registered_tables
+            # Fix1: 创建后 upsert 到 registered_tables（避免重复执行时主键冲突）
             from app.data.models import RegisteredTable
-            self.session.add(RegisteredTable(
-                table_name=snap_target, table_label=snap_target,
-                warehouse_layer="DWS", asset_status="published",
-                source_system="snapshot",
-            ))
-            # Fix2: 清理旧快照 — DDL_DROP + 同时清理注册记录
+            existing_rt = (await self.session.execute(
+                select(RegisteredTable).where(RegisteredTable.table_name == snap_target)
+            )).scalars().first()
+            if existing_rt:
+                existing_rt.warehouse_layer = "DWS"
+                existing_rt.asset_status = "published"
+            else:
+                self.session.add(RegisteredTable(
+                    table_name=snap_target, table_label=snap_target,
+                    warehouse_layer="DWS", asset_status="published",
+                    source_system="snapshot",
+                ))
+            # Fix2: 清理旧快照 — DDL_DROP + 清理注册记录
+            # 按 table_name 字母序 DESC 保证删除最旧的（p_2026_01 < p_2026_07）
             all_tables = await self.session.execute(sa_text(
-                f"SELECT table_name FROM information_schema.tables WHERE table_name LIKE :pat"
+                f"SELECT table_name FROM information_schema.tables WHERE table_name LIKE :pat ORDER BY table_name ASC"
             ).bindparams(pat=f"{j.target_table}_%"))
             snap_tables = [r[0] for r in all_tables.fetchall()]
-            for old_table in snap_tables[j.retention:]:
+            for old_table in snap_tables[:max(0, len(snap_tables) - j.retention)]:
                 validate_identifier(old_table)
                 await validate_ddl_operation(self.session, old_table, DDL_DROP)
                 await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{old_table}`"))
                 # 同步删除注册记录
                 rt = (await self.session.execute(
                     select(RegisteredTable).where(RegisteredTable.table_name == old_table)
-                )).scalar_one_or_none()
+                )).scalars().first()
                 if rt:
                     await self.session.delete(rt)
             run.status = "success"; run.row_count = row_count
@@ -261,6 +269,13 @@ class ScdService:
                 await self.session.execute(
                     sa_text(f"CREATE TABLE `{c.target_table}` LIKE `{c.source_table}`")
                 )
+                # Fix2: 创建后注册到 registered_tables
+                from app.data.models import RegisteredTable
+                self.session.add(RegisteredTable(
+                    table_name=c.target_table, table_label=c.target_table,
+                    warehouse_layer="DWS", asset_status="published",
+                    source_system="scd",
+                ))
                 # 添加拉链字段
                 for col_def in [
                     (c.effective_from_field, "DATETIME NOT NULL"),
@@ -273,6 +288,20 @@ class ScdService:
                         )
                     except Exception:
                         pass  # column may already exist
+            else:
+                # Fix3: 物理表存在 — 校验层可写 + 补注册
+                from app.warehouse.layer_policy import validate_ddl_operation, DDL_REPLACE
+                await validate_ddl_operation(self.session, c.target_table, DDL_REPLACE)
+                from app.data.models import RegisteredTable
+                rt = (await self.session.execute(
+                    select(RegisteredTable).where(RegisteredTable.table_name == c.target_table)
+                )).scalars().first()
+                if not rt:
+                    self.session.add(RegisteredTable(
+                        table_name=c.target_table, table_label=c.target_table,
+                        warehouse_layer="DWS", asset_status="published",
+                        source_system="scd",
+                    ))
 
             # 2. 获取 source 当前全量数据
             src_rows = (await self.session.execute(

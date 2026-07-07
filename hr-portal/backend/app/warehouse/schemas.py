@@ -73,6 +73,7 @@ class WarehouseAssetDetailOut(WarehouseAssetOut):
 
 
 class WarehouseAssetUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """资产更新入参"""
     table_label: Optional[str] = None
     description: Optional[str] = None
@@ -91,6 +92,7 @@ class WarehouseAssetUpdateIn(BaseModel):
 # ==================== 数据模型 ====================
 
 class WarehouseModelCreateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """创建模型"""
     name: str = Field(..., max_length=64)
     description: Optional[str] = None
@@ -104,11 +106,13 @@ class WarehouseModelCreateIn(BaseModel):
 
 
 class ModelTableIn(BaseModel):
+    model_config = {"extra": "forbid"}
     table_name: str
     alias: str
 
 
 class ModelRelationIn(BaseModel):
+    model_config = {"extra": "forbid"}
     left_alias: str
     right_alias: str
     join_type: str = "left"
@@ -145,6 +149,7 @@ class WarehouseModelDetailOut(WarehouseModelOut):
 
 
 class WarehouseModelUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """模型更新"""
     name: Optional[str] = None
     description: Optional[str] = None
@@ -158,6 +163,7 @@ class WarehouseModelUpdateIn(BaseModel):
 # ==================== 输出字段 ====================
 
 class DatasetOutputFieldIn(BaseModel):
+    model_config = {"extra": "forbid"}
     source_alias: str = Field(..., max_length=64)
     source_column: str = Field(..., max_length=128)
     output_code: str = Field(..., max_length=128)
@@ -180,6 +186,7 @@ class DatasetOutputFieldOut(DatasetOutputFieldIn):
 # ==================== 指标 ====================
 
 class WarehouseMetricCreateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     metric_code: str = Field(..., max_length=64)
     metric_name: str = Field(..., max_length=128)
     metric_type: Literal["count", "sum", "ratio", "derived", "text"] = "derived"
@@ -224,6 +231,7 @@ class WarehouseMetricDetailOut(WarehouseMetricOut):
 
 
 class WarehouseMetricUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     metric_name: Optional[str] = None
     metric_type: Optional[Literal["count", "sum", "ratio", "derived", "text"]] = None
     subject_area: Optional[str] = None
@@ -361,6 +369,7 @@ class WarehouseFeatureFlagsOut(BaseModel):
 # ==================== 批量分层 (Q0104) ====================
 
 class WarehouseAssetBatchLayerIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """批量修改资产分层入参"""
     table_names: list[str] = Field(..., min_length=1, max_length=200)
     warehouse_layer: str
@@ -459,6 +468,7 @@ EXECUTABLE_RULE_TYPES = ("not_null", "unique", "enum", "date_format")
 
 
 class WarehouseQualityRuleIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """质量规则创建/更新入参"""
     asset_type: str = Field(..., max_length=16, description="table/dataset/field")
     asset_code: str = Field(..., max_length=256, description="资产编码")
@@ -469,6 +479,7 @@ class WarehouseQualityRuleIn(BaseModel):
 
 
 class WarehouseQualityRuleUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """质量规则部分更新入参"""
     rule_config: Optional[dict] = None
     enabled: Optional[bool] = None
@@ -575,6 +586,7 @@ class ModelVersionOut(BaseModel):
 
 
 class ModelVersionRollbackIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """回滚入参（Q0507）"""
     target_version: int = Field(..., ge=1)
 
@@ -605,6 +617,7 @@ class WarehouseRunSummaryOut(BaseModel):
 
 
 class WarehouseAlertRuleIn(BaseModel):
+    model_config = {"extra": "forbid"}
     """告警规则创建/更新入参（Q0605）"""
     alert_type: str = Field(..., max_length=32, description="quality_fail/sync_fail/build_fail/metric_fail")
     target_code: str = Field(..., max_length=256)
