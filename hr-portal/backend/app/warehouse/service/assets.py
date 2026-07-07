@@ -18,6 +18,11 @@ from app.datasets.models import (
 from app.data.models import RegisteredTable, TableColumn
 from app.users.models import User
 from app.permissions.masker import get_hidden_columns
+from app.warehouse.schemas import (
+    WAREHOUSE_LAYERS, ASSET_STATUSES,
+    WarehouseAssetOut, WarehouseAssetDetailOut, UcpInfoOut,
+)
+from app.warehouse.ucp_adapter import get_asset_ucp_info
 
 
 class WarehouseService:
