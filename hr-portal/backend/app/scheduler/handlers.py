@@ -205,6 +205,20 @@ async def _handler_quality_run(job: ScheduledJob, db: AsyncSession, triggered_by
     return 0, f"quality_run placeholder: rule_id={rule_id}"
 
 
+async def _handler_scd_run(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
+    """SCD 拉链 handler"""
+    from app.warehouse.service import get_scd_service
+    config_id = (job.config or {}).get("config_id")
+    if not config_id:
+        raise ValueError("config.config_id is required")
+    svc = get_scd_service(db)
+    result = await svc.execute_scd(config_id)
+    if "error" in result:
+        raise RuntimeError(result.get("error", "scd failed"))
+    total = (result.get("new_count", 0) + result.get("updated_count", 0) + result.get("closed_count", 0))
+    return total, f"scd: new={result.get('new_count', 0)} updated={result.get('updated_count', 0)} closed={result.get('closed_count', 0)}"
+
+
 JOB_HANDLERS: dict[str, HandlerFn] = {
     "datasource_sync": _handler_datasource_sync,
     "push_target": _handler_push_target,
@@ -214,6 +228,7 @@ JOB_HANDLERS: dict[str, HandlerFn] = {
     "snapshot_run": _handler_snapshot_run,
     "metric_compute": _handler_metric_compute,
     "quality_run": _handler_quality_run,
+    "scd_run": _handler_scd_run,
 }
 
 

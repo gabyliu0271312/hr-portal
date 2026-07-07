@@ -2810,3 +2810,48 @@ async def trigger_snapshot(job_id: int, payload: dict, db: AsyncSession = Depend
 @router.get("/snapshots/runs", summary="快照运行记录", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
 async def list_snapshot_runs(job_id: int = Query(None), page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200), db: AsyncSession = Depends(get_session)):
     return await get_snapshot_service(db).list_runs(job_id=job_id, page=page, page_size=page_size)
+
+
+# ==================== SCD 拉链 (R0403) ====================
+
+from app.warehouse.service import get_scd_service
+
+
+@router.get("/scd-configs", summary="SCD 配置列表", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
+async def list_scd_configs(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200), db: AsyncSession = Depends(get_session)):
+    return await get_scd_service(db).list_configs(page=page, page_size=page_size)
+
+
+@router.post("/scd-configs", summary="创建 SCD 配置", status_code=201, dependencies=[Depends(require_op("warehouse.modeling", "C"))])
+async def create_scd_config(payload: dict, db: AsyncSession = Depends(get_session)):
+    return await get_scd_service(db).create_config(payload)
+
+
+@router.patch("/scd-configs/{config_id}", summary="更新 SCD 配置", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
+async def update_scd_config(config_id: int, payload: dict, db: AsyncSession = Depends(get_session)):
+    result = await get_scd_service(db).update_config(config_id, payload)
+    if result is None: raise HTTPException(status_code=404, detail="SCD 配置不存在")
+    return result
+
+
+@router.delete("/scd-configs/{config_id}", summary="删除 SCD 配置", status_code=204, dependencies=[Depends(require_op("warehouse.modeling", "D"))])
+async def delete_scd_config(config_id: int, db: AsyncSession = Depends(get_session)):
+    ok = await get_scd_service(db).delete_config(config_id)
+    if not ok: raise HTTPException(status_code=404, detail="SCD 配置不存在")
+
+
+@router.post("/scd-configs/{config_id}/execute", summary="执行 SCD 拉链", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
+async def execute_scd(config_id: int, db: AsyncSession = Depends(get_session)):
+    result = await get_scd_service(db).execute_scd(config_id)
+    if "error" in result: raise HTTPException(status_code=400, detail=result.get("detail", result["error"]))
+    return result
+
+
+@router.get("/scd-runs", summary="SCD 执行记录", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
+async def list_scd_runs(config_id: int = Query(None), page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200), db: AsyncSession = Depends(get_session)):
+    return await get_scd_service(db).list_runs(config_id=config_id, page=page, page_size=page_size)
+
+
+@router.get("/scd-detect-candidates", summary="检测表 SCD 候选字段", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
+async def detect_scd_candidates(table_name: str = Query(...), db: AsyncSession = Depends(get_session)):
+    return await get_scd_service(db).detect_candidates(table_name)

@@ -259,6 +259,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '快照管理', menuCode: 'warehouse.modeling' },
       },
       {
+        path: 'warehouse/scd',
+        name: 'WarehouseScd',
+        component: () => import('@/views/warehouse/WarehouseScd.vue'),
+        meta: { label: 'SCD 拉链', menuCode: 'warehouse.modeling' },
+      },
+      {
         path: 'warehouse/metrics',
         name: 'WarehouseMetrics',
         component: () => import('@/views/warehouse/WarehouseMetrics.vue'),

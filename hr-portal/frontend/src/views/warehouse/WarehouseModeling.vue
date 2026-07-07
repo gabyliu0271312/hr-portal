@@ -23,6 +23,7 @@ const tabs = [
   { name: 'dimensions', label: '维度管理' },
   { name: 'dws', label: '汇总视图' },
   { name: 'snapshots', label: '快照管理' },
+  { name: 'scd', label: 'SCD 拉链' },
 ]
 const activeTab = ref('modeling')
 
@@ -33,6 +34,7 @@ watch(routeTab, (v) => { if (tabs.some(t => t.name === v)) activeTab.value = v }
 function onTabChange(name: string) {
   if (name === 'recipe') { router.push('/warehouse/data-recipe'); return }
   if (name === 'snapshots') { router.push('/warehouse/snapshots'); return }
+  if (name === 'scd') { router.push('/warehouse/scd'); return }
   activeTab.value = name
   router.replace({ query: { tab: name === 'modeling' ? undefined : name } })
 }

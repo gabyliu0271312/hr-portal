@@ -331,3 +331,47 @@ class SnapshotRun(Base):
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# ==================== scd_configs / scd_runs (R0403) ====================
+
+class ScdConfig(Base):
+    """SCD Type 2 拉链配置
+
+    定义业务键、时间字段、需要比较变更的字段。
+    执行时：新增记录直接插入，变更记录关闭旧行+写入新行。
+    """
+
+    __tablename__ = "scd_configs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, comment="SCD 配置名称")
+    source_table = Column(String(128), nullable=False, comment="来源表")
+    target_table = Column(String(128), nullable=False, comment="拉链表目标表")
+    business_key = Column(String(256), nullable=False, comment="业务主键字段，逗号分隔")
+    effective_from_field = Column(String(64), nullable=False, default="effective_from", comment="生效起始字段名")
+    effective_to_field = Column(String(64), nullable=False, default="effective_to", comment="生效结束字段名")
+    current_flag_field = Column(String(64), nullable=False, default="current_flag", comment="当前标记字段名")
+    compare_fields = Column(JSON, nullable=False, default=list, comment="需比较变更的字段列表")
+    enabled = Column(Boolean, nullable=False, default=True)
+    last_run_at = Column(DateTime, nullable=True)
+    last_status = Column(String(16), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ScdRun(Base):
+    """SCD 执行记录"""
+
+    __tablename__ = "scd_runs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    config_id = Column(BigInteger, ForeignKey("scd_configs.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String(16), nullable=False, default="pending", comment="pending/running/success/failed")
+    new_count = Column(Integer, nullable=True, comment="新增记录数")
+    updated_count = Column(Integer, nullable=True, comment="变更记录数")
+    closed_count = Column(Integer, nullable=True, comment="旧记录关闭数")
+    error_message = Column(Text, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

@@ -1621,3 +1621,319 @@ class SnapshotService:
 
 def get_snapshot_service(session: AsyncSession) -> SnapshotService:
     return SnapshotService(session)
+
+
+# ==================== SCD Service (R0403) ====================
+
+class ScdService:
+    """SCD Type 2 拉链服务 — 配置管理 + 拉链执行"""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    # ── CRUD ──────────────────────────────────────
+
+    async def list_configs(self, page=1, page_size=20):
+        from app.warehouse.models import ScdConfig
+        page_size = min(max(page_size, 1), 200)
+        base = select(ScdConfig).order_by(ScdConfig.id.desc())
+        total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        rows = (await self.session.execute(base.offset((page - 1) * page_size).limit(page_size))).scalars().all()
+        items = [self._config_out(c) for c in rows]
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+    async def get_config(self, config_id: int):
+        from app.warehouse.models import ScdConfig
+        c = await self.session.get(ScdConfig, config_id)
+        return self._config_out(c) if c else None
+
+    async def create_config(self, payload: dict):
+        from app.warehouse.models import ScdConfig
+        c = ScdConfig(
+            name=payload["name"],
+            source_table=payload["source_table"],
+            target_table=payload["target_table"],
+            business_key=payload["business_key"],
+            effective_from_field=payload.get("effective_from_field", "effective_from"),
+            effective_to_field=payload.get("effective_to_field", "effective_to"),
+            current_flag_field=payload.get("current_flag_field", "current_flag"),
+            compare_fields=payload.get("compare_fields", []),
+        )
+        self.session.add(c); await self.session.commit(); await self.session.refresh(c)
+        return self._config_out(c)
+
+    async def update_config(self, config_id: int, payload: dict):
+        from app.warehouse.models import ScdConfig
+        c = await self.session.get(ScdConfig, config_id)
+        if c is None: return None
+        for k in ("name", "business_key", "effective_from_field", "effective_to_field", "current_flag_field", "compare_fields", "enabled"):
+            if k in payload: setattr(c, k, payload[k])
+        await self.session.commit(); await self.session.refresh(c)
+        return self._config_out(c)
+
+    async def delete_config(self, config_id: int) -> bool:
+        from app.warehouse.models import ScdConfig
+        c = await self.session.get(ScdConfig, config_id)
+        if c is None: return False
+        await self.session.delete(c); await self.session.commit()
+        return True
+
+    def _config_out(self, c):
+        return {
+            "id": c.id, "name": c.name,
+            "source_table": c.source_table, "target_table": c.target_table,
+            "business_key": c.business_key,
+            "effective_from_field": c.effective_from_field,
+            "effective_to_field": c.effective_to_field,
+            "current_flag_field": c.current_flag_field,
+            "compare_fields": c.compare_fields or [],
+            "enabled": c.enabled,
+            "last_run_at": c.last_run_at.isoformat() if c.last_run_at else None,
+            "last_status": c.last_status,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        }
+
+    # ── 拉链执行 ─────────────────────────────────
+
+    async def execute_scd(self, config_id: int) -> dict:
+        """执行 SCD Type 2 拉链逻辑
+
+        三场景：
+        1. 新增 — 业务键在 target 中不存在 → INSERT（ef=now, et=9999, cf=1）
+        2. 变更 — 业务键存在且 compare_fields 任一变 → UPDATE 旧记录（et=now, cf=0）+ INSERT 新记录
+        3. 不变 — 业务键存在且 compare_fields 未变 → 跳过
+        """
+        from datetime import datetime as dt
+        from app.warehouse.models import ScdConfig, ScdRun
+        from sqlalchemy import text as sa_text
+
+        c = await self.session.get(ScdConfig, config_id)
+        if c is None: return {"error": "not_found", "detail": f"SCD config {config_id} not found"}
+
+        started = dt.utcnow()
+        run = ScdRun(config_id=config_id, status="running", started_at=started)
+        self.session.add(run); await self.session.flush()
+
+        try:
+            # 1. 确保 target 表存在（前缀检查，防 SQL 注入）
+            if not c.target_table.replace("_", "").isalnum():
+                raise ValueError(f"非法表名: {c.target_table}")
+            if not c.source_table.replace("_", "").isalnum():
+                raise ValueError(f"非法表名: {c.source_table}")
+
+            # 检查 target 是否存在，不存在则从 source 结构创建
+            check = await self.session.execute(
+                sa_text(f"SELECT 1 FROM information_schema.tables WHERE table_name = :t")
+                .bindparams(t=c.target_table)
+            )
+            target_exists = check.fetchone() is not None
+            if not target_exists:
+                await self.session.execute(
+                    sa_text(f"CREATE TABLE `{c.target_table}` LIKE `{c.source_table}`")
+                )
+                # 添加拉链字段
+                for col_def in [
+                    (c.effective_from_field, "DATETIME NOT NULL"),
+                    (c.effective_to_field, "DATETIME NOT NULL DEFAULT '9999-12-31 23:59:59'"),
+                    (c.current_flag_field, "INT NOT NULL DEFAULT 1"),
+                ]:
+                    try:
+                        await self.session.execute(
+                            sa_text(f"ALTER TABLE `{c.target_table}` ADD COLUMN `{col_def[0]}` {col_def[1]}")
+                        )
+                    except Exception:
+                        pass  # column may already exist
+
+            # 2. 获取 source 当前全量数据
+            src_rows = (await self.session.execute(
+                sa_text(f"SELECT * FROM `{c.source_table}`")
+            )).fetchall()
+            src_cols = list((await self.session.execute(
+                sa_text(f"SELECT * FROM `{c.source_table}` LIMIT 0")
+            )).keys())
+
+            # 3. 获取 target 当前有效记录（current_flag=1）
+            tgt_rows = (await self.session.execute(
+                sa_text(f"SELECT * FROM `{c.target_table}` WHERE `{c.current_flag_field}` = 1")
+            )).fetchall()
+            tgt_cols = list((await self.session.execute(
+                sa_text(f"SELECT * FROM `{c.target_table}` LIMIT 0")
+            )).keys())
+
+            # 4. 构建 target 业务键索引
+            bk_fields = [k.strip() for k in c.business_key.split(",")]
+            def bk_val(row, cols):
+                return tuple(row[cols.index(f)] for f in bk_fields)
+
+            tgt_bk_map = {}
+            for row in tgt_rows:
+                key = bk_val(row, tgt_cols)
+                tgt_bk_map[key] = row
+
+            # 5. 定义 compare 函数
+            compare_fields = c.compare_fields or []
+            if not compare_fields:
+                # 默认：对比 source 中所有字段（排除拉链表特有字段）
+                compare_fields = [col for col in src_cols if col not in (
+                    c.effective_from_field, c.effective_to_field, c.current_flag_field
+                )]
+
+            def has_changed(src_row, tgt_row):
+                for f in compare_fields:
+                    if f in src_cols and f in tgt_cols:
+                        sv = src_row[src_cols.index(f)]
+                        tv = tgt_row[tgt_cols.index(f)]
+                        if str(sv) != str(tv):
+                            return True
+                return False
+
+            # 6. 三场景处理
+            new_count = 0
+            updated_count = 0
+            closed_count = 0
+            now = dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            far_future = "9999-12-31 23:59:59"
+
+            for src_row in src_rows:
+                key = bk_val(src_row, src_cols)
+                if key in tgt_bk_map:
+                    tgt_row = tgt_bk_map[key]
+                    if has_changed(src_row, tgt_row):
+                        # 变更：关闭旧记录
+                        await self.session.execute(
+                            sa_text(
+                                f"UPDATE `{c.target_table}` SET `{c.effective_to_field}` = :et, `{c.current_flag_field}` = 0 "
+                                f"WHERE `{c.current_flag_field}` = 1 "
+                                + " AND ".join([f"`{f}` = :bk_{f}" for f in bk_fields])
+                            ).bindparams(**{"et": now, **{f"bk_{f}": src_row[src_cols.index(f)] for f in bk_fields}})
+                        )
+                        closed_count += 1
+                        # 插入新版本
+                        await self._do_insert(c, src_row, src_cols, now, far_future)
+                        updated_count += 1
+                    # 未变更：跳过
+                else:
+                    # 新增
+                    await self._do_insert(c, src_row, src_cols, now, far_future)
+                    new_count += 1
+
+            # 7. 更新 run 记录
+            run.status = "success"
+            run.new_count = new_count
+            run.updated_count = updated_count
+            run.closed_count = closed_count
+            c.last_run_at = now
+            c.last_status = "success"
+            run.finished_at = dt.utcnow()
+            await self.session.commit()
+
+            return {
+                "run_id": run.id, "status": "success",
+                "new_count": new_count, "updated_count": updated_count,
+                "closed_count": closed_count,
+            }
+        except Exception as e:
+            await self.session.rollback()
+            run.status = "failed"
+            run.error_message = str(e)[:2000]
+            run.finished_at = dt.utcnow()
+            c.last_run_at = dt.utcnow()
+            c.last_status = "failed"
+            await self.session.commit()
+            return {"run_id": run.id, "status": "failed", "error": str(e)[:500]}
+
+    def _insert_new_row(self, c, src_row, src_cols, now, far_future):
+        """构建 INSERT 语句并异步执行 — 由 execute_scd 内部 await"""
+        pass  # 实际 INSERT 在 execute_scd 中内联，此方法为接口占位
+
+    async def _do_insert(self, c, src_row, src_cols, now, far_future):
+        """插入新版本拉链记录"""
+        from sqlalchemy import text as sa_text
+        col_names = [f"`{col}`" for col in src_cols]
+        col_names.append(f"`{c.effective_from_field}`")
+        col_names.append(f"`{c.effective_to_field}`")
+        col_names.append(f"`{c.current_flag_field}`")
+        placeholders = [f":v_{i}" for i in range(len(src_cols))]
+        placeholders += [":ef", ":et", ":cf"]
+        sql = f"INSERT INTO `{c.target_table}` ({', '.join(col_names)}) VALUES ({', '.join(placeholders)})"
+        params = {f"v_{i}": src_row[i] for i in range(len(src_cols))}
+        params["ef"] = now
+        params["et"] = far_future
+        params["cf"] = 1
+        await self.session.execute(sa_text(sql).bindparams(**params))
+
+    async def list_runs(self, config_id=None, page=1, page_size=20):
+        from app.warehouse.models import ScdRun
+        page_size = min(max(page_size, 1), 200)
+        base = select(ScdRun)
+        if config_id: base = base.where(ScdRun.config_id == config_id)
+        base = base.order_by(ScdRun.id.desc())
+        total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        rows = (await self.session.execute(base.offset((page - 1) * page_size).limit(page_size))).scalars().all()
+        items = [{
+            "id": r.id, "config_id": r.config_id,
+            "status": r.status,
+            "new_count": r.new_count, "updated_count": r.updated_count,
+            "closed_count": r.closed_count,
+            "error_message": r.error_message,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+        } for r in rows]
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+    # ── 候选字段检测 API（UI 辅助）───────────────
+
+    async def detect_candidates(self, table_name: str) -> dict:
+        """检测表结构，推荐业务键和时间字段候选"""
+        from sqlalchemy import text as sa_text
+
+        if not table_name.replace("_", "").isalnum():
+            return {"error": "invalid_table_name"}
+
+        try:
+            cols = (await self.session.execute(
+                sa_text(f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = :t ORDER BY ordinal_position")
+                .bindparams(t=table_name)
+            )).fetchall()
+        except Exception:
+            return {"error": "table_not_found", "table_name": table_name}
+
+        columns = [{"name": c[0], "type": c[1]} for c in cols]
+
+        # 候选业务键：含 id/key/code 且非时间字段
+        bk_candidates = [
+            c["name"] for c in columns
+            if ("id" in c["name"].lower() or "key" in c["name"].lower() or "code" in c["name"].lower())
+            and c["name"] not in ("effective_from", "effective_to", "current_flag")
+        ]
+
+        # 候选时间字段：date/time 类型
+        time_candidates = [
+            c["name"] for c in columns
+            if "date" in c["type"].lower() or "time" in c["type"].lower() or "timestamp" in c["type"].lower()
+        ]
+
+        # 候选对比字段：非时间、非主键的普通字段
+        compare_candidates = [
+            c["name"] for c in columns
+            if c["name"] not in bk_candidates and c["name"] not in time_candidates
+            and c["name"] not in ("created_at", "updated_at")
+        ]
+
+        return {
+            "table_name": table_name,
+            "columns": columns,
+            "business_key_candidates": bk_candidates,
+            "time_candidates": time_candidates,
+            "compare_candidates": compare_candidates,
+            "risk_warnings": [
+                "拉链表需要业务键唯一标识实体（如 employee_id），请确认选中的字段能唯一确定一条记录",
+                "source 表需有变更时间字段（如 updated_at），用于判断 effective_from",
+                "拉链表 target 不可与 source 为同一张表",
+            ],
+        }
+
+
+def get_scd_service(session: AsyncSession) -> ScdService:
+    return ScdService(session)
