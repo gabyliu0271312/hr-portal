@@ -156,6 +156,7 @@ export interface ModelMutationResult {
 export interface ModelListItem {
   id: number
   name: string
+  label?: string | null
   description: string | null
   warehouse_layer: string
   subject_area: string | null

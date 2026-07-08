@@ -76,7 +76,7 @@ const schedulePayload = ref<Record<string, any>>({})
 function openSchedule(model: ModelListItem) {
   scheduleKind.value = 'dataset_build'
   scheduleBizId.value = model.id
-  scheduleBizName.value = model.name
+  scheduleBizName.value = model.label || model.name
   schedulePayload.value = { dataset_id: model.id }
   scheduleVisible.value = true
 }
@@ -115,7 +115,7 @@ async function doBuild(model: ModelListItem) {
       status: result.status,
       msg: result.status === 'success' ? `输出 ${result.row_count ?? '?'} 行` : (result.error_message || '构建失败'),
     }
-    if (result.status === 'success') ElMessage.success(`模型「${model.name}」构建完成`)
+    if (result.status === 'success') ElMessage.success(`模型「${model.label || model.name}」构建完成`)
     else ElMessage.error(buildStatuses.value[id].msg || '构建失败')
   } catch (e: any) {
     buildStatuses.value[id] = { status: 'failed', msg: e?.response?.data?.detail || '构建请求失败' }
@@ -162,7 +162,7 @@ async function saveAcl() {
 
 async function doPublish(model: ModelListItem) {
   try {
-    await ElMessageBox.confirm(`确定发布模型「${model.name}」？`, '确认发布', { type: 'info' })
+    await ElMessageBox.confirm(`确定发布模型「${model.label || model.name}」？`, '确认发布', { type: 'info' })
     await publishModel(model.id)
     ElMessage.success('发布成功')
     load()
@@ -219,7 +219,9 @@ onMounted(loadWithStrategies)
 
       <el-card shadow="never">
         <el-table v-loading="loading" :data="models" border stripe size="small" empty-text="暂无数据模型">
-          <el-table-column prop="name" label="模型名称" min-width="160" />
+          <el-table-column label="模型名称" min-width="160">
+            <template #default="{ row }">{{ row.label || row.name }}</template>
+          </el-table-column>
           <el-table-column label="分层" width="100">
             <template #default="{ row }">{{ LAYER_LABELS[row.warehouse_layer] || row.warehouse_layer }}</template>
           </el-table-column>

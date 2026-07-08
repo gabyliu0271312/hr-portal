@@ -323,6 +323,7 @@ class WarehouseService:
             {
                 "id": row[0].id,
                 "name": row[0].name,
+                "label": row[0].label,
                 "description": row[0].description,
                 "warehouse_layer": row[0].warehouse_layer,
                 "subject_area": row[0].subject_area,
