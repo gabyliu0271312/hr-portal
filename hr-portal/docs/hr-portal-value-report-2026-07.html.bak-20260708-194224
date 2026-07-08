@@ -1997,89 +1997,6 @@
     @media (min-height: 760px) {
       :root { --main-content-y: 172px; --main-content-bottom: calc(100vh - 132px); }
     }
-    /* 2026-07-08 bottom rhythm pass: align main content end safely above footer */
-    .slide:not(.hero) > .content {
-      height: calc(var(--main-content-bottom) - var(--main-content-y)) !important;
-      overflow: visible !important;
-    }
-
-    /* Slides with card grids: stretch cards to the same bottom line */
-    .slide:nth-of-type(2) > .content.cards-3,
-    .slide:nth-of-type(4) > .content.cards-3 {
-      display: grid !important;
-      align-items: stretch !important;
-    }
-    .slide:nth-of-type(2) .card,
-    .slide:nth-of-type(4) .card {
-      min-height: 0 !important;
-      height: 100% !important;
-      display: flex !important;
-      flex-direction: column !important;
-      justify-content: flex-start !important;
-    }
-    .slide:nth-of-type(4) .gate-card {
-      justify-content: space-between !important;
-    }
-
-    /* Slide 5: question + comparison area fill the same visual bottom */
-    .why-slide > .content {
-      display: flex !important;
-      flex-direction: column !important;
-    }
-    .why-slide .duality {
-      flex: 1 1 auto !important;
-      min-height: 0 !important;
-      align-items: stretch !important;
-    }
-    .why-slide .duality-card {
-      min-height: 0 !important;
-      height: 100% !important;
-      display: flex !important;
-      flex-direction: column !important;
-      justify-content: center !important;
-    }
-
-    /* Slide 6: left big block and right cards end on the same line */
-    .position-slide > .content.position-grid {
-      display: grid !important;
-      align-items: stretch !important;
-    }
-    .position-slide .position-big {
-      min-height: 0 !important;
-      height: 100% !important;
-    }
-    .position-slide .position-cards {
-      height: 100% !important;
-      align-content: stretch !important;
-    }
-    .position-slide .position-card {
-      min-height: 0 !important;
-      display: flex !important;
-      flex-direction: column !important;
-      justify-content: center !important;
-    }
-
-    /* Slide 7/8: main visual cards fill the safe content lane */
-    .stack-slide .capability-v2 { height: 100% !important; }
-    .progress-slide > .content.two-col {
-      display: grid !important;
-      align-items: stretch !important;
-    }
-    .progress-slide .panel {
-      min-height: 0 !important;
-      height: 100% !important;
-    }
-
-    /* Slide 9: distribute three conclusion cards within the same lane */
-    .summary-slide > .content.final-list {
-      display: grid !important;
-      height: calc(var(--main-content-bottom) - var(--main-content-y)) !important;
-      align-content: space-between !important;
-      gap: 12px !important;
-    }
-    .summary-slide .final-item {
-      min-height: 0 !important;
-    }
   </style>
 </head>
 <body>
@@ -2313,7 +2230,6 @@
   </script>
 </body>
 </html>
-
 
 
 
