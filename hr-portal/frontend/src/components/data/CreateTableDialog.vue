@@ -170,6 +170,7 @@ defineExpose({ open })
             v-model="form.table_name"
             :label="form.table_label"
             scope="table"
+            prefix="ods_"
             context="数据视图表名"
             :existing-codes="props.existingTableNames"
             editable
