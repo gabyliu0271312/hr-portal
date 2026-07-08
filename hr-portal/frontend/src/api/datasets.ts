@@ -47,6 +47,7 @@ export interface AclOptions {
 export interface DatasetItem {
   id: number
   name: string
+  label?: string | null
   description: string | null
   is_active: boolean
   warehouse_layer?: string | null

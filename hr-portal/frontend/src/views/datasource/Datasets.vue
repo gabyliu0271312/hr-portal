@@ -32,7 +32,7 @@ function openEdit(row: DatasetItem) {
 
 async function handleDelete(row: DatasetItem) {
   try {
-    await ElMessageBox.confirm(`确认删除数据集「${row.name}」？`, '删除确认', {
+    await ElMessageBox.confirm(`确认删除数据集「${row.label || row.name}」？`, '删除确认', {
       type: 'warning',
     })
   } catch {
@@ -92,11 +92,9 @@ onMounted(load)
         <el-table v-loading="loading" :data="filteredList" stripe style="width: 100%" max-height="600">
           <el-table-column label="数据集名称" min-width="200">
             <template #default="{ row }">
-              <strong>{{ row.name }}</strong>
+              <strong>{{ row.label || row.name }}</strong>
+              <div style="color: var(--color-text-secondary); font-size: 12px">{{ row.name }}</div>
               <el-tag v-if="!row.is_active" size="small" type="info" style="margin-left: 8px">停用</el-tag>
-              <div v-if="row.description" style="color: var(--color-text-secondary); font-size: 12px; margin-top: 2px">
-                {{ row.description }}
-              </div>
             </template>
           </el-table-column>
           <el-table-column label="包含的表" min-width="240">

@@ -33,7 +33,8 @@ class DataSet(Base):
     __table_args__ = (UniqueConstraint("name", name="uq_dataset_name"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False, comment="数据集编码（系统标识符，如 ds_dwd_xxx）")
+    label: Mapped[str | None] = mapped_column(String(128), nullable=True, comment="数据集展示名称（中文，如'成本分摊DWD数据集'）")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     scope_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)

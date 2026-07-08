@@ -89,7 +89,7 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
           <el-option
             v-for="d in datasets"
             :key="d.id"
-            :label="d.name"
+            :label="d.label || d.name"
             :value="d.id"
             :disabled="!d.is_active"
           />

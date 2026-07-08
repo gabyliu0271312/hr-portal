@@ -26,6 +26,7 @@ const isNew = computed(() => datasetId.value === null)
 
 const form = reactive<{
   name: string
+  label: string
   description: string
   is_active: boolean
   scope_strategy: ScopeStrategy | null
@@ -34,6 +35,7 @@ const form = reactive<{
   acl: AclRow[]
 }>({
   name: '',
+  label: '',
   description: '',
   is_active: true,
   scope_strategy: null,
@@ -75,6 +77,7 @@ async function loadDataset() {
   try {
     const r = await datasetsApi.get(datasetId.value!)
     form.name = r.name
+    form.label = r.label || ''
     form.description = r.description ?? ''
     form.is_active = r.is_active
     form.scope_strategy = r.scope_strategy
@@ -376,8 +379,11 @@ onMounted(async () => {
       <el-form label-position="top">
         <div class="section-title">基本信息</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
-          <el-form-item label="数据集名称" required>
-            <el-input v-model="form.name" maxlength="64" />
+          <el-form-item label="数据集编码（系统标识符）" required>
+            <el-input v-model="form.name" maxlength="64" placeholder="如 ds_dwd_employee" />
+          </el-form-item>
+          <el-form-item label="展示名称">
+            <el-input v-model="form.label" maxlength="128" placeholder="如 员工DWD数据集" />
           </el-form-item>
           <el-form-item label="启用">
             <el-switch v-model="form.is_active" active-text="启用" inactive-text="停用" />

@@ -99,8 +99,9 @@ async def ensure_dwd_dataset(
     created_by: int | None = None,
     table_label: str | None = None,
 ) -> DataSet:
-    """为 DWD 物理表创建 DWD 数据集（ds_dwd_ 前缀）。
+    """为 DWD 物理表创建 DWD 数据集。
 
+    name = ds_dwd_xxx（编码），label = 中文展示名。
     仅在新建资产时调用，清洗链路不重复创建。
     """
     if dwd_table_name not in DATA_TABLES:
@@ -110,8 +111,8 @@ async def ensure_dwd_dataset(
     if existing is not None:
         return existing
 
-    label = table_label or await registered_table_label(dwd_table_name, db)
-    base_name = f"{DWD_DATASET_PREFIX}{label}" if label else dwd_table_name
+    # name = 编码：ds_dwd_xxx
+    base_name = f"{DWD_DATASET_PREFIX}{dwd_table_name}"
     base_name = base_name.replace(" ", "_")[:60]
     name = base_name
     suffix = 2
@@ -122,8 +123,13 @@ async def ensure_dwd_dataset(
         name = f"{base_name[:64 - len(tail)]}{tail}"
         suffix += 1
 
+    # label = 展示名：从 ODS 表名推导中文名称
+    raw_label = table_label or await registered_table_label(dwd_table_name, db)
+    display_label = raw_label.strip().rstrip("(DWD)").strip() if raw_label else dwd_table_name
+
     ds = DataSet(
         name=name,
+        label=display_label,
         description=f"系统自动创建的 DWD 数据集，指向 {dwd_table_name}。",
         is_active=True,
         warehouse_layer="DWD",

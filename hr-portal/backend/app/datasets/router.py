@@ -104,6 +104,7 @@ class AclOptionsOut(BaseModel):
 class DatasetOut(BaseModel):
     id: int
     name: str
+    label: str | None = None
     description: str | None
     is_active: bool
     warehouse_layer: str | None = None
@@ -142,6 +143,7 @@ async def _to_out(ds: DataSet, db: AsyncSession) -> DatasetOut:
     return DatasetOut(
         id=ds.id,
         name=ds.name,
+        label=ds.label,
         description=ds.description,
         is_active=ds.is_active,
         warehouse_layer=ds.warehouse_layer,
