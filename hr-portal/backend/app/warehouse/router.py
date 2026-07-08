@@ -2220,6 +2220,8 @@ async def generate_dwd_view(
             status_code=400,
             detail=f"ODS 表 {payload.asset_code} 没有启用的标准化规则，无法生成 DWD 视图",
         )
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result.get("detail", str(result)))
     return result
 
 
@@ -2229,7 +2231,7 @@ async def generate_dwd_view(
 class ExecuteFullRequest(BaseModel):
     model_config = {"extra": "forbid"}
     asset_code: str = Field(..., description="ODS 来源表名")
-    target_table: str = Field(..., description="DWD 目标表名")
+    target_table: str | None = Field(None, description="DWD 目标表名（可选，默认自动推导）")
 
 
 @router.post(
@@ -2257,7 +2259,7 @@ async def execute_standardization(
         target_table=payload.target_table,
     )
     if "error" in result:
-        code_map = {"no_rules": 400, "empty": 200, "read_failed": 500, "transform_failed": 500, "no_target": 400, "invalid_target": 400, "write_failed": 500}
+        code_map = {"no_rules": 400, "empty": 200, "read_failed": 500, "transform_failed": 500, "invalid_source": 400, "invalid_target": 400, "write_failed": 500}
         status = code_map.get(result["error"], 500)
         raise HTTPException(status_code=status, detail=result.get("detail", str(result)))
     return result

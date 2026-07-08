@@ -21,6 +21,14 @@ class StandardizationRuleService:
         r = await self.session.scalar(select(RegisteredTable).where(RegisteredTable.table_name == table_name))
         return r.warehouse_layer if r else None
 
+    @staticmethod
+    def _derive_dwd_name(asset_code: str) -> str:
+        """基于命名约定推导 DWD 标准表名。"""
+        for prefix in ("ods_", "raw_", "src_"):
+            if asset_code.lower().startswith(prefix):
+                return "dwd_" + asset_code[len(prefix):]
+        return "dwd_" + asset_code
+
     async def list_rules(self, *, page=1, page_size=20, asset_type=None, asset_code=None, rule_type=None, enabled=None):
         from app.warehouse.models import StandardizationRule
         page_size = min(max(page_size, 1), 200)
@@ -76,6 +84,9 @@ class StandardizationRuleService:
         from app.warehouse.models import StandardizationRule
         from app.warehouse.standardization_engine import execute_rules
         from sqlalchemy import text as sa_text
+        source_layer = await self._get_layer(asset_code)
+        if source_layer not in ("ODS", "DWD"):
+            return {"error": f"数据清洗仅支持 ODS/DWD 来源表，当前表层级为 {source_layer or '未注册'}"}
         try:
             result = await self.session.execute(sa_text(f"SELECT * FROM `{asset_code}` LIMIT {sample_size}"))
             rows_raw = result.fetchall()
@@ -94,12 +105,22 @@ class StandardizationRuleService:
         except Exception as e:
             return {"error": str(e)}
 
-    async def execute_full(self, *, asset_code: str, target_table: str) -> dict:
+    async def execute_full(self, *, asset_code: str, target_table: str | None = None) -> dict:
         """全量执行 ODS→DWD 标准化并写入目标物理表。"""
         from app.warehouse.models import StandardizationRule
         from app.warehouse.standardization_engine import execute_rules
         from app.data.models import RegisteredTable, TableColumn
         from sqlalchemy import text as sa_text, delete as sa_delete
+
+        # P0: 校验来源层级 — 仅允许 ODS 或 DWD
+        source_layer = await self._get_layer(asset_code)
+        if source_layer not in ("ODS", "DWD"):
+            return {"error": "invalid_source", "detail": f"数据清洗仅支持 ODS/DWD 来源表，当前表层级为 {source_layer or '未注册'}"}
+
+        # 推导目标表名
+        if not target_table:
+            target_table = self._derive_dwd_name(asset_code)
+
         q = select(StandardizationRule).where(StandardizationRule.asset_code == asset_code, StandardizationRule.enabled == True).order_by(StandardizationRule.display_order)
         rules = (await self.session.execute(q)).scalars().all()
         if not rules: return {"error": "no_rules", "detail": f"表 {asset_code} 没有启用的标准化规则"}
@@ -114,8 +135,11 @@ class StandardizationRuleService:
         try: transformed = execute_rules(rules, rows)
         except Exception as e: return {"error": "transform_failed", "detail": str(e), "total": total, "success": 0, "failed": total, "errors": []}
         success = len(transformed); failed = total - success
-        if not target_table: return {"error": "no_target", "detail": "未指定目标表名"}
         target = target_table.strip().replace("`", "")
+        # P0: 校验目标层级 — 目标表若已注册，必须是 DWD 层
+        target_layer = await self._get_layer(target)
+        if target_layer and target_layer != "DWD":
+            return {"error": "invalid_target", "detail": f"目标表 {target} 已注册为 {target_layer} 层，数据清洗目标必须是 DWD"}
         try:
             # P0-1: DDL 安全校验 — DROP+CREATE = REPLACE 语义
             from app.warehouse.layer_policy import validate_ddl_operation, validate_layer_transition, DDL_REPLACE, DDL_CREATE
@@ -180,6 +204,12 @@ class StandardizationRuleService:
         from app.datasets.models import DataSet, DataSetTable, DatasetOutputField
         from app.data.models import TableColumn
         from app.warehouse.standardization_engine import RULE_ORDER
+
+        # P0: 校验来源层级
+        source_layer = await self._get_layer(asset_code)
+        if source_layer not in ("ODS", "DWD"):
+            return {"error": "invalid_source", "detail": f"数据清洗仅支持 ODS/DWD 来源表，当前表层级为 {source_layer or '未注册'}"}
+
         q = select(StandardizationRule).where(StandardizationRule.asset_code == asset_code, StandardizationRule.enabled == True).order_by(StandardizationRule.display_order)
         rules = (await self.session.execute(q)).scalars().all()
         if not rules: return None

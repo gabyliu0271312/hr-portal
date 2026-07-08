@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, Top, Bottom, Refresh, VideoPlay, Upload, ArrowRight } from '@element-plus/icons-vue'
+import { Plus, Delete, Top, Bottom, Refresh, VideoPlay, Upload, ArrowRight, Lock } from '@element-plus/icons-vue'
 import {
   listAssets, listAssetColumns,
   listStandardizationRules, createStandardizationRule, updateStandardizationRule, deleteStandardizationRule,
@@ -18,10 +18,18 @@ const userStore = useUserStore()
 const tables = ref<Asset[]>([])
 const selectedTable = ref('')
 const targetTableName = ref('')
+const derivedTargetTable = computed(() => {
+  if (!selectedTable.value) return ''
+  const name = selectedTable.value
+  for (const prefix of ['ods_', 'raw_', 'src_']) {
+    if (name.toLowerCase().startsWith(prefix)) return 'dwd_' + name.slice(prefix.length)
+  }
+  return 'dwd_' + name
+})
 const tableFields = ref<{ column_code: string; column_label: string; data_type: string }[]>([])
 
 async function loadTables() {
-  try { const res = await listAssets({ page_size: 200 }); tables.value = res.items } catch { tables.value = [] }
+  try { const res = await listAssets({ warehouse_layer: 'ODS', page_size: 200 }); tables.value = res.items } catch { tables.value = [] }
 }
 
 async function onTableChange(tableName: string) {
@@ -152,10 +160,10 @@ async function doSaveTemplate() {
 const executing = ref(false); const execResult = ref<{ success: number; failed: number; errors: any[] } | null>(null)
 async function doExecute() {
   if (!selectedTable.value) return
-  if (!targetTableName.value.trim()) { ElMessage.warning('请先输入目标表名'); return }
-  try { await ElMessageBox.confirm(`将对 ODS 表"${selectedTable.value}"全量执行规则并写入"${targetTableName.value}"。目标表已存在时将被重建。确定？`, '确认执行', { type: 'warning' }) } catch { return }
+  const target = targetTableName.value.trim() || derivedTargetTable.value
+  try { await ElMessageBox.confirm(`将对表"${selectedTable.value}"全量执行规则并写入"${target}"。目标表已存在时将被重建。确定？`, '确认执行', { type: 'warning' }) } catch { return }
   executing.value = true; execResult.value = null
-  try { if (dirty.value) await doSave(); const res = await executeStandardization(selectedTable.value, targetTableName.value); execResult.value = { success: res.success, failed: res.failed, errors: res.errors || [] }; if (res.failed === 0) ElMessage.success(`执行完成：共 ${res.total} 行 → ${res.target_table}`); else ElMessage.warning(`执行完成：成功 ${res.success}，失败 ${res.failed}`) } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '执行失败') } finally { executing.value = false }
+  try { if (dirty.value) await doSave(); const res = await executeStandardization(selectedTable.value, target || undefined); execResult.value = { success: res.success, failed: res.failed, errors: res.errors || [] }; if (res.failed === 0) ElMessage.success(`执行完成：共 ${res.total} 行 → ${res.target_table}`); else ElMessage.warning(`执行完成：成功 ${res.success}，失败 ${res.failed}`) } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '执行失败') } finally { executing.value = false }
 }
 
 // ===== 发布 DWD =====
@@ -198,7 +206,7 @@ onMounted(loadTables)
     <header class="recipe-header">
       <div class="header-top">
         <div class="header-left">
-          <h1 class="page-title">数据加工</h1>
+          <h1 class="page-title">数据清洗</h1>
           <div class="source-selector">
             <label>来源表</label>
             <el-select v-model="selectedTable" filterable placeholder="选择 ODS 表" size="default" @change="onTableChange">
@@ -210,9 +218,15 @@ onMounted(loadTables)
               </el-option>
             </el-select>
           </div>
-          <div class="target-input">
+          <div class="target-input" v-if="userStore.hasOp('warehouse.cleaning', 'U')">
             <label>目标表</label>
-            <el-input v-model="targetTableName" placeholder="dwd_table_name" size="default" clearable />
+            <el-input v-model="targetTableName" :placeholder="derivedTargetTable" size="default" clearable />
+            <el-button v-if="targetTableName && targetTableName !== derivedTargetTable" text size="small" type="warning" @click="targetTableName = ''">恢复默认</el-button>
+          </div>
+          <div class="target-readonly" v-else-if="selectedTable">
+            <label>将发布为 DWD 标准表</label>
+            <span class="derived-name">{{ derivedTargetTable }}</span>
+            <el-icon><Lock /></el-icon>
           </div>
         </div>
         <div class="header-actions">
@@ -527,15 +541,24 @@ onMounted(loadTables)
   margin: 0;
   letter-spacing: -0.3px;
 }
-.source-selector, .target-input {
+.source-selector, .target-input, .target-readonly {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.source-selector label, .target-input label {
+.source-selector label, .target-input label, .target-readonly label {
   font-size: 13px;
   color: #6b7280;
   white-space: nowrap;
+}
+.target-readonly .derived-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  background: #f3f4f6;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
 }
 .source-selector :deep(.el-select) { width: 240px; }
 .target-input :deep(.el-input) { width: 200px; }

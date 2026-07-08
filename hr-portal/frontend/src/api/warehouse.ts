@@ -1322,9 +1322,9 @@ export function previewStandardization(payload: {
   return api.post('/warehouse/standardization-rules/preview', payload).then(r => r.data)
 }
 
-export function executeStandardization(assetCode: string, targetTable: string) {
+export function executeStandardization(assetCode: string, targetTable?: string) {
   return api.post('/warehouse/standardization-rules/execute', {
-    asset_code: assetCode, target_table: targetTable,
+    asset_code: assetCode, target_table: targetTable || undefined,
   }).then(r => r.data as { total: number; success: number; failed: number; errors: any[]; target_table: string })
 }
 

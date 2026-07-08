@@ -657,68 +657,63 @@ P0 闭环不以文档接受为准，以以下条件全部满足为准：
 - 数据服务 > 消费资产（已存在）：服务配置视角，创建、发布、授权、监控
 - 文档需注明两者区别，避免用户困惑
 
-### P1：数据服务统一（预计 2 天）
+### P1：数据服务统一（预计 2.5 天）
 
-#### P1-C1：统一 AssetRef
+> P1 的目标不是“再建一套推送功能”，而是把现有 `PushTarget`、ADS 发布、未来 API/订阅能力统一到数据服务视角下。报表推送也纳入统一管理，但保留报表页快捷入口。
 
-- 后端：定义 `AssetRef(source_type, source_id)` — 支持 `table / dataset / metric / ads`
-- 数据服务所有接口（推送/API/订阅）从 `sourceTable: string` 升级为接收 `AssetRef`
-- 验收：数据服务可基于任意资产类型创建消费服务
+#### P1-C1：统一 AssetRef / ServiceSourceRef
+
+- 后端：定义 `AssetRef` 或 `ServiceSourceRef(source_type, source_id, source_label)`，支持 `table / dataset / metric / ads / report`
+- 兼容现状：当前 `PushTarget.source_table` 仍保留；`report:{id}` 作为旧兼容格式识别为 `source_type=report`
+- 禁止：继续新增 `source_table` 字符串魔法来表达新资产类型
+- 验收：数据服务可统一识别表格资产、模型资产、指标资产、消费资产、报表来源
 
 #### P1-C2：改造 PushTargetList 支持多类型来源
 
-- 当前：`sourceTable: string`（只认表名）
-- 改为：`sourceType: 'table' | 'dataset' | 'metric' | 'ads'` + `sourceId: string | number`
-- 内部根据 `sourceType` 解析对应资产标识
-- 验收：从建模页（dataset）、指标页（metric）、ADS 页跳转后能正确配置推送
+- 当前：`sourceTable: string`，实际已经混用了普通表名和 `report:{id}`
+- 改为：`sourceType: 'table' | 'dataset' | 'metric' | 'ads' | 'report'` + `sourceId: string | number`，内部再转换为后端兼容 source
+- 报表兼容：`sourceType='report'` 时仍复用 `collect_report_push_rows()`、`get_report_push_columns()` 和报表编辑权限校验
+- 验收：从表资产、报表、建模、指标、ADS 跳转后能正确配置推送，不把 dataset/metric/ads/report ID 误当表名
 
-#### P1-C3：数据服务扩展
+#### P1-C3：数据服务扩展为统一消费服务台
 
-- 新增 API 服务、数据推送、订阅管理、服务监控页面
-- 验收：数据服务 Tab 栏 5 项全部可用
+- 新增/补齐 Tab：消费资产、API 服务、数据推送、订阅管理、服务监控
+- 数据推送 Tab 聚合展示所有 `PushTarget`：
+  - 表格资产推送：`source_type=table`
+  - 报表推送：`source_type=report` 或旧格式 `source_table=report:{id}`
+  - ADS/指标/模型推送：等 AssetRef 接入后展示
+- 支持按来源类型、状态、推送方式筛选
+- 验收：用户可在数据服务看到全部推送服务，而不是只能在报表/资产详情/数据源页面分散查找
 
-#### P1-C4：ADS 接口权限迁移
+#### P1-C4：报表推送纳入数据服务治理，但保留报表快捷入口
 
-- 文件：`router.py`（ADS 端点）
-- `require_op("warehouse.modeling", ...)` → `require_op("warehouse.service", ...)`
-- 验收：ADS 接口受数据服务权限控制
+- 报表设计器 `ReportDesigner.vue` 的推送 Tab 保留，定位为“当前报表推送快捷配置”
+- 报表列表 `ReportList.vue` 的“推送”按钮保留，定位为“立即执行当前报表推送”
+- 新增“在数据服务中统一管理”链接，跳转 `/warehouse/service?source_type=report&source_id={report_id}`
+- 数据服务侧展示报表推送时，必须沿用报表权限：仅报表创建人/可编辑人可配置和执行
+- 验收：报表用户原工作流不被破坏，同时数据服务可统一监控报表推送
 
-#### P1-C5：数据资产补齐四类 Tab
+#### P1-C5：数据服务权限归口
+
+- ADS 端点权限：`require_op("warehouse.modeling", ...)` → `require_op("warehouse.service", ...)`
+- PushTarget 非报表推送权限：从不合理的 `system.users` 归口到 `warehouse.service`
+- 报表推送权限：`warehouse.service` 管服务台入口，叠加 `report.list` 与报表可编辑校验
+- 验收：数据服务相关配置不再依赖 `system.users` 权限；报表推送不绕过报表权限
+
+#### P1-C6：数据资产补齐四类 Tab
 
 - 文件：`WarehouseAssets.vue`
 - 在 P0b-2 基础上新增：指标资产（`listMetrics()`）、消费资产（`GET /ads-definitions`）
-- 验收：4 个 Tab 完整展示
+- 验收：`表格资产 / 模型资产 / 指标资产 / 消费资产` 四个 Tab 完整展示
 
-#### P1-B1：数据资产页补指标资产和消费资产 Tab
+#### P1-C7：UCP / DataSource / 数据服务边界强化
 
-- 文件：`WarehouseAssets.vue`
-- 新增 Tab：指标资产（`listMetrics()`）、消费资产（`GET /ads-definitions`）
-- 验收：4 个 Tab 完整展示
-
-#### P1-B2：数据服务扩展
-
-- 新增 API 服务、数据推送、订阅管理、服务监控页面
-- 数据服务支持 `source_type: table / dataset / metric / ads`
-- 验收：数据服务 Tab 栏 5 项全部可用
-
-#### P1-B3：ADS 接口权限迁移
-
-- 文件：`router.py`（ADS 端点）
-- `require_op("warehouse.modeling", ...)` → `require_op("warehouse.service", ...)`
-- 验收：ADS 接口受数据服务权限控制
-
-#### P1-B4：统一资产标识
-
-- 后端：抽象 `AssetRef(source_type, source_id)` 作为数据服务来源
-- 前端：资产详情页兼容 `DataSet` / `Metric` / `AdsDefinition` 类型
-- 验收：数据服务可基于任意资产类型创建消费服务
-
-#### P1-B5：过渡期旧模型处理
-
-- 新建模型：禁止 ODS 输入
-- 编辑已有 ODS 模型：允许查看，不允许新增 ODS 输入，保存时提示迁移到 DWD
-- 发布已有 ODS 模型：默认禁止，管理员可临时豁免（标记 `raw_model=true`）
-- 验收：旧模型不阻断新规则
+- 数据仓库资产详情只保存并展示 UCP 桥接 ID 和摘要状态，不编辑 UCP 凭证、连接器、Pipeline
+- 数据服务只处理仓内资产和报表的出仓消费，不承接 UCP 的外部连接配置
+- 资产详情页拆分展示：
+  - 数据连接摘要：UCP 资源、DataSource 入仓来源、同步记录、跳转 UCP/DataSource
+  - 数据服务摘要：API/推送/订阅/消费资产状态、跳转数据服务
+- 验收：用户能清楚区分“数据怎么进来”和“数据怎么出去”
 
 ## 9.5 验收标准
 
@@ -743,10 +738,10 @@ P0 闭环不以文档接受为准，以以下条件全部满足为准：
 
 因此 P0 的"创建数据服务"入口：
 - **支持**：`source_type=table`，传表名（如 `dwd_employee`）
-- **不支持**：`source_type=dataset / metric / ads`（传 ID 会被当表名使用，造成错误）
+- **不支持**：`source_type=dataset / metric / ads / report`（传 ID 会被当表名使用，造成错误；现有报表推送使用特殊 `source_table=report:{id}` 兼容格式，不等同于 AssetRef）
 
 数据清洗产出的是 DWD 物理表 → 可以用 `source_type=table`。
-数据建模产出的是 DataSet（ID）→ P0 暂不跳转，P1 改造 `PushTargetList` 后再接。
+数据建模产出的是 DataSet（ID）→ P0 暂不跳转，P1 改造 `PushTargetList` 后再接。报表推送短期保留在报表模块内作为快捷入口，P1 再进入数据服务统一管理。
 
 ### 9.6.2 实现方案
 
@@ -787,14 +782,470 @@ function goCreateService(sourceTable: string, sourceLabel?: string) {
 | 数据建模发布 | `dataset` | `PushTargetList` 改造后支持 |
 | ADS 发布 | `ads` | 同上 |
 | 指标计算完成 | `metric` | 同上 |
+| 报表推送管理 | `report` | 数据服务统一展示和配置报表推送；报表页保留快捷入口 |
 
-**P0 不做**：数据建模发布后、ADS 发布后、指标计算后的跳转按钮。等 `PushTargetList` 改造为支持多类型后再接入。
+**P0 不做**：数据建模发布后、ADS 发布后、指标计算后、报表推送统一管理的跳转按钮。等 `PushTargetList` 改造为支持多类型后再接入；报表模块内现有推送入口短期保留。
 
-## 9.7 不做项
+## 9.7 报表推送与数据服务整合
+
+### 9.7.1 当前代码事实
+
+当前报表管理已存在推送能力，且复用的是同一个 `PushTargetList.vue`：
+
+- `ReportDesigner.vue`：通过 `reportPushSourceTable` 调用 `<PushTargetList :source-table="report:{id}" />`
+- `ReportList.vue`：提供“推送”按钮，触发报表推送执行
+- `push_service.py`：通过 `is_report_source(source_table)` 识别 `report:{id}`，并调用 `collect_report_push_rows()` 读取报表结果
+- `push_router.py`：报表推送有专门权限校验 `_ensure_report_push_editable()`
+
+这说明 `PushTarget.source_table` 当前已经不是真正的“表名”字段，而是兼容了“表名 / 报表来源”的消费源标识。
+
+### 9.7.2 整合原则
+
+报表推送属于数据服务的统一消费服务体系，但短期不能强迁移：
+
+| 项目 | 判断 | 理由 |
+|------|------|------|
+| 报表设计器推送 Tab | 保留 | 当前用户在设计报表时配置当前报表推送，路径合理 |
+| 报表列表“推送”按钮 | 保留 | 这是立即执行当前报表推送的快捷操作 |
+| 数据服务统一管理报表推送 | P1 做 | 需要 AssetRef/SourceRef 改造后才能避免 `report:{id}` 字符串继续扩散 |
+| 报表推送权限 | 必须保留报表校验 | 报表有创建人、可见性、可编辑权限，不能被数据服务权限单独绕过 |
+
+最终定位：
+
+```text
+报表管理：负责报表设计、运行、权限和当前报表推送快捷操作。
+数据服务：负责统一管理所有对外消费服务，包括表推送、报表推送、ADS 推送、API 服务、订阅和服务监控。
+```
+
+### 9.7.3 分阶段任务
+
+#### P0：保留现状，只补边界文案
+
+- 报表设计器推送配置不迁移
+- 报表列表推送按钮不迁移
+- 在报表推送区域增加说明：`当前为报表推送快捷配置；后续可在数据服务中统一管理全部推送`
+- 不把 `report:{id}` 接入 9.6 的 P0 `source_type=table` 跳转
+
+#### P1：数据服务聚合报表推送
+
+- 数据服务“数据推送”Tab 聚合 `PushTarget`
+- 识别旧格式：`source_table.startswith("report:")` → `source_type=report`
+- 支持筛选：表格资产 / 报表 / ADS / 指标 / 模型
+- 从报表页跳转：`/warehouse/service?source_type=report&source_id={report_id}`
+- 权限：数据服务入口权限 + 报表可编辑权限双校验
+
+#### P2：PushTarget 来源模型重构
+
+- 新增或迁移字段：`source_type`、`source_id`、`source_label`
+- `source_table` 保留兼容期，只作为旧数据迁移字段
+- 禁止后续新增 `report:{id}`、`dataset:{id}`、`metric:{id}` 这类字符串协议
+
+## 9.8 UCP / DataSource / 数据服务边界
+
+### 9.8.1 边界结论
+
+结合 `atomic-tasks.md` 中 A0106、H00、R00 的约束，边界必须保持：
+
+```text
+UCP / DataSource：外部系统 → ODS，负责连接、凭证、连接测试、采集、Pipeline、同步。
+数据仓库：ODS → DWD → DWS → ADS，负责清洗、建模、汇总、质量、血缘、影响分析。
+数据服务：DWD/DWS/ADS/指标/报表 → 外部消费，负责 API、推送、订阅、服务监控。
+```
+
+一句话：**UCP 管数据怎么进来，数据仓库管数据怎么生产，数据服务管数据怎么出去。**
+
+### 9.8.2 模块职责表
+
+| 模块 | 负责 | 不负责 |
+|------|------|--------|
+| UCP / DataSource | 外部连接、凭证、连接测试、资源发现、采集配置、Pipeline、入仓同步 | 仓内建模、ADS 发布、出仓 API/推送 |
+| 数据仓库 | 分层加工、清洗、建模、汇总、快照、拉链、质量、血缘、影响分析 | 外部连接器、凭证明文、跨系统 Pipeline |
+| 数据服务 | 仓内资产和报表的 API、推送、订阅、服务监控 | 外部数据采集、连接器配置、UCP Pipeline |
+
+### 9.8.3 与现有代码的落地关系
+
+当前代码已有桥接基础：
+
+- `RegisteredTable` 已有 `ucp_system_id`、`ucp_resource_id`、`ucp_connector_config_id`
+- `warehouse/ucp_adapter.py` 只返回 UCP 摘要和跳转信息，UCP 不可用时降级
+- `WarehouseAssetDetail.vue` 已有“数据连接”Tab 和 UCP 跳转
+- `get_asset_endpoints()` 已聚合 DataSource 拉取、PushTarget 推送、API expose、UCP resource 摘要
+
+但页面职责需要收敛：
+
+```text
+资产详情页：展示连接/服务摘要 + 跳转入口。
+UCP/DataSource 页面：配置入仓连接。
+数据服务页面：配置出仓消费。
+```
+
+### 9.8.4 交互调整建议
+
+资产详情页建议分为两个摘要区：
+
+1. **数据连接摘要**
+   - UCP 资源摘要
+   - DataSource 入仓来源
+   - 同步记录
+   - 跳转：前往 UCP / 配置入仓来源
+
+2. **数据服务摘要**
+   - API 服务数量
+   - 推送目标数量
+   - 订阅数量
+   - 服务监控状态
+   - ODS：显示“禁止消费，请先去数据清洗”
+   - DWD/DWS/ADS：显示“创建数据服务”
+
+禁止在资产详情页继续扩展完整连接器配置或完整推送配置；资产详情页只做发现、摘要和跳转。
+
+### 9.8.5 验收标准补充
+
+| # | 标准 | 验证方式 |
+|---|------|----------|
+| 11 | 报表推送入口保留且文案说明其为快捷配置 | 打开报表设计器推送 Tab |
+| 12 | 数据服务 P1 能聚合展示 `report:{id}` 推送 | 数据服务推送 Tab 查看报表推送来源 |
+| 13 | 报表推送仍受报表可编辑权限约束 | 非创建人/无编辑权限配置报表推送 → 403 |
+| 14 | UCP 页面不被数据服务替代 | 数据服务无连接器、凭证、Pipeline 配置入口 |
+| 15 | 资产详情页区分数据连接与数据服务 | 详情页可分别跳转 UCP/DataSource 和数据服务 |
+| 16 | UCP 不可用时数据仓库不崩溃 | `ucp.enabled=false`，页面显示降级提示 |
+
+## 9.9 数据服务详细开发规格（给开发模型的统一口径）
+
+> 本节用于消除歧义：后续任何模型/开发者实现“数据服务”时，必须按这里的功能边界、页面结构、参数协议和验收标准开发。不得把 UCP 连接、数据仓库生产任务、报表设计能力混入数据服务。
+
+### 9.9.0 核心建设目标：一次开发平台能力，后续前端配置服务实例
+
+数据服务不是“每来一个业务需求就写一个 API / 推送脚本 / 订阅脚本”的开发模式，而是**一次开发配置化服务平台**。
+
+必须遵循：
+
+```text
+开发人员开发平台能力：
+API 服务配置平台 / 数据推送配置平台 / 订阅管理平台 / 服务监控平台
+
+业务用户创建服务实例：
+选择来源资产 → 选择字段 → 配置权限 → 配置触发/频率/格式 → 发布/启用
+```
+
+因此：
+
+| 场景 | 是否需要写代码 | 正确方式 |
+|------|----------------|----------|
+| 新增一个员工汇总 API | 不需要 | 用户在“API 服务”Tab 新建配置 |
+| 新增一个薪酬报表推送 | 不需要 | 用户在“数据推送”Tab 新建配置 |
+| 新增一个每周订阅 | 不需要 | 用户在“订阅管理”Tab 新建配置 |
+| 新增一种推送渠道，如企业微信 | 需要 | 开发一次渠道适配器，之后用户配置 |
+| 新增一种认证方式，如外部 Token 签名 | 需要 | 开发一次认证插件，之后用户配置 |
+| 新增复杂专用算法 | 视情况 | 平台规则无法表达时才写代码 |
+
+验收底线：
+- 新建普通 API 服务不需要新增后端 router 代码。
+- 新建普通推送任务不需要新增定制脚本。
+- 新建普通订阅不需要新增定时任务代码。
+- 后续新增服务实例必须可以通过前端表单配置完成。
+- 只有新增“平台不支持的能力类型”（新渠道、新认证、新执行器、新复杂算子）才允许开发代码。
+
+### 9.9.1 数据服务页面最终 Tab 与职责
+
+| Tab | 功能定位 | P0/P1 | 主要操作 | 不允许做 |
+|-----|----------|-------|----------|----------|
+| 消费资产 | 管理 ADS/消费资产定义、字段裁剪、权限继承、发布状态 | 当前已有，P0 保留 | 新建/编辑/发布/下线消费资产；查看权限摘要 | 不配置外部连接；不做报表设计 |
+| API 服务 | 把 DWD/DWS/ADS/指标/报表封装为查询 API | P1 | 创建 API、选择来源、字段白名单、权限策略、限流、启停、复制 URL | 不允许 ODS；不保存 UCP 凭证 |
+| 数据推送 | 统一管理所有 PushTarget，包括表、报表、ADS、指标、模型推送 | P1 | 新建推送、编辑目标、试运行、启停、查看最近执行 | 不在资产详情页内嵌完整推送配置 |
+| 订阅管理 | 管理人/群/系统对资产或报表的订阅关系 | P1 | 新建订阅、设置频率、接收人、格式、退订、暂停 | 不负责数据生产调度 |
+| 服务监控 | 监控消费链路：API 调用、推送执行、订阅分发、失败告警 | P1 | 查看调用量、成功率、失败原因、重试、跳转服务详情 | 不替代数据治理 > 执行监控 |
+
+### 9.9.2 数据服务与数据治理监控的区别
+
+| 模块 | 监控对象 | 典型事件 | 用户问题 |
+|------|----------|----------|----------|
+| 数据治理 > 执行监控 | 生产链路：ODS→DWD→DWS→ADS | 清洗执行、建模发布、快照、拉链、质量规则、血缘写入 | “这张表/模型有没有生产成功？” |
+| 数据服务 > 服务监控 | 消费链路：API/推送/订阅/消费资产发布 | API 调用、推送发送、订阅分发、服务下线、调用失败 | “这个服务有没有被调用/推送成功？” |
+
+硬约束：
+- 生产任务失败只进入“数据治理 > 执行监控”。
+- API/推送/订阅失败只进入“数据服务 > 服务监控”。
+- 如果一个推送依赖的 DWD/DWS 生产失败，服务监控只展示“上游不可用”，并跳转到治理执行监控查看生产失败原因。
+
+### 9.9.3 统一来源协议 ServiceSourceRef
+
+P1 开始，数据服务所有功能必须使用统一来源协议，禁止继续扩散 `source_table` 字符串魔法。
+
+```typescript
+type ServiceSourceType = 'table' | 'dataset' | 'metric' | 'ads' | 'report'
+
+interface ServiceSourceRef {
+  source_type: ServiceSourceType
+  source_id: string | number
+  source_label?: string
+  source_layer?: 'DWD' | 'DWS' | 'ADS' | 'METRIC' | 'REPORT'
+}
+```
+
+兼容规则：
+- P0 仅支持 `source_type='table'`，`source_id` 为 DWD/DWS/ADS 物理表名。
+- 旧报表推送 `source_table='report:{id}'` 仅作为兼容读取，不允许新增此类字符串协议。
+- P1 后新建推送/API/订阅必须保存 `source_type/source_id/source_label`。
+
+### 9.9.4 API 服务功能要求
+
+#### 页面 UI
+
+位置：`/warehouse/service` → `API 服务` Tab。
+
+列表区字段：
+- API 名称
+- 来源类型：表格资产 / 模型资产 / 指标资产 / 消费资产 / 报表
+- 来源名称
+- 来源层级：DWD / DWS / ADS / 指标 / 报表
+- 状态：草稿 / 已启用 / 已停用 / 异常
+- 鉴权方式：登录态 / Token / 内部系统
+- 今日调用量
+- 最近调用时间
+- 操作：详情、启用/停用、复制地址、查看监控、删除
+
+新建/编辑抽屉字段：
+- 基本信息：API 名称、描述、负责人
+- 来源选择：`ServiceSourceRef`
+- 字段配置：返回字段白名单、字段别名、字段脱敏状态
+- 查询条件：允许过滤字段、默认排序、分页上限
+- 权限策略：可调用角色/用户/系统、行级权限继承策略
+- 安全策略：限流、超时时间、是否允许导出
+- 发布设置：是否启用、有效期
+
+#### 后端硬约束
+
+- `source_type='table'` 时，来源层级不能是 ODS。
+- DWD 来源必须有权限摘要，且敏感字段必须脱敏或被排除。
+- API 返回字段必须来自字段白名单，不能返回 `*`。
+- 请求 Schema 必须 `extra="forbid"`。
+- 创建/启用 API 必须写审计日志。
+
+#### 验收
+
+| 场景 | 预期 |
+|------|------|
+| 用 ODS 创建 API | 400 |
+| DWD 含未脱敏高敏字段创建 API | 400 |
+| API 字段白名单为空 | 400 |
+| 非授权用户调用 API | 403 |
+| API 调用成功 | 服务监控出现调用记录 |
+
+### 9.9.5 数据推送功能要求
+
+#### 页面 UI
+
+位置：`/warehouse/service` → `数据推送` Tab。
+
+列表区字段：
+- 推送名称
+- 来源类型
+- 来源名称
+- 推送目标：飞书 / 邮件 / Webhook / 文件 / 其他
+- 触发方式：手动 / 定时 / 事件
+- 状态：启用 / 停用 / 异常
+- 最近执行结果
+- 最近执行时间
+- 操作：执行一次、编辑、启停、查看日志、删除
+
+新建/编辑抽屉字段：
+- 来源选择：`ServiceSourceRef`
+- 推送目标配置：目标类型、目标地址、接收人/群、Webhook URL 等
+- 数据范围：字段选择、过滤条件、条数上限
+- 格式：JSON / CSV / Excel / Markdown
+- 调度：手动 / cron / 上游完成后触发
+- 权限：沿用来源权限、附加接收人校验
+
+#### 与报表推送的关系
+
+- 报表设计器推送 Tab 保留，定位为“当前报表快捷配置”。
+- 数据服务“数据推送”Tab 是统一管理台，P1 聚合展示报表推送。
+- 报表推送权限必须叠加报表可编辑权限，不能只看 `warehouse.service` 权限。
+
+#### 验收
+
+| 场景 | 预期 |
+|------|------|
+| ODS 创建推送 | 400 |
+| 报表推送在报表页配置 | 成功，保留旧流程 |
+| 报表推送在数据服务展示 | P1 成功展示，来源类型为 report |
+| 无报表编辑权限配置报表推送 | 403 |
+| 推送执行失败 | 服务监控记录失败原因 |
+
+### 9.9.6 订阅管理功能要求
+
+#### 页面 UI
+
+位置：`/warehouse/service` → `订阅管理` Tab。
+
+列表区字段：
+- 订阅名称
+- 订阅来源
+- 接收对象：个人 / 群 / 系统
+- 频率：每天 / 每周 / 每月 / 事件触发
+- 格式：消息 / 文件 / 链接 / API 回调
+- 状态：启用 / 暂停 / 过期
+- 最近发送时间
+- 操作：暂停/恢复、编辑、退订、查看日志
+
+新建/编辑抽屉字段：
+- 来源选择：`ServiceSourceRef`
+- 接收人/群/系统
+- 订阅频率
+- 推送格式
+- 字段范围
+- 权限确认：订阅接收人必须有来源访问权限，或通过审批授权
+
+#### 后端硬约束
+
+- ODS 禁止订阅。
+- 订阅接收人必须通过权限校验。
+- 订阅执行日志进入服务监控。
+
+### 9.9.7 服务监控功能要求
+
+#### 页面 UI
+
+位置：`/warehouse/service` → `服务监控` Tab。
+
+顶部指标卡：
+- 今日 API 调用量
+- 今日推送次数
+- 今日订阅分发次数
+- 失败数
+- 异常服务数
+
+列表区字段：
+- 时间
+- 服务类型：API / 推送 / 订阅 / 消费资产发布
+- 服务名称
+- 来源类型/名称
+- 执行结果：成功 / 失败 / 部分成功
+- 耗时
+- 操作人/调用方
+- 错误摘要
+- 操作：查看详情、重试、跳转上游生产监控
+
+筛选：
+- 时间范围
+- 服务类型
+- 状态
+- 来源类型
+- 服务名称
+- 调用方/执行人
+
+#### 与执行监控联动
+
+- 服务失败原因是“上游数据未生产/过期”时，展示“查看生产执行”跳转。
+- 不在服务监控中重跑 ODS/DWD/DWS 生产任务。
+
+### 9.9.8 数据服务开发清单
+
+#### P0：只做入口与红线
+
+| 编号 | 任务 | 文件/模块 | 验收 |
+|------|------|-----------|------|
+| DS-P0-1 | 数据服务页接收 `source_type=table&source_id=表名` | `WarehouseService.vue` | DWD 表可跳转到数据服务 |
+| DS-P0-2 | ODS 禁止创建推送/API/消费资产 | 后端 Push/API/ADS 相关端点 | ODS 请求 400 |
+| DS-P0-3 | 资产详情页只显示跳转，不内嵌完整推送配置 | `WarehouseAssetDetail.vue` | DWD/DWS/ADS 显示“创建数据服务” |
+| DS-P0-4 | 报表推送保留原入口并增加边界说明 | `ReportDesigner.vue` / `ReportList.vue` | 用户知道后续可统一管理 |
+
+#### P1：统一服务台
+
+| 编号 | 任务 | 文件/模块 | 验收 |
+|------|------|-----------|------|
+| DS-P1-1 | 新增 `ServiceSourceRef` 数据结构 | 后端 schema/model/migration | 支持 table/dataset/metric/ads/report |
+| DS-P1-2 | 改造 `PushTargetList` 支持多来源 | `PushTargetList.vue` + push API | 不再误把 report/dataset 当表名 |
+| DS-P1-3 | 数据服务补齐 5 个 Tab | `WarehouseService.vue` | 消费资产/API服务/数据推送/订阅管理/服务监控 |
+| DS-P1-4 | 数据推送 Tab 聚合 PushTarget | 前后端 | 可查看表和报表推送 |
+| DS-P1-5 | API 服务 CRUD | 新增 API service/router/vue | API 可创建、启停、调用、监控 |
+| DS-P1-6 | 订阅管理 CRUD | 新增 subscription service/router/vue | 订阅可创建、暂停、执行 |
+| DS-P1-7 | 服务监控日志 | service_run 或统一 log 表 | API/推送/订阅均有日志 |
+| DS-P1-8 | 权限归口到 `warehouse.service` | seed.py / router 权限 | 不再依赖 `system.users` |
+
+### 9.9.9 交互入口统一规则
+
+| 来源页面 | 入口文案 | 跳转 | P0/P1 |
+|----------|----------|------|-------|
+| ODS 资产详情 | 去数据清洗 | `/warehouse/data-recipe?source_table=ods_xxx` | P0 |
+| DWD/DWS/ADS 表资产详情 | 创建数据服务 | `/warehouse/service?source_type=table&source_id=表名` | P0 |
+| 数据清洗执行完成 | 创建数据服务 | `/warehouse/service?source_type=table&source_id=dwd_xxx` | P0 |
+| 模型资产详情 | 创建数据服务 | `/warehouse/service?source_type=dataset&source_id={id}` | P1 |
+| 指标资产详情 | 创建数据服务 | `/warehouse/service?source_type=metric&source_id={id}` | P1 |
+| 消费资产详情 | 管理服务 | `/warehouse/service?source_type=ads&source_id={id}` | P1 |
+| 报表设计器推送 Tab | 在数据服务中统一管理 | `/warehouse/service?source_type=report&source_id={id}` | P1 |
+
+### 9.9.10 开发禁止项
+
+- 禁止在 ODS 资产上创建 API、推送、订阅、消费资产。
+- 禁止在资产详情页继续扩展完整 API/推送/订阅配置表单。
+- 禁止把 UCP 凭证、连接器配置、Pipeline 配置放入数据服务。
+- 禁止新增 `report:{id}`、`dataset:{id}`、`metric:{id}` 字符串协议。
+- 禁止 API 服务默认返回全字段或未脱敏敏感字段。
+- 禁止服务监控触发生产链路重跑；只能跳转到治理执行监控。
+
+### 9.9.11 组件复用与高复用开发要求
+
+> 数据服务不是为 API、推送、订阅分别重写三套表单。必须把现有推送能力和通用配置能力组件化复用，形成“配置服务台”。
+
+#### 当前必须复用的现有能力
+
+| 现有能力/组件 | 当前用途 | 新规划中的复用方式 |
+|---------------|----------|--------------------|
+| `PushTargetList.vue` | 表/报表推送配置与展示 | P0 在数据服务中直接嵌入；P1 改造为多来源推送配置组件 |
+| `push_service.py` | 推送执行、报表推送数据采集 | P1 继续作为数据推送执行器，不另写一套推送执行链 |
+| `push_router.py` | 推送 CRUD、执行、权限校验 | P1 扩展支持 `ServiceSourceRef`，不新增平行推送 router |
+| `collect_report_push_rows()` / `get_report_push_columns()` | 报表推送取数 | 报表来源继续复用，不在数据服务重写报表取数 |
+| `_ensure_report_push_editable()` | 报表推送权限 | 数据服务展示/执行报表推送时必须继续叠加该权限校验 |
+
+#### 必须抽取的通用前端组件
+
+P1 开发 API 服务、数据推送、订阅管理时，优先抽取通用组件，不允许复制三套相似表单。
+
+| 通用组件 | 被哪些功能复用 | 职责 |
+|----------|----------------|------|
+| `ServiceSourcePicker` | API 服务 / 数据推送 / 订阅管理 | 选择 `table/dataset/metric/ads/report` 来源，封装 ODS 禁止逻辑 |
+| `ServiceFieldSelector` | API 服务 / 数据推送 / 订阅管理 | 字段白名单、别名、脱敏状态、字段顺序 |
+| `PermissionPolicyEditor` | API 服务 / 数据推送 / 订阅管理 / 消费资产 | 调用方、接收方、角色、行级权限、权限继承摘要 |
+| `ScheduleEditor` | 数据推送 / 订阅管理 | 手动、定时、事件触发、cron 配置 |
+| `DeliveryTargetEditor` | 数据推送 / 订阅管理 | 飞书、邮件、Webhook、文件等目标配置 |
+| `ServiceRunLogPanel` | API 服务 / 数据推送 / 订阅管理 / 服务监控 | 最近执行、失败原因、重试入口、跳转监控 |
+| `ServiceStatusBadge` | 所有数据服务列表 | 草稿、启用、停用、异常、下线状态展示 |
+
+#### API 服务如何复用推送能力
+
+API 服务本身不复用 `PushTargetList.vue` 作为 UI，因为 API 配置和推送目标配置不是同一类表单；但 API 服务必须复用以下“通用配置组件”和“服务运行能力”：
+
+- 复用 `ServiceSourcePicker`：来源选择逻辑与推送/订阅一致。
+- 复用 `ServiceFieldSelector`：字段白名单、脱敏字段展示与推送/订阅一致。
+- 复用 `PermissionPolicyEditor`：权限继承、调用方授权与推送接收方授权使用同一套权限摘要逻辑。
+- 复用 `ServiceRunLogPanel`：API 调用日志与推送执行日志在服务监控中统一展示。
+- 复用统一 `ServiceSourceRef`：API、推送、订阅不能各自定义来源字段。
+
+因此：
+
+```text
+PushTargetList 复用方向：
+P0：数据服务内嵌现有 PushTargetList，先承接 table 推送。
+P1：把 PushTargetList 拆成“推送业务容器 + 通用子组件”，API/订阅复用通用子组件，数据推送继续复用推送容器。
+```
+
+#### 开发验收
+
+| 验收项 | 标准 |
+|--------|------|
+| 组件复用 | API 服务、数据推送、订阅管理不得各自复制来源选择、字段选择、权限配置表单 |
+| 推送复用 | 数据服务的数据推送能力必须复用/改造现有 `PushTargetList.vue`、`push_service.py`、`push_router.py` |
+| 报表复用 | 报表推送必须继续复用现有报表取数和权限校验，不得在数据服务重写 |
+| 来源统一 | API/推送/订阅统一使用 `ServiceSourceRef` |
+| 日志统一 | API 调用、推送执行、订阅分发统一进入 `ServiceRunLogPanel` / 服务监控 |
+
+## 9.10 不做项
 
 | 项目 | 理由 |
 |------|------|
 | 底层统一 RegisteredTable + DataSet 为一张资产表 | P1 架构重构，涉及 migration + API 变更 |
-| 数据服务 API/推送/订阅/监控完整实现 | P1，先有菜单结构，再逐步填功能 |
+| 数据服务 API/推送/订阅/监控完整实现 | P1，先有菜单结构和 table-only 入口，再逐步统一 PushTarget/AssetRef |
 | 资产详情页改为通用多类型详情 | P1，等统一资产标识后 |
 | 在各资产创建流程中内嵌推送配置组件 | 创建和消费是不同任务，推送统一走数据服务模块 |
