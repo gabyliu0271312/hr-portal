@@ -273,21 +273,6 @@ class ImpactRefOut(BaseModel):
 
 # ==================== 预览 ====================
 
-class PreviewSummaryOut(BaseModel):
-    main_count: Optional[int] = None
-    result_count: Optional[int] = None
-    unmatched_count: Optional[int] = None
-    duplicate_match_count: Optional[int] = None
-    null_count: Optional[int] = None
-    type_error_count: Optional[int] = None
-
-
-class PreviewOut(BaseModel):
-    items: list[dict]
-    columns: list[str] = []
-    summary: PreviewSummaryOut
-
-
 # ==================== 分页 ====================
 
 class PaginatedResponse(BaseModel):

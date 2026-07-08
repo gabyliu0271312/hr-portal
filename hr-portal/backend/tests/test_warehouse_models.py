@@ -18,7 +18,7 @@ from app.warehouse.schemas import (
     DatasetOutputFieldIn,
     DatasetOutputFieldOut,
     PreviewOut,
-    PreviewSummaryOut,
+    PreviewSummary,
 )
 
 
@@ -145,17 +145,20 @@ def test_output_field_out():
 
 # ==================== Preview / Summary ====================
 
-def test_preview_summary_nulls():
-    s = PreviewSummaryOut()
-    assert s.main_count is None
-    assert s.result_count is None
+def test_preview_summary_defaults():
+    s = PreviewSummary()
+    assert s.total_sampled == 0
+    assert s.rows_with_changes == 0
+    assert s.fields_changed == 0
 
 
 def test_preview_out_structure():
     p = PreviewOut(
-        items=[{"a": 1}],
+        asset_code="ods_test",
+        sample_size=20,
         columns=["a"],
-        summary=PreviewSummaryOut(main_count=100, result_count=20),
+        summary=PreviewSummary(total_sampled=100, rows_with_changes=20),
     )
-    assert len(p.items) == 1
-    assert p.summary.main_count == 100
+    assert p.asset_code == "ods_test"
+    assert p.sample_size == 20
+    assert p.summary.total_sampled == 100
