@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """标准化规则 + 模板服务"""
 from __future__ import annotations
 
@@ -105,6 +105,61 @@ class StandardizationRuleService:
         except Exception as e:
             return {"error": str(e)}
 
+    async def _sync_dwd_dataset_fields(self, *, asset_code: str, target_table: str | None = None, commit: bool = False) -> dict | None:
+        """同步 DWD 单表数据集输出字段；默认不提交，供执行链路纳入同一事务。"""
+        from app.warehouse.models import StandardizationRule
+        from app.datasets.models import DatasetOutputField
+        from app.datasets.single_table import find_single_table_dataset
+        from sqlalchemy import delete as sa_delete
+
+        q = select(StandardizationRule).where(
+            StandardizationRule.asset_code == asset_code,
+            StandardizationRule.enabled == True,
+        ).order_by(StandardizationRule.display_order)
+        rules = (await self.session.execute(q)).scalars().all()
+        if not rules:
+            return None
+
+        dwd_table = target_table or self._derive_dwd_name(asset_code)
+        ds = await find_single_table_dataset(dwd_table, self.session)
+        if ds is None:
+            return {"error": "no_dwd_dataset", "detail": f"未找到 DWD 数据集（{dwd_table}），请先拉取 ODS 数据自动生成"}
+
+        ds.warehouse_layer = "DWD"
+        ds.status = "published"
+        ds.version = (ds.version or 1) + 1
+        await self.session.execute(sa_delete(DatasetOutputField).where(DatasetOutputField.dataset_id == ds.id))
+
+        seen = set()
+        display_order = 0
+        for r in rules:
+            cfg = r.rule_config or {}
+            if cfg.get("output_enabled") is False:
+                continue
+            target_col = r.target_field or r.source_field
+            if not target_col or target_col in seen:
+                continue
+            seen.add(target_col)
+            label = cfg.get("output_label") or r.description or target_col
+            desc = cfg.get("output_description") or ""
+            self.session.add(DatasetOutputField(
+                dataset_id=ds.id,
+                source_alias="current",
+                source_column=target_col,
+                output_code=target_col,
+                output_label=label,
+                data_type="string",
+                agg_role="dimension",
+                description=desc,
+                display_order=display_order,
+            ))
+            display_order += 10
+
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(ds)
+        return {"dataset_id": ds.id, "view_name": ds.name, "version": ds.version, "field_count": len(seen)}
+
     async def execute_full(self, *, asset_code: str, target_table: str | None = None) -> dict:
         """全量执行 ODS→DWD 标准化并写入目标物理表。"""
         from app.warehouse.models import StandardizationRule
@@ -188,6 +243,10 @@ class StandardizationRuleService:
             await write_lineage_edge(self.session, asset_code, target, "standardize", metadata={
                 "definition_id": None, "rule_ids": rule_ids, "version": 1,
             })
+            # P2/P3 收口：执行成功后同步 DWD 单表数据集输出字段，避免额外“发布 DWD 视图”动作。
+            sync_result = await self._sync_dwd_dataset_fields(asset_code=asset_code, target_table=target, commit=False)
+            if sync_result and sync_result.get("error"):
+                raise RuntimeError(sync_result.get("detail") or "DWD 数据集字段同步失败")
             await self.session.commit()
         except Exception as e:
             await self.session.rollback()
@@ -199,64 +258,13 @@ class StandardizationRuleService:
         return result
 
     async def generate_dwd_view(self, *, asset_code: str, asset_type: str = "table", owner_user_id=None, owner_name=None) -> dict:
-        """基于规则更新已有 DWD 数据集的输出字段定义。DWD 数据集由 P2-01 自动创建，本函数只负责同步字段。"""
-        from app.warehouse.models import StandardizationRule
-        from app.datasets.models import DataSet, DataSetTable, DatasetOutputField
-        from app.data.models import TableColumn
-        from app.warehouse.standardization_engine import RULE_ORDER
-
+        """兼容旧接口：仅同步已有 DWD 数据集输出字段，不再创建指向 ODS 的逻辑视图。"""
         # P0: 校验来源层级
         source_layer = await self._get_layer(asset_code)
         if source_layer not in ("ODS", "DWD"):
             return {"error": "invalid_source", "detail": f"数据清洗仅支持 ODS/DWD 来源表，当前表层级为 {source_layer or '未注册'}"}
 
-        q = select(StandardizationRule).where(StandardizationRule.asset_code == asset_code, StandardizationRule.enabled == True).order_by(StandardizationRule.display_order)
-        rules = (await self.session.execute(q)).scalars().all()
-        if not rules: return None
-
-        # P2-02: 查找已有 DWD 数据集（指向 DWD 表，而非 ODS 表）
-        dwd_table = self._derive_dwd_name(asset_code)
-        from app.datasets.single_table import find_single_table_dataset
-        ds = await find_single_table_dataset(dwd_table, self.session)
-        if ds is None:
-            return {"error": "no_dwd_dataset", "detail": f"未找到 DWD 数据集（{dwd_table}），请先拉取 ODS 数据自动生成"}
-        ds.warehouse_layer = "DWD"; ds.status = "published"; ds.version = (ds.version or 1) + 1
-        from sqlalchemy import delete as sa_delete
-        await self.session.execute(sa_delete(DatasetOutputField).where(DatasetOutputField.dataset_id == ds.id))
-        # Generate output fields from rules
-        # P4-01: 使用 rule_config 中的 output_label/output_description/output_enabled
-        output_fields = []
-        for i, r in enumerate(rules):
-            cfg = r.rule_config or {}
-            # 跳过明确标记为不输出的字段
-            if cfg.get("output_enabled") is False:
-                continue
-            target_col = r.target_field or r.source_field
-            label = cfg.get("output_label") or r.description or target_col
-            desc = cfg.get("output_description") or ""
-            output_fields.append({
-                "source_alias": "t",
-                "source_column": r.source_field,
-                "output_code": target_col,
-                "output_label": label,
-                "data_type": "string",
-                "agg_role": "dimension",
-                "description": desc,
-            })
-        for i, of in enumerate(output_fields):
-            self.session.add(DatasetOutputField(
-                dataset_id=ds.id,
-                source_alias=of["source_alias"],
-                source_column=of["source_column"],
-                output_code=of["output_code"],
-                output_label=of["output_label"],
-                data_type=of["data_type"],
-                agg_role=of["agg_role"],
-                description=of["description"],
-                display_order=i,
-            ))
-        await self.session.commit(); await self.session.refresh(ds)
-        return {"dataset_id": ds.id, "view_name": ds.name, "version": ds.version}
+        return await self._sync_dwd_dataset_fields(asset_code=asset_code, commit=True)
 
 
 def get_standardization_rule_service(session: AsyncSession) -> StandardizationRuleService:

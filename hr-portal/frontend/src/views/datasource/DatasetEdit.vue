@@ -235,6 +235,7 @@ function removeKey(rel: DatasetRelationItem, ki: number) {
 function buildPayload(): DatasetPayload {
   return {
     name: form.name.trim(),
+    label: form.label.trim() || null,
     description: form.description.trim() || null,
     is_active: form.is_active,
     scope_strategy: form.scope_strategy || null,

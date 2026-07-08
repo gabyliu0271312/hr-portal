@@ -63,6 +63,7 @@ export interface DatasetItem {
 
 export interface DatasetPayload {
   name: string
+  label?: string | null
   description?: string | null
   is_active?: boolean
   scope_strategy?: ScopeStrategy | null

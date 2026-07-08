@@ -167,7 +167,7 @@ async function loadDatasets() {
   try {
     const all = await datasetsApi.list()
     // P3-01: 报表只能引用 DWD/DWS 数据集
-    datasets.value = all.filter((d) => !d.warehouse_layer || d.warehouse_layer === 'DWD' || d.warehouse_layer === 'DWS')
+    datasets.value = all.filter((d) => d.warehouse_layer === 'DWD' || d.warehouse_layer === 'DWS')
     if (isNew.value && !form.dataset_id) {
       form.dataset_id = datasets.value.find((d) => d.is_active)?.id ?? datasets.value[0]?.id ?? null
     }

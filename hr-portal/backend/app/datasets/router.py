@@ -60,6 +60,7 @@ class DatasetAclIn(BaseModel):
 
 class DatasetIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
+    label: str | None = None
     description: str | None = None
     is_active: bool = True
     scope_strategy: str | None = None
@@ -296,6 +297,7 @@ async def create_dataset(
 
     ds = DataSet(
         name=payload.name,
+        label=payload.label,
         description=payload.description,
         is_active=payload.is_active,
         scope_strategy=scope_strategy,
@@ -439,6 +441,7 @@ async def update_dataset(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="数据集名已存在")
 
     ds.name = payload.name
+    ds.label = payload.label
     ds.description = payload.description
     ds.is_active = payload.is_active
     try:

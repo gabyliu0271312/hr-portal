@@ -6,7 +6,7 @@ import { Plus, Delete, Top, Bottom, Refresh, VideoPlay, Upload, ArrowRight, Lock
 import {
   listAssets, listAssetColumns,
   listStandardizationRules, createStandardizationRule, updateStandardizationRule, deleteStandardizationRule,
-  listStandardizationTemplates, createStandardizationTemplate, loadTemplateToAsset, previewStandardization, generateDwdView,
+  listStandardizationTemplates, createStandardizationTemplate, loadTemplateToAsset, previewStandardization,
   executeStandardization,
   STANDARDIZATION_RULE_TYPES, STANDARDIZATION_RULE_LABELS,
   type Asset,
@@ -163,16 +163,7 @@ async function doExecute() {
   const target = targetTableName.value.trim() || derivedTargetTable.value
   try { await ElMessageBox.confirm(`将对表"${selectedTable.value}"全量执行规则并写入"${target}"。目标表已存在时将被重建。确定？`, '确认执行', { type: 'warning' }) } catch { return }
   executing.value = true; execResult.value = null
-  try { if (dirty.value) await doSave(); const res = await executeStandardization(selectedTable.value, target || undefined); execResult.value = { success: res.success, failed: res.failed, errors: res.errors || [] }; if (res.failed === 0) ElMessage.success(`执行完成：共 ${res.total} 行 → ${res.target_table}`); else ElMessage.warning(`执行完成：成功 ${res.success}，失败 ${res.failed}`) } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '执行失败') } finally { executing.value = false }
-}
-
-// ===== 发布 DWD =====
-const publishing = ref(false)
-async function doPublish() {
-  if (!selectedTable.value) return
-  try { await ElMessageBox.confirm('将基于当前规则生成 DWD 逻辑视图，确定？', '发布 DWD', { type: 'info' }) } catch { return }
-  publishing.value = true
-  try { if (dirty.value) await doSave(); const res = await generateDwdView(selectedTable.value, 'table'); ElMessage.success(`DWD 视图"${res.view_name}"已发布（版本 ${res.version}）`) } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '发布失败') } finally { publishing.value = false }
+  try { if (dirty.value) await doSave(); const res = await executeStandardization(selectedTable.value, target || undefined); execResult.value = { success: res.success, failed: res.failed, errors: res.errors || [] }; if (res.failed === 0) ElMessage.success(`执行完成：共 ${res.total} 行 → ${res.target_table}，DWD 数据集字段已同步`); else ElMessage.warning(`执行完成：成功 ${res.success}，失败 ${res.failed}`) } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '执行失败') } finally { executing.value = false }
 }
 
 // ===== 数据预览 =====
@@ -298,7 +289,6 @@ onMounted(loadTables)
           <el-button :loading="previewLoading" @click="doPreview" :disabled="steps.length === 0" size="default">预览采样</el-button>
           <el-button type="primary" :loading="saving" @click="doSave" size="default">保存</el-button>
           <el-button type="success" :icon="VideoPlay" :loading="executing" @click="doExecute" :disabled="steps.length === 0" size="default">执行</el-button>
-          <el-button type="warning" :loading="publishing" @click="doPublish" :disabled="steps.length === 0" size="default" plain>发布为 DWD 视图</el-button>
         </div>
       </section>
 

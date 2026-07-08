@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0072"
-down_revision: Union[str, None] = "0071"
+revision: str = "0072_add_label_to_datasets"
+down_revision: Union[str, None] = "0071_lineage_metadata"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
