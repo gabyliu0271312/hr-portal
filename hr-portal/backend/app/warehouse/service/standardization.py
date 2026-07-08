@@ -224,15 +224,37 @@ class StandardizationRuleService:
         from sqlalchemy import delete as sa_delete
         await self.session.execute(sa_delete(DatasetOutputField).where(DatasetOutputField.dataset_id == ds.id))
         # Generate output fields from rules
-        rule_by_source = {}
-        for r in rules:
-            rule_by_source.setdefault(r.source_field, []).append(r)
+        # P4-01: 使用 rule_config 中的 output_label/output_description/output_enabled
         output_fields = []
         for i, r in enumerate(rules):
+            cfg = r.rule_config or {}
+            # 跳过明确标记为不输出的字段
+            if cfg.get("output_enabled") is False:
+                continue
             target_col = r.target_field or r.source_field
-            output_fields.append({"source_alias": "t", "source_column": r.source_field, "output_code": target_col, "output_label": r.description or target_col, "data_type": "string", "agg_role": "dimension"})
+            label = cfg.get("output_label") or r.description or target_col
+            desc = cfg.get("output_description") or ""
+            output_fields.append({
+                "source_alias": "t",
+                "source_column": r.source_field,
+                "output_code": target_col,
+                "output_label": label,
+                "data_type": "string",
+                "agg_role": "dimension",
+                "description": desc,
+            })
         for i, of in enumerate(output_fields):
-            self.session.add(DatasetOutputField(dataset_id=ds.id, source_alias=of["source_alias"], source_column=of["source_column"], output_code=of["output_code"], output_label=of["output_label"], data_type=of["data_type"], agg_role=of["agg_role"], description="", display_order=i))
+            self.session.add(DatasetOutputField(
+                dataset_id=ds.id,
+                source_alias=of["source_alias"],
+                source_column=of["source_column"],
+                output_code=of["output_code"],
+                output_label=of["output_label"],
+                data_type=of["data_type"],
+                agg_role=of["agg_role"],
+                description=of["description"],
+                display_order=i,
+            ))
         await self.session.commit(); await self.session.refresh(ds)
         return {"dataset_id": ds.id, "view_name": ds.name, "version": ds.version}
 

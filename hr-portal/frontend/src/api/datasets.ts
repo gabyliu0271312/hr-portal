@@ -138,4 +138,33 @@ export const datasetsApi = {
 
   removeCalculatedField: (datasetId: number, fieldId: number) =>
     api.delete<{ ok: boolean }>(`/datasets/${datasetId}/calculated-fields/${fieldId}`).then((r) => r.data),
+
+  // P4-03: 数据集输出字段配置
+  outputFields: (id: number) =>
+    api.get<DatasetOutputField[]>(`/datasets/${id}/output-fields`).then((r) => r.data),
+
+  updateOutputField: (datasetId: number, fieldId: number, body: DatasetOutputFieldUpdate) =>
+    api.put<DatasetOutputField>(`/datasets/${datasetId}/output-fields/${fieldId}`, body).then((r) => r.data),
+}
+
+export interface DatasetOutputField {
+  id: number
+  dataset_id: number
+  source_alias: string
+  source_column: string
+  output_code: string
+  output_label: string
+  data_type: string
+  agg_role: 'dimension' | 'measure'
+  is_sensitive: boolean
+  is_visible: boolean
+  display_order: number
+  description: string | null
+}
+
+export interface DatasetOutputFieldUpdate {
+  output_label?: string
+  agg_role?: string
+  description?: string
+  is_visible?: boolean
 }

@@ -311,11 +311,32 @@ async function checkIntegrity() {
   }
 }
 
+// P4-03: 输出字段配置
+const outputFields = ref<{ id: number; output_code: string; output_label: string; agg_role: string; description: string | null; [k: string]: any }[]>([])
+
+async function loadOutputFields() {
+  if (isNew.value) return
+  try {
+    outputFields.value = await datasetsApi.outputFields(datasetId.value!)
+  } catch { outputFields.value = [] }
+}
+
+async function updateField(row: any) {
+  try {
+    await datasetsApi.updateOutputField(datasetId.value!, row.id, {
+      output_label: row.output_label,
+      agg_role: row.agg_role,
+      description: row.description,
+    })
+  } catch { /* ignore */ }
+}
+
 onMounted(async () => {
   await loadVisibleTables()
   if (!isNew.value) {
     await loadDataset()
     await checkIntegrity()
+    await loadOutputFields()
   }
 })
 </script>
@@ -474,6 +495,32 @@ onMounted(async () => {
         <div class="section-title">访问授权（谁能使用此数据集）</div>
         <AclEditor v-model="form.acl" />
       </el-form>
+    </el-card>
+
+    <!-- P4-03: 输出字段配置 -->
+    <el-card v-if="!isNew && outputFields.length > 0" style="margin-top:16px">
+      <template #header><span>输出字段配置（维度 / 度量）</span></template>
+      <el-table :data="outputFields" size="small" style="width:100%">
+        <el-table-column prop="output_code" label="字段编码" width="160" />
+        <el-table-column prop="output_label" label="显示名称">
+          <template #default="{ row }">
+            <el-input v-model="row.output_label" size="small" @blur="updateField(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="agg_role" label="角色" width="120">
+          <template #default="{ row }">
+            <el-select v-model="row.agg_role" size="small" @change="updateField(row)">
+              <el-option label="维度" value="dimension" />
+              <el-option label="度量" value="measure" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column prop="description" label="描述">
+          <template #default="{ row }">
+            <el-input v-model="row.description" size="small" placeholder="口径说明" @blur="updateField(row)" />
+          </template>
+        </el-table-column>
+      </el-table>
     </el-card>
   </div>
 </template>

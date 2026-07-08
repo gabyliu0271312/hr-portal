@@ -60,7 +60,7 @@ async function loadRules() {
 
 const showAddMenu = ref(false)
 function addStep(ruleType: string) {
-  steps.value.push({ rule_type: ruleType, source_field: '', target_field: '', rule_config: {}, enabled: true, display_order: steps.value.length + 1, dirty: true })
+  steps.value.push({ rule_type: ruleType, source_field: '', target_field: '', rule_config: { output_enabled: true }, enabled: true, display_order: steps.value.length + 1, dirty: true })
   expandStep(steps.value.length - 1)
   showAddMenu.value = false
 }
@@ -453,8 +453,32 @@ onMounted(loadTables)
             </div>
 
             <!-- 启用/禁用 -->
-            <div style="margin-top:10px">
+            <div style="margin-top:10px; display:flex; gap:20px; flex-wrap:wrap; align-items:center">
               <el-switch v-model="step.enabled" size="small" active-text="启用" @change="onStepFieldChange" />
+              <el-switch
+                v-model="step.rule_config.output_enabled"
+                size="small"
+                active-text="输出到DWD"
+                @change="onStepFieldChange"
+              />
+            </div>
+            <!-- 输出字段元数据（P4-01） -->
+            <div class="config-section" style="border-top:1px solid var(--el-border-color-lighter); padding-top:10px; margin-top:8px">
+              <label style="font-weight:600; color:var(--el-color-primary)">DWD 输出字段定义</label>
+              <div class="config-row" style="margin-top:6px">
+                <div class="config-field">
+                  <label>输出字段名</label>
+                  <el-input v-model="step.target_field" size="small" placeholder="DWD 字段名" @change="onStepFieldChange" />
+                </div>
+                <div class="config-field">
+                  <label>显示名称</label>
+                  <el-input v-model="step.rule_config.output_label" size="small" placeholder="中文展示名" @change="onStepFieldChange" />
+                </div>
+              </div>
+              <div class="config-field" style="margin-top:6px">
+                <label>字段描述</label>
+                <el-input v-model="step.rule_config.output_description" size="small" placeholder="字段口径说明" @change="onStepFieldChange" />
+              </div>
             </div>
           </div>
         </div>

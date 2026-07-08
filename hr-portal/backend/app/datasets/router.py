@@ -561,3 +561,124 @@ async def check_integrity(
                     issues.append(f"{alias}.{col}（{table}）字段已不存在")
 
     return {"ok": len(issues) == 0, "issues": issues}
+
+
+# ===== P4-03: 数据集输出字段配置 =====
+
+class OutputFieldOut(BaseModel):
+    id: int
+    dataset_id: int
+    source_alias: str
+    source_column: str
+    output_code: str
+    output_label: str
+    data_type: str
+    agg_role: str
+    is_sensitive: bool
+    is_visible: bool
+    display_order: int
+    description: str | None = None
+
+
+class OutputFieldUpdateIn(BaseModel):
+    output_label: str | None = None
+    agg_role: str | None = None
+    description: str | None = None
+    is_visible: bool | None = None
+
+
+@router.get(
+    "/{dataset_id}/output-fields",
+    response_model=list[OutputFieldOut],
+    dependencies=[Depends(require_op("report.list", "V"))],
+)
+async def list_output_fields(
+    dataset_id: int,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    ds = await db.get(DataSet, dataset_id)
+    if ds is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="数据集不存在")
+    if not await _can_access(user, ds, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该数据集")
+
+    from app.datasets.models import DatasetOutputField
+    rows = (
+        (await db.execute(
+            select(DatasetOutputField)
+            .where(DatasetOutputField.dataset_id == dataset_id)
+            .order_by(DatasetOutputField.display_order)
+        ))
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "dataset_id": r.dataset_id,
+            "source_alias": r.source_alias,
+            "source_column": r.source_column,
+            "output_code": r.output_code,
+            "output_label": r.output_label,
+            "data_type": r.data_type,
+            "agg_role": r.agg_role,
+            "is_sensitive": r.is_sensitive,
+            "is_visible": r.is_visible,
+            "display_order": r.display_order,
+            "description": r.description,
+        }
+        for r in rows
+    ]
+
+
+@router.put(
+    "/{dataset_id}/output-fields/{field_id}",
+    response_model=OutputFieldOut,
+    dependencies=[Depends(require_op("report.list", "U"))],
+)
+async def update_output_field(
+    dataset_id: int,
+    field_id: int,
+    payload: OutputFieldUpdateIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    ds = await db.get(DataSet, dataset_id)
+    if ds is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="数据集不存在")
+    if not await _can_access(user, ds, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该数据集")
+
+    from app.datasets.models import DatasetOutputField
+    field = await db.get(DatasetOutputField, field_id)
+    if field is None or field.dataset_id != dataset_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="字段不存在")
+
+    if payload.output_label is not None:
+        field.output_label = payload.output_label
+    if payload.agg_role is not None:
+        if payload.agg_role not in ("dimension", "measure"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="agg_role 只能是 dimension 或 measure")
+        field.agg_role = payload.agg_role
+    if payload.description is not None:
+        field.description = payload.description
+    if payload.is_visible is not None:
+        field.is_visible = payload.is_visible
+
+    await db.commit()
+    await db.refresh(field)
+    return {
+        "id": field.id,
+        "dataset_id": field.dataset_id,
+        "source_alias": field.source_alias,
+        "source_column": field.source_column,
+        "output_code": field.output_code,
+        "output_label": field.output_label,
+        "data_type": field.data_type,
+        "agg_role": field.agg_role,
+        "is_sensitive": field.is_sensitive,
+        "is_visible": field.is_visible,
+        "display_order": field.display_order,
+        "description": field.description,
+    }
