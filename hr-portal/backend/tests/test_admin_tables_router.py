@@ -107,7 +107,7 @@ def _install_create_table_fakes(monkeypatch):
     def fake_register_period_table(rt, *, overwrite=False):
         period_calls.append((rt, overwrite))
 
-    async def fake_ensure_single_table_dataset(table_name, db, *, created_by, table_label):
+    async def fake_ensure_dwd_dataset(table_name, db, *, created_by, table_label):
         ensure_calls.append((table_name, db, created_by, table_label))
         return object()
 
@@ -120,8 +120,8 @@ def _install_create_table_fakes(monkeypatch):
     monkeypatch.setattr(tables_router, "register_period_table", fake_register_period_table)
     monkeypatch.setattr(
         tables_router,
-        "ensure_single_table_dataset",
-        fake_ensure_single_table_dataset,
+        "ensure_dwd_dataset",
+        fake_ensure_dwd_dataset,
     )
     return create_calls, register_calls, period_calls, ensure_calls
 
@@ -132,20 +132,22 @@ async def test_create_table_builds_empty_entity_table(monkeypatch, fake_user):
     )
     db = FakeSession(results=[None])
     payload = tables_router.CreateTableIn(
-        table_name="custom_entity",
+        table_name="ods_custom_entity",
         table_label="自定义实体表",
     )
 
     result = await tables_router.create_table(payload, user=fake_user, db=db)
 
-    assert result.table_name == "custom_entity"
+    assert result.table_name == "ods_custom_entity"
     assert result.is_builtin is False
-    assert create_calls[0][1] == "custom_entity"
+    assert create_calls[0][1] == "ods_custom_entity"
     assert create_calls[0][2] == []
-    assert register_calls == [(db, "custom_entity", True)]
-    assert period_calls[0][0].table_name == "custom_entity"
+    # ODS + DWD 两张表都注册到运行时
+    assert register_calls == [(db, "ods_custom_entity", True), (db, "dwd_custom_entity", True)]
+    assert period_calls[0][0].table_name == "ods_custom_entity"
     assert period_calls[0][1] is True
-    assert ensure_calls == [("custom_entity", db, fake_user.id, "自定义实体表")]
+    # DWD 数据集（ds_dwd_ 前缀）
+    assert ensure_calls == [("dwd_custom_entity", db, fake_user.id, "自定义实体表")]
     assert db.added and isinstance(db.added[0], RegisteredTable)
     assert db.added_all == []
     assert db.committed is True
@@ -155,7 +157,7 @@ async def test_create_table_can_create_initial_entity_columns(monkeypatch, fake_
     create_calls, _, period_calls, _ = _install_create_table_fakes(monkeypatch)
     db = FakeSession(results=[None])
     payload = tables_router.CreateTableIn(
-        table_name="custom_salary",
+        table_name="ods_custom_salary",
         table_label="自定义薪资表",
         is_period=True,
         period_col="month",
@@ -184,7 +186,10 @@ async def test_create_table_can_create_initial_entity_columns(monkeypatch, fake_
         ("base_salary", "number"),
         ("employee_no", "string"),
     ]
+    # ODS columns (first 2) + DWD columns (last 2, copies)
     assert [(c.column_code, c.auto_discovered) for c in db.added_all] == [
+        ("employee_no", False),
+        ("base_salary", False),
         ("employee_no", False),
         ("base_salary", False),
     ]
@@ -208,10 +213,24 @@ async def test_create_table_rejects_invalid_table_name_before_db_work(fake_user)
     assert db.executed == []
 
 
-async def test_create_table_rejects_invalid_scope_strategy_before_db_work(fake_user):
+async def test_create_table_rejects_non_ods_prefix(fake_user):
     db = FakeSession()
     payload = tables_router.CreateTableIn(
         table_name="custom_entity",
+        table_label="自定义实体表",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await tables_router.create_table(payload, user=fake_user, db=db)
+
+    assert exc_info.value.status_code == 400
+    assert "ods_" in exc_info.value.detail
+
+
+async def test_create_table_rejects_invalid_scope_strategy_before_db_work(fake_user):
+    db = FakeSession()
+    payload = tables_router.CreateTableIn(
+        table_name="ods_custom_entity",
         table_label="Custom Entity",
         scope_strategy="bad_strategy",
     )
@@ -228,14 +247,14 @@ async def test_create_table_rejects_duplicate_registered_table(monkeypatch, fake
     db = FakeSession(
         results=[
             RegisteredTable(
-                table_name="custom_entity",
+                table_name="ods_custom_entity",
                 table_label="已有表",
                 is_builtin=False,
             )
         ]
     )
     payload = tables_router.CreateTableIn(
-        table_name="custom_entity",
+        table_name="ods_custom_entity",
         table_label="自定义实体表",
     )
 

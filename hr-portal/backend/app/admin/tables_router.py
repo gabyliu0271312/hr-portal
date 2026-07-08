@@ -28,7 +28,7 @@ from app.data.dynamic_loader import (
 )
 from app.data.models import RegisteredTable
 from app.datasources.sync_service import PERIOD_TABLES
-from app.datasets.single_table import ensure_single_table_dataset, find_single_table_dataset
+from app.datasets.single_table import ensure_dwd_dataset, ensure_single_table_dataset, find_single_table_dataset
 from app.permissions.strategy import DEFAULT_SCOPE_STRATEGY, ensure_scope_strategy
 from app.users.models import User
 
@@ -130,6 +130,13 @@ async def create_table(
     except DDLValidationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    # P0a-1: ODS 表名必须以 ods_ 开头
+    if not table_name.startswith("ods_"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="新建数据资产必须以 ods_ 开头（例如 ods_employee）",
+        )
+
     try:
         scope_strategy = ensure_scope_strategy(payload.scope_strategy) or DEFAULT_SCOPE_STRATEGY
     except ValueError as exc:
@@ -216,8 +223,60 @@ async def create_table(
             )
             db.add(ds)
 
-    await ensure_single_table_dataset(
-        table_name,
+    # P2-01: 自动创建 DWD 物理表（同结构）+ DWD 数据集
+    dwd_table_name = "dwd_" + table_name[4:]  # ods_xxx → dwd_xxx
+    validate_table_name(dwd_table_name)
+
+    from sqlalchemy import text as sa_text
+    await db.execute(sa_text(f"CREATE TABLE `{dwd_table_name}` AS SELECT * FROM `{table_name}`"))
+
+    # 注册 DWD 表到资产目录
+    dwd_rt = RegisteredTable(
+        table_name=dwd_table_name,
+        table_label=f"{payload.table_label} (DWD)",
+        description=payload.description,
+        is_period=payload.is_period,
+        period_col=period_col,
+        period_source=payload.period_source,
+        is_builtin=False,
+        is_result_table=False,
+        icon=payload.icon,
+        display_order=payload.display_order,
+        scope_strategy=scope_strategy,
+        warehouse_layer="DWD",
+    )
+    db.add(dwd_rt)
+    await db.flush()
+
+    # DWD 表热注册到运行时
+    await register_source_table_model(db, dwd_table_name, force=True)
+
+    # 复制 ODS 字段元数据到 DWD 表
+    if payload.columns:
+        from app.data.models import TableColumn
+        db.add_all([
+            TableColumn(
+                table_name=dwd_table_name,
+                column_code=c.column_code,
+                column_label=c.column_label,
+                data_type=c.data_type,
+                is_pk_part=c.is_pk_part,
+                is_sensitive=c.is_sensitive,
+                is_visible=c.is_visible,
+                display_order=c.display_order,
+                auto_discovered=False,
+                description=c.description,
+                scope_role=c.scope_role,
+                enum_options=c.enum_options,
+                agg_role=c.agg_role,
+            )
+            for c in payload.columns
+        ])
+        await db.flush()
+
+    # 创建 DWD 数据集（ds_dwd_ 前缀）
+    await ensure_dwd_dataset(
+        dwd_table_name,
         db,
         created_by=user.id,
         table_label=payload.table_label,

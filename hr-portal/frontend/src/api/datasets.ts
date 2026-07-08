@@ -49,6 +49,7 @@ export interface DatasetItem {
   name: string
   description: string | null
   is_active: boolean
+  warehouse_layer?: string | null
   scope_strategy: ScopeStrategy | null
   created_by: number | null
   tables: DatasetTableItem[]

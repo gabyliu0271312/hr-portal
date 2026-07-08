@@ -87,3 +87,51 @@ async def ensure_single_table_dataset(
     db.add(DataSetTable(dataset_id=ds.id, table_name=table_name, alias=SINGLE_TABLE_ALIAS))
     await db.flush()
     return ds
+
+
+DWD_DATASET_PREFIX = "ds_dwd_"
+
+
+async def ensure_dwd_dataset(
+    dwd_table_name: str,
+    db: AsyncSession,
+    *,
+    created_by: int | None = None,
+    table_label: str | None = None,
+) -> DataSet:
+    """为 DWD 物理表创建 DWD 数据集（ds_dwd_ 前缀）。
+
+    仅在新建资产时调用，清洗链路不重复创建。
+    """
+    if dwd_table_name not in DATA_TABLES:
+        raise ValueError(f"未知数据表: {dwd_table_name}")
+
+    existing = await find_single_table_dataset(dwd_table_name, db)
+    if existing is not None:
+        return existing
+
+    label = table_label or await registered_table_label(dwd_table_name, db)
+    base_name = f"{DWD_DATASET_PREFIX}{label}" if label else dwd_table_name
+    base_name = base_name.replace(" ", "_")[:60]
+    name = base_name
+    suffix = 2
+    while (
+        await db.execute(select(DataSet.id).where(DataSet.name == name))
+    ).scalar_one_or_none() is not None:
+        tail = f"_{suffix}"
+        name = f"{base_name[:64 - len(tail)]}{tail}"
+        suffix += 1
+
+    ds = DataSet(
+        name=name,
+        description=f"系统自动创建的 DWD 数据集，指向 {dwd_table_name}。",
+        is_active=True,
+        warehouse_layer="DWD",
+        scope_strategy=await registered_table_scope_strategy(dwd_table_name, db),
+        created_by=created_by,
+    )
+    db.add(ds)
+    await db.flush()
+    db.add(DataSetTable(dataset_id=ds.id, table_name=dwd_table_name, alias=SINGLE_TABLE_ALIAS))
+    await db.flush()
+    return ds

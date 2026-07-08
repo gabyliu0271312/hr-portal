@@ -626,6 +626,13 @@ async def create_report(
     if dataset is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="数据集不存在")
 
+    # P3-01: 报表只能引用 DWD/DWS 数据集
+    if dataset.warehouse_layer and dataset.warehouse_layer not in ("DWD", "DWS"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"数据集 {dataset.name} 的层级为 {dataset.warehouse_layer}，报表只能引用 DWD/DWS 数据集",
+        )
+
     try:
         scope_strategy = ensure_scope_strategy(payload.scope_strategy)
     except ValueError as exc:
@@ -697,6 +704,13 @@ async def update_report(
     dataset = await db.get(DataSet, payload.dataset_id)
     if dataset is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="数据集不存在")
+
+    # P3-01: 报表只能引用 DWD/DWS 数据集
+    if dataset.warehouse_layer and dataset.warehouse_layer not in ("DWD", "DWS"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"数据集 {dataset.name} 的层级为 {dataset.warehouse_layer}，报表只能引用 DWD/DWS 数据集",
+        )
 
     visibility = payload.visibility or "private"
     if visibility not in VISIBILITY_VALUES:

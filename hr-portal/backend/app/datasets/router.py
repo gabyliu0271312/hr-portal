@@ -106,6 +106,7 @@ class DatasetOut(BaseModel):
     name: str
     description: str | None
     is_active: bool
+    warehouse_layer: str | None = None
     scope_strategy: str | None
     created_by: int | None
     tables: list[DatasetTableOut]
@@ -143,6 +144,7 @@ async def _to_out(ds: DataSet, db: AsyncSession) -> DatasetOut:
         name=ds.name,
         description=ds.description,
         is_active=ds.is_active,
+        warehouse_layer=ds.warehouse_layer,
         scope_strategy=ds.scope_strategy,
         created_by=ds.created_by,
         tables=[

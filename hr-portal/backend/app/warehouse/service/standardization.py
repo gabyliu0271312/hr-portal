@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """标准化规则 + 模板服务"""
 from __future__ import annotations
 
@@ -199,7 +199,7 @@ class StandardizationRuleService:
         return result
 
     async def generate_dwd_view(self, *, asset_code: str, asset_type: str = "table", owner_user_id=None, owner_name=None) -> dict:
-        """基于规则生成 DWD 视图（更新已有单表数据集，避免重复建）"""
+        """基于规则更新已有 DWD 数据集的输出字段定义。DWD 数据集由 P2-01 自动创建，本函数只负责同步字段。"""
         from app.warehouse.models import StandardizationRule
         from app.datasets.models import DataSet, DataSetTable, DatasetOutputField
         from app.data.models import TableColumn
@@ -213,9 +213,13 @@ class StandardizationRuleService:
         q = select(StandardizationRule).where(StandardizationRule.asset_code == asset_code, StandardizationRule.enabled == True).order_by(StandardizationRule.display_order)
         rules = (await self.session.execute(q)).scalars().all()
         if not rules: return None
-        from app.datasets.single_table import find_single_table_dataset, ensure_single_table_dataset
-        ds = await find_single_table_dataset(asset_code, self.session)
-        if ds is None: ds = await ensure_single_table_dataset(asset_code, self.session)
+
+        # P2-02: 查找已有 DWD 数据集（指向 DWD 表，而非 ODS 表）
+        dwd_table = self._derive_dwd_name(asset_code)
+        from app.datasets.single_table import find_single_table_dataset
+        ds = await find_single_table_dataset(dwd_table, self.session)
+        if ds is None:
+            return {"error": "no_dwd_dataset", "detail": f"未找到 DWD 数据集（{dwd_table}），请先拉取 ODS 数据自动生成"}
         ds.warehouse_layer = "DWD"; ds.status = "published"; ds.version = (ds.version or 1) + 1
         from sqlalchemy import delete as sa_delete
         await self.session.execute(sa_delete(DatasetOutputField).where(DatasetOutputField.dataset_id == ds.id))

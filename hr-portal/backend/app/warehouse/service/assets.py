@@ -355,6 +355,20 @@ class WarehouseService:
         self.session.add(ds)
         await self.session.flush()
 
+        # P3-02: 建模输入必须是 DWD 表
+        from app.data.models import RegisteredTable
+        table_names = [t["table_name"] for t in payload.get("tables", [])]
+        if table_names:
+            rt_rows = (await self.session.execute(
+                select(RegisteredTable.table_name, RegisteredTable.warehouse_layer)
+                .where(RegisteredTable.table_name.in_(table_names))
+            )).all()
+            layer_map = {rt.table_name: rt.warehouse_layer for rt in rt_rows}
+            for tn in table_names:
+                layer = layer_map.get(tn, "UNKNOWN")
+                if layer != "DWD":
+                    raise ValueError(f"表 {tn} 的层级为 {layer}，建模输入必须是 DWD 层表，请先完成数据清洗")
+
         # 添加表
         for t in payload.get("tables", []):
             dt = DataSetTable(
@@ -487,6 +501,22 @@ class WarehouseService:
         ).scalar_one()
         if table_count == 0:
             raise ValueError("发布失败：模型至少需要包含一张表")
+
+        # P3-02: 校验所有表都是 DWD 层
+        dt_rows = (await self.session.execute(
+            select(DataSetTable.table_name)
+            .where(DataSetTable.dataset_id == model_id)
+        )).all()
+        from app.data.models import RegisteredTable
+        rt_rows = (await self.session.execute(
+            select(RegisteredTable.table_name, RegisteredTable.warehouse_layer)
+            .where(RegisteredTable.table_name.in_([r.table_name for r in dt_rows]))
+        )).all() if dt_rows else []
+        layer_map = {rt.table_name: rt.warehouse_layer for rt in rt_rows}
+        for r in dt_rows:
+            layer = layer_map.get(r.table_name, "UNKNOWN")
+            if layer != "DWD":
+                raise ValueError(f"表 {r.table_name} 的层级为 {layer}，建模发布仅支持 DWD 层表")
 
         # 多表时校验至少一条关联
         if table_count > 1:

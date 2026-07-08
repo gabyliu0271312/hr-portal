@@ -16,7 +16,7 @@ const hasModel = computed(() => modelId.value !== null)
 const form1 = ref({ name: '', main_table: '', main_alias: '', join_table: '', join_alias: '', warehouse_layer: 'DWD', subject_area: '' })
 const tableOptions = ref<Asset[]>([])
 const tablesLoading = ref(false)
-async function loadTables() { tablesLoading.value = true; try { tableOptions.value = (await listAssets({ page_size: 200 })).items } catch { /* */ } finally { tablesLoading.value = false } }
+async function loadTables() { tablesLoading.value = true; try { tableOptions.value = (await listAssets({ page_size: 200, warehouse_layer: 'DWD' })).items } catch { /* */ } finally { tablesLoading.value = false } }
 loadTables()
 function canNext1() { return form1.value.name && form1.value.main_table && form1.value.join_table }
 

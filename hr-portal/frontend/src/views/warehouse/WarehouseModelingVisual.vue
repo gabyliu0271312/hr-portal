@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -224,7 +224,7 @@ function goBack() { router.back() }
 async function load() {
   loading.value = true; error.value = null
   try {
-    availableTables.value = (await listAssets({ page_size: 200 })).items
+    availableTables.value = (await listAssets({ page_size: 200, warehouse_layer: 'DWD' })).items
     if (modelId) {
       const d = await getModel(modelId)
       form.value = { name: d.name, warehouse_layer: d.warehouse_layer, subject_area: d.subject_area || '', business_definition: d.business_definition || '', owner_name: d.owner_name || '' }
