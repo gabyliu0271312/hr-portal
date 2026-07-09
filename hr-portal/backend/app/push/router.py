@@ -72,10 +72,13 @@ class RunIn(BaseModel):
 # ===== helpers =====
 
 def _to_out(pt: PushTarget) -> PushTargetOut:
-    # 报表来源推导标签
+    # 推导可读标签
     label = pt.source_label
-    if not label and pt.source_type == "report" and pt.source_table.startswith("report:"):
-        label = f"报表 #{pt.source_table.split(':', 1)[1]}"
+    if pt.source_type == "report":
+        if not label and pt.source_table.startswith("report:"):
+            label = f"报表 #{pt.source_table.split(':', 1)[1]}"
+    elif pt.source_type == "table" and (not label or label == pt.source_table):
+        label = pt.source_table  # 暂时用表名，创建/更新时会查 table_label 写入
     return PushTargetOut(
         id=pt.id,
         source_table=pt.source_table,
@@ -192,6 +195,19 @@ async def create_push_target(
     # source_type 枚举校验
     if final_source_type not in ALLOWED_SOURCE_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"不支持的来源类型: {final_source_type}，允许: {sorted(ALLOWED_SOURCE_TYPES)}")
+
+    # table 来源：查中文标签
+    if final_source_type == SOURCE_TABLE and final_source_id and not final_source_label:
+        try:
+            from app.data.models import RegisteredTable
+            row = await db.execute(
+                select(RegisteredTable.table_label).where(RegisteredTable.table_name == final_source_id)
+            )
+            tl = row.scalar_one_or_none()
+            if tl:
+                final_source_label = tl
+        except Exception:
+            pass
 
     # ODS 消费红线
     if final_source_type == SOURCE_TABLE and final_source_id:
