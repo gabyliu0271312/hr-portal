@@ -905,10 +905,10 @@ async def execute_push(
     if pt.push_type == "db_expose":
         settings.setdefault("_pt_id", pt.id)
 
-    # P1: 统一来源协议 — resolve_source_table_name 统一解析
+    # P1: 统一来源协议 — 仅当 source_type 非空时解析
     source_ref = settings.get("source_ref")
     effective_source = pt.source_table
-    if source_ref and isinstance(source_ref, dict):
+    if source_ref and isinstance(source_ref, dict) and source_ref.get("source_type"):
         try:
             from app.warehouse.service_ref import resolve_source_table_name
             effective_source = await resolve_source_table_name(
