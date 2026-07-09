@@ -205,7 +205,7 @@ async def create_push_target(
         final_source_id = ref.source_id
         final_source_label = ref.source_label or ""
 
-    if not payload.source_table:
+    if final_source_type and final_source_id:
         ref = ServiceSourceRef(source_type=final_source_type, source_id=final_source_id, source_label=final_source_label)
         payload.source_table = ref.to_legacy_source_table()
 

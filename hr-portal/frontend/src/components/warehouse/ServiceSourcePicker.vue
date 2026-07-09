@@ -91,15 +91,21 @@ function emitChange() {
 }
 
 // 弹窗复用场景：父组件 modelValue 变化时同步内部状态
+const syncing = ref(false)
 watch(() => props.modelValue, (val) => {
   if (!val) return
+  syncing.value = true
   selectedType.value = val.source_type || allowedTypes[0]
   selectedId.value = val.source_id || ''
   sourceLabel.value = val.source_label || ''
   loadOptions()
+  syncing.value = false
 }, { deep: true })
 
-watch(selectedType, () => { selectedId.value = ''; sourceLabel.value = ''; loadOptions(); emitChange() })
+watch(selectedType, () => {
+  if (syncing.value) return  // 父级同步中，不清空
+  selectedId.value = ''; sourceLabel.value = ''; loadOptions(); emitChange()
+})
 watch(selectedId, (val) => {
   if (!val) return
   const opt = options.value.find(o => o.value === val)
