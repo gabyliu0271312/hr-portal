@@ -153,3 +153,43 @@ async def assert_not_ods_source(ref: ServiceSourceRef, db: AsyncSession) -> None
             f"来源 {ref.source_label or ref.source_id} 仍在原始层，"
             f"请先完成数据清洗（ODS → DWD）后再创建消费服务。"
         )
+
+
+# ── 统一取数 ────────────────────────────────
+
+async def load_rows_by_source_ref(
+    source_type: str,
+    source_id: str,
+    db: AsyncSession,
+    period_ym: str = "",
+) -> list[dict]:
+    """按统一来源协议取数。消除 API/推送/订阅三处各自硬编码。
+
+    - table/report/ads/metric → push_service._load_source_rows
+    - dataset → 查 DataSetTable.source_table → _load_source_rows
+    """
+    st = source_type or SOURCE_TABLE
+    sid = source_id
+
+    from app.push.push_service import _load_source_rows
+
+    if st in (SOURCE_TABLE, SOURCE_REPORT, SOURCE_ADS, SOURCE_METRIC):
+        return await _load_source_rows(sid, db, period_ym)
+
+    if st == SOURCE_DATASET:
+        from app.datasets.models import DataSet, DataSetTable
+        from sqlalchemy import select as sa_select
+
+        ds = await db.get(DataSet, int(sid))
+        if ds:
+            row = await db.execute(
+                sa_select(DataSetTable.table_name)
+                .where(DataSetTable.dataset_id == ds.id)
+                .limit(1)
+            )
+            table_name = row.scalar_one_or_none()
+            if table_name:
+                return await _load_source_rows(table_name, db, period_ym)
+        raise ValueError(f"数据集 {sid} 无来源表")
+
+    raise ValueError(f"不支持的来源类型: {st}")

@@ -314,34 +314,8 @@ async def run_subscription(
     message = "success"
     status = "success"
     try:
-        st = sub.source_type or "table"
-        sid = sub.source_id
-        if st == "table" or st == "report":
-            from app.push.push_service import _load_source_rows
-            data = await _load_source_rows(sid, db, "")
-        elif st == "dataset":
-            from app.datasets.models import DataSet, DataSetTable
-            ds = await db.get(DataSet, int(sid))
-            table_name = None
-            if ds:
-                dt_row = await db.execute(
-                    select(DataSetTable.table_name).where(DataSetTable.dataset_id == ds.id).limit(1)
-                )
-                table_name = dt_row.scalar_one_or_none()
-            if table_name:
-                from app.push.push_service import _load_source_rows
-                data = await _load_source_rows(table_name, db, "")
-            else:
-                data = []
-                status = "failed"
-                message = f"数据集 {sid} 无来源表"
-        elif st == "ads" or st == "metric":
-            from app.push.push_service import _load_source_rows
-            data = await _load_source_rows(sid, db, "")
-        else:
-            data = []
-            status = "failed"
-            message = f"不支持的来源类型: {st}"
+        from app.warehouse.service_ref import load_rows_by_source_ref
+        data = await load_rows_by_source_ref(sub.source_type or "table", sub.source_id, db)
         rows = len(data) if not status.startswith("fail") else 0
         if status == "success" and rows == 0:
             status = "partial"
