@@ -71,14 +71,31 @@ class RunIn(BaseModel):
 
 # ===== helpers =====
 
-def _to_out(pt: PushTarget) -> PushTargetOut:
-    # 推导可读标签
+async def _to_out(pt: PushTarget, db: AsyncSession) -> PushTargetOut:
     label = pt.source_label
+
     if pt.source_type == "report":
-        if not label and pt.source_table.startswith("report:"):
-            label = f"报表 #{pt.source_table.split(':', 1)[1]}"
+        # 查 reports 表取真实名称
+        report_id = pt.source_id
+        if not report_id and pt.source_table.startswith("report:"):
+            report_id = pt.source_table.split(":", 1)[1]
+        if report_id and report_id.isdigit():
+            from app.reports.models import Report
+            report = await db.get(Report, int(report_id))
+            if report:
+                label = report.name
+        if not label:
+            label = f"报表 #{report_id}"
+
     elif pt.source_type == "table" and (not label or label == pt.source_table):
-        label = pt.source_table  # 暂时用表名，创建/更新时会查 table_label 写入
+        # 查 registered_tables 取中文标签
+        from app.data.models import RegisteredTable
+        row = await db.execute(
+            select(RegisteredTable.table_label).where(RegisteredTable.table_name == pt.source_id)
+        )
+        tl = row.scalar_one_or_none()
+        label = tl or pt.source_id
+
     return PushTargetOut(
         id=pt.id,
         source_table=pt.source_table,
@@ -96,7 +113,7 @@ def _to_out(pt: PushTarget) -> PushTargetOut:
         updated_at=pt.updated_at.isoformat(),
         source_type=pt.source_type,
         source_id=pt.source_id,
-        source_label=label,
+        source_label=label or "",
     )
 
 
@@ -163,7 +180,7 @@ async def list_push_targets(
     if source_id:
         stmt = stmt.where(PushTarget.source_id == source_id)
     rows = (await db.execute(stmt)).scalars().all()
-    return [_to_out(r) for r in rows]
+    return [await _to_out(r, db) for r in rows]
 
 
 @router.post("", response_model=PushTargetOut,
@@ -271,7 +288,7 @@ async def create_push_target(
     await db.commit()
     await db.refresh(pt)
 
-    return _to_out(pt)
+    return await _to_out(pt, db)
 
 
 @router.get("/{pt_id}", response_model=PushTargetOut)
@@ -284,7 +301,7 @@ async def get_push_target(
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
     await _ensure_report_push_editable(pt.source_table, user, db)
-    return _to_out(pt)
+    return await _to_out(pt, db)
 
 
 @router.put("/{pt_id}", response_model=PushTargetOut,
@@ -364,7 +381,7 @@ async def update_push_target(
     await db.commit()
     await db.refresh(pt)
 
-    return _to_out(pt)
+    return await _to_out(pt, db)
 
 
 @router.delete("/{pt_id}",

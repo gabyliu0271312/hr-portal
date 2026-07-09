@@ -171,12 +171,17 @@ function resetPassword(field: 'password' | 'readonly_password' | 'app_secret' | 
 
 const sourceRef = ref({ source_type: 'table', source_id: props.sourceTable, source_label: '' })
 
+function legacySourceTable(ref: { source_type: string; source_id: string }) {
+  if (ref.source_type === 'report') return `report:${ref.source_id}`
+  return ref.source_id
+}
+
 function buildPayload(): PushTargetIn {
-  const st = isMultiSource ? sourceRef.value.source_id : props.sourceTable
+  const st = isMultiSource ? legacySourceTable(sourceRef.value) : props.sourceTable
   const base: PushTargetIn = {
     source_table: st,
     source_type: isMultiSource ? sourceRef.value.source_type : 'table',
-    source_id: st,
+    source_id: isMultiSource ? sourceRef.value.source_id : st,
     source_label: isMultiSource ? sourceRef.value.source_label : '',
     name: form.name.trim(),
     description: form.description.trim() || null,
@@ -261,7 +266,7 @@ defineExpose({ open })
       <!-- 多来源模式：选择来源资产 -->
       <div v-if="isMultiSource" class="section-title">来源资产</div>
       <el-form-item v-if="isMultiSource" label="选择来源" required>
-        <ServiceSourcePicker v-model="sourceRef" />
+        <ServiceSourcePicker v-model="sourceRef" :allowed-types="['table', 'report']" />
       </el-form-item>
 
       <div class="section-title">基本信息</div>

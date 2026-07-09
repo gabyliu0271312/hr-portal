@@ -90,10 +90,20 @@ function emitChange() {
   })
 }
 
+// 弹窗复用场景：父组件 modelValue 变化时同步内部状态
+watch(() => props.modelValue, (val) => {
+  if (!val) return
+  selectedType.value = val.source_type || allowedTypes[0]
+  selectedId.value = val.source_id || ''
+  sourceLabel.value = val.source_label || ''
+  loadOptions()
+}, { deep: true })
+
 watch(selectedType, () => { selectedId.value = ''; sourceLabel.value = ''; loadOptions(); emitChange() })
 watch(selectedId, (val) => {
+  if (!val) return
   const opt = options.value.find(o => o.value === val)
-  sourceLabel.value = opt?.displayLabel || val
+  sourceLabel.value = opt?.displayLabel || sourceLabel.value || val
   emitChange()
 })
 
