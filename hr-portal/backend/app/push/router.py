@@ -243,7 +243,10 @@ async def create_push_target(
     # db_expose：先建只读账号再 commit，失败时 PushTarget 不残留
     if pt.push_type == "db_expose":
         from app.push.push_service import execute_push
-        await execute_push(pt.id, db)
+        try:
+            await execute_push(pt.id, db)
+        except RuntimeError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     await db.commit()
     await db.refresh(pt)
@@ -320,7 +323,10 @@ async def update_push_target(
     # db_expose：先建只读账号再 commit，失败时 PushTarget 不残留
     if pt.push_type == "db_expose":
         from app.push.push_service import execute_push
-        await execute_push(pt.id, db)
+        try:
+            await execute_push(pt.id, db)
+        except RuntimeError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     await db.commit()
     await db.refresh(pt)
