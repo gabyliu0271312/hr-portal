@@ -155,42 +155,32 @@ async def assert_not_ods_source(ref: ServiceSourceRef, db: AsyncSession) -> None
         )
 
 
-# ── 统一取数 ────────────────────────────────
+# ── 统一表名解析 ────────────────────────────
 
-async def load_rows_by_source_ref(
+async def resolve_source_table_name(
     source_type: str,
     source_id: str,
     db: AsyncSession,
-    period_ym: str = "",
-) -> list[dict]:
-    """按统一来源协议取数。消除 API/推送/订阅三处各自硬编码。
+) -> str:
+    """将统一来源协议解析为 _load_source_rows 能识别的表名。
 
-    - table/report/ads/metric → push_service._load_source_rows
-    - dataset → 查 DataSetTable.source_table → _load_source_rows
+    消除 API/推送/订阅三边各自硬编码的表名规则。
     """
     st = source_type or SOURCE_TABLE
     sid = source_id
 
-    from app.push.push_service import _load_source_rows
-
-    # 统一路由：各类型转为 _load_source_rows 能识别的格式
-    # table:    直接传表名
-    # report:   转为 "report:{id}" 旧格式（push_service._is_report_source 识别）
-    # ads:      直接传 sid（ADS 视图名/表名）
-    # metric:   直接传 sid（指标结果表名）
+    # table: 直接传表名
     if st == SOURCE_TABLE:
-        return await _load_source_rows(sid, db, period_ym)
-    if st == SOURCE_REPORT:
-        return await _load_source_rows(f"report:{sid}", db, period_ym)
-    if st == SOURCE_ADS:
-        return await _load_source_rows(sid, db, period_ym)
-    if st == SOURCE_METRIC:
-        return await _load_source_rows(sid, db, period_ym)
+        return sid
 
+    # report: "_load_source_rows 识别 report:{id}"
+    if st == SOURCE_REPORT:
+        return f"report:{sid}"
+
+    # dataset: 查 DataSetTable.source_table
     if st == SOURCE_DATASET:
         from app.datasets.models import DataSet, DataSetTable
         from sqlalchemy import select as sa_select
-
         ds = await db.get(DataSet, int(sid))
         if ds:
             row = await db.execute(
@@ -200,7 +190,52 @@ async def load_rows_by_source_ref(
             )
             table_name = row.scalar_one_or_none()
             if table_name:
-                return await _load_source_rows(table_name, db, period_ym)
+                return table_name
         raise ValueError(f"数据集 {sid} 无来源表")
 
+    # metric: 指标结果表名（与 api_service/router.py 一致）
+    if st == SOURCE_METRIC:
+        return f"metric_{sid}"
+
+    # ads: 解析 ADS 定义 → 底层来源的表名
+    if st == SOURCE_ADS:
+        from app.warehouse.models import AdsDefinition
+        from app.datasets.models import DataSet, DataSetTable
+        from sqlalchemy import select as sa_select
+        ads = await db.get(AdsDefinition, int(sid))
+        if ads is None:
+            raise ValueError(f"ADS 定义 {sid} 不存在")
+        # ADS.source_type: dws_aggregate / dataset / model
+        # 先支持 dataset 来源；dws_aggregate 后续扩展
+        if ads.source_type == "dataset":
+            ds = await db.get(DataSet, int(ads.source_id))
+            if ds:
+                row = await db.execute(
+                    sa_select(DataSetTable.table_name)
+                    .where(DataSetTable.dataset_id == ds.id)
+                    .limit(1)
+                )
+                table_name = row.scalar_one_or_none()
+                if table_name:
+                    return table_name
+            raise ValueError(f"ADS {sid} 底层数据集 {ads.source_id} 无来源表")
+        # 其他来源类型（dws_aggregate/model）返回 ads 定义内的 source_label 或 id
+        # 实际取数通过 execute_push 内部的 handler 路由
+        return ads.source_label or f"ads_{sid}"
+
     raise ValueError(f"不支持的来源类型: {st}")
+
+
+# ── 统一取数 ────────────────────────────────
+
+async def load_rows_by_source_ref(
+    source_type: str,
+    source_id: str,
+    db: AsyncSession,
+    period_ym: str = "",
+) -> list[dict]:
+    """按统一来源协议取数。所有调用方（API/推送/订阅）统一入口。"""
+    from app.push.push_service import _load_source_rows
+
+    table_name = await resolve_source_table_name(source_type, source_id, db)
+    return await _load_source_rows(table_name, db, period_ym)
