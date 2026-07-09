@@ -29,7 +29,7 @@ router = APIRouter(prefix="/push-targets", tags=["push-targets"])
 # ===== Schemas =====
 
 class PushTargetIn(BaseModel):
-    source_table: str
+    source_table: str = ""                # 旧字段，过渡期兼容
     name: str
     description: str | None = None
     push_type: str  # external_db / http_push / api_expose
@@ -38,6 +38,10 @@ class PushTargetIn(BaseModel):
     field_mappings: list[dict] = []
     is_active: bool = True
     schedule: str = "手动触发"
+    # P1 新增：统一来源协议（过渡期与 source_table 并存，优先用新字段）
+    source_type: str = ""        # table / dataset / metric / ads / report
+    source_id: str = ""
+    source_label: str = ""
 
 
 class PushTargetOut(BaseModel):
@@ -55,6 +59,10 @@ class PushTargetOut(BaseModel):
     last_message: str | None
     created_at: str
     updated_at: str
+    # P1 新增：统一来源协议（从 settings.source_ref 或旧 source_table 推导）
+    source_type: str = ""
+    source_id: str = ""
+    source_label: str = ""
 
 
 class RunIn(BaseModel):
@@ -64,6 +72,15 @@ class RunIn(BaseModel):
 # ===== helpers =====
 
 def _to_out(pt: PushTarget) -> PushTargetOut:
+    # P1：优先从 settings.source_ref 读取，其次从旧 source_table 推导
+    source_ref = (pt.settings or {}).get("source_ref")
+    if source_ref and isinstance(source_ref, dict):
+        st, sid, sl = source_ref.get("source_type", ""), source_ref.get("source_id", ""), source_ref.get("source_label", "")
+    else:
+        from app.warehouse.service_ref import parse_legacy_source
+        ref = parse_legacy_source(pt.source_table)
+        st, sid, sl = ref.source_type, ref.source_id, ref.source_label or ""
+
     return PushTargetOut(
         id=pt.id,
         source_table=pt.source_table,
@@ -79,6 +96,9 @@ def _to_out(pt: PushTarget) -> PushTargetOut:
         last_message=pt.last_message,
         created_at=pt.created_at.isoformat(),
         updated_at=pt.updated_at.isoformat(),
+        source_type=st,
+        source_id=sid,
+        source_label=sl,
     )
 
 
@@ -129,6 +149,8 @@ async def _ensure_system_op_for_non_report(
 @router.get("", response_model=list[PushTargetOut])
 async def list_push_targets(
     source_table: str | None = Query(None),
+    source_type: str | None = Query(None),
+    source_id: str | None = Query(None),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[PushTargetOut]:
@@ -138,7 +160,14 @@ async def list_push_targets(
     if source_table:
         stmt = stmt.where(PushTarget.source_table == source_table)
     rows = (await db.execute(stmt)).scalars().all()
-    return [_to_out(r) for r in rows]
+
+    # P1: settings JSON 中的 source_ref 不支持 DB 层过滤，Python 后过滤
+    results = [_to_out(r) for r in rows]
+    if source_type:
+        results = [r for r in results if r.source_type == source_type]
+    if source_id:
+        results = [r for r in results if str(r.source_id) == source_id]
+    return results
 
 
 @router.post("", response_model=PushTargetOut,
@@ -149,6 +178,44 @@ async def create_push_target(
     db: AsyncSession = Depends(get_session),
 ) -> PushTargetOut:
     from app.core.secret_box import encrypt
+    from app.warehouse.service_ref import ServiceSourceRef, SOURCE_TABLE, assert_not_ods_source
+
+    # P1：统一来源协议 — 优先用新字段，否则从 source_table 推导
+    if payload.source_type and payload.source_id:
+        source_ref = {
+            "source_type": payload.source_type,
+            "source_id": payload.source_id,
+            "source_label": payload.source_label or "",
+        }
+        if not payload.source_table:
+            ref = ServiceSourceRef(
+                source_type=payload.source_type,
+                source_id=payload.source_id,
+                source_label=payload.source_label,
+            )
+            payload.source_table = ref.to_legacy_source_table()
+    else:
+        from app.warehouse.service_ref import parse_legacy_source
+        ref = parse_legacy_source(payload.source_table)
+        source_ref = {
+            "source_type": ref.source_type,
+            "source_id": ref.source_id,
+            "source_label": ref.source_label or "",
+        }
+
+    # ODS 消费红线：table 类型且来源为 ODS → 拒绝
+    if source_ref["source_type"] == SOURCE_TABLE and source_ref["source_id"]:
+        try:
+            ref = ServiceSourceRef(
+                source_type=SOURCE_TABLE,
+                source_id=source_ref["source_id"],
+            )
+            await assert_not_ods_source(ref, db)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    # 存到 settings.source_ref（P2 迁移到独立列）
+    payload.settings["source_ref"] = source_ref
 
     await _ensure_report_push_editable(payload.source_table, user, db)
     await _ensure_system_op_for_non_report(payload.source_table, user, db, "C")
@@ -229,10 +296,49 @@ async def update_push_target(
     db: AsyncSession = Depends(get_session),
 ) -> PushTargetOut:
     from app.core.secret_box import encrypt
+    from app.warehouse.service_ref import ServiceSourceRef, SOURCE_TABLE, assert_not_ods_source
 
     pt = await db.get(PushTarget, pt_id)
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
+
+    # P1：统一来源协议 — 优先用新字段
+    if payload.source_type and payload.source_id:
+        source_ref = {
+            "source_type": payload.source_type,
+            "source_id": payload.source_id,
+            "source_label": payload.source_label or "",
+        }
+        if not payload.source_table:
+            ref = ServiceSourceRef(
+                source_type=payload.source_type,
+                source_id=payload.source_id,
+                source_label=payload.source_label,
+            )
+            payload.source_table = ref.to_legacy_source_table()
+    else:
+        from app.warehouse.service_ref import parse_legacy_source
+        ref = parse_legacy_source(payload.source_table or pt.source_table)
+        source_ref = {
+            "source_type": ref.source_type,
+            "source_id": ref.source_id,
+            "source_label": ref.source_label or "",
+        }
+
+    # ODS 消费红线
+    if source_ref["source_type"] == SOURCE_TABLE and source_ref["source_id"]:
+        try:
+            ref = ServiceSourceRef(
+                source_type=SOURCE_TABLE,
+                source_id=source_ref["source_id"],
+            )
+            await assert_not_ods_source(ref, db)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    # 存到 settings.source_ref
+    payload.settings["source_ref"] = source_ref
+
     await _ensure_report_push_editable(pt.source_table, user, db)
     await _ensure_report_push_editable(payload.source_table, user, db)
     await _ensure_system_op_for_non_report(pt.source_table, user, db, "U")
