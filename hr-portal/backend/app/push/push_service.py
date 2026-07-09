@@ -754,7 +754,6 @@ async def push_db_expose(
             for c in codes
         )
         insert_cols = ", ".join(_quote_pg_identifier(label_by_code[c]) for c in codes)
-        cols_sel = ", ".join(f"{quote_ident(c)} AS {_quote_pg_identifier(label_by_code[c])}" for c in codes)
     else:
         cols = (
             await db.execute(
