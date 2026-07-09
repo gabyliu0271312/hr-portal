@@ -8,8 +8,10 @@ import { dataApi, type ColumnInfo } from '@/api/data'
 import { SCHEDULE_OPTIONS } from '@/config/dataSources'
 import { PASSWORD_POLICY_HINT, generateStrongPassword } from '@/utils/passwordPolicy'
 import PushFieldMapper from './PushFieldMapper.vue'
+import ServiceSourcePicker from '@/components/warehouse/ServiceSourcePicker.vue'
 
 const props = defineProps<{ sourceTable: string; sourceColumns?: ColumnInfo[] }>()
+const isMultiSource = !props.sourceTable
 const emit = defineEmits<{ 'done': [target: PushTargetOut] }>()
 
 const visible = ref(false)
@@ -97,7 +99,11 @@ const form = reactive<{
 async function open(target?: PushTargetOut | null) {
   currentTarget.value = target ?? null
   revealedSecrets.value = {}
-  sourceColumns.value = props.sourceColumns?.length ? [...props.sourceColumns] : await dataApi.columns(props.sourceTable).catch(() => [])
+  sourceColumns.value = props.sourceColumns?.length
+    ? [...props.sourceColumns]
+    : props.sourceTable
+      ? await dataApi.columns(props.sourceTable).catch(() => [])
+      : []
 
   if (target) {
     const s = target.settings || {}
@@ -155,9 +161,15 @@ function resetPassword(field: 'password' | 'readonly_password' | 'app_secret' | 
   ElMessage.success('已生成随机强密码')
 }
 
+const sourceRef = ref({ source_type: 'table', source_id: props.sourceTable, source_label: '' })
+
 function buildPayload(): PushTargetIn {
+  const st = isMultiSource ? sourceRef.value.source_id : props.sourceTable
   const base: PushTargetIn = {
-    source_table: props.sourceTable,
+    source_table: st,
+    source_type: isMultiSource ? sourceRef.value.source_type : 'table',
+    source_id: st,
+    source_label: isMultiSource ? sourceRef.value.source_label : '',
     name: form.name.trim(),
     description: form.description.trim() || null,
     push_type: form.push_type as any,
@@ -238,6 +250,12 @@ defineExpose({ open })
     :close-on-click-modal="false"
   >
     <el-form :model="form" label-position="top">
+      <!-- 多来源模式：选择来源资产 -->
+      <div v-if="isMultiSource" class="section-title">来源资产</div>
+      <el-form-item v-if="isMultiSource" label="选择来源" required>
+        <ServiceSourcePicker v-model="sourceRef" />
+      </el-form-item>
+
       <div class="section-title">基本信息</div>
       <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px">
         <el-form-item label="名称" required>

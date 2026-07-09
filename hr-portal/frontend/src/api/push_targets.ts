@@ -12,6 +12,9 @@ export interface PushTargetIn {
   field_mappings: { source: string; target: string }[]
   is_active?: boolean
   schedule?: string
+  source_type?: string
+  source_id?: string
+  source_label?: string
 }
 
 export interface PushTargetOut {
@@ -29,6 +32,9 @@ export interface PushTargetOut {
   last_message: string | null
   created_at: string
   updated_at: string
+  source_type?: string
+  source_id?: string
+  source_label?: string
 }
 
 export interface PushRunOut {

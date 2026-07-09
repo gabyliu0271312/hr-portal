@@ -494,7 +494,8 @@ onMounted(() => {
                   </div>
                   <div>
                     <div style="font-size:11px;color:#909399;margin-bottom:4px">BI / 报表消费</div>
-                    <el-tag :type="asset.asset_status==='published'?'success':'info'" size="default">{{ asset.asset_status==='published'?'可查询':'未开放' }}</el-tag>
+                    <el-tag v-if="asset.warehouse_layer === 'ODS'" type="danger" size="default">禁止消费</el-tag>
+                    <el-tag v-else :type="asset.asset_status==='published'?'success':'info'" size="default">{{ asset.asset_status==='published'?'可查询':'未开放' }}</el-tag>
                   </div>
                   <div>
                     <div style="font-size:11px;color:#909399;margin-bottom:4px">API 暴露</div>
@@ -548,12 +549,41 @@ onMounted(() => {
                 </div>
               </el-card>
 
-              <!-- 出仓目标 — 嵌入 PushTargetList 组件 -->
-              <PushTargetList
-                v-if="asset"
-                :source-table="tableName"
-                compact
-              />
+              <!-- 出仓消费 — 按分层差异化展示 -->
+              <el-card shadow="never" class="ep-section" v-if="asset">
+                <template #header>
+                  <div style="display: flex; justify-content: space-between; align-items: center">
+                    <span>
+                      <span style="font-weight: 600">出仓消费</span>
+                      <span style="color: #909399; font-size: 12px; margin-left: 8px">
+                        {{ asset.warehouse_layer === 'ODS' ? 'ODS 层禁止消费' : asset.warehouse_layer === 'DWD' ? 'DWD 受控消费' : '可消费' }}
+                      </span>
+                    </span>
+                    <!-- ODS：去数据清洗 -->
+                    <el-button v-if="asset.warehouse_layer === 'ODS'" type="primary" size="small" @click="$router.push('/warehouse/data-recipe')">
+                      去数据清洗 →
+                    </el-button>
+                    <!-- 非 ODS：创建数据服务 -->
+                    <el-button v-else type="primary" size="small" @click="$router.push(`/warehouse/service?source_type=table&source_id=${asset.table_name}`)">
+                      创建数据服务 →
+                    </el-button>
+                  </div>
+                </template>
+
+                <!-- ODS 禁止消费提示 -->
+                <div v-if="asset.warehouse_layer === 'ODS'" style="text-align: center; padding: 24px 0">
+                  <p style="color: #e6a23c; margin-bottom: 8px">ODS 层为原始层，禁止直接消费</p>
+                  <p style="color: #909399; font-size: 13px">请先完成数据清洗（ODS → DWD）后再创建消费服务</p>
+                </div>
+
+                <!-- 非 ODS：推送配置 -->
+                <template v-else>
+                  <PushTargetList
+                    :source-table="tableName"
+                    compact
+                  />
+                </template>
+              </el-card>
 
               <!-- API 暴露 -->
               <el-card v-if="endpoints?.exposes.length" shadow="never" class="ep-section">
