@@ -38,7 +38,7 @@ class PushTargetIn(BaseModel):
     field_mappings: list[dict] = []
     is_active: bool = True
     schedule: str = "手动触发"
-    # P1 新增：统一来源协议（过渡期与 source_table 并存，优先用新字段）
+    # P2：统一来源协议
     source_type: str = ""        # table / dataset / metric / ads / report
     source_id: str = ""
     source_label: str = ""
@@ -111,7 +111,8 @@ async def _ensure_report_push_editable(source_table: str, user: User, db: AsyncS
 
 
 def _is_report_source(source_table: str | None) -> bool:
-    return str(source_table or "").startswith("report:")
+    from app.warehouse.service_ref import is_legacy_report_source
+    return is_legacy_report_source(source_table)
 
 
 def _validate_db_expose_password(payload: PushTargetIn) -> None:
@@ -150,15 +151,12 @@ async def list_push_targets(
     stmt = select(PushTarget).order_by(desc(PushTarget.updated_at))
     if source_table:
         stmt = stmt.where(PushTarget.source_table == source_table)
-    rows = (await db.execute(stmt)).scalars().all()
-
-    # P1: settings JSON 中的 source_ref 不支持 DB 层过滤，Python 后过滤
-    results = [_to_out(r) for r in rows]
     if source_type:
-        results = [r for r in results if r.source_type == source_type]
+        stmt = stmt.where(PushTarget.source_type == source_type)
     if source_id:
-        results = [r for r in results if str(r.source_id) == source_id]
-    return results
+        stmt = stmt.where(PushTarget.source_id == source_id)
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_to_out(r) for r in rows]
 
 
 @router.post("", response_model=PushTargetOut,
@@ -169,7 +167,7 @@ async def create_push_target(
     db: AsyncSession = Depends(get_session),
 ) -> PushTargetOut:
     from app.core.secret_box import encrypt
-    from app.warehouse.service_ref import ServiceSourceRef, SOURCE_TABLE, assert_not_ods_source
+    from app.warehouse.service_ref import ServiceSourceRef, SOURCE_TABLE, assert_not_ods_source, ALLOWED_SOURCE_TYPES
 
     # P2：统一来源协议 — 解析并写入独立列
     final_source_type = payload.source_type
@@ -186,6 +184,10 @@ async def create_push_target(
     if not payload.source_table:
         ref = ServiceSourceRef(source_type=final_source_type, source_id=final_source_id, source_label=final_source_label)
         payload.source_table = ref.to_legacy_source_table()
+
+    # source_type 枚举校验
+    if final_source_type not in ALLOWED_SOURCE_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"不支持的来源类型: {final_source_type}，允许: {sorted(ALLOWED_SOURCE_TYPES)}")
 
     # ODS 消费红线
     if final_source_type == SOURCE_TABLE and final_source_id:
@@ -238,15 +240,13 @@ async def create_push_target(
             enabled=payload.is_active,
         )
 
-    await db.commit()
-    await db.refresh(pt)
-
-    # db_expose：保存时自动创建只读账号
+    # db_expose：先建只读账号再 commit，失败时 PushTarget 不残留
     if pt.push_type == "db_expose":
         from app.push.push_service import execute_push
         await execute_push(pt.id, db)
-        await db.commit()
-        await db.refresh(pt)
+
+    await db.commit()
+    await db.refresh(pt)
 
     return _to_out(pt)
 
@@ -279,20 +279,20 @@ async def update_push_target(
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
 
-    # P2：统一来源协议 — 解析并写入独立列
+    # P2：统一来源协议 — 解析并写入独立列 + source_table
     if payload.source_type and payload.source_id:
         pt.source_type = payload.source_type
         pt.source_id = payload.source_id
         pt.source_label = payload.source_label or ""
-        if not payload.source_table:
-            ref = ServiceSourceRef(source_type=payload.source_type, source_id=payload.source_id, source_label=payload.source_label)
-            payload.source_table = ref.to_legacy_source_table()
+        ref = ServiceSourceRef(source_type=payload.source_type, source_id=payload.source_id, source_label=payload.source_label)
+        pt.source_table = ref.to_legacy_source_table()
     elif payload.source_table:
         from app.warehouse.service_ref import parse_legacy_source
         ref = parse_legacy_source(payload.source_table)
         pt.source_type = ref.source_type
         pt.source_id = ref.source_id
         pt.source_label = ref.source_label or ""
+        pt.source_table = payload.source_table
 
     # ODS 消费红线
     if pt.source_type == SOURCE_TABLE and pt.source_id:
@@ -317,15 +317,13 @@ async def update_push_target(
     if payload.secrets:
         pt.secrets_encrypted = {k: encrypt(v) for k, v in payload.secrets.items()}
 
-    await db.commit()
-    await db.refresh(pt)
-
-    # db_expose：保存时自动创建/更新只读账号
+    # db_expose：先建只读账号再 commit，失败时 PushTarget 不残留
     if pt.push_type == "db_expose":
         from app.push.push_service import execute_push
         await execute_push(pt.id, db)
-        await db.commit()
-        await db.refresh(pt)
+
+    await db.commit()
+    await db.refresh(pt)
 
     return _to_out(pt)
 
@@ -508,14 +506,11 @@ async def expose_data(
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"IP {client_ip} 不在白名单")
 
     period_ym = s.get("period_ym", "")
-    # P2: 统一来源协议 — 直接从列读取
+    # P2: 统一来源协议 — 非 table 类型解析来源表名
+    from app.warehouse.service_ref import resolve_source_table_name
     effective_source = pt.source_table
     if pt.source_type and pt.source_type != "table":
-        try:
-            from app.warehouse.service_ref import resolve_source_table_name
-            effective_source = await resolve_source_table_name(pt.source_type, pt.source_id, db)
-        except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"数据来源解析失败: {e}") from e
+        effective_source = await resolve_source_table_name(pt.source_type, pt.source_id, db)
     rows = await _load_source_rows(effective_source, db, period_ym)
     return [
         json_ready_row(apply_field_mappings(r, pt.field_mappings or []))

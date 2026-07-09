@@ -31,7 +31,7 @@ def upgrade() -> None:
             source_label = COALESCE(settings->'source_ref'->>'source_label', '')
         WHERE settings ? 'source_ref'
     """)
-    # 3. 回填：无 source_ref 的旧数据
+    # 3. 回填：无 source_ref 的旧数据（与 pass 1 互斥）
     op.execute("""
         UPDATE push_targets
         SET source_type = CASE
@@ -39,11 +39,15 @@ def upgrade() -> None:
                 ELSE 'table'
             END,
             source_id = CASE
-                WHEN source_table LIKE 'report:%' THEN SUBSTRING(source_table FROM 8)
+                WHEN source_table LIKE 'report:%' THEN SUBSTRING(source_table FROM 8)  -- len('report:') + 1 = 8
                 ELSE source_table
             END,
-            source_label = source_table
+            source_label = CASE
+                WHEN source_table LIKE 'report:%' THEN '报表 #' || SUBSTRING(source_table FROM 8)
+                ELSE source_table
+            END
         WHERE source_type = 'table' AND source_id = ''
+          AND NOT (settings ? 'source_ref')
     """)
 
 
