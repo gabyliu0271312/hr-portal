@@ -73,13 +73,18 @@ class RunIn(BaseModel):
 
 async def _to_out(pt: PushTarget, db: AsyncSession) -> PushTargetOut:
     label = pt.source_label
+    effective_source_type = pt.source_type or "table"
+    effective_source_id = pt.source_id or pt.source_table
 
-    if pt.source_type == "report":
-        # 查 reports 表取真实名称
-        report_id = pt.source_id
-        if not report_id and pt.source_table.startswith("report:"):
-            report_id = pt.source_table.split(":", 1)[1]
-        if report_id and report_id.isdigit():
+    # 兼容生产历史数据：source_table 已经是 report:{id}，
+    # 但 source_type/source_id/source_label 迁移未回填或仍被标记为 table。
+    if str(pt.source_table or "").startswith("report:"):
+        effective_source_type = "report"
+        effective_source_id = str(pt.source_table).split(":", 1)[1]
+
+    if effective_source_type == "report":
+        report_id = effective_source_id
+        if report_id and str(report_id).isdigit():
             from app.reports.models import Report
             report = await db.get(Report, int(report_id))
             if report:
@@ -87,14 +92,13 @@ async def _to_out(pt: PushTarget, db: AsyncSession) -> PushTargetOut:
         if not label:
             label = f"报表 #{report_id}"
 
-    elif pt.source_type == "table" and (not label or label == pt.source_table):
-        # 查 registered_tables 取中文标签
+    elif effective_source_type == "table" and (not label or label == pt.source_table):
         from app.data.models import RegisteredTable
         row = await db.execute(
-            select(RegisteredTable.table_label).where(RegisteredTable.table_name == pt.source_id)
+            select(RegisteredTable.table_label).where(RegisteredTable.table_name == effective_source_id)
         )
         tl = row.scalar_one_or_none()
-        label = tl or pt.source_id
+        label = tl or effective_source_id
 
     return PushTargetOut(
         id=pt.id,
@@ -111,11 +115,10 @@ async def _to_out(pt: PushTarget, db: AsyncSession) -> PushTargetOut:
         last_message=pt.last_message,
         created_at=pt.created_at.isoformat(),
         updated_at=pt.updated_at.isoformat(),
-        source_type=pt.source_type,
-        source_id=pt.source_id,
+        source_type=effective_source_type,
+        source_id=str(effective_source_id or ""),
         source_label=label or "",
     )
-
 
 async def _ensure_report_push_editable(source_table: str, user: User, db: AsyncSession) -> None:
     if not str(source_table or "").startswith("report:"):

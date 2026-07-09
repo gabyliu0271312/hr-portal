@@ -108,11 +108,7 @@ async function open(target?: PushTargetOut | null) {
   if (target) {
     // 编辑时回填来源资产
     if (isMultiSource) {
-      sourceRef.value = {
-        source_type: target.source_type || 'table',
-        source_id: target.source_id || '',
-        source_label: target.source_label || '',
-      }
+      sourceRef.value = normalizeSourceRef(target)
     }
     const s = target.settings || {}
     form.name = target.name
@@ -145,6 +141,9 @@ async function open(target?: PushTargetOut | null) {
       form.feishu_batch_size = String(s.batch_size ?? 1000)
     }
   } else {
+    if (isMultiSource) {
+      sourceRef.value = { source_type: 'table', source_id: '', source_label: '' }
+    }
     Object.assign(form, {
       name: '', description: '', push_type: 'external_db', is_active: true,
       schedule: '手动触发', field_mappings: [], period_ym: '', ip_whitelist: '',
@@ -170,6 +169,22 @@ function resetPassword(field: 'password' | 'readonly_password' | 'app_secret' | 
 }
 
 const sourceRef = ref({ source_type: 'table', source_id: props.sourceTable, source_label: '' })
+
+function normalizeSourceRef(target: PushTargetOut) {
+  const sourceTable = target.source_table || ''
+  if (sourceTable.startsWith('report:')) {
+    return {
+      source_type: 'report',
+      source_id: sourceTable.split(':', 2)[1] || target.source_id || '',
+      source_label: target.source_label || '',
+    }
+  }
+  return {
+    source_type: target.source_type || 'table',
+    source_id: target.source_id || sourceTable || '',
+    source_label: target.source_label || '',
+  }
+}
 
 function legacySourceTable(ref: { source_type: string; source_id: string }) {
   if (ref.source_type === 'report') return `report:${ref.source_id}`

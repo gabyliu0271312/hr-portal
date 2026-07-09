@@ -92,13 +92,13 @@ function emitChange() {
 
 // 弹窗复用场景：父组件 modelValue 变化时同步内部状态
 const syncing = ref(false)
-watch(() => props.modelValue, (val) => {
+watch(() => props.modelValue, async (val) => {
   if (!val) return
   syncing.value = true
-  selectedType.value = val.source_type || allowedTypes[0]
+  selectedType.value = allowedTypes.includes(val.source_type) ? val.source_type : allowedTypes[0]
   selectedId.value = val.source_id || ''
   sourceLabel.value = val.source_label || ''
-  loadOptions()
+  await loadOptions()
   syncing.value = false
 }, { deep: true })
 

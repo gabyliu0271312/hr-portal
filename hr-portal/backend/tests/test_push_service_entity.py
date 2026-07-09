@@ -11,7 +11,7 @@ from app.data.models import DATA_TABLES, TableColumn
 from app.datasources.sync_service import PERIOD_TABLES
 from app.push import push_service
 from app.push.models import PushTarget
-from app.push.router import expose_data
+from app.push.router import _to_out, expose_data
 from tests.entity_helpers import make_legacy_raw_model
 
 
@@ -310,6 +310,33 @@ async def test_api_expose_endpoint_returns_json_ready_rows():
             "hire_date": "2021-01-01",
         }
     ]
+
+
+async def test_push_target_out_normalizes_legacy_report_source_table():
+    """生产历史数据：source_table=report:{id} 但 source_type 仍为 table 时，返回报表类型和中文名。"""
+    pt = PushTarget(
+        id=3,
+        source_table="report:3",
+        source_type="table",
+        source_id="report:3",
+        source_label="report:3",
+        name="报表推送",
+        push_type="http_push",
+        settings={},
+        secrets_encrypted={},
+        field_mappings=[],
+        is_active=True,
+        last_status="pending",
+        created_at=datetime(2026, 7, 9, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 7, 9, tzinfo=timezone.utc),
+    )
+    db = FakeSession(get_obj=SimpleNamespace(id=3, name="员工成本报表"))
+
+    out = await _to_out(pt, db)
+
+    assert out.source_type == "report"
+    assert out.source_id == "3"
+    assert out.source_label == "员工成本报表"
 
 
 async def test_push_db_expose_uses_entity_columns_and_postgres_types():
