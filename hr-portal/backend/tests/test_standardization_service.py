@@ -8,6 +8,7 @@ from app.warehouse.service.standardization import (
     DEFAULT_INSERT_BATCH_ROWS,
     MAX_INSERT_BIND_PARAMS,
     _coerce_insert_value,
+    _dwd_create_column_definitions,
     _infer_column_types,
     _infer_sql_type,
     _ordered_output_columns,
@@ -116,3 +117,24 @@ def test_to_table_column_data_type_maps_physical_types():
     assert _to_table_column_data_type("DOUBLE PRECISION") == "number"
     assert _to_table_column_data_type("BOOLEAN") == "bool"
     assert _to_table_column_data_type("TEXT") == "string"
+
+def test_dwd_create_column_definitions_marks_source_id_as_primary_key():
+    columns = ["id", "full_name"]
+    column_types = {"id": "BIGINT", "full_name": "TEXT"}
+
+    assert _dwd_create_column_definitions(columns, column_types) == [
+        '"id" BIGINT PRIMARY KEY',
+        '"full_name" TEXT',
+    ]
+
+
+def test_dwd_create_column_definitions_adds_synthetic_primary_key_when_missing():
+    columns = ["full_name", "synced_at"]
+    column_types = {"full_name": "TEXT", "synced_at": "TIMESTAMPTZ"}
+
+    assert _dwd_create_column_definitions(columns, column_types) == [
+        '"id" BIGSERIAL PRIMARY KEY',
+        '"full_name" TEXT',
+        '"synced_at" TIMESTAMPTZ',
+    ]
+

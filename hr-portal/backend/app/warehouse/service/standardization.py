@@ -98,6 +98,24 @@ def _ordered_output_columns(rows: list[dict]) -> list[str]:
     return columns
 
 
+def _dwd_create_column_definitions(columns: list[str], column_types: dict[str, str]) -> list[str]:
+    """Build DWD CREATE TABLE column definitions with an ORM-mappable PK.
+
+    Dynamic table registration reflects the physical table into SQLAlchemy ORM,
+    which requires at least one primary key. Data cleaning rebuilds DWD tables
+    from transformed rows, so preserve source ``id`` as the PK when present; if
+    a rule set removes/renames ``id``, add a synthetic auto-generated PK column.
+    """
+    col_defs: list[str] = []
+    if "id" not in columns:
+        col_defs.append(f'{_quote_ident("id")} BIGSERIAL PRIMARY KEY')
+    for col in columns:
+        sql_type = column_types.get(col, "TEXT")
+        constraints = " PRIMARY KEY" if col == "id" else ""
+        col_defs.append(f'{_quote_ident(col)} {sql_type}{constraints}')
+    return col_defs
+
+
 def _infer_column_types(rows: list[dict]) -> dict[str, str]:
     """Infer each output column from all non-null values.
 
@@ -369,9 +387,7 @@ class StandardizationRuleService:
             if transformed:
                 bcols = _ordered_output_columns(transformed)
                 column_types = _infer_column_types(transformed)
-                col_defs = []
-                for k in bcols:
-                    col_defs.append(f'{_quote_ident(k)} {column_types.get(k, "TEXT")}')
+                col_defs = _dwd_create_column_definitions(bcols, column_types)
                 await self.session.execute(sa_text(f'CREATE TABLE {_quote_ident(target)} ({", ".join(col_defs)})'))
                 batch_size = _safe_insert_batch_size(len(bcols))
                 for bs in range(0, len(transformed), batch_size):
