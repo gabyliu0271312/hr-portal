@@ -493,8 +493,16 @@ class StandardizationRuleService:
             source_by_code = {c.column_code: c for c in source_columns_meta}
             source_field_map = _dwd_source_field_map(cols, rules)
             output_labels = _rule_output_labels(rules)
+            display_index = 0
             for i, tgt in enumerate(bcols if transformed else cols):
                 src_meta = source_by_code.get(source_field_map.get(tgt, tgt))
+                # System technical columns can exist physically for ORM/audit, but
+                # if ODS does not expose them as business metadata, do not create
+                # DWD table_columns for them. Some front-end table views build
+                # headers from table_columns, so hidden rows are not enough.
+                if src_meta is None and _is_system_technical_column(tgt):
+                    continue
+                display_index += 1
                 self.session.add(TableColumn(
                     table_name=target,
                     column_code=tgt,
@@ -503,8 +511,8 @@ class StandardizationRuleService:
                     data_type=_to_table_column_data_type(column_types.get(tgt, "TEXT")) if transformed else (src_meta.data_type if src_meta else "string"),
                     is_pk_part=bool(src_meta.is_pk_part) if src_meta else False,
                     is_sensitive=bool(src_meta.is_sensitive) if src_meta else False,
-                    is_visible=(bool(src_meta.is_visible) if src_meta else not _is_system_technical_column(tgt)),
-                    display_order=(src_meta.display_order if src_meta else (i + 1) * 10),
+                    is_visible=bool(src_meta.is_visible) if src_meta else True,
+                    display_order=(src_meta.display_order if src_meta else display_index * 10),
                     auto_discovered=True,
                     agg_role=(src_meta.agg_role if src_meta else "dimension"),
                     scope_role=(src_meta.scope_role if src_meta else None),
