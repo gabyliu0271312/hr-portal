@@ -317,6 +317,19 @@ async def update_push_target(
         pt.source_label = ref.source_label or ""
         pt.source_table = payload.source_table
 
+    # table 来源：查中文标签
+    if pt.source_type == SOURCE_TABLE and pt.source_id and not pt.source_label:
+        try:
+            from app.data.models import RegisteredTable
+            row = await db.execute(
+                select(RegisteredTable.table_label).where(RegisteredTable.table_name == pt.source_id)
+            )
+            tl = row.scalar_one_or_none()
+            if tl:
+                pt.source_label = tl
+        except Exception:
+            pass
+
     # ODS 消费红线
     if pt.source_type == SOURCE_TABLE and pt.source_id:
         try:
