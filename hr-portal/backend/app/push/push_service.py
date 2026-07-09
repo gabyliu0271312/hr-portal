@@ -717,13 +717,11 @@ async def push_db_expose(
     from sqlalchemy import text, select as sa_select
     from app.core.config import settings as app_settings
 
-    if is_report_source(source_table):
-        raise RuntimeError("报表推送暂不支持 db_expose，请选择 HTTP、API 暴露或飞书表格")
-
     Model = DATA_TABLES.get(source_table)
-    if Model is None:
+    if Model is None and not is_report_source(source_table):
         raise RuntimeError(f"未知数据表: {source_table}")
-    _ensure_entity_model(Model, source_table)
+    if Model is not None:
+        _ensure_entity_model(Model, source_table)
 
     pt_id = str(settings.get("_pt_id") or "").strip()
     target_key = f"{source_table}_{pt_id}" if pt_id else source_table
@@ -742,42 +740,51 @@ async def push_db_expose(
     db_name_q = _quote_pg_identifier(app_settings.DB_NAME)
 
     # 1. 读取字段元数据，构建中文列名物理表
-    cols = (
-        await db.execute(
-            sa_select(TableColumn)
-            .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
-            .order_by(TableColumn.display_order)
+    is_report = is_report_source(source_table)
+    if is_report:
+        # 报表来源：从 push columns 取字段，统一 TEXT 类型
+        codes, label_by_code = await _load_source_columns_meta(source_table, db)
+        if not codes:
+            raise RuntimeError(f"报表 {source_table} 无推送字段定义")
+        cols_def = ", ".join(
+            f"{_quote_pg_identifier(label_by_code[c])} TEXT"
+            for c in codes
         )
-    ).scalars().all()
-
-    if not cols:
-        raise RuntimeError(f"table_columns 中找不到表 {source_table} 的字段定义")
-
-    for col in cols:
-        _entity_column(Model, source_table, col.column_code)
-    label_by_code = _dedupe_labels(cols)
-    cols_def = ", ".join(
-        f"{_quote_pg_identifier(label_by_code[c.column_code])} {postgres_type(c.data_type)}"
-        for c in cols
-    )
-    insert_cols = ", ".join(
-        _quote_pg_identifier(label_by_code[c.column_code])
-        for c in cols
-    )
-    cols_sel = ", ".join(
-        f"{quote_ident(c.column_code)} AS {_quote_pg_identifier(label_by_code[c.column_code])}"
-        for c in cols
-    )
+        insert_cols = ", ".join(_quote_pg_identifier(label_by_code[c]) for c in codes)
+        cols_sel = ", ".join(f"{quote_ident(c)} AS {_quote_pg_identifier(label_by_code[c])}" for c in codes)
+    else:
+        cols = (
+            await db.execute(
+                sa_select(TableColumn)
+                .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
+                .order_by(TableColumn.display_order)
+            )
+        ).scalars().all()
+        if not cols:
+            raise RuntimeError(f"table_columns 中找不到表 {source_table} 的字段定义")
+        for col in cols:
+            _entity_column(Model, source_table, col.column_code)
+        label_by_code = _dedupe_labels(cols)
+        cols_def = ", ".join(
+            f"{_quote_pg_identifier(label_by_code[c.column_code])} {postgres_type(c.data_type)}"
+            for c in cols
+        )
+        insert_cols = ", ".join(_quote_pg_identifier(label_by_code[c.column_code]) for c in cols)
+        cols_sel = ", ".join(
+            f"{quote_ident(c.column_code)} AS {_quote_pg_identifier(label_by_code[c.column_code])}"
+            for c in cols
+        )
 
     period_ym = settings.get("period_ym", "")
     where_sql = ""
     params: dict[str, Any] = {}
-    period_cfg = PERIOD_TABLES.get(source_table)
-    if period_cfg and period_ym:
-        period_col = period_cfg["period_col"]
-        _entity_column(Model, source_table, period_col)
-        where_sql = f" WHERE {quote_ident(period_col)} = :period_ym"
-        params["period_ym"] = period_ym
+    if not is_report:
+        period_cfg = PERIOD_TABLES.get(source_table)
+        if period_cfg and period_ym:
+            period_col = period_cfg["period_col"]
+            _entity_column(Model, source_table, period_col)
+            where_sql = f" WHERE {quote_ident(period_col)} = :period_ym"
+            params["period_ym"] = period_ym
 
     # 2. 确保独立 schema 存在
     await db.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_q}"))
