@@ -410,3 +410,69 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
         if str(sql).startswith("INSERT INTO")
     ]
     assert insert_calls == [{"period_ym": "202606"}]
+
+
+@pytest.mark.asyncio
+async def test_normalize_push_report_sources_repairs_database_row(monkeypatch):
+    from app.push.models import PushTarget
+    from scripts.normalize_push_report_sources import normalize_push_report_sources
+
+    pt = PushTarget(
+        id=20,
+        source_table="report:3",
+        source_type="table",
+        source_id="report:3",
+        source_label="report:3",
+        name="report push",
+        push_type="http_push",
+        settings={},
+        secrets_encrypted={},
+        field_mappings=[],
+        is_active=True,
+    )
+
+    class ScalarResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+    class ExecuteResult:
+        def scalars(self):
+            return ScalarResult([pt])
+
+    class FakeAsyncSession:
+        committed = False
+        rolled_back = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, stmt):
+            return ExecuteResult()
+
+        async def get(self, model, ident):
+            return SimpleNamespace(id=ident, name="employee cost report")
+
+        async def commit(self):
+            self.committed = True
+
+        async def rollback(self):
+            self.rolled_back = True
+
+    session = FakeAsyncSession()
+    monkeypatch.setattr("scripts.normalize_push_report_sources.AsyncSessionLocal", lambda: session)
+
+    changes = await normalize_push_report_sources()
+
+    assert len(changes) == 1
+    assert changes[0].before == ("report:3", "table", "report:3", "report:3")
+    assert changes[0].after == ("report:3", "report", "3", "employee cost report")
+    assert pt.source_type == "report"
+    assert pt.source_id == "3"
+    assert pt.source_label == "employee cost report"
+    assert session.committed is True
