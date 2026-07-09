@@ -7,7 +7,7 @@ import { useUserStore } from '@/stores/user'
 import dagre from 'dagre'
 import {
   getModel, updateModel, createModel, previewModel, saveOutputFields,
-  listAssets, publishModelV2, listModelVersions, previewModelV2,
+  listModels, publishModelV2, listModelVersions, previewModelV2,
   type OutputFieldPayload, type PreviewResult, type Asset,
   type ModelVersion, type ModelPreviewV2,
 } from '@/api/warehouse'
@@ -43,7 +43,7 @@ const tables = ref<TableNode[]>([])
 interface RelationEdge { id?: number; from: string; to: string; join_type: string; cardinality: string; keys: {left:string;right:string}[] }
 const relations = ref<RelationEdge[]>([])
 
-const availableTables = ref<Asset[]>([]); const tableSearch = ref('')
+const availableTables = ref<any[]>([]); const tableSearch = ref('')
 const filteredTables = computed(() => {
   const m = new Set(tables.value.map(t => t.table_name))
   return availableTables.value.filter(t => !m.has(t.table_name) && (tableSearch.value ? t.table_label.includes(tableSearch.value)||t.table_name.includes(tableSearch.value) : true))
@@ -224,7 +224,7 @@ function goBack() { router.back() }
 async function load() {
   loading.value = true; error.value = null
   try {
-    availableTables.value = (await listAssets({ page_size: 200, warehouse_layer: 'DWD' })).items
+    const res = await listModels({ page_size: 200, warehouse_layer: 'DWD' }); availableTables.value = (res.items || []).map(ds => ({ table_name: (ds.name || '').replace(/^ds_/, ''), table_label: ds.label || ds.name, warehouse_layer: ds.warehouse_layer }))
     if (modelId) {
       const d = await getModel(modelId)
       form.value = { name: d.name, warehouse_layer: d.warehouse_layer, subject_area: d.subject_area || '', business_definition: d.business_definition || '', owner_name: d.owner_name || '' }

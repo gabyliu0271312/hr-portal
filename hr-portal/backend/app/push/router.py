@@ -262,14 +262,10 @@ async def create_push_target(
 
     # db_expose：保存时自动创建只读账号
     if pt.push_type == "db_expose":
-        try:
-            from app.push.push_service import execute_push
-            await execute_push(pt.id, db)
-            await db.commit()
-            await db.refresh(pt)
-        except Exception as e:
-            import logging
-            logging.getLogger("push").error("[db_expose] 账号创建失败: %s", e, exc_info=True)
+        from app.push.push_service import execute_push
+        await execute_push(pt.id, db)
+        await db.commit()
+        await db.refresh(pt)
 
     return _to_out(pt)
 
@@ -359,14 +355,10 @@ async def update_push_target(
 
     # db_expose：保存时自动创建/更新只读账号
     if pt.push_type == "db_expose":
-        try:
-            from app.push.push_service import execute_push
-            await execute_push(pt.id, db)
-            await db.commit()
-            await db.refresh(pt)
-        except Exception as e:
-            import logging
-            logging.getLogger("push").error("[db_expose] 账号创建失败: %s", e, exc_info=True)
+        from app.push.push_service import execute_push
+        await execute_push(pt.id, db)
+        await db.commit()
+        await db.refresh(pt)
 
     return _to_out(pt)
 

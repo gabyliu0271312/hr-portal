@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, ArrowRight, Check } from '@element-plus/icons-vue'
-import { listAssets, createModel, updateModel, publishModel, saveOutputFields, previewModel, type ModelCreatePayload, type PreviewResult, type Asset, type OutputFieldPayload } from '@/api/warehouse'
+import { listModels, createModel, updateModel, publishModel, saveOutputFields, previewModel, type ModelCreatePayload, type PreviewResult, type Asset, type OutputFieldPayload, type ModelListItem } from '@/api/warehouse'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -14,9 +14,22 @@ const hasModel = computed(() => modelId.value !== null)
 
 // Step 1 — 基础信息
 const form1 = ref({ name: '', main_table: '', main_alias: '', join_table: '', join_alias: '', warehouse_layer: 'DWD', subject_area: '' })
-const tableOptions = ref<Asset[]>([])
+const datasetOptions = ref<ModelListItem[]>([])
+const datasetTableMap = ref<Record<string, string>>({})  // dataset name → table name
 const tablesLoading = ref(false)
-async function loadTables() { tablesLoading.value = true; try { tableOptions.value = (await listAssets({ page_size: 200, warehouse_layer: 'DWD' })).items } catch { /* */ } finally { tablesLoading.value = false } }
+async function loadTables() {
+  tablesLoading.value = true
+  try {
+    const res = await listModels({ page_size: 200, warehouse_layer: 'DWD' })
+    datasetOptions.value = res.items || []
+    // 数据集名→表名映射：ds_dwd_xxx → dwd_xxx
+    for (const ds of datasetOptions.value) {
+      const tableName = (ds.name || '').replace(/^ds_/, '')
+      if (tableName) datasetTableMap.value[ds.name] = tableName
+    }
+  } catch { /* */ }
+  finally { tablesLoading.value = false }
+}
 loadTables()
 function canNext1() { return form1.value.name && form1.value.main_table && form1.value.join_table }
 
@@ -156,14 +169,14 @@ function goModelList() { router.push('/warehouse/modeling') }
       <el-form label-width="100px" size="small">
         <el-form-item label="模型名称" required><el-input v-model="form1.name" placeholder="如：员工薪资汇总" maxlength="64" :disabled="hasModel" /></el-form-item>
         <el-form-item label="主表" required>
-          <el-select v-model="form1.main_table" filterable placeholder="选择数据表" style="width: 100%" :loading="tablesLoading" :disabled="hasModel">
-            <el-option v-for="t in tableOptions" :key="t.table_name" :label="`${t.table_label} (${t.table_name})`" :value="t.table_name" />
+          <el-select v-model="form1.main_table" filterable placeholder="选择 DWD 数据集" style="width: 100%" :loading="tablesLoading" :disabled="hasModel">
+            <el-option v-for="ds in datasetOptions" :key="ds.name" :label="`${ds.label || ds.name} (${ds.name})`" :value="datasetTableMap[ds.name] || ds.name" />
           </el-select>
         </el-form-item>
         <el-form-item label="主表别名"><el-input v-model="form1.main_alias" placeholder="默认同表名" :disabled="hasModel" /></el-form-item>
         <el-form-item label="关联表" required>
-          <el-select v-model="form1.join_table" filterable placeholder="选择关联表" style="width: 100%" :loading="tablesLoading" :disabled="hasModel">
-            <el-option v-for="t in tableOptions" :key="t.table_name" :label="`${t.table_label} (${t.table_name})`" :value="t.table_name" />
+          <el-select v-model="form1.join_table" filterable placeholder="选择 DWD 数据集" style="width: 100%" :loading="tablesLoading" :disabled="hasModel">
+            <el-option v-for="ds in datasetOptions" :key="ds.name" :label="`${ds.label || ds.name} (${ds.name})`" :value="datasetTableMap[ds.name] || ds.name" />
           </el-select>
         </el-form-item>
         <el-form-item label="关联表别名"><el-input v-model="form1.join_alias" placeholder="默认同表名" :disabled="hasModel" /></el-form-item>

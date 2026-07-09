@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, View, Edit, DataAnalysis, Connection, Link, List, ArrowDown, Grid, Menu, Plus } from '@element-plus/icons-vue'
 import { listAssets, updateAsset, batchUpdateAssetLayer, type Asset } from '@/api/warehouse'
@@ -10,6 +10,7 @@ import LayerTag from '@/components/warehouse/LayerTag.vue'
 import { WAREHOUSE_LAYER_OPTIONS, WAREHOUSE_LAYER_LABELS, WAREHOUSE_LAYER_CODES } from '@/constants/warehouseLayers'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 const canEditAsset = () => userStore.hasOp('warehouse.assets', 'U')
 
@@ -181,6 +182,11 @@ function formatSyncTime(asset: Asset): string {
 }
 
 function onCreated() { load() }
+
+// 从分层概览跳转时自动设置筛选
+if (route.query.warehouse_layer) {
+  filters.value.warehouse_layer = route.query.warehouse_layer as string
+}
 
 watch([page, pageSize], () => load())
 onMounted(load)
