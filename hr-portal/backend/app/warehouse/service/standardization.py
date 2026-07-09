@@ -220,7 +220,8 @@ class StandardizationRuleService:
                     params = {}
                     for i, row in enumerate(batch):
                         for c in bcols: params[f"{c}_{i}"] = row.get(c)
-                    await self.session.execute(sa_text(f'INSERT INTO "{target}" ({", ".join([f"\"{c}\"" for c in bcols])}) VALUES {placeholders}'), params)
+                    q = '"'
+                    await self.session.execute(sa_text(f'INSERT INTO "{target}" ({", ".join([f"{q}{c}{q}" for c in bcols])}) VALUES {placeholders}'), params)
             # P0-1: 注册 DWD 目标表 — 在同一事务内，失败则回滚全部
             existing_rt = (await self.session.execute(
                 select(RegisteredTable).where(RegisteredTable.table_name == target)
