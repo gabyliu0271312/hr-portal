@@ -723,15 +723,16 @@ async def push_db_expose(
     if Model is not None:
         _ensure_entity_model(Model, source_table)
 
+    # 报表来源 source_table 含冒号(report:3)，替换为下划线用于 PG 标识符
+    safe_source = source_table.replace(":", "_") if is_report_source(source_table) else source_table
     pt_id = str(settings.get("_pt_id") or "").strip()
-    target_key = f"{source_table}_{pt_id}" if pt_id else source_table
+    target_key = f"{safe_source}_{pt_id}" if pt_id else safe_source
     readonly_user = settings.get("readonly_user") or f"ro_{target_key}"[:63]
     password = secrets.get("readonly_password", "")
     if not password:
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
         password = "".join(py_secrets.choice(alphabet) for _ in range(20))
 
-    source_table_q = quote_ident(source_table, kind="table")
     schema_name = make_identifier("finebi_", target_key)
     finebi_table = make_identifier("t_", target_key)
     schema_q = _quote_pg_identifier(schema_name)
@@ -741,6 +742,8 @@ async def push_db_expose(
 
     # 1. 读取字段元数据，构建中文列名物理表
     is_report = is_report_source(source_table)
+    if not is_report:
+        source_table_q = quote_ident(source_table, kind="table")
     if is_report:
         # 报表来源：从 push columns 取字段，统一 TEXT 类型
         codes, label_by_code = await _load_source_columns_meta(source_table, db)
@@ -794,11 +797,21 @@ async def push_db_expose(
         f"CREATE TABLE {schema_q}.{finebi_table_q} "
         f"(id BIGINT, synced_at TIMESTAMPTZ, {cols_def})"
     ))
-    await db.execute(text(
-        f"INSERT INTO {schema_q}.{finebi_table_q} "
-        f"(id, synced_at, {insert_cols}) "
-        f"SELECT id, synced_at, {cols_sel} FROM public.{source_table_q}{where_sql}"
-    ), params)
+    if is_report:
+        # 报表来源：先取数再逐行 INSERT
+        rows = await _load_source_rows(source_table, db, period_ym)
+        if rows:
+            col_names = [c for c in rows[0].keys()]
+            placeholders = ", ".join(f":col_{i}" for i in range(len(col_names)))
+            insert_sql = f"INSERT INTO {schema_q}.{finebi_table_q} (id, synced_at, {insert_cols}) VALUES (DEFAULT, NOW(), {placeholders})"
+            for row in rows:
+                await db.execute(text(insert_sql), {f"col_{i}": row.get(c) for i, c in enumerate(col_names)})
+    else:
+        await db.execute(text(
+            f"INSERT INTO {schema_q}.{finebi_table_q} "
+            f"(id, synced_at, {insert_cols}) "
+            f"SELECT id, synced_at, {cols_sel} FROM public.{source_table_q}{where_sql}"
+        ), params)
 
     # 3. 创建或更新只读账号密码（始终同步，避免重建推送时密码不一致）
     role_exists = (
