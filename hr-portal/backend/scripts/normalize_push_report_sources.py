@@ -58,9 +58,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy import select
+
+# Allow running as `python scripts/normalize_push_report_sources.py` inside the
+# backend container, where Python otherwise puts /app/scripts (not /app) on
+# sys.path and cannot import the top-level `app` package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.db import AsyncSessionLocal
 from app.push.models import PushTarget
