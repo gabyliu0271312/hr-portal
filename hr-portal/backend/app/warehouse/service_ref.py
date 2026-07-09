@@ -119,7 +119,7 @@ async def resolve_source_layer(
     """
     if ref.source_type == SOURCE_TABLE:
         # 始终查真实注册元数据，不信任入参 source_layer
-        from app.warehouse.models import RegisteredTable
+        from app.data.models import RegisteredTable
 
         row = await db.execute(
             select(RegisteredTable.warehouse_layer).where(
