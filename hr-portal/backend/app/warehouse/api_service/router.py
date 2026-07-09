@@ -345,6 +345,8 @@ async def query_api_service_data(
     page_size: int = Query(100, ge=1, le=5000),
 ) -> dict:
     """动态查询 API。根据配置的字段白名单和过滤条件返回数据。"""
+    import time as _time
+    _t0 = _time.time()
     from app.warehouse.service_ref import resolve_source_layer
 
     svc = await db.get(ApiService, svc_id)
@@ -440,6 +442,21 @@ async def query_api_service_data(
             alias = aliases.get(fn, fn)
             item[alias] = row.get(fn)
         items.append(item)
+
+    # 写入服务监控日志
+    from app.warehouse.service_monitor.router import write_service_log
+    await write_service_log(
+        db,
+        service_type="api",
+        service_id=svc.id,
+        service_name=svc.name,
+        source_type=svc.source_type,
+        source_id=svc.source_id,
+        status="success",
+        rows=len(items),
+        duration_ms=int((_time.time() - _t0) * 1000),
+        caller_ip=request.client.host if request.client else None,
+    )
 
     return {
         "total": total,

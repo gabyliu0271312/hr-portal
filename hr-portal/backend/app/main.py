@@ -41,6 +41,7 @@ from app.cost_allocation.router import router as cost_allocation_router
 from app.warehouse.router import router as warehouse_router
 from app.warehouse.api_service.router import router as api_service_router
 from app.warehouse.subscription.router import router as subscription_router
+from app.warehouse.service_monitor.router import router as service_monitor_router
 from app.system.router import router as system_logs_router
 from app.tools.router import router as tools_router
 from app.table_tools.router import router as table_tools_router
@@ -190,3 +191,4 @@ app.include_router(data_compare_router, prefix=settings.API_PREFIX)
 app.include_router(warehouse_router, prefix=settings.API_PREFIX)
 app.include_router(api_service_router, prefix=settings.API_PREFIX)
 app.include_router(subscription_router, prefix=settings.API_PREFIX)
+app.include_router(service_monitor_router, prefix=settings.API_PREFIX)
