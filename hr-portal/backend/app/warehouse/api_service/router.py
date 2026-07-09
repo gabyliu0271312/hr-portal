@@ -151,18 +151,21 @@ async def _validate_source(ref: ServiceSourceRef, db: AsyncSession) -> None:
                 select(FieldAsset.field_name, FieldAsset.is_sensitive, FieldAsset.sensitive_type)
                 .where(FieldAsset.table_name == ref.source_id)
             )
-            sensitive_fields = [
-                {"field": r.field_name, "sensitive_type": r.sensitive_type}
-                for r in field_rows
-                if r.is_sensitive
-            ]
-            if sensitive_fields:
+            sensitive_field_names = {r.field_name for r in field_rows if r.is_sensitive}
+            whitelist_fields = {f.get("field") for f in (payload.field_whitelist or []) if f.get("field")}
+            # 仅检查白名单中未标记脱敏的敏感字段
+            exposed_sensitive = []
+            for f in (payload.field_whitelist or []):
+                fn = f.get("field", "")
+                if fn in sensitive_field_names and not f.get("sensitive"):
+                    exposed_sensitive.append(fn)
+            if exposed_sensitive:
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,
                     detail={
-                        "error": "sensitive_fields_exist",
-                        "message": "DWD 层来源含脱敏字段，创建 API 前须在字段白名单中排除或标记脱敏",
-                        "sensitive_fields": [f["field"] for f in sensitive_fields],
+                        "error": "sensitive_fields_exposed",
+                        "message": "白名单含未脱敏的高敏字段，请在字段白名单中移除或标记脱敏",
+                        "sensitive_fields": exposed_sensitive,
                     },
                 )
 
@@ -348,11 +351,20 @@ async def query_api_service_data(
     import time as _time
     _t0 = _time.time()
     from app.warehouse.service_ref import resolve_source_layer
+    from app.warehouse.service_monitor.router import write_service_log
+
+    async def _log_fail(message: str):
+        await write_service_log(
+            db, service_type="api", service_id=svc_id, status="failed",
+            message=message, duration_ms=int((_time.time() - _t0) * 1000),
+            caller_ip=request.client.host if request.client else None,
+        )
 
     svc = await db.get(ApiService, svc_id)
     if svc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="API 服务不存在")
     if svc.status != STATUS_ENABLED:
+        await _log_fail("API 服务未启用")
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="API 服务未启用")
 
     # 鉴权
@@ -362,11 +374,23 @@ async def query_api_service_data(
         token = request.headers.get("X-Api-Token", "")
         expected = (svc.auth_policy or {}).get("token", "")
         if not token or token != expected:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token 无效")
-    elif auth_type in ("login", "internal"):
-        from app.core.deps import current_user_optional
-        # login: 需要登录态；internal: 服务间调用
-        pass  # 当前占位，后续接入具体鉴权
+            await _log_fail("Token 无效"); raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token 无效")
+    elif auth_type == "login":
+        from app.core.jwt import decode_token
+        token = request.cookies.get("access_token") or request.headers.get("Authorization", "").removeprefix("Bearer ")
+        if not token:
+            await _log_fail("需要登录态访问"); raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="需要登录态访问")
+        try:
+            user_id = decode_token(token)
+            if user_id is None:
+                raise ValueError
+        except Exception:
+            await _log_fail("登录态无效"); raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="登录态无效或已过期")
+    elif auth_type == "internal":
+        internal_token = request.headers.get("X-Internal-Token", "")
+        expected_token = (svc.auth_policy or {}).get("internal_token", "")
+        if not internal_token or internal_token != expected_token:
+            await _log_fail("内部Token无效"); raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="内部 Token 无效")
 
     # 解析来源
     ref = ServiceSourceRef(
@@ -380,12 +404,12 @@ async def query_api_service_data(
     # 构建 SQL 查询
     table_name = ref.source_id if ref.source_type == SOURCE_TABLE else None
     if not table_name:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"暂不支持来源类型: {ref.source_type}")
+        await _log_fail(f"不支持来源类型: {ref.source_type}"); raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"暂不支持来源类型: {ref.source_type}")
 
     # 字段白名单
     whitelist = svc.field_whitelist or []
     if not whitelist:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="字段白名单为空")
+        await _log_fail("字段白名单为空"); raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="字段白名单为空")
 
     field_names = [f["field"] for f in whitelist if f.get("field")]
     aliases = {f["field"]: f.get("alias", f["field"]) for f in whitelist}

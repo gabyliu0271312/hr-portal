@@ -117,7 +117,8 @@ async def resolve_source_layer(
     仅 source_type='table' 时查 registered_tables.warehouse_layer。
     其他类型返回 source_layer（由调用方传入或上层设置）。
     """
-    if ref.source_type == SOURCE_TABLE and ref.source_layer is None:
+    if ref.source_type == SOURCE_TABLE:
+        # 始终查真实注册元数据，不信任入参 source_layer
         from app.warehouse.models import RegisteredTable
 
         row = await db.execute(
@@ -134,12 +135,17 @@ async def resolve_source_layer(
 async def assert_not_ods_source(ref: ServiceSourceRef, db: AsyncSession) -> None:
     """拒绝 ODS 来源用于消费（API / 推送 / 订阅 / 消费资产）。
 
+    source_type='table' 时始终查真实 registered_tables.warehouse_layer，
+    不信任调用方传入的 source_layer。
+
     Raises:
         ValueError: 当来源层级为 ODS 时。
     """
-    layer = ref.source_layer
-    if layer is None and ref.source_type == SOURCE_TABLE:
+    if ref.source_type == SOURCE_TABLE:
+        # 安全底线：table 类型不信任入参 source_layer，始终查真实元数据
         layer = await resolve_source_layer(ref, db)
+    else:
+        layer = ref.source_layer
 
     if layer and str(layer).upper() == "ODS":
         raise ValueError(

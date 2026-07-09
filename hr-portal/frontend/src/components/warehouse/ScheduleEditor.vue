@@ -38,8 +38,9 @@ watch(cronExpr, emitChange)
     </el-select>
     <ScheduleSelector
       v-if="frequency !== 'manual' && frequency !== 'event'"
-      v-model="cronExpr"
+      :schedule="cronExpr"
       style="margin-left: 8px; flex: 1"
+      @update:schedule="cronExpr = $event"
     />
   </div>
 </template>

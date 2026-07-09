@@ -5,7 +5,7 @@ import { Plus, Delete } from '@element-plus/icons-vue'
 
 export interface FieldItem {
   field: string
-  alias: string
+  alias?: string
   sensitive?: boolean
 }
 

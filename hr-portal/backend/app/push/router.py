@@ -138,10 +138,10 @@ async def _ensure_system_op_for_non_report(
 ) -> None:
     if _is_report_source(source_table):
         return
-    if not await user_has_op(user, db, "system.users", op):
+    if not await user_has_op(user, db, "warehouse.service", op):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            detail=f"无权限执行 {op} 操作 (system.users)",
+            detail=f"无权限执行 {op} 操作 (warehouse.service)",
         )
 
 # ===== CRUD =====
@@ -171,7 +171,7 @@ async def list_push_targets(
 
 
 @router.post("", response_model=PushTargetOut,
-             dependencies=[Depends(require_any_op(("system.users", "C"), ("report.list", "C")))])
+             dependencies=[Depends(require_any_op(("warehouse.service", "C"), ("report.list", "C")))])
 async def create_push_target(
     payload: PushTargetIn,
     user: User = Depends(current_user),
@@ -288,7 +288,7 @@ async def get_push_target(
 
 
 @router.put("/{pt_id}", response_model=PushTargetOut,
-            dependencies=[Depends(require_any_op(("system.users", "U"), ("report.list", "U")))])
+            dependencies=[Depends(require_any_op(("warehouse.service", "U"), ("report.list", "U")))])
 async def update_push_target(
     pt_id: int,
     payload: PushTargetIn,
@@ -372,7 +372,7 @@ async def update_push_target(
 
 
 @router.delete("/{pt_id}",
-               dependencies=[Depends(require_any_op(("system.users", "D"), ("report.list", "D")))])
+               dependencies=[Depends(require_any_op(("warehouse.service", "D"), ("report.list", "D")))])
 async def delete_push_target(
     pt_id: int,
     user: User = Depends(current_user),
@@ -445,7 +445,7 @@ async def delete_push_target(
 # ===== 手动触发 =====
 
 @router.post("/{pt_id}/run",
-             dependencies=[Depends(require_any_op(("system.users", "C"), ("report.list", "C")))])
+             dependencies=[Depends(require_any_op(("warehouse.service", "C"), ("report.list", "C")))])
 async def run_push_target(
     pt_id: int,
     payload: RunIn,

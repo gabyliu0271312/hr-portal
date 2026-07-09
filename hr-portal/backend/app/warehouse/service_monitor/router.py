@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, UTC, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, String, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -57,7 +57,7 @@ async def get_service_stats(
     # 聚合 service_type + service_id 去重
     abnormal_row = await db.execute(
         select(func.count(func.distinct(
-            func.concat(ServiceRunLog.service_type, ":", func.cast(ServiceRunLog.service_id, type_=func.text("VARCHAR")))
+            func.concat(ServiceRunLog.service_type, ":", cast(ServiceRunLog.service_id, String))
         ))).where(
             ServiceRunLog.status == "failed",
             ServiceRunLog.created_at >= today_start - timedelta(days=1),

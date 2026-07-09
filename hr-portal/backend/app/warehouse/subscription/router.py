@@ -299,7 +299,7 @@ async def run_subscription(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    """手动触发一次订阅投递。复用 push_service 执行链。"""
+    """手动触发一次订阅投递。"""
     from datetime import datetime, UTC
 
     sub = await db.get(Subscription, sub_id)
@@ -308,16 +308,16 @@ async def run_subscription(
     if sub.status not in (STATUS_ENABLED,):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="订阅未启用，无法手动触发")
 
-    # 占位：后续接入实际投递逻辑（飞书消息/邮件/Webhook）
-    # P1 阶段先写入执行记录，具体渠道适配器在后续迭代中接入
+    # P1: 后续接入 push_service 实际投递逻辑（飞书/邮件/Webhook）
+    # 当前仅更新状态为 pending，不虚构 success
     now = datetime.now(UTC)
     sub.last_sent_at = now
-    sub.last_status = "success"
+    sub.last_status = "pending"
     await db.commit()
 
     return {
         "ok": True,
-        "message": "订阅已触发（投递渠道适配器待后续接入）",
+        "message": "订阅执行任务已创建。注意：具体投递渠道适配器待后续迭代接入。",
         "sent_at": now.isoformat(),
     }
 

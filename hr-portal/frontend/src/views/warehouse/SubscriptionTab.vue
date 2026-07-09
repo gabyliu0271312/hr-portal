@@ -26,6 +26,7 @@ const form = ref<SubscriptionIn & { id?: number }>({
 const sourceRef = ref({ source_type: 'table', source_id: '', source_label: '' })
 const deliveryRef = ref({ target: 'feishu', address: '' })
 const scheduleRef = ref({ frequency: 'manual', cron_expr: '' })
+const recipientId = ref('')
 
 async function load() {
   loading.value = true
@@ -38,6 +39,7 @@ function openCreate() {
   form.value = { name: '', source_type: 'table', source_id: '', field_scope: [], recipients: [], delivery_target: 'feishu', frequency: 'manual', push_format: 'json' }
   sourceRef.value = { source_type: 'table', source_id: '', source_label: '' }
   deliveryRef.value = { target: 'feishu', address: '' }
+  recipientId.value = ''
   scheduleRef.value = { frequency: 'manual', cron_expr: '' }
   dialogVisible.value = true
 }
@@ -47,6 +49,7 @@ function openEdit(item: SubscriptionOut) {
   form.value = { name: item.name, description: item.description, source_type: item.source_type, source_id: item.source_id, source_label: item.source_label, source_layer: item.source_layer || undefined, field_scope: item.field_scope, recipients: item.recipients, delivery_target: item.delivery_target, frequency: item.frequency, cron_expr: item.cron_expr, push_format: item.push_format }
   sourceRef.value = { source_type: item.source_type, source_id: item.source_id, source_label: item.source_label || '' }
   deliveryRef.value = { target: item.delivery_target, address: '' }
+  recipientId.value = String(item.recipients[0]?.id || '')
   scheduleRef.value = { frequency: item.frequency, cron_expr: item.cron_expr || '' }
   dialogVisible.value = true
 }
@@ -57,6 +60,7 @@ async function save() {
     source_type: sourceRef.value.source_type,
     source_id: sourceRef.value.source_id,
     source_label: sourceRef.value.source_label,
+      recipients: [{ type: "user", id: recipientId.value }],
     delivery_target: deliveryRef.value.target,
     frequency: scheduleRef.value.frequency,
     cron_expr: scheduleRef.value.cron_expr || null,
@@ -137,7 +141,7 @@ onMounted(() => load())
           <ServiceSourcePicker v-model="sourceRef" />
         </el-form-item>
         <el-form-item label="接收人" required>
-          <el-input v-model="form.recipients[0]?.id" placeholder="用户ID 或 群ID" style="width: 200px" />
+          <el-input v-model="recipientId" placeholder="用户ID 或 群ID" style="width: 200px" />
         </el-form-item>
         <el-form-item label="投递方式"><DeliveryTargetEditor v-model="deliveryRef" /></el-form-item>
         <el-form-item label="调度"><ScheduleEditor v-model="scheduleRef" /></el-form-item>

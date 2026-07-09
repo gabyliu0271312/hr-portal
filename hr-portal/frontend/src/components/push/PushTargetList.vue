@@ -31,10 +31,9 @@ const activeTargets = computed(() => targets.value.filter((item) => item.is_acti
 const tableMaxHeight = computed(() => (props.compact ? 300 : 400))
 
 async function load() {
-  if (!props.sourceTable) return
   loading.value = true
   try {
-    targets.value = await pushTargetsApi.list(props.sourceTable)
+    targets.value = await pushTargetsApi.list(props.sourceTable || undefined)
     emit('targets-change', targets.value)
   } catch {
     ElMessage.error('加载推送配置失败')
