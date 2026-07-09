@@ -106,6 +106,14 @@ async function open(target?: PushTargetOut | null) {
       : []
 
   if (target) {
+    // 编辑时回填来源资产
+    if (isMultiSource) {
+      sourceRef.value = {
+        source_type: target.source_type || 'table',
+        source_id: target.source_id || '',
+        source_label: target.source_label || '',
+      }
+    }
     const s = target.settings || {}
     form.name = target.name
     form.description = target.description ?? ''
