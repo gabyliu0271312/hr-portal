@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, markRaw } from 'vue'
 import WarehouseAds from './WarehouseAds.vue'
-
-const router = useRouter()
+import ApiServiceTab from './ApiServiceTab.vue'
+import SubscriptionTab from './SubscriptionTab.vue'
+import PushTargetList from '@/components/push/PushTargetList.vue'
+import ServiceRunLogPanel from '@/components/warehouse/ServiceRunLogPanel.vue'
 
 const tabs = [
   { name: 'ads', label: '消费资产' },
@@ -22,11 +23,10 @@ const activeTab = ref('ads')
         v-for="tab in tabs"
         :key="tab.name"
         class="tab-item"
-        :class="{ active: activeTab === tab.name, disabled: tab.name !== 'ads' }"
+        :class="{ active: activeTab === tab.name }"
         @click="activeTab = tab.name"
       >
         {{ tab.label }}
-        <el-tag v-if="tab.name !== 'ads'" size="small" type="info" style="margin-left: 4px">规划中</el-tag>
       </span>
     </div>
 
@@ -34,9 +34,22 @@ const activeTab = ref('ads')
       <WarehouseAds />
     </div>
 
-    <div v-show="activeTab !== 'ads'" style="text-align: center; padding: 80px; color: #909399">
-      <p style="font-size: 16px">{{ tabs.find(t => t.name === activeTab)?.label }} — 功能规划中</p>
-      <p style="font-size: 13px; margin-top: 8px">后续将支持 DWD/DWS/指标/ADS 的 API 暴露、数据推送和订阅管理</p>
+    <div v-show="activeTab === 'api'" class="tab-content">
+      <ApiServiceTab />
+    </div>
+
+    <div v-show="activeTab === 'push'" class="tab-content">
+      <div style="padding: 8px">
+        <PushTargetList source-table="" :hide-header="false" />
+      </div>
+    </div>
+
+    <div v-show="activeTab === 'subscribe'" class="tab-content">
+      <SubscriptionTab />
+    </div>
+
+    <div v-show="activeTab === 'monitor'" class="tab-content">
+      <ServiceRunLogPanel :compact="false" />
     </div>
   </div>
 </template>
@@ -64,7 +77,5 @@ const activeTab = ref('ads')
   border-bottom-color: var(--color-primary, #409eff);
   font-weight: 500;
 }
-.tab-item.disabled { color: #c0c4cc; cursor: not-allowed; }
-.tab-item.disabled:hover { color: #c0c4cc; }
 .tab-content { margin: -24px; }
 </style>
