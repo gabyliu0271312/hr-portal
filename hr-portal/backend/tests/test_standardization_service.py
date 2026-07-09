@@ -9,6 +9,8 @@ from app.warehouse.service.standardization import (
     MAX_INSERT_BIND_PARAMS,
     _coerce_insert_value,
     _dwd_create_column_definitions,
+    _dwd_source_field_map,
+    _rule_output_labels,
     _infer_column_types,
     _infer_sql_type,
     _ordered_output_columns,
@@ -137,4 +139,40 @@ def test_dwd_create_column_definitions_adds_synthetic_primary_key_when_missing()
         '"full_name" TEXT',
         '"synced_at" TIMESTAMPTZ',
     ]
+
+class _Rule:
+    def __init__(self, rule_type, source_field, target_field, rule_config=None):
+        self.rule_type = rule_type
+        self.source_field = source_field
+        self.target_field = target_field
+        self.rule_config = rule_config or {}
+
+
+def test_dwd_source_field_map_keeps_unchanged_columns_and_maps_renames():
+    rules = [
+        _Rule("rename", "employee_no", "emp_no"),
+        _Rule("value_map", "status", "status_label"),
+    ]
+
+    assert _dwd_source_field_map(["id", "employee_no", "full_name", "status"], rules) == {
+        "id": "id",
+        "full_name": "full_name",
+        "status": "status",
+        "emp_no": "employee_no",
+        "status_label": "status",
+    }
+
+
+def test_rule_output_labels_uses_rule_config_for_overrides():
+    rules = [
+        _Rule("rename", "employee_no", "emp_no", {"output_label": "????"}),
+        _Rule(
+            "split_merge",
+            "full_name",
+            "",
+            {"action": "split", "target_fields": ["first_name"], "output_labels": {"first_name": "?"}},
+        ),
+    ]
+
+    assert _rule_output_labels(rules) == {"emp_no": "????", "first_name": "?"}
 

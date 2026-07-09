@@ -116,6 +116,39 @@ def _dwd_create_column_definitions(columns: list[str], column_types: dict[str, s
     return col_defs
 
 
+def _rule_output_labels(rules: list) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for rule in rules:
+        cfg = rule.rule_config or {}
+        target = rule.target_field or rule.source_field
+        if target and cfg.get("output_label"):
+            labels[target] = cfg["output_label"]
+        if rule.rule_type == "split_merge" and cfg.get("action") == "split":
+            for field in cfg.get("target_fields") or []:
+                if cfg.get("output_labels", {}).get(field):
+                    labels[field] = cfg["output_labels"][field]
+    return labels
+
+
+def _dwd_source_field_map(source_columns: list[str], rules: list) -> dict[str, str]:
+    """Map DWD output columns back to their ODS source columns for metadata inheritance."""
+    mapping = {col: col for col in source_columns}
+    for rule in rules:
+        cfg = rule.rule_config or {}
+        source = rule.source_field
+        target = rule.target_field or source
+        if rule.rule_type == "rename":
+            mapping.pop(source, None)
+            if target:
+                mapping[target] = source
+        elif rule.rule_type == "split_merge" and cfg.get("action") == "split":
+            for field in cfg.get("target_fields") or []:
+                mapping[field] = source
+        elif target and target != source:
+            mapping[target] = source
+    return mapping
+
+
 def _infer_column_types(rows: list[dict]) -> dict[str, str]:
     """Infer each output column from all non-null values.
 
@@ -273,7 +306,14 @@ class StandardizationRuleService:
         except Exception as e:
             return {"error": str(e)}
 
-    async def _sync_dwd_dataset_fields(self, *, asset_code: str, target_table: str | None = None, commit: bool = False) -> dict | None:
+    async def _sync_dwd_dataset_fields(
+        self,
+        *,
+        asset_code: str,
+        target_table: str | None = None,
+        output_columns: list[str] | None = None,
+        commit: bool = False,
+    ) -> dict | None:
         """同步 DWD 单表数据集输出字段；默认不提交，供执行链路纳入同一事务。"""
         from app.warehouse.models import StandardizationRule
         from app.datasets.models import DataSet, DataSetTable, DatasetOutputField
@@ -309,27 +349,43 @@ class StandardizationRuleService:
         ds.version = (ds.version or 1) + 1
         await self.session.execute(sa_delete(DatasetOutputField).where(DatasetOutputField.dataset_id == ds.id))
 
+        from app.data.models import TableColumn
+
+        dwd_columns = (
+            await self.session.execute(
+                select(TableColumn)
+                .where(TableColumn.table_name == dwd_table)
+                .order_by(TableColumn.display_order, TableColumn.id)
+            )
+        ).scalars().all()
+        dwd_by_code = {c.column_code: c for c in dwd_columns}
+        columns = output_columns or [c.column_code for c in dwd_columns]
+        if not columns:
+            columns = []
+            seen_rule_cols = set()
+            for r in rules:
+                target_col = r.target_field or r.source_field
+                if target_col and target_col not in seen_rule_cols:
+                    columns.append(target_col)
+                    seen_rule_cols.add(target_col)
+
+        output_labels = _rule_output_labels(rules)
         seen = set()
         display_order = 0
-        for r in rules:
-            cfg = r.rule_config or {}
-            if cfg.get("output_enabled") is False:
-                continue
-            target_col = r.target_field or r.source_field
+        for target_col in columns:
             if not target_col or target_col in seen:
                 continue
             seen.add(target_col)
-            label = cfg.get("output_label") or r.description or target_col
-            desc = cfg.get("output_description") or ""
+            col_meta = dwd_by_code.get(target_col)
             self.session.add(DatasetOutputField(
                 dataset_id=ds.id,
                 source_alias=source_alias,
                 source_column=target_col,
                 output_code=target_col,
-                output_label=label,
-                data_type="string",
-                agg_role="dimension",
-                description=desc,
+                output_label=output_labels.get(target_col) or (col_meta.column_label if col_meta else target_col),
+                data_type=(col_meta.data_type if col_meta else "string"),
+                agg_role=(col_meta.agg_role if col_meta else "dimension"),
+                description=(col_meta.description if col_meta else "") or "",
                 display_order=display_order,
             ))
             display_order += 10
@@ -415,19 +471,34 @@ class StandardizationRuleService:
             from app.data.dynamic_loader import register_source_table_model
             await register_source_table_model(self.session, target, force=True)
             await self.session.execute(sa_delete(TableColumn).where(TableColumn.table_name == target))
-            seen = set()
-            for i, r in enumerate(rules):
-                tgt = r.target_field or r.source_field
-                if tgt in seen: continue
-                seen.add(tgt)
+            source_columns_meta = (
+                await self.session.execute(
+                    select(TableColumn)
+                    .where(TableColumn.table_name == asset_code)
+                    .order_by(TableColumn.display_order, TableColumn.id)
+                )
+            ).scalars().all()
+            source_by_code = {c.column_code: c for c in source_columns_meta}
+            source_field_map = _dwd_source_field_map(cols, rules)
+            output_labels = _rule_output_labels(rules)
+            for i, tgt in enumerate(bcols if transformed else cols):
+                src_meta = source_by_code.get(source_field_map.get(tgt, tgt))
                 self.session.add(TableColumn(
                     table_name=target,
                     column_code=tgt,
-                    column_label=tgt,
-                    data_type=_to_table_column_data_type(column_types.get(tgt, "TEXT")) if transformed else "string",
-                    is_visible=True,
-                    display_order=(i + 1) * 10,
+                    column_label=output_labels.get(tgt) or (src_meta.column_label if src_meta else tgt),
+                    source_field_id=(src_meta.source_field_id if src_meta else None),
+                    data_type=_to_table_column_data_type(column_types.get(tgt, "TEXT")) if transformed else (src_meta.data_type if src_meta else "string"),
+                    is_pk_part=bool(src_meta.is_pk_part) if src_meta else False,
+                    is_sensitive=bool(src_meta.is_sensitive) if src_meta else False,
+                    is_visible=bool(src_meta.is_visible) if src_meta else True,
+                    display_order=(src_meta.display_order if src_meta else (i + 1) * 10),
+                    auto_discovered=True,
+                    agg_role=(src_meta.agg_role if src_meta else "dimension"),
+                    scope_role=(src_meta.scope_role if src_meta else None),
+                    description=(src_meta.description if src_meta else None),
                 ))
+            await self.session.flush()
             # Z02: 血缘写入与主流程同一事务
             from app.warehouse.service import write_lineage_edge
             rule_ids = [r.id for r in rules]
@@ -435,7 +506,7 @@ class StandardizationRuleService:
                 "definition_id": None, "rule_ids": rule_ids, "version": 1,
             })
             # P2/P3 收口：执行成功后同步 DWD 单表数据集输出字段，避免额外“发布 DWD 视图”动作。
-            sync_result = await self._sync_dwd_dataset_fields(asset_code=asset_code, target_table=target, commit=False)
+            sync_result = await self._sync_dwd_dataset_fields(asset_code=asset_code, target_table=target, output_columns=(bcols if transformed else cols), commit=False)
             if sync_result and sync_result.get("error"):
                 raise RuntimeError(sync_result.get("detail") or "DWD 数据集字段同步失败")
             await self.session.commit()
