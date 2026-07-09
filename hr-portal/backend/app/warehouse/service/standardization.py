@@ -2,6 +2,10 @@
 """标准化规则 + 模板服务"""
 from __future__ import annotations
 
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +27,49 @@ def _safe_insert_batch_size(column_count: int, *, max_rows: int = DEFAULT_INSERT
     if column_count <= 0:
         return 1
     return max(1, min(max_rows, MAX_INSERT_BIND_PARAMS // column_count))
+
+
+def _infer_sql_type(value: Any) -> str:
+    """Infer a PostgreSQL column type for cleaned DWD physical tables."""
+    if isinstance(value, bool):
+        return "BOOLEAN"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return "BIGINT"
+    if isinstance(value, (float, Decimal)):
+        return "DOUBLE PRECISION"
+    if isinstance(value, datetime):
+        return "TIMESTAMP"
+    if isinstance(value, date):
+        return "DATE"
+    return "TEXT"
+
+
+def _infer_column_types(rows: list[dict]) -> dict[str, str]:
+    """Infer each output column from the first non-null value, not only row 1.
+
+    Some HR source fields (for example synced_at/hire_date) may be null on the
+    first row and datetime/date on later rows. Inferring from only the first row
+    creates TEXT columns and asyncpg then rejects datetime values for TEXT binds.
+    """
+    if not rows:
+        return {}
+    columns = list(rows[0].keys())
+    inferred: dict[str, str] = {}
+    for col in columns:
+        value = next((row.get(col) for row in rows if row.get(col) is not None), None)
+        inferred[col] = _infer_sql_type(value)
+    return inferred
+
+
+def _coerce_insert_value(value: Any, sql_type: str) -> Any:
+    """Normalize values for asyncpg text() inserts into the inferred SQL type."""
+    if value is None:
+        return None
+    if sql_type == "TEXT" and not isinstance(value, str):
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        return str(value)
+    return value
 
 
 class StandardizationRuleService:
@@ -222,10 +269,10 @@ class StandardizationRuleService:
             await self.session.execute(sa_text(f'DROP TABLE IF EXISTS "{target}"'))
             if transformed:
                 sample = transformed[0]
+                column_types = _infer_column_types(transformed)
                 col_defs = []
-                for k, v in sample.items():
-                    ctype = "BOOLEAN" if isinstance(v, bool) else "BIGINT" if isinstance(v, int) else "DOUBLE PRECISION" if isinstance(v, float) else "TEXT"
-                    col_defs.append(f'"{k}" {ctype}')
+                for k in sample.keys():
+                    col_defs.append(f'"{k}" {column_types.get(k, "TEXT")}')
                 await self.session.execute(sa_text(f'CREATE TABLE "{target}" ({", ".join(col_defs)})'))
                 bcols = list(sample.keys())
                 batch_size = _safe_insert_batch_size(len(bcols))
@@ -240,7 +287,7 @@ class StandardizationRuleService:
                     params = {}
                     for i, row in enumerate(batch):
                         for j, c in enumerate(bcols):
-                            params[f"p_{i}_{j}"] = row.get(c)
+                            params[f"p_{i}_{j}"] = _coerce_insert_value(row.get(c), column_types.get(c, "TEXT"))
                     q = '"'
                     await self.session.execute(sa_text(f'INSERT INTO "{target}" ({", ".join([f"{q}{c}{q}" for c in bcols])}) VALUES {placeholders}'), params)
             # P0-1: 注册 DWD 目标表 — 在同一事务内，失败则回滚全部
