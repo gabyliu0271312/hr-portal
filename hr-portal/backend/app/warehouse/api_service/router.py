@@ -127,17 +127,21 @@ def _to_out(svc: ApiService) -> ApiServiceOut:
     )
 
 
-async def _validate_source(ref: ServiceSourceRef, db: AsyncSession) -> None:
+async def _validate_source(
+    ref: ServiceSourceRef,
+    db: AsyncSession,
+    field_whitelist: list[dict] | None = None,
+) -> None:
     """验证来源资产的合法性。"""
     # ODS 禁止
     await assert_not_ods_source(ref, db)
 
-    # DWD + 含敏感字段 + field_whitelist 为空 → 拒绝
+    # DWD: 检查白名单中是否包含未标记脱敏的高敏字段
     layer = ref.source_layer
     if layer is None and ref.source_type == SOURCE_TABLE:
         layer = await resolve_source_layer(ref, db)
 
-    if layer and str(layer).upper() in ("DWD",):
+    if layer and str(layer).upper() in ("DWD",) and field_whitelist:
         from app.warehouse.models import RegisteredTable, FieldAsset
 
         table = await db.execute(
@@ -152,10 +156,9 @@ async def _validate_source(ref: ServiceSourceRef, db: AsyncSession) -> None:
                 .where(FieldAsset.table_name == ref.source_id)
             )
             sensitive_field_names = {r.field_name for r in field_rows if r.is_sensitive}
-            whitelist_fields = {f.get("field") for f in (payload.field_whitelist or []) if f.get("field")}
             # 仅检查白名单中未标记脱敏的敏感字段
             exposed_sensitive = []
-            for f in (payload.field_whitelist or []):
+            for f in field_whitelist:
                 fn = f.get("field", "")
                 if fn in sensitive_field_names and not f.get("sensitive"):
                     exposed_sensitive.append(fn)
@@ -213,7 +216,7 @@ async def create_api_service(
         )
 
     # 校验来源合法性
-    await _validate_source(ref, db)
+    await _validate_source(ref, db, payload.field_whitelist)
 
     svc = ApiService(
         name=payload.name,
@@ -281,7 +284,7 @@ async def update_api_service(
         source_label=svc.source_label,
         source_layer=svc.source_layer,
     )
-    await _validate_source(ref, db)
+    await _validate_source(ref, db, svc.field_whitelist)
 
     await db.commit()
     await db.refresh(svc)
@@ -326,7 +329,7 @@ async def toggle_api_service(
             source_label=svc.source_label,
             source_layer=svc.source_layer,
         )
-        await _validate_source(ref, db)
+        await _validate_source(ref, db, svc.field_whitelist)
         svc.status = STATUS_ENABLED
 
     svc.is_active = svc.status == STATUS_ENABLED
