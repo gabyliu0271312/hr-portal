@@ -258,8 +258,7 @@ class StandardizationRuleService:
     async def _sync_dwd_dataset_fields(self, *, asset_code: str, target_table: str | None = None, commit: bool = False) -> dict | None:
         """同步 DWD 单表数据集输出字段；默认不提交，供执行链路纳入同一事务。"""
         from app.warehouse.models import StandardizationRule
-        from app.datasets.models import DatasetOutputField
-        from app.datasets.single_table import find_single_table_dataset
+        from app.datasets.models import DataSet, DataSetTable, DatasetOutputField
         from sqlalchemy import delete as sa_delete
 
         q = select(StandardizationRule).where(
@@ -271,9 +270,21 @@ class StandardizationRuleService:
             return None
 
         dwd_table = target_table or self._derive_dwd_name(asset_code)
-        ds = await find_single_table_dataset(dwd_table, self.session)
-        if ds is None:
-            return {"error": "no_dwd_dataset", "detail": f"未找到 DWD 数据集（{dwd_table}），请先拉取 ODS 数据自动生成"}
+        ds_row = (
+            await self.session.execute(
+                select(DataSet, DataSetTable.alias)
+                .join(DataSetTable, DataSetTable.dataset_id == DataSet.id)
+                .where(DataSetTable.table_name == dwd_table)
+                .order_by(
+                    (DataSet.warehouse_layer == "DWD").desc(),
+                    DataSet.id,
+                    DataSetTable.id,
+                )
+            )
+        ).first()
+        if ds_row is None:
+            return {"error": "no_dwd_dataset", "detail": f"未找到 DWD 数据集（{dwd_table}），请先检查 datasets/dataset_tables 关联"}
+        ds, source_alias = ds_row
 
         ds.warehouse_layer = "DWD"
         ds.status = "published"
@@ -294,7 +305,7 @@ class StandardizationRuleService:
             desc = cfg.get("output_description") or ""
             self.session.add(DatasetOutputField(
                 dataset_id=ds.id,
-                source_alias="current",
+                source_alias=source_alias,
                 source_column=target_col,
                 output_code=target_col,
                 output_label=label,
@@ -385,6 +396,8 @@ class StandardizationRuleService:
             else:
                 self.session.add(RegisteredTable(table_name=target, table_label=target, warehouse_layer="DWD", source_system="数据加工", asset_status="published"))
             await self.session.flush()
+            from app.data.dynamic_loader import register_source_table_model
+            await register_source_table_model(self.session, target, force=True)
             await self.session.execute(sa_delete(TableColumn).where(TableColumn.table_name == target))
             seen = set()
             for i, r in enumerate(rules):
