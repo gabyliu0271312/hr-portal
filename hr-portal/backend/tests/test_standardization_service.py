@@ -13,6 +13,7 @@ from app.warehouse.service.standardization import (
     _ordered_output_columns,
     _quote_ident,
     _safe_insert_batch_size,
+    _to_table_column_data_type,
 )
 
 
@@ -105,3 +106,13 @@ def test_coerce_insert_value_handles_timestamp_values():
 
 def test_quote_ident_escapes_embedded_quotes():
     assert _quote_ident('bad"name') == '"bad""name"'
+
+
+def test_to_table_column_data_type_maps_physical_types():
+    assert _to_table_column_data_type("TIMESTAMPTZ") == "datetime"
+    assert _to_table_column_data_type("TIMESTAMP") == "datetime"
+    assert _to_table_column_data_type("DATE") == "date"
+    assert _to_table_column_data_type("NUMERIC") == "number"
+    assert _to_table_column_data_type("DOUBLE PRECISION") == "number"
+    assert _to_table_column_data_type("BOOLEAN") == "bool"
+    assert _to_table_column_data_type("TEXT") == "string"

@@ -147,6 +147,19 @@ def _coerce_insert_value(value: Any, sql_type: str) -> Any:
     return value
 
 
+def _to_table_column_data_type(sql_type: str) -> str:
+    """Map physical PostgreSQL type back to table_columns.data_type values."""
+    if sql_type in ("BIGINT", "INTEGER", "NUMERIC", "DOUBLE PRECISION"):
+        return "number"
+    if sql_type == "DATE":
+        return "date"
+    if sql_type in ("TIMESTAMP", "TIMESTAMPTZ"):
+        return "datetime"
+    if sql_type == "BOOLEAN":
+        return "bool"
+    return "string"
+
+
 class StandardizationRuleService:
     """ODS→DWD 标准化规则 CRUD + 预览 + 执行 + DWD 视图生成"""
 
@@ -378,7 +391,14 @@ class StandardizationRuleService:
                 tgt = r.target_field or r.source_field
                 if tgt in seen: continue
                 seen.add(tgt)
-                self.session.add(TableColumn(table_name=target, column_name=tgt, column_code=tgt, column_label=tgt, data_type="string", is_visible=True, display_order=(i + 1) * 10))
+                self.session.add(TableColumn(
+                    table_name=target,
+                    column_code=tgt,
+                    column_label=tgt,
+                    data_type=_to_table_column_data_type(column_types.get(tgt, "TEXT")) if transformed else "string",
+                    is_visible=True,
+                    display_order=(i + 1) * 10,
+                ))
             # Z02: 血缘写入与主流程同一事务
             from app.warehouse.service import write_lineage_edge
             rule_ids = [r.id for r in rules]
