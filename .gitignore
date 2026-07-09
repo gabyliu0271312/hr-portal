@@ -45,6 +45,9 @@ hr-portal/backend/docker/fonts/*.tt*
 hr-portal/backend/docker/fonts/*.TTF
 hr-portal/backend/docker/fonts/*.TTC
 
+# 备份文件
+*.bak-*
+
 # Local AI assistant workspace/cache
 .codebuddy/
 .workbuddy/
