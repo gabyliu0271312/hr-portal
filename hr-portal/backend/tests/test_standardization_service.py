@@ -13,6 +13,7 @@ from app.warehouse.service.standardization import (
     _rule_output_labels,
     _infer_column_types,
     _infer_sql_type,
+    _is_system_technical_column,
     _ordered_output_columns,
     _quote_ident,
     _safe_insert_batch_size,
@@ -175,4 +176,10 @@ def test_rule_output_labels_uses_rule_config_for_overrides():
     ]
 
     assert _rule_output_labels(rules) == {"emp_no": "????", "first_name": "?"}
+
+def test_system_technical_columns_are_detected_for_default_hidden_metadata():
+    assert _is_system_technical_column("id") is True
+    assert _is_system_technical_column("pk_hash") is True
+    assert _is_system_technical_column("synced_at") is True
+    assert _is_system_technical_column("full_name") is False
 

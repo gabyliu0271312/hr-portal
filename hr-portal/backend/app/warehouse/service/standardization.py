@@ -20,6 +20,11 @@ STANDARDIZATION_RULE_TYPES = ("rename", "type_convert", "value_map", "unit_conve
 # margin below the hard limit for dialect-generated/internal parameters.
 MAX_INSERT_BIND_PARAMS = 30000
 DEFAULT_INSERT_BATCH_ROWS = 1000
+SYSTEM_TECHNICAL_COLUMNS = {"id", "pk_hash", "synced_at"}
+
+
+def _is_system_technical_column(column_code: str) -> bool:
+    return column_code in SYSTEM_TECHNICAL_COLUMNS
 
 
 def _safe_insert_batch_size(column_count: int, *, max_rows: int = DEFAULT_INSERT_BATCH_ROWS) -> int:
@@ -491,7 +496,7 @@ class StandardizationRuleService:
                     data_type=_to_table_column_data_type(column_types.get(tgt, "TEXT")) if transformed else (src_meta.data_type if src_meta else "string"),
                     is_pk_part=bool(src_meta.is_pk_part) if src_meta else False,
                     is_sensitive=bool(src_meta.is_sensitive) if src_meta else False,
-                    is_visible=bool(src_meta.is_visible) if src_meta else True,
+                    is_visible=(bool(src_meta.is_visible) if src_meta else not _is_system_technical_column(tgt)),
                     display_order=(src_meta.display_order if src_meta else (i + 1) * 10),
                     auto_discovered=True,
                     agg_role=(src_meta.agg_role if src_meta else "dimension"),
