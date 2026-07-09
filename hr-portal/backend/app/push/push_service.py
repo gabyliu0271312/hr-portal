@@ -905,17 +905,12 @@ async def execute_push(
     if pt.push_type == "db_expose":
         settings.setdefault("_pt_id", pt.id)
 
-    # P1: 统一来源协议 — 仅当 source_type 非空时解析
-    source_ref = settings.get("source_ref")
+    # P2: 统一来源协议 — 直接从列读取
     effective_source = pt.source_table
-    if source_ref and isinstance(source_ref, dict) and source_ref.get("source_type"):
+    if pt.source_type and pt.source_type != "table":
         try:
             from app.warehouse.service_ref import resolve_source_table_name
-            effective_source = await resolve_source_table_name(
-                source_ref.get("source_type", "table"),
-                source_ref.get("source_id", ""),
-                db,
-            )
+            effective_source = await resolve_source_table_name(pt.source_type, pt.source_id, db)
         except ValueError as e:
             raise RuntimeError(f"数据来源解析失败: {e}") from e
 

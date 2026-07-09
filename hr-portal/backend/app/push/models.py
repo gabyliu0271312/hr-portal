@@ -18,8 +18,12 @@ class PushTarget(Base):
     __tablename__ = "push_targets"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    # 来源表（registered_tables.table_name）
+    # 来源表（registered_tables.table_name），旧字段保留兼容
     source_table: Mapped[str] = mapped_column(String(64), nullable=False)
+    # P2: 统一来源协议（从 settings.source_ref 迁移到独立列）
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False, default="table")
+    source_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    source_label: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     push_type: Mapped[str] = mapped_column(String(32), nullable=False)  # http_push / external_db / api_expose
