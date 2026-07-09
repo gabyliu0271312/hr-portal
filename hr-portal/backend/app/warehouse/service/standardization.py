@@ -9,6 +9,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 STANDARDIZATION_RULE_TYPES = ("rename", "type_convert", "value_map", "unit_convert", "split_merge", "deduplicate", "null_handling", "format_standardize")
 
+# PostgreSQL/asyncpg rejects a single prepared statement with more than 32767
+# bind parameters. Standardization writes one INSERT statement per batch where
+# parameter count = row_count * column_count, so wide HR salary tables can exceed
+# the driver limit even with a seemingly safe fixed 1000-row batch. Keep a small
+# margin below the hard limit for dialect-generated/internal parameters.
+MAX_INSERT_BIND_PARAMS = 30000
+DEFAULT_INSERT_BATCH_ROWS = 1000
+
+
+def _safe_insert_batch_size(column_count: int, *, max_rows: int = DEFAULT_INSERT_BATCH_ROWS) -> int:
+    """Return a batch row count that stays under asyncpg's bind parameter cap."""
+    if column_count <= 0:
+        return 1
+    return max(1, min(max_rows, MAX_INSERT_BIND_PARAMS // column_count))
+
 
 class StandardizationRuleService:
     """ODS→DWD 标准化规则 CRUD + 预览 + 执行 + DWD 视图生成"""
@@ -212,14 +227,20 @@ class StandardizationRuleService:
                     ctype = "BOOLEAN" if isinstance(v, bool) else "BIGINT" if isinstance(v, int) else "DOUBLE PRECISION" if isinstance(v, float) else "TEXT"
                     col_defs.append(f'"{k}" {ctype}')
                 await self.session.execute(sa_text(f'CREATE TABLE "{target}" ({", ".join(col_defs)})'))
-                batch_size = 1000
+                bcols = list(sample.keys())
+                batch_size = _safe_insert_batch_size(len(bcols))
                 for bs in range(0, len(transformed), batch_size):
                     batch = transformed[bs:bs + batch_size]
-                    bcols = list(batch[0].keys())
-                    placeholders = ", ".join([f"({', '.join([f':{c}_{i}' for c in bcols])})" for i in range(len(batch))])
+                    # Use generated bind names instead of raw column names so columns
+                    # containing spaces, punctuation, or non-ASCII characters remain safe.
+                    placeholders = ", ".join([
+                        f"({', '.join([f':p_{i}_{j}' for j, _c in enumerate(bcols)])})"
+                        for i in range(len(batch))
+                    ])
                     params = {}
                     for i, row in enumerate(batch):
-                        for c in bcols: params[f"{c}_{i}"] = row.get(c)
+                        for j, c in enumerate(bcols):
+                            params[f"p_{i}_{j}"] = row.get(c)
                     q = '"'
                     await self.session.execute(sa_text(f'INSERT INTO "{target}" ({", ".join([f"{q}{c}{q}" for c in bcols])}) VALUES {placeholders}'), params)
             # P0-1: 注册 DWD 目标表 — 在同一事务内，失败则回滚全部
