@@ -342,6 +342,34 @@ async def test_push_target_out_resolves_physical_table_label():
     assert out.source_label == "Feishu import test"
 
 
+async def test_push_target_out_falls_back_to_datasource_table_label():
+    """If registered table label is physical, use datasource business label."""
+    pt = PushTarget(
+        id=5,
+        source_table="feishu_spreadsheet_fetch_test",
+        source_type="table",
+        source_id="feishu_spreadsheet_fetch_test",
+        source_label="feishu_spreadsheet_fetch_test",
+        name="table push",
+        description=None,
+        push_type="http_push",
+        settings={},
+        field_mappings=[],
+        is_active=True,
+        last_status="never",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db = FakeSession(results=[
+        FakeResult(value="feishu_spreadsheet_fetch_test"),
+        FakeResult(value="Feishu import test"),
+    ])
+
+    out = await _to_out(pt, db)
+
+    assert out.source_label == "Feishu import test"
+
+
 async def test_push_target_out_normalizes_legacy_report_source_table():
     """生产历史数据：source_table=report:{id} 但 source_type 仍为 table 时，返回报表类型和中文名。"""
     pt = PushTarget(

@@ -76,7 +76,7 @@ def _is_missing_or_physical_source_label(label: str | None, *physical_names: str
 
     Older rows and some frontend payloads may persist source_label as
     ``feishu_xxx``. In that case the API should re-resolve the friendly
-    RegisteredTable.table_label before returning/saving it.
+    label before returning/saving it.
     """
     normalized_label = str(label or "").strip()
     if not normalized_label:
@@ -86,6 +86,46 @@ def _is_missing_or_physical_source_label(label: str | None, *physical_names: str
         for name in physical_names
         if str(name or "").strip()
     )
+
+
+async def _resolve_table_source_label(db: AsyncSession, table_name: str, fallback: str | None = None) -> str:
+    """Resolve the display label for a table source.
+
+    Prefer registered_tables.table_label. If that metadata was also saved as
+    the physical table name, fall back to datasources.table_label because
+    source tables created from data integration often keep the business name
+    there.
+    """
+    table_name = str(table_name or "").strip()
+    label = str(fallback or "").strip()
+
+    from app.data.models import RegisteredTable
+
+    row = await db.execute(
+        select(RegisteredTable.table_label).where(RegisteredTable.table_name == table_name)
+    )
+    registered_label = row.scalar_one_or_none()
+    if registered_label and not _is_missing_or_physical_source_label(registered_label, table_name):
+        return registered_label
+    if registered_label and not label:
+        label = registered_label
+
+    try:
+        from app.datasources.models import DataSource
+
+        ds_row = await db.execute(
+            select(DataSource.table_label)
+            .where(DataSource.table_name == table_name)
+            .order_by(DataSource.id.desc())
+            .limit(1)
+        )
+        datasource_label = ds_row.scalar_one_or_none()
+        if datasource_label and not _is_missing_or_physical_source_label(datasource_label, table_name):
+            return datasource_label
+    except Exception:
+        pass
+
+    return label or table_name
 
 
 async def _to_out(pt: PushTarget, db: AsyncSession) -> PushTargetOut:
@@ -110,12 +150,7 @@ async def _to_out(pt: PushTarget, db: AsyncSession) -> PushTargetOut:
             label = f"报表 #{report_id}"
 
     elif effective_source_type == "table" and _is_missing_or_physical_source_label(label, pt.source_table, effective_source_id):
-        from app.data.models import RegisteredTable
-        row = await db.execute(
-            select(RegisteredTable.table_label).where(RegisteredTable.table_name == effective_source_id)
-        )
-        tl = row.scalar_one_or_none()
-        label = tl or effective_source_id
+        label = await _resolve_table_source_label(db, str(effective_source_id or ""), label)
 
     return PushTargetOut(
         id=pt.id,
@@ -235,16 +270,7 @@ async def create_push_target(
 
     # table 来源：查中文标签
     if final_source_type == SOURCE_TABLE and final_source_id and _is_missing_or_physical_source_label(final_source_label, payload.source_table, final_source_id):
-        try:
-            from app.data.models import RegisteredTable
-            row = await db.execute(
-                select(RegisteredTable.table_label).where(RegisteredTable.table_name == final_source_id)
-            )
-            tl = row.scalar_one_or_none()
-            if tl:
-                final_source_label = tl
-        except Exception:
-            pass
+        final_source_label = await _resolve_table_source_label(db, final_source_id, final_source_label)
 
     # ODS 消费红线
     if final_source_type == SOURCE_TABLE and final_source_id:
@@ -356,16 +382,7 @@ async def update_push_target(
 
     # table 来源：查中文标签
     if pt.source_type == SOURCE_TABLE and pt.source_id and _is_missing_or_physical_source_label(pt.source_label, pt.source_table, pt.source_id):
-        try:
-            from app.data.models import RegisteredTable
-            row = await db.execute(
-                select(RegisteredTable.table_label).where(RegisteredTable.table_name == pt.source_id)
-            )
-            tl = row.scalar_one_or_none()
-            if tl:
-                pt.source_label = tl
-        except Exception:
-            pass
+        pt.source_label = await _resolve_table_source_label(db, pt.source_id, pt.source_label)
 
     # ODS 消费红线
     if pt.source_type == SOURCE_TABLE and pt.source_id:

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import { api } from '@/api/client'
-import { listAssets } from '@/api/warehouse'
+import { getAsset, listAssets } from '@/api/warehouse'
 
 const props = defineProps<{
   modelValue: { source_type: string; source_id: string; source_label?: string }
@@ -14,7 +14,9 @@ const emit = defineEmits<{ 'update:modelValue': [v: any] }>()
 const allowedTypes = props.allowedTypes || ['table']
 const allowedLayers = props.allowedLayers || ['DWD', 'DWS', 'ADS']
 
-const options = ref<{ label: string; value: string; layer: string; displayLabel: string }[]>([])
+type SourceOption = { label: string; value: string; layer: string; displayLabel: string }
+
+const options = ref<SourceOption[]>([])
 const loading = ref(false)
 const selectedType = ref(props.modelValue?.source_type || allowedTypes[0])
 const selectedId = ref(props.modelValue?.source_id || '')
@@ -31,6 +33,58 @@ const TYPE_OPTIONS = [
 function formatOptionLabel(name: string, suffix?: string | null) {
   const cleanSuffix = String(suffix || '').trim()
   return cleanSuffix ? `${name} (${cleanSuffix})` : name
+}
+
+function isPhysicalOrEmptyLabel(label: string | undefined, id: string) {
+  const cleanLabel = String(label || '').trim()
+  return !cleanLabel || cleanLabel === id
+}
+
+function syncLabelFromSelectedOption() {
+  const opt = options.value.find(o => o.value === selectedId.value)
+  if (!opt) return false
+  if (isPhysicalOrEmptyLabel(sourceLabel.value, selectedId.value)) {
+    sourceLabel.value = opt.displayLabel
+    return true
+  }
+  return false
+}
+
+async function ensureSelectedOption() {
+  const id = selectedId.value
+  if (!id) return
+
+  const existing = options.value.find(o => o.value === id)
+  if (existing) {
+    // If the selected row is in the current page but its option label is still
+    // the physical name, prefer the backend-resolved source_label. Element Plus
+    // renders the selected text from el-option.label, not from modelValue.
+    if (!isPhysicalOrEmptyLabel(sourceLabel.value, id) && isPhysicalOrEmptyLabel(existing.displayLabel, id)) {
+      existing.displayLabel = sourceLabel.value
+      existing.label = formatOptionLabel(sourceLabel.value, existing.layer)
+    }
+    return
+  }
+
+  let displayLabel = sourceLabel.value || id
+  let layer = ''
+
+  if (selectedType.value === 'table') {
+    try {
+      const asset = await getAsset(id)
+      displayLabel = asset.table_label || displayLabel
+      layer = asset.warehouse_layer || ''
+    } catch {
+      // Keep the backend-provided source_label fallback when the asset is not in the current page.
+    }
+  }
+
+  options.value.unshift({
+    label: formatOptionLabel(displayLabel, layer),
+    value: id,
+    layer,
+    displayLabel,
+  })
 }
 
 async function loadOptions() {
@@ -83,8 +137,13 @@ async function loadOptions() {
     } else {
       options.value = []
     }
-  } catch { options.value = [] }
-  finally { loading.value = false }
+    await ensureSelectedOption()
+    syncLabelFromSelectedOption()
+  } catch {
+    options.value = []
+    await ensureSelectedOption()
+    syncLabelFromSelectedOption()
+  } finally { loading.value = false }
 }
 
 function emitChange() {
@@ -99,17 +158,22 @@ function emitChange() {
 const syncing = ref(false)
 watch(() => props.modelValue, async (val) => {
   if (!val) return
+  const originalLabel = val.source_label || ''
   syncing.value = true
   selectedType.value = allowedTypes.includes(val.source_type) ? val.source_type : allowedTypes[0]
   selectedId.value = val.source_id || ''
-  sourceLabel.value = val.source_label || ''
+  sourceLabel.value = originalLabel
   await loadOptions()
   syncing.value = false
+  if (sourceLabel.value && sourceLabel.value !== originalLabel) emitChange()
 }, { deep: true })
 
-watch(selectedType, () => {
-  if (syncing.value) return  // 父级同步中，不清空
-  selectedId.value = ''; sourceLabel.value = ''; loadOptions(); emitChange()
+watch(selectedType, async () => {
+  if (syncing.value) return  // syncing from parent; keep current selection
+  selectedId.value = ''
+  sourceLabel.value = ''
+  await loadOptions()
+  emitChange()
 })
 watch(selectedId, (val) => {
   if (!val) return
