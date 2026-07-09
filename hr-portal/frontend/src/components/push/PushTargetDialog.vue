@@ -99,7 +99,11 @@ const form = reactive<{
 async function open(target?: PushTargetOut | null) {
   currentTarget.value = target ?? null
   revealedSecrets.value = {}
-  sourceColumns.value = props.sourceColumns?.length ? [...props.sourceColumns] : await dataApi.columns(props.sourceTable).catch(() => [])
+  sourceColumns.value = props.sourceColumns?.length
+    ? [...props.sourceColumns]
+    : props.sourceTable
+      ? await dataApi.columns(props.sourceTable).catch(() => [])
+      : []
 
   if (target) {
     const s = target.settings || {}

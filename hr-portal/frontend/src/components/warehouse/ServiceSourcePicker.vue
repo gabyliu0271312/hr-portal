@@ -33,7 +33,7 @@ async function loadAssets() {
   if (selectedType.value !== 'table') { options.value = []; return }
   loading.value = true
   try {
-    const res = await listAssets({ page_size: 500 })
+    const res = await listAssets({ page_size: 200 })
     options.value = (res.items || [])
       .filter((a: any) => allowedLayers.includes(a.warehouse_layer))
       .map((a: any) => ({
