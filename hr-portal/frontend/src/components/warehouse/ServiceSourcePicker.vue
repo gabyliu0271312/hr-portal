@@ -28,6 +28,11 @@ const TYPE_OPTIONS = [
   { label: '报表', value: 'report' },
 ].filter(t => allowedTypes.includes(t.value))
 
+function formatOptionLabel(name: string, suffix?: string | null) {
+  const cleanSuffix = String(suffix || '').trim()
+  return cleanSuffix ? `${name} (${cleanSuffix})` : name
+}
+
 async function loadOptions() {
   loading.value = true
   try {
@@ -45,7 +50,7 @@ async function loadOptions() {
     } else if (st === 'dataset') {
       const { data } = await api.get('/warehouse/models', { params: { page_size: 200 } })
       options.value = (data.items || []).map((m: any) => ({
-        label: `${m.name || m.label || `模型 #${m.id}`} (${m.status || ''})`,
+        label: formatOptionLabel(m.name || m.label || `模型 #${m.id}`, m.status),
         value: String(m.id),
         layer: m.status || '',
         displayLabel: m.name || m.label || `模型 #${m.id}`,
@@ -53,7 +58,7 @@ async function loadOptions() {
     } else if (st === 'metric') {
       const { data } = await api.get('/warehouse/metrics', { params: { page_size: 200 } })
       options.value = (data.items || []).map((m: any) => ({
-        label: `${m.name || m.metric_name || `指标 #${m.id}`} (${m.status || ''})`,
+        label: formatOptionLabel(m.name || m.metric_name || `指标 #${m.id}`, m.status),
         value: String(m.id),
         layer: m.status || '',
         displayLabel: m.name || m.metric_name || `指标 #${m.id}`,
@@ -61,7 +66,7 @@ async function loadOptions() {
     } else if (st === 'ads') {
       const { data } = await api.get('/warehouse/ads-definitions', { params: { page_size: 200 } })
       options.value = (Array.isArray(data) ? data : (data.items || [])).map((a: any) => ({
-        label: `${a.name || `ADS #${a.id}`} (${a.status || ''})`,
+        label: formatOptionLabel(a.name || `ADS #${a.id}`, a.status),
         value: String(a.id),
         layer: a.status || '',
         displayLabel: a.name || `ADS #${a.id}`,
@@ -70,7 +75,7 @@ async function loadOptions() {
       const { data } = await api.get('/reports', { params: { page_size: 200 } })
       const items = Array.isArray(data) ? data : (data.items || [])
       options.value = items.map((r: any) => ({
-        label: `${r.name || r.title || `报表 #${r.id}`} (${r.status || ''})`,
+        label: formatOptionLabel(r.name || r.title || `报表 #${r.id}`, r.status),
         value: String(r.id),
         layer: r.status || '',
         displayLabel: r.name || r.title || `报表 #${r.id}`,
