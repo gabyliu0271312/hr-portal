@@ -2,7 +2,7 @@
 """标准化规则 + 模板服务"""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from typing import Any
 
@@ -29,35 +29,94 @@ def _safe_insert_batch_size(column_count: int, *, max_rows: int = DEFAULT_INSERT
     return max(1, min(max_rows, MAX_INSERT_BIND_PARAMS // column_count))
 
 
+def _quote_ident(identifier: str) -> str:
+    """Quote a PostgreSQL identifier used in application-built DWD DDL/DML."""
+    return '"' + str(identifier).replace('"', '""') + '"'
+
+
+def _is_tz_aware(value: datetime) -> bool:
+    return value.tzinfo is not None and value.utcoffset() is not None
+
+
 def _infer_sql_type(value: Any) -> str:
     """Infer a PostgreSQL column type for cleaned DWD physical tables."""
     if isinstance(value, bool):
         return "BOOLEAN"
     if isinstance(value, int) and not isinstance(value, bool):
         return "BIGINT"
-    if isinstance(value, (float, Decimal)):
+    if isinstance(value, Decimal):
+        return "NUMERIC"
+    if isinstance(value, float):
         return "DOUBLE PRECISION"
     if isinstance(value, datetime):
-        return "TIMESTAMP"
+        return "TIMESTAMPTZ" if _is_tz_aware(value) else "TIMESTAMP"
     if isinstance(value, date):
         return "DATE"
     return "TEXT"
 
 
+def _merge_sql_types(types: set[str]) -> str:
+    """Merge per-value inferred types into one safe PostgreSQL column type."""
+    if not types:
+        return "TEXT"
+    if len(types) == 1:
+        return next(iter(types))
+
+    if "TEXT" in types:
+        return "TEXT"
+
+    datetime_types = {"TIMESTAMPTZ", "TIMESTAMP", "DATE"}
+    if types <= datetime_types:
+        if "TIMESTAMPTZ" in types:
+            return "TIMESTAMPTZ"
+        if "TIMESTAMP" in types:
+            return "TIMESTAMP"
+        return "DATE"
+
+    numeric_types = {"BIGINT", "NUMERIC", "DOUBLE PRECISION"}
+    if types <= numeric_types:
+        if "DOUBLE PRECISION" in types:
+            return "DOUBLE PRECISION"
+        if "NUMERIC" in types:
+            return "NUMERIC"
+        return "BIGINT"
+
+    # Mixed boolean/date/numeric/etc. is safest as TEXT instead of risking
+    # asyncpg bind errors during a full rebuild.
+    return "TEXT"
+
+
+def _ordered_output_columns(rows: list[dict]) -> list[str]:
+    """Return union of output columns preserving first-seen row/key order."""
+    columns: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for col in row.keys():
+            if col not in seen:
+                seen.add(col)
+                columns.append(col)
+    return columns
+
+
 def _infer_column_types(rows: list[dict]) -> dict[str, str]:
-    """Infer each output column from the first non-null value, not only row 1.
+    """Infer each output column from all non-null values.
 
     Some HR source fields (for example synced_at/hire_date) may be null on the
     first row and datetime/date on later rows. Inferring from only the first row
     creates TEXT columns and asyncpg then rejects datetime values for TEXT binds.
+    Also scan all rows so mixed aware/naive datetime columns choose TIMESTAMPTZ.
     """
     if not rows:
         return {}
-    columns = list(rows[0].keys())
+    columns = _ordered_output_columns(rows)
     inferred: dict[str, str] = {}
     for col in columns:
-        value = next((row.get(col) for row in rows if row.get(col) is not None), None)
-        inferred[col] = _infer_sql_type(value)
+        value_types = {
+            _infer_sql_type(row.get(col))
+            for row in rows
+            if row.get(col) is not None
+        }
+        inferred[col] = _merge_sql_types(value_types)
     return inferred
 
 
@@ -69,6 +128,22 @@ def _coerce_insert_value(value: Any, sql_type: str) -> Any:
         if isinstance(value, (datetime, date)):
             return value.isoformat()
         return str(value)
+    if sql_type == "TIMESTAMPTZ":
+        if isinstance(value, datetime):
+            return value if _is_tz_aware(value) else value.replace(tzinfo=UTC)
+        if isinstance(value, date):
+            return datetime.combine(value, time.min, tzinfo=UTC)
+    if sql_type == "TIMESTAMP":
+        if isinstance(value, datetime):
+            if _is_tz_aware(value):
+                return value.astimezone(UTC).replace(tzinfo=None)
+            return value
+        if isinstance(value, date):
+            return datetime.combine(value, time.min)
+    if sql_type == "DATE" and isinstance(value, datetime):
+        return value.date()
+    if sql_type == "DOUBLE PRECISION" and isinstance(value, Decimal):
+        return float(value)
     return value
 
 
@@ -268,13 +343,12 @@ class StandardizationRuleService:
                 await validate_ddl_operation(self.session, target, DDL_CREATE, target_layer="DWD")
             await self.session.execute(sa_text(f'DROP TABLE IF EXISTS "{target}"'))
             if transformed:
-                sample = transformed[0]
+                bcols = _ordered_output_columns(transformed)
                 column_types = _infer_column_types(transformed)
                 col_defs = []
-                for k in sample.keys():
-                    col_defs.append(f'"{k}" {column_types.get(k, "TEXT")}')
-                await self.session.execute(sa_text(f'CREATE TABLE "{target}" ({", ".join(col_defs)})'))
-                bcols = list(sample.keys())
+                for k in bcols:
+                    col_defs.append(f'{_quote_ident(k)} {column_types.get(k, "TEXT")}')
+                await self.session.execute(sa_text(f'CREATE TABLE {_quote_ident(target)} ({", ".join(col_defs)})'))
                 batch_size = _safe_insert_batch_size(len(bcols))
                 for bs in range(0, len(transformed), batch_size):
                     batch = transformed[bs:bs + batch_size]
@@ -288,8 +362,7 @@ class StandardizationRuleService:
                     for i, row in enumerate(batch):
                         for j, c in enumerate(bcols):
                             params[f"p_{i}_{j}"] = _coerce_insert_value(row.get(c), column_types.get(c, "TEXT"))
-                    q = '"'
-                    await self.session.execute(sa_text(f'INSERT INTO "{target}" ({", ".join([f"{q}{c}{q}" for c in bcols])}) VALUES {placeholders}'), params)
+                    await self.session.execute(sa_text(f'INSERT INTO {_quote_ident(target)} ({", ".join([_quote_ident(c) for c in bcols])}) VALUES {placeholders}'), params)
             # P0-1: 注册 DWD 目标表 — 在同一事务内，失败则回滚全部
             existing_rt = (await self.session.execute(
                 select(RegisteredTable).where(RegisteredTable.table_name == target)

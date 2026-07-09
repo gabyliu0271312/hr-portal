@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tests for warehouse standardization service helpers."""
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timezone
+from decimal import Decimal
 
 from app.warehouse.service.standardization import (
     DEFAULT_INSERT_BATCH_ROWS,
@@ -9,6 +10,8 @@ from app.warehouse.service.standardization import (
     _coerce_insert_value,
     _infer_column_types,
     _infer_sql_type,
+    _ordered_output_columns,
+    _quote_ident,
     _safe_insert_batch_size,
 )
 
@@ -31,18 +34,48 @@ def test_safe_insert_batch_size_never_returns_zero():
 
 
 def test_infer_sql_type_supports_datetime_and_date():
+    assert _infer_sql_type(datetime(2026, 7, 2, 2, 5, 18, tzinfo=UTC)) == "TIMESTAMPTZ"
     assert _infer_sql_type(datetime(2026, 7, 2, 2, 5, 18)) == "TIMESTAMP"
     assert _infer_sql_type(date(2026, 7, 2)) == "DATE"
+    assert _infer_sql_type(Decimal("12.30")) == "NUMERIC"
 
 
 def test_infer_column_types_uses_first_non_null_value():
     rows = [
         {"synced_at": None, "full_name": "Alice"},
-        {"synced_at": datetime(2026, 7, 2, 2, 5, 18), "full_name": "Bob"},
+        {"synced_at": datetime(2026, 7, 2, 2, 5, 18, tzinfo=UTC), "full_name": "Bob"},
     ]
 
-    assert _infer_column_types(rows)["synced_at"] == "TIMESTAMP"
+    assert _infer_column_types(rows)["synced_at"] == "TIMESTAMPTZ"
     assert _infer_column_types(rows)["full_name"] == "TEXT"
+
+
+def test_infer_column_types_prefers_timestamptz_for_mixed_datetime_awareness():
+    rows = [
+        {"synced_at": datetime(2026, 7, 2, 2, 5, 18)},
+        {"synced_at": datetime(2026, 7, 2, 2, 5, 18, tzinfo=timezone.utc)},
+    ]
+
+    assert _infer_column_types(rows)["synced_at"] == "TIMESTAMPTZ"
+
+
+def test_infer_column_types_promotes_mixed_non_compatible_values_to_text():
+    rows = [
+        {"flag_or_text": True},
+        {"flag_or_text": "yes"},
+    ]
+
+    assert _infer_column_types(rows)["flag_or_text"] == "TEXT"
+
+
+def test_ordered_output_columns_includes_columns_added_by_later_rows():
+    rows = [
+        {"id": 1, "name": "Alice"},
+        {"id": 2, "name": "Bob", "name_type_error": True},
+    ]
+
+    assert _ordered_output_columns(rows) == ["id", "name", "name_type_error"]
+    assert _infer_column_types(rows)["name_type_error"] == "BOOLEAN"
 
 
 def test_coerce_insert_value_converts_datetime_when_column_is_text():
@@ -50,3 +83,25 @@ def test_coerce_insert_value_converts_datetime_when_column_is_text():
 
     assert _coerce_insert_value(value, "TEXT") == "2026-07-02T02:05:18"
     assert _coerce_insert_value(value, "TIMESTAMP") is value
+
+
+def test_coerce_insert_value_handles_timestamptz_values():
+    naive = datetime(2026, 7, 2, 2, 5, 18)
+    aware = datetime(2026, 7, 2, 2, 5, 18, tzinfo=UTC)
+
+    coerced_naive = _coerce_insert_value(naive, "TIMESTAMPTZ")
+    assert coerced_naive.tzinfo is not None
+    assert coerced_naive.utcoffset() is not None
+    assert _coerce_insert_value(aware, "TIMESTAMPTZ") is aware
+
+
+def test_coerce_insert_value_handles_timestamp_values():
+    aware = datetime(2026, 7, 2, 2, 5, 18, tzinfo=UTC)
+    coerced = _coerce_insert_value(aware, "TIMESTAMP")
+
+    assert coerced.tzinfo is None
+    assert coerced == datetime(2026, 7, 2, 2, 5, 18)
+
+
+def test_quote_ident_escapes_embedded_quotes():
+    assert _quote_ident('bad"name') == '"bad""name"'
