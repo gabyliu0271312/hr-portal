@@ -59,7 +59,7 @@ async function loadOptions() {
         displayLabel: m.name || m.metric_name || `指标 #${m.id}`,
       }))
     } else if (st === 'ads') {
-      const { data } = await api.get('/ads-definitions', { params: { page_size: 200 } })
+      const { data } = await api.get('/warehouse/ads-definitions', { params: { page_size: 200 } })
       options.value = (Array.isArray(data) ? data : (data.items || [])).map((a: any) => ({
         label: `${a.name || `ADS #${a.id}`} (${a.status || ''})`,
         value: String(a.id),

@@ -549,7 +549,17 @@ async def expose_data(
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"IP {client_ip} 不在白名单")
 
     period_ym = s.get("period_ym", "")
-    rows = await _load_source_rows(pt.source_table, db, period_ym)
+    # P1: 统一来源协议 — 解析 settings.source_ref
+    effective_source = pt.source_table
+    source_ref = s.get("source_ref")
+    if source_ref and isinstance(source_ref, dict):
+        st = source_ref.get("source_type", "table")
+        sid = source_ref.get("source_id", "")
+        if st == "report":
+            effective_source = f"report:{sid}"
+        elif st in ("ads", "metric"):
+            effective_source = sid
+    rows = await _load_source_rows(effective_source, db, period_ym)
     return [
         json_ready_row(apply_field_mappings(r, pt.field_mappings or []))
         for r in rows

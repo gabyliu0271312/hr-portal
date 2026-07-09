@@ -173,7 +173,18 @@ async def load_rows_by_source_ref(
 
     from app.push.push_service import _load_source_rows
 
-    if st in (SOURCE_TABLE, SOURCE_REPORT, SOURCE_ADS, SOURCE_METRIC):
+    # 统一路由：各类型转为 _load_source_rows 能识别的格式
+    # table:    直接传表名
+    # report:   转为 "report:{id}" 旧格式（push_service._is_report_source 识别）
+    # ads:      直接传 sid（ADS 视图名/表名）
+    # metric:   直接传 sid（指标结果表名）
+    if st == SOURCE_TABLE:
+        return await _load_source_rows(sid, db, period_ym)
+    if st == SOURCE_REPORT:
+        return await _load_source_rows(f"report:{sid}", db, period_ym)
+    if st == SOURCE_ADS:
+        return await _load_source_rows(sid, db, period_ym)
+    if st == SOURCE_METRIC:
         return await _load_source_rows(sid, db, period_ym)
 
     if st == SOURCE_DATASET:

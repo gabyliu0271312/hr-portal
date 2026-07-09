@@ -905,8 +905,33 @@ async def execute_push(
     if pt.push_type == "db_expose":
         settings.setdefault("_pt_id", pt.id)
 
+    # P1: 统一来源协议 — 从 settings.source_ref 解析真实取数表名
+    source_ref = settings.get("source_ref")
+    effective_source = pt.source_table
+    if source_ref and isinstance(source_ref, dict):
+        st = source_ref.get("source_type", "table")
+        sid = source_ref.get("source_id", "")
+        if st == "report":
+            effective_source = f"report:{sid}"
+        elif st == "dataset":
+            from app.datasets.models import DataSet, DataSetTable
+            from sqlalchemy import select as sa_select
+            ds = await db.get(DataSet, int(sid))
+            if ds:
+                row = await db.execute(
+                    sa_select(DataSetTable.table_name)
+                    .where(DataSetTable.dataset_id == ds.id)
+                    .limit(1)
+                )
+                table_name = row.scalar_one_or_none()
+                if table_name:
+                    effective_source = table_name
+        elif st in ("ads", "metric"):
+            effective_source = sid
+        # table: 使用 pt.source_table 原值
+
     rows, message = await handler(
-        pt.source_table, settings, secrets, pt.field_mappings or [], db
+        effective_source, settings, secrets, pt.field_mappings or [], db
     )
 
     # 回写状态
