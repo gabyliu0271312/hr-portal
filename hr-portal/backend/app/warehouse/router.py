@@ -2866,12 +2866,12 @@ async def detect_scd_candidates(table_name: str = Query(...), db: AsyncSession =
 from app.warehouse.service import get_ads_service
 
 
-@router.get("/ads-definitions", summary="ADS 定义列表", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
+@router.get("/ads-definitions", summary="ADS 定义列表", dependencies=[Depends(require_op("warehouse.service", "V"))])
 async def list_ads_definitions(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200), status: str = Query(None), db: AsyncSession = Depends(get_session)):
     return await get_ads_service(db).list_definitions(page=page, page_size=page_size, status=status)
 
 
-@router.post("/ads-definitions", summary="创建 ADS 定义", status_code=201, dependencies=[Depends(require_op("warehouse.modeling", "C"))])
+@router.post("/ads-definitions", summary="创建 ADS 定义", status_code=201, dependencies=[Depends(require_op("warehouse.service", "C"))])
 async def create_ads_definition(payload: AdsDefinitionIn, db: AsyncSession = Depends(get_session)):
     svc = get_ads_service(db)
     data = payload.model_dump()
@@ -2881,39 +2881,39 @@ async def create_ads_definition(payload: AdsDefinitionIn, db: AsyncSession = Dep
     return await svc.create_definition(data)
 
 
-@router.get("/ads-definitions/{def_id}", summary="ADS 定义详情", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
+@router.get("/ads-definitions/{def_id}", summary="ADS 定义详情", dependencies=[Depends(require_op("warehouse.service", "V"))])
 async def get_ads_definition(def_id: int, db: AsyncSession = Depends(get_session)):
     result = await get_ads_service(db).get_definition(def_id)
     if result is None: raise HTTPException(status_code=404, detail="ADS 定义不存在")
     return result
 
 
-@router.patch("/ads-definitions/{def_id}", summary="更新 ADS 定义", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
+@router.patch("/ads-definitions/{def_id}", summary="更新 ADS 定义", dependencies=[Depends(require_op("warehouse.service", "U"))])
 async def update_ads_definition(def_id: int, payload: AdsDefinitionUpdateIn, db: AsyncSession = Depends(get_session)):
     result = await get_ads_service(db).update_definition(def_id, payload.model_dump(exclude_none=True))
     if result is None: raise HTTPException(status_code=404, detail="ADS 定义不存在")
     return result
 
 
-@router.delete("/ads-definitions/{def_id}", summary="删除 ADS 定义", status_code=204, dependencies=[Depends(require_op("warehouse.modeling", "D"))])
+@router.delete("/ads-definitions/{def_id}", summary="删除 ADS 定义", status_code=204, dependencies=[Depends(require_op("warehouse.service", "D"))])
 async def delete_ads_definition(def_id: int, db: AsyncSession = Depends(get_session)):
     ok = await get_ads_service(db).delete_definition(def_id)
     if not ok: raise HTTPException(status_code=404, detail="ADS 定义不存在")
 
 
-@router.get("/ads-definitions/{def_id}/preview", summary="预览 ADS 组装结果", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
+@router.get("/ads-definitions/{def_id}/preview", summary="预览 ADS 组装结果", dependencies=[Depends(require_op("warehouse.service", "V"))])
 async def preview_ads(def_id: int, db: AsyncSession = Depends(get_session)):
     result = await get_ads_service(db).preview(def_id)
     if "error" in result: raise HTTPException(status_code=404, detail="ADS 定义不存在")
     return result
 
 
-@router.post("/ads-definitions/validate", summary="校验 ADS 配置", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
+@router.post("/ads-definitions/validate", summary="校验 ADS 配置", dependencies=[Depends(require_op("warehouse.service", "U"))])
 async def validate_ads_definition(payload: AdsDefinitionIn, db: AsyncSession = Depends(get_session)):
     return await get_ads_service(db).validate(payload.model_dump())
 
 
-@router.post("/ads-definitions/{def_id}/publish", summary="发布 ADS 为消费资产", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
+@router.post("/ads-definitions/{def_id}/publish", summary="发布 ADS 为消费资产", dependencies=[Depends(require_op("warehouse.service", "U"))])
 async def publish_ads(def_id: int, targets: list[str] = Query(...), db: AsyncSession = Depends(get_session)):
     result = await get_ads_service(db).publish(def_id, targets)
     if "error" in result:
@@ -2922,7 +2922,7 @@ async def publish_ads(def_id: int, targets: list[str] = Query(...), db: AsyncSes
     return result
 
 
-@router.post("/ads-definitions/{def_id}/unpublish", summary="撤回 ADS 发布", dependencies=[Depends(require_op("warehouse.modeling", "U"))])
+@router.post("/ads-definitions/{def_id}/unpublish", summary="撤回 ADS 发布", dependencies=[Depends(require_op("warehouse.service", "U"))])
 async def unpublish_ads(def_id: int, db: AsyncSession = Depends(get_session)):
     result = await get_ads_service(db).unpublish(def_id)
     if "error" in result:
