@@ -15,7 +15,7 @@ const emit = defineEmits<{ 'update:modelValue': [v: any] }>()
 const allowedTypes = props.allowedTypes || ['table']
 const allowedLayers = props.allowedLayers || ['DWD', 'DWS', 'ADS']
 
-const options = ref<{ label: string; value: string; layer: string }[]>([])
+const options = ref<{ label: string; value: string; layer: string; tableLabel: string }[]>([])
 const loading = ref(false)
 const selectedType = ref(props.modelValue?.source_type || allowedTypes[0])
 const selectedId = ref(props.modelValue?.source_id || '')
@@ -40,6 +40,7 @@ async function loadAssets() {
         label: `${a.table_label || a.table_name} (${a.warehouse_layer})`,
         value: a.table_name,
         layer: a.warehouse_layer,
+        tableLabel: a.table_label || a.table_name,
       }))
   } catch { options.value = [] }
   finally { loading.value = false }
@@ -56,7 +57,7 @@ function emitChange() {
 watch(selectedType, () => { selectedId.value = ''; sourceLabel.value = ''; loadAssets(); emitChange() })
 watch(selectedId, (val) => {
   const opt = options.value.find(o => o.value === val)
-  sourceLabel.value = opt?.label || val
+  sourceLabel.value = opt?.tableLabel || opt?.label || val
   emitChange()
 })
 
@@ -77,7 +78,7 @@ onMounted(() => loadAssets())
       style="flex: 1; min-width: 240px"
     >
       <el-option v-for="o in options" :key="o.value" :label="o.label" :value="o.value">
-        <span>{{ o.value }}</span>
+        <span>{{ o.tableLabel }}</span>
         <el-tag size="small" type="info" style="margin-left: 8px">{{ o.layer }}</el-tag>
       </el-option>
     </el-select>
