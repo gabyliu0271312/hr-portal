@@ -163,6 +163,9 @@ function buildPayload(): PushTargetIn {
   const st = isMultiSource ? sourceRef.value.source_id : props.sourceTable
   const base: PushTargetIn = {
     source_table: st,
+    source_type: isMultiSource ? sourceRef.value.source_type : 'table',
+    source_id: st,
+    source_label: isMultiSource ? sourceRef.value.source_label : '',
     name: form.name.trim(),
     description: form.description.trim() || null,
     push_type: form.push_type as any,
