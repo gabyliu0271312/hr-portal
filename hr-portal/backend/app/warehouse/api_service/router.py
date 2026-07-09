@@ -404,32 +404,12 @@ async def query_api_service_data(
     if ref.source_layer is None:
         await resolve_source_layer(ref, db)
 
-    # 解析来源 → 实际查询表名
-    table_name: str | None = None
-    if ref.source_type == SOURCE_TABLE:
-        table_name = ref.source_id
-    elif ref.source_type == "report":
-        table_name = None  # report 走 push_service._load_report_source_rows
-    elif ref.source_type == "dataset":
-        from app.datasets.models import DataSet, DataSetTable
-        ds = await db.get(DataSet, int(ref.source_id))
-        if ds:
-            dt_row = await db.execute(
-                select(DataSetTable.table_name).where(DataSetTable.dataset_id == ds.id).limit(1)
-            )
-            table_name = dt_row.scalar_one_or_none()
-        if not table_name:
-            await _log_fail(f"数据集 {ref.source_id} 无来源表"); raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"数据集 {ref.source_id} 无来源表")
-    elif ref.source_type in ("metric", "ads"):
-        if ref.source_type == "ads":
-            table_name = ref.source_id  # ADS 视图/表名即 source_id
-        else:
-            table_name = f"metric_{ref.source_id}"  # 指标结果表
-    else:
-        await _log_fail(f"不支持来源类型: {ref.source_type}"); raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"暂不支持来源类型: {ref.source_type}")
-
-    if not table_name:
-        await _log_fail(f"无法解析来源: {ref.source_type}/{ref.source_id}"); raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无法解析数据来源")
+    # 统一来源协议：resolve_source_table_name 解析物理表名
+    from app.warehouse.service_ref import resolve_source_table_name
+    try:
+        table_name = await resolve_source_table_name(ref.source_type, ref.source_id, db)
+    except ValueError as e:
+        await _log_fail(str(e)); raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     # 字段白名单
     whitelist = svc.field_whitelist or []

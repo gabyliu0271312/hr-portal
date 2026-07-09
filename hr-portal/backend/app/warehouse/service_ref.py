@@ -219,9 +219,8 @@ async def resolve_source_table_name(
                 if table_name:
                     return table_name
             raise ValueError(f"ADS {sid} 底层数据集 {ads.source_id} 无来源表")
-        # 其他来源类型（dws_aggregate/model）返回 ads 定义内的 source_label 或 id
-        # 实际取数通过 execute_push 内部的 handler 路由
-        return ads.source_label or f"ads_{sid}"
+        # 其他来源类型暂不支持直接查询
+        raise ValueError(f"ADS {sid} 来源类型 {ads.source_type} 暂不支持直接取数，请先转为 dataset 类型 ADS")
 
     raise ValueError(f"不支持的来源类型: {st}")
 
