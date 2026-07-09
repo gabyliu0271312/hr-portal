@@ -71,6 +71,23 @@ class RunIn(BaseModel):
 
 # ===== helpers =====
 
+def _is_missing_or_physical_source_label(label: str | None, *physical_names: str | None) -> bool:
+    """Return True when a stored label is blank or just the physical table/source id.
+
+    Older rows and some frontend payloads may persist source_label as
+    ``feishu_xxx``. In that case the API should re-resolve the friendly
+    RegisteredTable.table_label before returning/saving it.
+    """
+    normalized_label = str(label or "").strip()
+    if not normalized_label:
+        return True
+    return any(
+        normalized_label == str(name or "").strip()
+        for name in physical_names
+        if str(name or "").strip()
+    )
+
+
 async def _to_out(pt: PushTarget, db: AsyncSession) -> PushTargetOut:
     label = pt.source_label
     effective_source_type = pt.source_type or "table"
@@ -92,7 +109,7 @@ async def _to_out(pt: PushTarget, db: AsyncSession) -> PushTargetOut:
         if not label:
             label = f"报表 #{report_id}"
 
-    elif effective_source_type == "table" and (not label or label == pt.source_table):
+    elif effective_source_type == "table" and _is_missing_or_physical_source_label(label, pt.source_table, effective_source_id):
         from app.data.models import RegisteredTable
         row = await db.execute(
             select(RegisteredTable.table_label).where(RegisteredTable.table_name == effective_source_id)
@@ -217,7 +234,7 @@ async def create_push_target(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"不支持的来源类型: {final_source_type}，允许: {sorted(ALLOWED_SOURCE_TYPES)}")
 
     # table 来源：查中文标签
-    if final_source_type == SOURCE_TABLE and final_source_id and not final_source_label:
+    if final_source_type == SOURCE_TABLE and final_source_id and _is_missing_or_physical_source_label(final_source_label, payload.source_table, final_source_id):
         try:
             from app.data.models import RegisteredTable
             row = await db.execute(
@@ -338,7 +355,7 @@ async def update_push_target(
         pt.source_table = payload.source_table
 
     # table 来源：查中文标签
-    if pt.source_type == SOURCE_TABLE and pt.source_id and not pt.source_label:
+    if pt.source_type == SOURCE_TABLE and pt.source_id and _is_missing_or_physical_source_label(pt.source_label, pt.source_table, pt.source_id):
         try:
             from app.data.models import RegisteredTable
             row = await db.execute(

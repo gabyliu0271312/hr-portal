@@ -37,6 +37,9 @@ class FakeResult:
     def scalar_one(self):
         return self.value
 
+    def scalar_one_or_none(self):
+        return self.value
+
     def scalars(self):
         if self.rows is not None:
             return FakeScalarResult(self.rows)
@@ -310,6 +313,33 @@ async def test_api_expose_endpoint_returns_json_ready_rows():
             "hire_date": "2021-01-01",
         }
     ]
+
+
+async def test_push_target_out_resolves_physical_table_label():
+    """Table source should return RegisteredTable.table_label instead of physical name."""
+    pt = PushTarget(
+        id=4,
+        source_table="feishu_spreadsheet_fetch_test",
+        source_type="table",
+        source_id="feishu_spreadsheet_fetch_test",
+        source_label="feishu_spreadsheet_fetch_test",
+        name="table push",
+        description=None,
+        push_type="http_push",
+        settings={},
+        field_mappings=[],
+        is_active=True,
+        last_status="never",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db = FakeSession(results=[FakeResult(value="Feishu import test")])
+
+    out = await _to_out(pt, db)
+
+    assert out.source_type == "table"
+    assert out.source_id == "feishu_spreadsheet_fetch_test"
+    assert out.source_label == "Feishu import test"
 
 
 async def test_push_target_out_normalizes_legacy_report_source_table():
