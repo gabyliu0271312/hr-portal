@@ -916,8 +916,8 @@ async def execute_push(
                 source_ref.get("source_id", ""),
                 db,
             )
-        except ValueError:
-            pass  # 解析失败时回退到 pt.source_table
+        except ValueError as e:
+            raise RuntimeError(f"数据来源解析失败: {e}") from e
 
     rows, message = await handler(
         effective_source, settings, secrets, pt.field_mappings or [], db

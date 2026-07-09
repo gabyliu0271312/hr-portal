@@ -560,8 +560,8 @@ async def expose_data(
                 source_ref.get("source_id", ""),
                 db,
             )
-        except ValueError:
-            pass
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"数据来源解析失败: {e}") from e
     rows = await _load_source_rows(effective_source, db, period_ym)
     return [
         json_ready_row(apply_field_mappings(r, pt.field_mappings or []))
