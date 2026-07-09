@@ -88,7 +88,7 @@ class StandardizationRuleService:
         if source_layer not in ("ODS", "DWD"):
             return {"error": f"数据清洗仅支持 ODS/DWD 来源表，当前表层级为 {source_layer or '未注册'}"}
         try:
-            result = await self.session.execute(sa_text(f"SELECT * FROM `{asset_code}` LIMIT {sample_size}"))
+            result = await self.session.execute(sa_text(f'SELECT * FROM "{asset_code}" LIMIT {sample_size}'))
             rows_raw = result.fetchall()
             if not rows_raw: return {"error": "empty"}
             cols = list(result.keys())
@@ -180,7 +180,7 @@ class StandardizationRuleService:
         rules = (await self.session.execute(q)).scalars().all()
         if not rules: return {"error": "no_rules", "detail": f"表 {asset_code} 没有启用的标准化规则"}
         try:
-            result = await self.session.execute(sa_text(f"SELECT * FROM `{asset_code}`"))
+            result = await self.session.execute(sa_text(f'SELECT * FROM "{asset_code}"'))
             rows_raw = result.fetchall()
             if not rows_raw: return {"error": "empty", "detail": "ODS 表无数据", "total": 0, "success": 0, "failed": 0, "errors": [], "target_table": target_table}
             cols = list(result.keys())
@@ -190,7 +190,7 @@ class StandardizationRuleService:
         try: transformed = execute_rules(rules, rows)
         except Exception as e: return {"error": "transform_failed", "detail": str(e), "total": total, "success": 0, "failed": total, "errors": []}
         success = len(transformed); failed = total - success
-        target = target_table.strip().replace("`", "")
+        target = target_table.strip().replace('"', "")
         # P0: 校验目标层级 — 目标表若已注册，必须是 DWD 层
         target_layer = await self._get_layer(target)
         if target_layer and target_layer != "DWD":
@@ -204,14 +204,14 @@ class StandardizationRuleService:
                 await validate_ddl_operation(self.session, target, DDL_REPLACE)
             else:
                 await validate_ddl_operation(self.session, target, DDL_CREATE, target_layer="DWD")
-            await self.session.execute(sa_text(f"DROP TABLE IF EXISTS `{target}`"))
+            await self.session.execute(sa_text(f'DROP TABLE IF EXISTS "{target}"'))
             if transformed:
                 sample = transformed[0]
                 col_defs = []
                 for k, v in sample.items():
                     ctype = "BOOLEAN" if isinstance(v, bool) else "BIGINT" if isinstance(v, int) else "DOUBLE PRECISION" if isinstance(v, float) else "TEXT"
-                    col_defs.append(f"`{k}` {ctype}")
-                await self.session.execute(sa_text(f"CREATE TABLE `{target}` ({', '.join(col_defs)})"))
+                    col_defs.append(f'"{k}" {ctype}')
+                await self.session.execute(sa_text(f'CREATE TABLE "{target}" ({", ".join(col_defs)})'))
                 batch_size = 1000
                 for bs in range(0, len(transformed), batch_size):
                     batch = transformed[bs:bs + batch_size]
@@ -220,7 +220,7 @@ class StandardizationRuleService:
                     params = {}
                     for i, row in enumerate(batch):
                         for c in bcols: params[f"{c}_{i}"] = row.get(c)
-                    await self.session.execute(sa_text(f"INSERT INTO `{target}` ({', '.join([f'`{c}`' for c in bcols])}) VALUES {placeholders}"), params)
+                    await self.session.execute(sa_text(f'INSERT INTO "{target}" ({", ".join([f"\"{c}\"" for c in bcols])}) VALUES {placeholders}'), params)
             # P0-1: 注册 DWD 目标表 — 在同一事务内，失败则回滚全部
             existing_rt = (await self.session.execute(
                 select(RegisteredTable).where(RegisteredTable.table_name == target)
