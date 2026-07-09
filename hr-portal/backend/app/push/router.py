@@ -72,6 +72,10 @@ class RunIn(BaseModel):
 # ===== helpers =====
 
 def _to_out(pt: PushTarget) -> PushTargetOut:
+    # 报表来源推导标签
+    label = pt.source_label
+    if not label and pt.source_type == "report" and pt.source_table.startswith("report:"):
+        label = f"报表 #{pt.source_table.split(':', 1)[1]}"
     return PushTargetOut(
         id=pt.id,
         source_table=pt.source_table,
@@ -89,7 +93,7 @@ def _to_out(pt: PushTarget) -> PushTargetOut:
         updated_at=pt.updated_at.isoformat(),
         source_type=pt.source_type,
         source_id=pt.source_id,
-        source_label=pt.source_label,
+        source_label=label,
     )
 
 
