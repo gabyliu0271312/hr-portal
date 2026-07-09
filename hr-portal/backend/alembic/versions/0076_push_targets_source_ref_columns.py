@@ -29,7 +29,7 @@ def upgrade() -> None:
         SET source_type = COALESCE(NULLIF(settings->'source_ref'->>'source_type', ''), 'table'),
             source_id   = COALESCE(NULLIF(settings->'source_ref'->>'source_id', ''), source_table),
             source_label = COALESCE(settings->'source_ref'->>'source_label', '')
-        WHERE settings ? 'source_ref'
+        WHERE settings->>'source_ref' IS NOT NULL
     """)
     # 3. 回填：无 source_ref 的旧数据（与 pass 1 互斥）
     op.execute("""
@@ -47,7 +47,7 @@ def upgrade() -> None:
                 ELSE source_table
             END
         WHERE source_type = 'table' AND source_id = ''
-          AND NOT (settings ? 'source_ref')
+          AND settings->>'source_ref' IS NULL
     """)
 
 
