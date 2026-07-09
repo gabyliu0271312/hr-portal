@@ -804,7 +804,8 @@ async def push_db_expose(
             placeholders = ", ".join(f":col_{i}" for i in range(len(col_names)))
             insert_sql = f"INSERT INTO {schema_q}.{finebi_table_q} (id, synced_at, {insert_cols}) VALUES (DEFAULT, NOW(), {placeholders})"
             for row in rows:
-                await db.execute(text(insert_sql), {f"col_{i}": row.get(c) for i, c in enumerate(col_names)})
+                str_params = {f"col_{i}": str(row.get(c)) if row.get(c) is not None else None for i, c in enumerate(col_names)}
+                await db.execute(text(insert_sql), str_params)
     else:
         await db.execute(text(
             f"INSERT INTO {schema_q}.{finebi_table_q} "
