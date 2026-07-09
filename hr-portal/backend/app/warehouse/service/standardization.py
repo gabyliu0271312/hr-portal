@@ -380,8 +380,15 @@ class StandardizationRuleService:
         for target_col in columns:
             if not target_col or target_col in seen:
                 continue
-            seen.add(target_col)
             col_meta = dwd_by_code.get(target_col)
+            # Dataset outputs drive front-end visible fields. Keep physical DWD
+            # technical columns for PK/audit, but do not publish hidden metadata
+            # columns such as id/pk_hash/synced_at to the dataset field list.
+            if col_meta is not None and not bool(col_meta.is_visible):
+                continue
+            if col_meta is None and _is_system_technical_column(target_col):
+                continue
+            seen.add(target_col)
             self.session.add(DatasetOutputField(
                 dataset_id=ds.id,
                 source_alias=source_alias,
