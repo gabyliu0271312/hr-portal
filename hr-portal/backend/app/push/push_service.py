@@ -727,7 +727,7 @@ async def push_db_expose(
     safe_source = source_table.replace(":", "_") if is_report_source(source_table) else source_table
     pt_id = str(settings.get("_pt_id") or "").strip()
     target_key = f"{safe_source}_{pt_id}" if pt_id else safe_source
-    readonly_user = settings.get("readonly_user") or f"ro_{target_key}"[:63]
+    readonly_user = settings.get("readonly_user") or f"ro_{target_key}_{py_secrets.token_hex(4)}"[:63]
     password = secrets.get("readonly_password", "")
     if not password:
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="

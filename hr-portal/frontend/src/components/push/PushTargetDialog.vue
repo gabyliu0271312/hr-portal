@@ -496,7 +496,7 @@ defineExpose({ open })
             <el-descriptions-item label="Schema">
               <el-text copyable>{{ currentTarget.settings.schema }}</el-text>
             </el-descriptions-item>
-            <el-descriptions-item label="表名（在 FineBI SQL 中直接使用）">
+            <el-descriptions-item label="表名">
               <el-text copyable>{{ currentTarget.settings.view || currentTarget.settings.table }}</el-text>
             </el-descriptions-item>
             <el-descriptions-item label="JDBC URL">
