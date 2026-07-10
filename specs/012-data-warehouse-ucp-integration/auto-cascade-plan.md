@@ -1,6 +1,6 @@
 # 自动化数仓开发三期规划 — ODS→DWD 自动化 + 指标驱动 + L4 全自动级联
 
-> 本文件定义自动化数仓开发能力的三期建设路线，按优先级分三期交付。
+> 本文件定义自动化数仓开发能力的三期建设路线，三期全部进入开发排期，但必须按阶段准入门槛分期交付、分期灰度、分期回滚。
 >
 > **第一期（本期优先）**：ODS→DWD 自动化级联 — ODS 数据源同步完成后自动触发 DWD 标准化，消除人工"同步完再去配方构建器点执行"的断点。
 >
@@ -27,7 +27,7 @@
 
 **目标用户：** 数据管理员、数据建模人员、指标负责人、报表开发者。
 
-**本期要实现（Z 章整体）：** 三期递进，每期独立可交付、独立可回滚。
+**本期要实现（Z 章整体）：** 三期全部纳入开发排期，但按 Z01 → X05 → Z03 顺序推进；每期可独立灰度、独立验收、独立回滚，后续期启动必须满足前一期退出门槛。
 
 **本期不实现：**
 - 不在第一期就开放全自动级联。
@@ -56,6 +56,174 @@
 5. ❌ 不新建第二套调度系统。
 6. ❌ L4 全自动级联默认关闭，仅在审批通过后对试点空间开放。
 
+
+### 排期与阶段门槛
+
+| 阶段 | 排期状态 | 启动条件 | 退出门槛 | 允许灰度范围 |
+|------|----------|----------|----------|--------------|
+| 第一期 Z01 | 进入开发排期，优先交付 | R0108 已完成，现有 ODS 同步和 DWD 标准化可稳定手工执行 | Z0108 专项验收通过；试点空间连续运行 7 天；自动执行成功率 >= 98%；审计完整率 100%；失败可读错误率 100%；完成 1 次回滚/关闭演练 | <= 2 个试点空间、<= 10 张 ODS 表 |
+| 第二期 X05 | 进入开发排期，分小版本交付 | Z0108 通过，且 Z01 试点无 P0/P1 数据事故 | X0513 专项验收通过；DWS/ADS 草稿、发布、回滚、影响分析、BI 契约均有 E2E 证据；SQL 安全和权限测试通过 | <= 2 个主题域、<= 20 个指标 |
+| 第三期 Z03 | 进入开发排期，但只允许远期受控试点 | X0513 通过，且 X05 受控发布连续运行 14 天无 P0/P1 数据事故 | Z0306 专项验收通过；紧急停止、频率上限、阻断降级、一键回滚均有演练证据；试运行 >= 2 周无事故 | 首批 <= 5 个低风险指标 |
+
+**阶段推进规则：** 可以提前做技术预研和接口预留，但不得绕过启动条件开放给业务用户；任何阶段出现 P0/P1 数据事故，下一阶段自动暂停，直到事故复盘和补救项关闭。
+
+### 统一交付规格
+
+每个原子任务勾选前必须同时满足以下交付物，缺任一项不得标记完成：
+
+1. **功能交付：** 后端服务、API、前端入口、权限策略、feature flag 状态全部按任务范围落地。
+2. **数据交付：** 新增表、字段、枚举、审计事件、版本记录必须有 migration/seed 和回滚说明。
+3. **安全交付：** 权限、敏感字段、SQL 注入、越权访问、审计脱敏必须有测试证据。
+4. **可观测交付：** 成功、失败、阻断、回滚、跳过、降级都必须写审计日志，并能通过 trace id 串联。
+5. **验收交付：** 单元测试、API 测试、前端 build、关键 E2E、手工走查截图/记录必须在专项验收中列出。
+6. **回滚交付：** 所有影响生产资产的任务必须说明关闭 feature flag 后的行为，以及已发布资产如何回退。
+
+### 风险分级矩阵
+
+| 风险等级 | 判定条件 | 自动化策略 | 审批要求 |
+|----------|----------|------------|----------|
+| 低风险 | 不含敏感字段；不改变既有字段类型/含义；下游登记消费 <= 3 个；近 3 次手工/受控发布成功；小样本检查 PASS；同一主题域内加工 | 可进入 L4 试点候选 | 数据管理员审批 |
+| 中风险 | 含脱敏后可用字段；新增字段但不删除/改义；下游登记消费 4-10 个；存在 WARN 级质量或小样本提示 | 只允许草稿 + 人工确认发布 | 指标负责人 + 数据管理员确认 |
+| 高风险 | 含未脱敏敏感字段；删除字段/修改字段类型/修改核心口径；跨主题域；下游登记消费 > 10 个；质量门禁 BLOCK；小样本 BLOCK；新口径未经评审 | 禁止自动发布，只生成方案或阻断 | 需专项评审，L4 不开放 |
+
+**默认规则：** 无法判断风险等级时按高风险处理；未登记下游不代表无影响，影响分析必须展示“未知外部消费风险”。
+
+### 门禁与默认阈值
+
+| 门禁 | PASS | WARN | BLOCK |
+|------|------|------|-------|
+| 同步状态 | `sync_status=success` | 不适用 | `sync_status=failed` 或缺失关键 payload |
+| 小样本 | 样本量 >= 30 | 10 <= 样本量 < 30 | 样本量 < 10 且包含人员/组织/薪酬等敏感维度 |
+| 质量规则 | 全部通过 | 非关键规则失败但不影响发布字段 | 关键字段缺失、主键重复、口径依赖缺失 |
+| 权限继承 | 所有字段可继承或已脱敏 | 部分字段需隐藏 | 存在无权限字段进入输出 |
+| 下游影响 | 仅新增兼容字段 | 新增字段或说明变更 | 删除字段、改类型、改口径、影响高风险报表 |
+
+### ODS→DWD 同步语义规则
+
+ODS→DWD 自动更新必须与 ODS 表自身的同步逻辑保持一致，禁止统一按“只追加新增”处理。每张表必须显式配置 ODS 同步语义和 DWD 更新策略。
+
+| ODS 同步语义 | DWD 更新策略 | 适用场景 | 名单减少时处理 |
+|--------------|--------------|----------|----------------|
+| `full_snapshot` 当前全量快照 | `incremental_upsert` + 缺失行失效，或 `full_refresh` | 每次拉取结果代表当前完整名单/组织/维表 | 本次 ODS 不再出现的主键必须在 DWD current view 中失效或过滤，禁止保留幽灵数据 |
+| `incremental_append` 增量追加 | `append` 或 `incremental_upsert` | ODS 每次只新增历史事件/流水 | 不按缺失行删除历史，保留追加记录 |
+| `incremental_upsert` 增量更新 | `incremental_upsert` | ODS 提供业务主键和更新时间/hash | 按主键更新变更行，不出现的行不自动失效，除非源系统提供删除标记 |
+| 无可靠主键/更新时间 | `full_refresh` 或 `passthrough_view` | 不具备可靠增量条件 | 不允许伪增量；必须全量刷新或直通最新 ODS |
+
+**默认规则：**
+1. HR 名单、组织、成本中心等“当前状态类”表默认按 `full_snapshot` 处理；DWD 必须反映最新名单，不能只追加新增。
+2. DWD 当前态推荐使用软失效（`is_active=false` / `is_deleted=true` / `valid_to`）或 current view 过滤，不默认物理删除历史。
+3. 审计必须记录新增、更新、失效、跳过、失败数量，以及本次 `source_run_id`。
+4. `cleaning_rule` 模式下，系统必须判断清洗规则是否支持增量；字段重命名、类型转换、枚举映射、空值处理可增量，去重、跨行聚合、窗口计算、全表一致性校验等规则默认需要 `full_refresh` 或分区重算。
+5. `passthrough` 模式下，如果 ODS 为全量覆盖表，DWD view 指向最新 ODS 结果；如果 ODS 为累积批次表，DWD view 必须按 `source_run_id` / `source_synced_at` 取最新有效批次，不能暴露历史累积脏数据。
+
+### ODS 数据变更来源与统一事件规则
+
+所有会改变 ODS 行数据的入口都必须统一发布 `ods_table_data_changed` 事件，不允许只有接口拉取触发自动化，而前端手工或 Excel 上传不触发。
+
+| 数据来源 | 典型操作 | 统一事件 | 说明 |
+|----------|----------|----------|------|
+| 接口/API 同步 | 定时拉取、手动拉取、Webhook 写入 | `ods_table_data_changed(source=api_sync)` | `datasource_sync_completed` 记录同步完成；实际 ODS 数据变化统一落到本事件 |
+| Excel 上传 | 覆盖、追加、upsert、删除上传 | `ods_table_data_changed(source=excel_upload)` | Excel 上传模式由数据来源/上传规则决定，不在 ODS→DWD 层硬编码 |
+| 前端手动编辑 | 新增行、编辑行、删除行 | `ods_table_data_changed(source=manual_edit)` | 手动删除也必须触发自动化检查 |
+| 批量操作 | 批量粘贴、批量导入、批量删除 | `ods_table_data_changed(source=bulk_operation)` | 必须记录批次和影响行数 |
+
+`ods_table_data_changed` payload 至少包含：`table_name`、`data_change_id`、`source`、`change_type`（`row_inserted` / `row_updated` / `row_deleted` / `bulk_inserted` / `bulk_updated` / `bulk_deleted` / `bulk_replaced` / `bulk_upserted`）、`affected_row_count`、`business_keys`、`source_run_id` 或 `upload_batch_id`、`changed_by`、`changed_at`。
+
+**来源与策略边界：** 数据来源（接口、Excel、前端手动、批量导入）只描述 ODS 数据如何进入系统，不直接决定 DWD 写入策略。DWD 写入策略只读取该 ODS 表已配置的 `ods_sync_semantics`、`dwd_write_strategy`、`missing_row_strategy`、`business_key_fields`。Excel 覆盖/追加/upsert 的语义必须在数据来源或上传规则中先落成 ODS 表同步语义，ODS→DWD 层不重新解释 Excel 模式。
+
+**手动删除/历史修订规则：**
+1. `full_snapshot`：手动删除或来源减少代表当前名单减少，DWD 按 `missing_row_strategy` 标记失效/从 current view 过滤。
+2. `incremental_append`：手动编辑/删除历史行不得静默改历史；系统应生成 correction/reversal/supersede 修订方案，进入 REVIEW_REQUIRED 或 APPROVAL_REQUIRED。
+3. `incremental_upsert`：有明确删除操作或 delete flag 时才失效；无业务主键时不得自动增量删除。
+4. 无可靠主键：阻断伪增量，要求全量刷新、补主键，或进入确认/审批流程。
+
+### ODS 元数据继承与清洗覆盖规则
+
+DWD 默认应以 ODS 字段元数据为基线完整继承，清洗规则只作为覆盖层。禁止只按清洗规则生成 DWD `table_columns` 和 `dataset_output_fields`，否则会导致未配置规则的 ODS 字段在 DWD 数据中存在、但元数据和输出字段缺失。
+
+**默认继承字段：** `column_code`、`column_label`、`data_type`、`is_pk_part`、`is_sensitive`、`is_visible`、`display_order`、`description`、`scope_role`。其中 `table_columns.is_pk_part` 是业务主键，必须与 SQLAlchemy/数据库物理主键区分；物理主键可继续使用 `id` 或 synthetic id。
+
+| 清洗规则类型 | DWD 元数据处理 |
+|--------------|----------------|
+| 无清洗规则 / `passthrough` | DWD 字段、字段展示名、业务主键、敏感标记、排序默认与 ODS 一致 |
+| `rename` | DWD 字段 code 改为 `target_field`；label 默认继承 ODS label，除非规则配置 `output_label`；`is_pk_part` 跟随原字段 |
+| `type_convert` | 字段名不变时继承 label/主键/敏感/排序；`data_type` 按转换后类型更新 |
+| `value_map` / `unit_convert` | `target_field == source_field` 时覆盖原字段值且元数据继承原字段；`target_field != source_field` 时视为派生字段 |
+| `split_merge` / 跨字段派生 | 视为新派生字段，必须由规则显式配置 label、类型、敏感标记、主键属性默认 false |
+
+**变更跟随规则：**
+1. ODS `column_label`、`is_pk_part`、`is_sensitive`、`display_order` 等元数据变更后，下次 ODS→DWD 更新必须同步到 DWD 元数据，除非 DWD 字段被清洗规则显式覆盖。
+2. ODS 物理字段 `column_code` 默认不允许编辑；如果通过迁移或外部方式变更，必须触发规则重绑定校验，找不到 `source_field` 时阻断自动执行并提示用户修正规则。
+3. DWD `dataset_output_fields` 必须以最终 DWD 字段清单生成：先继承 ODS 字段，再应用清洗规则覆盖和派生字段追加。
+4. 审计必须记录本次 DWD 元数据同步摘要：继承字段数、覆盖字段数、派生字段数、字段删除/失效数、主键标记变化数、敏感标记变化数。
+
+### 事件执行一致性规则
+
+1. `datasource_sync_completed` 事件必须总是记录审计；如果同步实际写入 ODS 数据，必须同时发布或派生 `ods_table_data_changed`。
+2. `ods_table_data_changed` 是 ODS 数据变化触发 DWD 更新的统一事件，覆盖接口同步、Excel 上传、前端手动增删改、批量导入/删除。
+3. `ods_table_metadata_changed` 事件也必须触发 ODS→DWD 自动化检查；展示名、业务主键、敏感标记、可见性、排序、描述等纯元数据变更只同步 DWD 元数据和输出字段，不重跑数据清洗；字段新增/删除/`column_code` 变更必须执行规则重绑定和影响校验。
+4. `standardization_rule_changed` 必须触发 DWD 规则产物重算/校验，并向下游生成 DWS/ADS/DWA 影响分析；`ods_dwd_automation_config_changed` 必须触发配置校验、预览和可选试跑。
+5. 自动化执行幂等键统一为 `trigger_type + source_id + table_name/metric_id + source_run_id/data_change_id/metadata_change_id/rule_change_id/config_change_id`；同一幂等键只能成功消费一次。
+6. 同一 ODS 表的 ODS→DWD 自动化执行必须串行；执行中收到新事件时进入队列或标记为 skipped_with_running，禁止并发更新同一 DWD 资产。
+7. 默认失败不自动无限重试；可配置最多 1 次安全重试，重试仍失败则降级为人工处理。
+8. 所有跳过、待确认、待审批、失败、重试、降级都必须写入审计，并展示给用户。
+
+### ODS→DWD→DWS→ADS/DWA 全链路变更传播规则
+
+L4 全自动级联完成后，目标不是只更新 DWD，而是对已审批的低风险指标，在受控门禁下把平台内受控变更从 ODS 传播到 DWD、DWS、ADS/DWA 的表、view、字段元数据、数据集输出字段和消费契约。未进入 L4 的指标仍按第二期规则只生成草稿和影响分析，不自动发布生产 DWS/ADS。
+
+**全链路触发源：**
+| 触发源 | 第一阶段默认行为 | 第二期默认行为 | L4 行为 |
+|--------|------------------|----------------|---------|
+| `datasource_sync_completed` | 更新 DWD 数据/元数据 | 生成 DWS/ADS 影响分析或草稿 | 低风险指标自动刷新/发布 DWS、ADS/DWA |
+| `ods_table_metadata_changed` | 更新 DWD 元数据，必要时阻断 | 生成 DWS/ADS schema 影响分析 | 低风险元数据变更自动传播到 DWS/ADS/DWA，敏感/删除/改类型阻断 |
+| `standardization_rule_changed` | 重新校验并更新 DWD 规则产物 | 生成依赖 DWS/ADS 变更草稿 | 低风险规则变更自动级联，规则高风险时阻断 |
+| `ods_dwd_automation_config_changed` | 配置校验，可选手动试跑 | 生成影响分析 | 不自动发布，除非指标已审批 L4 且门禁 PASS |
+| `dwd_data_refreshed` | 记录 DWD 刷新结果 | view 型 DWS 自动读取新数据，物化 DWS 生成刷新任务 | L4 指标自动刷新物化 DWS/ADS/DWA |
+| `dwd_schema_changed` / `dwd_metadata_changed` | 记录 DWD schema/元数据变化 | DWS/ADS 依赖校验、草稿更新 | L4 低风险自动传播，高风险阻断并退回草稿 |
+
+**同步对象：**
+1. DWD：实体表/view、current view、`table_columns`、`dataset_output_fields`、血缘、权限、审计。
+2. DWS：聚合 view/物化表、DWS 字段元数据、聚合口径版本、依赖 DWD 血缘、物化刷新状态。
+3. ADS/DWA：消费 view/物化表、消费字段元数据、权限/脱敏继承、BI/帆软消费契约、下游影响记录。
+4. 数据集：所有层级的 `dataset_output_fields` 必须从对应层最终字段清单生成，不能独立维护一套字段逻辑。
+
+**DWS/ADS/DWA 更新语义：**
+- 如果 DWS/ADS/DWA 是 view，且上游只是数据刷新、schema 不变，则 view 天然读取最新数据，只需记录刷新审计和最近数据时间。
+- 如果 DWS/ADS/DWA 是物化表，DWD 更新后必须触发物化刷新；刷新失败时保留旧版本并记录“上游已更新、物化刷新失败”。
+- 如果 DWD schema、字段类型、字段删除、业务主键、敏感标记发生变化，默认进入影响分析；第二期只生成草稿，L4 仅对低风险且门禁 PASS 的指标自动发布。
+- ADS/DWA 不自动修改帆软/BI 报表设计，只更新已发布消费资产和消费契约；下游报表变更仍需人工处理或外部系统能力支持。
+- 字段删除、字段类型变化、核心口径变化、敏感标记升高、跨主题域影响默认高风险，L4 必须阻断并保存草稿。
+
+**L4 完成态验收口径：**
+L4 不是“所有变更无条件自动发布”，而是：对已审批的低风险指标，平台内受控的 ODS 数据、ODS 元数据、清洗规则、自动化配置、DWD 数据/元数据变化，能够自动完成 DWD → DWS → ADS/DWA 的表/view、数据集输出字段、血缘、权限、审计和消费契约更新；对中高风险变更自动阻断并生成草稿/影响分析。
+
+### L4 风险状态机与连续执行规则
+
+L4 不等于所有变更无条件静默发布，也不等于遇到风险就中断后续链路。L4 的目标是：系统自动完成底层校验、影响分析、变更方案和审批/确认流转；用户确认或审批通过后，由系统继续自动执行 DWD→DWS→ADS/DWA 全链路，不要求用户手工重跑各层任务。
+
+| 状态 | 触发条件 | 系统行为 | 是否继续自动链路 |
+|------|----------|----------|------------------|
+| `PASS` | 低风险，所有门禁通过 | 自动发布/刷新 DWS、ADS/DWA、数据集输出字段、消费契约 | 是，立即继续 |
+| `WARN` | 低风险但有非阻断告警 | 自动继续并通知，审计记录 WARN | 是，继续 |
+| `REVIEW_REQUIRED` | 中风险，如字段删除影响少量下游、可兼容类型变化、追加表历史修订可生成修订方案 | 自动生成影响分析和变更方案，用户确认后系统继续执行 | 是，确认后继续 |
+| `APPROVAL_REQUIRED` | 高风险，如核心口径变化、大范围下游影响、敏感字段策略变化、跨主题域影响 | 自动生成审批单、修复/回滚方案和影响报告，审批通过后系统继续执行或回滚 | 是，审批后继续 |
+| `FAILED` | 技术失败、规则无法绑定、数据校验无法生成可执行方案 | 保留旧版本，停止对外可见发布，给出修复建议 | 否，修复后重新触发 |
+
+**典型风险处理：**
+1. 字段删除：自动扫描 DWS、ADS/DWA、数据集和 BI/帆软消费契约依赖，生成“下游字段同步下线 / 保留字段置空 / 替换为新字段 / 回滚上游变更”等方案，确认或审批后继续级联。
+2. 字段类型变化：自动做兼容性校验；可无损转换自动继续，有异常样本则进入 REVIEW_REQUIRED，不兼容则进入 APPROVAL_REQUIRED 或 FAILED。
+3. 敏感标记升高：优先自动收紧 DWD→DWS→ADS/DWA 权限和脱敏策略；如导致下游不可用，进入 REVIEW_REQUIRED，但不要求用户手工重跑发布。
+4. `incremental_append` 历史修订：优先生成 correction/reversal/supersede 修订记录方案，确认或审批后系统继续刷新下游 effective/current view。
+5. 所有确认/审批通过后的动作必须由系统继续执行剩余链路，禁止把用户丢回手工 DWS/ADS/DWA 发布流程。
+
+### 发布事务与失败补偿规则
+
+1. DWS/ADS 发布必须使用版本号，发布前写入待发布版本，发布成功后再标记为 active。
+2. L4 全链路不得留下用户不可解释的半发布状态；若 DWS 已发布而 ADS 失败，系统必须自动执行补偿回滚，或将本次发布标记为 `partial_failed` 并冻结对外可见性，等待人工确认。
+3. “不会部分发布”的验收含义是：对帆软/BI/业务用户可见的消费资产不会停留在 DWS 新版本、ADS 旧版本且无提示的状态。
+4. 一键回滚默认只回滚最近一次自动发布；多次发布需逐次回滚，并保留完整审计。
+
 ---
 
 # 第一期：ODS→DWD 自动化级联
@@ -64,28 +232,29 @@
 
 ### 功能需求说明与目的
 
-**功能定位：** Z01 在第一期最优先级解决 ODS 数据源同步完成后自动触发 DWD 标准化的核心痛点。当前链路为：DataSource 定时同步 ODS → 用户收到通知 → 打开"数据加工配方构建器" → 手动点击"执行" → 发布 DWD 视图。Z01 将"用户手动点击执行"替换为"用户在配置页一次性声明 ODS 表与标准化规则的关联关系，之后每次 ODS 同步完成自动触发 DWD 标准化执行"。
+**功能定位：** Z01 在第一期最优先级解决 ODS 数据源同步完成后自动触发 DWD 更新的核心痛点。当前链路为：DataSource 定时同步 ODS → 用户收到通知 → 打开"数据加工配方构建器" → 手动点击"执行" → 发布 DWD 视图。Z01 将"用户手动点击执行"替换为"用户在配置页一次性声明 ODS 表与 DWD 更新策略，之后每次 ODS 同步成功后自动更新 DWD"。DWD 更新策略分为两类：有清洗规则时调用清洗/标准化规则后更新；无清洗规则但显式选择直通模式时，按 ODS 字段直通刷新 DWD。完全无配置时不得自动更新 DWD，只记录跳过。
 
 **要解决的问题：** ODS 定时同步已由 `datasource_sync` handler 全自动完成，但 DWD 标准化仍需人工介入，导致数仓分层流转出现"半自动"断点。Z01 消除这个断点。
 
 **目标用户：** 数据建模人员、数据管理员。
 
 **核心使用场景：**
-- 数据建模人员在 ODS 表上配置好标准化规则后，打开"自动化配置"面板，将此 ODS 表关联到已配置的规则集。
-- 选择触发策略："ODS 同步成功后自动执行"或"手动执行（默认）"。
-- 每次 DataSource 定时同步或手动拉取完成后，系统自动检查该 ODS 表是否配置了自动化规则，如有则执行标准化并更新 DWD 视图/表。
+- 数据建模人员在 ODS 表上配置 DWD 更新策略：选择"使用清洗规则"并关联规则集，或选择"不清洗，直通更新 DWD"并确认目标 DWD 资产。
+- 选择触发策略："ODS 同步成功后自动执行"或"仅在数据清洗页手动执行（默认）"。
+- 每次 DataSource 定时同步或手动拉取成功后，系统自动检查该 ODS 表是否配置了自动化规则：`cleaning_rule` 模式调用清洗/标准化规则后更新 DWD；`passthrough` 模式直接刷新 DWD 直通视图；无配置或 `manual_only` 时不由自动化事件触发，维持数据清洗页手动点击执行链路，并写审计。
+- 每次 ODS 字段展示名、业务主键、敏感标记、可见性、排序、描述、字段新增/删除等元数据变更后，系统也必须自动检查并同步 DWD 元数据；高风险字段结构变更需阻断并提示修正规则。
 - 用户可在审计页查看每次自动触发的执行记录、成功/失败状态和影响行数。
 
 **本期要实现：**
-- `datasource_sync_completed` 标准事件注册。
-- `trigger_dwd_standardization` 自动化动作注册。
-- ODS 同步完成后的事件发布（在 `sync_service.py` 中）。
-- ODS→DWD 自动化规则配置 UI（在数据加工配方构建器内或数据资产详情页）。
+- `datasource_sync_completed`、`ods_table_data_changed`、`ods_table_metadata_changed`、`standardization_rule_changed`、`ods_dwd_automation_config_changed` 标准事件注册。
+- `trigger_dwd_standardization` 自动化动作注册，支持 `cleaning_rule` 与 `passthrough` 两种 DWD 更新模式。
+- ODS 数据变更后的事件发布（接口同步、Excel 上传、前端手动增删改、批量导入/删除均需发布 `ods_table_data_changed`）。
+- ODS→DWD 自动化规则配置 UI（数据加工配方构建器/数据资产详情页快捷入口 + 数据仓库自动化配置中心）。
 - Feature flag 控制，默认关闭。
 - 自动执行审计记录。
 
 **本期不实现：**
-- 不自动创建标准化规则（规则仍需人工配置）。
+- 不自动创建标准化规则（清洗规则仍需人工配置）；无清洗规则时只允许用户显式选择 `passthrough` 直通模式，不允许系统默认直通。
 - 不自动跳过质量门禁。
 - 不在 ODS 层做业务口径加工。
 - 不将自动化级联到 DWS/ADS（那是第二期、第三期的范围）。
@@ -109,45 +278,45 @@
   - 验收标准：未开启时用户看不到自动化配置入口或入口灰显不可用；开启后仅试点空间可配置。
   - 完成定义：开发、UI、权限、测试、验收全部满足，并在最终回复中列出证据后才可勾选。
 
-- [ ] Z0102 注册 `datasource_sync_completed` 标准事件类型。
+- [ ] Z0102 注册 ODS→DWD 自动化标准事件类型。
   - 前置任务：Z0101。
-  - 功能范围：在 `app/automation/trigger_registry.py` 中新增 `datasource_sync_completed` 触发器类型；在 `app/automation/events.py` 中补充事件文档说明；事件 payload 包含 `datasource_id`、`table_name`、`sync_status`（success/failed）、`sync_rows`、`sync_message`。
-  - 代码交付物：`trigger_registry.py` 新增注册项、`events.py` 文档更新、事件 schema 定义。
+  - 功能范围：在 `app/automation/trigger_registry.py` 中新增 `datasource_sync_completed`、`ods_table_data_changed`、`ods_table_metadata_changed`、`standardization_rule_changed`、`ods_dwd_automation_config_changed` 触发器类型；在 `app/automation/events.py` 中补充事件文档说明。`datasource_sync_completed` payload 包含 `datasource_id`、`table_name`、`sync_status`（success/failed）、`sync_rows`、`sync_message`、`source_run_id`。`ods_table_data_changed` payload 包含 `table_name`、`data_change_id`、`source`（`api_sync` / `excel_upload` / `manual_edit` / `bulk_operation`）、`change_type`（`row_inserted` / `row_updated` / `row_deleted` / `bulk_inserted` / `bulk_updated` / `bulk_deleted` / `bulk_replaced` / `bulk_upserted`）、`affected_row_count`、`business_keys`、`source_run_id` 或 `upload_batch_id`、`changed_by`、`changed_at`。`ods_table_metadata_changed` payload 包含 `table_name`、`metadata_change_id`、`change_type`（`label_changed` / `pk_changed` / `sensitive_changed` / `visibility_changed` / `order_changed` / `description_changed` / `column_added` / `column_removed` / `column_code_changed`）、`affected_columns`、`changed_by`、`changed_at`。`standardization_rule_changed` 和 `ods_dwd_automation_config_changed` 分别记录规则变更和自动化配置变更。事件必须全部进入审计；ODS 数据变更事件触发 DWD 数据/元数据更新，元数据变更事件触发元数据同步或规则重绑定校验，规则/配置变更触发校验、预览和影响分析。
+  - 代码交付物：`trigger_registry.py` 新增注册项、`events.py` 文档更新、事件 schema 定义、接口同步/Excel 上传/前端手动增删改/批量操作/ODS 字段配置/清洗规则配置/自动化配置保存处的事件发布调用。
   - UI 要求：不涉及 UI。
   - UCP / 数据仓库边界要求：仅发布仓内 ODS 同步完成事件；UCP 同步事件由 UCP 自行管理。
-  - 测试要求：单元测试覆盖事件注册不冲突、事件 schema 合法字段校验。
-  - 验收标准：`datasource_sync_completed` 事件类型在 trigger registry 中可见，可被自动化规则引擎匹配。
+  - 测试要求：单元测试覆盖事件注册不冲突、事件 schema 合法字段校验、failed 事件只审计不触发下游、接口同步写入 ODS 后发布 `ods_table_data_changed`、Excel 上传发布 `ods_table_data_changed(source=excel_upload)`、前端手动新增/编辑/删除行发布 `ods_table_data_changed(source=manual_edit)`、批量导入/删除发布 `ods_table_data_changed(source=bulk_operation)`、ODS 展示名/业务主键/敏感标记/排序/字段新增删除变更时发布 `ods_table_metadata_changed`、清洗规则变更发布 `standardization_rule_changed`、自动化配置变更发布 `ods_dwd_automation_config_changed`。
+  - 验收标准：`datasource_sync_completed`、`ods_table_data_changed`、`ods_table_metadata_changed`、`standardization_rule_changed`、`ods_dwd_automation_config_changed` 事件类型在 trigger registry 中可见，可被自动化规则引擎匹配。
   - 完成定义：代码、测试满足，在最终回复中列出修改文件后才可勾选。
 
 - [ ] Z0103 注册 `trigger_dwd_standardization` 自动化动作。
   - 前置任务：Z0102、R0108（DWD 逻辑视图生成已实现）。
-  - 功能范围：在 `app/automation/action_registry.py` 中新增 `trigger_dwd_standardization` 动作；该动作接收 event payload 中的 `table_name`，查找该 ODS 表关联的标准化规则，调用 `StandardizationRuleService.execute_full()` 执行全量标准化，完成后调用 `generate_dwd_view()` 更新 DWD 视图。
-  - 代码交付物：`action_registry.py` 新增 action 函数 + 注册项、action 内部复用 `standardization.py` 的 `execute_full()` 和 `generate_dwd_view()`。
+  - 功能范围：在 `app/automation/action_registry.py` 中新增 `trigger_dwd_standardization` 动作；该动作接收 event payload 中的 `table_name`，根据事件类型执行不同路径：`ods_table_data_changed` 查找该 ODS 表的自动化配置并按 `update_mode`、`ods_sync_semantics`、`dwd_write_strategy`、`missing_row_strategy` 更新 DWD 数据和元数据；`datasource_sync_completed(sync_status=success)` 仅记录同步完成并派生/关联 `ods_table_data_changed`；`ods_table_metadata_changed` 只同步 DWD 元数据和 `dataset_output_fields`，字段新增/删除/`column_code` 变更需先执行规则重绑定和影响校验；`standardization_rule_changed` 触发规则产物重算/校验；`ods_dwd_automation_config_changed` 触发配置校验、预览和可选试跑。`cleaning_rule` 必须调用 `StandardizationRuleService.execute_full()` 执行清洗/标准化；`passthrough` 必须调用 DWD 直通视图生成/刷新服务，不得执行清洗规则；`manual_only` 时不由自动化事件触发，维持数据清洗页手动点击执行链路；无配置时跳过并写审计。执行必须遵守 Z00 的 ODS 数据变更来源、同步语义、元数据继承、幂等、串行和失败降级规则。
+  - 代码交付物：`action_registry.py` 新增 action 函数 + 注册项、action 内部复用 `standardization.py` 的 `execute_full()` 和 `generate_dwd_view()`；新增或复用 DWD passthrough view 生成/刷新服务；新增 DWD upsert/full refresh/缺失行失效的执行分支或调用点；新增 ODS 字段元数据继承到 DWD `table_columns` 和 `dataset_output_fields` 的同步逻辑；新增元数据变更专用同步路径，避免纯 label/主键/敏感标记变化时重跑数据清洗。
   - UI 要求：不涉及 UI。
-  - 必须复用：`app.warehouse.service.standardization.StandardizationRuleService.execute_full()`、`app.warehouse.service.standardization.StandardizationRuleService.generate_dwd_view()`。禁止在 action 中手写新的标准化执行逻辑。
+  - 必须复用：`app.warehouse.service.standardization.StandardizationRuleService.execute_full()`、`app.warehouse.service.standardization.StandardizationRuleService.generate_dwd_view()`。`cleaning_rule` 模式禁止绕过清洗规则；`passthrough` 模式必须显式记录为直通更新，禁止伪装成标准化执行。
   - UCP / 数据仓库边界要求：只执行仓内标准化，不触发 UCP Pipeline。
-  - 测试要求：单元测试覆盖 action 成功执行、无规则可执行（返回空结果）、ODS 表无标准化规则（跳过并记录）、执行异常（action 标记 failed）；集成测试覆盖 `datasource_sync_completed` 事件 → `trigger_dwd_standardization` action 的完整链路。
-  - 验收标准：自动化规则引擎可调用该 action 完成 ODS→DWD 标准化，执行结果写入 `automation_executions`，失败时有可读错误信息。
+  - 测试要求：单元测试覆盖 `cleaning_rule` 成功调用清洗规则、`passthrough` 成功刷新 DWD 直通视图、接口同步/Excel 上传/前端手动新增编辑删除/批量操作均通过 `ods_table_data_changed` 触发 DWD 更新、数据来源不改变 DWD 写入策略、`full_snapshot` 名单减少时 DWD current view 不保留幽灵数据、`incremental_append` 不误删历史且历史编辑/删除进入 REVIEW_REQUIRED 或 APPROVAL_REQUIRED、`incremental_upsert` 删除需有业务主键或 delete flag、ODS column_label/is_pk_part/is_sensitive/display_order 变更后通过 `ods_table_metadata_changed` 同步到 DWD 元数据且不重跑数据清洗、column_added 默认继承到 DWD、column_removed 进入变更方案或失效处理、column_code_changed 触发规则重绑定校验、rename/type_convert/value_map/split_merge 对元数据的覆盖规则、无规则字段仍进入 DWD `table_columns` 和 `dataset_output_fields`、source_field 找不到时进入 FAILED 或 APPROVAL_REQUIRED、无主键表拒绝伪增量或走 full_refresh、failed 事件只审计、无配置跳过并记录 `skipped:no_automation_config`、有清洗模式但规则缺失时失败、重复事件幂等跳过、同表并发串行、执行异常（action 标记 failed）；集成测试覆盖 `ods_table_data_changed`、`ods_table_metadata_changed`、`standardization_rule_changed`、`ods_dwd_automation_config_changed` → `trigger_dwd_standardization` action 的完整链路。
+  - 验收标准：自动化规则引擎可调用该 action 完成 ODS→DWD 更新；有清洗规则时能证明调用了规则集版本并更新 DWD；直通模式能刷新 DWD passthrough view；DWD 数据结果与 ODS 同步语义一致，当前名单减少时不会在 DWD current view 中残留幽灵数据；DWD 元数据以 ODS 为基线完整继承，只有清洗规则明确调整的字段才变化；无配置不会自动更新 DWD；所有结果写入 `automation_executions`，失败时有可读错误信息。
   - 完成定义：代码、测试满足，在最终回复中列出修改文件、测试命令和结果后才可勾选。
 
 - [ ] Z0104 实现 ODS→DWD 自动化规则配置 API。
   - 前置任务：Z0101、R0102（`standardization_rules` 表已存在）。
-  - 功能范围：新增 `ods_dwd_automation_configs` 表（`id`、`ods_table_name`、`standardization_rule_set_id` 或关联规则 ID 列表、`trigger_strategy`（`on_sync_success` / `manual_only`）、`enabled`、`created_at`、`updated_at`）；提供 CRUD API；每次 ODS 同步完成时查此表判断是否需要自动触发。
+  - 功能范围：新增 `ods_dwd_automation_configs` 表（`id`、`ods_table_name`、`target_dwd_asset_id`、`update_mode`（`cleaning_rule` / `passthrough` / `manual_only`）、`ods_sync_semantics`（`full_snapshot` / `incremental_append` / `incremental_upsert`）、`dwd_write_strategy`（`full_refresh` / `incremental_upsert` / `append` / `passthrough_view`）、`business_key_fields`、`missing_row_strategy`（`mark_inactive` / `keep_history` / `hard_delete`）、`standardization_rule_set_id` 或关联规则 ID 列表、`trigger_strategy`（`on_sync_success` / `manual_only`）、`enabled`、`created_at`、`updated_at`）；提供 CRUD API；每次 ODS 同步完成时查此表判断是否需要自动触发。`cleaning_rule` 模式必须绑定有效规则集；`passthrough` 模式必须绑定目标 DWD 资产并二次确认；`incremental_upsert` 必须配置业务主键；`full_snapshot` 必须配置缺失行处理策略；完全无配置不得自动更新 DWD。
   - 代码交付物：ORM/migration、router/service/schema、CRUD API。
   - UI 要求：不涉及 UI（供 Z0106 的前端消费）。
   - UCP / 数据仓库边界要求：只配置仓内 ODS 表。
-  - 测试要求：API 测试覆盖创建、更新 trigger_strategy、删除、同一 ODS 表重复配置 409、无权限 403、ODS 表不存在 404。
-  - 验收标准：CRUD API 可用，配置持久化正确，前端可据此渲染自动化配置面板。
+  - 测试要求：API 测试覆盖创建、更新 trigger_strategy、更新 update_mode、更新 ODS 同步语义、删除、同一 ODS 表重复配置 409、无权限 403、ODS 表不存在 404、cleaning_rule 无规则集 422、passthrough 无目标 DWD 资产 422、incremental_upsert 无业务主键 422、full_snapshot 无缺失行策略 422。
+  - 验收标准：CRUD API 可用，配置持久化正确；前端可据此渲染清洗规则模式、直通模式、手动模式、ODS 同步语义、DWD 写入策略、缺失行处理和无配置跳过状态。
   - 完成定义：ORM、API、测试满足，在最终回复中列出修改文件后才可勾选。
 
 - [ ] Z0105 ODS 同步完成时发布 `datasource_sync_completed` 事件。
   - 前置任务：Z0102。
-  - 功能范围：在 `app/datasources/sync_service.py` 的 `sync_to_table()` 函数末尾（同步成功路径），复用 scheduler engine 已有的事件发布模式，调用 `publish_event(AutomationEvent(trigger_type="datasource_sync_completed", ...))` 发布事件。发布时使用独立 session（参考 `handlers.py` 中 `_handler_report_run` 的做法）。
+  - 功能范围：在 `app/datasources/sync_service.py` 的 `sync_to_table()` 函数末尾发布 `datasource_sync_completed` 事件；同步成功发布 `sync_status=success`，同步失败发布 `sync_status=failed` 但不得触发下游标准化。事件发布复用 scheduler engine 已有模式，调用 `publish_event(AutomationEvent(trigger_type="datasource_sync_completed", ...))`，并使用独立 session（参考 `handlers.py` 中 `_handler_report_run` 的做法）。
   - 代码交付物：`sync_service.py` 修改、事件发布调用。
   - UI 要求：不涉及 UI。
   - UCP / 数据仓库边界要求：仅发布仓内 datasource 同步事件；UCP 数据源同步不在本期范围。
   - 测试要求：单元测试覆盖同步成功时事件发布、同步失败时事件发布（payload 含 `sync_status=failed`）、同步 0 行时事件发布；集成测试确认自动化规则引擎收到事件。
-  - 验收标准：每次 DataSource 同步完成后（无论手动/cron 触发），自动化引擎都能收到 `datasource_sync_completed` 事件。
+  - 验收标准：每次 DataSource 同步完成后（无论手动/cron 触发），自动化引擎都能收到 `datasource_sync_completed` 事件；成功事件可触发配置表的 DWD 标准化，失败事件只进入审计和失败提示。
   - 完成定义：代码、测试满足，在最终回复中列出修改文件和测试结果后才可勾选。
 
 - [ ] Z0106 ODS→DWD 自动化规则配置 UI。
@@ -186,17 +355,42 @@
 
 - [ ] Z0108 ODS→DWD 自动化专项验收。
   - 前置任务：Z0101-Z0107。
-  - 功能范围：对 ODS→DWD 自动化全链路进行专项验收，包括：feature flag 开关、事件发布、动作执行、UI 配置、审计记录、失败降级、权限控制。
+  - 功能范围：对 ODS→DWD 自动化全链路进行专项验收，包括：feature flag 开关、数据同步事件发布、统一 ODS 数据变更事件发布、元数据变更事件发布、清洗规则变更事件发布、自动化配置变更事件发布、接口同步、Excel 上传、前端手动新增/编辑/删除、批量导入/删除、清洗规则模式、直通模式、无配置跳过、全量快照、增量追加、增量 upsert、名单减少失效处理、追加表历史修订方案、ODS 元数据继承、ODS 元数据变更自动触发、清洗规则元数据覆盖、动作执行、UI 配置、审计记录、失败降级、权限控制。
   - 代码交付物：专项验收报告、E2E 测试记录、风险清单、上线/灰度方案、回滚方案。
-  - UI 要求：走查 U28 中所有状态：feature flag 关闭态、启用态、已配置规则、未配置规则（空态）、自动执行成功、自动执行失败（失败态）、执行中（加载态）、无权限（403态）。
+  - UI 要求：走查 U28 中所有状态：feature flag 关闭态、启用态、清洗规则模式、直通模式、无配置跳过（空态）、自动执行成功、自动执行失败（失败态）、执行中（加载态）、无权限（403态）。
   - UCP / 数据仓库边界要求：确认没有新增 UCP 凭证/Pipeline；确认只处理仓内 ODS 表。
-  - 测试要求：必须记录后端 API、前端 build、E2E、权限、安全、审计和性能测试结果；无法自动化的项需给出手工证据。
-  - 验收标准：ODS→DWD 自动化可以作为受控试点上线；feature flag 默认关闭；开启后仅配置了规则的表会触发自动执行。
+  - 测试要求：必须记录后端 API、前端 build、E2E、权限、安全、审计、性能、大表增量更新、接口同步、Excel 上传、前端手动增删改、批量导入/删除、名单减少、重复拉取幂等、ODS 展示名/业务主键/敏感标记/排序/描述变更触发 DWD 元数据同步、字段新增/删除处理、追加表历史修订方案、规则 source_field 失效处理测试结果；无法自动化的项需给出手工证据。
+  - 验收标准：ODS→DWD 自动化可以作为受控试点上线；feature flag 默认关闭；开启后仅配置了 `cleaning_rule` 或 `passthrough` 的表会触发自动执行，完全无配置的表只更新 ODS、不更新 DWD，并写跳过审计。
   - 完成定义：专项验收通过后，才允许向试点用户开放 ODS→DWD 自动化入口。
 
 ---
 
 ## U28 ODS→DWD 自动化配置线框图
+
+### U28.1 数据仓库自动化配置中心（主入口）
+
+```text
+数据仓库 > 自动化配置
+┌─────────────────────────────────────────────────────────────┐
+│ 数据仓库自动化配置                         [执行记录] [审计] │
+│ Feature Flag：warehouse.ods_dwd_automation  [试点中]        │
+├─────────────────────────────────────────────────────────────┤
+│ 筛选：空间 [全部]  状态 [全部]  模式 [全部]  关键字 [____]    │
+├─────────────────────────────────────────────────────────────┤
+│ ODS 表          DWD 资产          更新模式        ODS语义     │
+│ ods_employee    dwd_employee      清洗规则        全量快照    │
+│ ods_dept        dwd_dept          直通更新        全量快照    │
+│ ods_event_log   dwd_event_log     清洗规则        增量追加    │
+│ ods_salary_raw  -                未配置          仅更新 ODS │
+├─────────────────────────────────────────────────────────────┤
+│ 最近状态        最近执行          操作                       │
+│ success         2026-07-09 08:30  [编辑] [手动触发] [暂停]   │
+│ success         2026-07-09 08:20  [编辑] [手动触发] [暂停]   │
+│ skipped         -                 [配置自动化]               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### U28.2 数据建模/资产详情快捷入口（上下文入口）
 
 ```text
 数据仓库 > 数据建模 > 数据加工配方构建器 > 自动化配置
@@ -206,52 +400,92 @@
 ├─────────────────────────────────────────────────────────────┤
 │ 自动化配置                                                   │
 │ ┌─────────────────────────────────────────────────────────┐ │
-│ │ ODS→DWD 自动标准化                            [关闭自动化] │ │
+│ │ ODS→DWD 自动更新                              [暂停自动化] │ │
 │ │                                                         │ │
-│ │ 触发策略：○ ODS 同步成功后自动执行                        │ │
-│ │          ○ 仅手动执行（默认）                             │ │
+│ │ 目标 DWD 资产：dwd_employee                  [更换目标]   │ │
 │ │                                                         │ │
-│ │ 关联规则：8 条标准化规则（rename: 3, type_convert: 2,    │ │
-│ │           value_map: 1, null_handling: 2）               │ │
+│ │ DWD 更新模式：                                           │ │
+│ │   ● 使用清洗规则（推荐）                                 │ │
+│ │   ○ 不清洗，直通更新 DWD                                 │ │
+│ │   ○ 仅在数据清洗页手动执行                              │ │
+│ │                                                         │ │
+│ │ ODS 同步语义：● 当前全量快照  ○ 增量追加  ○ 增量更新     │ │
+│ │ DWD 写入策略：● 增量 upsert  ○ 全量刷新                 │ │
+│ │ 业务主键：employee_id                                    │ │
+│ │ 名单减少：● 标记失效并从 current view 过滤               │ │
+│ │                                                         │ │
+│ │ 清洗规则集：employee_standardization_rules v3             │ │
+│ │ 规则摘要：rename 3 / type_convert 2 / value_map 1         │ │
+│ │           null_handling 2                                │ │
 │ │           [查看规则详情] [跳转配方构建器]                  │ │
 │ │                                                         │ │
-│ │ 门禁要求：☑ 质量 PASS  ☑ 小样本 WARN  ☐ 阻断: 无        │ │
+│ │ 触发策略：● ODS 同步成功后自动执行                        │ │
+│ │          ○ 仅在数据清洗页手动执行                                    │ │
+│ │                                                         │ │
+│ │ 门禁要求：☑ 质量 PASS  ☑ 权限 PASS  ☐ 阻断: 无          │ │
 │ └─────────────────────────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────┤
 │ 最近执行记录                                                 │
 │ ┌─────────────────────────────────────────────────────────┐ │
-│ │ ● 2026-07-09 08:30  success  触发: cron  行数: 12,430   │ │
-│ │   耗时: 3.2s  标准化 8/8 规则通过  DWD 视图已刷新        │ │
+│ │ ● 2026-07-09 08:30  success  模式: 清洗规则  行数: 12,430│ │
+│ │   规则集 v3  标准化 8/8 规则通过  DWD 视图已刷新          │ │
 │ │                                                         │ │
-│ │ ● 2026-07-08 08:30  success  触发: cron  行数: 12,428   │ │
-│ │   耗时: 2.9s  标准化 8/8 规则通过  DWD 视图已刷新        │ │
+│ │ ● 2026-07-08 08:30  success  模式: 清洗规则  行数: 12,428│ │
+│ │   规则集 v3  标准化 8/8 规则通过  DWD 视图已刷新          │ │
 │ │                                                         │ │
-│ │ ● 2026-07-07 08:30  failed   触发: cron  行数: -        │ │
-│ │   耗时: 1.2s  规则 #4 type_convert 失败: 字段 hire_date  │ │
-│ │   包含无法解析的日期值 "2026-13-45"（行 8,231）           │ │
+│ │ ● 2026-07-07 08:30  failed   模式: 清洗规则              │ │
+│ │   规则 #4 type_convert 失败: 字段 hire_date 无法解析      │ │
 │ │   [展开错误详情] [手动重试]                               │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │                                    [查看全部执行记录]        │
 ├─────────────────────────────────────────────────────────────┤
-│ 操作：[保存配置] [手动触发一次] [重置为手动模式]              │
+│ 操作：[保存配置] [手动触发一次] [打开自动化配置中心]          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### U28.3 直通更新模式
+
 ```text
-数据仓库 > 数据建模 > 数据加工配方构建器 > 自动化配置（未配置规则 - 空态）
+数据仓库 > 自动化配置 > 编辑 ODS→DWD 自动化
+┌─────────────────────────────────────────────────────────────┐
+│ 资产：ods_dept              自动化状态：● 已启用             │
+├─────────────────────────────────────────────────────────────┤
+│ DWD 更新模式                                                 │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ○ 使用清洗规则                                           │ │
+│ │ ● 不清洗，直通更新 DWD                                   │ │
+│ │                                                         │ │
+│ │ 目标 DWD 资产：dwd_dept                                  │ │
+│ │ ODS 同步语义：● 当前全量快照  ○ 增量追加  ○ 增量更新     │ │
+│ │ DWD 写入策略：● 直通最新批次 view                         │ │
+│ │ 字段策略：保持 ODS 字段名和类型；仅生成 DWD 直通视图       │ │
+│ │ 风险提示：直通模式不做字段清洗、枚举映射、类型修正。       │ │
+│ │          若 ODS 是累积批次表，DWD 只能暴露最新有效批次。   │ │
+│ │          如需清洗，请切换为“使用清洗规则”。               │ │
+│ │                                                         │ │
+│ │ [我确认该表不需要清洗，可直通更新 DWD]                    │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ 操作：[保存配置] [取消]                                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### U28.4 无配置跳过状态
+
+```text
+数据仓库 > 数据建模 > 数据加工配方构建器 > 自动化配置（无配置）
 ┌─────────────────────────────────────────────────────────────┐
 │ 资产：ods_new_table           自动化状态：○ 未配置           │
 ├─────────────────────────────────────────────────────────────┤
 │ 自动化配置                                                   │
 │ ┌─────────────────────────────────────────────────────────┐ │
-│ │ ODS→DWD 自动标准化                          [暂不可用]   │ │
+│ │ ODS 拉取后当前只更新 ODS，不会自动更新 DWD                │ │
 │ │                                                         │ │
-│ │  ⚠ 尚未配置标准化规则                                    │ │
+│ │ 请选择一种 DWD 更新策略：                                │ │
+│ │   [使用清洗规则更新 DWD]                                 │ │
+│ │   [不清洗，直通更新 DWD]                                 │ │
 │ │                                                         │ │
-│ │ 开启自动化前，请先在配方构建器中为该表配置至少一条         │ │
-│ │ 标准化规则（字段重命名、类型转换、枚举映射等）。           │ │
-│ │                                                         │ │
-│ │ [前往配方构建器配置规则 →]                                │ │
+│ │ 未配置时，系统会记录 skipped:no_automation_config，       │ │
+│ │ 不会自动生成或刷新任何 DWD 资产。                         │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │ 最近执行记录                                                 │
 │ ┌─────────────────────────────────────────────────────────┐ │
@@ -260,31 +494,35 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### U28.5 feature flag 关闭态
+
 ```text
-数据仓库 > 数据建模 > 数据加工配方构建器 > 自动化配置（feature flag 关闭态）
+数据仓库 > 自动化配置
 ┌─────────────────────────────────────────────────────────────┐
-│ 资产：ods_employee          自动化状态：⛔ 未启用            │
-├─────────────────────────────────────────────────────────────┤
+│ ODS→DWD 自动化能力当前未启用                                 │
 │                                                             │
-│   ODS→DWD 自动化能力当前未启用                               │
-│                                                             │
-│   请联系管理员在系统设置中开启                                │
-│   warehouse.ods_dwd_automation feature flag。               │
-│                                                             │
-│   开启后，你可在此配置 ODS 同步完成后自动执行标准化规则。     │
-│                                                             │
+│ 请联系管理员开启 warehouse.ods_dwd_automation feature flag。 │
+│ 开启前，ODS 拉取仍可正常执行，但不会触发 DWD 自动更新。       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 交互说明：
-- 自动化配置面板默认位于数据加工配方构建器页面右侧或底部，作为独立卡片区域。
-- 触发策略默认为"仅手动执行"，用户需主动选择"ODS 同步成功后自动执行"才会生效。
-- 开启自动化时弹出二次确认，说明自动化的影响范围（该 ODS 表每次同步后自动执行标准化 + 更新 DWD 视图）。
-- 无标准化规则时自动化开关禁用，引导用户先配置规则。
-- feature flag 关闭时整个自动化配置面板灰显并展示原因。
-- 执行记录区默认展示最近 5 条，失败记录可展开错误详情。
-- "手动触发一次"按钮用于测试自动化配置是否正常工作，不等待下一次 cron 同步。
-- 所有操作写入审计日志（system_logs category=ods_dwd_automation）。
+- 主入口放在“数据仓库 > 自动化配置”，用于统一管理 ODS→DWD 自动化、执行记录、失败处理和审计；二期 X05、三期 Z03 后续也从这里扩展入口。
+- 数据加工配方构建器和 ODS/DWD 资产详情页只作为上下文快捷入口，便于用户在配置规则或查看资产时快速开启、暂停、手动触发。
+- 前端必须提供 DWD 更新模式配置：`cleaning_rule`（使用清洗规则）、`passthrough`（不清洗直通更新 DWD）、`manual_only`（仅在数据清洗页手动执行）。
+- 前端必须提供 ODS 同步语义和 DWD 写入策略配置：`full_snapshot` / `incremental_append` / `incremental_upsert`，以及 `full_refresh` / `incremental_upsert` / `append` / `passthrough_view`。
+- `cleaning_rule` 模式下必须选择有效清洗规则集，并展示规则集版本、规则摘要和跳转入口；保存时后端校验规则集存在。
+- `full_snapshot` 当前全量快照表必须配置业务主键和名单减少处理策略，默认“标记失效并从 current view 过滤”，避免 DWD 残留 ODS 已减少的名单。
+- `incremental_upsert` 必须配置业务主键和更新时间/hash；不满足条件时前端应阻断保存或提示改用全量刷新。
+- `incremental_append` 不允许因本次未出现某主键而删除或失效历史记录。
+- `passthrough` 模式下必须选择目标 DWD 资产并二次确认，明确提示“不做字段清洗、枚举映射、类型修正”。
+- 完全无配置时，ODS 拉取后只更新 ODS，不自动更新 DWD；审计记录为 `skipped:no_automation_config`。
+- 触发策略默认为“仅在数据清洗页手动执行”，用户需主动选择“ODS 同步成功后自动执行”才会生效。
+- 开启自动化时弹出二次确认，说明影响范围：该 ODS 表每次同步成功后会按所选模式和 ODS 同步语义更新目标 DWD；若为全量快照，名单减少会同步体现在 DWD current view 中。
+- feature flag 关闭时，自动化配置中心和快捷入口均展示关闭原因，不允许保存或触发。
+- 执行记录区默认展示最近 5 条，失败记录可展开错误详情；配置中心支持查看全部执行记录。
+- “手动触发一次”按钮用于测试当前自动化配置是否正常工作，不等待下一次 cron 同步；它不同于 `manual_only`，不会改变默认仍需在数据清洗页手动执行的触发策略。
+- 所有配置变更、手动触发、自动执行、跳过、失败、暂停都写入审计日志（system_logs category=ods_dwd_automation）；执行审计必须展示新增、更新、失效、跳过、失败数量。
 
 ---
 
@@ -305,7 +543,7 @@
 
 **核心使用场景：** 指标负责人在指标管理中维护指标定义、维度、过滤条件和依赖字段；系统生成 DWS 聚合视图草稿与 ADS 消费视图草稿；用户预览数据、查看 SQL 摘要、血缘、权限继承、小样本风险和下游影响；确认后发布为数据资产；帆软/BI 定期读取已发布 ADS View 或 DWS View 时看到新数据。
 
-**本期要实现：** 指标定义解析、DWS/ADS 草稿生成、受控 SQL/View 生成、预览与影响分析、权限继承校验、小样本风险校验、人工确认发布、版本/回滚、运行审计、BI/帆软消费提示和降级状态。
+**本期要实现：** 指标定义解析、DWS/ADS 草稿生成、受控 SQL/View 生成、预览与影响分析、权限继承校验、小样本风险校验、人工确认发布、版本/回滚、运行审计、BI/帆软消费提示和降级状态。X05 全部进入排期，但必须按 X05.1（DWS 草稿与预览）→ X05.2（DWS 发布与回滚）→ X05.3（ADS 草稿与发布）→ X05.4（影响分析、BI 契约、刷新策略、专项验收）分小版本交付。
 
 **本期不实现：** 不实现任意 SQL/脚本开发器；不做复杂 DAG 调度中心；不在保存指标时无确认地自动建表、自动发布或自动改 ADS；不自动修改帆软报表设计；不替代 UCP 跨系统 Pipeline；不绕过权限、血缘、质量门禁和审批直接开放敏感数据。
 
@@ -331,7 +569,7 @@ ADS 草稿 → 人工确认 → ADS 发布
 
 | 级别 | 能力 | 本期处理原则 |
 |---|---|---|
-| L1 | 指标定义生成 DWS/ADS 草稿 | 本期优先实现，必须人工确认 |
+| L1 | 指标定义生成 DWS/ADS 草稿 | 本期优先实现，必须人工确认；先 DWS 后 ADS |
 | L2 | 发布时生成或刷新 View/物化结果 | 可实现，必须有预览、影响分析和回滚 |
 | L3 | 指标变更生成下游 ADS/BI 影响方案 | 可实现，默认只生成更新建议 |
 | L4 | 指标保存后全自动建表、调度、更新 ADS/BI | **移至第三期**，仅作为远期受控试点候选 |
@@ -551,7 +789,7 @@ ADS 草稿 → 人工确认 → ADS 发布
 
 ### 功能需求说明与目的
 
-**功能定位：** Z03 在 Z01（ODS→DWD 自动化）和 X05（指标驱动 DWS/ADS 草稿生成与受控发布）已稳定运行、积累充分信任和审计能力后，对**低风险指标**开放 L4 全自动级联发布试点。这是自动化数仓开发的最终形态：指标保存 → 自动建表 → 自动调度 → 自动更新 ADS/BI。
+**功能定位：** Z03 在 Z01（ODS→DWD 自动化）和 X05（指标驱动 DWS/ADS 草稿生成与受控发布）已稳定运行、积累充分信任和审计能力后，对**低风险指标**开放 L4 全自动级联发布试点。这是自动化数仓开发的最终形态：ODS 数据/元数据/规则变更 → 自动更新 DWD → 自动刷新或发布 DWS → 自动刷新或发布 ADS/DWA → 更新 BI/帆软消费契约。
 
 **要解决的问题：** 前两期仍存在人工确认环节（DWS 发布确认、ADS 发布确认），对高频变更的低风险指标（如月度常规 KPI、固定口径统计指标）来说，人工确认成为吞吐瓶颈。L4 在严格受控范围内消除这些确认环节。
 
@@ -559,23 +797,23 @@ ADS 草稿 → 人工确认 → ADS 发布
 
 **核心使用场景：**
 - 管理员在系统设置中为特定空间/指标类型开启 L4 试点。
-- 指标负责人为低风险指标配置全自动规则：选择触发条件（指标保存后 / ODS 同步完成后 / DWD 更新后）、配置最大自动发布频率、设置自动回滚条件。
-- 系统在指标保存后自动执行：解析 → 生成 DWS 草稿 → 通过所有门禁 → 自动发布 DWS → 生成 ADS 草稿 → 通过所有门禁 → 自动发布 ADS → 更新 BI 消费契约。
-- 任一门禁失败（质量/小样本/影响分析高风险）则自动阻断并通知指标负责人。
+- 指标负责人为低风险指标配置全自动规则：选择触发条件（指标保存后 / ODS 同步完成后 / ODS 元数据变更后 / DWD 数据刷新后 / DWD schema 或元数据变更后）、配置最大自动发布频率、设置自动回滚条件。
+- 系统在指标保存、DWD 数据刷新或 DWD 元数据/schema 变化后自动执行：解析 → 生成/更新 DWS 草稿 → 通过所有门禁 → 自动发布或刷新 DWS 表/view → 生成/更新 ADS/DWA 草稿 → 通过所有门禁 → 自动发布或刷新 ADS/DWA 表/view → 更新数据集输出字段和 BI/帆软消费契约。
+- 任一门禁失败或出现中高风险变更时，系统不静默发布；自动进入 `REVIEW_REQUIRED` / `APPROVAL_REQUIRED` / `FAILED` 状态，生成影响分析、变更方案、审批单或修复建议。用户确认或审批通过后，由系统继续自动完成剩余 DWD→DWS→ADS/DWA 链路。
 - 全量执行记录可审计、可一键回滚。
 
 **本期要实现：**
 - L4 feature flag + 审批流程（默认关闭）。
 - 指标级自动化规则配置（替代全局 L4 开关，粒度到单个指标）。
-- 全自动级联执行引擎（复用 Z01 的事件驱动 + X05 的草稿/发布服务）。
-- 自动门禁检查与阻断逻辑（质量/小样本/影响分析/权限/敏感字段）。
+- 全自动级联执行引擎（复用 Z01 的事件驱动 + X05 的草稿/发布服务），覆盖 DWD→DWS→ADS/DWA 的表、view、数据集输出字段、血缘、权限和消费契约。
+- 自动门禁检查与风险状态机（PASS / WARN / REVIEW_REQUIRED / APPROVAL_REQUIRED / FAILED），覆盖质量、小样本、影响分析、权限、敏感字段、字段删除、类型变化和追加表历史修订。
 - 全链路审计时间线。
-- 一键回滚能力（撤回 DWS + ADS + BI 消费契约到上一个版本）。
+- 一键回滚能力（撤回 DWS + ADS/DWA + 数据集输出字段 + BI/帆软消费契约到上一个版本）。
 - 紧急停止开关（全局 + 按指标）。
 
 **本期不实现：**
 - 不将 L4 作为默认行为（必须审批后开启）。
-- 不对高风险指标（涉及敏感字段、大范围下游影响、新口径未经评审）开放 L4。
+- 不对未审批的高风险指标开放静默全自动发布；高风险变更必须进入 APPROVAL_REQUIRED，审批通过后由系统继续执行或回滚。
 - 不自动修改帆软报表设计。
 - 不绕过审批直接开放。
 
@@ -590,39 +828,39 @@ ADS 草稿 → 人工确认 → ADS 发布
   - UI 要求：
     - 系统设置页新增"L4 全自动试点管理"：审批列表、申请表单、审批操作（通过/拒绝/撤销）。
     - 指标详情页：非试点指标展示"L4 全自动：未开放"；已审批指标展示"L4 全自动：试点中"及最近自动执行摘要。
-    - 申请表单：选择指标、填写理由、选择风险等级（低/中/高）、设置最大自动发布频率（每日/每周/每月上限）。
+    - 申请表单：选择指标、填写理由、由系统按 Z00 风险分级矩阵计算风险等级（低/中/高），管理员只能补充说明或驳回，不能手工把高风险改成低风险；设置最大自动发布频率（每日/每周/每月上限）。
   - UI 示意图：见本文件 `U29 L4 全自动级联发布线框图`。
   - UCP / 数据仓库边界要求：L4 只控制仓内自动化；不开放 UCP Pipeline 全自动创建。
-  - 测试要求：后端测试覆盖审批流程（申请→审批→生效→撤销）、未审批指标无法开启 L4、feature flag 关闭时入口隐藏；前端测试覆盖申请表单和审批列表。
+  - 测试要求：后端测试覆盖审批流程（申请→审批→生效→撤销）、风险等级自动判定、高风险指标无法审批为 L4、未审批指标无法开启 L4、feature flag 关闭时入口隐藏；前端测试覆盖申请表单和审批列表。
   - 验收标准：L4 默认所有指标不可用；只有经过审批的低风险指标才能开启全自动级联。
   - 完成定义：开发、UI、权限、测试、验收全部满足。
 
 - [ ] Z0302 实现指标级全自动级联规则配置。
   - 前置任务：Z0301、X0506、X0508。
-  - 功能范围：为已审批的指标提供全自动级联规则配置：触发条件（`on_metric_save` / `on_dwd_update`）、自动发布条件（门禁全 PASS / 仅 WARN 可自动 / 有阻断则停止）、最大自动频率（每日 N 次上限）、自动回滚策略（失败时自动回到上一版本 / 仅通知不自动回滚）、通知配置（成功/失败/阻断时通知谁）。
+  - 功能范围：为已审批的指标提供全自动级联规则配置：触发条件（`on_metric_save` / `on_ods_data_change` / `on_ods_metadata_change` / `on_dwd_data_refresh` / `on_dwd_schema_change`）、风险状态策略（PASS 自动继续 / WARN 自动继续并通知 / REVIEW_REQUIRED 确认后继续 / APPROVAL_REQUIRED 审批后继续 / FAILED 停止并保留旧版本）、最大自动频率（每日 N 次上限）、自动回滚策略（失败时自动回到上一版本 / 仅通知不自动回滚）、通知配置（成功/失败/待确认/待审批时通知谁）。
   - 代码交付物：`l4_cascade_rules` 表/API、规则校验逻辑。
   - UI 要求：
     - 指标详情页"L4 自动化规则"配置卡片。
-    - 触发条件选择：指标保存后 / DWD 更新后 / 两者皆可。
-    - 自动发布条件：门禁全部通过（绿色）/ 仅 WARN 级别告警可通过（黄色）/ 有阻断则停止（红色，默认）。
+    - 触发条件选择：指标保存后 / ODS 数据变更后 / ODS 元数据变更后 / DWD 数据刷新后 / DWD schema 或元数据变更后，可多选。
+    - 风险状态策略：PASS 自动发布 / WARN 自动发布并通知 / REVIEW_REQUIRED 生成方案待确认 / APPROVAL_REQUIRED 生成审批单 / FAILED 保留旧版本并给出修复建议。
     - 最大频率设置：每天最多 N 次，超出后自动退化为"生成草稿待确认"。
     - 回滚策略：自动回滚 / 仅通知。
     - 所有配置变更写入审计日志。
   - UI 示意图：见本文件 `U29 L4 全自动级联发布线框图`。
   - UCP / 数据仓库边界要求：不涉及 UCP。
-  - 测试要求：API 测试覆盖规则 CRUD、非法频率设置（如 0 次/天）、未审批指标配置拒绝 403；自动化测试覆盖达到频率上限后退化为草稿模式。
+  - 测试要求：API 测试覆盖规则 CRUD、非法频率设置（如 0 次/天）、未审批指标配置拒绝 403；自动化测试覆盖达到频率上限后退化为草稿模式，REVIEW_REQUIRED 用户确认后继续执行，APPROVAL_REQUIRED 审批通过后继续执行，FAILED 保留旧版本。
   - 验收标准：用户可逐指标配置自动化边界；系统严格遵守频率上限和安全策略，不会失控。
   - 完成定义：开发、UI、测试、验收全部满足。
 
 - [ ] Z0303 实现 L4 全自动级联执行引擎。
   - 前置任务：Z0302、Z0103（`trigger_dwd_standardization` action 已可用）。
-  - 功能范围：编排全自动级联执行流程——①监听事件（`datasource_sync_completed` 或 `metric_saved` 或 `dwd_updated`）→ ②查 L4 规则 → ③自动执行 X0502 指标解析 → ④自动执行 X0503 DWS 草稿生成 → ⑤自动通过 X0504 SQL 生成 + X0505 门禁检查 → ⑥门禁全 PASS 则自动发布 DWS（X0506）→ ⑦自动生成 ADS 草稿（X0507）→ ⑧门禁检查 → ⑨自动发布 ADS（X0508）→ ⑩更新 BI 消费说明（X0509）→ ⑪写审计。任一步失败则写失败记录并通知。
-  - 代码交付物：`L4CascadeEngine` 服务、编排逻辑、错误恢复、事件监听注册。
+  - 功能范围：编排全自动级联执行流程——①监听事件（`ods_table_data_changed` / `datasource_sync_completed` / `ods_table_metadata_changed` / `standardization_rule_changed` / `ods_dwd_automation_config_changed` / `dwd_data_refreshed` / `dwd_schema_changed` / `dwd_metadata_changed` / `metric_saved`）→ ②查 L4 规则和风险等级 → ③自动执行 X0502 指标解析 → ④自动执行 X0503 DWS 草稿生成或更新 → ⑤自动通过 X0504 SQL/View 生成 + X0505 门禁检查 → ⑥按风险状态机处理：PASS/WARN 自动发布或刷新 DWS 表/view，REVIEW_REQUIRED 生成方案并等待确认后继续，APPROVAL_REQUIRED 生成审批单并在通过后继续，FAILED 保留旧版本 → ⑦自动生成或更新 ADS/DWA 草稿（X0507）→ ⑧门禁检查和风险状态机 → ⑨自动发布或刷新 ADS/DWA 表/view（X0508）→ ⑩同步数据集输出字段、血缘、权限并更新 BI/帆软消费说明（X0509）→ ⑪写审计。任一步失败必须按 Z00 的全链路传播、风险状态机、发布事务与失败补偿规则处理，写失败记录并通知。
+  - 代码交付物：`L4CascadeEngine` 服务、编排逻辑、错误恢复、事件监听注册、DWD→DWS→ADS/DWA 依赖图查询、view/物化刷新分支、数据集输出字段同步、消费契约更新。
   - UI 要求：不涉及独立 UI（执行引擎后端服务）；执行进度可通过审计时间线（Z0305）查看。
-  - 必须复用：X0502-X0511 的全部服务，不做重新实现。编排层只负责按顺序调用既有服务 + 检查门禁 + 决策是否继续。
+  - 必须复用：X0502-X0511 的全部服务，不做重新实现。编排层只负责按顺序调用既有服务 + 检查门禁 + 决策是否继续；DWD schema/元数据变化先走影响分析，低风险自动发布，中风险确认后系统继续，高风险审批后系统继续或回滚。
   - UCP / 数据仓库边界要求：不触发 UCP Pipeline。
-  - 测试要求：单元测试覆盖全链路成功、DWS 门禁阻断、ADS 门禁阻断、指标解析失败、频率上限阻断、并发执行去重；集成测试覆盖 `datasource_sync_completed` → L4 全链路 → ADS 发布。
-  - 验收标准：审批通过的指标在触发条件满足时自动完成 DWS/ADS 全链路；任何阻断/失败时安全停止并通知，不会部分发布。
+  - 测试要求：单元测试覆盖全链路成功、DWD 数据刷新触发 DWS/ADS/DWA view 自动读取、物化 DWS/ADS/DWA 刷新成功/失败保留旧版本、DWD schema 低风险变更自动传播、字段删除/改类型/敏感标记升高进入 REVIEW_REQUIRED 或 APPROVAL_REQUIRED、REVIEW_REQUIRED 确认后继续自动发布、APPROVAL_REQUIRED 审批后继续自动发布、FAILED 保留旧版本并给出修复建议、DWS 门禁 REVIEW/APPROVAL/FAILED、ADS/DWA 门禁 REVIEW/APPROVAL/FAILED、指标解析失败、风险等级变化重新评估、频率上限退化草稿、并发执行去重、DWS 已发布但 ADS/DWA 失败的补偿回滚；集成测试覆盖 `ods_table_data_changed` / `datasource_sync_completed` / `ods_table_metadata_changed` / `dwd_schema_changed` → L4 全链路 → ADS/DWA 发布。
+  - 验收标准：审批通过的 L4 指标，在触发条件满足时按风险状态机完成 DWD→DWS→ADS/DWA 全链路；低风险自动完成，中风险确认后由系统继续完成，高风险审批后由系统继续或回滚，失败保留旧版本并给出修复建议。DWS/ADS/DWA 的表、view、数据集输出字段、血缘、权限和消费契约均与上游变化一致；对业务消费侧不产生无提示的部分发布。
   - 完成定义：引擎、测试、审计满足。
 
 - [ ] Z0304 实现紧急停止开关与一键回滚。
@@ -642,7 +880,7 @@ ADS 草稿 → 人工确认 → ADS 发布
 
 - [ ] Z0305 L4 全自动级联全链路审计与可观测性。
   - 前置任务：Z0303。
-  - 功能范围：为每次 L4 自动级联执行记录完整审计时间线：触发事件 → 规则匹配 → 指标解析 → DWS 草稿生成（含门禁结果）→ DWS 自动发布 → ADS 草稿生成 → ADS 自动发布 → BI 消费说明更新 → 最终状态。提供全局 L4 运行摘要仪表板（最近 24h 执行次数、成功/阻断/失败数、按指标分布）。
+  - 功能范围：为每次 L4 自动级联执行记录完整审计时间线：触发事件 → 规则匹配 → 指标解析 → DWS 草稿生成（含门禁和风险状态）→ PASS/WARN 自动发布或 REVIEW/APPROVAL 等待确认审批 → DWS 发布/刷新 → ADS/DWA 草稿生成 → ADS/DWA 发布/刷新 → BI/帆软消费说明更新 → 最终状态。提供全局 L4 运行摘要仪表板（最近 24h 执行次数、成功/待确认/待审批/失败数、按指标分布）。
   - 代码交付物：audit API 扩展、运行摘要 API、L4 审计时间线 UI 组件、全局摘要卡片。
   - UI 要求：
     - 指标详情页"L4 自动化审计"时间线组件：横向时间轴展示每一步状态（通过 ✓ / 阻断 ⛔ / 失败 ✗ / 跳过 →），每步可展开查看详情。
@@ -656,15 +894,15 @@ ADS 草稿 → 人工确认 → ADS 发布
 
 - [ ] Z0306 L4 全自动级联专项验收。
   - 前置任务：Z0301-Z0305。
-  - 功能范围：对 L4 全自动级联进行专项验收，包括：审批流程、规则配置、全链路自动执行、门禁阻断、频率上限、紧急停止、一键回滚、审计完整性、数据安全。
+  - 功能范围：对 L4 全自动级联进行专项验收，包括：审批流程、规则配置、全链路自动执行、风险状态机、确认后继续执行、审批后继续执行、频率上限、紧急停止、一键回滚、审计完整性、数据安全。
   - 代码交付物：专项验收报告、E2E 测试记录、风险清单、试点方案、紧急响应预案。
-  - UI 要求：走查 U29 中所有状态：L4 未开放、申请审批中、已审批配置中、全自动执行成功、门禁阻断（质量/小样本/影响分析）、频率上限阻断、紧急停止中、一键回滚成功、审计时间线完整。
+  - UI 要求：走查 U29 中所有状态：L4 未开放、申请审批中、已审批配置中、全自动执行成功、WARN 自动继续、REVIEW_REQUIRED 待确认、APPROVAL_REQUIRED 待审批、FAILED 保留旧版本、频率上限退化草稿、紧急停止中、一键回滚成功、审计时间线完整。
   - UCP / 数据仓库边界要求：确认 L4 没有创建 UCP Pipeline；确认没有自动编辑帆软报表。
   - 测试要求：必须记录后端 API、前端 build、E2E、权限、安全、审计、性能、并发去重、紧急停止和回滚测试结果；无法自动化的项需给出手工证据。
   - 验收标准：
     - L4 默认全局禁用。
     - 仅审批通过的低风险指标可配置全自动规则。
-    - 任何门禁阻断都安全停止。
+    - 任何门禁进入 REVIEW_REQUIRED / APPROVAL_REQUIRED / FAILED 都不会静默发布；确认或审批通过后由系统继续执行剩余链路，FAILED 保留旧版本。
     - 频率上限不可绕过。
     - 紧急停止 < 5 秒生效。
     - 一键回滚可完整撤销最近一次自动发布。
@@ -782,13 +1020,13 @@ ADS 草稿 → 人工确认 → ADS 发布
 
 交互说明：
 - L4 全自动试点管理仅管理员可见；普通用户在指标详情页看到自己的指标是否已开通 L4。
-- 触发条件"指标保存后"和"ODS 同步完成后"可多选，至少选一个。
-- 自动发布条件默认选中"有阻断则停止"（最保守策略）。
+- 触发条件“指标保存后”“ODS 同步完成后”“ODS 元数据变更后”“DWD 数据刷新后”“DWD schema/元数据变更后”可多选，至少选一个。
+- 风险状态策略默认选中“PASS 自动发布、WARN 通知后继续、REVIEW_REQUIRED 待确认、APPROVAL_REQUIRED 待审批、FAILED 保留旧版本”。
 - 最大频率默认每天 1 次；达到上限后该指标退化为"草稿模式"，用户手动确认后发布。
 - 紧急停止按钮位于系统设置 > L4 试点管理页顶部，以及数据仓库首页顶部全局状态条，管理员操作。
 - 一键回滚仅回滚最近一次 L4 自动发布；多次自动发布需逐次回滚。
 - 审计时间线复用 X0512 的审计组件，扩展 L4 全链路步骤。
-- 阻断场景中，系统自动保存草稿，用户可在修复问题后手动进入发布流程。
+- REVIEW_REQUIRED / APPROVAL_REQUIRED 场景中，系统自动保存草稿、影响分析和变更方案；用户确认或审批通过后，系统继续自动执行剩余 DWS→ADS/DWA→消费契约链路，不要求用户手工重跑发布。
 
 ---
 
@@ -797,7 +1035,7 @@ ADS 草稿 → 人工确认 → ADS 发布
 ```text
 第一期（Z01）：ODS→DWD 自动化级联
   ├── Z0101 feature flag
-  ├── Z0102 datasource_sync_completed 事件
+  ├── Z0102 datasource_sync_completed + ods_table_metadata_changed 事件
   ├── Z0103 trigger_dwd_standardization 动作
   ├── Z0104 自动化配置 API
   ├── Z0105 sync_service 事件发布
@@ -826,10 +1064,10 @@ ADS 草稿 → 人工确认 → ADS 发布
 | 期数 | 自动化范围 | 触发条件 | 人工介入点 |
 |------|-----------|----------|-----------|
 | 第一期 | ODS→DWD | ODS 同步完成（事件驱动） | 配置自动化规则（一次性） |
-| 第二期 | DWD→DWS→ADS | 用户手动触发"生成草稿" | DWS 发布确认 + ADS 发布确认 |
-| 第三期 | ODS→DWD→DWS→ADS 全链路 | 指标保存 / ODS 同步完成 | 开通试点（一次性审批）、门禁阻断时人工介入 |
+| 第二期 | DWD→DWS→ADS/DWA | 用户手动触发"生成草稿"，或 DWD 变化后生成影响分析 | DWS 发布确认 + ADS/DWA 发布确认 |
+| 第三期 | ODS→DWD→DWS→ADS/DWA 全链路 | 指标保存 / ODS 数据变更 / ODS 元数据变更 / 清洗规则变更 / DWD 数据或 schema 变化 | 开通试点（一次性审批）、中风险确认、高风险审批、失败修复 |
 
 **不可越级：**
-- 第一期未稳定运行前，不可启动第二期（因为 X05 假设 DWD 数据已通过自动化保持新鲜）。
-- 第二期未通过专项验收前，不可启动第三期（因为 L4 依赖 X05 的所有服务）。
-- 第三期仅对已通过第一期+第二期验收的低风险指标开放。
+- 第一期未达到 Z00 阶段退出门槛前，不可向业务用户开放第二期能力（因为 X05 假设 DWD 数据已通过自动化保持新鲜）。
+- 第二期未通过 X0513 专项验收和 Z00 阶段退出门槛前，不可向业务用户开放第三期能力（因为 L4 依赖 X05 的所有服务）。
+- 第三期仅对已通过第一期+第二期验收、且按 Z00 风险分级矩阵判定为低风险的指标开放。
