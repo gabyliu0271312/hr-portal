@@ -343,6 +343,7 @@ class WarehouseService:
         """创建模型（默认 status=draft）"""
         ds = DataSet(
             name=payload["name"],
+            label=payload.get("label") or payload["name"],
             description=payload.get("description"),
             warehouse_layer=payload.get("warehouse_layer", "DWD"),
             subject_area=payload.get("subject_area"),
@@ -396,7 +397,7 @@ class WarehouseService:
             )
             self.session.add(rel)
 
-        return {"id": ds.id, "name": ds.name, "status": ds.status, "version": ds.version}
+        return {"id": ds.id, "name": ds.name, "label": ds.label, "status": ds.status, "version": ds.version}
 
     async def get_model(self, model_id: int) -> Optional[dict]:
         """获取模型详情（含 tables、relations、output_fields）"""
@@ -421,6 +422,7 @@ class WarehouseService:
         return {
             "id": ds.id,
             "name": ds.name,
+            "label": ds.label,
             "description": ds.description,
             "warehouse_layer": ds.warehouse_layer,
             "subject_area": ds.subject_area,
@@ -473,7 +475,7 @@ class WarehouseService:
             return None
 
         allowed = {
-            "name", "description", "warehouse_layer", "subject_area",
+            "name", "label", "description", "warehouse_layer", "subject_area",
             "owner_user_id", "owner_name", "business_definition",
         }
         for key, val in payload.items():

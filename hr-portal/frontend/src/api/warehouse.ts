@@ -134,6 +134,7 @@ export interface ModelRelation {
 /** 创建模型入参 */
 export interface ModelCreatePayload {
   name: string
+  label?: string | null
   description?: string | null
   warehouse_layer?: string
   subject_area?: string | null
@@ -148,6 +149,7 @@ export interface ModelCreatePayload {
 export interface ModelMutationResult {
   id: number
   name?: string
+  label?: string | null
   status: string
   version: number
 }
@@ -181,6 +183,7 @@ export interface ModelDetail extends ModelListItem {
 /** 更新模型入参 */
 export interface ModelUpdatePayload {
   name?: string
+  label?: string | null
   description?: string | null
   warehouse_layer?: string
   subject_area?: string | null

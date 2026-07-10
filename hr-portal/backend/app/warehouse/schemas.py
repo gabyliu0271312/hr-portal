@@ -95,6 +95,7 @@ class WarehouseModelCreateIn(BaseModel):
     model_config = {"extra": "forbid"}
     """创建模型"""
     name: str = Field(..., max_length=64)
+    label: Optional[str] = Field(None, max_length=128)
     description: Optional[str] = None
     warehouse_layer: str = "DWD"
     subject_area: Optional[str] = None
@@ -125,6 +126,7 @@ class WarehouseModelOut(BaseModel):
     """模型列表项"""
     id: int
     name: str
+    label: Optional[str] = None
     description: Optional[str] = None
     warehouse_layer: str = "DWD"
     subject_area: Optional[str] = None
@@ -152,6 +154,7 @@ class WarehouseModelUpdateIn(BaseModel):
     model_config = {"extra": "forbid"}
     """模型更新"""
     name: Optional[str] = None
+    label: Optional[str] = None
     description: Optional[str] = None
     warehouse_layer: Optional[str] = None
     subject_area: Optional[str] = None

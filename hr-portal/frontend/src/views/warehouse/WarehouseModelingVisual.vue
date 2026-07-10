@@ -7,12 +7,12 @@ import { useUserStore } from '@/stores/user'
 import dagre from 'dagre'
 import {
   getModel, updateModel, createModel, previewModel, saveOutputFields,
-  listModels, publishModelV2, listModelVersions, previewModelV2,
+  publishModelV2, listModelVersions, previewModelV2,
   type OutputFieldPayload, type PreviewResult, type Asset,
   type ModelVersion, type ModelPreviewV2,
 } from '@/api/warehouse'
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
-import type { DatasetCalculatedField } from '@/api/datasets'
+import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 
 const route = useRoute(); const router = useRouter()
 const userStore = useUserStore()
@@ -28,7 +28,7 @@ function onCalculatedFieldSaved(_field: DatasetCalculatedField) {
 const isNew = !modelId
 const canEdit = computed(() => isNew ? userStore.hasOp('warehouse.assets','C') : userStore.hasOp('warehouse.assets','U'))
 
-const form = ref({ name: '', warehouse_layer: 'DWD', subject_area: '', business_definition: '', owner_name: '' })
+const form = ref({ label: '', warehouse_layer: 'DWD', subject_area: '', business_definition: '', owner_name: '' })
 const loading = ref(false); const saving = ref(false); const error = ref<string|null>(null)
 
 const LAYER_LABELS: Record<string,string> = { ODS:'ODS', DWD:'DWD', DWS:'DWS', ADS:'ADS' }
@@ -43,10 +43,11 @@ const tables = ref<TableNode[]>([])
 interface RelationEdge { id?: number; from: string; to: string; join_type: string; cardinality: string; keys: {left:string;right:string}[] }
 const relations = ref<RelationEdge[]>([])
 
-const availableTables = ref<any[]>([]); const tableSearch = ref('')
+interface AvailableTable { table_name: string; table_label: string; dataset_code: string; warehouse_layer: string }
+const availableTables = ref<AvailableTable[]>([]); const tableSearch = ref('')
 const filteredTables = computed(() => {
   const m = new Set(tables.value.map(t => t.table_name))
-  return availableTables.value.filter(t => !m.has(t.table_name) && (tableSearch.value ? t.table_label.includes(tableSearch.value)||t.table_name.includes(tableSearch.value) : true))
+  return availableTables.value.filter(t => !m.has(t.table_name) && (tableSearch.value ? t.table_label.includes(tableSearch.value)||t.table_name.includes(tableSearch.value)||t.dataset_code.includes(tableSearch.value.toUpperCase()) : true))
 })
 
 const selectedNode = ref<string|null>(null); const selectedEdge = ref<number|null>(null)
@@ -58,6 +59,25 @@ const previewV2 = ref<ModelPreviewV2 | null>(null)
 const versions = ref<ModelVersion[]>([]); const versionVisible = ref(false)
 const activeNames = ref<string[]>([])
 const rightTab = ref<'fields'|'preview'>('fields')
+
+function isSingleTableDataset(ds: DatasetItem) {
+  return (
+    ds.is_active !== false &&
+    ds.name.startsWith('ds_') &&
+    (ds.warehouse_layer || 'DWD') === 'DWD' &&
+    ds.tables?.length === 1 &&
+    ds.tables[0]?.alias === 'current' &&
+    (!ds.relations || ds.relations.length === 0)
+  )
+}
+function formatDatasetCode(name: string) { return name.startsWith('ds_') ? name.toUpperCase() : name }
+function makeModelCode(label: string) {
+  const suffix = Date.now().toString(36)
+  const ascii = (label || 'model').trim().toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return `model_${ascii || suffix}_${suffix}`.slice(0, 64)
+}
 
 // ==================== 画布缩放 ====================
 const zoom = ref(0.95)
@@ -199,13 +219,13 @@ async function saveDraft() {
   saving.value = true
   try {
     if (modelId) {
-      await updateModel(modelId, { name: form.value.name, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined })
+      await updateModel(modelId, { label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined })
       const v = outputFields.value.filter(f => f.output_code && f.output_label); if (v.length) await saveOutputFields(modelId, v)
       ElMessage.success('已更新')
     } else {
       const tl = tables.value.map(t => ({ table_name: t.table_name, alias: t.alias }))
       const rl = relations.value.filter(r => r.from && r.to).map(r => ({ left_alias: r.from, right_alias: r.to, join_type: r.join_type, cardinality: r.cardinality, left_keys: r.keys.filter(k => k.left).map(k => k.left), right_keys: r.keys.filter(k => k.right).map(k => k.right) }))
-      const res = await createModel({ name: form.value.name, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined, tables: tl, relations: rl })
+      const res = await createModel({ name: makeModelCode(form.value.label), label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined, tables: tl, relations: rl })
       ElMessage.success(`已创建 ID:${res.id}`); router.replace(`/warehouse/modeling/visual/${res.id}`)
     }
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') } finally { saving.value = false }
@@ -224,10 +244,10 @@ function goBack() { router.back() }
 async function load() {
   loading.value = true; error.value = null
   try {
-    const res = await listModels({ page_size: 200, warehouse_layer: 'DWD' }); availableTables.value = (res.items || []).map(ds => ({ table_name: (ds.name || '').replace(/^ds_/, ''), table_label: ds.label || ds.name, warehouse_layer: ds.warehouse_layer }))
+    const datasets = await datasetsApi.list(); availableTables.value = (datasets || []).filter(isSingleTableDataset).map(ds => ({ table_name: ds.tables[0].table_name, table_label: ds.label || ds.tables[0].table_label || ds.tables[0].table_name, dataset_code: formatDatasetCode(ds.name), warehouse_layer: ds.warehouse_layer || 'DWD' }))
     if (modelId) {
       const d = await getModel(modelId)
-      form.value = { name: d.name, warehouse_layer: d.warehouse_layer, subject_area: d.subject_area || '', business_definition: d.business_definition || '', owner_name: d.owner_name || '' }
+      form.value = { label: d.label || d.name, warehouse_layer: d.warehouse_layer, subject_area: d.subject_area || '', business_definition: d.business_definition || '', owner_name: d.owner_name || '' }
       for (const t of d.tables) {
         const asset = availableTables.value.find(a => a.table_name === t.table_name)
         let cols: ColInfo[] = []
@@ -249,7 +269,7 @@ onMounted(load)
     <!-- 工具栏 -->
     <div class="vm-bar">
       <el-button text :icon="ArrowLeft" @click="goBack">返回</el-button>
-      <el-input v-model="form.name" placeholder="模型名称" size="small" style="width:160px" />
+      <el-input v-model="form.label" placeholder="模型名称" size="small" style="width:160px" />
       <el-select v-model="form.warehouse_layer" size="small" style="width:110px"><el-option v-for="(v,k) in LAYER_LABELS" :key="k" :label="v" :value="k" /></el-select>
       <el-input v-model="form.subject_area" placeholder="主题域" size="small" style="width:80px" />
       <el-input v-model="form.owner_name" placeholder="负责人" size="small" style="width:80px" />
@@ -271,7 +291,7 @@ onMounted(load)
         <div class="vm-ll">
           <div v-for="t in filteredTables" :key="t.table_name" class="vm-to" @click="addTable(t.table_name)">
             <span class="vm-dot" :style="{background:LAYER_COLORS[t.warehouse_layer]||'#909399'}" />
-            <div class="vm-oi"><div class="vm-on">{{ t.table_label }}</div><div class="vm-op">{{ t.table_name }}</div></div>
+            <div class="vm-oi"><div class="vm-on">{{ t.table_label }}</div><div class="vm-op">{{ t.dataset_code }}</div></div>
           </div>
           <el-empty v-if="!filteredTables.length" description="无表可添加" :image-size="48" />
         </div>
