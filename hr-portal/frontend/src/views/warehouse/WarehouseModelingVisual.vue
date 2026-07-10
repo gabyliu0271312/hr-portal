@@ -61,16 +61,19 @@ const activeNames = ref<string[]>([])
 const rightTab = ref<'fields'|'preview'>('fields')
 
 function isSingleTableDataset(ds: DatasetItem) {
+  const isNormalizedSingleTable = ds.name.startsWith('ds_')
+  const isLegacySingleTable = ds.name.startsWith('\u5355\u8868\u6570\u636e\u96c6')
   return (
     ds.is_active !== false &&
-    ds.name.startsWith('ds_') &&
-    (ds.warehouse_layer || 'DWD') === 'DWD' &&
+    (isNormalizedSingleTable || isLegacySingleTable) &&
     ds.tables?.length === 1 &&
     ds.tables[0]?.alias === 'current' &&
     (!ds.relations || ds.relations.length === 0)
   )
 }
-function formatDatasetCode(name: string) { return name.startsWith('ds_') ? name.toUpperCase() : name }
+function formatDatasetCode(ds: DatasetItem) {
+  return ds.name.startsWith('ds_') ? ds.name.toUpperCase() : `DS${String(ds.id).padStart(4, '0')}`
+}
 function makeModelCode(label: string) {
   const suffix = Date.now().toString(36)
   const ascii = (label || 'model').trim().toLowerCase()
@@ -244,7 +247,7 @@ function goBack() { router.back() }
 async function load() {
   loading.value = true; error.value = null
   try {
-    const datasets = await datasetsApi.list(); availableTables.value = (datasets || []).filter(isSingleTableDataset).map(ds => ({ table_name: ds.tables[0].table_name, table_label: ds.label || ds.tables[0].table_label || ds.tables[0].table_name, dataset_code: formatDatasetCode(ds.name), warehouse_layer: ds.warehouse_layer || 'DWD' }))
+    const datasets = await datasetsApi.list(); availableTables.value = (datasets || []).filter(isSingleTableDataset).map(ds => ({ table_name: ds.tables[0].table_name, table_label: ds.label || ds.tables[0].table_label || ds.tables[0].table_name, dataset_code: formatDatasetCode(ds), warehouse_layer: ds.warehouse_layer || 'DWD' }))
     if (modelId) {
       const d = await getModel(modelId)
       form.value = { label: d.label || d.name, warehouse_layer: d.warehouse_layer, subject_area: d.subject_area || '', business_definition: d.business_definition || '', owner_name: d.owner_name || '' }

@@ -7,15 +7,17 @@ from app.data.models import DATA_TABLES, RegisteredTable
 from app.datasets.models import DataSet, DataSetTable
 
 SINGLE_TABLE_ALIAS = "current"
-SINGLE_TABLE_DATASET_PREFIX = "单表数据集 · "
+SINGLE_TABLE_DATASET_PREFIX = "ds_"
 
 
 def single_table_dataset_name(table_name: str, label: str | None = None) -> str:
-    display = (label or table_name).strip() or table_name
-    name = f"{SINGLE_TABLE_DATASET_PREFIX}{display}"
-    if len(name) <= 64:
-        return name
-    return f"{SINGLE_TABLE_DATASET_PREFIX}{table_name}"[:64]
+    """Return the stable system code for a physical single-table dataset.
+
+    Display text belongs to DataSet.label. DataSet.name is an internal code and
+    must stay ASCII-friendly so modeling pages can reliably identify it.
+    """
+    base = f"{SINGLE_TABLE_DATASET_PREFIX}{table_name}".replace(" ", "_")
+    return base[:64]
 
 
 async def registered_table_label(table_name: str, db: AsyncSession) -> str:
@@ -58,7 +60,7 @@ async def ensure_single_table_dataset(
     table_label: str | None = None,
 ) -> DataSet:
     if table_name not in DATA_TABLES:
-        raise ValueError(f"未知数据表: {table_name}")
+        raise ValueError(f"Unknown data table: {table_name}")
 
     existing = await find_single_table_dataset(table_name, db)
     if existing is not None:
@@ -71,13 +73,14 @@ async def ensure_single_table_dataset(
     while (
         await db.execute(select(DataSet.id).where(DataSet.name == name))
     ).scalar_one_or_none() is not None:
-        tail = f" #{suffix}"
+        tail = f"_{suffix}"
         name = f"{base_name[:64 - len(tail)]}{tail}"
         suffix += 1
 
     ds = DataSet(
         name=name,
-        description=f"系统自动创建，用于 {label} 的报表、成本分摊与计算字段。",
+        label=label,
+        description=f"System-created single-table dataset for {label}.",
         is_active=True,
         scope_strategy=await registered_table_scope_strategy(table_name, db),
         created_by=created_by,
@@ -99,21 +102,16 @@ async def ensure_dwd_dataset(
     created_by: int | None = None,
     table_label: str | None = None,
 ) -> DataSet:
-    """为 DWD 物理表创建 DWD 数据集。
-
-    name = ds_dwd_xxx（编码），label = 中文展示名。
-    仅在新建资产时调用，清洗链路不重复创建。
-    """
+    """Create a DWD single-table dataset for a physical DWD table."""
     if dwd_table_name not in DATA_TABLES:
-        raise ValueError(f"未知数据表: {dwd_table_name}")
+        raise ValueError(f"Unknown data table: {dwd_table_name}")
 
     existing = await find_single_table_dataset(dwd_table_name, db)
     if existing is not None:
         return existing
 
-    # name = 编码：ds_dwd_xxx
-    base_name = f"{DWD_DATASET_PREFIX}{dwd_table_name}"
-    base_name = base_name.replace(" ", "_")[:60]
+    # name = code, label = display name
+    base_name = f"{DWD_DATASET_PREFIX}{dwd_table_name}".replace(" ", "_")[:60]
     name = base_name
     suffix = 2
     while (
@@ -123,14 +121,13 @@ async def ensure_dwd_dataset(
         name = f"{base_name[:64 - len(tail)]}{tail}"
         suffix += 1
 
-    # label = 展示名：从 ODS 表名推导中文名称
     raw_label = table_label or await registered_table_label(dwd_table_name, db)
     display_label = raw_label.strip().rstrip("(DWD)").strip() if raw_label else dwd_table_name
 
     ds = DataSet(
         name=name,
         label=display_label,
-        description=f"系统自动创建的 DWD 数据集，指向 {dwd_table_name}。",
+        description=f"System-created DWD dataset for {dwd_table_name}.",
         is_active=True,
         warehouse_layer="DWD",
         scope_strategy=await registered_table_scope_strategy(dwd_table_name, db),
