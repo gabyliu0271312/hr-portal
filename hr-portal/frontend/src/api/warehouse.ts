@@ -109,6 +109,11 @@ export interface ModelTable {
   id: number
   table_name: string
   alias: string
+  table_label?: string | null
+  dataset_label?: string | null
+  dataset_code?: string | null
+  warehouse_layer?: string | null
+  physical_table_label?: string | null
 }
 
 /** 模型表关联（创建入参，keys 以 left_keys/right_keys 分开传入） */

@@ -419,6 +419,92 @@ class WarehouseService:
         ).order_by(DatasetOutputField.display_order)
         output_fields = (await self.session.execute(of_q)).scalars().all()
 
+        table_names = list(dict.fromkeys(t.table_name for t in tables))
+        registered_map: dict[str, RegisteredTable] = {}
+        single_dataset_map: dict[str, DataSet] = {}
+        if table_names:
+            rt_rows = (await self.session.execute(
+                select(RegisteredTable).where(RegisteredTable.table_name.in_(table_names))
+            )).scalars().all()
+            registered_map = {rt.table_name: rt for rt in rt_rows}
+
+            dataset_rows = (await self.session.execute(
+                select(DataSet, DataSetTable)
+                .join(DataSetTable, DataSetTable.dataset_id == DataSet.id)
+                .where(
+                    DataSetTable.table_name.in_(table_names),
+                    DataSet.is_active.is_(True),
+                    DataSet.name.ilike("ds_%"),
+                )
+            )).all()
+            candidate_ids = list({ds.id for ds, _ in dataset_rows})
+            relation_dataset_ids: set[int] = set()
+            table_count_map: dict[int, int] = {}
+            if candidate_ids:
+                relation_dataset_ids = set((await self.session.execute(
+                    select(DataSetRelation.dataset_id).where(DataSetRelation.dataset_id.in_(candidate_ids))
+                )).scalars().all())
+                count_rows = (await self.session.execute(
+                    select(DataSetTable.dataset_id, func.count(DataSetTable.id))
+                    .where(DataSetTable.dataset_id.in_(candidate_ids))
+                    .group_by(DataSetTable.dataset_id)
+                )).all()
+                table_count_map = {dataset_id: count for dataset_id, count in count_rows}
+
+            scored_candidates: dict[str, tuple[tuple[int, int, int, int], DataSet]] = {}
+            for candidate_ds, candidate_table in dataset_rows:
+                if candidate_ds.id in relation_dataset_ids:
+                    continue
+                if table_count_map.get(candidate_ds.id) != 1:
+                    continue
+                table_name = candidate_table.table_name
+                score = (
+                    0 if candidate_ds.name.lower() == f"ds_{table_name}".lower() else 1,
+                    0 if candidate_table.alias == "current" else 1,
+                    0 if candidate_ds.warehouse_layer == "DWD" else 1,
+                    int(candidate_ds.id or 0),
+                )
+                prev = scored_candidates.get(table_name)
+                if prev is None or score < prev[0]:
+                    scored_candidates[table_name] = (score, candidate_ds)
+            single_dataset_map = {table_name: ds for table_name, (_, ds) in scored_candidates.items()}
+
+        def infer_layer(table_name: str, rt: RegisteredTable | None, single_ds: DataSet | None) -> str:
+            if single_ds and single_ds.warehouse_layer:
+                return single_ds.warehouse_layer
+            lower_name = table_name.lower()
+            for prefix, layer in (("dwd_", "DWD"), ("ods_", "ODS"), ("dws_", "DWS"), ("ads_", "ADS")):
+                if lower_name.startswith(prefix):
+                    return layer
+            return (rt.warehouse_layer if rt and rt.warehouse_layer else "DWD")
+
+        def is_code_like_label(label: str | None, table_name: str) -> bool:
+            value = (label or "").strip()
+            return not value or value.lower() in {table_name.lower(), f"ds_{table_name}".lower()} or value.lower().startswith("ds_")
+
+        def resolve_table_label(table_name: str, rt: RegisteredTable | None, single_ds: DataSet | None) -> str:
+            if single_ds and not is_code_like_label(single_ds.label, table_name):
+                return single_ds.label
+            if rt and not is_code_like_label(rt.table_label, table_name):
+                return rt.table_label
+            return single_ds.label or (rt.table_label if rt else table_name)
+
+        def model_table_payload(t: DataSetTable) -> dict:
+            rt = registered_map.get(t.table_name)
+            single_ds = single_dataset_map.get(t.table_name)
+            dataset_code = (single_ds.name if single_ds else f"ds_{t.table_name}").upper()
+            table_label = resolve_table_label(t.table_name, rt, single_ds)
+            return {
+                "id": t.id,
+                "table_name": t.table_name,
+                "alias": t.alias,
+                "table_label": table_label,
+                "dataset_label": table_label,
+                "dataset_code": dataset_code,
+                "warehouse_layer": infer_layer(t.table_name, rt, single_ds),
+                "physical_table_label": rt.table_label if rt else None,
+            }
+
         return {
             "id": ds.id,
             "name": ds.name,
@@ -434,10 +520,7 @@ class WarehouseService:
             "published_at": ds.published_at,
             "published_by": ds.published_by,
             "created_at": ds.created_at,
-            "tables": [
-                {"id": t.id, "table_name": t.table_name, "alias": t.alias}
-                for t in tables
-            ],
+            "tables": [model_table_payload(t) for t in tables],
             "relations": [
                 {
                     "id": r.id,

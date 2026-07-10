@@ -91,11 +91,23 @@ function readableTableLabel(tableName: string) {
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ') || tableName
 }
-function resolveNodeLabel(asset: AvailableTable | undefined, tableName: string) {
-  return isCodeLikeLabel(asset?.table_label, tableName) ? readableTableLabel(tableName) : asset!.table_label
+function resolveNodeLabel(asset: AvailableTable | undefined, tableName: string, preferredLabel?: string | null) {
+  if (!isCodeLikeLabel(preferredLabel, tableName)) return preferredLabel!.trim()
+  if (!isCodeLikeLabel(asset?.table_label, tableName)) return asset!.table_label
+  return readableTableLabel(tableName)
 }
-function resolveNodeDatasetCode(asset: AvailableTable | undefined, tableName: string) {
-  return asset?.dataset_code || formatTableDatasetCode(tableName)
+function resolveNodeDatasetCode(asset: AvailableTable | undefined, tableName: string, preferredCode?: string | null) {
+  return preferredCode || asset?.dataset_code || formatTableDatasetCode(tableName)
+}
+function resolveNodeLayer(asset: AvailableTable | undefined, tableName: string, preferredLayer?: string | null) {
+  if (preferredLayer) return preferredLayer
+  if (asset?.warehouse_layer) return asset.warehouse_layer
+  const lower = tableName.toLowerCase()
+  if (lower.startsWith('dwd_')) return 'DWD'
+  if (lower.startsWith('dws_')) return 'DWS'
+  if (lower.startsWith('ads_')) return 'ADS'
+  if (lower.startsWith('ods_')) return 'ODS'
+  return 'DWD'
 }
 function makeModelCode(label: string) {
   const suffix = Date.now().toString(36)
@@ -278,7 +290,8 @@ async function load() {
         const asset = availableTables.value.find(a => a.table_name === t.table_name)
         let cols: ColInfo[] = []
         try { const { listAssetColumns } = await import('@/api/warehouse'); const r = await listAssetColumns(t.table_name); cols = (r.columns || []).map((c: any) => ({ code: c.column_code, label: c.column_label || c.column_code })) } catch {}
-        tables.value.push({ id: t.id, table_name: t.table_name, alias: t.alias, label: resolveNodeLabel(asset, t.table_name), dataset_code: resolveNodeDatasetCode(asset, t.table_name), layer: asset?.warehouse_layer || 'ODS', x: 0, y: 0, columns: cols })
+        const preferredLabel = t.dataset_label || t.table_label
+        tables.value.push({ id: t.id, table_name: t.table_name, alias: t.alias, label: resolveNodeLabel(asset, t.table_name, preferredLabel), dataset_code: resolveNodeDatasetCode(asset, t.table_name, t.dataset_code), layer: resolveNodeLayer(asset, t.table_name, t.warehouse_layer), x: 0, y: 0, columns: cols })
       }
       relations.value = d.relations.map((r: any) => ({ id: r.id, from: r.left_alias, to: r.right_alias, join_type: r.join_type, cardinality: r.cardinality, keys: r.keys || [] }))
       outputFields.value = d.output_fields.map((f: any) => ({ source_alias: f.source_alias, source_column: f.source_column, output_code: f.output_code, output_label: f.output_label, data_type: f.data_type, description: f.description, agg_role: f.agg_role, is_sensitive: f.is_sensitive, is_visible: f.is_visible, display_order: f.display_order }))
