@@ -228,8 +228,8 @@ async def create_table(
     validate_table_name(dwd_table_name)
 
     from sqlalchemy import text as sa_text
-    await db.execute(sa_text(f"CREATE TABLE `{dwd_table_name}` AS SELECT * FROM `{table_name}`"))
-    await db.execute(sa_text(f"ALTER TABLE `{dwd_table_name}` ADD PRIMARY KEY (id)"))
+    await db.execute(sa_text(f'CREATE TABLE "{dwd_table_name}" AS SELECT * FROM "{table_name}"'))
+    await db.execute(sa_text(f'ALTER TABLE "{dwd_table_name}" ADD PRIMARY KEY (id)'))
 
     # 注册 DWD 表到资产目录
     dwd_rt = RegisteredTable(

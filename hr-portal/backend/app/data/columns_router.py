@@ -40,6 +40,31 @@ from app.warehouse.impact import get_impact_analyzer
 router = APIRouter(prefix="/table-columns", tags=["table-columns"])
 
 
+async def _publish_ods_metadata_changed(table_name: str, change_type: str, affected_columns: list[str] | None = None, changed_by: str = "system") -> None:
+    """发布 ods_table_metadata_changed 事件。"""
+    try:
+        from datetime import UTC, datetime as dt
+        from app.automation.events import AutomationEvent, publish_event
+        from app.core.db import get_session_factory
+        import uuid
+        async with get_session_factory()() as new_db:
+            await publish_event(AutomationEvent(
+                trigger_type="ods_table_metadata_changed",
+                biz_type="ods_table", biz_id=table_name,
+                payload={
+                    "trigger_type": "ods_table_metadata_changed",
+                    "table_name": table_name,
+                    "change_type": change_type,
+                    "metadata_change_id": f"mdc_{uuid.uuid4().hex[:12]}",
+                    "affected_columns": affected_columns or [],
+                    "changed_by": changed_by,
+                    "changed_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                },
+            ), new_db)
+    except Exception:
+        pass
+
+
 def _ddl_http_error(exc: Exception) -> HTTPException:
     return HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -509,6 +534,7 @@ async def create_column(
     await register_source_table_model(db, table, force=True)
     await db.commit()
     await db.refresh(col)
+    await _publish_ods_metadata_changed(table, "column_added")
     return _to_out(col)
 
 
@@ -590,6 +616,7 @@ async def bulk_update(
         await db.flush()
         await register_source_table_model(db, table, force=True)
     await db.commit()
+    await _publish_ods_metadata_changed(table, "columns_updated")
     return {"updated": updated}
 
 
@@ -659,6 +686,7 @@ async def update_column(
         await register_source_table_model(db, table, force=True)
     await db.commit()
     await db.refresh(col)
+    await _publish_ods_metadata_changed(table, "column_updated")
     return _to_out(col)
 
 
@@ -762,6 +790,7 @@ async def delete_column(
     await register_source_table_model(db, table, force=True)
 
     await db.commit()
+    await _publish_ods_metadata_changed(table, "column_removed")
     return {"ok": True}
 
 
@@ -807,6 +836,7 @@ async def clean_orphan_columns(
         await db.delete(c)
 
     await db.commit()
+    await _publish_ods_metadata_changed(table, "columns_deleted")
     return {
         "ok": True,
         "deleted_count": len(deleted),

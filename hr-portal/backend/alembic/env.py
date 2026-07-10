@@ -28,6 +28,7 @@ from app.scopes import models as _scopes_models  # noqa: F401
 from app.datasets import models as _datasets_models  # noqa: F401
 from app.tools import models as _tools_models  # noqa: F401
 from app.ai import models as _ai_models  # noqa: F401
+from app.warehouse import models as _warehouse_models  # noqa: F401
 from app.ai_formula import models as _ai_formula_models  # noqa: F401
 from app.system import models as _system_models  # noqa: F401
 from app.table_tools import models as _table_tools_models  # noqa: F401

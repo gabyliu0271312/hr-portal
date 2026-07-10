@@ -568,11 +568,121 @@ export interface WarehouseFeatureFlags {
   modeling_v2: boolean
   monitoring: boolean
   layer_enhancement: boolean
+  ods_dwd_automation: boolean
 }
 
 /** 获取二期灰度开关 */
 export function getWarehouseFeatures(): Promise<WarehouseFeatureFlags> {
   return api.get('/warehouse/features').then(r => r.data)
+}
+
+// ==================== ODS→DWD 自动化配置 (Z0104/Z0107) ====================
+
+export interface OdsDwdAutomationConfig {
+  id: number
+  ods_table_name: string
+  target_dwd_asset_id: number | null
+  target_dwd_table_name: string | null
+  update_mode: 'cleaning_rule' | 'passthrough' | 'manual_only'
+  ods_sync_semantics: 'full_snapshot' | 'incremental_append' | 'incremental_upsert'
+  dwd_write_strategy: 'full_refresh' | 'incremental_upsert' | 'append' | 'passthrough_view'
+  business_key_fields: string[] | null
+  missing_row_strategy: 'mark_inactive' | 'keep_history' | 'hard_delete'
+  standardization_rule_set_id: number | null
+  standardization_rule_ids: number[] | null
+  trigger_strategy: 'on_sync_success' | 'manual_only'
+  enabled: boolean
+  last_execution_status: string | null
+  last_execution_at: string | null
+  last_execution_rows: number | null
+  last_execution_error: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  auto_created: boolean
+  trigger_event: string | null
+  default_strategy: string | null
+  risk_decision: string | null
+  trace_id: string | null
+  source_system: string
+}
+
+export interface OdsDwdAutomationConfigCreate {
+  ods_table_name: string
+  target_dwd_table_name?: string
+  update_mode?: string
+  ods_sync_semantics?: string
+  dwd_write_strategy?: string
+  business_key_fields?: string[]
+  missing_row_strategy?: string
+  standardization_rule_set_id?: number
+  standardization_rule_ids?: number[]
+  trigger_strategy?: string
+  enabled?: boolean
+}
+
+export interface OdsDwdAutomationExecution {
+  id: number
+  rule_id: number
+  trigger_type: string
+  trigger_label: string
+  biz_type: string | null
+  biz_id: string | null
+  event_payload: Record<string, any>
+  status: string
+  mode: string
+  rows: number
+  error_message: string
+  started_at: string | null
+  finished_at: string | null
+  actions: Array<{
+    action_type: string
+    status: string
+    output: Record<string, any> | null
+    error: string | null
+    started_at: string | null
+    finished_at: string | null
+  }>
+}
+
+export function getOdsDwdAutomationConfig(odsTableName: string): Promise<OdsDwdAutomationConfig> {
+  return api.get(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}`).then(r => r.data)
+}
+
+export function listOdsDwdAutomationConfigs(params?: { update_mode?: string }): Promise<OdsDwdAutomationConfig[]> {
+  return api.get('/warehouse/ods-dwd-automation-configs', { params }).then(r => r.data)
+}
+
+export function createOdsDwdAutomationConfig(data: OdsDwdAutomationConfigCreate): Promise<OdsDwdAutomationConfig> {
+  return api.post('/warehouse/ods-dwd-automation-configs', data).then(r => r.data)
+}
+
+export function updateOdsDwdAutomationConfig(odsTableName: string, data: Partial<OdsDwdAutomationConfigCreate>): Promise<OdsDwdAutomationConfig> {
+  return api.put(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}`, data).then(r => r.data)
+}
+
+export function deleteOdsDwdAutomationConfig(odsTableName: string): Promise<void> {
+  return api.delete(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}`)
+}
+
+export function triggerOdsDwdSync(odsTableName: string): Promise<{ ok: boolean; message: string }> {
+  return api.post(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}/trigger`).then(r => r.data)
+}
+
+export function listOdsDwdAutomationExecutions(odsTableName: string, pageSize?: number): Promise<OdsDwdAutomationExecution[]> {
+  return api.get(`/warehouse/ods-dwd-automation-executions/${encodeURIComponent(odsTableName)}`, { params: { page_size: pageSize || 5 } }).then(r => r.data)
+}
+
+export interface OdsDwdDetectedSemantics {
+  ods_table_name: string
+  ods_sync_semantics: string
+  dwd_write_strategy: string
+  missing_row_strategy: string
+  business_key_fields: string[]
+}
+
+export function detectOdsSyncSemantics(odsTableName: string): Promise<OdsDwdDetectedSemantics> {
+  return api.get(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}/detect-semantics`).then(r => r.data)
 }
 
 // ==================== 批量分层 (Q0104/Q0105) ====================

@@ -422,3 +422,62 @@ class WarehouseLineageEdge(Base):
     run_id = Column(BigInteger, nullable=True, comment="关联运行 ID")
     edge_metadata = Column(JSON, nullable=True, comment="血缘 metadata（definition_id/rule_ids/version）")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# ==================== ods_dwd_automation_configs (Z0104) ====================
+
+class OdsDwdAutomationConfig(Base):
+    """ODS→DWD 自动化规则配置
+
+    Z01 第一期核心表：用户在配置页一次性声明 ODS 表与 DWD 更新策略，
+    之后每次 ODS 同步成功后自动触发 DWD 更新。
+    """
+
+    __tablename__ = "ods_dwd_automation_configs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ods_table_name = Column(String(256), unique=True, nullable=False, comment="ODS 表名")
+    target_dwd_asset_id = Column(BigInteger, nullable=True, comment="目标 DWD 资产 ID")
+    target_dwd_table_name = Column(String(256), nullable=True, comment="目标 DWD 表名/视图名")
+
+    update_mode = Column(
+        String(32), nullable=False, default="manual_only",
+        comment="cleaning_rule / passthrough / manual_only",
+    )
+    ods_sync_semantics = Column(
+        String(32), nullable=False, default="full_snapshot",
+        comment="full_snapshot / incremental_append / incremental_upsert",
+    )
+    dwd_write_strategy = Column(
+        String(32), nullable=False, default="incremental_upsert",
+        comment="full_refresh / incremental_upsert / append / passthrough_view",
+    )
+    business_key_fields = Column(JSON, nullable=True, comment="业务主键字段列表")
+    missing_row_strategy = Column(
+        String(32), nullable=False, default="mark_inactive",
+        comment="mark_inactive / keep_history / hard_delete",
+    )
+    standardization_rule_set_id = Column(BigInteger, nullable=True, comment="关联的标准化规则集 ID")
+    standardization_rule_ids = Column(JSON, nullable=True, comment="关联的标准化规则 ID 列表")
+
+    trigger_strategy = Column(
+        String(32), nullable=False, default="manual_only",
+        comment="on_sync_success / manual_only",
+    )
+    enabled = Column(Boolean, nullable=False, default=False, comment="是否启用自动化")
+    last_execution_status = Column(String(16), nullable=True, comment="最近执行状态")
+    last_execution_at = Column(DateTime, nullable=True, comment="最近执行时间")
+    last_execution_rows = Column(BigInteger, nullable=True, comment="最近执行影响行数")
+    last_execution_error = Column(Text, nullable=True, comment="最近执行错误信息")
+
+    # Z01 自动生成审计字段
+    auto_created = Column(Boolean, nullable=False, default=False, comment="是否由系统自动创建")
+    trigger_event = Column(String(64), nullable=True, comment="触发自动创建的事件类型")
+    default_strategy = Column(String(64), nullable=True, comment="系统分配的默认策略")
+    risk_decision = Column(String(32), nullable=True, comment="安全门禁结果: safe/warn/blocked")
+    trace_id = Column(String(64), nullable=True, comment="审计追踪 ID")
+    source_system = Column(String(32), nullable=False, default="manual", comment="配置来源: manual/system")
+
+    created_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

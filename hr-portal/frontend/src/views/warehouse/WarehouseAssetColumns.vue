@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, View, Connection, EditPen, Plus } from '@element-plus/icons-vue'
+import { ArrowLeft, View, Connection, EditPen, Plus, Delete } from '@element-plus/icons-vue'
 import Sortable from 'sortablejs'
 import { listAssetColumns, impactField, type AssetColumn, type ImpactResult } from '@/api/warehouse'
 import { tableColumnsApi, type ColumnUpdatePayload } from '@/api/table_columns'
@@ -150,6 +150,17 @@ async function saveEdit() {
 }
 
 function cancelEdit() { editMode.value = false; isCreateMode.value = false }
+
+async function doDelete(col: AssetColumn) {
+  try {
+    await ElMessageBox.confirm(`确定删除字段"${col.column_label}"(${col.column_code})？此操作不可恢复。`, '确认删除', { type: 'warning' })
+  } catch { return }
+  try {
+    await tableColumnsApi.remove(tableName, col.id!)
+    ElMessage.success('字段已删除')
+    await load()
+  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '删除失败') }
+}
 function showDetail(col: AssetColumn) { selectedColumn.value = col; editMode.value = false; drawerVisible.value = true }
 
 async function showImpact(col: AssetColumn) {
@@ -169,8 +180,7 @@ onMounted(load)
         <h2 style="margin: 0; font-size: 18px">{{ tableName }} · 字段定义</h2>
         <span style="color: #909399; font-size: 12px">拖拽行可调整排序</span>
       </div>
-      <!-- 新建字段/计算字段已迁移至数据建模页 -->
-      <el-button size="small" @click="router.push('/warehouse/modeling')">去建模页管理字段</el-button>
+      <el-button v-if="userStore.hasOp('warehouse.assets','C')" type="primary" size="small" @click="openCreate">新增字段</el-button>
     </div>
 
     <el-alert v-if="error" type="error" :title="error" show-icon :closable="false" style="margin-bottom: 16px" />
@@ -219,6 +229,7 @@ onMounted(load)
           <template #default="{ row }">
             <el-button text size="small" :icon="View" @click="showDetail(row)">详情</el-button>
             <el-button v-if="userStore.hasOp('warehouse.assets','U')" text size="small" :icon="EditPen" @click="enterEdit(row)">编辑</el-button>
+            <el-button v-if="userStore.hasOp('warehouse.assets','D')" text size="small" type="danger" :icon="Delete" @click="doDelete(row)">删除</el-button>
             <el-button text size="small" :icon="Connection" @click="showImpact(row)">影响</el-button>
           </template>
         </el-table-column>

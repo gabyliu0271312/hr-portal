@@ -7,13 +7,20 @@
 后续可升级为异步队列（Celery/ARQ/Redis Streams）而不改变业务调用方接口。
 
 标准事件类型：
-  scheduled_job_success     Scheduler job 成功
-  scheduled_job_failed      Scheduler job 失败
-  scheduled_job_finished    Scheduler job 完成（无论成功失败）
-  report_run_success        报表手动运行成功
-  report_run_failed         报表手动运行失败
-  scheduled_report_success  报表定时运行成功
-  scheduled_report_failed   报表定时运行失败
+  scheduled_job_success        Scheduler job 成功
+  scheduled_job_failed         Scheduler job 失败
+  scheduled_job_finished       Scheduler job 完成（无论成功失败）
+  report_run_success           报表手动运行成功
+  report_run_failed            报表手动运行失败
+  scheduled_report_success     报表定时运行成功
+  scheduled_report_failed      报表定时运行失败
+
+  === Z01 ODS→DWD 自动化事件 ===
+  datasource_sync_completed        DataSource 同步完成（payload: datasource_id, table_name, sync_status, sync_rows, sync_message, source_run_id）
+  ods_table_data_changed           ODS 表数据变更（payload: table_name, data_change_id, source, change_type, affected_row_count, business_keys, source_run_id/upload_batch_id, changed_by, changed_at）
+  ods_table_metadata_changed       ODS 表元数据变更（payload: table_name, metadata_change_id, change_type, affected_columns, changed_by, changed_at）
+  standardization_rule_changed     清洗规则变更（payload: rule_set_id, table_name, change_type, changed_by, changed_at）
+  ods_dwd_automation_config_changed ODS→DWD 自动化配置变更（payload: config_id, table_name, change_type, changed_by, changed_at）
 """
 from __future__ import annotations
 

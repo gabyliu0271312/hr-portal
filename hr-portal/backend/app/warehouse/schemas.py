@@ -352,6 +352,7 @@ class WarehouseFeatureFlagsOut(BaseModel):
     modeling_v2: bool = False
     monitoring: bool = False
     layer_enhancement: bool = True
+    ods_dwd_automation: bool = False
 
 
 # ==================== 批量分层 (Q0104) ====================
@@ -1143,3 +1144,72 @@ class AdsDefinitionUpdateIn(BaseModel):
     subject_area: Optional[str] = Field(None, max_length=64)
     consume_domain: Optional[str] = Field(None, max_length=64)
     owner_name: Optional[str] = Field(None, max_length=64)
+
+
+# ==================== ODS→DWD 自动化配置 (Z0104) ====================
+
+class OdsDwdAutomationConfigCreate(BaseModel):
+    """创建 ODS→DWD 自动化配置"""
+    model_config = {"extra": "forbid"}
+
+    ods_table_name: str = Field(..., max_length=256)
+    target_dwd_asset_id: Optional[int] = None
+    target_dwd_table_name: Optional[str] = Field(None, max_length=256)
+    update_mode: Literal["cleaning_rule", "passthrough"] = "cleaning_rule"
+    ods_sync_semantics: Literal["full_snapshot", "incremental_append", "incremental_upsert"] = "full_snapshot"
+    dwd_write_strategy: Literal["full_refresh", "incremental_upsert", "append", "passthrough_view"] = "incremental_upsert"
+    business_key_fields: Optional[list[str]] = None
+    missing_row_strategy: Literal["mark_inactive", "keep_history", "hard_delete"] = "mark_inactive"
+    standardization_rule_set_id: Optional[int] = None
+    standardization_rule_ids: Optional[list[int]] = None
+    enabled: bool = False
+
+
+class OdsDwdAutomationConfigUpdate(BaseModel):
+    """更新 ODS→DWD 自动化配置"""
+    model_config = {"extra": "forbid"}
+
+    target_dwd_asset_id: Optional[int] = None
+    target_dwd_table_name: Optional[str] = Field(None, max_length=256)
+    update_mode: Optional[Literal["cleaning_rule", "passthrough"]] = None
+    ods_sync_semantics: Optional[Literal["full_snapshot", "incremental_append", "incremental_upsert"]] = None
+    dwd_write_strategy: Optional[Literal["full_refresh", "incremental_upsert", "append", "passthrough_view"]] = None
+    business_key_fields: Optional[list[str]] = None
+    missing_row_strategy: Optional[Literal["mark_inactive", "keep_history", "hard_delete"]] = None
+    standardization_rule_set_id: Optional[int] = None
+    standardization_rule_ids: Optional[list[int]] = None
+    trigger_strategy: Optional[Literal["on_sync_success"]] = None
+    enabled: Optional[bool] = None
+
+
+class OdsDwdAutomationConfigOut(BaseModel):
+    """ODS→DWD 自动化配置响应"""
+    model_config = {"from_attributes": True}
+
+    id: int
+    ods_table_name: str
+    target_dwd_asset_id: Optional[int] = None
+    target_dwd_table_name: Optional[str] = None
+    update_mode: str
+    ods_sync_semantics: str
+    dwd_write_strategy: str
+    business_key_fields: Optional[list[str]] = None
+    missing_row_strategy: str
+    standardization_rule_set_id: Optional[int] = None
+    standardization_rule_ids: Optional[list[int]] = None
+    trigger_strategy: str
+    enabled: bool
+    last_execution_status: Optional[str] = None
+    last_execution_at: Optional[datetime] = None
+    last_execution_rows: Optional[int] = None
+    last_execution_error: Optional[str] = None
+    # Z01 自动生成审计字段
+    auto_created: bool = False
+    trigger_event: Optional[str] = None
+    default_strategy: Optional[str] = None
+    risk_decision: Optional[str] = None
+    trace_id: Optional[str] = None
+    source_system: str = "manual"
+    created_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime

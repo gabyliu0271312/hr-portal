@@ -96,6 +96,7 @@ MENU_TREE: list[dict] = [
             {"code": "warehouse.service", "label": "数据服务", "icon": "Share"},
             {"code": "warehouse.governance", "label": "数据治理", "icon": "Checked"},
             {"code": "warehouse.impact", "label": "影响分析", "icon": "Connection"},
+            {"code": "warehouse.automation", "label": "自动化配置", "icon": "SetUp"},
         ],
     },
     # 一级 3：报表管理
@@ -290,6 +291,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_single_table_datasets(db)
         await _ensure_document_templates(db)
         await _ensure_formula_functions(db)
+        await _ensure_ods_dwd_automation_rules(db)
         logger.info("[seed] done")
 
 
@@ -565,4 +567,44 @@ async def _ensure_formula_functions(db: AsyncSession) -> None:
             )
         )
         logger.info("[seed] formula function added: %s", cfg["code"])
+    await db.commit()
+
+
+async def _ensure_ods_dwd_automation_rules(db: AsyncSession) -> None:
+    """确保 ODS→DWD 自动化的系统级自动化规则存在。"""
+    from app.automation.models import AutomationRule
+
+    triggers = [
+        "datasource_sync_completed",
+        "ods_table_data_changed",
+        "ods_table_metadata_changed",
+        "standardization_rule_changed",
+        "ods_dwd_automation_config_changed",
+    ]
+    existing = (
+        await db.execute(
+            select(AutomationRule).where(
+                AutomationRule.trigger_type.in_(triggers),
+                AutomationRule.source == "system",
+            )
+        )
+    ).scalars().all()
+    existing_types = {r.trigger_type for r in existing}
+
+    for tt in triggers:
+        if tt in existing_types:
+            continue
+        rule = AutomationRule(
+            name=f"ODS→DWD 自动标准化 — {tt}",
+            description="系统自动创建：ODS 数据变更后触发 DWD 标准化",
+            trigger_type=tt,
+            trigger_config={},
+            condition_config=[],
+            actions_config=[{"type": "trigger_dwd_standardization", "config": {}}],
+            enabled=True,
+            source="system",
+        )
+        db.add(rule)
+        logger.info("[seed] ods-dwd automation rule added: %s", tt)
+
     await db.commit()

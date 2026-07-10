@@ -5,7 +5,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -88,12 +88,31 @@ from app.warehouse.schemas import (
     SnapshotJobIn, SnapshotJobUpdateIn, SnapshotTriggerIn,
     ScdConfigIn, ScdConfigUpdateIn,
     AdsDefinitionIn, AdsDefinitionUpdateIn,
+    # Z0104 ODS→DWD 自动化配置
+    OdsDwdAutomationConfigCreate, OdsDwdAutomationConfigUpdate, OdsDwdAutomationConfigOut,
 )
 
 router = APIRouter(prefix="/warehouse", tags=["数据仓库"])
 
 
 # ==================== 辅助 ====================
+
+async def _publish_config_changed(table_name: str, change_type: str) -> None:
+    """发布 ods_dwd_automation_config_changed 事件。"""
+    try:
+        from datetime import UTC, datetime as dt
+        from app.automation.events import AutomationEvent, publish_event
+        from app.core.db import get_session_factory
+        async with get_session_factory()() as new_db:
+            await publish_event(AutomationEvent(
+                trigger_type="ods_dwd_automation_config_changed",
+                biz_type="ods_table", biz_id=table_name,
+                payload={"trigger_type": "ods_dwd_automation_config_changed", "table_name": table_name, "change_type": change_type,
+                          "changed_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S")},
+            ), new_db)
+    except Exception:
+        pass
+
 
 def _svc(db: AsyncSession) -> WarehouseService:
     return get_warehouse_service(db)
@@ -142,6 +161,7 @@ async def get_features():
         modeling_v2=settings.WAREHOUSE_FEATURE_MODELING_V2,
         monitoring=settings.WAREHOUSE_FEATURE_MONITORING,
         layer_enhancement=settings.WAREHOUSE_FEATURE_LAYER_ENHANCEMENT,
+        ods_dwd_automation=settings.WAREHOUSE_FEATURE_ODS_DWD_AUTOMATION,
     )
 
 
@@ -2263,6 +2283,470 @@ async def execute_standardization(
         status = code_map.get(result["error"], 500)
         raise HTTPException(status_code=status, detail=result.get("detail", str(result)))
     return result
+
+
+# ==================== Z0104 ODS→DWD 自动化配置 CRUD ====================
+
+
+async def _detect_ods_config(ods_table_name: str, db: AsyncSession) -> dict:
+    """自动识别 ODS 表的同步语义、写入策略、业务主键。
+
+    返回 ods_sync_semantics, dwd_write_strategy, missing_row_strategy, business_key_fields
+    """
+    from app.datasources.sync_service import PERIOD_TABLES
+    from app.data.models import TableColumn
+
+    # 1) 业务主键 — 从 table_columns 读取 is_pk_part=true 的字段
+    pk_rows = (
+        await db.execute(
+            select(TableColumn.column_code)
+            .where(TableColumn.table_name == ods_table_name, TableColumn.is_pk_part.is_(True))
+            .order_by(TableColumn.display_order)
+        )
+    ).all()
+    business_key_fields = [r[0] for r in pk_rows]
+
+    # 2) 同步语义
+    # 当前状态类表（全量快照）：HR名单、组织、成本中心、月度表
+    FULL_SNAPSHOT_TABLES = {"emp_realtime_roster", "org_unit"}
+
+    if ods_table_name in PERIOD_TABLES:
+        cfg = PERIOD_TABLES[ods_table_name]
+        if cfg.get("period_source") == "inject":
+            return {"ods_sync_semantics": "full_snapshot", "dwd_write_strategy": "full_refresh",
+                    "missing_row_strategy": "mark_inactive", "business_key_fields": business_key_fields}
+
+    if ods_table_name in FULL_SNAPSHOT_TABLES:
+        return {"ods_sync_semantics": "full_snapshot", "dwd_write_strategy": "incremental_upsert",
+                "missing_row_strategy": "mark_inactive", "business_key_fields": business_key_fields}
+
+    # 默认：增量 upsert
+    return {"ods_sync_semantics": "incremental_upsert", "dwd_write_strategy": "incremental_upsert",
+            "missing_row_strategy": "keep_history", "business_key_fields": business_key_fields}
+
+
+@router.get(
+    "/ods-dwd-automation-configs/{ods_table_name}/detect-semantics",
+    summary="自动识别 ODS 表的同步语义",
+    dependencies=[Depends(require_op("warehouse.assets", "V"))],
+)
+async def detect_ods_sync_semantics(
+    ods_table_name: str,
+    db: AsyncSession = Depends(get_session),
+):
+    """返回自动识别的 ODS 同步语义、DWD 写入策略、业务主键和缺失行处理策略。"""
+    result = await _detect_ods_config(ods_table_name, db)
+    result["ods_table_name"] = ods_table_name
+    return result
+
+
+@router.get(
+    "/ods-dwd-automation-configs/{ods_table_name}",
+    summary="获取 ODS 表的自动化配置",
+    response_model=OdsDwdAutomationConfigOut,
+    dependencies=[Depends(require_op("warehouse.assets", "V"))],
+)
+async def get_ods_dwd_automation_config(
+    ods_table_name: str,
+    db: AsyncSession = Depends(get_session),
+):
+    """获取指定 ODS 表的 ODS→DWD 自动化配置。"""
+    from app.warehouse.models import OdsDwdAutomationConfig
+    result = await db.execute(
+        select(OdsDwdAutomationConfig).where(OdsDwdAutomationConfig.ods_table_name == ods_table_name)
+    )
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"ODS 表 {ods_table_name} 尚未配置自动化")
+    return config
+
+
+@router.get(
+    "/ods-dwd-automation-configs",
+    summary="列出所有 ODS→DWD 自动化配置",
+    dependencies=[Depends(require_op("warehouse.assets", "V"))],
+)
+async def list_ods_dwd_automation_configs(
+    update_mode: str | None = Query(None, description="更新模式过滤"),
+    db: AsyncSession = Depends(get_session),
+):
+    """列出所有 ODS→DWD 自动化配置，支持按模式筛选。返回带中文表名。"""
+    from app.warehouse.models import OdsDwdAutomationConfig
+    from app.data.models import RegisteredTable
+
+    stmt = select(OdsDwdAutomationConfig)
+    if update_mode:
+        stmt = stmt.where(OdsDwdAutomationConfig.update_mode == update_mode)
+    stmt = stmt.order_by(OdsDwdAutomationConfig.updated_at.desc())
+    result = await db.execute(stmt)
+    configs = result.scalars().all()
+
+    # 批量查询中文表名
+    table_names = [c.ods_table_name for c in configs] + [c.target_dwd_table_name for c in configs if c.target_dwd_table_name]
+    label_rows = (await db.execute(
+        select(RegisteredTable.table_name, RegisteredTable.table_label)
+        .where(RegisteredTable.table_name.in_(table_names))
+    )).all()
+    label_map = {r[0]: r[1] for r in label_rows}
+
+    out = []
+    for c in configs:
+        d = OdsDwdAutomationConfigOut.model_validate(c).model_dump()
+        d["ods_table_label"] = label_map.get(c.ods_table_name, c.ods_table_name)
+        d["dwd_table_label"] = label_map.get(c.target_dwd_table_name, c.target_dwd_table_name or "-")
+        out.append(d)
+
+    return out
+
+
+@router.post(
+    "/ods-dwd-automation-configs",
+    summary="创建 ODS→DWD 自动化配置",
+    response_model=OdsDwdAutomationConfigOut,
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.assets", "U"))],
+)
+async def create_ods_dwd_automation_config(
+    payload: OdsDwdAutomationConfigCreate,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """为 ODS 表创建自动化配置。
+
+    校验规则：
+    - cleaning_rule 模式必须绑定规则集 → 422
+    - passthrough 模式必须绑定目标 DWD 资产 → 422
+    - incremental_upsert 必须配置 business_key_fields → 422
+    - full_snapshot 必须配置 missing_row_strategy → 422
+    - 同一 ODS 表重复配置 → 409
+    """
+    from app.core.config import settings
+    from app.warehouse.models import OdsDwdAutomationConfig
+
+    if not settings.WAREHOUSE_FEATURE_ODS_DWD_AUTOMATION:
+        raise HTTPException(status_code=403, detail="ODS→DWD 自动化功能未启用")
+
+    # 去重检查
+    existing = await db.execute(
+        select(OdsDwdAutomationConfig).where(OdsDwdAutomationConfig.ods_table_name == payload.ods_table_name)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail=f"ODS 表 {payload.ods_table_name} 已存在自动化配置")
+
+    # cleaning_rule 模式：检查 ODS 表是否已有启用的清洗规则
+    if payload.update_mode == "cleaning_rule":
+        from app.warehouse.models import StandardizationRule
+        rule_count = await db.execute(
+            select(func.count()).select_from(StandardizationRule).where(
+                StandardizationRule.asset_code == payload.ods_table_name,
+                StandardizationRule.enabled.is_(True),
+            )
+        )
+        if (rule_count.scalar() or 0) == 0:
+            raise HTTPException(status_code=422, detail="该 ODS 表尚未配置清洗规则，请先在配方构建器中添加规则")
+
+    # passthrough 模式校验
+    if payload.update_mode == "passthrough" and not payload.target_dwd_table_name:
+        raise HTTPException(status_code=422, detail="passthrough 模式必须指定目标 DWD 表名/视图名")
+
+    # incremental_upsert 必须配置业务主键
+    if payload.dwd_write_strategy == "incremental_upsert" and not payload.business_key_fields:
+        raise HTTPException(status_code=422, detail="incremental_upsert 写入策略必须配置业务主键字段")
+
+    # full_snapshot 必须配置缺失行策略
+    if payload.ods_sync_semantics == "full_snapshot" and not payload.missing_row_strategy:
+        raise HTTPException(status_code=422, detail="full_snapshot 同步语义必须配置缺失行处理策略")
+
+    # 自动识别仅补充未填字段，不覆盖用户显式设置的值
+    detected = await _detect_ods_config(payload.ods_table_name, db)
+
+    config = OdsDwdAutomationConfig(
+        ods_table_name=payload.ods_table_name,
+        target_dwd_asset_id=payload.target_dwd_asset_id,
+        target_dwd_table_name=payload.target_dwd_table_name,
+        update_mode=payload.update_mode,
+        ods_sync_semantics=payload.ods_sync_semantics,
+        dwd_write_strategy=payload.dwd_write_strategy,
+        business_key_fields=payload.business_key_fields or detected.get("business_key_fields"),
+        missing_row_strategy=payload.missing_row_strategy,
+        standardization_rule_set_id=payload.standardization_rule_set_id,
+        standardization_rule_ids=payload.standardization_rule_ids,
+        trigger_strategy="on_sync_success",
+        enabled=payload.enabled,
+        created_by=user.login_name if user else None,
+    )
+    db.add(config)
+    await db.commit()
+    await db.refresh(config)
+    await _publish_config_changed(payload.ods_table_name, "created")
+    return config
+
+
+@router.put(
+    "/ods-dwd-automation-configs/{ods_table_name}",
+    summary="更新 ODS→DWD 自动化配置",
+    response_model=OdsDwdAutomationConfigOut,
+    dependencies=[Depends(require_op("warehouse.assets", "U"))],
+)
+async def update_ods_dwd_automation_config(
+    ods_table_name: str,
+    payload: OdsDwdAutomationConfigUpdate,
+    db: AsyncSession = Depends(get_session),
+):
+    """更新 ODS 表的自动化配置。"""
+    from app.warehouse.models import OdsDwdAutomationConfig
+
+    result = await db.execute(
+        select(OdsDwdAutomationConfig).where(OdsDwdAutomationConfig.ods_table_name == ods_table_name)
+    )
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"ODS 表 {ods_table_name} 尚未配置自动化")
+
+    update_data = payload.model_dump(exclude_unset=True)
+
+    # 自动检测仅补充未显式设置的字段，不覆盖用户输入
+    detected = await _detect_ods_config(ods_table_name, db)
+    if "business_key_fields" not in update_data:
+        update_data["business_key_fields"] = detected.get("business_key_fields")
+
+    # 计算合并后的值
+    merged_mode = update_data.get("update_mode", config.update_mode)
+    merged_dwd = update_data.get("dwd_write_strategy", config.dwd_write_strategy)
+    merged_sync = update_data.get("ods_sync_semantics", config.ods_sync_semantics)
+    merged_biz_keys = update_data.get("business_key_fields", config.business_key_fields)
+    merged_target = update_data.get("target_dwd_table_name", config.target_dwd_table_name)
+
+    # cleaning_rule 模式：检查 ODS 表是否已有启用的清洗规则
+    if merged_mode == "cleaning_rule":
+        from app.warehouse.models import StandardizationRule
+        rule_count = await db.execute(
+            select(func.count()).select_from(StandardizationRule).where(
+                StandardizationRule.asset_code == ods_table_name,
+                StandardizationRule.enabled.is_(True),
+            )
+        )
+        if (rule_count.scalar() or 0) == 0:
+            raise HTTPException(status_code=422, detail="该 ODS 表尚未配置清洗规则，请先在配方构建器中添加规则")
+
+    # passthrough 模式必须绑定目标 DWD 资产
+    if merged_mode == "passthrough" and not merged_target:
+        raise HTTPException(status_code=422, detail="passthrough 模式必须指定目标 DWD 表名/视图名")
+
+    # incremental_upsert 必须配置业务主键
+    if merged_dwd == "incremental_upsert" and not merged_biz_keys:
+        raise HTTPException(status_code=422, detail="incremental_upsert 写入策略必须配置业务主键字段")
+
+    # full_snapshot 必须配置缺失行策略
+    missing_merged = update_data.get("missing_row_strategy", config.missing_row_strategy)
+    if merged_sync == "full_snapshot" and not missing_merged:
+        raise HTTPException(status_code=422, detail="full_snapshot 同步语义必须配置缺失行处理策略")
+
+    for key, value in update_data.items():
+        setattr(config, key, value)
+
+    await db.commit()
+    await db.refresh(config)
+    await _publish_config_changed(ods_table_name, "updated")
+    return config
+
+
+@router.delete(
+    "/ods-dwd-automation-configs/{ods_table_name}",
+    summary="删除 ODS→DWD 自动化配置",
+    status_code=204,
+    dependencies=[Depends(require_op("warehouse.assets", "D"))],
+)
+async def delete_ods_dwd_automation_config(
+    ods_table_name: str,
+    db: AsyncSession = Depends(get_session),
+):
+    """删除 ODS 表的自动化配置。"""
+    from app.warehouse.models import OdsDwdAutomationConfig
+
+    result = await db.execute(
+        select(OdsDwdAutomationConfig).where(OdsDwdAutomationConfig.ods_table_name == ods_table_name)
+    )
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"ODS 表 {ods_table_name} 尚未配置自动化")
+
+    await db.delete(config)
+    await db.commit()
+    await _publish_config_changed(ods_table_name, "deleted")
+    return None
+
+
+# ==================== Z0107 ODS→DWD 自动化执行审计 ====================
+
+ODS_DWD_AUTOMATION_TRIGGERS = (
+    "datasource_sync_completed",
+    "ods_table_data_changed",
+    "ods_table_metadata_changed",
+    "standardization_rule_changed",
+    "ods_dwd_automation_config_changed",
+)
+
+ODS_DWD_TRIGGER_LABELS: dict[str, str] = {
+    "datasource_sync_completed": "数据源同步",
+    "ods_table_data_changed": "ODS数据变更",
+    "ods_table_metadata_changed": "ODS元数据变更",
+    "standardization_rule_changed": "清洗规则变更",
+    "ods_dwd_automation_config_changed": "自动化配置变更",
+}
+
+
+@router.get(
+    "/ods-dwd-automation-executions/{ods_table_name}",
+    summary="查询 ODS 表的自动执行记录",
+    dependencies=[Depends(require_op("warehouse.assets", "V"))],
+)
+async def list_ods_dwd_automation_executions(
+    ods_table_name: str,
+    page_size: int = Query(5, ge=1, le=50, description="返回条数"),
+    db: AsyncSession = Depends(get_session),
+):
+    """查询指定 ODS 表的 ODS→DWD 自动执行记录（最近 N 条）。"""
+    from app.automation.models import AutomationExecution, AutomationActionExecution
+    from sqlalchemy import text as sa_text
+
+    result = await db.execute(
+        select(AutomationExecution)
+        .where(
+            AutomationExecution.trigger_type.in_(ODS_DWD_AUTOMATION_TRIGGERS),
+            AutomationExecution.event_payload["table_name"].cast(String) == ods_table_name,
+        )
+        .order_by(AutomationExecution.started_at.desc())
+        .limit(page_size)
+    )
+    matching = result.scalars().all()
+
+    # 批量加载 action 执行记录
+    exec_ids = [e.id for e in matching]
+    action_results: dict[int, list[dict]] = {}
+    if exec_ids:
+        action_rows = await db.execute(
+            select(AutomationActionExecution)
+            .where(AutomationActionExecution.execution_id.in_(exec_ids))
+            .order_by(AutomationActionExecution.action_index)
+        )
+        for a in action_rows.scalars().all():
+            action_results.setdefault(a.execution_id, []).append({
+                "action_type": a.action_type,
+                "status": a.status,
+                "output": a.output_snapshot,
+                "error": a.error_message,
+                "started_at": a.started_at.isoformat() if a.started_at else None,
+                "finished_at": a.finished_at.isoformat() if a.finished_at else None,
+            })
+
+    output: list[dict] = []
+    for e in matching:
+        p = e.event_payload or {}
+        action_output = (action_results.get(e.id, [{}]) or [{}])[0].get("output") or {}
+        output.append({
+            "id": e.id,
+            "rule_id": e.rule_id,
+            "trigger_type": e.trigger_type,
+            "trigger_label": ODS_DWD_TRIGGER_LABELS.get(e.trigger_type, e.trigger_type),
+            "biz_type": e.biz_type,
+            "biz_id": e.biz_id,
+            "event_payload": p,
+            "status": e.status,
+            "mode": action_output.get("mode", ""),
+            "rows": action_output.get("rows", 0),
+            "error_message": e.error_message or action_output.get("detail", ""),
+            "started_at": e.started_at.isoformat() if e.started_at else None,
+            "finished_at": e.finished_at.isoformat() if e.finished_at else None,
+            "actions": action_results.get(e.id, []),
+        })
+
+    return output
+
+
+@router.get(
+    "/ods-dwd-automation-executions",
+    summary="列出所有 ODS→DWD 自动执行记录",
+    dependencies=[Depends(require_op("warehouse.assets", "V"))],
+)
+async def list_all_ods_dwd_automation_executions(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None, description="success/failed/running"),
+    db: AsyncSession = Depends(get_session),
+):
+    """分页列出所有 ODS→DWD 自动化执行记录。"""
+    from app.automation.models import AutomationExecution
+
+    stmt = select(AutomationExecution).where(
+        AutomationExecution.trigger_type.in_(ODS_DWD_AUTOMATION_TRIGGERS)
+    )
+    if status:
+        stmt = stmt.where(AutomationExecution.status == status)
+    stmt = stmt.order_by(AutomationExecution.started_at.desc())
+
+    # 总数
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    # 分页
+    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [
+            {
+                "id": e.id,
+                "trigger_type": e.trigger_type,
+                "status": e.status,
+                "error_message": e.error_message,
+                "started_at": e.started_at.isoformat() if e.started_at else None,
+                "finished_at": e.finished_at.isoformat() if e.finished_at else None,
+            }
+            for e in rows
+        ],
+    }
+
+
+# ==================== 手动触发 ODS→DWD 同步 ====================
+
+
+@router.post(
+    "/ods-dwd-automation-configs/{ods_table_name}/trigger",
+    summary="手动触发 ODS→DWD 同步",
+    dependencies=[Depends(require_op("warehouse.assets", "U"))],
+)
+async def trigger_ods_dwd_sync(
+    ods_table_name: str,
+    db: AsyncSession = Depends(get_session),
+):
+    """立即触发一次 ODS→DWD 同步，与自动触发逻辑一致：有清洗规则→清洗，无→直通。"""
+    from app.automation.events import AutomationEvent, publish_event
+    from app.core.db import get_session_factory
+
+    async with get_session_factory()() as new_db:
+        await publish_event(
+            AutomationEvent(
+                trigger_type="ods_table_data_changed",
+                biz_type="ods_table",
+                biz_id=ods_table_name,
+                payload={
+                    "trigger_type": "ods_table_data_changed",
+                    "table_name": ods_table_name,
+                    "source": "manual_trigger",
+                    "change_type": "manual_trigger",
+                    "affected_row_count": 0,
+                    "changed_by": "user",
+                    "changed_at": "",
+                },
+            ),
+            new_db,
+        )
+
+    return {"ok": True, "message": f"已触发 {ods_table_name} 的 ODS→DWD 同步"}
 
 
 # ==================== R0202 数据集物化构建 ====================

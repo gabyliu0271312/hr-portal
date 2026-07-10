@@ -583,7 +583,43 @@ async def create_row(
     db.add(row)
     await db.commit()
     await db.refresh(row)
+    await _publish_ods_data_changed(table, "row_inserted", 1, user.login_name, db)
     return {"ok": True, "id": row.id}
+
+
+async def _publish_ods_data_changed(
+    table_name: str, change_type: str, affected_rows: int, changed_by: str, db: AsyncSession,
+) -> None:
+    """发布 ods_table_data_changed 事件（独立 session）。"""
+    try:
+        from datetime import UTC, datetime as dt
+        from app.automation.events import AutomationEvent, publish_event
+        from app.core.db import get_session_factory
+
+        async with get_session_factory()() as new_db:
+            await publish_event(
+                AutomationEvent(
+                    trigger_type="ods_table_data_changed",
+                    biz_type="ods_table",
+                    biz_id=table_name,
+                    payload={
+                        "trigger_type": "ods_table_data_changed",
+                        "table_name": table_name,
+                        "data_change_id": f"manual_{dt.now(UTC).strftime('%Y%m%d%H%M%S')}_{table_name}",
+                        "source": "manual_edit",
+                        "change_type": change_type,
+                        "affected_row_count": affected_rows,
+                        "changed_by": changed_by,
+                        "changed_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                    },
+                ),
+                new_db,
+            )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "[data] 发布 ods_table_data_changed 失败 table=%s", table_name,
+        )
 
 
 async def _manual_codes(table: str, db: AsyncSession) -> set[str]:
@@ -649,6 +685,7 @@ async def bulk_update_rows(
         _apply_entity_values(row, payload.values, columns_by_code)
         _apply_computed_values(row, computed, columns_by_code)
     await db.commit()
+    await _publish_ods_data_changed(table, "bulk_updated", len(rows), user.login_name, db)
     return {"ok": True, "updated": len(rows)}
 
 
@@ -670,6 +707,7 @@ async def bulk_delete_rows(
     Model = DATA_TABLES[table]
     result = await db.execute(sql_delete(Model).where(Model.id.in_(payload.row_ids)))
     await db.commit()
+    await _publish_ods_data_changed(table, "bulk_deleted", result.rowcount, user.login_name, db)
     return {"ok": True, "deleted": result.rowcount}
 
 
@@ -713,4 +751,5 @@ async def update_row(
     _apply_entity_values(row, payload.values, columns_by_code)
     _apply_computed_values(row, computed, columns_by_code)
     await db.commit()
+    await _publish_ods_data_changed(table, "row_updated", 1, user.login_name, db)
     return {"ok": True}

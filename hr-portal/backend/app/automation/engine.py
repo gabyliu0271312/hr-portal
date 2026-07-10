@@ -103,9 +103,16 @@ async def _execute_rule(
         try:
             action_fn = get_action(action_type)
             output = await action_fn(action_config, event.payload, db, exec_record.id)
-            action_exec.status = "success"
             action_exec.output_snapshot = output
-            any_success = True
+            # 根据 action 返回值判断真实状态
+            output_status = output.get("status", "success") if isinstance(output, dict) else "success"
+            if output_status in ("failed", "review_required", "approval_required", "skipped"):
+                action_exec.status = output_status
+                action_exec.error_message = output.get("reason", "") or output.get("detail", "")
+                all_success = False
+            else:
+                action_exec.status = "success"
+                any_success = True
         except Exception as e:
             logger.exception(
                 "[automation] rule %d action[%d]=%s 执行失败 exec_id=%d",
@@ -129,9 +136,11 @@ async def _execute_rule(
         exec_record.status = "failed"
     exec_record.finished_at = datetime.now(UTC)
 
-    # 写入系统操作日志（供"操作日志"页面按"自动通知"筛选）
+    # 写入系统操作日志：ODS→DWD 自动化用独立 category，其他走 automation_notification
+    ods_dwd_triggers = {"datasource_sync_completed", "ods_table_data_changed", "ods_table_metadata_changed", "standardization_rule_changed", "ods_dwd_automation_config_changed"}
+    log_category = "ods_dwd_automation" if event.trigger_type in ods_dwd_triggers else "automation_notification"
     sys_log = SystemLog(
-        category="automation_notification",
+        category=log_category,
         action=f"rule_{rule.id}",
         status=exec_record.status,
         user_id=None,

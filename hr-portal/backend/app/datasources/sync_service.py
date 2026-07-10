@@ -1051,6 +1051,67 @@ def _inject_scope_codes(table_name: str, rows: list[dict]) -> None:
 # ===== 派发：源端拉数据 → 落库 =====
 
 
+async def _publish_ods_data_changed_event(table_name: str, change_type: str, affected_rows: int) -> None:
+    """发布 ods_table_data_changed 事件（独立 session）。"""
+    try:
+        from datetime import UTC, datetime as dt
+        from app.automation.events import AutomationEvent, publish_event
+        from app.core.db import get_session_factory
+        async with get_session_factory()() as new_db:
+            await publish_event(AutomationEvent(
+                trigger_type="ods_table_data_changed",
+                biz_type="ods_table",
+                biz_id=table_name,
+                payload={
+                    "trigger_type": "ods_table_data_changed",
+                    "table_name": table_name,
+                    "source": "api_sync",
+                    "change_type": change_type,
+                    "affected_row_count": affected_rows,
+                    "changed_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                },
+            ), new_db)
+    except Exception:
+        logger.warning("[sync] 发布 ods_table_data_changed 失败 table=%s", table_name)
+
+
+async def _publish_sync_completed_event(
+    table_name: str, sync_status: str, sync_rows: int, sync_message: str, error_message: str,
+) -> None:
+    """发布 datasource_sync_completed 事件（独立 session）。"""
+    try:
+        from datetime import UTC, datetime as dt
+        from app.automation.events import AutomationEvent, publish_event
+        from app.core.db import get_session_factory
+
+        async with get_session_factory()() as new_db:
+            await publish_event(
+                AutomationEvent(
+                    trigger_type="datasource_sync_completed",
+                    biz_type="datasource",
+                    biz_id=table_name,
+                    payload={
+                        "trigger_type": "datasource_sync_completed",
+                        "table_name": table_name,
+                        "sync_status": sync_status,
+                        "sync_rows": sync_rows,
+                        "sync_message": sync_message,
+                        "error_message": error_message,
+                        "synced_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                    },
+                ),
+                new_db,
+            )
+        logger.info(
+            "[sync] 发布 datasource_sync_completed table=%s status=%s rows=%s",
+            table_name, sync_status, sync_rows,
+        )
+    except Exception:
+        logger.exception(
+            "[sync] 发布 datasource_sync_completed 失败 table=%s", table_name,
+        )
+
+
 async def sync_to_table(
     table_name: str,
     source_type: str,
@@ -1065,14 +1126,21 @@ async def sync_to_table(
     （UndefinedColumnError）。这里在失败路径上重新反射，保证内存模型与库一致。
     """
     try:
-        return await _sync_to_table_impl(table_name, source_type, settings, secrets, db)
-    except Exception:
+        inserted, msg = await _sync_to_table_impl(table_name, source_type, settings, secrets, db)
+        # 发布 datasource_sync_completed + 派生统一 ods_table_data_changed
+        await _publish_sync_completed_event(table_name, "success", inserted, msg, "")
+        await _publish_ods_data_changed_event(table_name, "bulk_replaced", inserted)
+        return inserted, msg
+    except Exception as e:
+        error_msg = str(e)[:500]
         try:
             await db.rollback()
             if table_name in DATA_TABLES:
                 await register_source_table_model(db, table_name, force=True)
         except Exception:
             logger.exception("[sync] 失败回滚后重建模型失败 table=%s", table_name)
+        # 发布失败事件（独立 session）
+        await _publish_sync_completed_event(table_name, "failed", 0, "", error_msg)
         raise
 
 

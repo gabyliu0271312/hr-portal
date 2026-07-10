@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     WAREHOUSE_FEATURE_MODELING_V2: bool = False
     WAREHOUSE_FEATURE_MONITORING: bool = False
     WAREHOUSE_FEATURE_LAYER_ENHANCEMENT: bool = True
+    WAREHOUSE_FEATURE_ODS_DWD_AUTOMATION: bool = False
 
     @property
     def db_url_async(self) -> str:
