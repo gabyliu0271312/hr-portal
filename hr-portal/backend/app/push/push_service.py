@@ -813,6 +813,14 @@ async def push_db_expose(
             f"SELECT id, synced_at, {cols_sel} FROM public.{source_table_q}{where_sql}"
         ), params)
 
+    # 2.5 创建同名 VIEW，让用户直接用源表名查询，不用记 t_ 前缀和后缀
+    view_name = make_identifier("", safe_source)
+    view_name_q = _quote_pg_identifier(view_name)
+    await db.execute(text(
+        f"CREATE OR REPLACE VIEW {schema_q}.{view_name_q} AS "
+        f"SELECT * FROM {schema_q}.{finebi_table_q}"
+    ))
+
     # 3. 创建或更新只读账号密码（始终同步，避免重建推送时密码不一致）
     role_exists = (
         await db.execute(
@@ -839,6 +847,7 @@ async def push_db_expose(
         await db.execute(text(f"REVOKE ALL PRIVILEGES ON SCHEMA {existing_schema_q} FROM {readonly_user_q}"))
     await db.execute(text(f"GRANT USAGE ON SCHEMA {schema_q} TO {readonly_user_q}"))
     await db.execute(text(f"GRANT SELECT ON {schema_q}.{finebi_table_q} TO {readonly_user_q}"))
+    await db.execute(text(f"GRANT SELECT ON {schema_q}.{view_name_q} TO {readonly_user_q}"))
     await db.execute(text(f"ALTER ROLE {readonly_user_q} SET search_path TO {schema_q}"))
 
     await db.commit()
@@ -875,6 +884,7 @@ async def push_db_expose(
             "database": app_settings.DB_NAME,
             "schema": schema_name,
             "table": finebi_table,
+            "view": view_name,
             "conn_url": conn_url,
             "jdbc_url": jdbc_url,
         }
