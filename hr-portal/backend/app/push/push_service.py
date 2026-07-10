@@ -791,6 +791,9 @@ async def push_db_expose(
     # 2. 确保独立 schema 存在
     await db.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_q}"))
 
+    view_name = make_identifier("", safe_source)
+    view_name_q = _quote_pg_identifier(view_name)
+    await db.execute(text(f"DROP VIEW IF EXISTS {schema_q}.{view_name_q}"))
     await db.execute(text(f"DROP TABLE IF EXISTS {schema_q}.{finebi_table_q}"))
     await db.execute(text(
         f"CREATE TABLE {schema_q}.{finebi_table_q} "
@@ -814,8 +817,6 @@ async def push_db_expose(
         ), params)
 
     # 2.5 创建同名 VIEW，让用户直接用源表名查询，不用记 t_ 前缀和后缀
-    view_name = make_identifier("", safe_source)
-    view_name_q = _quote_pg_identifier(view_name)
     await db.execute(text(
         f"CREATE OR REPLACE VIEW {schema_q}.{view_name_q} AS "
         f"SELECT * FROM {schema_q}.{finebi_table_q}"
