@@ -88,7 +88,9 @@ async function refresh() {
           nextColumns.push({
             ...col,
             code: `${table.alias}.${col.code}`,
-            label: `${tableName}.${col.label}`,
+            // label 只保留字段名；来源表/数据集名由 sourceGroups 负责展示。
+            // 避免字段选择器右侧把“花名册”等表名误当成字段名展示。
+            label: col.label,
           })
         }
       } catch {
@@ -159,6 +161,7 @@ defineExpose({ refresh, openEditor })
     v-model:visible="formulaEditorOpen"
     :dataset-id="datasetId"
     :fields="formulaEditorFields"
+    :source-groups="sourceGroups"
     :edit-field="editingField"
     @saved="onSaved"
   />

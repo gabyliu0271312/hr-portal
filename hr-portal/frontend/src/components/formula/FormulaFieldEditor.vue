@@ -13,6 +13,7 @@ const props = defineProps<{
   visible: boolean
   datasetId: number | null
   fields: ColumnInfo[]
+  sourceGroups?: { key: string; label: string }[]
   editField?: DatasetCalculatedField | null
 }>()
 
@@ -153,13 +154,27 @@ function fieldSourceLabel(code: string) {
   const key = fieldSourceKey(code)
   if (key === 'calc') return '计算字段'
   if (key === 'current') return '当前数据表'
-  return key
+  return props.sourceGroups?.find((item) => item.key === key)?.label || key
+}
+
+function stripKnownPrefix(value: string, prefixes: (string | null | undefined)[]) {
+  for (const prefix of prefixes.filter(Boolean) as string[]) {
+    if (value.startsWith(`${prefix}.`)) return value.slice(prefix.length + 1)
+  }
+  return value
+}
+
+function cleanFieldCode(field: ColumnInfo) {
+  const key = fieldSourceKey(field.code)
+  return stripKnownPrefix(field.code, [key])
 }
 
 function cleanFieldLabel(field: ColumnInfo) {
   const key = fieldSourceKey(field.code)
-  const prefix = `${key}.`
-  return field.label.startsWith(prefix) ? field.label.slice(prefix.length) : field.label
+  const sourceLabel = props.sourceGroups?.find((item) => item.key === key)?.label || ''
+  const stripped = stripKnownPrefix(field.label, [key, sourceLabel])
+  const dot = stripped.lastIndexOf('.')
+  return dot >= 0 ? stripped.slice(dot + 1) : stripped
 }
 
 function groupedBy<T>(items: T[], keyOf: (item: T) => string, labelOf: (item: T) => string) {
@@ -346,7 +361,7 @@ function shouldPrefixSpace(current: string, start: number, text: string) {
 
 function aliasFieldRef(field: ColumnInfo): string {
   const alias = field.code.includes('.') ? field.code.slice(0, field.code.indexOf('.')) : ''
-  const name = field.label.includes('.') ? field.label.slice(field.label.lastIndexOf('.') + 1) : field.label
+  const name = cleanFieldLabel(field)
   return alias ? `${alias}.${name}` : name
 }
 
@@ -776,7 +791,7 @@ async function removeField() {
                 @click="insertField(field)"
               >
                 <span>{{ cleanFieldLabel(field) }}</span>
-                <code>{{ field.code }}</code>
+                <code>{{ cleanFieldCode(field) }}</code>
               </button>
             </template>
 

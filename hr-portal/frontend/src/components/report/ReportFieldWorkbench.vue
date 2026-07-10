@@ -129,6 +129,12 @@ function cleanFieldLabel(col: ColumnInfo) {
   return dot >= 0 ? col.label.slice(dot + 1) : col.label
 }
 
+function cleanFieldCode(col: ColumnInfo) {
+  if (!props.isDataset) return col.code
+  const prefix = `${sourceKey(col.code)}.`
+  return col.code.startsWith(prefix) ? col.code.slice(prefix.length) : col.code
+}
+
 function groupColumns(cols: ColumnInfo[]) {
   const grouped = new Map<string, { key: string; label: string; columns: ColumnInfo[] }>()
   for (const col of cols) {
@@ -477,7 +483,7 @@ function openAdvanced(tab: AdvancedTab) {
                   <el-icon><Edit /></el-icon>
                 </el-button>
               </span>
-              <span class="field-code">{{ col.code }}</span>
+              <span class="field-code">{{ cleanFieldCode(col) }}</span>
             </button>
           </div>
         </section>
