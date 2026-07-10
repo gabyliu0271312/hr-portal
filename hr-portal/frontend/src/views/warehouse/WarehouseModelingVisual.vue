@@ -38,7 +38,7 @@ const NODE_W = 200; const NODE_H = 52
 
 // 表节点
 interface ColInfo { code: string; label: string }
-interface TableNode { id?: number; table_name: string; alias: string; label?: string; layer?: string; x: number; y: number; columns: ColInfo[] }
+interface TableNode { id?: number; table_name: string; alias: string; label?: string; dataset_code?: string; layer?: string; x: number; y: number; columns: ColInfo[] }
 const tables = ref<TableNode[]>([])
 interface RelationEdge { id?: number; from: string; to: string; join_type: string; cardinality: string; keys: {left:string;right:string}[] }
 const relations = ref<RelationEdge[]>([])
@@ -199,7 +199,7 @@ async function addTable(tn: string) {
   const a = availableTables.value.find(t => t.table_name === tn); if (!a) return
   let cols: ColInfo[] = []
   try { const { listAssetColumns } = await import('@/api/warehouse'); const r = await listAssetColumns(tn); cols = (r.columns || []).map((c: any) => ({ code: c.column_code, label: c.column_label || c.column_code })) } catch {}
-  tables.value.push({ table_name: tn, alias: tn, label: a.table_label, layer: a.warehouse_layer, x: 0, y: 0, columns: cols })
+  tables.value.push({ table_name: tn, alias: tn, label: a.table_label, dataset_code: a.dataset_code, layer: a.warehouse_layer, x: 0, y: 0, columns: cols })
   await nextTick(); autoLayout()
 }
 function removeTable(alias: string) {
@@ -255,7 +255,7 @@ async function load() {
         const asset = availableTables.value.find(a => a.table_name === t.table_name)
         let cols: ColInfo[] = []
         try { const { listAssetColumns } = await import('@/api/warehouse'); const r = await listAssetColumns(t.table_name); cols = (r.columns || []).map((c: any) => ({ code: c.column_code, label: c.column_label || c.column_code })) } catch {}
-        tables.value.push({ id: t.id, table_name: t.table_name, alias: t.alias, label: asset?.table_label || t.table_name, layer: asset?.warehouse_layer || 'ODS', x: 0, y: 0, columns: cols })
+        tables.value.push({ id: t.id, table_name: t.table_name, alias: t.alias, label: asset?.table_label || t.table_name, dataset_code: asset?.dataset_code || t.table_name, layer: asset?.warehouse_layer || 'ODS', x: 0, y: 0, columns: cols })
       }
       relations.value = d.relations.map((r: any) => ({ id: r.id, from: r.left_alias, to: r.right_alias, join_type: r.join_type, cardinality: r.cardinality, keys: r.keys || [] }))
       outputFields.value = d.output_fields.map((f: any) => ({ source_alias: f.source_alias, source_column: f.source_column, output_code: f.output_code, output_label: f.output_label, data_type: f.data_type, description: f.description, agg_role: f.agg_role, is_sensitive: f.is_sensitive, is_visible: f.is_visible, display_order: f.display_order }))
@@ -328,7 +328,7 @@ onMounted(load)
               @mousedown.stop="startConnect($event, t.alias)" title="拖线连接" />
             <div class="vm-nb">
               <div class="vm-nn" :title="t.label||t.table_name">{{ t.label||t.table_name }}</div>
-              <div class="vm-nc" :title="t.table_name">{{ t.table_name }}</div>
+              <div class="vm-nc" :title="t.dataset_code || t.table_name">{{ t.dataset_code || t.table_name }}</div>
             </div>
             <div class="vm-port vm-port-right" :class="{linked:connectedAliases(t.alias).size>0}"
               @mousedown.stop="startConnect($event, t.alias)" title="拖线连接" />
@@ -387,6 +387,8 @@ onMounted(load)
     <!-- 属性抽屉 -->
     <el-drawer v-model="drawerVisible" :title="selectedNode?'节点属性':'关联属性'" size="360px" direction="rtl" @close="selectedNode=null;selectedEdge=null">
       <template v-if="selectedNode">
+        <div class="vm-fg"><label>显示名称</label><el-input :model-value="tables.find(t=>t.alias===selectedNode)?.label || tables.find(t=>t.alias===selectedNode)?.table_name" size="small" disabled /></div>
+        <div class="vm-fg"><label>数据集编码</label><el-input :model-value="tables.find(t=>t.alias===selectedNode)?.dataset_code || tables.find(t=>t.alias===selectedNode)?.table_name" size="small" disabled /></div>
         <div class="vm-fg"><label>别名</label><el-input :model-value="tables.find(t=>t.alias===selectedNode)?.alias" size="small" @change="(v:string)=>{const n=tables.find(t=>t.alias===selectedNode);if(n)n.alias=v}" /></div>
         <div class="vm-fg"><label>物理表</label><el-input :model-value="tables.find(t=>t.alias===selectedNode)?.table_name" size="small" disabled /></div>
         <div class="vm-fg"><label>分层</label><el-select :model-value="tables.find(t=>t.alias===selectedNode)?.layer" size="small" style="width:100%" @change="(v:string)=>{const n=tables.find(t=>t.alias===selectedNode);if(n)n.layer=v}"><el-option v-for="(v,k) in LAYER_LABELS" :key="k" :label="v" :value="k" /></el-select></div>
