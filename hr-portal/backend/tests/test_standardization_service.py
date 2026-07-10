@@ -18,6 +18,7 @@ from app.warehouse.service.standardization import (
     _quote_ident,
     _safe_insert_batch_size,
     _to_table_column_data_type,
+    _normalize_standardization_rules,
 )
 
 
@@ -166,7 +167,7 @@ def test_dwd_source_field_map_keeps_unchanged_columns_and_maps_renames():
 
 def test_rule_output_labels_uses_rule_config_for_overrides():
     rules = [
-        _Rule("rename", "employee_no", "emp_no", {"output_label": "????"}),
+        _Rule("rename", "employee_no", "emp_no", {"output_label": "\u5458\u5de5\u7f16\u53f7"}),
         _Rule(
             "split_merge",
             "full_name",
@@ -175,7 +176,7 @@ def test_rule_output_labels_uses_rule_config_for_overrides():
         ),
     ]
 
-    assert _rule_output_labels(rules) == {"emp_no": "????", "first_name": "?"}
+    assert _rule_output_labels(rules) == {"emp_no": "\u5458\u5de5\u7f16\u53f7", "first_name": "?"}
 
 def test_system_technical_columns_are_detected_for_default_hidden_metadata():
     assert _is_system_technical_column("id") is True
@@ -183,3 +184,60 @@ def test_system_technical_columns_are_detected_for_default_hidden_metadata():
     assert _is_system_technical_column("synced_at") is True
     assert _is_system_technical_column("full_name") is False
 
+
+
+
+def test_normalize_legacy_rename_label_to_stable_employee_no_code():
+    rules = [_Rule("rename", "\u5de5\u53f7", "\u5de5\u53f7")]
+
+    normalized = _normalize_standardization_rules(
+        rules,
+        source_columns=["employee_no", "amount"],
+        source_label_by_code={"employee_no": "\u5de5\u53f7"},
+    )
+
+    assert normalized[0].source_field == "employee_no"
+    assert normalized[0].target_field == "employee_no"
+    assert normalized[0].rule_config["output_label"] == "\u5de5\u53f7"
+
+
+def test_normalize_chinese_physical_source_renames_to_stable_employee_no_code():
+    rules = [_Rule("rename", "\u5de5\u53f7", "\u5de5\u53f7")]
+
+    normalized = _normalize_standardization_rules(
+        rules,
+        source_columns=["\u5de5\u53f7", "amount"],
+        source_label_by_code={"\u5de5\u53f7": "\u5de5\u53f7"},
+    )
+
+    assert normalized[0].source_field == "\u5de5\u53f7"
+    assert normalized[0].target_field == "employee_no"
+    assert normalized[0].rule_config["output_label"] == "\u5de5\u53f7"
+
+
+def test_normalize_legacy_rename_label_to_stable_month_code():
+    rules = [_Rule("rename", "\u6708\u4efd", "\u6708\u4efd")]
+
+    normalized = _normalize_standardization_rules(
+        rules,
+        source_columns=["month", "cost"],
+        source_label_by_code={"month": "\u6708\u4efd"},
+    )
+
+    assert normalized[0].source_field == "month"
+    assert normalized[0].target_field == "month"
+    assert normalized[0].rule_config["output_label"] == "\u6708\u4efd"
+
+
+def test_normalize_keeps_explicit_ascii_new_target_code():
+    rules = [_Rule("rename", "\u5de5\u53f7", "emp_no", {"output_label": "\u5458\u5de5\u7f16\u53f7"})]
+
+    normalized = _normalize_standardization_rules(
+        rules,
+        source_columns=["employee_no"],
+        source_label_by_code={"employee_no": "\u5de5\u53f7"},
+    )
+
+    assert normalized[0].source_field == "employee_no"
+    assert normalized[0].target_field == "emp_no"
+    assert normalized[0].rule_config["output_label"] == "\u5458\u5de5\u7f16\u53f7"

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
+from copy import deepcopy
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import func, select
@@ -21,6 +23,147 @@ STANDARDIZATION_RULE_TYPES = ("rename", "type_convert", "value_map", "unit_conve
 MAX_INSERT_BIND_PARAMS = 30000
 DEFAULT_INSERT_BATCH_ROWS = 1000
 SYSTEM_TECHNICAL_COLUMNS = {"id", "pk_hash", "synced_at"}
+
+# User-facing standard field names that must keep stable internal field codes.
+# Business users may type/select Chinese labels in cleaning rules; DWD physical
+# columns, dataset relations and reports must still use these codes.
+STANDARD_FIELD_CODE_ALIASES: dict[str, str] = {
+    "工号": "employee_no",
+    "员工工号": "employee_no",
+    "员工编号": "employee_no",
+    "人员编号": "employee_no",
+    "雇员编号": "employee_no",
+    "月份": "month",
+    "年月": "month",
+    "期间": "month",
+    "成本月份": "month",
+    "成本归属年月": "cost_period",
+    "成本归属月份": "cost_period",
+    "发薪月份": "pay_month",
+    "工资月份": "pay_month",
+    "奖金归属年": "bonus_year",
+    "奖金发放月份": "bonus_month",
+    "离职月份": "terminated_month",
+}
+
+def _is_ascii_identifier(value: str | None) -> bool:
+    import re
+    return bool(value) and bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", str(value)))
+
+
+def _clean_field_label(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def _field_code_from_label(label: str | None) -> str | None:
+    label = _clean_field_label(label)
+    if not label:
+        return None
+    return STANDARD_FIELD_CODE_ALIASES.get(label)
+
+
+def _clone_rule(rule, *, source_field: str | None = None, target_field: str | None = None, rule_config: dict | None = None):
+    """Return a lightweight rule copy without mutating persisted ORM rows."""
+    data = {
+        "id": getattr(rule, "id", None),
+        "asset_type": getattr(rule, "asset_type", None),
+        "asset_code": getattr(rule, "asset_code", None),
+        "rule_type": getattr(rule, "rule_type", None),
+        "source_field": source_field if source_field is not None else getattr(rule, "source_field", ""),
+        "target_field": target_field if target_field is not None else getattr(rule, "target_field", ""),
+        "rule_config": rule_config if rule_config is not None else deepcopy(getattr(rule, "rule_config", None) or {}),
+        "enabled": getattr(rule, "enabled", True),
+        "display_order": getattr(rule, "display_order", 0),
+        "description": getattr(rule, "description", None),
+    }
+    return SimpleNamespace(**data)
+
+
+def _normalize_standardization_rules(
+    rules: list,
+    *,
+    source_columns: list[str] | None = None,
+    source_label_by_code: dict[str, str] | None = None,
+) -> list:
+    """Normalize user-entered labels to stable internal field codes.
+
+    Product rule:
+    - Existing-field rename edits the display label, not the physical code.
+    - A saved rule that keeps the employee number label unchanged should output employee_no with that display label.
+    - If the ODS physical column is still Chinese, use it as source and rename
+      to the stable code; if ODS already has the stable code, use that directly.
+    - New/derived fields may still use explicitly supplied ASCII target codes.
+    """
+    source_columns_set = set(source_columns or [])
+
+    # Canonical business aliases should win over source metadata labels because
+    # report joins depend on these stable codes (employee_no/month/etc.).
+    label_to_code: dict[str, str] = dict(STANDARD_FIELD_CODE_ALIASES)
+    for code, label in (source_label_by_code or {}).items():
+        if label and label not in label_to_code:
+            label_to_code[label] = code
+
+    canonical_to_label: dict[str, str] = {}
+    for label, code in STANDARD_FIELD_CODE_ALIASES.items():
+        canonical_to_label.setdefault(code, label)
+
+    def source_for(label_or_code: str) -> str:
+        mapped = label_to_code.get(label_or_code)
+        if mapped and (not source_columns_set or mapped in source_columns_set):
+            return mapped
+        if label_or_code in source_columns_set:
+            return label_or_code
+        return mapped or label_or_code
+
+    normalized: list = []
+    current_code_by_original: dict[str, str] = {}
+
+    for rule in rules:
+        cfg = deepcopy(getattr(rule, "rule_config", None) or {})
+        source_original = getattr(rule, "source_field", "") or ""
+        target_original = getattr(rule, "target_field", "") or source_original
+
+        source = current_code_by_original.get(source_original) or source_for(source_original)
+
+        target = current_code_by_original.get(target_original) or target_original
+        target_label = None
+        if target_original and not _is_ascii_identifier(target_original):
+            target_label = target_original
+            # For existing-field rename, Chinese target is display label. If it
+            # is a known business field, output the stable code; otherwise keep
+            # the source code to avoid creating Chinese physical columns.
+            target = label_to_code.get(target_original) or source
+        elif not target:
+            target = source
+
+        if getattr(rule, "rule_type", None) == "rename":
+            if target_label and not cfg.get("output_label"):
+                cfg["output_label"] = target_label
+            elif target == source and not cfg.get("output_label"):
+                inherited_label = (source_label_by_code or {}).get(source) or canonical_to_label.get(source)
+                if inherited_label:
+                    cfg["output_label"] = inherited_label
+            current_code_by_original[source_original] = target
+            current_code_by_original[target_original] = target
+
+        if getattr(rule, "rule_type", None) == "split_merge" and cfg.get("action") == "split":
+            target_fields = []
+            output_labels = dict(cfg.get("output_labels") or {})
+            for field in cfg.get("target_fields") or []:
+                normalized_field = field
+                if field and not _is_ascii_identifier(field):
+                    output_labels.setdefault(field, field)
+                    normalized_field = label_to_code.get(field) or field
+                    if normalized_field != field:
+                        output_labels.setdefault(normalized_field, field)
+                target_fields.append(normalized_field)
+            cfg["target_fields"] = target_fields
+            if output_labels:
+                cfg["output_labels"] = output_labels
+
+        normalized.append(_clone_rule(rule, source_field=source, target_field=target, rule_config=cfg))
+
+    return normalized
 
 
 def _is_system_technical_column(column_code: str) -> bool:
@@ -129,9 +272,17 @@ def _rule_output_labels(rules: list) -> dict[str, str]:
         if target and cfg.get("output_label"):
             labels[target] = cfg["output_label"]
         if rule.rule_type == "split_merge" and cfg.get("action") == "split":
+            output_labels = cfg.get("output_labels", {}) or {}
             for field in cfg.get("target_fields") or []:
-                if cfg.get("output_labels", {}).get(field):
-                    labels[field] = cfg["output_labels"][field]
+                if output_labels.get(field):
+                    labels[field] = output_labels[field]
+                else:
+                    legacy_label = next(
+                        (label for label, code in STANDARD_FIELD_CODE_ALIASES.items() if code == field and output_labels.get(label)),
+                        None,
+                    )
+                    if legacy_label:
+                        labels[field] = output_labels[legacy_label]
     return labels
 
 
@@ -299,6 +450,14 @@ class StandardizationRuleService:
             if not rows_raw: return {"error": "empty"}
             cols = list(result.keys())
             rows = [dict(zip(cols, row)) for row in rows_raw]
+            from app.data.models import TableColumn
+            source_columns_meta = (
+                await self.session.execute(
+                    select(TableColumn)
+                    .where(TableColumn.table_name == asset_code)
+                )
+            ).scalars().all()
+            source_label_by_code = {c.column_code: c.column_label for c in source_columns_meta}
             rule_objs = []
             for r in rules:
                 if r.get("id"):
@@ -306,6 +465,11 @@ class StandardizationRuleService:
                     if existing: rule_objs.append(existing)
                 else:
                     rule_objs.append(StandardizationRule(**r))
+            rule_objs = _normalize_standardization_rules(
+                rule_objs,
+                source_columns=cols,
+                source_label_by_code=source_label_by_code,
+            )
             transformed = execute_rules(rule_objs, rows)
             return {"columns": list(transformed[0].keys()) if transformed else cols, "items": rows, "preview_items": transformed}
         except Exception as e:
@@ -355,6 +519,19 @@ class StandardizationRuleService:
         await self.session.execute(sa_delete(DatasetOutputField).where(DatasetOutputField.dataset_id == ds.id))
 
         from app.data.models import TableColumn
+
+        source_columns_meta = (
+            await self.session.execute(
+                select(TableColumn)
+                .where(TableColumn.table_name == asset_code)
+                .order_by(TableColumn.display_order, TableColumn.id)
+            )
+        ).scalars().all()
+        rules = _normalize_standardization_rules(
+            rules,
+            source_columns=[c.column_code for c in source_columns_meta],
+            source_label_by_code={c.column_code: c.column_label for c in source_columns_meta},
+        )
 
         dwd_columns = (
             await self.session.execute(
@@ -407,6 +584,44 @@ class StandardizationRuleService:
             await self.session.refresh(ds)
         return {"dataset_id": ds.id, "view_name": ds.name, "version": ds.version, "field_count": len(seen)}
 
+
+    async def _validate_dataset_relation_keys_for_target(self, *, target_table: str, output_columns: list[str]) -> None:
+        """Block DWD rebuilds that would remove fields used by dataset joins."""
+        from app.datasets.models import DataSetRelation, DataSetTable
+
+        rows = (
+            await self.session.execute(
+                select(DataSetTable.dataset_id, DataSetTable.alias)
+                .where(DataSetTable.table_name == target_table)
+            )
+        ).all()
+        if not rows:
+            return
+
+        output_set = set(output_columns or [])
+        issues: list[str] = []
+        for dataset_id, alias in rows:
+            rels = (
+                await self.session.execute(
+                    select(DataSetRelation).where(
+                        DataSetRelation.dataset_id == dataset_id,
+                        ((DataSetRelation.left_alias == alias) | (DataSetRelation.right_alias == alias)),
+                    )
+                )
+            ).scalars().all()
+            for rel in rels:
+                for key in rel.keys or []:
+                    required = key.get("left") if rel.left_alias == alias else key.get("right")
+                    if required and required not in output_set:
+                        issues.append(f"dataset={dataset_id}, alias={alias}, field={required}")
+
+        if issues:
+            raise RuntimeError(
+                "DWD relation key fields are missing from output columns; rebuild was blocked to avoid disabling reports. "
+                "For existing fields, rename should change display label rather than field code. Missing: "
+                + "; ".join(issues[:20])
+            )
+
     async def execute_full(self, *, asset_code: str, target_table: str | None = None) -> dict:
         """全量执行 ODS→DWD 标准化并写入目标物理表。"""
         from app.warehouse.models import StandardizationRule
@@ -433,6 +648,18 @@ class StandardizationRuleService:
             cols = list(result.keys())
             rows = [dict(zip(cols, row)) for row in rows_raw]
         except Exception as e: return {"error": "read_failed", "detail": str(e)}
+        source_columns_meta_for_rules = (
+            await self.session.execute(
+                select(TableColumn)
+                .where(TableColumn.table_name == asset_code)
+                .order_by(TableColumn.display_order, TableColumn.id)
+            )
+        ).scalars().all()
+        rules = _normalize_standardization_rules(
+            rules,
+            source_columns=cols,
+            source_label_by_code={c.column_code: c.column_label for c in source_columns_meta_for_rules},
+        )
         total = len(rows)
         try: transformed = execute_rules(rules, rows)
         except Exception as e: return {"error": "transform_failed", "detail": str(e), "total": total, "success": 0, "failed": total, "errors": []}
@@ -454,6 +681,7 @@ class StandardizationRuleService:
             await self.session.execute(sa_text(f'DROP TABLE IF EXISTS "{target}"'))
             if transformed:
                 bcols = _ordered_output_columns(transformed)
+                await self._validate_dataset_relation_keys_for_target(target_table=target, output_columns=bcols)
                 column_types = _infer_column_types(transformed)
                 col_defs = _dwd_create_column_definitions(bcols, column_types)
                 await self.session.execute(sa_text(f'CREATE TABLE {_quote_ident(target)} ({", ".join(col_defs)})'))
