@@ -8,8 +8,8 @@ Phase 1B 配置中心与管理增强：
   - 权限校验和操作审计
 
 权限约定（Phase 1B）：
-  - datasource.ucp_config 菜单：V=查看配置, C=创建配置, U=修改配置, D=删除配置
-  - datasource.ucp_executions 菜单：V=查看执行结果, C=手动触发, E=导出
+  - ucp.systems 菜单：V=查看配置, C=创建配置, U=修改配置, D=删除配置
+  - ucp.executions 菜单：V=查看执行结果, C=手动触发, E=导出
 """
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ async def _audit(
 # ===== Phase 1C: 现有视图配置桥接目标 =====
 
 @router.get("/bridge-targets", summary="列出可作为 UCP 步骤的现有视图配置（Phase 1C 桥接）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def list_bridge_targets(
     db: AsyncSession = Depends(get_session),
     _user: User = Depends(current_user),
@@ -124,7 +124,7 @@ async def list_bridge_targets(
 
 
 @router.get("/bridge-push-targets", summary="列出可作为 UCP 步骤的现有推送目标（Phase 1C 桥接）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def list_bridge_push_targets(
     db: AsyncSession = Depends(get_session),
     _user: User = Depends(current_user),
@@ -142,7 +142,7 @@ async def list_bridge_push_targets(
 # ===== 执行结果 =====
 
 @router.get("/executions", summary="查看流水线执行结果列表",
-            dependencies=[Depends(require_op("datasource.ucp_executions", "V"))])
+            dependencies=[Depends(require_op("ucp.executions", "V"))])
 async def list_executions(
     pipeline_code: str | None = None,
     status: str | None = None,
@@ -193,7 +193,7 @@ async def list_executions(
 
 
 @router.get("/executions/{pipeline_run_id}", summary="查看单次执行详情",
-            dependencies=[Depends(require_op("datasource.ucp_executions", "V"))])
+            dependencies=[Depends(require_op("ucp.executions", "V"))])
 async def get_execution_detail(
     pipeline_run_id: str,
     db: AsyncSession = Depends(get_session),
@@ -263,7 +263,7 @@ async def get_execution_detail(
 
 @router.get("/executions/{pipeline_run_id}/steps/{step_run_id}/items",
             summary="查看步骤的循环项明细（Phase 2-6）",
-            dependencies=[Depends(require_op("datasource.ucp_executions", "V"))])
+            dependencies=[Depends(require_op("ucp.executions", "V"))])
 async def get_step_items(
     pipeline_run_id: str,
     step_run_id: str,
@@ -308,7 +308,7 @@ async def get_step_items(
 
 @router.get("/executions/{pipeline_run_id}/logs",
             summary="查看执行日志（Phase 2-6）",
-            dependencies=[Depends(require_op("datasource.ucp_executions", "V"))])
+            dependencies=[Depends(require_op("ucp.executions", "V"))])
 async def get_execution_logs(
     pipeline_run_id: str,
     limit: int = Query(default=200, ge=1, le=1000),
@@ -365,7 +365,7 @@ class ManualTriggerRequest(BaseModel):
 
 
 @router.post("/pipelines/{pipeline_code}/run", summary="手动触发流水线执行",
-             dependencies=[Depends(require_op("datasource.ucp_executions", "C"))])
+             dependencies=[Depends(require_op("ucp.executions", "C"))])
 async def manual_trigger_pipeline(
     pipeline_code: str,
     payload: ManualTriggerRequest | None = None,
@@ -441,7 +441,7 @@ async def manual_trigger_pipeline(
 # ===== 失败项 =====
 
 @router.get("/executions/{pipeline_run_id}/failed-items", summary="查看失败项列表",
-            dependencies=[Depends(require_op("datasource.ucp_executions", "V"))])
+            dependencies=[Depends(require_op("ucp.executions", "V"))])
 async def list_failed_items(
     pipeline_run_id: str,
     db: AsyncSession = Depends(get_session),
@@ -479,7 +479,7 @@ async def list_failed_items(
 
 
 @router.post("/executions/{pipeline_run_id}/retry-failed", summary="重跑失败项",
-              dependencies=[Depends(require_op("datasource.ucp_executions", "C"))])
+              dependencies=[Depends(require_op("ucp.executions", "C"))])
 async def retry_failed_items_endpoint(
     pipeline_run_id: str,
     db: AsyncSession = Depends(get_session),
@@ -525,7 +525,7 @@ async def retry_failed_items_endpoint(
 
 @router.post("/executions/{pipeline_run_id}/steps/{step_run_id}/retry",
              summary="重跑单个失败步骤（Phase 2-2）",
-             dependencies=[Depends(require_op("datasource.ucp_executions", "C"))])
+             dependencies=[Depends(require_op("ucp.executions", "C"))])
 async def retry_step_endpoint(
     pipeline_run_id: str,
     step_run_id: str,
@@ -598,7 +598,7 @@ async def retry_step_endpoint(
 # ===== 凭证管理 =====
 
 @router.get("/credentials", summary="查看凭证列表",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def list_credential_configs(
     auth_type: str | None = None,
     db: AsyncSession = Depends(get_session),
@@ -628,7 +628,7 @@ async def list_credential_configs(
 
 
 @router.post("/credentials", summary="创建凭证",
-              dependencies=[Depends(require_op("datasource.ucp_config", "C"))])
+              dependencies=[Depends(require_op("ucp.systems", "C"))])
 async def create_new_credential(
     payload: dict,
     db: AsyncSession = Depends(get_session),
@@ -683,7 +683,7 @@ async def create_new_credential(
 
 
 @router.patch("/credentials/{credential_id}", summary="更新凭证",
-               dependencies=[Depends(require_op("datasource.ucp_config", "U"))])
+               dependencies=[Depends(require_op("ucp.systems", "U"))])
 async def update_credential_config(
     credential_id: int,
     payload: dict,
@@ -730,7 +730,7 @@ async def update_credential_config(
 
 
 @router.patch("/credentials/{credential_id}/toggle", summary="启用/停用凭证",
-               dependencies=[Depends(require_op("datasource.ucp_config", "U"))])
+               dependencies=[Depends(require_op("ucp.systems", "U"))])
 async def toggle_credential_config(
     credential_id: int,
     payload: dict,
@@ -759,7 +759,7 @@ async def toggle_credential_config(
 # ===== 连接器配置 =====
 
 @router.get("/connectors", summary="查看连接器配置列表",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def list_connectors_view(
     connector_type: str | None = None,
     db: AsyncSession = Depends(get_session),
@@ -798,7 +798,7 @@ async def list_connectors_view(
 
 
 @router.get("/connectors/{connector_id}", summary="查看连接器配置详情",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def get_connector_detail(
     connector_id: int,
     db: AsyncSession = Depends(get_session),
@@ -843,7 +843,7 @@ async def get_connector_detail(
 
 
 @router.post("/connectors", summary="创建连接器配置",
-              dependencies=[Depends(require_op("datasource.ucp_config", "C"))])
+              dependencies=[Depends(require_op("ucp.systems", "C"))])
 async def create_connector(
     payload: dict,
     db: AsyncSession = Depends(get_session),
@@ -884,7 +884,7 @@ async def create_connector(
 
 
 @router.patch("/connectors/{connector_id}", summary="更新连接器配置",
-               dependencies=[Depends(require_op("datasource.ucp_config", "U"))])
+               dependencies=[Depends(require_op("ucp.systems", "U"))])
 async def update_connector_config(
     connector_id: int,
     payload: dict,
@@ -910,7 +910,7 @@ async def update_connector_config(
 
 
 @router.patch("/connectors/{connector_id}/toggle", summary="启用/停用连接器",
-               dependencies=[Depends(require_op("datasource.ucp_config", "U"))])
+               dependencies=[Depends(require_op("ucp.systems", "U"))])
 async def toggle_connector_config(
     connector_id: int,
     payload: dict,
@@ -938,7 +938,7 @@ async def toggle_connector_config(
 
 
 @router.delete("/connectors/{connector_id}", summary="删除连接器配置",
-                dependencies=[Depends(require_op("datasource.ucp_config", "D"))])
+                dependencies=[Depends(require_op("ucp.systems", "D"))])
 async def delete_connector_config(
     connector_id: int,
     db: AsyncSession = Depends(get_session),
@@ -966,7 +966,7 @@ async def delete_connector_config(
 # ===== 连接器配置版本 =====
 
 @router.get("/connectors/{connector_id}/versions", summary="查看连接器配置版本历史",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def list_connector_versions(
     connector_id: int,
     limit: int = Query(default=20, ge=1, le=100),
@@ -999,7 +999,7 @@ async def list_connector_versions(
 
 
 @router.post("/connectors/{connector_id}/rollback", summary="回滚连接器配置",
-              dependencies=[Depends(require_op("datasource.ucp_config", "U"))])
+              dependencies=[Depends(require_op("ucp.systems", "U"))])
 async def rollback_connector_config(
     connector_id: int,
     payload: dict,
@@ -1036,7 +1036,7 @@ async def rollback_connector_config(
 # ===== Pipeline 配置 =====
 
 @router.get("/pipelines", summary="查看流水线配置列表",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def list_pipelines_view(
     trigger_type: str | None = None,
     db: AsyncSession = Depends(get_session),
@@ -1071,7 +1071,7 @@ async def list_pipelines_view(
 
 
 @router.get("/pipelines/{pipeline_id}", summary="查看流水线配置详情",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def get_pipeline_detail(
     pipeline_id: int,
     db: AsyncSession = Depends(get_session),
@@ -1106,7 +1106,7 @@ async def get_pipeline_detail(
 
 
 @router.post("/pipelines", summary="创建流水线配置",
-              dependencies=[Depends(require_op("datasource.ucp_config", "C"))])
+              dependencies=[Depends(require_op("ucp.systems", "C"))])
 async def create_pipeline(
     payload: dict,
     db: AsyncSession = Depends(get_session),
@@ -1141,7 +1141,7 @@ async def create_pipeline(
 
 
 @router.patch("/pipelines/{pipeline_id}", summary="更新流水线配置",
-               dependencies=[Depends(require_op("datasource.ucp_config", "U"))])
+               dependencies=[Depends(require_op("ucp.systems", "U"))])
 async def update_pipeline_config(
     pipeline_id: int,
     payload: dict,
@@ -1166,7 +1166,7 @@ async def update_pipeline_config(
 
 
 @router.patch("/pipelines/{pipeline_id}/toggle", summary="启用/停用流水线",
-               dependencies=[Depends(require_op("datasource.ucp_config", "U"))])
+               dependencies=[Depends(require_op("ucp.systems", "U"))])
 async def toggle_pipeline_config(
     pipeline_id: int,
     payload: dict,
@@ -1194,7 +1194,7 @@ async def toggle_pipeline_config(
 
 
 @router.delete("/pipelines/{pipeline_id}", summary="删除流水线配置",
-                dependencies=[Depends(require_op("datasource.ucp_config", "D"))])
+                dependencies=[Depends(require_op("ucp.systems", "D"))])
 async def delete_pipeline_config(
     pipeline_id: int,
     db: AsyncSession = Depends(get_session),
@@ -1386,7 +1386,7 @@ async def seed_offer_sync_pipeline(
 @router.post(
     "/connectors/{connector_code}/test",
     summary="运行单次连接器测试（Phase 2-1）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "U"))],
+    dependencies=[Depends(require_op("ucp.systems", "U"))],
 )
 async def run_connector_test(
     connector_code: str,
@@ -1432,7 +1432,7 @@ async def run_connector_test(
 @router.post(
     "/connectors/{connector_code}/test-all",
     summary="运行所有 4 类连接器测试（Phase 2-1）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "U"))],
+    dependencies=[Depends(require_op("ucp.systems", "U"))],
 )
 async def run_all_connector_tests(
     connector_code: str,
@@ -1470,7 +1470,7 @@ async def run_all_connector_tests(
 @router.get(
     "/connectors/{connector_code}/test-history",
     summary="查看连接器测试历史（Phase 2-1）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def get_connector_test_history(
     connector_code: str,
@@ -1489,7 +1489,7 @@ async def get_connector_test_history(
 @router.get(
     "/connectors/{connector_code}/test-latest",
     summary="查看每种测试类型的最新一次结果（Phase 2-1）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def get_connector_latest_tests(
     connector_code: str,
@@ -1523,7 +1523,7 @@ async def get_connector_latest_tests(
 @router.post(
     "/connectors/{connector_code}/enable",
     summary="启用连接器（要求测试通过，Phase 2-1）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "U"))],
+    dependencies=[Depends(require_op("ucp.systems", "U"))],
 )
 async def enable_connector_after_test(
     connector_code: str,
@@ -1579,7 +1579,7 @@ class BatchToggleRequest(BaseModel):
 
 
 @router.post("/config/batch-toggle", summary="批量启用/停用配置（Phase 2-5）",
-             dependencies=[Depends(require_op("datasource.ucp_config", "U"))])
+             dependencies=[Depends(require_op("ucp.systems", "U"))])
 async def batch_toggle_configs(
     payload: BatchToggleRequest,
     db: AsyncSession = Depends(get_session),
@@ -1642,7 +1642,7 @@ async def batch_toggle_configs(
 
 
 @router.get("/config/stats", summary="配置中心统计概览（Phase 2-5）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def get_config_stats(
     db: AsyncSession = Depends(get_session),
     _user: User = Depends(current_user),
@@ -1692,7 +1692,7 @@ async def get_config_stats(
 
 
 @router.get("/config/search", summary="统一搜索（Phase 2-5）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def unified_search(
     keyword: str = Query("", description="关键字，按编码/名称模糊匹配"),
     target_type: str = Query("all", description="all/connector/pipeline/credential"),
@@ -1781,7 +1781,7 @@ async def unified_search(
 
 
 @router.get("/config/export", summary="导出配置（Phase 2-5）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def export_configs(
     target_type: str = Query("all", description="all/connector/pipeline/credential"),
     format: str = Query("json", description="json / yaml"),
@@ -1884,7 +1884,7 @@ class ConfigImportRequest(BaseModel):
 
 
 @router.post("/config/import", summary="导入配置（Phase 2-5）",
-             dependencies=[Depends(require_op("datasource.ucp_config", "C"))])
+             dependencies=[Depends(require_op("ucp.systems", "C"))])
 async def import_configs(
     payload: ConfigImportRequest,
     db: AsyncSession = Depends(get_session),
@@ -2067,7 +2067,7 @@ class ExcelImportRequest(BaseModel):
 
 
 @router.post("/excel/upload", summary="上传 Excel 文件并预览（Phase 2-7）",
-             dependencies=[Depends(require_op("datasource.ucp_config", "C"))])
+             dependencies=[Depends(require_op("ucp.systems", "C"))])
 async def upload_excel(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_session),
@@ -2101,7 +2101,7 @@ async def upload_excel(
 
 
 @router.post("/excel/import", summary="导入 Excel 数据到目标表（Phase 2-7）",
-             dependencies=[Depends(require_op("datasource.ucp_config", "U"))])
+             dependencies=[Depends(require_op("ucp.systems", "U"))])
 async def import_excel(
     payload: ExcelImportRequest,
     db: AsyncSession = Depends(get_session),
@@ -3290,7 +3290,7 @@ async def scan_due_retries(
 
 
 @router.get("/external-accounts", summary="列出外部账号（Phase 3-4）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def list_external_accounts(
     system_code: str | None = None,
     employee_id: str | None = None,
@@ -3318,7 +3318,7 @@ async def list_external_accounts(
 
 
 @router.get("/external-accounts/{account_id}", summary="查询单个外部账号（Phase 3-4）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def get_external_account(
     account_id: int,
     db: AsyncSession = Depends(get_session),
@@ -3334,7 +3334,7 @@ async def get_external_account(
 
 
 @router.get("/external-accounts/{account_id}/audits", summary="查询账号操作审计（Phase 3-4）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def list_account_audits(
     account_id: int,
     limit: int = Query(default=50, ge=1, le=200),
@@ -3370,7 +3370,7 @@ class ExternalAccountActionRequest(BaseModel):
 
 
 @router.post("/external-accounts/run", summary="手动触发外部账号动作（Phase 3-4）",
-             dependencies=[Depends(require_op("datasource.ucp_executions", "C"))])
+             dependencies=[Depends(require_op("ucp.executions", "C"))])
 async def run_external_account_action(
     req: ExternalAccountActionRequest,
     db: AsyncSession = Depends(get_session),
@@ -3463,7 +3463,7 @@ class ApprovalSubmitRequest(BaseModel):
 
 
 @router.post("/approvals", summary="提交审批请求（Phase 3-5）",
-             dependencies=[Depends(require_op("datasource.ucp_external_accounts", "C"))])
+             dependencies=[Depends(require_op("ucp.external_accounts", "C"))])
 async def submit_approval(
     req: ApprovalSubmitRequest,
     db: AsyncSession = Depends(get_session),
@@ -3500,7 +3500,7 @@ async def submit_approval(
 
 
 @router.get("/approvals", summary="查询审批请求列表（Phase 3-5）",
-            dependencies=[Depends(require_op("datasource.ucp_external_accounts", "V"))])
+            dependencies=[Depends(require_op("ucp.external_accounts", "V"))])
 async def list_approvals(
     status: str | None = None,
     business_type: str | None = None,
@@ -3530,7 +3530,7 @@ async def list_approvals(
 
 
 @router.get("/approvals/my-todo", summary="我的待办数量（Phase 3-5）",
-            dependencies=[Depends(require_op("datasource.ucp_external_accounts", "V"))])
+            dependencies=[Depends(require_op("ucp.external_accounts", "V"))])
 async def my_approval_todo(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(current_user),
@@ -3542,7 +3542,7 @@ async def my_approval_todo(
 
 
 @router.get("/approvals/{request_id}", summary="查询审批详情（Phase 3-5）",
-            dependencies=[Depends(require_op("datasource.ucp_external_accounts", "V"))])
+            dependencies=[Depends(require_op("ucp.external_accounts", "V"))])
 async def get_approval_detail(
     request_id: int,
     db: AsyncSession = Depends(get_session),
@@ -3576,7 +3576,7 @@ class ApprovalActionRequest(BaseModel):
 
 
 @router.post("/approvals/{request_id}/action", summary="执行审批动作（Phase 3-5）",
-             dependencies=[Depends(require_op("datasource.ucp_external_accounts", "U"))])
+             dependencies=[Depends(require_op("ucp.external_accounts", "U"))])
 async def approval_action(
     request_id: int,
     req: ApprovalActionRequest,
@@ -3632,7 +3632,7 @@ async def approval_action(
 
 
 @router.post("/approvals/scan-expired", summary="扫描过期审批（Phase 3-5 运维）",
-             dependencies=[Depends(require_op("datasource.ucp_external_accounts", "U"))])
+             dependencies=[Depends(require_op("ucp.external_accounts", "U"))])
 async def scan_expired_approvals(
     db: AsyncSession = Depends(get_session),
     _user: User = Depends(current_user),
@@ -3656,7 +3656,7 @@ async def scan_expired_approvals(
 
 
 @router.get("/oa-sync/runs", summary="查询 OA 同步批次列表（Phase 3-6）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def list_oa_sync_runs(
     status: str | None = None,
     limit: int = Query(default=20, ge=1, le=100),
@@ -3675,7 +3675,7 @@ async def list_oa_sync_runs(
 
 
 @router.get("/oa-sync/runs/{run_id}", summary="查询 OA 同步批次详情（Phase 3-6）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def get_oa_sync_run(
     run_id: int,
     db: AsyncSession = Depends(get_session),
@@ -3691,7 +3691,7 @@ async def get_oa_sync_run(
 
 
 @router.get("/oa-sync/runs/{run_id}/records", summary="查询同步差异记录（Phase 3-6）",
-            dependencies=[Depends(require_op("datasource.ucp_config", "V"))])
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
 async def list_oa_sync_records(
     run_id: int,
     diff_type: str | None = None,
@@ -3728,7 +3728,7 @@ class OaSyncTriggerRequest(BaseModel):
 
 
 @router.post("/oa-sync/trigger", summary="触发 OA 同步（Phase 3-6）",
-             dependencies=[Depends(require_op("datasource.ucp_executions", "C"))])
+             dependencies=[Depends(require_op("ucp.executions", "C"))])
 async def trigger_oa_sync(
     req: OaSyncTriggerRequest,
     db: AsyncSession = Depends(get_session),
@@ -3847,7 +3847,7 @@ class AdapterActivateRequest(BaseModel):
 @router.get(
     "/adapter-registry",
     summary="查询已注册 adapter 列表（Phase 3-7）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def list_adapters(
     adapter_type: str | None = None,
@@ -3880,7 +3880,7 @@ async def list_adapters(
 @router.get(
     "/adapter-registry/{adapter_code}",
     summary="查询单个 adapter 详情（Phase 3-7）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def get_adapter(
     adapter_code: str,
@@ -3898,7 +3898,7 @@ async def get_adapter(
 @router.get(
     "/adapter-registry/{adapter_code}/schema",
     summary="查询 adapter 的结构化 schema (Phase 5-4: 驱动 resource 配置 UI)",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def get_adapter_schema(
     adapter_code: str,
@@ -3919,7 +3919,7 @@ async def get_adapter_schema(
 @router.post(
     "/adapter-registry",
     summary="注册新 adapter（Phase 3-7）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "U"))],
+    dependencies=[Depends(require_op("ucp.systems", "U"))],
 )
 async def register_adapter_endpoint(
     req: AdapterRegisterRequest,
@@ -3953,7 +3953,7 @@ async def register_adapter_endpoint(
 @router.post(
     "/adapter-registry/{adapter_code}/activate",
     summary="启用/停用 adapter（Phase 3-7）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "U"))],
+    dependencies=[Depends(require_op("ucp.systems", "U"))],
 )
 async def activate_adapter_endpoint(
     adapter_code: str,
@@ -3977,7 +3977,7 @@ async def activate_adapter_endpoint(
 @router.delete(
     "/adapter-registry/{adapter_code}",
     summary="删除 adapter 注册（Phase 3-7）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "D"))],
+    dependencies=[Depends(require_op("ucp.systems", "D"))],
 )
 async def delete_adapter_endpoint(
     adapter_code: str,
@@ -4025,7 +4025,7 @@ class PipelineTemplateRollbackRequest(BaseModel):
 @router.get(
     "/pipeline-templates",
     summary="查询 pipeline 模板列表（Phase 3-8）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def list_pipeline_templates(
     keyword: str | None = None,
@@ -4048,7 +4048,7 @@ async def list_pipeline_templates(
 @router.get(
     "/pipeline-templates/{template_code}",
     summary="查询模板详情（Phase 3-8）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def get_pipeline_template(
     template_code: str,
@@ -4066,7 +4066,7 @@ async def get_pipeline_template(
 @router.post(
     "/pipeline-templates",
     summary="创建 pipeline 模板（Phase 3-8）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "U"))],
+    dependencies=[Depends(require_op("ucp.systems", "U"))],
 )
 async def create_pipeline_template(
     req: PipelineTemplateCreateRequest,
@@ -4098,7 +4098,7 @@ async def create_pipeline_template(
 @router.patch(
     "/pipeline-templates/{template_code}",
     summary="更新 pipeline 模板（Phase 3-8 自动 bump 版本）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "U"))],
+    dependencies=[Depends(require_op("ucp.systems", "U"))],
 )
 async def update_pipeline_template(
     template_code: str,
@@ -4132,7 +4132,7 @@ async def update_pipeline_template(
 @router.get(
     "/pipeline-templates/{template_code}/versions",
     summary="查询模板版本历史（Phase 3-8）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def list_template_versions(
     template_code: str,
@@ -4151,7 +4151,7 @@ async def list_template_versions(
 @router.post(
     "/pipeline-templates/{template_code}/rollback",
     summary="回滚模板到指定版本（Phase 3-8）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "U"))],
+    dependencies=[Depends(require_op("ucp.systems", "U"))],
 )
 async def rollback_template(
     template_code: str,
@@ -4180,7 +4180,7 @@ async def rollback_template(
 @router.delete(
     "/pipeline-templates/{template_code}",
     summary="删除 pipeline 模板（Phase 3-8）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "D"))],
+    dependencies=[Depends(require_op("ucp.systems", "D"))],
 )
 async def delete_pipeline_template(
     template_code: str,
@@ -4201,7 +4201,7 @@ async def delete_pipeline_template(
 @router.get(
     "/pipeline-templates/_meta/node-types",
     summary="查询支持的节点类型与字段（Phase 3-8 前端用）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def get_node_types() -> dict:
     """返回前端画布需要的节点元数据."""
@@ -4264,7 +4264,7 @@ async def get_node_types() -> dict:
 @router.get(
     "/monitor/summary",
     summary="监控汇总指标（Phase 3-9 / Phase 5-3 支持 system/resource 过滤）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def monitor_summary(
     hours: int = 24,
@@ -4282,7 +4282,7 @@ async def monitor_summary(
 @router.get(
     "/monitor/trend",
     summary="执行趋势（Phase 3-9 / Phase 5-3 支持 system/resource 过滤）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def monitor_trend(
     hours: int = 24,
@@ -4303,7 +4303,7 @@ async def monitor_trend(
 @router.get(
     "/monitor/status-distribution",
     summary="状态分布（Phase 3-9 饼图 / Phase 5-3 支持过滤）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def monitor_status_distribution(
     hours: int = 24,
@@ -4323,7 +4323,7 @@ async def monitor_status_distribution(
 @router.get(
     "/monitor/recent-runs",
     summary="最近执行列表（Phase 3-9 / Phase 5-3 支持过滤）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def monitor_recent_runs(
     limit: int = 20,
@@ -4343,7 +4343,7 @@ async def monitor_recent_runs(
 @router.get(
     "/monitor/alerts",
     summary="告警列表（Phase 3-9 / Phase 5-3 支持过滤）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def monitor_alerts(
     limit: int = 50,
@@ -4363,7 +4363,7 @@ async def monitor_alerts(
 @router.get(
     "/monitor/pipeline-stats",
     summary="Top pipeline 统计（Phase 3-9 / Phase 5-3 支持过滤）",
-    dependencies=[Depends(require_op("datasource.ucp_config", "V"))],
+    dependencies=[Depends(require_op("ucp.systems", "V"))],
 )
 async def monitor_pipeline_stats(
     hours: int = 24,

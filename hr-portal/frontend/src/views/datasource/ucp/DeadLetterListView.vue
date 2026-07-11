@@ -7,7 +7,7 @@
 
     <div class="toolbar">
       <el-button :icon="Refresh" @click="loadList">刷新</el-button>
-      <PermissionButton menu="datasource.ucp_events" op="U" type="warning" :icon="VideoPlay" @click="onScanRetries">
+      <PermissionButton menu="ucp.events" op="U" type="warning" :icon="VideoPlay" @click="onScanRetries">
         扫描到期重试
       </PermissionButton>
     </div>
@@ -46,10 +46,10 @@
       <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="goEvent(row)">查看事件</el-button>
-          <PermissionButton menu="datasource.ucp_events" op="C" size="small" link type="warning" @click="onReplay(row)">
+          <PermissionButton menu="ucp.events" op="C" size="small" link type="warning" @click="onReplay(row)">
             重放
           </PermissionButton>
-          <PermissionButton menu="datasource.ucp_events" op="C" size="small" link type="danger" @click="onDiscard(row)">
+          <PermissionButton menu="ucp.events" op="C" size="small" link type="danger" @click="onDiscard(row)">
             丢弃
           </PermissionButton>
         </template>

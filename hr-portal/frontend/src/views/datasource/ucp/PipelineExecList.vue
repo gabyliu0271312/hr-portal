@@ -8,7 +8,7 @@ import { formatDateTime } from '@/utils/datetime'
 import PermissionButton from '@/components/PermissionButton.vue'
 import ManualTriggerDialog from './ManualTriggerDialog.vue'
 
-const MENU_CODE = 'datasource.ucp_executions'
+const MENU_CODE = 'ucp.executions'
 
 const router = useRouter()
 const total = ref(0)

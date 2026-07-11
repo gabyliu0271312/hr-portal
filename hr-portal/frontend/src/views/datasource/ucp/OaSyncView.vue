@@ -32,7 +32,7 @@
     <div class="toolbar">
       <el-button :icon="Refresh" @click="loadRuns">刷新</el-button>
       <PermissionButton
-        menu="datasource.ucp_executions"
+        menu="ucp.executions"
         op="C"
         type="primary"
         :icon="VideoPlay"

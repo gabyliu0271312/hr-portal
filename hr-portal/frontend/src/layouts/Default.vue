@@ -128,27 +128,28 @@ const tabGroups = computed<TabMenu[]>(() => {
 
 /**
  * 收敛 UCP 菜单：所有 datasource.ucp_* 合并为单个「数据接入」菜单项
- * 让用户看到的左侧菜单更清爽
+ * 让用户看到的左侧菜单更清爽。
+ *
+ * P1-B: ucp 已是独立一级 Tab，system 下的旧 UCP 菜单（datasource.ucp_*）
+ * 统一指向新路由 /ucp；ucp tab 自身的 children 不经此函数处理。
  */
+function _isLegacyUcpCode(code: string): boolean {
+  return code.startsWith('datasource.ucp_') || code === 'datasource.ucp_config'
+}
+
 function collapseUcpMenus(groups: GroupMenu[]): GroupMenu[] {
   const result: GroupMenu[] = []
   const ucpMenus: LeafMenu[] = []
   for (const g of groups) {
     if (g.children.length > 0) {
-      // 分组下还有子菜单：先看是否全是 ucp_*
-      const allUcp = g.children.every(
-        (c) => c.code.startsWith('datasource.ucp_') || c.code === 'datasource.ucp_config'
-      )
+      const allUcp = g.children.every((c) => _isLegacyUcpCode(c.code))
       if (allUcp) {
-        // 全部收起为 1 个数据接入入口
         ucpMenus.push(...g.children)
       } else {
-        // 子菜单中可能也有 ucp_*
-        const nonUcp = g.children.filter((c) => !c.code.startsWith('datasource.ucp_'))
+        const nonUcp = g.children.filter((c) => !_isLegacyUcpCode(c.code))
         if (nonUcp.length < g.children.length && nonUcp.length > 0) {
-          // 混合：保留非 ucp 的，把 ucp 的加到收集
           for (const c of g.children) {
-            if (c.code.startsWith('datasource.ucp_')) ucpMenus.push(c)
+            if (_isLegacyUcpCode(c.code)) ucpMenus.push(c)
           }
           result.push({ ...g, children: nonUcp })
         } else {
@@ -156,13 +157,12 @@ function collapseUcpMenus(groups: GroupMenu[]): GroupMenu[] {
         }
       }
     } else {
-      // 分组本身是个叶子（code 形如 datasource.ucp_config）
-      if (g.code.startsWith('datasource.ucp_') || g.code === 'datasource.ucp_config') {
+      if (_isLegacyUcpCode(g.code)) {
         ucpMenus.push({
           id: g.id,
           code: g.code,
           label: g.label,
-          routePath: '/datasource/ucp',
+          routePath: '/ucp',
         })
       } else {
         result.push(g)
@@ -170,12 +170,11 @@ function collapseUcpMenus(groups: GroupMenu[]): GroupMenu[] {
     }
   }
   if (ucpMenus.length > 0) {
-    // 取第一个的 id 作为合并后的 id，label 用「数据接入」
     result.push({
       id: ucpMenus[0].id,
-      code: 'datasource.ucp_config',
+      code: 'ucp.systems',
       label: '数据接入',
-      routePath: '/datasource/ucp',
+      routePath: '/ucp',
       children: [],
     })
   }

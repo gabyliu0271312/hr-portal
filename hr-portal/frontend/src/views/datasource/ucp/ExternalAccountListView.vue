@@ -55,7 +55,7 @@
       </el-select>
       <el-button :icon="Refresh" @click="loadList">刷新</el-button>
       <PermissionButton
-        menu="datasource.ucp_executions"
+        menu="ucp.executions"
         op="C"
         type="primary"
         :icon="Plus"

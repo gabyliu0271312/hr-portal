@@ -46,7 +46,7 @@ MENU_TREE: list[dict] = [
                     {"code": "system.field_columns", "label": "字段管理", "icon": "Grid"},
                 ],
             },
-            # 二级 1.2：数据接入
+            # 二级 1.2：数据接入（仅保留非 UCP 的旧数据源配置）
             {
                 "code": "system.datasource",
                 "label": "数据接入",
@@ -54,10 +54,6 @@ MENU_TREE: list[dict] = [
                 "children": [
                     {"code": "datasource.endpoints", "label": "接口配置", "icon": "Link"},
                     {"code": "datasource.sync_runs", "label": "同步历史", "icon": "Clock"},
-                    {"code": "datasource.ucp_executions", "label": "Pipeline 执行", "icon": "Connection"},
-                    {"code": "datasource.ucp_config", "label": "Pipeline 配置", "icon": "Setting"},
-                    {"code": "datasource.ucp_events", "label": "事件总线", "icon": "BellFilled"},
-                    {"code": "datasource.ucp_external_accounts", "label": "外部账号", "icon": "UserFilled"},
                     {"code": "datasource.datasets", "label": "表间关联", "icon": "Share"},
                     {"code": "data.view", "label": "数据视图", "icon": "DataAnalysis"},
                 ],
@@ -87,7 +83,54 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
-    # 一级 2：报表管理
+    # 一级 2：数据连接（UCP — 通用数据连接器平台，应用化预留）
+    {
+        "code": "ucp",
+        "label": "数据连接",
+        "icon": "Connection",
+        "children": [
+            {
+                "code": "ucp.systems_group",
+                "label": "系统与资源",
+                "icon": "Monitor",
+                "children": [
+                    {"code": "ucp.systems", "label": "接入系统", "icon": "DataBoard"},
+                ],
+            },
+            {
+                "code": "ucp.pipelines_group",
+                "label": "流水线",
+                "icon": "Share",
+                "children": [
+                    {"code": "ucp.pipelines", "label": "流水线管理", "icon": "Share"},
+                    {"code": "ucp.pipeline_designer", "label": "流水线画布", "icon": "Edit"},
+                    {"code": "ucp.executions", "label": "执行日志", "icon": "Clock"},
+                ],
+            },
+            {
+                "code": "ucp.events_group",
+                "label": "事件与监控",
+                "icon": "BellFilled",
+                "children": [
+                    {"code": "ucp.events", "label": "事件中心", "icon": "BellFilled"},
+                    {"code": "ucp.triggers", "label": "触发器", "icon": "Setting"},
+                    {"code": "ucp.dead_letters", "label": "死信队列", "icon": "Warning"},
+                    {"code": "ucp.monitor", "label": "监控中心", "icon": "TrendCharts"},
+                ],
+            },
+            {
+                "code": "ucp.admin_group",
+                "label": "管理",
+                "icon": "Setting",
+                "children": [
+                    {"code": "ucp.approvals", "label": "审批中心", "icon": "Document"},
+                    {"code": "ucp.external_accounts", "label": "外部账号", "icon": "UserFilled"},
+                    {"code": "ucp.oa_sync", "label": "OA 同步", "icon": "Connection"},
+                ],
+            },
+        ],
+    },
+    # 一级 3：报表管理
     {
         "code": "report",
         "label": "报表管理",
@@ -103,7 +146,7 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
-    # 一级 3：提效工具
+    # 一级 4：提效工具
     {
         "code": "tools",
         "label": "提效工具",
@@ -124,7 +167,7 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
-    # 一级 4：绩效管理（独立业务应用入口）
+    # 一级 5：绩效管理（独立业务应用入口）
     {
         "code": "performance",
         "label": "绩效管理",
@@ -141,7 +184,7 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
-    # 一级 5：成本分摊（已上线独立业务应用入口）
+    # 一级 6：成本分摊（已上线独立业务应用入口）
     {
         "code": "cost_allocation",
         "label": "成本分摊",

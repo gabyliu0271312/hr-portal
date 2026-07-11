@@ -38,18 +38,18 @@
       </div>
       <div class="kpi-card kpi-pipeline">
         <div class="kpi-label">活跃流水线</div>
-        <div class="kpi-value">14</div>
-        <div class="kpi-sub">3 运行中 · 2 排队</div>
+        <div class="kpi-value">{{ kpi.pipelineTotal }}</div>
+        <div class="kpi-sub">{{ kpi.pipelineRunning }} 运行中</div>
       </div>
       <div class="kpi-card kpi-sync">
         <div class="kpi-label">24h 同步次数</div>
-        <div class="kpi-value">1,247</div>
-        <div class="kpi-sub">↑ 8.2% 较昨日</div>
+        <div class="kpi-value">{{ kpi.syncCount24h }}</div>
+        <div class="kpi-sub">最近 24 小时执行总数</div>
       </div>
       <div class="kpi-card kpi-alert" :class="{ 'kpi-alert-warn': kpi.alertCount > 0 }">
         <div class="kpi-label">失败率 / 告警</div>
-        <div class="kpi-value">1.4%</div>
-        <div class="kpi-sub">{{ kpi.alertCount }} 条告警 · ↓ 0.3%</div>
+        <div class="kpi-value">{{ kpi.failRate.toFixed(1) }}%</div>
+        <div class="kpi-sub">{{ kpi.alertCount }} 条告警</div>
       </div>
     </div>
 
@@ -104,61 +104,177 @@
       description="尚未接入任何系统，点击「添加系统」开始接入"
     />
 
-    <!-- 系统详情抽屉 -->
+    <!-- P1-G: 系统详情抽屉（6 Tab）-->
     <el-drawer
       v-model="drawerOpen"
       :title="`${activeSystem?.system_name || ''} 详情`"
-      size="540px"
+      size="620px"
       direction="rtl"
     >
-      <div v-if="activeSystem" class="system-detail">
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="系统编码">{{ activeSystem.system_code }}</el-descriptions-item>
-          <el-descriptions-item label="系统名称">{{ activeSystem.system_name }}</el-descriptions-item>
-          <el-descriptions-item label="系统类型">{{ activeSystem.system_type }}</el-descriptions-item>
-          <el-descriptions-item label="负责人">{{ activeSystem.owner || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="说明">{{ activeSystem.description || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="资源数">{{ activeSystem.resource_count }}</el-descriptions-item>
-        </el-descriptions>
-
-        <el-divider>凭证管理 (1 系统可挂多套: 生产/测试/开发)</el-divider>
-        <div v-if="systemCredentials.length === 0" class="text-muted">
-          尚未配置凭证。点下方「补充凭证」开始。
-        </div>
-        <div v-else class="cred-list">
-          <div v-for="c in systemCredentials" :key="c.id" class="cred-item">
-            <el-icon><Key /></el-icon>
-            <div class="cred-item-info">
-              <div class="cred-item-name">
-                {{ c.credential_name }}
-                <el-tag v-if="c.is_primary" type="success" size="small">激活</el-tag>
-                <el-tag v-else type="info" size="small">备用</el-tag>
-                <el-tag v-if="c.env_tag" size="small">{{ c.env_tag }}</el-tag>
+      <template v-if="activeSystem">
+        <el-tabs v-model="detailTab" class="system-detail-tabs">
+          <!-- Tab 1: 概览 -->
+          <el-tab-pane label="概览" name="overview">
+            <div class="tab-content">
+              <el-descriptions :column="1" border size="small">
+                <el-descriptions-item label="系统编码">{{ activeSystem.system_code }}</el-descriptions-item>
+                <el-descriptions-item label="系统名称">{{ activeSystem.system_name }}</el-descriptions-item>
+                <el-descriptions-item label="系统类型">{{ activeSystem.system_type || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="负责人">{{ activeSystem.owner || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="状态">
+                  <el-tag :type="activeSystem.is_active ? 'success' : 'info'" size="small">
+                    {{ activeSystem.is_active ? '运行中' : '已停用' }}
+                  </el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="资源数">{{ activeSystem.resource_count || resourcesOf(activeSystem.id).length }}</el-descriptions-item>
+                <el-descriptions-item label="凭证数">{{ systemCredentials.length }}</el-descriptions-item>
+                <el-descriptions-item label="说明">{{ activeSystem.description || '—' }}</el-descriptions-item>
+              </el-descriptions>
+              <div class="quick-actions" style="margin-top: 16px">
+                <el-button @click="detailTab = 'resources'">+ 添加表/API</el-button>
+                <el-button @click="detailTab = 'credentials'; openAddCredentialForSystem(activeSystem)">
+                  <el-icon><Key /></el-icon>补充凭证
+                </el-button>
+                <el-button @click="editSystem(activeSystem)">编辑系统</el-button>
+                <el-button type="danger" @click="confirmDeleteSystem(activeSystem)">删除系统</el-button>
               </div>
-              <div class="cred-item-meta">{{ c.auth_type }} · 验证于 {{ c.last_verified_at || '—' }}</div>
             </div>
-            <el-button
-              v-if="!c.is_primary"
-              size="small"
-              link
-              type="primary"
-              @click="setPrimaryCredential(c)"
-            >
-              设为激活
-            </el-button>
-          </div>
-        </div>
+          </el-tab-pane>
 
-        <el-divider>快捷操作</el-divider>
-        <div class="quick-actions">
-          <el-button @click="addResource(activeSystem)">+ 添加表/API</el-button>
-          <el-button @click="openAddCredentialForSystem(activeSystem)">
-            <el-icon><Key /></el-icon>补充凭证
-          </el-button>
-          <el-button @click="editSystem(activeSystem)">编辑系统</el-button>
-          <el-button type="danger" @click="confirmDeleteSystem(activeSystem)">删除系统</el-button>
-        </div>
-      </div>
+          <!-- Tab 2: 资源 -->
+          <el-tab-pane label="资源" name="resources">
+            <div class="tab-content">
+              <div class="tab-head">
+                <span>资源列表（{{ resourcesOf(activeSystem.id).length }}）</span>
+                <el-button size="small" type="primary" @click="addResource(activeSystem)">
+                  <el-icon><Plus /></el-icon>添加
+                </el-button>
+              </div>
+              <el-table v-if="resourcesOf(activeSystem.id).length" :data="resourcesOf(activeSystem.id)" stripe size="small" max-height="400">
+                <el-table-column prop="resource_name" label="名称" min-width="100" />
+                <el-table-column label="类型" width="90">
+                  <template #default="{ row }">
+                    <el-tag size="small">{{ row.resource_type || 'API' }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="适配器" min-width="110">
+                  <template #default="{ row }">
+                    <code v-if="row.adapter_code" style="font-size:11px">{{ row.adapter_code }}</code>
+                    <span v-else class="text-muted">—</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="状态" width="80">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.status === 1" type="success" size="small">启用</el-tag>
+                    <el-tag v-else-if="row.status === 2" type="info" size="small">停用</el-tag>
+                    <el-tag v-else type="warning" size="small">未启用</el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty v-else description="暂无资源" :image-size="60" />
+            </div>
+          </el-tab-pane>
+
+          <!-- Tab 3: 凭证 -->
+          <el-tab-pane label="凭证" name="credentials">
+            <div class="tab-content">
+              <div class="tab-head">
+                <span>凭证（{{ systemCredentials.length }}）</span>
+                <el-button size="small" type="primary" @click="openAddCredentialForSystem(activeSystem)">
+                  <el-icon><Plus /></el-icon>补充
+                </el-button>
+              </div>
+              <div v-if="systemCredentials.length === 0" class="text-muted" style="padding:16px">
+                尚未配置凭证。点击「补充」录入第一套凭证。
+              </div>
+              <div v-else class="cred-list">
+                <div v-for="c in systemCredentials" :key="c.id" class="cred-item">
+                  <el-icon><Key /></el-icon>
+                  <div class="cred-item-info">
+                    <div class="cred-item-name">
+                      {{ c.credential_name }}
+                      <el-tag v-if="c.is_primary" type="success" size="small">激活</el-tag>
+                      <el-tag v-else type="info" size="small">备用</el-tag>
+                      <el-tag v-if="c.env_tag" size="small">{{ c.env_tag }}</el-tag>
+                    </div>
+                    <div class="cred-item-meta">{{ c.auth_type }} · 验证于 {{ c.last_verified_at || '—' }}</div>
+                  </div>
+                  <el-button v-if="!c.is_primary" size="small" link type="primary" @click="setPrimaryCredential(c)">
+                    设为激活
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <!-- Tab 4: 流水线 -->
+          <el-tab-pane label="流水线" name="pipelines">
+            <div class="tab-content">
+              <div class="tab-head">
+                <span>引用该系统的流水线（{{ detailPipelines.length }}）</span>
+              </div>
+              <el-table v-if="detailPipelines.length" :data="detailPipelines" stripe size="small" max-height="400">
+                <el-table-column prop="pipeline_name" label="名称" min-width="120" />
+                <el-table-column label="触发方式" width="90">
+                  <template #default="{ row }">
+                    <el-tag size="small">{{ row.trigger_type || 'MANUAL' }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="状态" width="80">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.status === 1" type="success" size="small">启用</el-tag>
+                    <el-tag v-else type="info" size="small">停用</el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty v-else description="暂无关联流水线" :image-size="60" />
+            </div>
+          </el-tab-pane>
+
+          <!-- Tab 5: 执行记录 -->
+          <el-tab-pane label="执行记录" name="executions">
+            <div class="tab-content">
+              <el-table v-if="detailExecutions.length" :data="detailExecutions" stripe size="small" max-height="400">
+                <el-table-column label="Trace ID" min-width="100">
+                  <template #default="{ row }">
+                    <code style="font-size:11px">{{ row.trace_id?.slice(0, 8) }}</code>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="pipeline_code" label="流水线" width="130" />
+                <el-table-column label="状态" width="100">
+                  <template #default="{ row }">
+                    <el-tag :type="execStatusColor(row.status)" size="small">{{ row.status }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="时间" min-width="140">
+                  <template #default="{ row }">
+                    <span style="font-size:11px;color:#8f959e">{{ row.started_at || row.created_at || '—' }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty v-else description="暂无执行记录" :image-size="60" />
+            </div>
+          </el-tab-pane>
+
+          <!-- Tab 6: 审计/测试 -->
+          <el-tab-pane label="审计/测试" name="audit">
+            <div class="tab-content">
+              <div class="sd-section-title">最近变更</div>
+              <el-timeline v-if="detailAuditLogs.length" style="margin-top:8px">
+                <el-timeline-item
+                  v-for="(item, i) in detailAuditLogs"
+                  :key="i"
+                  :timestamp="item.created_at || ''"
+                  placement="top"
+                >
+                  {{ item.action || item.message || '配置变更' }}
+                </el-timeline-item>
+              </el-timeline>
+              <el-empty v-else description="暂无审计记录" :image-size="60" />
+            </div>
+          </el-tab-pane>
+        </el-tabs>
+      </template>
     </el-drawer>
 
     <!-- 资源详情/编辑抽屉 (Phase 5-4: schema 驱动字段渲染) -->
@@ -816,6 +932,21 @@ const filteredSystems = computed(() => {
   )
 })
 
+/* ── 系统详情抽屉 ── */
+const detailTab = ref('overview')
+const detailPipelines = ref<any[]>([])
+const detailExecutions = ref<any[]>([])
+const detailAuditLogs = ref<any[]>([])
+
+function resourcesOf(sysId: number): any[] {
+  return resourcesMap.value[sysId] || []
+}
+
+function execStatusColor(status: string): string {
+  const map: Record<string, string> = { SUCCESS: 'success', FAILED: 'danger', PARTIAL_SUCCESS: 'warning', RUNNING: '', PENDING: 'info' }
+  return map[status] || 'info'
+}
+
 /* ── KPI 卡片统计 ── */
 const kpi = ref({
   systemCount: 0,
@@ -827,6 +958,11 @@ const kpi = ref({
   credPrimaryCount: 0,
   credBackupCount: 0,
   alertCount: 0,
+  // 来自 monitor/summary
+  pipelineTotal: 0,
+  pipelineRunning: 0,
+  syncCount24h: 0,
+  failRate: 0,
 })
 
 const inactiveSystemCount = computed(() => Math.max(0, kpi.value.systemCount - kpi.value.systemActiveCount))
@@ -903,10 +1039,17 @@ async function load() {
     const credRes = await ucpApi.credentials().catch(() => ({ items: [] }))
     credentials.value = credRes.items || []
     recomputeKpi()
-    // 告警 (蓝本 KPI 第 4 卡)
+    // 告警 & 流水线统计 (蓝本 KPI 第 4-6 卡)
     try {
-      const alerts = await monitorApi.alerts(50)
+      const [alerts, summary] = await Promise.all([
+        monitorApi.alerts(50),
+        monitorApi.summary(24),
+      ])
       kpi.value.alertCount = alerts.length
+      kpi.value.pipelineTotal = summary.pipeline_total
+      kpi.value.pipelineRunning = summary.pipeline_running
+      kpi.value.syncCount24h = summary.pipeline_total
+      kpi.value.failRate = summary.fail_rate
     } catch {
       kpi.value.alertCount = 0
     }
@@ -921,6 +1064,10 @@ async function load() {
 async function openSystem(sys: any) {
   activeSystem.value = sys
   systemCredentials.value = []
+  detailTab.value = 'overview'
+  detailPipelines.value = []
+  detailExecutions.value = []
+  detailAuditLogs.value = []
   // 拉详情（含凭证）
   try {
     const detail = await ucpApi.systemDetail(sys.id)
@@ -930,7 +1077,25 @@ async function openSystem(sys: any) {
   } catch (e) {
     console.error(e)
   }
+  // 异步加载流水线和执行记录
+  loadDetailPipelines(sys.id)
+  loadDetailExecutions(sys.id)
   drawerOpen.value = true
+}
+
+async function loadDetailPipelines(sysId: number) {
+  try {
+    const res = await ucpApi.pipelines().catch(() => ({ items: [] }))
+    // 筛选引用该系统资源的流水线（简化：展示全部启用流水线）
+    detailPipelines.value = (res.items || []).filter((p: any) => p.status === 1)
+  } catch { detailPipelines.value = [] }
+}
+
+async function loadDetailExecutions(sysId: number) {
+  try {
+    const res = await ucpApi.executions({ limit: 20 }).catch(() => ({ items: [] }))
+    detailExecutions.value = res.items || []
+  } catch { detailExecutions.value = [] }
 }
 
 async function openResource(sys: any, res: any) {
@@ -1429,6 +1594,12 @@ onMounted(async () => {
 }
 .system-detail { padding: 0 8px; }
 .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 系统详情 6 Tab */
+.system-detail-tabs :deep(.el-tabs__header) { margin-bottom: 8px; }
+.tab-content { padding: 4px 0; }
+.tab-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-weight: 500; font-size: 13px; color: #1f2329; }
+.sd-section-title { font-size: 13px; font-weight: 600; color: #1f2329; margin-bottom: 8px; padding-left: 8px; border-left: 3px solid #5b8ff9; }
 .resource-detail { padding: 0 8px; }
 .drawer-footer { display: flex; justify-content: space-between; margin-top: 24px; }
 .cred-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }

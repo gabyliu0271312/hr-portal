@@ -7,7 +7,7 @@ import { ucpApi, type PipelineExecutionDetail, type PipelineStepExecutionItem, t
 import { formatDateTime } from '@/utils/datetime'
 import PermissionButton from '@/components/PermissionButton.vue'
 
-const MENU_CODE = 'datasource.ucp_executions'
+const MENU_CODE = 'ucp.executions'
 
 const route = useRoute()
 const router = useRouter()

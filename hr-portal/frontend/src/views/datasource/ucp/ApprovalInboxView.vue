@@ -32,7 +32,7 @@
       </el-select>
       <el-button :icon="Refresh" @click="loadList">刷新</el-button>
       <PermissionButton
-        menu="datasource.ucp_external_accounts"
+        menu="ucp.external_accounts"
         op="U"
         type="warning"
         :icon="Clock"

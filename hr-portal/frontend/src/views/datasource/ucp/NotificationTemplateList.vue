@@ -26,7 +26,7 @@
         <el-option label="已停用" :value="0" />
       </el-select>
       <el-button :icon="Refresh" @click="loadTemplates">刷新</el-button>
-      <PermissionButton type="primary" :icon="Plus" menu="datasource.ucp_config" op="C" @click="openCreateDialog">
+      <PermissionButton type="primary" :icon="Plus" menu="ucp.systems" op="C" @click="openCreateDialog">
         新建模板
       </PermissionButton>
     </div>

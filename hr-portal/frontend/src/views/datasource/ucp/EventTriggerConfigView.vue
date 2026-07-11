@@ -7,7 +7,7 @@
 
     <div class="toolbar">
       <el-button :icon="Refresh" @click="loadList">刷新</el-button>
-      <PermissionButton menu="datasource.ucp_events" op="C" type="primary" :icon="Plus" @click="openCreate">
+      <PermissionButton menu="ucp.events" op="C" type="primary" :icon="Plus" @click="openCreate">
         新建触发器
       </PermissionButton>
     </div>

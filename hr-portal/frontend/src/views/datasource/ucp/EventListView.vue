@@ -46,10 +46,10 @@
       </el-select>
       <el-button @click="loadList" :icon="Refresh">刷新</el-button>
       <el-button type="primary" :icon="Plus" @click="openIngestDialog">发布事件</el-button>
-      <PermissionButton menu="datasource.ucp_events" op="C" :icon="Setting" type="success" @click="goTriggers">
+      <PermissionButton menu="ucp.events" op="C" :icon="Setting" type="success" @click="goTriggers">
         触发器配置
       </PermissionButton>
-      <PermissionButton menu="datasource.ucp_events" op="V" :icon="WarningFilled" type="danger" @click="goDeadLetters">
+      <PermissionButton menu="ucp.events" op="V" :icon="WarningFilled" type="danger" @click="goDeadLetters">
         死信队列
       </PermissionButton>
     </div>
