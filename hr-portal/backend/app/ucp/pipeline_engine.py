@@ -1316,6 +1316,84 @@ class RetryError(Exception):
         super().__init__(message)
 
 
+async def retry_single_item(
+    db: AsyncSession,
+    pipeline_run_id: str,
+    item_id: int,
+    triggered_by: str | None = None,
+) -> dict:
+    """重试单个 LOOP_RESOURCE 失败项（Phase 2-3）。
+
+    找到指定的 ConnectorLoopItemExecution，重新调用对应 adapter，
+    成功则写入新 SUCCESS 记录，失败则 retry_count+1。
+    """
+    item = (
+        await db.execute(
+            select(ConnectorLoopItemExecution).where(
+                ConnectorLoopItemExecution.id == item_id,
+                ConnectorLoopItemExecution.pipeline_run_id == pipeline_run_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise RetryError("ITEM_NOT_FOUND", f"失败项 id={item_id} 不存在")
+    if not item.is_retryable:
+        raise RetryError("ITEM_NOT_RETRYABLE", f"Item {item_id} 不可重试")
+
+    # 加载对应的 step_exec 获取 step_config
+    step_exec = (
+        await db.execute(
+            select(ConnectorPipelineStepExecution).where(
+                ConnectorPipelineStepExecution.step_run_id == item.step_run_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if step_exec is None:
+        raise RetryError("STEP_NOT_FOUND", f"步骤 {item.step_run_id} 不存在")
+
+    # 加载 pipeline_exec
+    pipeline_exec = (
+        await db.execute(
+            select(ConnectorPipelineExecution).where(
+                ConnectorPipelineExecution.pipeline_run_id == pipeline_run_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    # 重新调用 adapter
+    step_config = step_exec.input_snapshot or {}
+    params = (item.request_params_masked or {}).copy()
+    connector_code = item.connector_code or step_exec.connector_code or ""
+
+    try:
+        from app.ucp.adapters import ADAPTER_REGISTRY, AdapterContext
+        ctx = AdapterContext(trace_id=pipeline_exec.trace_id if pipeline_exec else "", connector_code=connector_code)
+        result = await ADAPTER_REGISTRY.execute(adapter_code=connector_code, params=params, context=ctx)
+        new_item = ConnectorLoopItemExecution(
+            pipeline_run_id=pipeline_run_id,
+            step_run_id=item.step_run_id,
+            item_key=item.item_key,
+            connector_code=connector_code,
+            status="SUCCESS",
+            request_params_masked=params,
+            response_summary_masked={"result": str(result)[:500]} if result else None,
+            retry_count=item.retry_count + 1,
+            is_retryable=0,
+        )
+        db.add(new_item)
+        item.is_retryable = 0
+        await db.flush()
+        return {"status": "SUCCESS", "item_id": item_id, "message": "重试成功"}
+    except Exception as e:
+        item.retry_count = (item.retry_count or 0) + 1
+        item.last_failed_at = datetime.now(UTC)
+        item.error_message = str(e)[:500]
+        if item.retry_count >= 5:
+            item.is_retryable = 0
+        await db.flush()
+        return {"status": "FAILED", "item_id": item_id, "error": str(e)[:200], "retry_count": item.retry_count}
+
+
 async def retry_step(
     db: AsyncSession,
     pipeline_run_id: str,

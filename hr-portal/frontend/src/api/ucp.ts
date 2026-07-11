@@ -123,6 +123,7 @@ export interface ExecutionLogItem {
 }
 
 export interface LoopFailedItem {
+  id: number
   trace_id: string
   step_run_id: string
   connector_code: string
@@ -353,6 +354,10 @@ export const ucpApi = {
     }>(`/ucp/executions/${pipelineRunId}/retry-failed`).then((r) => r.data),
 
   /* Phase 2-2: Retry a single step */
+  /* Phase 2-3: 单项重跑 */
+  retryItem: (pipelineRunId: string, itemId: number) =>
+    api.post<{ status: string; item_id: number; message?: string; error?: string; retry_count?: number }>(`/ucp/executions/${pipelineRunId}/items/${itemId}/retry`).then((r) => r.data),
+
   retryStep: (pipelineRunId: string, stepRunId: string) =>
     api.post<{
       status: string
@@ -382,10 +387,10 @@ export const ucpApi = {
   credentials: (authType?: string) =>
     api.get<Paginated<CredentialConfigItem>>('/ucp/credentials', { params: { auth_type: authType } }).then((r) => ({ total: r.data.total, items: extractItems(r.data) })),
 
-  createCredential: (payload: { credential_code: string; credential_name: string; secrets: Record<string, string>; auth_type?: string; description?: string; system_id?: number; env_tag?: string; is_primary?: boolean; expires_at?: string }) =>
+  createCredential: (payload: { credential_code: string; credential_name: string; secrets: Record<string, string>; auth_type?: string; description?: string; system_id?: number; env_tag?: string; is_primary?: boolean; expires_at?: string; remind_before_days?: number }) =>
     api.post<{id: number; credential_code: string; message: string}>('/ucp/credentials', payload).then((r) => r.data),
 
-  updateCredential: (credentialId: number, payload: { credential_name?: string; secrets?: Record<string, string>; auth_type?: string; description?: string; is_primary?: boolean }) =>
+  updateCredential: (credentialId: number, payload: { credential_name?: string; secrets?: Record<string, string>; auth_type?: string; description?: string; is_primary?: boolean; expires_at?: string; remind_before_days?: number }) =>
     api.patch<{id: number; credential_code: string; message: string}>(`/ucp/credentials/${credentialId}`, payload).then((r) => r.data),
 
   toggleCredential: (credentialId: number, is_active: boolean) =>
@@ -889,6 +894,10 @@ export const ucpApi = {
 
   deleteEventTrigger: (triggerId: string) =>
     api.delete<{ deleted: boolean; trigger_code: string }>(`/ucp/triggers/${triggerId}`).then((r) => r.data),
+
+  /* Phase 3-4: 触发器测试 */
+  testTrigger: (triggerId: string, payload: { event_type?: string; source?: string; payload?: Record<string, any> }) =>
+    api.post<{ matched: boolean; checks: Record<string, any>; pipeline_code: string | null }>(`/ucp/triggers/${triggerId}/test`, payload).then((r) => r.data),
 
   /* ── Phase 3-3: 死信 + 重放 ── */
 

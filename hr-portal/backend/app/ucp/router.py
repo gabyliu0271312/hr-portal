@@ -523,6 +523,35 @@ async def retry_failed_items_endpoint(
     }
 
 
+@router.post("/executions/{pipeline_run_id}/items/{item_id}/retry",
+             summary="重跑单个失败项（Phase 2-3）",
+             dependencies=[Depends(require_op("ucp.executions", "C"))])
+async def retry_single_item_endpoint(
+    pipeline_run_id: str,
+    item_id: int,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(current_user),
+) -> dict:
+    """对单个 LOOP_RESOURCE 失败项重新调用 adapter。"""
+    from app.ucp.pipeline_engine import retry_single_item, RetryError
+
+    try:
+        result = await retry_single_item(
+            db, pipeline_run_id, item_id,
+            triggered_by=str(_user.id),
+        )
+    except RetryError as e:
+        raise HTTPException(status_code=400, detail={"error_code": e.code, "message": e.message})
+
+    await _audit(
+        db, _user, "ucp_pipeline", "retry_single_item",
+        f"单项重跑: item_id={item_id}, pipeline_run_id={pipeline_run_id}, status={result.get('status')}",
+        {"pipeline_run_id": pipeline_run_id, "item_id": item_id, "result": result},
+    )
+    await db.commit()
+    return result
+
+
 @router.post("/executions/{pipeline_run_id}/steps/{step_run_id}/retry",
              summary="重跑单个失败步骤（Phase 2-2）",
              dependencies=[Depends(require_op("ucp.executions", "C"))])
@@ -668,6 +697,7 @@ async def create_new_credential(
                 env_tag=payload.get("env_tag"),
                 is_primary=1 if payload.get("is_primary") else 0,
                 expires_at=payload.get("expires_at"),
+                remind_before_days=payload.get("remind_before_days", 7),
             )
         )
     await _audit(db, _user, "ucp_credential", "create",
@@ -2927,6 +2957,67 @@ async def delete_trigger(
         {"trigger_id": trigger_id},
     )
     return {"deleted": True, "trigger_code": code}
+
+
+@router.post("/triggers/{trigger_id}/test", summary="测试触发器匹配（Phase 3-4）")
+async def test_trigger(
+    trigger_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(current_user),
+) -> dict:
+    """用样例 payload 测试触发器是否命中。
+
+    不实际派发流水线，只返回匹配结果和匹配条件详情。
+    """
+    from app.ucp.models import ConnectorEventTrigger
+    from app.ucp.event_bus import match_triggers
+
+    trig = (
+        await db.execute(
+            select(ConnectorEventTrigger).where(
+                ConnectorEventTrigger.trigger_code == trigger_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if trig is None:
+        raise HTTPException(status_code=404, detail=f"触发器 '{trigger_id}' 不存在")
+
+    # 构造模拟事件
+    sample_event = {
+        "event_type": payload.get("event_type", trig.event_types.split(",")[0] if trig.event_types else "test"),
+        "source": payload.get("source", trig.event_source or "TEST"),
+        "payload": payload.get("payload", {}),
+    }
+
+    # 检查匹配条件
+    event_types = [t.strip() for t in (trig.event_types or "").split(",") if t.strip()]
+    type_match = sample_event["event_type"] in event_types if event_types else True
+    source_match = sample_event["source"] == trig.event_source if trig.event_source else True
+
+    filter_rule = trig.filter_rule or {}
+    filter_match = True
+    filter_details = {}
+    if filter_rule:
+        for key, expected in filter_rule.items():
+            actual = sample_event.get("payload", {}).get(key)
+            filter_details[key] = {"expected": expected, "actual": actual, "match": str(actual) == str(expected)}
+            if str(actual) != str(expected):
+                filter_match = False
+
+    matched = type_match and source_match and filter_match
+
+    return {
+        "matched": matched,
+        "trigger_code": trig.trigger_code,
+        "trigger_name": trig.trigger_name,
+        "checks": {
+            "event_type": {"match": type_match, "expected": event_types, "actual": sample_event["event_type"]},
+            "source": {"match": source_match, "expected": trig.event_source, "actual": sample_event["source"]},
+            "filter": {"match": filter_match, "details": filter_details, "rule": filter_rule},
+        },
+        "pipeline_code": trig.pipeline_code if matched else None,
+    }
 
 
 # ============================================================

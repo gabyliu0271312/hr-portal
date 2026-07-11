@@ -715,7 +715,7 @@ APPROVAL        审批节点
 | --- | --- | --- | --- | --- |
 | [x] | P2-B01 | 凭证主备切换 | `SystemDetailDrawer.vue`, Credential API | 可将同环境或指定环境凭证设为主用，原主用自动降为备用 |
 | [x] | P2-B02 | 凭证过期状态计算 | Credential Service | 支持正常、即将过期、已过期、停用状态，首页 chip 同步展示 |
-| [~] | P2-B03 | 凭证到期提醒配置 | Credential UI/Notification | 可配置提前 N 天提醒，提醒记录可追踪 |
+| [x] | P2-B03 | 凭证到期提醒配置 | Credential UI/Notification | 可配置提前 N 天提醒，提醒记录可追踪 |
 | [x] | P2-B04 | 凭证轮换记录 | Audit Log | 新增、更新、设主用、停用均记录操作人和时间，不记录密钥明文 |
 | [x] | P2-B05 | 凭证可用范围 | Credential Model/API | 可限制凭证适用资源、环境和执行主体 |
 | [x] | P2-B06 | 凭证安全回显 | 前端表单/后端 DTO | secret 永不明文回显，仅显示脱敏摘要和更新时间 |
@@ -736,7 +736,7 @@ APPROVAL        审批节点
 | --- | --- | --- | --- | --- |
 | [x] | P2-D01 | LOOP_RESOURCE item 记录 | Pipeline Engine/Models | 每个循环 item 有状态、输入摘要、输出摘要、错误码 |
 | [x] | P2-D02 | 失败项列表 | `PipelineExecDetail.vue` | 执行详情可筛选查看失败 item |
-| [~] | P2-D03 | 单项重跑 | Retry API/Engine | 可选择一个失败 item 重跑，生成新的 step run 关联原 item |
+| [x] | P2-D03 | 单项重跑 | Retry API/Engine | 可选择一个失败 item 重跑，生成新的 step run 关联原 item |
 | [x] | P2-D04 | 批量重跑失败项 | Retry API/UI | 可一键重跑本次执行全部失败项，并展示重跑结果 |
 | [x] | P2-D05 | 重跑幂等保护 | Engine/Adapter | 重跑不会造成重复写入，幂等键写入执行记录 |
 | [x] | P2-D06 | 重跑权限控制 | Permission/Audit | 只有授权角色可重跑，操作进入审计日志 |
@@ -790,7 +790,7 @@ APPROVAL        审批节点
 | [x] | P3-C01 | 触发器模型 | Trigger Models/API | 包含来源、事件类型、过滤条件、目标流水线、启停状态 |
 | [x] | P3-C02 | 触发器配置页面 | `EventTriggerConfigView.vue` | 可新增、编辑、启停触发器 |
 | [x] | P3-C03 | 过滤条件配置 | Trigger UI/Service | 支持按 payload 字段、系统、资源条件过滤 |
-| [~] | P3-C04 | 触发器测试 | Trigger Test API | 可用样例 payload 验证是否命中目标流水线 |
+| [x] | P3-C04 | 触发器测试 | Trigger Test API | 可用样例 payload 验证是否命中目标流水线 |
 
 ### D. 飞书 Webhook 接入
 
@@ -872,8 +872,8 @@ APPROVAL        审批节点
 | --- | --- | --- | --- | --- |
 | [x] | P4-E01 | 监控时间范围切换 | Monitor UI/API | 支持 4h、24h、7d、30d 维度切换 |
 | [x] | P4-E02 | 趋势图 | Monitor UI/API | 展示执行量、失败率、耗时趋势 |
-| [~] | P4-E03 | 告警规则配置 | Alert UI/API | 可配置失败率、连续失败、耗时、死信数量阈值 |
-| [~] | P4-E04 | 告警订阅 | Alert/Notification | 用户可订阅系统、资源、流水线告警 |
+| [x] | P4-E03 | 告警规则配置 | Alert UI/API | 可配置失败率、连续失败、耗时、死信数量阈值 |
+| [x] | P4-E04 | 告警订阅 | Alert/Notification | 用户可订阅系统、资源、流水线告警 |
 | [x] | P4-E05 | 告警记录 | Alert Log UI | 可查看触发时间、恢复时间、通知状态 |
 | [x] | P4-E06 | 审计日志完善 | Audit UI/API | 配置变更、凭证读取、手动执行、审批操作均可追踪 |
 

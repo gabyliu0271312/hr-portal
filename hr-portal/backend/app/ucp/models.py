@@ -897,6 +897,7 @@ class ApprovalRequest(Base):
     execution_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 过期
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    remind_before_days: Mapped[int | None] = mapped_column(Integer, nullable=True, default=7)  # Phase 4: 到期前 N 天提醒
     # 备注
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 时间

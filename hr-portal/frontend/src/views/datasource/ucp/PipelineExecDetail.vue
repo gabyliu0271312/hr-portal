@@ -174,8 +174,31 @@ async function retryFailed() {
   }
 }
 
+const retryingItemId = ref<number | null>(null)
+
 async function retryItem(item: LoopFailedItem) {
-  ElMessage.info('单条重试：暂未支持，请使用"重试失败项"批量重试')
+  try {
+    await ElMessageBox.confirm(
+      `确认重试失败项 "${item.item_key}"？`,
+      '单项重试',
+      { type: 'warning', confirmButtonText: '确认重试', cancelButtonText: '取消' }
+    )
+  } catch { return }
+
+  retryingItemId.value = item.id
+  try {
+    const result = await ucpApi.retryItem(runId, item.id)
+    if (result.status === 'SUCCESS') {
+      ElMessage.success(`Item "${item.item_key}" 重试成功`)
+    } else {
+      ElMessage.warning(`重试失败: ${result.error || '未知错误'}`)
+    }
+    await loadFailed()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '重试失败')
+  } finally {
+    retryingItemId.value = null
+  }
 }
 
 async function retryStep(step: PipelineStepExecutionItem) {
@@ -476,6 +499,18 @@ onMounted(loadDetail)
                   <el-tag :type="row.is_retryable ? 'success' : 'danger'" size="small">
                     {{ row.is_retryable ? '是' : '否' }}
                   </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="80" fixed="right">
+                <template #default="{ row }">
+                  <el-button
+                    v-if="row.is_retryable"
+                    size="small"
+                    link
+                    type="warning"
+                    :loading="retryingItemId === row.id"
+                    @click="retryItem(row)"
+                  >重试</el-button>
                 </template>
               </el-table-column>
             </el-table>

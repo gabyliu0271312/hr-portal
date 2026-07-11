@@ -312,12 +312,99 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <!-- Phase 4: 告警规则管理 -->
+    <el-card style="margin-top: 20px">
+      <template #header>
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <span>告警规则 ({{ alertRules.length }})</span>
+          <el-button size="small" type="primary" @click="openAlertRuleDialog()">
+            <el-icon><Plus /></el-icon>新建规则
+          </el-button>
+        </div>
+      </template>
+      <el-table :data="alertRules" v-loading="loadingRules" stripe max-height="300">
+        <el-table-column prop="rule_name" label="规则名称" min-width="140" />
+        <el-table-column label="类型" width="140">
+          <template #default="{ row }">
+            <el-tag size="small">{{ ruleTypeLabel(row.rule_type) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="阈值" width="120">
+          <template #default="{ row }">{{ row.threshold_value }}{{ row.threshold_unit === 'percent' ? '%' : row.threshold_unit === 'ms' ? 'ms' : '' }}</template>
+        </el-table-column>
+        <el-table-column label="通知" min-width="140">
+          <template #default="{ row }">{{ row.notify_channels || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="冷却" width="100">
+          <template #default="{ row }">{{ row.cooldown_minutes }}min</template>
+        </el-table-column>
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-switch :model-value="!!row.is_active" size="small" @change="toggleAlertRule(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100">
+          <template #default="{ row }">
+            <el-button size="small" link type="primary" @click="openAlertRuleDialog(row)">编辑</el-button>
+            <el-button size="small" link type="danger" @click="deleteAlertRule(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <!-- 告警规则 Dialog -->
+    <el-dialog
+      v-model="alertRuleDialogVisible"
+      :title="editingAlertRule ? '编辑告警规则' : '新建告警规则'"
+      width="560px"
+      :close-on-click-modal="false"
+    >
+      <el-form :model="alertRuleForm" label-width="100px">
+        <el-form-item label="规则编码" required>
+          <el-input v-model="alertRuleForm.rule_code" :disabled="!!editingAlertRule" placeholder="如 fail_rate_gt_20" />
+        </el-form-item>
+        <el-form-item label="规则名称" required>
+          <el-input v-model="alertRuleForm.rule_name" placeholder="如 失败率超过20%" />
+        </el-form-item>
+        <el-form-item label="规则类型">
+          <el-select v-model="alertRuleForm.rule_type" style="width: 100%">
+            <el-option label="失败率" value="FAIL_RATE" />
+            <el-option label="连续失败" value="CONSECUTIVE_FAIL" />
+            <el-option label="平均耗时" value="DURATION" />
+            <el-option label="死信数量" value="DEAD_LETTER_COUNT" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="阈值">
+          <el-input-number v-model="alertRuleForm.threshold_value" :min="0" style="width: 180px" />
+          <el-select v-model="alertRuleForm.threshold_unit" style="width: 120px; margin-left: 8px" clearable>
+            <el-option label="百分比" value="percent" />
+            <el-option label="次数" value="count" />
+            <el-option label="毫秒" value="ms" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="通知渠道">
+          <el-input v-model="alertRuleForm.notify_channels" placeholder="feishu,email" />
+        </el-form-item>
+        <el-form-item label="冷却时间(分)">
+          <el-input-number v-model="alertRuleForm.cooldown_minutes" :min="1" :max="1440" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="alertRuleForm.description" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="alertRuleDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveAlertRule">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Refresh } from '@element-plus/icons-vue'
+import { Refresh, Plus } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   monitorApi,
   type MonitorSummary,
@@ -495,7 +582,94 @@ const failRateClass = computed(() => {
   return 'text-success'
 })
 
+// ── Phase 4: 告警规则管理 ──
+import { alertRuleApi, type AlertRuleItem } from '@/api/ucp'
+
+const alertRules = ref<AlertRuleItem[]>([])
+const loadingRules = ref(false)
+const alertRuleDialogVisible = ref(false)
+const editingAlertRule = ref<AlertRuleItem | null>(null)
+const alertRuleForm = ref({
+  rule_code: '', rule_name: '', rule_type: 'FAIL_RATE' as string,
+  threshold_value: 0, threshold_unit: 'percent' as string,
+  notify_channels: '', cooldown_minutes: 60, description: '',
+})
+
+function ruleTypeLabel(t: string) {
+  const m: Record<string, string> = { FAIL_RATE: '失败率', CONSECUTIVE_FAIL: '连续失败', DURATION: '平均耗时', DEAD_LETTER_COUNT: '死信数量' }
+  return m[t] || t
+}
+
+async function loadAlertRules() {
+  loadingRules.value = true
+  try {
+    const res = await alertRuleApi.list()
+    alertRules.value = res.items
+  } catch { alertRules.value = [] }
+  finally { loadingRules.value = false }
+}
+
+function openAlertRuleDialog(row?: AlertRuleItem) {
+  if (row) {
+    editingAlertRule.value = row
+    alertRuleForm.value = {
+      rule_code: row.rule_code, rule_name: row.rule_name, rule_type: row.rule_type,
+      threshold_value: row.threshold_value, threshold_unit: row.threshold_unit || 'percent',
+      notify_channels: row.notify_channels || '', cooldown_minutes: row.cooldown_minutes,
+      description: row.description || '',
+    }
+  } else {
+    editingAlertRule.value = null
+    alertRuleForm.value = { rule_code: '', rule_name: '', rule_type: 'FAIL_RATE', threshold_value: 0, threshold_unit: 'percent', notify_channels: '', cooldown_minutes: 60, description: '' }
+  }
+  alertRuleDialogVisible.value = true
+}
+
+async function saveAlertRule() {
+  if (!alertRuleForm.value.rule_code || !alertRuleForm.value.rule_name) {
+    ElMessage.warning('请填写规则编码和名称')
+    return
+  }
+  try {
+    if (editingAlertRule.value) {
+      await alertRuleApi.update(editingAlertRule.value.id, alertRuleForm.value)
+      ElMessage.success('规则已更新')
+    } else {
+      await alertRuleApi.create(alertRuleForm.value as any)
+      ElMessage.success('规则已创建')
+    }
+    alertRuleDialogVisible.value = false
+    await loadAlertRules()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  }
+}
+
+async function toggleAlertRule(row: AlertRuleItem) {
+  try {
+    await alertRuleApi.update(row.id, { is_active: row.is_active ? 0 : 1 })
+    row.is_active = row.is_active ? 0 : 1
+    ElMessage.success(row.is_active ? '已启用' : '已停用')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '操作失败')
+  }
+}
+
+async function deleteAlertRule(row: AlertRuleItem) {
+  try {
+    await ElMessageBox.confirm(`确定删除规则「${row.rule_name}」？`, '删除确认', { type: 'warning' })
+  } catch { return }
+  try {
+    await alertRuleApi.delete(row.id)
+    ElMessage.success('已删除')
+    await loadAlertRules()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
+  }
+}
+
 onMounted(loadAll)
+onMounted(loadAlertRules)
 </script>
 
 <style scoped>

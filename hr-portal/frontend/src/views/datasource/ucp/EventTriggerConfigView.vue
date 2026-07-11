@@ -46,9 +46,10 @@
       <el-table-column prop="created_at" label="创建时间" width="170">
         <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right">
+      <el-table-column label="操作" width="240" fixed="right">
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" link type="success" @click="testTrigger(row)">测试</el-button>
           <el-button size="small" link type="danger" @click="onDelete(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -371,6 +372,29 @@ async function onDelete(row: any) {
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '删除失败')
   }
+}
+
+async function testTrigger(row: any) {
+  try {
+    const { value: samplePayload } = await ElMessageBox.prompt(
+      '输入测试 payload（JSON 格式）',
+      `测试触发器: ${row.trigger_code}`,
+      {
+        confirmButtonText: '测试',
+        cancelButtonText: '取消',
+        inputType: 'textarea',
+        inputValue: JSON.stringify({ employee_id: 'TEST001', event_type: 'employee_onboarding' }, null, 2),
+      },
+    )
+    let payload = {}
+    try { payload = JSON.parse(samplePayload || '{}') } catch { /* use empty */ }
+    const result = await ucpApi.testTrigger(row.trigger_code, { payload } as any)
+    if (result.matched) {
+      ElMessage.success(`匹配成功！将触发流水线: ${result.pipeline_code}`)
+    } else {
+      ElMessage.warning('未匹配 — 请检查事件类型/来源/过滤条件')
+    }
+  } catch { /* cancelled */ }
 }
 
 function sourceTagType(s: string) {

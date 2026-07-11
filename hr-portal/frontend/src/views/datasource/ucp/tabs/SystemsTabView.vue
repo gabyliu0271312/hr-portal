@@ -492,6 +492,10 @@
               value-format="YYYY-MM-DDTHH:mm:ss"
             />
           </el-form-item>
+          <el-form-item label="到期提醒">
+            <el-input-number v-model="credForm.remind_before_days" :min="1" :max="90" style="width: 200px" />
+            <span style="margin-left: 8px; color: #8f959e; font-size: 12px">提前 N 天提醒</span>
+          </el-form-item>
           <el-form-item label="说明">
             <el-input v-model="credForm.description" type="textarea" :rows="2" />
           </el-form-item>
@@ -897,6 +901,7 @@ const credForm = ref<any>({
   env_tag: 'prod',
   description: '',
   expires_at: '',
+  remind_before_days: 7,
   secrets: {} as Record<string, string>,
 })
 
@@ -1375,6 +1380,7 @@ async function submitSystemStep2() {
       env_tag: credForm.value.env_tag || undefined,
       is_primary: true,
       expires_at: credForm.value.expires_at || undefined,
+      remind_before_days: credForm.value.remind_before_days ?? 7,
       secrets: credForm.value.secrets,
     })
     pendingCredId.value = r.id

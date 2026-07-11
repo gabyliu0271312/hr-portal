@@ -132,8 +132,16 @@ const nameBlob = computed(() => `${props.system.system_name || ''} ${props.syste
 
 const credentialRiskLevel = computed<'ok' | 'warn' | 'danger'>(() => {
   if (!hasCredential.value) return 'warn'
-  if (/salesforce|sf/.test(nameBlob.value)) return 'danger'
-  if (/didi|滴滴/.test(nameBlob.value)) return 'warn'
+  // Phase 4: 基于真实 expires_at 计算过期状态
+  const now = Date.now()
+  const DAY_MS = 86400000
+  for (const c of props.credentials) {
+    if (c.expires_at) {
+      const exp = new Date(c.expires_at).getTime()
+      if (exp < now) return 'danger'  // 已过期
+      if (exp - now < 7 * DAY_MS) return 'warn'  // 7 天内到期
+    }
+  }
   return 'ok'
 })
 
