@@ -551,137 +551,137 @@ APPROVAL        审批节点
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-A01 | 确认蓝图作为终态 UI 规格进入 spec | `spec.md`, `implementation-plan.md` | 文档中明确蓝图 15 场景是最终状态，不是临时参考 |
-| [ ] | P1-A02 | 确认蓝图仍可查看 | `outputs/ucp-blueprint/index.html`, `frontend/public/outputs/ucp-blueprint/index.html` | 浏览器可打开蓝图，真实 Vue 页面不依赖蓝图 HTML |
-| [ ] | P1-A03 | 删除或隐藏旧 012 文档引用 | `specs/011-universal-connector-platform/README.md` | 文档索引只指向 011 目录内文件 |
+| [x] | P1-A01 | 确认蓝图作为终态 UI 规格进入 spec | `spec.md`, `implementation-plan.md` | 文档中明确蓝图 15 场景是最终状态，不是临时参考 |
+| [x] | P1-A02 | 确认蓝图仍可查看 | `outputs/ucp-blueprint/index.html`, `frontend/public/outputs/ucp-blueprint/index.html` | 浏览器可打开蓝图，真实 Vue 页面不依赖蓝图 HTML |
+| [x] | P1-A03 | 删除或隐藏旧 012 文档引用 | `specs/011-universal-connector-platform/README.md` | 文档索引只指向 011 目录内文件 |
 
 ### B. 应用入口、路由与权限命名空间
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-B01 | 新增 UCP 顶部一级菜单 `数据连接` | `backend/app/seed.py`, 菜单表 | 登录后顶部可看到 `数据连接` Tab，UCP 不再作为系统设置下的普通子功能展示 |
-| [ ] | P1-B02 | 调整 UCP 左侧菜单结构 | `seed.py`, `Default.vue`, `menuRoutes.ts` | `数据连接` 下包含接入系统、流水线、执行日志、事件中心、监控中心、死信队列、审批中心等入口 |
-| [ ] | P1-B03 | 路由前缀迁移到 `/ucp` | `router/index.ts`, `menuRoutes.ts` | UCP 主入口为 `/ucp`，各页面使用 `/ucp/...`；页面刷新和直接访问正常 |
-| [ ] | P1-B04 | 移除 UCP 对系统设置导航层级的依赖 | `Default.vue`, seed 菜单 | 系统设置下不再出现 UCP 聚合入口，系统设置仅保留权限、参数、日志等后台配置 |
-| [ ] | P1-B05 | 建立 `ucp.*` 权限 code | `seed.py`, 权限表 | 菜单权限中存在 `ucp.app`、`ucp.systems`、`ucp.pipelines`、`ucp.executions` 等独立 code |
-| [ ] | P1-B06 | 前端路由权限改为 `ucp.*` | `router/index.ts` | UCP 页面 `meta.menuCode` 不再使用 `datasource.ucp_*` |
-| [ ] | P1-B07 | 后端接口权限改为 `ucp.*` | `backend/app/ucp/router.py` | UCP API 的 `require_op` 使用 `ucp.*`，不再使用 `datasource.ucp_*` |
-| [ ] | P1-B08 | 权限角色配置兼容当前体系 | `roles`/`menus` 相关页面与 API | 角色配置页可给用户分配 UCP 查看、创建、更新、删除、执行、导出权限 |
-| [ ] | P1-B09 | 超管权限自动覆盖 UCP | `seed.py` | 超级管理员自动拥有全部 `ucp.*` 权限 |
-| [ ] | P1-B10 | 预留独立应用化字段/边界 | UCP models/API DTO | System/Resource/Pipeline/Credential 至少预留 owner/team/domain/env/sensitivity 中必要字段或扩展配置 |
-| [ ] | P1-B11 | 删除旧 datasource UCP 菜单依赖 | `seed.py`, `menuRoutes.ts`, `Default.vue` | 新环境 seed 不再生成 `datasource.ucp_*` 作为主权限；开发期无需兼容旧 code |
-| [ ] | P1-B12 | 应用化入口验收 | 前后端整体 | 无权限用户看不到 `数据连接`；有权限用户可进入 `/ucp`；各子页面权限拦截正常 |
+| [x] | P1-B01 | 新增 UCP 顶部一级菜单 `数据连接` | `backend/app/seed.py`, 菜单表 | 登录后顶部可看到 `数据连接` Tab，UCP 不再作为系统设置下的普通子功能展示 |
+| [x] | P1-B02 | 调整 UCP 左侧菜单结构 | `seed.py`, `Default.vue`, `menuRoutes.ts` | `数据连接` 下包含接入系统、流水线、执行日志、事件中心、监控中心、死信队列、审批中心等入口 |
+| [x] | P1-B03 | 路由前缀迁移到 `/ucp` | `router/index.ts`, `menuRoutes.ts` | UCP 主入口为 `/ucp`，各页面使用 `/ucp/...`；页面刷新和直接访问正常 |
+| [x] | P1-B04 | 移除 UCP 对系统设置导航层级的依赖 | `Default.vue`, seed 菜单 | 系统设置下不再出现 UCP 聚合入口，系统设置仅保留权限、参数、日志等后台配置 |
+| [x] | P1-B05 | 建立 `ucp.*` 权限 code | `seed.py`, 权限表 | 菜单权限中存在 `ucp.app`、`ucp.systems`、`ucp.pipelines`、`ucp.executions` 等独立 code |
+| [x] | P1-B06 | 前端路由权限改为 `ucp.*` | `router/index.ts` | UCP 页面 `meta.menuCode` 不再使用 `datasource.ucp_*` |
+| [x] | P1-B07 | 后端接口权限改为 `ucp.*` | `backend/app/ucp/router.py` | UCP API 的 `require_op` 使用 `ucp.*`，不再使用 `datasource.ucp_*` |
+| [x] | P1-B08 | 权限角色配置兼容当前体系 | `roles`/`menus` 相关页面与 API | 角色配置页可给用户分配 UCP 查看、创建、更新、删除、执行、导出权限 |
+| [x] | P1-B09 | 超管权限自动覆盖 UCP | `seed.py` | 超级管理员自动拥有全部 `ucp.*` 权限 |
+| [x] | P1-B10 | 预留独立应用化字段/边界 | UCP models/API DTO | System/Resource/Pipeline/Credential 至少预留 owner/team/domain/env/sensitivity 中必要字段或扩展配置 |
+| [x] | P1-B11 | 删除旧 datasource UCP 菜单依赖 | `seed.py`, `menuRoutes.ts`, `Default.vue` | 新环境 seed 不再生成 `datasource.ucp_*` 作为主权限；开发期无需兼容旧 code |
+| [x] | P1-B12 | 应用化入口验收 | 前后端整体 | 无权限用户看不到 `数据连接`；有权限用户可进入 `/ucp`；各子页面权限拦截正常 |
 
 ### C. 领域模型彻底统一
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-C01 | 梳理现有 connector 命名表/模型/接口 | `backend/app/ucp/models.py`, `router.py`, `ucp.ts` | 输出需要改名或废弃的清单 |
-| [ ] | P1-C02 | 定义最终 System 数据结构 | 后端模型/迁移/API 类型 | 系统包含 code、name、type、protocol_label、icon、owner、status、health_status |
-| [ ] | P1-C03 | 定义最终 Resource 数据结构 | 后端模型/迁移/API 类型 | 资源包含 system_id、resource_code、resource_name、resource_type、adapter_code、protocol、mapping_config、status |
-| [ ] | P1-C04 | 定义最终 Credential 数据结构 | 后端模型/迁移/API 类型 | 凭证包含 system_id、env_tag、is_primary、auth_type、expires_at、status，secret 加密存储 |
-| [ ] | P1-C05 | 定义最终 Pipeline Template 数据结构 | 后端模型/迁移/API 类型 | 模板包含 nodes、edges、version、status、created_by |
-| [ ] | P1-C06 | 定义最终 Pipeline Run / Step Run 数据结构 | 后端模型/迁移/API 类型 | 执行实例包含 trace_id、pipeline_id、status、duration、context_summary、step_runs |
-| [ ] | P1-C07 | 移除普通用户主路径中的 Connector 概念 | 前端页面、路由、菜单、文案 | 用户主流程只看到系统、资源、凭证、流水线 |
+| [x] | P1-C01 | 梳理现有 connector 命名表/模型/接口 | `backend/app/ucp/models.py`, `router.py`, `ucp.ts` | 输出需要改名或废弃的清单 |
+| [x] | P1-C02 | 定义最终 System 数据结构 | 后端模型/迁移/API 类型 | 系统包含 code、name、type、protocol_label、icon、owner、status、health_status |
+| [x] | P1-C03 | 定义最终 Resource 数据结构 | 后端模型/迁移/API 类型 | 资源包含 system_id、resource_code、resource_name、resource_type、adapter_code、protocol、mapping_config、status |
+| [x] | P1-C04 | 定义最终 Credential 数据结构 | 后端模型/迁移/API 类型 | 凭证包含 system_id、env_tag、is_primary、auth_type、expires_at、status，secret 加密存储 |
+| [x] | P1-C05 | 定义最终 Pipeline Template 数据结构 | 后端模型/迁移/API 类型 | 模板包含 nodes、edges、version、status、created_by |
+| [x] | P1-C06 | 定义最终 Pipeline Run / Step Run 数据结构 | 后端模型/迁移/API 类型 | 执行实例包含 trace_id、pipeline_id、status、duration、context_summary、step_runs |
+| [x] | P1-C07 | 移除普通用户主路径中的 Connector 概念 | 前端页面、路由、菜单、文案 | 用户主流程只看到系统、资源、凭证、流水线 |
 
 ### D. API 重构
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-D01 | 设计系统 API | `router.py`, `system_service.py`, `ucp.ts` | 支持列表、详情、新建、更新、删除 |
-| [ ] | P1-D02 | 设计资源 API | `router.py`, `system_service.py`, `ucp.ts` | 支持按 system_id 查询资源 |
-| [ ] | P1-D03 | 设计凭证 API | `router.py`, `credential_service.py`, `ucp.ts` | 支持按 system_id 查询、新建、设为主用、停用 |
-| [ ] | P1-D04 | 设计首页 Dashboard API | `router.py`, `monitor_service.py`, `ucp.ts` | 返回 6 个 KPI 和系统卡片聚合数据 |
-| [ ] | P1-D05 | 设计流水线模板 API | `router.py`, `pipeline_template.py`, `ucp.ts` | 支持模板 CRUD、保存 nodes/edges、版本号 |
-| [ ] | P1-D06 | 设计流水线配置 API | `router.py`, `pipeline_engine.py`, `ucp.ts` | 支持从模板创建流水线、发布、停用 |
-| [ ] | P1-D07 | 设计试运行 API | `router.py`, `pipeline_engine.py`, `ucp.ts` | 支持画布试运行并返回 trace_id |
-| [ ] | P1-D08 | 设计执行记录 API | `router.py`, `pipeline_engine.py`, `ucp.ts` | 支持列表、详情、按 pipeline/status/time 过滤 |
+| [x] | P1-D01 | 设计系统 API | `router.py`, `system_service.py`, `ucp.ts` | 支持列表、详情、新建、更新、删除 |
+| [x] | P1-D02 | 设计资源 API | `router.py`, `system_service.py`, `ucp.ts` | 支持按 system_id 查询资源 |
+| [x] | P1-D03 | 设计凭证 API | `router.py`, `credential_service.py`, `ucp.ts` | 支持按 system_id 查询、新建、设为主用、停用 |
+| [x] | P1-D04 | 设计首页 Dashboard API | `router.py`, `monitor_service.py`, `ucp.ts` | 返回 6 个 KPI 和系统卡片聚合数据 |
+| [x] | P1-D05 | 设计流水线模板 API | `router.py`, `pipeline_template.py`, `ucp.ts` | 支持模板 CRUD、保存 nodes/edges、版本号 |
+| [x] | P1-D06 | 设计流水线配置 API | `router.py`, `pipeline_engine.py`, `ucp.ts` | 支持从模板创建流水线、发布、停用 |
+| [x] | P1-D07 | 设计试运行 API | `router.py`, `pipeline_engine.py`, `ucp.ts` | 支持画布试运行并返回 trace_id |
+| [x] | P1-D08 | 设计执行记录 API | `router.py`, `pipeline_engine.py`, `ucp.ts` | 支持列表、详情、按 pipeline/status/time 过滤 |
 
 ### E. 首页场景 2
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-E01 | 按蓝图重构首页布局 | `SystemsTabView.vue` | 标题、副标题、操作按钮、KPI、筛选栏、卡片网格与蓝图一致 |
-| [ ] | P1-E02 | 系统卡片按蓝图重构 | `SystemCard.vue` | 图标、名称、编码协议、状态、凭证 chip、三列 meta 一致 |
-| [ ] | P1-E03 | 首页 KPI 接真实 API | `SystemsTabView.vue`, `ucp.ts` | 6 个 KPI 不含前端硬编码 |
-| [ ] | P1-E04 | 卡片数据接真实 API | `SystemCard.vue`, `ucp.ts` | 资源数、流水线数、24h 同步次数来自接口 |
-| [ ] | P1-E05 | 凭证 chip 接真实凭证 | `SystemCard.vue` | prod/staging/dev 与接口一致，过期状态正确 |
-| [ ] | P1-E06 | 首页筛选可用 | `SystemsTabView.vue` | 全部/运行中/停用/异常筛选结果正确 |
-| [ ] | P1-E07 | 笔记本屏幕适配 | `SystemsTabView.vue`, `SystemCard.vue` | 1366px 下无横向溢出，关键内容完整显示 |
+| [x] | P1-E01 | 按蓝图重构首页布局 | `SystemsTabView.vue` | 标题、副标题、操作按钮、KPI、筛选栏、卡片网格与蓝图一致 |
+| [x] | P1-E02 | 系统卡片按蓝图重构 | `SystemCard.vue` | 图标、名称、编码协议、状态、凭证 chip、三列 meta 一致 |
+| [x] | P1-E03 | 首页 KPI 接真实 API | `SystemsTabView.vue`, `ucp.ts` | 6 个 KPI 不含前端硬编码 |
+| [x] | P1-E04 | 卡片数据接真实 API | `SystemCard.vue`, `ucp.ts` | 资源数、流水线数、24h 同步次数来自接口 |
+| [x] | P1-E05 | 凭证 chip 接真实凭证 | `SystemCard.vue` | prod/staging/dev 与接口一致，过期状态正确 |
+| [x] | P1-E06 | 首页筛选可用 | `SystemsTabView.vue` | 全部/运行中/停用/异常筛选结果正确 |
+| [x] | P1-E07 | 笔记本屏幕适配 | `SystemsTabView.vue`, `SystemCard.vue` | 1366px 下无横向溢出，关键内容完整显示 |
 
 ### F. 新建系统 4 步向导
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-F01 | 新增系统向导组件 | `SystemCreateWizard.vue` | 点击添加系统进入 4 步向导 |
-| [ ] | P1-F02 | Step1 系统信息 | `SystemCreateWizard.vue` | 可填写名称、编码、类型、协议、负责人 |
-| [ ] | P1-F03 | Step2 凭证录入 | `SystemCreateWizard.vue` | 可填写 prod 凭证，secret 不明文回显 |
-| [ ] | P1-F04 | Step3 资源配置 | `SystemCreateWizard.vue` | 至少可创建一个 API 或表资源 |
-| [ ] | P1-F05 | Step4 检查测试 | `SystemCreateWizard.vue`, 后端测试 API | 展示认证/连通性测试结果 |
-| [ ] | P1-F06 | 向导提交创建完整对象 | 前后端 | 提交后同时创建 system、credential、resource |
-| [ ] | P1-F07 | 创建完成刷新首页 | `SystemsTabView.vue` | 新系统卡片立即出现 |
+| [x] | P1-F01 | 新增系统向导组件 | `SystemCreateWizard.vue` | 点击添加系统进入 4 步向导 |
+| [x] | P1-F02 | Step1 系统信息 | `SystemCreateWizard.vue` | 可填写名称、编码、类型、协议、负责人 |
+| [x] | P1-F03 | Step2 凭证录入 | `SystemCreateWizard.vue` | 可填写 prod 凭证，secret 不明文回显 |
+| [x] | P1-F04 | Step3 资源配置 | `SystemCreateWizard.vue` | 至少可创建一个 API 或表资源 |
+| [x] | P1-F05 | Step4 检查测试 | `SystemCreateWizard.vue`, 后端测试 API | 展示认证/连通性测试结果 |
+| [x] | P1-F06 | 向导提交创建完整对象 | 前后端 | 提交后同时创建 system、credential、resource |
+| [x] | P1-F07 | 创建完成刷新首页 | `SystemsTabView.vue` | 新系统卡片立即出现 |
 
 ### G. 系统详情 6 Tab
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-G01 | 系统详情抽屉按蓝图重构 | `SystemDetailDrawer.vue` | 以抽屉展示，顶部信息与蓝图一致 |
-| [ ] | P1-G02 | 概览 Tab | `SystemDetailDrawer.vue` | 展示系统状态、资源数、凭证数、最近同步 |
-| [ ] | P1-G03 | 资源 Tab | `SystemDetailDrawer.vue` | 展示资源列表，可新增资源 |
-| [ ] | P1-G04 | 凭证 Tab | `SystemDetailDrawer.vue` | 展示凭证列表，可补充凭证、设主用 |
-| [ ] | P1-G05 | 流水线 Tab | `SystemDetailDrawer.vue` | 展示引用该系统资源的流水线 |
-| [ ] | P1-G06 | 执行记录 Tab | `SystemDetailDrawer.vue` | 展示按 system_id 过滤的执行记录 |
-| [ ] | P1-G07 | 审计/测试 Tab | `SystemDetailDrawer.vue` | 展示测试记录和配置变更摘要 |
+| [x] | P1-G01 | 系统详情抽屉按蓝图重构 | `SystemDetailDrawer.vue` | 以抽屉展示，顶部信息与蓝图一致 |
+| [x] | P1-G02 | 概览 Tab | `SystemDetailDrawer.vue` | 展示系统状态、资源数、凭证数、最近同步 |
+| [x] | P1-G03 | 资源 Tab | `SystemDetailDrawer.vue` | 展示资源列表，可新增资源 |
+| [x] | P1-G04 | 凭证 Tab | `SystemDetailDrawer.vue` | 展示凭证列表，可补充凭证、设主用 |
+| [x] | P1-G05 | 流水线 Tab | `SystemDetailDrawer.vue` | 展示引用该系统资源的流水线 |
+| [x] | P1-G06 | 执行记录 Tab | `SystemDetailDrawer.vue` | 展示按 system_id 过滤的执行记录 |
+| [x] | P1-G07 | 审计/测试 Tab | `SystemDetailDrawer.vue` | 展示测试记录和配置变更摘要 |
 
 ### H. 流水线列表
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-H01 | 重构流水线列表 | `PipelinesTabView.vue` 或 `PipelineListView.vue` | 列包含名称、系统、资源、触发方式、最近执行、状态 |
-| [ ] | P1-H02 | 新建流水线入口 | 流水线页面 | 点击后可选择空白画布或模板 |
-| [ ] | P1-H03 | 新建模板入口 | 流水线页面 | 点击后进入模板画布设计 |
-| [ ] | P1-H04 | 流水线筛选 | 流水线页面 | 可按系统、资源、触发方式、状态筛选 |
+| [x] | P1-H01 | 重构流水线列表 | `PipelinesTabView.vue` 或 `PipelineListView.vue` | 列包含名称、系统、资源、触发方式、最近执行、状态 |
+| [x] | P1-H02 | 新建流水线入口 | 流水线页面 | 点击后可选择空白画布或模板 |
+| [x] | P1-H03 | 新建模板入口 | 流水线页面 | 点击后进入模板画布设计 |
+| [x] | P1-H04 | 流水线筛选 | 流水线页面 | 可按系统、资源、触发方式、状态筛选 |
 
 ### I. 流水线画布最小可用
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-I01 | 画布页面结构 | `PipelineDesignerView.vue` | 左节点面板、中画布、右属性面板、顶部操作区完整 |
-| [ ] | P1-I02 | 节点拖拽/添加 | `PipelineDesignerView.vue` | 可添加 RESOURCE、LOOP_RESOURCE、TRANSFORM、NOTIFY 节点 |
-| [ ] | P1-I03 | 节点连线 | `PipelineDesignerView.vue` | 可连接节点并保存 edges |
-| [ ] | P1-I04 | RESOURCE 节点配置 | `PipelineDesignerView.vue` | 可选择系统 → 资源 → 凭证 |
-| [ ] | P1-I05 | LOOP_RESOURCE 节点配置 | `PipelineDesignerView.vue` | 可选择循环输入、资源、凭证、并发度 |
-| [ ] | P1-I06 | TRANSFORM 节点配置 | `PipelineDesignerView.vue` | 可配置输入 key、输出 key、转换类型 |
-| [ ] | P1-I07 | NOTIFY 节点配置 | `PipelineDesignerView.vue` | 可配置通知模板、接收人、触发条件 |
-| [ ] | P1-I08 | 节点校验 | `PipelineDesignerView.vue` | 未选择资源/凭证时节点显示校验错误 |
-| [ ] | P1-I09 | 保存模板 | `PipelineDesignerView.vue`, API | 保存后 nodes/edges 入库 |
-| [ ] | P1-I10 | 重新打开模板 | `PipelineDesignerView.vue` | 节点位置、连线、配置完整恢复 |
-| [ ] | P1-I11 | 从模板创建流水线 | `PipelineDesignerView.vue`, API | 模板可生成可执行流水线 |
-| [ ] | P1-I12 | 试运行 | `PipelineDesignerView.vue`, API | 点击试运行返回 trace_id 和步骤状态 |
-| [ ] | P1-I13 | 发布流水线 | `PipelineDesignerView.vue`, API | 发布后列表可见，状态为启用 |
+| [x] | P1-I01 | 画布页面结构 | `PipelineDesignerView.vue` | 左节点面板、中画布、右属性面板、顶部操作区完整 |
+| [x] | P1-I02 | 节点拖拽/添加 | `PipelineDesignerView.vue` | 可添加 RESOURCE、LOOP_RESOURCE、TRANSFORM、NOTIFY 节点 |
+| [x] | P1-I03 | 节点连线 | `PipelineDesignerView.vue` | 可连接节点并保存 edges |
+| [x] | P1-I04 | RESOURCE 节点配置 | `PipelineDesignerView.vue` | 可选择系统 → 资源 → 凭证 |
+| [x] | P1-I05 | LOOP_RESOURCE 节点配置 | `PipelineDesignerView.vue` | 可选择循环输入、资源、凭证、并发度 |
+| [x] | P1-I06 | TRANSFORM 节点配置 | `PipelineDesignerView.vue` | 可配置输入 key、输出 key、转换类型 |
+| [x] | P1-I07 | NOTIFY 节点配置 | `PipelineDesignerView.vue` | 可配置通知模板、接收人、触发条件 |
+| [x] | P1-I08 | 节点校验 | `PipelineDesignerView.vue` | 未选择资源/凭证时节点显示校验错误 |
+| [x] | P1-I09 | 保存模板 | `PipelineDesignerView.vue`, API | 保存后 nodes/edges 入库 |
+| [x] | P1-I10 | 重新打开模板 | `PipelineDesignerView.vue` | 节点位置、连线、配置完整恢复 |
+| [x] | P1-I11 | 从模板创建流水线 | `PipelineDesignerView.vue`, API | 模板可生成可执行流水线 |
+| [x] | P1-I12 | 试运行 | `PipelineDesignerView.vue`, API | 点击试运行返回 trace_id 和步骤状态 |
+| [x] | P1-I13 | 发布流水线 | `PipelineDesignerView.vue`, API | 发布后列表可见，状态为启用 |
 
 ### J. 流水线执行引擎最小闭环
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-J01 | RESOURCE 节点执行 | `pipeline_engine.py` | 可调用资源配置对应 adapter |
-| [ ] | P1-J02 | LOOP_RESOURCE 节点执行 | `pipeline_engine.py` | 可循环处理列表并记录成功/失败项 |
-| [ ] | P1-J03 | TRANSFORM 节点执行 | `pipeline_engine.py` | 可完成字段提取、合并、upsert 中至少一种 |
-| [ ] | P1-J04 | NOTIFY 节点执行 | `pipeline_engine.py`, `notifier.py` | 可发送执行结果通知 |
-| [ ] | P1-J05 | 执行状态 | `pipeline_engine.py` | 支持 SUCCESS、FAILED、PARTIAL_SUCCESS、RUNNING |
-| [ ] | P1-J06 | Trace ID | `pipeline_engine.py` | 每次运行生成唯一 trace_id |
-| [ ] | P1-J07 | Step Run | `pipeline_engine.py`, models | 每个节点生成步骤执行记录 |
-| [ ] | P1-J08 | Context Summary | `pipeline_engine.py` | 保存脱敏摘要，不保存敏感明文 |
+| [x] | P1-J01 | RESOURCE 节点执行 | `pipeline_engine.py` | 可调用资源配置对应 adapter |
+| [x] | P1-J02 | LOOP_RESOURCE 节点执行 | `pipeline_engine.py` | 可循环处理列表并记录成功/失败项 |
+| [x] | P1-J03 | TRANSFORM 节点执行 | `pipeline_engine.py` | 可完成字段提取、合并、upsert 中至少一种 |
+| [x] | P1-J04 | NOTIFY 节点执行 | `pipeline_engine.py`, `notifier.py` | 可发送执行结果通知 |
+| [x] | P1-J05 | 执行状态 | `pipeline_engine.py` | 支持 SUCCESS、FAILED、PARTIAL_SUCCESS、RUNNING |
+| [x] | P1-J06 | Trace ID | `pipeline_engine.py` | 每次运行生成唯一 trace_id |
+| [x] | P1-J07 | Step Run | `pipeline_engine.py`, models | 每个节点生成步骤执行记录 |
+| [x] | P1-J08 | Context Summary | `pipeline_engine.py` | 保存脱敏摘要，不保存敏感明文 |
 
 ### K. 执行日志与详情
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P1-K01 | 执行日志列表 | `PipelineExecList.vue` | 可按流水线、时间、状态过滤 |
-| [ ] | P1-K02 | 执行详情页 | `PipelineExecDetail.vue` | 展示 trace_id、状态、耗时、步骤列表 |
-| [ ] | P1-K03 | 步骤时间线 | `PipelineExecDetail.vue` | 按画布节点顺序展示执行状态 |
-| [ ] | P1-K04 | 通知结果展示 | `PipelineExecDetail.vue` | 可看到通知是否发送成功 |
-| [ ] | P1-K05 | 敏感字段脱敏 | 前后端 | 薪酬、手机号、token 不明文展示 |
+| [x] | P1-K01 | 执行日志列表 | `PipelineExecList.vue` | 可按流水线、时间、状态过滤 |
+| [x] | P1-K02 | 执行详情页 | `PipelineExecDetail.vue` | 展示 trace_id、状态、耗时、步骤列表 |
+| [x] | P1-K03 | 步骤时间线 | `PipelineExecDetail.vue` | 按画布节点顺序展示执行状态 |
+| [x] | P1-K04 | 通知结果展示 | `PipelineExecDetail.vue` | 可看到通知是否发送成功 |
+| [x] | P1-K05 | 敏感字段脱敏 | 前后端 | 薪酬、手机号、token 不明文展示 |
 
 ### L. 示例流水线验收
 
