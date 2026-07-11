@@ -15,11 +15,25 @@ const props = defineProps<{
   fields: ColumnInfo[]
   sourceGroups?: { key: string; label: string }[]
   editField?: DatasetCalculatedField | null
+  /** 内联模式：不弹 dialog，不显示字段配置面板，嵌入父表单使用 */
+  inline?: boolean
+  /** 内联模式下公式初始值 */
+  initialFormula?: string
+  /** 标题（默认 "新建计算字段" / "编辑计算字段"） */
+  title?: string
+  /** 副标题 */
+  subtitle?: string
+  /** 是否隐藏默认的字段配置面板（右栏），用 #config 插槽替换 */
+  hideDefaultConfig?: boolean
+  /** 是否隐藏默认的保存/取消按钮，用 #actions 插槽替换 */
+  hideDefaultActions?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:visible': [value: boolean]
   saved: [field: DatasetCalculatedField]
+  /** 内联模式下公式文本变化时实时通知父组件 */
+  'formula-change': [formula: string]
 }>()
 
 const form = reactive({
@@ -287,7 +301,27 @@ watch(
       }
       loadFunctions()
     }
-  }
+  },
+  { immediate: true },
+)
+
+// 初始化公式值（inline 和 dialog 模式均适用）
+watch(
+  () => props.initialFormula,
+  (val) => {
+    if (val !== undefined && val !== null) {
+      form.formula = normalizeDisplayFormula(internalFormulaToDisplay(val))
+    }
+  },
+  { immediate: true },
+)
+
+// 实时通知父组件公式变化（inline 和 dialog 模式均适用）
+watch(
+  () => form.formula,
+  (val) => {
+    emit('formula-change', val)
+  },
 )
 
 function markDirty() {
@@ -688,7 +722,169 @@ async function removeField() {
 </script>
 
 <template>
+  <!-- 内联模式：直接嵌入父页面 -->
+  <div v-if="inline" class="formula-designer formula-designer--inline">
+    <aside class="resource-panel">
+      <div class="panel-title">计算素材</div>
+      <el-tabs v-model="activePickerTab" class="picker-tabs">
+        <el-tab-pane label="字段" name="fields" />
+        <el-tab-pane label="函数" name="functions" />
+        <el-tab-pane label="常量" name="constants" />
+      </el-tabs>
+      <el-input
+        v-model="fieldKeyword"
+        class="picker-search"
+        size="small"
+        placeholder="搜索"
+        :prefix-icon="Search"
+      />
+      <div class="resource-browser">
+        <el-select
+          v-model="activeResourceGroup"
+          class="resource-group-select"
+          size="small"
+          placeholder="选择分组"
+          :disabled="!resourceGroups.length"
+        >
+          <el-option
+            v-for="group in resourceGroups"
+            :key="group.key"
+            :label="`${group.label}（${group.items.length}）`"
+            :value="group.key"
+          />
+        </el-select>
+        <div class="resource-groups">
+          <button
+            v-for="group in resourceGroups"
+            :key="group.key"
+            type="button"
+            class="resource-group"
+            :class="{ active: group.key === activeResourceGroup }"
+            @click="activeResourceGroup = group.key"
+          >
+            <span class="group-plus">+</span>
+            <span>{{ group.label }}</span>
+            <em>{{ group.items.length }}</em>
+          </button>
+          <div v-if="!resourceGroups.length" class="empty-side">暂无可用素材</div>
+        </div>
+        <div class="resource-items">
+          <template v-if="activePickerTab === 'fields'">
+            <button
+              v-for="field in activeFieldItems"
+              :key="field.code"
+              type="button"
+              class="pick-item"
+              @click="insertField(field)"
+            >
+              <span>{{ cleanFieldLabel(field) }}</span>
+              <code>{{ cleanFieldCode(field) }}</code>
+            </button>
+          </template>
+          <template v-if="activePickerTab === 'functions'">
+            <button
+              v-for="fn in activeFunctionItems"
+              :key="`${fn.id || fn.code}`"
+              type="button"
+              class="pick-item"
+              @click="insertFunction(fn)"
+            >
+              <span>{{ fn.code }}</span>
+              <code>{{ fn.name }}</code>
+            </button>
+          </template>
+          <template v-if="activePickerTab === 'constants'">
+            <button
+              v-for="item in activeConstantItems"
+              :key="item.code"
+              type="button"
+              class="pick-item"
+              @click="insertConstant(item)"
+            >
+              <span>{{ item.label }}</span>
+              <code>{{ item.code }} · {{ item.hint }}</code>
+            </button>
+          </template>
+          <div v-if="!activeResourceItems.length" class="empty-side">没有匹配项</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="designer-main">
+      <section class="formula-card">
+        <div class="section-head compact-head">
+          <span class="section-marker"></span>
+          <span>计算公式</span>
+          <span class="head-note">字段、函数、常量可从左侧点击插入</span>
+        </div>
+        <div class="operator-bar">
+          <button
+            v-for="item in formulaOperators"
+            :key="item.label"
+            type="button"
+            class="operator-button"
+            @click="insertOperator(item)"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+        <el-input
+          ref="formulaInputRef"
+          v-model="form.formula"
+          class="formula-input"
+          type="textarea"
+          spellcheck="false"
+          placeholder="=IF(员工姓名=&quot;刘琦&quot;,1,2)"
+          @input="markDirty"
+          @blur="rememberFormulaCursor"
+          @click="rememberFormulaCursor"
+          @keyup="rememberFormulaCursor"
+          @select="rememberFormulaCursor"
+        />
+      </section>
+
+      <section class="ai-card">
+        <div class="section-head compact-head">
+          <span class="section-marker"></span>
+          <span>AI 公式助手</span>
+          <span class="head-note">继续输入就是继续调整</span>
+        </div>
+        <div ref="chatScrollRef" class="chat-thread">
+          <div v-if="!chatMessages.length" class="chat-empty">直接输入需求，AI 会更新公式草稿。</div>
+          <div v-for="item in chatMessages" :key="item.id" class="chat-message" :class="item.role">
+            <div class="chat-bubble">
+              <div class="chat-content">{{ item.content }}</div>
+              <code v-if="item.role === 'assistant' && item.formula" class="chat-formula">{{ item.formula }}</code>
+            </div>
+          </div>
+          <div v-if="generating" class="chat-message assistant">
+            <div class="chat-bubble">正在更新公式...</div>
+          </div>
+        </div>
+        <div class="ai-send-box">
+          <el-input
+            v-model="chatInput"
+            class="ai-send-input"
+            type="textarea"
+            :autosize="{ minRows: 1, maxRows: 3 }"
+            resize="none"
+            placeholder="给 AI 发送消息"
+            @keydown="handleChatKeydown"
+          />
+          <div class="ai-send-actions">
+            <span class="send-hint">Enter 发送，Shift+Enter 换行</span>
+            <el-button class="send-icon-button" type="primary" circle :loading="generating" @click="sendChat">
+              <el-icon><Position /></el-icon>
+            </el-button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Dialog 模式：完整弹窗 -->
   <el-dialog
+    v-else
     v-model="open"
     width="92vw"
     top="0"
@@ -704,32 +900,25 @@ async function removeField() {
     <template #header>
       <div class="designer-titlebar">
         <div>
-          <div class="designer-title">{{ editField ? '编辑计算字段' : '新建计算字段' }}</div>
-          <div class="designer-subtitle">用自然语言生成公式，也可以手动插入字段、函数和常量。</div>
+          <div class="designer-title">{{ title || (editField ? '编辑计算字段' : '新建计算字段') }}</div>
+          <div class="designer-subtitle">{{ subtitle || '用自然语言生成公式，也可以手动插入字段、函数和常量。' }}</div>
         </div>
         <div class="title-actions">
-          <el-button
-            v-if="editField?.id && canDeleteField"
-            type="danger"
-            plain
-            :loading="deleting"
-            @click="removeField"
-          >
-            <el-icon><Delete /></el-icon>
-            删除
-          </el-button>
-          <el-button @click="requestClose()">
-            <el-icon><Close /></el-icon>
-            取消
-          </el-button>
-          <el-button :loading="validating" @click="validate">
-            <el-icon><Check /></el-icon>
-            校验
-          </el-button>
-          <el-button type="primary" :loading="saving" @click="save">
-            <el-icon><Plus /></el-icon>
-            保存字段
-          </el-button>
+          <slot name="actions">
+            <el-button v-if="!hideDefaultActions && editField?.id && canDeleteField" type="danger" plain :loading="deleting" @click="removeField">
+              <el-icon><Delete /></el-icon>删除
+            </el-button>
+            <el-button v-if="!hideDefaultActions" @click="requestClose()">
+              <el-icon><Close /></el-icon>取消
+            </el-button>
+            <el-button v-if="!hideDefaultActions" :loading="validating" @click="validate">
+              <el-icon><Check /></el-icon>校验
+            </el-button>
+            <el-button v-if="!hideDefaultActions" type="primary" :loading="saving" @click="save">
+              <el-icon><Plus /></el-icon>
+              保存字段
+            </el-button>
+          </slot>
         </div>
       </div>
     </template>
@@ -911,12 +1100,13 @@ async function removeField() {
       </main>
 
       <aside class="config-panel">
-        <section class="config-card">
-          <div class="section-head compact-head">
-            <span class="section-marker"></span>
-            <span>字段配置</span>
-          </div>
-          <el-form label-position="top" class="config-form">
+        <slot name="config">
+          <section v-if="!hideDefaultConfig" class="config-card">
+            <div class="section-head compact-head">
+              <span class="section-marker"></span>
+              <span>字段配置</span>
+            </div>
+            <el-form label-position="top" class="config-form">
             <el-form-item label="字段名称" required>
               <el-input v-model="form.label" placeholder="如 个税金额" @input="markDirty" />
             </el-form-item>
@@ -978,6 +1168,7 @@ async function removeField() {
             <div v-for="warn in validation?.warnings || []" :key="warn" class="validate-warn">{{ warn }}</div>
           </div>
         </section>
+        </slot>
       </aside>
     </div>
   </el-dialog>
@@ -1042,6 +1233,16 @@ async function removeField() {
   grid-template-columns: clamp(260px, 20vw, 330px) minmax(320px, 1fr) clamp(280px, 20vw, 340px);
   height: 100%;
   min-height: 0;
+  overflow: hidden;
+}
+/* 内联模式：嵌入父表单，去掉高度限制 */
+.formula-designer--inline {
+  grid-template-columns: clamp(220px, 18vw, 300px) minmax(280px, 1fr);
+  height: auto;
+  min-height: 380px;
+  max-height: 620px;
+  border: 1px solid var(--color-border-light, #e4e7ed);
+  border-radius: 6px;
   overflow: hidden;
   background: #fff;
 }

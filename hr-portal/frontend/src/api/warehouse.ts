@@ -569,6 +569,7 @@ export interface WarehouseFeatureFlags {
   monitoring: boolean
   layer_enhancement: boolean
   ods_dwd_automation: boolean
+  metric_automation: boolean
 }
 
 /** 获取二期灰度开关 */
@@ -1451,4 +1452,104 @@ export function generateDwdView(assetCode: string, assetType = 'table') {
   return api.post('/warehouse/standardization-rules/generate-dwd-view', {
     asset_code: assetCode, asset_type: assetType,
   }).then(r => r.data as { dataset_id: number; view_name: string; version: number })
+}
+
+// ==================== X05 指标自动化数仓开发 ====================
+
+/** 指标自动化诊断结果 */
+export interface MetricAutomationDiagnosis {
+  metric_id: number
+  metric_code: string
+  metric_name: string
+  automatable: boolean
+  metric_type: string
+  source_dataset_id: number | null
+  source_dataset_name: string | null
+  dimension_fields: string[]
+  measure_fields: string[]
+  aggregation_functions: string[]
+  filters: any[]
+  time_grain: string | null
+  errors: string[]
+  warnings: string[]
+  suggestions: string[]
+}
+
+/** 诊断指标是否可自动化 */
+export function diagnoseMetric(metricId: number) {
+  return api.get(`/warehouse/metric-automation/diagnose/${metricId}`).then(r => r.data as MetricAutomationDiagnosis)
+}
+
+/** 生成 DWS 草稿 */
+export function generateDwsDraft(payload: { metric_id: number; aggregate_name?: string; group_by?: string[]; measure_field?: string; aggregation?: string; time_grain?: string }) {
+  return api.post('/warehouse/metric-automation/dws-draft', payload).then(r => r.data as any)
+}
+
+/** DWS/ADS 草稿预览 */
+export interface MetricAutomationPreview {
+  draft_id: number
+  draft_type: string
+  view_name: string
+  sql_summary: string
+  output_fields: any[]
+  dependencies: any[]
+  sample_columns: string[]
+  sample_rows: any[]
+  sample_truncated: boolean
+  quality_status: string
+  quality_checks: any[]
+  small_sample_risk: string
+  small_sample_detail: string | null
+  risk_level: string
+  blocked: boolean
+  blocked_reasons: string[]
+}
+
+export function previewMetricDraft(payload: { draft_id: number; draft_type: string; sample_size?: number }) {
+  return api.post('/warehouse/metric-automation/preview', payload).then(r => r.data as MetricAutomationPreview)
+}
+
+/** 发布 DWS/ADS 草稿 */
+export function publishMetricDraft(payload: { draft_id: number; draft_type: string; confirmed: boolean }) {
+  return api.post('/warehouse/metric-automation/publish', payload).then(r => r.data as any)
+}
+
+/** 回滚 DWS/ADS */
+export function rollbackMetricDraft(payload: { draft_id: number; draft_type: string; target_version: number }) {
+  return api.post('/warehouse/metric-automation/rollback', payload).then(r => r.data as any)
+}
+
+/** 生成 ADS 草稿 */
+export function generateAdsDraft(payload: { source_type: string; source_id: number; name?: string; consume_domain?: string }) {
+  return api.post('/warehouse/metric-automation/ads-draft', payload).then(r => r.data as any)
+}
+
+/** ADS 下游影响分析 */
+export function getAdsImpact(adsId: number) {
+  return api.get(`/warehouse/metric-automation/ads-impact/${adsId}`).then(r => r.data as any)
+}
+
+/** BI 消费契约 */
+export function getBiContract(assetType: string, assetId: number) {
+  return api.get(`/warehouse/metric-automation/bi-contract/${assetType}/${assetId}`).then(r => r.data as any)
+}
+
+/** 指标变更下游更新方案 */
+export function getMetricChangePlan(metricId: number) {
+  return api.get(`/warehouse/metric-automation/change-plan/${metricId}`).then(r => r.data as any)
+}
+
+/** 获取刷新策略 */
+export function getRefreshStrategy(assetType: string, assetId: number) {
+  return api.get(`/warehouse/metric-automation/refresh-strategy/${assetType}/${assetId}`).then(r => r.data as any)
+}
+
+/** 设置刷新策略 */
+export function setRefreshStrategy(assetType: string, assetId: number, strategy: string) {
+  return api.put(`/warehouse/metric-automation/refresh-strategy/${assetType}/${assetId}`, null, { params: { strategy } }).then(r => r.data as any)
+}
+
+/** 指标自动化审计时间线 */
+export function getMetricAutomationTimeline(metricId: number) {
+  return api.get(`/warehouse/metric-automation/timeline/${metricId}`).then(r => r.data as any)
 }

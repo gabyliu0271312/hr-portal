@@ -3,7 +3,7 @@
 
 路由前缀: /api/v1/warehouse
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,6 +90,13 @@ from app.warehouse.schemas import (
     AdsDefinitionIn, AdsDefinitionUpdateIn,
     # Z0104 ODS→DWD 自动化配置
     OdsDwdAutomationConfigCreate, OdsDwdAutomationConfigUpdate, OdsDwdAutomationConfigOut,
+    # X05 指标自动化数仓开发
+    MetricAutomationDiagnosisOut, MetricAutomationDwsDraftIn, MetricAutomationDwsDraftOut,
+    MetricAutomationViewPreviewIn, MetricAutomationViewPreviewOut,
+    MetricAutomationPublishIn, MetricAutomationPublishOut,
+    MetricAutomationRollbackIn,
+    MetricAutomationAdsDraftIn, MetricAutomationAdsDraftOut,
+    MetricChangePlanOut, MetricAutomationTimelineOut,
 )
 
 router = APIRouter(prefix="/warehouse", tags=["数据仓库"])
@@ -162,6 +169,7 @@ async def get_features():
         monitoring=settings.WAREHOUSE_FEATURE_MONITORING,
         layer_enhancement=settings.WAREHOUSE_FEATURE_LAYER_ENHANCEMENT,
         ods_dwd_automation=settings.WAREHOUSE_FEATURE_ODS_DWD_AUTOMATION,
+        metric_automation=settings.WAREHOUSE_FEATURE_METRIC_AUTOMATION,
     )
 
 
@@ -3258,6 +3266,299 @@ async def get_dws_view_impact(agg_id: int, db: AsyncSession = Depends(get_sessio
     if result is None:
         raise HTTPException(status_code=404, detail=f"聚合定义不存在: {agg_id}")
     return result
+
+
+# ==================== X05 指标自动化数仓开发 ====================
+
+from app.warehouse.service.metric_automation import get_metric_automation_service
+
+
+@router.get(
+    "/metric-automation/diagnose/{metric_id}",
+    summary="指标自动化诊断（X0502）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def metric_automation_diagnose(
+    metric_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """诊断指标是否可自动化生成 DWS/ADS 草稿。
+
+    返回 autamatable 标记 + errors/warnings/suggestions。
+    不可自动化时会列出缺失维度、非法聚合、无权限字段或口径不完整原因。
+    权限要求：warehouse.metrics:V
+    """
+    svc = get_metric_automation_service(db)
+    return await svc.diagnose_metric(metric_id)
+
+
+@router.post(
+    "/metric-automation/dws-draft",
+    summary="生成 DWS 草稿（X0503）",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def metric_automation_generate_dws_draft(
+    payload: MetricAutomationDwsDraftIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """根据指标定义生成 DWS 聚合草稿。
+
+    只生成草稿（status=draft），不直接发布生产资产。
+    权限要求：warehouse.metrics:U
+    """
+    if not settings.WAREHOUSE_FEATURE_METRIC_AUTOMATION:
+        raise HTTPException(status_code=403, detail="指标自动化 feature flag 未开启")
+    svc = get_metric_automation_service(db)
+    result = await svc.generate_dws_draft(payload.metric_id, payload.model_dump(exclude_unset=True))
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=400, detail=result.get("error", "生成失败"))
+    return result
+
+
+@router.post(
+    "/metric-automation/preview",
+    summary="DWS/ADS 草稿预览与门禁（X0504/X0505）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def metric_automation_preview(
+    payload: MetricAutomationViewPreviewIn,
+    db: AsyncSession = Depends(get_session),
+):
+    """预览 DWS/ADS 草稿：SQL 摘要、质量门禁、小样本风险、数据样例。
+
+    权限要求：warehouse.metrics:V
+    """
+    if not settings.WAREHOUSE_FEATURE_METRIC_AUTOMATION:
+        raise HTTPException(status_code=403, detail="指标自动化 feature flag 未开启")
+    svc = get_metric_automation_service(db)
+    result = await svc.preview_draft(payload.draft_id, payload.draft_type, payload.sample_size)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post(
+    "/metric-automation/publish",
+    summary="发布 DWS/ADS 草稿（X0506/X0508）",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def metric_automation_publish(
+    payload: MetricAutomationPublishIn,
+    request: Request,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """人工确认后发布 DWS/ADS 草稿为生产 View。
+
+    发布前自动执行质量门禁和小样本风险检查，阻断项存在时拒绝发布。
+    发布后写入血缘和审计。
+    权限要求：warehouse.metrics:U
+    """
+    if not settings.WAREHOUSE_FEATURE_METRIC_AUTOMATION:
+        raise HTTPException(status_code=403, detail="指标自动化 feature flag 未开启")
+    if not payload.confirmed:
+        raise HTTPException(status_code=400, detail="需要人工确认发布")
+    svc = get_metric_automation_service(db, trace_id=request.headers.get("X-Trace-Id") if request else None)
+    result = await svc.publish_draft(payload.draft_id, payload.draft_type, user.id)
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=400, detail=result.get("error", "发布失败"))
+    return result
+
+
+@router.post(
+    "/metric-automation/rollback",
+    summary="回滚 DWS/ADS（X0506/X0508）",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def metric_automation_rollback(
+    payload: MetricAutomationRollbackIn,
+    db: AsyncSession = Depends(get_session),
+):
+    """回滚 DWS/ADS 到指定版本。
+
+    权限要求：warehouse.metrics:U
+    """
+    if not settings.WAREHOUSE_FEATURE_METRIC_AUTOMATION:
+        raise HTTPException(status_code=403, detail="指标自动化 feature flag 未开启")
+    svc = get_metric_automation_service(db)
+    return await svc.rollback_draft(payload.draft_id, payload.draft_type, payload.target_version)
+
+
+@router.post(
+    "/metric-automation/ads-draft",
+    summary="生成 ADS 草稿（X0507）",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def metric_automation_generate_ads_draft(
+    payload: MetricAutomationAdsDraftIn,
+    db: AsyncSession = Depends(get_session),
+):
+    """从 DWS 聚合/数据集/模型 生成 ADS 消费草稿。
+
+    权限要求：warehouse.metrics:U
+    """
+    if not settings.WAREHOUSE_FEATURE_METRIC_AUTOMATION:
+        raise HTTPException(status_code=403, detail="指标自动化 feature flag 未开启")
+    svc = get_metric_automation_service(db)
+    result = await svc.generate_ads_draft(payload.source_type, payload.source_id, payload.name, payload.consume_domain)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.get(
+    "/metric-automation/ads-impact/{ads_id}",
+    summary="ADS 下游影响分析（X0508）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def metric_automation_ads_impact(
+    ads_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """获取 ADS 发布/变更的下游影响分析。
+
+    权限要求：warehouse.metrics:V
+    """
+    svc = get_metric_automation_service(db)
+    return await svc.get_ads_impact(ads_id)
+
+
+@router.get(
+    "/metric-automation/bi-contract/{asset_type}/{asset_id}",
+    summary="BI 消费契约（X0509）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def metric_automation_bi_contract(
+    asset_type: str,
+    asset_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """获取已发布 DWS/ADS View 的 BI 消费说明。
+
+    包括 View 名称、字段说明、权限要求、刷新语义、推荐连接方式。
+    权限要求：warehouse.metrics:V
+    """
+    svc = get_metric_automation_service(db)
+    result = await svc.generate_bi_contract(asset_type, asset_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.get(
+    "/metric-automation/change-plan/{metric_id}",
+    summary="指标变更下游更新方案（X0510）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def metric_automation_change_plan(
+    metric_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """当指标定义变更时，生成下游 DWS/ADS/BI 影响方案。
+
+    返回受影响的 DWS 聚合、ADS 消费资产列表和推荐处理动作。
+    默认不自动执行。
+    权限要求：warehouse.metrics:V
+    """
+    svc = get_metric_automation_service(db)
+    return await svc.generate_change_plan(metric_id)
+
+
+@router.get(
+    "/metric-automation/refresh-strategy/{asset_type}/{asset_id}",
+    summary="获取刷新策略（X0511）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def metric_automation_get_refresh(
+    asset_type: str,
+    asset_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """获取资产刷新策略。View 默认实时查询无需刷新。
+
+    权限要求：warehouse.metrics:V
+    """
+    svc = get_metric_automation_service(db)
+    return await svc.get_refresh_strategy(asset_type, asset_id)
+
+
+@router.put(
+    "/metric-automation/refresh-strategy/{asset_type}/{asset_id}",
+    summary="设置刷新策略（X0511）",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def metric_automation_set_refresh(
+    asset_type: str,
+    asset_id: int,
+    strategy: str = Query(..., description="view_realtime / manual / scheduled / upstream_trigger"),
+    db: AsyncSession = Depends(get_session),
+):
+    """设置资产刷新策略。
+
+    权限要求：warehouse.metrics:U
+    """
+    svc = get_metric_automation_service(db)
+    result = await svc.set_refresh_strategy(asset_type, asset_id, strategy)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post(
+    "/metric-automation/refresh/{asset_type}/{asset_id}",
+    summary="执行刷新（X0511）",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def metric_automation_refresh(
+    asset_type: str,
+    asset_id: int,
+    trigger_type: str = Query("manual", description="manual / schedule / upstream"),
+    db: AsyncSession = Depends(get_session),
+):
+    """执行资产刷新，记录运行状态，失败保留旧版本。
+
+    权限要求：warehouse.metrics:U
+    """
+    svc = get_metric_automation_service(db)
+    return await svc.refresh_asset(asset_type, asset_id, trigger_type)
+
+
+@router.get(
+    "/metric-automation/refresh-runs/{asset_type}/{asset_id}",
+    summary="刷新运行记录（X0511）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def metric_automation_refresh_runs(
+    asset_type: str,
+    asset_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_session),
+):
+    """获取资产刷新运行记录。
+
+    权限要求：warehouse.metrics:V
+    """
+    svc = get_metric_automation_service(db)
+    return await svc.get_refresh_runs(asset_type, asset_id, limit)
+
+
+@router.get(
+    "/metric-automation/timeline/{metric_id}",
+    summary="指标自动化审计时间线（X0512）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def metric_automation_timeline(
+    metric_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """获取指标自动化全链路审计时间线。
+
+    记录解析、草稿生成、预览、门禁、发布、回滚的审计链路。
+    权限要求：warehouse.metrics:V
+    """
+    svc = get_metric_automation_service(db)
+    return await svc.get_timeline(metric_id)
 
 
 # ==================== R04 快照管理 ====================

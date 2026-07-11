@@ -17,6 +17,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -107,15 +108,17 @@ class WarehouseAlertRule(Base):
 # ==================== warehouse_model_versions (Q0507) ====================
 
 class WarehouseModelVersion(Base):
-    """模型版本历史
-
-    Q0507: 每次 publish-v2 写入一条新版本记录；rollback 从 snapshot 恢复。
-    """
+    """模型版本历史 — Q0507 + X05 版本隔离（asset_type/asset_id）"""
 
     __tablename__ = "warehouse_model_versions"
+    __table_args__ = (
+        UniqueConstraint("asset_type", "asset_id", "version", name="uq_warehouse_model_version_asset"),
+    )
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    model_id = Column(BigInteger, nullable=False, comment="关联 datasets.id")
+    model_id = Column(BigInteger, nullable=False, comment="兼容旧模型 ID / datasets.id")
+    asset_type = Column(String(16), nullable=False, default="model", comment="dws / ads / model / dataset")
+    asset_id = Column(BigInteger, nullable=False, default=0, comment="具体资产 ID（dws_aggregate_definitions.id / ads_definitions.id）")
     version = Column(Integer, nullable=False, comment="版本号")
     status = Column(String(16), nullable=False, default="published")
     snapshot = Column(JSON, nullable=False, comment="模型完整快照（tables/relations/output_fields/model_meta）")
@@ -478,6 +481,112 @@ class OdsDwdAutomationConfig(Base):
     trace_id = Column(String(64), nullable=True, comment="审计追踪 ID")
     source_system = Column(String(32), nullable=False, default="manual", comment="配置来源: manual/system")
 
+    created_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==================== X05 刷新策略（X0511） ====================
+
+class AssetRefreshPolicy(Base):
+    """资产刷新策略配置"""
+    __tablename__ = "warehouse_asset_refresh_policies"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    asset_type = Column(String(16), nullable=False, comment="dws / ads")
+    asset_id = Column(BigInteger, nullable=False)
+    asset_name = Column(String(256), nullable=False)
+    strategy = Column(String(32), nullable=False, default="view_realtime",
+                      comment="view_realtime / manual / scheduled / upstream_trigger")
+    cron_expr = Column(String(64), nullable=True)
+    upstream_asset_type = Column(String(16), nullable=True)
+    upstream_asset_id = Column(BigInteger, nullable=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_by = Column(String(64), nullable=True)
+    updated_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AssetRefreshRun(Base):
+    """刷新运行记录"""
+    __tablename__ = "warehouse_asset_refresh_runs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    policy_id = Column(BigInteger, ForeignKey("warehouse_asset_refresh_policies.id", ondelete="SET NULL"), nullable=True)
+    asset_type = Column(String(16), nullable=False)
+    asset_id = Column(BigInteger, nullable=False)
+    asset_name = Column(String(256), nullable=False)
+    status = Column(String(16), nullable=False, default="pending", comment="pending/running/success/failed")
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    old_version = Column(Integer, nullable=True)
+    new_version = Column(Integer, nullable=True)
+    row_count = Column(Integer, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    trigger_type = Column(String(32), nullable=True, comment="manual / schedule / upstream")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# ==================== X05 影响分析（X0508） ====================
+
+class AssetConsumer(Base):
+    """资产消费关系"""
+    __tablename__ = "warehouse_asset_consumers"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    asset_type = Column(String(16), nullable=False, comment="dws / ads / dataset")
+    asset_id = Column(BigInteger, nullable=False)
+    asset_name = Column(String(256), nullable=False)
+    consumer_type = Column(String(32), nullable=False, comment="report / dashboard / api / push / bi_contract")
+    consumer_id = Column(BigInteger, nullable=False)
+    consumer_name = Column(String(256), nullable=False)
+    owner_id = Column(BigInteger, nullable=True)
+    owner_name = Column(String(64), nullable=True)
+    sla_level = Column(String(16), nullable=True, comment="high / medium / low")
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# ==================== X05 审计（X0512） ====================
+
+class AutomationAuditEvent(Base):
+    """指标自动化审计事件"""
+    __tablename__ = "warehouse_automation_audit_events"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    trace_id = Column(String(64), nullable=False, comment="全链路追踪 ID")
+    metric_id = Column(BigInteger, nullable=True)
+    asset_type = Column(String(16), nullable=True, comment="dws / ads")
+    asset_id = Column(BigInteger, nullable=True)
+    action = Column(String(32), nullable=False,
+                    comment="diagnose / generate_dws_draft / preview / quality_gate / "
+                            "publish_dws / rollback_dws / generate_ads_draft / publish_ads / "
+                            "impact_analysis / generate_bi_contract / set_refresh_policy / rollback_ads")
+    status = Column(String(16), nullable=False, default="started",
+                    comment="started / success / failed / blocked / warning")
+    actor_id = Column(BigInteger, nullable=True)
+    input_json = Column(JSON, nullable=True)
+    output_json = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# ==================== X05 BI 消费契约（X0509） ====================
+
+class BiContract(Base):
+    """BI 消费契约 — 持久化发布"""
+    __tablename__ = "warehouse_bi_contracts"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    asset_type = Column(String(16), nullable=False, comment="dws / ads")
+    asset_id = Column(BigInteger, nullable=False)
+    asset_name = Column(String(256), nullable=False)
+    version = Column(Integer, nullable=False, default=1)
+    contract_json = Column(JSON, nullable=False, comment="契约 payload: fields / permissions / refresh_semantics")
+    status = Column(String(16), nullable=False, default="active", comment="active / archived")
     created_by = Column(String(64), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

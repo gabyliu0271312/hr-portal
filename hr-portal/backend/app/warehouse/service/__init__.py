@@ -140,3 +140,4 @@ from app.warehouse.service.materialization import (
     ScdService, get_scd_service,
 )
 from app.warehouse.service.consumption import AdsService, get_ads_service
+from app.warehouse.service.metric_automation import MetricAutomationService, get_metric_automation_service
