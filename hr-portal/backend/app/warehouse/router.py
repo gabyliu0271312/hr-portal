@@ -3,6 +3,7 @@
 
 路由前缀: /api/v1/warehouse
 """
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, String
@@ -121,6 +122,27 @@ async def _publish_config_changed(table_name: str, change_type: str) -> None:
         pass
 
 
+async def _publish_metric_saved(metric_id: int) -> None:
+    """发布 metric_saved 事件，触发 L4 级联检查。"""
+    try:
+        from datetime import UTC, datetime as dt
+        from app.automation.events import AutomationEvent, publish_event
+        from app.core.db import get_session_factory
+        async with get_session_factory()() as new_db:
+            await publish_event(AutomationEvent(
+                trigger_type="metric_saved",
+                biz_type="metric",
+                biz_id=str(metric_id),
+                payload={
+                    "trigger_type": "metric_saved",
+                    "metric_id": metric_id,
+                    "changed_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                },
+            ), new_db)
+    except Exception:
+        pass
+
+
 def _svc(db: AsyncSession) -> WarehouseService:
     return get_warehouse_service(db)
 
@@ -170,6 +192,7 @@ async def get_features():
         layer_enhancement=settings.WAREHOUSE_FEATURE_LAYER_ENHANCEMENT,
         ods_dwd_automation=settings.WAREHOUSE_FEATURE_ODS_DWD_AUTOMATION,
         metric_automation=settings.WAREHOUSE_FEATURE_METRIC_AUTOMATION,
+        l4_full_auto=settings.WAREHOUSE_FEATURE_L4_FULL_AUTO,
     )
 
 
@@ -858,6 +881,7 @@ async def publish_metric(
         if result is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"指标不存在: {metric_id}")
         await db.commit()
+        await _publish_metric_saved(metric_id)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -3559,6 +3583,675 @@ async def metric_automation_timeline(
     """
     svc = get_metric_automation_service(db)
     return await svc.get_timeline(metric_id)
+
+
+# ==================== Z03 L4 全自动级联 ====================
+
+from app.warehouse.schemas import (
+    L4AutoApprovalCreate, L4AutoApprovalOut, L4AutoApprovalAction,
+    L4CascadeRuleOut, L4CascadeRuleUpdate,
+)
+
+
+@router.post(
+    "/l4-auto/approvals",
+    summary="创建 L4 全自动试点申请",
+    response_model=L4AutoApprovalOut,
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def create_l4_approval(
+    payload: L4AutoApprovalCreate,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """为指标申请 L4 全自动级联试点。系统自动评估风险等级。"""
+    from app.core.config import settings
+    from app.warehouse.models import L4AutoApproval
+    from app.datasets.models import WarehouseMetric
+
+    if not settings.WAREHOUSE_FEATURE_L4_FULL_AUTO:
+        raise HTTPException(status_code=403, detail="L4 全自动功能未启用")
+
+    # 检查指标是否存在
+    metric = await db.get(WarehouseMetric, payload.metric_id)
+    if not metric:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {payload.metric_id}")
+
+    # 检查是否已有审批记录
+    existing = await db.execute(
+        select(L4AutoApproval).where(
+            L4AutoApproval.metric_id == payload.metric_id,
+            L4AutoApproval.status.in_(["pending", "approved"]),
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="该指标已有审批记录")
+
+    # 风险自动评估
+    risk_info = await _assess_l4_risk(payload.metric_id, db)
+
+    approval = L4AutoApproval(
+        metric_id=payload.metric_id,
+        subject_area=metric.subject_area,
+        risk_level=risk_info["risk_level"],
+        max_auto_frequency=payload.max_auto_frequency,
+        auto_rollback_enabled=payload.auto_rollback_enabled,
+        status="pending",
+        requested_by=user.login_name if user else None,
+        reason=payload.reason,
+    )
+    db.add(approval)
+    await db.commit()
+    await db.refresh(approval)
+
+    return L4AutoApprovalOut(
+        id=approval.id,
+        metric_id=approval.metric_id,
+        metric_code=metric.metric_code or "",
+        metric_name=metric.metric_name or "",
+        subject_area=approval.subject_area,
+        risk_level=approval.risk_level,
+        max_auto_frequency=approval.max_auto_frequency,
+        auto_rollback_enabled=approval.auto_rollback_enabled,
+        status=approval.status,
+        requested_by=approval.requested_by,
+        reason=approval.reason,
+        created_at=approval.created_at,
+        updated_at=approval.updated_at,
+    )
+
+
+@router.get(
+    "/l4-auto/approvals",
+    summary="列出 L4 试点审批记录",
+    response_model=list[L4AutoApprovalOut],
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def list_l4_approvals(
+    status: Optional[str] = Query(None, description="pending/approved/rejected/revoked"),
+    metric_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_session),
+):
+    """列出 L4 试点审批记录，可按状态或指标筛选。"""
+    from app.warehouse.models import L4AutoApproval
+    from app.datasets.models import WarehouseMetric
+
+    stmt = select(L4AutoApproval).order_by(L4AutoApproval.created_at.desc())
+    if status:
+        stmt = stmt.where(L4AutoApproval.status == status)
+    if metric_id:
+        stmt = stmt.where(L4AutoApproval.metric_id == metric_id)
+
+    approvals = (await db.execute(stmt)).scalars().all()
+    out = []
+    for a in approvals:
+        metric = await db.get(WarehouseMetric, a.metric_id)
+        out.append(L4AutoApprovalOut(
+            id=a.id, metric_id=a.metric_id,
+            metric_code=metric.metric_code if metric else "",
+            metric_name=metric.metric_name if metric else "",
+            subject_area=a.subject_area, risk_level=a.risk_level,
+            max_auto_frequency=a.max_auto_frequency,
+            auto_rollback_enabled=a.auto_rollback_enabled,
+            status=a.status, requested_by=a.requested_by,
+            approved_by=a.approved_by, reason=a.reason,
+            created_at=a.created_at, updated_at=a.updated_at,
+        ))
+    return out
+
+
+@router.put(
+    "/l4-auto/approvals/{approval_id}/approve",
+    summary="审批通过 L4 试点申请",
+    response_model=L4AutoApprovalOut,
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def approve_l4_approval(
+    approval_id: int,
+    payload: L4AutoApprovalAction = L4AutoApprovalAction(),
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """管理员审批通过 L4 试点申请。"""
+    from app.warehouse.models import L4AutoApproval
+    from app.datasets.models import WarehouseMetric
+
+    approval = await db.get(L4AutoApproval, approval_id)
+    if not approval:
+        raise HTTPException(status_code=404, detail="审批记录不存在")
+    if approval.status != "pending":
+        raise HTTPException(status_code=409, detail=f"当前状态 {approval.status} 不可审批")
+
+    # 高风险指标不可审批
+    if approval.risk_level != "low":
+        raise HTTPException(status_code=422, detail=f"仅低风险指标可通过 L4 审批，当前风险等级: {approval.risk_level}")
+
+    approval.status = "approved"
+    approval.approved_by = user.login_name if user else None
+    approval.reason = (approval.reason or "") + (f" [审批备注: {payload.reason}]" if payload.reason else "")
+    await db.commit()
+    await db.refresh(approval)
+
+    metric = await db.get(WarehouseMetric, approval.metric_id)
+    return L4AutoApprovalOut(
+        id=approval.id, metric_id=approval.metric_id,
+        metric_code=metric.metric_code if metric else "",
+        metric_name=metric.metric_name if metric else "",
+        subject_area=approval.subject_area, risk_level=approval.risk_level,
+        max_auto_frequency=approval.max_auto_frequency,
+        auto_rollback_enabled=approval.auto_rollback_enabled,
+        status=approval.status, requested_by=approval.requested_by,
+        approved_by=approval.approved_by, reason=approval.reason,
+        created_at=approval.created_at, updated_at=approval.updated_at,
+    )
+
+
+@router.put(
+    "/l4-auto/approvals/{approval_id}/reject",
+    summary="驳回 L4 试点申请",
+    response_model=L4AutoApprovalOut,
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def reject_l4_approval(
+    approval_id: int,
+    payload: L4AutoApprovalAction = L4AutoApprovalAction(),
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """管理员驳回 L4 试点申请。"""
+    from app.warehouse.models import L4AutoApproval
+    from app.datasets.models import WarehouseMetric
+
+    approval = await db.get(L4AutoApproval, approval_id)
+    if not approval:
+        raise HTTPException(status_code=404, detail="审批记录不存在")
+    if approval.status != "pending":
+        raise HTTPException(status_code=409, detail=f"当前状态 {approval.status} 不可驳回")
+
+    approval.status = "rejected"
+    approval.approved_by = user.login_name if user else None
+    approval.reason = (approval.reason or "") + (f" [驳回原因: {payload.reason}]" if payload.reason else "")
+    await db.commit()
+    await db.refresh(approval)
+
+    metric = await db.get(WarehouseMetric, approval.metric_id)
+    return L4AutoApprovalOut(
+        id=approval.id, metric_id=approval.metric_id,
+        metric_code=metric.metric_code if metric else "",
+        metric_name=metric.metric_name if metric else "",
+        subject_area=approval.subject_area, risk_level=approval.risk_level,
+        max_auto_frequency=approval.max_auto_frequency,
+        auto_rollback_enabled=approval.auto_rollback_enabled,
+        status=approval.status, requested_by=approval.requested_by,
+        approved_by=approval.approved_by, reason=approval.reason,
+        created_at=approval.created_at, updated_at=approval.updated_at,
+    )
+
+
+@router.delete(
+    "/l4-auto/approvals/{approval_id}",
+    summary="撤销 L4 试点申请",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def revoke_l4_approval(
+    approval_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """撤销 L4 试点申请。"""
+    from app.warehouse.models import L4AutoApproval
+
+    approval = await db.get(L4AutoApproval, approval_id)
+    if not approval:
+        raise HTTPException(status_code=404, detail="审批记录不存在")
+
+    approval.status = "revoked"
+    await db.commit()
+    return {"ok": True}
+
+
+async def _assess_l4_risk(metric_id: int, db: AsyncSession) -> dict:
+    """评估指标的 L4 风险等级（统一入口，复用 L4RiskAssessmentService）。"""
+    from app.warehouse.service.l4_risk import L4RiskAssessmentService
+    svc = L4RiskAssessmentService(db)
+    return await svc.assess(metric_id)
+
+
+# ---- Z0302: L4 级联规则 CRUD ----
+
+
+@router.get(
+    "/l4-auto/rules/{metric_id}",
+    summary="获取指标 L4 级联规则",
+    response_model=L4CascadeRuleOut,
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def get_l4_cascade_rule(
+    metric_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """获取指标的 L4 全自动级联规则配置。"""
+    from app.warehouse.models import L4CascadeRule
+
+    result = await db.execute(
+        select(L4CascadeRule).where(L4CascadeRule.metric_id == metric_id)
+    )
+    rule = result.scalar_one_or_none()
+    if not rule:
+        return L4CascadeRuleOut(metric_id=metric_id)
+    return L4CascadeRuleOut(
+        metric_id=rule.metric_id,
+        trigger_conditions=rule.trigger_conditions or [],
+        risk_strategies=rule.risk_strategies or {},
+        max_frequency=rule.max_frequency,
+        auto_rollback=rule.auto_rollback,
+        notify_on_success=rule.notify_on_success,
+        notify_on_block=rule.notify_on_block,
+        notify_on_fail=rule.notify_on_fail,
+    )
+
+
+@router.put(
+    "/l4-auto/rules/{metric_id}",
+    summary="更新指标 L4 级联规则",
+    response_model=L4CascadeRuleOut,
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def update_l4_cascade_rule(
+    metric_id: int,
+    payload: L4CascadeRuleUpdate,
+    db: AsyncSession = Depends(get_session),
+):
+    """更新或创建指标的 L4 全自动级联规则。仅已审批的指标可配置。"""
+    from app.warehouse.models import L4CascadeRule, L4AutoApproval
+
+    # 校验：仅已审批的指标可配置规则
+    approval = (await db.execute(
+        select(L4AutoApproval).where(
+            L4AutoApproval.metric_id == metric_id,
+            L4AutoApproval.status == "approved",
+        )
+    )).scalar_one_or_none()
+    if not approval:
+        raise HTTPException(status_code=403, detail="仅已审批的 L4 试点指标可配置级联规则")
+    if approval.risk_level != "low":
+        raise HTTPException(status_code=422, detail=f"仅低风险指标可配置 L4 级联规则，当前风险等级: {approval.risk_level}")
+
+    result = await db.execute(
+        select(L4CascadeRule).where(L4CascadeRule.metric_id == metric_id)
+    )
+    rule = result.scalar_one_or_none()
+
+    from app.warehouse.service.l4_cascade import L4_ALL_TRIGGERS as ALLOWED_TRIGGERS
+    update_data = payload.model_dump(exclude_unset=True)
+    tc = update_data.get("trigger_conditions", rule.trigger_conditions if rule else None)
+    if tc is not None:
+        if not tc:
+            raise HTTPException(status_code=422, detail="触发条件不能为空，至少选择一个")
+        for t in tc:
+            if t not in ALLOWED_TRIGGERS:
+                raise HTTPException(status_code=422, detail=f"非法触发条件: {t}，允许值: {ALLOWED_TRIGGERS}")
+    if rule is None:
+        rule = L4CascadeRule(metric_id=metric_id, **update_data)
+        db.add(rule)
+    else:
+        for key, val in update_data.items():
+            setattr(rule, key, val)
+    await db.commit()
+    await db.refresh(rule)
+
+    return L4CascadeRuleOut(
+        metric_id=rule.metric_id,
+        trigger_conditions=rule.trigger_conditions or [],
+        risk_strategies=rule.risk_strategies or {},
+        max_frequency=rule.max_frequency,
+        auto_rollback=rule.auto_rollback,
+        notify_on_success=rule.notify_on_success,
+        notify_on_block=rule.notify_on_block,
+        notify_on_fail=rule.notify_on_fail,
+    )
+
+
+# ---- Z0304/Z0305: 紧急停止、回滚、审计 ----
+
+
+from app.warehouse.service.l4_cascade import is_emergency_stopped as _l4_stopped, set_emergency_stop as _l4_set_stop
+
+
+@router.get(
+    "/l4-auto/status",
+    summary="查询 L4 运行状态",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def get_l4_status():
+    """返回 L4 全自动级联当前状态。"""
+    from app.core.config import settings
+    return {
+        "emergency_stop": _l4_stopped(),
+        "feature_enabled": settings.WAREHOUSE_FEATURE_L4_FULL_AUTO,
+    }
+
+
+@router.post(
+    "/l4-auto/emergency-stop",
+    summary="紧急停止 L4 全自动",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def l4_emergency_stop(
+    reason: Optional[str] = Query(None),
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """紧急停止所有 L4 全自动级联任务（写入 DB + 更新内存缓存）。"""
+    from app.warehouse.models import L4RuntimeControl
+    from datetime import UTC, datetime as dt_real
+
+    ctrl = await db.get(L4RuntimeControl, 1)
+    if ctrl is None:
+        ctrl = L4RuntimeControl(id=1, max_pilot_metrics=5)
+        db.add(ctrl)
+    ctrl.emergency_stop = True
+    ctrl.emergency_stop_reason = reason or "管理员手动紧急停止"
+    ctrl.emergency_stop_by = user.login_name if user else "unknown"
+    ctrl.emergency_stop_at = dt_real.now(UTC)
+    await db.commit()
+
+    _l4_set_stop(True)
+    log_msg = f"L4 全自动紧急停止" + (f": {reason}" if reason else "")
+    logger.warning(log_msg, extra={"user": user.login_name if user else "unknown"})
+    return {"ok": True, "message": log_msg}
+
+
+@router.post(
+    "/l4-auto/resume",
+    summary="恢复 L4 全自动",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def l4_resume(
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """恢复 L4 全自动级联运行（写入 DB + 更新内存缓存）。"""
+    from app.warehouse.models import L4RuntimeControl
+
+    ctrl = await db.get(L4RuntimeControl, 1)
+    if ctrl:
+        ctrl.emergency_stop = False
+        await db.commit()
+    _l4_set_stop(False)
+    return {"ok": True, "message": "L4 全自动已恢复"}
+
+
+@router.post(
+    "/l4-auto/executions/{execution_id}/confirm",
+    summary="用户确认 REVIEW_REQUIRED 后继续执行剩余链路",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def l4_confirm_and_continue(
+    execution_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """REVIEW_REQUIRED 状态：用户确认后，从 pending context 恢复执行剩余链路。"""
+    from app.automation.models import AutomationExecution
+    from app.warehouse.models import L4PendingExecution
+    from app.warehouse.service.l4_cascade import L4CascadeEngine
+
+    exec_rec = await db.get(AutomationExecution, execution_id)
+    if not exec_rec:
+        raise HTTPException(status_code=404, detail="执行记录不存在")
+
+    # 查找关联的 pending execution
+    pending = (await db.execute(
+        select(L4PendingExecution).where(
+            L4PendingExecution.execution_id == execution_id,
+            L4PendingExecution.risk_state == "review_required",
+            L4PendingExecution.status == "pending",
+        ).order_by(L4PendingExecution.id.desc()).limit(1)
+    )).scalar_one_or_none()
+
+    if not pending:
+        raise HTTPException(status_code=404, detail="未找到待确认的 L4 pending context")
+
+    exec_rec.status = "running"
+    await db.commit()
+
+    engine = L4CascadeEngine(db, trace_id=pending.trace_id or f"l4_confirm_{execution_id}", execution_id=execution_id)
+    result = await engine.resume_from_pending(pending.id, "review_required")
+
+    # 更新 execution 最终状态
+    result_status = result.get("status", "failed")
+    exec_rec.status = "success" if result_status == "success" else result_status
+    if result.get("error"):
+        exec_rec.error_message = result.get("error", "")[:1000]
+    await db.commit()
+
+    return {"ok": True, "execution_id": execution_id, "pending_id": pending.id, "result": result}
+
+
+@router.post(
+    "/l4-auto/executions/{execution_id}/approve-continue",
+    summary="管理员审批通过 APPROVAL_REQUIRED 后继续执行",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def l4_approve_and_continue(
+    execution_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """APPROVAL_REQUIRED 状态：管理员审批通过后，从 pending context 恢复执行剩余链路。"""
+    from app.automation.models import AutomationExecution
+    from app.warehouse.models import L4PendingExecution
+    from app.warehouse.service.l4_cascade import L4CascadeEngine
+
+    exec_rec = await db.get(AutomationExecution, execution_id)
+    if not exec_rec:
+        raise HTTPException(status_code=404, detail="执行记录不存在")
+
+    pending = (await db.execute(
+        select(L4PendingExecution).where(
+            L4PendingExecution.execution_id == execution_id,
+            L4PendingExecution.risk_state == "approval_required",
+            L4PendingExecution.status == "pending",
+        ).order_by(L4PendingExecution.id.desc()).limit(1)
+    )).scalar_one_or_none()
+
+    if not pending:
+        raise HTTPException(status_code=404, detail="未找到待审批的 L4 pending context")
+
+    exec_rec.status = "running"
+    await db.commit()
+
+    engine = L4CascadeEngine(db, trace_id=pending.trace_id or f"l4_approve_{execution_id}", execution_id=execution_id)
+    result = await engine.resume_from_pending(pending.id, "approval_required")
+
+    # 更新 execution 最终状态
+    result_status = result.get("status", "failed")
+    exec_rec.status = "success" if result_status == "success" else result_status
+    if result.get("error"):
+        exec_rec.error_message = result.get("error", "")[:1000]
+    await db.commit()
+
+    return {"ok": True, "execution_id": execution_id, "pending_id": pending.id, "result": result}
+
+
+@router.post(
+    "/l4-auto/rollback/{metric_id}",
+    summary="一键回滚指标最近一次 L4 自动发布",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def l4_rollback_metric(
+    metric_id: int,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """回滚指定指标最近一次 L4 自动发布（完整回滚：DWS→ADS→BI契约→审计）。"""
+    from app.warehouse.service.l4_rollback import L4RollbackService
+    svc = L4RollbackService(db)
+    operator = user.login_name if user else "system"
+    return await svc.rollback_latest(metric_id, operator=operator)
+
+
+@router.get(
+    "/l4-auto/timeline/{metric_id}",
+    summary="L4 全自动审计时间线",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def l4_timeline(
+    metric_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """获取指标 L4 全自动级联执行时间线（优先从结构化审计表读取）。"""
+    from app.warehouse.models import L4AuditStep
+
+    # 从结构化审计表读取所有步骤
+    steps_query = (await db.execute(
+        select(L4AuditStep).where(
+            L4AuditStep.metric_id == metric_id,
+        ).order_by(L4AuditStep.created_at.desc(), L4AuditStep.step_order.asc()).limit(100)
+    )).scalars().all()
+
+    # 按 trace_id 分组
+    events_map: dict[str, dict] = {}
+    for s in steps_query:
+        tid = s.trace_id
+        if tid not in events_map:
+            events_map[tid] = {
+                "trace_id": tid,
+                "execution_id": s.execution_id,
+                "metric_id": s.metric_id,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "finished_at": s.finished_at.isoformat() if s.finished_at else None,
+                "steps": [],
+            }
+        events_map[tid]["steps"].append({
+            "step_code": s.step_code,
+            "step_name": s.step_name,
+            "step_order": s.step_order,
+            "status": s.status,
+            "risk_level": s.risk_level,
+            "error_message": s.error_message,
+            "operator": s.operator,
+            "started_at": s.started_at.isoformat() if s.started_at else None,
+            "finished_at": s.finished_at.isoformat() if s.finished_at else None,
+            "input_snapshot": s.input_snapshot,
+            "output_snapshot": s.output_snapshot,
+        })
+
+    # 补充 automation_executions（用于回滚等操作）
+    from app.automation.models import AutomationExecution
+    auto_execs = (await db.execute(
+        select(AutomationExecution).where(
+            AutomationExecution.biz_type == "metric",
+            AutomationExecution.biz_id == str(metric_id),
+        ).order_by(AutomationExecution.started_at.desc()).limit(20)
+    )).scalars().all()
+
+    exec_events = []
+    for ae in auto_execs:
+        exec_events.append({
+            "execution_id": ae.id,
+            "trigger_type": ae.trigger_type,
+            "status": ae.status,
+            "started_at": ae.started_at.isoformat() if ae.started_at else None,
+            "finished_at": ae.finished_at.isoformat() if ae.finished_at else None,
+        })
+
+    return {
+        "metric_id": metric_id,
+        "events": list(events_map.values()),
+        "executions": exec_events,
+        "summary": {"total_events": len(events_map), "total_steps": len(steps_query)},
+    }
+
+
+@router.get(
+    "/l4-auto/summary",
+    summary="L4 全自动运行摘要（最近 24h）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def l4_summary(
+    db: AsyncSession = Depends(get_session),
+):
+    """返回最近 24h L4 全自动级联运行摘要。"""
+    from datetime import timedelta, UTC, datetime as dt
+    from app.automation.models import AutomationExecution
+
+    since = dt.now(UTC) - timedelta(hours=24)
+    from app.warehouse.service.l4_cascade import L4_ALL_TRIGGERS
+    rows = (await db.execute(
+        select(AutomationExecution.status, func.count().label("cnt")).where(
+            AutomationExecution.trigger_type.in_(L4_ALL_TRIGGERS),
+            AutomationExecution.started_at >= since,
+        ).group_by(AutomationExecution.status)
+    )).all()
+
+    stats = {row.status: row.cnt for row in rows}
+    total = sum(stats.values())
+
+    return {
+        "total": total,
+        "success": stats.get("success", 0),
+        "blocked": stats.get("review_required", 0) + stats.get("approval_required", 0),
+        "failed": stats.get("failed", 0),
+        "skipped": stats.get("skipped", 0),
+        "emergency_stopped": _l4_stopped(),
+        "period_hours": 24,
+    }
+
+
+@router.get(
+    "/l4-auto/executions",
+    summary="L4 运行记录列表（分页）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def l4_executions_list(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None, description="success/partial_failed/failed/review_required"),
+    trigger_type: Optional[str] = Query(None),
+    metric_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_session),
+):
+    """L4 运行记录分页列表，支持按状态/触发方式/指标筛选。"""
+    from datetime import timedelta, UTC, datetime as dt_real
+    from app.automation.models import AutomationExecution, AutomationActionExecution
+    from app.warehouse.service.l4_cascade import L4_ALL_TRIGGERS
+
+    stmt = select(AutomationExecution).where(
+        AutomationExecution.trigger_type.in_(L4_ALL_TRIGGERS),
+    )
+    if status:
+        stmt = stmt.where(AutomationExecution.status == status)
+    if trigger_type:
+        stmt = stmt.where(AutomationExecution.trigger_type == trigger_type)
+    if metric_id:
+        stmt = stmt.where(AutomationExecution.biz_id == str(metric_id))
+
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
+    execs = (await db.execute(
+        stmt.order_by(AutomationExecution.started_at.desc())
+        .offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    items = []
+    for e in execs:
+        # 取第一个 action 的 output 摘要
+        action = (await db.execute(
+            select(AutomationActionExecution).where(
+                AutomationActionExecution.execution_id == e.id,
+            ).order_by(AutomationActionExecution.action_index).limit(1)
+        )).scalar_one_or_none()
+        output_summary = (action.output_snapshot or {}).get("status", "") if action else ""
+        items.append({
+            "execution_id": e.id,
+            "trigger_type": e.trigger_type,
+            "biz_id": e.biz_id,
+            "status": e.status,
+            "started_at": e.started_at.isoformat() if e.started_at else None,
+            "finished_at": e.finished_at.isoformat() if e.finished_at else None,
+            "error_message": e.error_message,
+            "output_summary": output_summary,
+        })
+
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 # ==================== R04 快照管理 ====================

@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     WAREHOUSE_FEATURE_LAYER_ENHANCEMENT: bool = True
     WAREHOUSE_FEATURE_ODS_DWD_AUTOMATION: bool = False
     WAREHOUSE_FEATURE_METRIC_AUTOMATION: bool = False
+    WAREHOUSE_FEATURE_L4_FULL_AUTO: bool = False
 
     @property
     def db_url_async(self) -> str:

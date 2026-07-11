@@ -354,6 +354,7 @@ class WarehouseFeatureFlagsOut(BaseModel):
     layer_enhancement: bool = True
     ods_dwd_automation: bool = False
     metric_automation: bool = False
+    l4_full_auto: bool = False
 
 
 # ==================== 批量分层 (Q0104) ====================
@@ -1384,3 +1385,62 @@ class MetricAutomationTimelineOut(BaseModel):
     metric_code: str
     events: list[dict] = Field(default_factory=list, description="时间线事件列表")
     summary: dict = Field(default_factory=dict, description="摘要统计")
+
+
+# ==================== Z03 L4 全自动级联 ====================
+
+class L4AutoApprovalCreate(BaseModel):
+    """L4 试点申请请求"""
+    model_config = {"extra": "forbid"}
+    metric_id: int = Field(..., description="指标 ID")
+    max_auto_frequency: int = Field(1, ge=1, le=100, description="每日最大自动执行次数")
+    auto_rollback_enabled: bool = Field(True, description="失败时自动回滚")
+    reason: Optional[str] = Field(None, max_length=512, description="申请理由")
+
+
+class L4AutoApprovalOut(BaseModel):
+    """L4 试点审批记录响应"""
+    id: int
+    metric_id: int
+    metric_code: str = ""
+    metric_name: str = ""
+    subject_area: Optional[str] = None
+    risk_level: str = "medium"
+    max_auto_frequency: int = 1
+    auto_rollback_enabled: bool = True
+    status: str = "pending"
+    requested_by: Optional[str] = None
+    approved_by: Optional[str] = None
+    reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class L4AutoApprovalAction(BaseModel):
+    """审批操作"""
+    model_config = {"extra": "forbid"}
+    reason: Optional[str] = Field(None, max_length=512, description="审批备注")
+
+
+class L4CascadeRuleOut(BaseModel):
+    """L4 级联规则响应"""
+    metric_id: int
+    trigger_conditions: list[str] = Field(default_factory=list)
+    risk_strategies: dict = Field(default_factory=dict)
+    max_frequency: int = 1
+    auto_rollback: bool = True
+    notify_on_success: bool = False
+    notify_on_block: bool = True
+    notify_on_fail: bool = True
+
+
+class L4CascadeRuleUpdate(BaseModel):
+    """L4 级联规则更新请求"""
+    model_config = {"extra": "forbid"}
+    trigger_conditions: Optional[list[str]] = None
+    risk_strategies: Optional[dict] = None
+    max_frequency: Optional[int] = Field(None, ge=1, le=100)
+    auto_rollback: Optional[bool] = None
+    notify_on_success: Optional[bool] = None
+    notify_on_block: Optional[bool] = None
+    notify_on_fail: Optional[bool] = None

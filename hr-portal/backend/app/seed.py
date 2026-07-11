@@ -292,6 +292,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_document_templates(db)
         await _ensure_formula_functions(db)
         await _ensure_ods_dwd_automation_rules(db)
+        await _ensure_l4_cascade_rules(db)
         logger.info("[seed] done")
 
 
@@ -606,5 +607,48 @@ async def _ensure_ods_dwd_automation_rules(db: AsyncSession) -> None:
         )
         db.add(rule)
         logger.info("[seed] ods-dwd automation rule added: %s", tt)
+
+    await db.commit()
+
+
+async def _ensure_l4_cascade_rules(db: AsyncSession) -> None:
+    """确保 L4 全自动级联的系统级自动化规则存在。"""
+    from app.automation.models import AutomationRule
+
+    l4_triggers = [
+        "metric_saved",
+        "dwd_data_refreshed",
+        "dwd_schema_changed",
+        "dwd_metadata_changed",
+        "datasource_sync_completed",
+        "ods_table_metadata_changed",
+        "standardization_rule_changed",
+        "ods_dwd_automation_config_changed",
+    ]
+    existing = (
+        await db.execute(
+            select(AutomationRule).where(
+                AutomationRule.trigger_type.in_(l4_triggers),
+                AutomationRule.source == "system",
+            )
+        )
+    ).scalars().all()
+    existing_types = {r.trigger_type for r in existing}
+
+    for tt in l4_triggers:
+        if tt in existing_types:
+            continue
+        rule = AutomationRule(
+            name=f"L4 全自动级联 — {tt}",
+            description="系统自动创建：事件触发 L4 全自动级联检查",
+            trigger_type=tt,
+            trigger_config={},
+            condition_config=[],
+            actions_config=[{"type": "l4_cascade_execute", "config": {}}],
+            enabled=False,  # Z03 红线：L4 默认禁用，仅审批通过的低风险指标可开放
+            source="system",
+        )
+        db.add(rule)
+        logger.info("[seed] l4 cascade rule added: %s", tt)
 
     await db.commit()

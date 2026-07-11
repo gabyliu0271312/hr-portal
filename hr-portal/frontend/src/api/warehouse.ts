@@ -570,6 +570,7 @@ export interface WarehouseFeatureFlags {
   layer_enhancement: boolean
   ods_dwd_automation: boolean
   metric_automation: boolean
+  l4_full_auto: boolean
 }
 
 /** 获取二期灰度开关 */
@@ -1552,4 +1553,117 @@ export function setRefreshStrategy(assetType: string, assetId: number, strategy:
 /** 指标自动化审计时间线 */
 export function getMetricAutomationTimeline(metricId: number) {
   return api.get(`/warehouse/metric-automation/timeline/${metricId}`).then(r => r.data as any)
+}
+
+// ==================== Z03 L4 全自动级联 ====================
+
+export interface L4AutoApproval {
+  id: number
+  metric_id: number
+  metric_code: string
+  metric_name: string
+  subject_area?: string
+  risk_level: string
+  max_auto_frequency: number
+  auto_rollback_enabled: boolean
+  status: string
+  requested_by?: string
+  approved_by?: string
+  reason?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface L4AutoApprovalCreatePayload {
+  metric_id: number
+  max_auto_frequency?: number
+  auto_rollback_enabled?: boolean
+  reason?: string
+}
+
+export interface L4CascadeRule {
+  metric_id: number
+  trigger_conditions: string[]
+  risk_strategies: Record<string, string>
+  max_frequency: number
+  auto_rollback: boolean
+  notify_on_success: boolean
+  notify_on_block: boolean
+  notify_on_fail: boolean
+}
+
+export interface L4CascadeRuleUpdate {
+  trigger_conditions?: string[]
+  risk_strategies?: Record<string, string>
+  max_frequency?: number
+  auto_rollback?: boolean
+  notify_on_success?: boolean
+  notify_on_block?: boolean
+  notify_on_fail?: boolean
+}
+
+// L4 审批
+export function listL4Approvals(params?: { status?: string; metric_id?: number }) {
+  return api.get('/warehouse/l4-auto/approvals', { params }).then(r => r.data as L4AutoApproval[])
+}
+export function createL4Approval(payload: L4AutoApprovalCreatePayload) {
+  return api.post('/warehouse/l4-auto/approvals', payload).then(r => r.data as L4AutoApproval)
+}
+export function approveL4Approval(id: number, reason?: string) {
+  return api.put(`/warehouse/l4-auto/approvals/${id}/approve`, { reason }).then(r => r.data as L4AutoApproval)
+}
+export function rejectL4Approval(id: number, reason?: string) {
+  return api.put(`/warehouse/l4-auto/approvals/${id}/reject`, { reason }).then(r => r.data as L4AutoApproval)
+}
+export function revokeL4Approval(id: number) {
+  return api.delete(`/warehouse/l4-auto/approvals/${id}`).then(r => r.data)
+}
+
+// L4 级联规则
+export function getL4CascadeRule(metricId: number) {
+  return api.get(`/warehouse/l4-auto/rules/${metricId}`).then(r => r.data as L4CascadeRule)
+}
+export function updateL4CascadeRule(metricId: number, payload: L4CascadeRuleUpdate) {
+  return api.put(`/warehouse/l4-auto/rules/${metricId}`, payload).then(r => r.data as L4CascadeRule)
+}
+
+// L4 审计
+export function getL4Timeline(metricId: number) {
+  return api.get(`/warehouse/l4-auto/timeline/${metricId}`).then(r => r.data as any)
+}
+export function getL4Summary() {
+  return api.get('/warehouse/l4-auto/summary').then(r => r.data as any)
+}
+export interface L4ExecutionItem {
+  execution_id: number
+  trigger_type: string
+  biz_id: string
+  status: string
+  started_at?: string
+  finished_at?: string
+  error_message?: string
+  output_summary: string
+}
+export interface L4ExecutionsList {
+  items: L4ExecutionItem[]
+  total: number
+  page: number
+  page_size: number
+}
+export function listL4Executions(params?: { page?: number; page_size?: number; status?: string; trigger_type?: string; metric_id?: number }) {
+  return api.get('/warehouse/l4-auto/executions', { params }).then(r => r.data as L4ExecutionsList)
+}
+
+// L4 紧急停止 & 回滚
+export function getL4Status() {
+  return api.get('/warehouse/l4-auto/status').then(r => r.data as any)
+}
+export function emergencyStopL4(reason?: string) {
+  return api.post('/warehouse/l4-auto/emergency-stop', null, { params: { reason } }).then(r => r.data)
+}
+export function resumeL4() {
+  return api.post('/warehouse/l4-auto/resume').then(r => r.data)
+}
+export function rollbackL4Metric(metricId: number) {
+  return api.post(`/warehouse/l4-auto/rollback/${metricId}`).then(r => r.data)
 }

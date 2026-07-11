@@ -1150,3 +1150,120 @@ dept_id | year | quarter | month | cost_sum | emp_count
 - 第一期未达到 Z00 阶段退出门槛前，不可向业务用户开放第二期能力（因为 X05 假设 DWD 数据已通过自动化保持新鲜）。
 - 第二期未通过 X0513 专项验收和 Z00 阶段退出门槛前，不可向业务用户开放第三期能力（因为 L4 依赖 X05 的所有服务）。
 - 第三期仅对已通过第一期+第二期验收、且按 Z00 风险分级矩阵判定为低风险的指标开放。
+
+---
+
+## 第1期~第3期整体验收结论（Code Review 补充）
+
+### 验收范围
+
+本次根据本文档对第 1 期 Z01、 第 2 期 X05、 第 3 期 Z03 的自动化数仓能力进行了整体 code review，覆盖后端核心服务、路由接口、feature flag、权限、审计、质量门禁、回滚能力以及前端构建体验。
+
+### 验证结果
+
+已完成如下验证：
+
+```powershell
+python -m py_compile `
+  hr-portal\backend\app\warehouse\service\metric_automation.py `
+  hr-portal\backend\app\automation\action_registry.py `
+  hr-portal\backend\app\warehouse\service\l4_cascade.py `
+  hr-portal\backend\app\warehouse\router.py
+```
+
+结果：通过。
+
+```powershell
+cd hr-portal\backend
+pytest tests/test_l4_cascade.py tests/test_x05_metric_automation_acceptance.py -q
+```
+
+结果：`36 passed in 4.10s`。
+
+```powershell
+cd hr-portal\frontend
+npm run build
+```
+
+结果：通过，生产构建完成。
+
+### 整体验收结论
+
+**结论：有条件通过，可进入灰度验收。**
+
+第 1 期 Z01、第 2 期 X05、第 3 期 Z03 的核心能力、feature flag 默认关闭策略、权限控制、审计链路、发布门禁、回滚机制、前端入口与构建验证均已具备。当前未发现阻断上线的 P0/P1 级缺陷。
+
+但建议以“有条件通过”的方式进入灰度，原因是第 1/2 期仍有少量边界体验与保护性校验可继续补强，尤其是 Z01 无显式配置时的自动兜底策略，以及 X05 部分只读/辅助接口的 feature flag 口径需要统一。
+
+### 分期结论
+
+#### 第 1 期 Z01：ODS → DWD 自动化级联
+
+**验收结论：通过，建议补强。**
+
+已满足：
+
+1. `WAREHOUSE_FEATURE_ODS_DWD_AUTOMATION` 默认关闭。
+2. `datasource_sync_completed` 仅做审计记录，不直接驱动 DWD 更新。
+3. 实际 DWD 更新统一由 `ods_table_data_changed` 驱动。
+4. 已覆盖 ODS 数据变更、元数据变更、清洗规则变更、自动化配置变更等触发类型。
+5. ODS sync semantics 与 DWD write strategy 已具备配置与校验。
+6. `full_snapshot + mark_inactive` 已有软失效字段保护，缺少 `is_active/is_deleted/valid_to` 时会阻断执行。
+7. ODS/DWD 自动化执行记录、配置入口、手动触发能力基本完整。
+
+建议补强：
+
+- **P2：无配置时的自动兜底策略建议改为“生成待确认配置”。** 当前在 ODS 数据变更且无配置时，会尝试自动创建默认配置并启用。虽然已有安全门禁，但从“显式配置 ODS sync semantics 与 DWD write strategy”的要求看，灰度阶段建议改为：自动识别并生成 `enabled=false / pending_review` 配置，由用户在统一自动化入口确认后再启用。
+- **P2：DWD 刷新事件发布失败时建议记录 warning。** 当前非阻断是合理的，但应避免完全吞掉异常，便于排查 L4 未触发或下游未感知的问题。
+
+#### 第 2 期 X05：指标驱动 DWS/ADS 自动化
+
+**验收结论：通过，建议补强 feature flag 一致性。**
+
+已满足：
+
+1. `WAREHOUSE_FEATURE_METRIC_AUTOMATION` 默认关闭。
+2. 指标定义生成 DWS/ADS 时先生成草稿，不直接发布生产资产。
+3. 发布接口要求人工确认。
+4. 发布前会强制重新执行 preview、质量门禁、小样本风险检查。
+5. SQL 安全已有基础防护，包括 identifier 校验、过滤条件参数化、SELECT 抽取、危险关键字阻断。
+6. 小样本风险和敏感字段风险已纳入风险评估。
+7. 回滚能力已基于版本快照恢复 View、DataSet 状态与血缘。
+8. BI 能力以消费契约方式输出，不直接自动编辑 BI/帆软报表。
+
+建议补强：
+
+- **P2：统一 `/metric-automation/*` 接口 feature flag 口径。** 当前写操作接口已挂 feature flag，但部分诊断、影响分析、BI contract、change plan、refresh、timeline 等只读/辅助接口未完全挂 gate。若产品定义为“feature flag 关闭时整个指标自动化能力不可用”，建议后端统一加 `WAREHOUSE_FEATURE_METRIC_AUTOMATION` gate；若只控制写操作，则需在文档和前端提示中明确。
+- **P2：SQL 安全建议后续升级为 AST/白名单解析。** 当前字符串级危险关键字扫描可满足基础验收，但长期建议限制为单条 SELECT、禁止分号、禁止 DDL/DML，并考虑接入 SQL parser 或白名单 AST 校验。
+
+#### 第 3 期 Z03：L4 全自动级联
+
+**验收结论：通过。**
+
+已满足：
+
+1. `WAREHOUSE_FEATURE_L4_FULL_AUTO` 默认关闭。
+2. 仅审批通过的低风险指标可进入 L4。
+3. 中风险、高风险具备降级、待确认或阻断处理。
+4. 已具备频率上限控制。
+5. 已具备紧急停止能力，并在执行链路中检查停止状态。
+6. 已具备最近一次 L4 自动发布回滚能力。
+7. 回滚覆盖 DWS/ADS、BI contract、dataset outputs、lineage、permissions 等关键快照。
+8. 全链路审计、执行记录、timeline、summary、前端 L4 入口与指标详情面板均已具备。
+9. 未发现新建 UCP Pipeline 或自动编辑 BI/帆软报表的越界行为。
+
+### 灰度上线前建议
+
+进入灰度前建议完成以下事项：
+
+1. **明确 feature flag 口径。** 若“关闭”代表整个能力不可见/不可用，则补齐所有 X05 辅助接口的 feature flag gate；若只限制写操作，则需在文档、接口说明和前端体验中明确。
+2. **Z01 默认自动配置改为待确认。** 建议无配置时只生成待确认配置，不立即自动启用，降低 ODS→DWD 自动执行风险。
+3. **补齐三期端到端验收记录。** 建议至少覆盖：
+   - ODS 同步成功 → `datasource_sync_completed` 审计 → `ods_table_data_changed` 驱动 DWD；
+   - 指标草稿 → preview → publish → rollback；
+   - L4 低风险审批 → 自动级联 → emergency stop → rollback。
+4. **灰度期间增强监控。** 重点观察自动化执行失败率、DWD 刷新事件丢失、质量门禁阻断率、L4 rollback 成功率、紧急停止生效时延。
+
+### 最终判断
+
+**代码层有条件通过，具备灰度验收条件；当前无 P0/P1 阻断项。**

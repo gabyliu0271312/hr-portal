@@ -112,6 +112,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.exception("[startup] scheduler start failed: %s", e)
 
+    # 启动 L4 紧急停止引擎：注入 session factory
+    try:
+        from app.warehouse.service.l4_cascade import init_l4_session_factory
+        init_l4_session_factory(AsyncSessionLocal)
+    except Exception as e:
+        logger.exception("[startup] l4 session factory init failed: %s", e)
+
     yield
 
     try:

@@ -262,6 +262,7 @@ async def _execute_dwd_update(
 
             rows = exec_result.get("rows_inserted") or exec_result.get("total_rows", 0)
             await _update_config_execution_status(config, "success", rows, None, db)
+            await _publish_dwd_refreshed(table_name, db)
             return {
                 "status": "success", "mode": "cleaning_rule", "table_name": table_name, "rows": rows,
                 "ods_sync_semantics": config.ods_sync_semantics,
@@ -282,6 +283,7 @@ async def _execute_dwd_update(
                 return {"status": "failed", "reason": "passthrough_failed", "table_name": table_name, "detail": str(e)[:500]}
 
             await _update_config_execution_status(config, "success", rows, None, db)
+            await _publish_dwd_refreshed(table_name, db)
             return {"status": "success", "mode": "passthrough", "table_name": table_name, "rows": rows, "dwd_table": dwd_table}
 
         return {"status": "skipped", "reason": f"unknown_update_mode:{config.update_mode}", "table_name": table_name}
@@ -418,11 +420,57 @@ async def _update_config_execution_status(
     config.last_execution_error = error
 
 
+async def _publish_dwd_refreshed(table_name: str, db: AsyncSession) -> None:
+    """发布 dwd_data_refreshed 事件，触发 L4 级联检查。"""
+    try:
+        from app.automation.events import AutomationEvent, publish_event
+        from app.core.db import get_session_factory
+        async with get_session_factory()() as new_db:
+            await publish_event(AutomationEvent(
+                trigger_type="dwd_data_refreshed",
+                biz_type="ods_table",
+                biz_id=table_name,
+                payload={
+                    "trigger_type": "dwd_data_refreshed",
+                    "table_name": table_name,
+                },
+            ), new_db)
+    except Exception:
+        pass
+
+
+# ===== trigger_l4_cascade Action (Z0303) =====
+
+async def _action_l4_cascade_execute(
+    action_config: dict[str, Any],
+    event_payload: dict[str, Any],
+    db: AsyncSession,
+    execution_id: int | None = None,
+) -> dict[str, Any]:
+    """L4 全自动级联执行动作。
+
+    接收标准事件 payload，调用 L4CascadeEngine 完成全链路级联。
+    """
+    from app.core.config import settings
+    from app.warehouse.service.l4_cascade import L4CascadeEngine, is_emergency_stopped, refresh_emergency_stop
+
+    if not settings.WAREHOUSE_FEATURE_L4_FULL_AUTO:
+        return {"status": "skipped", "reason": "feature_flag_disabled"}
+
+    await refresh_emergency_stop()
+    if is_emergency_stopped():
+        return {"status": "skipped", "reason": "emergency_stop_active"}
+
+    engine = L4CascadeEngine(db, trace_id=f"l4_evt_{event_payload.get('event_id', '')[:12]}", execution_id=execution_id)
+    return await engine.process_event(event_payload)
+
+
 # ===== 注册表 =====
 
 ACTION_REGISTRY: dict[str, ActionFn] = {
     "feishu_send_message": _action_feishu_send_message,
     "trigger_dwd_standardization": _action_trigger_dwd_standardization,
+    "l4_cascade_execute": _action_l4_cascade_execute,
 }
 
 

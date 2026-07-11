@@ -106,7 +106,7 @@ async def _execute_rule(
             action_exec.output_snapshot = output
             # 根据 action 返回值判断真实状态
             output_status = output.get("status", "success") if isinstance(output, dict) else "success"
-            if output_status in ("failed", "review_required", "approval_required", "skipped"):
+            if output_status in ("failed", "partial_failed", "review_required", "approval_required", "skipped", "blocked"):
                 action_exec.status = output_status
                 action_exec.error_message = output.get("reason", "") or output.get("detail", "")
                 all_success = False

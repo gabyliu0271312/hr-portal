@@ -590,3 +590,130 @@ class BiContract(Base):
     created_by = Column(String(64), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class L4RuntimeControl(Base):
+    """L4 运行时控制（全局紧急停止、试点数量限制等）"""
+    __tablename__ = "l4_runtime_controls"
+
+    id = Column(BigInteger, primary_key=True, default=1)
+    emergency_stop = Column(Boolean, nullable=False, default=False, comment="全局紧急停止")
+    emergency_stop_reason = Column(Text, nullable=True)
+    emergency_stop_by = Column(String(64), nullable=True)
+    emergency_stop_at = Column(DateTime, nullable=True)
+    max_pilot_metrics = Column(Integer, nullable=False, default=5, comment="最大试点指标数量")
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class L4AuditStep(Base):
+    """L4 全自动级联每步审计记录 — 完整时间线"""
+    __tablename__ = "l4_audit_steps"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    trace_id = Column(String(64), nullable=False, index=True, comment="全链路 trace_id")
+    execution_id = Column(BigInteger, nullable=True, comment="关联的 automation_executions.id")
+    metric_id = Column(BigInteger, ForeignKey("warehouse_metrics.id", ondelete="SET NULL"), nullable=True)
+    step_code = Column(String(32), nullable=False, comment="diagnose/risk_assess/dws_draft/gate_dws/publish_dws/ads_draft/gate_ads/publish_ads/bi_contract/compensation/rollback")
+    step_name = Column(String(64), nullable=False, comment="步骤展示名")
+    step_order = Column(Integer, nullable=False, default=0)
+    status = Column(String(32), nullable=False, comment="running/success/failed/skipped/blocked/review_required")
+    risk_level = Column(String(16), nullable=True)
+    input_snapshot = Column(JSON, nullable=True)
+    output_snapshot = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+    operator = Column(String(64), nullable=True, comment="操作人(system/confirm/approve/rollback)")
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class L4PendingExecution(Base):
+    """L4 待确认/待审批执行上下文 — 支持 confirm/approve 后继续执行"""
+    __tablename__ = "l4_pending_executions"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    execution_id = Column(BigInteger, nullable=False, comment="关联的 automation_executions.id")
+    metric_id = Column(BigInteger, ForeignKey("warehouse_metrics.id", ondelete="SET NULL"), nullable=True)
+    trace_id = Column(String(64), nullable=False)
+    trigger_type = Column(String(64), nullable=False)
+    current_step = Column(String(32), nullable=False, comment="diagnose/risk_assess/dws_draft/gate_dws/publish_dws/ads_draft/gate_ads/publish_ads/bi_contract")
+    risk_state = Column(String(32), nullable=False, comment="review_required / approval_required")
+    dws_draft_id = Column(BigInteger, nullable=True)
+    dws_published = Column(Boolean, nullable=False, default=False)
+    dws_version = Column(Integer, nullable=True, comment="DWS 发布版本号（用于 resume 时回滚）")
+    dws_view_name = Column(String(256), nullable=True, comment="DWS View 名称")
+    ads_draft_id = Column(BigInteger, nullable=True)
+    steps_snapshot = Column(JSON, nullable=False, default=list)
+    preview_snapshot = Column(JSON, nullable=True)
+    risk_assessment = Column(JSON, nullable=True)
+    status = Column(String(32), nullable=False, default="pending", comment="pending/confirmed/approved/rejected")
+    confirmed_by = Column(String(64), nullable=True)
+    approved_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class L4PublishBatch(Base):
+    """L4 全自动发布批次 — 回滚依据"""
+    __tablename__ = "l4_publish_batches"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    metric_id = Column(BigInteger, ForeignKey("warehouse_metrics.id", ondelete="SET NULL"), nullable=True)
+    metric_code = Column(String(64), nullable=True)
+    trace_id = Column(String(64), nullable=False)
+    trigger_type = Column(String(64), nullable=False)
+    status = Column(String(32), nullable=False, default="running", comment="running/success/partial_failed/rolled_back")
+    published_assets = Column(JSON, nullable=False, default=list, comment="已发布资产: [{asset_type, asset_id, view_name, version}]")
+    previous_versions = Column(JSON, nullable=True, default=list, comment="前版本快照: [{asset_type, asset_id, from_version, to_version, view_name}]")
+    dataset_outputs_before = Column(JSON, nullable=True, default=list, comment="发布前数据集输出字段快照")
+    lineage_before = Column(JSON, nullable=True, default=list, comment="发布前血缘边快照")
+    permissions_before = Column(JSON, nullable=True, default=list, comment="发布前权限快照")
+    bi_contract_before = Column(JSON, nullable=True, default=list, comment="发布前 BI 消费契约快照")
+    rollback_status = Column(String(32), nullable=True)
+    rollback_by = Column(String(64), nullable=True)
+    rollback_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==================== Z03 L4 全自动级联 (Z0301/Z0302) ====================
+
+class L4AutoApproval(Base):
+    """L4 全自动级联试点审批记录"""
+    __tablename__ = "l4_auto_approvals"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    metric_id = Column(BigInteger, ForeignKey("warehouse_metrics.id", ondelete="CASCADE"), nullable=False)
+    subject_area = Column(String(64), nullable=True, comment="主题域")
+    risk_level = Column(String(16), nullable=False, default="medium",
+                        comment="低风险/中风险/高风险 — 系统自动评估")
+    max_auto_frequency = Column(Integer, nullable=False, default=1, comment="每日最大自动发布次数")
+    auto_rollback_enabled = Column(Boolean, nullable=False, default=True, comment="失败时自动回滚")
+    status = Column(String(16), nullable=False, default="pending",
+                    comment="pending/approved/rejected/revoked")
+    requested_by = Column(String(64), nullable=True, comment="申请人")
+    approved_by = Column(String(64), nullable=True, comment="审批人")
+    reason = Column(Text, nullable=True, comment="申请理由/审批备注")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class L4CascadeRule(Base):
+    """指标级 L4 全自动级联规则配置"""
+    __tablename__ = "l4_cascade_rules"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    metric_id = Column(BigInteger, ForeignKey("warehouse_metrics.id", ondelete="CASCADE"),
+                       unique=True, nullable=False)
+    trigger_conditions = Column(JSON, nullable=False, default=list,
+                                comment="触发条件列表: on_ods_data_change/on_ods_metadata_change/on_dwd_data_refresh/on_dwd_schema_change/on_metric_save")
+    risk_strategies = Column(JSON, nullable=False, default=dict,
+                             comment="风险状态策略")
+    max_frequency = Column(Integer, nullable=False, default=1, comment="每日最大自动执行次数")
+    auto_rollback = Column(Boolean, nullable=False, default=True, comment="失败时自动回滚")
+    notify_on_success = Column(Boolean, nullable=False, default=False)
+    notify_on_block = Column(Boolean, nullable=False, default=True)
+    notify_on_fail = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
