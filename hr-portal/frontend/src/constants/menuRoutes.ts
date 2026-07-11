@@ -56,6 +56,12 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   'tools.income_certificate': '/tools/income-certificate',
   'tools.cost_allocation': '/tools/cost-allocation',
   'table_tools': '/tools/table-merge',
+  // 数据仓库（feature/data-warehouse-platform 分支实现，此处防止 Tab 跳转异常）
+  'warehouse.assets': '/home',
+  'warehouse.cleaning': '/home',
+  'warehouse.modeling': '/home',
+  'warehouse.service': '/home',
+  'warehouse.governance': '/home',
   // 自动通知（原自动化规则）
   'automation.rules': '/automation/rules',
   // 数据对比
