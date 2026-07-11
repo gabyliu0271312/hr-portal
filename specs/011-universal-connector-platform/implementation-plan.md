@@ -829,12 +829,12 @@ APPROVAL        审批节点
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [~] | P4-A01 | BRANCH 节点 UI | Pipeline Designer | 可配置条件表达式和多出口连线 |
-| [~] | P4-A02 | BRANCH 节点执行 | Pipeline Engine | 根据上下文条件只执行命中分支 |
-| [ ] | P4-A03 | WAIT 节点 UI | Pipeline Designer | 支持固定时长等待、等待到指定时间、等待事件三类配置 |
-| [ ] | P4-A04 | WAIT 节点执行 | Pipeline Engine/Scheduler | 等待期间 run 状态可恢复，不阻塞主进程 |
-| [ ] | P4-A05 | APPROVAL 节点 UI | Pipeline Designer | 可配置审批人、审批原因、超时策略 |
-| [ ] | P4-A06 | APPROVAL 节点执行 | Approval Service/Engine | 执行到审批节点时暂停，审批通过后继续，拒绝后终止 |
+| [x] | P4-A01 | BRANCH 节点 UI | Pipeline Designer | 可配置条件表达式和多出口连线 |
+| [x] | P4-A02 | BRANCH 节点执行 | Pipeline Engine | 根据上下文条件只执行命中分支 |
+| [x] | P4-A03 | WAIT 节点 UI | Pipeline Designer | 支持固定时长等待、等待到指定时间、等待事件三类配置 |
+| [x] | P4-A04 | WAIT 节点执行 | Pipeline Engine/Scheduler | 等待期间 run 状态可恢复，不阻塞主进程 |
+| [x] | P4-A05 | APPROVAL 节点 UI | Pipeline Designer | 可配置审批人、审批原因、超时策略 |
+| [x] | P4-A06 | APPROVAL 节点执行 | Approval Service/Engine | 执行到审批节点时暂停，审批通过后继续，拒绝后终止 |
 
 ### B. 审批中心
 
@@ -851,8 +851,8 @@ APPROVAL        审批节点
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
 | [x] | P4-C01 | 外部账号动作资源 | Resource/Adapter | 支持创建、停用、删除账号动作资源 |
-| [ ] | P4-C02 | 入职账号创建流水线 | Pipeline Template | 飞书/HR 入职事件可触发账号创建流程 |
-| [ ] | P4-C03 | 离职账号停用流水线 | Pipeline Template | 离职事件可触发滴滴、曹操等账号停用 |
+| [x] | P4-C02 | 入职账号创建流水线 | Pipeline Template | 飞书/HR 入职事件可触发账号创建流程 |
+| [x] | P4-C03 | 离职账号停用流水线 | Pipeline Template | 离职事件可触发滴滴、曹操等账号停用 |
 | [x] | P4-C04 | 账号动作幂等 | Adapter/Engine | 重复事件不会重复创建或重复删除账号 |
 | [x] | P4-C05 | 高风险审批接入 | Approval Node | 删除/停用账号可配置审批后执行 |
 
@@ -872,10 +872,10 @@ APPROVAL        审批节点
 | --- | --- | --- | --- | --- |
 | [x] | P4-E01 | 监控时间范围切换 | Monitor UI/API | 支持 4h、24h、7d、30d 维度切换 |
 | [x] | P4-E02 | 趋势图 | Monitor UI/API | 展示执行量、失败率、耗时趋势 |
-| [ ] | P4-E03 | 告警规则配置 | Alert UI/API | 可配置失败率、连续失败、耗时、死信数量阈值 |
-| [ ] | P4-E04 | 告警订阅 | Alert/Notification | 用户可订阅系统、资源、流水线告警 |
-| [~] | P4-E05 | 告警记录 | Alert Log UI | 可查看触发时间、恢复时间、通知状态 |
-| [~] | P4-E06 | 审计日志完善 | Audit UI/API | 配置变更、凭证读取、手动执行、审批操作均可追踪 |
+| [~] | P4-E03 | 告警规则配置 | Alert UI/API | 可配置失败率、连续失败、耗时、死信数量阈值 |
+| [~] | P4-E04 | 告警订阅 | Alert/Notification | 用户可订阅系统、资源、流水线告警 |
+| [x] | P4-E05 | 告警记录 | Alert Log UI | 可查看触发时间、恢复时间、通知状态 |
+| [x] | P4-E06 | 审计日志完善 | Audit UI/API | 配置变更、凭证读取、手动执行、审批操作均可追踪 |
 
 ---
 

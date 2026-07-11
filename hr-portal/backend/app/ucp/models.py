@@ -1248,3 +1248,63 @@ class UcpPipelineTemplateVersion(Base):
         UniqueConstraint("template_id", "version", name="uq_tpl_version"),
         Index("ix_pipeline_template_version_tpl", "template_id"),
     )
+
+
+# ===== Phase 4: 告警规则与告警记录 =====
+
+class UcpAlertRule(Base):
+    """告警规则配置。
+
+    用户可配置失败率、连续失败、耗时、死信数量等阈值。
+    """
+    __tablename__ = "ucp_alert_rule"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    rule_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    rule_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    rule_type: Mapped[str] = mapped_column(String(32), nullable=False)  # FAIL_RATE / CONSECUTIVE_FAIL / DURATION / DEAD_LETTER_COUNT
+    threshold_value: Mapped[float] = mapped_column(nullable=False, default=0)
+    threshold_unit: Mapped[str | None] = mapped_column(String(16), nullable=True)  # percent / count / ms
+    target_filter: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {system_id, resource_id, pipeline_code}
+    is_active: Mapped[bool] = mapped_column(Integer, nullable=False, default=1)
+    notify_channels: Mapped[str | None] = mapped_column(String(64), nullable=True)  # feishu,email
+    notify_receivers: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class UcpAlertLog(Base):
+    """告警触发记录。
+
+    记录每次告警触发的时间、内容、通知状态。
+    """
+    __tablename__ = "ucp_alert_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    rule_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ucp_alert_rule.id", ondelete="SET NULL"), nullable=True
+    )
+    rule_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    alert_level: Mapped[str] = mapped_column(String(16), nullable=False, default="WARN")  # CRITICAL / WARN / INFO
+    alert_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    ref_id: Mapped[str | None] = mapped_column(String(128), nullable=True)  # pipeline_run_id / system_code
+    current_value: Mapped[float | None] = mapped_column(nullable=True)
+    threshold_value: Mapped[float | None] = mapped_column(nullable=True)
+    notify_status: Mapped[str | None] = mapped_column(String(16), nullable=True)  # PENDING / SENT / FAILED
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_ucp_alert_log_rule", "rule_id"),
+        Index("ix_ucp_alert_log_created", "created_at"),
+    )

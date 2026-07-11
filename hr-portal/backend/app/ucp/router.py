@@ -4252,8 +4252,182 @@ async def get_node_types() -> dict:
                     "max_iterations": "integer (default 1000)",
                 },
             },
+            {
+                "type": "NOTIFY",
+                "label": "通知",
+                "color": "#909399",
+                "icon": "BellFilled",
+                "config_schema": {
+                    "template_code": "string",
+                    "receivers": "array<string>",
+                    "trigger_condition": "string",
+                },
+            },
+            {
+                "type": "WAIT",
+                "label": "等待",
+                "color": "#E6A23C",
+                "icon": "Clock",
+                "config_schema": {
+                    "wait_type": "string (fixed|until|event)",
+                    "wait_duration_seconds": "integer",
+                    "wait_until_iso": "string (ISO datetime)",
+                },
+            },
+            {
+                "type": "APPROVAL",
+                "label": "审批",
+                "color": "#F56C6C",
+                "icon": "Document",
+                "config_schema": {
+                    "approvers": "array<{user_id, user_name}>",
+                    "approval_mode": "string (SINGLE|ANY|ALL)",
+                    "reason": "string",
+                    "action_summary": "string",
+                },
+            },
         ],
         "node_count_limit": 50,
+    }
+
+
+# ====================================================================
+# Phase 4: 告警规则配置
+# ====================================================================
+
+
+class AlertRuleCreate(BaseModel):
+    rule_code: str
+    rule_name: str
+    rule_type: str  # FAIL_RATE / CONSECUTIVE_FAIL / DURATION / DEAD_LETTER_COUNT
+    threshold_value: float = 0
+    threshold_unit: str | None = None
+    target_filter: dict | None = None
+    notify_channels: str | None = None
+    notify_receivers: list | None = None
+    cooldown_minutes: int = 60
+    description: str | None = None
+
+
+@router.get("/alert-rules", summary="告警规则列表",
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
+async def list_alert_rules(
+    rule_type: str | None = None,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(current_user),
+) -> dict:
+    from app.ucp.models import UcpAlertRule
+    conds = []
+    if rule_type:
+        conds.append(UcpAlertRule.rule_type == rule_type)
+    stmt = select(UcpAlertRule).where(*conds).order_by(UcpAlertRule.created_at.desc())
+    rows = (await db.execute(stmt)).scalars().all()
+    return {"items": [_alert_rule_to_dict(r) for r in rows], "total": len(rows)}
+
+
+@router.post("/alert-rules", summary="创建告警规则",
+             dependencies=[Depends(require_op("ucp.systems", "C"))])
+async def create_alert_rule(
+    payload: AlertRuleCreate,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(current_user),
+) -> dict:
+    from app.ucp.models import UcpAlertRule
+    rule = UcpAlertRule(
+        rule_code=payload.rule_code,
+        rule_name=payload.rule_name,
+        rule_type=payload.rule_type,
+        threshold_value=payload.threshold_value,
+        threshold_unit=payload.threshold_unit,
+        target_filter=payload.target_filter,
+        notify_channels=payload.notify_channels,
+        notify_receivers=payload.notify_receivers,
+        cooldown_minutes=payload.cooldown_minutes,
+        description=payload.description,
+        created_by=_user.username if hasattr(_user, "username") else str(_user.id),
+    )
+    db.add(rule)
+    await db.commit()
+    return _alert_rule_to_dict(rule)
+
+
+@router.patch("/alert-rules/{rule_id}", summary="更新告警规则",
+              dependencies=[Depends(require_op("ucp.systems", "U"))])
+async def update_alert_rule(
+    rule_id: int,
+    payload: dict,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(current_user),
+) -> dict:
+    from app.ucp.models import UcpAlertRule
+    rule = await db.get(UcpAlertRule, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="规则不存在")
+    for field in ("rule_name", "threshold_value", "threshold_unit", "target_filter",
+                   "notify_channels", "notify_receivers", "cooldown_minutes", "description"):
+        if field in payload:
+            setattr(rule, field, payload[field])
+    if "is_active" in payload:
+        rule.is_active = payload["is_active"]
+    await db.commit()
+    return _alert_rule_to_dict(rule)
+
+
+@router.delete("/alert-rules/{rule_id}", summary="删除告警规则",
+               dependencies=[Depends(require_op("ucp.systems", "D"))])
+async def delete_alert_rule(
+    rule_id: int,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(current_user),
+) -> dict:
+    from app.ucp.models import UcpAlertRule
+    rule = await db.get(UcpAlertRule, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="规则不存在")
+    await db.delete(rule)
+    await db.commit()
+    return {"deleted": True, "rule_code": rule.rule_code}
+
+
+@router.get("/alert-logs", summary="告警记录",
+            dependencies=[Depends(require_op("ucp.systems", "V"))])
+async def list_alert_logs(
+    limit: int = 50,
+    rule_id: int | None = None,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(current_user),
+) -> dict:
+    from app.ucp.models import UcpAlertLog
+    conds = []
+    if rule_id:
+        conds.append(UcpAlertLog.rule_id == rule_id)
+    stmt = select(UcpAlertLog).where(*conds).order_by(UcpAlertLog.created_at.desc()).limit(limit)
+    rows = (await db.execute(stmt)).scalars().all()
+    return {"items": [_alert_log_to_dict(r) for r in rows], "total": len(rows)}
+
+
+def _alert_rule_to_dict(r) -> dict:
+    return {
+        "id": r.id, "rule_code": r.rule_code, "rule_name": r.rule_name,
+        "rule_type": r.rule_type, "threshold_value": r.threshold_value,
+        "threshold_unit": r.threshold_unit, "target_filter": r.target_filter,
+        "is_active": r.is_active, "notify_channels": r.notify_channels,
+        "notify_receivers": r.notify_receivers, "cooldown_minutes": r.cooldown_minutes,
+        "description": r.description, "created_by": r.created_by,
+        "created_at": str(r.created_at) if r.created_at else None,
+        "updated_at": str(r.updated_at) if r.updated_at else None,
+    }
+
+
+def _alert_log_to_dict(r) -> dict:
+    return {
+        "id": r.id, "rule_id": r.rule_id, "rule_code": r.rule_code,
+        "alert_level": r.alert_level, "alert_type": r.alert_type,
+        "message": r.message, "ref_id": r.ref_id,
+        "current_value": r.current_value, "threshold_value": r.threshold_value,
+        "notify_status": r.notify_status,
+        "resolved_at": str(r.resolved_at) if r.resolved_at else None,
+        "created_at": str(r.created_at) if r.created_at else None,
     }
 
 

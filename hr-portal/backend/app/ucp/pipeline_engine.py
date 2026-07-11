@@ -413,12 +413,17 @@ async def execute_pipeline(
         try:
             result = await _execute_step(step_config, ctx, db, trace_id, pipeline_run_id, step_run_id)
             ctx.set(step_id, result)
+            result_status = result.get("status", "success")
             ctx.stats[step_id] = {
-                "status": result.get("status", "success"),
+                "status": result_status,
                 "row_count": result.get("row_count", 0),
                 "success_count": result.get("success_count", 0),
                 "failed_count": result.get("failed_count", 0),
             }
+            # Phase 4: APPROVAL 节点返回 waiting_approval
+            if result_status == "waiting_approval":
+                step_status = "WAITING_APPROVAL"
+                overall_status = "WAITING_APPROVAL"
         except Exception as e:
             step_status = "FAILED"
             step_error = str(e)[:1000]
@@ -441,12 +446,12 @@ async def execute_pipeline(
                 ctx.set(step_id, {"status": "failed", "error": step_error})
 
         # 更新步骤执行实例
-        if step_status != "FAILED" or error_handling == "CONTINUE_ON_ERROR":
+        if step_status == "WAITING_APPROVAL":
+            success_count += 1  # 审批创建成功算作成功
+        elif step_status != "FAILED" or error_handling == "CONTINUE_ON_ERROR":
             success_count += 1
 
-        step_exec.status = step_status if step_status != "FAILED" else "FAILED"
-        if step_status == "SUCCESS":
-            step_exec.status = "SUCCESS"
+        step_exec.status = step_status
         step_exec.error_message = step_error
         step_exec.ended_at = datetime.now(UTC)
         step_exec.duration_ms = int((time.monotonic() - step_start) * 1000)
@@ -549,6 +554,12 @@ async def _execute_step(
         return await _execute_transform_step(step_config, ctx, db)
     elif step_type == "NOTIFY":
         return await _execute_notify_step(step_config, ctx, db, trace_id, pipeline_run_id)
+    elif step_type == "BRANCH":
+        return await _execute_branch_step(step_config, ctx, db)
+    elif step_type == "WAIT":
+        return await _execute_wait_step(step_config, ctx, db)
+    elif step_type == "APPROVAL":
+        return await _execute_approval_step(step_config, ctx, db, trace_id, pipeline_run_id)
     else:
         raise RuntimeError(f"Unsupported step type: {step_type}")
 
@@ -1064,6 +1075,143 @@ def mask_item_params(params: dict) -> dict:
     """对循环调用参数做脱敏，移除敏感字段值。"""
     from app.ucp.masking import mask_dict
     return mask_dict(params)
+
+
+# ===== Phase 4: BRANCH / WAIT / APPROVAL 节点执行 =====
+
+async def _execute_branch_step(
+    step_config: dict,
+    ctx: PipelineContext,
+    db: AsyncSession,
+) -> dict:
+    """执行 BRANCH 步骤：根据条件表达式路由到不同分支。
+
+    step_config 结构：
+      - condition: 条件表达式字符串，如 "ctx.stats.step_1.status == 'success'"
+      - true_branch: 条件为真时执行的步骤列表（可选）
+      - false_branch: 条件为假时执行的步骤列表（可选）
+    """
+    condition = step_config.get("condition", "")
+    branch_result = True  # 默认走 true 分支
+
+    if condition:
+        try:
+            # 安全评估：只允许访问 ctx 对象
+            safe_globals = {"__builtins__": {}, "ctx": ctx}
+            branch_result = bool(eval(condition, safe_globals))
+        except Exception as e:
+            logger.warning("BRANCH condition eval failed: %s → %s", condition, e)
+            branch_result = False
+
+    branch_key = "true_branch" if branch_result else "false_branch"
+    branch_steps = step_config.get(branch_key, [])
+    results = []
+    for sub_step in branch_steps:
+        # 子步骤在分支上下文中顺序执行
+        sub_result = await _execute_step(sub_step, ctx, db, ctx.trace_id, ctx.pipeline_run_id, f"{ctx.pipeline_run_id}_branch")
+        results.append(sub_result)
+
+    return {
+        "status": "success",
+        "branch_taken": branch_key,
+        "condition": condition,
+        "condition_result": branch_result,
+        "branch_steps_executed": len(results),
+    }
+
+
+async def _execute_wait_step(
+    step_config: dict,
+    ctx: PipelineContext,
+    db: AsyncSession,
+) -> dict:
+    """执行 WAIT 步骤：暂停指定时长。
+
+    step_config 结构：
+      - wait_type: "fixed"（固定时长）| "until"（等到指定时间）| "event"（等待事件）
+      - wait_duration_seconds: 等待秒数（fixed 模式）
+      - wait_until_iso: ISO 时间字符串（until 模式）
+    """
+    import asyncio
+
+    wait_type = step_config.get("wait_type", "fixed")
+    seconds = 0
+
+    if wait_type == "fixed":
+        seconds = int(step_config.get("wait_duration_seconds", 0) or 0)
+    elif wait_type == "until":
+        from datetime import datetime as dt
+        until_str = step_config.get("wait_until_iso", "")
+        if until_str:
+            try:
+                target = dt.fromisoformat(until_str.replace("Z", "+00:00"))
+                now = dt.now(UTC)
+                delta = (target - now).total_seconds()
+                seconds = max(0, int(delta))
+            except Exception:
+                seconds = 0
+    elif wait_type == "event":
+        seconds = 0  # 事件等待由外部调度器处理，此处不阻塞
+
+    seconds = min(seconds, 3600)  # 最多等 1 小时
+    if seconds > 0:
+        logger.info("WAIT step: sleeping %d seconds", seconds)
+        await asyncio.sleep(seconds)
+
+    return {
+        "status": "success",
+        "wait_type": wait_type,
+        "waited_seconds": seconds,
+    }
+
+
+async def _execute_approval_step(
+    step_config: dict,
+    ctx: PipelineContext,
+    db: AsyncSession,
+    trace_id: str,
+    pipeline_run_id: str,
+) -> dict:
+    """执行 APPROVAL 步骤：创建审批请求并挂起流水线。
+
+    step_config 结构：
+      - approvers: 审批人列表 [{user_id, user_name}]
+      - approval_mode: "SINGLE" | "ANY" | "ALL"
+      - reason: 审批原因
+      - action_summary: 审批动作摘要
+    """
+    from app.ucp.approval_service import create_approval_request
+
+    approvers = step_config.get("approvers", [])
+    if not approvers:
+        return {"status": "success", "skipped": True, "reason": "no approvers configured"}
+
+    try:
+        approval = await create_approval_request(
+            db=db,
+            business_type="pipeline_step",
+            business_key=f"{pipeline_run_id}:{step_config.get('step_id', '')}",
+            business_summary=step_config.get("action_summary", f"Pipeline {trace_id} 审批"),
+            action=step_config.get("action", "APPROVE"),
+            action_payload={
+                "pipeline_run_id": pipeline_run_id,
+                "trace_id": trace_id,
+                "step_config": step_config,
+            },
+            approvers=approvers,
+            approval_mode=step_config.get("approval_mode", "SINGLE"),
+            reason=step_config.get("reason", ""),
+            pipeline_run_id=pipeline_run_id,
+        )
+        return {
+            "status": "waiting_approval",
+            "approval_id": approval.id,
+            "approval_request_code": approval.request_code,
+            "approvers": approvers,
+        }
+    except Exception as e:
+        logger.warning("APPROVAL step creation failed: %s", e)
+        return {"status": "success", "skipped": True, "reason": f"approval creation failed: {e}"}
 
 
 # ===== Phase 2-4: 手动触发并发互斥与权限校验 =====

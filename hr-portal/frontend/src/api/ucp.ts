@@ -1529,6 +1529,54 @@ export const monitorApi = {
       .then((r) => r.data.items),
 }
 
+/* ── Phase 4: 告警规则配置 ── */
+
+export interface AlertRuleItem {
+  id: number
+  rule_code: string
+  rule_name: string
+  rule_type: string
+  threshold_value: number
+  threshold_unit: string | null
+  target_filter: Record<string, any> | null
+  is_active: number
+  notify_channels: string | null
+  notify_receivers: string[] | null
+  cooldown_minutes: number
+  description: string | null
+  created_by: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface AlertLogItem {
+  id: number
+  rule_id: number | null
+  rule_code: string | null
+  alert_level: string
+  alert_type: string
+  message: string
+  ref_id: string | null
+  current_value: number | null
+  threshold_value: number | null
+  notify_status: string | null
+  resolved_at: string | null
+  created_at: string | null
+}
+
+export const alertRuleApi = {
+  list: (ruleType?: string) =>
+    api.get<{ items: AlertRuleItem[]; total: number }>('/ucp/alert-rules', { params: ruleType ? { rule_type: ruleType } : {} }).then((r) => r.data),
+  create: (payload: { rule_code: string; rule_name: string; rule_type: string; threshold_value: number; threshold_unit?: string; target_filter?: Record<string, any>; notify_channels?: string; notify_receivers?: string[]; cooldown_minutes?: number; description?: string }) =>
+    api.post<AlertRuleItem>('/ucp/alert-rules', payload).then((r) => r.data),
+  update: (ruleId: number, payload: Record<string, any>) =>
+    api.patch<AlertRuleItem>(`/ucp/alert-rules/${ruleId}`, payload).then((r) => r.data),
+  delete: (ruleId: number) =>
+    api.delete<{ deleted: boolean }>(`/ucp/alert-rules/${ruleId}`).then((r) => r.data),
+  logs: (limit?: number) =>
+    api.get<{ items: AlertLogItem[]; total: number }>('/ucp/alert-logs', { params: { limit } }).then((r) => r.data),
+}
+
 /* Phase 5-4: 把 adapterRegistry 入口并入 ucpApi */
 ;(ucpApi as any).adapterRegistryList = adapterRegistryApi.list
 ;(ucpApi as any).adapterSchema = adapterRegistryApi.getSchema

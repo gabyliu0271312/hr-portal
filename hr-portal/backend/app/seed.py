@@ -322,6 +322,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_single_table_datasets(db)
         await _ensure_document_templates(db)
         await _ensure_formula_functions(db)
+        await _ensure_pipeline_templates(db)
         logger.info("[seed] done")
 
 
@@ -597,4 +598,77 @@ async def _ensure_formula_functions(db: AsyncSession) -> None:
             )
         )
         logger.info("[seed] formula function added: %s", cfg["code"])
+    await db.commit()
+
+
+async def _ensure_pipeline_templates(db: AsyncSession) -> None:
+    """幂等创建 Phase 4 预置流水线模板：入职账号创建、离职账号停用"""
+    from app.ucp.models import UcpPipelineTemplate as PT
+
+    existing_codes = {
+        code for (code,) in (await db.execute(select(PT.template_code))).all()
+    }
+
+    templates = [
+        {
+            "template_code": "TPL_ONBOARDING_ACCOUNT",
+            "name": "入职账号创建",
+            "description": "HR 入职事件触发 → 为员工创建滴滴/曹操等外部系统账号",
+            "nodes": [
+                {"id": "start", "type": "TRANSFORM", "x": 100, "y": 120, "label": "解析入职事件",
+                 "config": {"mappings": [{"src": "payload.employee_id", "dst": "employee_id"}]}},
+                {"id": "create_didi", "type": "CONNECTOR", "x": 350, "y": 80, "label": "创建滴滴账号",
+                 "config": {"adapter_code": "didi_account_push_adapter", "action": "CREATE"}},
+                {"id": "create_caocao", "type": "CONNECTOR", "x": 350, "y": 200, "label": "创建曹操账号",
+                 "config": {"adapter_code": "caocao_account_push_adapter", "action": "CREATE"}},
+                {"id": "notify", "type": "NOTIFY", "x": 600, "y": 140, "label": "通知 HR",
+                 "config": {"template_code": "TPL_ONBOARDING_DONE", "receivers": ["hr_admin"]}},
+            ],
+            "edges": [
+                {"from": "start", "to": "create_didi"},
+                {"from": "start", "to": "create_caocao"},
+                {"from": "create_didi", "to": "notify"},
+                {"from": "create_caocao", "to": "notify"},
+            ],
+        },
+        {
+            "template_code": "TPL_OFFBOARDING_ACCOUNT",
+            "name": "离职账号停用",
+            "description": "离职事件触发 → 停用/删除外部系统账号，需审批",
+            "nodes": [
+                {"id": "start", "type": "TRANSFORM", "x": 100, "y": 120, "label": "解析离职事件",
+                 "config": {"mappings": [{"src": "payload.employee_id", "dst": "employee_id"}]}},
+                {"id": "approval", "type": "APPROVAL", "x": 350, "y": 120, "label": "审批确认",
+                 "config": {"approvers": [], "approval_mode": "SINGLE", "reason": "离职账号停用需审批",
+                  "action_summary": "停用离职员工外部账号"}},
+                {"id": "disable_didi", "type": "CONNECTOR", "x": 600, "y": 80, "label": "停用滴滴账号",
+                 "config": {"adapter_code": "didi_account_push_adapter", "action": "DISABLE"}},
+                {"id": "disable_caocao", "type": "CONNECTOR", "x": 600, "y": 200, "label": "停用曹操账号",
+                 "config": {"adapter_code": "caocao_account_push_adapter", "action": "DISABLE"}},
+                {"id": "notify", "type": "NOTIFY", "x": 850, "y": 140, "label": "通知 HR",
+                 "config": {"template_code": "TPL_OFFBOARDING_DONE", "receivers": ["hr_admin"]}},
+            ],
+            "edges": [
+                {"from": "start", "to": "approval"},
+                {"from": "approval", "to": "disable_didi"},
+                {"from": "approval", "to": "disable_caocao"},
+                {"from": "disable_didi", "to": "notify"},
+                {"from": "disable_caocao", "to": "notify"},
+            ],
+        },
+    ]
+
+    for tpl in templates:
+        if tpl["template_code"] in existing_codes:
+            continue
+        db.add(PT(
+            template_code=tpl["template_code"],
+            name=tpl["name"],
+            description=tpl.get("description"),
+            nodes_json=tpl["nodes"],
+            edges_json=tpl["edges"],
+            version="1.0",
+            created_by="seed",
+        ))
+        logger.info("[seed] pipeline template added: %s", tpl["template_code"])
     await db.commit()
