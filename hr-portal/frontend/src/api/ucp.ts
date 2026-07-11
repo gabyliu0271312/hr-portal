@@ -382,7 +382,7 @@ export const ucpApi = {
   credentials: (authType?: string) =>
     api.get<Paginated<CredentialConfigItem>>('/ucp/credentials', { params: { auth_type: authType } }).then((r) => ({ total: r.data.total, items: extractItems(r.data) })),
 
-  createCredential: (payload: { credential_code: string; credential_name: string; secrets: Record<string, string>; auth_type?: string; description?: string; system_id?: number; env_tag?: string; is_primary?: boolean }) =>
+  createCredential: (payload: { credential_code: string; credential_name: string; secrets: Record<string, string>; auth_type?: string; description?: string; system_id?: number; env_tag?: string; is_primary?: boolean; expires_at?: string }) =>
     api.post<{id: number; credential_code: string; message: string}>('/ucp/credentials', payload).then((r) => r.data),
 
   updateCredential: (credentialId: number, payload: { credential_name?: string; secrets?: Record<string, string>; auth_type?: string; description?: string; is_primary?: boolean }) =>

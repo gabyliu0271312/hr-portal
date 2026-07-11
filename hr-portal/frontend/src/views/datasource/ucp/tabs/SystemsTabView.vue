@@ -483,6 +483,15 @@
               {{ showSecret ? '隐藏' : '显示' }}值
             </el-button>
           </el-form-item>
+          <el-form-item label="过期时间">
+            <el-date-picker
+              v-model="credForm.expires_at"
+              type="datetime"
+              placeholder="选填，到期后凭证自动标记为已过期"
+              style="width: 100%"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+            />
+          </el-form-item>
           <el-form-item label="说明">
             <el-input v-model="credForm.description" type="textarea" :rows="2" />
           </el-form-item>
@@ -887,6 +896,7 @@ const credForm = ref<any>({
   auth_type: 'api_key',
   env_tag: 'prod',
   description: '',
+  expires_at: '',
   secrets: {} as Record<string, string>,
 })
 
@@ -1220,12 +1230,21 @@ async function saveResource() {
 
 async function confirmDeleteResource() {
   if (!activeResource.value) return
+  // P2-A05: 删除前影响分析 — 查询引用该资源的流水线
+  let impactMsg = `确定删除资源「${activeResource.value.resource_name}」？`
   try {
-    await ElMessageBox.confirm(
-      `确定删除资源「${activeResource.value.resource_name}」？`,
-      '删除确认',
-      { type: 'warning' }
-    )
+    const impact = await ucpApi.pipelinesUsingResource(activeResource.value.id)
+    if (impact.total > 0) {
+      const names = impact.items.map((p: any) => p.pipeline_name || p.pipeline_code).join('、')
+      impactMsg = `资源「${activeResource.value.resource_name}」被 ${impact.total} 条流水线引用：${names}。\n删除后这些流水线将无法执行。\n\n确定删除？`
+    }
+  } catch { /* 查询失败不影响删除流程 */ }
+  try {
+    await ElMessageBox.confirm(impactMsg, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      dangerouslyUseHTMLString: false,
+    })
   } catch {
     return
   }
@@ -1252,6 +1271,7 @@ function openAddSystemWizard(opts: { mode?: 'system' | 'credOnly'; system?: any 
     auth_type: 'api_key',
     env_tag: 'prod',
     description: '',
+    expires_at: '',
     secrets: {} as Record<string, string>,
   }
   pendingSystemId.value = null
@@ -1354,6 +1374,7 @@ async function submitSystemStep2() {
       system_id: pendingSystemId.value,
       env_tag: credForm.value.env_tag || undefined,
       is_primary: true,
+      expires_at: credForm.value.expires_at || undefined,
       secrets: credForm.value.secrets,
     })
     pendingCredId.value = r.id

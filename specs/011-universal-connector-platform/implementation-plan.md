@@ -702,64 +702,64 @@ APPROVAL        审批节点
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P2-A01 | 资源详情抽屉/页面 | `ResourceDetailDrawer.vue`, Resource API | 展示资源名称、类型、协议、所属系统、状态、最近测试结果 |
-| [ ] | P2-A02 | 资源动作配置展示 | Resource 组件/API | 可查看 endpoint/table/action、请求方式、参数摘要、字段映射摘要 |
-| [ ] | P2-A03 | 资源关联凭证展示 | Resource 详情、Credential API | 展示该资源可用凭证环境和主用凭证，不泄露 secret |
-| [ ] | P2-A04 | 资源反向引用流水线 | `/resources/{id}/pipelines` | 能看到引用该资源的所有模板、流水线、节点编号 |
-| [ ] | P2-A05 | 删除资源影响分析 | 前端确认弹窗、后端校验 | 删除前列出受影响流水线；有启用流水线引用时默认禁止删除 |
-| [ ] | P2-A06 | 资源停用机制 | Resource API | 停用后新执行不得调用该资源，历史执行记录仍可查看 |
+| [x] | P2-A01 | 资源详情抽屉/页面 | `ResourceDetailDrawer.vue`, Resource API | 展示资源名称、类型、协议、所属系统、状态、最近测试结果 |
+| [x] | P2-A02 | 资源动作配置展示 | Resource 组件/API | 可查看 endpoint/table/action、请求方式、参数摘要、字段映射摘要 |
+| [x] | P2-A03 | 资源关联凭证展示 | Resource 详情、Credential API | 展示该资源可用凭证环境和主用凭证，不泄露 secret |
+| [x] | P2-A04 | 资源反向引用流水线 | `/resources/{id}/pipelines` | 能看到引用该资源的所有模板、流水线、节点编号 |
+| [x] | P2-A05 | 删除资源影响分析 | 前端确认弹窗、后端校验 | 删除前列出受影响流水线；有启用流水线引用时默认禁止删除 |
+| [x] | P2-A06 | 资源停用机制 | Resource API | 停用后新执行不得调用该资源，历史执行记录仍可查看 |
 
 ### B. 凭证生命周期增强
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P2-B01 | 凭证主备切换 | `SystemDetailDrawer.vue`, Credential API | 可将同环境或指定环境凭证设为主用，原主用自动降为备用 |
-| [ ] | P2-B02 | 凭证过期状态计算 | Credential Service | 支持正常、即将过期、已过期、停用状态，首页 chip 同步展示 |
-| [ ] | P2-B03 | 凭证到期提醒配置 | Credential UI/Notification | 可配置提前 N 天提醒，提醒记录可追踪 |
-| [ ] | P2-B04 | 凭证轮换记录 | Audit Log | 新增、更新、设主用、停用均记录操作人和时间，不记录密钥明文 |
-| [ ] | P2-B05 | 凭证可用范围 | Credential Model/API | 可限制凭证适用资源、环境和执行主体 |
-| [ ] | P2-B06 | 凭证安全回显 | 前端表单/后端 DTO | secret 永不明文回显，仅显示脱敏摘要和更新时间 |
+| [x] | P2-B01 | 凭证主备切换 | `SystemDetailDrawer.vue`, Credential API | 可将同环境或指定环境凭证设为主用，原主用自动降为备用 |
+| [x] | P2-B02 | 凭证过期状态计算 | Credential Service | 支持正常、即将过期、已过期、停用状态，首页 chip 同步展示 |
+| [~] | P2-B03 | 凭证到期提醒配置 | Credential UI/Notification | 可配置提前 N 天提醒，提醒记录可追踪 |
+| [x] | P2-B04 | 凭证轮换记录 | Audit Log | 新增、更新、设主用、停用均记录操作人和时间，不记录密钥明文 |
+| [x] | P2-B05 | 凭证可用范围 | Credential Model/API | 可限制凭证适用资源、环境和执行主体 |
+| [x] | P2-B06 | 凭证安全回显 | 前端表单/后端 DTO | secret 永不明文回显，仅显示脱敏摘要和更新时间 |
 
 ### C. 测试引擎增强
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P2-C01 | 认证测试 | Test Engine/Credential API | 凭证保存后可测试认证，返回成功/失败和脱敏错误信息 |
-| [ ] | P2-C02 | 资源连通性测试 | Test Engine/Resource API | 可对指定资源执行连通性测试，记录 trace_id |
-| [ ] | P2-C03 | 样例数据预览 | Test Engine/Preview UI | 可拉取有限条样例数据，手机号、token、薪酬等字段脱敏 |
-| [ ] | P2-C04 | 测试历史记录 | Test Log Model/UI | 系统详情“审计/测试”Tab 可查看测试历史 |
-| [ ] | P2-C05 | 测试失败诊断 | Test Engine | 返回标准错误码、建议处理动作和外部错误摘要 |
+| [x] | P2-C01 | 认证测试 | Test Engine/Credential API | 凭证保存后可测试认证，返回成功/失败和脱敏错误信息 |
+| [x] | P2-C02 | 资源连通性测试 | Test Engine/Resource API | 可对指定资源执行连通性测试，记录 trace_id |
+| [x] | P2-C03 | 样例数据预览 | Test Engine/Preview UI | 可拉取有限条样例数据，手机号、token、薪酬等字段脱敏 |
+| [x] | P2-C04 | 测试历史记录 | Test Log Model/UI | 系统详情“审计/测试”Tab 可查看测试历史 |
+| [x] | P2-C05 | 测试失败诊断 | Test Engine | 返回标准错误码、建议处理动作和外部错误摘要 |
 
 ### D. 失败项与重跑
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P2-D01 | LOOP_RESOURCE item 记录 | Pipeline Engine/Models | 每个循环 item 有状态、输入摘要、输出摘要、错误码 |
-| [ ] | P2-D02 | 失败项列表 | `PipelineExecDetail.vue` | 执行详情可筛选查看失败 item |
-| [ ] | P2-D03 | 单项重跑 | Retry API/Engine | 可选择一个失败 item 重跑，生成新的 step run 关联原 item |
-| [ ] | P2-D04 | 批量重跑失败项 | Retry API/UI | 可一键重跑本次执行全部失败项，并展示重跑结果 |
-| [ ] | P2-D05 | 重跑幂等保护 | Engine/Adapter | 重跑不会造成重复写入，幂等键写入执行记录 |
-| [ ] | P2-D06 | 重跑权限控制 | Permission/Audit | 只有授权角色可重跑，操作进入审计日志 |
+| [x] | P2-D01 | LOOP_RESOURCE item 记录 | Pipeline Engine/Models | 每个循环 item 有状态、输入摘要、输出摘要、错误码 |
+| [x] | P2-D02 | 失败项列表 | `PipelineExecDetail.vue` | 执行详情可筛选查看失败 item |
+| [~] | P2-D03 | 单项重跑 | Retry API/Engine | 可选择一个失败 item 重跑，生成新的 step run 关联原 item |
+| [x] | P2-D04 | 批量重跑失败项 | Retry API/UI | 可一键重跑本次执行全部失败项，并展示重跑结果 |
+| [x] | P2-D05 | 重跑幂等保护 | Engine/Adapter | 重跑不会造成重复写入，幂等键写入执行记录 |
+| [x] | P2-D06 | 重跑权限控制 | Permission/Audit | 只有授权角色可重跑，操作进入审计日志 |
 
 ### E. 通知模板管理
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P2-E01 | 通知模板列表 | Notification Template UI/API | 可查看模板名称、渠道、适用流水线、启停状态 |
-| [ ] | P2-E02 | 通知模板编辑 | Template Editor | 支持变量插入、内容预览、保存版本 |
-| [ ] | P2-E03 | 通知模板试发 | Notification Service | 可向测试接收人试发，记录发送结果 |
-| [ ] | P2-E04 | NOTIFY 节点绑定模板 | Pipeline Designer | NOTIFY 节点可选择模板并配置接收人 |
-| [ ] | P2-E05 | 通知去重 | Notification Service | 同一 trace_id 的同类通知可配置去重策略 |
+| [x] | P2-E01 | 通知模板列表 | Notification Template UI/API | 可查看模板名称、渠道、适用流水线、启停状态 |
+| [x] | P2-E02 | 通知模板编辑 | Template Editor | 支持变量插入、内容预览、保存版本 |
+| [x] | P2-E03 | 通知模板试发 | Notification Service | 可向测试接收人试发，记录发送结果 |
+| [x] | P2-E04 | NOTIFY 节点绑定模板 | Pipeline Designer | NOTIFY 节点可选择模板并配置接收人 |
+| [x] | P2-E05 | 通知去重 | Notification Service | 同一 trace_id 的同类通知可配置去重策略 |
 
 ### F. 监控中心基础版
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P2-F01 | 监控首页基础布局 | `MonitorDashboardView.vue` | 展示 24h 执行数、成功率、失败率、平均耗时 |
-| [ ] | P2-F02 | 系统维度监控 | Monitor API/UI | 可按系统查看执行量、失败量、最近异常 |
-| [ ] | P2-F03 | 流水线维度监控 | Monitor API/UI | 可按流水线查看成功率、耗时和最近执行 |
-| [ ] | P2-F04 | 异常列表 | Monitor UI | 可查看最近失败执行、死信预警、凭证过期预警 |
-| [ ] | P2-F05 | 监控数据真实聚合 | Monitor Service | 指标来自 Pipeline Run/Step Run/Credential，不使用前端假数据 |
+| [x] | P2-F01 | 监控首页基础布局 | `MonitorDashboardView.vue` | 展示 24h 执行数、成功率、失败率、平均耗时 |
+| [x] | P2-F02 | 系统维度监控 | Monitor API/UI | 可按系统查看执行量、失败量、最近异常 |
+| [x] | P2-F03 | 流水线维度监控 | Monitor API/UI | 可按流水线查看成功率、耗时和最近执行 |
+| [x] | P2-F04 | 异常列表 | Monitor UI | 可查看最近失败执行、死信预警、凭证过期预警 |
+| [x] | P2-F05 | 监控数据真实聚合 | Monitor Service | 指标来自 Pipeline Run/Step Run/Credential，不使用前端假数据 |
 
 ---
 
@@ -769,57 +769,57 @@ APPROVAL        审批节点
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P3-A01 | 定义事件模型 | Event Models/Migration | 包含 source、event_type、event_key、payload、status、trace_id、received_at |
-| [ ] | P3-A02 | 事件去重键 | Event Service | 同一 source + event_key 重复投递可识别并标记 |
-| [ ] | P3-A03 | 事件列表 API | Event Router/API | 支持按来源、类型、状态、时间、trace_id 查询 |
-| [ ] | P3-A04 | 事件详情 API | Event Router/API | 返回 payload 摘要、时间线、派发记录、关联流水线 |
+| [x] | P3-A01 | 定义事件模型 | Event Models/Migration | 包含 source、event_type、event_key、payload、status、trace_id、received_at |
+| [x] | P3-A02 | 事件去重键 | Event Service | 同一 source + event_key 重复投递可识别并标记 |
+| [x] | P3-A03 | 事件列表 API | Event Router/API | 支持按来源、类型、状态、时间、trace_id 查询 |
+| [x] | P3-A04 | 事件详情 API | Event Router/API | 返回 payload 摘要、时间线、派发记录、关联流水线 |
 
 ### B. 事件中心前端
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P3-B01 | 事件列表页面 | `EventListView.vue` | 展示事件来源、类型、状态、接收时间、trace_id |
-| [ ] | P3-B02 | 事件筛选搜索 | Event UI | 可按来源、事件类型、状态、时间范围筛选 |
-| [ ] | P3-B03 | 事件详情页面 | `EventDetailView.vue` | 展示事件时间线、payload 脱敏预览、派发历史 |
-| [ ] | P3-B04 | 事件关联跳转 | Event UI | 可跳转到关联流水线执行详情或死信记录 |
+| [x] | P3-B01 | 事件列表页面 | `EventListView.vue` | 展示事件来源、类型、状态、接收时间、trace_id |
+| [x] | P3-B02 | 事件筛选搜索 | Event UI | 可按来源、事件类型、状态、时间范围筛选 |
+| [x] | P3-B03 | 事件详情页面 | `EventDetailView.vue` | 展示事件时间线、payload 脱敏预览、派发历史 |
+| [x] | P3-B04 | 事件关联跳转 | Event UI | 可跳转到关联流水线执行详情或死信记录 |
 
 ### C. 触发器配置
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P3-C01 | 触发器模型 | Trigger Models/API | 包含来源、事件类型、过滤条件、目标流水线、启停状态 |
-| [ ] | P3-C02 | 触发器配置页面 | `EventTriggerConfigView.vue` | 可新增、编辑、启停触发器 |
-| [ ] | P3-C03 | 过滤条件配置 | Trigger UI/Service | 支持按 payload 字段、系统、资源条件过滤 |
-| [ ] | P3-C04 | 触发器测试 | Trigger Test API | 可用样例 payload 验证是否命中目标流水线 |
+| [x] | P3-C01 | 触发器模型 | Trigger Models/API | 包含来源、事件类型、过滤条件、目标流水线、启停状态 |
+| [x] | P3-C02 | 触发器配置页面 | `EventTriggerConfigView.vue` | 可新增、编辑、启停触发器 |
+| [x] | P3-C03 | 过滤条件配置 | Trigger UI/Service | 支持按 payload 字段、系统、资源条件过滤 |
+| [~] | P3-C04 | 触发器测试 | Trigger Test API | 可用样例 payload 验证是否命中目标流水线 |
 
 ### D. 飞书 Webhook 接入
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P3-D01 | 飞书 challenge 处理 | Webhook Router | 支持飞书 URL 校验 challenge |
-| [ ] | P3-D02 | 飞书验签 | Webhook Service | 非法签名请求被拒绝并记录安全日志 |
-| [ ] | P3-D03 | 飞书事件标准化 | Event Adapter | 飞书原始事件转换为 UCP 标准事件模型 |
-| [ ] | P3-D04 | 飞书事件幂等 | Event Service | 重复 event_id 不重复触发流水线 |
+| [x] | P3-D01 | 飞书 challenge 处理 | Webhook Router | 支持飞书 URL 校验 challenge |
+| [x] | P3-D02 | 飞书验签 | Webhook Service | 非法签名请求被拒绝并记录安全日志 |
+| [x] | P3-D03 | 飞书事件标准化 | Event Adapter | 飞书原始事件转换为 UCP 标准事件模型 |
+| [x] | P3-D04 | 飞书事件幂等 | Event Service | 重复 event_id 不重复触发流水线 |
 
 ### E. 事件派发与流水线触发
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P3-E01 | 事件派发器 | Event Bus/Dispatcher | 命中触发器后创建 Pipeline Run |
-| [ ] | P3-E02 | 事件上下文注入 | Pipeline Engine | 事件 payload 可作为画布起始上下文使用 |
-| [ ] | P3-E03 | 派发状态记录 | Event Dispatch Log | 记录命中、跳过、成功、失败状态 |
-| [ ] | P3-E04 | 派发失败重试 | Dispatcher | 支持按重试策略再次派发 |
+| [x] | P3-E01 | 事件派发器 | Event Bus/Dispatcher | 命中触发器后创建 Pipeline Run |
+| [x] | P3-E02 | 事件上下文注入 | Pipeline Engine | 事件 payload 可作为画布起始上下文使用 |
+| [x] | P3-E03 | 派发状态记录 | Event Dispatch Log | 记录命中、跳过、成功、失败状态 |
+| [x] | P3-E04 | 派发失败重试 | Dispatcher | 支持按重试策略再次派发 |
 
 ### F. 死信队列
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P3-F01 | 死信模型 | Dead Letter Models/API | 记录事件、失败原因、重试次数、下一次重试时间、状态 |
-| [ ] | P3-F02 | 死信列表 | `DeadLetterListView.vue` | 可按来源、类型、失败原因、状态筛选 |
-| [ ] | P3-F03 | 死信详情 | Dead Letter UI | 展示 payload 脱敏摘要、失败堆栈摘要、重试历史 |
-| [ ] | P3-F04 | 死信重放 | Dead Letter API | 可重放指定死信并更新状态和 trace_id |
-| [ ] | P3-F05 | 死信丢弃 | Dead Letter API | 可丢弃死信，必须填写原因并记录操作人 |
-| [ ] | P3-F06 | 到期重试扫描 | Scheduler/Worker | 定时扫描到期死信并按策略重试 |
+| [x] | P3-F01 | 死信模型 | Dead Letter Models/API | 记录事件、失败原因、重试次数、下一次重试时间、状态 |
+| [x] | P3-F02 | 死信列表 | `DeadLetterListView.vue` | 可按来源、类型、失败原因、状态筛选 |
+| [x] | P3-F03 | 死信详情 | Dead Letter UI | 展示 payload 脱敏摘要、失败堆栈摘要、重试历史 |
+| [x] | P3-F04 | 死信重放 | Dead Letter API | 可重放指定死信并更新状态和 trace_id |
+| [x] | P3-F05 | 死信丢弃 | Dead Letter API | 可丢弃死信，必须填写原因并记录操作人 |
+| [x] | P3-F06 | 到期重试扫描 | Scheduler/Worker | 定时扫描到期死信并按策略重试 |
 
 ---
 
@@ -829,8 +829,8 @@ APPROVAL        审批节点
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P4-A01 | BRANCH 节点 UI | Pipeline Designer | 可配置条件表达式和多出口连线 |
-| [ ] | P4-A02 | BRANCH 节点执行 | Pipeline Engine | 根据上下文条件只执行命中分支 |
+| [~] | P4-A01 | BRANCH 节点 UI | Pipeline Designer | 可配置条件表达式和多出口连线 |
+| [~] | P4-A02 | BRANCH 节点执行 | Pipeline Engine | 根据上下文条件只执行命中分支 |
 | [ ] | P4-A03 | WAIT 节点 UI | Pipeline Designer | 支持固定时长等待、等待到指定时间、等待事件三类配置 |
 | [ ] | P4-A04 | WAIT 节点执行 | Pipeline Engine/Scheduler | 等待期间 run 状态可恢复，不阻塞主进程 |
 | [ ] | P4-A05 | APPROVAL 节点 UI | Pipeline Designer | 可配置审批人、审批原因、超时策略 |
@@ -840,42 +840,42 @@ APPROVAL        审批节点
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P4-B01 | 审批任务模型 | Approval Models/API | 包含申请人、审批人、关联 run、状态、意见、时间 |
-| [ ] | P4-B02 | 我的审批列表 | Approval UI | 审批人可查看待处理、已处理任务 |
-| [ ] | P4-B03 | 审批详情 | Approval UI | 展示高风险动作、上下文摘要、影响范围和脱敏数据 |
-| [ ] | P4-B04 | 审批操作 | Approval API | 支持通过、拒绝、转交，操作进入审计日志 |
-| [ ] | P4-B05 | 审批通知 | Notification Service | 新审批、超时、处理结果可通知相关人 |
+| [x] | P4-B01 | 审批任务模型 | Approval Models/API | 包含申请人、审批人、关联 run、状态、意见、时间 |
+| [x] | P4-B02 | 我的审批列表 | Approval UI | 审批人可查看待处理、已处理任务 |
+| [x] | P4-B03 | 审批详情 | Approval UI | 展示高风险动作、上下文摘要、影响范围和脱敏数据 |
+| [x] | P4-B04 | 审批操作 | Approval API | 支持通过、拒绝、转交，操作进入审计日志 |
+| [x] | P4-B05 | 审批通知 | Notification Service | 新审批、超时、处理结果可通知相关人 |
 
 ### C. 外部账号自动化
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P4-C01 | 外部账号动作资源 | Resource/Adapter | 支持创建、停用、删除账号动作资源 |
+| [x] | P4-C01 | 外部账号动作资源 | Resource/Adapter | 支持创建、停用、删除账号动作资源 |
 | [ ] | P4-C02 | 入职账号创建流水线 | Pipeline Template | 飞书/HR 入职事件可触发账号创建流程 |
 | [ ] | P4-C03 | 离职账号停用流水线 | Pipeline Template | 离职事件可触发滴滴、曹操等账号停用 |
-| [ ] | P4-C04 | 账号动作幂等 | Adapter/Engine | 重复事件不会重复创建或重复删除账号 |
-| [ ] | P4-C05 | 高风险审批接入 | Approval Node | 删除/停用账号可配置审批后执行 |
+| [x] | P4-C04 | 账号动作幂等 | Adapter/Engine | 重复事件不会重复创建或重复删除账号 |
+| [x] | P4-C05 | 高风险审批接入 | Approval Node | 删除/停用账号可配置审批后执行 |
 
 ### D. OA 组织同步
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P4-D01 | OA 组织资源定义 | Resource/Adapter | 可配置组织查询、创建、更新、停用资源动作 |
-| [ ] | P4-D02 | 组织差异计算 | Compare Service | 可比较 HR Portal 组织与 OA 组织差异 |
-| [ ] | P4-D03 | OA 同步流水线模板 | Pipeline Template | 支持按差异结果执行新增、更新、停用 |
-| [ ] | P4-D04 | 组织同步预演 | Pipeline Engine/UI | 正式执行前可预览影响组织数量和动作 |
-| [ ] | P4-D05 | 组织同步审计 | Audit/Run Detail | 每个组织变更动作有执行记录和外部响应摘要 |
+| [x] | P4-D01 | OA 组织资源定义 | Resource/Adapter | 可配置组织查询、创建、更新、停用资源动作 |
+| [x] | P4-D02 | 组织差异计算 | Compare Service | 可比较 HR Portal 组织与 OA 组织差异 |
+| [x] | P4-D03 | OA 同步流水线模板 | Pipeline Template | 支持按差异结果执行新增、更新、停用 |
+| [x] | P4-D04 | 组织同步预演 | Pipeline Engine/UI | 正式执行前可预览影响组织数量和动作 |
+| [x] | P4-D05 | 组织同步审计 | Audit/Run Detail | 每个组织变更动作有执行记录和外部响应摘要 |
 
 ### E. 完整监控与告警
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P4-E01 | 监控时间范围切换 | Monitor UI/API | 支持 4h、24h、7d、30d 维度切换 |
-| [ ] | P4-E02 | 趋势图 | Monitor UI/API | 展示执行量、失败率、耗时趋势 |
+| [x] | P4-E01 | 监控时间范围切换 | Monitor UI/API | 支持 4h、24h、7d、30d 维度切换 |
+| [x] | P4-E02 | 趋势图 | Monitor UI/API | 展示执行量、失败率、耗时趋势 |
 | [ ] | P4-E03 | 告警规则配置 | Alert UI/API | 可配置失败率、连续失败、耗时、死信数量阈值 |
 | [ ] | P4-E04 | 告警订阅 | Alert/Notification | 用户可订阅系统、资源、流水线告警 |
-| [ ] | P4-E05 | 告警记录 | Alert Log UI | 可查看触发时间、恢复时间、通知状态 |
-| [ ] | P4-E06 | 审计日志完善 | Audit UI/API | 配置变更、凭证读取、手动执行、审批操作均可追踪 |
+| [~] | P4-E05 | 告警记录 | Alert Log UI | 可查看触发时间、恢复时间、通知状态 |
+| [~] | P4-E06 | 审计日志完善 | Audit UI/API | 配置变更、凭证读取、手动执行、审批操作均可追踪 |
 
 ---
 

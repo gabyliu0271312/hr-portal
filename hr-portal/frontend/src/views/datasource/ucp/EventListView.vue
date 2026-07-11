@@ -85,7 +85,9 @@
       </el-table-column>
       <el-table-column prop="pipeline_run_id" label="Pipeline Run" min-width="200" show-overflow-tooltip>
         <template #default="{ row }">
-          <code v-if="row.pipeline_run_id">{{ row.pipeline_run_id }}</code>
+          <el-link v-if="row.pipeline_run_id" type="primary" @click.stop="router.push(`/ucp/executions/${row.pipeline_run_id}`)">
+            <code>{{ row.pipeline_run_id }}</code>
+          </el-link>
           <span v-else class="empty">-</span>
         </template>
       </el-table-column>

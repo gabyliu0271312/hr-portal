@@ -28,7 +28,9 @@
             <span v-else class="empty">-</span>
           </el-descriptions-item>
           <el-descriptions-item label="Pipeline Run ID">
-            <code v-if="event.pipeline_run_id">{{ event.pipeline_run_id }}</code>
+            <el-link v-if="event.pipeline_run_id" type="primary" @click="router.push(`/ucp/executions/${event.pipeline_run_id}`)">
+              <code>{{ event.pipeline_run_id }}</code>
+            </el-link>
             <span v-else class="empty">-</span>
           </el-descriptions-item>
           <el-descriptions-item label="重试次数" :span="1">{{ event.retry_count }}</el-descriptions-item>
@@ -106,7 +108,7 @@
             <div class="delivery-line">
               <el-tag size="small" :type="deliveryTagType(d.status)">{{ d.status }}</el-tag>
               <span class="delivery-info">attempt #{{ d.attempt }} · {{ d.trigger_code || '-' }}</span>
-              <code v-if="d.pipeline_run_id" class="run-id">{{ d.pipeline_run_id }}</code>
+              <el-link v-if="d.pipeline_run_id" type="primary" class="run-id" @click="router.push(`/ucp/executions/${d.pipeline_run_id}`)"><code>{{ d.pipeline_run_id }}</code></el-link>
             </div>
             <div v-if="d.error_message" class="timeline-detail">
               [{{ d.error_code }}] {{ d.error_message }}

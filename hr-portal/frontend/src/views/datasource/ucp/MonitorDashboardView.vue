@@ -8,7 +8,7 @@
       </div>
       <div class="actions">
         <el-radio-group v-model="hours" @change="loadAll">
-          <el-radio-button :value="1">1h</el-radio-button>
+          <el-radio-button :value="4">4h</el-radio-button>
           <el-radio-button :value="24">24h</el-radio-button>
           <el-radio-button :value="168">7d</el-radio-button>
           <el-radio-button :value="720">30d</el-radio-button>

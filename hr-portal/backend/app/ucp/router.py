@@ -667,6 +667,7 @@ async def create_new_credential(
                 system_id=int(bind_system_id),
                 env_tag=payload.get("env_tag"),
                 is_primary=1 if payload.get("is_primary") else 0,
+                expires_at=payload.get("expires_at"),
             )
         )
     await _audit(db, _user, "ucp_credential", "create",
