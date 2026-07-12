@@ -44,7 +44,7 @@
               v-for="c in grp.children"
               :key="c.id"
               class="leaf-item"
-              :class="{ active: c.routePath === route.path }"
+              :class="{ active: isLeafActive(c) }"
               @click="router.push(c.routePath)"
             >
               {{ c.label }}
@@ -53,7 +53,7 @@
           <template v-else>
             <div
               class="leaf-item leaf-item--single"
-              :class="{ active: grp.routePath === route.path }"
+              :class="{ active: isLeafActive(grp) }"
               @click="router.push(grp.routePath)"
             >
               {{ grp.label }}
@@ -155,8 +155,21 @@ const hideAside = computed(() => route.meta.hideAside === true)
 const leftMenu = computed<GroupMenu[]>(() => {
   if (hideAside.value) return []
   const tab = tabGroups.value.find((t) => t.id === activeTabId.value)
-  return tab?.children ?? []
+  if (!tab) return []
+  return tab.children
 })
+
+/**
+ * 叶子高亮判断：
+ * 1) 优先用 menuCode 严格匹配（不同菜单即使误映射到同一 path 也只高亮一个）
+ * 2) 兜底用 routePath 匹配（处理动态路由没有 menuCode 的场景）
+ */
+function isLeafActive(leaf: LeafMenu): boolean {
+  const currentCode = route.meta.menuCode as string | null | undefined
+  if (currentCode && leaf.code === currentCode) return true
+  if (leaf.routePath && leaf.routePath === route.path) return true
+  return false
+}
 
 function onTabClick(tab: TabMenu) {
   // 如果该 tab 有自己的首页路由（如 /warehouse），直接跳转

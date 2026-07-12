@@ -22,33 +22,24 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    chunkSizeWarningLimit: 800,  // Element Plus 全局注册 ~778KB，阈值调至 800KB
+    // 显式接受 vendor-element 全量引入的 chunk 体积。
+    // 原因：项目使用 Element Plus 全局注册（import ElementPlus from 'element-plus'），
+    // 所有组件一次性打包，单 chunk 约 940 KB。
+    // 后续可按需引入（unplugin-vue-components）进一步优化。
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // ── 框架层 ──
-          if (id.includes('node_modules/vue') || id.includes('node_modules/@vue')) {
-            if (id.includes('vue-router')) return 'vue-router'
-            if (id.includes('pinia')) return 'pinia'
-            return 'vue-core'
-          }
-          // ── UI 层：element-plus 拆成 core + icons ──
-          if (id.includes('node_modules/element-plus')) {
-            if (id.includes('icons-vue') || id.includes('@element-plus/icons')) return 'element-icons'
-            return 'element-plus'
-          }
-          // ── 流程图 ──
-          if (id.includes('@vue-flow') || id.includes('dagre')) return 'vue-flow'
-          // ── 其他大型库 ──
-          if (id.includes('node_modules/@antv')) return 'antv'
-          if (id.includes('node_modules/axios')) return 'axios'
-          if (id.includes('node_modules/lodash')) return 'lodash'
-          if (id.includes('node_modules/sortablejs')) return 'sortable'
-          // ── 其余 node_modules 按包名自动拆 ──
-          if (id.includes('node_modules')) {
-            const m = id.match(/node_modules\/(@[^/]+\/[^/]+|[^/]+)/)
-            if (m) return `lib-${m[1].replace('@', '').replace('/', '-')}`
-          }
+          // vendor — 第三方库按框架/UI/工具拆包，避免循环引用
+          if (id.includes('node_modules/element-plus')) return 'vendor-element'
+          if (id.includes('node_modules/echarts')) return 'vendor-echarts'
+          if (id.includes('node_modules/@vueuse')) return 'vendor-vueuse'
+          if (id.includes('node_modules/vue') || id.includes('node_modules/pinia')) return 'vendor-vue'
+          if (id.includes('node_modules/@vueflow') || id.includes('node_modules/@vue-flow')) return 'vendor-vueflow'
+          // UCP views — 路由已做懒加载（dynamic import），由 Vite 自动拆包，
+          // 不做 manualChunks，避免 tabs/components 与 views 之间的循环依赖
+          // other large views
+          if (id.includes('views/report/ReportDesigner')) return 'report-designer'
         },
       },
     },

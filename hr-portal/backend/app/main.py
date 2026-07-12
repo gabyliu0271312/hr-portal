@@ -14,7 +14,7 @@ from sqlalchemy import text
 from app.auth.router import router as auth_router
 from app.codegen.router import router as codegen_router
 from app.core.config import settings
-from app.core.db import AsyncSessionLocal, engine
+from app.core.db import AsyncSessionLocal, Base, engine
 from app.data.columns_router import router as columns_router
 from app.data.router import router as data_router
 from app.datasets.calculated_fields import router as dataset_calculated_fields_router
@@ -46,6 +46,7 @@ from app.system.router import router as system_logs_router
 from app.tools.router import router as tools_router
 from app.table_tools.router import router as table_tools_router
 from app.users.router import router as users_router
+from app.ucp.router import router as ucp_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger("hr-portal")
@@ -82,6 +83,13 @@ async def _wait_for_db_ready(max_wait_seconds: int = 60) -> None:
 async def lifespan(app: FastAPI):
     # 启动：等 DB 真正可查询（避免重启时撞上 Postgres 崩溃恢复）
     await _wait_for_db_ready()
+
+    # 启动：确保新模型表存在（无 migration 时的兜底 create_all）
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        logger.warning("[startup] create_all skip: %s", e)
 
     # 启动：跑 seed
     try:
@@ -188,6 +196,7 @@ app.include_router(push_router, prefix=settings.API_PREFIX)
 app.include_router(feishu_router, prefix=settings.API_PREFIX)
 app.include_router(automation_router, prefix=settings.API_PREFIX)
 app.include_router(data_compare_router, prefix=settings.API_PREFIX)
+app.include_router(ucp_router, prefix=settings.API_PREFIX)
 app.include_router(warehouse_router, prefix=settings.API_PREFIX)
 app.include_router(api_service_router, prefix=settings.API_PREFIX)
 app.include_router(subscription_router, prefix=settings.API_PREFIX)

@@ -1,67 +1,23 @@
-﻿# 飞书事件订阅/卡片回调公网化待办
+# 飞书卡片回调配置记录
 
-日期：2026-06-27
+日期：2026-06-29（已完成）
 
-## 当前状态
+## 已配置
 
-- 生产服务器本机已验证 `/api/v1/feishu/callbacks/card-action` 正常。
-- 本机 curl：
+- 卡片回调地址：`http://103.170.4.210:37801/api/v1/feishu/callbacks/card-action`
+- 公网映射：`103.170.4.210:37801` → `192.168.10.13:37801`
+- Verification Token：已配置到服务器 `.env` 的 `FEISHU_VERIFICATION_TOKEN`
+- 飞书开放平台配置路径：**机器人 → 消息卡片 → 卡片回调地址**
 
-```bash
-TOKEN=$(grep '^FEISHU_VERIFICATION_TOKEN=' .env | tail -1 | cut -d= -f2-)
+## 踩坑记录
 
-curl -s -X POST 'http://localhost:37801/api/v1/feishu/callbacks/card-action' \
-  -H 'Content-Type: application/json' \
-  -d "{\"type\":\"url_verification\",\"token\":\"$TOKEN\",\"challenge\":\"test_challenge\"}"
-```
+1. `192.168.10.13` 是内网 IP，飞书无法直接访问，需要公网端口映射（`103.170.4.210:37801`）
+2. URL 验证请求不带签名 header，原代码在签名校验之前拦截导致 403；已修复为 URL 验证优先处理
+3. 事件配置和卡片回调的 Verification Token 是同一个，配置路径在加密策略页面
+4. 卡片回调地址配置后**必须发布新版本**才能生效，否则飞书提示"该应用尚未配置卡片回调"
 
-- 返回成功：
+## 当前功能状态
 
-```json
-{"challenge":"test_challenge"}
-```
-
-- `FEISHU_VERIFICATION_TOKEN` 已配置到 `.env`。
-- `docker-compose.yml` 已透传：
-
-```yaml
-FEISHU_VERIFICATION_TOKEN: ${FEISHU_VERIFICATION_TOKEN:-}
-FEISHU_CALLBACK_MAX_TIMESTAMP_DIFF: ${FEISHU_CALLBACK_MAX_TIMESTAMP_DIFF:-300}
-```
-
-## 飞书开放平台现象
-
-- 在飞书开放平台配置事件/回调请求地址时仍提示：返回数据不是合法的 JSON 格式。
-
-## 判断
-
-- 后端接口、token 校验、JSON 返回均正常。
-- 问题大概率不是应用代码问题，而是飞书开放平台云端访问不到公司内网地址，或访问时被网关/防火墙返回了 HTML/错误页。
-- 当前内网地址：
-
-```text
-http://192.168.10.13:37801/api/v1/feishu/callbacks/card-action
-```
-
-## 待办
-
-需要 IT 提供飞书开放平台可访问的公网 HTTPS 域名或反向代理，例如：
-
-```text
-https://hr.xxx.com/api/v1/feishu/callbacks/card-action
-```
-
-反向代理到：
-
-```text
-http://192.168.10.13:37801/api/v1/feishu/callbacks/card-action
-```
-
-## 当前功能策略
-
-- 主动发送飞书通知不依赖事件订阅/回调配置。
-- 可先继续验收：消息配置、消息预览、测试发送、自动化规则触发发送消息。
-- 事件/回调仅在以下场景必须启用：
-  1. 飞书卡片按钮点击后回调系统。
-  2. 接收用户发给机器人的消息。
-  3. 接收群聊、通讯录、审批等飞书事件。
+- 卡片回调：✅ 已通
+- 主动发送飞书通知：✅ 不依赖回调
+- 卡片按钮点击"标记完成"：✅ 已可用

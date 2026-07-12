@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>接入系统的作用与配置项</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #fafaf7;
+    color: #2C2C2A;
+    line-height: 1.6;
+  }
+  .page {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 500;
+    margin: 0 0 8px 0;
+    color: #1a1a1a;
+  }
+  .lede {
+    font-size: 14px;
+    color: #5F5E5A;
+    margin: 0 0 28px 0;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid #e4e2da;
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 500;
+    margin: 0 0 12px 0;
+    color: #2C2C2A;
+  }
+  .card-sub {
+    font-size: 12px;
+    color: #888780;
+    margin: 0 0 16px 0;
+  }
+  .value-bar {
+    background: #E6F1FB;
+    border: 1px solid #b5d4f4;
+    border-radius: 12px;
+    padding: 18px 22px;
+  }
+  .value-bar h2 { color: #0C447C; }
+  .value-bar p { color: #185FA5; margin: 0; }
+  .grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .entity {
+    border-radius: 8px;
+    padding: 16px 14px;
+    text-align: center;
+  }
+  .entity-name {
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .entity-role {
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .entity-detail {
+    font-size: 11px;
+    font-family: 'JetBrains Mono', Consolas, monospace;
+  }
+  .e-cred { background: #EEEDFE; border: 1px solid #CECBF6; }
+  .e-cred .entity-name { color: #26215C; }
+  .e-cred .entity-role { color: #3C3489; }
+  .e-cred .entity-detail { color: #534AB7; }
+
+  .e-conn { background: #E1F5EE; border: 1px solid #9FE1CB; }
+  .e-conn .entity-name { color: #04342C; }
+  .e-conn .entity-role { color: #085041; }
+  .e-conn .entity-detail { color: #0F6E56; }
+
+  .e-adp { background: #FAECE7; border: 1px solid #F5C4B3; }
+  .e-adp .entity-name { color: #4A1B0C; }
+  .e-adp .entity-role { color: #712B13; }
+  .e-adp .entity-detail { color: #993C1D; }
+
+  .e-pipe { background: #FAEEDA; border: 1px solid #FAC775; }
+  .e-pipe .entity-name { color: #412402; }
+  .e-pipe .entity-role { color: #633806; }
+  .e-pipe .entity-detail { color: #854F0B; }
+
+  .flow {
+    background: #F1EFE8;
+    border: 1px solid #D3D1C7;
+    border-radius: 8px;
+    padding: 20px 24px;
+  }
+  .flow ol {
+    margin: 0;
+    padding-left: 22px;
+  }
+  .flow li {
+    font-size: 13px;
+    color: #444441;
+    margin-bottom: 6px;
+  }
+  .flow li strong { color: #2C2C2A; font-weight: 500; }
+  .flow .note {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed #B4B2A9;
+    font-size: 12px;
+    color: #5F5E5A;
+    font-style: italic;
+  }
+  .arrow-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: #888780;
+    font-size: 18px;
+    margin: -6px 0 12px 0;
+  }
+  .arrow-row span { color: #5F5E5A; }
+  .summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .summary-box {
+    background: #fff;
+    border: 1px solid #e4e2da;
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .summary-box h3 {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: #0C447C;
+  }
+  .summary-box ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 12px;
+    color: #444441;
+  }
+  .summary-box li { margin-bottom: 3px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>接入系统在 UCP 中起什么作用</h1>
+  <p class="lede">把外部 HR 系统（北森 / 飞书 / 滴滴 / OA）变成 UCP 可调用、可编排、可监控的标准动作</p>
+
+  <div class="value-bar card">
+    <h2 class="card-title">核心价值</h2>
+    <p>统一协议 + 解耦凭证 + 事件驱动 + 可视化编排 + 全链路可观测</p>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">4 个核心实体</h2>
+    <p class="card-sub">按依赖顺序排列，左侧是右侧的输入</p>
+
+    <div class="grid-4">
+      <div class="entity e-cred">
+        <div class="entity-name">凭证</div>
+        <div class="entity-role">加密存密钥</div>
+        <div class="entity-detail">app_key / secret</div>
+      </div>
+      <div class="entity e-conn">
+        <div class="entity-name">连接器</div>
+        <div class="entity-role">对接一个外部系统</div>
+        <div class="entity-detail">system_code 唯一</div>
+      </div>
+      <div class="entity e-adp">
+        <div class="entity-name">适配器</div>
+        <div class="entity-role">字段映射 / 清洗</div>
+        <div class="entity-detail">BEISEN_*_ADAPTER</div>
+      </div>
+      <div class="entity e-pipe">
+        <div class="entity-name">流水线</div>
+        <div class="entity-role">编排多步任务</div>
+        <div class="entity-detail">steps JSON 数组</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow">
+    <h2 class="card-title" style="margin-bottom:14px">典型配置流程（一次接入北森）</h2>
+    <ol>
+      <li><strong>凭证</strong>：保存北森 AppKey / AppSecret（加密落库，可复用）</li>
+      <li><strong>连接器</strong>：选「北森-HR 系统」，绑定凭证，配 base_url / 超时 / 重试策略</li>
+      <li><strong>适配器</strong>：选 BEISEN_EMPLOYEE_ADAPTER，配置字段映射 + 脱敏规则</li>
+      <li><strong>流水线</strong>：拉北森员工 → 适配器清洗 → 推到飞书（多步编排）</li>
+      <li><strong>触发器 + 监控</strong>：监听飞书/北森事件自动执行流水线，监控中心看执行日志与告警</li>
+    </ol>
+    <div class="note">
+      每张「接入系统」卡片 = 1 个 Connector（按 system_code 聚合），展示凭证 / 连接器 / 流水线 / 24h 事件数量
+    </div>
+  </div>
+
+  <div class="summary" style="margin-top:20px">
+    <div class="summary-box">
+      <h3>你每天会在接入系统页看到</h3>
+      <ul>
+        <li>已配置系统的卡片网格（北森/飞书/滴滴…）</li>
+        <li>每张卡片：连接状态 + 配置数量</li>
+        <li>点击卡片 → 详情抽屉，配置 / 测试 / 启用停用</li>
+      </ul>
+    </div>
+    <div class="summary-box">
+      <h3>什么时候需要回到这个页</h3>
+      <ul>
+        <li>新增一个外部系统（先建凭证再建连接器）</li>
+        <li>外部系统密钥轮换（编辑凭证）</li>
+        <li>新接入 HR 系统时，按向导跑一遍 5 步流程</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>

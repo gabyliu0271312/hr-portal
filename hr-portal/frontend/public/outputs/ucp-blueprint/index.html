@@ -1,0 +1,1518 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UCP 数据接入平台 — UI 蓝本 v2 (系统→资源→凭证 骨架)</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #15181c;
+    --panel-2: #1a1e23;
+    --border: #2a2f36;
+    --border-2: #3a414a;
+    --text: #e6e9ed;
+    --text-2: #9aa3ae;
+    --text-3: #6b7480;
+    --accent: #4f8cff;
+    --accent-2: #6aa3ff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --info: #58a6ff;
+    --purple: #a371f7;
+    --pink: #db61a2;
+    --orange: #e0823d;
+    --teal: #39c5cf;
+    --shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.3);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .layout { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+  /* Sidebar */
+  .sidebar {
+    background: #0d1014;
+    border-right: 1px solid var(--border);
+    padding: 16px 12px;
+    position: sticky; top: 0; height: 100vh;
+    overflow-y: auto;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+  .brand .logo { width: 26px; height: 26px; border-radius: 6px; background: linear-gradient(135deg, var(--accent), var(--purple)); }
+  .brand .name { font-weight: 600; font-size: 14px; }
+  .brand .ver { font-size: 10px; color: var(--text-3); }
+  .nav-section { font-size: 10px; text-transform: uppercase; color: var(--text-3); letter-spacing: 0.5px; padding: 8px 10px 4px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; border-radius: 6px; color: var(--text-2);
+    font-size: 12.5px; cursor: pointer;
+  }
+  .nav-item:hover { background: var(--panel); color: var(--text); }
+  .nav-item.active { background: rgba(79,140,255,0.12); color: var(--accent-2); }
+  .nav-item .ico { width: 14px; height: 14px; opacity: 0.85; }
+  .nav-item .badge { margin-left: auto; background: var(--err); color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 8px; font-weight: 500; }
+  .nav-item .badge.gray { background: var(--border-2); color: var(--text-2); }
+  /* Main */
+  .main { display: flex; flex-direction: column; min-width: 0; }
+  .topbar {
+    height: 50px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 20px; gap: 12px;
+    background: #0d1014;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar .crumb { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12.5px; }
+  .topbar .crumb .sep { color: var(--text-3); }
+  .topbar .crumb .cur { color: var(--text); font-weight: 500; }
+  .topbar .search { margin-left: 24px; flex: 1; max-width: 320px; }
+  .topbar .search input {
+    width: 100%; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 10px 5px 28px; color: var(--text); font-size: 12.5px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239aa3ae' stroke-width='2'><circle cx='11' cy='11' r='7'/><path d='m21 21-4.3-4.3'/></svg>");
+    background-repeat: no-repeat; background-position: 8px center;
+  }
+  .topbar .search input:focus { outline: none; border-color: var(--accent); }
+  .topbar .env { display: flex; gap: 4px; padding: 2px; background: var(--panel); border-radius: 6px; }
+  .topbar .env .b { padding: 3px 10px; border-radius: 4px; font-size: 11.5px; color: var(--text-2); cursor: pointer; }
+  .topbar .env .b.on { background: var(--panel-2); color: var(--text); }
+  .topbar .ico-btn { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--text-2); cursor: pointer; }
+  .topbar .ico-btn:hover { background: var(--panel); color: var(--text); }
+  .topbar .avatar { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, var(--orange), var(--pink)); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
+  .content { padding: 20px 24px; max-width: 1400px; }
+  .page-h { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
+  .page-h h1 { font-size: 18px; font-weight: 600; }
+  .page-h .sub { color: var(--text-2); font-size: 12px; margin-top: 2px; }
+  .page-h .actions { display: flex; gap: 8px; }
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 6px;
+    font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border-2);
+    background: var(--panel); color: var(--text);
+  }
+  .btn:hover { background: var(--panel-2); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-2); }
+  .btn.danger { background: var(--err); border-color: var(--err); color: #fff; }
+  .btn.ghost { background: transparent; }
+  .btn.sm { padding: 3px 8px; font-size: 11px; }
+  /* Cards */
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  .card-h { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .card-h h3 { font-size: 13px; font-weight: 600; }
+  .card-b { padding: 14px; }
+  /* KPI */
+  .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 16px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .kpi .label { font-size: 11.5px; color: var(--text-2); margin-bottom: 6px; }
+  .kpi .v { font-size: 22px; font-weight: 600; letter-spacing: -0.5px; }
+  .kpi .delta { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .kpi .delta.up { color: var(--ok); }
+  .kpi .delta.down { color: var(--err); }
+  /* System cards grid */
+  .sys-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .sys-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; cursor: pointer; transition: border-color 0.15s; }
+  .sys-card:hover { border-color: var(--border-2); }
+  .sys-card .head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+  .sys-card .icon { width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; color: #fff; }
+  .sys-card .title { flex: 1; min-width: 0; }
+  .sys-card .title .name { font-size: 13.5px; font-weight: 600; }
+  .sys-card .title .code { font-size: 11px; color: var(--text-3); font-family: ui-monospace, "SF Mono", Consolas, monospace; }
+  .sys-card .title .status { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; margin-top: 2px; }
+  .sys-card .title .status .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .sys-card .creds { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+  .sys-card .cred-chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; font-size: 10.5px; border-radius: 3px; border: 1px solid var(--border-2); color: var(--text-2); }
+  .sys-card .cred-chip.primary { background: rgba(63, 185, 80, 0.1); border-color: rgba(63, 185, 80, 0.4); color: var(--ok); }
+  .sys-card .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .sys-card .meta .item .label { font-size: 10px; color: var(--text-3); }
+  .sys-card .meta .item .v { font-size: 12.5px; font-weight: 500; }
+  .sys-card .meta .item .v.ok { color: var(--ok); }
+  .sys-card .meta .item .v.warn { color: var(--warn); }
+  .sys-card .meta .item .v.err { color: var(--err); }
+  /* Tabs */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .tab { padding: 8px 14px; font-size: 12.5px; color: var(--text-2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent-2); border-bottom-color: var(--accent); font-weight: 500; }
+  .tab .count { font-size: 10.5px; background: var(--border); color: var(--text-2); padding: 0 5px; border-radius: 8px; margin-left: 4px; }
+  /* Tables */
+  table.t { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.t th { text-align: left; padding: 8px 10px; color: var(--text-2); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 1px solid var(--border); }
+  table.t td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.t tr:hover td { background: rgba(255,255,255,0.02); }
+  /* Status */
+  .st { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; }
+  .st .d { width: 6px; height: 6px; border-radius: 50%; }
+  .st.ok .d { background: var(--ok); }
+  .st.ok { color: var(--ok); }
+  .st.warn .d { background: var(--warn); }
+  .st.warn { color: var(--warn); }
+  .st.err .d { background: var(--err); }
+  .st.err { color: var(--err); }
+  .st.idle .d { background: var(--text-3); }
+  .st.idle { color: var(--text-3); }
+  .st.run .d { background: var(--accent); box-shadow: 0 0 0 3px rgba(79,140,255,0.2); animation: pulse 1.5s infinite; }
+  .st.run { color: var(--accent-2); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  /* Tags */
+  .tag { display: inline-flex; align-items: center; padding: 1px 7px; font-size: 10.5px; border-radius: 3px; font-weight: 500; background: var(--border); color: var(--text-2); }
+  .tag.ok { background: rgba(63,185,80,0.15); color: var(--ok); }
+  .tag.warn { background: rgba(210,153,34,0.15); color: var(--warn); }
+  .tag.err { background: rgba(248,81,73,0.15); color: var(--err); }
+  .tag.info { background: rgba(88,166,255,0.15); color: var(--info); }
+  .tag.purple { background: rgba(163,113,247,0.15); color: var(--purple); }
+  .tag.pink { background: rgba(219,97,162,0.15); color: var(--pink); }
+  .tag.teal { background: rgba(57,197,207,0.15); color: var(--teal); }
+  /* Modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; width: 100%; max-width: 760px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: var(--shadow); }
+  .modal-h { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .modal-h h2 { font-size: 15px; font-weight: 600; }
+  .modal-h .x { color: var(--text-3); cursor: pointer; font-size: 18px; }
+  .modal-b { padding: 20px; overflow-y: auto; flex: 1; }
+  .modal-f { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; gap: 8px; }
+  /* Steps */
+  .steps { display: flex; align-items: center; padding: 0 20px 18px; gap: 0; }
+  .step { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .step .n { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; background: var(--border); color: var(--text-3); }
+  .step .t { font-size: 12px; color: var(--text-2); }
+  .step.active .n { background: var(--accent); color: #fff; }
+  .step.active .t { color: var(--text); font-weight: 500; }
+  .step.done .n { background: var(--ok); color: #fff; }
+  .step.done .t { color: var(--text-2); }
+  .step .line { flex: 1; height: 1px; background: var(--border); margin: 0 8px; }
+  .step.done + .step .line { background: var(--ok); }
+  /* Form */
+  .form-row { display: grid; grid-template-columns: 120px 1fr; gap: 10px 14px; align-items: center; margin-bottom: 12px; }
+  .form-row .lbl { font-size: 12px; color: var(--text-2); }
+  .form-row .lbl.req::after { content: " *"; color: var(--err); }
+  .form-row .ctrl input, .form-row .ctrl select, .form-row .ctrl textarea {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 5px; padding: 6px 10px; color: var(--text); font-size: 12.5px;
+  }
+  .form-row .ctrl input:focus, .form-row .ctrl select:focus, .form-row .ctrl textarea:focus { outline: none; border-color: var(--accent); }
+  .form-row .ctrl .hint { font-size: 11px; color: var(--text-3); margin-top: 3px; }
+  /* Drawer */
+  .drawer-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 90; }
+  .drawer { position: fixed; right: 0; top: 0; bottom: 0; width: 720px; max-width: 90vw; background: var(--panel); border-left: 1px solid var(--border); z-index: 91; display: flex; flex-direction: column; box-shadow: -8px 0 24px rgba(0,0,0,0.4); }
+  .drawer-h { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .drawer-h .icon { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+  .drawer-h .title { flex: 1; }
+  .drawer-h .title .name { font-size: 14px; font-weight: 600; }
+  .drawer-h .title .sub { font-size: 11px; color: var(--text-3); }
+  .drawer-b { flex: 1; overflow-y: auto; padding: 16px 18px; }
+  /* Section */
+  .sec { margin-bottom: 20px; }
+  .sec-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .sec-h h4 { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  /* JSON viewer */
+  pre.json { background: #0a0c0e; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 11.5px; color: var(--text); overflow-x: auto; line-height: 1.55; }
+  pre.json .k { color: #79c0ff; }
+  pre.json .s { color: #a5d6ff; }
+  pre.json .n { color: #ffa657; }
+  pre.json .b { color: var(--purple); }
+  /* Trace timeline */
+  .trace { position: relative; padding-left: 28px; }
+  .trace::before { content: ""; position: absolute; left: 11px; top: 8px; bottom: 8px; width: 1px; background: var(--border-2); }
+  .trace-item { position: relative; padding: 6px 0 14px; }
+  .trace-item .d { position: absolute; left: -22px; top: 8px; width: 12px; height: 12px; border-radius: 50%; background: var(--panel); border: 2px solid var(--border-2); }
+  .trace-item.ok .d { background: var(--ok); border-color: var(--ok); }
+  .trace-item.err .d { background: var(--err); border-color: var(--err); }
+  .trace-item.run .d { background: var(--accent); border-color: var(--accent); }
+  .trace-item .t { font-size: 12.5px; font-weight: 500; }
+  .trace-item .s { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+  .trace-item .m { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+  /* Empty */
+  .empty { text-align: center; padding: 40px 20px; color: var(--text-3); font-size: 12.5px; }
+  .empty .i { font-size: 32px; margin-bottom: 8px; opacity: 0.3; }
+  /* Tabs top */
+  .top-tabs { display: flex; gap: 4px; padding: 4px; background: var(--panel); border-radius: 8px; border: 1px solid var(--border); margin-bottom: 16px; }
+  .top-tabs .t { flex: 1; padding: 8px 14px; text-align: center; border-radius: 5px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+  .top-tabs .t.active { background: var(--panel-2); color: var(--text); font-weight: 500; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+  /* Charts (simple CSS) */
+  .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 80px; padding: 8px 0; }
+  .bar-chart .b { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; position: relative; min-height: 2px; }
+  .bar-chart .b .v { position: absolute; top: -16px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--text-2); }
+  .spark { display: flex; align-items: flex-end; gap: 1px; height: 24px; }
+  .spark .s { flex: 1; background: var(--accent); border-radius: 1px; }
+  .spark .s.err { background: var(--err); }
+  /* Pipeline canvas */
+  .canvas { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; min-height: 320px; padding: 20px; position: relative; overflow: hidden; }
+  .canvas::before { content: ""; position: absolute; inset: 0; background-image: radial-gradient(circle, var(--border) 1px, transparent 1px); background-size: 16px 16px; opacity: 0.5; }
+  .pnode { position: relative; z-index: 1; background: var(--panel); border: 1.5px solid var(--border-2); border-radius: 8px; padding: 8px 12px; min-width: 120px; cursor: pointer; }
+  .pnode .h { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 500; }
+  .pnode .s { font-size: 10px; color: var(--text-3); margin-top: 2px; }
+  .pnode.connector { border-color: var(--info); }
+  .pnode.connector .h { color: var(--info); }
+  .pnode.transform { border-color: var(--ok); }
+  .pnode.transform .h { color: var(--ok); }
+  .pnode.branch { border-color: var(--orange); }
+  .pnode.branch .h { color: var(--orange); }
+  .pnode.loop { border-color: var(--pink); }
+  .pnode.loop .h { color: var(--pink); }
+  /* Toolbar */
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 12px; }
+  .toolbar .filter { padding: 4px 10px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; font-size: 12px; color: var(--text-2); cursor: pointer; }
+  .toolbar .filter.on { background: rgba(79,140,255,0.15); color: var(--accent-2); border-color: var(--accent); }
+  /* Detail row */
+  .detail { display: grid; grid-template-columns: 100px 1fr; gap: 6px 14px; font-size: 12.5px; }
+  .detail .l { color: var(--text-3); }
+  .detail .v { color: var(--text); }
+  .alert { padding: 10px 12px; border-radius: 6px; font-size: 12px; margin-bottom: 10px; }
+  .alert.warn { background: rgba(210,153,34,0.1); border: 1px solid rgba(210,153,34,0.3); color: var(--warn); }
+  .alert.err { background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.3); color: var(--err); }
+  .alert.info { background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.3); color: var(--info); }
+  .alert .t { font-weight: 500; margin-bottom: 2px; }
+  /* Section divider */
+  .scene-label { background: linear-gradient(90deg, var(--accent) 0%, transparent 100%); padding: 6px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: 0.5px; margin: 28px 0 12px; display: inline-block; }
+  .scene { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 16px; box-shadow: var(--shadow); }
+  .scene-title { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .scene-title .num { width: 22px; height: 22px; border-radius: 5px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
+  .scene-title h2 { font-size: 14px; font-weight: 600; }
+  .scene-title .tag-ctx { background: var(--border); color: var(--text-2); font-size: 10.5px; padding: 2px 7px; border-radius: 3px; }
+  .doc-head { max-width: 1400px; margin: 0 auto; padding: 32px 24px 12px; }
+  .doc-head h1 { font-size: 22px; margin-bottom: 4px; }
+  .doc-head .lede { color: var(--text-2); font-size: 13px; max-width: 760px; line-height: 1.6; }
+  .doc-head .legend { display: flex; gap: 14px; margin-top: 14px; font-size: 11.5px; }
+  .doc-head .legend .item { display: flex; align-items: center; gap: 5px; color: var(--text-2); }
+  .doc-head .legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+</style>
+</head>
+<body>
+
+<div class="doc-head">
+  <h1>UCP 数据接入平台 — UI 蓝本 v2</h1>
+  <p class="lede">骨架：<b>系统 → 资源 → 凭证（配件）</b> + 独立调度 + 独立事件中心 + 独立监控中心。<br>
+  对比 v1（第三方图）的改造点：①顶层从"连接器"改为"系统"；②凭证从独立管理页降级为系统内配件；③流水线节点从"连接器"改为"资源"；④新增事件中心 / 监控中心 / 死信队列场景；⑤吸收 4 步进度条、6 Tab 详情、反向引用、Trace ID、KPI 卡片等表层 UX。</p>
+  <div class="legend">
+    <div class="item"><span class="dot" style="background:#4f8cff"></span>吸收自第三方图（表层 UX）</div>
+    <div class="item"><span class="dot" style="background:#3fb950"></span>改造点（保留骨架+优化表达）</div>
+    <div class="item"><span class="dot" style="background:#a371f7"></span>新增场景（补齐缺失）</div>
+  </div>
+</div>
+
+<!-- =========================================================== -->
+<!-- 场景 1: 顶部导航 + 全局入口 -->
+<!-- =========================================================== -->
+<div style="max-width:1400px;margin:0 auto;padding:0 24px;">
+  <div class="scene-label">场景 1 / 顶部导航</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">1</span><h2>左侧菜单 + 顶部栏（收敛为 1 个"数据接入"入口）</h2><span class="tag-ctx">改造点</span></div>
+    <div class="layout" style="min-height:480px; border-radius:8px; overflow:hidden; border:1px solid var(--border);">
+      <div class="sidebar">
+        <div class="brand">
+          <div class="logo"></div>
+          <div>
+            <div class="name">HR 中台</div>
+            <div class="ver">v2.4 · UCP</div>
+          </div>
+        </div>
+        <div class="nav-section">工作台</div>
+        <div class="nav-item"><span>📊</span> 仪表盘</div>
+        <div class="nav-item"><span>👥</span> 员工</div>
+        <div class="nav-item"><span>🏢</span> 组织架构</div>
+        <div class="nav-section">数据接入</div>
+        <div class="nav-item active"><span>🔌</span> 数据接入<span class="badge gray">15</span></div>
+        <div class="nav-item"><span>📅</span> 调度中心<span class="badge gray">8</span></div>
+        <div class="nav-item"><span>⚡</span> 事件中心<span class="badge">3</span></div>
+        <div class="nav-item"><span>📈</span> 监控中心</div>
+        <div class="nav-item"><span>💀</span> 死信队列<span class="badge">2</span></div>
+        <div class="nav-section">治理</div>
+        <div class="nav-item"><span>🛡️</span> 审批中心</div>
+        <div class="nav-item"><span>📋</span> 审计日志</div>
+        <div class="nav-item"><span>🔌</span> 适配器</div>
+      </div>
+      <div class="main">
+        <div class="topbar">
+          <div class="crumb"><span>数据接入</span><span class="sep">/</span><span class="cur">接入系统</span></div>
+          <div class="search"><input placeholder="搜索系统 / 资源 / 凭证 / 流水线..."></div>
+          <div class="env">
+            <div class="b on">生产</div>
+            <div class="b">预发</div>
+            <div class="b">开发</div>
+          </div>
+          <div class="ico-btn">🔔<span style="position:absolute;font-size:9px;color:var(--err);margin-left:8px;margin-top:-6px;">3</span></div>
+          <div class="avatar">ZS</div>
+        </div>
+        <div class="content" style="padding-top:12px;">
+          <div style="color:var(--text-3);font-size:12px;line-height:1.8;">
+            <b style="color:var(--text);">改造说明：</b><br>
+            • 第三方图把"连接器 / 凭证 / 流水线 / 监控"做成 4 个平级菜单；v2 收敛为 1 个<b>"数据接入"</b>入口（与系统其他模块风格一致）<br>
+            • 新增<b>调度中心</b>（scheduled_jobs 全平台共享）、<b>事件中心</b>（Phase 3-1/3-2）、<b>监控中心</b>（Phase 3-9）、<b>死信队列</b>（Phase 3-3）4 个独立 Tab<br>
+            • 红 badge 标识未处理事项（待办审批 / 死信 / 告警）
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 2: 数据接入主页 — 系统卡片网格 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 2 / 主页</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">2</span><h2>接入系统主页（系统卡片网格，凭证作为 chip 挂在卡片上）</h2><span class="tag-ctx">改造点</span></div>
+    <div class="layout" style="min-height:560px; border-radius:8px; overflow:hidden; border:1px solid var(--border);">
+      <div class="sidebar">
+        <div class="brand"><div class="logo"></div><div><div class="name">HR 中台</div><div class="ver">v2.4</div></div></div>
+        <div class="nav-section">数据接入</div>
+        <div class="nav-item active"><span>🔌</span> 数据接入</div>
+        <div class="nav-item"><span>📅</span> 调度中心</div>
+        <div class="nav-item"><span>⚡</span> 事件中心</div>
+        <div class="nav-item"><span>📈</span> 监控中心</div>
+      </div>
+      <div class="main">
+        <div class="topbar">
+          <div class="crumb"><span>数据接入</span><span class="sep">/</span><span class="cur">接入系统</span></div>
+          <div class="search"><input placeholder="搜索..."></div>
+          <div class="ico-btn">🔔</div>
+          <div class="avatar">ZS</div>
+        </div>
+        <div class="content">
+          <div class="page-h">
+            <div>
+              <h1>接入系统</h1>
+              <div class="sub">业务系统 → 资源（表/API）→ 凭证（多环境/主备）</div>
+            </div>
+            <div class="actions">
+              <button class="btn">📥 导入模板</button>
+              <button class="btn primary">+ 添加系统</button>
+            </div>
+          </div>
+
+          <div class="kpi-grid">
+            <div class="kpi"><div class="label">接入系统</div><div class="v">8</div><div class="delta up">+2 本周</div></div>
+            <div class="kpi"><div class="label">数据资源</div><div class="v">37</div><div class="delta up">+5 本周</div></div>
+            <div class="kpi"><div class="label">凭证总数</div><div class="v">23</div><div class="delta">主 8 · 备 15</div></div>
+            <div class="kpi"><div class="label">活跃流水线</div><div class="v">14</div><div class="delta up">3 运行中</div></div>
+            <div class="kpi"><div class="label">24h 同步次数</div><div class="v">1,247</div><div class="delta up">↑ 8.2%</div></div>
+            <div class="kpi"><div class="label">失败率</div><div class="v">1.4%</div><div class="delta down">↓ 0.3%</div></div>
+          </div>
+
+          <div class="toolbar">
+            <div class="filter on">全部 8</div>
+            <div class="filter">运行中 6</div>
+            <div class="filter">已停用 1</div>
+            <div class="filter">异常 1</div>
+            <div style="flex:1"></div>
+            <div class="filter">类别 ▾</div>
+            <div class="filter">排序: 最近活跃 ▾</div>
+          </div>
+
+          <div class="sys-grid">
+            <div class="sys-card">
+              <div class="head"><div class="icon" style="background:linear-gradient(135deg,#4f8cff,#6aa3ff);">北</div><div class="title"><div class="name">北森 HR SaaS</div><div class="code">beisen_prod · v2 API</div><div class="status"><span class="d" style="background:var(--ok);width:6px;height:6px;border-radius:50%;display:inline-block;"></span> <span style="color:var(--ok);">运行中</span></div></div></div>
+              <div style="font-size:11px;color:var(--text-3);margin-bottom:5px;">凭证（3 套）</div><div class="creds"><span class="cred-chip primary">● prod</span><span class="cred-chip">○ staging</span><span class="cred-chip">○ dev</span><span class="cred-chip">+ 补充</span></div>
+              <div class="meta"><div class="item"><div class="label">资源</div><div class="v">8 张表</div></div><div class="item"><div class="label">流水线</div><div class="v">5 条</div></div><div class="item"><div class="label">24h 同步</div><div class="v ok">412</div></div></div>
+            </div>
+            <div class="sys-card">
+              <div class="head"><div class="icon" style="background:linear-gradient(135deg,#3370ff,#5b8aff);">飞</div><div class="title"><div class="name">飞书</div><div class="code">feishu_prod · Open API</div><div class="status"><span class="d" style="background:var(--ok);width:6px;height:6px;border-radius:50%;display:inline-block;"></span> <span style="color:var(--ok);">运行中</span></div></div></div>
+              <div style="font-size:11px;color:var(--text-3);margin-bottom:5px;">凭证（2 套）</div><div class="creds"><span class="cred-chip primary">● prod</span><span class="cred-chip">○ staging</span><span class="cred-chip">+ 补充</span></div>
+              <div class="meta"><div class="item"><div class="label">资源</div><div class="v">5 个 API</div></div><div class="item"><div class="label">流水线</div><div class="v">3 条</div></div><div class="item"><div class="label">24h 同步</div><div class="v ok">298</div></div></div>
+            </div>
+            <div class="sys-card">
+              <div class="head"><div class="icon" style="background:linear-gradient(135deg,#ff7800,#ff9a3c);">滴</div><div class="title"><div class="name">滴滴企业版</div><div class="code">didi_prod · Open Platform</div><div class="status"><span class="d" style="background:var(--warn);width:6px;height:6px;border-radius:50%;display:inline-block;"></span> <span style="color:var(--warn);">凭证即将过期</span></div></div></div>
+              <div style="font-size:11px;color:var(--text-3);margin-bottom:5px;">凭证（1 套）</div><div class="creds"><span class="cred-chip primary">● prod</span><span class="cred-chip">+ 补充</span></div>
+              <div class="meta"><div class="item"><div class="label">资源</div><div class="v">3 个 API</div></div><div class="item"><div class="label">流水线</div><div class="v">2 条</div></div><div class="item"><div class="label">24h 同步</div><div class="v warn">87</div></div></div>
+            </div>
+            <div class="sys-card">
+              <div class="head"><div class="icon" style="background:linear-gradient(135deg,#00b96b,#39d68a);">曹</div><div class="title"><div class="name">曹操出行</div><div class="code">caocao_prod · Open API</div><div class="status"><span class="d" style="background:var(--ok);width:6px;height:6px;border-radius:50%;display:inline-block;"></span> <span style="color:var(--ok);">运行中</span></div></div></div>
+              <div style="font-size:11px;color:var(--text-3);margin-bottom:5px;">凭证（2 套）</div><div class="creds"><span class="cred-chip primary">● prod</span><span class="cred-chip">○ staging</span><span class="cred-chip">+ 补充</span></div>
+              <div class="meta"><div class="item"><div class="label">资源</div><div class="v">2 个 API</div></div><div class="item"><div class="label">流水线</div><div class="v">1 条</div></div><div class="item"><div class="label">24h 同步</div><div class="v ok">54</div></div></div>
+            </div>
+            <div class="sys-card">
+              <div class="head"><div class="icon" style="background:linear-gradient(135deg,#a371f7,#c19cff);">OA</div><div class="title"><div class="name">OA 内部审批</div><div class="code">oa_internal · REST</div><div class="status"><span class="d" style="background:var(--ok);width:6px;height:6px;border-radius:50%;display:inline-block;"></span> <span style="color:var(--ok);">运行中</span></div></div></div>
+              <div style="font-size:11px;color:var(--text-3);margin-bottom:5px;">凭证（1 套）</div><div class="creds"><span class="cred-chip primary">● prod</span><span class="cred-chip">+ 补充</span></div>
+              <div class="meta"><div class="item"><div class="label">资源</div><div class="v">6 个 API</div></div><div class="item"><div class="label">流水线</div><div class="v">3 条</div></div><div class="item"><div class="label">24h 同步</div><div class="v ok">196</div></div></div>
+            </div>
+            <div class="sys-card" style="border-color:rgba(248,81,73,0.4);">
+              <div class="head"><div class="icon" style="background:linear-gradient(135deg,#f85149,#ff7b73);">!</div><div class="title"><div class="name">Salesforce</div><div class="code">salesforce_prod · SOAP</div><div class="status"><span class="d" style="background:var(--err);width:6px;height:6px;border-radius:50%;display:inline-block;"></span> <span style="color:var(--err);">凭证已过期 3 天</span></div></div></div>
+              <div style="font-size:11px;color:var(--text-3);margin-bottom:5px;">凭证（1 套 · 已过期）</div><div class="creds"><span class="cred-chip" style="background:rgba(248,81,73,0.1);border-color:rgba(248,81,73,0.4);color:var(--err);">● prod (过期)</span><span class="cred-chip">+ 补充</span></div>
+              <div class="meta"><div class="item"><div class="label">资源</div><div class="v">4 个 API</div></div><div class="item"><div class="label">流水线</div><div class="v err">2 失败</div></div><div class="item"><div class="label">24h 同步</div><div class="v err">0</div></div></div>
+            </div>
+            <div class="sys-card" style="border-style:dashed;display:flex;align-items:center;justify-content:center;min-height:160px;cursor:pointer;"><div style="text-align:center;color:var(--text-3);"><div style="font-size:28px;opacity:0.4;margin-bottom:6px;">+</div><div style="font-size:12px;">添加系统</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- =========================================================== -->
+  <!-- 场景 3: 新建系统 4 步向导 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 3 / 新建向导</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">3</span><h2>新建系统 4 步向导（凭证作为 Step 2 必填）</h2><span class="tag-ctx">吸收</span></div>
+    <div class="modal-bg" style="position:relative;background:transparent;padding:0;display:block;">
+      <div class="modal" style="margin:0 auto;">
+        <div class="modal-h">
+          <h2>添加接入系统</h2>
+          <span class="x">✕</span>
+        </div>
+        <div class="steps">
+          <div class="step done"><div class="n">✓</div><div class="t">系统信息</div></div>
+          <div class="step done"><div class="n">✓</div><div class="t">凭证录入</div></div>
+          <div class="step active"><div class="n">3</div><div class="t">添加资源（可选）</div></div>
+          <div class="step"><div class="n">4</div><div class="t">配置检查</div></div>
+        </div>
+        <div class="modal-b">
+          <div class="alert info">
+            <div class="t">建议先添加至少 1 个资源</div>
+            资源对应外部系统的一张表或一个 API。系统添加完成后也可以在系统详情页补充资源。
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="font-size:12.5px;font-weight:500;">资源列表（2）</div>
+            <button class="btn primary sm">+ 添加资源</button>
+          </div>
+          <table class="t">
+            <thead><tr><th>资源名称</th><th>类型</th><th>标识</th><th>同步方向</th><th>状态</th><th></th></tr></thead>
+            <tbody>
+              <tr>
+                <td>员工主数据</td>
+                <td><span class="tag info">DB TABLE</span></td>
+                <td><code style="color:var(--text-2);font-size:11px;">hr_pending_employee_full</code></td>
+                <td><span class="tag ok">PULL</span></td>
+                <td><span class="st ok"><span class="d"></span>已配置</span></td>
+                <td><a style="color:var(--accent-2);font-size:11px;cursor:pointer;">编辑</a></td>
+              </tr>
+              <tr>
+                <td>组织架构</td>
+                <td><span class="tag info">DB TABLE</span></td>
+                <td><code style="color:var(--text-2);font-size:11px;">hr_org_structure</code></td>
+                <td><span class="tag ok">PULL</span></td>
+                <td><span class="st ok"><span class="d"></span>已配置</span></td>
+                <td><a style="color:var(--accent-2);font-size:11px;cursor:pointer;">编辑</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="modal-f">
+          <button class="btn ghost">← 上一步</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn">跳过</button>
+            <button class="btn primary">下一步 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 4: 系统详情 6 Tab 抽屉 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 4 / 详情</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">4</span><h2>系统详情 6 Tab 抽屉（凭证 Tab 内嵌在系统下）</h2><span class="tag-ctx">吸收</span></div>
+    <div style="position:relative;background:transparent;padding:0;display:block;">
+      <div class="drawer" style="position:relative;right:auto;top:auto;bottom:auto;width:100%;max-width:100%;border-left:none;box-shadow:none;border:1px solid var(--border);border-radius:8px;">
+        <div class="drawer-h">
+          <div class="icon" style="background:linear-gradient(135deg,#4f8cff,#6aa3ff);color:#fff;font-weight:600;">北</div>
+          <div class="title">
+            <div class="name">北森 HR SaaS <span class="st ok" style="margin-left:8px;"><span class="d"></span>运行中</span></div>
+            <div class="sub">beisen_prod · v2 API · 创建于 2026-01-15</div>
+          </div>
+          <button class="btn sm">编辑</button>
+          <button class="btn sm">⋮</button>
+        </div>
+        <div class="drawer-b">
+          <div class="tabs">
+            <div class="tab active">概览</div>
+            <div class="tab">资源 <span class="count">8</span></div>
+            <div class="tab">凭证 <span class="count">3</span></div>
+            <div class="tab">流水线 <span class="count">5</span></div>
+            <div class="tab">触发器 <span class="count">2</span></div>
+            <div class="tab">变更历史 <span class="count">23</span></div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h"><h4>基础信息</h4></div>
+            <div class="card">
+              <div class="card-b">
+                <div class="detail">
+                  <div class="l">系统代码</div><div class="v"><code>beisen_prod</code></div>
+                  <div class="l">显示名称</div><div class="v">北森 HR SaaS</div>
+                  <div class="l">业务类别</div><div class="v">HCM · 核心人力</div>
+                  <div class="l">API 地址</div><div class="v"><code>https://api.beisen.com/v2</code></div>
+                  <div class="l">数据方向</div><div class="v"><span class="tag ok">PULL</span> 拉取为主</div>
+                  <div class="l">所属组织</div><div class="v">集团总部 / IT 数据部</div>
+                  <div class="l">负责人</div><div class="v">张三 · zhang.san@example.com</div>
+                  <div class="l">描述</div><div class="v" style="color:var(--text-2);">北森人力云 SaaS 服务，承载员工主数据 / 组织架构 / 薪酬等核心数据</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h"><h4>凭证（3 套，主备切换）</h4><button class="btn sm primary">+ 补充凭证</button></div>
+            <table class="t">
+              <thead><tr><th>环境</th><th>认证方式</th><th>状态</th><th>最后验证</th><th>引用资源</th><th></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><span class="tag ok">prod (主)</span></td>
+                  <td>OAuth2</td>
+                  <td><span class="st ok"><span class="d"></span>有效</span></td>
+                  <td style="color:var(--text-2);">2 小时前</td>
+                  <td><a style="color:var(--accent-2);">8 张表</a></td>
+                  <td><a style="color:var(--text-3);font-size:11px;cursor:pointer;">设为主</a></td>
+                </tr>
+                <tr>
+                  <td><span class="tag">staging (备)</span></td>
+                  <td>OAuth2</td>
+                  <td><span class="st ok"><span class="d"></span>有效</span></td>
+                  <td style="color:var(--text-2);">5 天前</td>
+                  <td style="color:var(--text-3);">未使用</td>
+                  <td><a style="color:var(--accent-2);font-size:11px;cursor:pointer;">切换为主</a></td>
+                </tr>
+                <tr>
+                  <td><span class="tag">dev (备)</span></td>
+                  <td>API Key</td>
+                  <td><span class="st warn"><span class="d"></span>即将过期</span></td>
+                  <td style="color:var(--text-2);">12 天前</td>
+                  <td style="color:var(--text-3);">未使用</td>
+                  <td><a style="color:var(--text-3);font-size:11px;cursor:pointer;">续期</a></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="sec">
+            <div class="sec-h"><h4>资源（8）</h4><button class="btn sm primary">+ 添加资源</button></div>
+            <table class="t">
+              <thead><tr><th>资源名称</th><th>类型</th><th>使用凭证</th><th>同步方式</th><th>最近执行</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>员工主数据</td>
+                  <td><span class="tag info">DB TABLE</span></td>
+                  <td><span class="tag ok">prod</span></td>
+                  <td>每天 02:00</td>
+                  <td style="color:var(--text-2);">07-03 02:00 ✓</td>
+                  <td><span class="st ok"><span class="d"></span>正常</span></td>
+                </tr>
+                <tr>
+                  <td>组织架构</td>
+                  <td><span class="tag info">DB TABLE</span></td>
+                  <td><span class="tag ok">prod</span></td>
+                  <td>每天 02:30 + 事件</td>
+                  <td style="color:var(--text-2);">07-03 14:23 ✓</td>
+                  <td><span class="st ok"><span class="d"></span>正常</span></td>
+                </tr>
+                <tr>
+                  <td>薪酬报表</td>
+                  <td><span class="tag purple">HTTP API</span></td>
+                  <td><span class="tag ok">prod</span></td>
+                  <td>每月 1 号 03:00</td>
+                  <td style="color:var(--text-2);">07-01 03:00 ✗</td>
+                  <td><span class="st err"><span class="d"></span>失败</span></td>
+                </tr>
+                <tr>
+                  <td>岗位信息</td>
+                  <td><span class="tag info">DB TABLE</span></td>
+                  <td><span class="tag ok">prod</span></td>
+                  <td>从未执行</td>
+                  <td style="color:var(--text-3);">—</td>
+                  <td><span class="st idle"><span class="d"></span>未启动</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 5: 凭证管理（按系统分组） -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 5 / 凭证</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">5</span><h2>凭证管理（按系统分组，主备切换）</h2><span class="tag-ctx">改造点</span></div>
+    <div class="content" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px;">
+      <div class="page-h">
+        <div>
+          <h1>凭证管理</h1>
+          <div class="sub">凭证挂在系统下，1 系统可挂 N 凭证（多环境/轮换） · 共 23 套</div>
+        </div>
+        <div class="actions">
+          <div class="env" style="display:flex;gap:4px;padding:2px;background:var(--panel-2);border-radius:6px;">
+            <div class="b on" style="padding:3px 10px;border-radius:4px;font-size:11.5px;background:var(--border);color:var(--text);">按系统</div>
+            <div class="b" style="padding:3px 10px;border-radius:4px;font-size:11.5px;color:var(--text-2);">按环境</div>
+            <div class="b" style="padding:3px 10px;border-radius:4px;font-size:11.5px;color:var(--text-2);">按状态</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="alert warn">
+        <div class="t">⚠️ 2 个凭证需要关注</div>
+        • 滴滴 prod 凭证将于 2026-07-15 到期（12 天后） · <a style="color:var(--warn);">续期 →</a><br>
+        • Salesforce prod 凭证已过期 3 天，影响 2 条流水线 · <a style="color:var(--err);">立即处理 →</a>
+      </div>
+
+      <div class="sec">
+        <div class="sec-h">
+          <h4>北森 HR SaaS · 3 套凭证 <span class="tag ok" style="margin-left:6px;">prod 主用</span></h4>
+          <a style="color:var(--accent-2);font-size:11.5px;cursor:pointer;">查看系统详情 →</a>
+        </div>
+        <table class="t">
+          <thead><tr><th>环境</th><th>认证方式</th><th>字段</th><th>状态</th><th>引用资源</th><th>最后验证</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="tag ok">prod (主)</span></td>
+              <td>OAuth2</td>
+              <td><code style="font-size:10.5px;color:var(--text-3);">client_id · client_secret · token</code></td>
+              <td><span class="st ok"><span class="d"></span>有效</span></td>
+              <td>8 张表 · 5 流水线</td>
+              <td>2 小时前</td>
+              <td><a style="color:var(--accent-2);font-size:11.5px;cursor:pointer;">测试</a> · <a style="color:var(--accent-2);font-size:11.5px;cursor:pointer;">编辑</a></td>
+            </tr>
+            <tr>
+              <td><span class="tag">staging (备)</span></td>
+              <td>OAuth2</td>
+              <td><code style="font-size:10.5px;color:var(--text-3);">client_id · client_secret · token</code></td>
+              <td><span class="st ok"><span class="d"></span>有效</span></td>
+              <td>0</td>
+              <td>5 天前</td>
+              <td><a style="color:var(--accent-2);font-size:11.5px;cursor:pointer;">切为主</a> · <a style="color:var(--accent-2);font-size:11.5px;cursor:pointer;">测试</a></td>
+            </tr>
+            <tr>
+              <td><span class="tag">dev (备)</span></td>
+              <td>API Key</td>
+              <td><code style="font-size:10.5px;color:var(--text-3);">app_id · app_secret</code></td>
+              <td><span class="st warn"><span class="d"></span>15 天后过期</span></td>
+              <td>0</td>
+              <td>12 天前</td>
+              <td><a style="color:var(--accent-2);font-size:11.5px;cursor:pointer;">续期</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="sec">
+        <div class="sec-h">
+          <h4>滴滴企业版 · 1 套凭证 <span class="tag warn" style="margin-left:6px;">需续期</span></h4>
+        </div>
+        <table class="t">
+          <tbody>
+            <tr>
+              <td><span class="tag ok">prod (主)</span></td>
+              <td>API Key</td>
+              <td><code style="font-size:10.5px;color:var(--text-3);">app_id · app_secret · sign_key</code></td>
+              <td><span class="st warn"><span class="d"></span>12 天后过期</span></td>
+              <td>3 个 API · 2 流水线</td>
+              <td>2 小时前</td>
+              <td><a style="color:var(--warn);font-size:11.5px;cursor:pointer;">立即续期 →</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 6: 资源/连接器详情 + 反向引用 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 6 / 资源详情</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">6</span><h2>资源详情（引用此资源的所有流水线 + 凭证反向引用）</h2><span class="tag-ctx">吸收</span></div>
+    <div class="modal" style="position:relative;right:auto;top:auto;bottom:auto;width:100%;max-width:100%;border:1px solid var(--border);">
+      <div class="modal-h">
+        <h2>资源详情 — 北森 / 员工主数据</h2>
+        <span class="x">✕</span>
+      </div>
+      <div class="modal-b">
+        <div class="tabs">
+          <div class="tab active">基础信息</div>
+          <div class="tab">字段映射 <span class="count">23</span></div>
+          <div class="tab">数据样本 <span class="count">100</span></div>
+          <div class="tab">引用此资源的流水线 <span class="count">3</span></div>
+          <div class="tab">使用凭证</div>
+          <div class="tab">变更历史 <span class="count">12</span></div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h4>基础信息</h4></div>
+          <div class="card"><div class="card-b">
+            <div class="detail">
+              <div class="l">资源 ID</div><div class="v"><code>res_beisen_employee_main</code></div>
+              <div class="l">所属系统</div><div class="v"><a style="color:var(--accent-2);">北森 HR SaaS →</a></div>
+              <div class="l">使用凭证</div><div class="v"><span class="tag ok">prod (主)</span> · OAuth2</div>
+              <div class="l">资源类型</div><div class="v"><span class="tag info">DB TABLE</span></div>
+              <div class="l">源标识</div><div class="v"><code>hr_pending_employee_full</code></div>
+              <div class="l">目标表</div><div class="v"><code>hr_employee_main</code>（实体列宽表）</div>
+              <div class="l">同步策略</div><div class="v">全量 + 增量（按 updated_at）</div>
+              <div class="l">调度</div><div class="v"><span class="tag info">定时</span> 每天 02:00 · 来自 <a style="color:var(--accent-2);">调度任务 SCH-001</a></div>
+              <div class="l">字段数</div><div class="v">23 字段（已建立实体列）</div>
+            </div>
+          </div></div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h4>引用此资源的流水线（3）</h4></div>
+          <table class="t">
+            <thead><tr><th>流水线</th><th>类型</th><th>触发方式</th><th>最近执行</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr><td>员工全量同步</td><td><span class="tag info">PULL</span></td><td>每天 02:00</td><td style="color:var(--text-2);">07-03 02:00 ✓</td><td><span class="st ok"><span class="d"></span>正常</span></td><td><a style="color:var(--accent-2);font-size:11.5px;">查看</a></td></tr>
+              <tr><td>员工增量同步</td><td><span class="tag info">PULL</span></td><td>每 30 分钟</td><td style="color:var(--text-2);">07-03 17:00 ✓</td><td><span class="st ok"><span class="d"></span>正常</span></td><td><a style="color:var(--accent-2);font-size:11.5px;">查看</a></td></tr>
+              <tr><td>员工变更推送</td><td><span class="tag pink">PUSH</span></td><td>事件触发</td><td style="color:var(--text-2);">07-03 16:42 ✓</td><td><span class="st ok"><span class="d"></span>正常</span></td><td><a style="color:var(--accent-2);font-size:11.5px;">查看</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h4>字段映射（前 8 / 23）</h4><a style="color:var(--accent-2);font-size:11.5px;cursor:pointer;">查看全部 →</a></div>
+          <table class="t">
+            <thead><tr><th>源字段</th><th>目标字段</th><th>类型</th><th>脱敏</th><th>必填</th></tr></thead>
+            <tbody>
+              <tr><td><code>employee_id</code></td><td><code>employee_id</code></td><td>STRING</td><td>—</td><td>✓</td></tr>
+              <tr><td><code>name</code></td><td><code>name</code></td><td>STRING</td><td><span class="tag warn">姓名脱敏</span></td><td>✓</td></tr>
+              <tr><td><code>mobile</code></td><td><code>mobile</code></td><td>STRING</td><td><span class="tag warn">手机脱敏</span></td><td>—</td></tr>
+              <tr><td><code>email</code></td><td><code>email</code></td><td>STRING</td><td>—</td><td>—</td></tr>
+              <tr><td><code>org_code</code></td><td><code>org_code</code></td><td>STRING</td><td>—</td><td>✓</td></tr>
+              <tr><td><code>position</code></td><td><code>position</code></td><td>STRING</td><td>—</td><td>—</td></tr>
+              <tr><td><code>hire_date</code></td><td><code>hire_date</code></td><td>DATE</td><td>—</td><td>✓</td></tr>
+              <tr><td><code>salary</code></td><td><code>salary</code></td><td>DECIMAL</td><td><span class="tag err">薪资加密</span></td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 7: 流水线列表 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 7 / 流水线</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">7</span><h2>流水线列表（显示系统/资源/触发方式列）</h2><span class="tag-ctx">改造点</span></div>
+    <div class="content" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px;">
+      <div class="page-h">
+        <div>
+          <h1>流水线</h1>
+          <div class="sub">编排资源的同步逻辑 · 共 14 条</div>
+        </div>
+        <div class="actions">
+          <button class="btn primary">+ 新建流水线</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="filter on">全部 14</div>
+        <div class="filter">运行中 8</div>
+        <div class="filter">已停用 4</div>
+        <div class="filter">异常 2</div>
+        <div style="flex:1"></div>
+        <div class="filter">系统 ▾</div>
+        <div class="filter">触发方式 ▾</div>
+        <div class="filter">状态 ▾</div>
+      </div>
+
+      <table class="t">
+        <thead><tr><th>流水线</th><th>系统 / 资源</th><th>节点</th><th>触发方式</th><th>最近执行</th><th>24h 次数</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><a style="color:var(--accent-2);font-weight:500;">员工全量同步</a><div style="font-size:10.5px;color:var(--text-3);margin-top:1px;">pipe_employee_full_sync</div></td>
+            <td><span class="tag" style="background:rgba(79,140,255,0.1);color:var(--accent-2);">北森</span> · 员工主数据</td>
+            <td><span class="tag info">3</span></td>
+            <td><span class="tag teal">定时</span> 每天 02:00</td>
+            <td style="color:var(--text-2);">07-03 02:00 ✓</td>
+            <td>1</td>
+            <td><span class="st ok"><span class="d"></span>正常</span></td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">查看</a></td>
+          </tr>
+          <tr>
+            <td><a style="color:var(--accent-2);font-weight:500;">员工增量同步</a><div style="font-size:10.5px;color:var(--text-3);margin-top:1px;">pipe_employee_incr_sync</div></td>
+            <td><span class="tag" style="background:rgba(79,140,255,0.1);color:var(--accent-2);">北森</span> · 员工主数据</td>
+            <td><span class="tag info">3</span></td>
+            <td><span class="tag teal">定时</span> 每 30 分钟</td>
+            <td style="color:var(--text-2);">07-03 17:00 ✓</td>
+            <td>48</td>
+            <td><span class="st run"><span class="d"></span>运行中</span></td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">查看</a></td>
+          </tr>
+          <tr>
+            <td><a style="color:var(--accent-2);font-weight:500;">员工变更推送</a><div style="font-size:10.5px;color:var(--text-3);margin-top:1px;">pipe_employee_push</div></td>
+            <td><span class="tag" style="background:rgba(79,140,255,0.1);color:var(--accent-2);">北森</span> · 员工主数据</td>
+            <td><span class="tag info">2</span></td>
+            <td><span class="tag pink">事件</span> 飞书员工变更</td>
+            <td style="color:var(--text-2);">07-03 16:42 ✓</td>
+            <td>23</td>
+            <td><span class="st ok"><span class="d"></span>正常</span></td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">查看</a></td>
+          </tr>
+          <tr>
+            <td><a style="color:var(--accent-2);font-weight:500;">OA 部门同步</a><div style="font-size:10.5px;color:var(--text-3);margin-top:1px;">pipe_oa_dept_sync</div></td>
+            <td><span class="tag" style="background:rgba(163,113,247,0.1);color:var(--purple);">OA</span> · 组织架构</td>
+            <td><span class="tag info">5</span></td>
+            <td><span class="tag teal">定时</span> 每天 01:00</td>
+            <td style="color:var(--err);">07-02 01:00 ✗</td>
+            <td>0</td>
+            <td><span class="st err"><span class="d"></span>失败</span></td>
+            <td><a style="color:var(--err);font-size:11.5px;">查看失败</a></td>
+          </tr>
+          <tr>
+            <td><a style="color:var(--accent-2);font-weight:500;">飞书-入职人员入库</a><div style="font-size:10.5px;color:var(--text-3);margin-top:1px;">pipe_feishu_onboard</div></td>
+            <td><span class="tag" style="background:rgba(51,112,255,0.1);color:#5b8aff;">飞书</span> · 入职事件</td>
+            <td><span class="tag info">4</span></td>
+            <td><span class="tag pink">事件</span> 飞书用户创建 v3</td>
+            <td style="color:var(--text-2);">07-03 14:23 ✓</td>
+            <td>5</td>
+            <td><span class="st ok"><span class="d"></span>正常</span></td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">查看</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 8: 流水线画布 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 8 / 流水线画布</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">8</span><h2>流水线画布（节点绑"资源"而非"连接器"）</h2><span class="tag-ctx">改造点</span></div>
+    <div class="content" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px;">
+      <div class="page-h">
+        <div>
+          <h1>员工全量同步 <span class="st ok" style="font-size:11px;margin-left:6px;"><span class="d"></span>v1.2.3 已发布</span></h1>
+          <div class="sub">pipe_employee_full_sync · 3 节点 · 每天 02:00 触发</div>
+        </div>
+        <div class="actions">
+          <button class="btn">版本历史</button>
+          <button class="btn">测试运行</button>
+          <button class="btn primary">发布</button>
+        </div>
+      </div>
+
+      <div class="canvas" style="min-height:240px;">
+        <!-- Pipeline nodes: Resource → Transform → Connector -->
+        <div style="display:flex;align-items:center;justify-content:center;gap:60px;height:200px;position:relative;z-index:1;">
+          <div class="pnode connector" style="min-width:160px;">
+            <div class="h">📥 PULL 员工主数据</div>
+            <div class="s">北森 · 资源 res_beisen_employee_main</div>
+            <div style="margin-top:6px;font-size:10.5px;color:var(--text-3);">凭证: prod (主)</div>
+          </div>
+          <div style="position:relative;width:60px;">
+            <svg width="60" height="20" style="position:absolute;top:50%;transform:translateY(-50%);"><line x1="0" y1="10" x2="48" y2="10" stroke="#3a414a" stroke-width="1.5" stroke-dasharray="4 3"/><polygon points="48,5 56,10 48,15" fill="#7a8294"/></svg>
+          </div>
+          <div class="pnode transform" style="min-width:160px;">
+            <div class="h">🔄 字段映射</div>
+            <div class="s">23 字段 · 2 脱敏 · 1 加密</div>
+          </div>
+          <div style="position:relative;width:60px;">
+            <svg width="60" height="20" style="position:absolute;top:50%;transform:translateY(-50%);"><line x1="0" y1="10" x2="48" y2="10" stroke="#3a414a" stroke-width="1.5" stroke-dasharray="4 3"/><polygon points="48,5 56,10 48,15" fill="#7a8294"/></svg>
+          </div>
+          <div class="pnode connector" style="min-width:160px;border-color:var(--ok);">
+            <div class="h" style="color:var(--ok);">💾 写入员工主表</div>
+            <div class="s">目标表 hr_employee_main · 实体列宽表</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="alert info" style="margin-top:14px;">
+        <div class="t">节点类型说明</div>
+        • <span style="color:var(--info);">🔵 CONNECTOR</span>：数据源节点，必须绑定 <b>资源 (resource_id)</b> + 凭证 · <br>
+        • <span style="color:var(--ok);">🟢 TRANSFORM</span>：字段映射/脱敏/加密 · <br>
+        • <span style="color:var(--orange);">🟠 BRANCH</span>：条件分支 · <br>
+        • <span style="color:var(--pink);">🔴 LOOP</span>：循环节点（出度 ≤1，不可自连）
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 9: 执行日志 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 9 / 执行日志</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">9</span><h2>执行日志（按流水线 × 时间）</h2><span class="tag-ctx">吸收</span></div>
+    <div class="content" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px;">
+      <div class="page-h">
+        <div>
+          <h1>执行日志</h1>
+          <div class="sub">所有流水线的执行记录 · 实时刷新</div>
+        </div>
+        <div class="actions">
+          <div class="env" style="display:flex;gap:4px;padding:2px;background:var(--panel-2);border-radius:6px;">
+            <div class="b" style="padding:3px 10px;border-radius:4px;font-size:11.5px;color:var(--text-2);">1h</div>
+            <div class="b" style="padding:3px 10px;border-radius:4px;font-size:11.5px;color:var(--text-2);">24h</div>
+            <div class="b on" style="padding:3px 10px;border-radius:4px;font-size:11.5px;background:var(--border);color:var(--text);">7d</div>
+            <div class="b" style="padding:3px 10px;border-radius:4px;font-size:11.5px;color:var(--text-2);">30d</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">总执行次数</div><div class="v">3,412</div><div class="delta up">↑ 12%</div></div>
+        <div class="kpi"><div class="label">成功</div><div class="v" style="color:var(--ok);">3,287</div><div class="delta">96.3%</div></div>
+        <div class="kpi"><div class="label">部分成功</div><div class="v" style="color:var(--warn);">76</div><div class="delta">2.2%</div></div>
+        <div class="kpi"><div class="label">失败</div><div class="v" style="color:var(--err);">42</div><div class="delta">1.2%</div></div>
+        <div class="kpi"><div class="label">运行中</div><div class="v" style="color:var(--accent-2);">7</div><div class="delta">实时</div></div>
+        <div class="kpi"><div class="label">平均耗时</div><div class="v">1.8s</div><div class="delta down">↓ 0.3s</div></div>
+      </div>
+
+      <table class="t">
+        <thead><tr><th>Trace ID</th><th>流水线</th><th>系统 / 资源</th><th>触发</th><th>数据量</th><th>耗时</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code style="font-size:10.5px;">run_07-03_17-23_a4f2</code></td>
+            <td><a style="color:var(--accent-2);">员工增量同步</a></td>
+            <td>北森 · 员工主数据</td>
+            <td><span class="tag teal">定时</span></td>
+            <td>312 行</td>
+            <td>1.4s</td>
+            <td><span class="st ok"><span class="d"></span>成功</span></td>
+            <td style="color:var(--text-2);">17:23:08</td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">详情</a></td>
+          </tr>
+          <tr>
+            <td><code style="font-size:10.5px;">run_07-03_16-42_b1c8</code></td>
+            <td><a style="color:var(--accent-2);">员工变更推送</a></td>
+            <td>北森 · 员工主数据</td>
+            <td><span class="tag pink">事件</span></td>
+            <td>1 行</td>
+            <td>0.8s</td>
+            <td><span class="st ok"><span class="d"></span>成功</span></td>
+            <td style="color:var(--text-2);">16:42:31</td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">详情</a></td>
+          </tr>
+          <tr>
+            <td><code style="font-size:10.5px;">run_07-03_14-23_d9e3</code></td>
+            <td><a style="color:var(--accent-2);">飞书-入职人员入库</a></td>
+            <td>飞书 · 入职事件</td>
+            <td><span class="tag pink">事件</span></td>
+            <td>1 行</td>
+            <td>2.1s</td>
+            <td><span class="st ok"><span class="d"></span>成功</span></td>
+            <td style="color:var(--text-2);">14:23:15</td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">详情</a></td>
+          </tr>
+          <tr style="background:rgba(248,81,73,0.04);">
+            <td><code style="font-size:10.5px;">run_07-03_02-00_f7a2</code></td>
+            <td><a style="color:var(--err);">薪酬报表同步</a></td>
+            <td>北森 · 薪酬报表</td>
+            <td><span class="tag teal">定时</span></td>
+            <td>0 行</td>
+            <td>5.2s</td>
+            <td><span class="st err"><span class="d"></span>失败</span></td>
+            <td style="color:var(--text-2);">02:00:42</td>
+            <td><a style="color:var(--err);font-size:11.5px;">查看失败</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 10: 执行详情 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 10 / 执行详情</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">10</span><h2>执行详情（4 步分解 + Trace + 通知）</h2><span class="tag-ctx">吸收</span></div>
+    <div class="drawer" style="position:relative;right:auto;top:auto;bottom:auto;width:100%;max-width:100%;border:1px solid var(--border);border-left:none;box-shadow:none;">
+      <div class="drawer-h">
+        <div class="icon" style="background:var(--err);color:#fff;">!</div>
+        <div class="title">
+          <div class="name">执行详情 <span class="st err" style="margin-left:8px;"><span class="d"></span>失败</span></div>
+          <div class="sub">run_07-03_02-00_f7a2 · 薪酬报表同步</div>
+        </div>
+        <span class="x">✕</span>
+      </div>
+      <div class="drawer-b">
+        <div class="tabs">
+          <div class="tab active">概览</div>
+          <div class="tab">步骤分解</div>
+          <div class="tab">请求/响应</div>
+          <div class="tab">通知记录 <span class="count">3</span></div>
+          <div class="tab">权限审计</div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h4>基本信息</h4></div>
+          <div class="card"><div class="card-b">
+            <div class="detail">
+              <div class="l">Trace ID</div><div class="v"><code>run_07-03_02-00_f7a2</code> <a style="color:var(--accent-2);font-size:11px;margin-left:4px;">复制</a></div>
+              <div class="l">流水线</div><div class="v"><a style="color:var(--accent-2);">薪酬报表同步 v1.0.0</a></div>
+              <div class="l">系统 / 资源</div><div class="v">北森 · 薪酬报表</div>
+              <div class="l">凭证</div><div class="v"><span class="tag ok">prod (主)</span></div>
+              <div class="l">触发方式</div><div class="v"><span class="tag teal">定时</span> 每月 1 号 03:00</div>
+              <div class="l">触发人</div><div class="v">scheduler · system</div>
+              <div class="l">开始时间</div><div class="v">2026-07-03 02:00:42</div>
+              <div class="l">耗时</div><div class="v">5.2s</div>
+              <div class="l">数据量</div><div class="v">0 / 1,247 行（失败 0 行）</div>
+            </div>
+          </div></div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h4>错误信息</h4></div>
+          <div class="alert err">
+            <div class="t">HTTP 401 Unauthorized</div>
+            凭证已过期（expired_at: 2026-06-30）· 请更新凭证或切换到备用凭证
+          </div>
+          <pre class="json"><span class="k">"error"</span>: <span class="s">"invalid_token"</span>,
+<span class="k">"error_description"</span>: <span class="s">"The access token expired at 2026-06-30 23:59:59"</span>,
+<span class="k">"request_id"</span>: <span class="s">"req_07-03_020042_a3f8"</span></pre>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h4>执行步骤（4 步）</h4></div>
+          <div class="trace">
+            <div class="trace-item ok">
+              <div class="d"></div>
+              <div class="t">① 启动 <span class="tag ok" style="margin-left:6px;font-size:10px;">已完成</span></div>
+              <div class="s">02:00:42.103 · 耗时 12ms</div>
+              <div class="m">由 scheduler 触发 · 加载配置 23 字段</div>
+            </div>
+            <div class="trace-item ok">
+              <div class="d"></div>
+              <div class="t">② 获取访问令牌 <span class="tag ok" style="margin-left:6px;font-size:10px;">已完成</span></div>
+              <div class="s">02:00:42.245 · 耗时 142ms</div>
+              <div class="m">POST https://api.beisen.com/v2/oauth/token · 200 OK</div>
+            </div>
+            <div class="trace-item err">
+              <div class="d"></div>
+              <div class="t">③ 拉取薪酬数据 <span class="tag err" style="margin-left:6px;font-size:10px;">失败</span></div>
+              <div class="s">02:00:42.501 · 耗时 5.0s</div>
+              <div class="m">GET https://api.beisen.com/v2/salary/report?month=2026-07 · <b style="color:var(--err);">401 Unauthorized</b></div>
+            </div>
+            <div class="trace-item err">
+              <div class="d"></div>
+              <div class="t">④ 写入目标表 <span class="tag" style="margin-left:6px;font-size:10px;background:var(--border-2);color:var(--text-3);">已跳过</span></div>
+              <div class="s">—</div>
+              <div class="m">因上游失败自动跳过</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h4>通知记录（已发 3 条）</h4></div>
+          <table class="t">
+            <thead><tr><th>时间</th><th>渠道</th><th>接收人</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>02:00:48</td><td>飞书</td><td>@张 三 (数据负责人)</td><td><span class="st ok"><span class="d"></span>已送达</span></td></tr>
+              <tr><td>02:00:48</td><td>邮件</td><td>data-alerts@example.com</td><td><span class="st ok"><span class="d"></span>已送达</span></td></tr>
+              <tr><td>02:05:01</td><td>短信</td><td>138****1234 (张 三)</td><td><span class="st ok"><span class="d"></span>已送达</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="sec">
+          <div style="display:flex;gap:8px;">
+            <button class="btn primary">立即重试</button>
+            <button class="btn">查看凭证</button>
+            <button class="btn">查看流水线</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 11: 事件中心列表 (新) -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 11 / 事件中心</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">11</span><h2>事件中心列表（Phase 3-1 落地）</h2><span class="tag-ctx">新增</span></div>
+    <div class="content" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px;">
+      <div class="page-h">
+        <div>
+          <h1>⚡ 事件中心</h1>
+          <div class="sub">外部事件接收 / 触发器匹配 / 流水线派发 · 实时刷新</div>
+        </div>
+        <div class="actions">
+          <button class="btn">⚙️ 触发器配置</button>
+          <button class="btn primary">+ 发布事件</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">今日事件</div><div class="v">347</div><div class="delta up">↑ 22%</div></div>
+        <div class="kpi"><div class="label">成功派发</div><div class="v" style="color:var(--ok);">298</div><div class="delta">85.9%</div></div>
+        <div class="kpi"><div class="label">未匹配</div><div class="v" style="color:var(--warn);">36</div><div class="delta">10.4%</div></div>
+        <div class="kpi"><div class="label">失败</div><div class="v" style="color:var(--err);">10</div><div class="delta">2.9%</div></div>
+        <div class="kpi"><div class="label">死信</div><div class="v" style="color:var(--err);">3</div><div class="delta">需处理</div></div>
+        <div class="kpi"><div class="label">活跃触发器</div><div class="v">12</div><div class="delta">5 个系统</div></div>
+      </div>
+
+      <div class="toolbar">
+        <div class="filter on">全部 347</div>
+        <div class="filter">已派发 298</div>
+        <div class="filter">未匹配 36</div>
+        <div class="filter">失败 10</div>
+        <div class="filter">死信 3</div>
+        <div style="flex:1"></div>
+        <div class="filter">来源 ▾</div>
+        <div class="filter">类型 ▾</div>
+      </div>
+
+      <table class="t">
+        <thead><tr><th>Event ID</th><th>类型</th><th>来源</th><th>触发器</th><th>Pipeline Run</th><th>重试</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code style="font-size:10.5px;">evt_07-03_17-23_a4f2</code></td>
+            <td><span class="tag info">user.updated_v3</span></td>
+            <td>飞书</td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">trig_feishu_user_change</a></td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">run_a4f2</a></td>
+            <td>0/5</td>
+            <td><span class="st ok"><span class="d"></span>已完成</span></td>
+            <td style="color:var(--text-2);">17:23:08</td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">详情</a></td>
+          </tr>
+          <tr>
+            <td><code style="font-size:10.5px;">evt_07-03_16-42_b1c8</code></td>
+            <td><span class="tag info">approval.status_update</span></td>
+            <td>飞书</td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">trig_feishu_approval</a></td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">run_b1c8</a></td>
+            <td>0/5</td>
+            <td><span class="st ok"><span class="d"></span>已完成</span></td>
+            <td style="color:var(--text-2);">16:42:31</td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">详情</a></td>
+          </tr>
+          <tr>
+            <td><code style="font-size:10.5px;">evt_07-03_15-10_c3d4</code></td>
+            <td><span class="tag info">department.created_v3</span></td>
+            <td>飞书</td>
+            <td style="color:var(--text-3);">未匹配</td>
+            <td>—</td>
+            <td>—</td>
+            <td><span class="st warn"><span class="d"></span>NO_MATCH</span></td>
+            <td style="color:var(--text-2);">15:10:42</td>
+            <td><a style="color:var(--warn);font-size:11.5px;">配置触发器</a></td>
+          </tr>
+          <tr>
+            <td><code style="font-size:10.5px;">evt_07-03_12-08_e5f6</code></td>
+            <td><span class="tag info">offer.status_update</span></td>
+            <td>飞书</td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">trig_feishu_offer</a></td>
+            <td style="color:var(--err);">失败 ×3</td>
+            <td>5/5</td>
+            <td><span class="st err"><span class="d"></span>DEAD_LETTER</span></td>
+            <td style="color:var(--text-2);">12:08:22</td>
+            <td><a style="color:var(--err);font-size:11.5px;">查看死信</a></td>
+          </tr>
+          <tr>
+            <td><code style="font-size:10.5px;">evt_07-03_11-45_g7h8</code></td>
+            <td><span class="tag pink">schedule.tick</span></td>
+            <td>scheduler</td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">trig_schedule_tick</a></td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">run_g7h8</a></td>
+            <td>0/5</td>
+            <td><span class="st ok"><span class="d"></span>已完成</span></td>
+            <td style="color:var(--text-2);">11:45:00</td>
+            <td><a style="color:var(--accent-2);font-size:11.5px;">详情</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 12: 事件详情 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 12 / 事件详情</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">12</span><h2>事件详情（状态时间线 + Payload + 派发历史 + 重试）</h2><span class="tag-ctx">新增</span></div>
+    <div class="drawer" style="position:relative;right:auto;top:auto;bottom:auto;width:100%;max-width:100%;border:1px solid var(--border);border-left:none;box-shadow:none;">
+      <div class="drawer-h">
+        <div class="icon" style="background:var(--err);color:#fff;">⚡</div>
+        <div class="title">
+          <div class="name">事件详情 <span class="st err" style="margin-left:8px;"><span class="d"></span>DEAD_LETTER</span></div>
+          <div class="sub">evt_07-03_12-08_e5f6 · offer.status_update · 来自飞书</div>
+        </div>
+        <span class="x">✕</span>
+      </div>
+      <div class="drawer-b">
+        <div class="tabs">
+          <div class="tab active">概览</div>
+          <div class="tab">Payload</div>
+          <div class="tab">派发历史 <span class="count">5</span></div>
+          <div class="tab">元数据</div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h4>基本信息</h4></div>
+          <div class="card"><div class="card-b">
+            <div class="detail">
+              <div class="l">Event ID</div><div class="v"><code>evt_07-03_12-08_e5f6</code></div>
+              <div class="l">Event 类型</div><div class="v"><span class="tag info">offer.status_update</span></div>
+              <div class="l">来源</div><div class="v">飞书 (lark.com)</div>
+              <div class="l">Trace ID</div><div class="v"><code>trace_e5f6_3a2b</code></div>
+              <div class="l">匹配触发器</div><div class="v"><a style="color:var(--accent-2);">trig_feishu_offer</a></div>
+              <div class="l">触发 Pipeline</div><div class="v"><a style="color:var(--accent-2);">pipe_offer_status_sync v1.0.0</a></div>
+              <div class="l">重试次数</div><div class="v">5 / 5（已用尽）</div>
+              <div class="l">首次接收</div><div class="v">2026-07-03 12:08:22</div>
+              <div class="l">进入死信</div><div class="v">2026-07-03 14:23:08（约 2 小时 15 分后）</div>
+            </div>
+          </div></div>
+        </div>
+
+        <div class="sec">
+          <div class="alert err">
+            <div class="t">最终失败原因</div>
+            目标表 <code>hr_offer_record</code> 字段缺失：<code>candidate_email</code> 字段在 2026-07-03 11:00 调整后未执行过字段自动同步
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h4>状态时间线</h4></div>
+          <div class="trace">
+            <div class="trace-item ok"><div class="d"></div><div class="t">① 事件产生 <span class="tag ok" style="margin-left:6px;font-size:10px;">飞书</span></div><div class="s">12:08:18</div><div class="m">飞书招聘 offer 状态变更为「已发送」</div></div>
+            <div class="trace-item ok"><div class="d"></div><div class="t">② 接收 <span class="tag ok" style="margin-left:6px;font-size:10px;">RECEIVED</span></div><div class="s">12:08:22 · 耗时 4s（v2 解密 + 验签）</div></div>
+            <div class="trace-item ok"><div class="d"></div><div class="t">③ 匹配触发器 <span class="tag ok" style="margin-left:6px;font-size:10px;">MATCHED</span></div><div class="s">12:08:22 · 命中 trig_feishu_offer</div></div>
+            <div class="trace-item ok"><div class="d"></div><div class="t">④ 派发 <span class="tag ok" style="margin-left:6px;font-size:10px;">DISPATCHED</span></div><div class="s">12:08:23 · 创建 run_e5f6</div></div>
+            <div class="trace-item err"><div class="d"></div><div class="t">⑤ 失败重试 ×5 <span class="tag err" style="margin-left:6px;font-size:10px;">指数退避</span></div><div class="s">12:09 → 12:14 → 12:44 → 14:14 → 14:23</div><div class="m">5 次尝试均因字段缺失失败</div></div>
+            <div class="trace-item err"><div class="d"></div><div class="t">⑥ 进入死信 <span class="tag err" style="margin-left:6px;font-size:10px;">DEAD_LETTER</span></div><div class="s">14:23:08</div></div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div style="display:flex;gap:8px;">
+            <button class="btn primary">↻ 重放</button>
+            <button class="btn">查看死信</button>
+            <button class="btn">下载 Payload</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 13: 触发器配置 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 13 / 触发器</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">13</span><h2>触发器配置（飞书 v1/v2 + 过滤规则 + 签名密钥）</h2><span class="tag-ctx">新增</span></div>
+    <div class="modal" style="position:relative;right:auto;top:auto;bottom:auto;width:100%;max-width:100%;border:1px solid var(--border);">
+      <div class="modal-h">
+        <h2>触发器配置 — trig_feishu_user_change</h2>
+        <span class="x">✕</span>
+      </div>
+      <div class="modal-b">
+        <div class="alert info">
+          <div class="t">飞书事件接入</div>
+          Webhook URL: <code style="background:var(--bg);padding:2px 6px;border-radius:3px;">https://ucp.example.com/api/v1/ucp/webhooks/feishu/trig_feishu_user_change</code>
+          <a style="color:var(--accent-2);margin-left:8px;font-size:11.5px;">复制</a>
+        </div>
+
+        <div class="form-row"><div class="lbl req">触发器编码</div><div class="ctrl"><input value="trig_feishu_user_change"></div></div>
+        <div class="form-row"><div class="lbl req">事件来源</div><div class="ctrl"><select><option>飞书 (lark)</option><option>钉钉</option><option>企微</option><option>Webhook 自定义</option></select></div></div>
+        <div class="form-row"><div class="lbl req">事件类型</div><div class="ctrl"><input value="user.created_v3, user.updated_v3, user.deleted_v3"></div></div>
+        <div class="form-row"><div class="lbl">关联流水线</div><div class="ctrl"><select><option>pipe_employee_full_sync v1.2.3</option><option>pipe_employee_incr_sync v1.0.5</option></select></div></div>
+
+        <div class="sec" style="margin-top:18px;">
+          <div class="sec-h"><h4>飞书安全配置（v1 + v2）</h4></div>
+          <div class="form-row"><div class="lbl">Verification Token (v1)</div><div class="ctrl"><input value="************************" type="password"></div></div>
+          <div class="form-row"><div class="lbl">Encrypt Key (v2)</div><div class="ctrl"><input value="************************" type="password"></div></div>
+          <div class="form-row"><div class="lbl">签名密钥</div><div class="ctrl"><input value="sign_************************" type="password"></div></div>
+          <div class="form-row"><div class="lbl">签名头</div><div class="ctrl"><input value="X-Lark-Signature"></div></div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h4>过滤规则（filter_rule · JSONPath）</h4><a style="color:var(--accent-2);font-size:11.5px;cursor:pointer;">测试规则</a></div>
+          <pre class="json"><span class="k">"rules"</span>: [
+  { <span class="k">"path"</span>: <span class="s">"$.event.action"</span>, <span class="k">"op"</span>: <span class="s">"in"</span>, <span class="k">"value"</span>: [<span class="s">"created"</span>, <span class="s">"updated"</span>] },
+  { <span class="k">"path"</span>: <span class="s">"$.event.employee.status_code"</span>, <span class="k">"op"</span>: <span class="s">"eq"</span>, <span class="k">"value"</span>: <span class="s">"ACTIVE"</span> }
+]</pre>
+        </div>
+
+        <div class="sec">
+          <div class="form-row"><div class="lbl">启用</div><div class="ctrl"><span class="st ok"><span class="d"></span>已启用</span> · 停用后飞书回调将返回 200 但不入库</div></div>
+        </div>
+      </div>
+      <div class="modal-f">
+        <button class="btn ghost">取消</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn">测试事件</button>
+          <button class="btn primary">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 14: 监控中心 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 14 / 监控中心</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">14</span><h2>监控中心（Phase 3-9：4h/24h/7d/30d 窗口 + 趋势图 + 告警）</h2><span class="tag-ctx">新增</span></div>
+    <div class="content" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px;">
+      <div class="page-h">
+        <div>
+          <h1>📈 监控中心</h1>
+          <div class="sub">全平台流水线 + 事件 + 死信 一站式监控</div>
+        </div>
+        <div class="actions">
+          <div class="env" style="display:flex;gap:4px;padding:2px;background:var(--panel-2);border-radius:6px;">
+            <div class="b" style="padding:3px 10px;border-radius:4px;font-size:11.5px;color:var(--text-2);">4h</div>
+            <div class="b on" style="padding:3px 10px;border-radius:4px;font-size:11.5px;background:var(--border);color:var(--text);">24h</div>
+            <div class="b" style="padding:3px 10px;border-radius:4px;font-size:11.5px;color:var(--text-2);">7d</div>
+            <div class="b" style="padding:3px 10px;border-radius:4px;font-size:11.5px;color:var(--text-2);">30d</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">总执行</div><div class="v">3,412</div><div class="delta up">↑ 12%</div></div>
+        <div class="kpi"><div class="label">成功</div><div class="v" style="color:var(--ok);">3,287</div><div class="delta">96.3%</div></div>
+        <div class="kpi"><div class="label">部分成功</div><div class="v" style="color:var(--warn);">76</div><div class="delta">2.2%</div></div>
+        <div class="kpi"><div class="label">失败</div><div class="v" style="color:var(--err);">42</div><div class="delta">1.2%</div></div>
+        <div class="kpi"><div class="label">失败率</div><div class="v">1.4%</div><div class="delta down">↓ 0.3%</div></div>
+        <div class="kpi"><div class="label">平均耗时</div><div class="v">1.8s</div><div class="delta down">↓ 0.3s</div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:14px;">
+        <div class="card">
+          <div class="card-h"><h3>执行趋势（24h · 每小时）</h3><div style="font-size:11px;color:var(--text-3);">↗ 成功 / ↘ 失败</div></div>
+          <div class="card-b">
+            <div class="bar-chart">
+              <div class="b" style="height:30%"><div class="v">120</div></div>
+              <div class="b" style="height:45%"><div class="v">180</div></div>
+              <div class="b" style="height:38%"><div class="v">152</div></div>
+              <div class="b" style="height:55%"><div class="v">220</div></div>
+              <div class="b" style="height:42%"><div class="v">168</div></div>
+              <div class="b" style="height:62%"><div class="v">248</div></div>
+              <div class="b" style="height:70%;background:var(--ok);"><div class="v">280</div></div>
+              <div class="b" style="height:65%;background:var(--ok);"><div class="v">260</div></div>
+              <div class="b" style="height:80%;background:var(--ok);"><div class="v">320</div></div>
+              <div class="b" style="height:75%;background:var(--ok);"><div class="v">300</div></div>
+              <div class="b" style="height:50%"><div class="v">200</div></div>
+              <div class="b" style="height:20%;background:var(--err);"><div class="v">8</div></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);padding:0 4px;">
+              <span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span><span>23:59</span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>状态分布</h3></div>
+          <div class="card-b">
+            <div style="display:flex;align-items:center;justify-content:center;height:80px;">
+              <div style="width:80px;height:80px;border-radius:50%;background:conic-gradient(var(--ok) 0 75%, var(--warn) 75% 85%, var(--err) 85% 95%, var(--accent) 95% 100%);position:relative;">
+                <div style="position:absolute;inset:14px;background:var(--panel);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-direction:column;">
+                  <div style="font-size:18px;font-weight:600;">96%</div>
+                  <div style="font-size:10px;color:var(--text-3);">成功率</div>
+                </div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11.5px;">
+              <div style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;background:var(--ok);border-radius:2px;"></span>成功 75%</div>
+              <div style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;background:var(--warn);border-radius:2px;"></span>部分 10%</div>
+              <div style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;background:var(--err);border-radius:2px;"></span>失败 10%</div>
+              <div style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;background:var(--accent);border-radius:2px;"></span>运行中 5%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-h"><h4>⚠️ 告警（3）</h4><a style="color:var(--accent-2);font-size:11.5px;">查看全部 →</a></div>
+        <table class="t">
+          <thead><tr><th>级别</th><th>类型</th><th>对象</th><th>详情</th><th>触发时间</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="tag err">CRITICAL</span></td>
+              <td>DEAD_LETTER</td>
+              <td>事件 evt_07-03_12-08_e5f6</td>
+              <td>5 次重试后仍失败（字段缺失 candidate_email）</td>
+              <td style="color:var(--text-2);">14:23</td>
+              <td><a style="color:var(--err);font-size:11.5px;">立即处理</a></td>
+            </tr>
+            <tr>
+              <td><span class="tag warn">WARN</span></td>
+              <td>TIMEOUT</td>
+              <td>pipe_oa_dept_sync</td>
+              <td>执行耗时 18 分钟（阈值 5 分钟）</td>
+              <td style="color:var(--text-2);">07-02 01:18</td>
+              <td><a style="color:var(--warn);font-size:11.5px;">查看</a></td>
+            </tr>
+            <tr>
+              <td><span class="tag warn">WARN</span></td>
+              <td>HIGH_FAIL_RATE</td>
+              <td>pipe_salary_report_sync</td>
+              <td>24h 失败率 67%（4 / 6）</td>
+              <td style="color:var(--text-2);">07-02 03:00</td>
+              <td><a style="color:var(--warn);font-size:11.5px;">查看</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== -->
+  <!-- 场景 15: 死信队列 -->
+  <!-- =========================================================== -->
+  <div class="scene-label">场景 15 / 死信队列</div>
+  <div class="scene">
+    <div class="scene-title"><span class="num">15</span><h2>死信队列（Phase 3-3：重放 / 丢弃 / 扫描到期重试）</h2><span class="tag-ctx">新增</span></div>
+    <div class="content" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px;">
+      <div class="page-h">
+        <div>
+          <h1>💀 死信队列</h1>
+          <div class="sub">5 次重试后仍失败的事件 · 需人工介入</div>
+        </div>
+        <div class="actions">
+          <button class="btn">⏰ 扫描到期重试</button>
+          <button class="btn primary">查看事件</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">总死信</div><div class="v" style="color:var(--err);">3</div></div>
+        <div class="kpi"><div class="label">今日新增</div><div class="v">2</div></div>
+        <div class="kpi"><div class="label">已处理</div><div class="v ok">12</div></div>
+        <div class="kpi"><div class="label">平均存活</div><div class="v">2h 15m</div></div>
+      </div>
+
+      <table class="t">
+        <thead><tr><th>Event UUID</th><th>类型</th><th>触发器</th><th>已重试</th><th>错误码</th><th>错误摘要</th><th>最后重试</th><th>进入死信</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code style="font-size:10.5px;">evt_07-03_12-08_e5f6</code></td>
+            <td><span class="tag info">offer.status_update</span></td>
+            <td>trig_feishu_offer</td>
+            <td>5/5</td>
+            <td><span class="tag err">FIELD_MISSING</span></td>
+            <td style="color:var(--text-2);">字段 candidate_email 不存在</td>
+            <td>14:23</td>
+            <td>14:23:08</td>
+            <td style="white-space:nowrap;"><button class="btn sm primary" style="margin-right:4px;">↻ 重放</button><button class="btn sm">丢弃</button></td>
+          </tr>
+          <tr>
+            <td><code style="font-size:10.5px;">evt_07-02_22-15_b2c3</code></td>
+            <td><span class="tag info">approval.status_update</span></td>
+            <td>trig_feishu_approval</td>
+            <td>5/5</td>
+            <td><span class="tag err">CRED_EXPIRED</span></td>
+            <td style="color:var(--text-2);">飞书凭证已过期</td>
+            <td>23:42</td>
+            <td>07-02 23:42</td>
+            <td style="white-space:nowrap;"><button class="btn sm primary" style="margin-right:4px;">↻ 重放</button><button class="btn sm">丢弃</button></td>
+          </tr>
+          <tr>
+            <td><code style="font-size:10.5px;">evt_07-01_15-30_d4e5</code></td>
+            <td><span class="tag info">user.created_v3</span></td>
+            <td>trig_feishu_user_change</td>
+            <td>5/5</td>
+            <td><span class="tag err">SCHEMA_INVALID</span></td>
+            <td style="color:var(--text-2);">payload 缺少必填字段 employee_id</td>
+            <td>17:08</td>
+            <td>07-01 17:08</td>
+            <td style="white-space:nowrap;"><button class="btn sm primary" style="margin-right:4px;">↻ 重放</button><button class="btn sm">丢弃</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="text-align:center;color:var(--text-3);font-size:11.5px;padding:24px 0;border-top:1px solid var(--border);margin-top:32px;">
+    蓝本 v2 · 共 15 个核心场景 · 覆盖了第三方 16 张图的全部有效 UX 模式 + 补齐事件中心/监控中心/死信队列
+  </div>
+</div>
+
+</body>
+</html>
+

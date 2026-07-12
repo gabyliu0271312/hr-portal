@@ -197,8 +197,7 @@ async function fetchOptions() {
       label: `${t.name} (${t.chat_id})`,
       value: t.chat_id,
     }))
-  } catch (e) {
-    console.warn('[ActionWizard] 获取选项失败', e)
+  } catch (_e) {
   } finally {
     dataLoading.value = false
   }

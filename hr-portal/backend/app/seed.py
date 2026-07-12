@@ -46,7 +46,7 @@ MENU_TREE: list[dict] = [
                     {"code": "system.field_columns", "label": "字段管理", "icon": "Grid"},
                 ],
             },
-            # 二级 1.2：数据接入
+            # 二级 1.2：数据接入（仅保留非 UCP 的旧数据源配置）
             {
                 "code": "system.datasource",
                 "label": "数据接入",
@@ -83,7 +83,73 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
-    # 一级 2：数据仓库
+    # 一级 2：数据连接（UCP — 通用数据连接平台，应用化预留）
+    {
+        "code": "ucp",
+        "label": "数据连接",
+        "icon": "Connection",
+        "children": [
+            {
+                "code": "ucp.systems_group",
+                "label": "系统与资源",
+                "icon": "Monitor",
+                "children": [
+                    {"code": "ucp.systems", "label": "接入系统", "icon": "DataBoard"},
+                    {"code": "ucp.resources", "label": "数据资源", "icon": "Grid"},
+                    {"code": "ucp.credentials", "label": "凭证管理", "icon": "Key"},
+                ],
+            },
+            {
+                "code": "ucp.pipelines_group",
+                "label": "流水线",
+                "icon": "Share",
+                "children": [
+                    {"code": "ucp.pipelines", "label": "流水线管理", "icon": "Share"},
+                    {"code": "ucp.pipeline_designer", "label": "流水线画布", "icon": "Edit"},
+                    {"code": "ucp.executions", "label": "执行日志", "icon": "Clock"},
+                ],
+            },
+            {
+                "code": "ucp.events_group",
+                "label": "事件与监控",
+                "icon": "BellFilled",
+                "children": [
+                    {"code": "ucp.events", "label": "事件中心", "icon": "BellFilled"},
+                    {"code": "ucp.triggers", "label": "触发器", "icon": "Setting"},
+                    {"code": "ucp.dead_letters", "label": "死信队列", "icon": "Warning"},
+                    {"code": "ucp.monitor", "label": "监控中心", "icon": "TrendCharts"},
+                ],
+            },
+            {
+                "code": "ucp.governance_group",
+                "label": "数据治理",
+                "icon": "DataAnalysis",
+                "children": [
+                    {"code": "ucp.governance", "label": "数据治理", "icon": "DataAnalysis"},
+                ],
+            },
+            {
+                "code": "ucp.assets_group",
+                "label": "集成资产",
+                "icon": "FolderOpened",
+                "children": [
+                    {"code": "ucp.assets", "label": "资产目录", "icon": "FolderOpened"},
+                ],
+            },
+            {
+                "code": "ucp.admin_group",
+                "label": "管理",
+                "icon": "Setting",
+                "children": [
+                    {"code": "ucp.admin", "label": "平台配置", "icon": "Setting"},
+                    {"code": "ucp.approvals", "label": "审批中心", "icon": "Document"},
+                    {"code": "ucp.external_accounts", "label": "外部账号", "icon": "UserFilled"},
+                    {"code": "ucp.oa_sync", "label": "OA 同步", "icon": "Connection"},
+                ],
+            },
+        ],
+    },
+    # 一级 3：数据仓库
     {
         "code": "warehouse",
         "label": "数据仓库",
@@ -98,7 +164,7 @@ MENU_TREE: list[dict] = [
             {"code": "warehouse.impact", "label": "影响分析", "icon": "Connection"},
         ],
     },
-    # 一级 3：报表管理
+    # 一级 4：报表管理
     {
         "code": "report",
         "label": "报表管理",
@@ -114,7 +180,7 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
-    # 一级 3：提效工具
+    # 一级 4：提效工具
     {
         "code": "tools",
         "label": "提效工具",
@@ -135,7 +201,7 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
-    # 一级 4：绩效管理（独立业务应用入口）
+    # 一级 5：绩效管理（独立业务应用入口）
     {
         "code": "performance",
         "label": "绩效管理",
@@ -152,7 +218,7 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
-    # 一级 5：成本分摊（已上线独立业务应用入口）
+    # 一级 6：成本分摊（已上线独立业务应用入口）
     {
         "code": "cost_allocation",
         "label": "成本分摊",
@@ -194,9 +260,15 @@ async def _ensure_menus(db: AsyncSession) -> dict[str, Menu]:
             logger.info("[seed] menu added: %s", node["code"])
         else:
             m = by_code[node["code"]]
+            changed = False
             if m.display_order != order:
                 m.display_order = order
-                logger.info("[seed] menu order updated: %s → %d", node["code"], order)
+                changed = True
+            if m.parent_id != parent_id:
+                m.parent_id = parent_id
+                changed = True
+            if changed:
+                logger.info("[seed] menu updated: %s order=%d parent=%s", node["code"], order, parent_id)
         order += 10
         for child in node.get("children", []):
             await add(child, by_code[node["code"]].id)
@@ -290,6 +362,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_single_table_datasets(db)
         await _ensure_document_templates(db)
         await _ensure_formula_functions(db)
+        await _ensure_pipeline_templates(db)
         logger.info("[seed] done")
 
 
@@ -565,4 +638,77 @@ async def _ensure_formula_functions(db: AsyncSession) -> None:
             )
         )
         logger.info("[seed] formula function added: %s", cfg["code"])
+    await db.commit()
+
+
+async def _ensure_pipeline_templates(db: AsyncSession) -> None:
+    """幂等创建 Phase 4 预置流水线模板：入职账号创建、离职账号停用"""
+    from app.ucp.models import UcpPipelineTemplate as PT
+
+    existing_codes = {
+        code for (code,) in (await db.execute(select(PT.template_code))).all()
+    }
+
+    templates = [
+        {
+            "template_code": "TPL_ONBOARDING_ACCOUNT",
+            "name": "入职账号创建",
+            "description": "HR 入职事件触发 → 为员工创建滴滴/曹操等外部系统账号",
+            "nodes": [
+                {"id": "start", "type": "TRANSFORM", "x": 100, "y": 120, "label": "解析入职事件",
+                 "config": {"mappings": [{"src": "payload.employee_id", "dst": "employee_id"}]}},
+                {"id": "create_didi", "type": "CONNECTOR", "x": 350, "y": 80, "label": "创建滴滴账号",
+                 "config": {"adapter_code": "didi_account_push_adapter", "action": "CREATE"}},
+                {"id": "create_caocao", "type": "CONNECTOR", "x": 350, "y": 200, "label": "创建曹操账号",
+                 "config": {"adapter_code": "caocao_account_push_adapter", "action": "CREATE"}},
+                {"id": "notify", "type": "NOTIFY", "x": 600, "y": 140, "label": "通知 HR",
+                 "config": {"template_code": "TPL_ONBOARDING_DONE", "receivers": ["hr_admin"]}},
+            ],
+            "edges": [
+                {"from": "start", "to": "create_didi"},
+                {"from": "start", "to": "create_caocao"},
+                {"from": "create_didi", "to": "notify"},
+                {"from": "create_caocao", "to": "notify"},
+            ],
+        },
+        {
+            "template_code": "TPL_OFFBOARDING_ACCOUNT",
+            "name": "离职账号停用",
+            "description": "离职事件触发 → 停用/删除外部系统账号，需审批",
+            "nodes": [
+                {"id": "start", "type": "TRANSFORM", "x": 100, "y": 120, "label": "解析离职事件",
+                 "config": {"mappings": [{"src": "payload.employee_id", "dst": "employee_id"}]}},
+                {"id": "approval", "type": "APPROVAL", "x": 350, "y": 120, "label": "审批确认",
+                 "config": {"approvers": [], "approval_mode": "SINGLE", "reason": "离职账号停用需审批",
+                  "action_summary": "停用离职员工外部账号"}},
+                {"id": "disable_didi", "type": "CONNECTOR", "x": 600, "y": 80, "label": "停用滴滴账号",
+                 "config": {"adapter_code": "didi_account_push_adapter", "action": "DISABLE"}},
+                {"id": "disable_caocao", "type": "CONNECTOR", "x": 600, "y": 200, "label": "停用曹操账号",
+                 "config": {"adapter_code": "caocao_account_push_adapter", "action": "DISABLE"}},
+                {"id": "notify", "type": "NOTIFY", "x": 850, "y": 140, "label": "通知 HR",
+                 "config": {"template_code": "TPL_OFFBOARDING_DONE", "receivers": ["hr_admin"]}},
+            ],
+            "edges": [
+                {"from": "start", "to": "approval"},
+                {"from": "approval", "to": "disable_didi"},
+                {"from": "approval", "to": "disable_caocao"},
+                {"from": "disable_didi", "to": "notify"},
+                {"from": "disable_caocao", "to": "notify"},
+            ],
+        },
+    ]
+
+    for tpl in templates:
+        if tpl["template_code"] in existing_codes:
+            continue
+        db.add(PT(
+            template_code=tpl["template_code"],
+            name=tpl["name"],
+            description=tpl.get("description"),
+            nodes_json=tpl["nodes"],
+            edges_json=tpl["edges"],
+            version="1.0",
+            created_by="seed",
+        ))
+        logger.info("[seed] pipeline template added: %s", tpl["template_code"])
     await db.commit()

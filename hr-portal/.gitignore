@@ -35,3 +35,7 @@ data/pg/
 # Logs
 *.log
 logs/backups/
+
+# Backup files
+*.bak
+*.bak-*

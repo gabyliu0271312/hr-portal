@@ -322,30 +322,36 @@ async def _build_tag_clause_with_passthrough(
     """先用本表能解析的维度；缺的维度通过花名册子查询补齐。"""
     direct_parts: list[ColumnElement] = []
     roster_parts: list[ColumnElement] = []
-    # Explicitly alias roster model in subquery to avoid anonymous aliases
-    # in compiled SQL (e.g. "scope_roster"."employee_no" instead of auto-generated).
-    raw_roster_model = DATA_TABLES.get(ROSTER_TABLE)
-    if raw_roster_model is None:
-        return false()
-    roster_model = aliased(raw_roster_model, name="scope_roster")
+    # 仅当需要 roster 穿透时才加载花名册模型，避免测试/环境未注册时误判 false
+    roster_model = None
 
     org_part = await _build_org_clause(tag, sels, Model, role_cols, db)
     if org_part is not None:
         direct_parts.append(org_part)
-    elif roster_join_col and roster_model is not None and roster_role_cols is not None:
-        roster_org = await _build_org_clause(tag, sels, roster_model, roster_role_cols, db)
-        if roster_org is not None:
-            roster_parts.append(roster_org)
+    elif roster_join_col and roster_role_cols is not None:
+        if roster_model is None:
+            raw = DATA_TABLES.get(ROSTER_TABLE)
+            if raw is not None:
+                roster_model = aliased(raw, name="scope_roster")
+        if roster_model is not None:
+            roster_org = await _build_org_clause(tag, sels, roster_model, roster_role_cols, db)
+            if roster_org is not None:
+                roster_parts.append(roster_org)
 
     person_part = await _build_person_clause(tag, filters, Model, role_cols)
     if person_part is not None:
         direct_parts.append(person_part)
-    elif roster_join_col and roster_model is not None and roster_role_cols is not None:
-        roster_person = await _build_person_clause(tag, filters, roster_model, roster_role_cols)
-        if roster_person is not None:
-            roster_parts.append(roster_person)
+    elif roster_join_col and roster_role_cols is not None:
+        if roster_model is None:
+            raw = DATA_TABLES.get(ROSTER_TABLE)
+            if raw is not None:
+                roster_model = aliased(raw, name="scope_roster")
+        if roster_model is not None:
+            roster_person = await _build_person_clause(tag, filters, roster_model, roster_role_cols)
+            if roster_person is not None:
+                roster_parts.append(roster_person)
 
-    if roster_parts:
+    if roster_parts and roster_model is not None:
         subq = select(_entity_text(roster_model, ROSTER_EMP_COL)).where(and_(*roster_parts))
         direct_parts.append(_entity_text(Model, roster_join_col).in_(subq))
 

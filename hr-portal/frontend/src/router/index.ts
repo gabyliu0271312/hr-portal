@@ -114,6 +114,177 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/datasource/SyncRuns.vue'),
         meta: { label: '同步历史', menuCode: 'datasource.sync_runs' },
       },
+      // ===== UCP 数据连接平台（新路由 /ucp）=====
+      {
+        path: 'ucp',
+        name: 'UcpIndex',
+        component: () => import('@/views/ucp/DataAccessIndex.vue'),
+        meta: { label: '接入系统', menuCode: 'ucp.systems' },
+      },
+      {
+        path: 'ucp/executions',
+        name: 'UcpExecutions',
+        component: () => import('@/views/ucp/PipelineExecList.vue'),
+        meta: { label: '执行日志', menuCode: 'ucp.executions' },
+      },
+      {
+        path: 'ucp/executions/:id',
+        name: 'UcpExecutionDetail',
+        component: () => import('@/views/ucp/PipelineExecDetail.vue'),
+        meta: { label: '执行详情', menuCode: 'ucp.executions' },
+      },
+      {
+        path: 'ucp/pipelines',
+        name: 'UcpPipelines',
+        component: () => import('@/views/ucp/PipelineListView.vue'),
+        meta: { label: '流水线管理', menuCode: 'ucp.pipelines' },
+      },
+      {
+        path: 'ucp/pipeline-designer',
+        name: 'UcpPipelineDesigner',
+        component: () => import('@/views/ucp/PipelineDesignerView.vue'),
+        meta: { label: '流水线画布', menuCode: 'ucp.pipeline_designer' },
+      },
+      {
+        path: 'ucp/pipeline-designer/:templateCode',
+        name: 'UcpPipelineDesignerEdit',
+        component: () => import('@/views/ucp/PipelineDesignerView.vue'),
+        meta: { label: '编辑流水线', menuCode: 'ucp.pipeline_designer', hideInMenu: true },
+      },
+      {
+        path: 'ucp/events',
+        name: 'UcpEvents',
+        component: () => import('@/views/ucp/EventListView.vue'),
+        meta: { label: '事件中心', menuCode: 'ucp.events' },
+      },
+      {
+        path: 'ucp/events/:eventId',
+        name: 'UcpEventDetail',
+        component: () => import('@/views/ucp/EventDetailView.vue'),
+        meta: { label: '事件详情', menuCode: 'ucp.events', hideInMenu: true },
+      },
+      {
+        path: 'ucp/triggers',
+        name: 'UcpTriggers',
+        component: () => import('@/views/ucp/EventTriggerConfigView.vue'),
+        meta: { label: '触发器', menuCode: 'ucp.triggers' },
+      },
+      {
+        path: 'ucp/dead-letters',
+        name: 'UcpDeadLetters',
+        component: () => import('@/views/ucp/DeadLetterListView.vue'),
+        meta: { label: '死信队列', menuCode: 'ucp.dead_letters' },
+      },
+      {
+        path: 'ucp/monitor',
+        name: 'UcpMonitor',
+        component: () => import('@/views/ucp/MonitorDashboardView.vue'),
+        meta: { label: '监控中心', menuCode: 'ucp.monitor' },
+      },
+      {
+        path: 'ucp/approvals',
+        name: 'UcpApprovals',
+        component: () => import('@/views/ucp/ApprovalInboxView.vue'),
+        meta: { label: '审批中心', menuCode: 'ucp.approvals' },
+      },
+      {
+        path: 'ucp/external-accounts',
+        name: 'UcpExternalAccounts',
+        component: () => import('@/views/ucp/ExternalAccountListView.vue'),
+        meta: { label: '外部账号', menuCode: 'ucp.external_accounts' },
+      },
+      {
+        path: 'ucp/oa-sync',
+        name: 'UcpOaSync',
+        component: () => import('@/views/ucp/OaSyncView.vue'),
+        meta: { label: 'OA 同步', menuCode: 'ucp.oa_sync' },
+      },
+      // 隐藏路由（不显示在侧边栏，从 DataAccessIndex 内部导航）
+      {
+        path: 'ucp/credentials',
+        name: 'UcpCredentials',
+        component: () => import('@/views/ucp/CredentialListView.vue'),
+        meta: { label: '凭证管理', menuCode: 'ucp.credentials', hideInMenu: true },
+      },
+      {
+        path: 'ucp/notification-templates',
+        name: 'UcpNotificationTemplates',
+        component: () => import('@/views/ucp/NotificationTemplateList.vue'),
+        meta: { label: '通知模板', menuCode: 'ucp.admin', hideInMenu: true },
+      },
+      {
+        path: 'ucp/circuits',
+        name: 'UcpCircuitBreaker',
+        component: () => import('@/views/ucp/CircuitBreakerStatus.vue'),
+        meta: { label: '熔断与限流', menuCode: 'ucp.admin', hideInMenu: true },
+      },
+      {
+        path: 'ucp/adapter-registry',
+        name: 'UcpAdapterRegistry',
+        component: () => import('@/views/ucp/AdapterRegistryView.vue'),
+        meta: { label: '适配器注册', menuCode: 'ucp.admin', hideInMenu: true },
+      },
+      // ===== Phase 5-7: 高级功能路由 =====
+      {
+        path: 'ucp/api-templates',
+        name: 'UcpApiTemplates',
+        component: () => import('@/views/ucp/ApiTemplateLibrary.vue'),
+        meta: { label: 'API 模板库', menuCode: 'ucp.admin', hideInMenu: true },
+      },
+      {
+        path: 'ucp/assets',
+        name: 'UcpAssetCatalog',
+        component: () => import('@/views/ucp/AssetCatalogView.vue'),
+        meta: { label: '集成资产', menuCode: 'ucp.assets' },
+      },
+      {
+        path: 'ucp/topology',
+        name: 'UcpTopology',
+        component: () => import('@/views/ucp/TopologyView.vue'),
+        meta: { label: '依赖拓扑', menuCode: 'ucp.assets', hideInMenu: true },
+      },
+      {
+        path: 'ucp/sla',
+        name: 'UcpSla',
+        component: () => import('@/views/ucp/SlaConfigView.vue'),
+        meta: { label: 'SLA 管理', menuCode: 'ucp.assets', hideInMenu: true },
+      },
+      {
+        path: 'ucp/changes',
+        name: 'UcpChanges',
+        component: () => import('@/views/ucp/ChangeManagementView.vue'),
+        meta: { label: '变更管理', menuCode: 'ucp.assets', hideInMenu: true },
+      },
+      {
+        path: 'ucp/master-data',
+        name: 'UcpMasterData',
+        component: () => import('@/views/ucp/MasterDataView.vue'),
+        meta: { label: '主数据治理', menuCode: 'ucp.governance', hideInMenu: true },
+      },
+      {
+        path: 'ucp/diff',
+        name: 'UcpDiff',
+        component: () => import('@/views/ucp/DiffJobView.vue'),
+        meta: { label: '差异检测', menuCode: 'ucp.governance', hideInMenu: true },
+      },
+      {
+        path: 'ucp/quality',
+        name: 'UcpQuality',
+        component: () => import('@/views/ucp/QualityRuleView.vue'),
+        meta: { label: '质量规则', menuCode: 'ucp.governance', hideInMenu: true },
+      },
+      {
+        path: 'ucp/conflicts',
+        name: 'UcpConflicts',
+        component: () => import('@/views/ucp/ConflictWorkbench.vue'),
+        meta: { label: '冲突工作台', menuCode: 'ucp.governance', hideInMenu: true },
+      },
+      {
+        path: 'ucp/governance',
+        name: 'UcpGovernance',
+        component: () => import('@/views/ucp/GovernanceTaskView.vue'),
+        meta: { label: '治理任务', menuCode: 'ucp.governance', hideInMenu: true },
+      },
       {
         path: 'datasource/datasets',
         name: 'DatasourceDatasets',
@@ -420,8 +591,12 @@ router.beforeEach(async (to) => {
 
   // 菜单级权限校验：路由有 menuCode 时必须在用户菜单清单里
   const code = to.meta.menuCode as string | null | undefined
-  if (code && !userStore.menus.some((m) => m.code === code)) {
-    return { name: 'Home' }
+  if (code) {
+    const menuCodes = userStore.menus.map(m => m.code)
+    const hasMenu = menuCodes.includes(code)
+    if (!hasMenu) {
+      return { name: 'Home' }
+    }
   }
 
   return true

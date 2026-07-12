@@ -33,7 +33,7 @@
 - [飞书单点登录](./hr_portal_feishu_sso.md) — 用飞书账号登录 Portal 本身；邮箱匹配为主+首次回写 feishu_user_id+匹配不到拒绝登录；启用前必做填凭证开开关+飞书白名单；配置三处同步(.env/.env.example/compose)
 - [操作日志](./hr_portal_operation_logs.md) — 复用 system_logs 按 category 多路复用，加新日志类型零建表；查询接口按 category 动态鉴权(不能用 require_op 绑死)；补偿金计算已埋点(谁/何时/查了谁)
 - [报表脏字段引用告警](./hr_portal_report_dangling_field_ref.md) — 查询弹"计算字段已被删除/已自动跳过"=config.columns 残留已删字段;已修(commit dbfe7a4),但需重新保存报表才清除,光查询照报
-- [报表脏字段引用·完整版](./hr_portal_report_orphan_calc_ref.md) — 同款告警彻底排查:孤儿藏 columns+column_settings,删除守卫漏检 key(f23a38d修),总症结=改了代码但生产前端没 --build 部署
+- [报表加载/运行失败排查手册](./hr_portal_report_perf_bug.md) — N+1查询+公式AST重复编译+idle in transaction+chunk 404四条根因链及排查命令
 - [L3 字段权限两条语义](./hr_portal_field_permission_semantics.md) — 「敏感」是字段分类管控总开关(非敏感分类零效果)；报表含无权敏感字段→整张 403(授权该角色实际无效)；被问"是不是 bug"直接引用，符合设计
 - [三套敏感开关](./hr_portal_sensitive_three_switches.md) — "关了敏感还脱敏/超管也脱敏"=三套独立开关关错地方;列级 is_sensitive 和计算字段绝密对超管强制脱敏,分类敏感才超管豁免;计算字段引用列级敏感列→超管也脱敏(设计非bug)
 - [北森报表分页两个坑](./hr_portal_beisen_report_pagination.md) — 行数拉不全(944→714):①pageSize有上限(5000报400,1000可用)②分页无序页间随机重叠;应对=pageSize自适应降级+多轮重扫整行去重;排查铁律=从北森源头导出文件直接数,别信中途推断
@@ -53,3 +53,4 @@
 - AI 平台完整路线图：[specs/004-ai-native-workbench/ai-platform-roadmap.md](../specs/004-ai-native-workbench/ai-platform-roadmap.md)
 - AI + Excel 计算字段 MVP：[specs/004-ai-native-workbench/formula-calculated-field-mvp.md](../specs/004-ai-native-workbench/formula-calculated-field-mvp.md)
 - 2026-06-27: 飞书事件订阅/卡片回调公网化待办见 `memory/hr_portal_feishu_notification_callback_todo.md`；本机回调验证成功，飞书平台验证失败疑似内网/公网 HTTPS 限制。
+- [UCP 数据连接平台分支](./ucp_data_connection_branch.md) — feature/ucp-data-connection-platform 分支边界、提交记录、迁移链、合并策略和后续开发注意事项

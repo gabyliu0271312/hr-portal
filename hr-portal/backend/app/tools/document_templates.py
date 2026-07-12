@@ -142,25 +142,24 @@ def render_docx_template(
     variables: Iterable[Any] = (),
     business_type: str = "",
 ) -> bytes:
+    """渲染上传的 DOCX 模板：仅替换 {{变量}}，保留原始版式。
+
+    不会修改页边距、行距、段距、字体、表格结构等任何原始样式。
+    """
     from docx import Document
-    from docx.shared import Mm
 
     merged = _values_with_defaults(values, variables)
     if business_type:
         merged = enrich_values(business_type, merged)
     doc = Document(BytesIO(content))
-    for section in doc.sections:
-        section.page_width = Mm(210)
-        section.page_height = Mm(297)
+    # 仅变量替换，不修改任何段落/页面格式
     for paragraph in _iter_paragraphs(doc):
         _replace_in_paragraph(paragraph, merged)
-        _cap_line_spacing(paragraph)
     for table in _iter_tables(doc):
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
                     _replace_in_paragraph(paragraph, merged)
-                    _cap_line_spacing(paragraph)
     buf = BytesIO()
     doc.save(buf)
     return buf.getvalue()
