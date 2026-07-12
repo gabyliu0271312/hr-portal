@@ -50,8 +50,7 @@ async function fetchUserOptions() {
       label: `${u.display_name || u.login_name}`,
       feishu_user_id: u.feishu_user_id || null,
     }))
-  } catch (e) {
-    console.warn('[FeishuConfig] 获取用户列表失败', e)
+  } catch (_e) {
   }
 }
 
@@ -62,8 +61,7 @@ async function fetchChatOptions() {
       label: `${t.name} (${t.chat_id})`,
       value: t.chat_id,
     }))
-  } catch (e) {
-    console.warn('[FeishuConfig] 获取群列表失败', e)
+  } catch (_e) {
   }
 }
 

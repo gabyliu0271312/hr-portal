@@ -126,61 +126,6 @@ const tabGroups = computed<TabMenu[]>(() => {
   })
 })
 
-/**
- * 收敛 UCP 菜单：所有 datasource.ucp_* 合并为单个「数据接入」菜单项
- * 让用户看到的左侧菜单更清爽。
- *
- * P1-B: ucp 已是独立一级 Tab，system 下的旧 UCP 菜单（datasource.ucp_*）
- * 统一指向新路由 /ucp；ucp tab 自身的 children 不经此函数处理。
- */
-function _isLegacyUcpCode(code: string): boolean {
-  return code.startsWith('datasource.ucp_') || code === 'datasource.ucp_config'
-}
-
-function collapseUcpMenus(groups: GroupMenu[]): GroupMenu[] {
-  const result: GroupMenu[] = []
-  const ucpMenus: LeafMenu[] = []
-  for (const g of groups) {
-    if (g.children.length > 0) {
-      const allUcp = g.children.every((c) => _isLegacyUcpCode(c.code))
-      if (allUcp) {
-        ucpMenus.push(...g.children)
-      } else {
-        const nonUcp = g.children.filter((c) => !_isLegacyUcpCode(c.code))
-        if (nonUcp.length < g.children.length && nonUcp.length > 0) {
-          for (const c of g.children) {
-            if (_isLegacyUcpCode(c.code)) ucpMenus.push(c)
-          }
-          result.push({ ...g, children: nonUcp })
-        } else {
-          result.push(g)
-        }
-      }
-    } else {
-      if (_isLegacyUcpCode(g.code)) {
-        ucpMenus.push({
-          id: g.id,
-          code: g.code,
-          label: g.label,
-          routePath: '/ucp',
-        })
-      } else {
-        result.push(g)
-      }
-    }
-  }
-  if (ucpMenus.length > 0) {
-    result.push({
-      id: ucpMenus[0].id,
-      code: 'ucp.systems',
-      label: '数据接入',
-      routePath: '/ucp',
-      children: [],
-    })
-  }
-  return result
-}
-
 function tabContainsMenuCode(tab: TabMenu, code: string) {
   return tab.code === code
     || tab.children.some((g) => g.code === code || g.children.some((leaf) => leaf.code === code))
@@ -211,7 +156,7 @@ const leftMenu = computed<GroupMenu[]>(() => {
   if (hideAside.value) return []
   const tab = tabGroups.value.find((t) => t.id === activeTabId.value)
   if (!tab) return []
-  return collapseUcpMenus(tab.children)
+  return tab.children
 })
 
 /**

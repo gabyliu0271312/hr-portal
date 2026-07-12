@@ -83,7 +83,7 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
-    # 一级 2：数据连接（UCP — 通用数据连接器平台，应用化预留）
+    # 一级 2：数据连接（UCP — 通用数据连接平台，应用化预留）
     {
         "code": "ucp",
         "label": "数据连接",
@@ -95,6 +95,8 @@ MENU_TREE: list[dict] = [
                 "icon": "Monitor",
                 "children": [
                     {"code": "ucp.systems", "label": "接入系统", "icon": "DataBoard"},
+                    {"code": "ucp.resources", "label": "数据资源", "icon": "Grid"},
+                    {"code": "ucp.credentials", "label": "凭证管理", "icon": "Key"},
                 ],
             },
             {
@@ -119,10 +121,27 @@ MENU_TREE: list[dict] = [
                 ],
             },
             {
+                "code": "ucp.governance_group",
+                "label": "数据治理",
+                "icon": "DataAnalysis",
+                "children": [
+                    {"code": "ucp.governance", "label": "数据治理", "icon": "DataAnalysis"},
+                ],
+            },
+            {
+                "code": "ucp.assets_group",
+                "label": "集成资产",
+                "icon": "FolderOpened",
+                "children": [
+                    {"code": "ucp.assets", "label": "资产目录", "icon": "FolderOpened"},
+                ],
+            },
+            {
                 "code": "ucp.admin_group",
                 "label": "管理",
                 "icon": "Setting",
                 "children": [
+                    {"code": "ucp.admin", "label": "平台配置", "icon": "Setting"},
                     {"code": "ucp.approvals", "label": "审批中心", "icon": "Document"},
                     {"code": "ucp.external_accounts", "label": "外部账号", "icon": "UserFilled"},
                     {"code": "ucp.oa_sync", "label": "OA 同步", "icon": "Connection"},
@@ -226,9 +245,15 @@ async def _ensure_menus(db: AsyncSession) -> dict[str, Menu]:
             logger.info("[seed] menu added: %s", node["code"])
         else:
             m = by_code[node["code"]]
+            changed = False
             if m.display_order != order:
                 m.display_order = order
-                logger.info("[seed] menu order updated: %s → %d", node["code"], order)
+                changed = True
+            if m.parent_id != parent_id:
+                m.parent_id = parent_id
+                changed = True
+            if changed:
+                logger.info("[seed] menu updated: %s order=%d parent=%s", node["code"], order, parent_id)
         order += 10
         for child in node.get("children", []):
             await add(child, by_code[node["code"]].id)

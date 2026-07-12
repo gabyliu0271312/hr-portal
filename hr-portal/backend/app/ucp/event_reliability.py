@@ -25,7 +25,7 @@ from app.ucp.event_bus import (
     EVENT_STATUS_FAILED,
     process_event_pipeline,
 )
-from app.ucp.models import ConnectorEventTrigger, UcpEvent, UcpEventDelivery
+from app.ucp.models import UcpEventTrigger, UcpEvent, UcpEventDelivery
 
 
 logger = logging.getLogger("ucp.event_reliability")
@@ -82,7 +82,7 @@ async def create_delivery_record(
     db: AsyncSession,
     *,
     event: UcpEvent,
-    trigger: ConnectorEventTrigger,
+    trigger: UcpEventTrigger,
     pipeline_run_id: str | None,
     trigger_source: str = "AUTO",
     triggered_by: str | None = None,

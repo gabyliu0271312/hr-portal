@@ -76,14 +76,14 @@ def _validate_node(node: Any, idx: int) -> dict:
     }
 
 
-async def _validate_connector_node_resources(
+async def _validate_resource_node_refs(
     db: AsyncSession, nodes: list[dict]
 ) -> None:
     """CONNECTOR 节点必须配置 system_id + resource_id, 且 resource 属于该 system.
 
     防止跨 system 引用, 同时防止引用不存在的 resource.
     """
-    from app.ucp.models import ConnectorResource
+    from app.ucp.models import UcpResource
 
     need_check = [n for n in nodes if n["type"] == "CONNECTOR"]
     if not need_check:
@@ -98,8 +98,8 @@ async def _validate_connector_node_resources(
             )
     # 批量校验 resource 存在 + system 一致
     res_ids = list({n["config"]["resource_id"] for n in need_check})
-    stmt = select(ConnectorResource.id, ConnectorResource.system_id).where(
-        ConnectorResource.id.in_(res_ids)
+    stmt = select(UcpResource.id, UcpResource.system_id).where(
+        UcpResource.id.in_(res_ids)
     )
     rows = (await db.execute(stmt)).all()
     res_map = {r[0]: r[1] for r in rows}
@@ -188,7 +188,7 @@ async def create_template(
         raise PipelineTemplateError("name 必填且非空")
 
     norm_nodes, norm_edges = validate_graph(nodes or [], edges or [])
-    await _validate_connector_node_resources(db, norm_nodes)
+    await _validate_resource_node_refs(db, norm_nodes)
 
     tpl = UcpPipelineTemplate(
         template_code=code,
@@ -247,7 +247,7 @@ async def update_template(
         new_nodes = nodes if nodes is not None else tpl.nodes_json
         new_edges = edges if edges is not None else tpl.edges_json
         norm_nodes, norm_edges = validate_graph(new_nodes, new_edges)
-        await _validate_connector_node_resources(db, norm_nodes)
+        await _validate_resource_node_refs(db, norm_nodes)
         tpl.nodes_json = norm_nodes
         tpl.edges_json = norm_edges
         # 自动 bump version
@@ -344,7 +344,7 @@ async def rollback_to_version(
     norm_nodes, norm_edges = validate_graph(
         target.nodes_json or [], target.edges_json or []
     )
-    await _validate_connector_node_resources(db, norm_nodes)
+    await _validate_resource_node_refs(db, norm_nodes)
     tpl.nodes_json = norm_nodes
     tpl.edges_json = norm_edges
     # bump version

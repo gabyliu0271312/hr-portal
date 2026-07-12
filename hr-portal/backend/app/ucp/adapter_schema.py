@@ -1,6 +1,6 @@
 """Phase 5-4: adapter schema 驱动的 resource 配置系统
 
-目标: 解决 connector_resource 8 个 JSON 字段「含义随 adapter 而变」的痛点
+目标: 解决 ucp_resource 8 个 JSON 字段「含义随 adapter 而变」的痛点
 
 设计:
 - AdapterDefinition.schema_json 增加 categories 分组
@@ -11,7 +11,7 @@
       ...
     ]
   }
-- 每个 category 对应 connector_resource 的 1 个 JSON 字段
+- 每个 category 对应 ucp_resource 的 1 个 JSON 字段
   (key: protocol → resource.protocol, mapping → resource.mapping_config)
 - 后端 create_resource/update_resource 按 schema 校验 JSON 字段
 - 前端 resource 表单: 选 adapter_code → 拉 schema → 按 categories 动态渲染表单项
@@ -29,7 +29,7 @@ from app.ucp.adapter_registry import AdapterDefinition
 
 # ===== Resource JSON 字段 → category 映射 =====
 
-# 业务约定: connector_resource 的 8 个 JSON 字段,
+# 业务约定: ucp_resource 的 8 个 JSON 字段,
 # 每个字段对应 1 个 category key. (后端校验和前端渲染都基于这个映射)
 RESOURCE_JSON_FIELDS = (
     "protocol",

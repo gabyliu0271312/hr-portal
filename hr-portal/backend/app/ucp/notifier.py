@@ -7,7 +7,7 @@
   2. 支持 SUCCESS / FAILED / PARTIAL_SUCCESS 三种状态通知
   3. 通知变量注入（pipeline 统计、步骤统计等）
   4. 通知去重（dedup_key）
-  5. 通知日志记录到 connector_notification_log
+  5. 通知日志记录到 ucp_notification_log
 
 Phase 1A 简化版：
   - 不做 pipeline 级通知策略配置，只支持 pipeline 配置中的 notification_config
@@ -30,7 +30,7 @@ from app.integrations.feishu.schemas import (
     ReceiverRule,
 )
 from app.ucp.masking import mask_dict, mask_value
-from app.ucp.models import ConnectorNotificationLog
+from app.ucp.models import UcpNotificationLog
 
 logger = logging.getLogger("ucp.notifier")
 
@@ -98,9 +98,9 @@ async def send_pipeline_notification(
     dedup_key = _build_dedup_key(trace_id, trigger_key, condition_config.get("receivers", []))
     existing = (
         await db.execute(
-            select(ConnectorNotificationLog).where(
-                ConnectorNotificationLog.dedup_key == dedup_key,
-                ConnectorNotificationLog.send_status != "dedup_skipped",
+            select(UcpNotificationLog).where(
+                UcpNotificationLog.dedup_key == dedup_key,
+                UcpNotificationLog.send_status != "dedup_skipped",
             )
         )
     ).scalar_one_or_none()
@@ -332,9 +332,9 @@ async def _write_notification_log(
     error_message: str | None = None,
     send_result: Any | None = None,
     masked_content: dict | None = None,
-) -> ConnectorNotificationLog:
+) -> UcpNotificationLog:
     """写 UCP 通知日志。"""
-    log = ConnectorNotificationLog(
+    log = UcpNotificationLog(
         trace_id=trace_id,
         pipeline_run_id=pipeline_run_id,
         message_type=config.get("message_type", "feishu"),

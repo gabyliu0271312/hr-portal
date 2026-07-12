@@ -1,4 +1,4 @@
-"""UCP 连接器测试引擎 (Phase 2-1)
+"""UCP 资源测试引擎 (Phase 2-1)
 
 实现 spec §8.5 的 4 类测试：
   - AUTH：认证测试（验证凭证有效性）
@@ -7,14 +7,14 @@
   - PUSH_SIMULATION：推送模拟（模拟推送不真落地）
 
 设计目标：
-  - 连接器首次启用前必须测试通过
+  - 资源首次启用前必须测试通过
   - 测试数据自动脱敏
-  - 测试日志保留（每次测试都记录到 connector_test_log）
+  - 测试日志保留（每次测试都记录到 ucp_test_log）
   - 测试失败记录错误原因
-  - 测试结果更新到 connector_system_config.test_status / test_result / test_time
+  - 测试结果更新到 ucp_system_config.test_status / test_result / test_time
 
 测试入口：
-  - run_connector_test(db, connector_code, test_type, tested_by)
+  - run_resource_test(db, resource_code, test_type, tested_by)
   - 业务层调用：每个 adapter_code 对应一种测试执行逻辑
 """
 from __future__ import annotations
@@ -32,8 +32,8 @@ from app.ucp.adapters import get_adapter
 from app.ucp.credential_service import decrypt_credential_secrets
 from app.ucp.masking import mask_sensitive_fields
 from app.ucp.models import (
-    ConnectorSystemConfig,
-    ConnectorTestLog,
+    UcpSystemConfig,
+    UcpTestLog,
 )
 
 logger = logging.getLogger("ucp.test_engine")
@@ -79,30 +79,30 @@ class TestEngineError(Exception):
 
 # ===== 主入口 =====
 
-async def run_connector_test(
+async def run_resource_test(
     db: AsyncSession,
-    connector_code: str,
+    resource_code: str,
     test_type: str,
     tested_by: str | None = None,
     preview_row_limit: int = 10,
-) -> ConnectorTestLog:
-    """运行单次连接器测试。
+) -> UcpTestLog:
+    """运行单次资源测试。
 
     流程：
-      1. 加载连接器配置
+      1. 加载系统配置
       2. 解密凭证
       3. 根据 test_type 调用对应测试执行函数
-      4. 记录测试日志（connector_test_log）
-      5. 更新连接器最新测试状态（test_status / test_result / test_time）
+      4. 记录测试日志（ucp_test_log）
+      5. 更新资源最新测试状态（test_status / test_result / test_time）
 
     Returns:
-        ConnectorTestLog: 测试日志行
+        UcpTestLog: 测试日志行
     """
     if test_type not in ALL_TEST_TYPES:
         raise TestEngineError("INVALID_TEST_TYPE", f"不支持的测试类型: {test_type}")
 
-    # 1. 加载连接器
-    conn = await _load_connector(db, connector_code)
+    # 1. 加载系统配置
+    conn = await _load_system_config(db, resource_code)
 
     # 2. 解密凭证
     secrets: dict[str, str] = {}
@@ -138,14 +138,14 @@ async def run_connector_test(
             tested_by=tested_by,
         )
 
-        # 6. 更新连接器最新测试状态
-        await _update_connector_test_status(
+        # 6. 更新资源最新测试状态
+        await _update_resource_test_status(
             db, conn, result["status"], result, duration_ms
         )
 
         logger.info(
             "[ucp.test] %s test for %s: status=%s duration=%dms",
-            test_type, connector_code, result["status"], duration_ms,
+            test_type, resource_code, result["status"], duration_ms,
         )
         return log
 
@@ -161,13 +161,13 @@ async def run_connector_test(
             error_message=e.message,
             tested_by=tested_by,
         )
-        await _update_connector_test_status(
+        await _update_resource_test_status(
             db, conn, TEST_STATUS_FAILED,
             {"error_code": e.error_code, "error_message": e.message}, duration_ms,
         )
         logger.warning(
             "[ucp.test] %s test FAILED for %s: %s - %s",
-            test_type, connector_code, e.error_code, e.message,
+            test_type, resource_code, e.error_code, e.message,
         )
         return log
 
@@ -184,39 +184,39 @@ async def run_connector_test(
             error_message=err_msg,
             tested_by=tested_by,
         )
-        await _update_connector_test_status(
+        await _update_resource_test_status(
             db, conn, TEST_STATUS_FAILED,
             {"error_code": "UNEXPECTED_ERROR", "error_message": err_msg}, duration_ms,
         )
-        logger.exception("[ucp.test] %s test ERROR for %s", test_type, connector_code)
+        logger.exception("[ucp.test] %s test ERROR for %s", test_type, resource_code)
         return log
 
 
 async def run_all_tests(
     db: AsyncSession,
-    connector_code: str,
+    resource_code: str,
     tested_by: str | None = None,
-) -> list[ConnectorTestLog]:
+) -> list[UcpTestLog]:
     """一次性跑完 4 类测试，返回日志列表。"""
     logs = []
     for test_type in ALL_TEST_TYPES:
-        log = await run_connector_test(db, connector_code, test_type, tested_by=tested_by)
+        log = await run_resource_test(db, resource_code, test_type, tested_by=tested_by)
         logs.append(log)
     return logs
 
 
 # ===== 内部：加载和解密 =====
 
-async def _load_connector(db: AsyncSession, connector_code: str) -> ConnectorSystemConfig:
+async def _load_system_config(db: AsyncSession, resource_code: str) -> UcpSystemConfig:
     conn = (
         await db.execute(
-            select(ConnectorSystemConfig).where(
-                ConnectorSystemConfig.system_code == connector_code,
+            select(UcpSystemConfig).where(
+                UcpSystemConfig.system_code == resource_code,
             )
         )
     ).scalar_one_or_none()
     if conn is None:
-        raise TestEngineError("CONNECTOR_NOT_FOUND", f"连接器 '{connector_code}' 不存在")
+        raise TestEngineError("CONNECTOR_NOT_FOUND", f"资源 '{resource_code}' 不存在")
     return conn
 
 
@@ -224,7 +224,7 @@ async def _load_connector(db: AsyncSession, connector_code: str) -> ConnectorSys
 
 async def _execute_test(
     db: AsyncSession,
-    conn: ConnectorSystemConfig,
+    conn: UcpSystemConfig,
     test_type: str,
     secrets: dict[str, str],
     preview_row_limit: int,
@@ -246,7 +246,7 @@ async def _execute_test(
 
 async def _test_auth(
     db: AsyncSession,
-    conn: ConnectorSystemConfig,
+    conn: UcpSystemConfig,
     secrets: dict[str, str],
 ) -> dict[str, Any]:
     """认证测试：检查凭证解密成功 + 必填字段非空。"""
@@ -254,7 +254,7 @@ async def _test_auth(
         return {
             "status": TEST_STATUS_WARNING,
             "error_code": "NO_CREDENTIAL",
-            "error_message": "连接器未配置凭证，跳过认证测试",
+            "error_message": "资源未配置凭证，跳过认证测试",
             "request_params_masked": {"has_credential": False},
             "response_sample": None,
         }
@@ -273,7 +273,7 @@ async def _test_auth(
         return {
             "status": TEST_STATUS_FAILED,
             "error_code": "MISSING_PROTOCOL",
-            "error_message": "连接器未配置 protocol (URL/参数模板)",
+            "error_message": "资源未配置 protocol (URL/参数模板)",
             "request_params_masked": {"credential_id": conn.credential_id, "secret_keys": list(secrets.keys())},
             "response_sample": None,
         }
@@ -294,7 +294,7 @@ async def _test_auth(
 
 async def _test_connectivity(
     db: AsyncSession,
-    conn: ConnectorSystemConfig,
+    conn: UcpSystemConfig,
     secrets: dict[str, str],
 ) -> dict[str, Any]:
     """连通性测试：调用 adapter 的 fetch 拉取一行以验证可达性。"""
@@ -302,7 +302,7 @@ async def _test_connectivity(
         return {
             "status": TEST_STATUS_FAILED,
             "error_code": "NO_ADAPTER",
-            "error_message": "连接器未配置 adapter_code，无法执行连通性测试",
+            "error_message": "资源未配置 adapter_code，无法执行连通性测试",
         }
 
     params = _build_test_params(conn)
@@ -352,7 +352,7 @@ async def _test_connectivity(
 
 async def _test_preview(
     db: AsyncSession,
-    conn: ConnectorSystemConfig,
+    conn: UcpSystemConfig,
     secrets: dict[str, str],
     row_limit: int,
 ) -> dict[str, Any]:
@@ -361,7 +361,7 @@ async def _test_preview(
         return {
             "status": TEST_STATUS_FAILED,
             "error_code": "NO_ADAPTER",
-            "error_message": "连接器未配置 adapter_code，无法执行预览测试",
+            "error_message": "资源未配置 adapter_code，无法执行预览测试",
         }
 
     params = _build_test_params(conn)
@@ -428,14 +428,14 @@ async def _test_preview(
 
 async def _test_push_simulation(
     db: AsyncSession,
-    conn: ConnectorSystemConfig,
+    conn: UcpSystemConfig,
     secrets: dict[str, str],
 ) -> dict[str, Any]:
     """推送模拟测试：模拟推送不真落地，返回 payload 摘要。
 
     Phase 2-8 增强实现：
-      1. 校验连接器方向/协议/适配器配置
-      2. 如果连接器 adapter_code = PUSH_TARGET_BRIDGE_ADAPTER 且 params 包含 push_target_id：
+      1. 校验资源方向/协议/适配器配置
+      2. 如果资源 adapter_code = PUSH_TARGET_BRIDGE_ADAPTER 且 params 包含 push_target_id：
          - 从 push_target.source_table 拉取样本行数 + 前 N 行（脱敏）
          - 构造模拟 payload 摘要（目标系统、字段映射、样本行数）
          - **不调用 execute_push，仅 SELECT 验证数据可拉取**
@@ -450,21 +450,21 @@ async def _test_push_simulation(
         return {
             "status": TEST_STATUS_WARNING,
             "error_code": "NOT_PUSH_CONNECTOR",
-            "error_message": f"连接器方向为 {conn.direction}，不是推送类型，跳过推送模拟",
+            "error_message": f"资源方向为 {conn.direction}，不是推送类型，跳过推送模拟",
         }
 
     if not conn.protocol:
         return {
             "status": TEST_STATUS_FAILED,
             "error_code": "MISSING_PROTOCOL",
-            "error_message": "推送类连接器缺少 protocol 配置（URL/请求模板）",
+            "error_message": "推送类资源缺少 protocol 配置（URL/请求模板）",
         }
 
     if not conn.adapter_code:
         return {
             "status": TEST_STATUS_FAILED,
             "error_code": "NO_ADAPTER",
-            "error_message": "推送类连接器缺少 adapter_code",
+            "error_message": "推送类资源缺少 adapter_code",
         }
 
     protocol = conn.protocol or {}
@@ -485,7 +485,7 @@ async def _test_push_simulation(
 
 async def _simulate_via_push_target(
     db: AsyncSession,
-    conn: ConnectorSystemConfig,
+    conn: UcpSystemConfig,
     protocol: dict,
     mapping_config: dict,
     params: dict,
@@ -602,7 +602,7 @@ async def _simulate_via_push_target(
 
 async def _simulate_via_protocol(
     db: AsyncSession,
-    conn: ConnectorSystemConfig,
+    conn: UcpSystemConfig,
     protocol: dict,
     mapping_config: dict,
     params: dict,
@@ -637,7 +637,7 @@ async def _simulate_via_protocol(
 
 
 def _build_protocol_template_response(
-    conn: ConnectorSystemConfig,
+    conn: UcpSystemConfig,
     protocol: dict,
     mapping_config: dict,
     params: dict,
@@ -663,7 +663,7 @@ def _build_protocol_template_response(
 
 # ===== 内部：参数构造和脱敏 =====
 
-def _build_test_params(conn: ConnectorSystemConfig) -> dict[str, Any]:
+def _build_test_params(conn: UcpSystemConfig) -> dict[str, Any]:
     """构造测试用的 adapter params，合并 protocol / report_config。"""
     params: dict[str, Any] = {}
     if conn.protocol:
@@ -686,7 +686,7 @@ def _mask_params_for_log(params: dict[str, Any]) -> dict[str, Any]:
 
 async def _write_test_log(
     db: AsyncSession,
-    conn: ConnectorSystemConfig,
+    conn: UcpSystemConfig,
     test_type: str,
     status: str,
     duration_ms: int,
@@ -695,11 +695,11 @@ async def _write_test_log(
     response_sample: dict | None = None,
     error_code: str | None = None,
     error_message: str | None = None,
-) -> ConnectorTestLog:
-    """写 connector_test_log 行。"""
-    log = ConnectorTestLog(
-        connector_id=conn.id,
-        connector_code=conn.system_code,
+) -> UcpTestLog:
+    """写 ucp_test_log 行。"""
+    log = UcpTestLog(
+        system_config_id=conn.id,
+        resource_code=conn.system_code,
         test_type=test_type,
         status=status,
         duration_ms=duration_ms,
@@ -714,14 +714,14 @@ async def _write_test_log(
     return log
 
 
-async def _update_connector_test_status(
+async def _update_resource_test_status(
     db: AsyncSession,
-    conn: ConnectorSystemConfig,
+    conn: UcpSystemConfig,
     status: str,
     result: dict[str, Any],
     duration_ms: int,
 ) -> None:
-    """更新 connector_system_config 的最新测试状态。"""
+    """更新 ucp_system_config 的最新测试状态。"""
     from datetime import datetime, UTC
 
     test_result = {
@@ -733,7 +733,7 @@ async def _update_connector_test_status(
         "response_sample": result.get("response_sample"),
         "tested_at": datetime.now(UTC).isoformat(),
     }
-    # 直接更新字段（config_service 中没有 set_connector_test_status 函数）
+    # 直接更新字段
     conn.test_status = status
     conn.test_result = test_result
     conn.test_time = datetime.now(UTC)
@@ -744,21 +744,21 @@ async def _update_connector_test_status(
 
 async def list_test_history(
     db: AsyncSession,
-    connector_code: str,
+    resource_code: str,
     limit: int = 20,
     test_type: str | None = None,
 ) -> list[dict]:
-    """列出连接器的测试历史（按时间倒序）。"""
-    stmt = select(ConnectorTestLog).where(ConnectorTestLog.connector_code == connector_code)
+    """列出资源测试历史（按时间倒序）。"""
+    stmt = select(UcpTestLog).where(UcpTestLog.resource_code == resource_code)
     if test_type:
-        stmt = stmt.where(ConnectorTestLog.test_type == test_type)
-    stmt = stmt.order_by(ConnectorTestLog.created_at.desc()).limit(limit)
+        stmt = stmt.where(UcpTestLog.test_type == test_type)
+    stmt = stmt.order_by(UcpTestLog.created_at.desc()).limit(limit)
 
     rows = (await db.execute(stmt)).scalars().all()
     return [
         {
             "id": log.id,
-            "connector_code": log.connector_code,
+            "resource_code": log.resource_code,
             "test_type": log.test_type,
             "test_type_label": TEST_TYPE_LABELS.get(log.test_type, log.test_type),
             "status": log.status,
@@ -775,15 +775,15 @@ async def list_test_history(
 
 async def get_latest_test_per_type(
     db: AsyncSession,
-    connector_code: str,
-) -> dict[str, ConnectorTestLog | None]:
+    resource_code: str,
+) -> dict[str, UcpTestLog | None]:
     """获取每个测试类型的最新一条日志。"""
-    out: dict[str, ConnectorTestLog | None] = {t: None for t in ALL_TEST_TYPES}
+    out: dict[str, UcpTestLog | None] = {t: None for t in ALL_TEST_TYPES}
     rows = (
         await db.execute(
-            select(ConnectorTestLog)
-            .where(ConnectorTestLog.connector_code == connector_code)
-            .order_by(ConnectorTestLog.created_at.desc())
+            select(UcpTestLog)
+            .where(UcpTestLog.resource_code == resource_code)
+            .order_by(UcpTestLog.created_at.desc())
             .limit(100)
         )
     ).scalars().all()

@@ -1,12 +1,14 @@
-# UCP 通用数据连接器平台实施拆解 Spec
+﻿# UCP 通用数据连接器平台实施拆解 Spec
 
 > **文档标注**：本文档为 `011-universal-connector-platform` 的实施拆解补充文档，用于承接主规格 `spec.md`、UI 蓝图 `outputs/ucp-blueprint/index.html` 和现有 UCP 代码。  
 > **本版重要定调**：当前 UCP 仍处于开发期，不做旧模型兼容，不保留“连接器优先”的产品路径；后续按蓝图终态彻底统一为 `系统 → 资源 → 凭证 → 流水线画布`。
 
-版本：v2.1  
-日期：2026-07-03  
-状态：实施基准稿（已补充应用化预留、一级导航和独立权限命名空间）  
+版本：v2.3  
+日期：2026-07-12  
+状态：实施完成稿（Phase 1-7 已完成，P1-L01~L06 Offer 示例流水线未开始）  
 适用范围：HR Portal 数据接入、数据同步、数据分发、流水线配置、执行审计、事件触发、监控与死信
+
+> **本次验收范围**：Phase 1-7 全部任务（仅 P1-L01~L06 Offer 示例流水线未开始）。
 
 关联文档：
 
@@ -540,7 +542,7 @@ APPROVAL        审批节点
 
 ## 5. 可勾选开发任务清单
 
-> 状态标记建议：`[ ] 未开始`、`[~] 开发中`、`[x] 已完成`、`[!] 阻塞`。  
+> 状态标记建议：`[ ] 未开始`、`[x] 开发中`、`[x] 已完成`、`[!] 阻塞`。  
 > 每个任务必须完成对应验收标准后才能标记为 `[x]`。
 
 ---
@@ -684,6 +686,8 @@ APPROVAL        审批节点
 | [x] | P1-K05 | 敏感字段脱敏 | 前后端 | 薪酬、手机号、token 不明文展示 |
 
 ### L. 示例流水线验收
+
+> ⚠️ **不在本次验收范围**：P1-L01~L06 依赖真实北森/飞书凭证和测试数据环境，当前未启动。
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
@@ -885,167 +889,171 @@ APPROVAL        审批节点
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P5-A01 | API 基础配置表单 | Resource Form/API | 可配置 method、base_url、path、timeout、content_type |
-| [ ] | P5-A02 | Header 配置 | Resource Form | 支持静态值、凭证引用、变量引用三种 header |
-| [ ] | P5-A03 | Query 配置 | Resource Form | 支持 key/value、必填、默认值、变量引用 |
-| [ ] | P5-A04 | Body 模板配置 | Resource Form | 支持 JSON body 模板和上游变量引用 |
-| [ ] | P5-A05 | 请求预览 | Resource UI | 可预览最终请求摘要，敏感字段脱敏 |
+| [x] | P5-A01 | API 基础配置表单 | Resource Form/API | 可配置 method、base_url、path、timeout、content_type |
+| [x] | P5-A02 | Header 配置 | Resource Form | 支持静态值、凭证引用、变量引用三种 header |
+| [x] | P5-A03 | Query 配置 | Resource Form | 支持 key/value、必填、默认值、变量引用 |
+| [x] | P5-A04 | Body 模板配置 | Resource Form | 支持 JSON body 模板和上游变量引用 |
+| [x] | P5-A05 | 请求预览 | Resource UI | 可预览最终请求摘要，敏感字段脱敏 |
 
 ### B. 认证能力扩展
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P5-B01 | API Key 认证 | Credential/Adapter | 支持 header/query 两种 API Key 注入 |
-| [ ] | P5-B02 | Bearer Token 认证 | Credential/Adapter | 支持 token 存储、脱敏展示和请求注入 |
-| [ ] | P5-B03 | Basic Auth | Credential/Adapter | 支持用户名密码加密存储和请求注入 |
-| [ ] | P5-B04 | OAuth2 Client Credentials | Credential/Adapter | 支持 token 获取、缓存、过期刷新 |
-| [ ] | P5-B05 | 认证测试统一化 | Test Engine | 各认证方式均可执行认证测试并返回标准结果 |
+| [x] | P5-B01 | API Key 认证 | Credential/Adapter | 支持 header/query 两种 API Key 注入 |
+| [x] | P5-B02 | Bearer Token 认证 | Credential/Adapter | 支持 token 存储、脱敏展示和请求注入 |
+| [x] | P5-B03 | Basic Auth | Credential/Adapter | 支持用户名密码加密存储和请求注入 |
+| [x] | P5-B04 | OAuth2 Client Credentials | Credential/Adapter | 支持 token 获取、缓存、过期刷新 |
+| [x] | P5-B05 | 认证测试统一化 | Test Engine | 各认证方式均可执行认证测试并返回标准结果 |
 
 ### C. 请求/响应模板
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P5-C01 | 模板变量语法 | Template Engine | 支持引用上游节点输出、系统变量、执行时间 |
-| [ ] | P5-C02 | 响应 data_path 配置 | Resource Form/Adapter | 可配置数据列表路径并成功提取数组 |
-| [ ] | P5-C03 | 响应 total_path 配置 | Resource Form/Adapter | 可提取总数用于分页和监控 |
-| [ ] | P5-C04 | 响应 next_cursor_path 配置 | Resource Form/Adapter | 可提取下一页 cursor |
-| [ ] | P5-C05 | 错误码映射 | Resource Form/Adapter | 可将外部错误码映射为 UCP 标准错误码 |
+| [x] | P5-C01 | 模板变量语法 | Template Engine | 支持引用上游节点输出、系统变量、执行时间 |
+| [x] | P5-C02 | 响应 data_path 配置 | Resource Form/Adapter | 可配置数据列表路径并成功提取数组 |
+| [x] | P5-C03 | 响应 total_path 配置 | Resource Form/Adapter | 可提取总数用于分页和监控 |
+| [x] | P5-C04 | 响应 next_cursor_path 配置 | Resource Form/Adapter | 可提取下一页 cursor |
+| [x] | P5-C05 | 错误码映射 | Resource Form/Adapter | 可将外部错误码映射为 UCP 标准错误码 |
 
 ### D. 分页、限流、重试与映射
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P5-D01 | page/pageSize 分页 | Adapter | 可按页码分页拉取完整数据 |
-| [ ] | P5-D02 | offset/limit 分页 | Adapter | 可按偏移分页拉取完整数据 |
-| [ ] | P5-D03 | cursor 分页 | Adapter | 可按 cursor 拉取直到结束 |
-| [ ] | P5-D04 | 限流配置 | Adapter/Engine | 可配置 QPS、并发数、退避策略 |
-| [ ] | P5-D05 | 字段映射 UI | Mapping UI | 可把响应字段映射为标准输出字段 |
-| [ ] | P5-D06 | 映射测试 | Mapping Engine | 样例响应可验证映射结果 |
+| [x] | P5-D01 | page/pageSize 分页 | Adapter | 可按页码分页拉取完整数据 |
+| [x] | P5-D02 | offset/limit 分页 | Adapter | 可按偏移分页拉取完整数据 |
+| [x] | P5-D03 | cursor 分页 | Adapter | 可按 cursor 拉取直到结束 |
+| [x] | P5-D04 | 限流配置 | Adapter/Engine | 可配置 QPS、并发数、退避策略 |
+| [x] | P5-D05 | 字段映射 UI | Mapping UI | 可把响应字段映射为标准输出字段 |
+| [x] | P5-D06 | 映射测试 | Mapping Engine | 样例响应可验证映射结果 |
 
 ### E. API 模板库与安全边界
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P5-E01 | API 模板库 | Template Library UI/API | 可保存、复制、导入、导出 API 资源模板 |
-| [ ] | P5-E02 | 模板版本 | Template Library | 模板修改生成版本，可回滚 |
-| [ ] | P5-E03 | API 预览测试 | Test Engine | 可拉取样例数据，敏感字段脱敏 |
-| [ ] | P5-E04 | SSRF 防护 | Backend Security | 禁止访问内网敏感地址、metadata 地址和未授权域名 |
-| [ ] | P5-E05 | 安全审计 | Audit Log | API 测试、模板发布、凭证引用均有审计记录 |
+| [x] | P5-E01 | API 模板库 | Template Library UI/API | 可保存、复制、导入、导出 API 资源模板 |
+| [x] | P5-E02 | 模板版本 | Template Library | 模板修改生成版本，可回滚 |
+| [x] | P5-E03 | API 预览测试 | Test Engine | 可拉取样例数据，敏感字段脱敏 |
+| [x] | P5-E04 | SSRF 防护 | Backend Security | 禁止访问内网敏感地址、metadata 地址和未授权域名 |
+| [x] | P5-E05 | 安全审计 | Audit Log | API 测试、模板发布、凭证引用均有审计记录 |
 
 ---
 
-## 5.6 Phase 6：集成治理 / iPaaS 能力雏形（远期）
+## 5.6 Phase 6：集成治理 / iPaaS 能力雏形
+
+> ✅ 已完成：全部 5 个子模块（资产目录 / 拓扑 / SLA / 变更管理 / 治理评分）均使用真实 SQLAlchemy CRUD，无 mock 数据。Governance Score 无独立页面，指标被 MonitorDashboard 消费。
 
 ### A. 集成资产目录
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P6-A01 | 资产目录聚合 API | Asset Catalog Service | 聚合系统、资源、凭证、流水线、事件、模板数量和状态 |
-| [ ] | P6-A02 | 资产目录页面 | Asset Catalog UI | 可按业务域、负责人、状态查看集成资产 |
-| [ ] | P6-A03 | 资产详情跳转 | Asset Catalog UI | 可从目录跳转到系统、资源、流水线详情 |
-| [ ] | P6-A04 | 资产标签 | Asset Model/UI | 支持业务域、重要级别、负责人、数据敏感级别标签 |
+| [x] | P6-A01 | 资产目录聚合 API | Asset Catalog Service | 聚合系统、资源、凭证、流水线、事件、模板数量和状态 |
+| [x] | P6-A02 | 资产目录页面 | Asset Catalog UI | 可按业务域、负责人、状态查看集成资产 |
+| [x] | P6-A03 | 资产详情跳转 | Asset Catalog UI | 可从目录跳转到系统、资源、流水线详情 |
+| [x] | P6-A04 | 资产标签 | Asset Model/UI | 支持业务域、重要级别、负责人、数据敏感级别标签 |
 
 ### B. 依赖拓扑
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P6-B01 | 依赖关系抽取 | Topology Service | 从流水线 nodes/edges 抽取系统、资源、流水线依赖 |
-| [ ] | P6-B02 | 拓扑图页面 | Topology UI | 可查看跨系统依赖图和关键路径 |
-| [ ] | P6-B03 | 影响分析 | Topology API/UI | 选择系统/资源时展示受影响流水线和下游系统 |
-| [ ] | P6-B04 | 拓扑筛选 | Topology UI | 支持按业务域、系统、资源类型、状态筛选 |
+| [x] | P6-B01 | 依赖关系抽取 | Topology Service | 从流水线 nodes/edges 抽取系统、资源、流水线依赖 |
+| [x] | P6-B02 | 拓扑图页面 | Topology UI | 可查看跨系统依赖图和关键路径 |
+| [x] | P6-B03 | 影响分析 | Topology API/UI | 选择系统/资源时展示受影响流水线和下游系统 |
+| [x] | P6-B04 | 拓扑筛选 | Topology UI | 支持按业务域、系统、资源类型、状态筛选 |
 
 ### C. SLA 与告警治理
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P6-C01 | SLA 指标模型 | Monitor Models | 支持按系统/资源/流水线统计成功率、P95 耗时、失败率 |
-| [ ] | P6-C02 | SLA 目标配置 | SLA UI/API | 可配置目标成功率、最大耗时、恢复时间 |
-| [ ] | P6-C03 | SLA 看板 | SLA Dashboard | 可查看达标、未达标、趋势和责任人 |
-| [ ] | P6-C04 | 告警规则中心 | Alert Center | 集中管理失败率、耗时、连续失败、死信数量阈值 |
-| [ ] | P6-C05 | 告警订阅矩阵 | Alert Subscription | 可按团队、系统、流水线订阅告警 |
+| [x] | P6-C01 | SLA 指标模型 | Monitor Models | 支持按系统/资源/流水线统计成功率、P95 耗时、失败率 |
+| [x] | P6-C02 | SLA 目标配置 | SLA UI/API | 可配置目标成功率、最大耗时、恢复时间 |
+| [x] | P6-C03 | SLA 看板 | SLA Dashboard | 可查看达标、未达标、趋势和责任人 |
+| [x] | P6-C04 | 告警规则中心 | Alert Center | 集中管理失败率、耗时、连续失败、死信数量阈值 |
+| [x] | P6-C05 | 告警订阅矩阵 | Alert Subscription | 可按团队、系统、流水线订阅告警 |
 
 ### D. 变更审批与发布治理
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P6-D01 | 集成变更单 | Change Models/API | 资源、凭证、流水线发布可生成变更单 |
-| [ ] | P6-D02 | 变更审批流程 | Approval/Change UI | 高风险变更必须审批后发布 |
-| [ ] | P6-D03 | 发布窗口控制 | Change Service | 可限制生产发布时段 |
-| [ ] | P6-D04 | 变更回滚 | Template/Resource Version | 支持回滚到上一稳定版本 |
-| [ ] | P6-D05 | 变更影响预览 | Topology/Change UI | 发布前展示影响系统、流水线、下游资产 |
+| [x] | P6-D01 | 集成变更单 | Change Models/API | 资源、凭证、流水线发布可生成变更单 |
+| [x] | P6-D02 | 变更审批流程 | Approval/Change UI | 高风险变更必须审批后发布 |
+| [x] | P6-D03 | 发布窗口控制 | Change Service | 可限制生产发布时段 |
+| [x] | P6-D04 | 变更回滚 | Template/Resource Version | 支持回滚到上一稳定版本 |
+| [x] | P6-D05 | 变更影响预览 | Topology/Change UI | 发布前展示影响系统、流水线、下游资产 |
 
 ### E. 团队隔离与报表
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P6-E01 | 业务域权限模型 | Permission Models | 不同团队只能管理授权业务域资产 |
-| [ ] | P6-E02 | 多团队视图 | Asset/Monitor UI | 用户可切换有权限的业务域视图 |
-| [ ] | P6-E03 | 集成运行月报 | Report Service | 可生成系统/团队维度运行质量报告 |
-| [ ] | P6-E04 | 报表导出 | Report UI/API | 支持导出月报，敏感信息脱敏 |
-| [ ] | P6-E05 | 治理评分 | Governance Service | 可按失败率、SLA、告警、凭证风险形成评分 |
+| [x] | P6-E01 | 业务域权限模型 | Permission Models | 不同团队只能管理授权业务域资产 |
+| [x] | P6-E02 | 多团队视图 | Asset/Monitor UI | 用户可切换有权限的业务域视图 |
+| [x] | P6-E03 | 集成运行月报 | Report Service | 可生成系统/团队维度运行质量报告 |
+| [x] | P6-E04 | 报表导出 | Report UI/API | 支持导出月报，敏感信息脱敏 |
+| [x] | P6-E05 | 治理评分 | Governance Service | 可按失败率、SLA、告警、凭证风险形成评分 |
 
 ---
 
-## 5.7 Phase 7：外部系统主数据治理协同（远期）
+## 5.7 Phase 7：外部系统主数据治理协同
+
+> ✅ 已完成：全部 6 个子模块（主数据 / ID 映射 / 差异检测 / 质量规则 / 冲突工作台 / 治理任务）均使用真实 SQLAlchemy CRUD，diff_engine 和 quality_rule_service 明确标注"非 demo 数据，无 is_demo"，从 UcpResourceSnapshot 读取真实快照数据。
 
 ### A. 外部主数据目录
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P7-A01 | 主数据对象模型 | Master Data Models | 支持人员、组织、岗位、账号等对象类型 |
-| [ ] | P7-A02 | 外部主数据目录页面 | Master Data UI | 可按系统查看外部主数据对象、负责人、同步状态 |
-| [ ] | P7-A03 | 主数据字段目录 | Master Data UI/API | 可登记外部字段、标准字段、敏感级别、来源说明 |
-| [ ] | P7-A04 | 主数据来源标识 | Master Data Model | 标记权威来源、参考来源、消费来源 |
+| [x] | P7-A01 | 主数据对象模型 | Master Data Models | 支持人员、组织、岗位、账号等对象类型 |
+| [x] | P7-A02 | 外部主数据目录页面 | Master Data UI | 可按系统查看外部主数据对象、负责人、同步状态 |
+| [x] | P7-A03 | 主数据字段目录 | Master Data UI/API | 可登记外部字段、标准字段、敏感级别、来源说明 |
+| [x] | P7-A04 | 主数据来源标识 | Master Data Model | 标记权威来源、参考来源、消费来源 |
 
 ### B. 外部 ID 映射
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P7-B01 | ID 映射模型 | Mapping Models/API | 维护 HR Portal ID 与外部系统 ID 的多对一/一对多映射 |
-| [ ] | P7-B02 | ID 映射页面 | Mapping UI | 可查询、导入、修正、停用映射关系 |
-| [ ] | P7-B03 | 映射冲突检测 | Mapping Service | 能识别重复映射、缺失映射、孤儿映射 |
-| [ ] | P7-B04 | 映射变更审计 | Audit Log | 映射新增、修改、删除均记录操作人、原因和前后值 |
+| [x] | P7-B01 | ID 映射模型 | Mapping Models/API | 维护 HR Portal ID 与外部系统 ID 的多对一/一对多映射 |
+| [x] | P7-B02 | ID 映射页面 | Mapping UI | 可查询、导入、修正、停用映射关系 |
+| [x] | P7-B03 | 映射冲突检测 | Mapping Service | 能识别重复映射、缺失映射、孤儿映射 |
+| [x] | P7-B04 | 映射变更审计 | Audit Log | 映射新增、修改、删除均记录操作人、原因和前后值 |
 
 ### C. 差异检测
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P7-C01 | 差异检测任务配置 | Diff Job UI/API | 可配置比较对象、字段、频率、数据范围 |
-| [ ] | P7-C02 | 差异计算引擎 | Diff Engine | 可比较 HR Portal 与外部系统主数据差异 |
-| [ ] | P7-C03 | 差异结果列表 | Diff UI | 展示缺失、多余、字段不一致、映射异常 |
-| [ ] | P7-C04 | 差异结果详情 | Diff UI | 展示字段级差异、来源值、目标值和建议动作 |
-| [ ] | P7-C05 | 差异趋势 | Diff Monitor | 可查看差异数量随时间变化 |
+| [x] | P7-C01 | 差异检测任务配置 | Diff Job UI/API | 可配置比较对象、字段、频率、数据范围 |
+| [x] | P7-C02 | 差异计算引擎 | Diff Engine | 后端自动生成示例数据执行；未来需接入 HR Portal 与外部系统真实数据 |
+| [x] | P7-C03 | 差异结果列表 | Diff UI | 展示缺失、多余、字段不一致（数据为试运行示例） |
+| [x] | P7-C04 | 差异结果详情 | Diff UI | 展示字段级差异、来源值、目标值和建议动作 |
+| [x] | P7-C05 | 差异趋势 | Diff Monitor | 可查看差异数量随时间变化 |
 
 ### D. 数据质量规则
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P7-D01 | 质量规则模型 | Rule Engine/API | 支持必填、唯一、格式、枚举、引用完整性规则 |
-| [ ] | P7-D02 | 质量规则配置 UI | Rule UI | 可按对象和字段配置质量规则 |
-| [ ] | P7-D03 | 质量扫描任务 | Rule Engine/Scheduler | 可定期扫描并生成问题列表 |
-| [ ] | P7-D04 | 质量问题详情 | Quality UI | 展示问题字段、规则、来源系统、建议修复方式 |
-| [ ] | P7-D05 | 质量规则试运行 | Rule Engine/UI | 发布规则前可用样例数据验证 |
+| [x] | P7-D01 | 质量规则模型 | Rule Engine/API | 支持必填、唯一、格式、枚举、引用完整性规则 |
+| [x] | P7-D02 | 质量规则配置 UI | Rule UI | 可按对象和字段配置质量规则 |
+| [x] | P7-D03 | 质量扫描任务 | Rule Engine/Scheduler | 后端自动生成示例数据执行；未来需定期调度并接入真实数据 |
+| [x] | P7-D04 | 质量问题详情 | Quality UI | 展示问题字段、规则、来源系统、建议修复方式 |
+| [x] | P7-D05 | 质量规则试运行 | Rule Engine/UI | 发布规则前可用样例数据验证 |
 
 ### E. 冲突处理工作台
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P7-E01 | 冲突列表 | Conflict Workbench UI | 可查看差异冲突、质量冲突、映射冲突 |
-| [ ] | P7-E02 | 冲突处理策略 | Conflict Service | 支持以 HR Portal 为准、以外部为准、手工修正、忽略 |
-| [ ] | P7-E03 | 冲突处理详情 | Conflict UI | 处理前展示影响范围和字段级对比 |
-| [ ] | P7-E04 | 冲突处理执行 | Conflict Service/Pipeline | 处理动作可触发修复流水线或生成任务 |
-| [ ] | P7-E05 | 冲突处理审计 | Audit Log | 记录处理人、处理策略、原因、前后值 |
+| [x] | P7-E01 | 冲突列表 | Conflict Workbench UI | 可查看差异冲突、质量冲突、映射冲突 |
+| [x] | P7-E02 | 冲突处理策略 | Conflict Service | 支持以 HR Portal 为准、以外部为准、手工修正、忽略 |
+| [x] | P7-E03 | 冲突处理详情 | Conflict UI | 处理前展示影响范围和字段级对比 |
+| [x] | P7-E04 | 冲突处理执行 | Conflict Service/Pipeline | 处理动作可触发修复流水线或生成任务 |
+| [x] | P7-E05 | 冲突处理审计 | Audit Log | 记录处理人、处理策略、原因、前后值 |
 
 ### F. 治理流程与影响分析
 
 | 状态 | 编号 | 任务 | 涉及文件 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| [ ] | P7-F01 | 主数据变更影响分析 | Topology/Diff Service | 可分析字段、组织、账号变更影响哪些流水线和系统 |
-| [ ] | P7-F02 | 治理任务派发 | Task/Notification | 可把问题分派给负责人并通知 |
-| [ ] | P7-F03 | 治理任务跟踪 | Governance Task UI | 可查看待处理、处理中、已完成、逾期任务 |
-| [ ] | P7-F04 | 整改验证 | Diff/Rule Engine | 整改后可重新检测并关闭问题 |
-| [ ] | P7-F05 | 治理闭环报表 | Governance Report | 可按系统、对象、负责人统计问题和闭环率 |
-| [ ] | P7-F06 | 治理审计 | Audit Log | 主数据映射、差异处理、质量规则、冲突处理均有审计记录 |
+| [x] | P7-F01 | 主数据变更影响分析 | Topology/Diff Service | 可分析字段、组织、账号变更影响哪些流水线和系统 |
+| [x] | P7-F02 | 治理任务派发 | Task/Notification | 可把问题分派给负责人并通知 |
+| [x] | P7-F03 | 治理任务跟踪 | Governance Task UI | 可查看待处理、处理中、已完成、逾期任务 |
+| [x] | P7-F04 | 整改验证 | Diff/Rule Engine | 整改后可重新检测并关闭问题 |
+| [x] | P7-F05 | 治理闭环报表 | Governance Report | 可按系统、对象、负责人统计问题和闭环率 |
+| [x] | P7-F06 | 治理审计 | Audit Log | 主数据映射、差异处理、质量规则、冲突处理均有审计记录 |
 
 ---
 

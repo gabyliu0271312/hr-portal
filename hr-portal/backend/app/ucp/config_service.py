@@ -1,4 +1,4 @@
-"""UCP 连接器配置服务
+"""UCP 系统配置服务
 
 Phase 1B 扩展：完整 CRUD + 启用/停用 + 配置版本查看 + 回滚 + 映射引擎配置化。
 """
@@ -11,70 +11,70 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ucp.models import (
-    ConnectorConfigVersion,
-    ConnectorPipelineConfig,
-    ConnectorSystemConfig,
+    UcpConfigVersion,
+    UcpPipelineConfig,
+    UcpSystemConfig,
 )
 
 logger = logging.getLogger("ucp.config_service")
 
 
-# ===== 连接器配置 =====
+# ===== 系统配置 =====
 
-async def get_connector_by_code(
+async def get_system_config_by_code(
     db: AsyncSession,
     system_code: str,
-) -> ConnectorSystemConfig | None:
-    """按 system_code 查询连接器配置。"""
+) -> UcpSystemConfig | None:
+    """按 system_code 查询系统配置。"""
     return (
         await db.execute(
-            select(ConnectorSystemConfig).where(
-                ConnectorSystemConfig.system_code == system_code
+            select(UcpSystemConfig).where(
+                UcpSystemConfig.system_code == system_code
             )
         )
     ).scalar_one_or_none()
 
 
-async def get_connector_by_id(
+async def get_system_config_by_id(
     db: AsyncSession,
-    connector_id: int,
-) -> ConnectorSystemConfig | None:
-    """按 ID 查询连接器配置。"""
-    return await db.get(ConnectorSystemConfig, connector_id)
+    config_id: int,
+) -> UcpSystemConfig | None:
+    """按 ID 查询系统配置。"""
+    return await db.get(UcpSystemConfig, config_id)
 
 
-async def get_enabled_connector_by_code(
+async def get_enabled_system_config_by_code(
     db: AsyncSession,
     system_code: str,
-) -> ConnectorSystemConfig | None:
-    """查询已启用的连接器配置。"""
-    conn = await get_connector_by_code(db, system_code)
+) -> UcpSystemConfig | None:
+    """查询已启用的系统配置。"""
+    conn = await get_system_config_by_code(db, system_code)
     if conn is None:
-        raise RuntimeError(f"Connector '{system_code}' not found")
+        raise RuntimeError(f"System '{system_code}' not found")
     if conn.status != 1:
-        raise RuntimeError(f"Connector '{system_code}' is not enabled (status={conn.status})")
+        raise RuntimeError(f"System '{system_code}' is not enabled (status={conn.status})")
     return conn
 
 
-async def list_connectors(
+async def list_system_configs(
     db: AsyncSession,
-    connector_type: str | None = None,
+    adapter_type: str | None = None,
     status: int | None = None,
-) -> list[ConnectorSystemConfig]:
-    """列出连接器配置，支持按类型和状态过滤。"""
-    stmt = select(ConnectorSystemConfig).order_by(ConnectorSystemConfig.id)
-    if connector_type:
-        stmt = stmt.where(ConnectorSystemConfig.connector_type == connector_type)
+) -> list[UcpSystemConfig]:
+    """列出系统配置，支持按类型和状态过滤。"""
+    stmt = select(UcpSystemConfig).order_by(UcpSystemConfig.id)
+    if adapter_type:
+        stmt = stmt.where(UcpSystemConfig.adapter_type == adapter_type)
     if status is not None:
-        stmt = stmt.where(ConnectorSystemConfig.status == status)
+        stmt = stmt.where(UcpSystemConfig.status == status)
     return (await db.execute(stmt)).scalars().all()
 
 
-async def upsert_connector(
+async def upsert_system_config(
     db: AsyncSession,
     system_code: str,
     system_name: str,
-    connector_type: str,
+    adapter_type: str,
     direction: str = "INBOUND",
     adapter_code: str | None = None,
     protocol: dict | None = None,
@@ -86,20 +86,20 @@ async def upsert_connector(
     notification_config: dict | None = None,
     run_as_type: str = "SERVICE_ACCOUNT",
     service_account_code: str | None = None,
-    connector_owner: str | None = None,
+    owner: str | None = None,
     description: str | None = None,
     created_by: str | None = None,
-) -> ConnectorSystemConfig:
-    """按 system_code 幂等创建或更新连接器配置。
+) -> UcpSystemConfig:
+    """按 system_code 幂等创建或更新系统配置。
 
     每次变更自动记录配置版本。
     """
-    existing = await get_connector_by_code(db, system_code)
+    existing = await get_system_config_by_code(db, system_code)
     if existing is None:
-        conn = ConnectorSystemConfig(
+        conn = UcpSystemConfig(
             system_code=system_code,
             system_name=system_name,
-            connector_type=connector_type,
+            adapter_type=adapter_type,
             direction=direction,
             description=description,
             adapter_code=adapter_code,
@@ -112,19 +112,19 @@ async def upsert_connector(
             notification_config=notification_config,
             run_as_type=run_as_type,
             service_account_code=service_account_code,
-            connector_owner=connector_owner,
+            owner=owner,
             status=1,
             created_by=created_by,
         )
         db.add(conn)
         await db.flush()
         await _save_config_version(db, system_code, 1, conn, "initial_create", created_by)
-        logger.info("[ucp] connector created: code=%s type=%s", system_code, connector_type)
+        logger.info("[ucp] system config created: code=%s type=%s", system_code, adapter_type)
         return conn
 
     # 更新已有配置
     existing.system_name = system_name
-    existing.connector_type = connector_type
+    existing.adapter_type = adapter_type
     existing.direction = direction
     if description is not None:
         existing.description = description
@@ -146,37 +146,37 @@ async def upsert_connector(
         existing.notification_config = notification_config
     if service_account_code is not None:
         existing.service_account_code = service_account_code
-    if connector_owner is not None:
-        existing.connector_owner = connector_owner
+    if owner is not None:
+        existing.owner = owner
     existing.updated_by = created_by
     existing.version += 1
     await db.flush()
 
     await _save_config_version(db, system_code, existing.version, existing, "config_update", created_by)
-    logger.info("[ucp] connector updated: code=%s version=%d", system_code, existing.version)
+    logger.info("[ucp] system config updated: code=%s version=%d", system_code, existing.version)
     return existing
 
 
-async def update_connector_fields(
+async def update_system_config_fields(
     db: AsyncSession,
-    connector_id: int,
+    config_id: int,
     update_fields: dict,
     updated_by: str | None = None,
-) -> ConnectorSystemConfig:
-    """部分更新连接器配置字段。
+) -> UcpSystemConfig:
+    """部分更新系统配置字段。
 
     只更新传入的字段，未传入的字段保持不变。
     自动记录配置版本。
     """
-    conn = await db.get(ConnectorSystemConfig, connector_id)
+    conn = await db.get(UcpSystemConfig, config_id)
     if conn is None:
-        raise RuntimeError(f"Connector {connector_id} not found")
+        raise RuntimeError(f"System {config_id} not found")
 
     allowed_fields = {
         "system_name", "description", "adapter_code", "protocol",
         "credential_id", "report_config", "scheduling", "mapping_config",
         "retry_config", "notification_config", "run_as_type",
-        "service_account_code", "connector_owner", "direction",
+        "service_account_code", "owner", "direction",
     }
 
     changed = False
@@ -194,26 +194,26 @@ async def update_connector_fields(
             f"partial_update: {', '.join(k for k in update_fields if k in allowed_fields)}",
             updated_by,
         )
-        logger.info("[ucp] connector partially updated: code=%s fields=%s",
+        logger.info("[ucp] system config partially updated: code=%s fields=%s",
                      conn.system_code, list(update_fields.keys()))
 
     return conn
 
 
-async def toggle_connector(
+async def toggle_system_config(
     db: AsyncSession,
-    connector_id: int,
+    config_id: int,
     status: int,
     updated_by: str | None = None,
-) -> ConnectorSystemConfig:
-    """启用或停用连接器。
+) -> UcpSystemConfig:
+    """启用或停用系统配置。
 
     status: 0=未启用, 1=启用, 2=停用
-    停用后连接器不会被 Pipeline Engine 执行。
+    停用后系统配置不会被 Pipeline Engine 执行。
     """
-    conn = await db.get(ConnectorSystemConfig, connector_id)
+    conn = await db.get(UcpSystemConfig, config_id)
     if conn is None:
-        raise RuntimeError(f"Connector {connector_id} not found")
+        raise RuntimeError(f"System {config_id} not found")
 
     old_status = conn.status
     conn.status = status
@@ -227,26 +227,26 @@ async def toggle_connector(
         conn, f"status_change: {status_label.get(old_status, old_status)} → {status_label.get(status, status)}",
         updated_by,
     )
-    logger.info("[ucp] connector toggled: code=%s %s → %s",
+    logger.info("[ucp] system config toggled: code=%s %s → %s",
                  conn.system_code, status_label.get(old_status, "?"), status_label.get(status, "?"))
     return conn
 
 
-async def delete_connector(
+async def delete_system_config(
     db: AsyncSession,
-    connector_id: int,
+    config_id: int,
     deleted_by: str | None = None,
 ) -> bool:
-    """删除连接器配置（物理删除）。
+    """删除系统配置（物理删除）。
 
-    调用前应确保没有 Pipeline 正在引用该连接器。
+    调用前应确保没有 Pipeline 正在引用该系统配置。
     """
-    conn = await db.get(ConnectorSystemConfig, connector_id)
+    conn = await db.get(UcpSystemConfig, config_id)
     if conn is None:
         return False
     await db.delete(conn)
     await db.flush()
-    logger.info("[ucp] connector deleted: code=%s by=%s", conn.system_code, deleted_by)
+    logger.info("[ucp] system config deleted: code=%s by=%s", conn.system_code, deleted_by)
     return True
 
 
@@ -255,12 +255,12 @@ async def delete_connector(
 async def get_pipeline_by_code(
     db: AsyncSession,
     pipeline_code: str,
-) -> ConnectorPipelineConfig | None:
+) -> UcpPipelineConfig | None:
     """按 pipeline_code 查询流水线配置。"""
     return (
         await db.execute(
-            select(ConnectorPipelineConfig).where(
-                ConnectorPipelineConfig.pipeline_code == pipeline_code
+            select(UcpPipelineConfig).where(
+                UcpPipelineConfig.pipeline_code == pipeline_code
             )
         )
     ).scalar_one_or_none()
@@ -269,15 +269,15 @@ async def get_pipeline_by_code(
 async def get_pipeline_by_id(
     db: AsyncSession,
     pipeline_id: int,
-) -> ConnectorPipelineConfig | None:
+) -> UcpPipelineConfig | None:
     """按 ID 查询流水线配置。"""
-    return await db.get(ConnectorPipelineConfig, pipeline_id)
+    return await db.get(UcpPipelineConfig, pipeline_id)
 
 
 async def get_enabled_pipeline_by_code(
     db: AsyncSession,
     pipeline_code: str,
-) -> ConnectorPipelineConfig | None:
+) -> UcpPipelineConfig | None:
     """查询已启用的流水线配置。"""
     pl = await get_pipeline_by_code(db, pipeline_code)
     if pl is None:
@@ -291,13 +291,13 @@ async def list_pipelines(
     db: AsyncSession,
     trigger_type: str | None = None,
     status: int | None = None,
-) -> list[ConnectorPipelineConfig]:
+) -> list[UcpPipelineConfig]:
     """列出流水线配置，支持按触发类型和状态过滤。"""
-    stmt = select(ConnectorPipelineConfig).order_by(ConnectorPipelineConfig.id)
+    stmt = select(UcpPipelineConfig).order_by(UcpPipelineConfig.id)
     if trigger_type:
-        stmt = stmt.where(ConnectorPipelineConfig.trigger_type == trigger_type)
+        stmt = stmt.where(UcpPipelineConfig.trigger_type == trigger_type)
     if status is not None:
-        stmt = stmt.where(ConnectorPipelineConfig.status == status)
+        stmt = stmt.where(UcpPipelineConfig.status == status)
     return (await db.execute(stmt)).scalars().all()
 
 
@@ -314,11 +314,11 @@ async def upsert_pipeline(
     service_account_code: str | None = None,
     description: str | None = None,
     created_by: str | None = None,
-) -> ConnectorPipelineConfig:
+) -> UcpPipelineConfig:
     """按 pipeline_code 幂等创建或更新流水线配置。"""
     existing = await get_pipeline_by_code(db, pipeline_code)
     if existing is None:
-        pl = ConnectorPipelineConfig(
+        pl = UcpPipelineConfig(
             pipeline_code=pipeline_code,
             pipeline_name=pipeline_name,
             description=description,
@@ -362,9 +362,9 @@ async def update_pipeline_fields(
     pipeline_id: int,
     update_fields: dict,
     updated_by: str | None = None,
-) -> ConnectorPipelineConfig:
+) -> UcpPipelineConfig:
     """部分更新流水线配置字段。"""
-    pl = await db.get(ConnectorPipelineConfig, pipeline_id)
+    pl = await db.get(UcpPipelineConfig, pipeline_id)
     if pl is None:
         raise RuntimeError(f"Pipeline {pipeline_id} not found")
 
@@ -394,9 +394,9 @@ async def toggle_pipeline(
     pipeline_id: int,
     status: int,
     updated_by: str | None = None,
-) -> ConnectorPipelineConfig:
+) -> UcpPipelineConfig:
     """启用或停用流水线。"""
-    pl = await db.get(ConnectorPipelineConfig, pipeline_id)
+    pl = await db.get(UcpPipelineConfig, pipeline_id)
     if pl is None:
         raise RuntimeError(f"Pipeline {pipeline_id} not found")
 
@@ -436,7 +436,7 @@ async def delete_pipeline(
     deleted_by: str | None = None,
 ) -> bool:
     """删除流水线配置（物理删除）。"""
-    pl = await db.get(ConnectorPipelineConfig, pipeline_id)
+    pl = await db.get(UcpPipelineConfig, pipeline_id)
     if pl is None:
         return False
     await db.delete(pl)
@@ -449,33 +449,33 @@ async def delete_pipeline(
 
 async def _save_config_version(
     db: AsyncSession,
-    connector_code: str,
+    resource_code: str,
     version: int,
-    connector: ConnectorSystemConfig,
+    system_config: UcpSystemConfig,
     change_reason: str,
     changed_by: str | None = None,
-) -> ConnectorConfigVersion:
-    """保存连接器配置版本快照。"""
+) -> UcpConfigVersion:
+    """保存系统配置版本快照。"""
     snapshot = {
-        "system_code": connector.system_code,
-        "system_name": connector.system_name,
-        "connector_type": connector.connector_type,
-        "direction": connector.direction,
-        "description": connector.description,
-        "adapter_code": connector.adapter_code,
-        "protocol": connector.protocol,
-        "credential_id": connector.credential_id,
-        "report_config": connector.report_config,
-        "scheduling": connector.scheduling,
-        "mapping_config": connector.mapping_config,
-        "retry_config": connector.retry_config,
-        "notification_config": connector.notification_config,
-        "run_as_type": connector.run_as_type,
-        "service_account_code": connector.service_account_code,
-        "status": connector.status,
+        "system_code": system_config.system_code,
+        "system_name": system_config.system_name,
+        "adapter_type": system_config.adapter_type,
+        "direction": system_config.direction,
+        "description": system_config.description,
+        "adapter_code": system_config.adapter_code,
+        "protocol": system_config.protocol,
+        "credential_id": system_config.credential_id,
+        "report_config": system_config.report_config,
+        "scheduling": system_config.scheduling,
+        "mapping_config": system_config.mapping_config,
+        "retry_config": system_config.retry_config,
+        "notification_config": system_config.notification_config,
+        "run_as_type": system_config.run_as_type,
+        "service_account_code": system_config.service_account_code,
+        "status": system_config.status,
     }
-    cv = ConnectorConfigVersion(
-        connector_code=connector_code,
+    cv = UcpConfigVersion(
+        resource_code=resource_code,
         version=version,
         config_snapshot=snapshot,
         change_reason=change_reason,
@@ -488,49 +488,49 @@ async def _save_config_version(
 
 async def list_config_versions(
     db: AsyncSession,
-    connector_code: str,
+    resource_code: str,
     limit: int = 20,
-) -> list[ConnectorConfigVersion]:
-    """查询连接器配置版本历史。"""
+) -> list[UcpConfigVersion]:
+    """查询系统配置版本历史。"""
     stmt = (
-        select(ConnectorConfigVersion)
-        .where(ConnectorConfigVersion.connector_code == connector_code)
-        .order_by(desc(ConnectorConfigVersion.version))
+        select(UcpConfigVersion)
+        .where(UcpConfigVersion.resource_code == resource_code)
+        .order_by(desc(UcpConfigVersion.version))
         .limit(limit)
     )
     return (await db.execute(stmt)).scalars().all()
 
 
-async def rollback_connector(
+async def rollback_system_config(
     db: AsyncSession,
-    connector_id: int,
+    config_id: int,
     target_version: int,
     rolled_back_by: str | None = None,
-) -> ConnectorSystemConfig:
-    """回滚连接器配置到指定版本。
+) -> UcpSystemConfig:
+    """回滚系统配置到指定版本。
 
-    回滚后连接器进入 NEED_TEST 状态（test_status=NOT_TESTED），需要重新测试才能启用。
+    回滚后系统进入 NEED_TEST 状态（test_status=NOT_TESTED），需要重新测试才能启用。
     """
-    conn = await db.get(ConnectorSystemConfig, connector_id)
+    conn = await db.get(UcpSystemConfig, config_id)
     if conn is None:
-        raise RuntimeError(f"Connector {connector_id} not found")
+        raise RuntimeError(f"System {config_id} not found")
 
     # 查找目标版本快照
     version = (
         await db.execute(
-            select(ConnectorConfigVersion).where(
-                ConnectorConfigVersion.connector_code == conn.system_code,
-                ConnectorConfigVersion.version == target_version,
+            select(UcpConfigVersion).where(
+                UcpConfigVersion.resource_code == conn.system_code,
+                UcpConfigVersion.version == target_version,
             )
         )
     ).scalar_one_or_none()
     if version is None:
-        raise RuntimeError(f"Version {target_version} not found for connector '{conn.system_code}'")
+        raise RuntimeError(f"Version {target_version} not found for system config '{conn.system_code}'")
 
     # 从快照恢复配置字段
     snapshot = version.config_snapshot
     allowed_restore_fields = {
-        "system_name", "description", "connector_type", "direction",
+        "system_name", "description", "adapter_type", "direction",
         "adapter_code", "protocol", "credential_id", "report_config",
         "scheduling", "mapping_config", "retry_config", "notification_config",
         "run_as_type", "service_account_code",
@@ -552,6 +552,6 @@ async def rollback_connector(
         f"rollback from v{target_version}",
         rolled_back_by,
     )
-    logger.info("[ucp] connector rolled back: code=%s to v%d, now at v%d (NEED_TEST)",
+    logger.info("[ucp] system config rolled back: code=%s to v%d, now at v%d (NEED_TEST)",
                  conn.system_code, target_version, conn.version)
     return conn

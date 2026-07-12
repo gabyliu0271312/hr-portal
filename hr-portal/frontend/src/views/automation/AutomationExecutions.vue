@@ -12,8 +12,8 @@ async function loadExecutions() {
   loading.value = true
   try {
     executions.value = await automationApi.listExecutions()
-  } catch (e: any) {
-    console.error(e?.response?.data?.detail || '加载失败')
+  } catch (_e: any) {
+    /* silent */
   } finally {
     loading.value = false
   }

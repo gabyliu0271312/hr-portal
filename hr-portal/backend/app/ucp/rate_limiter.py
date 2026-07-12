@@ -7,8 +7,8 @@
   - 限流命中返回 RateLimitError（包含 retry_after_seconds）
 
 限流维度：
-  - 路径级：`/ucp/connectors/*` 整体限流
-  - 连接器级：单个 connector_code 限流（test/route/export 等高消耗接口）
+  - 路径级：`/ucp/resources/*` 整体限流
+  - 资源级：单个 resource_code 限流（test/route/export 等高消耗接口）
   - 流水线级：单个 pipeline_code 限流（manual trigger）
 
 限流配置（rate_limit_config JSON）：
@@ -74,7 +74,7 @@ def acquire(key: str, config: dict | None) -> None:
     """获取一次调用许可。
 
     Args:
-        key: 限流维度 key（如 "connector:BEISEN_HTTP"）
+        key: 限流维度 key（如 "resource:BEISEN_HTTP"）
         config: 限流配置
 
     Raises:

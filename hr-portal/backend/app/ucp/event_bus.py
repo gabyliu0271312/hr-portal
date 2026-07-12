@@ -22,7 +22,7 @@ from typing import Any, Awaitable, Callable, Iterable
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ucp.models import ConnectorEventTrigger, ConnectorPipelineConfig, UcpEvent
+from app.ucp.models import UcpEventTrigger, UcpPipelineConfig, UcpEvent
 
 
 logger = logging.getLogger("ucp.event_bus")
@@ -249,7 +249,7 @@ def _to_envelope(event: UcpEvent) -> UcpEventEnvelope:
 async def match_triggers(
     db: AsyncSession,
     event: UcpEvent,
-) -> list[ConnectorEventTrigger]:
+) -> list[UcpEventTrigger]:
     """匹配所有命中此事件的触发器。
 
     匹配规则 (Phase 5-2 升级):
@@ -262,15 +262,15 @@ async def match_triggers(
          - 两者都为空: 全局匹配 (旧行为)
       5. filter_rule（可选）按 JSON 路径精确匹配 payload
     """
-    stmt = select(ConnectorEventTrigger).where(
+    stmt = select(UcpEventTrigger).where(
         and_(
-            ConnectorEventTrigger.is_active == 1,
-            ConnectorEventTrigger.event_source == event.source,
+            UcpEventTrigger.is_active == 1,
+            UcpEventTrigger.event_source == event.source,
         )
     )
     triggers = (await db.execute(stmt)).scalars().all()
 
-    matched: list[ConnectorEventTrigger] = []
+    matched: list[UcpEventTrigger] = []
     for trig in triggers:
         # 资源 / 系统粒度过滤
         if trig.source_resource_id is not None:
@@ -336,7 +336,7 @@ def _resolve_path(obj: Any, path: str) -> Any:
 async def dispatch_event(
     db: AsyncSession,
     event: UcpEvent,
-    trigger: ConnectorEventTrigger,
+    trigger: UcpEventTrigger,
 ) -> str:
     """派发事件到对应 pipeline。
 
@@ -349,8 +349,8 @@ async def dispatch_event(
     # 查 pipeline 配置
     pl = (
         await db.execute(
-            select(ConnectorPipelineConfig).where(
-                ConnectorPipelineConfig.pipeline_code == trigger.pipeline_code,
+            select(UcpPipelineConfig).where(
+                UcpPipelineConfig.pipeline_code == trigger.pipeline_code,
             )
         )
     ).scalar_one_or_none()
@@ -536,27 +536,27 @@ async def list_triggers(
     is_active: int | None = None,
     event_source: str | None = None,
     limit: int = 100,
-) -> list[ConnectorEventTrigger]:
-    stmt = select(ConnectorEventTrigger)
+) -> list[UcpEventTrigger]:
+    stmt = select(UcpEventTrigger)
     if is_active is not None:
-        stmt = stmt.where(ConnectorEventTrigger.is_active == is_active)
+        stmt = stmt.where(UcpEventTrigger.is_active == is_active)
     if event_source:
-        stmt = stmt.where(ConnectorEventTrigger.event_source == event_source)
-    stmt = stmt.order_by(desc(ConnectorEventTrigger.id)).limit(limit)
+        stmt = stmt.where(UcpEventTrigger.event_source == event_source)
+    stmt = stmt.order_by(desc(UcpEventTrigger.id)).limit(limit)
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def get_trigger(db: AsyncSession, trigger_id: int | str) -> ConnectorEventTrigger | None:
+async def get_trigger(db: AsyncSession, trigger_id: int | str) -> UcpEventTrigger | None:
     if isinstance(trigger_id, int) or (isinstance(trigger_id, str) and trigger_id.isdigit()):
         return (
             await db.execute(
-                select(ConnectorEventTrigger).where(ConnectorEventTrigger.id == int(trigger_id))
+                select(UcpEventTrigger).where(UcpEventTrigger.id == int(trigger_id))
             )
         ).scalar_one_or_none()
     return (
         await db.execute(
-            select(ConnectorEventTrigger).where(
-                ConnectorEventTrigger.trigger_code == trigger_id,
+            select(UcpEventTrigger).where(
+                UcpEventTrigger.trigger_code == trigger_id,
             )
         )
     ).scalar_one_or_none()
@@ -567,12 +567,12 @@ async def get_trigger(db: AsyncSession, trigger_id: int | str) -> ConnectorEvent
 # ============================================================
 async def get_trigger_by_webhook_path(
     db: AsyncSession, webhook_path: str
-) -> ConnectorEventTrigger | None:
+) -> UcpEventTrigger | None:
     return (
         await db.execute(
-            select(ConnectorEventTrigger).where(
-                ConnectorEventTrigger.webhook_path == webhook_path,
-                ConnectorEventTrigger.is_active == 1,
+            select(UcpEventTrigger).where(
+                UcpEventTrigger.webhook_path == webhook_path,
+                UcpEventTrigger.is_active == 1,
             )
         )
     ).scalar_one_or_none()

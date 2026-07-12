@@ -3,7 +3,7 @@
 提供：
   - 模板 CRUD（list/get/create/update/delete/toggle）
   - 模板预览（用 mock 变量渲染 title/content）
-  - 模板应用：把模板套用到 pipeline/connector 的 notification_config
+  - 模板应用：把模板套用到 pipeline/resource 的 notification_config
 
 模板字段：
   - template_code / template_name / description
@@ -23,7 +23,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ucp.models import ConnectorNotificationTemplate
+from app.ucp.models import UcpNotificationTemplate
 
 logger = logging.getLogger("ucp.notification_template")
 
@@ -90,30 +90,30 @@ async def list_templates(
     keyword: str | None = None,
     limit: int = 100,
 ) -> list[dict]:
-    stmt = select(ConnectorNotificationTemplate)
+    stmt = select(UcpNotificationTemplate)
     if trigger_scene:
-        stmt = stmt.where(ConnectorNotificationTemplate.trigger_scene == trigger_scene)
+        stmt = stmt.where(UcpNotificationTemplate.trigger_scene == trigger_scene)
     if is_active is not None:
-        stmt = stmt.where(ConnectorNotificationTemplate.is_active == is_active)
+        stmt = stmt.where(UcpNotificationTemplate.is_active == is_active)
     if keyword:
         like = f"%{keyword}%"
         stmt = stmt.where(
-            (ConnectorNotificationTemplate.template_code.ilike(like))
-            | (ConnectorNotificationTemplate.template_name.ilike(like))
+            (UcpNotificationTemplate.template_code.ilike(like))
+            | (UcpNotificationTemplate.template_name.ilike(like))
         )
-    stmt = stmt.order_by(ConnectorNotificationTemplate.id.desc()).limit(limit)
+    stmt = stmt.order_by(UcpNotificationTemplate.id.desc()).limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
     return [_to_dict(t) for t in rows]
 
 
 async def get_template(db: AsyncSession, template_id: int) -> dict | None:
-    t = await db.get(ConnectorNotificationTemplate, template_id)
+    t = await db.get(UcpNotificationTemplate, template_id)
     return _to_dict(t) if t else None
 
 
 async def get_template_by_code(db: AsyncSession, template_code: str) -> dict | None:
-    stmt = select(ConnectorNotificationTemplate).where(
-        ConnectorNotificationTemplate.template_code == template_code,
+    stmt = select(UcpNotificationTemplate).where(
+        UcpNotificationTemplate.template_code == template_code,
     )
     t = (await db.execute(stmt)).scalar_one_or_none()
     return _to_dict(t) if t else None
@@ -171,7 +171,7 @@ async def create_template(
     if variable_schema:
         schema.update(variable_schema)
 
-    tpl = ConnectorNotificationTemplate(
+    tpl = UcpNotificationTemplate(
         template_code=template_code,
         template_name=template_name,
         description=description,
@@ -205,7 +205,7 @@ async def update_template(
     variable_schema: dict | None = None,
     updated_by: str | None = None,
 ) -> dict:
-    tpl = await db.get(ConnectorNotificationTemplate, template_id)
+    tpl = await db.get(UcpNotificationTemplate, template_id)
     if tpl is None:
         raise NotificationTemplateError("TEMPLATE_NOT_FOUND", f"模板 #{template_id} 不存在")
 
@@ -245,7 +245,7 @@ async def update_template(
 
 
 async def toggle_template(db: AsyncSession, template_id: int) -> dict:
-    tpl = await db.get(ConnectorNotificationTemplate, template_id)
+    tpl = await db.get(UcpNotificationTemplate, template_id)
     if tpl is None:
         raise NotificationTemplateError("TEMPLATE_NOT_FOUND", f"模板 #{template_id} 不存在")
     tpl.is_active = 0 if tpl.is_active else 1
@@ -254,7 +254,7 @@ async def toggle_template(db: AsyncSession, template_id: int) -> dict:
 
 
 async def delete_template(db: AsyncSession, template_id: int) -> None:
-    tpl = await db.get(ConnectorNotificationTemplate, template_id)
+    tpl = await db.get(UcpNotificationTemplate, template_id)
     if tpl is None:
         raise NotificationTemplateError("TEMPLATE_NOT_FOUND", f"模板 #{template_id} 不存在")
     await db.delete(tpl)
@@ -298,7 +298,7 @@ async def preview_template(
             "extra_variables": ["yyy"],     # mock 提供但模板未使用
         }
     """
-    tpl = await db.get(ConnectorNotificationTemplate, template_id)
+    tpl = await db.get(UcpNotificationTemplate, template_id)
     if tpl is None:
         raise NotificationTemplateError("TEMPLATE_NOT_FOUND", f"模板 #{template_id} 不存在")
 
@@ -381,7 +381,7 @@ def apply_template_to_config(template_dict: dict, base_config: dict | None = Non
 
 # ===== 内部：序列化 =====
 
-def _to_dict(tpl: ConnectorNotificationTemplate) -> dict:
+def _to_dict(tpl: UcpNotificationTemplate) -> dict:
     return {
         "id": tpl.id,
         "template_code": tpl.template_code,

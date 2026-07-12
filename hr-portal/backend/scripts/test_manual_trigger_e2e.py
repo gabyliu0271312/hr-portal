@@ -74,11 +74,11 @@ def test_manual_trigger_route_exists():
 # ==========================================
 
 def test_route_uses_require_op():
-    """端点使用 require_op('datasource.ucp_executions', 'C') 权限检查。"""
+    """端点使用 require_op('ucp.executions', 'C') 权限检查。"""
     import inspect
     src = inspect.getsource(r.manual_trigger_pipeline)
-    assert "require_op(\"datasource.ucp_executions\", \"C\")" in src or "require_op('datasource.ucp_executions', 'C')" in src, f"missing require_op call: {src[:300]}"
-    print(f"[OK] Route uses require_op C on datasource.ucp_executions")
+    assert "require_op(\"ucp.executions\", \"C\")" in src or "require_op('ucp.executions', 'C')" in src, f"missing require_op call: {src[:300]}"
+    print(f"[OK] Route uses require_op C on ucp.executions")
 
 
 # ==========================================

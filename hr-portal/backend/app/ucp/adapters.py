@@ -1,4 +1,4 @@
-"""UCP 连接器适配器
+"""UCP 资源适配器
 
 将现有的北森客户端、飞书客户端封装为 UCP 标准适配器接口。
 新增飞书招聘 Offer 查询客户端。
@@ -243,9 +243,9 @@ async def excel_import_adapter(
       - sheet_name: 工作表名（可选，默认第一个）
       - mapping_rules: 字段映射 [{source, target}]（可选）
 
-    可在 Pipeline 的 CONNECTOR 步骤中使用，与 upload 端点配合：
+    可在 Pipeline 的 RESOURCE 步骤中使用，与 upload 端点配合：
       1. POST /ucp/excel/upload 上传得到 file_key
-      2. 配置连接器 file_config.file_key 或步骤 params.file_path
+      2. 配置资源 file_config.file_key 或步骤 params.file_path
     """
     from app.ucp.excel_service import parse_excel_file, resolve_file_path, _apply_mapping, ExcelImportError
 

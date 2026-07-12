@@ -1,4 +1,4 @@
-"""UCP 连接器熔断器 (Phase 2-9)
+"""UCP 资源熔断器 (Phase 2-9)
 
 设计目标：
   - 连续失败 N 次 → 自动打开熔断（OPEN）
@@ -6,7 +6,7 @@
   - X 分钟后进入半开状态（HALF_OPEN），允许一次试探调用
   - 试探成功 → 关闭熔断（CLOSED）
   - 试探失败 → 重新打开
-  - 状态写入内存（按 connector_code 隔离），可选择持久化到 connector_system_config.circuit_breaker_config
+  - 状态写入内存（按 resource_code 隔离），可选择持久化到 ucp_system_config.circuit_breaker_config
 
 熔断配置（circuit_breaker_config JSON）：
   {
@@ -23,9 +23,9 @@
   - HALF_OPEN：半开（允许少量试探）
 
 调用方：
-  - 步骤执行前调用 check_circuit(connector_code) 判断是否允许调用
-  - 调用成功后调用 record_success(connector_code)
-  - 调用失败后调用 record_failure(connector_code, error)
+  - 步骤执行前调用 check_circuit(resource_code) 判断是否允许调用
+  - 调用成功后调用 record_success(resource_code)
+  - 调用失败后调用 record_failure(resource_code, error)
 """
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ class CircuitBreakerError(Exception):
 
 @dataclass
 class _CircuitState:
-    """单个连接器的熔断状态。"""
+    """单个资源的熔断状态。"""
     state: str = STATE_CLOSED
     consecutive_failures: int = 0
     consecutive_successes: int = 0
@@ -87,17 +87,17 @@ _lock = threading.Lock()
 _states: dict[str, _CircuitState] = {}
 
 
-def _get_state(connector_code: str) -> _CircuitState:
-    """获取或初始化连接器状态。"""
-    if connector_code not in _states:
-        _states[connector_code] = _CircuitState()
-    return _states[connector_code]
+def _get_state(resource_code: str) -> _CircuitState:
+    """获取或初始化资源状态。"""
+    if resource_code not in _states:
+        _states[resource_code] = _CircuitState()
+    return _states[resource_code]
 
 
-def get_circuit_state(connector_code: str) -> dict[str, Any]:
+def get_circuit_state(resource_code: str) -> dict[str, Any]:
     """查询当前熔断状态（只读快照）。"""
     with _lock:
-        s = _get_state(connector_code)
+        s = _get_state(resource_code)
         snap = {
             "state": s.state,
             "consecutive_failures": s.consecutive_failures,
@@ -116,18 +116,18 @@ def list_circuits() -> list[dict[str, Any]]:
     with _lock:
         codes = list(_states.keys())
     return [
-        {"connector_code": code, **get_circuit_state(code)}
+        {"resource_code": code, **get_circuit_state(code)}
         for code in codes
     ]
 
 
-def reset_circuit(connector_code: str) -> dict[str, Any]:
+def reset_circuit(resource_code: str) -> dict[str, Any]:
     """手动重置熔断器（运维用）。"""
     with _lock:
-        if connector_code in _states:
-            del _states[connector_code]
-    logger.info("[ucp.cb] manually reset circuit for %s", connector_code)
-    return get_circuit_state(connector_code)
+        if resource_code in _states:
+            del _states[resource_code]
+    logger.info("[ucp.cb] manually reset circuit for %s", resource_code)
+    return get_circuit_state(resource_code)
 
 
 def _open_remaining_seconds(s: _CircuitState, open_duration: int = 0) -> int:
@@ -141,7 +141,7 @@ def _open_remaining_seconds(s: _CircuitState, open_duration: int = 0) -> int:
 
 # ===== 主入口：检查是否允许调用 =====
 
-def check_circuit(connector_code: str, cb_config: dict | None) -> None:
+def check_circuit(resource_code: str, cb_config: dict | None) -> None:
     """调用前检查熔断器状态。
 
     Raises:
@@ -160,7 +160,7 @@ def check_circuit(connector_code: str, cb_config: dict | None) -> None:
     half_open_max = config["half_open_max_calls"]
 
     with _lock:
-        s = _get_state(connector_code)
+        s = _get_state(resource_code)
 
         if s.state == STATE_CLOSED:
             return  # 正常放行
@@ -171,7 +171,7 @@ def check_circuit(connector_code: str, cb_config: dict | None) -> None:
                 # 仍在熔断窗口
                 raise CircuitBreakerError(
                     error_code="CIRCUIT_OPEN",
-                    message=f"连接器 {connector_code} 处于熔断状态，{remaining}秒后自动恢复",
+                    message=f"资源 {resource_code} 处于熔断状态，{remaining}秒后自动恢复",
                     retry_after_seconds=remaining,
                 )
             # 熔断窗口已过 → 转 HALF_OPEN
@@ -183,7 +183,7 @@ def check_circuit(connector_code: str, cb_config: dict | None) -> None:
             if s.half_open_calls >= half_open_max:
                 raise CircuitBreakerError(
                     error_code="CIRCUIT_HALF_OPEN_BUSY",
-                    message=f"连接器 {connector_code} 半开状态已有 {s.half_open_calls} 个试探调用，请等待",
+                    message=f"资源 {resource_code} 半开状态已有 {s.half_open_calls} 个试探调用，请等待",
                     retry_after_seconds=5,
                 )
             s.half_open_calls += 1
@@ -192,12 +192,12 @@ def check_circuit(connector_code: str, cb_config: dict | None) -> None:
         # 未知状态：保守拒绝
         raise CircuitBreakerError(
             error_code="CIRCUIT_UNKNOWN_STATE",
-            message=f"连接器 {connector_code} 熔断状态异常: {s.state}",
+            message=f"资源 {resource_code} 熔断状态异常: {s.state}",
             retry_after_seconds=60,
         )
 
 
-def record_success(connector_code: str, cb_config: dict | None) -> dict[str, Any]:
+def record_success(resource_code: str, cb_config: dict | None) -> dict[str, Any]:
     """记录一次成功调用。
 
     Returns:
@@ -205,12 +205,12 @@ def record_success(connector_code: str, cb_config: dict | None) -> dict[str, Any
     """
     config = _normalize_config(cb_config)
     if not config["enabled"]:
-        return get_circuit_state(connector_code)
+        return get_circuit_state(resource_code)
 
     success_threshold = config["success_threshold"]
 
     with _lock:
-        s = _get_state(connector_code)
+        s = _get_state(resource_code)
         s.consecutive_failures = 0
         s.consecutive_successes += 1
         s.last_error_code = None
@@ -222,14 +222,14 @@ def record_success(connector_code: str, cb_config: dict | None) -> dict[str, Any
             else:
                 logger.debug(
                     "[ucp.cb] %s half_open success %d/%d",
-                    connector_code, s.consecutive_successes, success_threshold,
+                    resource_code, s.consecutive_successes, success_threshold,
                 )
         # CLOSED 状态持续累计连续成功，但通常不需要
         return _snapshot(s)
 
 
 def record_failure(
-    connector_code: str,
+    resource_code: str,
     cb_config: dict | None,
     error_code: str | None = None,
     error_message: str | None = None,
@@ -241,12 +241,12 @@ def record_failure(
     """
     config = _normalize_config(cb_config)
     if not config["enabled"]:
-        return get_circuit_state(connector_code)
+        return get_circuit_state(resource_code)
 
     failure_threshold = config["failure_threshold"]
 
     with _lock:
-        s = _get_state(connector_code)
+        s = _get_state(resource_code)
         s.consecutive_successes = 0
         s.consecutive_failures += 1
         s.last_error_code = error_code

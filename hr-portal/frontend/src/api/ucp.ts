@@ -74,7 +74,7 @@ export interface PipelineStepExecutionItem {
   step_run_id: string
   step_id: string
   step_type: string
-  connector_code: string | null
+  resource_code: string | null
   status: string
   retry_count: number
   total_items: number | null
@@ -105,7 +105,7 @@ export interface StepLoopItem {
 export interface ExecutionLogItem {
   id: number
   trace_id: string
-  connector_code: string | null
+  resource_code: string | null
   pipeline_code: string | null
   trigger_type: string
   request_url: string | null
@@ -126,7 +126,7 @@ export interface LoopFailedItem {
   id: number
   trace_id: string
   step_run_id: string
-  connector_code: string
+  resource_code: string
   item_key: string
   status: string
   error_code: string | null
@@ -136,120 +136,21 @@ export interface LoopFailedItem {
   last_failed_at: string | null
 }
 
-/* ── Connector Config ── */
+/* ── System Overview ── */
 
-export interface ConnectorConfigItem {
-  id: number
-  system_code: string
-  system_name: string
-  description: string | null
-  connector_type: string
-  direction: string
-  adapter_code: string | null
-  credential_id: number | null
-  test_status: string
-  connector_owner: string | null
-  /** 0=inactive, 1=active, 2=disabled */
-  status: number
-  version: number
-  run_as_type: string
-  mapping_enabled: boolean
-  created_by: string | null
-  updated_by: string | null
-  created_at: string | null
-  updated_at: string | null
-}
-
-export interface ConnectorConfigDetail {
-  id: number
-  system_code: string
-  system_name: string
-  description: string | null
-  connector_type: string
-  direction: string
-  adapter_code: string | null
-  protocol: Record<string, any> | null
-  credential_id: number | null
-  report_config: Record<string, any> | null
-  scheduling: Record<string, any> | null
-  mapping_config: Record<string, any> | null
-  retry_config: Record<string, any> | null
-  notification_config: Record<string, any> | null
-  test_status: string
-  test_result: Record<string, any> | null
-  test_time: string | null
-  connector_owner: string | null
-  run_as_type: string
-  run_as_user_id: number | null
-  service_account_code: string | null
-  status: number
-  version: number
-  created_by: string | null
-  updated_by: string | null
-  created_at: string | null
-  updated_at: string | null
-}
-
-/* ── Phase 2-1: 测试引擎相关类型 ── */
-export const TEST_TYPES = {
-  AUTH: 'AUTH',
-  CONNECTIVITY: 'CONNECTIVITY',
-  PREVIEW: 'PREVIEW',
-  PUSH_SIMULATION: 'PUSH_SIMULATION',
-} as const
-
-export type TestType = typeof TEST_TYPES[keyof typeof TEST_TYPES]
-
-export const TEST_TYPE_LABELS: Record<TestType, string> = {
-  AUTH: '认证测试',
-  CONNECTIVITY: '连通性测试',
-  PREVIEW: '预览测试',
-  PUSH_SIMULATION: '推送模拟',
-}
-
-export const TEST_STATUS = {
-  PASSED: 'PASSED',
-  FAILED: 'FAILED',
-  WARNING: 'WARNING',
-} as const
-
-export type TestStatus = typeof TEST_STATUS[keyof typeof TEST_STATUS]
-
-export const TEST_STATUS_LABELS: Record<TestStatus, string> = {
-  PASSED: '通过',
-  FAILED: '失败',
-  WARNING: '警告',
-}
-
-export const TEST_STATUS_COLORS: Record<TestStatus, string> = {
-  PASSED: 'success',
-  FAILED: 'danger',
-  WARNING: 'warning',
-}
-
-export interface TestLogItem {
-  id: number
-  connector_code: string
-  test_type: string
-  test_type_label?: string
-  status: string
-  duration_ms: number
-  error_code: string | null
-  error_message: string | null
-  tested_by: string | null
-  request_params_masked: Record<string, any> | null
-  response_sample: Record<string, any> | null
-  created_at: string | null
-}
-
-export interface ConfigVersionItem {
-  id: number
-  connector_code: string
-  version: number
-  config_snapshot: Record<string, any>
-  change_reason: string | null
-  changed_by: string | null
-  changed_at: string | null
+export interface SystemOverview {
+  system_id: number
+  resource_count: number
+  active_count: number
+  pipeline_count: number
+  sync_count_24h: number
+  success_count_24h: number
+  success_rate_24h: number | null
+  dead_letter_count: number
+  latest_run_at: string | null
+  credential_status: 'ok' | 'warning' | 'expired' | 'none'
+  credential_count: number
+  health_status: 'ok' | 'warning' | 'blocked' | 'failing' | 'offline' | 'unconfigured'
 }
 
 /* ── Credential Config ── */
@@ -311,7 +212,7 @@ export interface SeedResult {
   message: string
   created: {
     credentials: number
-    connectors: number
+    resources: number
     pipelines: number
     scheduler_job_id: number
   }
@@ -396,68 +297,6 @@ export const ucpApi = {
   toggleCredential: (credentialId: number, is_active: boolean) =>
     api.patch<{id: number; credential_code: string; is_active: number; message: string}>(`/ucp/credentials/${credentialId}/toggle`, { is_active }).then((r) => r.data),
 
-  /* ── Connector Config CRUD ── */
-  connectors: (connectorType?: string) =>
-    api.get<Paginated<ConnectorConfigItem>>('/ucp/connectors', { params: { connector_type: connectorType } }).then((r) => ({ total: r.data.total, items: extractItems(r.data) })),
-
-  connectorDetail: (connectorId: number) =>
-    api.get<ConnectorConfigDetail>(`/ucp/connectors/${connectorId}`).then((r) => r.data),
-
-  createConnector: (payload: Record<string, any>) =>
-    api.post<{id: number; system_code: string; message: string}>('/ucp/connectors', payload).then((r) => r.data),
-
-  updateConnector: (connectorId: number, payload: Record<string, any>) =>
-    api.patch<{id: number; system_code: string; version: number; message: string}>(`/ucp/connectors/${connectorId}`, payload).then((r) => r.data),
-
-  toggleConnector: (connectorId: number, status: number) =>
-    api.patch<{id: number; system_code: string; status: number; message: string}>(`/ucp/connectors/${connectorId}/toggle`, { status }).then((r) => r.data),
-
-  deleteConnector: (connectorId: number) =>
-    api.delete<{message: string}>(`/ucp/connectors/${connectorId}`).then((r) => r.data),
-
-  connectorVersions: (connectorId: number, limit?: number) =>
-    api.get<Paginated<ConfigVersionItem>>(`/ucp/connectors/${connectorId}/versions`, { params: { limit } }).then((r) => ({ total: r.data.total, items: extractItems(r.data) })),
-
-  rollbackConnector: (connectorId: number, targetVersion: number) =>
-    api.post<{id: number; system_code: string; version: number; test_status: string; message: string}>(`/ucp/connectors/${connectorId}/rollback`, { target_version: targetVersion }).then((r) => r.data),
-
-  /* ── Phase 2-1: 连接器测试引擎 ── */
-  runConnectorTest: (connectorCode: string, testType: string) =>
-    api.post<{
-      id: number
-      connector_code: string
-      test_type: string
-      status: string
-      duration_ms: number
-      error_code: string | null
-      error_message: string | null
-      response_sample: Record<string, any> | null
-      created_at: string
-    }>(`/ucp/connectors/${connectorCode}/test`, { test_type: testType }).then((r) => r.data),
-
-  runAllConnectorTests: (connectorCode: string) =>
-    api.post<{
-      total: number
-      items: Array<{
-        id: number
-        test_type: string
-        status: string
-        duration_ms: number
-        error_code: string | null
-        error_message: string | null
-        created_at: string
-      }>
-    }>(`/ucp/connectors/${connectorCode}/test-all`).then((r) => r.data),
-
-  connectorTestHistory: (connectorCode: string, params?: { test_type?: string; limit?: number }) =>
-    api.get<{ total: number; items: TestLogItem[] }>(`/ucp/connectors/${connectorCode}/test-history`, { params }).then((r) => r.data),
-
-  connectorLatestTests: (connectorCode: string) =>
-    api.get<{ connector_code: string; tests: Record<string, { label: string; log: TestLogItem | null }> }>(`/ucp/connectors/${connectorCode}/test-latest`).then((r) => r.data),
-
-  enableConnectorAfterTest: (connectorCode: string) =>
-    api.post<{ message: string; status: number }>(`/ucp/connectors/${connectorCode}/enable`).then((r) => r.data),
-
   /* ── Phase 4: System + Resource (1:N) ── */
   systems: (systemType?: string) =>
     api.get<{ total: number; items: any[] }>('/ucp/systems', { params: systemType ? { system_type: systemType } : {} }).then((r) => r.data),
@@ -465,7 +304,10 @@ export const ucpApi = {
   systemDetail: (systemId: number) =>
     api.get<any>(`/ucp/systems/${systemId}`).then((r) => r.data),
 
-  createSystem: (payload: { system_code: string; system_name: string; system_type?: string; icon?: string; owner?: string; description?: string }) =>
+  systemsOverview: () =>
+    api.get<{ total: number; items: SystemOverview[] }>('/ucp/systems/overview').then((r) => r.data),
+
+  createSystem: (payload: { system_code: string; system_name: string; system_type?: string; icon?: string; owner?: string; domain?: string; description?: string; tags?: string[]; sensitivity?: string }) =>
     api.post<{ id: number; system_code: string; system_name: string }>('/ucp/systems', payload).then((r) => r.data),
 
   updateSystem: (systemId: number, payload: Record<string, any>) =>
@@ -542,10 +384,10 @@ export const ucpApi = {
 
   /* ── Phase 2-5: 管理界面增强 ── */
 
-  /** 统计概览（连接器 / Pipeline / 凭证） */
+  /** 统计概览（系统资源 / Pipeline / 凭证） */
   configStats: () =>
     api.get<{
-      connectors: { total: number; enabled: number; disabled: number; untested: number; failed_test: number; by_type: Record<string, number> }
+      resources: { total: number; enabled: number; disabled: number; untested: number; failed_test: number; by_type: Record<string, number> }
       pipelines: { total: number; enabled: number; disabled: number; by_trigger: Record<string, number> }
       credentials: { total: number; active: number; inactive: number }
     }>('/ucp/config/stats').then((r) => r.data),
@@ -553,14 +395,14 @@ export const ucpApi = {
   /** 跨表统一搜索 */
   configSearch: (params: { keyword?: string; target_type?: string; status?: number; limit?: number } = {}) =>
     api.get<{
-      connectors: any[]
+      resources: any[]
       pipelines: any[]
       credentials: any[]
       total: number
     }>('/ucp/config/search', { params }).then((r) => r.data),
 
   /** 批量启停 */
-  configBatchToggle: (targetType: 'connector' | 'pipeline' | 'credential', targetIds: number[], newStatus: 1 | 2) =>
+  configBatchToggle: (targetType: 'system' | 'resource' | 'pipeline' | 'credential', targetIds: number[], newStatus: 1 | 2) =>
     api.post<{ success_count: number; failed_count: number; new_status: number; failed_details: any[] }>(
       '/ucp/config/batch-toggle',
       { target_type: targetType, target_ids: targetIds, new_status: newStatus }
@@ -575,7 +417,7 @@ export const ucpApi = {
     api.post<{
       dry_run: boolean
       credentials: { created: number; skipped: number; errors: any[] }
-      connectors: { created: number; skipped: number; errors: any[] }
+      resources: { created: number; skipped: number; errors: any[] }
       pipelines: { created: number; skipped: number; errors: any[] }
     }>('/ucp/config/import', payload).then((r) => r.data),
 
@@ -622,7 +464,7 @@ export const ucpApi = {
   /** 列出所有熔断器状态 */
   listCircuits: () =>
     api.get<{ circuits: Array<{
-      connector_code: string
+      resource_code: string
       state: string
       consecutive_failures: number
       consecutive_successes: number
@@ -632,10 +474,10 @@ export const ucpApi = {
       open_remaining_seconds: number
     }> }>('/ucp/circuits').then((r) => r.data),
 
-  /** 查询单个连接器熔断状态 */
-  getCircuit: (connectorCode: string) =>
+  /** 查询单个资源熔断状态 */
+  getCircuit: (resourceCode: string) =>
     api.get<{
-      connector_code: string
+      resource_code: string
       config: Record<string, any>
       state: {
         state: string
@@ -646,15 +488,15 @@ export const ucpApi = {
         last_error_message: string | null
         open_remaining_seconds: number
       }
-    }>(`/ucp/circuits/${connectorCode}`).then((r) => r.data),
+    }>(`/ucp/circuits/${resourceCode}`).then((r) => r.data),
 
   /** 手动重置熔断器 */
-  resetCircuit: (connectorCode: string) =>
-    api.post<{ connector_code: string; state: Record<string, any> }>(`/ucp/circuits/${connectorCode}/reset`).then((r) => r.data),
+  resetCircuit: (resourceCode: string) =>
+    api.post<{ resource_code: string; state: Record<string, any> }>(`/ucp/circuits/${resourceCode}/reset`).then((r) => r.data),
 
   /** 更新熔断配置 */
-  updateCircuitConfig: (connectorCode: string, payload: Record<string, any>) =>
-    api.patch<{ connector_code: string; config: Record<string, any> }>(`/ucp/circuits/${connectorCode}/config`, payload).then((r) => r.data),
+  updateCircuitConfig: (resourceCode: string, payload: Record<string, any>) =>
+    api.patch<{ resource_code: string; config: Record<string, any> }>(`/ucp/circuits/${resourceCode}/config`, payload).then((r) => r.data),
 
   /** 列出所有限流桶 */
   listRateLimits: () =>
@@ -897,7 +739,7 @@ export const ucpApi = {
 
   /* Phase 3-4: 触发器测试 */
   testTrigger: (triggerId: string, payload: { event_type?: string; source?: string; payload?: Record<string, any> }) =>
-    api.post<{ matched: boolean; checks: Record<string, any>; pipeline_code: string | null }>(`/ucp/triggers/${triggerId}/test`, payload).then((r) => r.data),
+    api.post<{ matched: boolean; is_test_payload: boolean; checks: Record<string, any>; pipeline_code: string | null }>(`/ucp/triggers/${triggerId}/test`, payload).then((r) => r.data),
 
   /* ── Phase 3-3: 死信 + 重放 ── */
 
@@ -1584,6 +1426,263 @@ export const alertRuleApi = {
     api.delete<{ deleted: boolean }>(`/ucp/alert-rules/${ruleId}`).then((r) => r.data),
   logs: (limit?: number) =>
     api.get<{ items: AlertLogItem[]; total: number }>('/ucp/alert-logs', { params: { limit } }).then((r) => r.data),
+}
+
+/* ── Phase 5-E: API 模板库 ── */
+
+export interface ApiTemplateItem {
+  id: number
+  template_code: string
+  template_name: string
+  description: string | null
+  category: string
+  system_type: string | null
+  method: string
+  base_url: string | null
+  path: string | null
+  content_type: string | null
+  timeout_seconds: number | null
+  headers_config: any[] | null
+  query_config: any[] | null
+  body_template: Record<string, any> | null
+  auth_type: string | null
+  data_path: string | null
+  total_path: string | null
+  next_cursor_path: string | null
+  pagination_type: string
+  page_param: string | null
+  page_size_param: string | null
+  rate_limit_qps: number | null
+  rate_limit_concurrency: number | null
+  retry_max: number | null
+  retry_backoff: string | null
+  field_mappings: any[] | null
+  error_code_map: Record<string, any> | null
+  sample_response: Record<string, any> | null
+  allowed_domains: string[] | null
+  tags: string[] | null
+  version: string
+  is_published: boolean
+  is_active: boolean
+  created_by: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export const apiTemplateApi = {
+  list: (params?: { category?: string; system_type?: string; keyword?: string; is_published?: boolean; limit?: number; offset?: number }) =>
+    api.get<{ total: number; items: ApiTemplateItem[] }>('/ucp/api-templates', { params }).then((r) => r.data),
+  get: (code: string) =>
+    api.get<ApiTemplateItem>(`/ucp/api-templates/${code}`).then((r) => r.data),
+  create: (payload: Record<string, any>) =>
+    api.post<ApiTemplateItem>('/ucp/api-templates', payload).then((r) => r.data),
+  update: (code: string, payload: Record<string, any>) =>
+    api.patch<ApiTemplateItem>(`/ucp/api-templates/${code}`, payload).then((r) => r.data),
+  copy: (sourceCode: string, newCode: string, newName: string) =>
+    api.post<ApiTemplateItem>(`/ucp/api-templates/${sourceCode}/copy`, { new_code: newCode, new_name: newName }).then((r) => r.data),
+  delete: (code: string) =>
+    api.delete<{ deleted: boolean }>(`/ucp/api-templates/${code}`).then((r) => r.data),
+  versions: (code: string) =>
+    api.get<{ items: any[] }>(`/ucp/api-templates/${code}/versions`).then((r) => r.data),
+  rollback: (code: string, versionId: number) =>
+    api.post<ApiTemplateItem>(`/ucp/api-templates/${code}/rollback`, { version_id: versionId }).then((r) => r.data),
+  importTemplate: (payload: Record<string, any>) =>
+    api.post<ApiTemplateItem>('/ucp/api-templates/import', payload).then((r) => r.data),
+  exportTemplate: (code: string) =>
+    api.get<{ format: string; content: any }>(`/ucp/api-templates/${code}/export`).then((r) => r.data),
+  testEngine: (payload: { template?: any; context?: Record<string, any> }) =>
+    api.post<{ input: any; context_keys: string[]; output: any }>('/ucp/template-engine/test', payload).then((r) => r.data),
+  /** Phase 5: 测试执行 API 模板（含 SSRF 校验、脱敏、样例保存） */
+  testApiTemplate: (payload: { template?: any; context?: Record<string, any>; save_sample?: boolean }) =>
+    api.post<{ request: any; response_sample: any[]; total: number; context_used: string[] }>('/ucp/api-templates/test', payload).then((r) => r.data),
+}
+
+/* ── Phase 6-A: 集成资产目录 ── */
+
+export interface AssetCatalog {
+  systems: { total: number; active: number }
+  resources: { total: number; active: number }
+  credentials: { total: number; active: number }
+  pipelines: { total: number; active: number }
+  templates: { total: number }
+  events_24h: number
+}
+
+export const assetCatalogApi = {
+  catalog: () =>
+    api.get<AssetCatalog>('/ucp/assets/catalog').then((r) => r.data),
+  list: (params: { asset_type: string; domain?: string; keyword?: string; limit?: number; offset?: number }) =>
+    api.get<{ total: number; items: any[] }>('/ucp/assets', { params }).then((r) => r.data),
+  setTag: (payload: { asset_type: string; asset_id: number; tag_key: string; tag_value: string }) =>
+    api.post<Record<string, any>>('/ucp/assets/tags', payload).then((r) => r.data),
+  removeTag: (assetType: string, assetId: number, tagKey: string) =>
+    api.delete<{ deleted: boolean }>('/ucp/assets/tags', { params: { asset_type: assetType, asset_id: assetId, tag_key: tagKey } }).then((r) => r.data),
+}
+
+/* ── Phase 6-B: 依赖拓扑 ── */
+
+export const topologyApi = {
+  get: (params?: { system_id?: number; resource_id?: number }) =>
+    api.get<{ nodes: any[]; edges: any[] }>('/ucp/topology', { params }).then((r) => r.data),
+  impact: (targetType: string, targetId: number) =>
+    api.get<{ target: any; affected_pipelines: any[]; affected_resources: any[]; affected_systems: any[] }>(
+      '/ucp/topology/impact', { params: { target_type: targetType, target_id: targetId } },
+    ).then((r) => r.data),
+}
+
+/* ── Phase 6-C: SLA 管理 ── */
+
+export interface SlaConfigItem {
+  id: number
+  sla_code: string
+  sla_name: string | null
+  target_type: string
+  target_id: number
+  success_rate_target: number | null
+  p95_duration_ms_max: number | null
+  p99_duration_ms_max: number | null
+  recovery_time_minutes: number | null
+  window_hours: number
+  is_active: boolean
+  created_by: string | null
+  created_at: string | null
+}
+
+export interface SlaDashboard {
+  total: number
+  met: number
+  not_met: number
+  items: any[]
+}
+
+export const slaApi = {
+  listConfigs: () =>
+    api.get<{ items: SlaConfigItem[] }>('/ucp/sla/configs').then((r) => r.data),
+  createConfig: (payload: { sla_code: string; sla_name?: string; target_type: string; target_id: number; success_rate_target?: number; p95_duration_ms_max?: number; p99_duration_ms_max?: number; recovery_time_minutes?: number; window_hours?: number }) =>
+    api.post<SlaConfigItem>('/ucp/sla/configs', payload).then((r) => r.data),
+  updateConfig: (slaId: number, payload: Record<string, any>) =>
+    api.patch<SlaConfigItem>(`/ucp/sla/configs/${slaId}`, payload).then((r) => r.data),
+  deleteConfig: (slaId: number) =>
+    api.delete<{ deleted: boolean }>(`/ucp/sla/configs/${slaId}`).then((r) => r.data),
+  calculate: (slaId: number) =>
+    api.post<Record<string, any>>(`/ucp/sla/configs/${slaId}/calculate`).then((r) => r.data),
+  records: (slaId: number, limit?: number) =>
+    api.get<{ items: any[] }>(`/ucp/sla/configs/${slaId}/records`, { params: { limit } }).then((r) => r.data),
+  dashboard: () =>
+    api.get<SlaDashboard>('/ucp/sla/dashboard').then((r) => r.data),
+}
+
+/* ── Phase 6-D: 变更管理 ── */
+
+export const changeApi = {
+  list: (params?: { status?: string; change_type?: string; limit?: number; offset?: number }) =>
+    api.get<{ items: any[] }>('/ucp/changes', { params }).then((r) => r.data),
+  create: (payload: { change_type: string; change_target_id: number; change_target_code: string; change_summary?: string; risk_level?: string; reason?: string }) =>
+    api.post<Record<string, any>>('/ucp/changes', payload).then((r) => r.data),
+  publish: (changeId: number) =>
+    api.post<Record<string, any>>(`/ucp/changes/${changeId}/publish`).then((r) => r.data),
+  rollback: (changeId: number) =>
+    api.post<Record<string, any>>(`/ucp/changes/${changeId}/rollback`).then((r) => r.data),
+}
+
+/* ── Phase 6-E: 治理评分 ── */
+
+export const governanceScoreApi = {
+  calculate: (assetType?: string, windowHours?: number) =>
+    api.post<{ items: any[] }>('/ucp/governance/scores/calculate', null, { params: { asset_type: assetType, window_hours: windowHours } }).then((r) => r.data),
+  list: (assetType?: string, limit?: number) =>
+    api.get<{ items: any[] }>('/ucp/governance/scores', { params: { asset_type: assetType, limit } }).then((r) => r.data),
+}
+
+/* ── Phase 7-A: 主数据目录 ── */
+
+export const masterDataApi = {
+  listObjects: (params?: { object_type?: string; system_code?: string; keyword?: string; limit?: number; offset?: number }) =>
+    api.get<{ total: number; items: any[] }>('/ucp/master-data/objects', { params }).then((r) => r.data),
+  createObject: (payload: Record<string, any>) =>
+    api.post<Record<string, any>>('/ucp/master-data/objects', payload).then((r) => r.data),
+  updateObject: (code: string, payload: Record<string, any>) =>
+    api.patch<Record<string, any>>(`/ucp/master-data/objects/${code}`, payload).then((r) => r.data),
+}
+
+/* ── Phase 7-B: ID 映射 ── */
+
+export const idMappingApi = {
+  list: (params?: { object_type?: string; external_system?: string; hr_id?: string; is_conflict?: boolean; limit?: number; offset?: number }) =>
+    api.get<{ total: number; items: any[] }>('/ucp/master-data/mappings', { params }).then((r) => r.data),
+  create: (payload: { object_type: string; hr_id: string; external_system: string; external_id: string; external_name?: string; mapping_type?: string }) =>
+    api.post<Record<string, any>>('/ucp/master-data/mappings', payload).then((r) => r.data),
+  update: (id: number, payload: Record<string, any>) =>
+    api.patch<Record<string, any>>(`/ucp/master-data/mappings/${id}`, payload).then((r) => r.data),
+  delete: (id: number) =>
+    api.delete<{ deleted: boolean }>(`/ucp/master-data/mappings/${id}`).then((r) => r.data),
+  checkConflicts: () =>
+    api.post<{ total: number; conflicts: any[] }>('/ucp/master-data/mappings/check-conflicts').then((r) => r.data),
+}
+
+/* ── Phase 7-C: 差异检测 ── */
+
+export const diffApi = {
+  listJobs: () =>
+    api.get<{ items: any[] }>('/ucp/diff/jobs').then((r) => r.data),
+  createJob: (payload: { job_code: string; job_name: string; source_system: string; target_system: string; object_type: string; compare_fields?: string[]; key_field?: string; source_resource_id?: number; target_resource_id?: number; cron_expression?: string }) =>
+    api.post<Record<string, any>>('/ucp/diff/jobs', payload).then((r) => r.data),
+  updateJob: (id: number, payload: Record<string, any>) =>
+    api.patch<Record<string, any>>(`/ucp/diff/jobs/${id}`, payload).then((r) => r.data),
+  deleteJob: (id: number) =>
+    api.delete<{ deleted: boolean }>(`/ucp/diff/jobs/${id}`).then((r) => r.data),
+  runJob: (id: number) =>
+    api.post<Record<string, any>>(`/ucp/diff/jobs/${id}/run`).then((r) => r.data),
+  listRecords: (params?: { job_id?: number; run_code?: string; diff_type?: string; process_status?: string; limit?: number; offset?: number }) =>
+    api.get<{ total: number; items: any[] }>('/ucp/diff/records', { params }).then((r) => r.data),
+  trend: (days?: number) =>
+    api.get<{ items: any[] }>('/ucp/diff/trend', { params: { days } }).then((r) => r.data),
+}
+
+/* ── Phase 7-D: 数据质量规则 ── */
+
+export const qualityApi = {
+  listRules: (params?: { rule_type?: string; object_type?: string; limit?: number }) =>
+    api.get<{ total: number; items: any[] }>('/ucp/quality/rules', { params }).then((r) => r.data),
+  createRule: (payload: { rule_code: string; rule_name: string; object_type: string; rule_type: string; resource_id?: number; system_code?: string; field_name?: string; rule_config?: Record<string, any>; severity?: string; cron_expression?: string; description?: string }) =>
+    api.post<Record<string, any>>('/ucp/quality/rules', payload).then((r) => r.data),
+  updateRule: (id: number, payload: Record<string, any>) =>
+    api.patch<Record<string, any>>(`/ucp/quality/rules/${id}`, payload).then((r) => r.data),
+  deleteRule: (id: number) =>
+    api.delete<{ deleted: boolean }>(`/ucp/quality/rules/${id}`).then((r) => r.data),
+  scan: (ruleId: number) =>
+    api.post<Record<string, any>>(`/ucp/quality/rules/${ruleId}/scan`).then((r) => r.data),
+  listIssues: (params?: { rule_id?: number; scan_run_code?: string; status?: string; limit?: number }) =>
+    api.get<{ total: number; items: any[] }>('/ucp/quality/issues', { params }).then((r) => r.data),
+}
+
+/* ── Phase 7-E/F: 冲突 + 治理 ── */
+
+export const conflictApi = {
+  list: (params?: { source_type?: string; status?: string; object_type?: string; limit?: number; offset?: number }) =>
+    api.get<{ total: number; items: any[] }>('/ucp/conflicts', { params }).then((r) => r.data),
+  resolve: (id: number, payload: { resolution_strategy: string; resolution_detail?: Record<string, any> }) =>
+    api.post<Record<string, any>>(`/ucp/conflicts/${id}/resolve`, payload).then((r) => r.data),
+  sync: () =>
+    api.post<{ counts: Record<string, number> }>('/ucp/conflicts/sync').then((r) => r.data),
+}
+
+export const governanceApi = {
+  listTasks: (params?: { status?: string; assigned_to?: string; priority?: string; limit?: number; offset?: number }) =>
+    api.get<{ total: number; items: any[] }>('/ucp/governance/tasks', { params }).then((r) => r.data),
+  createTask: (payload: { task_name: string; source_type: string; source_id?: number; object_type?: string; object_key?: string; system_code?: string; priority?: string; assigned_to?: string; due_date?: string; description?: string }) =>
+    api.post<Record<string, any>>('/ucp/governance/tasks', payload).then((r) => r.data),
+  updateTask: (id: number, payload: Record<string, any>) =>
+    api.patch<Record<string, any>>(`/ucp/governance/tasks/${id}`, payload).then((r) => r.data),
+  generateReport: (reportPeriod?: string) =>
+    api.post<Record<string, any>>('/ucp/governance/reports/generate', reportPeriod ? { report_period: reportPeriod } : {}).then((r) => r.data),
+}
+
+/* ── SSRF 安全规则 ── */
+
+export const securityApi = {
+  ssrfRules: () =>
+    api.get<{ blocked_networks: string[]; blocked_host_patterns: string[] }>('/ucp/security/ssrf-rules').then((r) => r.data),
 }
 
 /* Phase 5-4: 把 adapterRegistry 入口并入 ucpApi */

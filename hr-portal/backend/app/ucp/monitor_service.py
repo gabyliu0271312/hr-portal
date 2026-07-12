@@ -3,7 +3,7 @@
 Phase 5-3 增强: 全部查询支持 system_id / resource_id 过滤.
 
 复用现有表:
-- connector_pipeline_execution: pipeline 执行
+- ucp_pipeline_execution: pipeline 执行
 - ucp_event: 事件
 - ucp_event_delivery: 事件 delivery (含死信)
 - oa_sync_run: OA 同步批次
@@ -27,7 +27,7 @@ from sqlalchemy import select, func, desc, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ucp.models import (
-    ConnectorPipelineExecution,
+    UcpPipelineExecution,
     UcpEvent,
     UcpEventDelivery,
     OaSyncRun,
@@ -41,13 +41,13 @@ def _execution_filters(
     system_id: int | None,
     resource_id: int | None,
 ):
-    """构造 connector_pipeline_execution 的时间+资源过滤条件."""
+    """构造 ucp_pipeline_execution 的时间+资源过滤条件."""
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    conds = [ConnectorPipelineExecution.created_at >= since]
+    conds = [UcpPipelineExecution.created_at >= since]
     if resource_id is not None:
-        conds.append(ConnectorPipelineExecution.resource_id == resource_id)
+        conds.append(UcpPipelineExecution.resource_id == resource_id)
     elif system_id is not None:
-        conds.append(ConnectorPipelineExecution.system_id == system_id)
+        conds.append(UcpPipelineExecution.system_id == system_id)
     return conds
 
 
@@ -87,33 +87,33 @@ async def get_summary(
 
     # Pipeline 总数 / 成功 / 部分成功 / 失败
     total = (await db.execute(
-        select(func.count(ConnectorPipelineExecution.id)).where(base_filter)
+        select(func.count(UcpPipelineExecution.id)).where(base_filter)
     )).scalar_one()
     success = (await db.execute(
-        select(func.count(ConnectorPipelineExecution.id)).where(
-            base_filter, ConnectorPipelineExecution.status == "SUCCESS"
+        select(func.count(UcpPipelineExecution.id)).where(
+            base_filter, UcpPipelineExecution.status == "SUCCESS"
         )
     )).scalar_one()
     partial = (await db.execute(
-        select(func.count(ConnectorPipelineExecution.id)).where(
-            base_filter, ConnectorPipelineExecution.status == "PARTIAL_SUCCESS"
+        select(func.count(UcpPipelineExecution.id)).where(
+            base_filter, UcpPipelineExecution.status == "PARTIAL_SUCCESS"
         )
     )).scalar_one()
     failed = (await db.execute(
-        select(func.count(ConnectorPipelineExecution.id)).where(
-            base_filter, ConnectorPipelineExecution.status == "FAILED"
+        select(func.count(UcpPipelineExecution.id)).where(
+            base_filter, UcpPipelineExecution.status == "FAILED"
         )
     )).scalar_one()
     running = (await db.execute(
-        select(func.count(ConnectorPipelineExecution.id)).where(
-            base_filter, ConnectorPipelineExecution.status == "RUNNING"
+        select(func.count(UcpPipelineExecution.id)).where(
+            base_filter, UcpPipelineExecution.status == "RUNNING"
         )
     )).scalar_one()
 
     # 平均耗时 (ms)
     avg_duration = (await db.execute(
-        select(func.avg(ConnectorPipelineExecution.duration_ms)).where(
-            base_filter, ConnectorPipelineExecution.duration_ms.isnot(None)
+        select(func.avg(UcpPipelineExecution.duration_ms)).where(
+            base_filter, UcpPipelineExecution.duration_ms.isnot(None)
         )
     )).scalar_one()
     avg_duration_ms = int(avg_duration) if avg_duration is not None else 0
@@ -186,9 +186,9 @@ async def get_trend(
     conds = _execution_filters(hours, system_id, resource_id)
     rows = (await db.execute(
         select(
-            ConnectorPipelineExecution.created_at,
-            ConnectorPipelineExecution.status,
-            ConnectorPipelineExecution.duration_ms,
+            UcpPipelineExecution.created_at,
+            UcpPipelineExecution.status,
+            UcpPipelineExecution.duration_ms,
         ).where(and_(*conds))
     )).all()
 
@@ -237,9 +237,9 @@ async def get_status_distribution(
     """状态分布 (饼图)."""
     conds = _execution_filters(hours, system_id, resource_id)
     rows = (await db.execute(
-        select(ConnectorPipelineExecution.status, func.count(ConnectorPipelineExecution.id))
+        select(UcpPipelineExecution.status, func.count(UcpPipelineExecution.id))
         .where(and_(*conds))
-        .group_by(ConnectorPipelineExecution.status)
+        .group_by(UcpPipelineExecution.status)
     )).all()
     return {s: int(c) for s, c in rows}
 
@@ -257,9 +257,9 @@ async def get_recent_runs(
     """最近 N 次 pipeline 执行."""
     conds = _execution_filters(hours=24 * 30, system_id=system_id, resource_id=resource_id)
     rows = (await db.execute(
-        select(ConnectorPipelineExecution)
+        select(UcpPipelineExecution)
         .where(and_(*conds))
-        .order_by(desc(ConnectorPipelineExecution.created_at))
+        .order_by(desc(UcpPipelineExecution.created_at))
         .limit(limit)
     )).scalars().all()
     return [
@@ -320,12 +320,12 @@ async def get_alerts(
 
     # 2. 超时执行 (duration_ms > 300000 = 5 min)
     timeout_rows = (await db.execute(
-        select(ConnectorPipelineExecution)
+        select(UcpPipelineExecution)
         .where(
             base_exec,
-            ConnectorPipelineExecution.duration_ms > 300_000,
+            UcpPipelineExecution.duration_ms > 300_000,
         )
-        .order_by(desc(ConnectorPipelineExecution.created_at))
+        .order_by(desc(UcpPipelineExecution.created_at))
         .limit(20)
     )).scalars().all()
     for r in timeout_rows:
@@ -340,14 +340,14 @@ async def get_alerts(
     # 3. 高失败率
     stats = (await db.execute(
         select(
-            ConnectorPipelineExecution.pipeline_code,
-            ConnectorPipelineExecution.status,
-            func.count(ConnectorPipelineExecution.id),
+            UcpPipelineExecution.pipeline_code,
+            UcpPipelineExecution.status,
+            func.count(UcpPipelineExecution.id),
         )
         .where(base_exec)
         .group_by(
-            ConnectorPipelineExecution.pipeline_code,
-            ConnectorPipelineExecution.status,
+            UcpPipelineExecution.pipeline_code,
+            UcpPipelineExecution.status,
         )
     )).all()
 
@@ -391,14 +391,14 @@ async def get_pipeline_stats(
     conds = _execution_filters(hours, system_id, resource_id)
     rows = (await db.execute(
         select(
-            ConnectorPipelineExecution.pipeline_code,
-            ConnectorPipelineExecution.status,
-            func.count(ConnectorPipelineExecution.id),
+            UcpPipelineExecution.pipeline_code,
+            UcpPipelineExecution.status,
+            func.count(UcpPipelineExecution.id),
         )
         .where(and_(*conds))
         .group_by(
-            ConnectorPipelineExecution.pipeline_code,
-            ConnectorPipelineExecution.status,
+            UcpPipelineExecution.pipeline_code,
+            UcpPipelineExecution.status,
         )
     )).all()
 

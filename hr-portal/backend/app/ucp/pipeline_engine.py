@@ -3,7 +3,7 @@
 核心职责：
   1. 接收 Pipeline 配置，按步骤顺序执行
   2. 维护执行上下文（Context），支持步骤间数据传递
-  3. 支持 CONNECTOR / CONNECTOR_LOOP / TRANSFORM / NOTIFY 四类步骤
+  3. 支持 RESOURCE / LOOP_RESOURCE / TRANSFORM / NOTIFY 四类步骤
   4. 记录 Pipeline 和 Step 执行实例、执行日志
   5. 错误处理策略：STOP_ON_ERROR / CONTINUE_ON_ERROR
   6. PARTIAL_SUCCESS 状态判定
@@ -36,12 +36,12 @@ from app.ucp.circuit_breaker import (
 )
 from app.ucp.credential_service import decrypt_credential_secrets
 from app.ucp.models import (
-    ConnectorExecutionLog,
-    ConnectorLoopItemExecution,
-    ConnectorPipelineConfig,
-    ConnectorPipelineExecution,
-    ConnectorPipelineStepExecution,
-    ConnectorSystemConfig,
+    UcpExecutionLog,
+    UcpLoopItemExecution,
+    UcpPipelineConfig,
+    UcpPipelineExecution,
+    UcpPipelineStepExecution,
+    UcpSystemConfig,
 )
 from app.ucp.rate_limiter import (
     RateLimitError,
@@ -49,6 +49,47 @@ from app.ucp.rate_limiter import (
 )
 
 logger = logging.getLogger("ucp.pipeline_engine")
+
+
+async def _save_resource_snapshot(
+    db: AsyncSession,
+    resource_id: int,
+    pipeline_run_id: str,
+    step_run_id: str,
+    step_result: dict,
+) -> None:
+    """保存资源执行数据快照到 UcpResourceSnapshot（Phase 7）。
+
+    仅保存脱敏后的治理用数据（白名单字段），敏感字段已脱敏。
+    """
+    from app.ucp.models import UcpResourceSnapshot
+    from app.ucp.masking import mask_sensitive_fields
+
+    raw_data = step_result.get("data", [])
+    if not isinstance(raw_data, list) or len(raw_data) == 0:
+        return
+
+    # 提取字段结构
+    schema = {}
+    first = raw_data[0]
+    if isinstance(first, dict):
+        for k, v in first.items():
+            schema[k] = type(v).__name__
+
+    # 脱敏治理用数据（保留全量，脱敏敏感字段）
+    snap = UcpResourceSnapshot(
+        resource_id=resource_id,
+        pipeline_run_id=pipeline_run_id,
+        step_run_id=step_run_id,
+        snapshot_code=f"SNAP-{resource_id}-{pipeline_run_id[:8]}",
+        row_count=step_result.get("row_count", len(raw_data)),
+        success_count=step_result.get("success_count", len(raw_data)),
+        failed_count=step_result.get("failed_count", 0),
+        schema_json=schema,
+        data_json=mask_sensitive_fields(raw_data, max_rows=10000),
+        storage_type="DB",
+    )
+    db.add(snap)
 
 
 # ===== PARTIAL_SUCCESS 严重度评估（Phase 2-3）=====
@@ -269,7 +310,8 @@ def _build_step_input_snapshot(step_config: dict, override_params: dict | None =
     snapshot: dict[str, Any] = {
         "step_id": step_config.get("step_id"),
         "type": step_config.get("type", "CONNECTOR"),
-        "connector_code": step_config.get("connector_code"),
+        "resource_code": step_config.get("resource_code"),
+        "resource_id": step_config.get("resource_id"),
     }
     # CONNECTOR_LOOP 相关
     if step_config.get("loop_input"):
@@ -326,7 +368,7 @@ async def execute_pipeline(
     dry_run: bool = False,
     time_range: dict | None = None,
     override_params: dict | None = None,
-    ) -> ConnectorPipelineExecution:
+    ) -> UcpPipelineExecution:
     """执行一次完整流水线。
 
     1. 加载 Pipeline 配置
@@ -347,7 +389,7 @@ async def execute_pipeline(
     error_handling = pl_config.error_handling or "STOP_ON_ERROR"
 
     # 2. 创建执行实例
-    exec_instance = ConnectorPipelineExecution(
+    exec_instance = UcpPipelineExecution(
         pipeline_run_id=pipeline_run_id,
         pipeline_code=pipeline_code,
         trace_id=trace_id,
@@ -392,12 +434,13 @@ async def execute_pipeline(
         step_run_id = _gen_step_run_id(step_id)
 
         # 创建步骤执行实例
-        step_exec = ConnectorPipelineStepExecution(
+        step_exec = UcpPipelineStepExecution(
             step_run_id=step_run_id,
             pipeline_run_id=pipeline_run_id,
             step_id=step_id,
             step_type=step_type,
-            connector_code=step_config.get("connector_code"),
+            resource_id=step_config.get("resource_id"),
+            resource_code=step_config.get("resource_code"),
             status="RUNNING",
             started_at=datetime.now(UTC),
             # Phase 2-6：记录脱敏后的步骤输入定义（数据血缘）
@@ -477,6 +520,16 @@ async def execute_pipeline(
                 step_exec.total_items = step_result.get("row_count", 0)
                 step_exec.success_items = step_result.get("success_count", 0)
                 step_exec.failed_items = step_result.get("failed_count", 0)
+
+                # Phase 7: 写入资源数据快照供 Diff / Quality 使用
+                _res_id = step_config.get("resource_id")
+                if _res_id and isinstance(step_result.get("data"), list) and len(step_result["data"]) > 0:
+                    await _save_resource_snapshot(
+                        db, resource_id=_res_id,
+                        pipeline_run_id=pipeline_run_id,
+                        step_run_id=step_run_id,
+                        step_result=step_result,
+                    )
         await db.flush()
 
     # 5. 判断最终状态
@@ -504,7 +557,7 @@ async def execute_pipeline(
     exec_instance.context_summary = summary
     await db.flush()
 
-    # 6. 写连接器执行日志（整条 pipeline 的执行日志）
+    # 6. 写资源执行日志（整条 pipeline 的执行日志）
     await _write_execution_log(db, trace_id, pipeline_code, pipeline_run_id, overall_status, ctx, trigger_type)
 
     # 7. 发送通知
@@ -520,13 +573,13 @@ async def execute_pipeline(
 async def _load_pipeline_config(
     db: AsyncSession,
     pipeline_code: str,
-) -> ConnectorPipelineConfig:
+) -> UcpPipelineConfig:
     """加载已启用的流水线配置。"""
     pl = (
         await db.execute(
-            select(ConnectorPipelineConfig).where(
-                ConnectorPipelineConfig.pipeline_code == pipeline_code,
-                ConnectorPipelineConfig.status == 1,
+            select(UcpPipelineConfig).where(
+                UcpPipelineConfig.pipeline_code == pipeline_code,
+                UcpPipelineConfig.status == 1,
             )
         )
     ).scalar_one_or_none()
@@ -547,7 +600,7 @@ async def _execute_step(
     step_type = step_config.get("type", "CONNECTOR")
 
     if step_type == "CONNECTOR":
-        return await _execute_connector_step(step_config, ctx, db, trace_id)
+        return await _execute_resource_step(step_config, ctx, db, trace_id)
     elif step_type == "CONNECTOR_LOOP":
         return await _execute_loop_step(step_config, ctx, db, trace_id, pipeline_run_id, step_run_id)
     elif step_type == "TRANSFORM":
@@ -564,54 +617,54 @@ async def _execute_step(
         raise RuntimeError(f"Unsupported step type: {step_type}")
 
 
-async def _execute_connector_step(
+async def _execute_resource_step(
     step_config: dict,
     ctx: PipelineContext,
     db: AsyncSession,
     trace_id: str,
 ) -> dict:
-    """执行 CONNECTOR 步骤：调用单个连接器。
+    """执行 RESOURCE 步骤：调用单个资源。
 
     Phase 2-9：增加熔断 + QPS 限流拦截
-      - 调用前 cb_check(connector_code, conn_config.circuit_breaker_config)
+      - 调用前 cb_check(resource_code, conn_config.circuit_breaker_config)
         → 命中熔断抛 CircuitBreakerError
-      - 调用前 rl_acquire(f"connector:{connector_code}", conn_config.rate_limit_config)
+      - 调用前 rl_acquire(f"resource:{resource_code}", conn_config.rate_limit_config)
         → 命中限流抛 RateLimitError
       - 调用成功后 cb_record_success
       - 调用失败后 cb_record_failure
     """
-    connector_code = step_config.get("connector_code", "")
+    resource_code = step_config.get("resource_code", "")
 
-    # 加载连接器配置
+    # 加载资源配置
     conn_config = (
         await db.execute(
-            select(ConnectorSystemConfig).where(
-                ConnectorSystemConfig.system_code == connector_code,
+            select(UcpSystemConfig).where(
+                UcpSystemConfig.system_code == resource_code,
             )
         )
     ).scalar_one_or_none()
     if conn_config is None:
-        raise RuntimeError(f"Connector '{connector_code}' not found")
+        raise RuntimeError(f"Resource '{resource_code}' not found")
 
     cb_cfg = conn_config.circuit_breaker_config or {}
     rl_cfg = getattr(conn_config, "rate_limit_config", None) or {}
 
     # Phase 2-9：熔断检查（命中熔断直接抛错，不进入 adapter 调用）
     try:
-        cb_check(connector_code, cb_cfg)
+        cb_check(resource_code, cb_cfg)
     except CircuitBreakerError as e:
         # 写一条 connection log 记录熔断拦截
         await _write_circuit_blocked_log(
-            db, trace_id, connector_code, "CIRCUIT_OPEN", str(e),
+            db, trace_id, resource_code, "CIRCUIT_OPEN", str(e),
         )
         raise
 
     # Phase 2-9：限流检查
     try:
-        rl_acquire(f"connector:{connector_code}", rl_cfg)
+        rl_acquire(f"resource:{resource_code}", rl_cfg)
     except RateLimitError as e:
         await _write_circuit_blocked_log(
-            db, trace_id, connector_code, "RATE_LIMIT_EXCEEDED", str(e),
+            db, trace_id, resource_code, "RATE_LIMIT_EXCEEDED", str(e),
         )
         raise
 
@@ -633,7 +686,7 @@ async def _execute_connector_step(
     except Exception as e:
         # 记录熔断失败
         cb_record_failure(
-            connector_code, cb_cfg,
+            resource_code, cb_cfg,
             error_code="ADAPTER_EXCEPTION",
             error_message=str(e)[:500],
         )
@@ -641,17 +694,17 @@ async def _execute_connector_step(
 
     # 根据结果更新熔断
     if result.status == "success":
-        cb_record_success(connector_code, cb_cfg)
+        cb_record_success(resource_code, cb_cfg)
     else:
         cb_record_failure(
-            connector_code, cb_cfg,
+            resource_code, cb_cfg,
             error_code=result.error_code or "ADAPTER_FAILED",
             error_message=result.error_message or "适配器返回失败",
         )
 
-    # 写连接器执行日志
-    await _write_connector_execution_log(
-        db, trace_id, connector_code, result, "pipeline_step"
+    # 写资源执行日志
+    await _write_ucp_execution_log(
+        db, trace_id, resource_code, result, "pipeline_step"
     )
 
     return {
@@ -672,7 +725,7 @@ async def _execute_loop_step(
     pipeline_run_id: str,
     step_run_id: str,
 ) -> dict:
-    """执行 CONNECTOR_LOOP 步骤：对列表循环调用连接器。
+    """执行 LOOP_RESOURCE 步骤：对列表循环调用资源。
 
     支持：
       - 并发度控制（Phase 1A 先串行执行）
@@ -680,7 +733,7 @@ async def _execute_loop_step(
       - 部分成功状态
       - 限流保护（Phase 1A 先不加）
     """
-    connector_code = step_config.get("connector_code", "")
+    resource_code = step_config.get("resource_code", "")
     loop_input_key = step_config.get("loop_input", "")
     item_key_field = step_config.get("item_key_field", "application_id")
 
@@ -692,16 +745,16 @@ async def _execute_loop_step(
     if loop_items is None:
         raise RuntimeError(f"LOOP input '{loop_input_key}' not found in context")
 
-    # 加载连接器配置
+    # 加载资源配置
     conn_config = (
         await db.execute(
-            select(ConnectorSystemConfig).where(
-                ConnectorSystemConfig.system_code == connector_code,
+            select(UcpSystemConfig).where(
+                UcpSystemConfig.system_code == resource_code,
             )
         )
     ).scalar_one_or_none()
     if conn_config is None:
-        raise RuntimeError(f"Connector '{connector_code}' not found")
+        raise RuntimeError(f"Resource '{resource_code}' not found")
 
     # 解密凭证
     secrets: dict[str, str] = {}
@@ -743,14 +796,14 @@ async def _execute_loop_step(
                 # 记录 OFFER_NOT_FOUND
                 await _record_loop_item(
                     db, trace_id, pipeline_run_id, step_run_id,
-                    connector_code, item_key, "OFFER_NOT_FOUND",
+                    resource_code, item_key, "OFFER_NOT_FOUND",
                 )
             else:
                 failed_count += 1
                 # 记录失败项
                 await _record_loop_item(
                     db, trace_id, pipeline_run_id, step_run_id,
-                    connector_code, item_key, "FAILED",
+                    resource_code, item_key, "FAILED",
                     error_code=result.error_code,
                     error_message=result.error_message,
                     request_params_masked=mask_item_params(params),
@@ -759,7 +812,7 @@ async def _execute_loop_step(
             failed_count += 1
             await _record_loop_item(
                 db, trace_id, pipeline_run_id, step_run_id,
-                connector_code, item_key, "FAILED",
+                resource_code, item_key, "FAILED",
                 error_message=str(e)[:500],
                 request_params_masked=mask_item_params(params),
             )
@@ -793,9 +846,9 @@ async def _execute_loop_step(
         "failed_keys": [k for k in item_keys if any(
             r.item_key == k for r in (
                 await db.execute(
-                    select(ConnectorLoopItemExecution).where(
-                        ConnectorLoopItemExecution.step_run_id == step_run_id,
-                        ConnectorLoopItemExecution.status.in_(["FAILED", "OFFER_NOT_FOUND"]),
+                    select(UcpLoopItemExecution).where(
+                        UcpLoopItemExecution.step_run_id == step_run_id,
+                        UcpLoopItemExecution.status.in_(["FAILED", "OFFER_NOT_FOUND"]),
                     )
                 )
             ).scalars().all()
@@ -867,7 +920,7 @@ async def _transform_join_and_upsert(
     """join_and_upsert: 合并两个列表并写入目标表。
 
     Phase 1B 配置化映射：
-      - 从连接器配置的 mapping_config 中读取映射规则
+      - 从资源配置的 mapping_config 中读取映射规则
       - mapping_config.rules: [{source: "src_field", target: "tgt_field"}]
       - 合并前先应用映射规则：source 字段值 → target 字段名
     幂等主键：由 transform_config.join_key 指定。
@@ -879,18 +932,18 @@ async def _transform_join_and_upsert(
     join_key = transform_config.get("join_key", "application_id")
     target_table = transform_config.get("target_table", "")
 
-    # Phase 1B：从连接器配置中加载映射规则
+    # Phase 1B：从资源配置中加载映射规则
     mapping_rules: list[dict] = transform_config.get("mapping_rules", [])
-    # 如果没有在 transform_config 中指定，从连接器配置中查找
+    # 如果没有在 transform_config 中指定，从资源配置中查找
     if not mapping_rules:
         for key in input_keys:
             key_clean = key.lstrip("${").rstrip("}")
-            connector_code = step_config.get("connector_code", "")
-            if connector_code:
+            resource_code = step_config.get("resource_code", "")
+            if resource_code:
                 conn_config = (
                     await db.execute(
-                        select(ConnectorSystemConfig).where(
-                            ConnectorSystemConfig.system_code == connector_code,
+                        select(UcpSystemConfig).where(
+                            UcpSystemConfig.system_code == resource_code,
                         )
                     )
                 ).scalar_one_or_none()
@@ -1046,19 +1099,19 @@ async def _record_loop_item(
     trace_id: str,
     pipeline_run_id: str,
     step_run_id: str,
-    connector_code: str,
+    resource_code: str,
     item_key: str,
     status: str,
     error_code: str | None = None,
     error_message: str | None = None,
     request_params_masked: dict | None = None,
-) -> ConnectorLoopItemExecution:
-    """记录 CONNECTOR_LOOP 中 item 级执行结果。"""
-    item = ConnectorLoopItemExecution(
+) -> UcpLoopItemExecution:
+    """记录 LOOP_RESOURCE 中 item 级执行结果。"""
+    item = UcpLoopItemExecution(
         trace_id=trace_id,
         pipeline_run_id=pipeline_run_id,
         step_run_id=step_run_id,
-        connector_code=connector_code,
+        resource_code=resource_code,
         item_key=item_key,
         status=status,
         request_params_masked=request_params_masked,
@@ -1253,12 +1306,12 @@ async def check_pipeline_concurrent_lock(
       - 调度器（trigger_type=SCHEDULED）与手动触发（MANUAL/API）都占用锁
     """
     stmt = (
-        select(ConnectorPipelineExecution)
+        select(UcpPipelineExecution)
         .where(
-            ConnectorPipelineExecution.pipeline_code == pipeline_code,
-            ConnectorPipelineExecution.status.in_(["RUNNING", "PENDING"]),
+            UcpPipelineExecution.pipeline_code == pipeline_code,
+            UcpPipelineExecution.status.in_(["RUNNING", "PENDING"]),
         )
-        .order_by(ConnectorPipelineExecution.started_at.desc())
+        .order_by(UcpPipelineExecution.started_at.desc())
         .limit(1)
     )
     running = (await db.execute(stmt)).scalar_one_or_none()
@@ -1278,7 +1331,7 @@ async def check_pipeline_trigger_permission(
 
     权限规则（任一满足即可）：
       1. 用户是系统管理员（user.is_admin == True）
-      2. 用户拥有 datasource.ucp_executions 的 C 权限（创建执行）— 通过 require_op 入口已校验
+      2. 用户拥有 ucp.executions 的 C 权限（创建执行）— 通过 require_op 入口已校验
       3. 用户是 Pipeline 的 owner（pl_config.created_by == str(user.id)）
 
     抛出：
@@ -1290,8 +1343,8 @@ async def check_pipeline_trigger_permission(
         return
 
     # 规则 3：Pipeline owner
-    stmt = select(ConnectorPipelineConfig).where(
-        ConnectorPipelineConfig.pipeline_code == pipeline_code
+    stmt = select(UcpPipelineConfig).where(
+        UcpPipelineConfig.pipeline_code == pipeline_code
     )
     pl_config = (await db.execute(stmt)).scalar_one_or_none()
     if pl_config is not None and pl_config.created_by is not None:
@@ -1324,14 +1377,14 @@ async def retry_single_item(
 ) -> dict:
     """重试单个 LOOP_RESOURCE 失败项（Phase 2-3）。
 
-    找到指定的 ConnectorLoopItemExecution，重新调用对应 adapter，
+    找到指定的 UcpLoopItemExecution，重新调用对应 adapter，
     成功则写入新 SUCCESS 记录，失败则 retry_count+1。
     """
     item = (
         await db.execute(
-            select(ConnectorLoopItemExecution).where(
-                ConnectorLoopItemExecution.id == item_id,
-                ConnectorLoopItemExecution.pipeline_run_id == pipeline_run_id,
+            select(UcpLoopItemExecution).where(
+                UcpLoopItemExecution.id == item_id,
+                UcpLoopItemExecution.pipeline_run_id == pipeline_run_id,
             )
         )
     ).scalar_one_or_none()
@@ -1343,8 +1396,8 @@ async def retry_single_item(
     # 加载对应的 step_exec 获取 step_config
     step_exec = (
         await db.execute(
-            select(ConnectorPipelineStepExecution).where(
-                ConnectorPipelineStepExecution.step_run_id == item.step_run_id,
+            select(UcpPipelineStepExecution).where(
+                UcpPipelineStepExecution.step_run_id == item.step_run_id,
             )
         )
     ).scalar_one_or_none()
@@ -1354,8 +1407,8 @@ async def retry_single_item(
     # 加载 pipeline_exec
     pipeline_exec = (
         await db.execute(
-            select(ConnectorPipelineExecution).where(
-                ConnectorPipelineExecution.pipeline_run_id == pipeline_run_id,
+            select(UcpPipelineExecution).where(
+                UcpPipelineExecution.pipeline_run_id == pipeline_run_id,
             )
         )
     ).scalar_one_or_none()
@@ -1363,17 +1416,17 @@ async def retry_single_item(
     # 重新调用 adapter
     step_config = step_exec.input_snapshot or {}
     params = (item.request_params_masked or {}).copy()
-    connector_code = item.connector_code or step_exec.connector_code or ""
+    resource_code = item.resource_code or step_exec.resource_code or ""
 
     try:
         from app.ucp.adapters import ADAPTER_REGISTRY, AdapterContext
-        ctx = AdapterContext(trace_id=pipeline_exec.trace_id if pipeline_exec else "", connector_code=connector_code)
-        result = await ADAPTER_REGISTRY.execute(adapter_code=connector_code, params=params, context=ctx)
-        new_item = ConnectorLoopItemExecution(
+        ctx = AdapterContext(trace_id=pipeline_exec.trace_id if pipeline_exec else "", resource_code=resource_code)
+        result = await ADAPTER_REGISTRY.execute(adapter_code=resource_code, params=params, context=ctx)
+        new_item = UcpLoopItemExecution(
             pipeline_run_id=pipeline_run_id,
             step_run_id=item.step_run_id,
             item_key=item.item_key,
-            connector_code=connector_code,
+            resource_code=resource_code,
             status="SUCCESS",
             request_params_masked=params,
             response_summary_masked={"result": str(result)[:500]} if result else None,
@@ -1399,7 +1452,7 @@ async def retry_step(
     pipeline_run_id: str,
     step_run_id: str,
     triggered_by: str | None = None,
-) -> ConnectorPipelineStepExecution:
+) -> UcpPipelineStepExecution:
     """对单个失败步骤重新执行（Phase 2-2）。
 
     行为：
@@ -1410,7 +1463,7 @@ async def retry_step(
       5. 复用 _execute_step 重新执行
       6. 更新 step_exec：retry_count+1, status, output_snapshot, 错误信息
       7. 重新统计 pipeline_exec 成功/失败步骤数
-      8. 写一条 connector_execution_log
+      8. 写一条 ucp_execution_log
 
     不重试整条 pipeline，只重试单个步骤。
 
@@ -1420,8 +1473,8 @@ async def retry_step(
     # 1. 加载执行实例
     pipeline_exec = (
         await db.execute(
-            select(ConnectorPipelineExecution).where(
-                ConnectorPipelineExecution.pipeline_run_id == pipeline_run_id
+            select(UcpPipelineExecution).where(
+                UcpPipelineExecution.pipeline_run_id == pipeline_run_id
             )
         )
     ).scalar_one_or_none()
@@ -1437,9 +1490,9 @@ async def retry_step(
     # 2. 加载步骤执行实例
     step_exec = (
         await db.execute(
-            select(ConnectorPipelineStepExecution).where(
-                ConnectorPipelineStepExecution.step_run_id == step_run_id,
-                ConnectorPipelineStepExecution.pipeline_run_id == pipeline_run_id,
+            select(UcpPipelineStepExecution).where(
+                UcpPipelineStepExecution.step_run_id == step_run_id,
+                UcpPipelineStepExecution.pipeline_run_id == pipeline_run_id,
             )
         )
     ).scalar_one_or_none()
@@ -1455,8 +1508,8 @@ async def retry_step(
     # 3. 加载 Pipeline 配置，找回原始 step_config
     pl_config = (
         await db.execute(
-            select(ConnectorPipelineConfig).where(
-                ConnectorPipelineConfig.pipeline_code == pipeline_exec.pipeline_code,
+            select(UcpPipelineConfig).where(
+                UcpPipelineConfig.pipeline_code == pipeline_exec.pipeline_code,
             )
         )
     ).scalar_one_or_none()
@@ -1519,6 +1572,16 @@ async def retry_step(
         else:
             result_summary = {"note": "no data field"}
 
+        # Phase 7: retry 后也写入快照（使用原始 result，含 data 字段）
+        _retry_res_id = step_config.get("resource_id")
+        if _retry_res_id and isinstance(result.get("data"), list) and len(result["data"]) > 0:
+            await _save_resource_snapshot(
+                db, resource_id=_retry_res_id,
+                pipeline_run_id=pipeline_run_id,
+                step_run_id=new_step_run_id,
+                step_result=result,
+            )
+
     except Exception as e:
         step_status = "FAILED"
         step_error = str(e)[:1000]
@@ -1540,8 +1603,8 @@ async def retry_step(
     # 6. 重新统计 pipeline_exec 的成功/失败步骤
     all_steps = (
         await db.execute(
-            select(ConnectorPipelineStepExecution).where(
-                ConnectorPipelineStepExecution.pipeline_run_id == pipeline_run_id,
+            select(UcpPipelineStepExecution).where(
+                UcpPipelineStepExecution.pipeline_run_id == pipeline_run_id,
             )
         )
     ).scalars().all()
@@ -1565,16 +1628,16 @@ async def retry_step(
         else:
             pipeline_exec.status = "PARTIAL_SUCCESS"
 
-    # 8. 写一条 connector_execution_log（标识为 retry）
-    log_entry = ConnectorExecutionLog(
+    # 8. 写一条 ucp_execution_log（标识为 retry）
+    log_entry = UcpExecutionLog(
         trace_id=pipeline_exec.trace_id,
-        connector_code=step_exec.connector_code,
+        resource_code=step_exec.resource_code,
         pipeline_code=pipeline_exec.pipeline_code,
         pipeline_run_id=pipeline_run_id,
         trigger_type="RETRY_STEP",
         status=step_status,
         executor="ucp_retry_step",
-        data_source=step_exec.connector_code or step_exec.step_id,
+        data_source=step_exec.resource_code or step_exec.step_id,
         error_message=step_error,
         duration_ms=step_exec.duration_ms,
     )
@@ -1594,12 +1657,12 @@ async def retry_failed_items(
     pipeline_run_id: str,
     triggered_by: str | None = None,
 ) -> dict:
-    """对 CONNECTOR_LOOP 步骤的失败项重跑（Phase 2-2）。
+    """对 LOOP_RESOURCE 步骤的失败项重跑（Phase 2-2）。
 
     行为：
-      1. 找到所有 is_retryable=1 且 status=FAILED 的 ConnectorLoopItemExecution
+      1. 找到所有 is_retryable=1 且 status=FAILED 的 UcpLoopItemExecution
       2. 按 step_run_id 分组
-      3. 对每个 step 加载连接器配置 + 凭证
+      3. 对每个 step 加载资源配置 + 凭证
       4. 对每个失败 item 重新调用 adapter
       5. 成功：写入新 item 记录（status=SUCCESS），并将旧 item 标记 is_retryable=0（避免再次重跑）
       6. 失败：更新 retry_count+1, last_failed_at
@@ -1618,8 +1681,8 @@ async def retry_failed_items(
     # 1. 加载 pipeline_exec
     pipeline_exec = (
         await db.execute(
-            select(ConnectorPipelineExecution).where(
-                ConnectorPipelineExecution.pipeline_run_id == pipeline_run_id
+            select(UcpPipelineExecution).where(
+                UcpPipelineExecution.pipeline_run_id == pipeline_run_id
             )
         )
     ).scalar_one_or_none()
@@ -1629,10 +1692,10 @@ async def retry_failed_items(
     # 2. 找到所有可重跑的失败项
     failed_items = (
         await db.execute(
-            select(ConnectorLoopItemExecution).where(
-                ConnectorLoopItemExecution.pipeline_run_id == pipeline_run_id,
-                ConnectorLoopItemExecution.status == "FAILED",
-                ConnectorLoopItemExecution.is_retryable == 1,
+            select(UcpLoopItemExecution).where(
+                UcpLoopItemExecution.pipeline_run_id == pipeline_run_id,
+                UcpLoopItemExecution.status == "FAILED",
+                UcpLoopItemExecution.is_retryable == 1,
             )
         )
     ).scalars().all()
@@ -1649,29 +1712,29 @@ async def retry_failed_items(
 
     # 3. 按 step_run_id 分组
     from collections import defaultdict
-    items_by_step: dict[str, list[ConnectorLoopItemExecution]] = defaultdict(list)
+    items_by_step: dict[str, list[UcpLoopItemExecution]] = defaultdict(list)
     for item in failed_items:
         items_by_step[item.step_run_id].append(item)
 
-    # 4. 缓存连接器配置（避免重复查询）
-    connector_cache: dict[str, tuple[ConnectorSystemConfig, dict[str, str]]] = {}
+    # 4. 缓存资源配置（避免重复查询）
+    system_config_cache: dict[str, tuple[UcpSystemConfig, dict[str, str]]] = {}
 
-    async def _get_conn(connector_code: str) -> tuple[ConnectorSystemConfig, dict[str, str]]:
-        if connector_code in connector_cache:
-            return connector_cache[connector_code]
+    async def _get_conn(resource_code: str) -> tuple[UcpSystemConfig, dict[str, str]]:
+        if resource_code in system_config_cache:
+            return system_config_cache[resource_code]
         conn_config = (
             await db.execute(
-                select(ConnectorSystemConfig).where(
-                    ConnectorSystemConfig.system_code == connector_code
+                select(UcpSystemConfig).where(
+                    UcpSystemConfig.system_code == resource_code
                 )
             )
         ).scalar_one_or_none()
         if conn_config is None:
-            raise RetryError("CONNECTOR_NOT_FOUND", f"连接器 {connector_code} 不存在")
+            raise RetryError("CONNECTOR_NOT_FOUND", f"资源 {resource_code} 不存在")
         secrets: dict[str, str] = {}
         if conn_config.credential_id:
             secrets = await decrypt_credential_secrets(db, conn_config.credential_id)
-        connector_cache[connector_code] = (conn_config, secrets)
+        system_config_cache[resource_code] = (conn_config, secrets)
         return conn_config, secrets
 
     success_count = 0
@@ -1682,8 +1745,8 @@ async def retry_failed_items(
         # 找到对应 step_exec
         step_exec = (
             await db.execute(
-                select(ConnectorPipelineStepExecution).where(
-                    ConnectorPipelineStepExecution.step_run_id == step_run_id
+                select(UcpPipelineStepExecution).where(
+                    UcpPipelineStepExecution.step_run_id == step_run_id
                 )
             )
         ).scalar_one_or_none()
@@ -1691,12 +1754,12 @@ async def retry_failed_items(
             logger.warning("[ucp] retry_failed_items: step_exec %s not found", step_run_id)
             continue
 
-        if not step_exec.connector_code:
-            logger.warning("[ucp] retry_failed_items: step %s has no connector_code", step_run_id)
+        if not step_exec.resource_code:
+            logger.warning("[ucp] retry_failed_items: step %s has no resource_code", step_run_id)
             continue
 
         try:
-            conn_config, secrets = await _get_conn(step_exec.connector_code)
+            conn_config, secrets = await _get_conn(step_exec.resource_code)
         except RetryError as e:
             logger.warning("[ucp] retry_failed_items: %s", e.message)
             continue
@@ -1707,8 +1770,8 @@ async def retry_failed_items(
         # 加载原始 step_config（用于取 item_key_field）
         pl_config = (
             await db.execute(
-                select(ConnectorPipelineConfig).where(
-                    ConnectorPipelineConfig.pipeline_code == pipeline_exec.pipeline_code,
+                select(UcpPipelineConfig).where(
+                    UcpPipelineConfig.pipeline_code == pipeline_exec.pipeline_code,
                 )
             )
         ).scalar_one_or_none()
@@ -1730,11 +1793,11 @@ async def retry_failed_items(
                 result: AdapterResult = await adapter(params, secrets, db)
                 if result.status == "success":
                     # 成功：写入新 item 记录，旧 item 标记 is_retryable=0
-                    new_item = ConnectorLoopItemExecution(
+                    new_item = UcpLoopItemExecution(
                         trace_id=pipeline_exec.trace_id,
                         pipeline_run_id=pipeline_run_id,
                         step_run_id=step_run_id,
-                        connector_code=item.connector_code,
+                        resource_code=item.resource_code,
                         item_key=item.item_key,
                         status="SUCCESS",
                         request_params_masked=mask_item_params(params),
@@ -1797,8 +1860,8 @@ async def retry_failed_items(
     # 5. 重新评估 pipeline_exec 状态
     all_steps = (
         await db.execute(
-            select(ConnectorPipelineStepExecution).where(
-                ConnectorPipelineStepExecution.pipeline_run_id == pipeline_run_id,
+            select(UcpPipelineStepExecution).where(
+                UcpPipelineStepExecution.pipeline_run_id == pipeline_run_id,
             )
         )
     ).scalars().all()
@@ -1820,7 +1883,7 @@ async def retry_failed_items(
             pipeline_exec.status = "PARTIAL_SUCCESS"
 
     # 6. 写一条 retry 执行日志
-    log_entry = ConnectorExecutionLog(
+    log_entry = UcpExecutionLog(
         trace_id=pipeline_exec.trace_id,
         pipeline_code=pipeline_exec.pipeline_code,
         pipeline_run_id=pipeline_run_id,
@@ -1861,9 +1924,9 @@ async def _write_execution_log(
     status: str,
     ctx: PipelineContext,
     trigger_type: str,
-) -> ConnectorExecutionLog:
-    """写连接器执行日志（pipeline 整体级别）。"""
-    log = ConnectorExecutionLog(
+) -> UcpExecutionLog:
+    """写资源执行日志（pipeline 整体级别）。"""
+    log = UcpExecutionLog(
         trace_id=trace_id,
         pipeline_code=pipeline_code,
         pipeline_run_id=pipeline_run_id,
@@ -1885,19 +1948,19 @@ async def _write_execution_log(
     return log
 
 
-async def _write_connector_execution_log(
+async def _write_ucp_execution_log(
     db: AsyncSession,
     trace_id: str,
-    connector_code: str,
+    resource_code: str,
     result: AdapterResult,
     trigger_type: str,
-) -> ConnectorExecutionLog:
-    """写单个连接器执行日志。"""
+) -> UcpExecutionLog:
+    """写单个资源执行日志。"""
     from app.ucp.masking import mask_dict
 
-    log = ConnectorExecutionLog(
+    log = UcpExecutionLog(
         trace_id=trace_id,
-        connector_code=connector_code,
+        resource_code=resource_code,
         trigger_type=trigger_type,
         status=result.status,
         record_count=result.row_count,
@@ -1905,7 +1968,7 @@ async def _write_connector_execution_log(
         failed_count=result.failed_count,
         error_message=result.error_message,
         executor="ucp_adapter",
-        data_source=connector_code,
+        data_source=resource_code,
         request_body_masked=mask_dict(result.extra) if result.extra else None,
     )
     db.add(log)
@@ -1916,14 +1979,14 @@ async def _write_connector_execution_log(
 async def _write_circuit_blocked_log(
     db: AsyncSession,
     trace_id: str,
-    connector_code: str,
+    resource_code: str,
     error_code: str,
     error_message: str,
 ) -> None:
     """Phase 2-9：写一条熔断/限流拦截日志（便于审计和排查）。"""
-    log = ConnectorExecutionLog(
+    log = UcpExecutionLog(
         trace_id=trace_id,
-        connector_code=connector_code,
+        resource_code=resource_code,
         trigger_type="circuit_blocked",
         status="blocked",
         record_count=0,
@@ -1931,7 +1994,7 @@ async def _write_circuit_blocked_log(
         failed_count=0,
         error_message=f"[{error_code}] {(error_message or '')[:480]}",
         executor="ucp_circuit_breaker",
-        data_source=connector_code,
+        data_source=resource_code,
     )
     db.add(log)
     await db.flush()
@@ -1946,7 +2009,7 @@ async def _send_pipeline_notification(
     trace_id: str,
     overall_status: str,
     ctx: PipelineContext,
-    pl_config: ConnectorPipelineConfig,
+    pl_config: UcpPipelineConfig,
 ) -> None:
     """发送流水线级执行结果通知。
 

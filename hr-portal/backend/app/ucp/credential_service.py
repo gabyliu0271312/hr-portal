@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.secret_box import decrypt, encrypt
-from app.ucp.models import ConnectorCredential
+from app.ucp.models import UcpCredential
 
 logger = logging.getLogger("ucp.credential_service")
 
@@ -24,7 +24,7 @@ async def create_credential(
     auth_type: str = "custom",
     description: str | None = None,
     created_by: str | None = None,
-) -> ConnectorCredential:
+) -> UcpCredential:
     """创建或更新凭证记录（幂等）。若 code 已存在则更新 secrets，否则新建。"""
     existing = await get_credential_by_code(db, credential_code)
     if existing:
@@ -38,7 +38,7 @@ async def create_credential(
         return existing
 
     secrets_encrypted = {k: encrypt(v) for k, v in secrets.items()}
-    cred = ConnectorCredential(
+    cred = UcpCredential(
         credential_code=credential_code,
         credential_name=credential_name,
         secrets_encrypted=secrets_encrypted,
@@ -60,9 +60,9 @@ async def update_credential(
     auth_type: str | None = None,
     description: str | None = None,
     updated_by: str | None = None,
-) -> ConnectorCredential:
+) -> UcpCredential:
     """更新凭证配置（名称、密钥、类型、描述）。"""
-    cred = await db.get(ConnectorCredential, credential_id)
+    cred = await db.get(UcpCredential, credential_id)
     if cred is None:
         raise RuntimeError(f"Credential {credential_id} not found")
 
@@ -86,9 +86,9 @@ async def toggle_credential(
     credential_id: int,
     is_active: bool,
     updated_by: str | None = None,
-) -> ConnectorCredential:
+) -> UcpCredential:
     """启用或停用凭证。"""
-    cred = await db.get(ConnectorCredential, credential_id)
+    cred = await db.get(UcpCredential, credential_id)
     if cred is None:
         raise RuntimeError(f"Credential {credential_id} not found")
     cred.is_active = 1 if is_active else 0
@@ -101,20 +101,20 @@ async def toggle_credential(
 async def get_credential_by_id(
     db: AsyncSession,
     credential_id: int,
-) -> ConnectorCredential | None:
+) -> UcpCredential | None:
     """按 ID 查询凭证配置（不解密）。"""
-    return await db.get(ConnectorCredential, credential_id)
+    return await db.get(UcpCredential, credential_id)
 
 
 async def get_credential_by_code(
     db: AsyncSession,
     credential_code: str,
-) -> ConnectorCredential | None:
+) -> UcpCredential | None:
     """按 code 查询凭证配置（不解密）。"""
     return (
         await db.execute(
-            select(ConnectorCredential).where(
-                ConnectorCredential.credential_code == credential_code
+            select(UcpCredential).where(
+                UcpCredential.credential_code == credential_code
             )
         )
     ).scalar_one_or_none()
@@ -124,13 +124,13 @@ async def list_credentials(
     db: AsyncSession,
     auth_type: str | None = None,
     is_active: int | None = None,
-) -> list[ConnectorCredential]:
+) -> list[UcpCredential]:
     """列出凭证配置，支持按类型和状态过滤。"""
-    stmt = select(ConnectorCredential).order_by(ConnectorCredential.id)
+    stmt = select(UcpCredential).order_by(UcpCredential.id)
     if auth_type:
-        stmt = stmt.where(ConnectorCredential.auth_type == auth_type)
+        stmt = stmt.where(UcpCredential.auth_type == auth_type)
     if is_active is not None:
-        stmt = stmt.where(ConnectorCredential.is_active == is_active)
+        stmt = stmt.where(UcpCredential.is_active == is_active)
     return (await db.execute(stmt)).scalars().all()
 
 
@@ -140,10 +140,10 @@ async def decrypt_credential_secrets(
 ) -> dict[str, str]:
     """解密凭证 secrets，返回明文 dict。
 
-    注意：返回值仅用于连接器执行时临时使用，不得持久化或返回到前端。
+    注意：返回值仅用于资源执行时临时使用，不得持久化或返回到前端。
     每次解密操作会记录审计日志。
     """
-    cred = await db.get(ConnectorCredential, credential_id)
+    cred = await db.get(UcpCredential, credential_id)
     if cred is None:
         raise RuntimeError(f"Credential {credential_id} not found")
     if not cred.is_active:
