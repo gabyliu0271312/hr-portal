@@ -494,6 +494,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '影响分析', menuCode: 'warehouse.impact' },
       },
       {
+        path: 'warehouse/automation',
+        name: 'WarehouseAutomation',
+        component: () => import('@/views/warehouse/WarehouseAutomation.vue'),
+        meta: { label: '自动化配置', menuCode: 'warehouse.automation' },
+      },
+      {
         path: 'automation/rules',
         name: 'AutomationRuleList',
         component: () => import('@/views/automation/AutomationRuleList.vue'),

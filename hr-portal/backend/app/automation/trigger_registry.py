@@ -77,6 +77,73 @@ def _register_default_triggers() -> None:
             name="报表定时运行失败",
             description="报表定时运行失败时触发",
         ),
+        # ===== Z01 ODS→DWD 自动化事件 =====
+        TriggerMeta(
+            trigger_type="datasource_sync_completed",
+            name="数据源同步完成",
+            description="DataSource 定时同步或手动拉取完成后触发",
+        ),
+        TriggerMeta(
+            trigger_type="ods_table_data_changed",
+            name="ODS 表数据变更",
+            description="ODS 表数据发生变化时触发（接口同步/Excel上传/手动编辑/批量操作）",
+        ),
+        TriggerMeta(
+            trigger_type="ods_table_metadata_changed",
+            name="ODS 表元数据变更",
+            description="ODS 表字段元数据（展示名/主键/敏感标记/可见性/排序/描述/字段增删/code变更）发生变化时触发",
+        ),
+        TriggerMeta(
+            trigger_type="standardization_rule_changed",
+            name="清洗规则变更",
+            description="数据加工配方构建器中清洗规则新增/修改/删除时触发",
+        ),
+        TriggerMeta(
+            trigger_type="ods_dwd_automation_config_changed",
+            name="ODS→DWD 自动化配置变更",
+            description="ODS→DWD 自动化规则配置新增/修改/删除时触发",
+        ),
+        # ===== Z03 L4 全自动级联事件 =====
+        TriggerMeta(
+            trigger_type="metric_saved",
+            name="指标保存",
+            description="指标定义保存或发布时触发",
+        ),
+        TriggerMeta(
+            trigger_type="dwd_data_refreshed",
+            name="DWD 数据刷新",
+            description="DWD 表数据刷新完成后触发",
+        ),
+        TriggerMeta(
+            trigger_type="dwd_schema_changed",
+            name="DWD 结构变更",
+            description="DWD 表字段结构变更时触发",
+        ),
+        TriggerMeta(
+            trigger_type="dwd_metadata_changed",
+            name="DWD 元数据变更",
+            description="DWD 表元数据变更时触发",
+        ),
+        TriggerMeta(
+            trigger_type="datasource_sync_completed",
+            name="数据源同步完成 (L4)",
+            description="DataSource 同步完成后 L4 检查下游指标",
+        ),
+        TriggerMeta(
+            trigger_type="ods_table_metadata_changed",
+            name="ODS 元数据变更 (L4)",
+            description="ODS 表元数据变更后 L4 检查下游指标",
+        ),
+        TriggerMeta(
+            trigger_type="standardization_rule_changed",
+            name="清洗规则变更 (L4)",
+            description="标准化规则变更后 L4 检查下游指标",
+        ),
+        TriggerMeta(
+            trigger_type="ods_dwd_automation_config_changed",
+            name="自动化配置变更 (L4)",
+            description="ODS→DWD 自动化配置变更后 L4 检查",
+        ),
     ]
     for meta in defaults:
         if meta.trigger_type not in TRIGGER_REGISTRY:

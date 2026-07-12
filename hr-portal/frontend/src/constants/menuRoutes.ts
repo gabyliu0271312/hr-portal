@@ -65,4 +65,5 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   'warehouse.metrics': '/warehouse/metrics',
   'warehouse.governance': '/warehouse/governance',
   'warehouse.impact': '/warehouse/impact',
+  'warehouse.automation': '/warehouse/automation',
 }

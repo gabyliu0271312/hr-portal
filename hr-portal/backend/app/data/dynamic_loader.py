@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from sqlalchemy import MetaData, Table
 from sqlalchemy.sql import func, select
 
+logger = logging.getLogger(__name__)
+
 from app.core.db import Base
 from app.data.ddl import validate_table_name
 
@@ -82,6 +84,26 @@ async def register_source_table_model(
     return model
 
 
+async def _register_view_model(db, table_name: str, *, force: bool = False):
+    """注册 PostgreSQL 视图：反射后补 id 为主键。"""
+    from app.data.models import DATA_TABLES
+    from sqlalchemy import PrimaryKeyConstraint
+
+    table = validate_table_name(table_name)
+    if not force and table in DATA_TABLES:
+        return DATA_TABLES[table]
+
+    model = await reflect_source_table_model(db, table)
+    # 视图无 PK 元数据，手动加 id 为主键
+    reflected_table = model.__table__
+    if not reflected_table.primary_key and 'id' in reflected_table.columns:
+        reflected_table.append_constraint(
+            PrimaryKeyConstraint(reflected_table.columns['id'])
+        )
+    DATA_TABLES[table] = model
+    return model
+
+
 def unregister_source_table_model(table_name: str) -> None:
     """Remove a table from the runtime DATA_TABLES registry."""
     from app.data.models import DATA_TABLES
@@ -119,6 +141,17 @@ async def load_dynamic_tables(db: "AsyncSession") -> None:
         )
     ).scalars().all()
 
+    # 查询所有视图名
+    from sqlalchemy import text as sa_text
+    view_rows = await db.execute(sa_text(
+        "SELECT table_name FROM information_schema.views WHERE table_schema = 'public'"
+    ))
+    view_names = {r[0] for r in view_rows.all()}
+
     for rt in rows:
-        await register_source_table_model(db, rt.table_name, force=True)
-        register_period_table(rt, overwrite=True)
+        if rt.table_name in view_names:
+            await _register_view_model(db, rt.table_name, force=True)
+            logger.info("[dynamic-tables] registered view: %s", rt.table_name)
+        else:
+            await register_source_table_model(db, rt.table_name, force=True)
+            register_period_table(rt, overwrite=True)

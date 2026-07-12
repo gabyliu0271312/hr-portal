@@ -13,6 +13,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # ==================== 标准化规则 (R01) ====================
 
+async def _publish_std_rule_changed(asset_code: str) -> None:
+    """发布 standardization_rule_changed 事件。"""
+    try:
+        from datetime import UTC, datetime as dt
+        from app.automation.events import AutomationEvent, publish_event
+        from app.core.db import get_session_factory
+        async with get_session_factory()() as new_db:
+            await publish_event(AutomationEvent(
+                trigger_type="standardization_rule_changed",
+                biz_type="ods_table", biz_id=asset_code,
+                payload={"trigger_type": "standardization_rule_changed", "table_name": asset_code,
+                          "change_type": "updated", "changed_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S")},
+            ), new_db)
+    except Exception:
+        pass
+
+
 STANDARDIZATION_RULE_TYPES = ("rename", "type_convert", "value_map", "unit_convert", "split_merge", "deduplicate", "null_handling", "format_standardize")
 
 # PostgreSQL/asyncpg rejects a single prepared statement with more than 32767
@@ -410,6 +427,7 @@ class StandardizationRuleService:
             raise ValueError(f"非法 rule_type: {payload.get('rule_type')}")
         rule = StandardizationRule(**{k: v for k, v in payload.items() if k in ("asset_type", "asset_code", "rule_type", "source_field", "target_field", "rule_config", "enabled", "display_order", "description")})
         self.session.add(rule); await self.session.commit(); await self.session.refresh(rule)
+        await _publish_std_rule_changed(rule.asset_code)
         return rule
 
     async def update_rule(self, rule_id: int, payload: dict):
@@ -420,6 +438,7 @@ class StandardizationRuleService:
         for k, v in payload.items():
             if k in allowed: setattr(rule, k, v)
         await self.session.commit(); await self.session.refresh(rule)
+        await _publish_std_rule_changed(rule.asset_code)
         return rule
 
     async def set_enabled(self, rule_id: int, enabled: bool):
@@ -433,7 +452,9 @@ class StandardizationRuleService:
         from app.warehouse.models import StandardizationRule
         rule = await self.session.get(StandardizationRule, rule_id)
         if rule is None: return False
+        asset_code = rule.asset_code
         await self.session.delete(rule); await self.session.commit()
+        await _publish_std_rule_changed(asset_code)
         return True
 
     async def preview(self, *, asset_code: str, rules: list, sample_size: int = 20):

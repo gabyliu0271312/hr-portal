@@ -352,6 +352,9 @@ class WarehouseFeatureFlagsOut(BaseModel):
     modeling_v2: bool = False
     monitoring: bool = False
     layer_enhancement: bool = True
+    ods_dwd_automation: bool = False
+    metric_automation: bool = False
+    l4_full_auto: bool = False
 
 
 # ==================== 批量分层 (Q0104) ====================
@@ -1143,3 +1146,301 @@ class AdsDefinitionUpdateIn(BaseModel):
     subject_area: Optional[str] = Field(None, max_length=64)
     consume_domain: Optional[str] = Field(None, max_length=64)
     owner_name: Optional[str] = Field(None, max_length=64)
+
+
+# ==================== ODS→DWD 自动化配置 (Z0104) ====================
+
+class OdsDwdAutomationConfigCreate(BaseModel):
+    """创建 ODS→DWD 自动化配置"""
+    model_config = {"extra": "forbid"}
+
+    ods_table_name: str = Field(..., max_length=256)
+    target_dwd_asset_id: Optional[int] = None
+    target_dwd_table_name: Optional[str] = Field(None, max_length=256)
+    update_mode: Literal["cleaning_rule", "passthrough"] = "cleaning_rule"
+    ods_sync_semantics: Literal["full_snapshot", "incremental_append", "incremental_upsert"] = "full_snapshot"
+    dwd_write_strategy: Literal["full_refresh", "incremental_upsert", "append", "passthrough_view"] = "incremental_upsert"
+    business_key_fields: Optional[list[str]] = None
+    missing_row_strategy: Literal["mark_inactive", "keep_history", "hard_delete"] = "mark_inactive"
+    standardization_rule_set_id: Optional[int] = None
+    standardization_rule_ids: Optional[list[int]] = None
+    enabled: bool = False
+
+
+class OdsDwdAutomationConfigUpdate(BaseModel):
+    """更新 ODS→DWD 自动化配置"""
+    model_config = {"extra": "forbid"}
+
+    target_dwd_asset_id: Optional[int] = None
+    target_dwd_table_name: Optional[str] = Field(None, max_length=256)
+    update_mode: Optional[Literal["cleaning_rule", "passthrough"]] = None
+    ods_sync_semantics: Optional[Literal["full_snapshot", "incremental_append", "incremental_upsert"]] = None
+    dwd_write_strategy: Optional[Literal["full_refresh", "incremental_upsert", "append", "passthrough_view"]] = None
+    business_key_fields: Optional[list[str]] = None
+    missing_row_strategy: Optional[Literal["mark_inactive", "keep_history", "hard_delete"]] = None
+    standardization_rule_set_id: Optional[int] = None
+    standardization_rule_ids: Optional[list[int]] = None
+    trigger_strategy: Optional[Literal["on_sync_success"]] = None
+    enabled: Optional[bool] = None
+
+
+class OdsDwdAutomationConfigOut(BaseModel):
+    """ODS→DWD 自动化配置响应"""
+    model_config = {"from_attributes": True}
+
+    id: int
+    ods_table_name: str
+    target_dwd_asset_id: Optional[int] = None
+    target_dwd_table_name: Optional[str] = None
+    update_mode: str
+    ods_sync_semantics: str
+    dwd_write_strategy: str
+    business_key_fields: Optional[list[str]] = None
+    missing_row_strategy: str
+    standardization_rule_set_id: Optional[int] = None
+    standardization_rule_ids: Optional[list[int]] = None
+    trigger_strategy: str
+    enabled: bool
+    last_execution_status: Optional[str] = None
+    last_execution_at: Optional[datetime] = None
+    last_execution_rows: Optional[int] = None
+    last_execution_error: Optional[str] = None
+    # Z01 自动生成审计字段
+    auto_created: bool = False
+    trigger_event: Optional[str] = None
+    default_strategy: Optional[str] = None
+    risk_decision: Optional[str] = None
+    trace_id: Optional[str] = None
+    source_system: str = "manual"
+    created_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ==================== X05 指标自动化数仓开发 ====================
+
+class MetricAutomationDiagnosisOut(BaseModel):
+    """指标自动化解析诊断结果（X0502）
+
+    诊断指标是否具备生成 DWS/ADS 草稿的条件，不可解析时列出缺失项。
+    """
+    metric_id: int
+    metric_code: str
+    metric_name: str
+    automatable: bool = Field(False, description="是否可自动化生成 DWS/ADS 草稿")
+    metric_type: str = ""
+    # 解析出的结构化信息
+    source_dataset_id: Optional[int] = Field(None, description="来源数据集 ID")
+    source_dataset_name: Optional[str] = Field(None, description="来源数据集名称")
+    dimension_fields: list[str] = Field(default_factory=list, description="解析出的维度字段")
+    measure_fields: list[str] = Field(default_factory=list, description="解析出的度量字段")
+    aggregation_functions: list[str] = Field(default_factory=list, description="聚合函数列表")
+    filters: list[dict] = Field(default_factory=list, description="解析出的过滤条件")
+    time_grain: Optional[str] = Field(None, description="时间粒度")
+    # 诊断
+    errors: list[str] = Field(default_factory=list, description="阻断性错误")
+    warnings: list[str] = Field(default_factory=list, description="非阻断警告")
+    suggestions: list[str] = Field(default_factory=list, description="修复建议")
+
+
+class MetricAutomationDwsDraftIn(BaseModel):
+    """生成 DWS 草稿请求（X0503）"""
+    model_config = {"extra": "forbid"}
+    metric_id: int = Field(..., description="指标 ID")
+    aggregate_name: Optional[str] = Field(None, max_length=128, description="聚合定义名称，默认从指标名生成")
+    group_by: Optional[list[str]] = Field(None, description="覆盖维度字段")
+    measure_field: Optional[str] = Field(None, description="覆盖度量字段")
+    aggregation: Optional[str] = Field(None, max_length=16, description="覆盖聚合方式")
+    time_grain: Optional[str] = Field(None, max_length=16, description="覆盖时间粒度")
+
+
+class MetricAutomationDwsDraftOut(BaseModel):
+    """DWS 聚合草稿响应（X0503）"""
+    draft_id: int = Field(description="草稿 ID（dws_aggregate_definitions.id）")
+    metric_id: int
+    metric_code: str
+    metric_name: str
+    aggregate_name: str
+    source_dataset_id: Optional[int] = None
+    source_dataset_name: Optional[str] = None
+    group_by: list[str] = []
+    filter: Optional[dict] = None
+    aggregation: str = "sum"
+    measure_field: Optional[str] = None
+    time_grain: Optional[str] = None
+    business_definition: Optional[str] = None
+    status: str = "draft"
+    # 诊断
+    diagnosis: MetricAutomationDiagnosisOut | None = None
+
+
+class MetricAutomationViewPreviewIn(BaseModel):
+    """DWS/ADS View 预览请求（X0504/X0505）"""
+    model_config = {"extra": "forbid"}
+    draft_id: int = Field(..., description="草稿 ID")
+    draft_type: str = Field("dws", description="dws / ads")
+    sample_size: int = Field(20, ge=1, le=500)
+
+
+class MetricAutomationViewPreviewOut(BaseModel):
+    """DWS/ADS View 预览响应（X0504/X0505）"""
+    draft_id: int
+    draft_type: str
+    view_name: str = ""
+    sql_summary: str = ""
+    output_fields: list[dict] = Field(default_factory=list, description="输出字段列表")
+    dependencies: list[dict] = Field(default_factory=list, description="依赖资产")
+    sample_columns: list[str] = Field(default_factory=list)
+    sample_rows: list[dict] = Field(default_factory=list)
+    sample_truncated: bool = False
+    # 门禁
+    quality_status: str = Field("unknown", description="unknown / pass / warn / fail")
+    quality_checks: list[dict] = Field(default_factory=list)
+    small_sample_risk: str = Field("unknown", description="unknown / low / warn / block")
+    small_sample_detail: Optional[str] = None
+    risk_level: str = Field("low", description="low / medium / high")
+    # 阻断
+    blocked: bool = False
+    blocked_reasons: list[str] = Field(default_factory=list)
+
+
+class MetricAutomationPublishIn(BaseModel):
+    """发布确认请求（X0506/X0508）"""
+    model_config = {"extra": "forbid"}
+    draft_id: int = Field(..., description="草稿 ID")
+    draft_type: str = Field("dws", description="dws / ads")
+    confirmed: bool = Field(True, description="用户确认发布")
+
+
+class MetricAutomationPublishOut(BaseModel):
+    """发布确认响应（X0506/X0508）"""
+    draft_id: int
+    draft_type: str
+    status: str = "published"
+    published_version: int = 1
+    view_name: Optional[str] = None
+    output_fields_count: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MetricAutomationRollbackIn(BaseModel):
+    """回滚请求（X0506/X0508）"""
+    model_config = {"extra": "forbid"}
+    draft_id: int = Field(..., description="草稿/资产 ID")
+    draft_type: str = Field("dws", description="dws / ads")
+    target_version: int = Field(..., ge=1, description="回滚到指定版本")
+
+
+class MetricAutomationAdsDraftIn(BaseModel):
+    """生成 ADS 草稿请求（X0507）"""
+    model_config = {"extra": "forbid"}
+    source_type: str = Field("dws_aggregate", max_length=32, description="dws_aggregate / dataset / model")
+    source_id: int = Field(..., description="来源 DWS 聚合/数据集/模型 ID")
+    name: Optional[str] = Field(None, max_length=256, description="ADS 名称")
+    consume_domain: Optional[str] = Field(None, max_length=64)
+
+
+class MetricAutomationAdsDraftOut(BaseModel):
+    """ADS 消费草稿响应（X0507）"""
+    draft_id: int
+    name: str
+    source_type: str
+    source_id: int
+    source_label: Optional[str] = None
+    output_fields: list[dict] = []
+    dimension_refs: list[dict] = []
+    preset_filters: Optional[list[dict]] = None
+    subject_area: Optional[str] = None
+    consume_domain: Optional[str] = None
+    status: str = "draft"
+
+
+class MetricChangePlanOut(BaseModel):
+    """指标变更驱动的下游更新方案（X0510）"""
+    metric_id: int
+    metric_code: str
+    metric_version: int
+    change_type: str = Field(description="field_added / field_removed / type_changed / formula_changed")
+    affected_dws: list[dict] = Field(default_factory=list, description="受影响的 DWS 聚合")
+    affected_ads: list[dict] = Field(default_factory=list, description="受影响的 ADS 消费资产")
+    affected_bi_contracts: list[dict] = Field(default_factory=list, description="受影响的 BI 消费契约")
+    risk_level: str = Field("low", description="low / medium / high")
+    blocked: bool = False
+    recommended_actions: list[str] = Field(default_factory=list)
+
+
+class MetricRefreshStrategyOut(BaseModel):
+    """指标自动化刷新策略响应（X0511）"""
+    asset_type: str = "view"
+    asset_name: str
+    refresh_strategy: str = "view_realtime"  # view_realtime / manual / on_upstream_change
+    last_refreshed_at: Optional[datetime] = None
+    last_refresh_status: Optional[str] = None
+    upstream_dependency: Optional[str] = None
+
+
+class MetricAutomationTimelineOut(BaseModel):
+    """指标自动化审计时间线（X0512）"""
+    metric_id: int
+    metric_code: str
+    events: list[dict] = Field(default_factory=list, description="时间线事件列表")
+    summary: dict = Field(default_factory=dict, description="摘要统计")
+
+
+# ==================== Z03 L4 全自动级联 ====================
+
+class L4AutoApprovalCreate(BaseModel):
+    """L4 试点申请请求"""
+    model_config = {"extra": "forbid"}
+    metric_id: int = Field(..., description="指标 ID")
+    max_auto_frequency: int = Field(1, ge=1, le=100, description="每日最大自动执行次数")
+    auto_rollback_enabled: bool = Field(True, description="失败时自动回滚")
+    reason: Optional[str] = Field(None, max_length=512, description="申请理由")
+
+
+class L4AutoApprovalOut(BaseModel):
+    """L4 试点审批记录响应"""
+    id: int
+    metric_id: int
+    metric_code: str = ""
+    metric_name: str = ""
+    subject_area: Optional[str] = None
+    risk_level: str = "medium"
+    max_auto_frequency: int = 1
+    auto_rollback_enabled: bool = True
+    status: str = "pending"
+    requested_by: Optional[str] = None
+    approved_by: Optional[str] = None
+    reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class L4AutoApprovalAction(BaseModel):
+    """审批操作"""
+    model_config = {"extra": "forbid"}
+    reason: Optional[str] = Field(None, max_length=512, description="审批备注")
+
+
+class L4CascadeRuleOut(BaseModel):
+    """L4 级联规则响应"""
+    metric_id: int
+    trigger_conditions: list[str] = Field(default_factory=list)
+    risk_strategies: dict = Field(default_factory=dict)
+    max_frequency: int = 1
+    auto_rollback: bool = True
+    notify_on_success: bool = False
+    notify_on_block: bool = True
+    notify_on_fail: bool = True
+
+
+class L4CascadeRuleUpdate(BaseModel):
+    """L4 级联规则更新请求"""
+    model_config = {"extra": "forbid"}
+    trigger_conditions: Optional[list[str]] = None
+    risk_strategies: Optional[dict] = None
+    max_frequency: Optional[int] = Field(None, ge=1, le=100)
+    auto_rollback: Optional[bool] = None
+    notify_on_success: Optional[bool] = None
+    notify_on_block: Optional[bool] = None
+    notify_on_fail: Optional[bool] = None

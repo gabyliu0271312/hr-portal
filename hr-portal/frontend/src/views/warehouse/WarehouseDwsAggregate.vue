@@ -7,7 +7,7 @@ import {
   listDwsAggregates, createDwsAggregate, updateDwsAggregate, deleteDwsAggregate,
   publishDwsAggregate, archiveDwsAggregate, generateDwsView, getDwsViewImpact,
   validateDwsAggregate,
-  listModels, getModel, listDimensions,
+  listModels, getModel, listDimensions, listMetrics, diagnoseMetric,
   AGGREGATION_LABELS,
   type DwsAggregate, type ModelDetail, type Dimension,
 } from '@/api/warehouse'
@@ -72,6 +72,64 @@ async function onDatasetChange(dsId: number | undefined) {
   finally { fieldsLoading.value = false }
 }
 
+// 指标下拉
+const metrics = ref<{ id: number; metric_code: string; metric_name: string }[]>([])
+const metricsLoading = ref(false)
+const autoDeriving = ref(false)
+
+async function loadMetrics() {
+  if (metrics.value.length > 0) return
+  metricsLoading.value = true
+  try {
+    const res = await listMetrics({ page_size: 200 })
+    metrics.value = (res.items || []).map((m: any) => ({
+      id: m.id, metric_code: m.metric_code, metric_name: m.metric_name,
+    }))
+  } catch { metrics.value = [] }
+  finally { metricsLoading.value = false }
+}
+
+// 选指标 → 自动推导 aggregation / measure_field / time_grain / group_by
+async function onMetricChange(metricId: number | undefined) {
+  form.value.metric_id = metricId
+  if (!metricId) return
+  autoDeriving.value = true
+  try {
+    const diag = await diagnoseMetric(metricId)
+    if (!diag.automatable) {
+      ElMessage.warning('该指标暂不支持自动推导: ' + (diag.errors?.[0] || ''))
+      return
+    }
+    // 自动回填
+    if (diag.aggregation_functions?.[0] && !form.value.aggregation) {
+      form.value.aggregation = diag.aggregation_functions[0]
+    }
+    if (diag.measure_fields?.[0] && !form.value.measure_field) {
+      form.value.measure_field = diag.measure_fields[0]
+    }
+    if (diag.time_grain && !form.value.time_grain) {
+      form.value.time_grain = diag.time_grain
+    }
+    if (diag.dimension_fields?.length) {
+      // 合并已有维度和推导维度
+      const existing = new Set(form.value.group_by)
+      for (const d of diag.dimension_fields) {
+        if (d !== 'year' && d !== 'quarter' && d !== 'month') existing.add(d)
+      }
+      form.value.group_by = [...existing]
+    }
+    // 自动设置来源数据集
+    if (!form.value.source_dataset_id && diag.source_dataset_id) {
+      form.value.source_dataset_id = diag.source_dataset_id
+      await onDatasetChange(diag.source_dataset_id)
+    }
+    ElMessage.success('已根据指标自动推导聚合参数')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '指标诊断失败')
+  }
+  finally { autoDeriving.value = false }
+}
+
 // 表单弹窗
 const dialogVisible = ref(false)
 const dialogMode = ref<'create' | 'edit'>('create')
@@ -94,6 +152,7 @@ function openCreate() {
   datasetFields.value = []
   loadDatasets()
   loadDimensions()
+  loadMetrics()
   dialogVisible.value = true
 }
 
@@ -228,35 +287,32 @@ onMounted(load)
     <el-dialog v-model="dialogVisible" :title="dialogMode==='create'?'新建聚合定义':'编辑聚合定义'" width="600px" @close="editId=null">
       <el-form v-if="dialogVisible" label-width="100px" size="small">
         <el-form-item label="名称" required><el-input v-model="form.name" maxlength="128" placeholder="如：月人均薪酬-按部门" /></el-form-item>
-        <el-form-item label="关联指标"><el-input-number v-model="form.metric_id" :min="1" placeholder="指标 ID" style="width:200px" /></el-form-item>
+        <el-form-item label="关联指标" required>
+          <el-select v-model="form.metric_id" clearable filterable placeholder="选择指标" style="width:100%" :loading="metricsLoading" @focus="loadMetrics" @change="onMetricChange">
+            <el-option v-for="m in metrics" :key="m.id" :label="`${m.metric_name} (${m.metric_code})`" :value="m.id" />
+          </el-select>
+          <span v-if="autoDeriving" style="font-size:11px;color:#409eff">正在从指标自动推导聚合参数...</span>
+        </el-form-item>
         <el-form-item label="来源数据集">
-          <el-select v-model="form.source_dataset_id" clearable filterable placeholder="选择数据集" style="width:100%" @change="onDatasetChange">
+          <el-select v-model="form.source_dataset_id" clearable filterable placeholder="由指标自动推导" style="width:100%" @change="onDatasetChange">
             <el-option v-for="ds in datasets" :key="ds.id" :label="`${ds.name} (#${ds.id})`" :value="ds.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="度量字段" required>
-          <el-select v-model="form.measure_field" clearable filterable placeholder="选数据集后显示数值字段" style="width:100%" :loading="fieldsLoading" :disabled="!form.source_dataset_id">
+        <el-form-item label="度量字段">
+          <el-select v-model="form.measure_field" clearable filterable placeholder="由指标自动推导" style="width:100%" :loading="fieldsLoading || autoDeriving" :disabled="!form.source_dataset_id">
             <el-option v-for="f in numericFields" :key="f.code" :label="`${f.label} (${f.data_type})`" :value="f.code" />
           </el-select>
-        </el-form-item>
-        <el-form-item label="聚合方式">
-          <el-select v-model="form.aggregation" style="width:160px">
-            <el-option v-for="(v,k) in AGGREGATION_LABELS" :key="k" :label="v" :value="k" />
-          </el-select>
+          <span style="font-size:11px;color:#909399">由指标公式自动推导，可手动覆盖</span>
         </el-form-item>
         <el-form-item label="分组维度">
-          <el-select v-model="form.group_by" multiple filterable placeholder="选择维度（来自维度目录）" style="width:100%">
+          <el-select v-model="form.group_by" multiple filterable placeholder="由指标自动推导 + 从维度目录选择" style="width:100%">
             <el-option v-for="d in dimensions" :key="d.dimension_code" :label="dimLabel(d)" :value="d.dimension_code">
               <span>{{ d.dimension_code }}</span>
               <span v-if="d.bound_table && d.bound_field" style="color:#909399;font-size:12px;margin-left:8px">{{ d.bound_table }}.{{ d.bound_field }}</span>
               <span v-else style="color:#e6a23c;font-size:12px;margin-left:8px">未绑定字段</span>
             </el-option>
           </el-select>
-        </el-form-item>
-        <el-form-item label="时间粒度">
-          <el-select v-model="form.time_grain" clearable style="width:160px">
-            <el-option label="日" value="day" /><el-option label="周" value="week" /><el-option label="月" value="month" /><el-option label="季" value="quarter" /><el-option label="年" value="year" />
-          </el-select>
+          <span style="font-size:11px;color:#909399">选关联指标后自动回填，可手动增减</span>
         </el-form-item>
         <el-form-item label="口径说明"><el-input v-model="form.business_definition" type="textarea" :rows="2" placeholder="说明该聚合的业务口径" /></el-form-item>
       </el-form>

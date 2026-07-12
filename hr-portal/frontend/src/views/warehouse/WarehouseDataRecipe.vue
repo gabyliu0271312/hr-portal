@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete, Top, Bottom, Refresh, VideoPlay, Upload, ArrowRight, Lock } from '@element-plus/icons-vue'
@@ -11,8 +12,10 @@ import {
   STANDARDIZATION_RULE_TYPES, STANDARDIZATION_RULE_LABELS,
   type Asset,
 } from '@/api/warehouse'
+import OdsDwdAutomationPanel from '@/components/warehouse/OdsDwdAutomationPanel.vue'
 
 const userStore = useUserStore()
+const automationPanelRef = ref<InstanceType<typeof OdsDwdAutomationPanel> | null>(null)
 
 // ===== 选表 =====
 const tables = ref<Asset[]>([])
@@ -111,11 +114,16 @@ async function doSave() {
     const existing = await listStandardizationRules({ asset_code: selectedTable.value, page_size: 200 })
     for (const r of existing.items) { if (!currentIds.has(r.id)) await deleteStandardizationRule(r.id) }
     for (const step of steps.value) {
-      const payload = { asset_type: 'table', asset_code: selectedTable.value, rule_type: step.rule_type, source_field: step.source_field, target_field: step.target_field, rule_config: step.rule_config, enabled: step.enabled, display_order: step.display_order }
-      if (step.id) { await updateStandardizationRule(step.id, payload as any) } else { const created = await createStandardizationRule(payload as any); step.id = created.id }
+      if (step.id) {
+        await updateStandardizationRule(step.id, { rule_config: step.rule_config, enabled: step.enabled, display_order: step.display_order } as any)
+      } else {
+        const created = await createStandardizationRule({ asset_type: 'table', asset_code: selectedTable.value, rule_type: step.rule_type, source_field: step.source_field, target_field: step.target_field, rule_config: step.rule_config, enabled: step.enabled, display_order: step.display_order } as any)
+        step.id = created.id
+      }
     }
     dirty.value = false; steps.value.forEach(s => s.dirty = false)
     ElMessage.success('规则已保存'); await loadRules()
+    automationPanelRef.value?.refreshDetectedMode()
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') } finally { saving.value = false }
 }
 
@@ -188,7 +196,15 @@ const ruleTypeIcon: Record<string, string> = { rename: 'Aa', type_convert: '#', 
 
 watch(dirty, (v) => { if (v) window.addEventListener('beforeunload', warnUnsaved); else window.removeEventListener('beforeunload', warnUnsaved) })
 function warnUnsaved(e: BeforeUnloadEvent) { e.preventDefault(); e.returnValue = '' }
-onMounted(loadTables)
+const route = useRoute()
+onMounted(async () => {
+  await loadTables()
+  const tableFromQuery = route.query.table as string
+  if (tableFromQuery && tables.value.some(t => t.table_name === tableFromQuery)) {
+    selectedTable.value = tableFromQuery
+    await onTableChange(tableFromQuery)
+  }
+})
 </script>
 
 <template>
@@ -490,6 +506,14 @@ onMounted(loadTables)
         </div>
       </aside>
     </div>
+
+    <!-- Z0106 ODS→DWD 自动化配置面板 -->
+    <OdsDwdAutomationPanel
+      v-if="selectedTable"
+      ref="automationPanelRef"
+      :ods-table-name="selectedTable"
+      :target-table-name="targetTableName || derivedTargetTable"
+    />
 
     <!-- 空表 -->
     <div v-else class="recipe-empty">

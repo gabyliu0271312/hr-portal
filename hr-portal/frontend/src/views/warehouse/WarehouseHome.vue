@@ -2,11 +2,18 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { DataBoard, Folder, Edit, TrendCharts, Checked, Warning } from '@element-plus/icons-vue'
-import { listAssets, listModels, listMetrics, type Asset, type ModelListItem, type MetricListItem } from '@/api/warehouse'
+import { DataBoard, Folder, Edit, TrendCharts, Checked, Warning, Setting } from '@element-plus/icons-vue'
+import { listAssets, listModels, listMetrics, getL4Summary, type Asset, type ModelListItem, type MetricListItem } from '@/api/warehouse'
 import LayerStatsPanel from '@/components/warehouse/LayerStatsPanel.vue'
 
 const router = useRouter()
+
+// L4 运行摘要
+const l4Summary = ref<any>(null)
+
+async function loadL4Summary() {
+  try { l4Summary.value = await getL4Summary() } catch { l4Summary.value = null }
+}
 
 // 指标卡片
 const assetTotal = ref<number | null>(null)
@@ -25,6 +32,7 @@ const quickLinks = [
   { label: '数据建模', icon: Edit, route: '/warehouse/modeling' },
   { label: '指标管理', icon: TrendCharts, route: '/warehouse/metrics' },
   { label: '数据治理', icon: Checked, route: '/warehouse/governance' },
+  { label: '自动化配置', icon: Setting, route: '/warehouse/automation' },
 ]
 
 async function loadStats() {
@@ -83,6 +91,7 @@ async function loadActivities() {
 onMounted(() => {
   loadStats()
   loadActivities()
+  loadL4Summary()
 })
 </script>
 
@@ -131,6 +140,23 @@ onMounted(() => {
       <LayerStatsPanel />
     </el-card>
 
+    <!-- L4 运行摘要 -->
+    <el-card v-if="l4Summary" style="margin-bottom: 16px">
+      <template #header>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-weight: 600">L4 全自动级联运行摘要（最近 24h）</span>
+          <el-link :underline="false" @click="router.push('/warehouse/automation')">查看全部 →</el-link>
+        </div>
+      </template>
+      <el-row :gutter="16">
+        <el-col :span="4"><div class="stat-num">{{ l4Summary.total }}</div><div class="stat-label">总执行</div></el-col>
+        <el-col :span="5"><div class="stat-num success">{{ l4Summary.success }}</div><div class="stat-label">成功</div></el-col>
+        <el-col :span="5"><div class="stat-num warning">{{ l4Summary.blocked }}</div><div class="stat-label">阻断</div></el-col>
+        <el-col :span="5"><div class="stat-num danger">{{ l4Summary.failed }}</div><div class="stat-label">失败</div></el-col>
+        <el-col :span="5"><div class="stat-num" :class="l4Summary.emergency_stopped ? 'danger' : ''">{{ l4Summary.emergency_stopped ? '⚠' : '✓' }}</div><div class="stat-label">运行状态</div></el-col>
+      </el-row>
+    </el-card>
+
     <!-- 最新动态 + 快捷入口 -->
     <el-row :gutter="16">
       <!-- 最新动态 -->
@@ -176,6 +202,12 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.stat-num { font-size: 24px; font-weight: 700; text-align: center; color: #303133; }
+.stat-num.success { color: #67C23A; }
+.stat-num.warning { color: #E6A23C; }
+.stat-num.danger { color: #F56C6C; }
+.stat-label { font-size: 12px; color: #909399; text-align: center; margin-top: 4px; }
+
 .warehouse-home {
   padding: 24px;
   max-width: 1200px;

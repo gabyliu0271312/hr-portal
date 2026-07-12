@@ -568,11 +568,123 @@ export interface WarehouseFeatureFlags {
   modeling_v2: boolean
   monitoring: boolean
   layer_enhancement: boolean
+  ods_dwd_automation: boolean
+  metric_automation: boolean
+  l4_full_auto: boolean
 }
 
 /** 获取二期灰度开关 */
 export function getWarehouseFeatures(): Promise<WarehouseFeatureFlags> {
   return api.get('/warehouse/features').then(r => r.data)
+}
+
+// ==================== ODS→DWD 自动化配置 (Z0104/Z0107) ====================
+
+export interface OdsDwdAutomationConfig {
+  id: number
+  ods_table_name: string
+  target_dwd_asset_id: number | null
+  target_dwd_table_name: string | null
+  update_mode: 'cleaning_rule' | 'passthrough' | 'manual_only'
+  ods_sync_semantics: 'full_snapshot' | 'incremental_append' | 'incremental_upsert'
+  dwd_write_strategy: 'full_refresh' | 'incremental_upsert' | 'append' | 'passthrough_view'
+  business_key_fields: string[] | null
+  missing_row_strategy: 'mark_inactive' | 'keep_history' | 'hard_delete'
+  standardization_rule_set_id: number | null
+  standardization_rule_ids: number[] | null
+  trigger_strategy: 'on_sync_success' | 'manual_only'
+  enabled: boolean
+  last_execution_status: string | null
+  last_execution_at: string | null
+  last_execution_rows: number | null
+  last_execution_error: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  auto_created: boolean
+  trigger_event: string | null
+  default_strategy: string | null
+  risk_decision: string | null
+  trace_id: string | null
+  source_system: string
+}
+
+export interface OdsDwdAutomationConfigCreate {
+  ods_table_name: string
+  target_dwd_table_name?: string
+  update_mode?: string
+  ods_sync_semantics?: string
+  dwd_write_strategy?: string
+  business_key_fields?: string[]
+  missing_row_strategy?: string
+  standardization_rule_set_id?: number
+  standardization_rule_ids?: number[]
+  trigger_strategy?: string
+  enabled?: boolean
+}
+
+export interface OdsDwdAutomationExecution {
+  id: number
+  rule_id: number
+  trigger_type: string
+  trigger_label: string
+  biz_type: string | null
+  biz_id: string | null
+  event_payload: Record<string, any>
+  status: string
+  mode: string
+  rows: number
+  error_message: string
+  started_at: string | null
+  finished_at: string | null
+  actions: Array<{
+    action_type: string
+    status: string
+    output: Record<string, any> | null
+    error: string | null
+    started_at: string | null
+    finished_at: string | null
+  }>
+}
+
+export function getOdsDwdAutomationConfig(odsTableName: string): Promise<OdsDwdAutomationConfig> {
+  return api.get(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}`).then(r => r.data)
+}
+
+export function listOdsDwdAutomationConfigs(params?: { update_mode?: string }): Promise<OdsDwdAutomationConfig[]> {
+  return api.get('/warehouse/ods-dwd-automation-configs', { params }).then(r => r.data)
+}
+
+export function createOdsDwdAutomationConfig(data: OdsDwdAutomationConfigCreate): Promise<OdsDwdAutomationConfig> {
+  return api.post('/warehouse/ods-dwd-automation-configs', data).then(r => r.data)
+}
+
+export function updateOdsDwdAutomationConfig(odsTableName: string, data: Partial<OdsDwdAutomationConfigCreate>): Promise<OdsDwdAutomationConfig> {
+  return api.put(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}`, data).then(r => r.data)
+}
+
+export function deleteOdsDwdAutomationConfig(odsTableName: string): Promise<void> {
+  return api.delete(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}`)
+}
+
+export function triggerOdsDwdSync(odsTableName: string): Promise<{ ok: boolean; message: string }> {
+  return api.post(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}/trigger`).then(r => r.data)
+}
+
+export function listOdsDwdAutomationExecutions(odsTableName: string, pageSize?: number): Promise<OdsDwdAutomationExecution[]> {
+  return api.get(`/warehouse/ods-dwd-automation-executions/${encodeURIComponent(odsTableName)}`, { params: { page_size: pageSize || 5 } }).then(r => r.data)
+}
+
+export interface OdsDwdDetectedSemantics {
+  ods_table_name: string
+  ods_sync_semantics: string
+  dwd_write_strategy: string
+  missing_row_strategy: string
+  business_key_fields: string[]
+}
+
+export function detectOdsSyncSemantics(odsTableName: string): Promise<OdsDwdDetectedSemantics> {
+  return api.get(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}/detect-semantics`).then(r => r.data)
 }
 
 // ==================== 批量分层 (Q0104/Q0105) ====================
@@ -1341,4 +1453,217 @@ export function generateDwdView(assetCode: string, assetType = 'table') {
   return api.post('/warehouse/standardization-rules/generate-dwd-view', {
     asset_code: assetCode, asset_type: assetType,
   }).then(r => r.data as { dataset_id: number; view_name: string; version: number })
+}
+
+// ==================== X05 指标自动化数仓开发 ====================
+
+/** 指标自动化诊断结果 */
+export interface MetricAutomationDiagnosis {
+  metric_id: number
+  metric_code: string
+  metric_name: string
+  automatable: boolean
+  metric_type: string
+  source_dataset_id: number | null
+  source_dataset_name: string | null
+  dimension_fields: string[]
+  measure_fields: string[]
+  aggregation_functions: string[]
+  filters: any[]
+  time_grain: string | null
+  errors: string[]
+  warnings: string[]
+  suggestions: string[]
+}
+
+/** 诊断指标是否可自动化 */
+export function diagnoseMetric(metricId: number) {
+  return api.get(`/warehouse/metric-automation/diagnose/${metricId}`).then(r => r.data as MetricAutomationDiagnosis)
+}
+
+/** 生成 DWS 草稿 */
+export function generateDwsDraft(payload: { metric_id: number; aggregate_name?: string; group_by?: string[]; measure_field?: string; aggregation?: string; time_grain?: string }) {
+  return api.post('/warehouse/metric-automation/dws-draft', payload).then(r => r.data as any)
+}
+
+/** DWS/ADS 草稿预览 */
+export interface MetricAutomationPreview {
+  draft_id: number
+  draft_type: string
+  view_name: string
+  sql_summary: string
+  output_fields: any[]
+  dependencies: any[]
+  sample_columns: string[]
+  sample_rows: any[]
+  sample_truncated: boolean
+  quality_status: string
+  quality_checks: any[]
+  small_sample_risk: string
+  small_sample_detail: string | null
+  risk_level: string
+  blocked: boolean
+  blocked_reasons: string[]
+}
+
+export function previewMetricDraft(payload: { draft_id: number; draft_type: string; sample_size?: number }) {
+  return api.post('/warehouse/metric-automation/preview', payload).then(r => r.data as MetricAutomationPreview)
+}
+
+/** 发布 DWS/ADS 草稿 */
+export function publishMetricDraft(payload: { draft_id: number; draft_type: string; confirmed: boolean }) {
+  return api.post('/warehouse/metric-automation/publish', payload).then(r => r.data as any)
+}
+
+/** 回滚 DWS/ADS */
+export function rollbackMetricDraft(payload: { draft_id: number; draft_type: string; target_version: number }) {
+  return api.post('/warehouse/metric-automation/rollback', payload).then(r => r.data as any)
+}
+
+/** 生成 ADS 草稿 */
+export function generateAdsDraft(payload: { source_type: string; source_id: number; name?: string; consume_domain?: string }) {
+  return api.post('/warehouse/metric-automation/ads-draft', payload).then(r => r.data as any)
+}
+
+/** ADS 下游影响分析 */
+export function getAdsImpact(adsId: number) {
+  return api.get(`/warehouse/metric-automation/ads-impact/${adsId}`).then(r => r.data as any)
+}
+
+/** BI 消费契约 */
+export function getBiContract(assetType: string, assetId: number) {
+  return api.get(`/warehouse/metric-automation/bi-contract/${assetType}/${assetId}`).then(r => r.data as any)
+}
+
+/** 指标变更下游更新方案 */
+export function getMetricChangePlan(metricId: number) {
+  return api.get(`/warehouse/metric-automation/change-plan/${metricId}`).then(r => r.data as any)
+}
+
+/** 获取刷新策略 */
+export function getRefreshStrategy(assetType: string, assetId: number) {
+  return api.get(`/warehouse/metric-automation/refresh-strategy/${assetType}/${assetId}`).then(r => r.data as any)
+}
+
+/** 设置刷新策略 */
+export function setRefreshStrategy(assetType: string, assetId: number, strategy: string) {
+  return api.put(`/warehouse/metric-automation/refresh-strategy/${assetType}/${assetId}`, null, { params: { strategy } }).then(r => r.data as any)
+}
+
+/** 指标自动化审计时间线 */
+export function getMetricAutomationTimeline(metricId: number) {
+  return api.get(`/warehouse/metric-automation/timeline/${metricId}`).then(r => r.data as any)
+}
+
+// ==================== Z03 L4 全自动级联 ====================
+
+export interface L4AutoApproval {
+  id: number
+  metric_id: number
+  metric_code: string
+  metric_name: string
+  subject_area?: string
+  risk_level: string
+  max_auto_frequency: number
+  auto_rollback_enabled: boolean
+  status: string
+  requested_by?: string
+  approved_by?: string
+  reason?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface L4AutoApprovalCreatePayload {
+  metric_id: number
+  max_auto_frequency?: number
+  auto_rollback_enabled?: boolean
+  reason?: string
+}
+
+export interface L4CascadeRule {
+  metric_id: number
+  trigger_conditions: string[]
+  risk_strategies: Record<string, string>
+  max_frequency: number
+  auto_rollback: boolean
+  notify_on_success: boolean
+  notify_on_block: boolean
+  notify_on_fail: boolean
+}
+
+export interface L4CascadeRuleUpdate {
+  trigger_conditions?: string[]
+  risk_strategies?: Record<string, string>
+  max_frequency?: number
+  auto_rollback?: boolean
+  notify_on_success?: boolean
+  notify_on_block?: boolean
+  notify_on_fail?: boolean
+}
+
+// L4 审批
+export function listL4Approvals(params?: { status?: string; metric_id?: number }) {
+  return api.get('/warehouse/l4-auto/approvals', { params }).then(r => r.data as L4AutoApproval[])
+}
+export function createL4Approval(payload: L4AutoApprovalCreatePayload) {
+  return api.post('/warehouse/l4-auto/approvals', payload).then(r => r.data as L4AutoApproval)
+}
+export function approveL4Approval(id: number, reason?: string) {
+  return api.put(`/warehouse/l4-auto/approvals/${id}/approve`, { reason }).then(r => r.data as L4AutoApproval)
+}
+export function rejectL4Approval(id: number, reason?: string) {
+  return api.put(`/warehouse/l4-auto/approvals/${id}/reject`, { reason }).then(r => r.data as L4AutoApproval)
+}
+export function revokeL4Approval(id: number) {
+  return api.delete(`/warehouse/l4-auto/approvals/${id}`).then(r => r.data)
+}
+
+// L4 级联规则
+export function getL4CascadeRule(metricId: number) {
+  return api.get(`/warehouse/l4-auto/rules/${metricId}`).then(r => r.data as L4CascadeRule)
+}
+export function updateL4CascadeRule(metricId: number, payload: L4CascadeRuleUpdate) {
+  return api.put(`/warehouse/l4-auto/rules/${metricId}`, payload).then(r => r.data as L4CascadeRule)
+}
+
+// L4 审计
+export function getL4Timeline(metricId: number) {
+  return api.get(`/warehouse/l4-auto/timeline/${metricId}`).then(r => r.data as any)
+}
+export function getL4Summary() {
+  return api.get('/warehouse/l4-auto/summary').then(r => r.data as any)
+}
+export interface L4ExecutionItem {
+  execution_id: number
+  trigger_type: string
+  biz_id: string
+  status: string
+  started_at?: string
+  finished_at?: string
+  error_message?: string
+  output_summary: string
+}
+export interface L4ExecutionsList {
+  items: L4ExecutionItem[]
+  total: number
+  page: number
+  page_size: number
+}
+export function listL4Executions(params?: { page?: number; page_size?: number; status?: string; trigger_type?: string; metric_id?: number }) {
+  return api.get('/warehouse/l4-auto/executions', { params }).then(r => r.data as L4ExecutionsList)
+}
+
+// L4 紧急停止 & 回滚
+export function getL4Status() {
+  return api.get('/warehouse/l4-auto/status').then(r => r.data as any)
+}
+export function emergencyStopL4(reason?: string) {
+  return api.post('/warehouse/l4-auto/emergency-stop', null, { params: { reason } }).then(r => r.data)
+}
+export function resumeL4() {
+  return api.post('/warehouse/l4-auto/resume').then(r => r.data)
+}
+export function rollbackL4Metric(metricId: number) {
+  return api.post(`/warehouse/l4-auto/rollback/${metricId}`).then(r => r.data)
 }
