@@ -1,7 +1,7 @@
 """add api_services table
 
 Revision ID: 0073
-Revises: 0072
+Revises: 0073_approval_remind_before_days
 Create Date: 2026-07-09
 """
 from typing import Sequence, Union
