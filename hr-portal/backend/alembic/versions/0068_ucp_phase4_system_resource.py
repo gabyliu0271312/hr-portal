@@ -103,8 +103,24 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
             sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
             sa.UniqueConstraint("system_id", "resource_code", name="uq_resource_system_code"),
-            sa.ForeignKeyConstraint(["system_id"], ["connector_system.id"], ondelete="CASCADE"),
-            sa.ForeignKeyConstraint(["credential_id"], ["connector_credentials.id"], ondelete="SET NULL"),
+        )
+    if _table_exists("connector_system") and not _fk_exists("connector_resource", "fk_connector_resource_system"):
+        op.create_foreign_key(
+            "fk_connector_resource_system",
+            "connector_resource",
+            "connector_system",
+            ["system_id"],
+            ["id"],
+            ondelete="CASCADE",
+        )
+    if _table_exists("connector_credentials") and not _fk_exists("connector_resource", "fk_connector_resource_credential"):
+        op.create_foreign_key(
+            "fk_connector_resource_credential",
+            "connector_resource",
+            "connector_credentials",
+            ["credential_id"],
+            ["id"],
+            ondelete="SET NULL",
         )
     _create_index_if_missing("ix_connector_resource_system", "connector_resource", ["system_id"])
     _create_index_if_missing("ix_connector_resource_credential", "connector_resource", ["credential_id"])

@@ -85,8 +85,16 @@ def upgrade() -> None:
             sa.Column("change_note", sa.String(256), nullable=True),
             sa.Column("created_by", sa.String(64), nullable=False, server_default="system"),
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.ForeignKeyConstraint(["template_id"], ["ucp_pipeline_template.id"], ondelete="CASCADE"),
             sa.UniqueConstraint("template_id", "version", name="uq_tpl_version"),
+        )
+    if _table_exists("ucp_pipeline_template") and not _fk_exists("ucp_pipeline_template_version", "fk_pipeline_template_version_template"):
+        op.create_foreign_key(
+            "fk_pipeline_template_version_template",
+            "ucp_pipeline_template_version",
+            "ucp_pipeline_template",
+            ["template_id"],
+            ["id"],
+            ondelete="CASCADE",
         )
     _create_index_if_missing("ix_pipeline_template_version_tpl", "ucp_pipeline_template_version", ["template_id"])
 
