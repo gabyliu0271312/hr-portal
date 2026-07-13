@@ -1,12 +1,9 @@
-"""phase4 credential 强绑 system
+"""0069 UCP Phase 4: bind credentials to connector system.
 
-Revision ID: 0069
-Revises: 0068
-Create Date: 2026-07-03 17:15
+Idempotent for legacy/prod schemas.
 """
 from alembic import op
 import sqlalchemy as sa
-
 
 revision = "0069"
 down_revision = "0068"
@@ -14,35 +11,50 @@ branch_labels = None
 depends_on = None
 
 
+def _inspector():
+    return sa.inspect(op.get_bind())
+
+
+def _table_exists(table_name: str) -> bool:
+    return table_name in _inspector().get_table_names()
+
+
+def _column_exists(table_name: str, column_name: str) -> bool:
+    if not _table_exists(table_name):
+        return False
+    return any(c["name"] == column_name for c in _inspector().get_columns(table_name))
+
+
+def _index_exists(table_name: str, index_name: str) -> bool:
+    if not _table_exists(table_name):
+        return False
+    return any(i.get("name") == index_name for i in _inspector().get_indexes(table_name))
+
+
+def _fk_exists(table_name: str, fk_name: str) -> bool:
+    if not _table_exists(table_name):
+        return False
+    return any(fk.get("name") == fk_name for fk in _inspector().get_foreign_keys(table_name))
+
+
+def _create_index_if_missing(index_name: str, table_name: str, columns: list[str], **kwargs) -> None:
+    if _table_exists(table_name) and not _index_exists(table_name, index_name):
+        op.create_index(index_name, table_name, columns, **kwargs)
+
+
 def upgrade() -> None:
-    # 1. 添加字段(nullable=True 兼容历史)
-    op.add_column(
-        "connector_credentials",
-        sa.Column("system_id", sa.BigInteger(), nullable=True),
-    )
-    op.add_column(
-        "connector_credentials",
-        sa.Column("env_tag", sa.String(length=32), nullable=True),
-    )
-    op.add_column(
-        "connector_credentials",
-        sa.Column("is_primary", sa.Integer(), nullable=False, server_default="1"),
-    )
-    op.create_index(
-        "ix_connector_credentials_system",
-        "connector_credentials",
-        ["system_id"],
-    )
-    op.create_foreign_key(
-        "fk_connector_credentials_system",
-        "connector_credentials",
-        "connector_system",
-        ["system_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
-    # 2. 同一 system 下只能有一个 primary 凭证
-    op.create_index(
+    if not _table_exists("connector_credentials"):
+        return
+    if not _column_exists("connector_credentials", "system_id"):
+        op.add_column("connector_credentials", sa.Column("system_id", sa.BigInteger(), nullable=True))
+    if not _column_exists("connector_credentials", "env_tag"):
+        op.add_column("connector_credentials", sa.Column("env_tag", sa.String(length=32), nullable=True))
+    if not _column_exists("connector_credentials", "is_primary"):
+        op.add_column("connector_credentials", sa.Column("is_primary", sa.Integer(), nullable=False, server_default="1"))
+    _create_index_if_missing("ix_connector_credentials_system", "connector_credentials", ["system_id"])
+    if _table_exists("connector_system") and not _fk_exists("connector_credentials", "fk_connector_credentials_system"):
+        op.create_foreign_key("fk_connector_credentials_system", "connector_credentials", "connector_system", ["system_id"], ["id"], ondelete="RESTRICT")
+    _create_index_if_missing(
         "uq_connector_credentials_primary_per_system",
         "connector_credentials",
         ["system_id"],
@@ -52,9 +64,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("uq_connector_credentials_primary_per_system", table_name="connector_credentials")
-    op.drop_constraint("fk_connector_credentials_system", "connector_credentials", type_="foreignkey")
-    op.drop_index("ix_connector_credentials_system", table_name="connector_credentials")
-    op.drop_column("connector_credentials", "is_primary")
-    op.drop_column("connector_credentials", "env_tag")
-    op.drop_column("connector_credentials", "system_id")
+    if not _table_exists("connector_credentials"):
+        return
+    if _index_exists("connector_credentials", "uq_connector_credentials_primary_per_system"):
+        op.drop_index("uq_connector_credentials_primary_per_system", table_name="connector_credentials")
+    if _fk_exists("connector_credentials", "fk_connector_credentials_system"):
+        op.drop_constraint("fk_connector_credentials_system", "connector_credentials", type_="foreignkey")
+    if _index_exists("connector_credentials", "ix_connector_credentials_system"):
+        op.drop_index("ix_connector_credentials_system", table_name="connector_credentials")
+    for column in ("is_primary", "env_tag", "system_id"):
+        if _column_exists("connector_credentials", column):
+            op.drop_column("connector_credentials", column)
