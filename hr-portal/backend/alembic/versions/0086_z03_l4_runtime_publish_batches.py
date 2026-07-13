@@ -33,7 +33,17 @@ def upgrade() -> None:
             sa.Column("max_pilot_metrics", sa.Integer, nullable=False, server_default="5"),
             sa.Column("updated_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
         )
-    op.execute("INSERT INTO l4_runtime_controls (id, max_pilot_metrics) VALUES (1, 5) ON CONFLICT DO NOTHING")
+    # Existing production tables may not have server defaults recorded, so seed all NOT NULL columns explicitly.
+    op.execute(
+        """
+        INSERT INTO l4_runtime_controls (id, emergency_stop, max_pilot_metrics, updated_at)
+        VALUES (1, false, 5, now())
+        ON CONFLICT (id) DO UPDATE
+        SET emergency_stop = COALESCE(l4_runtime_controls.emergency_stop, false),
+            max_pilot_metrics = COALESCE(l4_runtime_controls.max_pilot_metrics, EXCLUDED.max_pilot_metrics),
+            updated_at = COALESCE(l4_runtime_controls.updated_at, EXCLUDED.updated_at)
+        """
+    )
 
     inspector = sa.inspect(conn)
     if not _table_exists(inspector, "l4_publish_batches"):
