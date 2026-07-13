@@ -21,7 +21,34 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _table_exists(name: str) -> bool:
+    conn = op.get_bind()
+    return bool(conn.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT FROM pg_catalog.pg_tables "
+            "WHERE schemaname = 'public' AND tablename = :name)"
+        ),
+        {"name": name},
+    ).scalar())
+
+
+def _phase1a_already_materialized() -> bool:
+    # Production may already have these tables from a manual/legacy bootstrap while alembic_version
+    # still points before 0056. 0072 later aligns connector_* -> ucp_* and fills missing columns,
+    # so do not recreate Phase 1A tables when either old or renamed tables are present.
+    core_tables = [
+        "connector_credentials", "connector_system_config", "connector_pipeline_config",
+        "connector_pipeline_execution", "connector_pipeline_step_execution",
+        "ucp_credentials", "ucp_system_config", "ucp_pipeline_config",
+        "ucp_pipeline_execution", "ucp_pipeline_step_execution",
+    ]
+    return any(_table_exists(t) for t in core_tables)
+
+
 def upgrade() -> None:
+    if _phase1a_already_materialized():
+        return
+
     # 1. 凭证表
     op.create_table(
         "connector_credentials",
