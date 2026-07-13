@@ -14,15 +14,30 @@ branch_labels = None
 depends_on = None
 
 
+def _columns() -> set[str]:
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "l4_publish_batches" not in inspector.get_table_names():
+        return set()
+    return {c["name"] for c in inspector.get_columns("l4_publish_batches")}
+
+
+def _add_if_missing(existing: set[str], name: str, column: sa.Column) -> None:
+    if name not in existing:
+        op.add_column("l4_publish_batches", column)
+        existing.add(name)
+
+
 def upgrade() -> None:
-    op.add_column("l4_publish_batches", sa.Column("dataset_outputs_before", sa.JSON, nullable=True, server_default="[]"))
-    op.add_column("l4_publish_batches", sa.Column("lineage_before", sa.JSON, nullable=True, server_default="[]"))
-    op.add_column("l4_publish_batches", sa.Column("permissions_before", sa.JSON, nullable=True, server_default="[]"))
-    op.add_column("l4_publish_batches", sa.Column("bi_contract_before", sa.JSON, nullable=True, server_default="[]"))
+    existing = _columns()
+    _add_if_missing(existing, "dataset_outputs_before", sa.Column("dataset_outputs_before", sa.JSON, nullable=True, server_default="[]"))
+    _add_if_missing(existing, "lineage_before", sa.Column("lineage_before", sa.JSON, nullable=True, server_default="[]"))
+    _add_if_missing(existing, "permissions_before", sa.Column("permissions_before", sa.JSON, nullable=True, server_default="[]"))
+    _add_if_missing(existing, "bi_contract_before", sa.Column("bi_contract_before", sa.JSON, nullable=True, server_default="[]"))
 
 
 def downgrade() -> None:
-    op.drop_column("l4_publish_batches", "bi_contract_before")
-    op.drop_column("l4_publish_batches", "permissions_before")
-    op.drop_column("l4_publish_batches", "lineage_before")
-    op.drop_column("l4_publish_batches", "dataset_outputs_before")
+    existing = _columns()
+    for name in ["bi_contract_before", "permissions_before", "lineage_before", "dataset_outputs_before"]:
+        if name in existing:
+            op.drop_column("l4_publish_batches", name)

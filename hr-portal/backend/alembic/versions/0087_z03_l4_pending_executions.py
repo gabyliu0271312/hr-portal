@@ -14,7 +14,15 @@ branch_labels = None
 depends_on = None
 
 
+def _table_exists(inspector, table_name: str) -> bool:
+    return table_name in inspector.get_table_names()
+
+
 def upgrade() -> None:
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if _table_exists(inspector, "l4_pending_executions"):
+        return
     op.create_table(
         "l4_pending_executions",
         sa.Column("id", sa.BigInteger, primary_key=True, autoincrement=True),
@@ -39,4 +47,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("l4_pending_executions")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if _table_exists(inspector, "l4_pending_executions"):
+        op.drop_table("l4_pending_executions")
