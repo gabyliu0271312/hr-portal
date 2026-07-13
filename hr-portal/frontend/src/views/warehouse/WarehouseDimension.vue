@@ -5,7 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Refresh } from '@element-plus/icons-vue'
 import {
   listDimensions, getDimensionTree, createDimension, updateDimension, deleteDimension, getDimensionImpact,
-  listAssets, listAssetColumns, type Dimension, type Asset,
+  listModels, getModel, type Dimension,
 } from '@/api/warehouse'
 
 const userStore = useUserStore()
@@ -26,38 +26,48 @@ async function load() {
 const dialogVisible = ref(false)
 const dialogMode = ref<'create' | 'edit'>('create')
 const editId = ref<number | null>(null)
-const form = ref({ dimension_code: '', dimension_name: '', parent_id: undefined as number | undefined, bound_table: '', bound_field: '', description: '', display_order: 0 })
+const form = ref({ dimension_code: '', dimension_name: '', parent_id: undefined as number | undefined, source_dataset_id: undefined as number | undefined, bound_field: '', description: '', display_order: 0 })
 const saving = ref(false)
 
-// 绑定表/字段下拉
-const tables = ref<Asset[]>([])
+// 数据集下拉（DWD层）
+const datasets = ref<any[]>([])
 const columns = ref<{ column_code: string; column_label: string; data_type: string }[]>([])
 const columnsLoading = ref(false)
+const selectedDatasetTables = ref<string[]>([])
 
-async function loadTables() {
+async function loadDatasets() {
   try {
-    const res = await listAssets({ page_size: 200 })
-    tables.value = res.items
-  } catch { tables.value = [] }
+    const res = await listModels({ page_size: 200, warehouse_layer: 'DWD' })
+    datasets.value = res.items.map((m: any) => ({ ...m, table_name: m.name })) as any
+  } catch { datasets.value = [] }
 }
 
-async function onTableChange(tableName: string) {
-  form.value.bound_field = ''
+async function loadDatasetFields(datasetId: number | undefined) {
   columns.value = []
-  if (!tableName) return
+  if (!datasetId) return
   columnsLoading.value = true
   try {
-    const res = await listAssetColumns(tableName)
-    columns.value = res.columns.map(c => ({ column_code: c.column_code, column_label: c.column_label, data_type: c.data_type }))
+    const model = await getModel(datasetId) as any
+    columns.value = (model.output_fields || []).map((f: any) => ({
+      column_code: f.output_code || f.source_column,
+      column_label: f.output_label || f.output_code || f.source_column,
+      data_type: f.data_type || '',
+    }))
   } catch { columns.value = [] }
   finally { columnsLoading.value = false }
 }
 
+async function onDatasetChange(datasetId: number | undefined) {
+  form.value.source_dataset_id = datasetId
+  form.value.bound_field = ''
+  await loadDatasetFields(datasetId)
+}
+
 function openCreate(parentId?: number) {
   dialogMode.value = 'create'; editId.value = null
-  form.value = { dimension_code: '', dimension_name: '', parent_id: parentId, bound_table: '', bound_field: '', description: '', display_order: 0 }
+  form.value = { dimension_code: '', dimension_name: '', parent_id: parentId, source_dataset_id: undefined, bound_field: '', description: '', display_order: 0 }
   columns.value = []
-  loadTables()
+  loadDatasets()
   dialogVisible.value = true
 }
 
@@ -65,9 +75,9 @@ async function openEdit(id: number) {
   const d = dims.value.find(x => x.id === id)
   if (!d) return
   dialogMode.value = 'edit'; editId.value = id
-  form.value = { dimension_code: d.dimension_code, dimension_name: d.dimension_name, parent_id: d.parent_id ?? undefined, bound_table: d.bound_table ?? '', bound_field: d.bound_field ?? '', description: d.description ?? '', display_order: d.display_order ?? 0 }
-  await loadTables()
-  if (d.bound_table) await onTableChange(d.bound_table)
+  form.value = { dimension_code: d.dimension_code, dimension_name: d.dimension_name, parent_id: d.parent_id ?? undefined, source_dataset_id: (d as any).source_dataset_id ?? undefined, bound_field: d.bound_field ?? '', description: d.description ?? '', display_order: d.display_order ?? 0 }
+  await loadDatasets()
+  if ((d as any).source_dataset_id) await loadDatasetFields((d as any).source_dataset_id)
   dialogVisible.value = true
 }
 
@@ -132,7 +142,7 @@ onMounted(load)
         <el-table-column prop="dimension_code" label="编码" width="140" />
         <el-table-column label="绑定字段" width="200">
           <template #default="{ row }">
-            <span v-if="row.bound_table && row.bound_field">{{ row.bound_table }}.{{ row.bound_field }}</span>
+            <span v-if="(row as any).source_dataset_id && row.bound_field">数据集 #{{ (row as any).source_dataset_id }} · {{ row.bound_field }}</span>
             <span v-else style="color:#909399">—</span>
           </template>
         </el-table-column>
@@ -158,13 +168,13 @@ onMounted(load)
             <el-option v-for="d in dims.filter(x => x.id !== editId)" :key="d.id" :label="d.dimension_code + ' - ' + d.dimension_name" :value="d.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="绑定表">
-          <el-select v-model="form.bound_table" clearable filterable placeholder="选择表" style="width:100%" @change="onTableChange">
-            <el-option v-for="t in tables" :key="t.table_name" :label="t.table_label || t.table_name" :value="t.table_name" />
+        <el-form-item label="数据集(DWD)">
+          <el-select v-model="form.source_dataset_id" clearable filterable placeholder="选择DWD数据集" style="width:100%" @change="onDatasetChange">
+            <el-option v-for="t in datasets" :key="(t as any).id" :label="(t as any).name || t.table_label || t.table_name" :value="(t as any).id" />
           </el-select>
         </el-form-item>
         <el-form-item label="绑定字段">
-          <el-select v-model="form.bound_field" clearable filterable placeholder="先选择表" style="width:100%" :loading="columnsLoading" :disabled="!form.bound_table">
+          <el-select v-model="form.bound_field" clearable filterable placeholder="先选数据集" style="width:100%" :loading="columnsLoading" :disabled="!form.source_dataset_id">
             <el-option v-for="c in columns" :key="c.column_code" :label="`${c.column_label || c.column_code} (${c.data_type || '?'})`" :value="c.column_code" />
           </el-select>
         </el-form-item>

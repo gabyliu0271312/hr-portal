@@ -84,6 +84,25 @@ def get_metric_compute_service(session: AsyncSession) -> MetricComputeService:
 
 # ==================== 维度定义 (R0305) ====================
 
+async def _validate_field_in_dataset(session: AsyncSession, dataset_id: int, field_name: str):
+    """校验字段是否存在于数据集输出字段中。"""
+    from app.datasets.models import DatasetOutputField
+    exists = await session.execute(
+        select(func.count(DatasetOutputField.id)).where(
+            DatasetOutputField.dataset_id == dataset_id,
+            func.lower(DatasetOutputField.output_code) == field_name.lower(),
+        )
+    )
+    if exists.scalar_one() == 0:
+        exists2 = await session.execute(
+            select(func.count(DatasetOutputField.id)).where(
+                DatasetOutputField.dataset_id == dataset_id,
+                func.lower(DatasetOutputField.source_column) == field_name.lower(),
+            )
+        )
+        if exists2.scalar_one() == 0:
+            raise ValueError(f"字段 '{field_name}' 不在数据集 {dataset_id} 的输出字段中")
+
 class DimensionService:
     """维度目录管理"""
     def __init__(self, session: AsyncSession): self.session = session
@@ -91,13 +110,13 @@ class DimensionService:
     async def list_dimensions(self):
         from app.warehouse.models import Dimension
         rows = (await self.session.execute(select(Dimension).order_by(Dimension.display_order, Dimension.id))).scalars().all()
-        return [{"id": d.id, "dimension_code": d.dimension_code, "dimension_name": d.dimension_name, "parent_id": d.parent_id, "bound_table": d.bound_table, "bound_field": d.bound_field, "description": d.description, "display_order": d.display_order, "created_at": d.created_at.isoformat() if d.created_at else None, "updated_at": d.updated_at.isoformat() if d.updated_at else None} for d in rows]
+        return [{"id": d.id, "dimension_code": d.dimension_code, "dimension_name": d.dimension_name, "parent_id": d.parent_id, "source_dataset_id": d.source_dataset_id, "bound_table": d.bound_table, "bound_field": d.bound_field, "description": d.description, "display_order": d.display_order, "created_at": d.created_at.isoformat() if d.created_at else None, "updated_at": d.updated_at.isoformat() if d.updated_at else None} for d in rows]
 
     async def get_dimension(self, dim_id: int):
         from app.warehouse.models import Dimension
         d = await self.session.get(Dimension, dim_id)
         if d is None: return None
-        return {"id": d.id, "dimension_code": d.dimension_code, "dimension_name": d.dimension_name, "parent_id": d.parent_id, "bound_table": d.bound_table, "bound_field": d.bound_field, "description": d.description, "display_order": d.display_order}
+        return {"id": d.id, "dimension_code": d.dimension_code, "dimension_name": d.dimension_name, "parent_id": d.parent_id, "source_dataset_id": d.source_dataset_id, "bound_table": d.bound_table, "bound_field": d.bound_field, "description": d.description, "display_order": d.display_order}
 
     async def get_tree(self):
         dims = {d["id"]: {**d, "children": []} for d in await self.list_dimensions()}
@@ -117,7 +136,16 @@ class DimensionService:
         if parent_id:
             parent = await self.session.get(Dimension, parent_id)
             if parent is None: raise ValueError(f"父维度不存在: {parent_id}")
-        d = Dimension(dimension_code=payload["dimension_code"], dimension_name=payload["dimension_name"], parent_id=parent_id, bound_table=payload.get("bound_table"), bound_field=payload.get("bound_field"), description=payload.get("description"), display_order=payload.get("display_order", 0))
+        sid = payload.get("source_dataset_id")
+        if not sid: raise ValueError("数据集为必填")
+        ds = await self.session.get(DataSet, sid) if sid else None
+        if not ds: raise ValueError(f"数据集不存在: {sid}")
+        if ds.warehouse_layer != "DWD": raise ValueError("维度只能绑定DWD层数据集")
+        bf = payload.get("bound_field")
+        if not bf: raise ValueError("绑定字段为必填")
+        # 校验字段属于数据集输出字段
+        await _validate_field_in_dataset(self.session, sid, bf)
+        d = Dimension(dimension_code=payload["dimension_code"], dimension_name=payload["dimension_name"], parent_id=parent_id, source_dataset_id=sid, bound_field=bf, description=payload.get("description"), display_order=payload.get("display_order", 0))
         self.session.add(d); await self.session.commit(); await self.session.refresh(d)
         return await self.get_dimension(d.id)
 
@@ -131,7 +159,19 @@ class DimensionService:
             if new_parent is not None:
                 parent = await self.session.get(Dimension, new_parent)
                 if parent is None: raise ValueError(f"父维度不存在: {new_parent}")
-        for key in ("dimension_name", "parent_id", "bound_table", "bound_field", "description", "display_order"):
+        sid_changed = "source_dataset_id" in payload and payload["source_dataset_id"] is not None
+        bf_changed = "bound_field" in payload and payload["bound_field"] is not None
+        if sid_changed:
+            ds = await self.session.get(DataSet, payload["source_dataset_id"])
+            if not ds: raise ValueError(f"数据集不存在: {payload['source_dataset_id']}")
+            if ds.warehouse_layer != "DWD": raise ValueError("维度只能绑定DWD层数据集")
+        # 只要数据集或字段任一变化，就以最终值校验字段合法性
+        if sid_changed or bf_changed:
+            final_sid = payload.get("source_dataset_id") or d.source_dataset_id
+            final_bf = payload.get("bound_field") or d.bound_field
+            if final_sid and final_bf:
+                await _validate_field_in_dataset(self.session, final_sid, final_bf)
+        for key in ("dimension_name", "parent_id", "source_dataset_id", "bound_table", "bound_field", "description", "display_order"):
             if key in payload and payload[key] is not None: setattr(d, key, payload[key])
         return d
 
@@ -183,40 +223,54 @@ class DwsAggregateService:
         if a is None: return None
         return {"id": a.id, "name": a.name, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "aggregation": a.aggregation, "measure_field": a.measure_field, "time_grain": a.time_grain, "business_definition": a.business_definition, "status": a.status}
 
-    async def create_aggregate(self, payload: dict):
-        from app.warehouse.models import DwsAggregateDefinition, Dimension
-        from app.datasets.models import WarehouseMetric
-        if payload.get("aggregation") not in DWS_AGGREGATIONS: raise ValueError(f"非法聚合方式: {payload['aggregation']}")
+    async def _validate_aggregate_source(self, payload: dict):
+        """硬兜底同源校验：create/update 都必须通过。"""
+        from app.warehouse.models import Dimension as Dim
+        from app.datasets.models import WarehouseMetric as WM
+        sid = payload.get("source_dataset_id")
+        if not sid: raise ValueError("source_dataset_id 为必填")
+        ds = await self.session.get(DataSet, sid)
+        if ds is None: raise ValueError(f"数据集不存在: {sid}")
+        if ds.warehouse_layer != "DWD": raise ValueError("只能选择DWD层数据集")
         if payload.get("metric_id"):
-            m = await self.session.get(WarehouseMetric, payload["metric_id"])
+            m = await self.session.get(WM, payload["metric_id"])
             if m is None: raise ValueError(f"指标不存在: {payload['metric_id']}")
-        if payload.get("source_dataset_id"):
-            ds = await self.session.get(DataSet, payload["source_dataset_id"])
-            if ds is None: raise ValueError(f"数据集不存在: {payload['source_dataset_id']}")
+            if m.related_dataset_id != sid: raise ValueError("指标必须与聚合使用同一个DWD数据集")
         group_by = payload.get("group_by", [])
-        if group_by:
-            existing_dims = (await self.session.execute(select(Dimension.dimension_code).where(Dimension.dimension_code.in_(group_by)))).scalars().all()
-            existing_set = set(existing_dims)
-            for code in group_by:
-                if code not in existing_set: raise ValueError(f"维度 code 不存在: {code}")
-        a = DwsAggregateDefinition(name=payload["name"], metric_id=payload.get("metric_id"), source_dataset_id=payload.get("source_dataset_id"), group_by=group_by, filter=payload.get("filter"), aggregation=payload.get("aggregation", "sum"), measure_field=payload.get("measure_field"), time_grain=payload.get("time_grain"), business_definition=payload.get("business_definition"), status="draft")
+        if not group_by: raise ValueError("至少需要一个分组维度")
+        dims = (await self.session.execute(select(Dim).where(Dim.dimension_code.in_(group_by)))).scalars().all()
+        for code in group_by:
+            d = next((dd for dd in dims if dd.dimension_code == code), None)
+            if d is None: raise ValueError(f"维度不存在: {code}")
+            if not d.source_dataset_id or d.source_dataset_id != sid:
+                raise ValueError(f"维度 '{code}' 必须绑定同一个DWD数据集({sid})")
+            if not d.bound_field: raise ValueError(f"维度 '{code}' 缺少绑定字段")
+        if payload.get("measure_field"):
+            await _validate_field_in_dataset(self.session, sid, payload["measure_field"])
+
+    async def create_aggregate(self, payload: dict):
+        from app.warehouse.models import DwsAggregateDefinition
+        if payload.get("aggregation") not in DWS_AGGREGATIONS: raise ValueError(f"非法聚合方式: {payload['aggregation']}")
+        await self._validate_aggregate_source(payload)
+        a = DwsAggregateDefinition(name=payload["name"], metric_id=payload.get("metric_id"), source_dataset_id=payload.get("source_dataset_id"), group_by=payload.get("group_by", []), filter=payload.get("filter"), aggregation=payload.get("aggregation", "sum"), measure_field=payload.get("measure_field"), time_grain=payload.get("time_grain"), business_definition=payload.get("business_definition"), status="draft")
         self.session.add(a); await self.session.commit(); await self.session.refresh(a)
         return await self.get_aggregate(a.id)
 
     async def update_aggregate(self, agg_id: int, payload: dict):
-        from app.warehouse.models import DwsAggregateDefinition, Dimension
+        from app.warehouse.models import DwsAggregateDefinition
         a = await self.session.get(DwsAggregateDefinition, agg_id)
         if a is None: return None
         if a.status == "archived": raise ValueError("已归档聚合定义不可编辑")
-        if "group_by" in payload and payload["group_by"]:
-            existing_dims = (await self.session.execute(select(Dimension.dimension_code).where(Dimension.dimension_code.in_(payload["group_by"])))).scalars().all()
-            for code in payload["group_by"]:
-                if code not in set(existing_dims): raise ValueError(f"维度 code 不存在: {code}")
-        allowed = {"name", "group_by", "filter", "aggregation", "measure_field", "time_grain", "business_definition"}
+        merged = {"source_dataset_id": a.source_dataset_id, "metric_id": a.metric_id, "group_by": a.group_by or [], "measure_field": a.measure_field}
+        for k in ("source_dataset_id", "metric_id", "group_by", "measure_field"):
+            if k in payload and payload[k] is not None: merged[k] = payload[k]
+        await self._validate_aggregate_source(merged)
+        allowed = {"name", "group_by", "filter", "aggregation", "measure_field", "time_grain", "business_definition", "metric_id", "source_dataset_id"}
         for key, val in payload.items():
-            if key in allowed: setattr(a, key, val)
+            if key in allowed and val is not None: setattr(a, key, val)
         if "aggregation" in payload and payload["aggregation"] not in DWS_AGGREGATIONS: raise ValueError(f"非法聚合方式")
-        return a
+        await self.session.commit(); await self.session.refresh(a)
+        return await self.get_aggregate(a.id)
 
     async def delete_aggregate(self, agg_id: int) -> bool:
         from app.warehouse.models import DwsAggregateDefinition
@@ -242,31 +296,69 @@ class DwsAggregateService:
         return await self.get_aggregate(agg_id)
 
     async def validate_aggregate(self, payload: dict):
-        from app.warehouse.models import Dimension
         errors = []
         if not payload.get("name"): errors.append({"field": "name", "message": "名称为必填"})
-        if not payload.get("group_by"): errors.append({"field": "group_by", "message": "至少需要一个分组维度"})
-        elif payload["group_by"]:
-            existing = (await self.session.execute(select(Dimension.dimension_code).where(Dimension.dimension_code.in_(payload["group_by"])))).scalars().all()
-            for code in payload["group_by"]:
-                if code not in set(existing): errors.append({"field": "group_by", "message": f"维度 code 不存在: {code}"})
-        if not payload.get("measure_field") and not payload.get("metric_id"):
-            errors.append({"field": "measure_field", "message": "未关联指标时，度量字段为必填"})
+        try:
+            await self._validate_aggregate_source(payload)
+        except ValueError as e:
+            errors.append({"field": "source", "message": str(e)})
         return {"valid": len(errors) == 0, "errors": errors}
 
+    @staticmethod
+    def _quote_ident(name: str) -> str:
+        """安全引用 PostgreSQL 标识符（表名、列名、别名）。"""
+        return '"' + name.replace('"', '""') + '"'
+
     async def generate_dws_view(self, agg_id: int):
-        # P0-1: 分层流转校验
         from app.warehouse.layer_policy import validate_layer_transition
         validate_layer_transition("DWD", "DWS", "aggregate")
         from datetime import datetime as dt
         from app.warehouse.models import DwsAggregateDefinition, Dimension
+        from sqlalchemy import text as sa_text
+        Q = self._quote_ident
         agg = await self.session.get(DwsAggregateDefinition, agg_id)
         if agg is None: return None
-        dim_map = {}
+
+        await self._validate_aggregate_source({
+            "source_dataset_id": agg.source_dataset_id,
+            "metric_id": agg.metric_id,
+            "group_by": agg.group_by or [],
+            "measure_field": agg.measure_field,
+        })
+
+        # 维度映射：
+        # - SELECT 使用 "alias"."source_column" AS "output_code"，保证视图列名与数据集输出字段一致
+        # - GROUP BY 使用原始来源表达式，避免按别名分组在不同数据库方言下不兼容
+        # - 元数据注册使用 output_code，不写入带引号的 SQL 表达式
+        dim_select_map = {}
+        dim_group_map = {}
+        dim_col_name = {}
         if agg.group_by:
+            from app.datasets.models import DatasetOutputField
             dims = (await self.session.execute(select(Dimension).where(Dimension.dimension_code.in_(agg.group_by)))).scalars().all()
             for d in dims:
-                dim_map[d.dimension_code] = f"{d.bound_table}.{d.bound_field}" if d.bound_table and d.bound_field else d.dimension_code
+                col = d.bound_field or d.dimension_code
+                # 查 DatasetOutputField 获取 source_alias 和 source_column
+                dof = (await self.session.execute(
+                    select(DatasetOutputField).where(
+                        DatasetOutputField.dataset_id == agg.source_dataset_id,
+                        (
+                            (DatasetOutputField.output_code == col)
+                            | (DatasetOutputField.source_column == col)
+                        ),
+                    )
+                )).scalars().first()
+                if dof and dof.source_column and dof.source_alias:
+                    source_expr = f"{Q(dof.source_alias)}.{Q(dof.source_column)}"
+                    output_code = dof.output_code or col
+                else:
+                    source_expr = Q(col)
+                    output_code = col
+                dim_group_map[d.dimension_code] = source_expr
+                dim_select_map[d.dimension_code] = f"{source_expr} AS {Q(output_code)}"
+                dim_col_name[d.dimension_code] = output_code
+
+        # 度量字段
         measure = agg.measure_field
         if not measure and agg.metric_id:
             from app.datasets.models import WarehouseMetric
@@ -274,24 +366,174 @@ class DwsAggregateService:
             measure = m.formula_expr if m else None
         if not measure:
             measure = "*"
+
+        # 源数据集 FROM 子句构建：单表直接引用，多表使用 DataSetRelation 显式 JOIN
+        dataset_id = agg.source_dataset_id
+        if not dataset_id:
+            raise ValueError("聚合缺少 source_dataset_id")
+        ds_src = await self.session.get(DataSet, dataset_id)
+        if not ds_src: raise ValueError(f"数据集不存在: {dataset_id}")
+        if ds_src.warehouse_layer != "DWD": raise ValueError("只能基于DWD数据集生成DWS视图")
+        from app.datasets.models import DataSetTable, DataSetRelation, DatasetOutputField
+        ds_tables = (await self.session.execute(select(DataSetTable).where(DataSetTable.dataset_id == dataset_id))).scalars().all()
+        table_names = [t.table_name for t in ds_tables] if ds_tables else []
+        if not table_names: raise ValueError(f"数据集 {dataset_id} 没有关联物理表")
+        if len(table_names) == 1:
+            # 单表也必须带数据集内 alias；DatasetOutputField.source_alias 会引用该 alias。
+            t = ds_tables[0]
+            alias = t.alias or t.table_name
+            from_table = f"{Q(t.table_name)} AS {Q(alias)}"
+        else:
+            alias_to_table = {t.alias or t.table_name: t.table_name for t in ds_tables}
+            all_aliases = set(alias_to_table.keys())
+            relations = (await self.session.execute(select(DataSetRelation).where(DataSetRelation.dataset_id == dataset_id))).scalars().all()
+            if not relations: raise ValueError("多表数据集缺少显式关联关系，无法生成 DWS 视图")
+            # 按 DataSetTable 顺序取起点，有向 BFS：只处理 left_alias 已在 joined 的 relation
+            # 这样 LEFT JOIN 方向始终是从已连接表 → 新表，与 relation 定义的语义一致
+            start = ds_tables[0].alias or ds_tables[0].table_name
+            joined: set[str] = {start}
+            processed: set[int] = set()
+            from_parts: list[str] = [f"{Q(alias_to_table[start])} AS {Q(start)}"]
+            pending = list(relations)  # 待处理队列
+            progress = True
+            while pending and progress:
+                progress = False
+                remaining = []
+                for rel in pending:
+                    if id(rel) in processed: continue
+                    # 只处理 left_alias 已在 joined 中的 relation（保证方向）
+                    if rel.left_alias in joined and rel.right_alias not in joined:
+                        kp = []
+                        for k in (rel.keys or []):
+                            kp.append(f"{Q(rel.left_alias)}.{Q(k['left'])} = {Q(rel.right_alias)}.{Q(k['right'])}")
+                        if not kp: raise ValueError(f"关联关系 {rel.left_alias} ↔ {rel.right_alias} 缺少 join key")
+                        jt = rel.join_type.upper() if rel.join_type else "LEFT"
+                        rt = alias_to_table.get(rel.right_alias, rel.right_alias)
+                        from_parts.append(f"{jt} JOIN {Q(rt)} AS {Q(rel.right_alias)} ON {' AND '.join(kp)}")
+                        joined.add(rel.right_alias)
+                        processed.add(id(rel))
+                        progress = True
+                    else:
+                        remaining.append(rel)
+                pending = remaining
+            # 第二遍：left→right 走不通的，尝试 right→left（反转方向）
+            if pending:
+                progress = True
+                while pending and progress:
+                    progress = False
+                    remaining = []
+                    for rel in pending:
+                        if id(rel) in processed: continue
+                        if rel.right_alias in joined and rel.left_alias not in joined:
+                            kp = []
+                            for k in (rel.keys or []):
+                                kp.append(f"{Q(rel.right_alias)}.{Q(k['right'])} = {Q(rel.left_alias)}.{Q(k['left'])}")
+                            if not kp: raise ValueError(f"关联关系 {rel.left_alias} ↔ {rel.right_alias} 缺少 join key")
+                            lt = alias_to_table.get(rel.left_alias, rel.left_alias)
+                            rev = {"LEFT": "RIGHT", "RIGHT": "LEFT", "INNER": "INNER", "FULL": "FULL"}
+                            jt = rev.get(rel.join_type.upper(), rel.join_type.upper()) if rel.join_type else "LEFT"
+                            from_parts.append(f"{jt} JOIN {Q(lt)} AS {Q(rel.left_alias)} ON {' AND '.join(kp)}")
+                            joined.add(rel.left_alias)
+                            processed.add(id(rel))
+                            progress = True
+                        else:
+                            remaining.append(rel)
+                    pending = remaining
+            # 校验所有表都被覆盖
+            missing = all_aliases - joined
+            if missing: raise ValueError(f"数据集表未连接: {', '.join(sorted(missing))}")
+            from_table = " ".join(from_parts)
+
         agg_func = agg.aggregation.upper() if agg.aggregation else "SUM"
-        resolved_cols = [dim_map.get(c, c) for c in (agg.group_by or [])]
-        group_cols = ", ".join(resolved_cols) if resolved_cols else ""
-        view_name = f"dws_{agg.name.replace(' ', '_').lower()}"
-        sql_summary = f"CREATE VIEW {view_name} AS\nSELECT {group_cols + ', ' if group_cols else ''}{agg_func}({measure}) AS {agg_func}_{measure}\nFROM datasets.id={agg.source_dataset_id}\nGROUP BY {group_cols if group_cols else '()'}"
+        select_dim_cols = [dim_select_map.get(c, Q(c)) for c in (agg.group_by or [])]
+        group_exprs = [dim_group_map.get(c, Q(c)) for c in (agg.group_by or [])]
+        select_group_cols = ", ".join(select_dim_cols) if select_dim_cols else ""
+        group_cols = ", ".join(group_exprs) if group_exprs else ""
+        # measure 是复杂表达式时直接引用，不再包聚合函数
+        is_simple = measure.replace('.', '').replace('_', '').isalnum()
+        if is_simple:
+            # measure_field 来自数据集输出字段时，SQL 必须使用其 source_alias/source_column。
+            # 同时兼容历史值保存 source_column 的情况。
+            measure_dof = (await self.session.execute(
+                select(DatasetOutputField).where(
+                    DatasetOutputField.dataset_id == dataset_id,
+                    (
+                        (DatasetOutputField.output_code == measure)
+                        | (DatasetOutputField.source_column == measure)
+                    ),
+                )
+            )).scalars().first()
+            if measure_dof and measure_dof.source_column and measure_dof.source_alias:
+                measure_source = f"{Q(measure_dof.source_alias)}.{Q(measure_dof.source_column)}"
+            else:
+                measure_source = Q(measure)
+            measure_expr = f"{agg_func}({measure_source})"
+        else:
+            measure_expr = measure  # 公式表达式本身已是聚合
+        measure_alias = "aggregated_value"
+        view_name = f"ds_dws_{agg_id}"
+
+        # 1. 创建数据库 VIEW（含 ROW_NUMBER() 作为 id 主键列）
+        select_clause = f"ROW_NUMBER() OVER () AS {Q('id')}, {select_group_cols + ', ' if select_group_cols else ''}{measure_expr} AS {Q(measure_alias)}, NULL::timestamptz AS {Q('synced_at')}"
+        ddl = f"CREATE OR REPLACE VIEW {Q(view_name)} AS SELECT {select_clause} FROM {from_table}"
+        if group_cols:
+            ddl += f" GROUP BY {group_cols}"
+        # DDL 在独立 session 执行，避免污染主 session 导致后续 DataSet/RegisteredTable 写入失败
+        from app.core.db import get_session_factory
+        async with get_session_factory()() as ddl_db:
+            try:
+                await ddl_db.execute(sa_text("DROP VIEW IF EXISTS " + Q(view_name)))
+                await ddl_db.execute(sa_text(ddl))
+                await ddl_db.commit()
+            except Exception as e:
+                    try:
+                        await ddl_db.rollback()
+                    except Exception:
+                        pass
+                    raise ValueError(f"创建视图失败: {str(e)[:200]}")
+
+        # 2. 创建/更新 DataSet
         ds_name = view_name
         existing = (await self.session.execute(select(DataSet).where(DataSet.name == ds_name))).scalars().first()
         if existing: ds = existing; ds.version = (ds.version or 0) + 1
         else:
             ds = DataSet(name=ds_name, description=agg.business_definition or f"从 {agg.name} 生成", warehouse_layer="DWS", status="published", version=1, published_at=dt.utcnow())
             self.session.add(ds); await self.session.flush()
-        # 同时注册为数据资产表，使其出现在资产列表中
-        from app.data.models import RegisteredTable
+
+        # 3. 注册数据资产表 + 列
+        from app.data.models import RegisteredTable, TableColumn
         rt_exists = (await self.session.execute(select(RegisteredTable).where(RegisteredTable.table_name == ds_name))).scalars().first()
         if not rt_exists:
             rt = RegisteredTable(table_name=ds_name, table_label=agg.name, warehouse_layer="DWS", source_system="dws_aggregate")
             self.session.add(rt); await self.session.flush()
-        return {"aggregate_id": agg_id, "view_name": ds_name, "sql_summary": sql_summary, "output_fields": list(agg.group_by or []) + [f"{agg_func}_{measure}"], "dependencies": [], "version": ds.version, "status": "published"}
+        # 注册列：id / 分组维度 / 度量值 / synced_at
+        col_order = 0
+        for col_code, col_label in [("id", "ID"), ("synced_at", "同步时间")]:
+            ec = (await self.session.execute(select(TableColumn).where(TableColumn.table_name == ds_name, TableColumn.column_code == col_code))).scalars().first()
+            if not ec:
+                self.session.add(TableColumn(table_name=ds_name, column_code=col_code, column_label=col_label, data_type="integer" if col_code == "id" else "timestamptz", display_order=col_order, is_visible=True))
+            col_order += 1
+        for code in (agg.group_by or []):
+            col_name = dim_col_name.get(code, code)
+            ec = (await self.session.execute(select(TableColumn).where(TableColumn.table_name == ds_name, TableColumn.column_code == col_name))).scalars().first()
+            if not ec:
+                self.session.add(TableColumn(table_name=ds_name, column_code=col_name, column_label=col_name, data_type="string", display_order=col_order, is_visible=True))
+            col_order += 1
+        ec = (await self.session.execute(select(TableColumn).where(TableColumn.table_name == ds_name, TableColumn.column_code == measure_alias))).scalars().first()
+        if not ec:
+            self.session.add(TableColumn(table_name=ds_name, column_code=measure_alias, column_label=measure_alias, data_type="numeric", display_order=col_order, is_visible=True))
+
+        # 4. 动态注册到 DATA_TABLES（使预览/查询可用）
+        from app.data.dynamic_loader import _register_view_model
+        try:
+            async with get_session_factory()() as reg_db:
+                await _register_view_model(reg_db, view_name, force=True)
+        except Exception:
+            pass
+
+        sql_summary = ddl
+        output_fields = [dim_col_name.get(code, code) for code in (agg.group_by or [])] + [measure_alias]
+        return {"aggregate_id": agg_id, "view_name": ds_name, "sql_summary": sql_summary, "output_fields": output_fields, "dependencies": [], "version": ds.version, "status": "published"}
 
     async def get_view_impact(self, agg_id: int):
         from app.warehouse.models import DwsAggregateDefinition

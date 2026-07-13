@@ -3170,12 +3170,11 @@ async def update_dws_aggregate(
     if "aggregation" in data:
         _validate_aggregation(data["aggregation"])
     try:
-        a = await svc.update_aggregate(agg_id, data)
-        if a is None:
+        result = await svc.update_aggregate(agg_id, data)
+        if result is None:
             raise HTTPException(status_code=404, detail=f"聚合定义不存在: {agg_id}")
         await db.commit()
-        await db.refresh(a)
-        return await svc.get_aggregate(agg_id)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -915,8 +915,8 @@ class DimensionCreateIn(BaseModel):
     dimension_code: str = Field(..., max_length=64)
     dimension_name: str = Field(..., max_length=128)
     parent_id: Optional[int] = None
-    bound_table: Optional[str] = None
-    bound_field: Optional[str] = None
+    source_dataset_id: int = Field(..., description="数据集ID（必填，仅限DWD层）")
+    bound_field: str = Field(..., max_length=128)
     description: Optional[str] = None
     display_order: int = 0
 
@@ -925,7 +925,7 @@ class DimensionUpdateIn(BaseModel):
     model_config = {"extra": "forbid"}
     dimension_name: Optional[str] = None
     parent_id: Optional[int] = None
-    bound_table: Optional[str] = None
+    source_dataset_id: Optional[int] = None
     bound_field: Optional[str] = None
     description: Optional[str] = None
     display_order: Optional[int] = None
@@ -936,6 +936,7 @@ class DimensionOut(BaseModel):
     dimension_code: str
     dimension_name: str
     parent_id: Optional[int] = None
+    source_dataset_id: Optional[int] = None
     bound_table: Optional[str] = None
     bound_field: Optional[str] = None
     description: Optional[str] = None
@@ -952,6 +953,7 @@ class DimensionTreeNode(BaseModel):
     dimension_code: str
     dimension_name: str
     parent_id: Optional[int] = None
+    source_dataset_id: Optional[int] = None
     bound_table: Optional[str] = None
     bound_field: Optional[str] = None
     description: Optional[str] = None
@@ -993,6 +995,8 @@ class DwsAggregateDefinitionCreateIn(BaseModel):
 class DwsAggregateDefinitionUpdateIn(BaseModel):
     model_config = {"extra": "forbid"}
     name: Optional[str] = None
+    metric_id: Optional[int] = None
+    source_dataset_id: Optional[int] = None
     group_by: Optional[list[str]] = None
     filter: Optional[dict] = None
     aggregation: Optional[str] = None

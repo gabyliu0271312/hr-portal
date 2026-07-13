@@ -243,7 +243,7 @@ async function loadDatasetOptions() {
   if (datasetOptions.value.length > 0) return
   loadingDatasets.value = true
   try {
-    const res = await listModels({ page_size: 200 })
+    const res = await listModels({ page_size: 200, warehouse_layer: 'DWD' })
     datasetOptions.value = (res.items || []).map((m: any) => ({
       id: m.id, name: m.name, label: m.label || m.name, layer: m.warehouse_layer || '',
     }))

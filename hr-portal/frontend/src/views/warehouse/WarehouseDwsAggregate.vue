@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Refresh, Finished, FolderDelete, DataAnalysis, View } from '@element-plus/icons-vue'
+import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import {
   listDwsAggregates, createDwsAggregate, updateDwsAggregate, deleteDwsAggregate,
   publishDwsAggregate, archiveDwsAggregate, generateDwsView, getDwsViewImpact,
@@ -37,27 +38,32 @@ async function loadDimensions() {
     dimensions.value = await listDimensions()
   } catch { dimensions.value = [] }
 }
+// 严格同源过滤：只显示绑定同数据集的维度
+const filteredDimensions = computed(() =>
+  form.value.source_dataset_id
+    ? dimensions.value.filter(d => (d as any).source_dataset_id === form.value.source_dataset_id)
+    : []
+)
 
-// 数据集下拉
+// 数据集下拉（仅 DWD 层）
 const datasets = ref<{ id: number; name: string }[]>([])
 const datasetFields = ref<{ code: string; label: string; data_type: string }[]>([])
 const fieldsLoading = ref(false)
 
 async function loadDatasets() {
   try {
-    const res = await listModels({ page_size: 200 })
+    const res = await listModels({ page_size: 200, warehouse_layer: 'DWD' })
     datasets.value = res.items.map((m: any) => ({ id: m.id, name: m.name }))
   } catch { datasets.value = [] }
 }
 
 function dimLabel(d: Dimension) {
-  if (d.bound_table && d.bound_field) return `${d.dimension_code}（${d.bound_table}.${d.bound_field}）`
-  return `${d.dimension_code}（未绑定字段）`
+  const sid = (d as any).source_dataset_id
+  if (sid && d.bound_field) return `${d.dimension_code}（#${sid}.${d.bound_field}）`
+  return `${d.dimension_code}（未绑定）`
 }
 
-async function onDatasetChange(dsId: number | undefined) {
-  form.value.group_by = []
-  form.value.measure_field = ''
+async function loadDatasetFields(dsId: number | undefined) {
   datasetFields.value = []
   if (!dsId) return
   fieldsLoading.value = true
@@ -72,10 +78,23 @@ async function onDatasetChange(dsId: number | undefined) {
   finally { fieldsLoading.value = false }
 }
 
+async function onDatasetChange(dsId: number | undefined) {
+  form.value.group_by = []
+  form.value.metric_id = undefined
+  form.value.measure_field = ''
+  await loadDatasetFields(dsId)
+}
+
 // 指标下拉
 const metrics = ref<{ id: number; metric_code: string; metric_name: string }[]>([])
 const metricsLoading = ref(false)
 const autoDeriving = ref(false)
+
+const filteredMetrics = computed(() =>
+  form.value.source_dataset_id
+    ? metrics.value.filter(m => (m as any).related_dataset_id === form.value.source_dataset_id)
+    : []
+)
 
 async function loadMetrics() {
   if (metrics.value.length > 0) return
@@ -83,7 +102,7 @@ async function loadMetrics() {
   try {
     const res = await listMetrics({ page_size: 200 })
     metrics.value = (res.items || []).map((m: any) => ({
-      id: m.id, metric_code: m.metric_code, metric_name: m.metric_name,
+      id: m.id, metric_code: m.metric_code, metric_name: m.metric_name, related_dataset_id: m.related_dataset_id,
     }))
   } catch { metrics.value = [] }
   finally { metricsLoading.value = false }
@@ -168,7 +187,7 @@ async function openEdit(id: number) {
   }
   await loadDimensions()
   await loadDatasets()
-  if (a.source_dataset_id) await onDatasetChange(a.source_dataset_id)
+  if (a.source_dataset_id) await loadDatasetFields(a.source_dataset_id)
   dialogVisible.value = true
 }
 
@@ -286,10 +305,12 @@ onMounted(load)
     <!-- R0309: DWS 聚合配置表单弹窗 -->
     <el-dialog v-model="dialogVisible" :title="dialogMode==='create'?'新建聚合定义':'编辑聚合定义'" width="600px" @close="editId=null">
       <el-form v-if="dialogVisible" label-width="100px" size="small">
-        <el-form-item label="名称" required><el-input v-model="form.name" maxlength="128" placeholder="如：月人均薪酬-按部门" /></el-form-item>
+        <el-form-item label="名称" required>
+          <SmartCodeInput v-model="form.name" label="名称" scope="table" prefix="ds_dws" />
+        </el-form-item>
         <el-form-item label="关联指标" required>
           <el-select v-model="form.metric_id" clearable filterable placeholder="选择指标" style="width:100%" :loading="metricsLoading" @focus="loadMetrics" @change="onMetricChange">
-            <el-option v-for="m in metrics" :key="m.id" :label="`${m.metric_name} (${m.metric_code})`" :value="m.id" />
+            <el-option v-for="m in filteredMetrics" :key="m.id" :label="`${m.metric_name} (${m.metric_code})`" :value="m.id" />
           </el-select>
           <span v-if="autoDeriving" style="font-size:11px;color:#409eff">正在从指标自动推导聚合参数...</span>
         </el-form-item>
@@ -306,7 +327,7 @@ onMounted(load)
         </el-form-item>
         <el-form-item label="分组维度">
           <el-select v-model="form.group_by" multiple filterable placeholder="由指标自动推导 + 从维度目录选择" style="width:100%">
-            <el-option v-for="d in dimensions" :key="d.dimension_code" :label="dimLabel(d)" :value="d.dimension_code">
+            <el-option v-for="d in filteredDimensions" :key="d.dimension_code" :label="dimLabel(d)" :value="d.dimension_code">
               <span>{{ d.dimension_code }}</span>
               <span v-if="d.bound_table && d.bound_field" style="color:#909399;font-size:12px;margin-left:8px">{{ d.bound_table }}.{{ d.bound_field }}</span>
               <span v-else style="color:#e6a23c;font-size:12px;margin-left:8px">未绑定字段</span>

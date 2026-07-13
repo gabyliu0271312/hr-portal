@@ -932,11 +932,13 @@ class WarehouseService:
         if exists > 0:
             raise ValueError(f"指标编码已存在: {payload['metric_code']}")
 
-        # 校验 related_dataset_id 存在
+        # 校验 related_dataset_id 存在 + DWD 层级
         if payload.get("related_dataset_id"):
             ds = await self.session.get(DataSet, payload["related_dataset_id"])
             if ds is None:
                 raise ValueError(f"关联数据集不存在: {payload['related_dataset_id']}")
+            if ds.warehouse_layer != "DWD":
+                raise ValueError("指标只能绑定DWD层数据集")
 
         m = WarehouseMetric(
             metric_code=payload["metric_code"],
@@ -1014,11 +1016,13 @@ class WarehouseService:
             if val is not None or exclude_unset:
                 setattr(m, key, val)
 
-        # 校验 related_dataset_id
+        # 校验 related_dataset_id + DWD 层级
         if "related_dataset_id" in payload and payload.get("related_dataset_id") is not None:
             ds = await self.session.get(DataSet, payload["related_dataset_id"])
             if ds is None:
                 raise ValueError(f"关联数据集不存在: {payload['related_dataset_id']}")
+            if ds.warehouse_layer != "DWD":
+                raise ValueError("指标只能绑定DWD层数据集")
 
         return m
 

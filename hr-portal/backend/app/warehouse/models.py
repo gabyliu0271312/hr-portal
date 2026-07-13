@@ -256,7 +256,8 @@ class Dimension(Base):
         BigInteger, ForeignKey("dimensions.id", ondelete="SET NULL"),
         nullable=True, comment="父维度 ID，NULL 表示根节点",
     )
-    bound_table = Column(String(128), nullable=True, comment="绑定物理表名")
+    source_dataset_id = Column(BigInteger, ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True, comment="绑定数据集ID（维度只允许绑定DWD层数据集）")
+    bound_table = Column(String(128), nullable=True, comment="绑定物理表名（已废弃）")
     bound_field = Column(String(128), nullable=True, comment="绑定物理字段名")
     description = Column(String(512), nullable=True, comment="维度说明")
     display_order = Column(Integer, nullable=False, default=0, comment="同级排序")

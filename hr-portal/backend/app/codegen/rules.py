@@ -70,6 +70,14 @@ class CodeSuggestion:
     candidates: list[str]
 
 
+_LAYER_PREFIXES = ("ods_", "dwd_", "dws_", "ads_", "raw_", "src_")
+
+def _strip_layer_prefix(text: str) -> str:
+    for lp in _LAYER_PREFIXES:
+        if text.lower().startswith(lp):
+            return text[len(lp):]
+    return text
+
 def normalize_code(raw: str, *, prefix: str = "") -> str:
     text = (raw or "").strip().lower()
     if not text:
@@ -77,9 +85,6 @@ def normalize_code(raw: str, *, prefix: str = "") -> str:
     text = text.replace("字段", "")
     text = re.sub(r"表$", "", text)
     text = _replace_known_terms(text)
-    # 已知词替换后若仍含未识别的中文/非 ASCII,说明规则翻不全。
-    # 不再静默删成空(那会退化成 employee/field 误导名),而是保留已识别的英文片段
-    # 并对剩余中文打可识别标记,提示用户"这是规则没翻全、需要手动改名"。
     if re.search(r"[^\x00-\x7f]", text):
         text = _mark_untranslated(text)
     text = re.sub(r"[^a-z0-9_]+", "_", text)
@@ -88,6 +93,7 @@ def normalize_code(raw: str, *, prefix: str = "") -> str:
         text = "unnamed"
     if re.match(r"^\d", text):
         text = f"f_{text}"
+    text = _strip_layer_prefix(text)
     if prefix and not text.startswith(f"{prefix}_"):
         text = f"{prefix}_{text}"
     return text[:64].rstrip("_")
@@ -99,6 +105,7 @@ def normalize_ai_code(raw: str, *, prefix: str = "") -> str:
     text = re.sub(r"_+", "_", text).strip("_")
     if re.match(r"^\d", text):
         text = f"f_{text}"
+    text = _strip_layer_prefix(text)
     if prefix and text and not text.startswith(f"{prefix}_"):
         text = f"{prefix}_{text}"
     return text[:64].rstrip("_")

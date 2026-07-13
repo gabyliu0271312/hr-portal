@@ -85,22 +85,28 @@ async def register_source_table_model(
 
 
 async def _register_view_model(db, table_name: str, *, force: bool = False):
-    """注册 PostgreSQL 视图：反射后补 id 为主键。"""
+    """注册 PostgreSQL 视图：先给视图反射 Table 加 id 主键，再建 ORM 模型。"""
     from app.data.models import DATA_TABLES
     from sqlalchemy import PrimaryKeyConstraint
+    from sqlalchemy import Table as SATable, MetaData
 
     table = validate_table_name(table_name)
     if not force and table in DATA_TABLES:
         return DATA_TABLES[table]
 
-    model = await reflect_source_table_model(db, table)
-    # 视图无 PK 元数据，手动加 id 为主键
-    reflected_table = model.__table__
-    if not reflected_table.primary_key and 'id' in reflected_table.columns:
-        reflected_table.append_constraint(
-            PrimaryKeyConstraint(reflected_table.columns['id'])
-        )
+    # 反射物理视图
+    def _reflect(sync_session) -> SATable:
+        metadata = MetaData()
+        return SATable(table, metadata, schema="public", autoload_with=sync_session.connection())
+    reflected = await db.run_sync(_reflect)
+
+    # 先加 id 主键，再建模型
+    if not reflected.primary_key and 'id' in reflected.columns:
+        reflected.append_constraint(PrimaryKeyConstraint(reflected.columns['id']))
+
+    model = _make_model_from_table(table, reflected)
     DATA_TABLES[table] = model
+    logger.info("[dynamic-tables] registered view: %s", table)
     return model
 
 
