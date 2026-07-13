@@ -29,9 +29,25 @@ def _column_exists(table_name: str, column_name: str) -> bool:
 
 
 def _index_exists(table_name: str, index_name: str) -> bool:
-    if not _table_exists(table_name):
-        return False
-    return any(i.get("name") == index_name for i in _inspector().get_indexes(table_name))
+    # PostgreSQL indexes are relations in the schema namespace.  In drifted
+    # production DBs an index name can already exist even when SQLAlchemy
+    # inspector does not report it for the expected table, so check pg_class
+    # globally to avoid DuplicateTableError on CREATE INDEX.
+    result = op.get_bind().execute(
+        sa.text(
+            """
+            SELECT 1
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relname = :name
+              AND n.nspname = current_schema()
+              AND c.relkind IN ('i', 'I')
+            LIMIT 1
+            """
+        ),
+        {"name": index_name},
+    ).scalar()
+    return result is not None
 
 
 def _create_index_if_missing(index_name: str, table_name: str, columns: list[str]) -> None:
