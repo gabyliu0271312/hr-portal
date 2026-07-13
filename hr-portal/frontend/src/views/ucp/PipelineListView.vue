@@ -1,22 +1,22 @@
 <template>
   <div class="pipeline-list">
     <div class="page-header">
-      <h2>流水线管理（Pipelines）</h2>
-      <p class="desc">管理数据同步流水线，支持手动/定时/事件触发方式。创建后请配置触发器和步骤编排。</p>
+      <h2>流程编排</h2>
+      <p class="desc">管理数据同步流水线，支持手动/定时/事件触发方式。</p>
     </div>
 
     <!-- 统计卡片 -->
     <div class="stat-row">
       <el-card class="stat-card">
-        <div class="stat-label">总流水线</div>
+        <div class="stat-label">流程总数</div>
         <div class="stat-value">{{ totalCount }}</div>
       </el-card>
       <el-card class="stat-card">
-        <div class="stat-label">启用</div>
+        <div class="stat-label">启用流程</div>
         <div class="stat-value text-success">{{ enabledCount }}</div>
       </el-card>
       <el-card class="stat-card">
-        <div class="stat-label">禁用</div>
+        <div class="stat-label">禁用流程</div>
         <div class="stat-value text-danger">{{ disabledCount }}</div>
       </el-card>
       <el-card class="stat-card" :class="{ 'stat-card-warn': recentFailedCount > 0 }">

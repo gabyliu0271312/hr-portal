@@ -73,12 +73,46 @@
             <el-form-item label="ID"><el-input :model-value="selectedNode.id" disabled /></el-form-item>
             <el-form-item label="类型"><el-input :model-value="selectedNode.type" disabled /></el-form-item>
             <el-form-item label="标签"><el-input v-model="selectedNode.label" placeholder="自定义标签" /></el-form-item>
-            <template v-if="selectedNode.type === 'CONNECTOR'">
+            <template v-if="(selectedNode.type as string) === 'CONNECTOR'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
               <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.resource_id = v; const r = allResources.find(x=>x.id===v); if(r){cfg.resource_name=r.resource_name;cfg.resource_code=r.resource_code;cfg.adapter_code=r.adapter_code||null} selectedNode.config = cfg } }" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>
             </template>
-            <template v-else-if="selectedNode.type === 'BRANCH'"><el-form-item label="条件表达式"><el-input v-model="selectedNode.config.condition" placeholder="ctx.amount > 1000" /></el-form-item></template>
-            <template v-else-if="selectedNode.type === 'LOOP'"><el-form-item label="输入变量"><el-input v-model="selectedNode.config.input_var" placeholder="items" /></el-form-item><el-form-item label="并发数"><el-input-number v-model="selectedNode.config.max_concurrency" :min="1" :max="100" /></el-form-item></template>
+            <template v-else-if="(selectedNode.type as string) === 'LOOP_RESOURCE' || selectedNode.type === 'LOOP'">
+              <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
+              <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.resource_id = v; const r = allResources.find(x=>x.id===v); if(r){cfg.resource_name=r.resource_name;cfg.resource_code=r.resource_code;cfg.adapter_code=r.adapter_code||null} selectedNode.config = cfg } }" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>
+              <el-form-item label="输入变量"><el-input v-model="selectedNode.config.input_var" placeholder="items" /></el-form-item>
+              <el-form-item label="并发数"><el-input-number v-model="selectedNode.config.max_concurrency" :min="1" :max="100" /></el-form-item>
+            </template>
+            <template v-else-if="(selectedNode.type as string) === 'NOTIFY'">
+              <el-form-item label="通知模板"><el-select v-model="selectedNode.config.template_id" filterable placeholder="选择通知模板" style="width:100%" @visible-change="(v: boolean) => v && loadNotifyTemplates()"><el-option v-for="t in notifyTemplates" :key="t.id" :label="t.template_name" :value="t.id" /></el-select></el-form-item>
+              <el-form-item label="接收人"><el-input v-model="selectedNode.config.receivers" placeholder="open_id 逗号分隔" /></el-form-item>
+            </template>
+            <template v-else-if="selectedNode.type === 'BRANCH'">
+              <el-form-item label="条件表达式"><el-input v-model="selectedNode.config.condition" placeholder="ctx.amount > 1000" type="textarea" :rows="2" /></el-form-item>
+              <div class="condition-hints"><div class="hint-title">可用变量</div><el-tag size="small" v-for="h in branchHints" :key="h" @click="appendCondition(h)" style="cursor:pointer;margin:2px">{{ h }}</el-tag></div>
+            </template>
+            <template v-else-if="(selectedNode.type as string) === 'TRANSFORM'">
+              <el-form-item label="字段映射">
+                <div class="field-mappings">
+                  <div v-for="(m, i) in transformMappings" :key="i" class="mapping-row">
+                    <el-select v-model="m.from" filterable allow-create placeholder="源字段" style="width:130px" size="small">
+                      <el-option v-for="f in upstreamFields" :key="f.name" :label="f.name" :value="f.name"><span>{{ f.name }} <small style="color:#909399">{{ f.type }}</small></span></el-option>
+                    </el-select>
+                    <span class="mapping-arrow">→</span>
+                    <el-input v-model="m.to" placeholder="目标字段" size="small" style="width:130px" />
+                    <el-button link size="small" type="danger" @click="removeTransformMapping(i)"><el-icon><Delete /></el-icon></el-button>
+                  </div>
+                  <el-button size="small" @click="addTransformMapping">+ 添加映射</el-button>
+                </div>
+              </el-form-item>
+              <div v-if="upstreamFields.length" class="upstream-ref">
+                <div class="upstream-title">上游字段参考 {{ upstreamSourceName }}</div>
+                <div class="upstream-field" v-for="f in upstreamFields" :key="f.name" @click="addMappingFromField(f.name)">
+                  <span>{{ f.name }}</span><el-tag size="small" type="info">{{ f.type }}</el-tag>
+                </div>
+              </div>
+              <div v-else class="upstream-ref empty">连接上游资源节点后自动解析可用字段</div>
+            </template>
             <template v-else><el-form-item v-for="(schema, key) in (getNodeSchema(selectedNode.type) || {})" :key="key" :label="key"><el-input :model-value="stringifyConfig(selectedNode.config?.[key])" @update:model-value="(v: string) => updateNodeConfig(key, v)" :placeholder="schema" type="textarea" :rows="2" /></el-form-item></template>
           </el-form>
         </div>
@@ -97,7 +131,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, type Ref } from 'vue'
+import { ref, reactive, computed, onMounted, watch, type Ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Connection, MagicStick, Share, Refresh, Delete, Aim, Box, Document, DataBoard, BellFilled, TrendCharts, UserFilled, Setting, Warning, Clock, Edit, FolderOpened, Key, Grid } from '@element-plus/icons-vue'
@@ -157,7 +191,93 @@ function getNodeLabel(type: string): string { const m: Record<string, string> = 
 function getNodeSchema(type: string): Record<string, string> { const m: Record<string, Record<string, string>> = { TRANSFORM: { input_keys: '输入字段(逗号分隔)', output_key: '输出字段' }, NOTIFY: { template_id: '通知模板ID', receivers: '接收人(逗号分隔)' }, WAIT: { duration_seconds: '等待时间(秒)' }, APPROVAL: { approver: '审批人', reason: '审批原因' } }; return m[type] || {} }
 function stringifyConfig(v: any): string { if (v === undefined || v === null) return ''; if (Array.isArray(v)) return v.join(', '); return String(v) }
 function updateNodeConfig(key: string, value: string): void { if (!selectedNode.value) return; const cfg = { ...(selectedNode.value.config || {}) } as Record<string, any>; if (value === '') { delete cfg[key] } else if (value.includes(',')) { cfg[key] = value.split(',').map((s: string) => s.trim()) } else { cfg[key] = value }; selectedNode.value.config = cfg }
-function nodeHasError(node: PipelineNode): boolean { if (node.type === 'CONNECTOR') return !node.config?.system_id || !node.config?.resource_id; return false }
+function nodeHasError(node: PipelineNode): boolean { const t = node.type as string; if (t === 'CONNECTOR' || t === 'LOOP_RESOURCE') return !node.config?.system_id || !node.config?.resource_id; return false }
+
+// ===== TRANSFORM 字段映射 =====
+interface FieldMapping { from: string; to: string }
+const transformMappings = ref<FieldMapping[]>([])
+const upstreamFields = ref<{ name: string; type: string }[]>([])
+const upstreamSourceName = ref('')
+
+// 从 edges 中找到流入当前节点的上游节点
+function findUpstreamNode(nodeId: string): PipelineNode | null {
+  const edge = form.edges.find((e: any) => e.to === nodeId)
+  if (!edge) return null
+  return form.nodes.find((n: any) => n.id === edge.from) || null
+}
+
+// 加载上游节点的字段列表
+async function loadUpstreamFields(nodeId: string) {
+  upstreamFields.value = []
+  upstreamSourceName.value = ''
+  const upstream = findUpstreamNode(nodeId)
+  if (!upstream || (upstream.type as string) !== 'CONNECTOR') return
+  const adapterCode = upstream.config?.adapter_code
+  if (!adapterCode) return
+  upstreamSourceName.value = `(${upstream.config?.resource_name || adapterCode})`
+  try {
+    const schema = await (ucpApi as any).adapterSchema?.(adapterCode)
+    if (schema?.categories) {
+      upstreamFields.value = schema.categories.flatMap((c: any) =>
+        (c.fields || []).map((f: any) => ({ name: f.name, type: f.type || 'string' }))
+      )
+    }
+  } catch { /* 上游 schema 未就绪 */ }
+}
+
+// 从 node.config.field_mappings 初始化映射列表
+function syncMappingsFromConfig() {
+  const cfg = selectedNode.value?.config as Record<string, any> | undefined
+  const raw = cfg?.field_mappings
+  if (Array.isArray(raw)) {
+    transformMappings.value = raw.map((m: any) => ({ from: m.from || '', to: m.to || '' }))
+  } else if (cfg?.input_keys) {
+    // 兼容旧格式：逗号分隔的 input_keys → output_key
+    const keys = String(cfg.input_keys).split(',').map(s => s.trim()).filter(Boolean)
+    const out = cfg.output_key || ''
+    transformMappings.value = keys.map(k => ({ from: k, to: out ? `${out}_${k}` : k }))
+  } else {
+    transformMappings.value = []
+  }
+}
+
+function writeMappingsToConfig() {
+  if (!selectedNode.value) return
+  const mappings = transformMappings.value.filter(m => m.from || m.to)
+  const cfg = { ...(selectedNode.value.config || {}) } as Record<string, any>
+  cfg.field_mappings = mappings
+  cfg.input_keys = mappings.map(m => m.from).join(',')
+  cfg.output_key = ''
+  selectedNode.value.config = cfg
+}
+
+function addTransformMapping() {
+  transformMappings.value.push({ from: '', to: '' })
+  writeMappingsToConfig()
+}
+function removeTransformMapping(i: number) {
+  transformMappings.value.splice(i, 1)
+  writeMappingsToConfig()
+}
+// ===== NOTIFY 通知模板 =====
+const notifyTemplates = ref<Array<{ id: number; template_name: string; template_code: string }>>([])
+async function loadNotifyTemplates() { try { const r = await (ucpApi as any).listNotificationTemplates?.({ is_active: 1, limit: 200 }); notifyTemplates.value = r?.items || [] } catch {} }
+
+// ===== BRANCH 条件提示 =====
+const branchHints = ['ctx.amount', 'ctx.status', 'ctx.count', 'ctx.result', 'ctx.error', 'ctx.source_system', 'ctx.target_system']
+function appendCondition(hint: string) { if (!selectedNode.value) return; const cfg = selectedNode.value.config || {}; cfg.condition = (cfg.condition || '') + ' ' + hint; selectedNode.value.config = cfg }
+
+function addMappingFromField(fieldName: string) {
+  transformMappings.value.push({ from: fieldName, to: fieldName })
+  writeMappingsToConfig()
+}
+
+// 监听节点选中，同步映射
+watch(selectedNodeId, async (newId) => {
+  if (!newId) { transformMappings.value = []; upstreamFields.value = []; return }
+  syncMappingsFromConfig()
+  await loadUpstreamFields(newId)
+})
 interface CoordEdge { fromX: number; fromY: number; toX: number; toY: number }
 function storedEdge(e: PipelineEdge): CoordEdge { const from = form.nodes.find((n) => n.id === e.from); const to = form.nodes.find((n) => n.id === e.to); return { fromX: (from?.x ?? 0) + 75, fromY: (from?.y ?? 0) + 40, toX: (to?.x ?? 0) + 75, toY: (to?.y ?? 0) + 40 } }
 function edgePath(e: DrawingEdge | CoordEdge): string { const fromX = 'fromNodeId' in e ? (form.nodes.find((n) => n.id === (e as DrawingEdge).fromNodeId)?.x ?? 0) + 75 : (e as CoordEdge).fromX; const fromY = 'fromNodeId' in e ? (form.nodes.find((n) => n.id === (e as DrawingEdge).fromNodeId)?.y ?? 0) + 40 : (e as CoordEdge).fromY; const toX = 'endX' in e ? (e as DrawingEdge).endX : (e as CoordEdge).toX; const toY = 'endY' in e ? (e as DrawingEdge).endY : (e as CoordEdge).toY; const cx = (fromX + toX) / 2; return `M${fromX},${fromY} C${cx},${fromY} ${cx},${toY} ${toX},${toY}` }
@@ -196,4 +316,11 @@ onMounted(async () => { await loadNodeTypes(); await loadSystemsAndResources(); 
 .node-ports { position: relative; height: 0 } .port { position: absolute; width: 10px; height: 10px; background: #67c23a; border: 2px solid #fff; border-radius: 50%; cursor: crosshair; top: 35px } .port-in { left: -7px } .port-out { right: -7px } .port:hover { background: #409eff; transform: scale(1.3) }
 .empty-tip { text-align: center; padding: 60px 0; color: #c0c4cc } .empty-tip p { margin: 8px 0 0; font-size: 13px }
 .pipeline-info-form :deep(.el-form-item) { margin-bottom: 8px } .pipeline-info-form .compact-item :deep(.el-form-item) { margin-bottom: 0 }
+.field-mappings { margin-bottom: 8px } .mapping-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px } .mapping-arrow { color: #909399; font-size: 14px }
+.upstream-ref { background: #f5f7fa; border-radius: 4px; padding: 8px; max-height: 200px; overflow: auto }
+.upstream-ref.empty { color: #c0c4cc; font-size: 12px; text-align: center }
+.upstream-title { font-size: 12px; color: #909399; margin-bottom: 6px }
+.upstream-field { display: flex; justify-content: space-between; align-items: center; padding: 3px 6px; cursor: pointer; border-radius: 3px; font-size: 12px }
+.upstream-field:hover { background: #ecf5ff } .upstream-field small { color: #909399 }
+.condition-hints { background: #f5f7fa; border-radius: 4px; padding: 8px; margin-top: 4px } .hint-title { font-size: 12px; color: #909399; margin-bottom: 4px }
 </style>
