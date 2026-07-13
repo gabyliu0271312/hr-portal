@@ -17,6 +17,11 @@ depends_on = None
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "ods_dwd_automation_configs" in inspector.get_table_names():
+        return
+
     op.create_table(
         "ods_dwd_automation_configs",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
@@ -44,4 +49,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("ods_dwd_automation_configs")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "ods_dwd_automation_configs" in inspector.get_table_names():
+        op.drop_table("ods_dwd_automation_configs")
