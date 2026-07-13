@@ -202,6 +202,7 @@ async def _ensure_default_config(table_name: str, db: AsyncSession):
     biz_keys = detected.get("business_key_fields")
 
     # 安全门禁 2: full_snapshot + mark_inactive 需检查 DWD 是否有软失效字段
+    # 没有软删除字段时自动降级为 hard_delete（ODS 中消失的行从 DWD 物理删除）
     risk = "safe"
     if semantics == "full_snapshot" and missing_strategy == "mark_inactive":
         from sqlalchemy import text as sa_text
@@ -209,8 +210,8 @@ async def _ensure_default_config(table_name: str, db: AsyncSession):
             "SELECT column_name FROM information_schema.columns WHERE table_name = :tbl AND column_name IN ('is_active', 'is_deleted', 'valid_to')"
         ), {"tbl": dwd_table})).all()
         if not cols:
-            risk = "blocked"
-            return None  # 不安全，不自动启用
+            missing_strategy = "hard_delete"
+            risk = "warn"
 
     if strategy == "incremental_upsert" and pk_count == 0:
         return None  # 无业务主键不支持增量更新，不自动启用
