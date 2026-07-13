@@ -12,6 +12,7 @@ const MENU_CODE = 'ucp.executions'
 
 const router = useRouter()
 const total = ref(0)
+const kpiToday = ref(0); const kpiRunning = ref(0); const kpiFailed = ref(0); const kpiRetryable = ref(0)
 const list = ref<PipelineExecutionItem[]>([])
 const loading = ref(false)
 
@@ -108,6 +109,11 @@ async function load() {
     const res = await ucpApi.executions(params)
     total.value = res.total
     list.value = res.items
+    const items = res.items || []
+    kpiToday.value = items.filter((x: any) => x.started_at && x.started_at.startsWith(new Date().toISOString().slice(0, 10))).length
+    kpiRunning.value = items.filter((x: any) => x.status === 'RUNNING').length
+    kpiFailed.value = items.filter((x: any) => x.status === 'FAILED').length
+    kpiRetryable.value = items.filter((x: any) => x.status === 'FAILED' || x.status === 'PARTIAL_SUCCESS').length
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载执行列表失败')
   } finally {
@@ -196,6 +202,13 @@ onMounted(load)
           部分成功表示 Loop 步骤中部分条目失败；可点击详情查看失败项并重试。
         </p>
       </el-alert>
+
+      <div class="exec-kpi-row">
+        <div class="exec-kpi-card"><div class="exec-kpi-label">今日运行</div><div class="exec-kpi-value">{{ kpiToday }}</div></div>
+        <div class="exec-kpi-card"><div class="exec-kpi-label">运行中</div><div class="exec-kpi-value text-warning">{{ kpiRunning }}</div></div>
+        <div class="exec-kpi-card"><div class="exec-kpi-label">失败运行</div><div class="exec-kpi-value text-danger">{{ kpiFailed }}</div></div>
+        <div class="exec-kpi-card"><div class="exec-kpi-label">待重试项</div><div class="exec-kpi-value">{{ kpiRetryable }}</div></div>
+      </div>
 
       <el-form inline style="margin-bottom: 16px">
         <el-form-item label="Pipeline">
@@ -302,3 +315,12 @@ onMounted(load)
     />
   </div>
 </template>
+
+<style scoped>
+.exec-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px }
+.exec-kpi-card { background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; padding: 16px; text-align: center }
+.exec-kpi-value { font-size: 28px; font-weight: 700; color: var(--color-primary) }
+.exec-kpi-label { font-size: 13px; color: var(--color-text-secondary); margin-top: 4px }
+.text-warning { color: #e6a23c !important }
+.text-danger { color: #f56c6c !important }
+</style>

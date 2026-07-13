@@ -1,26 +1,6 @@
 ﻿<template>
   <div class="systems-tab">
-    <!-- 场景 2 优化：运维驾驶舱 + 风险前置 -->
-    <div class="ops-overview">
-      <el-alert
-        type="warning"
-        :closable="false"
-        class="risk-alert"
-        show-icon
-      >
-        <template #title>
-          今日需处理：{{ credentialRiskCount }} 个凭证风险、{{ kpi.alertCount }} 条告警待确认
-        </template>
-        优先处理已过期 / 即将到期的生产凭证；建议为关键系统补齐备用凭证，避免流水线阻断。
-      </el-alert>
-      <div class="health-card">
-        <div class="health-label">平台健康度</div>
-        <div class="health-main"><span>{{ platformHealthScore }}</span><em>/100</em></div>
-        <div class="health-sub">接入稳定性 · 凭证健康 · 告警综合评分</div>
-      </div>
-    </div>
-
-    <div class="kpi-row kpi-row-optimized">
+    <div class="kpi-row kpi-row-4col">
       <div class="kpi-card kpi-sys">
         <div class="kpi-label">接入系统</div>
         <div class="kpi-value">{{ kpi.systemCount }}</div>
@@ -32,24 +12,14 @@
         <div class="kpi-sub">启用 {{ kpi.resourceActiveCount }} · 停用 {{ kpi.resourceInactiveCount }}</div>
       </div>
       <div class="kpi-card kpi-cred" :class="{ 'kpi-alert-warn': credentialRiskCount > 0 }">
-        <div class="kpi-label">凭证健康</div>
-        <div class="kpi-value">{{ credentialHealthText }}</div>
-        <div class="kpi-sub">主 {{ kpi.credPrimaryCount }} · 备 {{ kpi.credBackupCount }} · 风险 {{ credentialRiskCount }}</div>
+        <div class="kpi-label">凭证风险</div>
+        <div class="kpi-value">{{ credentialRiskCount }}</div>
+        <div class="kpi-sub">主 {{ kpi.credPrimaryCount }} · 备 {{ kpi.credBackupCount }} · 即将过期 {{ credentialRiskCount }}</div>
       </div>
-      <div class="kpi-card kpi-pipeline">
-        <div class="kpi-label">活跃流水线</div>
-        <div class="kpi-value">{{ kpi.pipelineTotal }}</div>
-        <div class="kpi-sub">{{ kpi.pipelineRunning }} 运行中</div>
-      </div>
-      <div class="kpi-card kpi-sync">
-        <div class="kpi-label">24h 同步次数</div>
-        <div class="kpi-value">{{ kpi.syncCount24h }}</div>
-        <div class="kpi-sub">最近 24 小时执行总数</div>
-      </div>
-      <div class="kpi-card kpi-alert" :class="{ 'kpi-alert-warn': kpi.alertCount > 0 }">
-        <div class="kpi-label">失败率 / 告警</div>
-        <div class="kpi-value">{{ kpi.failRate.toFixed(1) }}%</div>
-        <div class="kpi-sub">{{ kpi.alertCount }} 条告警</div>
+      <div class="kpi-card kpi-abnormal" :class="{ 'kpi-alert-warn': abnormalSystemCount > 0 }">
+        <div class="kpi-label">异常系统</div>
+        <div class="kpi-value">{{ abnormalSystemCount }}</div>
+        <div class="kpi-sub">连接失败 / 禁用 / 配置异常</div>
       </div>
     </div>
 
@@ -1043,6 +1013,10 @@ const kpi = ref({
 })
 
 const inactiveSystemCount = computed(() => Math.max(0, kpi.value.systemCount - kpi.value.systemActiveCount))
+const abnormalSystemCount = computed(() => systems.value.filter(s => {
+  const h = overviewMap.value[s.id]?.health_status
+  return h === 'failing' || h === 'blocked' || h === 'offline'
+}).length)
 const credentialRiskCount = computed(() => {
   const allCreds = Object.values(credentialsBySystem.value).flat()
   const missingCredSystems = systems.value.filter((s) => systemCredentialsOf(s.id).length === 0).length
@@ -1893,7 +1867,7 @@ onMounted(async () => {
 .health-main span { font-size: 26px; font-weight: 700; color: #2563eb; line-height: 1; }
 .health-main em { font-style: normal; color: #94a3b8; font-size: 13px; }
 .health-sub { margin-top: 5px; color: #64748b; font-size: 11px; }
-.kpi-row-optimized { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.kpi-row-4col { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .kpi-pipeline { border-left-color: #0ea5e9; }
 .kpi-sync { border-left-color: #14b8a6; }
 .optimized-toolbar {
@@ -1920,7 +1894,7 @@ onMounted(async () => {
 .filter-pill.active { color: #2563eb; border-color: #93c5fd; background: #eff6ff; }
 .filter-pill.warn { color: #b45309; border-color: #fcd34d; background: #fffbeb; }
 @media (max-width: 1280px) {
-  .kpi-row-optimized { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .kpi-row-4col { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .ops-overview { grid-template-columns: 1fr 190px; }
 }
 @media (max-width: 980px) {

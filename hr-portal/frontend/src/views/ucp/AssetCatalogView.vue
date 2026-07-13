@@ -80,13 +80,14 @@ const newTagValue = ref('')
 async function loadCatalog() {
   try {
     const cat = await assetCatalogApi.catalog()
+    const total = (cat.systems?.total || 0) + (cat.resources?.total || 0) + (cat.pipelines?.total || 0) + (cat.credentials?.total || 0) + (cat.templates?.total || 0)
     kpis.value = [
-      { label: '系统', value: cat.systems.total, sub: `活跃 ${cat.systems.active}` },
-      { label: '资源', value: cat.resources.total, sub: `活跃 ${cat.resources.active}` },
-      { label: '凭证', value: cat.credentials.total, sub: `活跃 ${cat.credentials.active}` },
-      { label: '流水线', value: cat.pipelines.total, sub: `活跃 ${cat.pipelines.active}` },
-      { label: '模板', value: cat.templates.total },
-      { label: '24h 事件', value: cat.events_24h },
+      { label: '资产总数', value: total },
+      { label: '系统资产', value: cat.systems?.total || 0, sub: `活跃 ${cat.systems?.active || 0}` },
+      { label: '资源接口', value: cat.resources?.total || 0, sub: `活跃 ${cat.resources?.active || 0}` },
+      { label: '流程资产', value: cat.pipelines?.total || 0, sub: `活跃 ${cat.pipelines?.active || 0}` },
+      { label: '治理任务', value: 0 },
+      { label: '质量问题', value: 0 },
     ]
   } catch (e: any) { /* ignore */ }
 }
