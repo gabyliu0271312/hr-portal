@@ -27,6 +27,21 @@
       </el-table>
     </el-card>
 
+    <el-card style="margin-top:12px">
+      <template #header><div class="card-title">治理工具</div></template>
+      <div class="governance-links">
+        <template v-if="hasGovernance">
+          <el-button @click="$router.push('/ucp/governance')">治理任务</el-button>
+          <el-button @click="$router.push('/ucp/master-data')">主数据治理</el-button>
+          <el-button @click="$router.push('/ucp/quality')">数据质量</el-button>
+          <el-button @click="$router.push('/ucp/conflicts')">冲突处理</el-button>
+        </template>
+        <el-button @click="$router.push('/ucp/topology')">依赖拓扑</el-button>
+        <el-button @click="$router.push('/ucp/sla')">SLA 管理</el-button>
+        <el-button @click="$router.push('/ucp/changes')">变更管理</el-button>
+      </div>
+    </el-card>
+
     <el-dialog v-model="tagDialog" title="编辑标签" width="400px">
       <div v-for="(v,k) in tagForm.tags" :key="k" class="tag-row">
         <el-input v-model="tagForm.tags[k]" size="small" style="width:140px" :placeholder="k"/>
@@ -43,10 +58,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { assetCatalogApi } from '@/api/ucp'
+import { useUserStore } from '@/stores/user'
 
+const userStore = useUserStore()
+const userCodes = computed(() => new Set(userStore.menus.map(m => m.code)))
+const hasGovernance = computed(() => userCodes.value.has('ucp.governance'))
 const kpis = ref<Array<{label:string;value:number;sub?:string}>>([])
 const loading = ref(false)
 const activeTab = ref('system')
@@ -111,5 +130,6 @@ onMounted(() => { loadCatalog(); loadAssets() })
 .kpi-sub { font-size:11px; color:#a0aec0 }
 .card-title { font-weight:600 }
 .filter-bar { margin-bottom:8px }
+.governance-links { display:flex; gap:8px; flex-wrap:wrap }
 .tag-row { display:flex; gap:6px; align-items:center; margin-bottom:6px }
 </style>

@@ -35,8 +35,8 @@
 
     <!-- 二级布局：左侧二三级菜单 + 右侧内容 -->
     <el-container style="flex: 1; min-height: 0">
-      <el-aside v-if="!hideAside && leftMenu.length" width="220px" class="app-aside">
-        <template v-for="grp in leftMenu" :key="grp.id">
+      <el-aside v-if="!hideAside && visibleLeftMenu.length" width="220px" class="app-aside">
+        <template v-for="grp in visibleLeftMenu" :key="grp.id">
           <!-- 二级分组（无子集时直接当叶子）-->
           <template v-if="grp.children.length">
             <div class="group-title">{{ grp.label }}</div>
@@ -170,6 +170,27 @@ function isLeafActive(leaf: LeafMenu): boolean {
   if (leaf.routePath && leaf.routePath === route.path) return true
   return false
 }
+
+// UCP 导航重构：基于用户实际权限聚合判断，7 项四字菜单
+const UCP_MENU_AGGREGATION: Record<string, string[]> = {
+  'ucp.systems': ['ucp.systems'],
+  'ucp.pipelines': ['ucp.pipelines'],
+  'ucp.executions': ['ucp.executions'],
+  'ucp.events': ['ucp.events'],
+  'ucp.monitor': ['ucp.monitor'],
+  'ucp.scenarios': ['ucp.scenarios', 'ucp.oa_sync', 'ucp.external_accounts'],
+  'ucp.assets': ['ucp.assets', 'ucp.governance'],
+}
+const visibleLeftMenu = computed<GroupMenu[]>(() => {
+  const userCodes = new Set(userStore.menus.map(m => m.code))
+  return leftMenu.value.filter((g) => {
+    if (!g.code.startsWith('ucp.')) return true
+    if (g.code.endsWith('_group')) return false
+    const required = UCP_MENU_AGGREGATION[g.code]
+    if (!required) return false
+    return required.some(code => userCodes.has(code))
+  })
+})
 
 function onTabClick(tab: TabMenu) {
   // 如果该 tab 有自己的首页路由（如 /warehouse），直接跳转

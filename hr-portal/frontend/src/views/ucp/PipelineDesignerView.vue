@@ -1,326 +1,96 @@
 <template>
   <div class="pipeline-designer-page">
-    <el-card>
-      <template #header>
-        <div class="page-header">
-          <div>
-            <h2>流水线编排</h2>
-            <p class="sub">拖拽式可视化编排，节点类型：资源 / 字段映射 / 条件分支 / 列表循环</p>
-          </div>
-          <div class="actions">
-            <el-button @click="loadList">刷新列表</el-button>
-            <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建模板</el-button>
-          </div>
-        </div>
-      </template>
+    <div class="designer-toolbar">
+      <div class="toolbar-left">
+        <el-button @click="$router.push('/ucp/pipelines')">← 返回列表</el-button>
+        <el-divider direction="vertical" />
+        <span class="toolbar-title">{{ currentTpl ? `编辑流程 — ${form.name || form.template_code}` : '新建流程' }}</span>
+      </div>
+      <div class="toolbar-right">
+        <el-button @click="viewVersions(currentTpl!)" :disabled="!currentTpl">版本历史</el-button>
+        <el-button type="success" @click="dryRun">试运行</el-button>
+        <el-button type="primary" :loading="saving" @click="saveTemplate">保存</el-button>
+      </div>
+    </div>
 
-      <!-- 模板列表 -->
-      <el-table :data="rows" v-loading="loading" stripe border>
-        <el-table-column prop="template_code" label="Code" width="180">
-          <template #default="{ row }">
-            <code>{{ row.template_code }}</code>
-          </template>
-        </el-table-column>
-        <el-table-column prop="name" label="名称" min-width="160" />
-        <el-table-column label="节点/连线" width="120">
-          <template #default="{ row }">
-            <span>{{ row.nodes.length }} 节点 / {{ row.edges.length }} 连线</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="version" label="版本" width="100">
-          <template #default="{ row }">
-            <el-tag size="small">v{{ row.version }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_by" label="创建人" width="120" />
-        <el-table-column label="操作" width="320" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" link type="primary" @click="openDesigner(row)">设计</el-button>
-            <el-button size="small" link @click="viewVersions(row)">版本</el-button>
-            <el-button size="small" link type="success" @click="saveAsNew(row)">另存</el-button>
-            <el-button size="small" link type="danger" @click="removeTemplate(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
-    <!-- 模板设计 Dialog -->
-    <el-dialog
-      v-model="designerVisible"
-      :title="`设计模板 - ${form.template_code || '新建'}`"
-      width="95%"
-      :close-on-click-modal="false"
-      top="3vh"
-    >
-      <div class="designer-container">
-        <!-- 左侧: 节点库 + 模板信息 -->
-        <div class="designer-left">
-          <h4>节点库</h4>
-          <div
-            v-for="nt in nodeTypes"
-            :key="nt.type"
-            class="node-palette-item"
-            :style="{ borderLeft: `4px solid ${nt.color}` }"
-            draggable="true"
-            @dragstart="onPaletteDragStart($event, nt.type)"
-          >
-            <el-icon><component :is="nt.icon" /></el-icon>
-            <span>{{ nt.label }}</span>
-            <small>{{ nt.type }}</small>
-          </div>
-
-          <el-divider />
-
-          <h4>模板信息</h4>
-          <el-form :model="form" label-width="80px" size="small">
-            <el-form-item label="Code">
-              <el-input v-model="form.template_code" :disabled="!!currentTpl" />
-            </el-form-item>
-            <el-form-item label="名称">
-              <el-input v-model="form.name" />
-            </el-form-item>
-            <el-form-item label="描述">
-              <el-input v-model="form.description" type="textarea" :rows="2" />
-            </el-form-item>
-            <el-form-item label="版本">
-              <el-input v-model="form.version" disabled>
-                <template #prepend>v</template>
-              </el-input>
-            </el-form-item>
-            <el-form-item label="变更说明" v-if="currentTpl">
-              <el-input v-model="form.change_note" type="textarea" :rows="2" placeholder="本次更新原因" />
-            </el-form-item>
-          </el-form>
-        </div>
-
-        <!-- 中间: 画布 -->
-        <div
-          class="designer-canvas"
-          ref="canvasRef"
-          @dragover.prevent
-          @drop="onCanvasDrop"
-          @click="deselectNode"
-        >
-          <svg class="edge-layer" :viewBox="`0 0 ${canvasW} ${canvasH}`" :width="canvasW" :height="canvasH">
-            <defs>
-              <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
-                <polygon points="0 0, 10 3, 0 6" fill="#909399" />
-              </marker>
-              <pattern id="dotgrid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
-                <circle cx="2" cy="2" r="1" fill="#e4e7ed" />
-              </pattern>
-            </defs>
-            <rect :width="canvasW" :height="canvasH" fill="url(#dotgrid)" />
-            <path
-              v-for="(edge, i) in drawingEdges"
-              :key="`draw-edge-${i}`"
-              :d="edgePath(edge)"
-              stroke="#909399"
-              stroke-width="2"
-              fill="none"
-              stroke-dasharray="5,3"
-              marker-end="url(#arrowhead)"
-            />
-            <path
-              v-for="(edge, i) in form.edges"
-              :key="`edge-${i}`"
-              :d="edgePath(storedEdge(edge))"
-              stroke="#67C23A"
-              stroke-width="2"
-              fill="none"
-              marker-end="url(#arrowhead)"
-            />
-          </svg>
-
-          <div
-            v-for="node in form.nodes"
-            :key="node.id"
-            class="node-card"
-            :class="{ selected: selectedNodeId === node.id, 'is-error': nodeHasError(node) }"
-            :style="{
-              left: node.x + 'px',
-              top: node.y + 'px',
-              borderColor: getNodeColor(node.type),
-            }"
-            :data-node-id="node.id"
-            @mousedown="startDrag($event, node)"
-            @click.stop="selectNode(node)"
-          >
-            <div class="node-header" :style="{ background: getNodeColor(node.type) }">
-              <span>{{ node.label || getNodeLabel(node.type) }}</span>
-              <el-button link size="small" @click.stop="removeNode(node.id)" style="color: #fff">
-                <el-icon><Delete /></el-icon>
-              </el-button>
-            </div>
-            <div class="node-body">
-              <small>{{ node.type }}</small>
-              <div v-if="node.type === 'CONNECTOR'" class="cfg">
-                <div class="cfg-line">
-                  <el-icon><Box /></el-icon>
-                  <span class="muted">{{ node.config?.system_code || '未选系统' }}</span>
-                </div>
-                <div class="cfg-line">
-                  <el-icon><Document /></el-icon>
-                  <span class="strong">{{ node.config?.resource_name || '未选资源' }}</span>
-                </div>
-              </div>
-              <div v-else-if="node.type === 'BRANCH'" class="cfg">
-                {{ node.config?.condition || '(无条件)' }}
-              </div>
-              <div v-else-if="node.type === 'LOOP'" class="cfg">
-                {{ node.config?.input_var || '(未配置输入)' }}
-              </div>
-              <div v-else class="cfg">
-                {{ Object.keys(node.config || {}).length }} 配置项
-              </div>
-            </div>
-            <div class="node-ports">
-              <span class="port port-in" :data-node-id="node.id" data-port="in" @mousedown.stop="startConnect($event, node, 'in')"></span>
-              <span class="port port-out" :data-node-id="node.id" data-port="out" @mousedown.stop="startConnect($event, node, 'out')"></span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 右侧: 节点配置 -->
-        <div class="designer-right">
-          <h4>节点配置</h4>
-          <div v-if="!selectedNode" class="empty-tip">
-            <el-icon><Aim /></el-icon>
-            <p>点击画布上的节点进行配置</p>
-          </div>
-          <div v-else>
-            <el-form label-width="80px" size="small">
-              <el-form-item label="ID">
-                <el-input :model-value="selectedNode.id" disabled />
-              </el-form-item>
-              <el-form-item label="类型">
-                <el-input :model-value="selectedNode.type" disabled />
-              </el-form-item>
-              <el-form-item label="标签">
-                <el-input v-model="selectedNode.label" />
-              </el-form-item>
-              <el-divider />
-
-              <!-- CONNECTOR 节点: system→resource 联动下拉 -->
-              <template v-if="selectedNode.type === 'CONNECTOR'">
-                <el-form-item label="业务系统" required>
-                  <el-select
-                    v-model="(selectedNode.config as Record<string, any>).system_id"
-                    placeholder="选择业务系统"
-                    filterable
-                    clearable
-                    style="width: 100%"
-                    @change="onSystemChange"
-                  >
-                    <el-option
-                      v-for="s in systems"
-                      :key="s.id"
-                      :label="`${s.system_name} (${s.system_code})`"
-                      :value="s.id"
-                    />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="数据资源" required>
-                  <el-select
-                    v-model="(selectedNode.config as Record<string, any>).resource_id"
-                    placeholder="选择该系统下的资源"
-                    filterable
-                    clearable
-                    :disabled="!(selectedNode.config as Record<string, any>).system_id"
-                    :loading="resourcesLoading"
-                    style="width: 100%"
-                    @change="onResourceChange"
-                  >
-                    <el-option
-                      v-for="r in resourcesOf((selectedNode.config as Record<string, any>).system_id)"
-                      :key="r.id"
-                      :label="`${r.resource_name} (${r.resource_code})`"
-                      :value="r.id"
-                    />
-                  </el-select>
-                  <div v-if="(selectedNode.config as Record<string, any>).system_id && resourcesOf((selectedNode.config as Record<string, any>).system_id).length === 0" class="form-hint warn">
-                    该系统下还没有资源, 请先在「接入系统」里添加
-                  </div>
-                </el-form-item>
-                <el-form-item label="同步方向">
-                  <el-select
-                    v-model="(selectedNode.config as Record<string, any>).sync_direction"
-                    placeholder="拉取/推送"
-                    style="width: 100%"
-                  >
-                    <el-option label="拉取 (pull)" value="PULL" />
-                    <el-option label="推送 (push)" value="PUSH" />
-                    <el-option label="双向" value="BIDIRECTIONAL" />
-                  </el-select>
-                </el-form-item>
-              </template>
-
-              <!-- 其他节点: 通用 schema 字段 -->
-              <template v-else>
-                <el-form-item
-                  v-for="(schema, key) in (getNodeSchema(selectedNode.type) || {})"
-                  :key="key"
-                  :label="key"
-                >
-                  <el-input
-                    :model-value="stringifyConfig(selectedNode.config?.[key])"
-                    @update:model-value="(v: string) => updateNodeConfig(key, v)"
-                    :placeholder="schema"
-                    type="textarea"
-                    :rows="2"
-                  />
-                </el-form-item>
-              </template>
-            </el-form>
-          </div>
+    <div class="designer-body">
+      <div class="designer-left">
+        <h4>节点库</h4>
+        <div v-for="nt in nodeTypes" :key="nt.type" class="node-palette-item" :style="{ borderLeft: `4px solid ${nt.color}` }" draggable="true" @dragstart="onPaletteDragStart($event, nt.type)">
+          <el-icon><component :is="resolveIcon(nt.icon)" /></el-icon>
+          <span>{{ nt.label }}</span>
+          <small>{{ nt.type }}</small>
         </div>
       </div>
 
-      <template #footer>
-        <el-button @click="designerVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveTemplate">保存</el-button>
-      </template>
-    </el-dialog>
+      <div class="designer-canvas" ref="canvasRef" @dragover.prevent @drop="onCanvasDrop" @click="deselectNode">
+        <svg class="edge-layer" :viewBox="`0 0 ${canvasW} ${canvasH}`" :width="canvasW" :height="canvasH">
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#909399" /></marker>
+            <pattern id="dotgrid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#e4e7ed" /></pattern>
+          </defs>
+          <rect :width="canvasW" :height="canvasH" fill="url(#dotgrid)" />
+          <path v-for="(edge, i) in drawingEdges" :key="`draw-edge-${i}`" :d="edgePath(edge)" stroke="#909399" stroke-width="2" fill="none" stroke-dasharray="5,3" marker-end="url(#arrowhead)" />
+          <path v-for="(edge, i) in form.edges" :key="`edge-${i}`" :d="edgePath(storedEdge(edge))" stroke="#67C23A" stroke-width="2" fill="none" marker-end="url(#arrowhead)" />
+        </svg>
+        <div v-for="node in form.nodes" :key="node.id" class="node-card" :class="{ selected: selectedNodeId === node.id, 'is-error': nodeHasError(node) }" :style="{ left: node.x + 'px', top: node.y + 'px', borderColor: getNodeColor(node.type) }" :data-node-id="node.id" @mousedown="startDrag($event, node)" @click.stop="selectNode(node)">
+          <div class="node-header" :style="{ background: getNodeColor(node.type) }">
+            <span>{{ node.label || getNodeLabel(node.type) }}</span>
+            <el-button link size="small" @click.stop="removeNode(node.id)" style="color: #fff"><el-icon><Delete /></el-icon></el-button>
+          </div>
+          <div class="node-body">
+            <small>{{ node.type }}</small>
+            <div v-if="node.type === 'CONNECTOR'" class="cfg">
+              <div class="cfg-line"><el-icon><Box /></el-icon><span class="muted">{{ node.config?.system_code || '未选系统' }}</span></div>
+              <div class="cfg-line"><el-icon><Document /></el-icon><span class="strong">{{ node.config?.resource_name || '未选资源' }}</span></div>
+            </div>
+            <div v-else-if="node.type === 'BRANCH'" class="cfg">{{ node.config?.condition || '(无条件)' }}</div>
+            <div v-else-if="node.type === 'LOOP'" class="cfg">{{ node.config?.input_var || '(未配置输入)' }}</div>
+            <div v-else class="cfg">{{ Object.keys(node.config || {}).length }} 配置项</div>
+          </div>
+          <div class="node-ports"><span class="port port-in" :data-node-id="node.id" data-port="in" @mousedown.stop="startConnect($event, node, 'in')"></span><span class="port port-out" :data-node-id="node.id" data-port="out" @mousedown.stop="startConnect($event, node, 'out')"></span></div>
+        </div>
+      </div>
 
-    <!-- 新建/另存 Dialog -->
-    <el-dialog v-model="createVisible" title="新建模板" width="480px">
-      <el-form :model="createForm" label-width="100px">
-        <el-form-item label="Code" required>
-          <el-input v-model="createForm.template_code" placeholder="TPL_OFFER_V2" />
-        </el-form-item>
-        <el-form-item label="名称" required>
-          <el-input v-model="createForm.name" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="createForm.description" type="textarea" :rows="2" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmCreate">创建</el-button>
-      </template>
-    </el-dialog>
+      <div class="designer-right">
+        <h4>流程信息</h4>
+        <el-form :model="form" label-width="60px" size="small" class="pipeline-info-form">
+          <el-row :gutter="8">
+            <el-col :span="12"><el-form-item label="编码"><el-input v-model="form.template_code" :disabled="!!currentTpl" placeholder="code" size="small" /></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="名称"><el-input v-model="form.name" placeholder="流程名称" size="small" /></el-form-item></el-col>
+          </el-row>
+          <el-form-item label="描述" class="compact-item"><el-input v-model="form.description" type="textarea" :rows="2" placeholder="流程用途说明" size="small" /></el-form-item>
+          <el-row :gutter="8" v-if="currentTpl">
+            <el-col :span="12"><el-form-item label="版本" class="compact-item"><el-input v-model="form.version" disabled size="small"><template #prepend>v</template></el-input></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="变更" class="compact-item"><el-input v-model="form.change_note" placeholder="更新原因" size="small" /></el-form-item></el-col>
+          </el-row>
+        </el-form>
+        <el-divider style="margin: 8px 0" />
+        <h4>节点配置</h4>
+        <div v-if="!selectedNode" class="empty-tip"><el-icon><Aim /></el-icon><p>点击画布上的节点进行配置</p></div>
+        <div v-else>
+          <el-form label-width="80px" size="small">
+            <el-form-item label="ID"><el-input :model-value="selectedNode.id" disabled /></el-form-item>
+            <el-form-item label="类型"><el-input :model-value="selectedNode.type" disabled /></el-form-item>
+            <el-form-item label="标签"><el-input v-model="selectedNode.label" placeholder="自定义标签" /></el-form-item>
+            <template v-if="selectedNode.type === 'CONNECTOR'">
+              <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
+              <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.resource_id = v; const r = allResources.find(x=>x.id===v); if(r){cfg.resource_name=r.resource_name;cfg.resource_code=r.resource_code;cfg.adapter_code=r.adapter_code||null} selectedNode.config = cfg } }" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>
+            </template>
+            <template v-else-if="selectedNode.type === 'BRANCH'"><el-form-item label="条件表达式"><el-input v-model="selectedNode.config.condition" placeholder="ctx.amount > 1000" /></el-form-item></template>
+            <template v-else-if="selectedNode.type === 'LOOP'"><el-form-item label="输入变量"><el-input v-model="selectedNode.config.input_var" placeholder="items" /></el-form-item><el-form-item label="并发数"><el-input-number v-model="selectedNode.config.max_concurrency" :min="1" :max="100" /></el-form-item></template>
+            <template v-else><el-form-item v-for="(schema, key) in (getNodeSchema(selectedNode.type) || {})" :key="key" :label="key"><el-input :model-value="stringifyConfig(selectedNode.config?.[key])" @update:model-value="(v: string) => updateNodeConfig(key, v)" :placeholder="schema" type="textarea" :rows="2" /></el-form-item></template>
+          </el-form>
+        </div>
+      </div>
+    </div>
 
-    <!-- 版本历史 Dialog -->
     <el-dialog v-model="versionsVisible" title="版本历史" width="640px">
       <el-table :data="versions" stripe border>
-        <el-table-column prop="version" label="版本" width="120">
-          <template #default="{ row }">
-            <el-tag size="small">v{{ row.version }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="change_note" label="变更说明" />
-        <el-table-column prop="created_by" label="操作人" width="120" />
-        <el-table-column prop="created_at" label="时间" width="180">
-          <template #default="{ row }">
-            {{ row.created_at?.slice(0, 19).replace('T', ' ') }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="100">
-          <template #default="{ row }">
-            <el-button size="small" link type="warning" @click="rollbackTo(row)">回滚到此版</el-button>
-          </template>
-        </el-table-column>
+        <el-table-column prop="version" label="版本" width="120"><template #default="{ row }"><el-tag size="small">v{{ row.version }}</el-tag></template></el-table-column>
+        <el-table-column prop="change_note" label="变更说明" /><el-table-column prop="created_by" label="操作人" width="120" />
+        <el-table-column prop="created_at" label="时间" width="180"><template #default="{ row }">{{ row.created_at?.slice(0, 19).replace('T', ' ') }}</template></el-table-column>
+        <el-table-column label="操作" width="100"><template #default="{ row }"><el-button size="small" link type="warning" @click="rollbackTo(row)">回滚到此版</el-button></template></el-table-column>
       </el-table>
     </el-dialog>
   </div>
@@ -328,617 +98,102 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, type Ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Connection, MagicStick, Share, Refresh, Delete, Aim, Box, Document } from '@element-plus/icons-vue'
-import {
-  pipelineTemplateApi,
-  ucpApi,
-  type PipelineTemplate,
-  type PipelineNode,
-  type PipelineEdge,
-  type NodeTypeMeta,
-} from '@/api/ucp'
+import { Plus, Connection, MagicStick, Share, Refresh, Delete, Aim, Box, Document, DataBoard, BellFilled, TrendCharts, UserFilled, Setting, Warning, Clock, Edit, FolderOpened, Key, Grid } from '@element-plus/icons-vue'
+import { pipelineTemplateApi, ucpApi, type PipelineTemplate, type PipelineNode, type PipelineEdge, type NodeTypeMeta } from '@/api/ucp'
 
-// ===== 类型 =====
 interface SystemItem { id: number; system_code: string; system_name: string }
 interface ResourceItem { id: number; resource_code: string; resource_name: string; system_id: number; adapter_code?: string | null }
 interface VersionItem { id: number; version: string; change_note: string | null; created_by: string; created_at: string | null }
 
-// ===== 列表 =====
-const rows = ref<PipelineTemplate[]>([])
-const loading = ref(false)
 const nodeTypes = ref<NodeTypeMeta[]>([])
+const ICON_MAP: Record<string, any> = { Connection, MagicStick, Share, Refresh, Delete, Aim, Box, Document, Plus, DataBoard, BellFilled, TrendCharts, UserFilled, Setting, Warning, Clock, Edit, FolderOpened, Key, Grid }
+function resolveIcon(name: string) { return ICON_MAP[name] || Box }
 
-async function loadList(): Promise<void> {
-  loading.value = true
-  try {
-    rows.value = await pipelineTemplateApi.list()
-  } finally {
-    loading.value = false
-  }
-}
-
+const NODE_TYPE_DEFS: NodeTypeMeta[] = [
+  { type: 'CONNECTOR' as any, label: '资源调用', color: '#409eff', icon: 'Connection', config_schema: {} },
+  { type: 'LOOP_RESOURCE' as any, label: '循环资源', color: '#67c23a', icon: 'Refresh', config_schema: {} },
+  { type: 'TRANSFORM' as any, label: '字段转换', color: '#e6a23c', icon: 'MagicStick', config_schema: {} },
+  { type: 'NOTIFY' as any, label: '通知', color: '#f56c6c', icon: 'BellFilled', config_schema: {} },
+  { type: 'BRANCH' as any, label: '条件分支', color: '#909399', icon: 'Share', config_schema: {} },
+]
 async function loadNodeTypes(): Promise<void> {
-  const meta = await pipelineTemplateApi.nodeTypes()
-  nodeTypes.value = meta.node_types
+  try { const meta = await pipelineTemplateApi.nodeTypes(); nodeTypes.value = meta.node_types } catch { nodeTypes.value = NODE_TYPE_DEFS }
 }
 
-// ===== 系统 / 资源 =====
-const systems = ref<SystemItem[]>([])
-const allResources = ref<ResourceItem[]>([])
-const resourcesLoading = ref(false)
-
+const systems = ref<SystemItem[]>([]); const allResources = ref<ResourceItem[]>([]); const resourcesLoading = ref(false)
 async function loadSystemsAndResources(): Promise<void> {
-  try {
-    resourcesLoading.value = true
-    const [sysRes, resRes] = await Promise.all([
-      ucpApi.systems(),
-      ucpApi.resources({}),
-    ])
-    systems.value = sysRes.items as SystemItem[]
-    allResources.value = resRes.items as ResourceItem[]
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    ElMessage.warning(`加载系统/资源失败: ${msg}`)
-  } finally {
-    resourcesLoading.value = false
-  }
+  try { resourcesLoading.value = true; const [sysRes, resRes] = await Promise.all([ucpApi.systems(), ucpApi.resources({})]); systems.value = sysRes.items as SystemItem[]; allResources.value = resRes.items as ResourceItem[] }
+  catch (e: unknown) { ElMessage.warning(`加载系统/资源失败: ${e instanceof Error ? e.message : String(e)}`) }
+  finally { resourcesLoading.value = false }
 }
+function resourcesOf(systemId: number | undefined | null): ResourceItem[] { if (!systemId) return []; return allResources.value.filter((r) => r.system_id === systemId) }
 
-function resourcesOf(systemId: number | undefined | null): ResourceItem[] {
-  if (!systemId) return []
-  return allResources.value.filter((r) => r.system_id === systemId)
-}
-
-function onSystemChange(): void {
-  // 切换 system 时清空 resource_id
-  if (!selectedNode.value) return
-  const cfg = (selectedNode.value.config || {}) as Record<string, any>
-  cfg.resource_id = null
-  cfg.resource_name = null
-  cfg.resource_code = null
-  selectedNode.value.config = cfg
-}
-
-function onResourceChange(): void {
-  if (!selectedNode.value) return
-  const cfg = (selectedNode.value.config || {}) as Record<string, any>
-  const r = allResources.value.find((x) => x.id === cfg.resource_id)
-  if (r) {
-    cfg.resource_name = r.resource_name
-    cfg.resource_code = r.resource_code
-    cfg.adapter_code = r.adapter_code || null
-  }
-  selectedNode.value.config = cfg
-}
-
-// ===== Designer =====
-const designerVisible = ref(false)
 const currentTpl = ref<PipelineTemplate | null>(null)
-const form = reactive<{
-  template_code: string
-  name: string
-  description: string
-  version: string
-  change_note: string
-  nodes: PipelineNode[]
-  edges: PipelineEdge[]
-}>({
-  template_code: '',
-  name: '',
-  description: '',
-  version: '1.0.0',
-  change_note: '',
-  nodes: [],
-  edges: [],
-})
-const selectedNodeId = ref<string | null>(null)
-const selectedNode = computed(() => form.nodes.find((n) => n.id === selectedNodeId.value) || null)
+const form = reactive<{ template_code: string; name: string; description: string; version: string; change_note: string; nodes: PipelineNode[]; edges: PipelineEdge[] }>({ template_code: '', name: '', description: '', version: '1.0.0', change_note: '', nodes: [], edges: [] })
+const selectedNodeId = ref<string | null>(null); const selectedNode = computed(() => form.nodes.find((n) => n.id === selectedNodeId.value) || null)
+const canvasRef = ref<HTMLElement | null>(null); const canvasW = 2000; const canvasH = 1200
 
-// 画布
-const canvasRef = ref<HTMLElement | null>(null)
-const canvasW = 2000
-const canvasH = 1200
+let dragNode: PipelineNode | null = null; let dragOffset = { x: 0, y: 0 }
+function startDrag(e: MouseEvent, node: PipelineNode): void { dragNode = node; const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); dragOffset.x = e.clientX - rect.left; dragOffset.y = e.clientY - rect.top; window.addEventListener('mousemove', onDragMove); window.addEventListener('mouseup', onDragEnd) }
+function onDragMove(e: MouseEvent): void { if (!dragNode || !canvasRef.value) return; const rect = canvasRef.value.getBoundingClientRect(); dragNode.x = Math.max(0, Math.min(canvasW - 160, e.clientX - rect.left - dragOffset.x)); dragNode.y = Math.max(0, Math.min(canvasH - 80, e.clientY - rect.top - dragOffset.y)) }
+function onDragEnd(): void { dragNode = null; window.removeEventListener('mousemove', onDragMove); window.removeEventListener('mouseup', onDragEnd) }
 
-// 拖拽节点
-let dragNode: PipelineNode | null = null
-let dragOffset = { x: 0, y: 0 }
-function startDrag(e: MouseEvent, node: PipelineNode): void {
-  dragNode = node
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  dragOffset.x = e.clientX - rect.left
-  dragOffset.y = e.clientY - rect.top
-  window.addEventListener('mousemove', onDragMove)
-  window.addEventListener('mouseup', onDragEnd)
-}
-function onDragMove(e: MouseEvent): void {
-  if (!dragNode || !canvasRef.value) return
-  const rect = canvasRef.value.getBoundingClientRect()
-  dragNode.x = Math.max(0, Math.min(canvasW - 160, e.clientX - rect.left - dragOffset.x))
-  dragNode.y = Math.max(0, Math.min(canvasH - 80, e.clientY - rect.top - dragOffset.y))
-}
-function onDragEnd(): void {
-  dragNode = null
-  window.removeEventListener('mousemove', onDragMove)
-  window.removeEventListener('mouseup', onDragEnd)
-}
-
-// 连线绘制
-let connectFrom: { node: PipelineNode; port: 'in' | 'out' } | null = null
+let connectFrom: { node: PipelineNode; port: 'in' | 'out' } | null = null; interface DrawingEdge { fromNodeId: string; fromPort: 'in' | 'out'; endX: number; endY: number }
 const drawingEdges = ref<DrawingEdge[]>([])
+function startConnect(e: MouseEvent, node: PipelineNode, port: 'in' | 'out'): void { connectFrom = { node, port }; window.addEventListener('mousemove', onConnectMove); window.addEventListener('mouseup', onConnectEnd) }
+function onConnectMove(e: MouseEvent): void { if (!connectFrom || !canvasRef.value) return; const rect = canvasRef.value.getBoundingClientRect(); drawingEdges.value = [{ fromNodeId: connectFrom.node.id, fromPort: connectFrom.port, endX: e.clientX - rect.left, endY: e.clientY - rect.top }] }
+function onConnectEnd(e: MouseEvent): void { window.removeEventListener('mousemove', onConnectMove); window.removeEventListener('mouseup', onConnectEnd); if (!connectFrom || !canvasRef.value) { drawingEdges.value = []; connectFrom = null; return }; const rect = canvasRef.value.getBoundingClientRect(); const mx = e.clientX - rect.left; const my = e.clientY - rect.top; const targetEl = document.elementFromPoint(e.clientX, e.clientY); const nodeCard = targetEl?.closest?.('[data-node-id]'); if (nodeCard) { const targetId = nodeCard.getAttribute('data-node-id') || ''; if (targetId && targetId !== connectFrom.node.id) { const exist = form.edges.find((ed: PipelineEdge) => (ed.from === connectFrom!.node.id && ed.to === targetId) || (ed.from === targetId && ed.to === connectFrom!.node.id)); if (!exist) { const newEdge: PipelineEdge = connectFrom.port === 'out' ? { from: connectFrom.node.id, to: targetId } : { from: targetId, to: connectFrom.node.id }; form.edges.push(newEdge as any) } } }; drawingEdges.value = []; connectFrom = null }
 
-function startConnect(e: MouseEvent, node: PipelineNode, port: 'in' | 'out'): void {
-  connectFrom = { node, port }
-  window.addEventListener('mousemove', onConnectMove)
-  window.addEventListener('mouseup', onConnectEnd)
-}
-function onConnectMove(e: MouseEvent): void {
-  if (!connectFrom || !canvasRef.value) return
-  const rect = canvasRef.value.getBoundingClientRect()
-  const x = e.clientX - rect.left
-  const y = e.clientY - rect.top
-  const fromNode = connectFrom.port === 'out' ? connectFrom.node : null
-  if (fromNode) {
-    drawingEdges.value = [{ kind: 'drawing', from: { x: fromNode.x + 150, y: fromNode.y + 40 }, to: { x, y } }]
-  }
-}
-function onConnectEnd(e: MouseEvent): void {
-  if (!connectFrom) return
-  // 通过 data-node-id 找目标节点
-  const targetEl = (e.target as HTMLElement)?.closest('.node-card') as HTMLElement | null
-  if (targetEl) {
-    const targetId = targetEl.getAttribute('data-node-id') || ''
-    const targetNode = form.nodes.find((n) => n.id === targetId)
-    if (targetNode && targetNode.id !== connectFrom.node.id) {
-      if (connectFrom.port === 'out') {
-        const exists = form.edges.some(
-          (edge) => edge.from === connectFrom!.node.id && edge.to === targetNode.id,
-        )
-        if (!exists) {
-          form.edges.push({ from: connectFrom.node.id, to: targetNode.id, condition: '' })
-        }
-      } else {
-        const exists = form.edges.some(
-          (edge) => edge.from === targetNode.id && edge.to === connectFrom!.node.id,
-        )
-        if (!exists) {
-          form.edges.push({ from: targetNode.id, to: connectFrom.node.id, condition: '' })
-        }
-      }
-    }
-  }
-  drawingEdges.value = []
-  connectFrom = null
-  window.removeEventListener('mousemove', onConnectMove)
-  window.removeEventListener('mouseup', onConnectEnd)
-}
+function onPaletteDragStart(e: DragEvent, type: string): void { e.dataTransfer?.setData('nodeType', type) }
+function onCanvasDrop(e: DragEvent): void { if (!canvasRef.value) return; const type = e.dataTransfer?.getData('nodeType'); if (!type) return; const rect = canvasRef.value.getBoundingClientRect(); const newNode: any = { id: `node_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, type, label: '', x: Math.max(0, e.clientX - rect.left - 75), y: Math.max(0, e.clientY - rect.top - 20), config: {} }; form.nodes.push(newNode); selectedNodeId.value = newNode.id }
+function selectNode(node: PipelineNode): void { selectedNodeId.value = node.id }
+function deselectNode(): void { selectedNodeId.value = null }
+function removeNode(id: string): void { form.nodes = form.nodes.filter((n) => n.id !== id); form.edges = form.edges.filter((e: any) => e.from !== id && e.to !== id); if (selectedNodeId.value === id) selectedNodeId.value = null }
 
-function onPaletteDragStart(e: DragEvent, type: PipelineNode['type']): void {
-  e.dataTransfer?.setData('text/plain', type)
-}
-function onCanvasDrop(e: DragEvent): void {
-  e.preventDefault()
-  const type = e.dataTransfer?.getData('text/plain') as PipelineNode['type']
-  if (!type || !canvasRef.value) return
-  const rect = canvasRef.value.getBoundingClientRect()
-  const x = Math.max(0, e.clientX - rect.left - 75)
-  const y = Math.max(0, e.clientY - rect.top - 25)
-  const newNode: PipelineNode = {
-    id: `n_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000)}`,
-    type,
-    x,
-    y,
-    label: getNodeLabel(type),
-    config: {},
-  }
-  form.nodes.push(newNode)
-  selectedNodeId.value = newNode.id
-}
+function getNodeColor(type: string): string { const m: Record<string, string> = { CONNECTOR: '#409eff', LOOP_RESOURCE: '#67c23a', TRANSFORM: '#e6a23c', NOTIFY: '#f56c6c', BRANCH: '#909399', WAIT: '#b37feb', APPROVAL: '#fa8c16' }; return m[type] || '#dcdfe6' }
+function getNodeLabel(type: string): string { const m: Record<string, string> = { CONNECTOR: '资源调用', LOOP_RESOURCE: '循环资源', TRANSFORM: '字段转换', NOTIFY: '通知', BRANCH: '条件分支', WAIT: '等待', APPROVAL: '审批' }; return m[type] || type }
+function getNodeSchema(type: string): Record<string, string> { const m: Record<string, Record<string, string>> = { TRANSFORM: { input_keys: '输入字段(逗号分隔)', output_key: '输出字段' }, NOTIFY: { template_id: '通知模板ID', receivers: '接收人(逗号分隔)' }, WAIT: { duration_seconds: '等待时间(秒)' }, APPROVAL: { approver: '审批人', reason: '审批原因' } }; return m[type] || {} }
+function stringifyConfig(v: any): string { if (v === undefined || v === null) return ''; if (Array.isArray(v)) return v.join(', '); return String(v) }
+function updateNodeConfig(key: string, value: string): void { if (!selectedNode.value) return; const cfg = { ...(selectedNode.value.config || {}) } as Record<string, any>; if (value === '') { delete cfg[key] } else if (value.includes(',')) { cfg[key] = value.split(',').map((s: string) => s.trim()) } else { cfg[key] = value }; selectedNode.value.config = cfg }
+function nodeHasError(node: PipelineNode): boolean { if (node.type === 'CONNECTOR') return !node.config?.system_id || !node.config?.resource_id; return false }
+interface CoordEdge { fromX: number; fromY: number; toX: number; toY: number }
+function storedEdge(e: PipelineEdge): CoordEdge { const from = form.nodes.find((n) => n.id === e.from); const to = form.nodes.find((n) => n.id === e.to); return { fromX: (from?.x ?? 0) + 75, fromY: (from?.y ?? 0) + 40, toX: (to?.x ?? 0) + 75, toY: (to?.y ?? 0) + 40 } }
+function edgePath(e: DrawingEdge | CoordEdge): string { const fromX = 'fromNodeId' in e ? (form.nodes.find((n) => n.id === (e as DrawingEdge).fromNodeId)?.x ?? 0) + 75 : (e as CoordEdge).fromX; const fromY = 'fromNodeId' in e ? (form.nodes.find((n) => n.id === (e as DrawingEdge).fromNodeId)?.y ?? 0) + 40 : (e as CoordEdge).fromY; const toX = 'endX' in e ? (e as DrawingEdge).endX : (e as CoordEdge).toX; const toY = 'endY' in e ? (e as DrawingEdge).endY : (e as CoordEdge).toY; const cx = (fromX + toX) / 2; return `M${fromX},${fromY} C${cx},${fromY} ${cx},${toY} ${toX},${toY}` }
 
-function getNodeColor(type: string): string {
-  return nodeTypes.value.find((n) => n.type === type)?.color || '#909399'
-}
-function getNodeLabel(type: string): string {
-  return nodeTypes.value.find((n) => n.type === type)?.label || type
-}
-function getNodeSchema(type: string): Record<string, string> | null {
-  return nodeTypes.value.find((n) => n.type === type)?.config_schema || null
-}
-function nodeHasError(node: PipelineNode): boolean {
-  if (node.type === 'CONNECTOR') {
-    const cfg = (node.config || {}) as Record<string, any>
-    return !cfg.system_id || !cfg.resource_id
-  }
-  return false
-}
+async function openDesigner(tpl: PipelineTemplate): Promise<void> { currentTpl.value = tpl; form.template_code = tpl.template_code; form.name = tpl.name; form.description = tpl.description || ''; form.version = tpl.version; form.change_note = ''; form.nodes = JSON.parse(JSON.stringify(tpl.nodes)); form.edges = JSON.parse(JSON.stringify(tpl.edges)); selectedNodeId.value = null; await loadSystemsAndResources() }
 
-function selectNode(node: PipelineNode): void {
-  selectedNodeId.value = node.id
-}
-function deselectNode(): void {
-  selectedNodeId.value = null
-}
-function removeNode(id: string): void {
-  form.nodes = form.nodes.filter((n) => n.id !== id)
-  form.edges = form.edges.filter((e) => e.from !== id && e.to !== id)
-  if (selectedNodeId.value === id) selectedNodeId.value = null
-}
-
-function stringifyConfig(v: unknown): string {
-  if (v === undefined || v === null) return ''
-  if (typeof v === 'string') return v
-  return JSON.stringify(v, null, 2)
-}
-function updateNodeConfig(key: string, value: string): void {
-  if (!selectedNode.value) return
-  if (!selectedNode.value.config) selectedNode.value.config = {}
-  const trimmed = value.trim()
-  if (trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed === 'true' || trimmed === 'false' || /^-?\d/.test(trimmed)) {
-    try {
-      (selectedNode.value.config as Record<string, any>)[key] = JSON.parse(trimmed)
-      return
-    } catch {
-      // not json
-    }
-  }
-  (selectedNode.value.config as Record<string, any>)[key] = value
-}
-
-interface DrawingEdge { kind: 'drawing'; from: { x: number; y: number }; to: { x: number; y: number } }
-interface StoredEdge { kind: 'stored'; from: string; to: string }
-type EdgeShape = DrawingEdge | StoredEdge
-
-function storedEdge(e: { from: string; to: string }): StoredEdge {
-  return { kind: 'stored', from: e.from, to: e.to }
-}
-
-function edgePath(edge: EdgeShape): string {
-  let fromX = 0; let fromY = 0; let toX = 0; let toY = 0
-  if (edge.kind === 'drawing') {
-    fromX = edge.from.x
-    fromY = edge.from.y
-    toX = edge.to.x
-    toY = edge.to.y
-  } else {
-    const fromNode = form.nodes.find((n) => n.id === edge.from)
-    const toNode = form.nodes.find((n) => n.id === edge.to)
-    if (!fromNode || !toNode) return ''
-    fromX = fromNode.x + 150
-    fromY = fromNode.y + 40
-    toX = toNode.x
-    toY = toNode.y + 40
-  }
-  const midX = (fromX + toX) / 2
-  return `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`
-}
-
-// ===== Open designer =====
-async function openDesigner(tpl: PipelineTemplate): Promise<void> {
-  currentTpl.value = tpl
-  form.template_code = tpl.template_code
-  form.name = tpl.name
-  form.description = tpl.description || ''
-  form.version = tpl.version
-  form.change_note = ''
-  form.nodes = JSON.parse(JSON.stringify(tpl.nodes))
-  form.edges = JSON.parse(JSON.stringify(tpl.edges))
-  selectedNodeId.value = null
-  designerVisible.value = true
-  await loadSystemsAndResources()
-}
-
-// ===== Save =====
 const saving = ref(false)
-async function saveTemplate(): Promise<void> {
-  if (!form.template_code || !form.name) {
-    ElMessage.error('Code 和 名称 必填')
-    return
-  }
-  // CONNECTOR 节点校验
-  for (const n of form.nodes) {
-    if (n.type === 'CONNECTOR') {
-      const cfg = (n.config || {}) as Record<string, any>
-      if (!cfg.system_id || !cfg.resource_id) {
-        ElMessage.error(`节点 ${n.label || n.id} 缺少 system 或 resource`)
-        return
-      }
-    }
-  }
-  saving.value = true
-  try {
-    if (currentTpl.value) {
-      await pipelineTemplateApi.update(currentTpl.value.template_code, {
-        name: form.name,
-        description: form.description,
-        nodes: form.nodes,
-        edges: form.edges,
-        change_note: form.change_note,
-      })
-      ElMessage.success('已保存, 新版本已创建')
-    } else {
-      await pipelineTemplateApi.create({
-        template_code: form.template_code,
-        name: form.name,
-        description: form.description,
-        nodes: form.nodes,
-        edges: form.edges,
-      })
-      ElMessage.success('已创建')
-    }
-    designerVisible.value = false
-    loadList()
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    ElMessage.error(`保存失败: ${msg}`)
-  } finally {
-    saving.value = false
-  }
-}
+async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { if (currentTpl.value) { await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, version: form.version, change_note: form.change_note || undefined }); ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { ElMessage.error(`保存失败: ${e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
 
-// ===== 新建/另存 =====
-const createVisible = ref(false)
-const createForm = reactive({ template_code: '', name: '', description: '' })
-async function openCreateDialog(): Promise<void> {
-  createForm.template_code = ''
-  createForm.name = ''
-  createForm.description = ''
-  createVisible.value = true
-}
-async function confirmCreate(): Promise<void> {
-  if (!createForm.template_code || !createForm.name) {
-    ElMessage.error('Code 和 名称 必填')
-    return
-  }
-  currentTpl.value = null
-  form.template_code = createForm.template_code
-  form.name = createForm.name
-  form.description = createForm.description
-  form.version = '1.0.0'
-  form.change_note = ''
-  form.nodes = []
-  form.edges = []
-  selectedNodeId.value = null
-  createVisible.value = false
-  designerVisible.value = true
-  await loadSystemsAndResources()
-}
-async function saveAsNew(tpl: PipelineTemplate): Promise<void> {
-  currentTpl.value = null
-  form.template_code = `${tpl.template_code}_COPY`
-  form.name = `${tpl.name} (副本)`
-  form.description = tpl.description || ''
-  form.version = '1.0.0'
-  form.change_note = ''
-  form.nodes = JSON.parse(JSON.stringify(tpl.nodes))
-  form.edges = JSON.parse(JSON.stringify(tpl.edges))
-  selectedNodeId.value = null
-  designerVisible.value = true
-  await loadSystemsAndResources()
-}
+async function dryRun(): Promise<void> { if (!form.template_code) { ElMessage.error('请先保存后再试运行'); return }; try { const result = await ucpApi.runPipeline(form.template_code, { dry_run: true }); ElMessage.success(`试运行已触发，Trace ID: ${result.pipeline_run_id}`) } catch (e: unknown) { ElMessage.error(`试运行失败: ${e instanceof Error ? e.message : String(e)}`) } }
 
-// ===== 版本 =====
-const versionsVisible = ref(false)
-const versions = ref<VersionItem[]>([]) as Ref<VersionItem[]>
-async function viewVersions(tpl: PipelineTemplate): Promise<void> {
-  try {
-    const list = (await pipelineTemplateApi.versions(tpl.template_code)) as unknown as VersionItem[]
-    versions.value = list
-    versionsVisible.value = true
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    ElMessage.error(`加载版本失败: ${msg}`)
-  }
-}
-async function rollbackTo(row: VersionItem): Promise<void> {
-  if (!currentTpl.value) {
-    // 如果在列表页直接点回滚,先打开 designer
-    const tpl = rows.value.find((r) => versions.value.some((v) => v.id === row.id))
-    if (!tpl) {
-      ElMessage.warning('请先打开模板设计')
-      return
-    }
-    currentTpl.value = tpl
-  }
-  try {
-    await ElMessageBox.confirm('确认回滚到此版本? 将创建新版本快照.', '提示', { type: 'warning' })
-    await pipelineTemplateApi.rollback(currentTpl.value.template_code, row.id)
-    ElMessage.success('已回滚')
-    versionsVisible.value = false
-    loadList()
-  } catch {
-    // cancelled
-  }
-}
+const versionsVisible = ref(false); const versions = ref<VersionItem[]>([]) as Ref<VersionItem[]>
+async function viewVersions(tpl: PipelineTemplate): Promise<void> { try { const list = (await pipelineTemplateApi.versions(tpl.template_code)) as unknown as VersionItem[]; versions.value = list; versionsVisible.value = true } catch (e: unknown) { ElMessage.error(`加载版本失败: ${e instanceof Error ? e.message : String(e)}`) } }
+async function rollbackTo(row: VersionItem): Promise<void> { if (!currentTpl.value) { ElMessage.warning('请先打开流程设计'); return }; try { await ElMessageBox.confirm('确认回滚到此版本? 将创建新版本快照.', '提示', { type: 'warning' }); await pipelineTemplateApi.rollback(currentTpl.value.template_code, row.id); ElMessage.success('已回滚'); versionsVisible.value = false } catch {} }
 
-async function removeTemplate(tpl: PipelineTemplate): Promise<void> {
-  try {
-    await ElMessageBox.confirm(`确认删除 ${tpl.template_code}?`, '危险', { type: 'error' })
-    await pipelineTemplateApi.remove(tpl.template_code)
-    ElMessage.success('已删除')
-    loadList()
-  } catch (e: unknown) {
-    if (e === 'cancel') return
-    const msg = e instanceof Error ? e.message : String(e)
-    ElMessage.error(`删除失败: ${msg}`)
-  }
-}
-
-onMounted(async () => {
-  await loadNodeTypes()
-  await loadList()
-})
+const route = useRoute()
+onMounted(async () => { await loadNodeTypes(); await loadSystemsAndResources(); const tplCode = route.query.code as string | undefined; if (tplCode) { try { const tpl = await pipelineTemplateApi.get(tplCode); if (tpl) await openDesigner(tpl) } catch {} } })
 </script>
 
 <style scoped>
-.pipeline-designer-page {
-  padding: 16px;
-}
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.page-header h2 {
-  margin: 0 0 4px;
-}
-.sub {
-  margin: 0;
-  color: #909399;
-  font-size: 13px;
-}
-code {
-  font-family: 'Courier New', monospace;
-  background: #f5f7fa;
-  padding: 1px 6px;
-  border-radius: 3px;
-}
-
-.designer-container {
-  display: grid;
-  grid-template-columns: 200px 1fr 320px;
-  height: 75vh;
-  gap: 12px;
-}
-.designer-left,
-.designer-right {
-  background: #fafafa;
-  padding: 12px;
-  overflow: auto;
-  border: 1px solid #ebeef5;
-  border-radius: 4px;
-}
-.designer-left h4,
-.designer-right h4 {
-  margin: 0 0 8px;
-  font-size: 14px;
-}
-.node-palette-item {
-  background: #fff;
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
-  padding: 8px;
-  margin-bottom: 6px;
-  cursor: grab;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.node-palette-item:hover {
-  background: #f0f9ff;
-}
-.node-palette-item small {
-  margin-left: auto;
-  color: #909399;
-}
-.designer-canvas {
-  position: relative;
-  background: #fafbfc;
-  border: 1px solid #ebeef5;
-  border-radius: 4px;
-  overflow: auto;
-  background-image:
-    radial-gradient(circle, #e4e7ed 1px, transparent 1px);
-  background-size: 20px 20px;
-}
-.edge-layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
-}
-.node-card {
-  position: absolute;
-  width: 150px;
-  background: #fff;
-  border: 2px solid #dcdfe6;
-  border-radius: 6px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
-  cursor: move;
-  user-select: none;
-}
-.node-card.selected {
-  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.3);
-}
-.node-card.is-error {
-  border-color: #f56c6c !important;
-  box-shadow: 0 0 0 2px rgba(245, 108, 108, 0.2);
-}
-.node-header {
-  padding: 4px 8px;
-  color: #fff;
-  border-radius: 4px 4px 0 0;
-  font-size: 12px;
-  font-weight: 600;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.node-body {
-  padding: 6px 8px;
-  font-size: 12px;
-}
-.node-body small {
-  color: #909399;
-  font-size: 10px;
-  display: block;
-  margin-bottom: 2px;
-}
-.node-body .cfg {
-  color: #606266;
-  font-size: 11px;
-  line-height: 1.5;
-}
-.node-body .cfg-line {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.node-body .cfg-line .muted {
-  color: #909399;
-}
-.node-body .cfg-line .strong {
-  color: #303133;
-  font-weight: 600;
-}
-.node-ports {
-  position: relative;
-  height: 0;
-}
-.port {
-  position: absolute;
-  width: 10px;
-  height: 10px;
-  background: #67c23a;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  cursor: crosshair;
-  top: 35px;
-}
-.port-in {
-  left: -7px;
-}
-.port-out {
-  right: -7px;
-}
-.port:hover {
-  background: #409eff;
-  transform: scale(1.3);
-}
-.empty-tip {
-  text-align: center;
-  padding: 60px 0;
-  color: #c0c4cc;
-}
-.empty-tip p {
-  margin: 8px 0 0;
-  font-size: 13px;
-}
-.form-hint {
-  font-size: 12px;
-  margin-top: 4px;
-  color: #909399;
-}
-.form-hint.warn {
-  color: #e6a23c;
-}
+.pipeline-designer-page { height: 100%; display: flex; flex-direction: column; background: var(--color-bg-page) }
+.designer-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--color-bg-card); border-bottom: 1px solid var(--color-border); flex-shrink: 0 }
+.toolbar-left { display: flex; align-items: center; gap: 12px } .toolbar-title { font-size: 16px; font-weight: 600; color: var(--color-text-primary) } .toolbar-right { display: flex; gap: 8px }
+.designer-body { display: grid; grid-template-columns: 220px 1fr 320px; flex: 1; min-height: 0; gap: 0 }
+.designer-left, .designer-right { background: #fafafa; padding: 12px; overflow: auto; border-right: 1px solid #ebeef5 } .designer-right { border-right: none; border-left: 1px solid #ebeef5 }
+.designer-left h4, .designer-right h4 { margin: 0 0 8px; font-size: 14px }
+.node-palette-item { background: #fff; border: 1px solid #dcdfe6; border-radius: 4px; padding: 8px; margin-bottom: 6px; cursor: grab; display: flex; align-items: center; gap: 6px }
+.node-palette-item:hover { background: #f0f9ff } .node-palette-item small { margin-left: auto; color: #909399 }
+.designer-canvas { position: relative; background: #fafbfc; overflow: auto; background-image: radial-gradient(circle, #e4e7ed 1px, transparent 1px); background-size: 20px 20px }
+.edge-layer { position: absolute; top: 0; left: 0; pointer-events: none }
+.node-card { position: absolute; width: 150px; background: #fff; border: 2px solid #dcdfe6; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,.06); cursor: move; user-select: none }
+.node-card.selected { box-shadow: 0 0 0 3px rgba(64,158,255,.3) } .node-card.is-error { border-color: #f56c6c!important; box-shadow: 0 0 0 2px rgba(245,108,108,.2) }
+.node-header { padding: 4px 8px; color: #fff; border-radius: 4px 4px 0 0; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center }
+.node-body { padding: 6px 8px; font-size: 12px } .node-body small { color: #909399; font-size: 10px; display: block; margin-bottom: 2px }
+.node-body .cfg { color: #606266; font-size: 11px; line-height: 1.5 } .node-body .cfg-line { display: flex; align-items: center; gap: 4px } .node-body .cfg-line .muted { color: #909399 } .node-body .cfg-line .strong { color: #303133; font-weight: 600 }
+.node-ports { position: relative; height: 0 } .port { position: absolute; width: 10px; height: 10px; background: #67c23a; border: 2px solid #fff; border-radius: 50%; cursor: crosshair; top: 35px } .port-in { left: -7px } .port-out { right: -7px } .port:hover { background: #409eff; transform: scale(1.3) }
+.empty-tip { text-align: center; padding: 60px 0; color: #c0c4cc } .empty-tip p { margin: 8px 0 0; font-size: 13px }
+.pipeline-info-form :deep(.el-form-item) { margin-bottom: 8px } .pipeline-info-form .compact-item :deep(.el-form-item) { margin-bottom: 0 }
 </style>

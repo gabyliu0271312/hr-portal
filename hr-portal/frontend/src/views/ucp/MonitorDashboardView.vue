@@ -14,6 +14,7 @@
           <el-radio-button :value="720">30d</el-radio-button>
         </el-radio-group>
         <el-button @click="loadAll" :icon="Refresh">刷新</el-button>
+        <el-button @click="$router.push('/ucp/circuits')">熔断与限流</el-button>
       </div>
     </div>
 

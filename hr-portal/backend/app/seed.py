@@ -84,69 +84,19 @@ MENU_TREE: list[dict] = [
         ],
     },
     # 一级 2：数据连接（UCP — 通用数据连接平台，应用化预留）
+    # 导航重构：16 项→7 项，取消二级分组，叶子直接挂 Tab 下；被合并的权限 code 仍保留在 DB 中
     {
         "code": "ucp",
         "label": "数据连接",
         "icon": "Connection",
         "children": [
-            {
-                "code": "ucp.systems_group",
-                "label": "系统与资源",
-                "icon": "Monitor",
-                "children": [
-                    {"code": "ucp.systems", "label": "接入系统", "icon": "DataBoard"},
-                    {"code": "ucp.resources", "label": "数据资源", "icon": "Grid"},
-                    {"code": "ucp.credentials", "label": "凭证管理", "icon": "Key"},
-                ],
-            },
-            {
-                "code": "ucp.pipelines_group",
-                "label": "流水线",
-                "icon": "Share",
-                "children": [
-                    {"code": "ucp.pipelines", "label": "流水线管理", "icon": "Share"},
-                    {"code": "ucp.pipeline_designer", "label": "流水线画布", "icon": "Edit"},
-                    {"code": "ucp.executions", "label": "执行日志", "icon": "Clock"},
-                ],
-            },
-            {
-                "code": "ucp.events_group",
-                "label": "事件与监控",
-                "icon": "BellFilled",
-                "children": [
-                    {"code": "ucp.events", "label": "事件中心", "icon": "BellFilled"},
-                    {"code": "ucp.triggers", "label": "触发器", "icon": "Setting"},
-                    {"code": "ucp.dead_letters", "label": "死信队列", "icon": "Warning"},
-                    {"code": "ucp.monitor", "label": "监控中心", "icon": "TrendCharts"},
-                ],
-            },
-            {
-                "code": "ucp.governance_group",
-                "label": "数据治理",
-                "icon": "DataAnalysis",
-                "children": [
-                    {"code": "ucp.governance", "label": "数据治理", "icon": "DataAnalysis"},
-                ],
-            },
-            {
-                "code": "ucp.assets_group",
-                "label": "集成资产",
-                "icon": "FolderOpened",
-                "children": [
-                    {"code": "ucp.assets", "label": "资产目录", "icon": "FolderOpened"},
-                ],
-            },
-            {
-                "code": "ucp.admin_group",
-                "label": "管理",
-                "icon": "Setting",
-                "children": [
-                    {"code": "ucp.admin", "label": "平台配置", "icon": "Setting"},
-                    {"code": "ucp.approvals", "label": "审批中心", "icon": "Document"},
-                    {"code": "ucp.external_accounts", "label": "外部账号", "icon": "UserFilled"},
-                    {"code": "ucp.oa_sync", "label": "OA 同步", "icon": "Connection"},
-                ],
-            },
+            {"code": "ucp.systems", "label": "接入系统", "icon": "DataBoard"},
+            {"code": "ucp.pipelines", "label": "流程编排", "icon": "Share"},
+            {"code": "ucp.executions", "label": "运行中心", "icon": "Clock"},
+            {"code": "ucp.events", "label": "事件处理", "icon": "BellFilled"},
+            {"code": "ucp.monitor", "label": "监控告警", "icon": "TrendCharts"},
+            {"code": "ucp.scenarios", "label": "场景方案", "icon": "Connection"},
+            {"code": "ucp.assets", "label": "资产治理", "icon": "FolderOpened"},
         ],
     },
     # 一级 3：数据仓库
@@ -268,14 +218,32 @@ async def _ensure_menus(db: AsyncSession) -> dict[str, Menu]:
             if m.parent_id != parent_id:
                 m.parent_id = parent_id
                 changed = True
+            if m.label != node["label"]:
+                m.label = node["label"]
+                changed = True
+            if m.icon != node.get("icon"):
+                m.icon = node.get("icon")
+                changed = True
             if changed:
-                logger.info("[seed] menu updated: %s order=%d parent=%s", node["code"], order, parent_id)
+                logger.info("[seed] menu updated: %s label=%s order=%d parent=%s", node["code"], node["label"], order, parent_id)
         order += 10
         for child in node.get("children", []):
             await add(child, by_code[node["code"]].id)
 
     for top in MENU_TREE:
         await add(top, None)
+
+    # UCP 导航重构：将旧菜单 reparent 到 ucp Tab 下，前端通过白名单过滤可见项
+    ucp = by_code.get("ucp")
+    ucp_tree = next((t for t in MENU_TREE if t["code"] == "ucp"), None)
+    if ucp and ucp_tree:
+        ucp_new_codes = {c["code"] for c in ucp_tree["children"]}
+        for m in by_code.values():
+            if m.parent_id is not None or m.id == ucp.id:
+                continue
+            if m.code.startswith("ucp.") and m.code not in ucp_new_codes:
+                m.parent_id = ucp.id
+                logger.info("[seed] ucp nav: reparent %s → ucp", m.code)
 
     await db.commit()
     return by_code

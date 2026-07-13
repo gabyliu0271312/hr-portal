@@ -116,7 +116,7 @@ async function load() {
 }
 
 function viewDetail(row: PipelineExecutionItem) {
-  router.push({ name: 'UcpExecDetail', params: { id: row.pipeline_run_id } })
+  router.push({ name: 'UcpRunDetail', params: { id: row.pipeline_run_id } })
 }
 
 async function triggerOfferSync() {

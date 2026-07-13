@@ -1231,7 +1231,7 @@ function pipelineStatusLabel(s: number): string {
 }
 function goToPipeline(pipelineId: number) {
   resourceDrawerOpen.value = false
-  router.push({ name: 'UcpPipelineDesigner', query: { pipelineId } })
+  router.push({ name: 'UcpPipelineDesigner' })
 }
 
 async function addResource(sys: any) {

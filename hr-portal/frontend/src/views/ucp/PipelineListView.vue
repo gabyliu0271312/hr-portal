@@ -19,6 +19,14 @@
         <div class="stat-label">禁用</div>
         <div class="stat-value text-danger">{{ disabledCount }}</div>
       </el-card>
+      <el-card class="stat-card">
+        <div class="stat-label">定时触发</div>
+        <div class="stat-value text-primary">{{ cronCount }}</div>
+      </el-card>
+      <el-card class="stat-card">
+        <div class="stat-label">事件触发</div>
+        <div class="stat-value text-warning">{{ eventCount }}</div>
+      </el-card>
     </div>
 
     <!-- 工具栏 -->
@@ -102,6 +110,8 @@ const runningId = ref<number | null>(null)
 
 const enabledCount = computed(() => items.value.filter(x => x.status === 1).length)
 const disabledCount = computed(() => items.value.filter(x => x.status === 2).length)
+const cronCount = computed(() => items.value.filter(x => x.trigger_type === 'cron').length)
+const eventCount = computed(() => items.value.filter(x => x.trigger_type === 'event').length)
 
 const triggerLabel = (t: string) => {
   switch (t) {
@@ -137,7 +147,7 @@ const loadList = async () => {
 
 const openDesigner = (row?: any) => {
   if (row) {
-    router.push({ name: 'UcpPipelineDesigner', params: { id: String(row.id) } })
+    router.push({ name: 'UcpPipelineDesigner', query: { code: row.pipeline_code } })
   } else {
     router.push({ name: 'UcpPipelineDesigner' })
   }
@@ -188,8 +198,9 @@ onMounted(() => {
 .pipeline-list { padding: 16px; }
 .page-header h2 { margin: 0 0 4px 0; }
 .desc { color: #909399; font-size: 13px; margin: 0 0 16px 0; }
-.stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+.stat-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
 .stat-card { text-align: center; }
+.stat-card :deep(.el-card__body) { padding: 14px 8px; }
 .stat-label { font-size: 12px; color: #909399; }
 .stat-value { font-size: 24px; font-weight: 600; margin-top: 4px; }
 .text-success { color: #67c23a; }
