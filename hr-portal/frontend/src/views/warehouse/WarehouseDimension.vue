@@ -78,7 +78,8 @@ async function save() {
       await createDimension(form.value as any)
       ElMessage.success('维度已创建')
     } else {
-      await updateDimension(editId.value!, form.value as any)
+      const { dimension_code, ...payload } = form.value as any
+      await updateDimension(editId.value!, payload)
       ElMessage.success('维度已更新')
     }
     dialogVisible.value = false; load()
@@ -106,19 +107,6 @@ async function doDelete(id: number) {
   } catch { /* 取消 */ }
 }
 
-function renderTree(nodes: Dimension[], level = 0): any[] {
-  const items: any[] = []
-  for (const n of nodes) {
-    items.push({ ...n, level })
-    if (n.children && n.children.length > 0) {
-      items.push(...renderTree(n.children, level + 1))
-    }
-  }
-  return items
-}
-
-const flatTree = () => renderTree(treeData.value)
-
 onMounted(load)
 </script>
 
@@ -133,12 +121,10 @@ onMounted(load)
     </div>
 
     <el-card shadow="never">
-      <el-table v-loading="loading" :data="flatTree()" border stripe size="small" empty-text="暂无维度" row-key="id">
+      <el-table v-loading="loading" :data="treeData" border stripe size="small" empty-text="暂无维度" row-key="id" :tree-props="{ children: 'children' }" default-expand-all>
         <el-table-column label="维度名称" min-width="200">
           <template #default="{ row }">
-            <span :style="{ paddingLeft: row.level * 24 + 'px' }">
-              <span v-if="row.children && row.children.length > 0" style="margin-right:4px">📁</span>
-              <span v-else style="margin-right:4px">📄</span>
+            <span :style="{ paddingLeft: '4px' }">
               {{ row.dimension_name }}
             </span>
           </template>

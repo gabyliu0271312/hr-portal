@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import func, select
+from app.datasets.models import DataSet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # ==================== 指标计算 (R0302) ====================
@@ -249,7 +250,8 @@ class DwsAggregateService:
             existing = (await self.session.execute(select(Dimension.dimension_code).where(Dimension.dimension_code.in_(payload["group_by"])))).scalars().all()
             for code in payload["group_by"]:
                 if code not in set(existing): errors.append({"field": "group_by", "message": f"维度 code 不存在: {code}"})
-        if not payload.get("measure_field"): errors.append({"field": "measure_field", "message": "度量字段为必填"})
+        if not payload.get("measure_field") and not payload.get("metric_id"):
+            errors.append({"field": "measure_field", "message": "未关联指标时，度量字段为必填"})
         return {"valid": len(errors) == 0, "errors": errors}
 
     async def generate_dws_view(self, agg_id: int):
@@ -265,7 +267,13 @@ class DwsAggregateService:
             dims = (await self.session.execute(select(Dimension).where(Dimension.dimension_code.in_(agg.group_by)))).scalars().all()
             for d in dims:
                 dim_map[d.dimension_code] = f"{d.bound_table}.{d.bound_field}" if d.bound_table and d.bound_field else d.dimension_code
-        measure = agg.measure_field or "*"
+        measure = agg.measure_field
+        if not measure and agg.metric_id:
+            from app.datasets.models import WarehouseMetric
+            m = await self.session.get(WarehouseMetric, agg.metric_id)
+            measure = m.formula_expr if m else None
+        if not measure:
+            measure = "*"
         agg_func = agg.aggregation.upper() if agg.aggregation else "SUM"
         resolved_cols = [dim_map.get(c, c) for c in (agg.group_by or [])]
         group_cols = ", ".join(resolved_cols) if resolved_cols else ""
@@ -277,6 +285,12 @@ class DwsAggregateService:
         else:
             ds = DataSet(name=ds_name, description=agg.business_definition or f"从 {agg.name} 生成", warehouse_layer="DWS", status="published", version=1, published_at=dt.utcnow())
             self.session.add(ds); await self.session.flush()
+        # 同时注册为数据资产表，使其出现在资产列表中
+        from app.data.models import RegisteredTable
+        rt_exists = (await self.session.execute(select(RegisteredTable).where(RegisteredTable.table_name == ds_name))).scalars().first()
+        if not rt_exists:
+            rt = RegisteredTable(table_name=ds_name, table_label=agg.name, warehouse_layer="DWS", source_system="dws_aggregate")
+            self.session.add(rt); await self.session.flush()
         return {"aggregate_id": agg_id, "view_name": ds_name, "sql_summary": sql_summary, "output_fields": list(agg.group_by or []) + [f"{agg_func}_{measure}"], "dependencies": [], "version": ds.version, "status": "published"}
 
     async def get_view_impact(self, agg_id: int):
@@ -284,7 +298,7 @@ class DwsAggregateService:
         agg = await self.session.get(DwsAggregateDefinition, agg_id)
         if agg is None: return None
         deps = []; warnings = []
-        if not agg.measure_field: warnings.append("未指定度量字段")
+        if not agg.measure_field and not agg.metric_id: warnings.append("未指定度量字段")
         if not agg.group_by: warnings.append("未指定分组维度")
         return {"aggregate_id": agg_id, "aggregate_name": agg.name, "dependencies": deps, "warnings": warnings, "estimated_output_fields": len(agg.group_by or []) + 1}
 
