@@ -1159,6 +1159,18 @@ export function buildDataset(datasetId: number) {
 
 // ==================== R0302 指标计算 ====================
 
+export interface MetricResultRow {
+  id: number
+  result_id: number
+  metric_id: number
+  period: string
+  row_index: number
+  dimension_values: Record<string, any>
+  measure_values: Record<string, any>
+  value: any
+  computed_at: string | null
+}
+
 /** 指标计算结果 */
 export interface MetricResult {
   id: number
@@ -1166,6 +1178,7 @@ export interface MetricResult {
   period: string
   value: Record<string, any>
   computed_at: string | null
+  rows: MetricResultRow[]
 }
 
 /** 指标运行记录 */

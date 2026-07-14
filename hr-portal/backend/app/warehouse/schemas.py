@@ -6,7 +6,7 @@
 - *Out  = 响应体（返回前端）
 """
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -851,6 +851,21 @@ METRIC_RUN_STATUSES = ("pending", "running", "success", "failed")
 METRIC_COMPUTE_PERIODS = ("day", "week", "month", "quarter", "year")
 
 
+class MetricResultRowOut(BaseModel):
+    """指标计算结果明细行"""
+    id: int
+    result_id: int
+    metric_id: int
+    period: str
+    row_index: int
+    dimension_values: dict
+    measure_values: dict
+    value: Optional[Any] = None
+    computed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class MetricResultOut(BaseModel):
     """指标计算结果"""
     id: int
@@ -858,6 +873,7 @@ class MetricResultOut(BaseModel):
     period: str
     value: dict
     computed_at: Optional[datetime] = None
+    rows: list[MetricResultRowOut] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

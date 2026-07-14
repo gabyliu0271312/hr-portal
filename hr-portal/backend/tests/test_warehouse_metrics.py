@@ -94,6 +94,25 @@ def test_warehouse_metric_unique_constraints():
     assert "uq_warehouse_metric_code" in constraints
 
 
+def test_metric_result_row_orm_fields():
+    """验证 MetricResultRow ORM 承载多维结果集明细"""
+    from app.warehouse.models import MetricResultRow
+    field_names = {c.name for c in MetricResultRow.__table__.columns}
+    required = {
+        "id", "result_id", "metric_id", "period", "row_index",
+        "dimension_values", "measure_values", "value", "computed_at", "created_at",
+    }
+    missing = required - field_names
+    assert not missing, f"ORM 缺少字段: {missing}"
+
+
+def test_metric_result_schema_contains_rows():
+    """验证指标结果响应包含明细行"""
+    from app.warehouse.schemas import MetricResultOut
+    fields = set(MetricResultOut.model_fields)
+    assert "rows" in fields
+
+
 # ==================== Schema 导入完整性 ====================
 
 

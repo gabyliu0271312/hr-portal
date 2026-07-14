@@ -12,12 +12,46 @@ class MetricComputeService:
     """指标计算与结果管理"""
     def __init__(self, session: AsyncSession): self.session = session
 
+    @staticmethod
+    def _quote_ident(name: str) -> str:
+        return '"' + name.replace('"', '""') + '"'
+
+    @classmethod
+    def _jsonable(cls, value):
+        from datetime import date, datetime
+        from decimal import Decimal
+        if isinstance(value, dict):
+            return {k: cls._jsonable(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [cls._jsonable(v) for v in value]
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return value
+
+    @staticmethod
+    def _row_matches_period(row: dict, period: str) -> bool:
+        if not period:
+            return True
+        parts = period.split("-")
+        if "year" in row and parts[0].isdigit() and int(parts[0]) != row.get("year"):
+            return False
+        if "month" in row and len(parts) >= 2 and parts[1].isdigit() and int(parts[1]) != row.get("month"):
+            return False
+        if "quarter" in row and "Q" in period.upper():
+            quarter = period.upper().split("Q")[-1]
+            if quarter.isdigit() and int(quarter) != row.get("quarter"):
+                return False
+        return True
+
     async def compute_metric(self, metric_id: int, period: str, user_id=None):
-        from datetime import datetime as dt
+        from datetime import date, datetime as dt
+        from decimal import Decimal
         from app.datasets.models import WarehouseMetric
-        from app.warehouse.models import MetricResult, MetricRun
-        from app.ai_formula.evaluator import evaluate_formula
+        from app.warehouse.models import DwsAggregateDefinition, MetricResult, MetricResultRow, MetricRun
         from sqlalchemy import text as sa_text
+
         m = await self.session.get(WarehouseMetric, metric_id)
         if m is None: return {"error": "not_found", "detail": f"指标不存在: {metric_id}"}
         if m.status == "archived": return {"error": "bad_request", "detail": "已归档指标不可计算"}
@@ -25,27 +59,54 @@ class MetricComputeService:
         run = MetricRun(metric_id=metric_id, status="running", period=period, started_at=started)
         self.session.add(run); await self.session.flush()
         try:
-            value = None
-            if m.formula_expr:
-                row_data = {}
-                if m.related_dataset_id:
-                    try:
-                        ds = await self.session.get(DataSet, m.related_dataset_id)
-                        if ds and ds.tables:
-                            fst = ds.tables[0]
-                            rr = await self.session.execute(sa_text(f"SELECT * FROM {fst.table_name} LIMIT 1"))
-                            row = rr.fetchone()
-                            if row: row_data = dict(row._mapping)
-                    except: pass
-                eval_result = evaluate_formula(m.formula_expr, row_data)
-                value = eval_result if eval_result is not None else None
-            result = MetricResult(metric_id=metric_id, period=period, value={"value": value, "metric_code": m.metric_code}, computed_at=dt.utcnow())
+            agg = (await self.session.execute(
+                select(DwsAggregateDefinition)
+                .where(DwsAggregateDefinition.metric_id == metric_id)
+                .where(DwsAggregateDefinition.status == "published")
+                .order_by(DwsAggregateDefinition.updated_at.desc(), DwsAggregateDefinition.id.desc())
+                .limit(1)
+            )).scalars().first()
+            if agg is None:
+                raise ValueError("指标缺少已发布的 DWS 聚合定义，无法计算结果集")
+
+            view_name = f"ds_dws_{agg.id}"
+            await DwsAggregateService(self.session).generate_dws_view(agg.id)
+            rr = await self.session.execute(sa_text(f"SELECT * FROM {self._quote_ident(view_name)}"))
+            rows = [self._jsonable(dict(row._mapping)) for row in rr.fetchall()]
+            rows = [row for row in rows if self._row_matches_period(row, period)]
+
+            dimensions = [c for c in (agg.group_by or [])]
+            value_key = "aggregated_value"
+            result_value = {
+                "metric_code": m.metric_code,
+                "aggregate_id": agg.id,
+                "row_count": len(rows),
+                "dimensions": dimensions,
+                "measures": [value_key],
+                "summary_value": rows[0].get(value_key) if len(rows) == 1 else None,
+            }
+            result = MetricResult(metric_id=metric_id, period=period, value=result_value, computed_at=dt.utcnow())
             self.session.add(result); await self.session.flush()
+
+            for idx, row in enumerate(rows):
+                dimension_values = {d: row.get(d) for d in dimensions if d in row}
+                measure_values = {value_key: row.get(value_key)}
+                self.session.add(MetricResultRow(
+                    result_id=result.id,
+                    metric_id=metric_id,
+                    period=period,
+                    row_index=idx,
+                    dimension_values=dimension_values,
+                    measure_values=measure_values,
+                    value=row.get(value_key),
+                    computed_at=result.computed_at,
+                ))
+
             run.status = "success"; run.result_id = result.id; run.finished_at = dt.utcnow()
             # Z02: 自动血缘边
             from app.warehouse.service import write_lineage_edge
             await write_lineage_edge(self.session, f"metric:{m.metric_code}", f"result:{period}", "metric_compute", metadata={
-                "definition_id": metric_id, "version": 1, "rule_ids": [],
+                "definition_id": metric_id, "aggregate_id": agg.id, "version": 1, "rule_ids": [],
             })
             return {"run_id": run.id, "metric_id": metric_id, "status": "success", "period": period, "value": result.value, "error_message": None}
         except Exception as exc:
@@ -60,12 +121,39 @@ class MetricComputeService:
         return await self.compute_metric(metric_id, period, user_id)
 
     async def list_results(self, metric_id: int, page=1, page_size=20):
-        from app.warehouse.models import MetricResult
+        from app.warehouse.models import MetricResult, MetricResultRow
         page_size = min(max(page_size, 1), 200)
         base = select(MetricResult).where(MetricResult.metric_id == metric_id)
         total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
         rows = (await self.session.execute(base.order_by(MetricResult.computed_at.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
-        items = [{"id": r.id, "metric_id": r.metric_id, "period": r.period, "value": r.value, "computed_at": r.computed_at.isoformat() if r.computed_at else None} for r in rows]
+        result_ids = [r.id for r in rows]
+        detail_map = {rid: [] for rid in result_ids}
+        if result_ids:
+            details = (await self.session.execute(
+                select(MetricResultRow)
+                .where(MetricResultRow.result_id.in_(result_ids))
+                .order_by(MetricResultRow.result_id, MetricResultRow.row_index)
+            )).scalars().all()
+            for d in details:
+                detail_map.setdefault(d.result_id, []).append({
+                    "id": d.id,
+                    "result_id": d.result_id,
+                    "metric_id": d.metric_id,
+                    "period": d.period,
+                    "row_index": d.row_index,
+                    "dimension_values": d.dimension_values,
+                    "measure_values": d.measure_values,
+                    "value": d.value,
+                    "computed_at": d.computed_at.isoformat() if d.computed_at else None,
+                })
+        items = [{
+            "id": r.id,
+            "metric_id": r.metric_id,
+            "period": r.period,
+            "value": r.value,
+            "computed_at": r.computed_at.isoformat() if r.computed_at else None,
+            "rows": detail_map.get(r.id, []),
+        } for r in rows]
         return {"total": total, "page": page, "page_size": page_size, "items": items}
 
     async def list_runs(self, metric_id: int, page=1, page_size=20):

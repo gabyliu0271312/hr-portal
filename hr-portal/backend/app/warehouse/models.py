@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Index,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -211,7 +212,35 @@ class MetricResult(Base):
         nullable=False, comment="关联 warehouse_metrics.id",
     )
     period = Column(String(32), nullable=False, comment="计算周期，如 2026-07/2026Q3/2026H1")
-    value = Column(JSON, nullable=False, comment="指标值（支持单值和复合值）")
+    value = Column(JSON, nullable=False, comment="指标结果摘要")
+    computed_at = Column(DateTime, nullable=False, default=datetime.utcnow, comment="计算时间")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class MetricResultRow(Base):
+    """指标计算结果明细行"""
+
+    __tablename__ = "metric_result_rows"
+    __table_args__ = (
+        UniqueConstraint("result_id", "row_index", name="uq_metric_result_rows_result_row_index"),
+        Index("ix_metric_result_rows_result_id", "result_id"),
+        Index("ix_metric_result_rows_metric_period", "metric_id", "period"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    result_id = Column(
+        BigInteger, ForeignKey("metric_results.id", ondelete="CASCADE"),
+        nullable=False, comment="关联 metric_results.id",
+    )
+    metric_id = Column(
+        BigInteger, ForeignKey("warehouse_metrics.id", ondelete="CASCADE"),
+        nullable=False, comment="关联 warehouse_metrics.id",
+    )
+    period = Column(String(32), nullable=False, comment="计算周期")
+    row_index = Column(Integer, nullable=False, comment="结果行序号")
+    dimension_values = Column(JSON, nullable=False, default=dict, comment="维度值")
+    measure_values = Column(JSON, nullable=False, default=dict, comment="度量值")
+    value = Column(JSON, nullable=True, comment="主指标值")
     computed_at = Column(DateTime, nullable=False, default=datetime.utcnow, comment="计算时间")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 

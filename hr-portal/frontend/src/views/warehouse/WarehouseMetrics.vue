@@ -196,10 +196,23 @@ async function doRecalc() {
   } catch { /* 取消 */ }
 }
 
+function metricResultDisplay(result: any): string {
+  const summary = result?.value?.summary_value ?? result?.value?.value
+  if (summary !== null && summary !== undefined) return String(summary)
+  const rowCount = result?.value?.row_count ?? result?.rows?.length
+  return rowCount !== undefined ? `${rowCount} 行结果` : '-'
+}
+
+function metricResultNumber(result: any): number {
+  const summary = result?.value?.summary_value ?? result?.value?.value
+  return typeof summary === 'number' ? summary : 0
+}
+
 const trendData = computed(() => {
   return [...results.value].reverse().map(r => ({
     period: r.period,
-    value: typeof r.value?.value === 'number' ? r.value.value : 0,
+    value: metricResultNumber(r),
+    label: metricResultDisplay(r),
   }))
 })
 
@@ -415,7 +428,7 @@ onMounted(load)
             <el-alert v-else-if="lastComputeStatus === 'success' && computedResult" type="success" :closable="false"
               :title="`上次计算完成 · 结果: ${computedResult.period}`" show-icon>
               <template #default>
-                <span style="font-size:13px">计算结果: {{ computedResult.value?.value }}</span>
+                <span style="font-size:13px">计算结果: {{ metricResultDisplay(computedResult) }}</span>
               </template>
             </el-alert>
             <el-alert v-else-if="lastComputeStatus === 'failed'" type="error" :closable="false"
@@ -435,7 +448,7 @@ onMounted(load)
           </div>
           <div v-else style="display:flex;align-items:flex-end;gap:4px;height:120px;padding:8px 0">
             <div v-for="(d, i) in trendData" :key="i" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
-              <span style="font-size:11px;margin-bottom:4px;color:#303133;font-weight:600">{{ d.value }}</span>
+              <span style="font-size:11px;margin-bottom:4px;color:#303133;font-weight:600">{{ d.label }}</span>
               <div :style="{height: Math.max(4, (d.value / Math.max(...trendData.map(x=>x.value),1)) * 100)+'%', width:'100%', maxWidth:'40px', background:'#409eff', borderRadius:'4px 4px 0 0', minHeight:'4px'}"></div>
               <span style="font-size:10px;color:#909399;margin-top:4px;writing-mode:horizontal-tb">{{ d.period }}</span>
             </div>
@@ -447,7 +460,12 @@ onMounted(load)
           <template #header><span style="font-weight: 600">计算结果</span></template>
           <el-table v-loading="resultsLoading" :data="results" size="small" border empty-text="暂无结果" max-height="200">
             <el-table-column prop="period" label="周期" width="120" />
-            <el-table-column prop="value.value" label="计算结果" min-width="100" />
+            <el-table-column label="计算结果" min-width="120">
+              <template #default="{ row }">{{ metricResultDisplay(row) }}</template>
+            </el-table-column>
+            <el-table-column label="明细行数" width="90" align="center">
+              <template #default="{ row }">{{ row.value?.row_count ?? row.rows?.length ?? 0 }}</template>
+            </el-table-column>
             <el-table-column prop="computed_at" label="计算时间" width="160">
               <template #default="{ row }">{{ row.computed_at?.substring(0, 19) }}</template>
             </el-table-column>
