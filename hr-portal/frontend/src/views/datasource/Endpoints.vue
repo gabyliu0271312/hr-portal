@@ -14,8 +14,11 @@ import {
 import { datasourcesApi, type DataSourceListItem } from '@/api/datasources'
 import { adminTablesApi } from '@/api/admin_tables'
 import ScheduleSelector from '@/components/common/ScheduleSelector.vue'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const userStore = useUserStore()
+const userLoginName = computed(() => userStore.user?.login_name || '')
 
 const list = ref<DataSourceListItem[]>([])
 const loading = ref(false)
@@ -160,6 +163,10 @@ function fieldPlaceholder(key: string, original?: string): string {
   return original ?? ''
 }
 
+function allowManualInput(event: FocusEvent) {
+  ;(event.target as HTMLInputElement | null)?.removeAttribute('readonly')
+}
+
 const copyDialogOpen = ref(false)
 const copySource = ref<number | null>(null)
 const copyableEndpoints = computed(() =>
@@ -196,7 +203,7 @@ function splitPayload(): { settings: Record<string, any>; secrets: Record<string
   const secrets: Record<string, string> = {}
   for (const [k, v] of Object.entries(form.config)) {
     if (SECRET_KEY_SET.has(k)) {
-      if (v) secrets[k] = v
+      if (v && !(hasSecret(k) && v === userLoginName.value)) secrets[k] = v
     } else {
       settings[k] = v
     }
@@ -402,7 +409,9 @@ onMounted(() => {
       <el-tabs v-model="activeTab">
         <!-- Tab 1：拉取接口 -->
         <el-tab-pane label="拉取接口" name="pull">
-          <el-form label-position="top">
+          <el-form label-position="top" autocomplete="off">
+            <input tabindex="-1" autocomplete="username" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
+            <input tabindex="-1" type="password" autocomplete="current-password" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
             <el-form-item label="接入类型">
               <el-select v-model="form.source_type" style="width: 100%" @change="onTypeChange">
                 <el-option
@@ -429,13 +438,27 @@ onMounted(() => {
                   <el-input
                     v-if="f.type === 'text' || f.type === 'url'"
                     v-model="form.config[f.key]"
+                    :name="`hr-source-field-${f.key.toLowerCase()}-${editing?.id || 'new'}`"
+                    :autocomplete="SECRET_KEY_SET.has(f.key) ? 'new-password' : 'off'"
+                    :readonly="SECRET_KEY_SET.has(f.key)"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    @focus="allowManualInput"
                     :placeholder="fieldPlaceholder(f.key, f.placeholder)"
                   />
                   <el-input
                     v-else-if="f.type === 'password'"
                     v-model="form.config[f.key]"
-                    type="password"
+                    type="text"
                     show-password
+                    :name="`hr-source-secret-${f.key.toLowerCase()}-${editing?.id || 'new'}`"
+                    autocomplete="new-password"
+                    readonly
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    @focus="allowManualInput"
                     :placeholder="fieldPlaceholder(f.key, f.placeholder)"
                   />
                   <el-input

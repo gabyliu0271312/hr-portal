@@ -180,6 +180,7 @@ class WarehouseService:
             ucp_connector_config_id=rt.ucp_connector_config_id,
             period_col=rt.period_col,
             period_source=rt.period_source,
+            is_period=rt.is_period,
             scope_strategy=rt.scope_strategy,
         )
 

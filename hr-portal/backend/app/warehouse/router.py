@@ -392,7 +392,11 @@ async def get_asset_endpoints(
             last_message=last_run.message if last_run else ds.last_message,
             has_secrets=bool(ds.secrets_encrypted),
             config_route="DatasourceEndpoints",
-            summary_extra={"source_type": ds.source_type or ""},
+            summary_extra={
+                "source_type": ds.source_type or "",
+                "settings": ds.settings or {},
+                "has_secret": {k: bool(v) for k, v in (ds.secrets_encrypted or {}).items()},
+            },
         ))
 
     # PushTarget 推送接口

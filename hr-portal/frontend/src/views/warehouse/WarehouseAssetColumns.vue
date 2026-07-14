@@ -30,6 +30,7 @@ const editForm = ref({
   scope_role: '', display_order: 0, description: '',
   enum_options: [] as string[],
   formula_expr: '' as string,
+  data_type: 'string',
 })
 const editSaving = ref(false)
 
@@ -100,6 +101,7 @@ function openCreate() {
     scope_role: '',
     display_order: (columns.value[columns.value.length - 1]?.display_order ?? 0) + 10,
     description: '', enum_options: [], formula_expr: '',
+    data_type: 'string',
   }
   editMode.value = true; drawerVisible.value = true
 }
@@ -115,6 +117,7 @@ function enterEdit(col: AssetColumn) {
     scope_role: col.scope_role || '', display_order: col.display_order, description: col.description || '',
     enum_options: Array.isArray(col.enum_options) ? [...col.enum_options] : [],
     formula_expr: col.formula_expr || '',
+    data_type: col.data_type || 'string',
   }
   editMode.value = true; drawerVisible.value = true
 }
@@ -124,6 +127,7 @@ function buildPayload(): ColumnUpdatePayload {
   const p: Record<string, any> = {
     column_code: isCreateMode.value ? newColumnCode.value : selectedColumn.value!.column_code,
     column_label: f.column_label,
+    data_type: f.data_type || 'string',
     is_pk_part: f.is_pk_part, is_sensitive: f.is_sensitive,
     is_visible: f.is_visible, display_order: f.display_order,
     description: f.description || null, scope_role: f.scope_role || null,
@@ -142,7 +146,18 @@ async function saveEdit() {
       await tableColumnsApi.create(tableName, buildPayload())
       ElMessage.success('字段已创建')
     } else {
-      await tableColumnsApi.update(tableName, selectedColumn.value!.id, buildPayload())
+      const payload = buildPayload()
+      const typeChanged = editForm.value.data_type !== selectedColumn.value?.data_type
+      if (typeChanged) {
+        try {
+          await ElMessageBox.confirm(
+            `字段「${editForm.value.column_label}」已有数据，确认将类型从「${DATA_TYPE_LABELS[selectedColumn.value?.data_type || ''] || selectedColumn.value?.data_type}」改为「${DATA_TYPE_LABELS[editForm.value.data_type] || editForm.value.data_type}」？已有数据将执行类型转换。`,
+            '确认类型变更', { type: 'warning', confirmButtonText: '确认变更', cancelButtonText: '取消' }
+          )
+        } catch { editSaving.value = false; return }
+        ;(payload as any).confirm_type_change = true
+      }
+      await tableColumnsApi.update(tableName, selectedColumn.value!.id, payload)
       ElMessage.success('字段已更新')
     }
     editMode.value = false; load()
@@ -252,6 +267,15 @@ onMounted(load)
           <el-form-item v-else label="字段编码">
             <el-input :model-value="selectedColumn?.column_code" disabled />
             <div style="font-size: 12px; color: #909399; margin-top: 2px">字段编码与源端 key 绑定，不可修改</div>
+          </el-form-item>
+
+          <el-form-item label="数据类型">
+            <el-select v-model="editForm.data_type" style="width: 100%">
+              <el-option v-for="t in DATA_TYPES" :key="t" :label="DATA_TYPE_LABELS[t] || t" :value="t" />
+            </el-select>
+            <div v-if="!isCreateMode && editForm.data_type !== selectedColumn?.data_type" style="font-size: 12px; color: #e6a23c; margin-top: 2px">
+              类型变更将对已有数据执行类型转换，保存时需二次确认
+            </div>
           </el-form-item>
 
           <el-form-item label="维度/度量">

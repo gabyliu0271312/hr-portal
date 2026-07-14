@@ -94,8 +94,8 @@ def normalize_code(raw: str, *, prefix: str = "") -> str:
     if re.match(r"^\d", text):
         text = f"f_{text}"
     text = _strip_layer_prefix(text)
-    if prefix and not text.startswith(f"{prefix}_"):
-        text = f"{prefix}_{text}"
+    if prefix and not text.startswith(prefix):
+        text = f"{prefix.rstrip('_')}_{text}"
     return text[:64].rstrip("_")
 
 
@@ -106,8 +106,8 @@ def normalize_ai_code(raw: str, *, prefix: str = "") -> str:
     if re.match(r"^\d", text):
         text = f"f_{text}"
     text = _strip_layer_prefix(text)
-    if prefix and text and not text.startswith(f"{prefix}_"):
-        text = f"{prefix}_{text}"
+    if prefix and text and not text.startswith(prefix):
+        text = f"{prefix.rstrip('_')}_{text}"
     return text[:64].rstrip("_")
 
 

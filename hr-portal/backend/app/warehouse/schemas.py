@@ -69,6 +69,7 @@ class WarehouseAssetDetailOut(WarehouseAssetOut):
     # 运行信息
     period_col: Optional[str] = None
     period_source: Optional[str] = None
+    is_period: bool = False
     scope_strategy: Optional[str] = None
 
 

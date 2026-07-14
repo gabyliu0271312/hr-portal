@@ -130,13 +130,18 @@ function fieldPlaceholder(key: string, original?: string): string {
   return original ?? ''
 }
 
+function allowManualInput(event: FocusEvent) {
+  ;(event.target as HTMLInputElement | null)?.removeAttribute('readonly')
+}
+
 function hasSecret(key: string): boolean { return !!dsEditRow.value?.has_secret?.[key] }
 
 function splitPayload(): { settings: Record<string, any>; secrets: Record<string, string> } {
   const settings: Record<string, any> = {}
   const secrets: Record<string, string> = {}
+  const userLoginName = userStore.user?.login_name || ''
   for (const [k, v] of Object.entries(dsForm.config)) {
-    if (SECRET_KEY_SET.has(k)) { if (v) secrets[k] = v }
+    if (SECRET_KEY_SET.has(k)) { if (v && !(hasSecret(k) && v === userLoginName)) secrets[k] = v }
     else settings[k] = v
   }
   return { settings, secrets }
@@ -155,17 +160,26 @@ async function openCreateDS() {
   dsDrawerVisible.value = true
 }
 
-function openEditDS(ep: ConnectionEndpointSummary) {
+async function openEditDS(ep: ConnectionEndpointSummary) {
   dsDrawerMode.value = 'edit'
   dsEditId.value = ep.endpoint_id
-  const t = findSourceType(ep.summary_extra?.source_type || 'beisen_report') || findSourceType('beisen_report')
-  const merged = initFormForType(ep.summary_extra?.source_type || 'beisen_report')
-  if (injectTables.value.has(tableName) && !merged['MONTH_OFFSET']) merged['MONTH_OFFSET'] = '0'
-  dsForm.source_type = ep.summary_extra?.source_type || 'beisen_report'
-  dsForm.schedule = ep.schedule || t?.defaultSchedule || ''
-  dsForm.is_active = ep.is_active
-  dsForm.config = merged
-  dsEditRow.value = { id: ep.endpoint_id, table_name: tableName, table_label: ep.name, source_type: dsForm.source_type, schedule: dsForm.schedule, settings: ep.summary_extra, has_secret: {} as any, is_active: ep.is_active, last_sync_at: ep.last_run_at, last_status: ep.last_status || '', last_rows: ep.last_rows, last_message: ep.last_message } as DataSourceListItem
+  try {
+    const saved = await datasourcesApi.get(ep.endpoint_id)
+    const t = findSourceType(saved.source_type) || findSourceType('beisen_report')
+    const merged = initFormForType(saved.source_type)
+    for (const [k, v] of Object.entries(saved.settings || {})) {
+      merged[k] = String(v ?? '')
+    }
+    if (injectTables.value.has(tableName) && !merged['MONTH_OFFSET']) merged['MONTH_OFFSET'] = '0'
+    dsForm.source_type = saved.source_type
+    dsForm.schedule = saved.schedule || t?.defaultSchedule || ''
+    dsForm.is_active = saved.is_active
+    dsForm.config = merged
+    dsEditRow.value = saved
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '加载入仓来源配置失败')
+    return
+  }
   dsTestResult.value = null
   dsDrawerVisible.value = true
 }
@@ -254,7 +268,7 @@ import { SCOPE_STRATEGY_OPTIONS } from '@/constants/scopeStrategy'
 import LayerTag from '@/components/warehouse/LayerTag.vue'
 import { WAREHOUSE_LAYER_OPTIONS } from '@/constants/warehouseLayers'
 
-const editForm = ref({ warehouse_layer: '', subject_area: '', owner_name: '', asset_status: '', description: '', scope_strategy: '', ucp_system_id: null as number | null, ucp_resource_id: null as number | null, ucp_resource_name: '' })
+const editForm = ref({ warehouse_layer: '', subject_area: '', owner_name: '', asset_status: '', description: '', scope_strategy: '', ucp_system_id: null as number | null, ucp_resource_id: null as number | null, ucp_resource_name: '', period_col: '' })
 const editSaving = ref(false)
 
 const STATUS_OPTIONS = ['draft', 'published', 'disabled', 'archived']
@@ -327,6 +341,7 @@ function enterEdit() {
     ucp_system_id: asset.value.ucp_system_id ?? null,
     ucp_resource_id: asset.value.ucp_resource_id ?? null,
     ucp_resource_name: '',
+    period_col: asset.value.period_col || '',
   }
   editMode.value = true
 }
@@ -346,6 +361,7 @@ async function saveEdit() {
       asset_status: editForm.value.asset_status,
       description: editForm.value.description || null,
       scope_strategy: editForm.value.scope_strategy || null,
+      period_col: editForm.value.period_col || null,
     })
     ElMessage.success('保存成功')
     editMode.value = false
@@ -476,7 +492,12 @@ onMounted(() => {
               <el-descriptions-item label="创建时间">
                 {{ asset.created_at ? formatDateTime(asset.created_at) : '—' }}
               </el-descriptions-item>
-              <el-descriptions-item label="周期字段">{{ asset.period_col || '—' }}</el-descriptions-item>
+              <el-descriptions-item v-if="asset.is_period" label="周期字段">
+                <template v-if="editMode">
+                  <el-input v-model="editForm.period_col" style="width: 140px" placeholder="month" size="small" />
+                </template>
+                <template v-else>{{ asset.period_col || '—' }}</template>
+              </el-descriptions-item>
               <el-descriptions-item label="数据范围策略">{{ asset.scope_strategy || '—' }}</el-descriptions-item>
             </el-descriptions>
           </el-tab-pane>
@@ -759,7 +780,9 @@ onMounted(() => {
       size="600px"
       direction="rtl"
     >
-      <el-form label-position="top" size="small" style="padding: 0 8px">
+      <el-form label-position="top" size="small" style="padding: 0 8px" autocomplete="off">
+        <input tabindex="-1" autocomplete="username" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
+        <input tabindex="-1" type="password" autocomplete="current-password" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
         <el-form-item label="数据表">
           <el-input :model-value="tableName" disabled />
         </el-form-item>
@@ -785,12 +808,27 @@ onMounted(() => {
               <el-input
                 v-if="f.type === 'text' || f.type === 'url'"
                 v-model="dsForm.config[f.key]"
+                :name="`datasource-field-${f.key.toLowerCase()}-${dsEditId || 'new'}`"
+                :autocomplete="SECRET_KEY_SET.has(f.key) ? 'new-password' : 'off'"
+                :readonly="SECRET_KEY_SET.has(f.key)"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                @focus="allowManualInput"
                 :placeholder="fieldPlaceholder(f.key, f.placeholder)"
               />
               <el-input
                 v-else-if="f.type === 'password'"
                 v-model="dsForm.config[f.key]"
-                type="password" show-password
+                type="text"
+                show-password
+                :name="`datasource-secret-${f.key.toLowerCase()}-${dsEditId || 'new'}`"
+                autocomplete="new-password"
+                readonly
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                @focus="allowManualInput"
                 :placeholder="fieldPlaceholder(f.key, f.placeholder)"
               />
               <el-input

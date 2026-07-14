@@ -57,6 +57,7 @@ export interface AssetDetail extends Asset {
   last_quality_checked_at: string | null
   period_col: string | null
   period_source: string | null
+  is_period: boolean
   scope_strategy: string | null
 }
 
@@ -74,6 +75,7 @@ export interface AssetUpdatePayload {
   ucp_resource_id?: number | null
   ucp_connector_config_id?: number | null
   scope_strategy?: string | null
+  period_col?: string | null
 }
 
 /** 资产字段信息（对齐后端 get_asset_columns 实际返回） */

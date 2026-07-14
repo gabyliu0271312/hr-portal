@@ -207,10 +207,7 @@ defineExpose({ open })
       </el-form-item>
       <template v-if="form.is_period">
         <el-form-item label="期间字段编码">
-          <el-input v-model="form.period_col" style="width: 160px" placeholder="month" />
-          <span style="margin-left: 8px; font-size: 12px; color: var(--color-text-placeholder)">
-            该列值为 YYYYMM 格式
-          </span>
+          <span style="font-size: 13px; color: var(--color-text-secondary)">默认为 <b>month</b>，创建后可在「来源与开放」中修改</span>
         </el-form-item>
         <el-form-item label="月份来源">
           <el-radio-group v-model="form.period_source">

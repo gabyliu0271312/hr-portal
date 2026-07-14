@@ -155,7 +155,7 @@ async def _action_trigger_dwd_standardization(
         # 纯元数据变更（label/pk/sensitive/visibility/order/description）同步 DWD 元数据
         svc = get_standardization_rule_service(db)
         sync_result = await svc.generate_dwd_view(asset_code=table_name)
-        if "error" in sync_result:
+        if not sync_result or "error" in sync_result:
             return {"status": "failed", "reason": sync_result.get("error"), "table_name": table_name, "detail": sync_result.get("detail", "")}
         return {"status": "success", "mode": "metadata_sync", "table_name": table_name, "change_type": change_type, **sync_result}
 
@@ -295,6 +295,7 @@ async def _passthrough_sync(
 ) -> int:
     """直通同步：按 DWD 写入策略把 ODS 数据写入 DWD。"""
     from sqlalchemy import text as sa_text, inspect as sa_inspect
+    from app.data.ddl import add_source_column, column_exists
 
     # 同步 table_columns 元数据（每次执行都同步 ODS → DWD）
     from app.data.models import TableColumn
@@ -305,13 +306,14 @@ async def _passthrough_sync(
         select(TableColumn).where(TableColumn.table_name == dwd_table)
     )).scalars().all()}
     for col in ods_cols:
+        # 无论元数据是否存在，都确保物理列存在
+        if not await column_exists(db, dwd_table, col.column_code):
+            await add_source_column(db, dwd_table, col.column_code, col.data_type)
         if col.column_code in dwd_cols:
-            # 更新变更的元数据
             existing = dwd_cols[col.column_code]
             for attr in ("column_label", "data_type", "is_pk_part", "is_sensitive", "is_visible", "display_order", "description"):
                 setattr(existing, attr, getattr(col, attr))
         else:
-            # 新增字段
             db.add(TableColumn(
                 table_name=dwd_table, column_code=col.column_code, column_label=col.column_label,
                 data_type=col.data_type, is_pk_part=col.is_pk_part, is_sensitive=col.is_sensitive,

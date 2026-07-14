@@ -786,19 +786,28 @@ async def _dynamic_upsert(
                 set_=update_set,
             )
             await db.execute(stmt)
+
+    # 提前提取 period 列的 data_type（expire_all 后不可再访问 ORM 属性）
+    cfg_period = PERIOD_TABLES.get(table_name)
+    period_col_dtype: str = "string"
+    if cfg_period:
+        _meta = columns_by_code.get(cfg_period["period_col"])
+        if _meta:
+            period_col_dtype = _meta.data_type or "string"
+
     db.expire_all()
 
     # 7) 删孤儿：本次批次中不存在的行视为已失效，直接删除
     #    月度表：只删当月（保留历史月份）；其他表（含实时花名册）：全表范围
     current_hashes = [h for h, _ in deduped]
-    cfg_period = PERIOD_TABLES.get(table_name)
     if cfg_period and deduped:
         period_col = cfg_period["period_col"]
         cur_ym = str(deduped[0][1].get(period_col, ""))
         if cur_ym:
+            period_val = _coerce_db_value(cur_ym, period_col_dtype)
             await db.execute(
                 delete(Model).where(
-                    getattr(Model, period_col) == cur_ym,
+                    getattr(Model, period_col) == period_val,
                     Model.pk_hash.not_in(current_hashes),
                 )
             )
