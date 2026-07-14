@@ -110,8 +110,10 @@ async def ensure_dwd_dataset(
     if existing is not None:
         return existing
 
-    # name = code, label = display name
-    base_name = f"{DWD_DATASET_PREFIX}{dwd_table_name}".replace(" ", "_")[:60]
+    # 去掉表名中已有的层前缀，避免 ds_dwd_dwd__xxx 双前缀
+    import re as _re
+    stripped_name = _re.sub(r'^(dwd|ods|dim|ads|tmp)_{1,2}', '', dwd_table_name)
+    base_name = f"{DWD_DATASET_PREFIX}{stripped_name}".replace(" ", "_")[:60]
     name = base_name
     suffix = 2
     while (
