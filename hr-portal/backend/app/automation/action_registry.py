@@ -214,8 +214,12 @@ async def _ensure_default_config(table_name: str, db: AsyncSession):
             risk = "warn"
 
     if strategy == "incremental_upsert" and pk_count == 0:
-        return None  # 无业务主键不支持增量更新，不自动启用
-    if pk_count == 0:
+        semantics = "full_snapshot"
+        strategy = "full_refresh"
+        missing_strategy = "hard_delete"
+        biz_keys = None
+        risk = "warn"
+    elif pk_count == 0:
         risk = "warn"
 
     trace_id = f"auto_{uuid.uuid4().hex[:12]}"
