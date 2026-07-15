@@ -155,7 +155,9 @@ async def _action_trigger_dwd_standardization(
         # 纯元数据变更（label/pk/sensitive/visibility/order/description）同步 DWD 元数据
         svc = get_standardization_rule_service(db)
         sync_result = await svc.generate_dwd_view(asset_code=table_name)
-        if not sync_result or "error" in sync_result:
+        if sync_result is None:
+            return {"status": "skipped", "reason": "no_rules", "table_name": table_name, "detail": "该表暂无标准化规则"}
+        if "error" in sync_result:
             return {"status": "failed", "reason": sync_result.get("error"), "table_name": table_name, "detail": sync_result.get("detail", "")}
         return {"status": "success", "mode": "metadata_sync", "table_name": table_name, "change_type": change_type, **sync_result}
 
