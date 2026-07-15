@@ -306,7 +306,8 @@ class DwsAggregateDefinition(Base):
     __tablename__ = "dws_aggregate_definitions"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    name = Column(String(128), nullable=False, comment="聚合定义名称")
+    name = Column(String(128), nullable=False, comment="聚合定义编码")
+    label = Column(String(128), nullable=True, comment="聚合展示名称")
     metric_id = Column(
         BigInteger, ForeignKey("warehouse_metrics.id", ondelete="SET NULL"),
         nullable=True, comment="关联指标 ID",

@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Refresh } from '@element-plus/icons-vue'
+import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import {
   listDimensions, getDimensionTree, createDimension, updateDimension, deleteDimension, getDimensionImpact,
   listModels, getModel, getOutputFields, listAssetColumns, type Dimension,
@@ -192,8 +193,10 @@ onMounted(load)
     <!-- 新建/编辑弹窗 -->
     <el-dialog v-model="dialogVisible" :title="dialogMode==='create'?'新建维度':'编辑维度'" width="500px" @close="editId=null">
       <el-form v-if="dialogVisible" label-width="100px" size="small">
-        <el-form-item label="维度编码" required><el-input v-model="form.dimension_code" :disabled="dialogMode==='edit'" maxlength="64" /></el-form-item>
         <el-form-item label="维度名称" required><el-input v-model="form.dimension_name" maxlength="128" /></el-form-item>
+        <el-form-item label="维度编码" required>
+          <SmartCodeInput v-model="form.dimension_code" :label="form.dimension_name" scope="table" :editable="dialogMode !== 'edit'" />
+        </el-form-item>
         <el-form-item label="父维度">
           <el-select v-model="form.parent_id" clearable placeholder="无（根节点）" style="width:100%">
             <el-option v-for="d in dims.filter(x => x.id !== editId)" :key="d.id" :label="d.dimension_code + ' - ' + d.dimension_name" :value="d.id" />

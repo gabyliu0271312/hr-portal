@@ -3179,7 +3179,6 @@ async def create_dws_aggregate(
     payload: DwsAggregateDefinitionCreateIn,
     db: AsyncSession = Depends(get_session),
 ):
-    _validate_aggregation(payload.aggregation)
     svc = get_dws_aggregate_service(db)
     try:
         result = await svc.create_aggregate(payload.model_dump())

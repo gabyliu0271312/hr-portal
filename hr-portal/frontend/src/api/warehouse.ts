@@ -1287,6 +1287,7 @@ export function getDimensionImpact(id: number) {
 export interface DwsAggregate {
   id: number
   name: string
+  label: string | null
   metric_id: number | null
   source_dataset_id: number | null
   group_by: string[]

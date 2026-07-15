@@ -93,16 +93,19 @@ class MetricAutomationService:
         if not related_fields and formula:
             import re as _re
             keywords = {"SUM", "COUNT", "COUNT_DISTINCT", "AVG", "MAX", "MIN", "IF",
+                        "COUNTIF", "COUNTIFS", "SUMIF", "SUMIFS", "AVERAGEIF", "AVERAGEIFS",
                         "ROUND", "ABS", "AND", "OR", "NOT", "TRUE", "FALSE", "NULL",
                         "WHERE", "FILTER", "GROUP", "BY", "SELECT", "FROM", "AS",
                         "YEAR", "QUARTER", "MONTH", "DAY", "ELSE", "THEN", "CASE",
                         "WHEN", "END", "XOR", "IN", "LIKE", "IS", "BETWEEN"}
+            # 从公式中检测别名（即 token. 模式），排除别名 token
+            alias_tokens = set(_re.findall(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.', formula))
             # 去掉 = 前缀和引号内字符串后再提取
             cleaned = _re.sub(r'"[^"]*"', '""', formula.lstrip('='))
             cleaned = _re.sub(r"'[^']*'", "''", cleaned)
             tokens = _re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*', cleaned)
             for t in tokens:
-                if t.upper() not in keywords and len(t) > 1:
+                if t.upper() not in keywords and t.lower() not in alias_tokens and len(t) > 1:
                     if t not in related_fields:
                         related_fields.append(t)
             if related_fields:
@@ -249,6 +252,7 @@ class MetricAutomationService:
         from app.warehouse.models import DwsAggregateDefinition
         agg = DwsAggregateDefinition(
             name=agg_name,
+            label=diag.get('metric_name', agg_name),
             metric_id=metric_id,
             source_dataset_id=diag["source_dataset_id"],
             group_by=group_by,

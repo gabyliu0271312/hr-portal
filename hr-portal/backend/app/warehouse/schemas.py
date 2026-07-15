@@ -999,7 +999,8 @@ DWS_AGG_STATUSES = ("draft", "published", "archived")
 
 class DwsAggregateDefinitionCreateIn(BaseModel):
     model_config = {"extra": "forbid"}
-    name: str = Field(..., max_length=128)
+    name: str = Field(..., max_length=128, description="聚合编码（dws_ 开头）")
+    label: str = Field(..., max_length=128, description="聚合展示名称")
     metric_id: Optional[int] = None
     source_dataset_id: Optional[int] = None
     group_by: list[str] = Field(default_factory=list, description="分组维度字段列表")
@@ -1011,6 +1012,7 @@ class DwsAggregateDefinitionCreateIn(BaseModel):
 class DwsAggregateDefinitionUpdateIn(BaseModel):
     model_config = {"extra": "forbid"}
     name: Optional[str] = None
+    label: Optional[str] = None
     metric_id: Optional[int] = None
     source_dataset_id: Optional[int] = None
     group_by: Optional[list[str]] = None
@@ -1022,6 +1024,7 @@ class DwsAggregateDefinitionUpdateIn(BaseModel):
 class DwsAggregateDefinitionOut(BaseModel):
     id: int
     name: str
+    label: Optional[str] = None
     metric_id: Optional[int] = None
     source_dataset_id: Optional[int] = None
     group_by: list = []

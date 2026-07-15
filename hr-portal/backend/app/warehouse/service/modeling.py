@@ -80,7 +80,7 @@ class MetricComputeService:
             if agg is None:
                 raise ValueError("指标缺少已发布的 DWS 聚合定义，无法计算结果集")
 
-            view_name = f"ds_dws_{agg.id}"
+            view_name = agg.name
             await DwsAggregateService(self.session).generate_dws_view(agg.id)
             rr = await self.session.execute(sa_text(f"SELECT * FROM {self._quote_ident(view_name)}"))
             rows = [self._jsonable(dict(row._mapping)) for row in rr.fetchall()]
@@ -332,14 +332,14 @@ class DwsAggregateService:
         if status: base = base.where(DwsAggregateDefinition.status == status)
         total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
         rows = (await self.session.execute(base.order_by(DwsAggregateDefinition.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
-        items = [{"id": a.id, "name": a.name, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "business_definition": a.business_definition, "status": a.status} for a in rows]
+        items = [{"id": a.id, "name": a.name, "label": a.label, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "business_definition": a.business_definition, "status": a.status} for a in rows]
         return {"total": total, "page": page, "page_size": page_size, "items": items}
 
     async def get_aggregate(self, agg_id: int):
         from app.warehouse.models import DwsAggregateDefinition
         a = await self.session.get(DwsAggregateDefinition, agg_id)
         if a is None: return None
-        return {"id": a.id, "name": a.name, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "business_definition": a.business_definition, "status": a.status}
+        return {"id": a.id, "name": a.name, "label": a.label, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "business_definition": a.business_definition, "status": a.status}
 
     async def _validate_aggregate_source(self, payload: dict):
         """硬兜底同源校验：create/update 都必须通过。"""
@@ -369,7 +369,7 @@ class DwsAggregateService:
     async def create_aggregate(self, payload: dict):
         from app.warehouse.models import DwsAggregateDefinition
         await self._validate_aggregate_source(payload)
-        a = DwsAggregateDefinition(name=payload["name"], metric_id=payload.get("metric_id"), source_dataset_id=payload.get("source_dataset_id"), group_by=payload.get("group_by", []), filter=payload.get("filter"), time_grain=payload.get("time_grain"), business_definition=payload.get("business_definition"), status="draft")
+        a = DwsAggregateDefinition(name=payload["name"], label=payload.get("label"), metric_id=payload.get("metric_id"), source_dataset_id=payload.get("source_dataset_id"), group_by=payload.get("group_by", []), filter=payload.get("filter"), time_grain=payload.get("time_grain"), business_definition=payload.get("business_definition"), status="draft")
         self.session.add(a); await self.session.commit(); await self.session.refresh(a)
         return await self.get_aggregate(a.id)
 
@@ -382,7 +382,7 @@ class DwsAggregateService:
         for k in ("source_dataset_id", "metric_id", "group_by"):
             if k in payload and payload[k] is not None: merged[k] = payload[k]
         await self._validate_aggregate_source(merged)
-        allowed = {"name", "group_by", "filter", "time_grain", "business_definition", "metric_id", "source_dataset_id"}
+        allowed = {"name", "label", "group_by", "filter", "time_grain", "business_definition", "metric_id", "source_dataset_id"}
         for key, val in payload.items():
             if key in allowed and val is not None: setattr(a, key, val)
         await self.session.commit(); await self.session.refresh(a)
@@ -413,7 +413,9 @@ class DwsAggregateService:
 
     async def validate_aggregate(self, payload: dict):
         errors = []
-        if not payload.get("name"): errors.append({"field": "name", "message": "名称为必填"})
+        if not payload.get("name"): errors.append({"field": "name", "message": "编码为必填"})
+        if not payload.get("label"): errors.append({"field": "label", "message": "名称为必填"})
+        if not payload.get("name", "").startswith("dws_"): errors.append({"field": "name", "message": "编码必须以 dws_ 开头"})
         try:
             await self._validate_aggregate_source(payload)
         except ValueError as e:
@@ -442,15 +444,48 @@ class DwsAggregateService:
         })
 
         # 维度映射：
+        # - 支持层级：选父维度时自动展开为所有叶子维度（有 bound_field 且无子节点）
         # - SELECT 使用 "alias"."source_column" AS "output_code"，保证视图列名与数据集输出字段一致
         # - GROUP BY 使用原始来源表达式，避免按别名分组在不同数据库方言下不兼容
-        # - 元数据注册使用 output_code，不写入带引号的 SQL 表达式
+        # - dim_col_name: 列编码（output_code），dim_col_label: 列标签（维度名称）
         dim_select_map = {}
         dim_group_map = {}
         dim_col_name = {}
+        dim_col_label = {}
         if agg.group_by:
             from app.datasets.models import DatasetOutputField
-            dims = (await self.session.execute(select(Dimension).where(Dimension.dimension_code.in_(agg.group_by)))).scalars().all()
+
+            async def _expand_to_leaves(codes: list[str]) -> list[tuple[str, str]]:
+                """将父维度编码展开为所有叶子维度 (dimension_code, dimension_name)。"""
+                if not codes:
+                    return []
+                dims = (await self.session.execute(select(Dimension).where(Dimension.dimension_code.in_(codes)))).scalars().all()
+                dim_map = {d.dimension_code: d for d in dims}
+                all_dims = (await self.session.execute(select(Dimension))).scalars().all()
+                children_map: dict[str, list[str]] = {}
+                for ad in all_dims:
+                    if ad.parent_id:
+                        parent = next((d for d in all_dims if d.id == ad.parent_id), None)
+                        if parent:
+                            children_map.setdefault(parent.dimension_code, []).append(ad.dimension_code)
+                result: list[tuple[str, str]] = []
+                def _collect_leaves(code: str):
+                    # 收集所有有 bound_field 的节点（含中间层级），不只是叶子
+                    d = dim_map.get(code) or next((ad for ad in all_dims if ad.dimension_code == code), None)
+                    if d and d.bound_field:
+                        if not any(r[0] == code for r in result):
+                            result.append((code, d.dimension_name))
+                    if code in children_map:
+                        for child in children_map[code]:
+                            _collect_leaves(child)
+                for code in codes:
+                    _collect_leaves(code)
+                return result if result else [(c, c) for c in codes]
+
+            leaf_dims = await _expand_to_leaves(agg.group_by)
+            expanded_group_by = [code for code, _ in leaf_dims]
+            dims = (await self.session.execute(select(Dimension).where(Dimension.dimension_code.in_(expanded_group_by)))).scalars().all()
+            dim_label_map = {d.dimension_code: d.dimension_name for d in dims}
             for d in dims:
                 col = d.bound_field or d.dimension_code
                 # 查 DatasetOutputField 获取 source_alias 和 source_column
@@ -472,15 +507,18 @@ class DwsAggregateService:
                 dim_group_map[d.dimension_code] = source_expr
                 dim_select_map[d.dimension_code] = f"{source_expr} AS {Q(output_code)}"
                 dim_col_name[d.dimension_code] = output_code
+                dim_col_label[d.dimension_code] = dim_label_map.get(d.dimension_code, d.dimension_name)
 
         # 度量表达式：统一从指标的 formula_sql 获取
         # 指标公式已包含聚合逻辑，不需要再包 agg_func
         measure_expr = None
+        measure_label = "aggregated_value"
         if agg.metric_id:
             from app.datasets.models import WarehouseMetric
             m = await self.session.get(WarehouseMetric, agg.metric_id)
             if m and m.formula_sql:
                 measure_expr = m.formula_sql
+                measure_label = m.metric_name or measure_alias
         if not measure_expr:
             raise ValueError("指标未配置公式或公式尚未翻译为 SQL，请先在指标管理中编辑公式")
 
@@ -561,13 +599,14 @@ class DwsAggregateService:
             if missing: raise ValueError(f"数据集表未连接: {', '.join(sorted(missing))}")
             from_table = " ".join(from_parts)
 
-        select_dim_cols = [dim_select_map.get(c, Q(c)) for c in (agg.group_by or [])]
-        group_exprs = [dim_group_map.get(c, Q(c)) for c in (agg.group_by or [])]
+        select_dim_cols = [dim_select_map.get(c, Q(c)) for c in expanded_group_by]
+        group_exprs = [dim_group_map.get(c, Q(c)) for c in expanded_group_by]
         select_group_cols = ", ".join(select_dim_cols) if select_dim_cols else ""
         group_cols = ", ".join(group_exprs) if group_exprs else ""
         # 度量表达式直接使用 formula_sql（已翻译的 PostgreSQL SQL，含聚合函数）
         measure_alias = "aggregated_value"
-        view_name = f"ds_dws_{agg_id}"
+        view_name = agg.name  # 视图名直接用聚合编码（dws_ 开头）
+        ds_name = f"ds_{agg.name}"  # 数据集编码：ds_ + 聚合编码
 
         # 1. 创建数据库 VIEW（含 ROW_NUMBER() 作为 id 主键列）
         select_clause = f"ROW_NUMBER() OVER () AS {Q('id')}, {select_group_cols + ', ' if select_group_cols else ''}{measure_expr} AS {Q(measure_alias)}, NULL::timestamptz AS {Q('synced_at')}"
@@ -589,35 +628,36 @@ class DwsAggregateService:
                     raise ValueError(f"创建视图失败: {str(e)[:200]}")
 
         # 2. 创建/更新 DataSet
-        ds_name = view_name
+        ds_name = f"ds_{agg.name}"  # 数据集编码：ds_ + 聚合编码
+        ds_label = agg.label or agg.name  # 数据集名称：聚合的展示名称
         existing = (await self.session.execute(select(DataSet).where(DataSet.name == ds_name))).scalars().first()
         if existing: ds = existing; ds.version = (ds.version or 0) + 1
         else:
-            ds = DataSet(name=ds_name, description=agg.business_definition or f"从 {agg.name} 生成", warehouse_layer="DWS", status="published", version=1, published_at=dt.utcnow())
+            ds = DataSet(name=ds_name, label=ds_label, description=agg.business_definition or f"从 {agg.label or agg.name} 生成", warehouse_layer="DWS", status="published", version=1, published_at=dt.utcnow())
             self.session.add(ds); await self.session.flush()
 
         # 3. 注册数据资产表 + 列
         from app.data.models import RegisteredTable, TableColumn
-        rt_exists = (await self.session.execute(select(RegisteredTable).where(RegisteredTable.table_name == ds_name))).scalars().first()
+        # 清理旧列注册（避免视图结构变更后残留旧列，如维度调整后 bu 列还在 table_columns 里）
+        old_cols = (await self.session.execute(select(TableColumn).where(TableColumn.table_name == view_name))).scalars().all()
+        for oc in old_cols:
+            await self.session.delete(oc)
+        await self.session.flush()
+        rt_exists = (await self.session.execute(select(RegisteredTable).where(RegisteredTable.table_name == view_name))).scalars().first()
         if not rt_exists:
-            rt = RegisteredTable(table_name=ds_name, table_label=agg.name, warehouse_layer="DWS", source_system="dws_aggregate")
+            rt = RegisteredTable(table_name=view_name, table_label=ds_label, warehouse_layer="DWS", source_system="dws_aggregate")
             self.session.add(rt); await self.session.flush()
         # 注册列：id / 分组维度 / 度量值 / synced_at
         col_order = 0
         for col_code, col_label in [("id", "ID"), ("synced_at", "同步时间")]:
-            ec = (await self.session.execute(select(TableColumn).where(TableColumn.table_name == ds_name, TableColumn.column_code == col_code))).scalars().first()
-            if not ec:
-                self.session.add(TableColumn(table_name=ds_name, column_code=col_code, column_label=col_label, data_type="integer" if col_code == "id" else "timestamptz", display_order=col_order, is_visible=True))
+            self.session.add(TableColumn(table_name=view_name, column_code=col_code, column_label=col_label, data_type="integer" if col_code == "id" else "timestamptz", display_order=col_order, is_visible=True))
             col_order += 1
-        for code in (agg.group_by or []):
+        for code in expanded_group_by:
             col_name = dim_col_name.get(code, code)
-            ec = (await self.session.execute(select(TableColumn).where(TableColumn.table_name == ds_name, TableColumn.column_code == col_name))).scalars().first()
-            if not ec:
-                self.session.add(TableColumn(table_name=ds_name, column_code=col_name, column_label=col_name, data_type="string", display_order=col_order, is_visible=True))
+            col_label = dim_col_label.get(code, col_name)
+            self.session.add(TableColumn(table_name=view_name, column_code=col_name, column_label=col_label, data_type="string", display_order=col_order, is_visible=True))
             col_order += 1
-        ec = (await self.session.execute(select(TableColumn).where(TableColumn.table_name == ds_name, TableColumn.column_code == measure_alias))).scalars().first()
-        if not ec:
-            self.session.add(TableColumn(table_name=ds_name, column_code=measure_alias, column_label=measure_alias, data_type="numeric", display_order=col_order, is_visible=True))
+        self.session.add(TableColumn(table_name=view_name, column_code=measure_alias, column_label=measure_label, data_type="numeric", display_order=col_order, is_visible=True))
 
         # 4. 动态注册到 DATA_TABLES（使预览/查询可用）
         from app.data.dynamic_loader import _register_view_model
@@ -628,17 +668,40 @@ class DwsAggregateService:
             pass
 
         sql_summary = ddl
-        output_fields = [dim_col_name.get(code, code) for code in (agg.group_by or [])] + [measure_alias]
+        output_fields = [dim_col_name.get(code, code) for code in expanded_group_by] + [measure_alias]
         return {"aggregate_id": agg_id, "view_name": ds_name, "sql_summary": sql_summary, "output_fields": output_fields, "dependencies": [], "version": ds.version, "status": "published"}
 
     async def get_view_impact(self, agg_id: int):
-        from app.warehouse.models import DwsAggregateDefinition
+        from app.warehouse.models import DwsAggregateDefinition, Dimension
         agg = await self.session.get(DwsAggregateDefinition, agg_id)
         if agg is None: return None
         deps = []; warnings = []
         if not agg.measure_field and not agg.metric_id: warnings.append("未指定度量字段")
         if not agg.group_by: warnings.append("未指定分组维度")
-        return {"aggregate_id": agg_id, "aggregate_name": agg.name, "dependencies": deps, "warnings": warnings, "estimated_output_fields": len(agg.group_by or []) + 1}
+        # 估算展开后的叶子维度数
+        group_by = agg.group_by or []
+        if group_by:
+            all_dims = (await self.session.execute(select(Dimension))).scalars().all()
+            children_map: dict[str, list[str]] = {}
+            for ad in all_dims:
+                if ad.parent_id:
+                    parent = next((d for d in all_dims if d.id == ad.parent_id), None)
+                    if parent:
+                        children_map.setdefault(parent.dimension_code, []).append(ad.dimension_code)
+            expanded: list[str] = []
+            def _collect(code):
+                d = next((ad for ad in all_dims if ad.dimension_code == code), None)
+                if d and d.bound_field and code not in expanded:
+                    expanded.append(code)
+                if code in children_map:
+                    for child in children_map[code]:
+                        _collect(child)
+            for code in group_by:
+                _collect(code)
+            leaf_count = len(expanded) if expanded else len(group_by)
+        else:
+            leaf_count = 0
+        return {"aggregate_id": agg_id, "aggregate_name": agg.label or agg.name, "dependencies": deps, "warnings": warnings, "estimated_output_fields": leaf_count + 1}
 
 
 def get_dws_aggregate_service(session: AsyncSession) -> DwsAggregateService:

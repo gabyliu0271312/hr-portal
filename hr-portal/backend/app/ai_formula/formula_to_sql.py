@@ -120,6 +120,51 @@ def _translate_function(func_name: str, args: list[str]) -> str:
             return f"SUM({args[0]}) FILTER (WHERE {args[1]})"
         return f"SUM({args[0]})"
 
+    if fn == "COUNTIFS":
+        if len(args) >= 4 and len(args) % 2 == 0:
+            conditions = []
+            for i in range(0, len(args), 2):
+                col, val = args[i], args[i + 1]
+                val = _strip_quotes(val) if (val.startswith('"') or val.startswith("'")) else val
+                conditions.append(f"{col} = {val}")
+            return f"COUNT(*) FILTER (WHERE {' AND '.join(conditions)})"
+        return f"COUNT(*) FILTER (WHERE {' AND '.join(args)})"
+
+    if fn == "SUMIFS":
+        if len(args) >= 3:
+            sum_col = args[0]
+            conditions = []
+            for i in range(1, len(args) - 1, 2):
+                if i + 1 < len(args):
+                    col, val = args[i], args[i + 1]
+                    val = _strip_quotes(val) if (val.startswith('"') or val.startswith("'")) else val
+                    conditions.append(f"{col} = {val}")
+            if conditions:
+                return f"SUM({sum_col}) FILTER (WHERE {' AND '.join(conditions)})"
+        return f"SUM({args[0]})"
+
+    if fn == "AVERAGEIF":
+        if len(args) >= 3:
+            cond_col, cond_val, avg_col = args[0], args[1], args[2]
+            cond_val = _strip_quotes(cond_val) if (cond_val.startswith('"') or cond_val.startswith("'")) else cond_val
+            return f"AVG({avg_col}) FILTER (WHERE {cond_col} = {cond_val})"
+        if len(args) >= 2:
+            return f"AVG({args[0]}) FILTER (WHERE {args[1]})"
+        return f"AVG({args[0]})"
+
+    if fn == "AVERAGEIFS":
+        if len(args) >= 3:
+            avg_col = args[0]
+            conditions = []
+            for i in range(1, len(args) - 1, 2):
+                if i + 1 < len(args):
+                    col, val = args[i], args[i + 1]
+                    val = _strip_quotes(val) if (val.startswith('"') or val.startswith("'")) else val
+                    conditions.append(f"{col} = {val}")
+            if conditions:
+                return f"AVG({avg_col}) FILTER (WHERE {' AND '.join(conditions)})"
+        return f"AVG({args[0]})"
+
     if fn == "IF":
         if len(args) >= 3:
             return f"CASE WHEN {args[0]} THEN {args[1]} ELSE {args[2]} END"

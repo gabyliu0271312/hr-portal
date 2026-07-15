@@ -50,7 +50,7 @@ const datasets = ref<{ id: number; name: string }[]>([])
 async function loadDatasets() {
   try {
     const res = await listModels({ page_size: 200, warehouse_layer: 'DWD' })
-    datasets.value = res.items.map((m: any) => ({ id: m.id, name: m.name }))
+    datasets.value = res.items.map((m: any) => ({ id: m.id, name: m.label || m.name }))
   } catch { datasets.value = [] }
 }
 
@@ -119,7 +119,7 @@ const dialogVisible = ref(false)
 const dialogMode = ref<'create' | 'edit'>('create')
 const editId = ref<number | null>(null)
 const form = ref({
-  name: '', metric_id: undefined as number | undefined, source_dataset_id: undefined as number | undefined,
+  label: '', name: '', metric_id: undefined as number | undefined, source_dataset_id: undefined as number | undefined,
   group_by: [] as string[], filter: null as Record<string, any> | null,
   time_grain: undefined as string | undefined,
   business_definition: '',
@@ -128,7 +128,7 @@ const saving = ref(false)
 
 function openCreate() {
   dialogMode.value = 'create'; editId.value = null
-  form.value = { name: '', metric_id: undefined, source_dataset_id: undefined, group_by: [], filter: null, time_grain: undefined, business_definition: '' }
+  form.value = { label: '', name: '', metric_id: undefined, source_dataset_id: undefined, group_by: [], filter: null, time_grain: undefined, business_definition: '' }
   loadDatasets()
   loadDimensions()
   loadMetrics()
@@ -140,7 +140,7 @@ async function openEdit(id: number) {
   if (!a) return
   dialogMode.value = 'edit'; editId.value = id
   form.value = {
-    name: a.name, metric_id: a.metric_id ?? undefined, source_dataset_id: a.source_dataset_id ?? undefined,
+    label: a.label || '', name: a.name, metric_id: a.metric_id ?? undefined, source_dataset_id: a.source_dataset_id ?? undefined,
     group_by: a.group_by?.slice() || [], filter: a.filter,
     time_grain: a.time_grain ?? undefined,
     business_definition: a.business_definition ?? '',
@@ -229,7 +229,10 @@ onMounted(load)
 
     <el-card shadow="never">
       <el-table v-loading="loading" :data="aggregates" border stripe size="small" empty-text="暂无聚合定义">
-        <el-table-column prop="name" label="名称" min-width="120" />
+          <el-table-column label="名称" min-width="120">
+            <template #default="{ row }">{{ row.label || row.name }}</template>
+          </el-table-column>
+          <el-table-column prop="name" label="编码" min-width="100" />
         <el-table-column label="分组维度" min-width="160">
           <template #default="{ row }">
             <el-tag v-for="g in row.group_by" :key="g" size="small" style="margin-right:4px">{{ g }}</el-tag>
@@ -261,8 +264,11 @@ onMounted(load)
     <el-dialog v-model="dialogVisible" :title="dialogMode==='create'?'新建聚合定义':'编辑聚合定义'" width="600px" @close="editId=null">
       <el-form v-if="dialogVisible" label-width="100px" size="small">
         <el-form-item label="名称" required>
-          <SmartCodeInput v-model="form.name" label="名称" scope="table" prefix="ds_dws" />
-        </el-form-item>
+            <el-input v-model="form.label" placeholder="聚合展示名称" />
+          </el-form-item>
+          <el-form-item label="编码" required>
+            <SmartCodeInput v-model="form.name" :label="form.label" scope="table" prefix="dws_" />
+          </el-form-item>
         <el-form-item label="关联指标" required>
           <el-select v-model="form.metric_id" clearable filterable placeholder="选择指标" style="width:100%" :loading="metricsLoading" @focus="loadMetrics" @change="onMetricChange">
             <el-option v-for="m in filteredMetrics" :key="m.id" :label="`${m.metric_name} (${m.metric_code})`" :value="m.id" />
