@@ -5,7 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Refresh } from '@element-plus/icons-vue'
 import {
   listDimensions, getDimensionTree, createDimension, updateDimension, deleteDimension, getDimensionImpact,
-  listModels, getModel, type Dimension,
+  listModels, getModel, getOutputFields, listAssetColumns, type Dimension,
 } from '@/api/warehouse'
 
 const userStore = useUserStore()
@@ -33,12 +33,22 @@ const saving = ref(false)
 const datasets = ref<any[]>([])
 const columns = ref<{ column_code: string; column_label: string; data_type: string }[]>([])
 const columnsLoading = ref(false)
-const selectedDatasetTables = ref<string[]>([])
+
+function datasetLabel(item: any) {
+  return item.label || item.name || `数据集 #${item.id}`
+}
+
+function fieldLabel(item: { column_code: string; column_label: string; data_type: string }) {
+  const label = item.column_label || item.column_code
+  const code = item.column_code && item.column_code !== label ? ` · ${item.column_code}` : ''
+  const type = item.data_type ? ` (${item.data_type})` : ''
+  return `${label}${code}${type}`
+}
 
 async function loadDatasets() {
   try {
     const res = await listModels({ page_size: 200, warehouse_layer: 'DWD' })
-    datasets.value = res.items.map((m: any) => ({ ...m, table_name: m.name })) as any
+    datasets.value = res.items
   } catch { datasets.value = [] }
 }
 
@@ -47,12 +57,33 @@ async function loadDatasetFields(datasetId: number | undefined) {
   if (!datasetId) return
   columnsLoading.value = true
   try {
-    const model = await getModel(datasetId) as any
-    columns.value = (model.output_fields || []).map((f: any) => ({
-      column_code: f.output_code || f.source_column,
-      column_label: f.output_label || f.output_code || f.source_column,
-      data_type: f.data_type || '',
-    }))
+    const fields = await getOutputFields(datasetId)
+    columns.value = (fields || [])
+      .filter((f: any) => f.is_visible !== false)
+      .map((f: any) => ({
+        column_code: f.output_code || f.source_column,
+        column_label: f.output_label || f.output_code || f.source_column,
+        data_type: f.data_type || '',
+      }))
+    if (!columns.value.length) {
+      const model = await getModel(datasetId) as any
+      const tableFields = await Promise.all((model.tables || []).map(async (t: any) => {
+        const res = await listAssetColumns(t.table_name)
+        return (res.columns || [])
+          .filter((c: any) => c.is_visible !== false)
+          .map((c: any) => ({
+            column_code: c.column_code,
+            column_label: c.column_label || c.column_code,
+            data_type: c.data_type || '',
+          }))
+      }))
+      const seen = new Set<string>()
+      columns.value = tableFields.flat().filter((c) => {
+        if (!c.column_code || seen.has(c.column_code)) return false
+        seen.add(c.column_code)
+        return true
+      })
+    }
   } catch { columns.value = [] }
   finally { columnsLoading.value = false }
 }
@@ -170,12 +201,15 @@ onMounted(load)
         </el-form-item>
         <el-form-item label="数据集(DWD)">
           <el-select v-model="form.source_dataset_id" clearable filterable placeholder="选择DWD数据集" style="width:100%" @change="onDatasetChange">
-            <el-option v-for="t in datasets" :key="(t as any).id" :label="(t as any).name || t.table_label || t.table_name" :value="(t as any).id" />
+            <el-option v-for="t in datasets" :key="(t as any).id" :label="datasetLabel(t)" :value="(t as any).id">
+              <span>{{ datasetLabel(t) }}</span>
+              <span style="float:right;color:#909399;font-size:12px">{{ (t as any).name }}</span>
+            </el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="绑定字段">
           <el-select v-model="form.bound_field" clearable filterable placeholder="先选数据集" style="width:100%" :loading="columnsLoading" :disabled="!form.source_dataset_id">
-            <el-option v-for="c in columns" :key="c.column_code" :label="`${c.column_label || c.column_code} (${c.data_type || '?'})`" :value="c.column_code" />
+            <el-option v-for="c in columns" :key="c.column_code" :label="fieldLabel(c)" :value="c.column_code" />
           </el-select>
         </el-form-item>
         <el-form-item label="说明"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item>
