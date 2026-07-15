@@ -228,6 +228,7 @@ class WarehouseMetricDetailOut(WarehouseMetricOut):
     owner_user_id: Optional[int] = None
     calculation_desc: Optional[str] = None
     formula_expr: Optional[str] = None
+    formula_sql: Optional[str] = None
     stat_period: Optional[str] = None
     related_fields: list = []
     published_by: Optional[int] = None
@@ -1003,8 +1004,6 @@ class DwsAggregateDefinitionCreateIn(BaseModel):
     source_dataset_id: Optional[int] = None
     group_by: list[str] = Field(default_factory=list, description="分组维度字段列表")
     filter: Optional[dict] = None
-    aggregation: str = Field("sum", description="聚合方式: sum/count/avg/max/min")
-    measure_field: Optional[str] = None
     time_grain: Optional[str] = None
     business_definition: Optional[str] = None
 
@@ -1016,8 +1015,6 @@ class DwsAggregateDefinitionUpdateIn(BaseModel):
     source_dataset_id: Optional[int] = None
     group_by: Optional[list[str]] = None
     filter: Optional[dict] = None
-    aggregation: Optional[str] = None
-    measure_field: Optional[str] = None
     time_grain: Optional[str] = None
     business_definition: Optional[str] = None
 
@@ -1029,8 +1026,6 @@ class DwsAggregateDefinitionOut(BaseModel):
     source_dataset_id: Optional[int] = None
     group_by: list = []
     filter: Optional[dict] = None
-    aggregation: str = "sum"
-    measure_field: Optional[str] = None
     time_grain: Optional[str] = None
     business_definition: Optional[str] = None
     status: str = "draft"

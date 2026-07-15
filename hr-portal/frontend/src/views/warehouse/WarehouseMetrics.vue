@@ -10,6 +10,7 @@ import {
   type MetricListItem, type MetricDetail, type MetricCreatePayload, type MetricUpdatePayload,
   type MetricResult, type MetricRun,
 } from '@/api/warehouse'
+import { translateFormula } from '@/api/warehouse'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField } from '@/api/datasets'
 import MetricAutomationPanel from '@/components/warehouse/MetricAutomationPanel.vue'
@@ -223,6 +224,7 @@ const editId = ref<number | null>(null)
 const form = ref({
   metric_code: '', metric_name: '', metric_type: 'derived' as MetricCreatePayload['metric_type'],
   subject_area: '', business_definition: '', calculation_desc: '', formula_expr: '',
+  formula_sql: '',
   stat_period: '', related_dataset_id: undefined as number | undefined, owner_name: '',
 })
 const saving = ref(false)
@@ -266,7 +268,7 @@ async function loadDatasetOptions() {
 
 function openCreate() {
   dialogMode.value = 'create'; editId.value = null
-  form.value = { metric_code: '', metric_name: '', metric_type: 'derived', subject_area: '', business_definition: '', calculation_desc: '', formula_expr: '', stat_period: '', related_dataset_id: undefined, owner_name: '' }
+  form.value = { metric_code: '', metric_name: '', metric_type: 'derived', subject_area: '', business_definition: '', calculation_desc: '', formula_expr: '', formula_sql: '', stat_period: '', related_dataset_id: undefined, owner_name: '' }
   formulaEditorFields.value = []
   formulaEditorKey.value++
   dialogVisible.value = true
@@ -280,6 +282,7 @@ async function openEdit(id: number) {
       metric_code: m.metric_code, metric_name: m.metric_name, metric_type: m.metric_type as any,
       subject_area: m.subject_area || '', business_definition: m.business_definition || '',
       calculation_desc: m.calculation_desc || '', formula_expr: m.formula_expr || '',
+      formula_sql: (m as any).formula_sql || '',
       stat_period: m.stat_period || '', related_dataset_id: m.related_dataset_id || undefined,
       owner_name: m.owner_name || '',
     }
@@ -292,11 +295,12 @@ async function openEdit(id: number) {
 async function save() {
   saving.value = true
   try {
+    const { formula_sql, ...payload } = form.value
     if (dialogMode.value === 'create') {
-      await createMetric({ ...form.value } as MetricCreatePayload)
+      await createMetric(payload as MetricCreatePayload)
       ElMessage.success('指标已创建')
     } else {
-      const { metric_code, ...updatePayload } = form.value
+      const { metric_code, ...updatePayload } = payload
       await updateMetric(editId.value!, updatePayload as MetricUpdatePayload)
       ElMessage.success('指标已更新')
     }
@@ -324,6 +328,32 @@ function deriveMetricType(formula: string): string {
 // 公式变化时自动推导类型（不覆盖用户已有类型，除非用户改了公式）
 watch(() => form.value.formula_expr, (val) => {
   if (val) form.value.metric_type = deriveMetricType(val) as any
+})
+
+// 公式/数据集变化时实时翻译为 SQL 预览
+let translateTimer: ReturnType<typeof setTimeout> | null = null
+const translating = ref(false)
+watch([() => form.value.formula_expr, () => form.value.related_dataset_id], ([expr, dsId]) => {
+  if (translateTimer) clearTimeout(translateTimer)
+  if (!expr || !dsId) {
+    form.value.formula_sql = ''
+    return
+  }
+  translateTimer = setTimeout(async () => {
+    translating.value = true
+    try {
+      const res = await translateFormula(expr, dsId)
+      if (res.valid) {
+        form.value.formula_sql = res.sql
+      } else {
+        form.value.formula_sql = res.errors.join('；')
+      }
+    } catch {
+      form.value.formula_sql = ''
+    } finally {
+      translating.value = false
+    }
+  }, 500)
 })
 
 async function doPublish(id: number) {
@@ -559,6 +589,12 @@ onMounted(load)
             </el-form-item>
             <el-form-item label="口径说明">
               <el-input v-model="form.calculation_desc" type="textarea" :rows="2" placeholder="计算口径的文字说明" />
+            </el-form-item>
+            <el-form-item v-if="form.related_dataset_id" label="SQL 翻译">
+              <el-input v-if="translating" model-value="翻译中..." type="textarea" :rows="3" readonly style="font-family: monospace; font-size: 12px" />
+              <el-input v-else-if="form.formula_sql" :model-value="form.formula_sql" type="textarea" :rows="3" readonly style="font-family: monospace; font-size: 12px" />
+              <span v-else style="font-size:11px;color:#909399">输入公式后自动翻译</span>
+              <span style="font-size:11px;color:#909399">由 Excel 公式自动翻译，保存后生效</span>
             </el-form-item>
           </el-form>
         </section>

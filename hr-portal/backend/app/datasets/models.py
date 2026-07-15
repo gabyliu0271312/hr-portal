@@ -225,6 +225,7 @@ class WarehouseMetric(Base):
     business_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
     calculation_desc: Mapped[str | None] = mapped_column(Text, nullable=True)
     formula_expr: Mapped[str | None] = mapped_column(Text, nullable=True)
+    formula_sql: Mapped[str | None] = mapped_column(Text, nullable=True, comment="由 Excel 公式翻译的 PostgreSQL SQL 表达式")
     stat_period: Mapped[str | None] = mapped_column(String(16), nullable=True)
     related_dataset_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True

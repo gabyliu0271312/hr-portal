@@ -10,6 +10,42 @@ SINGLE_TABLE_ALIAS = "current"
 SINGLE_TABLE_DATASET_PREFIX = "ds_"
 
 
+async def _populate_output_fields_from_table_columns(
+    dataset_id: int,
+    table_name: str,
+    alias: str,
+    db: AsyncSession,
+) -> None:
+    """将物理表字段自动填充到数据集输出字段（仅创建时调用）。"""
+    from app.data.models import TableColumn
+    from app.datasets.models import DatasetOutputField
+
+    cols = (
+        await db.execute(
+            select(TableColumn)
+            .where(TableColumn.table_name == table_name)
+            .order_by(TableColumn.display_order, TableColumn.id)
+        )
+    ).scalars().all()
+
+    for i, col in enumerate(cols):
+        if not col.is_visible:
+            continue
+        db.add(DatasetOutputField(
+            dataset_id=dataset_id,
+            source_alias=alias,
+            source_column=col.column_code,
+            output_code=col.column_code,
+            output_label=col.column_label,
+            data_type=col.data_type or "string",
+            agg_role=col.agg_role or "dimension",
+            description=col.description or "",
+            is_sensitive=bool(col.is_sensitive),
+            is_visible=True,
+            display_order=i * 10,
+        ))
+
+
 def single_table_dataset_name(table_name: str, label: str | None = None) -> str:
     """Return the stable system code for a physical single-table dataset.
 
@@ -89,6 +125,7 @@ async def ensure_single_table_dataset(
     await db.flush()
     db.add(DataSetTable(dataset_id=ds.id, table_name=table_name, alias=SINGLE_TABLE_ALIAS))
     await db.flush()
+    await _populate_output_fields_from_table_columns(ds.id, table_name, SINGLE_TABLE_ALIAS, db)
     return ds
 
 
@@ -139,4 +176,5 @@ async def ensure_dwd_dataset(
     await db.flush()
     db.add(DataSetTable(dataset_id=ds.id, table_name=dwd_table_name, alias=SINGLE_TABLE_ALIAS))
     await db.flush()
+    await _populate_output_fields_from_table_columns(ds.id, dwd_table_name, SINGLE_TABLE_ALIAS, db)
     return ds

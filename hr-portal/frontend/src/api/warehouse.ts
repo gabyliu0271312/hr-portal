@@ -270,6 +270,7 @@ export interface MetricDetail extends MetricListItem {
   owner_user_id: number | null
   calculation_desc: string | null
   formula_expr: string | null
+  formula_sql: string | null
   stat_period: string | null
   related_fields: string[]
   published_by: number | null
@@ -498,6 +499,11 @@ export function listMetrics(params: {
 /** 创建指标 */
 export function createMetric(payload: MetricCreatePayload): Promise<MetricDetail> {
   return api.post('/warehouse/metrics', payload).then(r => r.data)
+}
+
+/** 翻译 Excel 公式为 SQL（预览，不存储） */
+export function translateFormula(formula_expr: string, dataset_id: number): Promise<{ sql: string; valid: boolean; errors: string[]; has_aggregate: boolean }> {
+  return api.post('/warehouse/metrics/translate-formula', { formula_expr, dataset_id }).then(r => r.data)
 }
 
 /** 指标详情 */
@@ -1285,8 +1291,6 @@ export interface DwsAggregate {
   source_dataset_id: number | null
   group_by: string[]
   filter: Record<string, any> | null
-  aggregation: string
-  measure_field: string | null
   time_grain: string | null
   business_definition: string | null
   status: string

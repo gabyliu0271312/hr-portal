@@ -787,6 +787,37 @@ async def list_metrics(
     )
 
 
+class MetricTranslateIn(BaseModel):
+    formula_expr: str = Field(min_length=1)
+    dataset_id: int
+
+
+class MetricTranslateOut(BaseModel):
+    sql: str
+    valid: bool
+    errors: list[str] = []
+    has_aggregate: bool = False
+
+
+@router.post(
+    "/metrics/translate-formula",
+    summary="翻译 Excel 公式为 SQL",
+    response_model=MetricTranslateOut,
+    dependencies=[Depends(require_op("warehouse.metrics", "C"))],
+)
+async def translate_metric_formula(
+    payload: MetricTranslateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    """将 Excel 公式预览翻译为 PostgreSQL SQL 表达式。
+
+    不存储，仅返回翻译结果供前端实时预览。
+    """
+    from app.ai_formula.formula_to_sql import translate_formula_to_sql
+    result = await translate_formula_to_sql(db, payload.formula_expr, payload.dataset_id)
+    return MetricTranslateOut(**result)
+
+
 @router.post(
     "/metrics",
     summary="创建指标",

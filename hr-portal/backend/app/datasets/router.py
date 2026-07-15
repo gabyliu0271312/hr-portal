@@ -23,6 +23,7 @@ from app.data.models import DATA_TABLES, TableColumn
 from app.datasets.metadata import table_label, table_label_map, table_options
 from app.datasets.models import DataSet, DataSetAcl, DataSetRelation, DataSetTable
 from app.datasets.single_table import ensure_single_table_dataset as ensure_single_table_dataset_impl
+from app.datasets.single_table import _populate_output_fields_from_table_columns as _populate_output_fields
 from app.permissions.strategy import ensure_scope_strategy
 from app.reports.models import Report
 from app.users.models import Role, User, UserRole
@@ -321,6 +322,9 @@ async def create_dataset(
         )
     for a in payload.acl:
         db.add(DataSetAcl(dataset_id=ds.id, role_id=a.role_id, user_id=a.user_id))
+    # 自动填充输出字段（每张表独立调用）
+    for t in payload.tables:
+        await _populate_output_fields(ds.id, t.table_name, t.alias, db)
     await db.commit()
     await db.refresh(ds)
     # 给关联键建索引，加速后续报表 JOIN

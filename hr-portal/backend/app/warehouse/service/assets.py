@@ -919,6 +919,7 @@ class WarehouseService:
         """创建指标（默认 status=draft）。
 
         校验：metric_code 唯一、related_dataset_id 存在。
+        如果提供了 formula_expr，自动翻译为 formula_sql。
         """
         from app.datasets.models import WarehouseMetric
 
@@ -934,12 +935,28 @@ class WarehouseService:
             raise ValueError(f"指标编码已存在: {payload['metric_code']}")
 
         # 校验 related_dataset_id 存在 + DWD 层级
-        if payload.get("related_dataset_id"):
-            ds = await self.session.get(DataSet, payload["related_dataset_id"])
+        ds_id = payload.get("related_dataset_id")
+        if ds_id:
+            ds = await self.session.get(DataSet, ds_id)
             if ds is None:
-                raise ValueError(f"关联数据集不存在: {payload['related_dataset_id']}")
+                raise ValueError(f"关联数据集不存在: {ds_id}")
             if ds.warehouse_layer != "DWD":
                 raise ValueError("指标只能绑定DWD层数据集")
+
+        # 翻译 formula_expr → formula_sql
+        formula_sql = None
+        formula_expr = payload.get("formula_expr")
+        if formula_expr and ds_id:
+            from app.ai_formula.formula_to_sql import translate_formula_to_sql
+            result = await translate_formula_to_sql(self.session, formula_expr, ds_id)
+            if not result["valid"]:
+                raise ValueError(f"公式翻译失败: {'; '.join(result['errors'])}")
+            if not result["has_aggregate"]:
+                raise ValueError(
+                    "公式缺少聚合函数（如 SUM、COUNT、AVERAGE、COUNTIF 等），"
+                    "请在公式中使用聚合函数"
+                )
+            formula_sql = result["sql"]
 
         m = WarehouseMetric(
             metric_code=payload["metric_code"],
@@ -948,9 +965,10 @@ class WarehouseService:
             subject_area=payload.get("subject_area"),
             business_definition=payload.get("business_definition"),
             calculation_desc=payload.get("calculation_desc"),
-            formula_expr=payload.get("formula_expr"),
+            formula_expr=formula_expr,
+            formula_sql=formula_sql,
             stat_period=payload.get("stat_period"),
-            related_dataset_id=payload.get("related_dataset_id"),
+            related_dataset_id=ds_id,
             related_fields=payload.get("related_fields", []),
             owner_user_id=payload.get("owner_user_id") or user_id,
             owner_name=payload.get("owner_name"),
@@ -961,7 +979,6 @@ class WarehouseService:
         self.session.add(m)
         await self.session.flush()
         await self.session.refresh(m)
-        # 返回完整详情，与 GET /metrics/{id} 输出结构一致
         return await self.get_metric(m.id)
 
     async def get_metric(self, metric_id: int) -> dict | None:
@@ -981,6 +998,7 @@ class WarehouseService:
             "business_definition": m.business_definition,
             "calculation_desc": m.calculation_desc,
             "formula_expr": m.formula_expr,
+            "formula_sql": m.formula_sql,
             "stat_period": m.stat_period,
             "related_dataset_id": m.related_dataset_id,
             "related_fields": m.related_fields,
@@ -995,7 +1013,10 @@ class WarehouseService:
         }
 
     async def update_metric(self, metric_id: int, payload: dict, exclude_unset: bool = False) -> "WarehouseMetric | None":
-        """更新指标元数据（已归档指标不可编辑）。"""
+        """更新指标元数据（已归档指标不可编辑）。
+
+        如果更新了 formula_expr，自动重新翻译 formula_sql。
+        """
         from app.datasets.models import WarehouseMetric
 
         m = await self.session.get(WarehouseMetric, metric_id)
@@ -1018,12 +1039,29 @@ class WarehouseService:
                 setattr(m, key, val)
 
         # 校验 related_dataset_id + DWD 层级
+        ds_id = m.related_dataset_id
         if "related_dataset_id" in payload and payload.get("related_dataset_id") is not None:
-            ds = await self.session.get(DataSet, payload["related_dataset_id"])
+            ds_id = payload["related_dataset_id"]
+            ds = await self.session.get(DataSet, ds_id)
             if ds is None:
-                raise ValueError(f"关联数据集不存在: {payload['related_dataset_id']}")
+                raise ValueError(f"关联数据集不存在: {ds_id}")
             if ds.warehouse_layer != "DWD":
                 raise ValueError("指标只能绑定DWD层数据集")
+
+        # 翻译 formula_expr → formula_sql（如果 formula_expr 被更新）
+        if "formula_expr" in payload and payload.get("formula_expr"):
+            if not ds_id:
+                raise ValueError("翻译公式需要关联数据集，请先设置关联数据集")
+            from app.ai_formula.formula_to_sql import translate_formula_to_sql
+            result = await translate_formula_to_sql(self.session, payload["formula_expr"], m.related_dataset_id)
+            if not result["valid"]:
+                raise ValueError(f"公式翻译失败: {'; '.join(result['errors'])}")
+            if not result["has_aggregate"]:
+                raise ValueError(
+                    "公式缺少聚合函数（如 SUM、COUNT、AVERAGE、COUNTIF 等），"
+                    "请在公式中使用聚合函数"
+                )
+            m.formula_sql = result["sql"]
 
         return m
 

@@ -8,9 +8,8 @@ import {
   listDwsAggregates, createDwsAggregate, updateDwsAggregate, deleteDwsAggregate,
   publishDwsAggregate, archiveDwsAggregate, generateDwsView, getDwsViewImpact,
   validateDwsAggregate,
-  listModels, getModel, listDimensions, listMetrics, diagnoseMetric,
-  AGGREGATION_LABELS,
-  type DwsAggregate, type ModelDetail, type Dimension,
+  listModels, listDimensions, listMetrics, diagnoseMetric,
+  type DwsAggregate, type Dimension,
 } from '@/api/warehouse'
 
 const userStore = useUserStore()
@@ -47,8 +46,6 @@ const filteredDimensions = computed(() =>
 
 // 数据集下拉（仅 DWD 层）
 const datasets = ref<{ id: number; name: string }[]>([])
-const datasetFields = ref<{ code: string; label: string; data_type: string }[]>([])
-const fieldsLoading = ref(false)
 
 async function loadDatasets() {
   try {
@@ -61,28 +58,6 @@ function dimLabel(d: Dimension) {
   const sid = (d as any).source_dataset_id
   if (sid && d.bound_field) return `${d.dimension_code}（#${sid}.${d.bound_field}）`
   return `${d.dimension_code}（未绑定）`
-}
-
-async function loadDatasetFields(dsId: number | undefined) {
-  datasetFields.value = []
-  if (!dsId) return
-  fieldsLoading.value = true
-  try {
-    const model = await getModel(dsId) as ModelDetail
-    datasetFields.value = (model.output_fields || []).map(f => ({
-      code: f.output_code || f.source_column,
-      label: f.output_label || f.output_code || f.source_column,
-      data_type: f.data_type || '',
-    }))
-  } catch { datasetFields.value = [] }
-  finally { fieldsLoading.value = false }
-}
-
-async function onDatasetChange(dsId: number | undefined) {
-  form.value.group_by = []
-  form.value.metric_id = undefined
-  form.value.measure_field = ''
-  await loadDatasetFields(dsId)
 }
 
 // 指标下拉
@@ -108,7 +83,7 @@ async function loadMetrics() {
   finally { metricsLoading.value = false }
 }
 
-// 选指标 → 自动推导 aggregation / measure_field / time_grain / group_by
+// 选指标 → 自动推导 time_grain / group_by / source_dataset_id
 async function onMetricChange(metricId: number | undefined) {
   form.value.metric_id = metricId
   if (!metricId) return
@@ -119,30 +94,20 @@ async function onMetricChange(metricId: number | undefined) {
       ElMessage.warning('该指标暂不支持自动推导: ' + (diag.errors?.[0] || ''))
       return
     }
-    // 自动回填
-    if (diag.aggregation_functions?.[0] && !form.value.aggregation) {
-      form.value.aggregation = diag.aggregation_functions[0]
-    }
-    if (diag.measure_fields?.[0] && !form.value.measure_field) {
-      form.value.measure_field = diag.measure_fields[0]
-    }
     if (diag.time_grain && !form.value.time_grain) {
       form.value.time_grain = diag.time_grain
     }
     if (diag.dimension_fields?.length) {
-      // 合并已有维度和推导维度
       const existing = new Set(form.value.group_by)
       for (const d of diag.dimension_fields) {
         if (d !== 'year' && d !== 'quarter' && d !== 'month') existing.add(d)
       }
       form.value.group_by = [...existing]
     }
-    // 自动设置来源数据集
     if (!form.value.source_dataset_id && diag.source_dataset_id) {
       form.value.source_dataset_id = diag.source_dataset_id
-      await onDatasetChange(diag.source_dataset_id)
     }
-    ElMessage.success('已根据指标自动推导聚合参数')
+    ElMessage.success('已根据指标自动推导分组参数')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '指标诊断失败')
   }
@@ -156,19 +121,14 @@ const editId = ref<number | null>(null)
 const form = ref({
   name: '', metric_id: undefined as number | undefined, source_dataset_id: undefined as number | undefined,
   group_by: [] as string[], filter: null as Record<string, any> | null,
-  aggregation: 'sum', measure_field: '', time_grain: undefined as string | undefined,
+  time_grain: undefined as string | undefined,
   business_definition: '',
 })
 const saving = ref(false)
 
-const numericFields = computed(() => datasetFields.value.filter(f =>
-  ['integer', 'numeric', 'float', 'double', 'decimal', 'real', 'int', 'bigint', 'smallint', 'number'].includes(f.data_type.toLowerCase())
-))
-
 function openCreate() {
   dialogMode.value = 'create'; editId.value = null
-  form.value = { name: '', metric_id: undefined, source_dataset_id: undefined, group_by: [], filter: null, aggregation: 'sum', measure_field: '', time_grain: undefined, business_definition: '' }
-  datasetFields.value = []
+  form.value = { name: '', metric_id: undefined, source_dataset_id: undefined, group_by: [], filter: null, time_grain: undefined, business_definition: '' }
   loadDatasets()
   loadDimensions()
   loadMetrics()
@@ -182,12 +142,11 @@ async function openEdit(id: number) {
   form.value = {
     name: a.name, metric_id: a.metric_id ?? undefined, source_dataset_id: a.source_dataset_id ?? undefined,
     group_by: a.group_by?.slice() || [], filter: a.filter,
-    aggregation: a.aggregation, measure_field: a.measure_field ?? '', time_grain: a.time_grain ?? undefined,
+    time_grain: a.time_grain ?? undefined,
     business_definition: a.business_definition ?? '',
   }
   await loadDimensions()
   await loadDatasets()
-  if (a.source_dataset_id) await loadDatasetFields(a.source_dataset_id)
   dialogVisible.value = true
 }
 
@@ -271,10 +230,6 @@ onMounted(load)
     <el-card shadow="never">
       <el-table v-loading="loading" :data="aggregates" border stripe size="small" empty-text="暂无聚合定义">
         <el-table-column prop="name" label="名称" min-width="120" />
-        <el-table-column prop="aggregation" label="聚合方式" width="80">
-          <template #default="{ row }">{{ AGGREGATION_LABELS[row.aggregation] || row.aggregation }}</template>
-        </el-table-column>
-        <el-table-column prop="measure_field" label="度量字段" width="120" />
         <el-table-column label="分组维度" min-width="160">
           <template #default="{ row }">
             <el-tag v-for="g in row.group_by" :key="g" size="small" style="margin-right:4px">{{ g }}</el-tag>
@@ -312,18 +267,12 @@ onMounted(load)
           <el-select v-model="form.metric_id" clearable filterable placeholder="选择指标" style="width:100%" :loading="metricsLoading" @focus="loadMetrics" @change="onMetricChange">
             <el-option v-for="m in filteredMetrics" :key="m.id" :label="`${m.metric_name} (${m.metric_code})`" :value="m.id" />
           </el-select>
-          <span v-if="autoDeriving" style="font-size:11px;color:#409eff">正在从指标自动推导聚合参数...</span>
+          <span v-if="autoDeriving" style="font-size:11px;color:#409eff">正在从指标自动推导分组参数...</span>
         </el-form-item>
         <el-form-item label="来源数据集">
-          <el-select v-model="form.source_dataset_id" clearable filterable placeholder="由指标自动推导" style="width:100%" @change="onDatasetChange">
+          <el-select v-model="form.source_dataset_id" clearable filterable placeholder="由指标自动推导" style="width:100%">
             <el-option v-for="ds in datasets" :key="ds.id" :label="`${ds.name} (#${ds.id})`" :value="ds.id" />
           </el-select>
-        </el-form-item>
-        <el-form-item label="度量字段">
-          <el-select v-model="form.measure_field" clearable filterable placeholder="由指标自动推导" style="width:100%" :loading="fieldsLoading || autoDeriving" :disabled="!form.source_dataset_id">
-            <el-option v-for="f in numericFields" :key="f.code" :label="`${f.label} (${f.data_type})`" :value="f.code" />
-          </el-select>
-          <span style="font-size:11px;color:#909399">由指标公式自动推导，可手动覆盖</span>
         </el-form-item>
         <el-form-item label="分组维度">
           <el-select v-model="form.group_by" multiple filterable placeholder="由指标自动推导 + 从维度目录选择" style="width:100%">
