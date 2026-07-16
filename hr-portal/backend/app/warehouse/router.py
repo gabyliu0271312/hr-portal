@@ -4621,7 +4621,7 @@ async def decompose_metric_formula(
     svc = get_component_service(db)
     try:
         result = await svc.decompose_formula(
-            payload.formula_expr, payload.dataset_id
+            payload.formula_expr, payload.dataset_id, payload.metric_code
         )
         return result
     except ValueError as e:

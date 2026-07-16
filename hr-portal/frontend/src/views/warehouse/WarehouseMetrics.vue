@@ -490,7 +490,7 @@ async function switchToComponentMode() {
   }
   decomposing.value = true
   try {
-    const result = await decomposeFormula(formula, dsId)
+    const result = await decomposeFormula(formula, dsId, form.value.metric_code || undefined)
     decomposeResult.value = result
     if (!result.is_ratio || result.components.length === 0) {
       ElMessage.info('该公式未检测到比率结构，继续使用公式模式')

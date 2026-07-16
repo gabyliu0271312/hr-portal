@@ -1759,6 +1759,7 @@ export interface FormulaDecomposeResult {
   combination_rule: string
   dimensions: string[]
   is_ratio: boolean
+  rate_expression?: string | null
 }
 
 /** 批量保存入参 */
@@ -1818,10 +1819,11 @@ export function batchSaveMetricComponents(metricId: number, payload: MetricCompo
 }
 
 /** 公式拆解（MR0207） */
-export function decomposeFormula(formulaExpr: string, datasetId: number) {
+export function decomposeFormula(formulaExpr: string, datasetId: number, metricCode?: string) {
   return api.post('/warehouse/metrics/decompose-formula', {
     formula_expr: formulaExpr,
     dataset_id: datasetId,
+    ...(metricCode ? { metric_code: metricCode } : {}),
   }).then(r => r.data as FormulaDecomposeResult)
 }
 

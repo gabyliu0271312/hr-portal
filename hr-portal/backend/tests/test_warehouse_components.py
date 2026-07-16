@@ -132,6 +132,89 @@ def test_formula_decompose_out():
     assert r.is_ratio is True
     assert len(r.components) == 2
     assert r.dimensions == ["department", "month"]
+# ==================== 公式拆解：归一化 + 定位（纯函数，无 DB） ====================
+
+def _parse_ratio(formula: str):
+    """复用后端归一化 + 定位逻辑，返回 (is_ratio, numerator, denominator, rate_expression)。"""
+    from app.warehouse.service.component_service import (
+        _normalize_ratio_formula,
+        _find_ratio_division,
+    )
+    core, rate, _orig = _normalize_ratio_formula(formula)
+    pos = _find_ratio_division(core)
+    if pos is None:
+        return (False, None, None, rate)
+    return (True, core[:pos].strip(), core[pos + 1:].strip(), rate)
+
+
+def test_decompose_round_ratio_formula():
+    """ROUND(COUNTIF(status,"离职") / COUNT(*) * 100, 2) 可拆解，且 *100 不进分母。"""
+    is_ratio, num, den, rate = _parse_ratio(
+        'ROUND(COUNTIF(status,"离职") / COUNT(*) * 100, 2)'
+    )
+    assert is_ratio is True
+    assert num == 'COUNTIF(status,"离职")', num
+    assert den == 'COUNT(*)', den
+    assert rate is not None
+    assert "*100" in rate, rate
+
+
+def test_decompose_ratio_with_percent_multiplier():
+    """A / B * 100 → 分母为 B，rate_expression='*100'。"""
+    is_ratio, num, den, rate = _parse_ratio('COUNT(*) / SUM(cost) * 100')
+    assert is_ratio is True
+    assert num == 'COUNT(*)', num
+    assert den == 'SUM(cost)', den
+    assert rate == '*100', rate
+
+
+def test_decompose_parenthesized_ratio():
+    """(SUM(cost))/(COUNT(*)) 括号包裹可拆解。"""
+    is_ratio, num, den, rate = _parse_ratio('(SUM(cost))/(COUNT(*))')
+    assert is_ratio is True
+    assert num == '(SUM(cost))', num
+    assert den == '(COUNT(*))', den
+    assert rate is None
+
+
+def test_decompose_non_ratio_formula():
+    """SUM(cost) 非比率，返回 custom，不误判为比率。"""
+    is_ratio, num, den, _ = _parse_ratio('SUM(cost)')
+    assert is_ratio is False
+    assert num is None and den is None
+
+
+def test_decompose_division_no_spaces():
+    """COUNT(*)/SUM(cost) 无空格也可拆解。"""
+    is_ratio, num, den, _ = _parse_ratio('COUNT(*)/SUM(cost)')
+    assert is_ratio is True
+    assert num == 'COUNT(*)', num
+    assert den == 'SUM(cost)', den
+
+
+def test_decompose_division_spaced():
+    """COUNT(*) / COUNT(*) 可拆解。"""
+    is_ratio, num, den, _ = _parse_ratio('COUNT(*) / COUNT(*)')
+    assert is_ratio is True
+    assert num == 'COUNT(*)', num
+    assert den == 'COUNT(*)', den
+
+
+def test_decompose_denominator_zero():
+    """COUNT(*) / 0 可识别为比率，分母为 '0'（计算侧再处理除零）。"""
+    is_ratio, num, den, _ = _parse_ratio('COUNT(*) / 0')
+    assert is_ratio is True
+    assert num == 'COUNT(*)', num
+    assert den == '0', den
+
+
+def test_decompose_denominator_nullif():
+    """COUNT(*) / NULLIF(COUNT(*),0) 分母正确包含 NULLIF，不误截断。"""
+    is_ratio, num, den, _ = _parse_ratio('COUNT(*) / NULLIF(COUNT(*),0)')
+    assert is_ratio is True
+    assert num == 'COUNT(*)', num
+    assert den == 'NULLIF(COUNT(*),0)', den
+
 
 
 # ==================== ORM 字段完整性 ====================
@@ -949,3 +1032,66 @@ async def test_batch_save_reference_draft_fails():
         await db.execute(_sa_delete(DwsAggregateDefinition).where(DwsAggregateDefinition.id == agg_id))
         await _delete_metric_chain(db, metric_id)
         await db.commit()
+# ==================== 公式拆解集成测试（真实 PostgreSQL） ====================
+#
+# 运行：先确保 docker compose 栈已启动（hr-portal-db 在 5432 监听），然后
+#   pytest tests/test_warehouse_components.py -v -k "decompose and integration"
+
+async def test_integration_decompose_round_ratio():
+    """集成：ROUND(比率*100,2) 经服务端拆解 → is_ratio + 双组件 + suggested_code。"""
+    suf = uuid.uuid4().hex[:8]
+    async with get_session_factory()() as db:
+        shared = await _ensure_shared(db)
+        from app.warehouse.service.component_service import ComponentService
+        svc = ComponentService(db)
+        res = await svc.decompose_formula(
+            'ROUND(COUNT(*) / COUNT(*) * 100, 2)',
+            shared["dataset_id"],
+            metric_code=f"turnover_{suf}",
+        )
+        assert res["is_ratio"] is True, f"应识别为比率: {res}"
+        assert len(res["components"]) == 2
+        roles = {c["role"] for c in res["components"]}
+        assert roles == {"numerator", "denominator"}, roles
+        num = next(c for c in res["components"] if c["role"] == "numerator")
+        den = next(c for c in res["components"] if c["role"] == "denominator")
+        assert num["expression"] == 'COUNT(*)', num
+        assert den["expression"] == 'COUNT(*)', den
+        assert num["suggested_code"] == f"turnover_{suf}_numerator", num
+        assert den["suggested_code"] == f"turnover_{suf}_denominator", den
+        assert res["rate_expression"] is not None
+        assert "*100" in res["rate_expression"]
+        print("PASS: ROUND 比率公式服务端拆解正确")
+
+
+async def test_integration_decompose_non_ratio():
+    """集成：非比率公式 → is_ratio=False + 单个 custom 组件。"""
+    suf = uuid.uuid4().hex[:8]
+    async with get_session_factory()() as db:
+        shared = await _ensure_shared(db)
+        from app.warehouse.service.component_service import ComponentService
+        svc = ComponentService(db)
+        res = await svc.decompose_formula(
+            'SUM(salary)', shared["dataset_id"], metric_code=f"cost_{suf}",
+        )
+        assert res["is_ratio"] is False
+        assert len(res["components"]) == 1
+        assert res["components"][0]["role"] == "custom"
+        assert res["components"][0]["expression"] == 'SUM(salary)'
+        print("PASS: 非比率公式不误判")
+
+
+async def test_integration_decompose_denominator_zero():
+    """集成：COUNT(*) / 0 可识别为比率且不抛异常（除零由计算侧处理）。"""
+    suf = uuid.uuid4().hex[:8]
+    async with get_session_factory()() as db:
+        shared = await _ensure_shared(db)
+        from app.warehouse.service.component_service import ComponentService
+        svc = ComponentService(db)
+        res = await svc.decompose_formula(
+            'COUNT(*) / 0', shared["dataset_id"], metric_code=f"z_{suf}",
+        )
+        assert res["is_ratio"] is True
+        den = next(c for c in res["components"] if c["role"] == "denominator")
+        assert den["expression"] == '0', den
+        print("PASS: 分母为 0 可识别且不抛异常")

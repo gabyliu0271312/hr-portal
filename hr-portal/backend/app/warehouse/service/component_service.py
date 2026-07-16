@@ -357,87 +357,67 @@ class ComponentService:
     # ==================== 公式拆解 (MR0207) ====================
 
     async def decompose_formula(
-        self, formula_expr: str, dataset_id: int
+        self, formula_expr: str, dataset_id: int, metric_code: str | None = None
     ) -> dict:
         """检测比率公式并拆解为 numerator/denominator 组件。
 
-        调用 ai_formula/formula_to_sql.py 的翻译逻辑来检测公式结构：
-        - 识别 / 除法运算符（比率公式标志）
-        - 拆解出分子、分母表达式
-        - 对每个子表达式调用 translate_formula_to_sql 验证有效性
-        - 返回组件的建议配置和维度推断
+        增强（整改计划 2 / MR0207）：
+        - 支持 ROUND(A/B*100,2)、(A)/(B)、A/B*100 等典型比率公式
+        - 先剥离外层 ROUND(...) 与尾部 *100 等展示逻辑，再定位主除法符
+        - 分母绝不误包含 *100；被剥离的展示逻辑通过 rate_expression 回传
+        - suggested_code 不再为空：提供 metric_code 时生成 {metric_code}_numerator/_denominator
+        - 翻译校验改为 best-effort，不阻断比率识别（兼容 COUNT(*) / 0 等结构）
         """
-        from app.ai_formula.formula_to_sql import translate_formula_to_sql
-
         components: list[dict] = []
         combination_rule: str = ""
         is_ratio: bool = False
         dimensions: list[str] = []
+        rate_expression: str | None = None
 
         # 规范化表达式
         expr = formula_expr.strip().lstrip("=").strip()
-
         if not expr:
             raise ValueError("公式表达式不能为空")
 
-        # 查找最外层 / 运算符位置（排除引号内的字符和括号内的内容）
-        slash_pos = _find_top_level_division(expr)
+        # 1) 归一化：剥离 ROUND 包装 + 尾部 *100，得到核心比率表达式
+        core, rate_expression, _original = _normalize_ratio_formula(expr)
+        # 2) 在归一化表达式中定位主除法符
+        slash_pos = _find_ratio_division(core)
 
         if slash_pos is not None:
-            # 命中比率公式：拆解为分子和分母
+            # 命中比率公式：拆解为分子和分母（分母绝不误含 *100）
             is_ratio = True
-            numerator_expr = expr[:slash_pos].strip()
-            denominator_expr = expr[slash_pos + 1:].strip()
+            numerator_expr = core[:slash_pos].strip()
+            denominator_expr = core[slash_pos + 1:].strip()
 
-            # 对子表达式进行翻译以验证
-            if numerator_expr:
-                num_result = await translate_formula_to_sql(
-                    self.session, numerator_expr, dataset_id
-                )
-            else:
-                num_result = {"valid": False, "errors": ["分子表达式为空"]}
+            # 翻译校验（best-effort，不阻断比率识别，兼容 COUNT(*) / 0）
+            await self._safe_translate(numerator_expr, dataset_id)
+            await self._safe_translate(denominator_expr, dataset_id)
 
-            if denominator_expr:
-                den_result = await translate_formula_to_sql(
-                    self.session, denominator_expr, dataset_id
-                )
-            else:
-                den_result = {"valid": False, "errors": ["分母表达式为空"]}
-
-            # 构造分子组件
             components.append({
                 "role": "numerator",
                 "expression": numerator_expr,
-                "suggested_code": "",
+                "suggested_code": self._build_suggested_code(metric_code, "numerator"),
                 "suggested_name": _generate_suggested_name("分子"),
                 "suggested_aggregation": _infer_aggregation(numerator_expr),
             })
-
-            # 构造分母组件
             components.append({
                 "role": "denominator",
                 "expression": denominator_expr,
-                "suggested_code": "",
+                "suggested_code": self._build_suggested_code(metric_code, "denominator"),
                 "suggested_name": _generate_suggested_name("分母"),
                 "suggested_aggregation": _infer_aggregation(denominator_expr),
             })
-
             combination_rule = "numerator / denominator"
         else:
-            # 非比率公式：作为单个 custom 组件
-            overall_result = await translate_formula_to_sql(
-                self.session, expr, dataset_id
-            )
-            if not overall_result.get("valid", False):
-                errors = overall_result.get("errors", [])
-                raise ValueError(f"公式翻译失败: {'; '.join(errors)}")
-
+            # 非比率公式：作为单个 custom 组件（翻译 best-effort）
+            await self._safe_translate(expr, dataset_id)
             components.append({
                 "role": "custom",
                 "expression": expr,
-                "suggested_code": "",
+                "suggested_code": self._build_suggested_code(metric_code, "custom"),
                 "suggested_name": _generate_suggested_name(""),
-                "suggested_aggregation": "count",
+                "suggested_aggregation": _infer_aggregation(expr),
             })
             combination_rule = "custom"
 
@@ -452,7 +432,30 @@ class ComponentService:
             "combination_rule": combination_rule,
             "dimensions": dimensions,
             "is_ratio": is_ratio,
+            "rate_expression": rate_expression,
         }
+
+    async def _safe_translate(self, expr: str, dataset_id: int) -> dict:
+        """best-effort 公式翻译校验。
+
+        失败（如 COUNT(*) / 0 的分母为 0）仅返回 invalid 字典，
+        绝不抛出，避免阻断比率公式的结构识别。
+        """
+        from app.ai_formula.formula_to_sql import translate_formula_to_sql
+
+        if not expr:
+            return {"valid": False, "errors": ["表达式为空"]}
+        try:
+            return await translate_formula_to_sql(self.session, expr, dataset_id)
+        except Exception:
+            return {"valid": False, "errors": ["翻译失败（已忽略，不影响拆解）"]}
+
+    @staticmethod
+    def _build_suggested_code(metric_code: str | None, role: str) -> str:
+        """生成组件建议编码。提供 metric_code 时为 {metric_code}_{role}，否则回退为 role。"""
+        if metric_code:
+            return f"{metric_code}_{role}"
+        return role
 
     # ==================== 校验辅助 ====================
 
@@ -501,10 +504,79 @@ def get_component_service(db: AsyncSession) -> ComponentService:
 
 # ==================== 辅助函数 ====================
 
-def _find_top_level_division(expr: str) -> int | None:
-    """查找最外层 / 运算符位置，跳过括号内和引号内的内容。
+def _strip_outer_round(expr: str) -> tuple[str | None, str | None]:
+    """若 expr 整体为 ROUND(x[, n]) 形式，返回 (内部首个参数, 精度字符串)。
 
-    返回最外层（括号深度=0）的 / 位置，没有则返回 None。
+    使用括号深度扫描，正确处理嵌套括号与引号内的逗号，
+    找到最外层 ROUND( 的匹配右括号或第一个顶层逗号。
+    不是 ROUND 包装时返回 (None, None)。
+    """
+    s = expr.strip()
+    if not re.match(r"^ROUND\(", s, re.IGNORECASE):
+        return (None, None)
+    depth = 0
+    inside_start = len("ROUND(")  # 6
+    i = inside_start
+    while i < len(s):
+        c = s[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            if depth == 0:
+                # 匹配到右括号（应在末尾），内部为首个参数，无精度
+                return (s[inside_start:i].strip(), None)
+            depth -= 1
+        elif c == "," and depth == 0:
+            # 第一个顶层逗号：之前是内部首个参数，之后是精度
+            inner = s[inside_start:i].strip()
+            precision = s[i + 1:].strip().rstrip(")").strip()
+            return (inner, precision)
+        i += 1
+    return (None, None)
+
+
+def _strip_percent_multiplier(expr: str) -> tuple[str, str | None]:
+    """剥离尾部的 *100 / * 100 百分比乘数（展示逻辑，不应进入分母）。
+
+    返回 (剩余核心表达式, 被剥离的展示逻辑描述)。无 *100 时返回 (原串, None)。
+    """
+    s = expr.strip()
+    m = re.search(r"\*\s*100\s*$", s)
+    if m:
+        return (s[: m.start()].strip(), "*100")
+    return (s, None)
+
+
+def _normalize_ratio_formula(expr: str) -> tuple[str, str | None, str]:
+    """去除外层 ROUND(...) 包装和尾部 *100 等展示逻辑，返回核心比率表达式。
+
+    返回三元组：
+      core_expr     归一化后的比率表达式（如 COUNTIF(a,b)/COUNT(*)）
+      rate_expression 被剥离的展示逻辑（如 "*100" 或 "ROUND(2) *100"），无可剥离时为 None
+      original      原始（去掉前导 = 后）表达式，用于展示
+    """
+    original = expr.strip().lstrip("=").strip()
+    core = original
+    rate_parts: list[str] = []
+
+    inner, precision = _strip_outer_round(core)
+    if inner is not None:
+        core = inner
+        rate_parts.append(f"ROUND({precision})" if precision else "ROUND")
+
+    core, multiplier = _strip_percent_multiplier(core)
+    if multiplier:
+        rate_parts.append(multiplier)
+
+    rate_expression = " ".join(rate_parts) or None
+    return (core, rate_expression, original)
+
+
+def _find_ratio_division(expr: str) -> int | None:
+    """在（已归一化的）表达式中查找主除法符 / 的位置。
+
+    跳过引号内的字符与括号内的内容（仅认 depth==0 的 /），
+    返回主除法符的索引；没有则返回 None。
     """
     depth = 0
     in_quote = False

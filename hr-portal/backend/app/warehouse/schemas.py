@@ -1559,6 +1559,7 @@ class FormulaDecomposeIn(BaseModel):
     model_config = {"extra": "forbid"}
     formula_expr: str = Field(..., description="Excel 公式表达式")
     dataset_id: int = Field(..., description="来源数据集 ID，用于推断维度")
+    metric_code: Optional[str] = Field(None, description="指标编码（可选）：提供时 suggested_code 生成 {metric_code}_{role}")
 
 
 class FormulaDecomposeComponentOut(BaseModel):
@@ -1576,3 +1577,4 @@ class FormulaDecomposeOut(BaseModel):
     combination_rule: str = Field(description="组合规则，如 numerator / denominator")
     dimensions: list[str] = Field(default_factory=list, description="从数据集推断的维度字段")
     is_ratio: bool = Field(False, description="是否检测到比率公式")
+    rate_expression: Optional[str] = Field(None, description="被剥离的展示逻辑，如 '*100' 或 'ROUND(2) *100'；无可剥离时为 None")

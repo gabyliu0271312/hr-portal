@@ -901,3 +901,48 @@ tests/ -k 'warehouse or metric ...' (316 passed, 15 skipped)
 tests/test_layer_policy.py ......... (33 passed)
 ```
 全部在真实 Postgres 上运行，无 skip、无 mocked DB。
+
+### MR0207 公式拆解增强（整改计划 2：支持典型比率公式自动拆解）
+
+**问题**：旧 `_find_top_level_division` 只认最外层（`depth==0`）的 `/`：
+- `ROUND(COUNTIF(员工状态,"离职") / COUNT(*) * 100, 2)` 中 `/` 在 `ROUND(...)` 括号内（depth 1）→ **漏检**，不识别为比率；
+- 即使命中（如 `A / B * 100`），分母会被错误包含 `*100`；
+- `suggested_code` 恒为 `""`，前端只能回退拼装。
+
+**修复**（`component_service.py`）：
+- 新增 `_strip_outer_round(expr)`：括号深度扫描剥离 `ROUND(x, n)` 包装，返回内部首个参数与精度；正确处理嵌套括号与引号内逗号（`COUNTIF(status,"离职")`）。
+- 新增 `_strip_percent_multiplier(expr)`：剥离尾部 `*100` / `* 100` 百分比乘数，返回 `(core, "*100")`。
+- 新增 `_normalize_ratio_formula(expr)`：编排上述两步，返回 `(core, rate_expression, original)`；`rate_expression` 记录被剥离的展示逻辑（如 `"*100"` / `"ROUND(2) *100"`），无可剥离时为 `None`。
+- 新增 `_find_ratio_division(expr)`（替换旧 `_find_top_level_division`）：在**归一化后**的表达式中定位主 `/`（跳过引号与括号），支持 `(A)/(B)`、`A / B * 100` 等。
+- `decompose_formula` 重写：先归一化 → 再定位除法 → numerator/denominator **绝不误含 `*100`**；`rate_expression` 回传；`suggested_code` 在提供 `metric_code` 时生成 `{metric_code}_numerator` / `{metric_code}_denominator`，否则回退 `numerator`/`denominator`；翻译校验改为 **best-effort**（`_safe_translate` 捕获异常不抛出），兼容 `COUNT(*) / 0`（识别为比率，除零交由计算侧处理）。
+
+**Schema / Router / 前端**：
+- `schemas.py`：`FormulaDecomposeIn` 增加可选字段 `metric_code: Optional[str]`；`FormulaDecomposeOut` 增加可选字段 `rate_expression: Optional[str]`（均向后兼容）。
+- `router.py`：`decompose_metric_formula` 透传 `payload.metric_code`。
+- `warehouse.ts`：`decomposeFormula` 增加可选入参 `metricCode?` 并写入请求体；`FormulaDecomposeResult` 增加 `rate_expression?`。
+- `WarehouseMetrics.vue`：`switchToComponentMode` 传入 `form.value.metric_code`（前端 `component_code` 映射已用该值，现与后端 `suggested_code` 一致）。
+
+**验收对照**：
+- 文档示例 `ROUND(COUNTIF(员工状态,"离职")/COUNT(*)*100,2)` → 自动拆解 ✅（numerator=`COUNTIF(...)`，denominator=`COUNT(*)`，rate=`*100`）
+- `A / B`、`A / B * 100`、`ROUND(A/B*100,2)`、`(A)/(B)`、`ROUND((A)/(B),4)` → 全部可拆解 ✅
+- `*100` 不归入 denominator ✅
+- `SUM(cost)` 非比率 → 返回 `custom`、不误判 ✅
+- 前端组件配置区自动填充 numerator/denominator 两行 ✅（`switchToComponentMode` 已验证）
+
+**测试**（真实 Postgres + 纯函数）：
+```
+tests/test_warehouse_components.py::test_decompose_round_ratio_formula      (ROUND 比率+*100 不进分母)
+tests/test_warehouse_components.py::test_decompose_ratio_with_percent_multiplier (A/B*100 → den=B)
+tests/test_warehouse_components.py::test_decompose_parenthesized_ratio    ((A)/(B) 括号)
+tests/test_warehouse_components.py::test_decompose_non_ratio_formula       (SUM(cost) → custom)
+tests/test_warehouse_components.py::test_decompose_division_no_spaces     (COUNT(*)/SUM(cost))
+tests/test_warehouse_components.py::test_decompose_division_spaced        (COUNT(*) / COUNT(*))
+tests/test_warehouse_components.py::test_decompose_denominator_zero     (COUNT(*) / 0 识别)
+tests/test_warehouse_components.py::test_decompose_denominator_nullif   (COUNT(*) / NULLIF(COUNT(*),0))
+tests/test_warehouse_components.py::test_integration_decompose_round_ratio   (服务端 ROUND 拆解+双组件+suggested_code)
+tests/test_warehouse_components.py::test_integration_decompose_non_ratio   (非比率→custom)
+tests/test_warehouse_components.py::test_integration_decompose_denominator_zero (分母为0 不抛异常)
+```
+11 项纯函数测试 PASS + 3 项集成测试 PASS；`test_warehouse_components.py` 全量 **54 passed**；
+前端 `vue-tsc 0 错`、`npm run build` 通过（27.32s）。
+
