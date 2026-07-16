@@ -4,7 +4,7 @@
 路由前缀: /api/v1/warehouse
 """
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5111,6 +5111,8 @@ async def get_metric_result_detail(
     metric_id: int,
     result_id: int,
     period: str = Query(..., description="计算周期"),
+    page: int = Query(1, ge=1, description="明细页（MR0101 分页）"),
+    page_size: int = Query(50, ge=1, le=500, description="每页行数（MR0101 分页）"),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ):
@@ -5161,15 +5163,20 @@ async def get_metric_result_detail(
         .order_by(MetricResultRow.row_index)
     )).scalars().all()
 
+    # 分页（MR0101）：明细行可能很多，必须分页返回
+    total = len(rows)
+    start = (page - 1) * page_size
+    page_rows = rows[start:start + page_size]
+
     result_value = result.value or {}
     summary_value = result_value.get("summary_value")
     dimensions = result_value.get("dimensions", [])
     measures = result_value.get("measures", [])
 
     if is_admin:
-        # 管理员：完整数据
+        # 管理员：完整数据（仅当前页）
         detail_rows = []
-        for row in rows:
+        for row in page_rows:
             detail_rows.append({
                 "dimension_values": row.dimension_values,
                 "measure_values": row.measure_values,
@@ -5184,6 +5191,9 @@ async def get_metric_result_detail(
             "dimensions": dimensions,
             "measures": measures,
             "rows": detail_rows,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
             "computed_at": result.computed_at.isoformat() if result.computed_at else None,
             "warnings": result_value.get("warnings"),
         }
@@ -5197,7 +5207,10 @@ async def get_metric_result_detail(
             "summary_value": summary_value,
             "dimensions": dimensions,
             "measures": measures,
-            "row_count": len(rows),
+            "row_count": total,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
             "rows": None,  # 明细行隐藏
             "computed_at": result.computed_at.isoformat() if result.computed_at else None,
             "warnings": result_value.get("warnings"),
@@ -5239,6 +5252,91 @@ async def export_result_audit(
     await db.flush()
 
     return {"trace_id": trace_id, "action": "export", "status": "recorded"}
+
+
+@router.get(
+    "/metrics/{metric_id}/results/{result_id}/export",
+    summary="指标结果明细导出为 CSV 文件（MR0102 真实文件导出）",
+    dependencies=[Depends(require_op("warehouse.metrics", "E"))],
+)
+async def export_metric_result(
+    metric_id: int,
+    result_id: int,
+    period: str = Query(..., description="计算周期"),
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """导出指标结果明细为 CSV（维度列 + 度量列 + 值），触发浏览器下载。
+
+    - 权限：warehouse.metrics:E（导出）+ 数据范围明细权限（管理员）。
+    - 非管理员无明细导出权限，返回 403。
+    - 自动记录导出审计事件（MR0307）。
+    """
+    import csv
+    import io
+    from datetime import datetime
+    import uuid
+    from app.datasets.models import WarehouseMetric
+    from app.warehouse.models import MetricResult, MetricResultRow, AutomationAuditEvent
+    from app.permissions.masker import _is_super_admin
+
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+    result = await db.get(MetricResult, result_id)
+    if result is None or result.metric_id != metric_id:
+        raise HTTPException(status_code=404, detail=f"结果不存在: {result_id}")
+
+    is_admin = await _is_super_admin(user, db)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="无数据明细导出权限")
+
+    rows = (await db.execute(
+        select(MetricResultRow)
+        .where(MetricResultRow.result_id == result_id)
+        .order_by(MetricResultRow.row_index)
+    )).scalars().all()
+
+    # 收集列（维度列 + 度量列），按行 union 保序
+    dim_keys: list[str] = []
+    meas_keys: list[str] = []
+    for row in rows:
+        for k in (row.dimension_values or {}).keys():
+            if k not in dim_keys:
+                dim_keys.append(k)
+        for k in (row.measure_values or {}).keys():
+            if k not in meas_keys:
+                meas_keys.append(k)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([*dim_keys, *meas_keys, "value"])
+    for row in rows:
+        dvals = row.dimension_values or {}
+        mvals = row.measure_values or {}
+        writer.writerow([
+            *(dvals.get(k, "") for k in dim_keys),
+            *(mvals.get(k, "") for k in meas_keys),
+            row.value if row.value is not None else "",
+        ])
+    csv_bytes = buf.getvalue().encode("utf-8-sig")  # BOM 兼容 Excel
+
+    # 审计（MR0307）
+    trace_id = str(uuid.uuid4())[:16]
+    db.add(AutomationAuditEvent(
+        trace_id=trace_id, metric_id=metric_id, asset_type="metric_result",
+        asset_id=result_id, action="export", status="success", actor_id=user.id,
+        input_json={"metric_id": metric_id, "result_id": result_id, "period": period, "rows": len(rows)},
+        created_at=datetime.utcnow(),
+    ))
+    await db.commit()
+
+    filename = f"metric_{m.metric_code}_{period}_result.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.post(

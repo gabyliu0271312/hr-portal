@@ -19,7 +19,7 @@ import {
 } from '@/api/warehouse'
 import { translateFormula } from '@/api/warehouse'
 import {
-  getMetricLineage, getMetricDownstreamRefs, getMetricResultDetail, recordExportAudit, recordAiExplainAudit,
+  getMetricLineage, getMetricDownstreamRefs, getMetricResultDetail, exportMetricResult, recordExportAudit, recordAiExplainAudit,
   type LineageGraph, type DownstreamRefsResult, type MetricResultDetail,
 } from '@/api/warehouse'
 import { dataApi, type ColumnInfo } from '@/api/data'
@@ -66,9 +66,30 @@ const lineageLoading = ref(false)
 const downstreamRefs = ref<DownstreamRefsResult | null>(null)
 const downstreamRefsLoading = ref(false)
 
-// MR0306: 结果明细权限态
+// MR0306: 结果明细权限态 + MR0101 分页
 const resultDetail = ref<MetricResultDetail | null>(null)
 const resultDetailLoading = ref(false)
+const detailPage = ref(1)
+const detailPageSize = ref(50)
+const currentDetailResultId = ref<number | null>(null)
+const currentDetailPeriod = ref('')
+const exporting = ref(false)
+
+// MR0103/0104: 从 dimension_values / measure_values 动态解析列
+const detailDimCols = computed<string[]>(() => {
+  const rd = resultDetail.value
+  if (!rd) return []
+  if (rd.dimensions?.length) return rd.dimensions
+  const first = rd.rows?.[0]
+  return first ? Object.keys(first.dimension_values || {}) : []
+})
+const detailMeasCols = computed<string[]>(() => {
+  const rd = resultDetail.value
+  if (!rd) return []
+  if (rd.measures?.length) return rd.measures
+  const first = rd.rows?.[0]
+  return first ? Object.keys(first.measure_values || {}) : []
+})
 
 async function load() {
   loading.value = true
@@ -124,14 +145,52 @@ async function loadDownstreamRefs(id: number) {
 }
 
 async function loadResultDetail(metricId: number, resultId: number, period: string) {
+  currentDetailResultId.value = resultId
+  currentDetailPeriod.value = period
   resultDetailLoading.value = true
   try {
-    resultDetail.value = await getMetricResultDetail(metricId, resultId, period)
+    resultDetail.value = await getMetricResultDetail(metricId, resultId, period, {
+      page: detailPage.value,
+      page_size: detailPageSize.value,
+    })
     if (resultDetail.value?.permission_level === 'summary_only') {
       ElMessage.warning('您没有数据明细权限，仅可查看汇总值')
     }
   } catch { resultDetail.value = null }
   finally { resultDetailLoading.value = false }
+}
+
+async function changeDetailPage(next: number) {
+  if (!detailMetricId.value || currentDetailResultId.value == null) return
+  detailPage.value = next
+  await loadResultDetail(detailMetricId.value, currentDetailResultId.value, currentDetailPeriod.value)
+}
+
+// MR0105/0106 + 结果行点击事件：点击计算结果列表的某一期，加载其明细
+async function onResultRowClick(row: any) {
+  if (row?.id == null) return
+  detailPage.value = 1
+  await loadResultDetail(detailMetricId.value!, row.id, row.period)
+}
+
+// MR0102: 导出结果明细为 CSV 文件
+async function handleExportDetail() {
+  if (!detailMetricId.value || currentDetailResultId.value == null) return
+  exporting.value = true
+  try {
+    const blob = await exportMetricResult(detailMetricId.value, currentDetailResultId.value, currentDetailPeriod.value)
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `metric_${detailMetricId.value}_${currentDetailPeriod.value}_result.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+    await recordExportAudit(detailMetricId.value, currentDetailResultId.value)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '导出失败')
+  } finally { exporting.value = false }
 }
 
 async function handleExportAudit() {
@@ -192,6 +251,10 @@ async function pollRunStatus(runId: number, period: string) {
           ElMessage.success('计算完成')
           await loadResults()
           computedResult.value = (await listMetricResults(detailMetricId.value!)).items?.find((r: any) => r.period === period) || null
+          if (computedResult.value) {
+            detailPage.value = 1
+            await loadResultDetail(detailMetricId.value!, computedResult.value.id, period)
+          }
           loadExplainContext(detailMetricId.value!, period)
         } else {
           lastComputeError.value = run.error_message || '计算失败'
@@ -931,7 +994,7 @@ onMounted(load)
         <!-- 计算结果列表 -->
         <el-card shadow="never" size="small" style="margin-bottom: 16px">
           <template #header><span style="font-weight: 600">计算结果</span></template>
-          <el-table v-loading="resultsLoading" :data="results" size="small" border empty-text="暂无结果" max-height="200">
+          <el-table v-loading="resultsLoading" :data="results" size="small" border empty-text="暂无结果" max-height="200" highlight-current-row @row-click="onResultRowClick">
             <el-table-column prop="period" label="周期" width="120" />
             <el-table-column label="计算结果" min-width="120">
               <template #default="{ row }">{{ metricResultDisplay(row) }}</template>
@@ -943,6 +1006,34 @@ onMounted(load)
               <template #default="{ row }">{{ row.computed_at?.substring(0, 19) }}</template>
             </el-table-column>
           </el-table>
+        </el-card>
+
+        <!-- 结果明细（MR0103/0104 动态列 + MR0105 空态 + MR0106 失败态 + MR0101 分页 + MR0102 导出） -->
+        <el-card shadow="never" size="small" style="margin-bottom: 16px">
+          <template #header>
+            <span style="font-weight: 600">结果明细</span>
+            <el-button v-if="resultDetail?.permission_level === 'full'" size="small" type="primary" :loading="exporting" @click="handleExportDetail" style="float: right">导出 CSV</el-button>
+          </template>
+          <div v-if="resultDetailLoading" v-loading="true" style="height: 140px" />
+          <template v-else-if="resultDetail && resultDetail.permission_level === 'full'">
+            <el-table :data="resultDetail.rows || []" size="small" border max-height="340" empty-text="计算成功，但无明细数据">
+              <el-table-column v-for="c in detailDimCols" :key="'d-' + c" :prop="c" :label="c">
+                <template #default="{ row }">{{ row.dimension_values?.[c] ?? '' }}</template>
+              </el-table-column>
+              <el-table-column v-for="c in detailMeasCols" :key="'m-' + c" :prop="c" :label="c">
+                <template #default="{ row }">{{ row.measure_values?.[c] ?? '' }}</template>
+              </el-table-column>
+              <el-table-column prop="value" label="值" width="120" />
+            </el-table>
+            <div v-if="(resultDetail.total || 0) > detailPageSize" style="margin-top: 8px; text-align: right; color: #909399; font-size: 12px">
+              共 {{ resultDetail.total || 0 }} 行 · 第 {{ resultDetail.page || 1 }}/{{ Math.ceil((resultDetail.total || 0) / (resultDetail.page_size || 1)) }} 页
+              <el-button text size="small" :disabled="(resultDetail.page || 1) <= 1" @click="changeDetailPage((resultDetail.page || 1) - 1)">上一页</el-button>
+              <el-button text size="small" :disabled="(resultDetail.page || 1) >= Math.ceil((resultDetail.total || 0) / (resultDetail.page_size || 1))" @click="changeDetailPage((resultDetail.page || 1) + 1)">下一页</el-button>
+            </div>
+          </template>
+          <el-empty v-else-if="resultDetail && resultDetail.permission_level === 'summary_only'" description="您没有数据明细权限，仅可查看汇总值" :image-size="80" />
+          <el-empty v-else-if="lastComputeStatus === 'failed'" :description="lastComputeError || '计算失败，无法加载明细'" :image-size="80" />
+          <el-empty v-else description="点击上方某一期计算结果，查看其明细" :image-size="80" />
         </el-card>
 
         <!-- 运行记录 -->

@@ -1910,6 +1910,10 @@ export interface MetricResultDetail {
   dimensions: string[]
   measures: string[]
   row_count?: number
+  /** MR0101 分页元数据 */
+  total?: number
+  page?: number
+  page_size?: number
   rows?: Array<{ dimension_values: Record<string, any>; measure_values: Record<string, any>; value: number | null }> | null
   computed_at: string | null
   warnings?: Record<string, any> | null
@@ -1932,16 +1936,24 @@ export function getMetricDownstreamRefs(metricId: number, limit?: number) {
   }).then(r => r.data as DownstreamRefsResult)
 }
 
-/** 获取结果明细（MR0306 权限态） */
-export function getMetricResultDetail(metricId: number, resultId: number, period: string) {
+/** 获取结果明细（MR0306 权限态 + MR0101 分页） */
+export function getMetricResultDetail(metricId: number, resultId: number, period: string, params: { page?: number; page_size?: number } = {}) {
   return api.get(`/warehouse/metrics/${metricId}/results/${resultId}/detail`, {
-    params: { period },
+    params: { period, ...params },
   }).then(r => r.data as MetricResultDetail)
 }
 
 /** 记录导出审计事件（MR0307） */
 export function recordExportAudit(metricId: number, resultId: number) {
   return api.post(`/warehouse/metrics/${metricId}/results/${resultId}/export-audit`).then(r => r.data)
+}
+
+/** 导出结果明细为 CSV 文件（MR0102 真实文件导出，返回 Blob） */
+export function exportMetricResult(metricId: number, resultId: number, period: string) {
+  return api.get(`/warehouse/metrics/${metricId}/results/${resultId}/export`, {
+    params: { period },
+    responseType: 'blob',
+  }).then(r => r.data as Blob)
 }
 
 /** 记录 AI 解释审计事件（MR0307） */
