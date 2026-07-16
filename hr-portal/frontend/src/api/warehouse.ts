@@ -1687,3 +1687,266 @@ export function resumeL4() {
 export function rollbackL4Metric(metricId: number) {
   return api.post(`/warehouse/l4-auto/rollback/${metricId}`).then(r => r.data)
 }
+
+// ==================== MR0207-MR0213 复合指标组件 API ====================
+
+/** 组件角色 */
+export type ComponentRole = 'numerator' | 'denominator' | 'base' | 'compare' | 'custom' | 'rate'
+
+/** 组件角色中文 */
+export const COMPONENT_ROLE_LABELS: Record<ComponentRole, string> = {
+  numerator: '分子',
+  denominator: '分母',
+  base: '基期',
+  compare: '对比',
+  custom: '自定义',
+  rate: '比率',
+}
+
+/** 组件列表项 */
+export interface MetricComponentItem {
+  id: number
+  metric_id: number
+  component_code: string
+  component_name: string
+  aggregate_id: number
+  role: ComponentRole
+  expression: string | null
+  display_order: number
+  is_auto_created: boolean
+  created_at: string | null
+  updated_at: string | null
+  aggregate_name?: string | null
+  aggregate_label?: string | null
+  aggregate_status?: string | null
+  aggregate_group_by?: string[] | null
+}
+
+/** 创建组件入参 */
+export interface MetricComponentCreatePayload {
+  component_code: string
+  component_name: string
+  aggregate_id: number
+  role: ComponentRole
+  expression?: string | null
+  display_order?: number
+  is_auto_created?: boolean
+}
+
+/** 更新组件入参 */
+export interface MetricComponentUpdatePayload {
+  component_code?: string
+  component_name?: string
+  aggregate_id?: number
+  role?: ComponentRole
+  expression?: string | null
+  display_order?: number
+  is_auto_created?: boolean
+}
+
+/** 公式拆解组件结果项 */
+export interface FormulaDecomposeComponent {
+  role: ComponentRole
+  expression: string
+  suggested_code: string
+  suggested_name: string
+  suggested_aggregation: string
+}
+
+/** 公式拆解结果 */
+export interface FormulaDecomposeResult {
+  components: FormulaDecomposeComponent[]
+  combination_rule: string
+  dimensions: string[]
+  is_ratio: boolean
+}
+
+/** 批量保存入参 */
+export interface MetricComponentBatchPayload {
+  new_aggregates: Array<{
+    source_dataset_id: number
+    name: string
+    label: string
+    group_by: string[]
+    aggregation: string
+    measure_field?: string
+    filter?: Record<string, any> | null
+    time_grain?: string | null
+    business_definition?: string | null
+    is_auto_created?: boolean
+  }>
+  components: Array<{
+    component_code: string
+    component_name: string
+    aggregate_id?: number | null
+    new_aggregate_index?: number | null
+    role: ComponentRole
+    expression?: string | null
+    display_order?: number
+    is_auto_created?: boolean
+  }>
+}
+
+/** 列出指标组件 */
+export function listMetricComponents(metricId: number) {
+  return api.get(`/warehouse/metrics/${metricId}/components`).then(r => r.data as MetricComponentItem[])
+}
+
+/** 创建组件 */
+export function createMetricComponent(metricId: number, payload: MetricComponentCreatePayload) {
+  return api.post(`/warehouse/metrics/${metricId}/components`, payload).then(r => r.data as MetricComponentItem)
+}
+
+/** 更新组件 */
+export function updateMetricComponent(metricId: number, componentId: number, payload: MetricComponentUpdatePayload) {
+  return api.put(`/warehouse/metrics/${metricId}/components/${componentId}`, payload).then(r => r.data as MetricComponentItem)
+}
+
+/** 删除组件 */
+export function deleteMetricComponent(metricId: number, componentId: number) {
+  return api.delete(`/warehouse/metrics/${metricId}/components/${componentId}`)
+}
+
+/** 批量保存组件（MR0213） */
+export function batchSaveMetricComponents(metricId: number, payload: MetricComponentBatchPayload) {
+  return api.post(`/warehouse/metrics/${metricId}/components/batch`, payload).then(r => r.data as {
+    metric_id: number
+    components_saved: number
+    aggregates_created: number
+    components: MetricComponentItem[]
+  })
+}
+
+/** 公式拆解（MR0207） */
+export function decomposeFormula(formulaExpr: string, datasetId: number) {
+  return api.post('/warehouse/metrics/decompose-formula', {
+    formula_expr: formulaExpr,
+    dataset_id: datasetId,
+  }).then(r => r.data as FormulaDecomposeResult)
+}
+
+// ==================== MR0301-MR0305 结果解释与消费侧 ====================
+
+/** 指标解释上下文 */
+export interface MetricExplainContext {
+  metric_id: number
+  metric_code: string
+  metric_name: string
+  metric_type: string
+  formula_expr: string | null
+  business_definition: string | null
+  calculation_desc: string | null
+  components: Array<{
+    id: number
+    role: string
+    component_code: string
+    component_name: string
+    expression: string | null
+    aggregate_name: string | null
+    aggregate_label: string | null
+    is_auto_created: boolean
+  }>
+  combination_rule: string | null
+  period: string | null
+  result_summary: Record<string, any> | null
+  computed_at: string | null
+  metric_version: number | null
+}
+
+/** AI-ready 上下文 */
+export interface MetricAiContext {
+  metric: Record<string, any>
+  period: string
+  dimensions: Record<string, any> | null
+  measures: Record<string, any> | null
+  lineage: string[]
+  explanation: string | null
+}
+
+/** 获取指标解释上下文（MR0301） */
+export function getMetricExplain(metricId: number, period?: string) {
+  return api.get(`/warehouse/metrics/${metricId}/explain`, {
+    params: period ? { period } : {},
+  }).then(r => r.data as MetricExplainContext)
+}
+
+/** 获取 AI-ready 上下文（MR0305） */
+export function getMetricAiContext(metricId: number, period: string) {
+  return api.get(`/warehouse/metrics/${metricId}/ai-context`, {
+    params: { period },
+  }).then(r => r.data as MetricAiContext)
+}
+
+/** 下游引用项 */
+export interface DownstreamRef {
+  type: string
+  id: string
+  name: string
+  operation?: string
+  usage?: string
+  risk_level?: string
+  blocking?: boolean
+  blocking_reason?: string
+  route?: string | null
+  period?: string
+  computed_at?: string | null
+  created_at?: string | null
+}
+
+/** 下游引用列表结果 */
+export interface DownstreamRefsResult {
+  metric_id: number
+  metric_code: string
+  refs: DownstreamRef[]
+}
+
+/** 结果明细（权限态） */
+export interface MetricResultDetail {
+  metric_id: number
+  result_id: number
+  period: string
+  permission_level: 'full' | 'summary_only'
+  summary_value: number | null
+  dimensions: string[]
+  measures: string[]
+  row_count?: number
+  rows?: Array<{ dimension_values: Record<string, any>; measure_values: Record<string, any>; value: number | null }> | null
+  computed_at: string | null
+  warnings?: Record<string, any> | null
+}
+
+/** 指标血缘图结果 (复用已有 LineageNode/LineageEdge) */
+export type MetricLineageGraph = LineageGraph
+
+/** 获取指标血缘图（MR0303） */
+export function getMetricLineage(metricId: number, depth?: number, limit?: number) {
+  return api.get(`/warehouse/metrics/${metricId}/lineage`, {
+    params: { depth, limit },
+  }).then(r => r.data as MetricLineageGraph)
+}
+
+/** 获取指标下游引用列表（MR0304） */
+export function getMetricDownstreamRefs(metricId: number, limit?: number) {
+  return api.get(`/warehouse/metrics/${metricId}/downstream-refs`, {
+    params: { limit },
+  }).then(r => r.data as DownstreamRefsResult)
+}
+
+/** 获取结果明细（MR0306 权限态） */
+export function getMetricResultDetail(metricId: number, resultId: number, period: string) {
+  return api.get(`/warehouse/metrics/${metricId}/results/${resultId}/detail`, {
+    params: { period },
+  }).then(r => r.data as MetricResultDetail)
+}
+
+/** 记录导出审计事件（MR0307） */
+export function recordExportAudit(metricId: number, resultId: number) {
+  return api.post(`/warehouse/metrics/${metricId}/results/${resultId}/export-audit`).then(r => r.data)
+}
+
+/** 记录 AI 解释审计事件（MR0307） */
+export function recordAiExplainAudit(metricId: number, period: string) {
+  return api.post(`/warehouse/metrics/${metricId}/ai-explain-audit`, null, {
+    params: { period },
+  }).then(r => r.data)
+}

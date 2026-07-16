@@ -60,7 +60,10 @@ class MetricComputeService:
         from datetime import date, datetime as dt
         from decimal import Decimal
         from app.datasets.models import WarehouseMetric
-        from app.warehouse.models import DwsAggregateDefinition, MetricResult, MetricResultRow, MetricRun
+        from app.warehouse.models import (
+            DwsAggregateDefinition, MetricResult, MetricResultRow,
+            MetricRun, MetricComponent,
+        )
         from sqlalchemy import text as sa_text
 
         m = await self.session.get(WarehouseMetric, metric_id)
@@ -70,46 +73,79 @@ class MetricComputeService:
         run = MetricRun(metric_id=metric_id, status="running", period=period, started_at=started)
         self.session.add(run); await self.session.flush()
         try:
-            agg = (await self.session.execute(
-                select(DwsAggregateDefinition)
-                .where(DwsAggregateDefinition.metric_id == metric_id)
-                .where(DwsAggregateDefinition.status == "published")
-                .order_by(DwsAggregateDefinition.updated_at.desc(), DwsAggregateDefinition.id.desc())
-                .limit(1)
-            )).scalars().first()
-            if agg is None:
-                raise ValueError("指标缺少已发布的 DWS 聚合定义，无法计算结果集")
+            # MR0208: 检查指标是否有组件（复合指标路径）
+            components = (await self.session.execute(
+                select(MetricComponent)
+                .where(MetricComponent.metric_id == metric_id)
+                .order_by(MetricComponent.display_order, MetricComponent.id)
+            )).scalars().all()
 
-            view_name = agg.name
-            await DwsAggregateService(self.session).generate_dws_view(agg.id)
-            rr = await self.session.execute(sa_text(f"SELECT * FROM {self._quote_ident(view_name)}"))
-            rows = [self._jsonable(dict(row._mapping)) for row in rr.fetchall()]
-            rows = [row for row in rows if self._row_matches_period(row, period)]
+            if components:
+                # ===== 复合指标路径：基于组件计算 =====
+                result_value, detail_rows = await self._compute_with_components(
+                    metric_id, m, components, period
+                )
+            else:
+                # ===== 单聚合路径（原有逻辑） =====
+                agg = (await self.session.execute(
+                    select(DwsAggregateDefinition)
+                    .where(DwsAggregateDefinition.metric_id == metric_id)
+                    .where(DwsAggregateDefinition.status == "published")
+                    .order_by(DwsAggregateDefinition.updated_at.desc(), DwsAggregateDefinition.id.desc())
+                    .limit(1)
+                )).scalars().first()
+                if agg is None:
+                    raise ValueError("指标缺少已发布的 DWS 聚合定义，无法计算结果集")
 
-            dimensions = [c for c in (agg.group_by or [])]
-            value_key = "aggregated_value"
-            result_value = {
-                "metric_code": m.metric_code,
-                "aggregate_id": agg.id,
-                "row_count": len(rows),
-                "dimensions": dimensions,
-                "measures": [value_key],
-                "summary_value": rows[0].get(value_key) if len(rows) == 1 else None,
-            }
+                view_name = agg.name
+                await DwsAggregateService(self.session).generate_dws_view(agg.id)
+                rr = await self.session.execute(sa_text(f"SELECT * FROM {self._quote_ident(view_name)}"))
+                rows = [self._jsonable(dict(row._mapping)) for row in rr.fetchall()]
+                rows = [row for row in rows if self._row_matches_period(row, period)]
+
+                dimensions = [c for c in (agg.group_by or [])]
+                dim_view_cols = await self._resolve_dim_view_columns(agg.source_dataset_id, dimensions)
+                value_key = "aggregated_value"
+                # 单行→取该行值；多行（按维度分组）→ 取聚合值合计
+                # （如「总人数」按部门分组后，summary 应为各维度求和 = 10）
+                if len(rows) == 1:
+                    summary_value = rows[0].get(value_key)
+                else:
+                    summary_value = sum((row.get(value_key) or 0) for row in rows)
+                result_value = {
+                    "metric_code": m.metric_code,
+                    "aggregate_id": agg.id,
+                    "row_count": len(rows),
+                    "dimensions": dimensions,
+                    "measures": [value_key],
+                    "summary_value": summary_value,
+                }
+                detail_rows = [
+                    {
+                        "dimension_values": {
+                            dim_view_cols.get(d, d): row.get(dim_view_cols.get(d, d))
+                            for d in dimensions if dim_view_cols.get(d, d) in row
+                        },
+                        "measure_values": {value_key: row.get(value_key)},
+                        "value": row.get(value_key),
+                        "row_index": idx,
+                    }
+                    for idx, row in enumerate(rows)
+                ]
+
+            # ===== 统一写入结果 =====
             result = MetricResult(metric_id=metric_id, period=period, value=result_value, computed_at=dt.utcnow())
             self.session.add(result); await self.session.flush()
 
-            for idx, row in enumerate(rows):
-                dimension_values = {d: row.get(d) for d in dimensions if d in row}
-                measure_values = {value_key: row.get(value_key)}
+            for row_info in detail_rows:
                 self.session.add(MetricResultRow(
                     result_id=result.id,
                     metric_id=metric_id,
                     period=period,
-                    row_index=idx,
-                    dimension_values=dimension_values,
-                    measure_values=measure_values,
-                    value=row.get(value_key),
+                    row_index=row_info["row_index"],
+                    dimension_values=row_info["dimension_values"],
+                    measure_values=row_info["measure_values"],
+                    value=row_info.get("value"),
                     computed_at=result.computed_at,
                 ))
 
@@ -117,12 +153,290 @@ class MetricComputeService:
             # Z02: 自动血缘边
             from app.warehouse.service import write_lineage_edge
             await write_lineage_edge(self.session, f"metric:{m.metric_code}", f"result:{period}", "metric_compute", metadata={
-                "definition_id": metric_id, "aggregate_id": agg.id, "version": 1, "rule_ids": [],
+                "definition_id": metric_id, "aggregate_id": result_value.get("aggregate_id"), "version": 1, "rule_ids": [],
+                "has_components": bool(components),
             })
+            # 提交事务：结果行 / 运行记录 / 血缘边一并持久化。
+            # 与本项目其他 service 方法一致（如 _delete_metric_chain / generate_dws_view 的元数据写入）；
+            # 也确保调度 handler（handlers.py 调用 compute_metric 后不自行 commit）能正确落库。
+            await self.session.commit()
             return {"run_id": run.id, "metric_id": metric_id, "status": "success", "period": period, "value": result.value, "error_message": None}
         except Exception as exc:
             run.status = "failed"; run.error_message = str(exc)[:1000]; run.finished_at = dt.utcnow()
             return {"run_id": run.id, "metric_id": metric_id, "status": "failed", "period": period, "value": None, "error_message": run.error_message}
+
+    async def _compute_with_components(
+        self, metric_id: int, metric, components: list, period: str
+    ) -> tuple[dict, list[dict]]:
+        """MR0208: 复合指标基于组件的计算路径。
+
+        流程：
+        1. 为每个组件的聚合定义生成 DWS 视图并查询结果
+        2. 按 dimension_values 对齐所有组件的数据行
+        3. 根据组件角色组合计算（如 numerator/denominator → rate）
+        4. 分母为 0 时返回 null + error 标记
+
+        返回 (result_value_dict, detail_rows_list)
+        """
+        from app.warehouse.models import DwsAggregateDefinition
+        from sqlalchemy import text as sa_text
+
+        Q = self._quote_ident
+
+        # 1. 为每个组件加载聚合定义，生成 DWS 视图并查询
+        component_data: dict[int, dict] = {}  # component_id → {rows, dimensions, agg}
+        common_dimensions: list[str] | None = None
+
+        for comp in components:
+            # rate 为派生比率角色（numerator/denominator 自动相除得到），无聚合定义，直接跳过
+            if comp.role == "rate":
+                continue
+            if comp.aggregate_id is None:
+                raise ValueError(f"组件 '{comp.component_code}' 未绑定聚合定义，无法计算")
+
+            agg = await self.session.get(DwsAggregateDefinition, comp.aggregate_id)
+            if agg is None:
+                raise ValueError(f"聚合定义不存在: {comp.aggregate_id}")
+            if agg.status != "published":
+                raise ValueError(f"聚合定义 '{agg.name}' 未发布，当前状态: {agg.status}")
+
+            # 生成 DWS 视图
+            await DwsAggregateService(self.session).generate_dws_view(agg.id)
+            view_name = agg.name
+            rr = await self.session.execute(sa_text(f"SELECT * FROM {Q(view_name)}"))
+            rows = [self._jsonable(dict(row._mapping)) for row in rr.fetchall()]
+            rows = [row for row in rows if self._row_matches_period(row, period)]
+
+            dimensions = list(agg.group_by or [])
+
+            # MR0206: 维度对齐校验（运行时）
+            if common_dimensions is None:
+                common_dimensions = dimensions
+            elif set(common_dimensions) != set(dimensions):
+                raise ValueError(
+                    f"维度对齐失败：组件 '{comp.component_code}' 的维度 ({sorted(dimensions)}) "
+                    f"与首个组件的维度 ({sorted(common_dimensions)}) 不一致"
+                )
+
+            component_data[comp.id] = {
+                "rows": rows,
+                "dimensions": dimensions,
+                "agg": agg,
+                "role": comp.role,
+                "component_code": comp.component_code,
+                "expression": comp.expression,
+            }
+
+        if common_dimensions is None:
+            common_dimensions = []
+        # dimension_code → 视图实际列名(output_code) 映射，用于正确读取视图维度列
+        dim_view_cols: dict = {}
+        if component_data:
+            first_agg = next(iter(component_data.values()))["agg"]
+            dim_view_cols = await self._resolve_dim_view_columns(
+                first_agg.source_dataset_id, common_dimensions
+            )
+
+        # 2. 按 dimension_values 对齐：将每个组件的行构建为 {dimension_key → aggregated_value} 映射
+        def _dim_key(row: dict, dims: list[str]) -> tuple:
+            """将维度值组合为不可变 key，用于跨组件行对齐。
+            按实际视图列名(output_code)读取，避免 group_by 存的是 dimension_code 导致读到 None。
+            """
+            return tuple(row.get(dim_view_cols.get(d, d)) for d in dims)
+
+        aligned_map: dict[tuple, dict[str, float | None]] = {}  # dim_key → {role: value}
+
+        # 收集所有维度 key
+        all_dim_keys: set[tuple] = set()
+        per_component_row_map: dict[int, dict[tuple, dict]] = {}
+
+        for comp in components:
+            if comp.role == "rate":
+                continue
+            cd = component_data[comp.id]
+            row_map: dict[tuple, dict] = {}
+            for row in cd["rows"]:
+                dk = _dim_key(row, common_dimensions)
+                row_map[dk] = row
+                all_dim_keys.add(dk)
+            per_component_row_map[comp.id] = row_map
+
+        # 3. 组合计算：为每个维度组合计算多度量值
+        # 确定 roles 和组合规则
+        roles = [cd["role"] for cd in component_data.values()]
+        has_ratio = "numerator" in roles and "denominator" in roles
+
+        measures = list(roles)
+        if has_ratio:
+            measures.append("rate")
+
+        detail_rows: list[dict] = []
+        sorted_keys = sorted(all_dim_keys, key=lambda k: tuple(str(v) or "" for v in k))
+
+        for idx, dk in enumerate(sorted_keys):
+            measure_values: dict[str, Any] = {}
+            numerator_val: float | None = None
+            denominator_val: float | None = None
+
+            for comp in components:
+                if comp.role == "rate":
+                    continue
+                cd = component_data[comp.id]
+                role = cd["role"]
+                row = per_component_row_map[comp.id].get(dk)
+
+                raw_val = row.get("aggregated_value") if row else None
+
+                # 应用 expression 后处理（如乘以100、四舍五入）
+                if raw_val is not None and cd.get("expression"):
+                    val = self._apply_expression(raw_val, cd["expression"])
+                else:
+                    val = raw_val
+
+                measure_values[role] = val
+
+                if role == "numerator":
+                    numerator_val = val
+                elif role == "denominator":
+                    denominator_val = val
+
+            # MR0209: 比率计算 + 分母为0处理
+            if has_ratio:
+                if denominator_val is not None and denominator_val != 0:
+                    rate_val = numerator_val / denominator_val if numerator_val is not None else None
+                    # 如果有 expression 指定比率后处理（如 *100）
+                    rate_expr = None
+                    for comp in components:
+                        if comp.role == "rate" and comp.expression:
+                            rate_expr = comp.expression
+                    if rate_val is not None and rate_expr:
+                        rate_val = self._apply_expression(rate_val, rate_expr)
+                    measure_values["rate"] = rate_val
+                elif denominator_val == 0:
+                    # 分母为0：rate = null + error 标记
+                    measure_values["rate"] = None
+                    measure_values["_errors"] = {"rate": "denominator_zero"}
+                else:
+                    measure_values["rate"] = None
+
+            # 主值：比率指标取 rate，否则取第一个 role 的值
+            if has_ratio and measure_values.get("rate") is not None:
+                main_value = measure_values["rate"]
+            elif has_ratio and measure_values.get("rate") is None:
+                main_value = None
+            else:
+                first_role = roles[0] if roles else "custom"
+                main_value = measure_values.get(first_role)
+
+            dimension_values = {
+                dim_view_cols.get(code, code): val
+                for code, val in zip(common_dimensions, dk)
+            }
+            detail_rows.append({
+                "row_index": idx,
+                "dimension_values": dimension_values,
+                "measure_values": measure_values,
+                "value": main_value,
+            })
+
+        # 4. 构建结果摘要
+        summary_row = detail_rows[0] if len(detail_rows) == 1 else None
+        result_value = {
+            "metric_code": metric.metric_code,
+            "components": [
+                {
+                    "component_code": comp.component_code,
+                    "role": comp.role,
+                    "aggregate_id": comp.aggregate_id,
+                }
+                for comp in components
+            ],
+            "row_count": len(detail_rows),
+            "dimensions": common_dimensions,
+            "measures": measures,
+            "summary_value": summary_row.get("value") if summary_row else None,
+            "combination_rule": "numerator / denominator" if has_ratio else "custom",
+        }
+
+        # 如果存在分母为0的行，在结果摘要中标记
+        denominator_zero_rows = [
+            r for r in detail_rows
+            if r.get("measure_values", {}).get("_errors", {}).get("rate") == "denominator_zero"
+        ]
+        if denominator_zero_rows:
+            result_value["warnings"] = {
+                "denominator_zero_count": len(denominator_zero_rows),
+                "denominator_zero_dimension_values": [
+                    r["dimension_values"] for r in denominator_zero_rows
+                ],
+            }
+
+        return result_value, detail_rows
+
+    @staticmethod
+    def _apply_expression(value: float, expression: str) -> float:
+        """MR0209: 应用组件后表达式（如乘以100、四舍五入等）。
+
+        支持的简单表达式：
+        - *100 / *100.0 → 值乘以系数
+        - ROUND → 四舍五入到2位
+        - ROUND(n) → 四舍五入到n位
+        """
+        import math
+
+        if expression is None:
+            return value
+        expr = expression.strip()
+        if not expr:
+            return value
+
+        # *N 模式：乘以系数
+        mul_match = re.match(r'^\*(\d+(?:\.\d+)?)$', expr)
+        if mul_match:
+            return value * float(mul_match.group(1))
+
+        # ROUND / ROUND(n) 模式
+        round_match = re.match(r'^ROUND(?:\((\d+)\))?$', expr, re.IGNORECASE)
+        if round_match:
+            n = int(round_match.group(1) or 2)
+            return round(value, n)
+
+        # 未知表达式：直接返回原值（不中断计算）
+        return value
+
+    async def _resolve_dim_view_columns(self, dataset_id: int, dimension_codes: list[str]) -> dict:
+        """dimension_code → DWS 视图中实际列名(output_code) 的映射。
+
+        generate_dws_view 生成的视图维度列名 = DatasetOutputField.output_code
+        （回退 bound_field / dimension_code）。而聚合定义的 group_by 存的是
+        dimension_code。compute 端若直接按 dimension_code 读取视图列会读到 None，
+        导致维度对齐 key 全部为 None、结果行维度值丢失。此处复刻 generate_dws_view
+        的列命名逻辑，把 dimension_code 翻译成视图里真正存在的列名。
+        """
+        if not dimension_codes:
+            return {}
+        from app.warehouse.models import Dimension
+        from app.datasets.models import DatasetOutputField
+        dims = (await self.session.execute(
+            select(Dimension).where(Dimension.dimension_code.in_(dimension_codes))
+        )).scalars().all()
+        dim_map = {d.dimension_code: d for d in dims}
+        out_fields = (await self.session.execute(
+            select(DatasetOutputField).where(DatasetOutputField.dataset_id == dataset_id)
+        )).scalars().all()
+        by_oc = {f.output_code: f for f in out_fields}
+        by_sc = {f.source_column: f for f in out_fields}
+        result: dict = {}
+        for code in dimension_codes:
+            d = dim_map.get(code)
+            bound = d.bound_field if d else None
+            oc = None
+            if bound:
+                f = by_oc.get(bound) or by_sc.get(bound)
+                if f:
+                    oc = f.output_code
+            result[code] = oc or bound or code
+        return result
 
     async def recalc_metric(self, metric_id: int, period: str, user_id=None):
         from app.warehouse.models import MetricResult

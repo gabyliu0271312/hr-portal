@@ -748,3 +748,53 @@ class L4CascadeRule(Base):
     notify_on_fail = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==================== metric_components (MR0201) ====================
+
+class MetricComponent(Base):
+    """复合指标组件定义
+
+    MR0201: 支持离职率、人均成本等复合指标的分子/分母组件配置。
+    每个组件引用一个 DWS 聚合定义，通过 role 标记其在复合计算中的角色。
+    """
+
+    __tablename__ = "metric_components"
+    __table_args__ = (
+        UniqueConstraint("metric_id", "component_code", name="uq_metric_components_metric_code"),
+        Index("ix_metric_components_metric_id", "metric_id"),
+        Index("ix_metric_components_aggregate_id", "aggregate_id"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    metric_id = Column(
+        BigInteger, ForeignKey("warehouse_metrics.id", ondelete="CASCADE"),
+        nullable=False, comment="关联复合指标 warehouse_metrics.id",
+    )
+    component_code = Column(
+        String(64), nullable=False,
+        comment="组件编码，同一指标下唯一，自动生成规则: {metric_code}_{role}",
+    )
+    component_name = Column(
+        String(128), nullable=False,
+        comment="组件名称，如'离职率·分子'，自动拼接: 指标名称 + ·角色",
+    )
+    aggregate_id = Column(
+        BigInteger, ForeignKey("dws_aggregate_definitions.id", ondelete="SET NULL"),
+        nullable=True, comment="关联 DWS 聚合定义 ID",
+    )
+    role = Column(
+        String(32), nullable=False,
+        comment="组件角色: numerator/denominator/base/compare/custom",
+    )
+    expression = Column(
+        String(512), nullable=True,
+        comment="可选，组件后表达式（如乘以100、四舍五入等）",
+    )
+    display_order = Column(Integer, nullable=False, default=0, comment="排序")
+    is_auto_created = Column(
+        Boolean, nullable=False, default=False,
+        comment="是否由系统公式拆解自动创建（vs 用户引用已有聚合）",
+    )
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

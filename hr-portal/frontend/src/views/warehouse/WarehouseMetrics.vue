@@ -6,11 +6,22 @@ import { Plus, Search, Refresh, Edit, Finished, FolderDelete, TrendCharts, Video
 import {
   listMetrics, createMetric, updateMetric, getMetric, publishMetric, archiveMetric,
   computeMetric, recalcMetric, listMetricResults, listMetricRuns, listModels,
-  METRIC_RUN_STATUS_LABELS,
+  listDwsAggregates, getMetricExplain, METRIC_RUN_STATUS_LABELS,
   type MetricListItem, type MetricDetail, type MetricCreatePayload, type MetricUpdatePayload,
-  type MetricResult, type MetricRun,
+  type MetricResult, type MetricRun, type DwsAggregate,
+  type MetricExplainContext,
+} from '@/api/warehouse'
+import {
+  decomposeFormula, batchSaveMetricComponents, listMetricComponents,
+  COMPONENT_ROLE_LABELS,
+  type ComponentRole, type MetricComponentItem, type FormulaDecomposeResult,
+  type MetricComponentBatchPayload,
 } from '@/api/warehouse'
 import { translateFormula } from '@/api/warehouse'
+import {
+  getMetricLineage, getMetricDownstreamRefs, getMetricResultDetail, recordExportAudit, recordAiExplainAudit,
+  type LineageGraph, type DownstreamRefsResult, type MetricResultDetail,
+} from '@/api/warehouse'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField } from '@/api/datasets'
 import MetricAutomationPanel from '@/components/warehouse/MetricAutomationPanel.vue'
@@ -43,6 +54,22 @@ const runsLoading = ref(false)
 const computePeriod = ref('')
 const computing = ref(false)
 
+// MR0301: 指标解释上下文
+const explainContext = ref<MetricExplainContext | null>(null)
+const explainLoading = ref(false)
+
+// MR0303: 指标血缘图
+const lineageGraph = ref<LineageGraph | null>(null)
+const lineageLoading = ref(false)
+
+// MR0304: 下游引用列表
+const downstreamRefs = ref<DownstreamRefsResult | null>(null)
+const downstreamRefsLoading = ref(false)
+
+// MR0306: 结果明细权限态
+const resultDetail = ref<MetricResultDetail | null>(null)
+const resultDetailLoading = ref(false)
+
 async function load() {
   loading.value = true
   try {
@@ -59,6 +86,7 @@ async function load() {
 async function openDetail(id: number) {
   clearPollTimer()
   lastComputeStatus.value = null; lastComputeError.value = null; computedResult.value = null
+  lineageGraph.value = null; downstreamRefs.value = null; resultDetail.value = null
   detailMetricId.value = id
   detailVisible.value = true
   try {
@@ -66,6 +94,58 @@ async function openDetail(id: number) {
   } catch { ElMessage.error('加载指标详情失败'); return }
   loadResults()
   loadRuns()
+  loadExplainContext(id)
+  loadLineage(id)
+  loadDownstreamRefs(id)
+}
+
+async function loadExplainContext(id: number, period?: string) {
+  explainLoading.value = true
+  try {
+    explainContext.value = await getMetricExplain(id, period)
+  } catch { explainContext.value = null }
+  finally { explainLoading.value = false }
+}
+
+async function loadLineage(id: number) {
+  lineageLoading.value = true
+  try {
+    lineageGraph.value = await getMetricLineage(id)
+  } catch { lineageGraph.value = null }
+  finally { lineageLoading.value = false }
+}
+
+async function loadDownstreamRefs(id: number) {
+  downstreamRefsLoading.value = true
+  try {
+    downstreamRefs.value = await getMetricDownstreamRefs(id)
+  } catch { downstreamRefs.value = null }
+  finally { downstreamRefsLoading.value = false }
+}
+
+async function loadResultDetail(metricId: number, resultId: number, period: string) {
+  resultDetailLoading.value = true
+  try {
+    resultDetail.value = await getMetricResultDetail(metricId, resultId, period)
+    if (resultDetail.value?.permission_level === 'summary_only') {
+      ElMessage.warning('您没有数据明细权限，仅可查看汇总值')
+    }
+  } catch { resultDetail.value = null }
+  finally { resultDetailLoading.value = false }
+}
+
+async function handleExportAudit() {
+  if (!detailMetricId.value || !computedResult.value) return
+  try {
+    await recordExportAudit(detailMetricId.value, computedResult.value.id)
+  } catch { /* 审计记录失败不阻塞用户 */ }
+}
+
+async function handleAiExplainAudit() {
+  if (!detailMetricId.value || !computePeriod.value) return
+  try {
+    await recordAiExplainAudit(detailMetricId.value, computePeriod.value)
+  } catch { /* 审计记录失败不阻塞用户 */ }
 }
 
 async function loadResults() {
@@ -89,7 +169,7 @@ async function loadRuns() {
 }
 
 // 计算状态增强
-const lastComputeStatus = ref<string | null>(null)  // pending | running | success | failed
+const lastComputeStatus = ref<string | null>(null)
 const lastComputeError = ref<string | null>(null)
 const computedResult = ref<any>(null)
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -98,7 +178,6 @@ function clearPollTimer() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
 }
 
-// 轮询运行记录状态
 async function pollRunStatus(runId: number, period: string) {
   clearPollTimer()
   pollTimer = setInterval(async () => {
@@ -113,6 +192,7 @@ async function pollRunStatus(runId: number, period: string) {
           ElMessage.success('计算完成')
           await loadResults()
           computedResult.value = (await listMetricResults(detailMetricId.value!)).items?.find((r: any) => r.period === period) || null
+          loadExplainContext(detailMetricId.value!, period)
         } else {
           lastComputeError.value = run.error_message || '计算失败'
           ElMessage.error(lastComputeError.value || '计算失败')
@@ -121,7 +201,6 @@ async function pollRunStatus(runId: number, period: string) {
       }
     } catch { /* ignore poll errors */ }
   }, 2000)
-  // 30秒超时
   setTimeout(() => { if (pollTimer) { clearPollTimer(); computing.value = false; ElMessage.warning('计算超时，请手动刷新查看结果') } }, 30000)
 }
 
@@ -137,7 +216,6 @@ async function doCompute() {
   try {
     const res = await computeMetric(detailMetricId.value, computePeriod.value)
     if (res.run_id) {
-      // 有 run_id → 开始轮询
       lastComputeStatus.value = 'running'
       await loadRuns()
       pollRunStatus(res.run_id, computePeriod.value)
@@ -146,6 +224,12 @@ async function doCompute() {
       computing.value = false
       ElMessage.success('计算完成')
       loadResults(); loadRuns()
+      if (detailMetricId.value) {
+        loadExplainContext(detailMetricId.value, computePeriod.value)
+        loadLineage(detailMetricId.value)
+        loadDownstreamRefs(detailMetricId.value)
+      }
+      handleAiExplainAudit()
     } else {
       lastComputeStatus.value = 'failed'
       lastComputeError.value = res.error_message || '计算失败'
@@ -209,6 +293,23 @@ function metricResultNumber(result: any): number {
   return typeof summary === 'number' ? summary : 0
 }
 
+// MR0303 辅助：从血缘图中获取节点标签
+function getNodeLabel(nodeId: string): string {
+  if (!lineageGraph.value) return nodeId
+  const node = lineageGraph.value.nodes.find(n => n.id === nodeId)
+  return node?.label ?? nodeId
+}
+
+// MR0304 辅助：下游引用类型中文
+function downstreamTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    dataset: '数据集', report: '报表', metric: '指标', result: '结果集',
+    dws: 'DWS聚合', datasource: '数据源', ucp_resource: 'UCP资源', table: '数据表',
+    unknown: '其他',
+  }
+  return map[type] ?? type
+}
+
 const trendData = computed(() => {
   return [...results.value].reverse().map(r => ({
     period: r.period,
@@ -235,6 +336,176 @@ const loadingDatasets = ref(false)
 const formulaEditorFields = ref<ColumnInfo[]>([])
 const formulaEditorKey = ref(0)
 const editorTitle = computed(() => dialogMode.value === 'create' ? '新建指标' : '编辑指标')
+
+// ========== MR0210-MR0212: 组件模式状态 ==========
+
+/** 组件模式：'formula' = 公式模式, 'component' = 组件模式 */
+const editMode = ref<'formula' | 'component'>('formula')
+
+/** 比率公式检测结果（自动弹出提示的前提条件） */
+const ratioFormulaDetected = ref(false)
+const decomposeResult = ref<FormulaDecomposeResult | null>(null)
+const decomposing = ref(false)
+
+/** 组件配置数据 */
+const componentRows = ref<Array<{
+  role: ComponentRole
+  component_code: string
+  component_name: string
+  expression: string
+  aggregate_id: number | null
+  new_aggregate_index: number | null  // 指向 newAggregates 数组的索引
+  is_auto_created: boolean
+  display_order: number
+}>>([])
+
+/** 自动创建的聚合定义数据 */
+const newAggregates = ref<Array<{
+  source_dataset_id: number
+  name: string
+  label: string
+  group_by: string[]
+  aggregation: string
+  measure_field?: string
+  filter?: Record<string, any> | null
+  time_grain?: string | null
+  business_definition?: string | null
+  is_auto_created: boolean
+}>>([])
+
+/** 组合规则 */
+const combinationRule = ref<string>('numerator / denominator')
+
+/** 维度推断结果 */
+const inferredDimensions = ref<string[]>([])
+
+/** 已发布聚合定义列表（用于引用已有聚合） */
+const publishedAggregates = ref<DwsAggregate[]>([])
+const loadingAggregates = ref(false)
+
+/** 已有组件列表（编辑模式下加载） */
+const existingComponents = ref<MetricComponentItem[]>([])
+
+// 比率公式检测（MR0210）
+function isRatioFormula(formula: string): boolean {
+  if (!formula) return false
+  const f = formula.toUpperCase()
+  // 检测 / 运算符 + 聚合函数 → 比率
+  return f.includes('/') && (f.includes('COUNT(') || f.includes('COUNTIF(') || f.includes('SUM(') || f.includes('AVG(') || f.includes('COUNT_DISTINCT('))
+}
+
+// 公式变化时检测比率公式 + 推导类型
+watch(() => form.value.formula_expr, (val) => {
+  if (val) {
+    form.value.metric_type = deriveMetricType(val) as any
+    ratioFormulaDetected.value = isRatioFormula(val) && editMode.value === 'formula'
+  } else {
+    ratioFormulaDetected.value = false
+    decomposeResult.value = null
+  }
+})
+
+// 切换到组件模式时清除比率提示
+watch(editMode, (mode) => {
+  if (mode === 'component') {
+    ratioFormulaDetected.value = false
+  } else {
+    // 回退到公式模式时清除组件数据
+    componentRows.value = []
+    newAggregates.value = []
+    decomposeResult.value = null
+  }
+})
+
+// 一键拆解公式 → 组件配置
+async function switchToComponentMode() {
+  const dsId = form.value.related_dataset_id
+  const formula = form.value.formula_expr
+  if (!formula || !dsId) {
+    ElMessage.warning('请先填写公式并选择数据集')
+    return
+  }
+  decomposing.value = true
+  try {
+    const result = await decomposeFormula(formula, dsId)
+    decomposeResult.value = result
+    if (!result.is_ratio || result.components.length === 0) {
+      ElMessage.info('该公式未检测到比率结构，继续使用公式模式')
+      return
+    }
+    // 填入组件配置
+    editMode.value = 'component'
+    combinationRule.value = result.combination_rule || 'numerator / denominator'
+    inferredDimensions.value = result.dimensions || []
+
+    // 生成自动聚合定义 + 组件行
+    newAggregates.value = result.components.map((c, i) => ({
+      source_dataset_id: dsId,
+      name: `dws_${form.value.metric_code || 'new_metric'}_${c.role}`,
+      label: `${form.value.metric_name || '新指标'}·${COMPONENT_ROLE_LABELS[c.role]}`,
+      group_by: result.dimensions || [],
+      aggregation: c.suggested_aggregation,
+      measure_field: c.expression,
+      is_auto_created: true,
+    }))
+
+    componentRows.value = result.components.map((c, i) => ({
+      role: c.role,
+      component_code: c.suggested_code || `${form.value.metric_code || 'new_metric'}_${c.role}`,
+      component_name: c.suggested_name || `${form.value.metric_name || '新指标'}·${COMPONENT_ROLE_LABELS[c.role]}`,
+      expression: c.expression,
+      aggregate_id: null,      // 新建的，暂无 ID
+      new_aggregate_index: i,  // 指向 newAggregates[i]
+      is_auto_created: true,
+      display_order: i,
+    }))
+
+    // 加载已发布聚合定义供引用
+    await loadPublishedAggregates()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '公式拆解失败')
+  } finally {
+    decomposing.value = false
+  }
+}
+
+// 加载已发布聚合定义列表
+async function loadPublishedAggregates() {
+  loadingAggregates.value = true
+  try {
+    const res = await listDwsAggregates({ status: 'published', page_size: 200 })
+    publishedAggregates.value = res.items || []
+  } catch { publishedAggregates.value = [] }
+  finally { loadingAggregates.value = false }
+}
+
+// 判断已有聚合的维度是否与当前推断维度匹配
+function isDimensionMatch(agg: DwsAggregate): boolean {
+  if (!inferredDimensions.value.length) return true
+  const aggDims = (agg.group_by || []).map(d => d.toLowerCase().replace(/\s/g, ''))
+  const inferred = inferredDimensions.value.map(d => d.toLowerCase().replace(/\s/g, ''))
+  return inferred.every(d => aggDims.includes(d))
+}
+
+// 组件行引用已有聚合 → 设置 aggregate_id, 清除 new_aggregate_index
+function setExistingAggregate(rowIdx: number, aggId: number | null) {
+  const row = componentRows.value[rowIdx]
+  if (aggId) {
+    row.aggregate_id = aggId
+    row.new_aggregate_index = null
+    row.is_auto_created = false
+    // 从聚合定义中获取名称
+    const agg = publishedAggregates.value.find(a => a.id === aggId)
+    if (agg) {
+      row.component_name = `${form.value.metric_name || '新指标'}·${COMPONENT_ROLE_LABELS[row.role]}`
+    }
+  } else {
+    // 取消引用 → 回到自动创建模式
+    row.aggregate_id = null
+    row.new_aggregate_index = rowIdx
+    row.is_auto_created = true
+  }
+}
 
 async function loadFormulaEditorFields() {
   const dsId = form.value.related_dataset_id
@@ -270,6 +541,11 @@ function openCreate() {
   dialogMode.value = 'create'; editId.value = null
   form.value = { metric_code: '', metric_name: '', metric_type: 'derived', subject_area: '', business_definition: '', calculation_desc: '', formula_expr: '', formula_sql: '', stat_period: '', related_dataset_id: undefined, owner_name: '' }
   formulaEditorFields.value = []
+  editMode.value = 'formula'
+  ratioFormulaDetected.value = false
+  decomposeResult.value = null
+  componentRows.value = []
+  newAggregates.value = []
   formulaEditorKey.value++
   dialogVisible.value = true
 }
@@ -287,23 +563,84 @@ async function openEdit(id: number) {
       owner_name: m.owner_name || '',
     }
     if (m.related_dataset_id) { await loadFormulaEditorFields() }
+
+    // 加载已有组件
+    try {
+      const comps = await listMetricComponents(id)
+      existingComponents.value = comps
+      if (comps.length > 0) {
+        editMode.value = 'component'
+        componentRows.value = comps.map(c => ({
+          role: c.role as ComponentRole,
+          component_code: c.component_code,
+          component_name: c.component_name,
+          expression: c.expression || '',
+          aggregate_id: c.aggregate_id,
+          new_aggregate_index: null,
+          is_auto_created: c.is_auto_created,
+          display_order: c.display_order,
+        }))
+        inferredDimensions.value = comps[0].aggregate_group_by || []
+        await loadPublishedAggregates()
+      } else {
+        editMode.value = 'formula'
+        ratioFormulaDetected.value = isRatioFormula(form.value.formula_expr || '')
+      }
+    } catch { /* 组件加载失败不影响编辑 */ }
+
     formulaEditorKey.value++
     dialogVisible.value = true
   } catch { ElMessage.error('加载指标详情失败') }
 }
 
+// 保存指标 + 组件
 async function save() {
   saving.value = true
   try {
     const { formula_sql, ...payload } = form.value
+
+    // 组件模式需要先保存/更新指标获取 ID，再批量保存组件
+    let savedMetricId: number
+
     if (dialogMode.value === 'create') {
-      await createMetric(payload as MetricCreatePayload)
+      const created = await createMetric(payload as MetricCreatePayload)
+      savedMetricId = created.id
       ElMessage.success('指标已创建')
     } else {
       const { metric_code, ...updatePayload } = payload
       await updateMetric(editId.value!, updatePayload as MetricUpdatePayload)
+      savedMetricId = editId.value!
       ElMessage.success('指标已更新')
     }
+
+    // 如果是组件模式 → 批量保存组件（MR0213）
+    if (editMode.value === 'component' && componentRows.value.length > 0) {
+      try {
+        const batchPayload: MetricComponentBatchPayload = {
+          new_aggregates: newAggregates.value.map(a => ({
+            ...a,
+            // 用实际 metric_code 替换占位符
+            name: a.name.replace('new_metric', form.value.metric_code || 'metric'),
+            label: a.label.replace('新指标', form.value.metric_name || '指标'),
+          })),
+          components: componentRows.value.map(c => ({
+            component_code: c.component_code.replace('new_metric', form.value.metric_code || 'metric'),
+            component_name: c.component_name.replace('新指标', form.value.metric_name || '指标'),
+            aggregate_id: c.aggregate_id,
+            new_aggregate_index: c.new_aggregate_index,
+            role: c.role,
+            expression: c.expression || null,
+            display_order: c.display_order,
+            is_auto_created: c.is_auto_created,
+          })),
+        }
+        await batchSaveMetricComponents(savedMetricId, batchPayload)
+        ElMessage.success('组件配置已保存')
+      } catch (e: any) {
+        ElMessage.warning(`组件保存失败: ${e?.response?.data?.detail || e.message || '未知错误'}`)
+      }
+    }
+
     dialogVisible.value = false; load()
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') }
   finally { saving.value = false }
@@ -324,11 +661,6 @@ function deriveMetricType(formula: string): string {
   if (!f.match(/SUM|COUNT|AVG|MAX|MIN|ROUND|IF/)) return 'text'
   return 'derived'
 }
-
-// 公式变化时自动推导类型（不覆盖用户已有类型，除非用户改了公式）
-watch(() => form.value.formula_expr, (val) => {
-  if (val) form.value.metric_type = deriveMetricType(val) as any
-})
 
 // 公式/数据集变化时实时翻译为 SQL 预览
 let translateTimer: ReturnType<typeof setTimeout> | null = null
@@ -422,7 +754,7 @@ onMounted(load)
       </div>
     </el-card>
 
-    <!-- 指标详情抽屉（R0303：趋势 + 计算 + 运行记录） -->
+    <!-- 指标详情抽屉 -->
     <el-drawer v-model="detailVisible" title="指标计算结果" size="650px" :close-on-click-modal="false">
       <template v-if="detailMetric">
         <el-descriptions :column="2" size="small" border style="margin-bottom: 16px">
@@ -432,6 +764,118 @@ onMounted(load)
           <el-descriptions-item label="状态"><el-tag size="small" :type="STATUS_TAG[detailMetric.status]||'info'">{{ STATUS_LABELS[detailMetric.status]||detailMetric.status }}</el-tag></el-descriptions-item>
           <el-descriptions-item v-if="detailMetric.formula_expr" label="公式" :span="2">{{ detailMetric.formula_expr }}</el-descriptions-item>
         </el-descriptions>
+
+        <!-- ========== MR0301: 指标解释卡片 ========== -->
+        <el-card v-if="explainContext && explainContext.components.length > 0" shadow="never" size="small" style="margin-bottom: 16px">
+          <template #header>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-weight:600">指标解释</span>
+              <span v-if="explainContext.metric_version" style="font-size:11px;color:#909399">口径版本 v{{ explainContext.metric_version }}</span>
+            </div>
+          </template>
+
+          <!-- 组合规则 -->
+          <div v-if="explainContext.combination_rule" style="margin-bottom:12px;padding:8px 12px;background:#f0f9eb;border-radius:4px;font-size:13px">
+            <span style="font-weight:600;color:#67C23A">{{ explainContext.combination_rule }}</span>
+            <span style="color:#909399;margin-left:4px">= {{ explainContext.metric_name }}</span>
+          </div>
+
+          <!-- 组件明细 -->
+          <el-table :data="explainContext.components" size="small" border style="margin-bottom:8px">
+            <el-table-column prop="role" label="角色" width="70">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.role === 'numerator' ? 'danger' : row.role === 'denominator' ? 'warning' : 'info'">
+                  {{ COMPONENT_ROLE_LABELS[row.role as ComponentRole] || row.role }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="component_name" label="组件名称" min-width="100" />
+            <el-table-column prop="aggregate_label" label="聚合定义" min-width="100">
+              <template #default="{ row }">
+                <span>{{ row.aggregate_label || row.aggregate_name || '-' }}</span>
+                <el-tag v-if="row.is_auto_created" size="small" type="info" style="margin-left:4px">自动</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="expression" label="表达式" min-width="80" show-overflow-tooltip />
+          </el-table>
+
+          <!-- 业务定义 + 口径说明 -->
+          <div v-if="explainContext.business_definition || explainContext.calculation_desc" style="margin-top:8px">
+            <p v-if="explainContext.business_definition" style="font-size:12px;color:#606266;margin:4px 0">
+              <span style="font-weight:600">业务定义：</span>{{ explainContext.business_definition }}
+            </p>
+            <p v-if="explainContext.calculation_desc" style="font-size:12px;color:#606266;margin:4px 0">
+              <span style="font-weight:600">口径说明：</span>{{ explainContext.calculation_desc }}
+            </p>
+          </div>
+
+          <!-- MR0302: 计算时间 -->
+          <div v-if="explainContext.computed_at" style="margin-top:8px;font-size:11px;color:#909399">
+            计算时间：{{ explainContext.computed_at.substring(0, 19) }}
+          </div>
+        </el-card>
+
+        <!-- 非复合指标提示（无组件） -->
+        <el-card v-if="explainContext && explainContext.components.length === 0 && explainContext.formula_expr" shadow="never" size="small" style="margin-bottom: 16px">
+          <template #header><span style="font-weight:600">指标口径</span></template>
+          <div style="font-size:13px;color:#606266;line-height:1.6">
+            <p><span style="font-weight:600">公式：</span>{{ explainContext.formula_expr }}</p>
+            <p v-if="explainContext.business_definition"><span style="font-weight:600">业务定义：</span>{{ explainContext.business_definition }}</p>
+            <p v-if="explainContext.calculation_desc"><span style="font-weight:600">口径说明：</span>{{ explainContext.calculation_desc }}</p>
+            <p v-if="explainContext.metric_version" style="font-size:11px;color:#909399;margin-top:6px">
+              口径版本 v{{ explainContext.metric_version }}
+              <span v-if="explainContext.computed_at"> · 计算时间 {{ explainContext.computed_at.substring(0, 19) }}</span>
+            </p>
+          </div>
+        </el-card>
+
+        <!-- ========== MR0303: 指标血缘图 ========== -->
+        <el-card v-if="lineageGraph" shadow="never" size="small" style="margin-bottom: 16px">
+          <template #header><span style="font-weight: 600">数据血缘 (DWD → DWS → Result)</span></template>
+          <div style="max-height: 240px; overflow-y: auto">
+            <div v-for="edge in lineageGraph.edges" :key="edge.source_id + edge.target_id"
+              style="margin-bottom: 6px; display: flex; align-items: center; gap: 6px; font-size: 13px">
+              <el-tag size="small" :type="edge.direction === 'upstream' ? 'info' : 'success'">
+                {{ edge.direction === 'upstream' ? '↑ 上游' : '↓ 下游' }}
+              </el-tag>
+              <span style="color: #606266">{{ getNodeLabel(edge.source_id) }}</span>
+              <span style="color: #909399">→</span>
+              <span style="color: #303133">{{ getNodeLabel(edge.target_id) }}</span>
+              <el-tag v-if="edge.label" size="small" type="warning">{{ edge.label }}</el-tag>
+            </div>
+            <el-alert v-if="lineageGraph.truncated" type="warning" :closable="false" style="margin-top: 8px">
+              {{ lineageGraph.truncation_message }}
+            </el-alert>
+          </div>
+        </el-card>
+        <div v-else-if="lineageLoading" style="text-align: center; margin-bottom: 16px">
+          <el-icon class="is-loading"><Loading /></el-icon> 加载血缘图...
+        </div>
+
+        <!-- ========== MR0304: 下游引用列表 ========== -->
+        <el-card v-if="downstreamRefs" shadow="never" size="small" style="margin-bottom: 16px">
+          <template #header><span style="font-weight: 600">下游引用</span></template>
+          <el-table :data="downstreamRefs.refs" size="small" stripe style="width: 100%"
+            :max-height="200" empty-text="暂无下游引用">
+            <el-table-column prop="type" label="类型" width="80">
+              <template #default="{ row }">
+                <el-tag size="small">{{ downstreamTypeLabel(row.type) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="usage" label="引用方式" min-width="100" show-overflow-tooltip />
+            <el-table-column prop="risk_level" label="风险" width="60" align="center">
+              <template #default="{ row }">
+                <el-tag v-if="row.risk_level === 'high'" type="danger" size="small">高</el-tag>
+                <el-tag v-else-if="row.risk_level === 'medium'" type="warning" size="small">中</el-tag>
+                <el-tag v-else type="info" size="small">低</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+        <div v-else-if="downstreamRefsLoading" style="text-align: center; margin-bottom: 16px">
+          <el-icon class="is-loading"><Loading /></el-icon> 加载下游引用...
+        </div>
 
         <!-- 计算操作区 -->
         <el-card shadow="never" size="small" style="margin-bottom: 16px">
@@ -451,7 +895,6 @@ onMounted(load)
                 :loading="computing" :disabled="computing" @click="doRecalc">重算</el-button>
             </el-form-item>
           </el-form>
-          <!-- 计算状态提示 -->
           <div v-if="lastComputeStatus" style="margin-top:6px">
             <el-alert v-if="lastComputeStatus === 'running'" type="info" :closable="false"
               title="计算执行中，运行记录区将自动更新..." show-icon />
@@ -524,7 +967,7 @@ onMounted(load)
           </el-table>
         </el-card>
 
-        <!-- 自动化数仓开发面板（X05） -->
+        <!-- 自动化数仓开发面板 -->
         <MetricAutomationPanel
           v-if="detailMetric"
           :metric-id="detailMetric.id"
@@ -582,15 +1025,139 @@ onMounted(load)
                   <el-tag size="small" type="info" style="margin-left:8px">{{ ds.layer }}</el-tag>
                 </el-option>
               </el-select>
-              <span style="font-size:11px;color:#909399">DWS 生成时自动派生 year/quarter/month，BI 端支持自然下钻</span>
+              <span style="font-size:11px;color:#909399">DWS 生成时自动派生 year/quarter/month</span>
             </el-form-item>
+
+            <!-- ========== MR0210: 比率公式检测提示 ========== -->
+            <el-form-item v-if="ratioFormulaDetected && editMode === 'formula' && form.related_dataset_id" label="">
+              <el-alert type="warning" :closable="false" show-icon style="width: 100%">
+                <template #title>
+                  <span style="font-weight:600">检测到比率公式</span>
+                </template>
+                <template #default>
+                  <div style="font-size:12px;line-height:1.6">
+                    <p style="margin:4px 0">当前公式包含除法运算，建议拆解为组件模式，以便：</p>
+                    <ul style="margin:2px 0;padding-left:18px">
+                      <li>保留分子/分母独立值（如离职5人/总120人=4.17%）</li>
+                      <li>支持结果解释与溯源</li>
+                      <li>分母为0时返回明确提示而非报错</li>
+                    </ul>
+                  </div>
+                  <div style="margin-top:8px;display:flex;gap:8px">
+                    <el-button size="small" @click="ratioFormulaDetected = false">保持公式模式</el-button>
+                    <el-button size="small" type="primary" :loading="decomposing" @click="switchToComponentMode">
+                      切换到组件模式
+                    </el-button>
+                  </div>
+                </template>
+              </el-alert>
+            </el-form-item>
+
+            <!-- ========== MR0210: 模式切换按钮（手动切换） ========== -->
+            <el-form-item v-if="form.related_dataset_id && form.formula_expr" label="计算模式">
+              <el-radio-group v-model="editMode" size="small">
+                <el-radio-button value="formula">公式模式</el-radio-button>
+                <el-radio-button value="component" :disabled="!isRatioFormula(form.formula_expr)">组件模式</el-radio-button>
+              </el-radio-group>
+              <span style="font-size:11px;color:#909399;margin-left:6px">
+                {{ editMode === 'formula' ? '公式直接计算，结果为单值' : '拆解分子/分母，结果含多度量值' }}
+              </span>
+            </el-form-item>
+
+            <!-- ========== MR0211-MR0212: 组件配置区 ========== -->
+            <div v-if="editMode === 'component'" style="margin-top:12px;border:1px solid #e4e7ed;border-radius:6px;padding:12px;background:#fafafa">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <span style="font-weight:600;font-size:13px;color:#303133">组件配置</span>
+                <el-button size="small" type="primary" :loading="decomposing" @click="switchToComponentMode">
+                  重新拆解公式
+                </el-button>
+              </div>
+
+              <!-- 组件角色表格 -->
+              <el-table :data="componentRows" size="small" border style="width:100%;margin-bottom:12px">
+                <el-table-column prop="role" label="角色" width="70">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="row.role === 'numerator' ? 'danger' : row.role === 'denominator' ? 'warning' : 'info'">
+                      {{ COMPONENT_ROLE_LABELS[row.role as ComponentRole] || row.role }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="component_name" label="组件名称" min-width="100">
+                  <template #default="{ row }">
+                    <el-input v-model="row.component_name" size="small" />
+                  </template>
+                </el-table-column>
+                <el-table-column prop="expression" label="表达式" min-width="120">
+                  <template #default="{ row }">
+                    <span style="font-size:11px;font-family:monospace;color:#606266">{{ row.expression }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="聚合定义" min-width="180">
+                  <template #default="{ row, $index }">
+                    <!-- 引用已有聚合 -->
+                    <div v-if="row.aggregate_id" style="display:flex;align-items:center;gap:4px">
+                      <el-tag size="small" type="success">{{ publishedAggregates.find(a => a.id === row.aggregate_id)?.name || `#${row.aggregate_id}` }}</el-tag>
+                      <el-button size="small" text type="danger" @click="setExistingAggregate($index, null)">取消引用</el-button>
+                    </div>
+                    <!-- 自动创建 -->
+                    <div v-else-if="row.new_aggregate_index !== null" style="display:flex;align-items:center;gap:4px">
+                      <el-tag size="small" type="info">自动创建</el-tag>
+                      <span style="font-size:11px;color:#909399">{{ newAggregates[row.new_aggregate_index]?.name }}</span>
+                    </div>
+                    <!-- 无聚合（异常态） -->
+                    <span v-else style="font-size:11px;color:#F56C6C">未配置</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="引用已有聚合" width="140">
+                  <template #default="{ row, $index }">
+                    <el-select
+                      v-model="row.aggregate_id"
+                      size="small"
+                      clearable
+                      filterable
+                      placeholder="引用已有聚合"
+                      :loading="loadingAggregates"
+                      @change="(val: any) => setExistingAggregate($index, val || null)"
+                      style="width:100%"
+                    >
+                      <el-option
+                        v-for="agg in publishedAggregates"
+                        :key="agg.id"
+                        :label="agg.name"
+                        :value="agg.id"
+                      >
+                        <span>{{ agg.name }}</span>
+                        <el-tag size="small" :type="isDimensionMatch(agg) ? 'success' : 'danger'" style="margin-left:6px">
+                          {{ isDimensionMatch(agg) ? '维度匹配' : '维度不匹配' }}
+                        </el-tag>
+                      </el-option>
+                    </el-select>
+                  </template>
+                </el-table-column>
+              </el-table>
+
+              <!-- 组合规则 + 维度推断 -->
+              <el-form label-position="left" label-width="80px" size="small">
+                <el-form-item label="组合规则">
+                  <el-input v-model="combinationRule" readonly style="font-family:monospace" />
+                  <span style="font-size:11px;color:#909399">由公式拆解自动生成</span>
+                </el-form-item>
+                <el-form-item label="分组维度">
+                  <div style="display:flex;gap:4px;flex-wrap:wrap">
+                    <el-tag v-for="dim in inferredDimensions" :key="dim" size="small" type="success">{{ dim }}</el-tag>
+                    <span v-if="!inferredDimensions.length" style="font-size:11px;color:#909399">从数据集自动推断</span>
+                  </div>
+                </el-form-item>
+              </el-form>
+            </div>
+
             <el-form-item label="业务定义">
               <el-input v-model="form.business_definition" type="textarea" :rows="2" />
             </el-form-item>
             <el-form-item label="口径说明">
               <el-input v-model="form.calculation_desc" type="textarea" :rows="2" placeholder="计算口径的文字说明" />
             </el-form-item>
-            <el-form-item v-if="form.related_dataset_id" label="SQL 翻译">
+            <el-form-item v-if="form.related_dataset_id && editMode === 'formula'" label="SQL 翻译">
               <el-input v-if="translating" model-value="翻译中..." type="textarea" :rows="3" readonly style="font-family: monospace; font-size: 12px" />
               <el-input v-else-if="form.formula_sql" :model-value="form.formula_sql" type="textarea" :rows="3" readonly style="font-family: monospace; font-size: 12px" />
               <span v-else style="font-size:11px;color:#909399">输入公式后自动翻译</span>
@@ -602,7 +1169,9 @@ onMounted(load)
 
       <template #actions>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存指标</el-button>
+        <el-button type="primary" :loading="saving" @click="save">
+          {{ editMode === 'component' ? '保存指标 + 组件' : '保存指标' }}
+        </el-button>
       </template>
     </FormulaFieldEditor>
   </div>

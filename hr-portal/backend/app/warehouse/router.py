@@ -61,7 +61,7 @@ from app.warehouse.lineage import (
     MAX_LIMIT,
 )
 from app.warehouse.models import WarehouseQualityRule, WarehouseQualityRun, WarehouseAlertRule, WarehouseModelVersion, StandardizationRule, StandardizationTemplate
-from app.warehouse.models import MetricResult, MetricRun, Dimension, DwsAggregateDefinition
+from app.warehouse.models import MetricResult, MetricRun, Dimension, DwsAggregateDefinition, MetricComponent
 from app.warehouse.quality_engine import execute_quality_rule, _safe_ident
 from app.warehouse.schemas import (
     STANDARDIZATION_RULE_TYPES,
@@ -75,6 +75,7 @@ from app.warehouse.schemas import (
 )
 from app.warehouse.service import get_standardization_rule_service, get_standardization_template_service
 from app.warehouse.service import get_metric_compute_service, get_dimension_service, get_dws_aggregate_service
+from app.warehouse.service.component_service import get_component_service
 from app.warehouse.schemas import (
     PreviewRequest, DwdViewGenerateRequest, DwdViewGenerateOut,
     REFRESH_STRATEGIES, RefreshStrategyUpdateIn, RefreshStrategyOut,
@@ -98,6 +99,10 @@ from app.warehouse.schemas import (
     MetricAutomationRollbackIn,
     MetricAutomationAdsDraftIn, MetricAutomationAdsDraftOut,
     MetricChangePlanOut, MetricAutomationTimelineOut,
+    # 复合指标组件
+    MetricComponentCreateIn, MetricComponentUpdateIn, MetricComponentOut,
+    MetricComponentBatchIn,
+    FormulaDecomposeIn, FormulaDecomposeOut,
 )
 
 router = APIRouter(prefix="/warehouse", tags=["数据仓库"])
@@ -788,6 +793,7 @@ async def list_metrics(
 
 
 class MetricTranslateIn(BaseModel):
+    model_config = {"extra": "forbid"}
     formula_expr: str = Field(min_length=1)
     dataset_id: int
 
@@ -4449,3 +4455,824 @@ async def list_ads_sources(db: AsyncSession = Depends(get_session)):
 @router.get("/ads-available-dimensions", summary="可用维度列表（ADS 组装参考）", dependencies=[Depends(require_op("warehouse.modeling", "V"))])
 async def list_ads_dimensions(db: AsyncSession = Depends(get_session)):
     return await get_ads_service(db).list_dimensions()
+
+
+# ==================== 复合指标组件 CRUD (MR0201-MR0213) ====================
+
+
+@router.get(
+    "/metrics/{metric_id}/components",
+    summary="列出复合指标组件",
+    response_model=list[MetricComponentOut],
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def list_metric_components(
+    metric_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """列出指标的所有组件，关联聚合定义信息。
+
+    权限要求：warehouse.metrics:V
+    """
+    from app.datasets.models import WarehouseMetric
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+
+    svc = get_component_service(db)
+    return await svc.list_components(metric_id)
+
+
+@router.post(
+    "/metrics/{metric_id}/components",
+    summary="创建复合指标组件",
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.metrics", "C"))],
+)
+async def create_metric_component(
+    metric_id: int,
+    payload: MetricComponentCreateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    """创建组件。
+
+    校验：
+    - component_code 在同一指标下唯一（MR0204）
+    - 聚合定义已发布（MR0205）
+    - 维度对齐（MR0206）
+    权限要求：warehouse.metrics:C
+    """
+    from app.datasets.models import WarehouseMetric
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+
+    svc = get_component_service(db)
+    try:
+        result = await svc.create_component(metric_id, payload.model_dump())
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put(
+    "/metrics/{metric_id}/components/{component_id}",
+    summary="更新复合指标组件",
+    dependencies=[Depends(require_op("warehouse.metrics", "U"))],
+)
+async def update_metric_component(
+    metric_id: int,
+    component_id: int,
+    payload: MetricComponentUpdateIn,
+    db: AsyncSession = Depends(get_session),
+):
+    """更新组件。
+
+    仅更新显式传入的字段。变更 aggregate_id 时重新校验聚合已发布状态。
+    权限要求：warehouse.metrics:U
+    """
+    svc = get_component_service(db)
+    try:
+        data = payload.model_dump(exclude_unset=True)
+        result = await svc.update_component(component_id, data)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"组件不存在: {component_id}")
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete(
+    "/metrics/{metric_id}/components/{component_id}",
+    summary="删除复合指标组件",
+    status_code=204,
+    dependencies=[Depends(require_op("warehouse.metrics", "D"))],
+)
+async def delete_metric_component(
+    metric_id: int,
+    component_id: int,
+    db: AsyncSession = Depends(get_session),
+):
+    """删除组件。
+
+    权限要求：warehouse.metrics:D
+    """
+    svc = get_component_service(db)
+    ok = await svc.delete_component(component_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"组件不存在: {component_id}")
+    await db.commit()
+    return None
+
+
+@router.post(
+    "/metrics/{metric_id}/components/batch",
+    summary="批量保存复合指标组件（MR0213）",
+    dependencies=[Depends(require_op("warehouse.metrics", "C"))],
+)
+async def batch_save_metric_components(
+    metric_id: int,
+    payload: MetricComponentBatchIn,
+    db: AsyncSession = Depends(get_session),
+):
+    """批量保存组件，一次性创建聚合定义+组件。
+
+    流程：
+    1. 删除指标下所有已有组件（全量替换）
+    2. 创建 new_aggregates 中的聚合定义
+    3. 创建 components 中的组件（is_auto_created 标记）
+    权限要求：warehouse.metrics:C
+    """
+    from app.datasets.models import WarehouseMetric
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+
+    svc = get_component_service(db)
+    try:
+        data = payload.model_dump()
+        data["metric_id"] = metric_id
+        result = await svc.batch_save_components(metric_id, data)
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/metrics/decompose-formula",
+    summary="公式拆解（MR0207）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def decompose_metric_formula(
+    payload: FormulaDecomposeIn,
+    db: AsyncSession = Depends(get_session),
+):
+    """检测比率公式并拆解为 numerator/denominator 组件。
+
+    调用 AI 公式翻译逻辑检测公式结构：
+    - 识别 / 除法运算符（比率公式标志）
+    - 拆解出分子、分母表达式
+    - 返回组件的建议配置和维度推断
+    权限要求：warehouse.metrics:V
+    """
+    svc = get_component_service(db)
+    try:
+        result = await svc.decompose_formula(
+            payload.formula_expr, payload.dataset_id
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ==================== Phase 3: 结果解释与消费侧 (MR0301-MR0305) ====================
+
+
+class MetricExplainOut(BaseModel):
+    """MR0301: 指标解释上下文"""
+    metric_id: int
+    metric_code: str
+    metric_name: str
+    metric_type: str
+    formula_expr: Optional[str] = None
+    business_definition: Optional[str] = None
+    calculation_desc: Optional[str] = None
+    components: list[dict] = []
+    combination_rule: Optional[str] = None
+    period: Optional[str] = None
+    result_summary: Optional[dict] = None
+    # MR0302: 口径版本
+    computed_at: Optional[str] = None
+    metric_version: Optional[int] = None
+
+
+class MetricAiContextOut(BaseModel):
+    """MR0305: AI-ready 上下文输出"""
+    metric: dict
+    period: str
+    dimensions: Optional[dict] = None
+    measures: Optional[dict] = None
+    lineage: list[str] = []
+    explanation: Optional[str] = None
+
+
+@router.get(
+    "/metrics/{metric_id}/explain",
+    summary="指标解释上下文（MR0301）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def get_metric_explain(
+    metric_id: int,
+    period: Optional[str] = Query(None, description="指定周期则包含结果摘要"),
+    db: AsyncSession = Depends(get_session),
+):
+    """获取指标的完整解释上下文，用于结果详情页的解释卡片。
+
+    包含：
+    - 指标基本信息（编码、名称、类型、公式、业务定义）
+    - 组件配置（分子/分母/组合规则）
+    - 口径版本和计算时间（MR0302）
+    - 指定周期时附带结果摘要
+
+    权限要求：warehouse.metrics:V
+    """
+    from app.datasets.models import WarehouseMetric
+    from app.warehouse.models import MetricComponent, DwsAggregateDefinition, MetricResult
+
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+
+    # 加载组件
+    comps = (await db.execute(
+        select(MetricComponent)
+        .where(MetricComponent.metric_id == metric_id)
+        .order_by(MetricComponent.display_order)
+    )).scalars().all()
+
+    component_list = []
+    combination_rule = None
+    if comps:
+        roles = [c.role for c in comps]
+        # 构建组合规则
+        numerator_role = next((c for c in comps if c.role == "numerator"), None)
+        denominator_role = next((c for c in comps if c.role == "denominator"), None)
+        if numerator_role and denominator_role:
+            combination_rule = f"{numerator_role.component_name} / {denominator_role.component_name}"
+
+        for c in comps:
+            agg_name = None
+            agg_label = None
+            if c.aggregate_id:
+                agg = await db.get(DwsAggregateDefinition, c.aggregate_id)
+                if agg:
+                    agg_name = agg.name
+                    agg_label = agg.label or agg.name
+            component_list.append({
+                "id": c.id,
+                "role": c.role,
+                "component_code": c.component_code,
+                "component_name": c.component_name,
+                "expression": c.expression,
+                "aggregate_name": agg_name,
+                "aggregate_label": agg_label,
+                "is_auto_created": c.is_auto_created,
+            })
+
+    # 加载结果摘要（如果指定了周期）
+    result_summary = None
+    computed_at = None
+    if period:
+        result = (await db.execute(
+            select(MetricResult)
+            .where(MetricResult.metric_id == metric_id)
+            .where(MetricResult.period == period)
+            .order_by(MetricResult.id.desc())
+            .limit(1)
+        )).scalars().first()
+        if result:
+            result_summary = result.value
+            computed_at = result.computed_at.isoformat() if result.computed_at else None
+
+    return MetricExplainOut(
+        metric_id=metric_id,
+        metric_code=m.metric_code,
+        metric_name=m.metric_name,
+        metric_type=m.metric_type,
+        formula_expr=m.formula_expr,
+        business_definition=m.business_definition,
+        calculation_desc=m.calculation_desc,
+        components=component_list,
+        combination_rule=combination_rule,
+        period=period,
+        result_summary=result_summary,
+        computed_at=computed_at,
+        metric_version=m.version,
+    )
+
+
+@router.get(
+    "/metrics/{metric_id}/ai-context",
+    summary="AI-ready 上下文输出（MR0305）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def get_metric_ai_context(
+    metric_id: int,
+    period: str = Query(..., description="计算周期"),
+    db: AsyncSession = Depends(get_session),
+):
+    """为 AI 消费提供指标上下文。
+
+    只返回授权字段和必要聚合结果，不暴露：
+    - 未授权员工明细
+    - 薪酬敏感字段
+    - 原始凭证或连接配置
+
+    权限要求：warehouse.metrics:V
+    """
+    from app.datasets.models import WarehouseMetric
+    from app.warehouse.models import MetricComponent, MetricResult, MetricResultRow
+
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+
+    # 加载结果
+    result = (await db.execute(
+        select(MetricResult)
+        .where(MetricResult.metric_id == metric_id)
+        .where(MetricResult.period == period)
+        .order_by(MetricResult.id.desc())
+        .limit(1)
+    )).scalars().first()
+
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"该周期无计算结果: {period}")
+
+    # 加载结果行
+    rows = (await db.execute(
+        select(MetricResultRow)
+        .where(MetricResultRow.result_id == result.id)
+        .order_by(MetricResultRow.row_index)
+    )).scalars().all()
+
+    # 构建维度和度量摘要（不暴露明细数据）
+    dimensions = None
+    measures = None
+    if rows:
+        # 取第一个行的维度和度量作为样例结构
+        first_row = rows[0]
+        dimensions = first_row.dimension_values if first_row.dimension_values else None
+        # 聚合度量值（不逐行暴露）
+        if first_row.measure_values:
+            measures = {
+                k: type(v).__name__ for k, v in first_row.measure_values.items()
+            }
+
+    # 构建解释文本
+    explanation_parts = []
+    explanation_parts.append(f"指标：{m.metric_name}（{m.metric_code}）")
+    explanation_parts.append(f"类型：{m.metric_type}")
+    if m.formula_expr:
+        explanation_parts.append(f"公式：{m.formula_expr}")
+    if m.business_definition:
+        explanation_parts.append(f"业务定义：{m.business_definition}")
+
+    # 加载组件信息用于解释
+    comps = (await db.execute(
+        select(MetricComponent)
+        .where(MetricComponent.metric_id == metric_id)
+        .order_by(MetricComponent.display_order)
+    )).scalars().all()
+
+    lineage = []
+    if comps:
+        for c in comps:
+            if c.aggregate_id:
+                agg = await db.get(DwsAggregateDefinition, c.aggregate_id)
+                if agg:
+                    lineage.append(f"DWS {agg.name}")
+                    if agg.source_dataset_id:
+                        lineage.append(f"数据集 #{agg.source_dataset_id}")
+
+    # 结果摘要值
+    result_value = result.value
+    summary = result_value.get("summary_value") if result_value else None
+
+    if summary is not None:
+        explanation_parts.append(f"计算结果（周期 {period}）：{summary}")
+
+    return MetricAiContextOut(
+        metric={
+            "metric_code": m.metric_code,
+            "metric_name": m.metric_name,
+            "metric_type": m.metric_type,
+            "period": period,
+        },
+        period=period,
+        dimensions=dimensions,
+        measures=measures,
+        lineage=lineage,
+        explanation="\n".join(explanation_parts),
+    )
+
+
+# ==================== MR0303-MR0304: 指标血缘 + 下游引用 ====================
+
+
+@router.get(
+    "/metrics/{metric_id}/lineage",
+    summary="指标血缘图（MR0303）",
+    dependencies=[Depends(require_op("warehouse.governance", "V"))],
+)
+async def get_metric_lineage(
+    metric_id: int,
+    depth: int = Query(DEFAULT_DEPTH, ge=1, le=MAX_DEPTH),
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    db: AsyncSession = Depends(get_session),
+):
+    """指标级血缘图，展示 DWD→DWS→Result 链路。
+
+    从指标出发，向上追溯 DWS 聚合定义 → 数据集 → 原始表，
+    向下追踪该指标被哪些报表/下游引用。
+
+    权限要求：warehouse.governance:V
+    """
+    from app.datasets.models import WarehouseMetric
+    from app.warehouse.models import MetricComponent, DwsAggregateDefinition, MetricResult
+    from app.warehouse.lineage import LineageBuilder
+
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+
+    builder = LineageBuilder(db)
+
+    # 目标节点：指标本身
+    metric_node_id = builder._nid("metric", m.id)
+    builder._add_node(metric_node_id, "metric", label=m.metric_name,
+                      status=m.status or "draft",
+                      detail_route=f"/warehouse/metrics/{m.id}")
+
+    # --- 上游：DWS 聚合定义 ---
+    comps = (await db.execute(
+        select(MetricComponent)
+        .where(MetricComponent.metric_id == metric_id)
+        .order_by(MetricComponent.display_order)
+    )).scalars().all()
+
+    if comps:
+        # 组件模式：每个组件有独立聚合定义
+        for c in comps:
+            if c.aggregate_id:
+                agg = await db.get(DwsAggregateDefinition, c.aggregate_id)
+                if agg:
+                    dws_id = builder._nid("dws", agg.id)
+                    builder._add_node(dws_id, "dws",
+                                     label=agg.label or agg.name,
+                                     status=agg.status or "draft",
+                                     detail_route=f"/warehouse/metrics/{metric_id}")
+                    builder._add_edge(dws_id, metric_node_id, "upstream",
+                                     "calculation", f"组件 {c.component_name}")
+                    # DWS → 数据集
+                    if agg.source_dataset_id:
+                        ds_id = builder._nid("dataset", agg.source_dataset_id)
+                        builder._add_node(ds_id, "dataset", label=f"数据集 #{agg.source_dataset_id}",
+                                         status="published")
+                        builder._add_edge(ds_id, dws_id, "upstream", "reference", "数据集来源")
+    else:
+        # 单聚合模式：查已发布的聚合定义
+        agg = (await db.execute(
+            select(DwsAggregateDefinition)
+            .where(DwsAggregateDefinition.metric_id == metric_id)
+            .where(DwsAggregateDefinition.status == "published")
+            .order_by(DwsAggregateDefinition.updated_at.desc())
+            .limit(1)
+        )).scalars().first()
+        if agg:
+            dws_id = builder._nid("dws", agg.id)
+            builder._add_node(dws_id, "dws",
+                             label=agg.label or agg.name,
+                             status=agg.status or "published",
+                             detail_route=f"/warehouse/metrics/{metric_id}")
+            builder._add_edge(dws_id, metric_node_id, "upstream",
+                             "calculation", "聚合计算")
+            if agg.source_dataset_id:
+                ds_id = builder._nid("dataset", agg.source_dataset_id)
+                builder._add_node(ds_id, "dataset", label=f"数据集 #{agg.source_dataset_id}",
+                                 status="published")
+                builder._add_edge(ds_id, dws_id, "upstream", "reference", "数据集来源")
+
+    # --- 上游：数据集 → 原始表 ---
+    if m.related_dataset_id:
+        from app.datasets.models import DataSet, DataSetTable
+        ds = await db.get(DataSet, m.related_dataset_id)
+        if ds:
+            ds_id = builder._nid("dataset", ds.id)
+            builder._add_node(ds_id, "dataset", label=ds.name,
+                             status=ds.status or "draft",
+                             detail_route=f"/warehouse/models/{ds.id}")
+            builder._add_edge(ds_id, metric_node_id, "upstream",
+                             "reference", "指标数据集")
+
+            # 数据集包含的原始表
+            tables = (await db.execute(
+                select(DataSetTable).where(DataSetTable.dataset_id == ds.id)
+            )).scalars().all()
+            for t in tables[:limit]:
+                tbl_id = builder._nid("table", t.table_name)
+                builder._add_node(tbl_id, "table", label=t.table_name,
+                                 status="published",
+                                 detail_route=f"/warehouse/assets/{t.table_name}")
+                builder._add_edge(tbl_id, ds_id, "upstream", "reference", f"别名 {t.alias}")
+
+    # --- 下游：计算结果 ---
+    results = (await db.execute(
+        select(MetricResult)
+        .where(MetricResult.metric_id == metric_id)
+        .order_by(MetricResult.id.desc())
+        .limit(limit)
+    )).scalars().all()
+    for r in results[:limit]:
+        result_id = builder._nid("result", r.id)
+        builder._add_node(result_id, "result",
+                         label=f"结果集 {r.period}",
+                         status="published",
+                         detail_route=f"/warehouse/metrics/{metric_id}")
+        builder._add_edge(metric_node_id, result_id, "downstream",
+                         "output", f"周期 {r.period}")
+
+    # --- 下游：血缘边记录（报表等下游引用） ---
+    from app.warehouse.models import WarehouseLineageEdge
+    edges = (await db.execute(
+        select(WarehouseLineageEdge)
+        .where(WarehouseLineageEdge.source_asset == f"metric:{m.metric_code}")
+        .order_by(WarehouseLineageEdge.created_at.desc())
+        .limit(limit)
+    )).scalars().all()
+    for e in edges:
+        target_parts = e.target_asset.split(":")
+        target_type = target_parts[0] if len(target_parts) > 1 else "unknown"
+        target_val = target_parts[1] if len(target_parts) > 1 else e.target_asset
+        target_node_id = builder._nid(target_type, target_val)
+        builder._add_node(target_node_id, target_type, label=e.target_asset,
+                         status="published")
+        builder._add_edge(metric_node_id, target_node_id, "downstream",
+                         "reference", e.operation)
+
+    # --- 下游：ImpactAnalyzer 扫描指标下游 ---
+    if m.related_dataset_id:
+        refs, _ = await builder.analyzer.scan_model(m.related_dataset_id)
+        for ref in refs[:limit]:
+            ref_type = ref["type"]
+            ref_id_val = ref["id"]
+            ref_node_id = builder._nid(ref_type, ref_id_val)
+            builder._add_node(ref_node_id, ref_type, label=ref["name"],
+                             status="published" if ref.get("risk_level") == "high" else "draft",
+                             detail_route=ref.get("route"))
+            builder._add_edge(metric_node_id, ref_node_id, "downstream",
+                             "reference", ref.get("usage", "引用"))
+
+    truncated = builder._node_count() >= limit * 3
+    return {
+        "nodes": list(builder._nodes.values()),
+        "edges": builder._edges,
+        "truncated": truncated,
+        "truncation_message": f"结果过多，已截断至 {limit} 条关联" if truncated else None,
+    }
+
+
+@router.get(
+    "/metrics/{metric_id}/downstream-refs",
+    summary="指标下游引用列表（MR0304）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def get_metric_downstream_refs(
+    metric_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_session),
+):
+    """指标下游引用列表：哪些报表/指标/BI工具引用了此指标。
+
+    权限要求：warehouse.metrics:V
+    """
+    from app.datasets.models import WarehouseMetric
+    from app.warehouse.models import WarehouseLineageEdge
+
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+
+    refs = []
+
+    # 1. 血缘边记录
+    edges = (await db.execute(
+        select(WarehouseLineageEdge)
+        .where(WarehouseLineageEdge.source_asset == f"metric:{m.metric_code}")
+        .order_by(WarehouseLineageEdge.created_at.desc())
+        .limit(limit)
+    )).scalars().all()
+    for e in edges:
+        refs.append({
+            "type": e.target_asset.split(":")[0] if ":" in e.target_asset else "unknown",
+            "id": e.target_asset,
+            "name": e.target_asset,
+            "operation": e.operation,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        })
+
+    # 2. ImpactAnalyzer 扫描（报表/下游指标）
+    if m.related_dataset_id:
+        impact_refs, _ = await get_impact_analyzer(db).scan_model(m.related_dataset_id)
+        for ref in impact_refs[:limit]:
+            refs.append({
+                "type": ref["type"],
+                "id": str(ref["id"]),
+                "name": ref["name"],
+                "usage": ref.get("usage", ""),
+                "risk_level": ref.get("risk_level", "low"),
+                "blocking": ref.get("blocking", False),
+                "blocking_reason": ref.get("blocking_reason", ""),
+                "route": ref.get("route"),
+            })
+
+    # 3. 计算结果引用
+    from app.warehouse.models import MetricResult
+    results = (await db.execute(
+        select(MetricResult)
+        .where(MetricResult.metric_id == metric_id)
+        .order_by(MetricResult.id.desc())
+        .limit(limit)
+    )).scalars().all()
+    for r in results:
+        refs.append({
+            "type": "result",
+            "id": str(r.id),
+            "name": f"结果集 {r.period}",
+            "period": r.period,
+            "computed_at": r.computed_at.isoformat() if r.computed_at else None,
+        })
+
+    return {"metric_id": metric_id, "metric_code": m.metric_code, "refs": refs}
+
+
+# ==================== MR0306: 权限态 + MR0307: 审计事件 ====================
+
+
+@router.get(
+    "/metrics/{metric_id}/results/{result_id}/detail",
+    summary="指标结果明细（MR0306 权限态）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def get_metric_result_detail(
+    metric_id: int,
+    result_id: int,
+    period: str = Query(..., description="计算周期"),
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """指标结果明细，根据用户权限返回不同级别数据：
+
+    - 有明细权限：返回完整 dimension_values + measure_values
+    - 无明细权限：只返回汇总值（summary），隐藏维度明细和具体度量
+
+    权限要求：warehouse.metrics:V（基础登录），数据范围权限控制明细可见性
+    """
+    from app.datasets.models import WarehouseMetric
+    from app.warehouse.models import MetricResult, MetricResultRow
+
+    m = await db.get(WarehouseMetric, metric_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
+
+    result = await db.get(MetricResult, result_id)
+    if result is None or result.metric_id != metric_id:
+        raise HTTPException(status_code=404, detail=f"结果不存在: {result_id}")
+
+    # 写入审计事件 (MR0307)
+    from app.warehouse.models import AutomationAuditEvent
+    from datetime import datetime
+    import uuid
+    trace_id = str(uuid.uuid4())[:16]
+    audit = AutomationAuditEvent(
+        trace_id=trace_id,
+        metric_id=metric_id,
+        asset_type="metric_result",
+        asset_id=result_id,
+        action="view_detail",
+        status="success",
+        actor_id=user.id,
+        input_json={"metric_id": metric_id, "result_id": result_id, "period": period},
+        created_at=datetime.utcnow(),
+    )
+    db.add(audit)
+
+    # 检查用户是否有数据范围权限看明细
+    from app.permissions.masker import _is_super_admin
+    is_admin = await _is_super_admin(user, db)
+
+    # 加载结果行
+    rows = (await db.execute(
+        select(MetricResultRow)
+        .where(MetricResultRow.result_id == result_id)
+        .order_by(MetricResultRow.row_index)
+    )).scalars().all()
+
+    result_value = result.value or {}
+    summary_value = result_value.get("summary_value")
+    dimensions = result_value.get("dimensions", [])
+    measures = result_value.get("measures", [])
+
+    if is_admin:
+        # 管理员：完整数据
+        detail_rows = []
+        for row in rows:
+            detail_rows.append({
+                "dimension_values": row.dimension_values,
+                "measure_values": row.measure_values,
+                "value": row.value,
+            })
+        return {
+            "metric_id": metric_id,
+            "result_id": result_id,
+            "period": period,
+            "permission_level": "full",
+            "summary_value": summary_value,
+            "dimensions": dimensions,
+            "measures": measures,
+            "rows": detail_rows,
+            "computed_at": result.computed_at.isoformat() if result.computed_at else None,
+            "warnings": result_value.get("warnings"),
+        }
+    else:
+        # 普通用户：只有汇总值，无明细
+        return {
+            "metric_id": metric_id,
+            "result_id": result_id,
+            "period": period,
+            "permission_level": "summary_only",
+            "summary_value": summary_value,
+            "dimensions": dimensions,
+            "measures": measures,
+            "row_count": len(rows),
+            "rows": None,  # 明细行隐藏
+            "computed_at": result.computed_at.isoformat() if result.computed_at else None,
+            "warnings": result_value.get("warnings"),
+        }
+
+
+@router.post(
+    "/metrics/{metric_id}/results/{result_id}/export-audit",
+    summary="导出审计事件（MR0307）",
+    dependencies=[Depends(require_op("warehouse.metrics", "E"))],
+)
+async def export_result_audit(
+    metric_id: int,
+    result_id: int,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """记录指标结果导出审计事件。
+
+    权限要求：warehouse.metrics:E（导出权限）
+    """
+    from app.warehouse.models import AutomationAuditEvent
+    from datetime import datetime
+    import uuid
+
+    trace_id = str(uuid.uuid4())[:16]
+    audit = AutomationAuditEvent(
+        trace_id=trace_id,
+        metric_id=metric_id,
+        asset_type="metric_result",
+        asset_id=result_id,
+        action="export",
+        status="success",
+        actor_id=user.id,
+        input_json={"metric_id": metric_id, "result_id": result_id},
+        created_at=datetime.utcnow(),
+    )
+    db.add(audit)
+    await db.flush()
+
+    return {"trace_id": trace_id, "action": "export", "status": "recorded"}
+
+
+@router.post(
+    "/metrics/{metric_id}/ai-explain-audit",
+    summary="AI 解释审计事件（MR0307）",
+    dependencies=[Depends(require_op("warehouse.metrics", "V"))],
+)
+async def ai_explain_audit(
+    metric_id: int,
+    period: str = Query(..., description="计算周期"),
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """记录 AI 解释消费审计事件。
+
+    权限要求：warehouse.metrics:V
+    """
+    from app.warehouse.models import AutomationAuditEvent
+    from datetime import datetime
+    import uuid
+
+    trace_id = str(uuid.uuid4())[:16]
+    audit = AutomationAuditEvent(
+        trace_id=trace_id,
+        metric_id=metric_id,
+        asset_type="metric",
+        asset_id=metric_id,
+        action="ai_explain",
+        status="success",
+        actor_id=user.id,
+        input_json={"metric_id": metric_id, "period": period},
+        created_at=datetime.utcnow(),
+    )
+    db.add(audit)
+    await db.flush()
+
+    return {"trace_id": trace_id, "action": "ai_explain", "status": "recorded"}

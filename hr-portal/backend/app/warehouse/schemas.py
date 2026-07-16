@@ -1463,3 +1463,99 @@ class L4CascadeRuleUpdate(BaseModel):
     notify_on_success: Optional[bool] = None
     notify_on_block: Optional[bool] = None
     notify_on_fail: Optional[bool] = None
+
+
+# ==================== 复合指标组件 (MR0201-MR0203) ====================
+
+COMPONENT_ROLES = ("numerator", "denominator", "base", "compare", "custom", "rate")
+
+
+class MetricComponentCreateIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    """组件创建入参"""
+    component_code: str = Field(..., max_length=64, description="组件编码，同一指标下唯一")
+    component_name: str = Field(..., max_length=128, description="组件名称")
+    aggregate_id: Optional[int] = Field(None, description="关联 DWS 聚合定义 ID（新建时可为空）")
+    role: str = Field(..., max_length=32, description=f"组件角色: {'/'.join(COMPONENT_ROLES)}")
+    expression: Optional[str] = Field(None, max_length=512, description="可选，组件后表达式")
+    display_order: int = Field(0, ge=0)
+    is_auto_created: bool = Field(False, description="是否由系统公式拆解自动创建")
+
+
+class MetricComponentUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    """组件更新入参"""
+    component_name: Optional[str] = Field(None, max_length=128)
+    aggregate_id: Optional[int] = None
+    role: Optional[str] = Field(None, max_length=32)
+    expression: Optional[str] = Field(None, max_length=512)
+    display_order: Optional[int] = Field(None, ge=0)
+
+
+class MetricComponentOut(BaseModel):
+    """组件响应"""
+    id: int
+    metric_id: int
+    component_code: str
+    component_name: str
+    aggregate_id: Optional[int] = None
+    role: str
+    expression: Optional[str] = None
+    display_order: int = 0
+    is_auto_created: bool = False
+    # 关联聚合定义的摘要信息（方便前端展示）
+    aggregate_name: Optional[str] = None
+    aggregate_label: Optional[str] = None
+    aggregate_status: Optional[str] = None
+    aggregate_group_by: Optional[list[str]] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class MetricComponentBatchIn(BaseModel):
+    """批量保存组件入参（MR0213 一次性创建聚合+组件）"""
+    model_config = {"extra": "forbid"}
+    metric_id: int = Field(..., description="关联复合指标 ID")
+    components: list[MetricComponentCreateIn] = Field(..., min_length=1)
+    # 新建聚合定义参数（is_auto_created=True 且 aggregate_id 为空的组件需要）
+    new_aggregates: list["NewAggregateIn"] = Field(default_factory=list, description="需自动创建的聚合定义")
+
+
+class NewAggregateIn(BaseModel):
+    """自动创建聚合定义入参"""
+    model_config = {"extra": "forbid"}
+    name: str = Field(..., max_length=128, description="聚合编码，如 dws_turnover_rate_numerator")
+    label: str = Field(..., max_length=128, description="聚合展示名称，如 离职率·分子")
+    source_dataset_id: Optional[int] = None
+    group_by: list[str] = Field(default_factory=list)
+    filter: Optional[dict] = None
+    aggregation: str = Field("count", max_length=16)
+    measure_field: Optional[str] = None
+    time_grain: Optional[str] = None
+    business_definition: Optional[str] = None
+
+
+class FormulaDecomposeIn(BaseModel):
+    """公式拆解请求（MR0207）"""
+    model_config = {"extra": "forbid"}
+    formula_expr: str = Field(..., description="Excel 公式表达式")
+    dataset_id: int = Field(..., description="来源数据集 ID，用于推断维度")
+
+
+class FormulaDecomposeComponentOut(BaseModel):
+    """拆解出的单个组件"""
+    role: str = Field(description="组件角色: numerator/denominator")
+    expression: str = Field(description="原始表达式片段")
+    suggested_code: str = Field(description="建议聚合编码，如 dws_{metric_code}_numerator")
+    suggested_name: str = Field(description="建议聚合名称")
+    suggested_aggregation: str = Field(default="count", description="建议聚合方式")
+
+
+class FormulaDecomposeOut(BaseModel):
+    """公式拆解响应"""
+    components: list[FormulaDecomposeComponentOut] = []
+    combination_rule: str = Field(description="组合规则，如 numerator / denominator")
+    dimensions: list[str] = Field(default_factory=list, description="从数据集推断的维度字段")
+    is_ratio: bool = Field(False, description="是否检测到比率公式")

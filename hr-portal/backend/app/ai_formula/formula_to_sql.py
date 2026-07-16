@@ -223,6 +223,132 @@ def _translate_expr(expr: str) -> str:
     return expr
 
 
+def _wrap_division_with_nullif(sql: str) -> str:
+    """对除法运算的分母自动包裹 NULLIF(expr, 0)，防止 division by zero。
+
+    策略：从右向左扫描，找到 / 运算符后，提取分母表达式并包裹 NULLIF。
+    NULLIF(expr, 0) 对非零值无影响，只在分母为0时返回 NULL，避免 PostgreSQL 异常。
+
+    需要正确处理嵌套函数调用作为分母的情况，例如：
+      COUNT(*) → NULLIF(COUNT(*), 0)
+      COUNT(*) FILTER (WHERE ...) → NULLIF(COUNT(*) FILTER (WHERE ...), 0)
+      AVG(salary) → NULLIF(AVG(salary), 0)
+    """
+    # 找到所有 / 运算符的位置（不在引号内）
+    positions: list[int] = []
+    in_quote = False
+    quote_char = ""
+    for i, ch in enumerate(sql):
+        if in_quote:
+            if ch == quote_char:
+                in_quote = False
+            continue
+        if ch in ("'", '"'):
+            in_quote = True
+            quote_char = ch
+            continue
+        if ch == '/' and i > 0:
+            # 确保不是 * 之后的 /（即不是注释）
+            positions.append(i)
+
+    # 从右向左处理，避免左侧处理后位移影响右侧位置
+    result = sql
+    for pos in reversed(positions):
+        # 提取分母：从 / 之后到下一个运算符或表达式结束
+        # 分母可能是：简单标识符、函数调用、括号表达式、数字常量
+        numerator_part = result[:pos].rstrip()
+        denominator_and_rest = result[pos + 1:].lstrip()
+
+        # 提取分母表达式的结束位置
+        denom_end = _find_expr_end(denominator_and_rest)
+        denominator = denominator_and_rest[:denom_end].strip()
+        rest = denominator_and_rest[denom_end:]
+
+        # 如果分母已经是 NULLIF(...) 包裹，跳过
+        if denominator.upper().startswith("NULLIF"):
+            continue
+
+        # 包裹分母
+        wrapped_denom = f"NULLIF({denominator}, 0)"
+        result = f"{numerator_part} / {wrapped_denom}{rest}"
+
+    return result
+
+
+def _find_expr_end(s: str) -> int:
+    """找到表达式的结束位置（从字符串开头算起）。
+
+    表达式结束标志：遇到空格后跟运算符 +-*/ 或关键字 AND/OR/THEN/ELSE/END/CASE/WHEN/FILTER，
+    或者字符串结束。
+    正确处理嵌套括号。
+    """
+    depth = 0
+    in_quote = False
+    quote_char = ""
+    i = 0
+
+    while i < len(s):
+        ch = s[i]
+
+        if in_quote:
+            if ch == quote_char:
+                in_quote = False
+            i += 1
+            continue
+
+        if ch in ("'", '"'):
+            in_quote = True
+            quote_char = ch
+            i += 1
+            continue
+
+        if ch == '(':
+            depth += 1
+            i += 1
+            continue
+
+        if ch == ')':
+            depth -= 1
+            if depth < 0:
+                # 多余的右括号，当前表达式到此结束
+                return i
+            i += 1
+            continue
+
+        # 在括号外，遇到运算符或关键字前有空格 → 表达式结束
+        if depth == 0:
+            # 检查是否遇到 * 或 + 或 - 运算符（前面不是字母，排除标识符中的情况）
+            if ch in ('*', '+', '-') and i > 0 and s[i - 1] != '(':
+                # 但 * 可能是 COUNT(*) 的一部分，需要检查上下文
+                # 如果 * 前面是 ( 且后面是 )，它是一个完整的 COUNT(*) 表达式
+                if ch == '*' and i > 0 and s[i - 1] == '(':
+                    i += 1
+                    continue
+                return i
+            # 检查是否遇到另一个 / 运算符
+            if ch == '/':
+                return i
+
+            # 检查关键字分隔（空格+关键字）
+            if ch == ' ':
+                # 看空格后面是否是运算符或SQL关键字
+                rest_after_space = s[i:].strip()
+                upper_rest = rest_after_space.upper()
+                keywords = ['AND ', 'OR ', 'THEN ', 'ELSE ', 'END ', 'CASE ', 'WHEN ',
+                            'FILTER ', 'GROUP ', 'ORDER ', 'HAVING ', 'LIMIT ', 'UNION ',
+                            'AS ', 'IS ', 'NOT ', 'IN ']
+                for kw in keywords:
+                    if upper_rest.startswith(kw):
+                        return i
+                # 空格后跟运算符
+                if rest_after_space and rest_after_space[0] in ('+', '-', '*', '/', '=', '!', '<', '>'):
+                    return i
+
+        i += 1
+
+    return len(s)
+
+
 def _translate_comparison_operators(expr: str) -> str:
     """将 Excel 比较运算符转为 SQL 标准形式。
 
@@ -351,7 +477,10 @@ async def translate_formula_to_sql(
         errors.append(f"公式翻译失败: {e}")
         return {"sql": "", "valid": False, "errors": errors, "has_aggregate": has_aggregate}
 
-    # 6. 校验：翻译后不应残留中文或未处理的 FIELD() 调用
+    # 6. 除零保护：对 / 运算符的分母自动包裹 NULLIF(expr, 0)
+    sql = _wrap_division_with_nullif(sql)
+
+    # 7. 校验：翻译后不应残留中文或未处理的 FIELD() 调用
     if "FIELD(" in sql.upper():
         errors.append("公式包含未翻译的 FIELD() 引用")
 
