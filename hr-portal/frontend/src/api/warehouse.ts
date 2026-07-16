@@ -1336,6 +1336,8 @@ export interface DwsAggregate {
   group_by: string[]
   filter: Record<string, any> | null
   time_grain: string | null
+  time_field: string | null
+  measure_semantics: string | null
   business_definition: string | null
   status: string
   created_at?: string

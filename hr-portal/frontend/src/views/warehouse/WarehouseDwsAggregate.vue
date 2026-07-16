@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Refresh, Finished, FolderDelete, DataAnalysis, View } from '@element-plus/icons-vue'
@@ -9,7 +9,8 @@ import {
   publishDwsAggregate, archiveDwsAggregate, generateDwsView, getDwsViewImpact,
   validateDwsAggregate,
   listModels, listDimensions, listMetrics, diagnoseMetric,
-  type DwsAggregate, type Dimension,
+  getOutputFields,
+  type DwsAggregate, type Dimension, type OutputField,
 } from '@/api/warehouse'
 
 const userStore = useUserStore()
@@ -53,6 +54,26 @@ async function loadDatasets() {
     datasets.value = res.items.map((m: any) => ({ id: m.id, name: m.label || m.name }))
   } catch { datasets.value = [] }
 }
+
+// 数据集输出字段（time_field 下拉来源：仅显示日期/时间类型字段）
+const outputFields = ref<OutputField[]>([])
+const dateFields = computed(() =>
+  outputFields.value.filter(f =>
+    /date|timestamp|time/i.test(f.data_type) && f.agg_role !== 'measure'
+  )
+)
+
+async function loadOutputFields(datasetId: number | undefined) {
+  if (!datasetId) { outputFields.value = []; return }
+  try {
+    outputFields.value = await getOutputFields(datasetId)
+  } catch { outputFields.value = [] }
+}
+
+// 数据集变化时重新加载输出字段
+watch(() => form.value.source_dataset_id, (newId) => {
+  loadOutputFields(newId)
+})
 
 function dimLabel(d: Dimension) {
   const sid = (d as any).source_dataset_id
@@ -106,6 +127,7 @@ async function onMetricChange(metricId: number | undefined) {
     }
     if (!form.value.source_dataset_id && diag.source_dataset_id) {
       form.value.source_dataset_id = diag.source_dataset_id
+      await loadOutputFields(diag.source_dataset_id)
     }
     ElMessage.success('已根据指标自动推导分组参数')
   } catch (e: any) {
@@ -122,13 +144,16 @@ const form = ref({
   label: '', name: '', metric_id: undefined as number | undefined, source_dataset_id: undefined as number | undefined,
   group_by: [] as string[], filter: null as Record<string, any> | null,
   time_grain: undefined as string | undefined,
+  time_field: undefined as string | undefined,
+  measure_semantics: undefined as string | undefined,
   business_definition: '',
 })
 const saving = ref(false)
 
 function openCreate() {
   dialogMode.value = 'create'; editId.value = null
-  form.value = { label: '', name: '', metric_id: undefined, source_dataset_id: undefined, group_by: [], filter: null, time_grain: undefined, business_definition: '' }
+  form.value = { label: '', name: '', metric_id: undefined, source_dataset_id: undefined, group_by: [], filter: null, time_grain: undefined, time_field: undefined, measure_semantics: undefined, business_definition: '' }
+  outputFields.value = []
   loadDatasets()
   loadDimensions()
   loadMetrics()
@@ -143,10 +168,13 @@ async function openEdit(id: number) {
     label: a.label || '', name: a.name, metric_id: a.metric_id ?? undefined, source_dataset_id: a.source_dataset_id ?? undefined,
     group_by: a.group_by?.slice() || [], filter: a.filter,
     time_grain: a.time_grain ?? undefined,
+    time_field: a.time_field ?? undefined,
+    measure_semantics: a.measure_semantics ?? undefined,
     business_definition: a.business_definition ?? '',
   }
   await loadDimensions()
   await loadDatasets()
+  await loadOutputFields(a.source_dataset_id ?? undefined)
   dialogVisible.value = true
 }
 
@@ -239,6 +267,10 @@ onMounted(load)
           </template>
         </el-table-column>
         <el-table-column prop="time_grain" label="时间粒度" width="80" />
+        <el-table-column prop="time_field" label="时间字段" width="100" />
+        <el-table-column label="度量语义" width="80">
+          <template #default="{ row }">{{ row.measure_semantics === 'stock' ? '存量' : row.measure_semantics === 'flow' ? '增量' : '' }}</template>
+        </el-table-column>
         <el-table-column prop="business_definition" label="口径说明" min-width="120" show-overflow-tooltip />
         <el-table-column prop="status" label="状态" width="80">
           <template #default="{ row }">
@@ -289,6 +321,19 @@ onMounted(load)
             </el-option>
           </el-select>
           <span style="font-size:11px;color:#909399">选关联指标后自动回填，可手动增减</span>
+        </el-form-item>
+        <el-form-item label="时间字段">
+          <el-select v-model="form.time_field" clearable filterable placeholder="选择日期类型字段用于时间下钻" style="width:100%">
+            <el-option v-for="f in dateFields" :key="f.output_code" :label="`${f.output_label || f.output_code}（${f.data_type}）`" :value="f.output_code" />
+          </el-select>
+          <span style="font-size:11px;color:#909399">选择后生成视图时自动派生 year/quarter/month 列，支持按时间粒度下钻</span>
+        </el-form-item>
+        <el-form-item label="度量语义">
+          <el-select v-model="form.measure_semantics" clearable placeholder="存量指标选 stock，增量选 flow" style="width:100%">
+            <el-option label="存量（期末值）" value="stock" />
+            <el-option label="增量（累计值）" value="flow" />
+          </el-select>
+          <span style="font-size:11px;color:#909399">存量指标跨月/季/年取期末值而非求和；增量指标可直接聚合</span>
         </el-form-item>
         <el-form-item label="口径说明"><el-input v-model="form.business_definition" type="textarea" :rows="2" placeholder="说明该聚合的业务口径" /></el-form-item>
       </el-form>
