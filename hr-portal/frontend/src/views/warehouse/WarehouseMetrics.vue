@@ -461,8 +461,11 @@ function isRatioFormula(formula: string): boolean {
 // 公式变化时检测比率公式 + 推导类型
 watch(() => form.value.formula_expr, (val) => {
   if (val) {
-    form.value.metric_type = deriveMetricType(val) as any
-    ratioFormulaDetected.value = isRatioFormula(val) && editMode.value === 'formula'
+    const derived = deriveMetricType(val)
+    const isRatio = isRatioFormula(val)
+    const isFormulaMode = editMode.value === 'formula'
+    form.value.metric_type = derived as any
+    ratioFormulaDetected.value = isRatio && isFormulaMode
   } else {
     ratioFormulaDetected.value = false
     decomposeResult.value = null
@@ -720,8 +723,8 @@ function onDatasetChange(dsId: number | undefined) {
 function deriveMetricType(formula: string): string {
   const f = (formula || '').toUpperCase()
   if (f.includes('SUM(')) return 'sum'
-  if (f.includes('COUNT(') || f.includes('COUNT_DISTINCT(')) return 'count'
-  if (f.includes('/') && (f.includes('SUM(') || f.includes('COUNT(') || f.includes('AVG('))) return 'ratio'
+  if (f.includes('COUNT(') || f.includes('COUNTIF(') || f.includes('COUNT_DISTINCT(')) return 'count'
+  if (f.includes('/') && (f.includes('SUM(') || f.includes('COUNT(') || f.includes('COUNTIF(') || f.includes('AVG('))) return 'ratio'
   if (!f.match(/SUM|COUNT|AVG|MAX|MIN|ROUND|IF/)) return 'text'
   return 'derived'
 }
