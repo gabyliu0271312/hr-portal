@@ -1514,11 +1514,28 @@ class MetricComponentOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MetricComponentBatchItemIn(BaseModel):
+    """批量保存的单个组件入参（MR0213 修正：显式支持 new_aggregate_index）
+
+    前端按 new_aggregates 数组顺序组织数据，组件通过 new_aggregate_index
+    指向 new_aggregates[index] 新建的聚合定义。
+    """
+    model_config = {"extra": "forbid"}
+    component_code: str = Field(..., max_length=64, description="组件编码，同一指标下唯一")
+    component_name: str = Field(..., max_length=128, description="组件名称")
+    aggregate_id: Optional[int] = Field(None, description="关联已有 DWS 聚合定义 ID（引用模式）")
+    new_aggregate_index: Optional[int] = Field(None, description="指向 new_aggregates[index] 新建聚合定义（组件模式）")
+    role: str = Field(..., max_length=32, description=f"组件角色: {'/'.join(COMPONENT_ROLES)}")
+    expression: Optional[str] = Field(None, max_length=512, description="可选，组件后表达式")
+    display_order: int = Field(0, ge=0)
+    is_auto_created: bool = Field(False, description="是否由系统公式拆解自动创建")
+
+
 class MetricComponentBatchIn(BaseModel):
     """批量保存组件入参（MR0213 一次性创建聚合+组件）"""
     model_config = {"extra": "forbid"}
-    metric_id: int = Field(..., description="关联复合指标 ID")
-    components: list[MetricComponentCreateIn] = Field(..., min_length=1)
+    # metric_id 由路径参数提供，不再在 body 中重复（避免与路径参数冲突）
+    components: list[MetricComponentBatchItemIn] = Field(..., min_length=1)
     # 新建聚合定义参数（is_auto_created=True 且 aggregate_id 为空的组件需要）
     new_aggregates: list["NewAggregateIn"] = Field(default_factory=list, description="需自动创建的聚合定义")
 

@@ -868,6 +868,31 @@ docker exec hr-portal-backend python -m pytest tests/test_warehouse_components.p
 
 > 注：`alembic/versions/0098_add_metric_components_table.py` 当前为未提交（untracked）文件，建议尽快 `git add` 提交以保证迁移链可复现。
 
+### MR0213 协议整改（方案 A：后端 schema 显式支持 new_aggregate_index）
+
+**问题**：前端组件模式保存时发送 `new_aggregate_index`，但后端 `MetricComponentBatchIn.components` 类型为 `MetricComponentCreateIn`（`extra="forbid"` 且无该字段）→ 422 校验失败；且 `batch_save_components` 只读不存在的 `aggregate_ref`，即使绕过 schema 也无法绑定新建聚合。
+
+**修复**：
+- `schemas.py` 新增 `MetricComponentBatchItemIn`（`extra="forbid"`，含 `new_aggregate_index`），`MetricComponentBatchIn.components` 改为 `list[MetricComponentBatchItemIn]`，并移除冗余 `metric_id`（路径参数已提供）。
+- `component_service.py` `batch_save_components` 重写为：
+  - 按 `new_aggregates` 创建顺序保存 `created_agg_ids`；
+  - 组件解析优先级 `new_aggregate_index` > `aggregate_id`，兼容旧 `aggregate_ref`；
+  - 新增校验：① `aggregate_id` 与 `new_aggregate_index` 同时为空 → 400；② `new_aggregate_index` 越界 → 400；③ 引用已有聚合必须 `published`；④ `component_code` 同指标唯一；⑤ **分子/分母维度一致性**（`_validate_batch_dimension_alignment`，批量保存也要执行）。
+- 前端 `warehouse.ts` `MetricComponentBatchPayload.components` 已含 `new_aggregate_index?: number | null`，字段名与后端一致，无需改动。
+
+**闭环验收**：组件模式保存 → 后端一次性创建 DWS 聚合定义（status=published）→ 创建 metric_components（aggregate_id 正确绑定新建聚合）→ 返回组件列表。
+
+**测试**（真实 Postgres）：
+```
+tests/test_warehouse_components.py::test_batch_in_accepts_new_aggregate_index   (schema 接受)
+tests/test_warehouse_components.py::test_batch_save_new_aggregate_index_binds (闭环绑定)
+tests/test_warehouse_components.py::test_batch_save_index_out_of_bounds   (越界 400)
+tests/test_warehouse_components.py::test_batch_save_both_empty_fails     (双空 400)
+tests/test_warehouse_components.py::test_batch_save_reference_published_ok (引用 published 成功)
+tests/test_warehouse_components.py::test_batch_save_reference_draft_fails   (引用 draft 失败)
+```
+6 项全部 PASS；前端 `npm run build` 通过（29.11s）、`vue-tsc 0 错`。
+
 ### 验证铁律结果
 
 ```

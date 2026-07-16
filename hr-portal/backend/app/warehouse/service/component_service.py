@@ -211,10 +211,12 @@ class ComponentService:
         """批量保存组件，一次性创建聚合定义+组件。
 
         流程：
-        1. 删除指标下所有已有组件
-        2. 创建 new_aggregates 中的聚合定义（status=published, 组件 is_auto_created=True）
-        3. 创建 components 中的组件
-        4. 返回所有组件列表
+        1. 删除指标下所有已有组件（全量替换）
+        2. 按 new_aggregates 顺序创建聚合定义（status=published），保存 created_agg_ids
+        3. 校验：component_code 唯一、聚合绑定（new_aggregate_index / aggregate_id / aggregate_ref）、
+           引用已有聚合必须 published、分子/分母维度一致
+        4. 创建 components 中的组件（按 new_aggregate_index 绑定新建聚合）
+        5. 返回所有组件列表
         """
         # 1. 删除已有组件
         await self.session.execute(
@@ -224,10 +226,9 @@ class ComponentService:
         new_aggregates_raw: list[dict] = data.get("new_aggregates", [])
         components_raw: list[dict] = data.get("components", [])
 
-        # 构建聚合编码 → 聚合 ID 的映射（用于后续组件绑定）
+        # 2. 创建新聚合定义，按创建顺序保存 id（new_aggregate_index 的索引依据）
+        created_agg_ids: list[int] = []
         agg_code_to_id: dict[str, int] = {}
-
-        # 2. 创建新聚合定义
         for agg_data in new_aggregates_raw:
             agg = DwsAggregateDefinition(
                 name=agg_data.get("name", ""),
@@ -245,41 +246,66 @@ class ComponentService:
             self.session.add(agg)
             await self.session.flush()
             await self.session.refresh(agg)
-            agg_code_to_id[agg_data["name"]] = agg.id
+            created_agg_ids.append(agg.id)
+            agg_code_to_id[agg_data.get("name", "")] = agg.id
 
-        # 3. 校验 component_code 唯一性
+        # 3. 校验 component_code 唯一性（批量内部）
         seen_codes: set[str] = set()
         for comp_data in components_raw:
             code = comp_data.get("component_code", "")
-            # MR0204: 检查批量数据内部唯一性
             if code in seen_codes:
                 raise ValueError(f"组件编码 '{code}' 在批量数据中重复")
             seen_codes.add(code)
 
-        # 4. 创建组件
+        # 4. 解析每个组件最终绑定的 aggregate_id
+        #    优先级：new_aggregate_index > aggregate_id；兼容旧字段 aggregate_ref
+        resolved: dict[str, int | None] = {}
         for comp_data in components_raw:
-            # 如果 aggregate_id 为空且指定了聚合编码，从新建的聚合中获取 ID
-            agg_ref = comp_data.get("aggregate_ref")
+            code = comp_data.get("component_code", "")
+            new_aggregate_index = comp_data.get("new_aggregate_index")
             aggregate_id = comp_data.get("aggregate_id")
+            agg_ref = comp_data.get("aggregate_ref")
 
-            if aggregate_id is None and agg_ref and agg_ref in agg_code_to_id:
+            # MR: aggregate_id 和 new_aggregate_index 不能同时为空（除非有 aggregate_ref）
+            if aggregate_id is None and new_aggregate_index is None and not agg_ref:
+                raise ValueError(
+                    f"组件 '{code}' 必须绑定聚合定义（aggregate_id 与 new_aggregate_index 不可同时为空）"
+                )
+
+            if new_aggregate_index is not None:
+                if new_aggregate_index < 0 or new_aggregate_index >= len(created_agg_ids):
+                    raise ValueError(
+                        f"组件 '{code}' 的 new_aggregate_index={new_aggregate_index} 越界 "
+                        f"（有效范围 0-{len(created_agg_ids) - 1}）"
+                    )
+                aggregate_id = created_agg_ids[new_aggregate_index]
+            elif agg_ref and aggregate_id is None and agg_ref in agg_code_to_id:
                 aggregate_id = agg_code_to_id[agg_ref]
 
-            # MR0205: 聚合已发布校验（引用已有聚合时）
-            if aggregate_id is not None and aggregate_id not in agg_code_to_id.values():
+            # MR0205: 引用已有聚合（非本次新建）必须 published
+            if aggregate_id is not None and aggregate_id not in created_agg_ids:
                 agg = await self.session.get(DwsAggregateDefinition, aggregate_id)
                 if agg is None:
                     raise ValueError(f"聚合定义不存在: {aggregate_id}")
                 if agg.status != "published":
                     raise ValueError(f"聚合定义 '{agg.name}' 未发布，当前状态: {agg.status}")
 
-            is_auto = bool(
-                aggregate_id is not None and aggregate_id in agg_code_to_id.values()
-            ) or comp_data.get("is_auto_created", False)
+            resolved[code] = aggregate_id
 
+        # MR0206: 分子/分母维度一致性（批量保存也要执行）
+        await self._validate_batch_dimension_alignment(metric_id, components_raw, resolved)
+
+        # 5. 创建组件
+        for comp_data in components_raw:
+            code = comp_data.get("component_code", "")
+            aggregate_id = resolved[code]
+            is_auto = (
+                bool(aggregate_id is not None and aggregate_id in created_agg_ids)
+                or comp_data.get("is_auto_created", False)
+            )
             comp = MetricComponent(
                 metric_id=metric_id,
-                component_code=comp_data.get("component_code", ""),
+                component_code=code,
                 component_name=comp_data.get("component_name", ""),
                 aggregate_id=aggregate_id,
                 role=comp_data.get("role", "custom"),
@@ -291,8 +317,42 @@ class ComponentService:
 
         await self.session.flush()
 
-        # 5. 返回所有组件
+        # 6. 返回所有组件
         return await self.list_components(metric_id)
+
+    async def _validate_batch_dimension_alignment(
+        self, metric_id: int, components_raw: list[dict], resolved: dict[str, int | None]
+    ) -> None:
+        """MR0206 批量版：分子/分母聚合维度必须一致。
+
+        仅在存在 ratio 组合（同时有 numerator 和 denominator 角色）时校验。
+        """
+        num_agg_id: int | None = None
+        den_agg_id: int | None = None
+        for comp_data in components_raw:
+            role = comp_data.get("role")
+            agg_id = resolved.get(comp_data.get("component_code", ""))
+            if role == "numerator":
+                num_agg_id = agg_id
+            elif role == "denominator":
+                den_agg_id = agg_id
+
+        if num_agg_id is None or den_agg_id is None:
+            return  # 非比率组合，跳过
+
+        num_agg = await self.session.get(DwsAggregateDefinition, num_agg_id)
+        den_agg = await self.session.get(DwsAggregateDefinition, den_agg_id)
+        if num_agg is None or den_agg is None:
+            return
+
+        new_group_by = set(num_agg.group_by or [])
+        existing_group_by = set(den_agg.group_by or [])
+        if new_group_by != existing_group_by:
+            raise ValueError(
+                f"维度对齐失败：分子聚合 '{num_agg.name}' 的维度 "
+                f"({sorted(new_group_by)}) 与分母聚合 '{den_agg.name}' 的维度 "
+                f"({sorted(existing_group_by)}) 不一致"
+            )
 
     # ==================== 公式拆解 (MR0207) ====================
 

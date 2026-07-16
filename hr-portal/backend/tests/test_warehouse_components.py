@@ -738,3 +738,214 @@ async def test_integration_cleanup_shared():
             await ddl.commit()
         _SHARED.clear()
         print("PASS: 共享资源已清理")
+
+
+# ==================== MR0213 整改：批量保存 new_aggregate_index 协议测试 ====================
+#
+# 修复：前端组件模式保存时发送 new_aggregate_index，后端原 schema
+# (MetricComponentBatchIn.components 为 MetricComponentCreateIn, extra=forbid)
+# 拒绝该字段导致 422；原 service 又读取不存在的 aggregate_ref。
+# 现 schema 新增 MetricComponentBatchItemIn（含 new_aggregate_index），
+# service 按 new_aggregate_index 绑定新建聚合。
+#
+# 运行：pytest tests/test_warehouse_components.py -v -k batch_save
+
+from sqlalchemy import delete as _sa_delete
+
+
+async def _make_batch_metric(db, suf: str) -> int:
+    """创建裸 WarehouseMetric（仅用于挂载组件，不需 DWS 视图）。
+
+    同时创建一个最小 DataSet 以满足 related_dataset_id 外键约束。
+    按固定 code 清旧，保证重复运行幂等。
+    """
+    await db.execute(sa_text("DELETE FROM warehouse_metrics WHERE metric_code = :c"), {"c": f"bm_{suf}"})
+    await db.execute(sa_text("DELETE FROM datasets WHERE name = :c"), {"c": f"ds_bm_{suf}"})
+    await db.commit()
+    ds = DataSet(
+        name=f"ds_bm_{suf}", label=f"批量测试数据集{suf}",
+        warehouse_layer="DWD", status="published", version=1,
+    )
+    db.add(ds)
+    await db.flush()
+    m = WarehouseMetric(
+        metric_code=f"bm_{suf}",
+        metric_name=f"批量测试指标{suf}",
+        metric_type="derived",
+        formula_sql="COUNT(*)/COUNT(*)",
+        related_dataset_id=ds.id,
+        status="published",
+        version=1,
+    )
+    db.add(m)
+    await db.flush()
+    await db.refresh(m)
+    return m.id
+
+
+async def _make_existing_agg(db, suf: str, metric_id: int, status: str) -> int:
+    """创建一个已存在的 DWS 聚合定义（绑定到测试指标以满足外键），用于引用校验。"""
+    agg = DwsAggregateDefinition(
+        name=f"dws_bm_{suf}",
+        label=f"已有聚合{suf}",
+        metric_id=metric_id,
+        source_dataset_id=None,
+        group_by=[],
+        aggregation="count",
+        status=status,
+    )
+    db.add(agg)
+    await db.flush()
+    await db.refresh(agg)
+    return agg.id
+
+
+def test_batch_in_accepts_new_aggregate_index():
+    """Schema 层：MetricComponentBatchIn 接受 new_aggregate_index（修复 422）"""
+    from app.warehouse.schemas import (
+        MetricComponentBatchIn, MetricComponentBatchItemIn, NewAggregateIn,
+    )
+    payload = MetricComponentBatchIn(
+        components=[
+            MetricComponentBatchItemIn(
+                component_code="numerator", component_name="分子",
+                role="numerator", new_aggregate_index=0,
+            ),
+            MetricComponentBatchItemIn(
+                component_code="denominator", component_name="分母",
+                role="denominator", new_aggregate_index=1,
+            ),
+        ],
+        new_aggregates=[
+            NewAggregateIn(source_dataset_id=1, name="dws_x_num", label="分子", group_by=["dept"], aggregation="COUNT"),
+            NewAggregateIn(source_dataset_id=1, name="dws_x_den", label="分母", group_by=["dept"], aggregation="COUNT"),
+        ],
+    )
+    assert payload.components[0].new_aggregate_index == 0
+    assert payload.components[1].new_aggregate_index == 1
+    dumped = payload.model_dump()
+    # 不应因 extra=forbid 而拒绝 new_aggregate_index
+    assert "new_aggregate_index" in dumped["components"][0]
+    assert dumped["components"][0]["new_aggregate_index"] == 0
+
+
+async def test_batch_save_new_aggregate_index_binds():
+    """闭环：批量保存后组件正确绑定到新建 DWS 聚合定义（验收核心）"""
+    from app.warehouse.service.component_service import get_component_service
+    suf = uuid.uuid4().hex[:8]
+    async with get_session_factory()() as db:
+        metric_id = await _make_batch_metric(db, suf)
+        svc = get_component_service(db)
+        result = await svc.batch_save_components(metric_id, {
+            "new_aggregates": [
+                {"name": f"dws_bm_{suf}_num", "label": "分子",
+                 "group_by": ["dept"], "aggregation": "COUNT"},
+                {"name": f"dws_bm_{suf}_den", "label": "分母",
+                 "group_by": ["dept"], "aggregation": "COUNT"},
+            ],
+            "components": [
+                {"component_code": "numerator", "component_name": "分子", "role": "numerator",
+                 "new_aggregate_index": 0, "is_auto_created": True},
+                {"component_code": "denominator", "component_name": "分母", "role": "denominator",
+                 "new_aggregate_index": 1, "is_auto_created": True},
+            ],
+        })
+        await db.commit()
+    assert len(result) == 2, f"应返回 2 个组件: {len(result)}"
+    codes = {c["component_code"] for c in result}
+    assert codes == {"numerator", "denominator"}
+    num = next(c for c in result if c["component_code"] == "numerator")
+    den = next(c for c in result if c["component_code"] == "denominator")
+    assert num["aggregate_id"] is not None, "分子组件应绑定新建聚合"
+    assert den["aggregate_id"] is not None, "分母组件应绑定新建聚合"
+    assert num["aggregate_id"] != den["aggregate_id"]
+    assert num["is_auto_created"] is True
+    assert num["aggregate_status"] == "published"
+    async with get_session_factory()() as db:
+        aggs = (await db.execute(
+            select(DwsAggregateDefinition).where(DwsAggregateDefinition.metric_id == metric_id)
+        )).scalars().all()
+        assert len(aggs) == 2, f"应新建 2 个聚合定义: {len(aggs)}"
+        await _delete_metric_chain(db, metric_id)
+        await db.commit()
+
+
+async def test_batch_save_index_out_of_bounds():
+    """new_aggregate_index 越界 → ValueError（API 层转 400）"""
+    from app.warehouse.service.component_service import get_component_service
+    suf = uuid.uuid4().hex[:8]
+    async with get_session_factory()() as db:
+        metric_id = await _make_batch_metric(db, suf)
+        svc = get_component_service(db)
+        with pytest.raises(ValueError, match="越界"):
+            await svc.batch_save_components(metric_id, {
+                "new_aggregates": [
+                    {"name": f"dws_bm_{suf}_num", "label": "分子", "group_by": ["dept"], "aggregation": "COUNT"},
+                ],
+                "components": [
+                    {"component_code": "numerator", "component_name": "分子", "role": "numerator",
+                     "new_aggregate_index": 5},
+                ],
+            })
+        await _delete_metric_chain(db, metric_id)
+        await db.commit()
+
+
+async def test_batch_save_both_empty_fails():
+    """aggregate_id 和 new_aggregate_index 都为空 → ValueError（API 层转 400）"""
+    from app.warehouse.service.component_service import get_component_service
+    suf = uuid.uuid4().hex[:8]
+    async with get_session_factory()() as db:
+        metric_id = await _make_batch_metric(db, suf)
+        svc = get_component_service(db)
+        with pytest.raises(ValueError, match="必须绑定聚合定义"):
+            await svc.batch_save_components(metric_id, {
+                "components": [
+                    {"component_code": "custom1", "component_name": "自定义", "role": "custom"},
+                ],
+            })
+        await _delete_metric_chain(db, metric_id)
+        await db.commit()
+
+
+async def test_batch_save_reference_published_ok():
+    """引用已有 published 聚合定义 → 成功"""
+    from app.warehouse.service.component_service import get_component_service
+    suf = uuid.uuid4().hex[:8]
+    async with get_session_factory()() as db:
+        metric_id = await _make_batch_metric(db, suf)
+        agg_id = await _make_existing_agg(db, suf, metric_id, status="published")
+        svc = get_component_service(db)
+        result = await svc.batch_save_components(metric_id, {
+            "components": [
+                {"component_code": "num", "component_name": "分子", "role": "numerator",
+                 "aggregate_id": agg_id},
+            ],
+        })
+        await db.commit()
+    assert len(result) == 1
+    assert result[0]["aggregate_id"] == agg_id
+    async with get_session_factory()() as db:
+        await db.execute(_sa_delete(DwsAggregateDefinition).where(DwsAggregateDefinition.id == agg_id))
+        await _delete_metric_chain(db, metric_id)
+        await db.commit()
+
+
+async def test_batch_save_reference_draft_fails():
+    """引用 draft 聚合定义 → ValueError（未发布）"""
+    from app.warehouse.service.component_service import get_component_service
+    suf = uuid.uuid4().hex[:8]
+    async with get_session_factory()() as db:
+        metric_id = await _make_batch_metric(db, suf)
+        agg_id = await _make_existing_agg(db, suf, metric_id, status="draft")
+        svc = get_component_service(db)
+        with pytest.raises(ValueError, match="未发布"):
+            await svc.batch_save_components(metric_id, {
+                "components": [
+                    {"component_code": "num", "component_name": "分子", "role": "numerator",
+                     "aggregate_id": agg_id},
+                ],
+            })
+        await db.execute(_sa_delete(DwsAggregateDefinition).where(DwsAggregateDefinition.id == agg_id))
+        await _delete_metric_chain(db, metric_id)
+        await db.commit()
