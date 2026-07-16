@@ -251,6 +251,12 @@ class SqlGenerator:
         # 仅当表达式为安全表达式时使用 COALESCE 兜底
         return f"COALESCE({self.gen(node.args[0])}, {self.gen(node.args[1])})"
 
+    def _fn_safe_divide(self, node: FunctionCallNode) -> str:
+        num = self.gen(node.args[0])
+        den = self.gen(node.args[1])
+        default = self.gen(node.args[2]) if len(node.args) >= 3 else "0"
+        return f"COALESCE({num}::numeric / NULLIF({den}::numeric, 0), {default})"
+
     def _fn_and(self, node: FunctionCallNode) -> str:
         return "(" + " AND ".join(self.gen(a) for a in node.args) + ")"
 

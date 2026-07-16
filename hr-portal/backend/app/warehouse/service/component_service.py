@@ -389,6 +389,16 @@ class ComponentService:
             is_ratio = True
             numerator_expr = core[:slash_pos].strip()
             denominator_expr = core[slash_pos + 1:].strip()
+        else:
+            # 若不包含顶层 /，尝试解包 SAFE_DIVIDE(numerator, denominator[, default])
+            sd = _unwrap_safe_divide(core)
+            if sd is not None:
+                is_ratio = True
+                numerator_expr, denominator_expr = sd
+            else:
+                numerator_expr = denominator_expr = None
+
+        if numerator_expr and denominator_expr:
 
             # 翻译校验（best-effort，不阻断比率识别，兼容 COUNT(*) / 0）
             await self._safe_translate(numerator_expr, dataset_id)
@@ -547,6 +557,48 @@ def _strip_percent_multiplier(expr: str) -> tuple[str, str | None]:
     return (s, None)
 
 
+def _unwrap_safe_divide(expr: str) -> tuple[str, str] | None:
+    """若 expr 为 SAFE_DIVIDE(numerator, denominator[, default])，返回 (分子, 分母)。否则返回 None。"""
+    s = expr.strip()
+    m = re.match(r"^SAFE_DIVIDE\(", s, re.IGNORECASE)
+    if not m:
+        return None
+    # 括号深度扫描，提取前两个逗号分隔的参数
+    depth = 0
+    in_quote = False
+    quote_char = ""
+    start = m.end()  # 跳过 "SAFE_DIVIDE("
+    params: list[str] = []
+    param_start = start
+    for i in range(start, len(s)):
+        ch = s[i]
+        if in_quote:
+            if ch == quote_char:
+                in_quote = False
+            continue
+        if ch in ("'", '"'):
+            in_quote = True
+            quote_char = ch
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                # 闭合括号 → 最后一个参数结束
+                params.append(s[param_start:i].strip())
+                break
+            depth -= 1
+        elif ch == "," and depth == 0:
+            params.append(s[param_start:i].strip())
+            param_start = i + 1
+            if len(params) >= 2:
+                # 已有两个参数，剩余到 ) 为止
+                continue
+    if len(params) >= 2:
+        return (params[0], params[1])
+    return None
+
+
 def _normalize_ratio_formula(expr: str) -> tuple[str, str | None, str]:
     """去除外层 ROUND(...) 包装和尾部 *100 等展示逻辑，返回核心比率表达式。
 
@@ -624,14 +676,30 @@ def _generate_suggested_name(role: str) -> str:
 
 
 async def _infer_dimensions_from_dataset(db: AsyncSession, dataset_id: int) -> list[str]:
-    """从数据集的输出字段中推断维度字段列表。
+    """返回数据集中已定义的维度编码。
 
-    维度字段的判断依据：字段名包含 _id, _key, _code, _type, _group 等后缀，
-    但不包含时间相关后缀（_date, _time, _at）。
+    优先从维度管理（dimensions 表）中查询绑定到该数据集的维度；
+    没有维度定义时回退到字段名后缀推断。
     """
+    from app.warehouse.models import Dimension
+    from sqlalchemy import select as sa_select
+
+    # 优先：从维度管理查询同一数据集上的维度
+    try:
+        result = await db.execute(
+            sa_select(Dimension.dimension_name)
+            .where(Dimension.source_dataset_id == dataset_id)
+            .order_by(Dimension.display_order)
+        )
+        dims = [row[0] for row in result.fetchall() if row[0]]
+        if dims:
+            return dims
+    except Exception:
+        pass
+
+    # 回退：字段名后缀推断
     from app.datasets.models import DataSet
     from sqlalchemy import text as sa_text
-
     ds = await db.get(DataSet, dataset_id)
     if ds is None:
         return []
@@ -653,7 +721,6 @@ async def _infer_dimensions_from_dataset(db: AsyncSession, dataset_id: int) -> l
             code = row[0] if isinstance(row, tuple) else row.output_code
             if not code:
                 continue
-            # 检查是否为维度字段
             is_time = any(code.endswith(s) for s in TIME_SUFFIXES)
             is_dim = any(code.endswith(s) for s in DIMENSION_SUFFIXES)
             if is_dim and not is_time:

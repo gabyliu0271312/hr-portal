@@ -1584,29 +1584,42 @@ async function removeField() {
   resize: none;
 }
 .config-panel {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   overflow: hidden;
   padding: 10px;
   border-left: 1px solid var(--color-border-light);
   background: var(--color-bg-subtle);
-  overscroll-behavior: contain;
 }
 .config-card {
-  align-content: start;
-  overflow: auto;
+  display: block;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
   scrollbar-gutter: stable;
 }
 .config-form :deep(.el-form-item) {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .config-form :deep(.el-form-item__label) {
   color: var(--color-text-secondary);
   font-size: 12px;
   font-weight: 600;
+}
+/* 配置面板双列并排 */
+.config-row-2col {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.config-row-2col > .el-form-item {
+  margin-bottom: 10px;
 }
 .validation-card {
   max-height: 180px;

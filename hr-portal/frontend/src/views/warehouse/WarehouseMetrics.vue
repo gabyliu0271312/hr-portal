@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatDateTime } from '@/utils/datetime'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Refresh, Edit, Finished, FolderDelete, TrendCharts, VideoPlay, DataAnalysis, Loading } from '@element-plus/icons-vue'
@@ -386,6 +386,10 @@ const trendData = computed(() => {
 const dialogVisible = ref(false)
 const dialogMode = ref<'create' | 'edit'>('create')
 const editId = ref<number | null>(null)
+// 两步向导：1 = 基本信息, 2 = 公式编辑
+const createStep = ref<number>(0)
+const step1Visible = ref(false)
+const step1Saving = ref(false)
 const form = ref({
   metric_code: '', metric_name: '', metric_type: 'derived' as MetricCreatePayload['metric_type'],
   subject_area: '', business_definition: '', calculation_desc: '', formula_expr: '',
@@ -399,7 +403,8 @@ const loadingDatasets = ref(false)
 // 公式编辑器字段
 const formulaEditorFields = ref<ColumnInfo[]>([])
 const formulaEditorKey = ref(0)
-const editorTitle = computed(() => dialogMode.value === 'create' ? '新建指标' : '编辑指标')
+const editorTitle = computed(() => dialogMode.value === 'edit' ? '编辑指标' : '新建指标 - 编辑公式')
+const editorSubtitle = computed(() => dialogMode.value === 'edit' ? '从左侧选择字段和函数编写公式' : '选择数据集，从左侧选择字段和函数编写公式')
 
 // ========== MR0210-MR0212: 组件模式状态 ==========
 
@@ -447,6 +452,11 @@ const inferredDimensions = ref<string[]>([])
 const publishedAggregates = ref<DwsAggregate[]>([])
 const loadingAggregates = ref(false)
 
+// UI 自动滚动锚点
+const ratioHintRef = ref<HTMLElement | null>(null)
+const computeModeRef = ref<HTMLElement | null>(null)
+const componentConfigRef = ref<HTMLElement | null>(null)
+
 /** 已有组件列表（编辑模式下加载） */
 const existingComponents = ref<MetricComponentItem[]>([])
 
@@ -454,8 +464,8 @@ const existingComponents = ref<MetricComponentItem[]>([])
 function isRatioFormula(formula: string): boolean {
   if (!formula) return false
   const f = formula.toUpperCase()
-  // 检测 / 运算符 + 聚合函数 → 比率
-  return f.includes('/') && (f.includes('COUNT(') || f.includes('COUNTIF(') || f.includes('SUM(') || f.includes('AVG(') || f.includes('COUNT_DISTINCT('))
+  // 检测 / 运算符（含 SAFE_DIVIDE）+ 聚合函数 → 比率
+  return (f.includes('/') || f.includes('SAFE_DIVIDE(')) && (f.includes('COUNT(') || f.includes('COUNTIF(') || f.includes('SUM(') || f.includes('AVG(') || f.includes('COUNT_DISTINCT('))
 }
 
 // 公式变化时检测比率公式 + 推导类型
@@ -465,7 +475,16 @@ watch(() => form.value.formula_expr, (val) => {
     const isRatio = isRatioFormula(val)
     const isFormulaMode = editMode.value === 'formula'
     form.value.metric_type = derived as any
+    const wasDetected = ratioFormulaDetected.value
     ratioFormulaDetected.value = isRatio && isFormulaMode
+    // 首次检测到比率公式时自动滚动到计算模式区
+    if (!wasDetected && ratioFormulaDetected.value) {
+      nextTick(() => {
+        const card = document.querySelector('.config-card')
+        const target = computeModeRef.value
+        if (card && target) card.scrollTop = Math.max(0, target.offsetTop - 80)
+      })
+    }
   } else {
     ratioFormulaDetected.value = false
     decomposeResult.value = null
@@ -476,6 +495,12 @@ watch(() => form.value.formula_expr, (val) => {
 watch(editMode, (mode) => {
   if (mode === 'component') {
     ratioFormulaDetected.value = false
+    // 自动滚动到组件配置区
+    nextTick(() => {
+      const card = document.querySelector('.config-card')
+      const target = componentConfigRef.value
+      if (card && target) card.scrollTop = target.offsetTop - 20
+    })
   } else {
     // 回退到公式模式时清除组件数据
     componentRows.value = []
@@ -613,12 +638,34 @@ function openCreate() {
   decomposeResult.value = null
   componentRows.value = []
   newAggregates.value = []
-  formulaEditorKey.value++
-  dialogVisible.value = true
+  // 两步向导：先显示 Step 1 基本信息
+  createStep.value = 1
+  step1Visible.value = true
+}
+
+function goToStep2() {
+  // 校验必填
+  if (!form.value.metric_code.trim()) { ElMessage.warning('请输入指标编码'); return }
+  if (!form.value.metric_name.trim()) { ElMessage.warning('请输入指标名称'); return }
+  createStep.value = 2
+  dialogVisible.value = true  // 先打开 Step 2（覆盖在 Step 1 之上）
+  setTimeout(() => { step1Visible.value = false }, 150)  // 延迟关闭 Step 1，避免弹窗闪动
+}
+
+function goToStep1() {
+  dialogVisible.value = false
+  createStep.value = 1
+  step1Visible.value = true
+}
+
+function closeStep1() {
+  step1Visible.value = false
+  createStep.value = 0
 }
 
 async function openEdit(id: number) {
   dialogMode.value = 'edit'; editId.value = id
+  createStep.value = 0  // 编辑模式：直接进公式编辑器
   try {
     const m = await getMetric(id)
     form.value = {
@@ -724,7 +771,7 @@ function deriveMetricType(formula: string): string {
   const f = (formula || '').toUpperCase()
   if (f.includes('SUM(')) return 'sum'
   if (f.includes('COUNT(') || f.includes('COUNTIF(') || f.includes('COUNT_DISTINCT(')) return 'count'
-  if (f.includes('/') && (f.includes('SUM(') || f.includes('COUNT(') || f.includes('COUNTIF(') || f.includes('AVG('))) return 'ratio'
+  if ((f.includes('/') || f.includes('SAFE_DIVIDE(')) && (f.includes('SUM(') || f.includes('COUNT(') || f.includes('COUNTIF(') || f.includes('AVG('))) return 'ratio'
   if (!f.match(/SUM|COUNT|AVG|MAX|MIN|ROUND|IF/)) return 'text'
   return 'derived'
 }
@@ -1095,7 +1142,7 @@ onMounted(load)
       :visible="dialogVisible"
       @update:visible="dialogVisible = $event"
       :title="editorTitle"
-      subtitle="从左侧选择字段和函数编写公式，右侧配置指标基础信息"
+      :subtitle="editorSubtitle"
       :dataset-id="form.related_dataset_id || null"
       :fields="formulaEditorFields"
       :initial-formula="form.formula_expr"
@@ -1106,105 +1153,9 @@ onMounted(load)
     >
       <template #config>
         <section class="config-card">
-          <div class="section-head compact-head">
-            <span class="section-marker"></span>
-            <span>指标配置</span>
-          </div>
           <el-form label-position="top" class="config-form" size="small">
 
-            <!-- ========== AST0017: 公式编译预览面板 ========== -->
-            <el-form-item v-if="form.related_dataset_id && form.formula_expr" label="公式编译预览">
-              <el-card shadow="never" size="small" style="width:100%;background:#fafafa">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-                  <el-tag v-if="compiling" type="info" size="small" effect="plain">
-                    <el-icon style="margin-right:4px"><Loading /></el-icon>编译中…
-                  </el-tag>
-                  <el-tag v-else-if="compileResult && compileResult.valid" type="success" size="small">
-                    公式有效
-                  </el-tag>
-                  <el-tag v-else-if="compileResult && !compileResult.valid" type="danger" size="small">
-                    公式无效（{{ (compileResult.errors || []).length }} 处错误）
-                  </el-tag>
-                  <el-tag v-else type="info" size="small" effect="plain">等待输入</el-tag>
-                  <span v-if="compileResult && compileResult.compiler" style="font-size:11px;color:#909399">
-                    {{ compileResult.compiler.engine }} · v{{ compileResult.compiler.version }}
-                  </span>
-                </div>
-
-                <!-- 识别字段 -->
-                <div v-if="compileResult && (compileResult.dependencies || []).length" style="margin-bottom:8px">
-                  <span style="font-size:12px;color:#606266;margin-right:6px">识别字段：</span>
-                  <el-tag v-for="dep in compileResult.dependencies" :key="dep.field_code" size="small" type="primary" effect="plain" style="margin:2px">
-                    {{ dep.field_label || dep.field_code }}
-                  </el-tag>
-                </div>
-
-                <!-- 识别函数 -->
-                <div v-if="compileResult && (compileResult.functions || []).length" style="margin-bottom:8px">
-                  <span style="font-size:12px;color:#606266;margin-right:6px">识别函数：</span>
-                  <el-tag v-for="fn in compileResult.functions" :key="fn" size="small" type="warning" effect="plain" style="margin:2px">
-                    {{ fn }}
-                  </el-tag>
-                </div>
-
-                <!-- 生成 SQL（可折叠） -->
-                <div v-if="compileResult && compileResult.sql" style="margin-bottom:8px">
-                  <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" @click="showSql = !showSql">
-                    <span style="font-size:12px;color:#606266">生成 SQL：</span>
-                    <el-button text size="small" type="primary">{{ showSql ? '收起' : '展开' }}</el-button>
-                  </div>
-                  <el-input v-if="showSql" :model-value="compileResult.sql" type="textarea" :rows="4" readonly
-                            style="font-family:monospace;font-size:12px;margin-top:4px" />
-                  <div v-else style="font-family:monospace;font-size:12px;color:#606266;background:#fff;padding:4px 6px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ compileResult.sql }}</div>
-                </div>
-
-                <!-- 样本预览值 -->
-                <div v-if="compileResult && compileResult.preview_result" style="margin-bottom:8px">
-                  <span style="font-size:12px;color:#606266">样本预览值：</span>
-                  <code style="background:#fff;padding:2px 6px;border-radius:4px">{{ compileResult.preview_result.value }}</code>
-                  <span style="font-size:11px;color:#909399;margin-left:6px">行数 {{ compileResult.preview_result.row_count }}</span>
-                </div>
-
-                <!-- 警告（不阻断保存） -->
-                <el-alert v-for="(w, i) in (compileResult ? compileResult.warnings : [])" :key="'w' + i"
-                          type="warning" :closable="false" show-icon style="margin-bottom:6px">
-                  <template #title>{{ w.message }}</template>
-                </el-alert>
-
-                <!-- 错误（定位到公式片段，阻断保存） -->
-                <el-alert v-for="(e, i) in (compileResult ? compileResult.errors : [])" :key="'e' + i"
-                          type="error" :closable="false" show-icon style="margin-bottom:6px">
-                  <template #title>
-                    <span style="font-weight:600">[{{ e.code }}]</span> {{ e.message }}
-                  </template>
-                  <template #default v-if="e.fragment || e.suggestion">
-                    <div style="font-size:12px;line-height:1.6">
-                      <span v-if="e.fragment" style="font-family:monospace">片段：<code>{{ e.fragment }}</code></span>
-                      <span v-if="e.suggestion" style="margin-left:8px;color:#909399">建议：{{ e.suggestion }}</span>
-                    </div>
-                  </template>
-                </el-alert>
-              </el-card>
-            </el-form-item>
-
-            <el-form-item label="指标编码" required>
-              <el-input v-model="form.metric_code" :disabled="dialogMode === 'edit'" maxlength="64" />
-            </el-form-item>
-            <el-form-item label="指标名称" required>
-              <el-input v-model="form.metric_name" maxlength="128" />
-            </el-form-item>
-            <el-form-item label="指标类型">
-              <el-tag :type="metricTypeTagType" size="default">
-                {{ metricTypeLabel }}
-              </el-tag>
-              <span style="font-size:11px;color:#909399;margin-left:6px">由公式自动推导</span>
-            </el-form-item>
-            <el-form-item label="主题域">
-              <el-input v-model="form.subject_area" placeholder="如：薪酬" />
-            </el-form-item>
-            <el-form-item label="负责人">
-              <el-input v-model="form.owner_name" />
-            </el-form-item>
+            <!-- 依赖数据集 -->
             <el-form-item label="依赖数据集">
               <el-select v-model="form.related_dataset_id" clearable filterable placeholder="选择数据集" style="width: 100%" :loading="loadingDatasets" @focus="loadDatasetOptions" @change="onDatasetChange">
                 <el-option v-for="ds in datasetOptions" :key="ds.id" :label="`${ds.label} (${ds.layer})`" :value="ds.id">
@@ -1212,154 +1163,183 @@ onMounted(load)
                   <el-tag size="small" type="info" style="margin-left:8px">{{ ds.layer }}</el-tag>
                 </el-option>
               </el-select>
-              <span style="font-size:11px;color:#909399">DWS 生成时自动派生 year/quarter/month</span>
             </el-form-item>
 
-            <!-- ========== MR0210: 比率公式检测提示 ========== -->
+            <!-- 指标类型（只读展示） -->
+            <el-form-item v-if="form.formula_expr" label="指标类型">
+              <el-tag :type="metricTypeTagType" size="small">{{ metricTypeLabel }}</el-tag>
+              <span style="font-size:11px;color:#909399;margin-left:6px">由公式自动推导</span>
+            </el-form-item>
+
+            <!-- 编译预览（折叠） -->
+            <el-form-item v-if="form.related_dataset_id && form.formula_expr" label="">
+              <el-button text size="small" type="primary" style="padding:0;font-size:12px" @click="showSql = !showSql">
+                {{ showSql ? '▾ 收起编译预览' : '▸ 展开编译预览' }}
+              </el-button>
+              <el-card v-if="showSql" shadow="never" size="small" style="width:100%;background:#fafafa;margin-top:6px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <el-tag v-if="compiling" type="info" size="small">编译中…</el-tag>
+                  <el-tag v-else-if="compileResult && compileResult.valid" type="success" size="small">公式有效</el-tag>
+                  <el-tag v-else-if="compileResult && !compileResult.valid" type="danger" size="small">公式无效（{{ (compileResult.errors || []).length }} 处错误）</el-tag>
+                  <el-tag v-else type="info" size="small">等待输入</el-tag>
+                </div>
+                <div v-if="compileResult && (compileResult.dependencies || []).length" style="margin-bottom:6px">
+                  <span style="font-size:12px;color:#606266;margin-right:4px">识别字段：</span>
+                  <el-tag v-for="dep in compileResult.dependencies" :key="dep.field_code" size="small" type="primary" effect="plain" style="margin:2px">{{ dep.field_label || dep.field_code }}</el-tag>
+                </div>
+                <div v-if="compileResult && (compileResult.functions || []).length" style="margin-bottom:6px">
+                  <span style="font-size:12px;color:#606266;margin-right:4px">识别函数：</span>
+                  <el-tag v-for="fn in compileResult.functions" :key="fn" size="small" type="warning" effect="plain" style="margin:2px">{{ fn }}</el-tag>
+                </div>
+                <div v-if="compileResult && compileResult.sql" style="margin-bottom:6px">
+                  <el-input :model-value="compileResult.sql" type="textarea" :rows="4" readonly style="font-family:monospace;font-size:11px" />
+                </div>
+                <el-alert v-for="(e, i) in (compileResult ? compileResult.errors : [])" :key="'e'+i" type="error" :closable="false" show-icon style="margin-bottom:4px">
+                  <template #title><span style="font-weight:600">[{{ e.code }}]</span> {{ e.message }}</template>
+                </el-alert>
+              </el-card>
+            </el-form-item>
+
+            <!-- 比率公式检测提示 -->
             <el-form-item v-if="ratioFormulaDetected && editMode === 'formula' && form.related_dataset_id" label="">
-              <el-alert type="warning" :closable="false" show-icon style="width: 100%">
-                <template #title>
-                  <span style="font-weight:600">检测到比率公式</span>
-                </template>
+              <el-alert type="warning" :closable="false" show-icon style="width:100%">
+                <template #title><span style="font-weight:600">检测到比率公式</span></template>
                 <template #default>
-                  <div style="font-size:12px;line-height:1.6">
-                    <p style="margin:4px 0">当前公式包含除法运算，建议拆解为组件模式，以便：</p>
-                    <ul style="margin:2px 0;padding-left:18px">
-                      <li>保留分子/分母独立值（如离职5人/总120人=4.17%）</li>
-                      <li>支持结果解释与溯源</li>
-                      <li>分母为0时返回明确提示而非报错</li>
-                    </ul>
+                  <div style="font-size:12px;line-height:1.5">
+                    <p style="margin:2px 0">建议拆解为组件模式，以便保留分子/分母独立值、支持结果溯源、分母为0时返回提示。</p>
                   </div>
-                  <div style="margin-top:8px;display:flex;gap:8px">
+                  <div style="margin-top:6px;display:flex;gap:6px">
                     <el-button size="small" @click="ratioFormulaDetected = false">保持公式模式</el-button>
-                    <el-button size="small" type="primary" :loading="decomposing" @click="switchToComponentMode">
-                      切换到组件模式
-                    </el-button>
+                    <el-button size="small" type="primary" :loading="decomposing" @click="switchToComponentMode">切换到组件模式</el-button>
                   </div>
                 </template>
               </el-alert>
             </el-form-item>
 
-            <!-- ========== MR0210: 模式切换按钮（手动切换） ========== -->
-            <el-form-item v-if="form.related_dataset_id && form.formula_expr" label="计算模式">
+            <!-- 计算模式 -->
+            <el-form-item v-if="form.related_dataset_id && form.formula_expr" label="计算模式" ref="computeModeRef">
               <el-radio-group v-model="editMode" size="small">
                 <el-radio-button value="formula">公式模式</el-radio-button>
                 <el-radio-button value="component" :disabled="!isRatioFormula(form.formula_expr)">组件模式</el-radio-button>
               </el-radio-group>
-              <span style="font-size:11px;color:#909399;margin-left:6px">
-                {{ editMode === 'formula' ? '公式直接计算，结果为单值' : '拆解分子/分母，结果含多度量值' }}
-              </span>
             </el-form-item>
 
-            <!-- ========== MR0211-MR0212: 组件配置区 ========== -->
-            <div v-if="editMode === 'component'" style="margin-top:12px;border:1px solid #e4e7ed;border-radius:6px;padding:12px;background:#fafafa">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <!-- 组件配置区 -->
+            <div v-if="editMode === 'component'" ref="componentConfigRef" style="margin-top:8px;border:1px solid #e4e7ed;border-radius:6px;padding:10px;background:#fafafa">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
                 <span style="font-weight:600;font-size:13px;color:#303133">组件配置</span>
-                <el-button size="small" type="primary" :loading="decomposing" @click="switchToComponentMode">
-                  重新拆解公式
-                </el-button>
+                <el-button size="small" type="primary" :loading="decomposing" @click="switchToComponentMode">重新拆解</el-button>
               </div>
-
-              <!-- 组件角色表格 -->
-              <el-table :data="componentRows" size="small" border style="width:100%;margin-bottom:12px">
-                <el-table-column prop="role" label="角色" width="70">
-                  <template #default="{ row }">
+              <table class="component-table" style="width:max-content;border-collapse:collapse;margin-bottom:10px;font-size:12px">
+                <thead>
+                  <tr style="background:#f5f7fa">
+                    <th style="padding:4px 8px;border:1px solid #dcdfe6;white-space:nowrap;font-weight:600">角色</th>
+                    <th style="padding:4px 8px;border:1px solid #dcdfe6;white-space:nowrap;font-weight:600">名称</th>
+                    <th style="padding:4px 8px;border:1px solid #dcdfe6;white-space:nowrap;font-weight:600">表达式</th>
+                    <th style="padding:4px 8px;border:1px solid #dcdfe6;white-space:nowrap;font-weight:600">聚合定义</th>
+                    <th style="padding:4px 4px;border:1px solid #dcdfe6;white-space:nowrap;font-weight:600"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                <tr v-for="(row, $index) in componentRows" :key="$index">
+                  <td style="padding:4px 8px;border:1px solid #dcdfe6;white-space:nowrap;vertical-align:top">
                     <el-tag size="small" :type="row.role === 'numerator' ? 'danger' : row.role === 'denominator' ? 'warning' : 'info'">
                       {{ COMPONENT_ROLE_LABELS[row.role as ComponentRole] || row.role }}
                     </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="component_name" label="组件名称" min-width="100">
-                  <template #default="{ row }">
+                  </td>
+                  <td style="padding:4px 8px;border:1px solid #dcdfe6;white-space:nowrap;vertical-align:top">
                     <el-input v-model="row.component_name" size="small" />
-                  </template>
-                </el-table-column>
-                <el-table-column prop="expression" label="表达式" min-width="120">
-                  <template #default="{ row }">
-                    <span style="font-size:11px;font-family:monospace;color:#606266">{{ row.expression }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="聚合定义" min-width="180">
-                  <template #default="{ row, $index }">
-                    <!-- 引用已有聚合 -->
-                    <div v-if="row.aggregate_id" style="display:flex;align-items:center;gap:4px">
-                      <el-tag size="small" type="success">{{ publishedAggregates.find(a => a.id === row.aggregate_id)?.name || `#${row.aggregate_id}` }}</el-tag>
-                      <el-button size="small" text type="danger" @click="setExistingAggregate($index, null)">取消引用</el-button>
+                  </td>
+                  <td style="padding:4px 8px;border:1px solid #dcdfe6;white-space:nowrap;vertical-align:top;font-family:monospace;font-size:11px">
+                    {{ row.expression }}
+                  </td>
+                  <td style="padding:4px 8px;border:1px solid #dcdfe6;white-space:nowrap;vertical-align:top">
+                    <div v-if="row.aggregate_id" style="display:flex;flex-direction:column;gap:1px;font-size:11px">
+                      <span style="color:#67C23A">{{ publishedAggregates.find(a => a.id === row.aggregate_id)?.name || `#${row.aggregate_id}` }}</span>
+                      <el-button size="small" text type="danger" style="padding:0;font-size:10px;align-self:flex-start" @click="setExistingAggregate($index, null)">取消</el-button>
                     </div>
-                    <!-- 自动创建 -->
-                    <div v-else-if="row.new_aggregate_index !== null" style="display:flex;align-items:center;gap:4px">
+                    <div v-else-if="row.new_aggregate_index !== null" style="display:flex;flex-direction:column;gap:1px;font-size:11px">
+                      <span style="color:#909399">{{ newAggregates[row.new_aggregate_index]?.name }}</span>
                       <el-tag size="small" type="info">自动创建</el-tag>
-                      <span style="font-size:11px;color:#909399">{{ newAggregates[row.new_aggregate_index]?.name }}</span>
                     </div>
-                    <!-- 无聚合（异常态） -->
                     <span v-else style="font-size:11px;color:#F56C6C">未配置</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="引用已有聚合" width="140">
-                  <template #default="{ row, $index }">
-                    <el-select
-                      v-model="row.aggregate_id"
-                      size="small"
-                      clearable
-                      filterable
-                      placeholder="引用已有聚合"
-                      :loading="loadingAggregates"
-                      @change="(val: any) => setExistingAggregate($index, val || null)"
-                      style="width:100%"
-                    >
-                      <el-option
-                        v-for="agg in publishedAggregates"
-                        :key="agg.id"
-                        :label="agg.name"
-                        :value="agg.id"
-                      >
-                        <span>{{ agg.name }}</span>
-                        <el-tag size="small" :type="isDimensionMatch(agg) ? 'success' : 'danger'" style="margin-left:6px">
-                          {{ isDimensionMatch(agg) ? '维度匹配' : '维度不匹配' }}
-                        </el-tag>
-                      </el-option>
-                    </el-select>
-                  </template>
-                </el-table-column>
-              </el-table>
-
-              <!-- 组合规则 + 维度推断 -->
-              <el-form label-position="left" label-width="80px" size="small">
-                <el-form-item label="组合规则">
-                  <el-input v-model="combinationRule" readonly style="font-family:monospace" />
-                  <span style="font-size:11px;color:#909399">由公式拆解自动生成</span>
-                </el-form-item>
+                  </td>
+                  <td style="padding:4px 4px;border:1px solid #dcdfe6;white-space:nowrap;vertical-align:top;text-align:center">
+                    <el-popover placement="left" :width="160" trigger="click">
+                      <template #reference>
+                        <el-button size="small" text style="padding:0">+</el-button>
+                      </template>
+                      <el-select v-model="row.aggregate_id" size="small" clearable filterable placeholder="选择已有聚合" style="width:100%" @change="(val: any) => setExistingAggregate($index, val || null)">
+                        <el-option v-for="agg in publishedAggregates" :key="agg.id" :label="agg.name" :value="agg.id" />
+                      </el-select>
+                    </el-popover>
+                  </td>
+                </tr>
+                </tbody>
+              </table>
+              <el-form label-position="left" label-width="70px" size="small">
+                <el-form-item label="组合规则"><el-input v-model="combinationRule" readonly style="font-family:monospace" /></el-form-item>
                 <el-form-item label="分组维度">
+                  <el-tooltip placement="top" effect="dark" raw-content content="计算时 GROUP BY 的字段，由关联的<br/>DWS 聚合定义决定，仅作预览。<br/><br/>如需修改，请前往<br/>「数据建模 → 汇总视图」调整。">
+                    <el-icon style="margin-right:4px;vertical-align:middle;cursor:help;color:#909399"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg></el-icon>
+                  </el-tooltip>
                   <div style="display:flex;gap:4px;flex-wrap:wrap">
                     <el-tag v-for="dim in inferredDimensions" :key="dim" size="small" type="success">{{ dim }}</el-tag>
-                    <span v-if="!inferredDimensions.length" style="font-size:11px;color:#909399">从数据集自动推断</span>
+                    <span v-if="!inferredDimensions.length" style="font-size:11px;color:#909399">选择数据集后自动推断</span>
                   </div>
                 </el-form-item>
               </el-form>
             </div>
 
-            <el-form-item label="业务定义">
-              <el-input v-model="form.business_definition" type="textarea" :rows="2" />
-            </el-form-item>
-            <el-form-item label="口径说明">
-              <el-input v-model="form.calculation_desc" type="textarea" :rows="2" placeholder="计算口径的文字说明" />
-            </el-form-item>
-            <el-form-item v-if="form.related_dataset_id && editMode === 'formula'" label="SQL 翻译">
-              <el-input v-if="translating" model-value="翻译中..." type="textarea" :rows="3" readonly style="font-family: monospace; font-size: 12px" />
-              <el-input v-else-if="form.formula_sql" :model-value="form.formula_sql" type="textarea" :rows="3" readonly style="font-family: monospace; font-size: 12px" />
-              <span v-else style="font-size:11px;color:#909399">输入公式后自动翻译</span>
-              <span style="font-size:11px;color:#909399">由 Excel 公式自动翻译，保存后生效</span>
-            </el-form-item>
           </el-form>
         </section>
       </template>
 
       <template #actions>
+        <el-button v-if="dialogMode === 'create'" @click="goToStep1">上一步</el-button>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" :disabled="formulaHasError" @click="save">
           {{ editMode === 'component' ? '保存指标 + 组件' : '保存指标' }}
         </el-button>
       </template>
     </FormulaFieldEditor>
+
+    <!-- Step 1: 基本信息 -->
+    <el-dialog
+      v-model="step1Visible"
+      title="新建指标 - 基本信息"
+      width="480px"
+      :close-on-click-modal="false"
+      @closed="closeStep1"
+    >
+      <el-form label-position="top" size="small">
+        <div style="display:flex;gap:12px">
+          <el-form-item label="指标编码" required style="flex:1">
+            <el-input v-model="form.metric_code" maxlength="64" placeholder="如 turnover_rate" />
+          </el-form-item>
+          <el-form-item label="指标名称" required style="flex:1">
+            <el-input v-model="form.metric_name" maxlength="128" placeholder="如 离职率" />
+          </el-form-item>
+        </div>
+        <div style="display:flex;gap:12px">
+          <el-form-item label="主题域" style="flex:1">
+            <el-input v-model="form.subject_area" placeholder="如 薪酬" />
+          </el-form-item>
+          <el-form-item label="负责人" style="flex:1">
+            <el-input v-model="form.owner_name" placeholder="如 张三" />
+          </el-form-item>
+        </div>
+        <el-form-item label="业务定义">
+          <el-input v-model="form.business_definition" type="textarea" :rows="2" placeholder="指标的业务含义说明" />
+        </el-form-item>
+        <el-form-item label="口径说明">
+          <el-input v-model="form.calculation_desc" type="textarea" :rows="2" placeholder="计算口径的文字说明" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="step1Visible = false">取消</el-button>
+        <el-button type="primary" @click="goToStep2">下一步：编辑公式</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>

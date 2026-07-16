@@ -86,6 +86,7 @@ def _register() -> dict[str, FunctionSpec]:
     add("ISBLANK", 1, 1, False, scl, desc="是否为空")
     add("YEAR", 1, 1, False, scl, desc="取年份")
     add("MONTH", 1, 1, False, scl, desc="取月份")
+    add("SAFE_DIVIDE", 2, 3, False, scl, desc="安全除法（分母为0返回默认值）")
     return specs
 
 
