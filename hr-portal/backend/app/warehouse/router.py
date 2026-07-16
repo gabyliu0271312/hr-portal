@@ -3,7 +3,7 @@
 
 路由前缀: /api/v1/warehouse
 """
-from typing import Optional
+from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, String
@@ -61,7 +61,7 @@ from app.warehouse.lineage import (
     MAX_LIMIT,
 )
 from app.warehouse.models import WarehouseQualityRule, WarehouseQualityRun, WarehouseAlertRule, WarehouseModelVersion, StandardizationRule, StandardizationTemplate
-from app.warehouse.models import MetricResult, MetricRun, Dimension, DwsAggregateDefinition, MetricComponent
+from app.warehouse.models import MetricResult, MetricRun, Dimension, DwsAggregateDefinition, MetricComponent, AutomationAuditEvent
 from app.warehouse.quality_engine import execute_quality_rule, _safe_ident
 from app.warehouse.schemas import (
     STANDARDIZATION_RULE_TYPES,
@@ -4650,13 +4650,112 @@ class MetricExplainOut(BaseModel):
 
 
 class MetricAiContextOut(BaseModel):
-    """MR0305: AI-ready 上下文输出"""
+    """MR0305: AI-ready 上下文输出（整改计划 3 增强）"""
     metric: dict
     period: str
+    permission_level: str = "summary_only"
     dimensions: Optional[dict] = None
     measures: Optional[dict] = None
+    summary_value: Optional[Any] = None
+    row_count: Optional[int] = None
     lineage: list[str] = []
+    warnings: list[dict] = []
     explanation: Optional[str] = None
+
+
+def _sanitize_measure_values(measure_values: dict) -> dict:
+    """只保留标量聚合值，过滤内部错误键(_errors)与复杂结构。
+
+    满足 MR0305 整改计划 3：
+    - 不把 _errors 等内部键当作普通 measure 返回
+    - 只保留 int/float/str/None 标量，避免嵌套结构进入 AI 上下文
+    """
+    allowed: dict = {}
+    if not measure_values:
+        return allowed
+    for k, v in measure_values.items():
+        if k.startswith("_"):
+            continue
+        if isinstance(v, (int, float, str)) or v is None:
+            allowed[k] = v
+        # list/dict 等复杂结构一律丢弃，不进入 AI 上下文
+    return allowed
+
+
+def _sanitize_dimension_values(dimension_values: dict) -> dict:
+    """维度值只保留标量，过滤内部键（fail-closed 安全裁剪）。"""
+    allowed: dict = {}
+    if not dimension_values:
+        return allowed
+    for k, v in dimension_values.items():
+        if k.startswith("_"):
+            continue
+        if isinstance(v, (int, float, str)) or v is None:
+            allowed[k] = v
+    return allowed
+
+
+def _build_ai_context_warnings(result_value: dict | None) -> list[dict]:
+    """将 result.value['warnings'] 字典转换为结构化 warning 列表。
+
+    result.value['warnings'] 形如：
+        {"denominator_zero_count": N, "denominator_zero_dimension_values": [...]}
+    转换为：
+        [{"code": "denominator_zero", "message": "..."}]
+    """
+    if not result_value:
+        return []
+    raw = result_value.get("warnings")
+    if not raw:
+        return []
+    warnings: list[dict] = []
+    if isinstance(raw, dict):
+        dz_count = raw.get("denominator_zero_count")
+        if dz_count:
+            warnings.append({
+                "code": "denominator_zero",
+                "message": f"部分维度分母为 0，rate 返回 null（共 {dz_count} 个维度）",
+            })
+    elif isinstance(raw, list):
+        for w in raw:
+            if isinstance(w, dict):
+                warnings.append(w)
+    return warnings
+
+
+def _write_ai_context_audit(db, user, metric_id, period,
+                             dimension_key, dimension_value,
+                             permission_level, returned_fields) -> None:
+    """在 GET /ai-context 内部写审计，避免调用方忘记补打点。
+
+    action 使用专用 ai_context_view；记录维度过滤、权限级别、实际回传字段清单。
+    """
+    import uuid
+    from datetime import datetime
+
+    trace_id = str(uuid.uuid4())[:16]
+    audit = AutomationAuditEvent(
+        trace_id=trace_id,
+        metric_id=metric_id,
+        asset_type="metric",
+        asset_id=metric_id,
+        action="ai_context_view",
+        status="success",
+        actor_id=user.id,
+        input_json={
+            "metric_id": metric_id,
+            "period": period,
+            "dimension_filter": {
+                "dimension_key": dimension_key,
+                "dimension_value": dimension_value,
+            },
+            "permission_level": permission_level,
+            "returned_fields": returned_fields,
+        },
+        created_at=datetime.utcnow(),
+    )
+    db.add(audit)
+
 
 
 @router.get(
@@ -4756,31 +4855,35 @@ async def get_metric_explain(
 
 @router.get(
     "/metrics/{metric_id}/ai-context",
-    summary="AI-ready 上下文输出（MR0305）",
+    summary="AI-ready 上下文输出（MR0305 整改计划 3）",
     dependencies=[Depends(require_op("warehouse.metrics", "V"))],
 )
 async def get_metric_ai_context(
     metric_id: int,
     period: str = Query(..., description="计算周期"),
+    dimension_key: Optional[str] = Query(None, description="维度过滤键，如 department，用于定位具体解释对象"),
+    dimension_value: Optional[str] = Query(None, description="维度过滤值，如 销售部"),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ):
-    """为 AI 消费提供指标上下文。
+    """为 AI 消费提供指标上下文（MR0305 整改计划 3）。
 
-    只返回授权字段和必要聚合结果，不暴露：
-    - 未授权员工明细
-    - 薪酬敏感字段
-    - 原始凭证或连接配置
-
-    权限要求：warehouse.metrics:V
+    权限裁剪（spec 第 20 节）：
+    - 只返回授权字段和必要聚合结果，不暴露未授权员工明细、薪酬敏感字段、
+      原始凭证、连接配置、凭证、token。
+    - 管理员（is_super_admin / 有数据范围权限）：返回 dimension_values + measure_values（真实聚合值）
+    - 普通用户（summary_only）：仅返回 summary_value，不返回任何行明细（fail closed）
+    - 始终不返回 rows 数组、employee_name / salary_detail / credential / password / token 等敏感字段
     """
-    from app.datasets.models import WarehouseMetric
-    from app.warehouse.models import MetricComponent, MetricResult, MetricResultRow
+    from app.datasets.models import WarehouseMetric, DataSet
+    from app.warehouse.models import MetricResultRow
+    from app.permissions.masker import _is_super_admin
 
     m = await db.get(WarehouseMetric, metric_id)
     if m is None:
         raise HTTPException(status_code=404, detail=f"指标不存在: {metric_id}")
 
-    # 加载结果
+    # 加载结果（取该周期最新一次）
     result = (await db.execute(
         select(MetricResult)
         .where(MetricResult.metric_id == metric_id)
@@ -4799,18 +4902,38 @@ async def get_metric_ai_context(
         .order_by(MetricResultRow.row_index)
     )).scalars().all()
 
-    # 构建维度和度量摘要（不暴露明细数据）
+    # 权限判定：管理员(full) / 普通用户(summary_only)
+    is_admin = await _is_super_admin(user, db)
+    permission_level = "full" if is_admin else "summary_only"
+
+    result_value = result.value or {}
+    summary_value = result_value.get("summary_value")
+
     dimensions = None
     measures = None
-    if rows:
-        # 取第一个行的维度和度量作为样例结构
-        first_row = rows[0]
-        dimensions = first_row.dimension_values if first_row.dimension_values else None
-        # 聚合度量值（不逐行暴露）
-        if first_row.measure_values:
-            measures = {
-                k: type(v).__name__ for k, v in first_row.measure_values.items()
-            }
+    row_count = len(rows) if rows else 0
+
+    # 维度过滤：定位具体解释对象行
+    target_row = None
+    if dimension_key and dimension_value is not None and rows:
+        for r in rows:
+            dv = r.dimension_values or {}
+            if dv.get(dimension_key) == dimension_value:
+                target_row = r
+                break
+
+    if permission_level == "full":
+        # 管理员：返回维度值 + 真实聚合度量值（绝不返回类型名）
+        if target_row is not None:
+            dimensions = _sanitize_dimension_values(target_row.dimension_values)
+            measures = _sanitize_measure_values(target_row.measure_values)
+        elif rows:
+            first_row = rows[0]
+            dimensions = _sanitize_dimension_values(first_row.dimension_values)
+            measures = _sanitize_measure_values(first_row.measure_values)
+    else:
+        # 普通用户：仅 summary_value，不返回任何行明细（fail closed）
+        measures = {"summary_value": summary_value}
 
     # 构建解释文本
     explanation_parts = []
@@ -4820,8 +4943,14 @@ async def get_metric_ai_context(
         explanation_parts.append(f"公式：{m.formula_expr}")
     if m.business_definition:
         explanation_parts.append(f"业务定义：{m.business_definition}")
+    if summary_value is not None:
+        explanation_parts.append(f"计算结果（周期 {period}）：{summary_value}")
+    if permission_level == "full" and measures:
+        parts = [f"{k}={v}" for k, v in measures.items() if not k.startswith("_")]
+        if parts:
+            explanation_parts.append("聚合度量：" + "，".join(parts))
 
-    # 加载组件信息用于解释
+    # 组件 + 血缘摘要（DWD -> DWS -> Result）
     comps = (await db.execute(
         select(MetricComponent)
         .where(MetricComponent.metric_id == metric_id)
@@ -4836,14 +4965,28 @@ async def get_metric_ai_context(
                 if agg:
                     lineage.append(f"DWS {agg.name}")
                     if agg.source_dataset_id:
-                        lineage.append(f"数据集 #{agg.source_dataset_id}")
+                        ds = await db.get(DataSet, agg.source_dataset_id)
+                        if ds:
+                            layer = ds.warehouse_layer or "DWD"
+                            label = ds.label or ds.name
+                            lineage.append(f"{layer} 数据集 #{ds.id}（{label}）")
+    # 血缘摘要链路收尾
+    lineage.append(f"Result #{result.id}")
 
-    # 结果摘要值
-    result_value = result.value
-    summary = result_value.get("summary_value") if result_value else None
+    # 警告（来自 result.value.warnings）
+    warnings = _build_ai_context_warnings(result_value)
 
-    if summary is not None:
-        explanation_parts.append(f"计算结果（周期 {period}）：{summary}")
+    # 审计：在 GET 内部写审计，避免调用方忘记补打点
+    returned_fields = (
+        ["metric", "period", "dimensions", "measures", "lineage", "explanation", "warnings"]
+        if permission_level == "full"
+        else ["metric", "period", "summary_value", "warnings"]
+    )
+    _write_ai_context_audit(
+        db, user, metric_id, period,
+        dimension_key, dimension_value, permission_level, returned_fields,
+    )
+    await db.commit()
 
     return MetricAiContextOut(
         metric={
@@ -4853,12 +4996,15 @@ async def get_metric_ai_context(
             "period": period,
         },
         period=period,
+        permission_level=permission_level,
         dimensions=dimensions,
         measures=measures,
+        summary_value=summary_value,
+        row_count=row_count,
         lineage=lineage,
+        warnings=warnings,
         explanation="\n".join(explanation_parts),
     )
-
 
 # ==================== MR0303-MR0304: 指标血缘 + 下游引用 ====================
 

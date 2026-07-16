@@ -946,3 +946,49 @@ tests/test_warehouse_components.py::test_integration_decompose_denominator_zero 
 11 项纯函数测试 PASS + 3 项集成测试 PASS；`test_warehouse_components.py` 全量 **54 passed**；
 前端 `vue-tsc 0 错`、`npm run build` 通过（27.32s）。
 
+### MR0305 AI-ready 上下文增强（整改计划 3：真实聚合值 + 权限裁剪 + 审计）
+
+**问题**：旧 `get_metric_ai_context` 用 `measures = {k: type(v).__name__ ...}` 返回**类型名**而非真实聚合值；且无权限裁剪（普通用户也能看到明细）、无 `warnings`、无维度过滤、GET 内部无审计。
+
+**修复**（`router.py`）：
+- `MetricAiContextOut` 增 `permission_level: str` / `summary_value: Optional[Any]` / `row_count: Optional[int]` / `warnings: list[dict]`（向后兼容，旧字段保留）。
+- 新增 4 个模块级函数：
+  - `_sanitize_measure_values`：只保留 int/float/str/None 标量，过滤 `_errors` 内部键与 list/dict 复杂结构（避免泄露/序列化问题）。
+  - `_sanitize_dimension_values`：维度值同理裁剪（fail-closed）。
+  - `_build_ai_context_warnings`：将 `result.value['warnings']` 字典（`{"denominator_zero_count":N, ...}`）转为 `[{code, message}]`（如 `denominator_zero`）。
+  - `_write_ai_context_audit`：GET 内部写 `ai_context_view` 审计，记录 `dimension_filter` / `permission_level` / `returned_fields`。
+- 重写 `get_metric_ai_context`：
+  - 按 `_is_super_admin` 判定 `permission_level`：`full`（管理员）/ `summary_only`（普通用户）。
+  - `full`：返回目标行（或首行）的真实 `measure_values`（**绝不返回类型名**）+ `dimensions`；支持 `dimension_key`/`dimension_value` 定位具体解释对象。
+  - `summary_only`：仅返回 `{"summary_value": ...}`，**不返回任何行明细**（fail closed，符合 spec 第 20 节）。
+  - 血缘补全 **DWD → DWS → Result** 摘要链路（`DataSet.warehouse_layer` + name/label + `DwsAggregateDefinition.name` + `Result #id`）。
+  - 解释文本追加聚合度量 `k=v`。
+  - 函数内 `await db.commit()` 落审计。
+
+**权限策略**（对照用户表格）：
+- 返回：`metric_code` / `metric_name` / `period` / `dimensions`(仅 full) / `measures`(聚合值) / `lineage` / `explanation` / `warnings` / `summary_value`。
+- 不返回：员工明细、薪酬明细、原始凭证、连接配置、凭证、token（sensitive-field 递归扫描测试覆盖）。
+
+**验收对照**：
+- AI 上下文含真实聚合结果值（numerator=5, denominator=120, rate=0.0417）✅
+- AI 不接收未授权明细（summary_only 仅 summary_value）✅
+- 使用 `metric_result_rows.measure_values`，不重新查 DWD 明细 ✅
+- 血缘含 DWD/DWS/Result 摘要链路 ✅
+- 分母为 0 返回 `warnings=[{code:denominator_zero,...}]` ✅
+- 访问生成 `ai_context_view` 审计 ✅
+
+**测试**（真实 Postgres + 纯函数）：
+```
+tests/test_warehouse_ai_context.py::test_sanitize_measure_values_real_values
+tests/test_warehouse_ai_context.py::test_sanitize_measure_values_empty
+tests/test_warehouse_ai_context.py::test_build_ai_context_warnings_denominator_zero
+tests/test_warehouse_ai_context.py::test_build_ai_context_warnings_none
+tests/test_warehouse_ai_context.py::test_ai_context_returns_real_measure_values
+tests/test_warehouse_ai_context.py::test_ai_context_summary_only_for_regular_user
+tests/test_warehouse_ai_context.py::test_ai_context_warnings_on_denominator_zero
+tests/test_warehouse_ai_context.py::test_ai_context_no_sensitive_fields
+tests/test_warehouse_ai_context.py::test_ai_context_audits_access
+```
+9 项全 PASS；warehouse 4 测试文件 **95 passed**（无回归）；`vue-tsc` 0 错；`npm run build` 通过（37.16s）。
+
+> 注：全量后端 `pytest tests/` 结果为 **958 passed / 5 failed / 15 skipped**。5 个失败均在 `test_allocation_entity.py` / `test_data_router_entity.py` / `test_push_service_entity.py` 的 entity-column 用例（`push_db_expose` 返回 None），与本次 MR0305（仅改 `warehouse/router.py` 的 ai-context 端点）无关，为预存在缺陷，不在本次范围。
