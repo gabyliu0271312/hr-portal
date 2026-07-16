@@ -28,6 +28,15 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai_formula.ast import (
+    FormulaCompileOptions,
+    FormulaCompileResult,
+    compile_formula_to_sql as _ast_compile_formula,
+    flatten_errors,
+)
+from app.ai_formula.ast.safety import safety_issues, unauthorized_functions
+from app.core.config import settings
+
 
 # Excel 函数名 → SQL 函数名（直接映射）
 DIRECT_SQL_FUNCTIONS = {
@@ -91,6 +100,57 @@ def _strip_quotes(value: str) -> str:
     return f"'{v}'"
 
 
+def _unquote_criterion(value: str) -> str | None:
+    """如果是 Excel/SQL 字符串字面量，返回去引号后的原始条件值。"""
+    v = value.strip()
+    if len(v) >= 2 and ((v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'"))):
+        return v[1:-1]
+    return None
+
+
+def _escape_like_pattern(value: str) -> str:
+    """将 Excel COUNTIF 通配符条件转换为 SQL LIKE pattern。
+
+    Excel:
+    - * 匹配任意长度字符
+    - ? 匹配单个字符
+
+    SQL LIKE 中 %, _, \\ 需要转义；随后再把 Excel 通配符替换为 %, _。
+    """
+    out: list[str] = []
+    for ch in value:
+        if ch == "*":
+            out.append("%")
+        elif ch == "?":
+            out.append("_")
+        elif ch in ("\\", "%", "_"):
+            out.append("\\" + ch)
+        else:
+            out.append(ch)
+    return "".join(out).replace("'", "''")
+
+
+def _translate_countif_condition(col: str, criterion: str) -> str:
+    """翻译 COUNTIF/IFS 的单个条件。
+
+    特别处理 Excel 常见条件 "*"：
+    - Excel COUNTIF(range, "*") 统计非空文本；
+    - 在本系统 HR 文本字段场景下等价为非 NULL 且非空字符串。
+    """
+    raw = _unquote_criterion(criterion)
+    if raw is None:
+        return f"{col} = {criterion}"
+
+    if raw == "*":
+        return f"{col} IS NOT NULL AND {col}::text <> ''"
+
+    if "*" in raw or "?" in raw:
+        pattern = _escape_like_pattern(raw)
+        return f"{col}::text LIKE '{pattern}' ESCAPE '\\'"
+
+    return f"{col} = {_strip_quotes(criterion)}"
+
+
 def _translate_function(func_name: str, args: list[str]) -> str:
     """翻译单个 Excel 函数调用为 SQL 表达式。"""
     fn = func_name.upper()
@@ -107,8 +167,8 @@ def _translate_function(func_name: str, args: list[str]) -> str:
     if fn == "COUNTIF":
         if len(args) >= 2:
             col, val = args[0], args[1]
-            val = _strip_quotes(val) if (val.startswith('"') or val.startswith("'")) else val
-            return f"COUNT(*) FILTER (WHERE {col} = {val})"
+            condition = _translate_countif_condition(col, val)
+            return f"COUNT(*) FILTER (WHERE {condition})"
         return f"COUNT(*) FILTER (WHERE {args[0]})"
 
     if fn == "SUMIF":
@@ -125,8 +185,7 @@ def _translate_function(func_name: str, args: list[str]) -> str:
             conditions = []
             for i in range(0, len(args), 2):
                 col, val = args[i], args[i + 1]
-                val = _strip_quotes(val) if (val.startswith('"') or val.startswith("'")) else val
-                conditions.append(f"{col} = {val}")
+                conditions.append(_translate_countif_condition(col, val))
             return f"COUNT(*) FILTER (WHERE {' AND '.join(conditions)})"
         return f"COUNT(*) FILTER (WHERE {' AND '.join(args)})"
 
@@ -191,36 +250,73 @@ def _translate_function(func_name: str, args: list[str]) -> str:
 
 
 def _translate_expr(expr: str) -> str:
-    """递归翻译表达式中的函数调用。
+    """递归翻译表达式中的所有函数调用。
 
-    从外层向内层解析，处理嵌套函数调用如 IF(COUNTIF(...)>0, ...)。
+    旧实现只在表达式以函数开头时翻译第一个函数，导致
+    COUNTIF(a,"x") / COUNTIF(a,"*") 右侧 COUNTIF 残留为非法 PostgreSQL。
+    这里改为从左到右扫描整段表达式，翻译每一个函数调用，并递归处理参数。
     """
     expr = expr.strip()
-    # 找到第一个顶层函数调用
-    match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*\(', expr)
-    if not match:
-        return expr
+    result: list[str] = []
+    i = 0
+    n = len(expr)
+    in_quote = False
+    quote_char = ""
 
-    fn_name = match.group(1)
-    # 找到匹配的右括号
-    paren_start = match.end() - 1  # 指向 '('
-    depth = 0
-    for i, ch in enumerate(expr):
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0:
-                inner = expr[paren_start + 1:i]
-                rest = expr[i + 1:].strip()
-                args = _split_args(inner)
-                translated_args = [_translate_expr(arg) for arg in args]
-                result = _translate_function(fn_name, translated_args)
-                if rest:
-                    return f"{result} {rest}"
-                return result
+    while i < n:
+        ch = expr[i]
 
-    return expr
+        if in_quote:
+            result.append(ch)
+            if ch == quote_char:
+                in_quote = False
+            i += 1
+            continue
+
+        if ch in ("'", '"'):
+            in_quote = True
+            quote_char = ch
+            result.append(ch)
+            i += 1
+            continue
+
+        # 函数名：标识符 + 可选空格 + '('，且前一字符不能是标识符字符或点
+        if ch.isalpha() or ch == "_":
+            match = re.match(r'([A-Za-z_][A-Za-z0-9_]*)\s*\(', expr[i:])
+            if match and (i == 0 or not (expr[i - 1].isalnum() or expr[i - 1] in ("_", "."))):
+                fn_name = match.group(1)
+                paren_start = i + match.end() - 1
+                depth = 0
+                inner_quote = ""
+                end = None
+                for j in range(paren_start, n):
+                    cj = expr[j]
+                    if inner_quote:
+                        if cj == inner_quote:
+                            inner_quote = ""
+                        continue
+                    if cj in ("'", '"'):
+                        inner_quote = cj
+                        continue
+                    if cj == "(":
+                        depth += 1
+                    elif cj == ")":
+                        depth -= 1
+                        if depth == 0:
+                            end = j
+                            break
+                if end is not None:
+                    inner = expr[paren_start + 1:end]
+                    args = _split_args(inner)
+                    translated_args = [_translate_expr(arg) for arg in args]
+                    result.append(_translate_function(fn_name, translated_args))
+                    i = end + 1
+                    continue
+
+        result.append(ch)
+        i += 1
+
+    return "".join(result)
 
 
 def _wrap_division_with_nullif(sql: str) -> str:
@@ -269,7 +365,9 @@ def _wrap_division_with_nullif(sql: str) -> str:
             continue
 
         # 包裹分母
-        wrapped_denom = f"NULLIF({denominator}, 0)"
+        # PostgreSQL 中 COUNT/COUNT 可能发生整数除法（例如 80/100 = 0），
+        # 将分母转 numeric，确保比例类指标返回小数。
+        wrapped_denom = f"NULLIF({denominator}, 0)::numeric"
         result = f"{numerator_part} / {wrapped_denom}{rest}"
 
     return result
@@ -334,6 +432,32 @@ def _find_expr_end(s: str) -> int:
                 # 看空格后面是否是运算符或SQL关键字
                 rest_after_space = s[i:].strip()
                 upper_rest = rest_after_space.upper()
+                # PostgreSQL 聚合 FILTER 是聚合表达式的一部分：
+                # COUNT(*) FILTER (WHERE x IS NOT NULL AND x <> '')
+                # 不能在 FILTER 前截断，否则会生成 NULLIF(COUNT(*), 0) FILTER ...
+                if upper_rest.startswith('FILTER '):
+                    filter_start = i + (len(s[i:]) - len(s[i:].lstrip()))
+                    open_pos = s.find('(', filter_start)
+                    if open_pos != -1:
+                        f_depth = 0
+                        f_quote = ""
+                        for j in range(open_pos, len(s)):
+                            cj = s[j]
+                            if f_quote:
+                                if cj == f_quote:
+                                    f_quote = ""
+                                continue
+                            if cj in ("'", '"'):
+                                f_quote = cj
+                                continue
+                            if cj == '(':
+                                f_depth += 1
+                            elif cj == ')':
+                                f_depth -= 1
+                                if f_depth == 0:
+                                    i = j + 1
+                                    break
+                        continue
                 keywords = ['AND ', 'OR ', 'THEN ', 'ELSE ', 'END ', 'CASE ', 'WHEN ',
                             'FILTER ', 'GROUP ', 'ORDER ', 'HAVING ', 'LIMIT ', 'UNION ',
                             'AS ', 'IS ', 'NOT ', 'IN ']
@@ -433,12 +557,14 @@ def _has_aggregate_functions(expr: str) -> bool:
     return False
 
 
-async def translate_formula_to_sql(
+async def _legacy_translate_formula_to_sql(
     db: AsyncSession,
     formula: str,
     dataset_id: int,
 ) -> dict[str, Any]:
-    """将 Excel 公式翻译为 PostgreSQL SQL 表达式。
+    """将 Excel 公式翻译为 PostgreSQL SQL 表达式（旧实现：正则式）。
+
+    作为灰度回退保留；新公式主流程走 AST 编译器。
 
     Returns:
         dict with keys:
@@ -486,3 +612,127 @@ async def translate_formula_to_sql(
 
     valid = len(errors) == 0
     return {"sql": sql, "valid": valid, "errors": errors, "has_aggregate": has_aggregate}
+
+
+# ==================== AST 调度器（AST0013 / AST0019） ====================
+async def translate_formula_to_sql(
+    db: AsyncSession,
+    formula: str,
+    dataset_id: int,
+    *,
+    include_ast: bool = False,
+) -> dict[str, Any]:
+    """将 Excel 公式翻译为 PostgreSQL SQL 表达式（对外统一入口）。
+
+    按 FORMULA_COMPILER_ENGINE 调度：
+    - ast：使用确定性 AST 编译器（默认）。
+    - legacy：使用旧正则式翻译器。
+    - ast_with_legacy_fallback：AST 失败时（如 unsupported_function）回退到 legacy，
+      但仍经过安全校验与函数白名单校验，不绕过 SQL 安全检查，
+      杜绝 legacy 把 VLOOKUP 等非白名单函数原样拼进 SQL。
+
+    返回结构向后兼容：sql / valid / errors / has_aggregate，
+    并新增 compile_engine / compile_version / warnings 等字段（不破坏前端）。
+    """
+    engine = getattr(settings, "FORMULA_COMPILER_ENGINE", "ast")
+    # 实际编译引擎：AST 成功时恒为 ast；灰度策略单独记录，不污染 formula_compile_engine
+    effective_engine = "ast" if engine in ("ast", "ast_with_legacy_fallback") else engine
+    rollout_engine = engine if engine == "ast_with_legacy_fallback" else None
+
+    if engine in ("ast", "ast_with_legacy_fallback"):
+        try:
+            result: FormulaCompileResult = await _ast_compile_formula(
+                db, formula, dataset_id, mode="metric",
+                options=FormulaCompileOptions(include_ast=include_ast),
+            )
+        except Exception:
+            if engine == "ast_with_legacy_fallback":
+                return await _fallback_to_legacy(db, formula, dataset_id, reason="ast_exception")
+            raise
+        # AST 命中不支持的函数：仅在 fallback 模式回退
+        if (not result.valid) and any(
+            e.code == "unsupported_function" for e in result.errors
+        ):
+            if engine == "ast_with_legacy_fallback":
+                return await _fallback_to_legacy(db, formula, dataset_id, reason="unsupported_function")
+            return _ast_to_legacy_shape(result, effective_engine, rollout_engine=rollout_engine)
+        return _ast_to_legacy_shape(result, effective_engine, rollout_engine=rollout_engine)
+
+    # legacy 直接走旧实现（同样需要安全与函数白名单校验，不允许绕过）
+    legacy = await _legacy_translate_formula_to_sql(db, formula, dataset_id)
+    legacy["compile_engine"] = "legacy"
+    legacy["compile_version"] = None
+    legacy.setdefault("warnings", [])
+    legacy["rollout_engine"] = None
+    _apply_legacy_safety(legacy)
+    return legacy
+
+
+def _ast_to_legacy_shape(
+    result: FormulaCompileResult, engine: str, *, rollout_engine: str | None = None
+) -> dict[str, Any]:
+    return {
+        "sql": result.sql,
+        "valid": result.valid,
+        "errors": flatten_errors(result.errors),
+        "warnings": [w.message for w in result.warnings],
+        "has_aggregate": result.has_aggregate,
+        "compile_engine": engine,
+        "compile_version": result.compiler.get("version"),
+        "rollout_engine": rollout_engine,
+        "functions": result.functions,
+        "dependencies": result.dependencies,
+        "normalized_formula": result.normalized_formula,
+        "ast": result.ast,
+    }
+
+
+def _apply_legacy_safety(legacy: dict[str, Any]) -> None:
+    """legacy / 回退路径的 SQL 安全与函数白名单校验（AST0019 / 阻断问题4）。
+
+    仅允许 SQL 安全白名单函数进入最终 SQL；任何未知函数名残留一律判 invalid，
+    杜绝 legacy 把 VLOOKUP 等未知函数原样拼进 SQL（需求文档第 9 章：不允许非白名单函数）。
+    """
+    sql = legacy.get("sql", "")
+    blocked = False
+
+    # 既有安全校验：分号 / DDL-DML / 子查询 / 残留 Excel 函数
+    safety = safety_issues(sql)
+    if safety:
+        blocked = True
+        legacy["errors"] = list(legacy.get("errors", [])) + [
+            f"{e.message}（回退路径安全校验）" for e in safety
+        ]
+
+    # 函数白名单校验：任何非白名单函数名残留都不允许
+    unauth = unauthorized_functions(sql)
+    if unauth:
+        blocked = True
+        legacy["errors"] = list(legacy.get("errors", [])) + [
+            f"{e.message}（回退路径白名单校验）" for e in unauth
+        ]
+
+    if blocked:
+        legacy["valid"] = False
+
+
+async def _fallback_to_legacy(
+    db: AsyncSession,
+    formula: str,
+    dataset_id: int,
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    """AST 回退到 legacy（AST0019）：回退后仍做安全校验与函数白名单校验，绝不绕过。"""
+    legacy = await _legacy_translate_formula_to_sql(db, formula, dataset_id)
+    legacy["compile_engine"] = "legacy"
+    legacy["compile_version"] = None
+    legacy.setdefault("warnings", [])
+    legacy["rollout_engine"] = "ast_with_legacy_fallback"
+    # 回退仍需经过 SQL 安全校验 + 函数白名单校验，不允许绕过
+    _apply_legacy_safety(legacy)
+    legacy["warnings"].append(
+        f"AST 编译器不支持该函数（{reason}），已回退到旧编译器（仍经过安全校验）"
+    )
+    return legacy
+

@@ -18,7 +18,7 @@ import {
   type ComponentRole, type MetricComponentItem, type FormulaDecomposeResult,
   type MetricComponentBatchPayload,
 } from '@/api/warehouse'
-import { translateFormula } from '@/api/warehouse'
+import { translateFormula, compileFormula, type FormulaCompileResult } from '@/api/warehouse'
 import {
   getMetricLineage, getMetricDownstreamRefs, getMetricResultDetail, exportMetricResult, recordExportAudit, recordAiExplainAudit,
   type LineageGraph, type DownstreamRefsResult, type MetricResultDetail,
@@ -726,28 +726,44 @@ function deriveMetricType(formula: string): string {
   return 'derived'
 }
 
-// 公式/数据集变化时实时翻译为 SQL 预览
+// 公式/数据集变化时实时调用 AST 编译器，预览编译结果（AST0017）
 let translateTimer: ReturnType<typeof setTimeout> | null = null
 const translating = ref(false)
+const compileResult = ref<FormulaCompileResult | null>(null)
+const compiling = ref(false)
+const showSql = ref(false)
+// 公式是否应该禁用保存按钮：编译中、编译未就绪、或已有结果但无效时禁用
+const formulaHasError = computed(() => {
+  if (!form.value.formula_expr) return false
+  if (compiling.value) return true
+  if (!compileResult.value) return true
+  return !compileResult.value.valid
+})
 watch([() => form.value.formula_expr, () => form.value.related_dataset_id], ([expr, dsId]) => {
   if (translateTimer) clearTimeout(translateTimer)
   if (!expr || !dsId) {
     form.value.formula_sql = ''
+    compileResult.value = null
     return
   }
   translateTimer = setTimeout(async () => {
     translating.value = true
+    compiling.value = true
     try {
-      const res = await translateFormula(expr, dsId)
+      const res = await compileFormula({ dataset_id: dsId, formula_expr: expr, mode: 'metric', include_ast: false, preview: true })
+      compileResult.value = res
+      // 仅当有效时回填用于保存的 SQL；无效时保留错误提示由面板展示
       if (res.valid) {
         form.value.formula_sql = res.sql
       } else {
-        form.value.formula_sql = res.errors.join('；')
+        form.value.formula_sql = (res.errors || []).map(e => e.message).join('；')
       }
     } catch {
+      compileResult.value = null
       form.value.formula_sql = ''
     } finally {
       translating.value = false
+      compiling.value = false
     }
   }, 500)
 })
@@ -1092,6 +1108,82 @@ onMounted(load)
             <span>指标配置</span>
           </div>
           <el-form label-position="top" class="config-form" size="small">
+
+            <!-- ========== AST0017: 公式编译预览面板 ========== -->
+            <el-form-item v-if="form.related_dataset_id && form.formula_expr" label="公式编译预览">
+              <el-card shadow="never" size="small" style="width:100%;background:#fafafa">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                  <el-tag v-if="compiling" type="info" size="small" effect="plain">
+                    <el-icon style="margin-right:4px"><Loading /></el-icon>编译中…
+                  </el-tag>
+                  <el-tag v-else-if="compileResult && compileResult.valid" type="success" size="small">
+                    公式有效
+                  </el-tag>
+                  <el-tag v-else-if="compileResult && !compileResult.valid" type="danger" size="small">
+                    公式无效（{{ (compileResult.errors || []).length }} 处错误）
+                  </el-tag>
+                  <el-tag v-else type="info" size="small" effect="plain">等待输入</el-tag>
+                  <span v-if="compileResult && compileResult.compiler" style="font-size:11px;color:#909399">
+                    {{ compileResult.compiler.engine }} · v{{ compileResult.compiler.version }}
+                  </span>
+                </div>
+
+                <!-- 识别字段 -->
+                <div v-if="compileResult && (compileResult.dependencies || []).length" style="margin-bottom:8px">
+                  <span style="font-size:12px;color:#606266;margin-right:6px">识别字段：</span>
+                  <el-tag v-for="dep in compileResult.dependencies" :key="dep.field_code" size="small" type="primary" effect="plain" style="margin:2px">
+                    {{ dep.field_label || dep.field_code }}
+                  </el-tag>
+                </div>
+
+                <!-- 识别函数 -->
+                <div v-if="compileResult && (compileResult.functions || []).length" style="margin-bottom:8px">
+                  <span style="font-size:12px;color:#606266;margin-right:6px">识别函数：</span>
+                  <el-tag v-for="fn in compileResult.functions" :key="fn" size="small" type="warning" effect="plain" style="margin:2px">
+                    {{ fn }}
+                  </el-tag>
+                </div>
+
+                <!-- 生成 SQL（可折叠） -->
+                <div v-if="compileResult && compileResult.sql" style="margin-bottom:8px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" @click="showSql = !showSql">
+                    <span style="font-size:12px;color:#606266">生成 SQL：</span>
+                    <el-button text size="small" type="primary">{{ showSql ? '收起' : '展开' }}</el-button>
+                  </div>
+                  <el-input v-if="showSql" :model-value="compileResult.sql" type="textarea" :rows="4" readonly
+                            style="font-family:monospace;font-size:12px;margin-top:4px" />
+                  <div v-else style="font-family:monospace;font-size:12px;color:#606266;background:#fff;padding:4px 6px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ compileResult.sql }}</div>
+                </div>
+
+                <!-- 样本预览值 -->
+                <div v-if="compileResult && compileResult.preview_result" style="margin-bottom:8px">
+                  <span style="font-size:12px;color:#606266">样本预览值：</span>
+                  <code style="background:#fff;padding:2px 6px;border-radius:4px">{{ compileResult.preview_result.value }}</code>
+                  <span style="font-size:11px;color:#909399;margin-left:6px">行数 {{ compileResult.preview_result.row_count }}</span>
+                </div>
+
+                <!-- 警告（不阻断保存） -->
+                <el-alert v-for="(w, i) in (compileResult ? compileResult.warnings : [])" :key="'w' + i"
+                          type="warning" :closable="false" show-icon style="margin-bottom:6px">
+                  <template #title>{{ w.message }}</template>
+                </el-alert>
+
+                <!-- 错误（定位到公式片段，阻断保存） -->
+                <el-alert v-for="(e, i) in (compileResult ? compileResult.errors : [])" :key="'e' + i"
+                          type="error" :closable="false" show-icon style="margin-bottom:6px">
+                  <template #title>
+                    <span style="font-weight:600">[{{ e.code }}]</span> {{ e.message }}
+                  </template>
+                  <template #default v-if="e.fragment || e.suggestion">
+                    <div style="font-size:12px;line-height:1.6">
+                      <span v-if="e.fragment" style="font-family:monospace">片段：<code>{{ e.fragment }}</code></span>
+                      <span v-if="e.suggestion" style="margin-left:8px;color:#909399">建议：{{ e.suggestion }}</span>
+                    </div>
+                  </template>
+                </el-alert>
+              </el-card>
+            </el-form-item>
+
             <el-form-item label="指标编码" required>
               <el-input v-model="form.metric_code" :disabled="dialogMode === 'edit'" maxlength="64" />
             </el-form-item>
@@ -1261,7 +1353,7 @@ onMounted(load)
 
       <template #actions>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">
+        <el-button type="primary" :loading="saving" :disabled="formulaHasError" @click="save">
           {{ editMode === 'component' ? '保存指标 + 组件' : '保存指标' }}
         </el-button>
       </template>

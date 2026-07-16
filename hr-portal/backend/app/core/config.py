@@ -67,6 +67,18 @@ class Settings(BaseSettings):
     WAREHOUSE_FEATURE_METRIC_AUTOMATION: bool = False
     WAREHOUSE_FEATURE_L4_FULL_AUTO: bool = False
 
+    # Excel 公式编译器灰度开关（AST0001+、AST0019）
+    # ast | legacy | ast_with_legacy_fallback
+    FORMULA_COMPILER_ENGINE: str = "ast"
+
+    @property
+    def formula_ast_enabled(self) -> bool:
+        return self.FORMULA_COMPILER_ENGINE in ("ast", "ast_with_legacy_fallback")
+
+    @property
+    def formula_ast_with_fallback(self) -> bool:
+        return self.FORMULA_COMPILER_ENGINE == "ast_with_legacy_fallback"
+
     @property
     def db_url_async(self) -> str:
         return (

@@ -506,6 +506,49 @@
 
 ---
 
+## BX05 X05 多粒度时间下钻 · 一期（帆软钻取，后端）
+
+> 关联设计文档：`specs/012-data-warehouse-ucp-integration/x05-time-drilldown-two-phase-design.md`（v2.1）。
+> 一期仅后端：时间列派生（共享基座）+ `time_field`/`measure_semantics` 字段；FineBI 推送通道为现有公用组件，不改代码（§5.2）。
+> 前端不参与一期（钻取交互在二期 portal 内做）。
+
+- [x] BX0501 迁移 0100：`dws_aggregate_definitions` 新增 `time_field`(String128) 与 `measure_semantics`(String16)。
+  - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。
+  - 测试要求：`alembic upgrade` 验证（依赖本地 DB，待用户环境执行）；ORM 导入验证；字段/回滚风险检查。py_compile 已通过；无法自动化时记录手工检查结果。
+  - 交付物：`hr-portal/backend/alembic/versions/0100_add_dws_timefields.py`。
+  - 完成定义：`revision="0100"`、`down_revision="0099"` 正确，可 upgrade / downgrade。
+
+- [x] BX0502 模型与 Schema 同步：`DwsAggregateDefinition` 加 `time_field` + `measure_semantics`；`warehouse/schemas.py` 的 `DwsAggregateDefinitionCreateIn`/`UpdateIn`/`Out` 同步两字段；`modeling.py` list/detail/create/update 序列化同步。
+  - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。
+  - 测试要求：py_compile 通过；ORM 导入验证；API 契约字段齐备。无法自动化时记录手工检查结果。
+  - 交付物：`models.py` / `schemas.py` / `modeling.py` 序列化改动。
+  - 完成定义：两字段可从 API 读写、序列化包含。
+
+- [x] BX0503 `generate_dws_view` 注入时间列（共享基座）。
+  - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。
+  - 测试要求：集成测试覆盖——① `time_field` 经 `DatasetOutputField` 解析为 `alias.column`；② 注入 `snapshot_month`(保留)+`year`/`quarter`/`month`(派生 `to_char(T,'YYYY-"Q"Q')`) 并加入 GROUP BY；③ `group_by` 中同源维度被跳过（比对映射后真实列名，非维度编码）；④ 时间字段非日期类型抛明确错误(R7)；⑤ 派生列注册 `TableColumn`；⑥ `output_fields` 含 4 时间列。py_compile 已通过；DB 级集成测试待本地环境执行。
+  - 交付物：`modeling.py` `generate_dws_view` 改动。
+  - 完成定义：带 `time_field` 的聚合生成的 DWS 视图含 `year/quarter/month/snapshot_month` 四列，且不重复 `group_by` 时间列。
+
+- [ ] BX0504 FineBI 推送（一期消费侧，配置非开发）。
+  - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。
+  - 测试要求：配置验证——DWS 视图经现有 `finebi_` 通道发布后，帆软可见 `year/quarter/month`；`headcount` 度量配期末值；DWS 视图结构变更后手动重推 `finebi_`（R6）。
+  - 交付物：消费侧配置（见设计文档 §5.2/§5.4）。
+  - 完成定义：帆软时间层次可年→季→月下钻，季度/年度 headcount 取期末值不跨月 SUM。
+
+- [ ] BX0505 全链路验证与文档收尾。
+  - UI 要求：不涉及前端页面/组件/交互；无需引用 N 章节。
+  - 测试要求：本地 DB `alembic upgrade` 成功；构造用户场景 DWS 聚合（`group_by=[三级部位BU, 公司级组织, 一级部门, 员工类型]`，`time_field=snapshot_month`，`measure_semantics=stock`）生成视图并核对列与钻取语义；回填本任务勾选。
+  - 交付物：验证记录；`atomic-tasks.md` 勾选。
+  - 完成定义：设计文档 §5.4 一期清单全部可勾选。
+
+> **代码验收返修（2026-07-16，分支暂不合并）**：
+> - **初次验收（v2.2）**：高——未配 `time_field` 的普通 DWS 谎报时间列元数据；修复为 `time_select_exprs` 非空才注册时间列/追加 `output_fields`。中——R7 升级两阶段 `::date` 强转校验。
+> - **二次验收（v2.3）**：中——原 R7 用 `LIMIT 1` 抽样强转，首行合法后续脏值会漏放且 CREATE VIEW 不实际计算 cast → 改为**全量正则扫坏值**（`!~ '^\d{4}-\d{2}(-\d{2})?...$' LIMIT 1` 找坏值即抛含样例的明确错误），与行顺序无关、覆盖整列。低——新增 `tests/test_x05_time_drilldown_acceptance.py` 4 个集成用例（A 未配 time_field 不注册时间列 / B DATE 生成 4 列且值正确 / C group_by 跳过同源时间维度无重复 / D 字符串脏值全量扫描抛明确错误），专门防"元数据有列但视图无列"回归。
+> - **状态**：代码与测试已改、`py_compile` 通过；测试需本地 docker Postgres（`alembic upgrade head` 含 0100）运行。BX0501/BX0502 仍完成；BX0503 随二次验收重新确认；BX0505 待用户环境跑测试+推送配置后勾选。分支仍暂不合并。
+
+---
+
 # C. 后端模块骨架
 
 ## C01 warehouse 模块
@@ -6672,6 +6715,52 @@ UCP 不可用时：显示降级说明，DataSource 继续可用
 ### 与 R0103/R0105/R0106/R0107/R0108 旧 UI 要求的关系
 
 本线框图（U22）是 R0103（规则 CRUD）、R0105（清洗规则引擎 UI）、R0106（模板管理 UI）、R0107（标准化预览 UI）、R0108（DWD 视图生成 UI）的统一前端实现。上述任务的 UI 交付物不再独立建设，全部合并到 R0109-R0111 中实现。上述任务的"UI 示意图"引用全部指向本线框图。
+
+---
+
+## 附录：Excel 公式 → SQL AST 解析器升级（AST0001–AST0020）
+
+> 需求来源：`formula-ast-parser-uprade-requirements.md`
+> 完成情况：全部 20 个原子任务已完成并通过验收。
+
+### 编译器核心（DB-free，无需 PostgreSQL）
+- [x] AST0001 新增 AST 编译器目录与错误模型（`errors.py`：`FormulaCompileError`/`FormulaCompileWarning`/`SourceSpan`）
+- [x] AST0002 实现 Lexer 词法分析（`tokens.py`/`lexer.py`）
+- [x] AST0003 定义 AST 节点（`nodes.py`：Literal/FieldRef/FunctionCall/BinaryOp/UnaryOp/Comparison）
+- [x] AST0004 实现 Parser 基础表达式解析（`parser.py`：优先级/括号/一元负号/比较/QUALIFIED 字段）
+- [x] AST0005 实现函数调用解析（嵌套/多参数/`syntax_unclosed_parenthesis`）
+- [x] AST0006 实现字段映射语义分析（qualified/裸字段/`unknown_field`/`ambiguous_field`/dependencies）
+- [x] AST0007 实现函数签名与白名单校验（参数个数/`unsupported_function`/`has_aggregate`）
+- [x] AST0008 实现 Excel criteria 编译（`excel_criteria.py`：通配/前缀/后缀/单字符/数值/日期/`<>` 含 NULL 分支）
+- [x] AST0009 实现 SQL Generator 基础表达式（双引号字段/字符串转义/`&`→`||`/IF→CASE/无字段名注入）
+- [x] AST0010 实现聚合函数 SQL 生成（COUNTIF/COUNTIFS/SUMIF/SUMIFS/COUNTA/AVG/MAX/MIN/SUM，无残留）
+- [x] AST0011 实现除法自动 NULLIF 保护（简单/COUNT(*)/FILTER/数值/链式/括号左，`::numeric` 防整数除法）
+- [x] AST0012 实现统一 compiler.py（`compile_formula`：normalize→lexer→parser→semantics→sql→safety；失败返回 errors 不抛异常）
+
+### 接入与调度
+- [x] AST0013 接入现有 `translate_formula_to_sql`（保留签名，内部调 AST；`_ast_to_legacy_shape` 兼容 `sql/valid/errors/has_aggregate` + 新增字段）
+- [x] AST0014 新增公式编译预览 API（`POST /warehouse/metrics/compile-formula`，支持 include_ast；无权限返回 403）
+- [x] AST0015 指标新建/编辑接入 AST 编译器（`create_metric`/`update_metric` 写入 `formula_sql` + compile 元数据 + `formula_ast`）
+- [x] AST0016 AI 公式助手接入 AST 编译校验（`_ast_compile_for_draft`：best-effort，错误转修复建议，异常吞掉；AI 不直生成 SQL）
+
+### 前端 / 端到端 / 灰度 / 文档
+- [x] AST0017 前端公式预览面板（`WarehouseMetrics.vue`：有效性/识别字段/识别函数/SQL 折叠/警告/错误定位/样本预览；error 阻断保存、warning 不阻断；`npm run build` 通过）
+- [x] AST0018 正式员工比例端到端验收（`tests/test_formula_ast_e2e_employee_type_ratio.py`：8/10→0.8，无残留、非整数除法）
+- [x] AST0019 灰度开关与回退（`FORMULA_COMPILER_ENGINE=ast|legacy|ast_with_legacy_fallback`；fallback 记 warning 且不绕过安全校验）
+  - 阻断问题4 加固：`ast_with_legacy_fallback` 回退后 legacy 把未知函数（如 `VLOOKUP`）原样拼进 SQL，而旧 `safety_issues` 仅拦 COUNTIF/SUMIF 等部分残留函数 → 非白名单函数可进入 SQL。已在 `safety.py` 新增 `validate_sql_function_whitelist`/`unauthorized_functions`（严格白名单：SUM/COUNT/AVG/MAX/MIN/ROUND/ABS/COALESCE/EXTRACT/NULLIF/FILTER，先剥离字符串字面量防误报），并抽 `_apply_legacy_safety` 同时作用于 `_fallback_to_legacy` 与直接 `legacy` 引擎路径。新增 `tests/test_formula_fallback_whitelist.py`（9 例）；formula AST 套件 128 passed 无回归。
+- [x] AST0020 文档与函数支持矩阵（`formula-ast-support-matrix.md`：用户文档/开发文档/测试矩阵；含正式员工比例示例、`COUNTIF("*")` 语义、AI 与 AST 边界）
+
+### 测试与修复记录
+- 后端专项：`tests/test_formula_ast_*.py` + `tests/test_metric_formula_ast_integration.py` + `tests/test_formula_translate_api_compat.py` + `tests/test_formula_compile_api.py` + `tests/test_ai_formula_ast_guardrail.py` + `tests/test_formula_compiler_rollout.py` → **119 passed**（DB-free）。
+- 本轮修复缺陷：
+  1. `formula_to_sql.py` 三引号 docstring 不平衡（`_legacy_translate_formula_to_sql` 多一处 `"""` 闭引号），导致全文件 `SyntaxError`；已合并 docstring。
+  2. `formula_to_sql.py` 缺 `FormulaCompileOptions` 导入 → 补 import。
+  3. `translate_formula_to_sql` 两处 `return _fallback_to_legacy(...)` 漏 `await` → 补 `await`（回归 `coroutine was never awaited`）。
+  4. `test_formula_compile_api.py` 用 sync lambda 替 `_ensure_dataset_access` 但端点 `await` 它 → 改为 async fake。
+  5. `test_ai_formula_ast_guardrail.py::test_ai_does_not_generate_sql_directly` 漏 `monkeypatch` 形参 → 补形参。
+- 兼容回归（需 docker Postgres 栈）：`test_warehouse_components.py` / `test_warehouse_phase3.py` / `test_warehouse_ai_context.py` 本环境无数据库，**未运行**；其余 DB-free 路径已全部覆盖。
+- 前端：`npm run build` ✅ 通过（含 AST0017 面板）。
+
 
 
 

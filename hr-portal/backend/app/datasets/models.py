@@ -226,6 +226,18 @@ class WarehouseMetric(Base):
     calculation_desc: Mapped[str | None] = mapped_column(Text, nullable=True)
     formula_expr: Mapped[str | None] = mapped_column(Text, nullable=True)
     formula_sql: Mapped[str | None] = mapped_column(Text, nullable=True, comment="由 Excel 公式翻译的 PostgreSQL SQL 表达式")
+    formula_compile_engine: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="公式编译器：legacy / ast"
+    )
+    formula_compile_version: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="公式编译器版本，如 1.0.0"
+    )
+    formula_compile_meta: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="编译元数据：dependencies/functions/warnings 等"
+    )
+    formula_ast: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="公式抽象语法树（调试/审计用）"
+    )
     stat_period: Mapped[str | None] = mapped_column(String(16), nullable=True)
     related_dataset_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True

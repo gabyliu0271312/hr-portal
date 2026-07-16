@@ -29,6 +29,10 @@ from app.ai_formula.formula_evaluator import formula_syntax_issues
 from app.ai_formula.formula_parser import normalize_formula
 from app.ai_formula.models import FormulaFunction, FormulaFunctionCatalogSetting
 from app.ai_formula.validator import validate_dataset_formula
+from app.ai_formula.ast.compiler import (
+    FormulaCompileOptions,
+    compile_formula_to_sql,
+)
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.core.secret_box import decrypt
@@ -106,6 +110,14 @@ class FormulaDraftIn(BaseModel):
     history: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class FormulaCompileIn(BaseModel):
+    dataset_id: int
+    formula_expr: str = Field(min_length=1, max_length=2000)
+    mode: str = "metric"
+    include_ast: bool = False
+    preview: bool = False
+
+
 class FormulaDraftOut(BaseModel):
     intent: str = "formula_draft"
     should_update_formula: bool = True
@@ -123,6 +135,7 @@ class FormulaDraftOut(BaseModel):
     validation_errors: list[str] = Field(default_factory=list)
     standard_excel_formula: str | None = None
     platform_limitation: str | None = None
+    formula_compile: dict | None = None
 
 
 def _function_out(row: FormulaFunction) -> FormulaFunctionOut:
@@ -572,6 +585,9 @@ async def draft_formula_impl(
                 validation_status="valid" if validation["valid"] else "invalid",
                 error_count=len(validation["errors"] or []),
             )
+            # AST0016：对 AI 生成公式再跑一遍确定性 AST 编译器，
+            # 把结构化错误转为友好修复建议（best-effort，不阻断）。
+            formula_compile = await _ast_compile_for_draft(db, formula, payload.dataset_id)
             out = FormulaDraftOut(
                 intent=intent,
                 should_update_formula=True,
@@ -587,11 +603,13 @@ async def draft_formula_impl(
                 warnings=[
                     *(raw.get("warnings") or []),
                     *(validation["warnings"] or []),
+                    *(formula_compile.get("repair_hints") or [] if formula_compile else []),
                 ],
                 validation_status="valid" if validation["valid"] else "invalid",
                 validation_errors=validation["errors"],
                 standard_excel_formula=raw.get("standard_excel_formula") or None,
                 platform_limitation=raw.get("platform_limitation") or None,
+                formula_compile=formula_compile,
             )
             status_text = "success" if validation["valid"] else "validation_failed"
         else:
@@ -612,6 +630,7 @@ async def draft_formula_impl(
                 validation_errors=[],
                 standard_excel_formula=raw.get("standard_excel_formula") or None,
                 platform_limitation=raw.get("platform_limitation") or None,
+                formula_compile=formula_compile,
             )
             status_text = "success"
         timer.add_event(
@@ -670,3 +689,72 @@ async def draft_formula_impl(
         )
         await db.commit()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=_formula_draft_error_detail(exc)) from exc
+
+
+@router.post(
+    "/warehouse/metrics/compile-formula",
+    dependencies=[Depends(require_op("warehouse.metrics", "C"))],
+)
+async def compile_formula_endpoint(
+    payload: FormulaCompileIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """公式编译预览 API（AST0014）。
+
+    返回：sql / normalized_formula / has_aggregate / dependencies /
+    functions / warnings / errors / ast（可选）/ compiler /
+    preview_result（preview=true 时执行样本预览，返回 value / row_count / warnings）。
+    无数据集权限返回 403（由 _ensure_dataset_access 抛出）。
+    """
+    await _ensure_dataset_access(payload.dataset_id, user, db)
+    options = FormulaCompileOptions(
+        mode=payload.mode,
+        include_ast=payload.include_ast,
+        preview=payload.preview,
+    )
+    result = await compile_formula_to_sql(
+        db,
+        payload.formula_expr,
+        payload.dataset_id,
+        mode=payload.mode,
+        options=options,
+    )
+    return result.to_dict()
+
+
+async def _ast_compile_for_draft(
+    db: AsyncSession, formula: str, dataset_id: int
+) -> dict[str, Any] | None:
+    """AST0016：对 AI 生成公式做确定性 AST 编译（best-effort）。
+
+    不阻断草稿返回；仅把结构化错误转为友好修复建议，
+    供前端提示。任何异常都吞掉，避免影响 AI 草稿主流程。
+    """
+    from app.ai_formula.ast.compiler import FormulaCompileOptions, compile_formula_to_sql
+
+    try:
+        result = await compile_formula_to_sql(
+            db, formula, dataset_id, mode="metric",
+            options=FormulaCompileOptions(include_ast=True),
+        )
+    except Exception:
+        return None
+    repair_hints: list[str] = []
+    for e in result.errors:
+        if e.suggestion:
+            repair_hints.append(f"{e.message}（建议：{e.suggestion}）")
+        else:
+            repair_hints.append(e.message)
+    return {
+        "valid": result.valid,
+        "sql": result.sql,
+        "has_aggregate": result.has_aggregate,
+        "functions": result.functions,
+        "dependencies": result.dependencies,
+        "errors": [e.to_dict() for e in result.errors],
+        "warnings": [w.to_dict() for w in result.warnings],
+        "repair_hints": repair_hints,
+        "compiler": result.compiler,
+    }
+

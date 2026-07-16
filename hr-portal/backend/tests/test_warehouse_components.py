@@ -324,8 +324,8 @@ def test_nullif_wraps_division_in_simple_sql():
     from app.ai_formula.formula_to_sql import _wrap_division_with_nullif
     sql = "COUNT(*) / SUM(salary)"
     result = _wrap_division_with_nullif(sql)
-    assert "NULLIF(SUM(salary), 0)" in result
-    assert result == "COUNT(*) / NULLIF(SUM(salary), 0)"
+    assert "NULLIF(SUM(salary), 0)::numeric" in result
+    assert result == "COUNT(*) / NULLIF(SUM(salary), 0)::numeric"
 
 
 def test_nullif_wraps_division_with_filter():
@@ -333,7 +333,25 @@ def test_nullif_wraps_division_with_filter():
     from app.ai_formula.formula_to_sql import _wrap_division_with_nullif
     sql = "COUNT(*) FILTER (WHERE x = 1) / COUNT(*)"
     result = _wrap_division_with_nullif(sql)
-    assert "NULLIF(COUNT(*), 0)" in result
+    assert "NULLIF(COUNT(*), 0)::numeric" in result
+
+
+def test_formula_translate_countif_ratio_translates_both_sides_and_wildcard():
+    """COUNTIF(a,"正式员工")/COUNTIF(a,"*")：右侧 COUNTIF 也必须翻译，且 "*" 表示非空。"""
+    from app.ai_formula.formula_to_sql import _translate_expr, _wrap_division_with_nullif
+
+    expr = 'COUNTIF("current"."employee_type","正式员工")/COUNTIF("current"."employee_type","*")'
+    translated = _translate_expr(expr)
+
+    assert "COUNTIF(" not in translated
+    assert 'COUNT(*) FILTER (WHERE "current"."employee_type" = ' in translated
+    assert '"current"."employee_type" IS NOT NULL' in translated
+    assert '"current"."employee_type"::text <> ' in translated
+
+    sql = _wrap_division_with_nullif(translated)
+    assert "NULLIF(COUNT(*) FILTER (WHERE" in sql
+    assert ")::numeric" in sql
+    assert "FILTER" in sql and "IS NOT NULL" in sql
 
 
 def test_nullif_skips_already_wrapped():

@@ -321,6 +321,8 @@ class DwsAggregateDefinition(Base):
     aggregation = Column(String(16), nullable=False, default="sum", comment="聚合方式: sum/count/avg/max/min")
     measure_field = Column(String(128), nullable=True, comment="度量字段名")
     time_grain = Column(String(16), nullable=True, comment="时间粒度: day/week/month/quarter/year")
+    time_field = Column(String(128), nullable=True, comment="时间/期次字段 output_code（如 snapshot_month）；generate_dws_view 据此自动派生 year/quarter/month")
+    measure_semantics = Column(String(16), nullable=True, comment="度量语义: stock(存量/期末值) | flow(流量/可SUM)。NULL 按 flow 处理")
     business_definition = Column(Text, nullable=True, comment="业务口径说明")
     status = Column(String(16), nullable=False, default="draft", comment="draft/published/archived")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

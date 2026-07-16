@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    # 发布顺序（阻断问题二）：先迁移数据库，再运行/部署应用。
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # 与 app.core.config.Settings 约定一致（env 名大小写不敏感）
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+
+    defaults:
+      run:
+        working-directory: hr-portal/backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Assert single alembic head (no branch drift)
+        run: |
+          python - <<'PY'
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+          cfg = Config("alembic.ini")
+          heads = ScriptDirectory.from_config(cfg).get_heads()
+          assert len(heads) == 1, f"multiple alembic heads (branch not merged): {heads}"
+          print("alembic head:", heads[0])
+          PY
+
+      - name: Apply database migrations (enforce migration first)
+        run: python -m alembic upgrade head
+
+      - name: Run formula AST test suite (DB-free, on migrated schema)
+        run: pytest tests/test_formula_ast_*.py tests/test_metric_formula_ast_integration.py tests/test_formula_translate_api_compat.py tests/test_formula_compile_api.py tests/test_ai_formula_ast_guardrail.py tests/test_formula_compiler_rollout.py -q

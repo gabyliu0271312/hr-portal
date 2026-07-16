@@ -506,6 +506,49 @@ export function translateFormula(formula_expr: string, dataset_id: number): Prom
   return api.post('/warehouse/metrics/translate-formula', { formula_expr, dataset_id }).then(r => r.data)
 }
 
+/** 公式编译预览（AST0017）：确定性 AST 编译结果，含字段/函数/警告/错误/SQL/样本 */
+export interface FormulaCompileError {
+  code: string
+  message: string
+  start?: number
+  end?: number
+  fragment?: string
+  suggestion?: string
+}
+export interface FormulaCompileWarning {
+  code: string
+  message: string
+}
+export interface FormulaDependency {
+  field_code: string
+  field_label?: string
+  source_alias?: string
+  source_column?: string
+}
+export interface FormulaCompileResult {
+  valid: boolean
+  sql: string
+  normalized_formula?: string
+  has_aggregate: boolean
+  dependencies: FormulaDependency[]
+  functions: string[]
+  warnings: FormulaCompileWarning[]
+  errors: FormulaCompileError[]
+  ast?: Record<string, unknown> | null
+  compiler?: { engine?: string; version?: string }
+  preview_result?: { value: unknown; row_count?: number } | null
+  meta?: Record<string, unknown> | null
+}
+export function compileFormula(payload: {
+  dataset_id: number
+  formula_expr: string
+  mode?: string
+  include_ast?: boolean
+  preview?: boolean
+}): Promise<FormulaCompileResult> {
+  return api.post('/warehouse/metrics/compile-formula', payload).then(r => r.data)
+}
+
 /** 指标详情 */
 export function getMetric(id: number): Promise<MetricDetail> {
   return api.get(`/warehouse/metrics/${id}`).then(r => r.data)

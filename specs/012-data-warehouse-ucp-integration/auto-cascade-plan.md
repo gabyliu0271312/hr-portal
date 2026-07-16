@@ -900,7 +900,7 @@ dept_id | year | quarter | month | cost_sum | emp_count
 
 ### Z03 开发清单与原子任务
 
-- [ ] Z0301 建立 L4 全自动级联 feature flag 与审批流程。
+- [x] Z0301 建立 L4 全自动级联 feature flag 与审批流程。
   - 前置任务：X0513（指标自动化专项验收通过）。
   - 功能范围：新增 `warehouse.l4_full_auto` feature flag（默认关闭）；新增 `l4_auto_approvals` 表记录试点申请和审批（`id`、`metric_id`、`space_id`、`requested_by`、`approved_by`、`status`、`risk_level`、`max_auto_frequency`、`auto_rollback_enabled`、`created_at`）；管理员审批后才生效。
   - 代码交付物：feature flag 配置、审批表 ORM/migration、审批 API、权限控制、前端审批页面。
@@ -914,7 +914,7 @@ dept_id | year | quarter | month | cost_sum | emp_count
   - 验收标准：L4 默认所有指标不可用；只有经过审批的低风险指标才能开启全自动级联。
   - 完成定义：开发、UI、权限、测试、验收全部满足。
 
-- [ ] Z0302 实现指标级全自动级联规则配置。
+- [x] Z0302 实现指标级全自动级联规则配置。
   - 前置任务：Z0301、X0506、X0508。
   - 功能范围：为已审批的指标提供全自动级联规则配置：触发条件（`on_metric_save` / `on_ods_data_change` / `on_ods_metadata_change` / `on_dwd_data_refresh` / `on_dwd_schema_change`）、风险状态策略（PASS 自动继续 / WARN 自动继续并通知 / REVIEW_REQUIRED 确认后继续 / APPROVAL_REQUIRED 审批后继续 / FAILED 停止并保留旧版本）、最大自动频率（每日 N 次上限）、自动回滚策略（失败时自动回到上一版本 / 仅通知不自动回滚）、通知配置（成功/失败/待确认/待审批时通知谁）。
   - 代码交付物：`l4_cascade_rules` 表/API、规则校验逻辑。
@@ -931,7 +931,7 @@ dept_id | year | quarter | month | cost_sum | emp_count
   - 验收标准：用户可逐指标配置自动化边界；系统严格遵守频率上限和安全策略，不会失控。
   - 完成定义：开发、UI、测试、验收全部满足。
 
-- [ ] Z0303 实现 L4 全自动级联执行引擎。
+- [x] Z0303 实现 L4 全自动级联执行引擎。
   - 前置任务：Z0302、Z0103（`trigger_dwd_standardization` action 已可用）。
   - 功能范围：编排全自动级联执行流程——①监听事件（`ods_table_data_changed` / `datasource_sync_completed` / `ods_table_metadata_changed` / `standardization_rule_changed` / `ods_dwd_automation_config_changed` / `dwd_data_refreshed` / `dwd_schema_changed` / `dwd_metadata_changed` / `metric_saved`）→ ②查 L4 规则和风险等级 → ③自动执行 X0502 指标解析 → ④自动执行 X0503 DWS 草稿生成或更新 → ⑤自动通过 X0504 SQL/View 生成 + X0505 门禁检查 → ⑥按风险状态机处理：PASS/WARN 自动发布或刷新 DWS 表/view，REVIEW_REQUIRED 生成方案并等待确认后继续，APPROVAL_REQUIRED 生成审批单并在通过后继续，FAILED 保留旧版本 → ⑦自动生成或更新 ADS/DWA 草稿（X0507）→ ⑧门禁检查和风险状态机 → ⑨自动发布或刷新 ADS/DWA 表/view（X0508）→ ⑩同步数据集输出字段、血缘、权限并更新 BI/帆软消费说明（X0509）→ ⑪写审计。任一步失败必须按 Z00 的全链路传播、风险状态机、发布事务与失败补偿规则处理，写失败记录并通知。
   - 代码交付物：`L4CascadeEngine` 服务、编排逻辑、错误恢复、事件监听注册、DWD→DWS→ADS/DWA 依赖图查询、view/物化刷新分支、数据集输出字段同步、消费契约更新。
@@ -942,7 +942,7 @@ dept_id | year | quarter | month | cost_sum | emp_count
   - 验收标准：审批通过的 L4 指标，在触发条件满足时按风险状态机完成 DWD→DWS→ADS/DWA 全链路；低风险自动完成，中风险确认后由系统继续完成，高风险审批后由系统继续或回滚，失败保留旧版本并给出修复建议。DWS/ADS/DWA 的表、view、数据集输出字段、血缘、权限和消费契约均与上游变化一致；对业务消费侧不产生无提示的部分发布。
   - 完成定义：引擎、测试、审计满足。
 
-- [ ] Z0304 实现紧急停止开关与一键回滚。
+- [x] Z0304 实现紧急停止开关与一键回滚。
   - 前置任务：Z0303。
   - 功能范围：提供全局紧急停止按钮（管理员操作，立即暂停所有 L4 自动执行，正在执行中的任务等待完成但不启动新任务）；提供按指标的一键回滚（撤回最近一次 L4 自动发布的 DWS + ADS + BI 消费契约，恢复到上一个手动/自动发布的版本）。
   - 代码交付物：emergency stop API、rollback API、状态管理、权限控制。
@@ -957,7 +957,7 @@ dept_id | year | quarter | month | cost_sum | emp_count
   - 验收标准：任何 L4 自动发布的结果可一键撤销；紧急情况可在秒级停止所有自动行为。
   - 完成定义：紧急停止、回滚、UI、测试全部满足。
 
-- [ ] Z0305 L4 全自动级联全链路审计与可观测性。
+- [x] Z0305 L4 全自动级联全链路审计与可观测性。
   - 前置任务：Z0303。
   - 功能范围：为每次 L4 自动级联执行记录完整审计时间线：触发事件 → 规则匹配 → 指标解析 → DWS 草稿生成（含门禁和风险状态）→ PASS/WARN 自动发布或 REVIEW/APPROVAL 等待确认审批 → DWS 发布/刷新 → ADS/DWA 草稿生成 → ADS/DWA 发布/刷新 → BI/帆软消费说明更新 → 最终状态。提供全局 L4 运行摘要仪表板（最近 24h 执行次数、成功/待确认/待审批/失败数、按指标分布）。
   - 代码交付物：audit API 扩展、运行摘要 API、L4 审计时间线 UI 组件、全局摘要卡片。
@@ -971,7 +971,7 @@ dept_id | year | quarter | month | cost_sum | emp_count
   - 验收标准：每次 L4 自动执行的每一步都可追溯、可解释；管理员可实时掌握全自动运行健康状况。
   - 完成定义：审计、UI、测试全部满足。
 
-- [ ] Z0306 L4 全自动级联专项验收。
+- [x] Z0306 L4 全自动级联专项验收。
   - 前置任务：Z0301-Z0305。
   - 功能范围：对 L4 全自动级联进行专项验收，包括：审批流程、规则配置、全链路自动执行、风险状态机、确认后继续执行、审批后继续执行、频率上限、紧急停止、一键回滚、审计完整性、数据安全。
   - 代码交付物：专项验收报告、E2E 测试记录、风险清单、试点方案、紧急响应预案。

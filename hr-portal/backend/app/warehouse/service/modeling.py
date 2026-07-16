@@ -646,14 +646,14 @@ class DwsAggregateService:
         if status: base = base.where(DwsAggregateDefinition.status == status)
         total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
         rows = (await self.session.execute(base.order_by(DwsAggregateDefinition.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
-        items = [{"id": a.id, "name": a.name, "label": a.label, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "business_definition": a.business_definition, "status": a.status} for a in rows]
+        items = [{"id": a.id, "name": a.name, "label": a.label, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "time_field": a.time_field, "measure_semantics": a.measure_semantics, "business_definition": a.business_definition, "status": a.status} for a in rows]
         return {"total": total, "page": page, "page_size": page_size, "items": items}
 
     async def get_aggregate(self, agg_id: int):
         from app.warehouse.models import DwsAggregateDefinition
         a = await self.session.get(DwsAggregateDefinition, agg_id)
         if a is None: return None
-        return {"id": a.id, "name": a.name, "label": a.label, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "business_definition": a.business_definition, "status": a.status}
+        return {"id": a.id, "name": a.name, "label": a.label, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "time_field": a.time_field, "measure_semantics": a.measure_semantics, "business_definition": a.business_definition, "status": a.status}
 
     async def _validate_aggregate_source(self, payload: dict):
         """硬兜底同源校验：create/update 都必须通过。"""
@@ -683,7 +683,7 @@ class DwsAggregateService:
     async def create_aggregate(self, payload: dict):
         from app.warehouse.models import DwsAggregateDefinition
         await self._validate_aggregate_source(payload)
-        a = DwsAggregateDefinition(name=payload["name"], label=payload.get("label"), metric_id=payload.get("metric_id"), source_dataset_id=payload.get("source_dataset_id"), group_by=payload.get("group_by", []), filter=payload.get("filter"), time_grain=payload.get("time_grain"), business_definition=payload.get("business_definition"), status="draft")
+        a = DwsAggregateDefinition(name=payload["name"], label=payload.get("label"), metric_id=payload.get("metric_id"), source_dataset_id=payload.get("source_dataset_id"), group_by=payload.get("group_by", []), filter=payload.get("filter"), time_grain=payload.get("time_grain"), time_field=payload.get("time_field"), measure_semantics=payload.get("measure_semantics"), business_definition=payload.get("business_definition"), status="draft")
         self.session.add(a); await self.session.commit(); await self.session.refresh(a)
         return await self.get_aggregate(a.id)
 
@@ -696,7 +696,7 @@ class DwsAggregateService:
         for k in ("source_dataset_id", "metric_id", "group_by"):
             if k in payload and payload[k] is not None: merged[k] = payload[k]
         await self._validate_aggregate_source(merged)
-        allowed = {"name", "label", "group_by", "filter", "time_grain", "business_definition", "metric_id", "source_dataset_id"}
+        allowed = {"name", "label", "group_by", "filter", "time_grain", "time_field", "measure_semantics", "business_definition", "metric_id", "source_dataset_id"}
         for key, val in payload.items():
             if key in allowed and val is not None: setattr(a, key, val)
         await self.session.commit(); await self.session.refresh(a)
@@ -746,6 +746,7 @@ class DwsAggregateService:
         validate_layer_transition("DWD", "DWS", "aggregate")
         from datetime import datetime as dt
         from app.warehouse.models import DwsAggregateDefinition, Dimension
+        from app.datasets.models import DatasetOutputField
         from sqlalchemy import text as sa_text
         Q = self._quote_ident
         agg = await self.session.get(DwsAggregateDefinition, agg_id)
@@ -913,10 +914,133 @@ class DwsAggregateService:
             if missing: raise ValueError(f"数据集表未连接: {', '.join(sorted(missing))}")
             from_table = " ".join(from_parts)
 
+        # ---- 时间列派生（X05 共享基座：一期建好，二期 portal 钻取复用）----
+        # 设计见 specs/012-data-warehouse-ucp-integration/x05-time-drilldown-two-phase-design.md
+        # time_field 存 output_code，必须与维度同路径经 DatasetOutputField 解析为 "alias"."source_column"
+        if "expanded_group_by" not in locals():
+            expanded_group_by = []
+        alias_to_phys = {(t.alias or t.table_name): t.table_name for t in ds_tables}
+        time_select_exprs: list = []  # (select_sql, code)
+        time_group_exprs: list = []
+        if agg.time_field:
+            dof_t = (await self.session.execute(select(DatasetOutputField).where(
+                DatasetOutputField.dataset_id == agg.source_dataset_id,
+                (DatasetOutputField.output_code == agg.time_field)
+                | (DatasetOutputField.source_column == agg.time_field),
+            ))).scalars().first()
+            if dof_t and dof_t.source_column and dof_t.source_alias:
+                t_alias = dof_t.source_alias
+                t_col = dof_t.source_column
+                time_expr = f"{Q(t_alias)}.{Q(t_col)}"
+                time_resolved_code = dof_t.output_code or agg.time_field
+            else:
+                # 兜底：直接当列名（单表场景通常 output_code 即列名）
+                t_alias = None
+                t_col = agg.time_field
+                time_expr = Q(agg.time_field)
+                time_resolved_code = agg.time_field
+            # 类型校验（R7）：必须在 CREATE VIEW 之前给出明确的“非日期”错误，
+            # 而不是到 DDL 执行时才抛泛化的“创建视图失败”。
+            phys_table = alias_to_phys.get(t_alias) if t_alias else (table_names[0] if table_names else None)
+            col_type = None
+            if phys_table:
+                try:
+                    col_type_row = (await self.session.execute(sa_text(
+                        "SELECT data_type FROM information_schema.columns "
+                        "WHERE table_name = :t AND column_name = :c LIMIT 1"
+                    ), {"t": phys_table, "c": t_col})).first()
+                    if col_type_row:
+                        col_type = (col_type_row[0] or "").lower()
+                except Exception:
+                    col_type = None  # information_schema 不可用时降级，仍走运行时校验
+            date_like = ("date", "timestamp", "time")
+            str_like = ("character", "varchar", "text", "string", "char")
+            if col_type and any(k in col_type for k in date_like):
+                pass  # 原生日期/时间类型，可直接派生年/季/月
+            else:
+                # 字符串类型（或取不到列类型时）：**全量扫脏值**，不用 LIMIT 1 抽样强转。
+                # 原因：CREATE VIEW 只定义视图、不实际计算 cast，抽样通过也会在后续查询视图时才炸；
+                # 且抽样只能证明“某一行可转”，首行合法但后续存在 '2026年7月'/'202607'/空串时会漏放。
+                # 这里用正则反向筛出“不符合 ISO 日期格式”的坏值（YYYY-MM-DD / YYYY-MM，可选时间后缀），
+                # 发现即抛明确错误（含样例脏值），与行顺序无关、覆盖整列。
+                iso_re = r"^\d{4}-\d{2}(-\d{2})?(\s\d{2}:\d{2}(:\d{2})?)?$"
+                bad_sample = None
+                try:
+                    bad_sample = (await self.session.execute(sa_text(
+                        f"SELECT {time_expr}::text FROM {from_table} "
+                        f"WHERE {time_expr} IS NOT NULL AND {time_expr}::text !~ :iso_re LIMIT 1"
+                    ), {"iso_re": iso_re})).scalar()
+                except Exception:
+                    # 正则不可用（极少数环境）：降级为全量强转扫描，任一坏值即抛
+                    try:
+                        await self.session.execute(sa_text(
+                            f"SELECT ({time_expr})::date FROM {from_table} WHERE {time_expr} IS NOT NULL"
+                        ))
+                    except Exception as cast_err:
+                        raise ValueError(
+                            f"time_field 字段 '{agg.time_field}' 内容无法解析为日期，无法派生年/季/月。"
+                            f"请改用 DATE / TIMESTAMP 类型字段或可 ::date 解析的 ISO 日期字符串，错误详情：{str(cast_err)[:160]}"
+                        )
+                if bad_sample is not None:
+                    sample = str(bad_sample)[:40]
+                    raise ValueError(
+                        f"time_field 字段 '{agg.time_field}' 含无法解析为日期的脏值（样例：'{sample}'），"
+                        f"无法派生年/季/月。请改用 ISO 日期字符串（YYYY-MM-DD 或 YYYY-MM，如 2026-07-01 / 2026-07），"
+                        f"不要使用 '2026年7月' / '202607' / 空串 等格式。"
+                    )
+                # 正则通过只能确认"格式合规"，但 2026-99-01 / 2026-02-31 这类
+                # "格式对、日期错"的值也会通过正则。追加 ::date 全列 cast 扫描，
+                # 任一不可解析的日期字符串会在此捕获，而非留到查询视图时才炸。
+                try:
+                    await self.session.execute(sa_text(
+                        f"SELECT ({time_expr})::date FROM {from_table} WHERE {time_expr} IS NOT NULL"
+                    ))
+                except Exception as cast_err:
+                    raise ValueError(
+                        f"time_field 字段 '{agg.time_field}' 含格式合规但非有效日期的值"
+                        f"（如 2026-99-01 / 2026-02-31），::date 全列强转失败，无法派生年/季/月。"
+                        f"请确保字符串值均为真实可解析的日期，错误详情：{str(cast_err)[:160]}"
+                    )
+                if col_type and not any(k in col_type for k in str_like):
+                    # 既不是日期类型也不是已知字符串类型：正则扫描通过但类型不明，给出提示性错误
+                    raise ValueError(
+                        f"time_field 字段 '{agg.time_field}' 类型 '{col_type}' 非日期且非字符串，无法派生年/季/月，"
+                        f"请改用 DATE / TIMESTAMP 类型字段（或可被 ::date 解析的 ISO 日期字符串）"
+                    )
+            # 跳过 group_by 中与 time_field 同源的列：比对映射后的真实列名，而非维度编码本身
+            if time_resolved_code:
+                for code in list(expanded_group_by):
+                    if dim_col_name.get(code) == time_resolved_code:
+                        expanded_group_by.remove(code)
+                        dim_select_map.pop(code, None)
+                        dim_group_map.pop(code, None)
+                        dim_col_name.pop(code, None)
+                        dim_col_label.pop(code, None)
+            # 派生列：保留原始期次列 + 派生 year/quarter/month（防御性 ::date 强转兼容 ISO 串）
+            td = f"({time_expr})::date"
+            time_select_exprs = [
+                (f"{time_expr} AS {Q('snapshot_month')}", "snapshot_month"),
+                (f"EXTRACT(YEAR FROM {td})::int AS {Q('year')}", "year"),
+                (f"to_char({td}, 'YYYY-\"Q\"Q') AS {Q('quarter')}", "quarter"),
+                (f"to_char({td}, 'YYYY-MM') AS {Q('month')}", "month"),
+            ]
+            time_group_exprs = [
+                time_expr,
+                f"EXTRACT(YEAR FROM {td})::int",
+                f"to_char({td}, 'YYYY-\"Q\"Q')",
+                f"to_char({td}, 'YYYY-MM')",
+            ]
+
         select_dim_cols = [dim_select_map.get(c, Q(c)) for c in expanded_group_by]
         group_exprs = [dim_group_map.get(c, Q(c)) for c in expanded_group_by]
         select_group_cols = ", ".join(select_dim_cols) if select_dim_cols else ""
         group_cols = ", ".join(group_exprs) if group_exprs else ""
+        # 合并时间列（派生列 + 原始期次列）到 SELECT / GROUP BY
+        if time_select_exprs:
+            time_select_str = ", ".join(s for s, _ in time_select_exprs)
+            time_group_str = ", ".join(time_group_exprs)
+            select_group_cols = (select_group_cols + ", " + time_select_str) if select_group_cols else time_select_str
+            group_cols = (group_cols + ", " + time_group_str) if group_cols else time_group_str
         # 度量表达式直接使用 formula_sql（已翻译的 PostgreSQL SQL，含聚合函数）
         measure_alias = "aggregated_value"
         view_name = agg.name  # 视图名直接用聚合编码（dws_ 开头）
@@ -972,6 +1096,20 @@ class DwsAggregateService:
             self.session.add(TableColumn(table_name=view_name, column_code=col_name, column_label=col_label, data_type="string", display_order=col_order, is_visible=True))
             col_order += 1
         self.session.add(TableColumn(table_name=view_name, column_code=measure_alias, column_label=measure_label, data_type="numeric", display_order=col_order, is_visible=True))
+        col_order += 1
+        # 注册时间派生列（X05）：仅在 time_field 已配置且校验通过时（time_select_exprs 非空）
+        # 才写入 snapshot_month（原始期次）/ year / quarter / month，避免普通 DWS 元数据谎称有时间列。
+        if time_select_exprs:
+            for t_col_code, t_col_label, t_col_type in [
+                ("snapshot_month", "期次", "string"),
+                ("year", "年", "integer"),
+                ("quarter", "季", "string"),
+                ("month", "月", "string"),
+            ]:
+                self.session.add(TableColumn(table_name=view_name, column_code=t_col_code,
+                                             column_label=t_col_label, data_type=t_col_type,
+                                             display_order=col_order, is_visible=True))
+                col_order += 1
 
         # 4. 动态注册到 DATA_TABLES（使预览/查询可用）
         from app.data.dynamic_loader import _register_view_model
@@ -983,6 +1121,8 @@ class DwsAggregateService:
 
         sql_summary = ddl
         output_fields = [dim_col_name.get(code, code) for code in expanded_group_by] + [measure_alias]
+        if time_select_exprs:
+            output_fields += ["snapshot_month", "year", "quarter", "month"]
         return {"aggregate_id": agg_id, "view_name": ds_name, "sql_summary": sql_summary, "output_fields": output_fields, "dependencies": [], "version": ds.version, "status": "published"}
 
     async def get_view_impact(self, agg_id: int):

@@ -1006,6 +1006,8 @@ class DwsAggregateDefinitionCreateIn(BaseModel):
     group_by: list[str] = Field(default_factory=list, description="分组维度字段列表")
     filter: Optional[dict] = None
     time_grain: Optional[str] = None
+    time_field: Optional[str] = None
+    measure_semantics: Optional[str] = None
     business_definition: Optional[str] = None
 
 
@@ -1018,6 +1020,8 @@ class DwsAggregateDefinitionUpdateIn(BaseModel):
     group_by: Optional[list[str]] = None
     filter: Optional[dict] = None
     time_grain: Optional[str] = None
+    time_field: Optional[str] = None
+    measure_semantics: Optional[str] = None
     business_definition: Optional[str] = None
 
 
@@ -1030,6 +1034,8 @@ class DwsAggregateDefinitionOut(BaseModel):
     group_by: list = []
     filter: Optional[dict] = None
     time_grain: Optional[str] = None
+    time_field: Optional[str] = None
+    measure_semantics: Optional[str] = None
     business_definition: Optional[str] = None
     status: str = "draft"
     created_at: Optional[datetime] = None

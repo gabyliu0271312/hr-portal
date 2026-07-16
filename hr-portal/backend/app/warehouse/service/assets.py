@@ -943,12 +943,18 @@ class WarehouseService:
             if ds.warehouse_layer != "DWD":
                 raise ValueError("指标只能绑定DWD层数据集")
 
-        # 翻译 formula_expr → formula_sql
+        # 翻译 formula_expr → formula_sql（AST 编译器，AST0015）
         formula_sql = None
         formula_expr = payload.get("formula_expr")
+        compile_engine = None
+        compile_version = None
+        compile_meta: dict | None = None
+        formula_ast: dict | None = None
         if formula_expr and ds_id:
             from app.ai_formula.formula_to_sql import translate_formula_to_sql
-            result = await translate_formula_to_sql(self.session, formula_expr, ds_id)
+            result = await translate_formula_to_sql(
+                self.session, formula_expr, ds_id, include_ast=True
+            )
             if not result["valid"]:
                 raise ValueError(f"公式翻译失败: {'; '.join(result['errors'])}")
             if not result["has_aggregate"]:
@@ -957,6 +963,16 @@ class WarehouseService:
                     "请在公式中使用聚合函数"
                 )
             formula_sql = result["sql"]
+            compile_engine = result.get("compile_engine")
+            compile_version = result.get("compile_version")
+            compile_meta = {
+                "dependencies": result.get("dependencies") or [],
+                "functions": result.get("functions") or [],
+                "warnings": result.get("warnings") or [],
+                "normalized_formula": result.get("normalized_formula"),
+                "rollout_engine": result.get("rollout_engine"),
+            }
+            formula_ast = result.get("ast")
 
         m = WarehouseMetric(
             metric_code=payload["metric_code"],
@@ -967,6 +983,10 @@ class WarehouseService:
             calculation_desc=payload.get("calculation_desc"),
             formula_expr=formula_expr,
             formula_sql=formula_sql,
+            formula_compile_engine=compile_engine,
+            formula_compile_version=compile_version,
+            formula_compile_meta=compile_meta,
+            formula_ast=formula_ast,
             stat_period=payload.get("stat_period"),
             related_dataset_id=ds_id,
             related_fields=payload.get("related_fields", []),
@@ -1053,7 +1073,10 @@ class WarehouseService:
             if not ds_id:
                 raise ValueError("翻译公式需要关联数据集，请先设置关联数据集")
             from app.ai_formula.formula_to_sql import translate_formula_to_sql
-            result = await translate_formula_to_sql(self.session, payload["formula_expr"], m.related_dataset_id)
+            result = await translate_formula_to_sql(
+                self.session, payload["formula_expr"], m.related_dataset_id,
+                include_ast=True,
+            )
             if not result["valid"]:
                 raise ValueError(f"公式翻译失败: {'; '.join(result['errors'])}")
             if not result["has_aggregate"]:
@@ -1062,6 +1085,17 @@ class WarehouseService:
                     "请在公式中使用聚合函数"
                 )
             m.formula_sql = result["sql"]
+            # 同步刷新编译元数据（AST0015 编辑路径）
+            m.formula_compile_engine = result.get("compile_engine")
+            m.formula_compile_version = result.get("compile_version")
+            m.formula_compile_meta = {
+                "dependencies": result.get("dependencies") or [],
+                "functions": result.get("functions") or [],
+                "warnings": result.get("warnings") or [],
+                "normalized_formula": result.get("normalized_formula"),
+                "rollout_engine": result.get("rollout_engine"),
+            }
+            m.formula_ast = result.get("ast")
 
         return m
 
