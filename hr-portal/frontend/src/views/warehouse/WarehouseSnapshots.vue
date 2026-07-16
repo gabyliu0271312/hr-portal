@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { onMounted, ref } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -95,7 +96,7 @@ onMounted(load)
         <el-table-column prop="period" label="周期" width="70" />
         <el-table-column prop="retention" label="保留期" width="70" align="center"><template #default="{ row }">{{ row.retention }} 期</template></el-table-column>
         <el-table-column label="状态" width="70" align="center"><template #default="{ row }"><el-tag size="small" :type="row.enabled?'success':'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag></template></el-table-column>
-        <el-table-column label="上次执行" width="140"><template #default="{ row }">{{ row.last_run_at?.substring(0, 19) || '—' }}</template></el-table-column>
+        <el-table-column label="上次执行" width="140"><template #default="{ row }">{{ formatDateTime(row.last_run_at) || '—' }}</template></el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button text size="small" :icon="VideoPlay" type="success" @click="openTrigger(row.id)">执行</el-button>
@@ -133,8 +134,8 @@ onMounted(load)
         <el-table-column prop="period_value" label="周期值" width="100" />
         <el-table-column prop="status" label="状态" width="80"><template #default="{ row }"><el-tag size="small" :type="row.status==='success'?'success':'danger'">{{ row.status }}</el-tag></template></el-table-column>
         <el-table-column prop="row_count" label="行数" width="80" align="center" />
-        <el-table-column prop="started_at" label="开始时间" width="150"><template #default="{ row }">{{ row.started_at?.substring(0, 19) }}</template></el-table-column>
-        <el-table-column prop="finished_at" label="结束时间" width="150"><template #default="{ row }">{{ row.finished_at?.substring(0, 19) }}</template></el-table-column>
+        <el-table-column prop="started_at" label="开始时间" width="150"><template #default="{ row }">{{ formatDateTime(row.started_at) }}</template></el-table-column>
+        <el-table-column prop="finished_at" label="结束时间" width="150"><template #default="{ row }">{{ formatDateTime(row.finished_at) }}</template></el-table-column>
         <el-table-column prop="error_message" label="错误" min-width="120" show-overflow-tooltip />
         <el-table-column label="操作" width="70" fixed="right">
           <template #default="{ row }">

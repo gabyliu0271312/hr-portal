@@ -219,7 +219,7 @@
                 </el-table-column>
                 <el-table-column label="时间" min-width="140">
                   <template #default="{ row }">
-                    <span style="font-size:11px;color:#8f959e">{{ row.started_at || row.created_at || '—' }}</span>
+                    <span style="font-size:11px;color:#8f959e">{{ formatDateTime(row.started_at || row.created_at) }}</span>
                   </template>
                 </el-table-column>
               </el-table>
@@ -235,7 +235,7 @@
                 <el-timeline-item
                   v-for="(item, i) in detailAuditLogs"
                   :key="i"
-                  :timestamp="item.created_at || ''"
+                  :timestamp="formatDateTime(item.created_at)"
                   placement="top"
                 >
                   {{ item.action || item.message || '配置变更' }}
@@ -736,6 +736,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime, toUtcNaive } from '@/utils/datetime'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1480,7 +1481,7 @@ async function submitSystemStep2() {
       system_id: pendingSystemId.value,
       env_tag: credForm.value.env_tag || undefined,
       is_primary: true,
-      expires_at: credForm.value.expires_at || undefined,
+      expires_at: toUtcNaive(credForm.value.expires_at) || undefined,
       remind_before_days: credForm.value.remind_before_days ?? 7,
       secrets: credForm.value.secrets,
     })

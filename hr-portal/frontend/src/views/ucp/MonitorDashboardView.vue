@@ -271,7 +271,7 @@
             <el-table-column label="时间" width="160">
               <template #default="{ row }">
                 <span class="muted">
-                  {{ row.created_at?.slice(0, 19).replace('T', ' ') || '-' }}
+                  {{ formatDateTime(row.created_at) || '-' }}
                 </span>
               </template>
             </el-table-column>
@@ -307,7 +307,7 @@
         <el-table-column label="开始时间" width="180">
           <template #default="{ row }">
             <span class="muted">
-              {{ row.started_at?.slice(0, 19).replace('T', ' ') || row.created_at?.slice(0, 19).replace('T', ' ') || '-' }}
+              {{ formatDateTime(row.started_at) || formatDateTime(row.created_at) || '-' }}
             </span>
           </template>
         </el-table-column>
@@ -403,6 +403,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, computed, onMounted } from 'vue'
 import { Refresh, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'

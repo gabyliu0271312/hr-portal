@@ -30,3 +30,27 @@ export function formatDateOnly(v: string | number | Date | null | undefined, fal
   const d = new Date(v)
   return isNaN(d.getTime()) ? fallback : d.toLocaleDateString('zh-CN', { timeZone: TZ })
 }
+
+// ── 日期选择器提交 / 回填的时区闭环 ───────────────────────
+// 后端存储与接口约定为 UTC 朴素串（YYYY-MM-DDTHH:mm:ss，无时区）。
+// 但 el-date-picker 的 value-format 朴素串按【浏览器本地】解释，
+// 因此：提交前把本地朴素串转为 UTC 朴素串；回填时反向转为本地朴素串，
+// 这样"你选的北京时间"在经 formatDateTime 回看时完全一致（不再 +8 小时）。
+
+// 本地朴素串 / Date → UTC 朴素串（用于提交到后端）
+export function toUtcNaive(v: string | Date | null | undefined): string | null {
+  if (v === null || v === undefined || v === '') return null
+  const d = new Date(v as any)
+  if (isNaN(d.getTime())) return null
+  return d.toISOString().slice(0, 19)
+}
+
+// UTC 朴素串 → 本地朴素串（用于回填日期选择器，使其显示北京时间）
+export function toLocalNaive(v: string | null | undefined): string | null {
+  if (!v) return null
+  const normalized = v.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(v) ? v : v + 'Z'
+  const d = new Date(normalized)
+  if (isNaN(d.getTime())) return null
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}

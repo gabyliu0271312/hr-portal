@@ -87,6 +87,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -117,7 +118,7 @@ const triggerLabel = (t: string) => {
   }
 }
 
-const formatTime = (s: string | null) => (s ? new Date(s).toLocaleString('zh-CN') : '-')
+const formatTime = (s: string | null) => (s ? formatDateTime(s) : '-')
 
 const loadList = async () => {
   loading.value = true

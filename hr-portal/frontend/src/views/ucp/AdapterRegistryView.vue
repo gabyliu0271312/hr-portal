@@ -54,7 +54,7 @@
         <el-table-column prop="created_by" label="创建人" width="120" />
         <el-table-column prop="created_at" label="创建时间" width="180">
           <template #default="{ row }">
-            <span class="muted">{{ row.created_at?.slice(0, 19).replace('T', ' ') }}</span>
+            <span class="muted">{{ formatDateTime(row.created_at) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="240" fixed="right">
@@ -128,6 +128,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'

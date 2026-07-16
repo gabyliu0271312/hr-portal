@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -874,7 +875,7 @@ onMounted(load)
 
           <!-- MR0302: 计算时间 -->
           <div v-if="explainContext.computed_at" style="margin-top:8px;font-size:11px;color:#909399">
-            计算时间：{{ explainContext.computed_at.substring(0, 19) }}
+            计算时间：{{ formatDateTime(explainContext.computed_at) }}
           </div>
         </el-card>
 
@@ -887,7 +888,7 @@ onMounted(load)
             <p v-if="explainContext.calculation_desc"><span style="font-weight:600">口径说明：</span>{{ explainContext.calculation_desc }}</p>
             <p v-if="explainContext.metric_version" style="font-size:11px;color:#909399;margin-top:6px">
               口径版本 v{{ explainContext.metric_version }}
-              <span v-if="explainContext.computed_at"> · 计算时间 {{ explainContext.computed_at.substring(0, 19) }}</span>
+              <span v-if="explainContext.computed_at"> · 计算时间 {{ formatDateTime(explainContext.computed_at) }}</span>
             </p>
           </div>
         </el-card>
@@ -1003,7 +1004,7 @@ onMounted(load)
               <template #default="{ row }">{{ row.value?.row_count ?? row.rows?.length ?? 0 }}</template>
             </el-table-column>
             <el-table-column prop="computed_at" label="计算时间" width="160">
-              <template #default="{ row }">{{ row.computed_at?.substring(0, 19) }}</template>
+              <template #default="{ row }">{{ formatDateTime(row.computed_at) }}</template>
             </el-table-column>
           </el-table>
         </el-card>
@@ -1050,10 +1051,10 @@ onMounted(load)
             <el-table-column prop="period" label="周期" width="100" />
             <el-table-column prop="error_message" label="错误信息" min-width="160" show-overflow-tooltip />
             <el-table-column prop="started_at" label="开始时间" width="160">
-              <template #default="{ row }">{{ row.started_at?.substring(0, 19) }}</template>
+              <template #default="{ row }">{{ formatDateTime(row.started_at) }}</template>
             </el-table-column>
             <el-table-column prop="finished_at" label="结束时间" width="160">
-              <template #default="{ row }">{{ row.finished_at?.substring(0, 19) }}</template>
+              <template #default="{ row }">{{ formatDateTime(row.finished_at) }}</template>
             </el-table-column>
           </el-table>
         </el-card>

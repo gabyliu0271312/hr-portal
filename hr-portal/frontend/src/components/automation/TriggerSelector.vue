@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { toLocalNaive, toUtcNaive } from '@/utils/datetime'
 import { computed, ref, watch } from 'vue'
 import { Clock, Timer, CircleCheck, CircleClose, Finished, DocumentChecked, CaretTop } from '@element-plus/icons-vue'
 
@@ -94,7 +95,7 @@ function selectTrigger(value: string) {
 
 // ── 定时配置 (trigger_type = 'schedule') ────────────────
 const scheduleType = ref<string>(props.triggerConfig?.schedule_type || 'recurring')
-const scheduleStartDate = ref<string>(props.triggerConfig?.start_time?.slice(0, 16) || '')
+const scheduleStartDate = ref<string>(toLocalNaive(props.triggerConfig?.start_time?.slice(0, 16)) || '')
 const scheduleRRule = ref<string>(props.triggerConfig?.rrule || 'FREQ=DAILY;INTERVAL=1')
 const scheduleTimezone = ref<string>(props.triggerConfig?.timezone || 'Asia/Shanghai')
 
@@ -117,7 +118,7 @@ function syncScheduleConfig() {
   emit('update:triggerConfig', {
     ...props.triggerConfig,
     schedule_type: scheduleType.value,
-    start_time: scheduleStartDate.value ? scheduleStartDate.value + ':00' : null,
+    start_time: scheduleStartDate.value ? toUtcNaive(scheduleStartDate.value + ':00') : null,
     rrule: scheduleType.value === 'recurring' ? scheduleRRule.value : null,
     timezone: scheduleTimezone.value,
   })

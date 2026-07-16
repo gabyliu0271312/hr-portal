@@ -139,6 +139,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -248,7 +249,7 @@ function sourceTagType(s: string) {
 
 function formatTime(t: string | null) {
   if (!t) return '-'
-  return t.replace('T', ' ').slice(0, 19)
+  return formatDateTime(t)
 }
 
 function calcDurationMs(start: string, end: string) {

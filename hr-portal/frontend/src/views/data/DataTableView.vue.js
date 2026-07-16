@@ -1,4 +1,5 @@
 /// <reference types="../../../node_modules/.vue-global-types/vue_3.5_0_0_0.d.ts" />
+import { formatDateTime } from '@/utils/datetime'
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
@@ -189,7 +190,7 @@ function formatCell(row, col) {
     if (col.data_type === 'datetime' || col.data_type === 'date') {
         if (typeof v === 'string') {
             try {
-                return new Date(v).toLocaleString('zh-CN');
+                return formatDateTime(v);
             }
             catch {
                 return v;

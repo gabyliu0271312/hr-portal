@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { toLocalNaive, toUtcNaive } from '@/utils/datetime'
 import { ref, computed, watch, nextTick } from 'vue'
 import {
   Clock, Timer, CircleCheck, CircleClose, Finished, DocumentChecked,
@@ -134,7 +135,7 @@ watch(() => props.modelValue, (val) => {
       // 回填配置
       if (props.triggerType === 'schedule') {
         const cfg = props.triggerConfig || {}
-        scheduleStartDate.value = cfg.start_time?.slice(0, 16) || ''
+        scheduleStartDate.value = toLocalNaive(cfg.start_time?.slice(0, 16)) || ''
         scheduleRRule.value = cfg.rrule || 'FREQ=DAILY;INTERVAL=1'
         // 根据 rrule 反推 schedule 文本
         scheduleValue.value = rruleToText(cfg.rrule) || '每日 06:00'
@@ -177,7 +178,7 @@ function goToConfigure() {
   if (props.triggerType === selectedType.value && props.triggerConfig) {
     if (selectedType.value === 'schedule') {
       const cfg = props.triggerConfig
-      scheduleStartDate.value = cfg.start_time?.slice(0, 16) || scheduleStartDate.value
+      scheduleStartDate.value = toLocalNaive(cfg.start_time?.slice(0, 16)) || scheduleStartDate.value
       scheduleRRule.value = cfg.rrule || scheduleRRule.value
     } else {
       localBizId.value = props.triggerConfig?.biz_id || ''
@@ -197,7 +198,7 @@ function handleConfirm() {
 
   if (selectedType.value === 'schedule') {
     triggerConfig.schedule_type = 'recurring'
-    triggerConfig.start_time = scheduleStartDate.value ? scheduleStartDate.value + ':00' : null
+    triggerConfig.start_time = scheduleStartDate.value ? toUtcNaive(scheduleStartDate.value + ':00') : null
     triggerConfig.rrule = scheduleRRule.value
   } else {
     bizId = localBizId.value ? Number(localBizId.value) : null

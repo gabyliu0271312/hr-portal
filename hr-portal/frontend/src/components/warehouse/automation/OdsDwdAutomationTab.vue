@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -97,7 +98,7 @@ onMounted(load)
         </template>
       </el-table-column>
       <el-table-column label="最近执行" min-width="130">
-        <template #default="{ row }">{{ row.last_execution_at?.slice(0, 16) || '-' }}</template>
+        <template #default="{ row }">{{ formatDateTime(row.last_execution_at) || '-' }}</template>
       </el-table-column>
       <el-table-column label="操作" width="240" fixed="right">
         <template #default="{ row }">

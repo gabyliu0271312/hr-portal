@@ -79,7 +79,7 @@
           <el-table-column prop="version" label="版本" width="100"/>
           <el-table-column prop="change_note" label="变更说明" min-width="200"/>
           <el-table-column prop="created_by" label="操作人" width="120"/>
-          <el-table-column prop="created_at" label="时间" width="180"><template #default="{row}">{{ row.created_at?.slice(0,19) }}</template></el-table-column>
+          <el-table-column prop="created_at" label="时间" width="180"><template #default="{row}">{{ formatDateTime(row.created_at) }}</template></el-table-column>
           <el-table-column label="操作" width="120"><template #default="{row}"><el-button size="small" type="warning" @click="rollbackVersion(row.id)" :disabled="row.id === latestVersionId">回滚</el-button></template></el-table-column>
         </el-table>
       </template>
@@ -218,6 +218,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { apiTemplateApi } from '@/api/ucp'

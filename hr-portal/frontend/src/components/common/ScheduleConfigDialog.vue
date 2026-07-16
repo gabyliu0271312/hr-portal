@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock } from '@element-plus/icons-vue'
@@ -122,7 +123,7 @@ const kindLabels: Record<string, string> = {
       </el-form>
 
       <div v-if="job" style="margin-top:16px;padding:10px 12px;background:#f5f7fa;border-radius:6px;font-size:12px;color:#909399">
-        <div>上次执行：{{ job.last_run_at?.substring(0, 19) || '—' }}</div>
+        <div>上次执行：{{ formatDateTime(job.last_run_at) || '—' }}</div>
         <div>上次状态：<span :style="{color:job.last_status==='success'?'#67c23a':'#f56c6c'}">{{ job.last_status || '—' }}</span></div>
       </div>
     </div>

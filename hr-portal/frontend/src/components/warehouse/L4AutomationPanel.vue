@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DataAnalysis, Refresh, ArrowRight } from '@element-plus/icons-vue'
@@ -129,7 +130,7 @@ watch(() => props.metricId, () => { if (props.metricId) load() }, { immediate: f
         <div v-for="e in timeline.events.slice(0, 5)" :key="e.execution_id" style="font-size:11px;padding:3px 0;color:#909399">
           <el-tag size="small" :type="e.status === 'success' ? 'success' : 'danger'">{{ e.status }}</el-tag>
           <span style="margin-left:6px">{{ e.trigger_type }}</span>
-          <span style="margin-left:6px">{{ e.started_at?.slice(0, 16) || '-' }}</span>
+          <span style="margin-left:6px">{{ formatDateTime(e.started_at) || '-' }}</span>
         </div>
       </div>
     </div>

@@ -198,6 +198,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -281,7 +282,7 @@ function taskStatusTag(s: string): '' | 'success' | 'warning' | 'danger' {
 
 function formatTime(iso: string) {
   if (!iso) return ''
-  return new Date(iso).toLocaleString('zh-CN')
+  return formatDateTime(iso)
 }
 
 function onTabChange(tab: string) {

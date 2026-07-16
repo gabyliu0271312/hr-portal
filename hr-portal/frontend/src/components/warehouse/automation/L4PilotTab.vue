@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CircleCheck, CircleClose, Refresh } from '@element-plus/icons-vue'
@@ -175,7 +176,7 @@ onMounted(load)
             <span>{{ e.trigger_type }}</span>
             <el-tag size="small" :type="e.status === 'success' ? 'success' : e.status === 'failed' ? 'danger' : 'warning'">{{ e.status }}</el-tag>
           </div>
-          <div style="font-size:11px;color:#909399;margin-top:4px">{{ e.started_at?.slice(0, 19) || '-' }} → {{ e.finished_at?.slice(0, 19) || '-' }}</div>
+          <div style="font-size:11px;color:#909399;margin-top:4px">{{ formatDateTime(e.started_at) || '-' }} → {{ formatDateTime(e.finished_at) || '-' }}</div>
           <div v-if="e.steps?.length" style="margin-top:6px">
             <div v-for="s in e.steps" :key="s.step" style="font-size:11px;padding:2px 0">{{ s.step }}: {{ s.status }}</div>
           </div>

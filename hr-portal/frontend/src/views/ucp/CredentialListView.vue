@@ -115,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
@@ -145,7 +146,7 @@ const form = ref({
 const activeCount = computed(() => items.value.filter(x => x.is_active).length)
 const inactiveCount = computed(() => items.value.filter(x => !x.is_active).length)
 
-const formatTime = (s: string | null) => (s ? new Date(s).toLocaleString('zh-CN') : '-')
+const formatTime = (s: string | null) => (s ? formatDateTime(s) : '-')
 
 const loadList = async () => {
   loading.value = true

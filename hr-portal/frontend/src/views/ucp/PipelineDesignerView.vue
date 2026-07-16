@@ -123,7 +123,7 @@
       <el-table :data="versions" stripe border>
         <el-table-column prop="version" label="版本" width="120"><template #default="{ row }"><el-tag size="small">v{{ row.version }}</el-tag></template></el-table-column>
         <el-table-column prop="change_note" label="变更说明" /><el-table-column prop="created_by" label="操作人" width="120" />
-        <el-table-column prop="created_at" label="时间" width="180"><template #default="{ row }">{{ row.created_at?.slice(0, 19).replace('T', ' ') }}</template></el-table-column>
+        <el-table-column prop="created_at" label="时间" width="180"><template #default="{ row }">{{ formatDateTime(row.created_at) }}</template></el-table-column>
         <el-table-column label="操作" width="100"><template #default="{ row }"><el-button size="small" link type="warning" @click="rollbackTo(row)">回滚到此版</el-button></template></el-table-column>
       </el-table>
     </el-dialog>
@@ -131,6 +131,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, reactive, computed, onMounted, watch, type Ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

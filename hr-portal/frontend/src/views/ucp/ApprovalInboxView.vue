@@ -246,6 +246,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -298,7 +299,7 @@ const stepTypeColor = (s: string) => {
   }
 }
 
-const formatTime = (s: string | null) => (s ? new Date(s).toLocaleString('zh-CN') : '-')
+const formatTime = (s: string | null) => (s ? formatDateTime(s) : '-')
 
 const onTabChange = () => {
   page.value = 1

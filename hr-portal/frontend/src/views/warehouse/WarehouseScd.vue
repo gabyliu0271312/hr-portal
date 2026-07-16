@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, VideoPlay, Edit, Delete, InfoFilled, Search } from '@element-plus/icons-vue'
@@ -150,7 +151,7 @@ onMounted(load)
           </template>
         </el-table-column>
         <el-table-column label="上次执行" width="140">
-          <template #default="{ row }">{{ row.last_run_at?.substring(0, 19) || '—' }}</template>
+          <template #default="{ row }">{{ formatDateTime(row.last_run_at) || '—' }}</template>
         </el-table-column>
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
@@ -232,8 +233,8 @@ onMounted(load)
         <el-table-column prop="new_count" label="新增" width="70" align="center" />
         <el-table-column prop="updated_count" label="变更" width="70" align="center" />
         <el-table-column prop="closed_count" label="关闭" width="70" align="center" />
-        <el-table-column prop="started_at" label="开始时间" width="150"><template #default="{ row }">{{ row.started_at?.substring(0, 19) }}</template></el-table-column>
-        <el-table-column prop="finished_at" label="结束时间" width="150"><template #default="{ row }">{{ row.finished_at?.substring(0, 19) }}</template></el-table-column>
+        <el-table-column prop="started_at" label="开始时间" width="150"><template #default="{ row }">{{ formatDateTime(row.started_at) }}</template></el-table-column>
+        <el-table-column prop="finished_at" label="结束时间" width="150"><template #default="{ row }">{{ formatDateTime(row.finished_at) }}</template></el-table-column>
         <el-table-column prop="error_message" label="错误" min-width="140" show-overflow-tooltip />
       </el-table>
     </el-dialog>

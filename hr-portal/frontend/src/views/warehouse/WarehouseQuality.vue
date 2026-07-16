@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Refresh, VideoPlay, Switch, Delete, Edit, InfoFilled, Loading, Clock, RefreshRight } from '@element-plus/icons-vue'
@@ -508,10 +509,10 @@ onMounted(() => {
         <el-table-column prop="checked_count" label="检查数" width="80" align="center" />
         <el-table-column prop="failed_count" label="失败数" width="80" align="center" />
         <el-table-column prop="started_at" label="开始时间" width="150">
-          <template #default="{ row }">{{ row.started_at?.substring(0, 19) }}</template>
+          <template #default="{ row }">{{ formatDateTime(row.started_at) }}</template>
         </el-table-column>
         <el-table-column prop="finished_at" label="结束时间" width="150">
-          <template #default="{ row }">{{ row.finished_at?.substring(0, 19) }}</template>
+          <template #default="{ row }">{{ formatDateTime(row.finished_at) }}</template>
         </el-table-column>
         <el-table-column prop="message" label="消息" min-width="120" show-overflow-tooltip />
         <el-table-column label="操作" width="70" fixed="right">

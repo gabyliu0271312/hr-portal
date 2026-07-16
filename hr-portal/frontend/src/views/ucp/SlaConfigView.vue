@@ -34,7 +34,7 @@
 
     <el-drawer v-model="recordsVisible" title="SLA 达标记录" size="600px">
       <el-table :data="records" stripe border>
-        <el-table-column label="窗口" width="180"><template #default="{row}">{{ row.window_start?.substring(0,16) }} ~ {{ row.window_end?.substring(0,16) }}</template></el-table-column>
+        <el-table-column label="窗口" width="180"><template #default="{row}">{{ formatDateTime(row.window_start) }} ~ {{ formatDateTime(row.window_end) }}</template></el-table-column>
         <el-table-column label="执行数" width="80"><template #default="{row}">{{ row.total_executions }}</template></el-table-column>
         <el-table-column label="成功率" width="90"><template #default="{row}">{{ row.success_rate ? (row.success_rate*100).toFixed(1)+'%' : '-' }}</template></el-table-column>
         <el-table-column label="P95(ms)" width="90"><template #default="{row}">{{ row.p95_duration_ms || '-' }}</template></el-table-column>
@@ -46,6 +46,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { slaApi } from '@/api/ucp'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -422,7 +423,7 @@ function riskTagType(risk: string) { return risk === 'high' ? 'danger' : risk ==
           </div>
           <div class="timeline-list">
             <div v-for="e in timeline.slice(0, 10)" :key="e.id" class="tl-item">
-              <span class="tl-time">{{ e.created_at?.slice(0, 16) || '-' }}</span>
+              <span class="tl-time">{{ formatDateTime(e.created_at) || '-' }}</span>
               <el-tag size="small" :type="statusTag(e.status)">{{ e.status }}</el-tag>
               <span class="tl-act">{{ actionLabel(e.action) }}</span>
               <span v-if="e.message" class="tl-msg">{{ e.message?.substring(0, 80) }}</span>

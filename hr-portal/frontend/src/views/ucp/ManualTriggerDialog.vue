@@ -76,6 +76,7 @@
 </template>
 
 <script setup lang="ts">
+import { toUtcNaive } from '@/utils/datetime'
 import { ref, computed, watch } from 'vue'
 import { ElMessage, type FormInstance } from 'element-plus'
 
@@ -148,7 +149,7 @@ async function onSubmit() {
 
   // 构造 time_range
   const time_range = timeRangeValue.value && timeRangeValue.value.length === 2
-    ? { start: timeRangeValue.value[0], end: timeRangeValue.value[1] }
+    ? { start: toUtcNaive(timeRangeValue.value[0]) ?? '', end: toUtcNaive(timeRangeValue.value[1]) ?? '' }
     : null
 
   const params = {

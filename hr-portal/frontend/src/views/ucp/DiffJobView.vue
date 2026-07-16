@@ -21,7 +21,7 @@
         <el-table-column prop="diff_type" label="差异类型" width="120"><template #default="{row}"><el-tag :type="diffColor(row.diff_type)" size="small">{{ row.diff_type }}</el-tag></template></el-table-column>
         <el-table-column label="详情" min-width="200"><template #default="{row}">{{ JSON.stringify(row.diff_detail) }}</template></el-table-column>
         <el-table-column prop="suggested_action" label="建议" width="150"/>
-        <el-table-column prop="created_at" label="时间" width="160"><template #default="{row}">{{ row.created_at?.substring(0,16) }}</template></el-table-column>
+        <el-table-column prop="created_at" label="时间" width="160"><template #default="{row}">{{ formatDateTime(row.created_at) }}</template></el-table-column>
       </el-table>
     </el-card>
 
@@ -42,6 +42,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { diffApi } from '@/api/ucp'

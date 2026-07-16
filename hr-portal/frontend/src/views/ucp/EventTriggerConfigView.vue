@@ -182,6 +182,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
@@ -406,7 +407,7 @@ function sourceTagType(s: string) {
 
 function formatTime(t: string | null) {
   if (!t) return '-'
-  return t.replace('T', ' ').slice(0, 19)
+  return formatDateTime(t)
 }
 
 onMounted(() => {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -168,7 +169,7 @@ onMounted(() => {
               <el-timeline-item
                 v-for="(a, i) in activities"
                 :key="i"
-                :timestamp="new Date(a.time).toLocaleString()"
+                :timestamp="formatDateTime(a.time)"
                 :type="a.type as any"
                 placement="top"
               >

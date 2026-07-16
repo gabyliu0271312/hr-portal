@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
@@ -94,10 +95,10 @@ watch([page, filterStatus, filterTrigger, filterMetricId], () => { loadExecs() }
         </template>
       </el-table-column>
       <el-table-column label="开始时间" width="140">
-        <template #default="{ row }">{{ row.started_at?.slice(0, 19) || '-' }}</template>
+        <template #default="{ row }">{{ formatDateTime(row.started_at) || '-' }}</template>
       </el-table-column>
       <el-table-column label="结束时间" width="140">
-        <template #default="{ row }">{{ row.finished_at?.slice(0, 19) || '-' }}</template>
+        <template #default="{ row }">{{ formatDateTime(row.finished_at) || '-' }}</template>
       </el-table-column>
       <el-table-column label="输出摘要" min-width="120">
         <template #default="{ row }">{{ row.output_summary || row.error_message?.substring(0, 80) || '-' }}</template>

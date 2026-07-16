@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/datetime'
 import { ref, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Setting, CircleCheck, CircleClose, Loading, Clock, ArrowRight, VideoPause, VideoPlay, InfoFilled } from '@element-plus/icons-vue'
@@ -143,7 +144,7 @@ defineExpose({ refreshDetectedMode })
         </div>
         <div v-if="config?.last_execution_at" class="status-row">
           <span class="status-label">上次同步</span>
-          <span style="font-size:13px;color:#606266">{{ config.last_execution_at?.slice(0, 16) }}, {{ config.last_execution_rows ?? '-' }} 行</span>
+          <span style="font-size:13px;color:#606266">{{ formatDateTime(config.last_execution_at) }}, {{ config.last_execution_rows ?? '-' }} 行</span>
           <el-tag v-if="config.last_execution_status" size="small" :type="config.last_execution_status === 'success' ? 'success' : 'danger'">
             {{ config.last_execution_status }}
           </el-tag>
@@ -157,7 +158,7 @@ defineExpose({ refreshDetectedMode })
         <div v-else class="exec-list">
           <div v-for="e in executions" :key="e.id" class="exec-item">
             <component :is="statusIcon(e.status)" :style="{ color: statusColor(e.status), fontSize: '16px' }" />
-            <span class="exec-time">{{ e.started_at?.slice(0, 16) || '-' }}</span>
+            <span class="exec-time">{{ formatDateTime(e.started_at) || '-' }}</span>
             <el-tag :type="e.status === 'success' ? 'success' : 'danger'" size="small">{{ e.status }}</el-tag>
             <span class="exec-mode">{{ e.mode ? e.mode : e.trigger_label }}</span>
             <span v-if="e.rows" class="exec-rows">{{ e.rows }} 行</span>
