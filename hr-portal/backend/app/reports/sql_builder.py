@@ -1167,20 +1167,25 @@ async def run_dataset_query(
         (columns_meta_list, items, total)
     columns_meta_list: list of dict {code(=instance_id), label, data_type, is_sensitive, source_code?}
     """
-    # ---- Track B: 列实例标准化 ----
+    # ---- Track B: 列实例标准化（双路径共存） ----
     from app.reports.router import _normalize_columns
     _col_instances = _normalize_columns(columns or [])
-    # instance_id → source_code 映射
-    _instance_source = {ci.instance_id: ci.source_code for ci in _col_instances}
-    # source_code → instance_id (first occurrence only, for backward compat)
-    _source_instance: dict[str, str] = {}
+    # 判断是否为 Track B 模式：任一实例的 instance_id ≠ source_code
+    _has_duplicates = any(ci.instance_id != ci.source_code for ci in _col_instances) if _col_instances else False
+    # instance_id → source_code（输出投影用）
+    _instance_id_to_source: dict[str, str] = {}
+    # 内部字段解析仍用 source_code SET 去重
+    _effective_columns: list[str] = []
+    _seen_sources: set[str] = set()
     for ci in _col_instances:
-        if ci.source_code not in _source_instance:
-            _source_instance[ci.source_code] = ci.instance_id
-    # 内部仍用 source_code 做字段解析；SELECT alias 时再用 instance_id
-    _effective_columns = [ci.source_code for ci in _col_instances]
+        _instance_id_to_source[ci.instance_id] = ci.source_code
+        if ci.source_code not in _seen_sources:
+            _seen_sources.add(ci.source_code)
+            _effective_columns.append(ci.source_code)
     # instance_id → label
     _instance_label = {ci.instance_id: (ci.label or ci.source_code) for ci in _col_instances}
+    # instance_id 输出顺序列表（用于 columns_meta / 输出构建）
+    _output_instance_ids = [ci.instance_id for ci in _col_instances]
 
     ds, ds_tables, ds_rels = await _get_dataset_meta(dataset_id, db)
     if not ds_tables:
@@ -1385,10 +1390,27 @@ async def run_dataset_query(
     for a, code in selected:
         if a not in aliased_models:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"未知数据集别名: {a}")
-        q_label = f"{a}.{code}"
-        # Track B: 使用 instance_id 作为 SQL 列别名
-        sql_alias = _source_instance.get(q_label, _select_label(a, code)) if _col_instances else _select_label(a, code)
-        select_cols.append(_entity_column(aliased_models[a], code).label(sql_alias))
+        select_cols.append(_entity_column(aliased_models[a], code).label(_select_label(a, code)))
+
+    # Track B：重复实例需要额外 SELECT 列（使用 instance_id 作为别名）
+    if _has_duplicates:
+        _selected_set = {f"{a}.{c}" for a, c in selected}
+        for ci in _col_instances:
+            source_parts = ci.source_code.split(".", 1)
+            if len(source_parts) == 2:
+                a, code = source_parts
+                q = ci.source_code
+            else:
+                # calc field
+                continue
+            if q not in _selected_set:
+                continue
+            if ci.instance_id == ci.source_code:
+                continue  # 首个实例已由 _select_label 处理
+            if a not in aliased_models:
+                continue
+            # 额外列：同一字段表达式，不同别名（instance_id）
+            select_cols.append(_entity_column(aliased_models[a], code).label(ci.instance_id))
 
     stmt = select(*select_cols)
     count_stmt = select(func.count()).select_from(aliased_models[primary_alias])
@@ -1641,57 +1663,69 @@ async def run_dataset_query(
     selected_calc_codes = {calc_qual(f.code): f for f in selected_calc_fields}
     display_selected_set = {f"{a}.{c}" for a, c in display_selected}
 
-    for q in (columns if columns else [f"{a}.{c}" for a, c in display_selected] + [calc_qual(f.code) for f in selected_calc_fields]):
-        # Track B: resolve instance_id for this column
-        instance_id = _source_instance.get(q, q) if _col_instances else q
-        if q.startswith("calc."):
-            field = selected_calc_codes.get(q)
-            if field is None:
-                continue
-            columns_meta.append(
-                {
-                    "code": instance_id,
-                    "label": _instance_label.get(instance_id, field.label),
+    # ---- columns_meta 构建 ----
+    if _has_duplicates:
+        # Track B：按 _output_instance_ids 顺序构建，每个实例独立列
+        for instance_id in _output_instance_ids:
+            source = _instance_id_to_source.get(instance_id, instance_id)
+            label = _instance_label.get(instance_id, instance_id)
+            if source.startswith("calc."):
+                field = selected_calc_codes.get(source)
+                if field is None:
+                    continue
+                columns_meta.append({
+                    "code": instance_id, "label": label,
                     "data_type": field.data_type,
                     "is_sensitive": calc_masked.get(field.code, False),
-                    "source_code": calc_qual(field.code),
-                }
-            )
-        else:
-            if q not in display_selected_set:
-                continue
-            alias, code = _split_qualified(q)
-            col = next(
-                (c for c in alias_columns.get(alias, []) if c.column_code == code), None
-            )
-            if col is None:
-                columns_meta.append(
-                    {
-                        "code": instance_id,
-                        "label": _instance_label.get(instance_id, code),
-                        "data_type": "string",
-                        "is_sensitive": False,
-                        "source_code": q,
-                    }
-                )
+                    "source_code": source,
+                })
             else:
-                mask = col.is_sensitive or (
-                    code in sensitive_by_alias.get(alias, set())
-                )
-                columns_meta.append(
-                    {
-                        "code": instance_id,
-                        "label": _instance_label.get(
-                            instance_id,
-                            labels_by_alias.get(alias, {}).get(
-                                code, col.column_label or col.column_code
-                            ),
-                        ),
-                        "data_type": col.data_type,
-                        "is_sensitive": mask,
-                        "source_code": q,
-                    }
-                )
+                if source not in display_selected_set:
+                    continue
+                alias, code = _split_qualified(source)
+                col = next((c for c in alias_columns.get(alias, []) if c.column_code == code), None)
+                if col is None:
+                    columns_meta.append({
+                        "code": instance_id, "label": label,
+                        "data_type": "string", "is_sensitive": False,
+                        "source_code": source,
+                    })
+                else:
+                    mask = col.is_sensitive or (code in sensitive_by_alias.get(alias, set()))
+                    columns_meta.append({
+                        "code": instance_id, "label": label,
+                        "data_type": col.data_type, "is_sensitive": mask,
+                        "source_code": source,
+                    })
+    else:
+        # 旧路径：columns_meta code = alias.code（不变）
+        for q in (columns if columns else [f"{a}.{c}" for a, c in display_selected] + [calc_qual(f.code) for f in selected_calc_fields]):
+            if q.startswith("calc."):
+                field = selected_calc_codes.get(q)
+                if field is None:
+                    continue
+                columns_meta.append({
+                    "code": calc_qual(field.code), "label": field.label,
+                    "data_type": field.data_type,
+                    "is_sensitive": calc_masked.get(field.code, False),
+                })
+            else:
+                if q not in display_selected_set:
+                    continue
+                alias, code = _split_qualified(q)
+                col = next((c for c in alias_columns.get(alias, []) if c.column_code == code), None)
+                if col is None:
+                    columns_meta.append({
+                        "code": f"{alias}.{code}", "label": code,
+                        "data_type": "string", "is_sensitive": False,
+                    })
+                else:
+                    mask = col.is_sensitive or (code in sensitive_by_alias.get(alias, set()))
+                    columns_meta.append({
+                        "code": f"{alias}.{code}",
+                        "label": labels_by_alias.get(alias, {}).get(code, col.column_label or col.column_code),
+                        "data_type": col.data_type, "is_sensitive": mask,
+                    })
 
     # ===== 行数据 =====
     # 数值拆分规则：target 列出值 = round(num(target) × ∏ num(factor_i), 2)，非数值/空 → 空
@@ -1715,36 +1749,52 @@ async def run_dataset_query(
         d = r._mapping if hasattr(r, "_mapping") else dict(zip(r.keys(), r))
         item: dict[str, Any] = {}
         formula_item: dict[str, Any] = {}
-        for alias, code in selected:
-            qual = f"{alias}.{code}"
-            # Track B: 用 instance_id 作为 SQL 别名读取
-            raw_key = _source_instance.get(qual, _select_label(alias, code)) if _col_instances else _select_label(alias, code)
-            raw_value = d.get(raw_key)
-            formula_item[qual] = raw_value
-            v = _normalize_report_value(raw_value)
-            sens = sensitive_by_alias.get(alias, set())
-            col = next(
-                (c for c in alias_columns.get(alias, []) if c.column_code == code), None
-            )
-            masked = col is not None and (col.is_sensitive or code in sens)
-            if masked:
-                if v not in (None, ""):
+        if _has_duplicates:
+            # Track B：逐实例读取，key = instance_id
+            for instance_id in _output_instance_ids:
+                source = _instance_id_to_source.get(instance_id, instance_id)
+                raw_value = d.get(instance_id)
+                formula_item[instance_id] = raw_value
+                v = _normalize_report_value(raw_value)
+                if source.startswith("calc."):
+                    field = selected_calc_codes.get(source)
+                    masked = (field.code in sensitive_by_alias.get("__calc__", set())) if field else False
+                else:
+                    alias, code = _split_qualified(source)
+                    sens = sensitive_by_alias.get(alias, set())
+                    col = next((c for c in alias_columns.get(alias, []) if c.column_code == code), None)
+                    masked = col is not None and (col.is_sensitive or code in sens)
+                if masked and v not in (None, ""):
                     v = "******"
-            else:
-                # 行级连乘系数：round(target × ∏ factor_i, 2)；同时存未取整乘积供余差收口用
-                # 仅当所有系数均为物理列时在此阶段计算；含 calc 系数则留到下方第二阶段
-                factor_quals = rules_by_target.get(qual)
-                if factor_quals and not any(fq.startswith("calc.") for fq in factor_quals):
-                    try:
-                        raw_prod = _num(raw_value)
-                        for fq in factor_quals:
-                            fa, _, fc = fq.partition(".")
-                            raw_prod = raw_prod * _num(d.get(_select_label(fa, fc)))
-                        item[f"__rawprod__{qual}"] = raw_prod  # 未取整，用于余差收口
-                        v = round(raw_prod, 2)
-                    except (TypeError, ValueError):
-                        v = ""
-            item[qual] = v
+                item[instance_id] = v
+        else:
+            # 旧路径：不变
+            for alias, code in selected:
+                qual = f"{alias}.{code}"
+                raw_value = d.get(_select_label(alias, code))
+                formula_item[qual] = raw_value
+                v = _normalize_report_value(raw_value)
+                sens = sensitive_by_alias.get(alias, set())
+                col = next(
+                    (c for c in alias_columns.get(alias, []) if c.column_code == code), None
+                )
+                masked = col is not None and (col.is_sensitive or code in sens)
+                if masked:
+                    if v not in (None, ""):
+                        v = "******"
+                else:
+                    factor_quals = rules_by_target.get(qual)
+                    if factor_quals and not any(fq.startswith("calc.") for fq in factor_quals):
+                        try:
+                            raw_prod = _num(raw_value)
+                            for fq in factor_quals:
+                                fa, _, fc = fq.partition(".")
+                                raw_prod = raw_prod * _num(d.get(_select_label(fa, fc)))
+                            item[f"__rawprod__{qual}"] = raw_prod
+                            v = round(raw_prod, 2)
+                        except (TypeError, ValueError):
+                            v = ""
+                item[qual] = v
         for field in internal_calc_fields:
             qual = calc_qual(field.code)
             value = evaluate_formula(
@@ -1852,17 +1902,16 @@ async def run_dataset_query(
         rws = g["__rows__"]
         for mq in mea_quals:
             agg_fn = (aggregations or {}).get(mq, "sum")
-            # Track B: 用 instance_id 查找 column_settings
-            setting = (column_settings or {}).get(_source_instance.get(mq, mq) if _col_instances else mq) or {}
+            # Track B: 用 instance_id 查找 column_settings（按 source_code → 所有实例映射）
+            lookup_key = mq
+            setting = (column_settings or {}).get(lookup_key) or {}
             metric_filters = setting.get("metric_filters") or []
             metric_filter_logic = setting.get("metric_filter_logic")
             filtered_rows = [
                 rw for rw in rws
                 if _row_matches_filters(rw, metric_filters, metric_filter_logic)
             ]
-            # Track B: 输出 key 用 instance_id
-            out_key = _source_instance.get(mq, mq) if _col_instances else mq
-            out[out_key] = _aggregate([rw.get(mq) for rw in filtered_rows], agg_fn, len(filtered_rows))
+            out[mq] = _aggregate([rw.get(mq) for rw in filtered_rows], agg_fn, len(filtered_rows))
         result.append(out)
 
     # ===== 余差收口：同组末行补差值，确保合计 = sum(rawprod) 取整 =====

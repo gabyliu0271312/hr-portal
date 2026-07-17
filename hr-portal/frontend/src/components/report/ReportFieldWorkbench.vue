@@ -39,16 +39,48 @@ const emit = defineEmits<{
 
 const AGG_FUNCS = REPORT_AGG_FUNCS
 
+/** Track B: source_code lookup — strip #N suffix */
+function sourceCode(instanceId: string): string {
+  return instanceId.replace(/#\d+$/, '')
+}
+
+/** 最大后缀+1 生成下一个 instance_id */
+function nextInstanceId(sourceCode: string): string {
+  const suffixes: number[] = []
+  for (const id of props.selectedCodes) {
+    if (id === sourceCode) suffixes.push(1)
+    else if (id.startsWith(sourceCode + '#')) {
+      const n = Number(id.split('#').pop())
+      if (!isNaN(n)) suffixes.push(n)
+    }
+  }
+  const next = Math.max(0, ...suffixes, 0) + 1
+  return next === 1 ? sourceCode : `${sourceCode}#${next}`
+}
+
+/** instance_id → 显示名 */
+function instanceLabel(instanceId: string): string {
+  const base = sourceCode(instanceId)
+  const col = props.allColumns.find((item) => item.code === base)
+  const baseLabel = col ? cleanFieldLabel(col) : base
+  if (instanceId === base) return baseLabel
+  const n = instanceId.split('#').pop()
+  return `${baseLabel} (${n})`
+}
+
 const selectedCols = computed(() =>
   props.selectedCodes
-    .map((code) => props.allColumns.find((item) => item.code === code))
-    .filter((item): item is ColumnInfo => !!item)
+    .map((id) => {
+      const col = props.allColumns.find((item) => item.code === sourceCode(id))
+      return col ? { ...col, _instance_id: id } as (ColumnInfo & { _instance_id: string }) : null
+    })
+    .filter((item): item is ColumnInfo & { _instance_id: string } => !!item)
 )
 
 const availableCols = computed(() => {
   const kw = fieldSearch.value.trim().toLowerCase()
+  // Track B: 不排除已选字段，允许重复选择
   return props.allColumns.filter((item) => {
-    if (props.selectedCodes.includes(item.code)) return false
     if (!kw) return true
     return cleanFieldLabel(item).toLowerCase().includes(kw) || item.code.toLowerCase().includes(kw)
   })
@@ -192,19 +224,21 @@ function aggRoleOf(code: string) {
 }
 
 function addColumn(code: string) {
-  if (props.selectedCodes.includes(code)) return
+  const instanceId = nextInstanceId(code)
   const next = [...props.selectedCodes]
   if (aggRoleOf(code) === 'measure') {
-    next.push(code)
+    next.push(instanceId)
   } else {
-    const firstMeasureIndex = next.findIndex((item) => aggRoleOf(item) === 'measure')
-    next.splice(firstMeasureIndex >= 0 ? firstMeasureIndex : next.length, 0, code)
+    const firstMeasureIndex = next.findIndex((item) => aggRoleOf(sourceCode(item)) === 'measure')
+    next.splice(firstMeasureIndex >= 0 ? firstMeasureIndex : next.length, 0, instanceId)
   }
   emit('update:selectedCodes', next)
 }
 
-function removeColumn(code: string) {
-  emit('update:selectedCodes', props.selectedCodes.filter((item) => item !== code))
+function removeColumnAt(index: number) {
+  const next = [...props.selectedCodes]
+  next.splice(index, 1)
+  emit('update:selectedCodes', next)
 }
 
 function reorderColumn(code: string, targetCode: string) {
@@ -537,8 +571,8 @@ function openAdvanced(tab: AdvancedTab) {
             </div>
             <div v-if="group.columns.length" class="selected-grid">
               <div
-                v-for="col in group.columns"
-                :key="col.code"
+                v-for="(col, i) in group.columns"
+                :key="col._instance_id || col.code"
                 class="selected-shell"
                 :class="{ 'is-dragging': draggingCode === col.code, 'is-hidden': colSetting(col.code).hidden }"
                 draggable="true"
@@ -611,7 +645,7 @@ function openAdvanced(tab: AdvancedTab) {
                             <el-icon><Edit /></el-icon>
                             编辑公式
                           </el-button>
-                          <el-button size="small" type="danger" plain @click="removeColumn(col.code)">
+                          <el-button size="small" type="danger" plain @click="removeColumnAt(i)">
                             <el-icon><Close /></el-icon>
                             移除字段
                           </el-button>

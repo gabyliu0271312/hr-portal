@@ -47,16 +47,27 @@ class ColumnInstance(BaseModel):
 
 
 def _normalize_columns(columns: list) -> list[ColumnInstance]:
-    """将 columns 统一转为 ColumnInstance 列表（兼容旧 string[] 格式）。"""
-    seen: dict[str, int] = {}
+    """将 columns 统一转为 ColumnInstance 列表（兼容旧 string[] 格式）。
+    校验 instance_id 全局唯一、格式合法。
+    """
     result: list[ColumnInstance] = []
-    for i, item in enumerate(columns):
+    seen_ids: set[str] = set()
+    for item in columns:
         if isinstance(item, str):
             ci = ColumnInstance(source_code=item, instance_id=item)
         elif isinstance(item, dict):
             ci = ColumnInstance(**item)
         else:
-            continue
+            raise ValueError(f"不支持的列格式: {type(item).__name__}")
+        # 校验 instance_id 格式：仅允许 source_code 或 source_code#N (N>=2)
+        if "#" in ci.instance_id:
+            parts = ci.instance_id.rsplit("#", 1)
+            if not (parts[0] and parts[1].isdigit() and int(parts[1]) >= 2):
+                raise ValueError(f"instance_id 格式非法: {ci.instance_id}，期望 source_code#N (N>=2)")
+        # 全局唯一
+        if ci.instance_id in seen_ids:
+            raise ValueError(f"instance_id 重复: {ci.instance_id}")
+        seen_ids.add(ci.instance_id)
         result.append(ci)
     return result
 
