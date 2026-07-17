@@ -433,12 +433,16 @@ function buildPayload() {
       default_aggregation: form.default_aggregation || 'sum',
       aggregations: form.aggregate
         ? Object.fromEntries(
-            selectedMeasures.value.map((c) => [
-              c.code,
-              form.column_settings[c.code]?.aggregation
-                || form.default_aggregation
-                || 'sum',
-            ]),
+            selectedMeasures.value.map((c) => {
+              const id = (c as any)._instance_id || c.code
+              const key = id
+              return [
+                key,
+                form.column_settings[id]?.aggregation
+                  || form.default_aggregation
+                  || 'sum',
+              ]
+            }),
           )
         : {},
       transpose: {

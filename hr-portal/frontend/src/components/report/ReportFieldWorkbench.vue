@@ -72,9 +72,9 @@ const selectedCols = computed(() =>
   props.selectedCodes
     .map((id) => {
       const col = props.allColumns.find((item) => item.code === sourceCode(id))
-      return col ? { ...col, _instance_id: id } as (ColumnInfo & { _instance_id: string }) : null
+      return col ? { ...col, _instance_id: id, key: id } as (ColumnInfo & { _instance_id: string; key: string }) : null
     })
-    .filter((item): item is ColumnInfo & { _instance_id: string } => !!item)
+    .filter((item): item is ColumnInfo & { _instance_id: string; key: string } => !!item)
 )
 
 const availableCols = computed(() => {
@@ -187,11 +187,11 @@ function isCountAggregation(value?: string) {
   return value === 'count' || value === 'count_distinct'
 }
 
-function isCountMetric(col: ColumnInfo) {
-  return col.agg_role !== 'measure' && isCountAggregation(colSetting(col.code).aggregation)
+function isCountMetric(col: ColumnInfo & { key?: string }) {
+  return col.agg_role !== 'measure' && isCountAggregation(colSetting((col.key || col.code)).aggregation)
 }
 
-function isMeasureLike(col: ColumnInfo) {
+function isMeasureLike(col: ColumnInfo & { key?: string }) {
   return col.agg_role === 'measure' || isCountMetric(col)
 }
 
@@ -215,8 +215,8 @@ function clearSettingKey(code: string, key: keyof ColumnSetting) {
   })
 }
 
-function displayLabel(col: ColumnInfo) {
-  return colSetting(col.code).display_name || cleanFieldLabel(col)
+function displayLabel(col: ColumnInfo & { key?: string }) {
+  return colSetting((col.key || col.code)).display_name || cleanFieldLabel(col)
 }
 
 function aggRoleOf(code: string) {
@@ -267,12 +267,12 @@ function defaultAggregationValue() {
   return (props.defaultAggregation || 'sum') as AggregationFunc
 }
 
-function effectiveAggregation(col: ColumnInfo) {
-  return (colSetting(col.code).aggregation || defaultAggregationValue()) as AggregationFunc
+function effectiveAggregation(col: ColumnInfo & { key?: string }) {
+  return (colSetting((col.key || col.code)).aggregation || defaultAggregationValue()) as AggregationFunc
 }
 
-function fieldAggregationLabel(col: ColumnInfo) {
-  if (isCountMetric(col)) return reportAggLabel(colSetting(col.code).aggregation)
+function fieldAggregationLabel(col: ColumnInfo & { key?: string }) {
+  if (isCountMetric(col)) return reportAggLabel(colSetting((col.key || col.code)).aggregation)
   if (col.agg_role !== 'measure') return '分组'
   return reportAggLabel(effectiveAggregation(col))
 }
@@ -300,12 +300,12 @@ function resetAggregation(code: string) {
   clearSettingKey(code, 'aggregation')
 }
 
-function metricFilters(col: ColumnInfo): FilterCond[] {
-  return colSetting(col.code).metric_filters || []
+function metricFilters(col: ColumnInfo & { key?: string }): FilterCond[] {
+  return colSetting((col.key || col.code)).metric_filters || []
 }
 
-function metricFilterLogic(col: ColumnInfo): FilterLogic | null {
-  return colSetting(col.code).metric_filter_logic || null
+function metricFilterLogic(col: ColumnInfo & { key?: string }): FilterLogic | null {
+  return colSetting((col.key || col.code)).metric_filter_logic || null
 }
 
 function metricFilterSummary(col: ColumnInfo) {
@@ -574,7 +574,7 @@ function openAdvanced(tab: AdvancedTab) {
                 v-for="(col, i) in group.columns"
                 :key="col._instance_id || col.code"
                 class="selected-shell"
-                :class="{ 'is-dragging': draggingCode === col.code, 'is-hidden': colSetting(col.code).hidden }"
+                :class="{ 'is-dragging': draggingCode === col.code, 'is-hidden': colSetting((col.key || col.code)).hidden }"
                 draggable="true"
                 @dragstart="draggingCode = col.code"
                 @dragend="draggingCode = ''"
@@ -584,7 +584,7 @@ function openAdvanced(tab: AdvancedTab) {
                 <div
                   class="selected-field"
                   :class="{
-                    'is-hidden': colSetting(col.code).hidden,
+                    'is-hidden': colSetting((col.key || col.code)).hidden,
                     'is-dimension': !isMeasureLike(col),
                     'is-measure': isMeasureLike(col),
                   }"
@@ -612,7 +612,7 @@ function openAdvanced(tab: AdvancedTab) {
                     <el-icon><Filter /></el-icon>
                     {{ metricFilterCount(col) }}
                   </button>
-                  <span v-if="fieldSortLabel(col.code)" class="field-sort-badge">{{ fieldSortLabel(col.code) }}</span>
+                  <span v-if="fieldSortLabel(col.key)" class="field-sort-badge">{{ fieldSortLabel(col.key) }}</span>
                   <el-popover
                     trigger="click"
                     placement="bottom-start"
@@ -657,23 +657,23 @@ function openAdvanced(tab: AdvancedTab) {
                         <div class="sort-actions">
                           <button
                             class="agg-option"
-                            :class="{ 'is-active': fieldSort(col.code)?.order === 'asc' }"
-                            @click="setFieldSort(col.code, 'asc')"
+                            :class="{ 'is-active': fieldSort(col.key)?.order === 'asc' }"
+                            @click="setFieldSort(col.key, 'asc')"
                           >
                             升序
                           </button>
                           <button
                             class="agg-option"
-                            :class="{ 'is-active': fieldSort(col.code)?.order === 'desc' }"
-                            @click="setFieldSort(col.code, 'desc')"
+                            :class="{ 'is-active': fieldSort(col.key)?.order === 'desc' }"
+                            @click="setFieldSort(col.key, 'desc')"
                           >
                             降序
                           </button>
                         </div>
                         <button
-                          v-if="fieldSort(col.code)"
+                          v-if="fieldSort(col.key)"
                           class="menu-link-command"
-                          @click="clearFieldSort(col.code)"
+                          @click="clearFieldSort(col.key)"
                         >
                           取消排序
                         </button>
@@ -688,15 +688,15 @@ function openAdvanced(tab: AdvancedTab) {
                               :key="item.value"
                               class="agg-option"
                               :class="{ 'is-active': effectiveAggregation(col) === item.value }"
-                              @click="setAggregation(col.code, item.value)"
+                              @click="setAggregation(col.key, item.value)"
                             >
                               {{ item.label }}
                             </button>
                           </div>
                           <button
-                            v-if="colSetting(col.code).aggregation"
+                            v-if="colSetting((col.key || col.code)).aggregation"
                             class="menu-link-command"
-                            @click="resetAggregation(col.code)"
+                            @click="resetAggregation(col.key)"
                           >
                             恢复默认统计类型（{{ reportAggLabel(defaultAggregationValue()) }}）
                           </button>
@@ -707,16 +707,16 @@ function openAdvanced(tab: AdvancedTab) {
                               v-for="item in countAggOptions()"
                               :key="item.value"
                               class="agg-option"
-                              :class="{ 'is-active': colSetting(col.code).aggregation === item.value }"
-                              @click="setAggregation(col.code, item.value)"
+                              :class="{ 'is-active': colSetting((col.key || col.code)).aggregation === item.value }"
+                              @click="setAggregation(col.key, item.value)"
                             >
                               {{ item.label }}
                             </button>
                           </div>
                           <button
-                            v-if="colSetting(col.code).aggregation"
+                            v-if="colSetting((col.key || col.code)).aggregation"
                             class="menu-link-command"
-                            @click="resetAggregation(col.code)"
+                            @click="resetAggregation(col.key)"
                           >
                             恢复为分组维度
                           </button>
@@ -738,31 +738,31 @@ function openAdvanced(tab: AdvancedTab) {
                         <div class="menu-title">设置显示名</div>
                         <div class="menu-row">
                           <el-input
-                            :model-value="colSetting(col.code).display_name || ''"
+                            :model-value="colSetting((col.key || col.code)).display_name || ''"
                             :placeholder="cleanFieldLabel(col)"
                             size="small"
                             style="width: 180px"
-                            @update:model-value="(v: string) => updateSetting(col.code, { display_name: v })"
+                            @update:model-value="(v: string) => updateSetting(col.key, { display_name: v })"
                           />
-                          <el-button size="small" link @click="resetDisplayName(col.code)">恢复</el-button>
+                          <el-button size="small" link @click="resetDisplayName(col.key)">恢复</el-button>
                         </div>
                       </div>
 
                       <div v-if="isDataset && col.agg_role === 'measure'" class="menu-block">
                         <div class="menu-title">数值拆分</div>
                         <el-select
-                          :model-value="colSetting(col.code).split_mode || 'default'"
+                          :model-value="colSetting((col.key || col.code)).split_mode || 'default'"
                           size="small"
                           style="width: 180px"
-                          @update:model-value="(v: string) => setSplitMode(col.code, v)"
+                          @update:model-value="(v: string) => setSplitMode(col.key, v)"
                         >
                           <el-option label="使用默认规则" value="default" />
                           <el-option label="不拆分" value="none" />
                           <el-option label="自定义系数" value="custom" />
                         </el-select>
-                        <template v-if="colSetting(col.code).split_mode === 'custom'">
+                        <template v-if="colSetting((col.key || col.code)).split_mode === 'custom'">
                           <div
-                            v-for="(fac, i) in splitFactors(col.code)"
+                            v-for="(fac, i) in splitFactors(col.key)"
                             :key="i"
                             style="display: flex; gap: 4px; align-items: center; margin-top: 8px"
                           >
@@ -789,9 +789,9 @@ function openAdvanced(tab: AdvancedTab) {
                       </div>
 
                       <div class="menu-block">
-                        <button class="menu-command" @click="toggleHidden(col.code)">
-                          <el-icon><component :is="colSetting(col.code).hidden ? View : Hide" /></el-icon>
-                          {{ colSetting(col.code).hidden ? '取消隐藏' : '隐藏' }}
+                        <button class="menu-command" @click="toggleHidden(col.key)">
+                          <el-icon><component :is="colSetting((col.key || col.code)).hidden ? View : Hide" /></el-icon>
+                          {{ colSetting((col.key || col.code)).hidden ? '取消隐藏' : '隐藏' }}
                         </button>
                       </div>
                     </div>
