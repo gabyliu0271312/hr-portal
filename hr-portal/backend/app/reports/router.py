@@ -947,7 +947,11 @@ async def run_report(
 
 # ---- 数字格式化工具（供 CSV / XLSX 导出共用） ----
 
+import decimal
+from decimal import Decimal, ROUND_HALF_UP
+
 _NUMERIC_TYPES = {"integer", "number", "decimal", "float", "double", "numeric"}
+_DECIMAL_SIX = Decimal("0.000001")  # 6 位小数精度
 
 
 def _is_numeric_column(col_meta: dict) -> bool:
@@ -958,42 +962,52 @@ def _is_numeric_column(col_meta: dict) -> bool:
     )
 
 
-def _format_number_for_csv(value) -> str:
-    """数字千分位格式化字符串（CSV 用）。
-
-    整数 → "1,234"；小数 → "12,345.67"；null → "0"；非数字 → 原样。
-    """
+def _to_decimal(value) -> Decimal | None:
+    """安全转为 Decimal：大整数/精确小数不丢精度。失败返回 None。"""
     if value is None or value == "":
-        return "0"
+        return None
     try:
-        num = round(float(value), 6)
-        if num == int(num):
-            return f"{int(num):,}"
-        return f"{num:,.6f}".rstrip("0").rstrip(".")
-    except (ValueError, TypeError):
-        return str(value)
-
-
-def _to_numeric_value(value):
-    """将值转为 XLSX 数字单元格值。非数字返回 None（保留字符串）"""
-    if value is None or value == "":
-        return 0
-    try:
-        num = round(float(value), 6)
-        return int(num) if num == int(num) else num
-    except (ValueError, TypeError):
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+    except (decimal.InvalidOperation, ValueError, TypeError):
         return None
 
 
+def _format_number_for_csv(value) -> str:
+    """数字千分位格式化字符串（CSV 用）。基于 Decimal + ROUND_HALF_UP。
+
+    整数 → "1,234"；小数 → "12,345.67"；null → "0"；非数字 → 原样。
+    """
+    d = _to_decimal(value)
+    if d is None:
+        return "0" if value is None or value == "" else str(value)
+    d = d.quantize(_DECIMAL_SIX, rounding=ROUND_HALF_UP)
+    if d == d.to_integral_value():
+        return f"{int(d):,}"
+    return f"{d:,.6f}".rstrip("0").rstrip(".")
+
+
+def _to_numeric_value(value):
+    """将值转为 XLSX 数字单元格值（Decimal→int 或 float）。非数字返回 None。"""
+    d = _to_decimal(value)
+    if d is None:
+        return 0 if value is None or value == "" else None
+    d = d.quantize(_DECIMAL_SIX, rounding=ROUND_HALF_UP)
+    if d == d.to_integral_value():
+        return int(d)
+    # XLSX 需要 Python float；Decimal→float 在这里安全因为已经 quantize 到 6 位
+    return float(d)
+
+
 def _numeric_format_for_xlsx(value) -> str:
-    """返回适合该值的 Excel number_format 字符串。"""
-    try:
-        num = float(value)
-        if num == int(num):
-            return "#,##0"
-        return "#,##0.######"
-    except (ValueError, TypeError):
+    """返回适合该值的 Excel number_format 字符串。基于 Decimal 判定整数/小数。"""
+    d = _to_decimal(value)
+    if d is None:
         return ""
+    if d == d.to_integral_value():
+        return "#,##0"
+    return "#,##0.######"
 
 
 async def _collect_export_rows(

@@ -22,18 +22,63 @@ const emit = defineEmits<{
 
 const NUMERIC_TYPES = new Set(['integer', 'number', 'decimal', 'float', 'double', 'numeric'])
 
+/** 纯字符串千分位格式化，避免 IEEE 754 Number 对大值截断 */
+function formatDecimal(raw: string): string {
+  // 去除可能的前后空格
+  const s = raw.trim()
+  if (!s) return '0'
+
+  // 分离正负号
+  let sign = ''
+  let body = s
+  if (body[0] === '-') { sign = '-'; body = body.slice(1) }
+  else if (body[0] === '+') { body = body.slice(1) }
+
+  // 用正则解析整数部分和小数部分
+  const m = body.match(/^(\d+)(?:\.(\d*))?$/)
+  if (!m) {
+    // 非规范格式（如科学计数法 "1.23e5"）—— 回退到 Number，能处理多少是多少
+    const n = Number(s)
+    if (!isNaN(n)) return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 6 })
+    return s
+  }
+
+  let integerPart = m[1]!
+  let fractionPart = m[2] || ''
+
+  // 小数部分截断到 6 位（ROUND_HALF_UP 在字符串层面近似处理）
+  if (fractionPart.length > 6) {
+    const roundDigit = fractionPart[6]!
+    fractionPart = fractionPart.slice(0, 6)
+    if (roundDigit >= '5') {
+      // 进一
+      const rounded = (BigInt(fractionPart || '0') + 1n).toString().padStart(6, '0')
+      if (rounded.length > 6) {
+        // 溢出到整数
+        fractionPart = rounded.slice(1)
+        integerPart = (BigInt(integerPart) + 1n).toString()
+      } else {
+        fractionPart = rounded
+      }
+    }
+  }
+  // 去掉末尾零
+  fractionPart = fractionPart.replace(/0+$/, '')
+
+  // 整数部分加千分位逗号
+  const withCommas = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+
+  return sign + withCommas + (fractionPart ? '.' + fractionPart : '')
+}
+
 function formatCell(row: Record<string, any>, col: RunResult['columns'][number]): string {
   const v = row[col.code]
   if (v === null || v === undefined || v === '') {
     return NUMERIC_TYPES.has(col.data_type) ? '0' : '—'
   }
   if (NUMERIC_TYPES.has(col.data_type)) {
-    const num = Number(v)
-    if (!isNaN(num)) {
-      const rounded = Math.round(num * 1e6) / 1e6
-      if (rounded === Math.floor(rounded)) return rounded.toLocaleString('en-US', { maximumFractionDigits: 0 })
-      return rounded.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 6 })
-    }
+    // 优先字符串解析（Decimal 从后端来可能是字符串），不丢大数精度
+    return formatDecimal(String(v))
   }
   return String(v)
 }
