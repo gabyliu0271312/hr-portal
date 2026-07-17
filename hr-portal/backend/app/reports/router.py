@@ -952,6 +952,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 _NUMERIC_TYPES = {"integer", "number", "decimal", "float", "double", "numeric"}
 _DECIMAL_SIX = Decimal("0.000001")  # 6 位小数精度
+_XLSX_MAX_SIG_DIGITS = 15           # Excel 数字单元格有效位数硬限制
 
 
 def _is_numeric_column(col_meta: dict) -> bool:
@@ -989,14 +990,25 @@ def _format_number_for_csv(value) -> str:
 
 
 def _to_numeric_value(value):
-    """将值转为 XLSX 数字单元格值（Decimal→int 或 float）。非数字返回 None。"""
+    """XLSX 单元格值：
+    - 正常 → int 或 float（数字单元格 + number_format）
+    - 有效位数 > 15 → str（降级为文本，避免 Excel 截断）
+    - 非数字 → None（保留原始字符串）
+    """
     d = _to_decimal(value)
     if d is None:
         return 0 if value is None or value == "" else None
     d = d.quantize(_DECIMAL_SIX, rounding=ROUND_HALF_UP)
+
+    # Excel 数字单元格硬限制：超过 15 位有效数字 → 降级为文本
+    _sign, digits, _exp = d.as_tuple()
+    if len(digits) > _XLSX_MAX_SIG_DIGITS:
+        if d == d.to_integral_value():
+            return f"{int(d):,}"
+        return f"{d:,.6f}".rstrip("0").rstrip(".")
+
     if d == d.to_integral_value():
         return int(d)
-    # XLSX 需要 Python float；Decimal→float 在这里安全因为已经 quantize 到 6 位
     return float(d)
 
 
@@ -1259,15 +1271,17 @@ async def export_report_xlsx(
                 excel_row.append("" if v is None else v)
         worksheet.append(excel_row)
 
-    # 为数字列逐单元格设置 number_format
+    # 为数字列逐单元格设置 number_format（仅对真正的数字单元格生效）
     for j, code in enumerate(codes):
         if code in numeric_codes:
             col_idx = j + 1
             for row_idx in range(2, len(rows) + 2):
                 cell = worksheet.cell(row=row_idx, column=col_idx)
-                fmt = _numeric_format_for_xlsx(cell.value)
-                if fmt:
-                    cell.number_format = fmt
+                # 文本降级（str 类型）→ 跳过 number_format
+                if isinstance(cell.value, (int, float)):
+                    fmt = _numeric_format_for_xlsx(cell.value)
+                    if fmt:
+                        cell.number_format = fmt
 
     buf = io.BytesIO()
     workbook.save(buf)

@@ -174,11 +174,37 @@ def test_xlsx_not_a_number():
     assert _to_numeric_value("abc") is None
 
 
-def test_xlsx_large_decimal():
-    """大 Decimal 转 XLSX — 保留到 6 位后转 float"""
+def test_xlsx_large_decimal_fallback_to_text():
+    """大 Decimal 有效位数 > 15 → XLSX 降级为文本字符串，不转数字。
+
+    9007199254740993.1234565 共 16 位有效数字，超出 Excel 15 位硬限制。
+    写入为数字单元格会导致 Excel 截断为 9007199254740994（错误）。
+    应降级为文本 "9,007,199,254,740,993.123457"。
+    """
     v = _to_numeric_value(Decimal("9007199254740993.1234565"))
-    # quantize 到 6 位 → 9007199254740993.123457
-    assert v == pytest.approx(9007199254740993.123457, rel=1e-9)
+    assert isinstance(v, str), f"期望文本降级，实际类型: {type(v)}"
+    assert v == "9,007,199,254,740,993.123457"
+
+
+def test_xlsx_large_integer_fallback_to_text():
+    """大整数有效位数 > 15 → 文本降级，无小数点。"""
+    v = _to_numeric_value(Decimal("1234567890123456"))  # 16 位
+    assert isinstance(v, str)
+    assert v == "1,234,567,890,123,456"
+
+
+def test_xlsx_normal_decimal_stays_numeric():
+    """正常小数 ≤ 15 位有效数字 → 保持 float。"""
+    v = _to_numeric_value(Decimal("1234.56"))
+    assert isinstance(v, float)
+    assert v == 1234.56
+
+
+def test_xlsx_normal_integer_stays_numeric():
+    """正常整数 ≤ 15 位 → 保持 int。"""
+    v = _to_numeric_value(Decimal("1234567"))
+    assert isinstance(v, int)
+    assert v == 1234567
 
 
 # ==================== _numeric_format_for_xlsx ====================
