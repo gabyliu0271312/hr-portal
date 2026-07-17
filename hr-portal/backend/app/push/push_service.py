@@ -86,13 +86,28 @@ def _dedupe_labels(cols: list[TableColumn]) -> dict[str, str]:
 
 
 def _quote_pg_identifier(identifier: str) -> str:
-    """Quote arbitrary PostgreSQL identifiers such as Chinese FineBI labels."""
+    """Quote arbitrary PostgreSQL identifiers such as Chinese FineBI labels。
+    超过 63 字节上限时自动截断并追加短 hash 保持唯一性。
+    """
+    import hashlib
     value = str(identifier or "").strip()
     if not value:
         raise RuntimeError("PostgreSQL 标识符不能为空")
-    if len(value.encode("utf-8")) > POSTGRES_IDENTIFIER_MAX_BYTES:
-        raise RuntimeError(f"PostgreSQL 标识符超过 {POSTGRES_IDENTIFIER_MAX_BYTES} 字节上限")
-    return f'"{value.replace(chr(34), chr(34) * 2)}"'
+    encoded = value.encode("utf-8")
+    if len(encoded) <= POSTGRES_IDENTIFIER_MAX_BYTES:
+        return f'"{value.replace(chr(34), chr(34) * 2)}"'
+    # 截断：保留前 N 个字符（按字节），末尾加 4 字符 hash
+    hash_suffix = "_" + hashlib.md5(encoded).hexdigest()[:4]
+    suffix_bytes = len(hash_suffix.encode("utf-8"))
+    max_body_bytes = POSTGRES_IDENTIFIER_MAX_BYTES - suffix_bytes
+    body = ""
+    for ch in value:
+        b = ch.encode("utf-8")
+        if len(body.encode("utf-8")) + len(b) > max_body_bytes:
+            break
+        body += ch
+    truncated = body + hash_suffix
+    return f'"{truncated.replace(chr(34), chr(34) * 2)}"'
 
 
 def _quote_pg_literal(value: str) -> str:
