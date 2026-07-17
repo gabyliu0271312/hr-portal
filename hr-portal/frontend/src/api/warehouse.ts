@@ -1327,11 +1327,18 @@ export function getDimensionImpact(id: number) {
 // ==================== R0308 DWS 聚合定义 ====================
 
 /** DWS 聚合定义 */
+export interface DwsMeasureDef {
+  metric_id: number
+  alias?: string | null
+  label?: string | null
+}
+
 export interface DwsAggregate {
   id: number
   name: string
   label: string | null
   metric_id: number | null
+  measures: DwsMeasureDef[] | null
   source_dataset_id: number | null
   group_by: string[]
   filter: Record<string, any> | null
@@ -1397,6 +1404,14 @@ export function getDwsViewImpact(aggId: number) {
   return api.get(`/warehouse/dws-aggregates/${aggId}/view-impact`).then(r => r.data as {
     aggregate_id: number; aggregate_name: string; dependencies: any[]
     warnings: string[]; estimated_output_fields: number
+  })
+}
+
+/** 多度量 DWS 宽表计算 */
+export function computeDwsAggregate(aggId: number, period: string) {
+  return api.post(`/warehouse/dws-aggregates/${aggId}/compute`, { period }).then(r => r.data as {
+    run_id: number; result_id: number; metric_id: number
+    status: string; period: string; value: Record<string, any>
   })
 }
 

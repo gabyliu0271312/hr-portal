@@ -3307,9 +3307,42 @@ async def generate_dws_view(
     权限要求：warehouse.modeling:C
     """
     svc = get_dws_aggregate_service(db)
-    result = await svc.generate_dws_view(agg_id)
+    try:
+        result = await svc.generate_dws_view(agg_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if result is None:
         raise HTTPException(status_code=404, detail=f"聚合定义不存在: {agg_id}")
+    await db.commit()
+    return result
+
+
+@router.post(
+    "/dws-aggregates/{agg_id}/compute",
+    summary="多度量 DWS 宽表计算",
+    status_code=201,
+    dependencies=[Depends(require_op("warehouse.modeling", "C"))],
+)
+async def compute_dws_wide_table(
+    agg_id: int,
+    body: MetricComputeIn,
+    db: AsyncSession = Depends(get_session),
+):
+    """多度量 DWS 宽表计算：生成视图 → 查询 → 写入 metric_result_rows。
+
+    measures 为空时返回 400（请使用单指标计算接口）。
+    权限要求：warehouse.modeling:C
+    """
+    svc = get_dws_aggregate_service(db)
+    try:
+        result = await svc.compute_wide_table(agg_id, body.period)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if "error" in result:
+        raise HTTPException(
+            status_code=400 if result["error"] == "bad_request" else 404,
+            detail=result["detail"],
+        )
     await db.commit()
     return result
 

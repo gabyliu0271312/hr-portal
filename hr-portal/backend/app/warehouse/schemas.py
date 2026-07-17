@@ -997,11 +997,21 @@ DWS_TIME_GRAINS = ("day", "week", "month", "quarter", "year")
 DWS_AGG_STATUSES = ("draft", "published", "archived")
 
 
+class DwsMeasureDef(BaseModel):
+    """多度量定义项（前端只传 metric_id，alias/label 后端自动派生）"""
+    model_config = {"extra": "forbid"}
+    metric_id: int
+    # alias / label 为后端自动派生，Out schema 中返回给前端展示
+    alias: Optional[str] = Field(None, description="后端自动派生的 View 列名")
+    label: Optional[str] = Field(None, description="后端自动派生的显示名")
+
+
 class DwsAggregateDefinitionCreateIn(BaseModel):
     model_config = {"extra": "forbid"}
     name: str = Field(..., max_length=128, description="聚合编码（dws_ 开头）")
     label: str = Field(..., max_length=128, description="聚合展示名称")
     metric_id: Optional[int] = None
+    metric_ids: Optional[list[int]] = Field(None, description="关联指标 ID 列表，选 1 个=单指标，选 N 个=多度量")
     source_dataset_id: Optional[int] = None
     group_by: list[str] = Field(default_factory=list, description="分组维度字段列表")
     filter: Optional[dict] = None
@@ -1016,6 +1026,7 @@ class DwsAggregateDefinitionUpdateIn(BaseModel):
     name: Optional[str] = None
     label: Optional[str] = None
     metric_id: Optional[int] = None
+    metric_ids: Optional[list[int]] = Field(None, description="关联指标 ID 列表，选 1 个=单指标，选 N 个=多度量")
     source_dataset_id: Optional[int] = None
     group_by: Optional[list[str]] = None
     filter: Optional[dict] = None
@@ -1030,6 +1041,7 @@ class DwsAggregateDefinitionOut(BaseModel):
     name: str
     label: Optional[str] = None
     metric_id: Optional[int] = None
+    measures: Optional[list[DwsMeasureDef]] = Field(None, description="多度量列表（含自动派生的 alias/label）")
     source_dataset_id: Optional[int] = None
     group_by: list = []
     filter: Optional[dict] = None

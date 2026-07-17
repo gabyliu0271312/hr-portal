@@ -638,6 +638,40 @@ class DwsAggregateService:
     """DWD → DWS 聚合定义管理"""
     def __init__(self, session: AsyncSession): self.session = session
 
+    @staticmethod
+    def _slugify(name: str) -> str:
+        """指标名 → 合法 PostgreSQL 列名：小写 + 非字母数字替换为 _，中文转拼音首字母"""
+        # 纯 ASCII 路径：非字母数字 → 下划线
+        if name.isascii():
+            s = re.sub(r'[^a-zA-Z0-9]', '_', name).lower().strip('_')
+            s = re.sub(r'_+', '_', s)
+        else:
+            # 含中文：取前几个字符的拼音首字母拼接，或直接 hash
+            import hashlib
+            s = 'm' + hashlib.md5(name.encode()).hexdigest()[:15]
+        if s and s[0].isdigit():
+            s = 'm_' + s
+        return s[:63] or 'measure'
+
+    async def _derive_measures(self, metric_ids: list[int]) -> list[dict]:
+        """从 metric_ids 数组自动派生 measures 配置（alias + label）。"""
+        from app.datasets.models import WarehouseMetric
+        measures_config: list[dict] = []
+        used_aliases: set[str] = set()
+        for mid in metric_ids:
+            m = await self.session.get(WarehouseMetric, mid)
+            if not m:
+                raise ValueError(f"指标 ID={mid} 不存在")
+            if not m.formula_sql:
+                raise ValueError(f"指标「{m.metric_name}」未配置公式或公式尚未翻译为 SQL")
+            alias = self._slugify(getattr(m, 'metric_code', None) or m.metric_name)
+            if alias in used_aliases:
+                alias = f"{alias}_{len(used_aliases)}"
+            used_aliases.add(alias)
+            label = m.metric_name
+            measures_config.append({"metric_id": mid, "alias": alias, "label": label})
+        return measures_config
+
     async def list_aggregates(self, metric_id=None, status=None, page=1, page_size=20):
         from app.warehouse.models import DwsAggregateDefinition
         page_size = min(max(page_size, 1), 200)
@@ -646,17 +680,17 @@ class DwsAggregateService:
         if status: base = base.where(DwsAggregateDefinition.status == status)
         total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
         rows = (await self.session.execute(base.order_by(DwsAggregateDefinition.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
-        items = [{"id": a.id, "name": a.name, "label": a.label, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "time_field": a.time_field, "measure_semantics": a.measure_semantics, "business_definition": a.business_definition, "status": a.status} for a in rows]
+        items = [{"id": a.id, "name": a.name, "label": a.label, "metric_id": a.metric_id, "measures": a.measures, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "time_field": a.time_field, "measure_semantics": a.measure_semantics, "business_definition": a.business_definition, "status": a.status} for a in rows]
         return {"total": total, "page": page, "page_size": page_size, "items": items}
 
     async def get_aggregate(self, agg_id: int):
         from app.warehouse.models import DwsAggregateDefinition
         a = await self.session.get(DwsAggregateDefinition, agg_id)
         if a is None: return None
-        return {"id": a.id, "name": a.name, "label": a.label, "metric_id": a.metric_id, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "time_field": a.time_field, "measure_semantics": a.measure_semantics, "business_definition": a.business_definition, "status": a.status}
+        return {"id": a.id, "name": a.name, "label": a.label, "metric_id": a.metric_id, "measures": a.measures, "source_dataset_id": a.source_dataset_id, "group_by": a.group_by, "filter": a.filter, "time_grain": a.time_grain, "time_field": a.time_field, "measure_semantics": a.measure_semantics, "business_definition": a.business_definition, "status": a.status}
 
     async def _validate_aggregate_source(self, payload: dict):
-        """硬兜底同源校验：create/update 都必须通过。"""
+        """硬兜底同源校验：create/update 都必须通过。支持 metric_ids（多度量）+ metric_id（单指标）双路径。"""
         from app.warehouse.models import Dimension as Dim
         from app.datasets.models import WarehouseMetric as WM
         sid = payload.get("source_dataset_id")
@@ -664,12 +698,37 @@ class DwsAggregateService:
         ds = await self.session.get(DataSet, sid)
         if ds is None: raise ValueError(f"数据集不存在: {sid}")
         if ds.warehouse_layer != "DWD": raise ValueError("只能选择DWD层数据集")
-        if payload.get("metric_id"):
+        # 多度量路径：metric_ids 数组
+        metric_ids = payload.get("metric_ids")
+        if metric_ids and isinstance(metric_ids, list) and len(metric_ids) > 0:
+            if len(metric_ids) == 1:
+                # 选 1 个指标 → 走单指标路径
+                mid = metric_ids[0]
+                m = await self.session.get(WM, mid)
+                if m is None: raise ValueError(f"指标不存在: {mid}")
+                if m.related_dataset_id != sid and m.related_dataset_id is not None:
+                    raise ValueError("指标必须与聚合使用同一个DWD数据集")
+                if not m.formula_sql:
+                    raise ValueError(f"指标 '{m.metric_name}' 未配置公式或公式尚未翻译为 SQL，请先在指标管理中编辑公式")
+            else:
+                # 选 N 个指标 → 多度量校验
+                for mid in metric_ids:
+                    m = await self.session.get(WM, mid)
+                    if m is None: raise ValueError(f"指标不存在: {mid}")
+                    if m.related_dataset_id != sid and m.related_dataset_id is not None:
+                        raise ValueError(f"指标 '{m.metric_name}' 必须与聚合使用同一个DWD数据集({sid})")
+                    if not m.formula_sql:
+                        raise ValueError(f"指标 '{m.metric_name}' 未配置公式或公式尚未翻译为 SQL，请先在指标管理中编辑公式")
+        elif payload.get("metric_id"):
+            # 单指标路径（向后兼容）
             m = await self.session.get(WM, payload["metric_id"])
             if m is None: raise ValueError(f"指标不存在: {payload['metric_id']}")
-            if m.related_dataset_id != sid: raise ValueError("指标必须与聚合使用同一个DWD数据集")
+            if m.related_dataset_id != sid and m.related_dataset_id is not None:
+                raise ValueError("指标必须与聚合使用同一个DWD数据集")
             if not m.formula_sql:
                 raise ValueError(f"指标 '{m.metric_name}' 未配置公式或公式尚未翻译为 SQL，请先在指标管理中编辑公式")
+        else:
+            raise ValueError("未指定关联指标（metric_id 或 metric_ids 二选一）")
         group_by = payload.get("group_by", [])
         if not group_by: raise ValueError("至少需要一个分组维度")
         dims = (await self.session.execute(select(Dim).where(Dim.dimension_code.in_(group_by)))).scalars().all()
@@ -682,8 +741,25 @@ class DwsAggregateService:
 
     async def create_aggregate(self, payload: dict):
         from app.warehouse.models import DwsAggregateDefinition
+        # 先做同源校验（需要 metric_ids 在场），再做 _derive_measures
+        metric_ids = payload.get("metric_ids")
         await self._validate_aggregate_source(payload)
-        a = DwsAggregateDefinition(name=payload["name"], label=payload.get("label"), metric_id=payload.get("metric_id"), source_dataset_id=payload.get("source_dataset_id"), group_by=payload.get("group_by", []), filter=payload.get("filter"), time_grain=payload.get("time_grain"), time_field=payload.get("time_field"), measure_semantics=payload.get("measure_semantics"), business_definition=payload.get("business_definition"), status="draft")
+        # 处理 metric_ids → measures + metric_id
+        payload.pop("metric_ids", None)
+        if metric_ids and isinstance(metric_ids, list) and len(metric_ids) > 0:
+            measures_config = await self._derive_measures(metric_ids)
+            payload["measures"] = measures_config if len(metric_ids) >= 2 else None
+            payload["metric_id"] = metric_ids[0]
+        a = DwsAggregateDefinition(
+            name=payload["name"], label=payload.get("label"),
+            metric_id=payload.get("metric_id"),
+            source_dataset_id=payload.get("source_dataset_id"),
+            group_by=payload.get("group_by", []), filter=payload.get("filter"),
+            time_grain=payload.get("time_grain"), time_field=payload.get("time_field"),
+            measure_semantics=payload.get("measure_semantics"),
+            business_definition=payload.get("business_definition"),
+            measures=payload.get("measures"), status="draft",
+        )
         self.session.add(a); await self.session.commit(); await self.session.refresh(a)
         return await self.get_aggregate(a.id)
 
@@ -695,8 +771,21 @@ class DwsAggregateService:
         merged = {"source_dataset_id": a.source_dataset_id, "metric_id": a.metric_id, "group_by": a.group_by or []}
         for k in ("source_dataset_id", "metric_id", "group_by"):
             if k in payload and payload[k] is not None: merged[k] = payload[k]
+        # 将 metric_ids 也注入 merged，确保同源校验覆盖所有指标
+        if "metric_ids" in payload and payload["metric_ids"] is not None:
+            merged["metric_ids"] = payload["metric_ids"]
         await self._validate_aggregate_source(merged)
-        allowed = {"name", "label", "group_by", "filter", "time_grain", "time_field", "measure_semantics", "business_definition", "metric_id", "source_dataset_id"}
+        # 处理 metric_ids → measures + metric_id
+        metric_ids = payload.pop("metric_ids", None)
+        if metric_ids is not None:
+            if len(metric_ids) > 0:
+                measures_config = await self._derive_measures(metric_ids)
+                payload["measures"] = measures_config if len(metric_ids) >= 2 else None
+                payload["metric_id"] = metric_ids[0]
+            else:
+                raise ValueError("metric_ids 不能为空数组")
+        allowed = {"name", "label", "group_by", "filter", "time_grain", "time_field",
+                   "measure_semantics", "business_definition", "metric_id", "source_dataset_id", "measures"}
         for key, val in payload.items():
             if key in allowed and val is not None: setattr(a, key, val)
         await self.session.commit(); await self.session.refresh(a)
@@ -741,6 +830,31 @@ class DwsAggregateService:
         """安全引用 PostgreSQL 标识符（表名、列名、别名）。"""
         return '"' + name.replace('"', '""') + '"'
 
+    @classmethod
+    def _jsonable(cls, value):
+        """将 Decimal/date/datetime 等类型转为 JSON 可序列化值。"""
+        from datetime import date, datetime
+        from decimal import Decimal
+        if isinstance(value, dict):
+            return {k: cls._jsonable(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [cls._jsonable(v) for v in value]
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return value
+
+    @staticmethod
+    def _row_matches_period(row: dict, period: str) -> bool:
+        """按 period 过滤行：匹配 snapshot_month / year / quarter / month。"""
+        if not period:
+            return True
+        for col in ("snapshot_month", "year", "quarter", "month"):
+            if col in row and str(row.get(col)) == period:
+                return True
+        return False
+
     async def generate_dws_view(self, agg_id: int):
         from app.warehouse.layer_policy import validate_layer_transition
         validate_layer_transition("DWD", "DWS", "aggregate")
@@ -752,11 +866,14 @@ class DwsAggregateService:
         agg = await self.session.get(DwsAggregateDefinition, agg_id)
         if agg is None: return None
 
-        await self._validate_aggregate_source({
+        validate_payload = {
             "source_dataset_id": agg.source_dataset_id,
             "metric_id": agg.metric_id,
             "group_by": agg.group_by or [],
-        })
+        }
+        if agg.measures:
+            validate_payload["metric_ids"] = [ms["metric_id"] for ms in agg.measures if ms.get("metric_id")]
+        await self._validate_aggregate_source(validate_payload)
 
         # 维度映射：
         # - 支持层级：选父维度时自动展开为所有叶子维度（有 bound_field 且无子节点）
@@ -826,16 +943,43 @@ class DwsAggregateService:
 
         # 度量表达式：统一从指标的 formula_sql 获取
         # 指标公式已包含聚合逻辑，不需要再包 agg_func
+        from app.datasets.models import WarehouseMetric
+        measures_config = agg.measures or []
+        multi_measures: list[tuple[str, str, str]] = []  # (alias, label, formula_sql)
         measure_expr = None
+        measure_alias = "aggregated_value"
         measure_label = "aggregated_value"
-        if agg.metric_id:
-            from app.datasets.models import WarehouseMetric
-            m = await self.session.get(WarehouseMetric, agg.metric_id)
-            if m and m.formula_sql:
-                measure_expr = m.formula_sql
-                measure_label = m.metric_name or measure_alias
-        if not measure_expr:
-            raise ValueError("指标未配置公式或公式尚未翻译为 SQL，请先在指标管理中编辑公式")
+
+        if measures_config:
+            # ===== 多度量路径 =====
+            used_aliases: set[str] = set()
+            for ms in measures_config:
+                m = await self.session.get(WarehouseMetric, ms["metric_id"])
+                if not m:
+                    raise ValueError(f"指标 ID={ms['metric_id']} 不存在")
+                if not m.formula_sql:
+                    raise ValueError(f"指标「{m.metric_name}」未配置公式或公式尚未翻译为 SQL")
+                # alias 优先使用存储的，否则从指标元数据自动派生
+                alias = ms.get("alias") or self._slugify(getattr(m, 'metric_code', None) or m.metric_name)
+                if alias in used_aliases:
+                    alias = f"{alias}_{len(used_aliases)}"
+                used_aliases.add(alias)
+                label = ms.get("label") or m.metric_name
+                multi_measures.append((alias, label, m.formula_sql))
+            # 校验 alias 不与维度列/保留列冲突
+            reserved = {"id", "synced_at", "snapshot_month", "year", "quarter", "month"}
+            conflict = set(used_aliases) & (set(dim_col_name.values()) | reserved)
+            if conflict:
+                raise ValueError(f"度量 alias 与维度列或保留列冲突: {conflict}")
+        else:
+            # ===== 单指标路径（向后兼容） =====
+            if agg.metric_id:
+                m = await self.session.get(WarehouseMetric, agg.metric_id)
+                if m and m.formula_sql:
+                    measure_expr = m.formula_sql
+                    measure_label = m.metric_name or measure_alias
+            if not measure_expr:
+                raise ValueError("指标未配置公式或公式尚未翻译为 SQL，请先在指标管理中编辑公式")
 
         # 源数据集 FROM 子句构建：单表直接引用，多表使用 DataSetRelation 显式 JOIN
         dataset_id = agg.source_dataset_id
@@ -1041,13 +1185,16 @@ class DwsAggregateService:
             time_group_str = ", ".join(time_group_exprs)
             select_group_cols = (select_group_cols + ", " + time_select_str) if select_group_cols else time_select_str
             group_cols = (group_cols + ", " + time_group_str) if group_cols else time_group_str
-        # 度量表达式直接使用 formula_sql（已翻译的 PostgreSQL SQL，含聚合函数）
+        # 度量表达式：多度量时拼接多个列，单指标时保持 aggregated_value
         measure_alias = "aggregated_value"
         view_name = agg.name  # 视图名直接用聚合编码（dws_ 开头）
-        ds_name = f"ds_{agg.name}"  # 数据集编码：ds_ + 聚合编码
+        if multi_measures:
+            measure_select_str = ", ".join(f"{expr} AS {Q(alias)}" for alias, _, expr in multi_measures)
+        else:
+            measure_select_str = f"{measure_expr} AS {Q(measure_alias)}"
 
         # 1. 创建数据库 VIEW（含 ROW_NUMBER() 作为 id 主键列）
-        select_clause = f"ROW_NUMBER() OVER () AS {Q('id')}, {select_group_cols + ', ' if select_group_cols else ''}{measure_expr} AS {Q(measure_alias)}, NULL::timestamptz AS {Q('synced_at')}"
+        select_clause = f"ROW_NUMBER() OVER () AS {Q('id')}, {select_group_cols + ', ' if select_group_cols else ''}{measure_select_str}, NULL::timestamptz AS {Q('synced_at')}"
         ddl = f"CREATE OR REPLACE VIEW {Q(view_name)} AS SELECT {select_clause} FROM {from_table}"
         if group_cols:
             ddl += f" GROUP BY {group_cols}"
@@ -1095,8 +1242,17 @@ class DwsAggregateService:
             col_label = dim_col_label.get(code, col_name)
             self.session.add(TableColumn(table_name=view_name, column_code=col_name, column_label=col_label, data_type="string", display_order=col_order, is_visible=True))
             col_order += 1
-        self.session.add(TableColumn(table_name=view_name, column_code=measure_alias, column_label=measure_label, data_type="numeric", display_order=col_order, is_visible=True))
-        col_order += 1
+        if multi_measures:
+            for alias, label, _ in multi_measures:
+                self.session.add(TableColumn(table_name=view_name, column_code=alias,
+                                             column_label=label, data_type="numeric",
+                                             display_order=col_order, is_visible=True))
+                col_order += 1
+        else:
+            self.session.add(TableColumn(table_name=view_name, column_code=measure_alias,
+                                         column_label=measure_label, data_type="numeric",
+                                         display_order=col_order, is_visible=True))
+            col_order += 1
         # 注册时间派生列（X05）：仅在 time_field 已配置且校验通过时（time_select_exprs 非空）
         # 才写入 snapshot_month（原始期次）/ year / quarter / month，避免普通 DWS 元数据谎称有时间列。
         if time_select_exprs:
@@ -1120,10 +1276,105 @@ class DwsAggregateService:
             pass
 
         sql_summary = ddl
-        output_fields = [dim_col_name.get(code, code) for code in expanded_group_by] + [measure_alias]
+        if multi_measures:
+            output_fields = [dim_col_name.get(code, code) for code in expanded_group_by] + [alias for alias, _, _ in multi_measures]
+        else:
+            output_fields = [dim_col_name.get(code, code) for code in expanded_group_by] + [measure_alias]
         if time_select_exprs:
             output_fields += ["snapshot_month", "year", "quarter", "month"]
         return {"aggregate_id": agg_id, "view_name": ds_name, "sql_summary": sql_summary, "output_fields": output_fields, "dependencies": [], "version": ds.version, "status": "published"}
+
+    async def compute_wide_table(self, agg_id: int, period: str):
+        """多度量 DWS 宽表计算：生成 View → 查询 → 写入 metric_result_rows。"""
+        from datetime import datetime as dt
+        from app.warehouse.models import (
+            DwsAggregateDefinition, MetricResult, MetricResultRow, MetricRun,
+        )
+        from app.datasets.models import WarehouseMetric
+
+        agg = await self.session.get(DwsAggregateDefinition, agg_id)
+        if agg is None:
+            return {"error": "not_found", "detail": f"聚合定义不存在: {agg_id}"}
+        if not agg.measures:
+            return {"error": "bad_request", "detail": "该聚合定义未配置多度量(measures)，请使用单指标计算接口"}
+
+        measures_config = agg.measures
+        primary_metric_id = measures_config[0]["metric_id"]
+
+        # 1. 生成/刷新 View
+        await self.generate_dws_view(agg_id)
+
+        # 2. 查询 View
+        from sqlalchemy import text as sa_text
+        view_name = agg.name
+        rows = (await self.session.execute(sa_text(f"SELECT * FROM {self._quote_ident(view_name)}"))).fetchall()
+
+        # 3. 按周期过滤
+        jsonable_rows = [self._jsonable(dict(row._mapping)) for row in rows]
+        jsonable_rows = [r for r in jsonable_rows if self._row_matches_period(r, period)]
+
+        # 4. 构建 measure_values — alias 与 generate_dws_view 中相同的 _slugify 逻辑派生
+        measure_aliases = []
+        used = set()
+        for ms in measures_config:
+            m = await self.session.get(WarehouseMetric, ms["metric_id"])
+            alias = ms.get("alias") or self._slugify(getattr(m, 'metric_code', None) or m.metric_name)
+            if alias in used:
+                alias = f"{alias}_{len(used)}"
+            used.add(alias)
+            measure_aliases.append(alias)
+        dimensions = agg.group_by or []
+        dim_view_cols = await self._resolve_dim_view_columns(agg.source_dataset_id, dimensions)
+
+        detail_rows = []
+        for idx, row in enumerate(jsonable_rows):
+            detail_rows.append({
+                "dimension_values": {
+                    dim_view_cols.get(d, d): row.get(dim_view_cols.get(d, d))
+                    for d in dimensions if dim_view_cols.get(d, d) in row
+                },
+                "measure_values": {alias: row.get(alias) for alias in measure_aliases},
+                "value": row.get(measure_aliases[0]) if measure_aliases else None,
+                "row_index": idx,
+            })
+
+        summary_value = detail_rows[0]["value"] if len(detail_rows) == 1 else \
+            sum((r["value"] or 0) for r in detail_rows)
+
+        result_value = {
+            "aggregate_id": agg_id,
+            "row_count": len(detail_rows),
+            "dimensions": dimensions,
+            "measures": measure_aliases,
+            "summary_value": summary_value,
+            "mode": "multi_measure",
+            "period": period,
+        }
+
+        # 5. 写入结果（使用第一个度量的 metric_id 绑定 MetricResult）
+        run = MetricRun(metric_id=primary_metric_id, status="running",
+                        period=period, started_at=dt.utcnow())
+        self.session.add(run); await self.session.flush()
+
+        result = MetricResult(metric_id=primary_metric_id, period=period,
+                              value=result_value, computed_at=dt.utcnow())
+        self.session.add(result); await self.session.flush()
+
+        for row_info in detail_rows:
+            self.session.add(MetricResultRow(
+                result_id=result.id, metric_id=primary_metric_id, period=period,
+                row_index=row_info["row_index"],
+                dimension_values=row_info["dimension_values"],
+                measure_values=row_info["measure_values"],
+                value=row_info["value"],
+                computed_at=dt.utcnow(),
+            ))
+
+        run.status = "success"; run.finished_at = dt.utcnow()
+        await self.session.commit()
+
+        return {"run_id": run.id, "result_id": result.id, "metric_id": primary_metric_id,
+                "status": "success", "period": period, "value": result_value}
 
     async def get_view_impact(self, agg_id: int):
         from app.warehouse.models import DwsAggregateDefinition, Dimension

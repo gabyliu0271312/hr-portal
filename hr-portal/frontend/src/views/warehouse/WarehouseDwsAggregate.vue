@@ -7,10 +7,11 @@ import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import {
   listDwsAggregates, createDwsAggregate, updateDwsAggregate, deleteDwsAggregate,
   publishDwsAggregate, archiveDwsAggregate, generateDwsView, getDwsViewImpact,
+  computeDwsAggregate,
   validateDwsAggregate,
   listModels, listDimensions, listMetrics, diagnoseMetric,
   getOutputFields,
-  type DwsAggregate, type Dimension, type OutputField,
+  type DwsAggregate, type DwsMeasureDef, type Dimension, type OutputField,
 } from '@/api/warehouse'
 
 const userStore = useUserStore()
@@ -104,13 +105,15 @@ async function loadMetrics() {
   finally { metricsLoading.value = false }
 }
 
-// 选指标 → 自动推导 time_grain / group_by / source_dataset_id
-async function onMetricChange(metricId: number | undefined) {
-  form.value.metric_id = metricId
-  if (!metricId) return
+// 选指标 → 自动推导 time_grain / group_by / source_dataset_id（基于第一个指标）
+async function onMetricChange(metricIds: number[]) {
+  form.value.metric_ids = metricIds
+  if (!metricIds || metricIds.length === 0) return
+  // 仅在从单选过渡到多选且尚未设置源数据集/时间粒度时自动推导
+  const firstId = metricIds[0]
   autoDeriving.value = true
   try {
-    const diag = await diagnoseMetric(metricId)
+    const diag = await diagnoseMetric(firstId)
     if (!diag.automatable) {
       ElMessage.warning('该指标暂不支持自动推导: ' + (diag.errors?.[0] || ''))
       return
@@ -129,7 +132,9 @@ async function onMetricChange(metricId: number | undefined) {
       form.value.source_dataset_id = diag.source_dataset_id
       await loadOutputFields(diag.source_dataset_id)
     }
-    ElMessage.success('已根据指标自动推导分组参数')
+    if (metricIds.length === 1) {
+      ElMessage.success('已根据指标自动推导分组参数')
+    }
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '指标诊断失败')
   }
@@ -141,7 +146,7 @@ const dialogVisible = ref(false)
 const dialogMode = ref<'create' | 'edit'>('create')
 const editId = ref<number | null>(null)
 const form = ref({
-  label: '', name: '', metric_id: undefined as number | undefined, source_dataset_id: undefined as number | undefined,
+  label: '', name: '', metric_ids: [] as number[], source_dataset_id: undefined as number | undefined,
   group_by: [] as string[], filter: null as Record<string, any> | null,
   time_grain: undefined as string | undefined,
   time_field: undefined as string | undefined,
@@ -152,7 +157,7 @@ const saving = ref(false)
 
 function openCreate() {
   dialogMode.value = 'create'; editId.value = null
-  form.value = { label: '', name: '', metric_id: undefined, source_dataset_id: undefined, group_by: [], filter: null, time_grain: undefined, time_field: undefined, measure_semantics: undefined, business_definition: '' }
+  form.value = { label: '', name: '', metric_ids: [], source_dataset_id: undefined, group_by: [], filter: null, time_grain: undefined, time_field: undefined, measure_semantics: undefined, business_definition: '' }
   outputFields.value = []
   loadDatasets()
   loadDimensions()
@@ -164,8 +169,13 @@ async function openEdit(id: number) {
   const a = aggregates.value.find(x => x.id === id)
   if (!a) return
   dialogMode.value = 'edit'; editId.value = id
+  // 从 measures 或 metric_id 构建 metric_ids 数组
+  const metricIds = a.measures && a.measures.length > 0
+    ? a.measures.map((m: DwsMeasureDef) => m.metric_id)
+    : a.metric_id ? [a.metric_id] : []
   form.value = {
-    label: a.label || '', name: a.name, metric_id: a.metric_id ?? undefined, source_dataset_id: a.source_dataset_id ?? undefined,
+    label: a.label || '', name: a.name, metric_ids: metricIds,
+    source_dataset_id: a.source_dataset_id ?? undefined,
     group_by: a.group_by?.slice() || [], filter: a.filter,
     time_grain: a.time_grain ?? undefined,
     time_field: a.time_field ?? undefined,
@@ -245,6 +255,30 @@ async function doGenerateView() {
   finally { viewLoading.value = false }
 }
 
+// 多度量计算
+const computeDialogVisible = ref(false)
+const computeAggId = ref<number | null>(null)
+const computePeriod = ref('')
+const computeLoading = ref(false)
+const computeResult = ref<any>(null)
+
+function openCompute(id: number) {
+  computeAggId.value = id
+  computePeriod.value = ''
+  computeResult.value = null
+  computeDialogVisible.value = true
+}
+
+async function doCompute() {
+  if (!computeAggId.value || !computePeriod.value) return
+  computeLoading.value = true
+  try {
+    computeResult.value = await computeDwsAggregate(computeAggId.value, computePeriod.value)
+    ElMessage.success('多度量宽表计算完成')
+  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '计算失败') }
+  finally { computeLoading.value = false }
+}
+
 onMounted(load)
 </script>
 
@@ -257,8 +291,11 @@ onMounted(load)
 
     <el-card shadow="never">
       <el-table v-loading="loading" :data="aggregates" border stripe size="small" empty-text="暂无聚合定义">
-          <el-table-column label="名称" min-width="120">
-            <template #default="{ row }">{{ row.label || row.name }}</template>
+          <el-table-column label="名称" min-width="160">
+            <template #default="{ row }">
+              {{ row.label || row.name }}
+              <el-tag v-if="row.measures && row.measures.length >= 2" size="small" type="info" style="margin-left: 6px">等 {{ row.measures.length }} 个度量</el-tag>
+            </template>
           </el-table-column>
           <el-table-column prop="name" label="编码" min-width="100" />
         <el-table-column label="分组维度" min-width="160">
@@ -277,9 +314,10 @@ onMounted(load)
             <el-tag size="small" :type="row.status==='published'?'success':row.status==='archived'?'info':''">{{ row.status === 'draft' ? '草稿' : row.status === 'published' ? '已发布' : '已归档' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="操作" width="360" fixed="right">
           <template #default="{ row }">
             <el-button v-if="userStore.hasOp('warehouse.modeling','C')" text size="small" :icon="View" type="primary" @click="openViewGenerate(row.id)">生成视图</el-button>
+            <el-button v-if="row.measures && row.measures.length >= 2 && userStore.hasOp('warehouse.modeling','C')" text size="small" :icon="DataAnalysis" type="warning" @click="openCompute(row.id)">计算</el-button>
             <el-button v-if="userStore.hasOp('warehouse.modeling','U')" text size="small" :icon="Edit" @click="openEdit(row.id)">编辑</el-button>
             <el-button v-if="row.status==='draft'&&userStore.hasOp('warehouse.modeling','U')" text size="small" type="success" :icon="Finished" @click="doPublish(row.id)">发布</el-button>
             <el-button v-if="row.status==='published'&&userStore.hasOp('warehouse.modeling','U')" text size="small" type="warning" :icon="FolderDelete" @click="doArchive(row.id)">归档</el-button>
@@ -302,7 +340,7 @@ onMounted(load)
             <SmartCodeInput v-model="form.name" :label="form.label" scope="table" prefix="dws_" />
           </el-form-item>
         <el-form-item label="关联指标" required>
-          <el-select v-model="form.metric_id" clearable filterable placeholder="选择指标" style="width:100%" :loading="metricsLoading" @focus="loadMetrics" @change="onMetricChange">
+          <el-select v-model="form.metric_ids" multiple filterable placeholder="请选择指标（选1个=单指标，选N个=多度量宽表）" style="width:100%" :loading="metricsLoading" @focus="loadMetrics" @change="onMetricChange">
             <el-option v-for="m in filteredMetrics" :key="m.id" :label="`${m.metric_name} (${m.metric_code})`" :value="m.id" />
           </el-select>
           <span v-if="autoDeriving" style="font-size:11px;color:#409eff">正在从指标自动推导分组参数...</span>
@@ -381,6 +419,30 @@ onMounted(load)
       <template #footer>
         <el-button @click="viewDialogVisible=false">关闭</el-button>
         <el-button v-if="!viewResult" type="primary" :icon="DataAnalysis" :loading="viewLoading" @click="doGenerateView">生成视图</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 多度量计算弹窗 -->
+    <el-dialog v-model="computeDialogVisible" title="多度量宽表计算" width="500px">
+      <el-form label-width="80px" size="small">
+        <el-form-item label="计算周期" required>
+          <el-input v-model="computePeriod" placeholder="如 2026-07 / 2026Q3 / 2026H1" />
+        </el-form-item>
+      </el-form>
+
+      <template v-if="computeResult">
+        <el-alert title="计算完成" type="success" :closable="false" style="margin-bottom:12px" />
+        <el-descriptions :column="2" size="small" border>
+          <el-descriptions-item label="Run ID">{{ computeResult.run_id }}</el-descriptions-item>
+          <el-descriptions-item label="Result ID">{{ computeResult.result_id }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ computeResult.status }}</el-descriptions-item>
+          <el-descriptions-item label="周期">{{ computeResult.period }}</el-descriptions-item>
+        </el-descriptions>
+      </template>
+
+      <template #footer>
+        <el-button @click="computeDialogVisible=false">关闭</el-button>
+        <el-button v-if="!computeResult" type="primary" :loading="computeLoading" @click="doCompute">开始计算</el-button>
       </template>
     </el-dialog>
   </div>

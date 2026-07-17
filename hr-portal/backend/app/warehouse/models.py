@@ -324,6 +324,9 @@ class DwsAggregateDefinition(Base):
     time_field = Column(String(128), nullable=True, comment="时间/期次字段 output_code（如 snapshot_month）；generate_dws_view 据此自动派生 year/quarter/month")
     measure_semantics = Column(String(16), nullable=True, comment="度量语义: stock(存量/期末值) | flow(流量/可SUM)。NULL 按 flow 处理")
     business_definition = Column(Text, nullable=True, comment="业务口径说明")
+    measures = Column(JSON, nullable=True, default=list,
+                      comment="多度量指标 ID 列表；为空时走单指标路径(metric_id)。"
+                              "每项: {metric_id}，alias/label 由后端从指标元数据自动派生")
     status = Column(String(16), nullable=False, default="draft", comment="draft/published/archived")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

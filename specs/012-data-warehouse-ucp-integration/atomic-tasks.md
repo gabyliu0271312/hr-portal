@@ -4867,12 +4867,68 @@ ADS → DM/METRIC：作为消费域组织和指标语义对象绑定，不新增
 - [ ] X0601 四期高级能力专项验收
   - 任务：对 X01-X05 的边界、UI、权限、安全、审计、测试进行统一验收。
   - 交付物：专项验收报告、风险接受记录、上线/不上线结论、回滚和下线方案。
-  - UI 要求：逐项检查高级能力入口是否清楚标识“外部集成/受控沙箱/只读摘要/高级建模”；不得让普通用户误以为数据仓库已经替代 BI/UCP/专业 ETL。
+  - UI 要求：逐项检查高级能力入口是否清楚标识"外部集成/受控沙箱/只读摘要/高级建模"；不得让普通用户误以为数据仓库已经替代 BI/UCP/专业 ETL。
   - UI 示意图：见本文件 `U24 四期高级能力复评与集成线框图`。
   - UCP / 数据仓库边界要求：确认跨系统和凭证能力没有被数据仓库复制；确认 BI 报表制作没有被数据仓库复制；确认 SQL/脚本沙箱没有越权。
   - 测试要求：必须记录安全、权限、审计、资源限额、降级、E2E、前端 build、回滚测试结果或不适用原因。
   - 验收标准：四期能力即使进入规划，也以边界清晰、风险可控、集成优先为前提。
   - 完成定义：专项验收通过后才允许进入 S 章最终蓝图落地。
+
+## X06 多度量 DWS 宽表（x06-multi-measure-dws-wide-table.md）
+
+- [x] X0602 Alembic 迁移 0101 + Model 字段 `measures`
+  - 前置任务：无
+  - 功能范围：新增 `measures` JSON 字段到 `DwsAggregateDefinition`
+  - 代码交付物：
+    - `alembic/versions/0101_add_dws_measures.py`
+    - `backend/app/warehouse/models.py` 新增 `measures` Column
+  - UI 要求：不涉及 UI
+  - 测试要求：迁移语法验证通过；py_compile 通过
+  - 验收标准：迁移文件 upgrade + downgrade 语法正确
+
+- [x] X0603 Pydantic Schema 变更
+  - 前置任务：X0602
+  - 功能范围：新增 `DwsMeasureDef` schema；Create/Update 添加 `metric_ids`；Out 添加 `measures`
+  - 代码交付物：`backend/app/warehouse/schemas.py`
+  - UI 要求：不涉及 UI
+  - 测试要求：28 个单元测试全部通过
+  - 验收标准：CreateIn 接受 `metric_ids`；Out 返回 `measures`
+
+- [x] X0604 `generate_dws_view` 多度量 SELECT 改造
+  - 前置任务：X0602, X0603
+  - 功能范围：VIEW DDL 拼接多个度量列；TableColumn 注册多个度量列；output_fields 包含所有度量 alias
+  - 代码交付物：`backend/app/warehouse/service/modeling.py`（4 处改动：度量表达式、SELECT、TableColumn、output_fields）
+  - UI 要求：不涉及 UI
+  - 测试要求：py_compile 通过；_slugify 单元测试通过
+  - 验收标准：多度量 VIEW 产出正确的多列 SQL
+
+- [x] X0605 多度量计算入口
+  - 前置任务：X0604
+  - 功能范围：`compute_wide_table` 方法 + `POST /dws-aggregates/{id}/compute` 端点
+  - 代码交付物：
+    - `backend/app/warehouse/service/modeling.py`：`DwsAggregateService.compute_wide_table()`
+    - `backend/app/warehouse/router.py`：`POST /dws-aggregates/{agg_id}/compute`
+  - UI 要求：不涉及 UI
+  - 测试要求：py_compile 通过；MetricComputeIn schema 测试通过
+  - 验收标准：计算接口可接受，返回 run_id/result_id
+
+- [x] X0606 前端多指标选择改造
+  - 前置任务：X0603
+  - 功能范围：el-select 从单选改为多选（multiple filterable）；列表显示"等 N 个度量"标签；新增计算按钮和弹窗
+  - 代码交付物：
+    - `frontend/src/api/warehouse.ts`：新增 `DwsMeasureDef` 类型 + `computeDwsAggregate` API
+    - `frontend/src/views/warehouse/WarehouseDwsAggregate.vue`
+  - UI 要求：见 `warehouse-ui-guardrails.md`；el-select multiple filterable
+  - 测试要求：vue-tsc 0 错误；vite build 成功
+  - 验收标准：选 N 个指标 → 保存传 `metric_ids` → 列表显示"等 N 个度量"标签
+
+- [x] X0607 端到端集成测试
+  - 前置任务：X0604, X0605, X0606
+  - 功能范围：28 个单元测试覆盖 Schema/_slugify/向后兼容
+  - 代码交付物：`tests/test_x06_multi_measure_dws.py`
+  - UI 要求：不涉及 UI
+  - 测试要求：28 passed, 0 failed
+  - 验收标准：Schema 双向兼容（metric_id + metric_ids）；_slugify 处理中英文/特殊字符/超长/数字开头
 
 ---
 
