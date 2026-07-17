@@ -1182,8 +1182,18 @@ async def run_dataset_query(
         if ci.source_code not in _seen_sources:
             _seen_sources.add(ci.source_code)
             _effective_columns.append(ci.source_code)
-    # instance_id → label
-    _instance_label = {ci.instance_id: (ci.label or ci.source_code) for ci in _col_instances}
+    # instance_id → label（服务端生成：首实例用字段元数据名，后续加 (N)）
+    _instance_label: dict[str, str] = {}
+    _source_occurrence: dict[str, int] = {}
+    for ci in _col_instances:
+        sc = ci.source_code
+        idx = _source_occurrence.get(sc, 0) + 1
+        _source_occurrence[sc] = idx
+        if idx == 1:
+            _instance_label[ci.instance_id] = ci.label or sc  # 运行时从字段元数据补全
+        else:
+            base = _instance_label.get(sc, ci.label or sc)
+            _instance_label[ci.instance_id] = f"{base} ({idx})"
     # instance_id 输出顺序列表（用于 columns_meta / 输出构建）
     _output_instance_ids = [ci.instance_id for ci in _col_instances]
 
@@ -1618,6 +1628,10 @@ async def run_dataset_query(
         for (a, c) in output_pairs
         if _role(a, c) == "measure" or _explicit_count_metric(f"{a}.{c}")
     ]
+    # Track B：聚合迭代改为逐实例
+    if _has_duplicates:
+        _mea_source_set = set(mea_quals)
+        mea_quals = [ci.instance_id for ci in _col_instances if ci.source_code in _mea_source_set]
     agg_on = bool(aggregate) and len(mea_quals) > 0
     transpose_rules = (transpose or {}).get("rules") or []
     transpose_enabled = bool((transpose or {}).get("enabled"))
@@ -1668,35 +1682,30 @@ async def run_dataset_query(
         # Track B：按 _output_instance_ids 顺序构建，每个实例独立列
         for instance_id in _output_instance_ids:
             source = _instance_id_to_source.get(instance_id, instance_id)
-            label = _instance_label.get(instance_id, instance_id)
+            # 从字段元数据获取基础 label，首实例不加后缀，后续加 (N)
+            raw_label = _instance_label.get(instance_id, instance_id)
             if source.startswith("calc."):
                 field = selected_calc_codes.get(source)
-                if field is None:
-                    continue
-                columns_meta.append({
-                    "code": instance_id, "label": label,
-                    "data_type": field.data_type,
-                    "is_sensitive": calc_masked.get(field.code, False),
-                    "source_code": source,
-                })
+                if field is None: continue
+                base = field.label or source
+                label = base if instance_id == source else f"{base} ({instance_id.rsplit('#',1)[-1]})" if "#" in instance_id else raw_label
+                columns_meta.append({"code": instance_id, "label": label,
+                    "data_type": field.data_type, "is_sensitive": calc_masked.get(field.code, False),
+                    "source_code": source})
             else:
-                if source not in display_selected_set:
-                    continue
+                if source not in display_selected_set: continue
                 alias, code = _split_qualified(source)
                 col = next((c for c in alias_columns.get(alias, []) if c.column_code == code), None)
+                db_label = col.column_label or col.column_code if col else code
+                base = labels_by_alias.get(alias, {}).get(code, db_label)
+                label = base if instance_id == source else f"{base} ({instance_id.rsplit('#',1)[-1]})" if "#" in instance_id else raw_label
                 if col is None:
-                    columns_meta.append({
-                        "code": instance_id, "label": label,
-                        "data_type": "string", "is_sensitive": False,
-                        "source_code": source,
-                    })
+                    columns_meta.append({"code": instance_id, "label": label,
+                        "data_type": "string", "is_sensitive": False, "source_code": source})
                 else:
                     mask = col.is_sensitive or (code in sensitive_by_alias.get(alias, set()))
-                    columns_meta.append({
-                        "code": instance_id, "label": label,
-                        "data_type": col.data_type, "is_sensitive": mask,
-                        "source_code": source,
-                    })
+                    columns_meta.append({"code": instance_id, "label": label,
+                        "data_type": col.data_type, "is_sensitive": mask, "source_code": source})
     else:
         # 旧路径：columns_meta code = alias.code（不变）
         for q in (columns if columns else [f"{a}.{c}" for a, c in display_selected] + [calc_qual(f.code) for f in selected_calc_fields]):
@@ -1902,9 +1911,7 @@ async def run_dataset_query(
         rws = g["__rows__"]
         for mq in mea_quals:
             agg_fn = (aggregations or {}).get(mq, "sum")
-            # Track B: 用 instance_id 查找 column_settings（按 source_code → 所有实例映射）
-            lookup_key = mq
-            setting = (column_settings or {}).get(lookup_key) or {}
+            setting = (column_settings or {}).get(mq) or {}
             metric_filters = setting.get("metric_filters") or []
             metric_filter_logic = setting.get("metric_filter_logic")
             filtered_rows = [

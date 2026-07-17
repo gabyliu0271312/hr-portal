@@ -48,7 +48,7 @@ class ColumnInstance(BaseModel):
 
 def _normalize_columns(columns: list) -> list[ColumnInstance]:
     """将 columns 统一转为 ColumnInstance 列表（兼容旧 string[] 格式）。
-    校验 instance_id 全局唯一、格式合法。
+    校验 instance_id 全局唯一、格式合法、与 source_code 前缀匹配。
     """
     result: list[ColumnInstance] = []
     seen_ids: set[str] = set()
@@ -59,15 +59,30 @@ def _normalize_columns(columns: list) -> list[ColumnInstance]:
             ci = ColumnInstance(**item)
         else:
             raise ValueError(f"不支持的列格式: {type(item).__name__}")
-        # 校验 instance_id 格式：仅允许 source_code 或 source_code#N (N>=2)
-        if "#" in ci.instance_id:
-            parts = ci.instance_id.rsplit("#", 1)
-            if not (parts[0] and parts[1].isdigit() and int(parts[1]) >= 2):
-                raise ValueError(f"instance_id 格式非法: {ci.instance_id}，期望 source_code#N (N>=2)")
+        # 校验 instance_id 格式
+        sc = ci.source_code
+        iid = ci.instance_id
+        if iid == sc:
+            pass  # 首实例，OK
+        elif "#" in iid:
+            parts = iid.rsplit("#", 1)
+            prefix, suffix = parts[0], parts[1]
+            if prefix != sc:
+                raise ValueError(
+                    f"instance_id 前缀必须匹配 source_code: "
+                    f"instance_id={iid}, source_code={sc}"
+                )
+            if not (suffix.isdigit() and int(suffix) >= 2):
+                raise ValueError(f"instance_id 格式非法: {iid}，期望 source_code#N (N>=2)")
+        else:
+            raise ValueError(
+                f"instance_id 必须等于 source_code 或 source_code#N: "
+                f"instance_id={iid}, source_code={sc}"
+            )
         # 全局唯一
-        if ci.instance_id in seen_ids:
-            raise ValueError(f"instance_id 重复: {ci.instance_id}")
-        seen_ids.add(ci.instance_id)
+        if iid in seen_ids:
+            raise ValueError(f"instance_id 重复: {iid}")
+        seen_ids.add(iid)
         result.append(ci)
     return result
 
