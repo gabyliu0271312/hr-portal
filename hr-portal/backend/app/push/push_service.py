@@ -862,8 +862,7 @@ async def push_db_expose(
         # 报表来源：先取数再逐行 INSERT，按 data_type 做类型转换
         rows = await _load_source_rows(source_table, db, period_ym)
         if rows:
-            # 用 meta 中的 code 顺序确保 type 对齐
-            col_names = codes  # codes 来自 _load_source_columns_meta
+            col_names = [c for c in rows[0].keys()]
             placeholders = ", ".join(f":col_{i}" for i in range(len(col_names)))
             insert_sql = f"INSERT INTO {schema_q}.{finebi_table_q} (id, synced_at, {insert_cols}) VALUES (DEFAULT, NOW(), {placeholders})"
             for row in rows:
