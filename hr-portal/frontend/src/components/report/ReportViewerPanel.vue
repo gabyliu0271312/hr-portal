@@ -116,7 +116,14 @@ async function doExport(format: 'csv' | 'xlsx') {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(dlUrl)
-    ElMessage.success('导出成功')
+
+    // 检查导出警告头（如 XLSX 大数文本降级提示）
+    const exportWarning = resp.headers.get('X-Export-Warnings')
+    if (exportWarning) {
+      ElMessage.warning(exportWarning)
+    } else {
+      ElMessage.success('导出成功')
+    }
   } catch (e: any) {
     ElMessage.error(e?.message || '导出失败')
   }

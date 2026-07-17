@@ -1257,6 +1257,8 @@ async def export_report_xlsx(
     worksheet = workbook.active
     worksheet.title = report.name[:30] or "Report"
     worksheet.append(labels)
+    # 统计文本降级单元格数量
+    text_fallback_count = 0
     for row in rows:
         excel_row = []
         for j, code in enumerate(codes):
@@ -1266,6 +1268,8 @@ async def export_report_xlsx(
                 if num_val is None:
                     excel_row.append("" if v is None else v)
                 else:
+                    if isinstance(num_val, str):
+                        text_fallback_count += 1
                     excel_row.append(num_val)
             else:
                 excel_row.append("" if v is None else v)
@@ -1291,8 +1295,16 @@ async def export_report_xlsx(
 
     safe_name = report.name.replace("/", "_").replace("\\", "_")
     filename_encoded = quote(f"{safe_name}.xlsx")
+    resp_headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{filename_encoded}",
+    }
+    if text_fallback_count > 0:
+        resp_headers["X-Export-Warnings"] = (
+            "部分数值超过Excel支持的15位有效数字，已导出为文本格式（千分位字符串），共 "
+            + str(text_fallback_count) + " 个单元格"
+        )
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename_encoded}"},
+        headers=resp_headers,
     )
