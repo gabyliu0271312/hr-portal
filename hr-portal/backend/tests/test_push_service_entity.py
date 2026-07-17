@@ -411,24 +411,9 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
     db = FakeSession(
         results=[
             FakeResult(rows=columns),
-            FakeResult(),  # CREATE SCHEMA
-            FakeResult(),  # DROP TABLE
-            FakeResult(),  # CREATE TABLE
-            FakeResult(),  # INSERT SELECT
-            FakeResult(value=False),  # role exists
-            FakeResult(),  # CREATE USER
-            FakeResult(),  # GRANT CONNECT
-            FakeResult(),  # REVOKE public
-            FakeResult(rows=["finebi", "finebi_other_target"]),  # existing FineBI schemas
-            FakeResult(),  # REVOKE old finebi tables
-            FakeResult(),  # REVOKE old finebi schema
-            FakeResult(),  # REVOKE other finebi tables
-            FakeResult(),  # REVOKE other finebi schema
-            FakeResult(),  # GRANT schema
-            FakeResult(),  # GRANT table
-            FakeResult(),  # ALTER ROLE search_path
-            FakeResult(value=3),
-        ]
+        ] + [FakeResult()] * 30 + [
+            FakeResult(value=3),  # SELECT COUNT
+        ],
     )
 
     try:

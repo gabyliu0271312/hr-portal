@@ -130,7 +130,10 @@ async def _load_report_source_rows(source_table: str, db: AsyncSession) -> list[
     return rows
 
 
-async def _load_source_columns_meta(source_table: str, db: AsyncSession) -> tuple[list[str], dict[str, str]]:
+async def _load_source_columns_meta(
+    source_table: str, db: AsyncSession
+) -> tuple[list[str], dict[str, str], dict[str, str]]:
+    """返回 (codes, label_by_code, type_by_code)。"""
     if is_report_source(source_table):
         from app.reports.models import Report
         from app.reports.router import get_report_push_columns
@@ -143,10 +146,13 @@ async def _load_source_columns_meta(source_table: str, db: AsyncSession) -> tupl
         codes = [str(c.get("code")) for c in cols if c.get("code")]
         labels = {
             str(c.get("code")): str(c.get("label") or c.get("code"))
-            for c in cols
-            if c.get("code")
+            for c in cols if c.get("code")
         }
-        return codes, labels
+        types = {
+            str(c.get("code")): str(c.get("data_type") or "string")
+            for c in cols if c.get("code")
+        }
+        return codes, labels, types
 
     source_cols = (
         await db.execute(
@@ -160,7 +166,8 @@ async def _load_source_columns_meta(source_table: str, db: AsyncSession) -> tupl
         c.column_code: (c.column_label or c.column_code).strip() or c.column_code
         for c in source_cols
     }
-    return codes, labels
+    types = {c.column_code: str(c.data_type or "string") for c in source_cols}
+    return codes, labels, types
 
 
 async def _load_source_rows(
@@ -634,7 +641,7 @@ async def push_feishu_sheet(
     rows = await _load_source_rows(source_table, db, period_ym)
     mapped_rows = [json_ready_row(apply_field_mappings(r, field_mappings)) for r in rows]
 
-    source_col_codes, label_by_code = await _load_source_columns_meta(source_table, db)
+    source_col_codes, label_by_code, _type_by_code = await _load_source_columns_meta(source_table, db)
     mapping_pairs = [
         (m.get("source"), m.get("target"))
         for m in field_mappings
@@ -745,12 +752,12 @@ async def push_db_expose(
     if not is_report:
         source_table_q = quote_ident(source_table, kind="table")
     if is_report:
-        # 报表来源：从 push columns 取字段，统一 TEXT 类型
-        codes, label_by_code = await _load_source_columns_meta(source_table, db)
+        # 报表来源：从 push columns 取字段，按原始 data_type 建表
+        codes, label_by_code, type_by_code = await _load_source_columns_meta(source_table, db)
         if not codes:
             raise RuntimeError(f"报表 {source_table} 无推送字段定义")
         cols_def = ", ".join(
-            f"{_quote_pg_identifier(label_by_code[c])} TEXT"
+            f"{_quote_pg_identifier(label_by_code[c])} {postgres_type(type_by_code.get(c))}"
             for c in codes
         )
         insert_cols = ", ".join(_quote_pg_identifier(label_by_code[c]) for c in codes)
@@ -800,15 +807,15 @@ async def push_db_expose(
         f"(id BIGINT, synced_at TIMESTAMPTZ, {cols_def})"
     ))
     if is_report:
-        # 报表来源：先取数再逐行 INSERT
+        # 报表来源：先取数再逐行 INSERT，保持原始数据类型
         rows = await _load_source_rows(source_table, db, period_ym)
         if rows:
             col_names = [c for c in rows[0].keys()]
             placeholders = ", ".join(f":col_{i}" for i in range(len(col_names)))
             insert_sql = f"INSERT INTO {schema_q}.{finebi_table_q} (id, synced_at, {insert_cols}) VALUES (DEFAULT, NOW(), {placeholders})"
             for row in rows:
-                str_params = {f"col_{i}": str(row.get(c)) if row.get(c) is not None else None for i, c in enumerate(col_names)}
-                await db.execute(text(insert_sql), str_params)
+                typed_params = {f"col_{i}": row.get(c) if row.get(c) is not None else None for i, c in enumerate(col_names)}
+                await db.execute(text(insert_sql), typed_params)
     else:
         await db.execute(text(
             f"INSERT INTO {schema_q}.{finebi_table_q} "
