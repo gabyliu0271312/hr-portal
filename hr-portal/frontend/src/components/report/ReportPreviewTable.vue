@@ -20,10 +20,20 @@ const emit = defineEmits<{
   'page-change': []
 }>()
 
+const NUMERIC_TYPES = new Set(['integer', 'number', 'decimal', 'float', 'double', 'numeric'])
+
 function formatCell(row: Record<string, any>, col: RunResult['columns'][number]): string {
   const v = row[col.code]
   if (v === null || v === undefined || v === '') {
-    return col.data_type === 'number' || col.data_type === 'integer' ? '0' : '—'
+    return NUMERIC_TYPES.has(col.data_type) ? '0' : '—'
+  }
+  if (NUMERIC_TYPES.has(col.data_type)) {
+    const num = Number(v)
+    if (!isNaN(num)) {
+      const rounded = Math.round(num * 1e6) / 1e6
+      if (rounded === Math.floor(rounded)) return rounded.toLocaleString('en-US', { maximumFractionDigits: 0 })
+      return rounded.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 6 })
+    }
   }
   return String(v)
 }

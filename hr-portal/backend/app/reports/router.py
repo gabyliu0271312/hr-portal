@@ -945,6 +945,57 @@ async def run_report(
     )
 
 
+# ---- 数字格式化工具（供 CSV / XLSX 导出共用） ----
+
+_NUMERIC_TYPES = {"integer", "number", "decimal", "float", "double", "numeric"}
+
+
+def _is_numeric_column(col_meta: dict) -> bool:
+    """判断列是否为数字类型且非敏感。"""
+    return (
+        col_meta.get("data_type") in _NUMERIC_TYPES
+        and not col_meta.get("is_sensitive")
+    )
+
+
+def _format_number_for_csv(value) -> str:
+    """数字千分位格式化字符串（CSV 用）。
+
+    整数 → "1,234"；小数 → "12,345.67"；null → "0"；非数字 → 原样。
+    """
+    if value is None or value == "":
+        return "0"
+    try:
+        num = round(float(value), 6)
+        if num == int(num):
+            return f"{int(num):,}"
+        return f"{num:,.6f}".rstrip("0").rstrip(".")
+    except (ValueError, TypeError):
+        return str(value)
+
+
+def _to_numeric_value(value):
+    """将值转为 XLSX 数字单元格值。非数字返回 None（保留字符串）"""
+    if value is None or value == "":
+        return 0
+    try:
+        num = round(float(value), 6)
+        return int(num) if num == int(num) else num
+    except (ValueError, TypeError):
+        return None
+
+
+def _numeric_format_for_xlsx(value) -> str:
+    """返回适合该值的 Excel number_format 字符串。"""
+    try:
+        num = float(value)
+        if num == int(num):
+            return "#,##0"
+        return "#,##0.######"
+    except (ValueError, TypeError):
+        return ""
+
+
 async def _collect_export_rows(
     report: Report,
     user: User,
@@ -985,7 +1036,7 @@ async def _collect_export_rows(
         column["code"]
         for column in columns_meta
         if not column.get("is_sensitive")
-        and column.get("data_type") in ("number", "integer")
+        and column.get("data_type") in _NUMERIC_TYPES
     }
 
     def _export_value(item: dict[str, Any], code: str) -> Any:
@@ -995,7 +1046,7 @@ async def _collect_export_rows(
         return v
 
     rows = [[_export_value(item, code) for code in codes] for item in items]
-    return labels, rows, codes
+    return labels, rows, codes, columns_meta
 
 
 
@@ -1010,7 +1061,7 @@ async def collect_report_push_rows(
     owner = await db.get(User, report.owner_id)
     if owner is None:
         raise RuntimeError("报表创建人不存在，无法执行报表推送")
-    labels, matrix, codes = await _collect_export_rows(report, owner, db, runtime_filters)
+    labels, matrix, codes, _cols_meta = await _collect_export_rows(report, owner, db, runtime_filters)
     rows = [dict(zip(codes, row, strict=False)) for row in matrix]
     return rows, dict(zip(codes, labels, strict=False))
 
@@ -1125,16 +1176,21 @@ async def export_report_csv(
     if not await _can_access(user, report, db):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
 
-    labels, rows, _codes = await _collect_export_rows(
+    labels, rows, codes, columns_meta = await _collect_export_rows(
         report, user, db, _parse_runtime_filters(runtime_filters)
     )
+    numeric_codes = {col["code"] for col in columns_meta if _is_numeric_column(col)}
 
     buf = io.StringIO()
     buf.write("\ufeff")
     writer = csv.writer(buf)
     writer.writerow(labels)
     for row in rows:
-        writer.writerow(row)
+        formatted = [
+            _format_number_for_csv(row[j]) if code in numeric_codes else row[j]
+            for j, code in enumerate(codes)
+        ]
+        writer.writerow(formatted)
     buf.seek(0)
 
     from urllib.parse import quote
@@ -1166,16 +1222,38 @@ async def export_report_xlsx(
     if not await _can_access(user, report, db):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
 
-    labels, rows, _codes = await _collect_export_rows(
+    labels, rows, codes, columns_meta = await _collect_export_rows(
         report, user, db, _parse_runtime_filters(runtime_filters)
     )
+    numeric_codes = {col["code"] for col in columns_meta if _is_numeric_column(col)}
 
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = report.name[:30] or "Report"
     worksheet.append(labels)
     for row in rows:
-        worksheet.append([("" if value is None else value) for value in row])
+        excel_row = []
+        for j, code in enumerate(codes):
+            v = row[j]
+            if code in numeric_codes:
+                num_val = _to_numeric_value(v)
+                if num_val is None:
+                    excel_row.append("" if v is None else v)
+                else:
+                    excel_row.append(num_val)
+            else:
+                excel_row.append("" if v is None else v)
+        worksheet.append(excel_row)
+
+    # 为数字列逐单元格设置 number_format
+    for j, code in enumerate(codes):
+        if code in numeric_codes:
+            col_idx = j + 1
+            for row_idx in range(2, len(rows) + 2):
+                cell = worksheet.cell(row=row_idx, column=col_idx)
+                fmt = _numeric_format_for_xlsx(cell.value)
+                if fmt:
+                    cell.number_format = fmt
 
     buf = io.BytesIO()
     workbook.save(buf)

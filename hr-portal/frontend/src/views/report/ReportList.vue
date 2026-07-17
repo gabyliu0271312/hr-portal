@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Document, Edit, Delete, View, Position } from '@element-plus/icons-vue'
+import { Plus, Document, Edit, Delete, View, Position, CopyDocument } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { formatDateTime } from '@/utils/datetime'
 import { reportsApi, REPORT_VISIBILITY_LABELS, type ReportItem, type ReportVisibility } from '@/api/reports'
@@ -18,6 +18,7 @@ const list = ref<ReportItem[]>([])
 const datasets = ref<DatasetItem[]>([])
 const loading = ref(false)
 const pushing = ref<number | null>(null)
+const copying = ref<number | null>(null)
 const filterDataset = ref<number | null>(null)
 const filterKeyword = ref('')
 
@@ -72,6 +73,36 @@ async function handlePush(row: ReportItem) {
     ElMessage.error(e?.response?.data?.detail || '推送失败')
   } finally {
     pushing.value = null
+  }
+}
+
+async function handleCopy(row: ReportItem) {
+  try {
+    await ElMessageBox.confirm(
+      `确认复制报表「${row.name}」？将生成一份完全相同的副本。`,
+      '复制报表',
+      { type: 'info', confirmButtonText: '确认复制' },
+    )
+  } catch { return }
+
+  copying.value = row.id
+  try {
+    const detail = await reportsApi.get(row.id)
+    const r = await reportsApi.create({
+      name: `${row.name} - 副本`,
+      description: detail.description,
+      dataset_id: detail.dataset_id,
+      config: detail.config,
+      visibility: 'private',
+      scope_strategy: detail.scope_strategy,
+      acl: [],
+    } as any)
+    ElMessage.success('报表已复制')
+    router.push(`/report/designer/${r.id}`)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '复制失败')
+  } finally {
+    copying.value = null
   }
 }
 
@@ -176,7 +207,7 @@ onMounted(async () => {
               {{ formatDateTime(row.updated_at) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="360" fixed="right">
+          <el-table-column label="操作" width="420" fixed="right">
             <template #default="{ row }">
               <PermissionButton menu="report.list" op="V" size="small" @click="openRun(row)">
                 <el-icon style="margin-right: 4px"><View /></el-icon>查看
@@ -186,6 +217,9 @@ onMounted(async () => {
               </PermissionButton>
               <PermissionButton v-else menu="report.list" op="C" size="small" @click="openDesigner(row)">
                 <el-icon style="margin-right: 4px"><Edit /></el-icon>编辑
+              </PermissionButton>
+              <PermissionButton menu="report.list" op="C" size="small" :loading="copying === row.id" @click="handleCopy(row)">
+                <el-icon style="margin-right: 4px"><CopyDocument /></el-icon>复制
               </PermissionButton>
               <PermissionButton
                 v-if="row.can_edit && row.active_push_target_count"
