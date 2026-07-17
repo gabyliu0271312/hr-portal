@@ -1143,13 +1143,13 @@ def _metric_filter_refs(column_settings: dict[str, Any] | None) -> list[str]:
 
 async def run_dataset_query(
     dataset_id: int,
-    columns: list[str],
-    filters: list[dict[str, Any]],
-    sorts: list[dict[str, Any]],
-    page: int,
-    page_size: int,
-    user: User | None,
-    db: AsyncSession,
+    columns: list[str] | list[dict[str, Any]] | None = None,
+    filters: list[dict[str, Any]] | None = None,
+    sorts: list[dict[str, Any]] | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    user: User | None = None,
+    db: AsyncSession | None = None,
     value_rules: list[dict[str, Any]] | None = None,
     aggregate: bool = False,
     aggregations: dict[str, str] | None = None,
@@ -1161,13 +1161,27 @@ async def run_dataset_query(
     scope_strategy: str | None = None,
     warnings_sink: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
-    """执行数据集多表查询
+    """执行数据集多表查询 (Track B: columns 支持 str | ColumnInstance)
 
     Returns:
         (columns_meta_list, items, total)
-    columns_meta_list: list of dict {alias, column_code, label, data_type, is_sensitive}
-    items: list of dict, key = "alias.column_code"
+    columns_meta_list: list of dict {code(=instance_id), label, data_type, is_sensitive, source_code?}
     """
+    # ---- Track B: 列实例标准化 ----
+    from app.reports.router import _normalize_columns
+    _col_instances = _normalize_columns(columns or [])
+    # instance_id → source_code 映射
+    _instance_source = {ci.instance_id: ci.source_code for ci in _col_instances}
+    # source_code → instance_id (first occurrence only, for backward compat)
+    _source_instance: dict[str, str] = {}
+    for ci in _col_instances:
+        if ci.source_code not in _source_instance:
+            _source_instance[ci.source_code] = ci.instance_id
+    # 内部仍用 source_code 做字段解析；SELECT alias 时再用 instance_id
+    _effective_columns = [ci.source_code for ci in _col_instances]
+    # instance_id → label
+    _instance_label = {ci.instance_id: (ci.label or ci.source_code) for ci in _col_instances}
+
     ds, ds_tables, ds_rels = await _get_dataset_meta(dataset_id, db)
     if not ds_tables:
         return [], [], 0
@@ -1261,8 +1275,8 @@ async def run_dataset_query(
                 if msg not in warnings_sink:
                     warnings_sink.append(msg)
 
-    if columns:
-        for q in columns:
+    if _effective_columns:
+        for q in _effective_columns:
             if q.startswith("calc."):
                 calc_field = calc_by_qual.get(q)
                 if calc_field is None:
@@ -1371,7 +1385,10 @@ async def run_dataset_query(
     for a, code in selected:
         if a not in aliased_models:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"未知数据集别名: {a}")
-        select_cols.append(_entity_column(aliased_models[a], code).label(_select_label(a, code)))
+        q_label = f"{a}.{code}"
+        # Track B: 使用 instance_id 作为 SQL 列别名
+        sql_alias = _source_instance.get(q_label, _select_label(a, code)) if _col_instances else _select_label(a, code)
+        select_cols.append(_entity_column(aliased_models[a], code).label(sql_alias))
 
     stmt = select(*select_cols)
     count_stmt = select(func.count()).select_from(aliased_models[primary_alias])
@@ -1625,16 +1642,19 @@ async def run_dataset_query(
     display_selected_set = {f"{a}.{c}" for a, c in display_selected}
 
     for q in (columns if columns else [f"{a}.{c}" for a, c in display_selected] + [calc_qual(f.code) for f in selected_calc_fields]):
+        # Track B: resolve instance_id for this column
+        instance_id = _source_instance.get(q, q) if _col_instances else q
         if q.startswith("calc."):
             field = selected_calc_codes.get(q)
             if field is None:
                 continue
             columns_meta.append(
                 {
-                    "code": calc_qual(field.code),
-                    "label": field.label,
+                    "code": instance_id,
+                    "label": _instance_label.get(instance_id, field.label),
                     "data_type": field.data_type,
                     "is_sensitive": calc_masked.get(field.code, False),
+                    "source_code": calc_qual(field.code),
                 }
             )
         else:
@@ -1647,10 +1667,11 @@ async def run_dataset_query(
             if col is None:
                 columns_meta.append(
                     {
-                        "code": f"{alias}.{code}",
-                        "label": code,
+                        "code": instance_id,
+                        "label": _instance_label.get(instance_id, code),
                         "data_type": "string",
                         "is_sensitive": False,
+                        "source_code": q,
                     }
                 )
             else:
@@ -1659,12 +1680,16 @@ async def run_dataset_query(
                 )
                 columns_meta.append(
                     {
-                        "code": f"{alias}.{code}",
-                        "label": labels_by_alias.get(alias, {}).get(
-                            code, col.column_label or col.column_code
+                        "code": instance_id,
+                        "label": _instance_label.get(
+                            instance_id,
+                            labels_by_alias.get(alias, {}).get(
+                                code, col.column_label or col.column_code
+                            ),
                         ),
                         "data_type": col.data_type,
                         "is_sensitive": mask,
+                        "source_code": q,
                     }
                 )
 
@@ -1692,7 +1717,9 @@ async def run_dataset_query(
         formula_item: dict[str, Any] = {}
         for alias, code in selected:
             qual = f"{alias}.{code}"
-            raw_value = d.get(_select_label(alias, code))
+            # Track B: 用 instance_id 作为 SQL 别名读取
+            raw_key = _source_instance.get(qual, _select_label(alias, code)) if _col_instances else _select_label(alias, code)
+            raw_value = d.get(raw_key)
             formula_item[qual] = raw_value
             v = _normalize_report_value(raw_value)
             sens = sensitive_by_alias.get(alias, set())
@@ -1825,14 +1852,17 @@ async def run_dataset_query(
         rws = g["__rows__"]
         for mq in mea_quals:
             agg_fn = (aggregations or {}).get(mq, "sum")
-            setting = (column_settings or {}).get(mq) or {}
+            # Track B: 用 instance_id 查找 column_settings
+            setting = (column_settings or {}).get(_source_instance.get(mq, mq) if _col_instances else mq) or {}
             metric_filters = setting.get("metric_filters") or []
             metric_filter_logic = setting.get("metric_filter_logic")
             filtered_rows = [
                 rw for rw in rws
                 if _row_matches_filters(rw, metric_filters, metric_filter_logic)
             ]
-            out[mq] = _aggregate([rw.get(mq) for rw in filtered_rows], agg_fn, len(filtered_rows))
+            # Track B: 输出 key 用 instance_id
+            out_key = _source_instance.get(mq, mq) if _col_instances else mq
+            out[out_key] = _aggregate([rw.get(mq) for rw in filtered_rows], agg_fn, len(filtered_rows))
         result.append(out)
 
     # ===== 余差收口：同组末行补差值，确保合计 = sum(rawprod) 取整 =====

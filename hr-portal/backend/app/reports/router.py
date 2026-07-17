@@ -38,8 +38,38 @@ class SortCond(BaseModel):
     order: str = "asc"
 
 
+class ColumnInstance(BaseModel):
+    """列实例：允许同一 source_code 出现多次，用 instance_id 区分。"""
+    model_config = {"extra": "forbid"}
+    source_code: str         # 原始字段 code
+    instance_id: str         # 唯一实例 ID："emp.count" / "emp.count#2"
+    label: str | None = None # 显示名："员工数" / "员工数 (2)"
+
+
+def _normalize_columns(columns: list) -> list[ColumnInstance]:
+    """将 columns 统一转为 ColumnInstance 列表（兼容旧 string[] 格式）。"""
+    seen: dict[str, int] = {}
+    result: list[ColumnInstance] = []
+    for i, item in enumerate(columns):
+        if isinstance(item, str):
+            ci = ColumnInstance(source_code=item, instance_id=item)
+        elif isinstance(item, dict):
+            ci = ColumnInstance(**item)
+        else:
+            continue
+        result.append(ci)
+    return result
+
+
+def _columns_to_instance_ids(columns: list) -> list[str]:
+    """从 columns 提取 instance_id 数组（用于解耦 columns 结构细节）。"""
+    return [c.instance_id if isinstance(c, ColumnInstance) else
+            (c["instance_id"] if isinstance(c, dict) else c)
+            for c in columns]
+
+
 class ReportConfig(BaseModel):
-    columns: list[str] = Field(default_factory=list)
+    columns: list[str | ColumnInstance] = Field(default_factory=list)
     filters: list[FilterCond] = Field(default_factory=list)
     sorts: list[SortCond] = Field(default_factory=list)
     value_rules: list[dict] = Field(default_factory=list)

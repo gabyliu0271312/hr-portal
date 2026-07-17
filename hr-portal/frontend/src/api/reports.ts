@@ -156,8 +156,14 @@ export interface ListLookupConfig {
   }
 }
 
+export interface ColumnInstance {
+  source_code: string
+  instance_id: string
+  label?: string | null
+}
+
 export interface ReportConfig {
-  columns: string[]
+  columns: (string | ColumnInstance)[]
   filters: FilterCond[]
   sorts: SortCond[]
   value_rules?: ValueRule[]

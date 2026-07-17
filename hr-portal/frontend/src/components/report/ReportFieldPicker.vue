@@ -12,36 +12,66 @@ const emit = defineEmits<{
   'update:selectedCodes': [v: string[]]
 }>()
 
-const availableColumns = computed(() =>
-  props.allColumns.filter((c) => !props.selectedCodes.includes(c.code))
-)
+/** 所有字段始终可选（Track B：支持重复选择） */
+const availableColumns = computed(() => props.allColumns)
 
-const selectedColsDetail = computed(() =>
-  props.selectedCodes
-    .map((code) => props.allColumns.find((c) => c.code === code))
-    .filter(Boolean) as ColumnInfo[]
-)
+/** 最大后缀+1 生成下一个 instance_id */
+function nextInstanceId(sourceCode: string): string {
+  const suffixes: number[] = []
+  for (const id of props.selectedCodes) {
+    if (id === sourceCode) {
+      suffixes.push(1)
+    } else if (id.startsWith(sourceCode + '#')) {
+      const n = Number(id.split('#').pop())
+      if (!isNaN(n)) suffixes.push(n)
+    }
+  }
+  const next = Math.max(0, ...suffixes, 0) + 1
+  return next === 1 ? sourceCode : `${sourceCode}#${next}`
+}
 
-function toggleColumn(code: string) {
+function toggleColumn(sourceCode: string) {
   const next = [...props.selectedCodes]
-  const i = next.indexOf(code)
-  if (i >= 0) next.splice(i, 1)
-  else next.push(code)
+  next.push(nextInstanceId(sourceCode))
   emit('update:selectedCodes', next)
 }
 
-function moveColumn(code: string, dir: -1 | 1) {
+function removeAt(index: number) {
   const next = [...props.selectedCodes]
-  const i = next.indexOf(code)
-  if (i < 0) return
-  const j = i + dir
+  next.splice(index, 1)
+  emit('update:selectedCodes', next)
+}
+
+function moveAt(index: number, dir: -1 | 1) {
+  const next = [...props.selectedCodes]
+  const j = index + dir
   if (j < 0 || j >= next.length) return
-  ;[next[i], next[j]] = [next[j], next[i]]
+  ;[next[index], next[j]] = [next[j], next[index]]
   emit('update:selectedCodes', next)
 }
 
+/** instance_id → 显示名 */
+function instanceLabel(instanceId: string): string {
+  const base = instanceId.replace(/#\d+$/, '')
+  const col = props.allColumns.find(c => c.code === base)
+  const baseLabel = col?.label ?? base
+  if (instanceId === base) return baseLabel
+  const n = instanceId.split('#').pop()
+  return `${baseLabel} (${n})`
+}
+
+/** 全选：仅选中当前未出现的 source_code（避免重复全选产生大量重复） */
 function selectAll() {
-  emit('update:selectedCodes', props.allColumns.filter((c) => c.is_visible).map((c) => c.code))
+  const existingSources = new Set(
+    props.selectedCodes.map(id => id.replace(/#\d+$/, ''))
+  )
+  const next = [...props.selectedCodes]
+  for (const c of props.allColumns) {
+    if (c.is_visible && !existingSources.has(c.code)) {
+      next.push(c.code)
+    }
+  }
+  emit('update:selectedCodes', next)
 }
 
 function clearAll() {
@@ -74,25 +104,28 @@ function clearAll() {
     </div>
     <div class="picker-pane">
       <div class="pane-head">
-        <span>已选字段（{{ selectedColsDetail.length }}）</span>
-        <el-button link size="small" :disabled="!selectedColsDetail.length" @click="clearAll">清空</el-button>
+        <span>已选字段（{{ selectedCodes.length }}）</span>
+        <el-button link size="small" :disabled="!selectedCodes.length" @click="clearAll">清空</el-button>
       </div>
       <div class="pane-body">
         <div
-          v-for="(c, i) in selectedColsDetail"
-          :key="c.code"
+          v-for="(id, i) in selectedCodes"
+          :key="id"
           class="col-item col-item--selected"
         >
           <span class="order-num">{{ i + 1 }}.</span>
-          <span>{{ c.label }}</span>
-          <el-tag v-if="c.is_sensitive" size="small" type="danger" effect="plain">敏感</el-tag>
+          <span>{{ instanceLabel(id) }}</span>
+          <el-tag
+            v-if="allColumns.find(c => c.code === id.replace(/#\d+$/, ''))?.is_sensitive"
+            size="small" type="danger" effect="plain"
+          >敏感</el-tag>
           <div style="margin-left: auto; display: flex; gap: 4px">
-            <el-button size="small" link :disabled="i === 0" @click="moveColumn(c.code, -1)">上移</el-button>
-            <el-button size="small" link :disabled="i === selectedColsDetail.length - 1" @click="moveColumn(c.code, 1)">下移</el-button>
-            <el-button size="small" link type="danger" @click="toggleColumn(c.code)">移除</el-button>
+            <el-button size="small" link :disabled="i === 0" @click="moveAt(i, -1)">上移</el-button>
+            <el-button size="small" link :disabled="i === selectedCodes.length - 1" @click="moveAt(i, 1)">下移</el-button>
+            <el-button size="small" link type="danger" @click="removeAt(i)">移除</el-button>
           </div>
         </div>
-        <div v-if="!selectedColsDetail.length" class="empty-tip">从左侧点选字段加入</div>
+        <div v-if="!selectedCodes.length" class="empty-tip">从左侧点选字段加入</div>
       </div>
     </div>
   </div>

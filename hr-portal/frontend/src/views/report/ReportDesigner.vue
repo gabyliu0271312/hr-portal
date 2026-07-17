@@ -138,10 +138,18 @@ interface ExplainChatMessage {
 let explainChatId = 0
 const explainMessages = ref<ExplainChatMessage[]>([])
 
+/** Track B: source_code lookup — strip #N suffix from instance_id */
+function sourceCode(instanceId: string): string {
+  return instanceId.replace(/#\d+$/, '')
+}
+
 const selectedColsDetail = computed(() =>
   form.selected_codes
-    .map((code) => allColumns.value.find((c) => c.code === code))
-    .filter(Boolean) as ColumnInfo[]
+    .map((id) => {
+      const col = allColumns.value.find((c) => c.code === sourceCode(id))
+      return col ? { ...col, _instance_id: id } as ColumnInfo & { _instance_id: string } : null
+    })
+    .filter(Boolean) as (ColumnInfo & { _instance_id: string })[]
 )
 function isCountAggregation(value?: string) {
   return value === 'count' || value === 'count_distinct'
@@ -189,7 +197,9 @@ async function loadReport() {
     form.acl = r.can_edit
       ? (r.acl || []).map((a) => ({ id: a.id, role_id: a.role_id, user_id: a.user_id }))
       : []
-    form.selected_codes = [...(r.config.columns ?? [])]
+    form.selected_codes = [...(r.config.columns ?? [])].map(c =>
+      typeof c === 'string' ? c : c.instance_id
+    )
     form.column_settings = { ...(r.config.column_settings ?? {}) }
     form.default_split_rule = {
       enabled: !!r.config.default_split_rule?.enabled,
