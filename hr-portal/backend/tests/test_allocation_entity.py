@@ -53,10 +53,11 @@ class FakeResult:
 
 
 class FakeSession:
-    def __init__(self, *, results=(), get_map=None, get_obj=None):
+    def __init__(self, *, results=(), get_map=None, get_obj=None, count_result=None):
         self.results = list(results)
         self.get_map = get_map or {}
         self.get_obj = get_obj
+        self.count_result = count_result
         self.executed = []
         self.added = []
         self.commits = 0
@@ -66,6 +67,8 @@ class FakeSession:
 
     async def execute(self, statement, params=None):
         self.executed.append((statement, params))
+        if self.count_result is not None and str(statement).startswith("SELECT COUNT(*) FROM"):
+            return FakeResult(self.count_result)
         result = self.results.pop(0) if self.results else None
         if isinstance(result, FakeResult):
             return result
@@ -420,8 +423,8 @@ async def test_result_table_can_be_exposed_to_finebi_with_entity_types():
             FakeResult(),  # GRANT schema
             FakeResult(),  # GRANT table
             FakeResult(),  # ALTER ROLE search_path
-            FakeResult(value=1),
-        ]
+        ],
+        count_result=1,
     )
 
     try:

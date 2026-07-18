@@ -394,6 +394,119 @@ async def test_report_aggregate_keeps_database_numeric_values():
     assert_no_raw_sql(db)
 
 
+async def test_report_duplicate_instances_project_and_aggregate_independently():
+    table_name = "report_entity_duplicate_instances"
+    model = make_entity_model(
+        table_name,
+        [Column("department", String), Column("amount", Numeric)],
+    )
+    old = register_table(table_name, model)
+    ds = DataSet(id=46, name="duplicate instances")
+    table = DataSetTable(dataset_id=46, table_name=table_name, alias="r")
+    columns = [
+        make_column(table_name, "department", column_label="部门", agg_role="dimension"),
+        make_column(table_name, "amount", column_label="金额", data_type="number", agg_role="measure"),
+    ]
+    db = FakeSession(
+        get_map={(DataSet, 46): ds},
+        results=[
+            *dataset_rows(46, [table]),
+            FakeResult(rows=columns),
+            FakeResult(rows=[]),
+            FakeResult(rows=[
+                FakeRow(
+                    __r__id=1,
+                    **{"r.department": "研发", "r.amount": Decimal("10.10"), "r.amount#2": Decimal("10.10")},
+                ),
+                FakeRow(
+                    __r__id=2,
+                    **{"r.department": "研发", "r.amount": Decimal("20.20"), "r.amount#2": Decimal("20.20")},
+                ),
+            ]),
+        ],
+    )
+
+    try:
+        cols, items, total = await sql_builder.run_dataset_query(
+            dataset_id=46,
+            columns=[
+                {"source_code": "r.department", "instance_id": "r.department"},
+                {"source_code": "r.amount", "instance_id": "r.amount"},
+                {"source_code": "r.amount", "instance_id": "r.amount#2"},
+            ],
+            filters=[],
+            filter_logic=None,
+            sorts=[{"column": "r.amount#2", "order": "desc"}],
+            value_rules=[],
+            aggregate=True,
+            aggregations={"r.amount": "sum", "r.amount#2": "count"},
+            column_settings={},
+            transpose={},
+            rounding_corrections=[],
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+        )
+    finally:
+        restore_table(table_name, old)
+
+    assert total == 1
+    assert [column["code"] for column in cols] == ["r.department", "r.amount", "r.amount#2"]
+    assert items == [{"r.department": "研发", "r.amount": 30.3, "r.amount#2": 2}]
+    sql = "\n".join(str(statement) for statement, _ in db.executed)
+    assert 'AS "r.amount"' in sql
+    assert 'AS "r.amount#2"' in sql
+    assert_no_raw_sql(db)
+
+
+async def test_report_single_column_instance_uses_instance_output_mode():
+    table_name = "report_entity_single_instance"
+    model = make_entity_model(table_name, [Column("amount", Numeric)])
+    old = register_table(table_name, model)
+    ds = DataSet(id=47, name="single instance")
+    table = DataSetTable(dataset_id=47, table_name=table_name, alias="r")
+    columns = [make_column(table_name, "amount", column_label="金额", data_type="number", agg_role="measure")]
+    db = FakeSession(
+        get_map={(DataSet, 47): ds},
+        results=[
+            *dataset_rows(47, [table]),
+            FakeResult(rows=columns),
+            FakeResult(rows=[]),
+            FakeResult(value=1),
+            FakeResult(rows=[FakeRow(__r__id=1, **{"r.amount": Decimal("8.50")})]),
+        ],
+    )
+
+    try:
+        cols, items, total = await sql_builder.run_dataset_query(
+            dataset_id=47,
+            columns=[{"source_code": "r.amount", "instance_id": "r.amount"}],
+            filters=[],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[],
+            aggregate=False,
+            aggregations={},
+            column_settings={},
+            transpose={},
+            rounding_corrections=[],
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+        )
+    finally:
+        restore_table(table_name, old)
+
+    assert total == 1
+    assert [column["code"] for column in cols] == ["r.amount"]
+    assert items == [{"r.amount": "8.50"}]
+    sql = "\n".join(str(statement) for statement, _ in db.executed)
+    assert 'AS "r.amount"' in sql
+    assert_no_raw_sql(db)
+
+
 async def test_report_dimension_field_can_be_count_metric_for_self_join_span():
     table_name = "report_entity_roster_span"
     model = make_entity_model(
@@ -1159,3 +1272,66 @@ async def test_report_list_lookup_numeric_is_not_null_filter_does_not_compare_em
     assert "management_level is not null" in sql
     assert "cast(lls_0_r.management_level as varchar) !=" in sql
     assert "lls_0_r.management_level != " not in sql
+
+
+@pytest.mark.parametrize(
+    ('aggregation', 'expected'),
+    [('sum', 10), ('count', 1)],
+)
+async def test_duplicate_instance_metric_filter_reads_unselected_source_field(aggregation, expected):
+    table_name = 'report_entity_duplicate_metric_filter'
+    model = make_entity_model(
+        table_name,
+        [Column('amount', Numeric), Column('status', String)],
+    )
+    old = register_table(table_name, model)
+    dataset = DataSet(id=65, name='duplicate metric filter')
+    dataset_table = DataSetTable(dataset_id=65, table_name=table_name, alias='r')
+    columns = [
+        make_column(table_name, 'amount', data_type='number', agg_role='measure'),
+        make_column(table_name, 'status', agg_role='dimension'),
+    ]
+    db = FakeSession(
+        get_map={(DataSet, 65): dataset},
+        results=[
+            *dataset_rows(65, [dataset_table]),
+            FakeResult(rows=columns),
+            FakeResult(rows=[]),
+            FakeResult(rows=[
+                FakeRow(__r__id=1, **{'r.amount#2': Decimal('10'), '__r__status': 'active'}),
+                FakeRow(__r__id=2, **{'r.amount#2': Decimal('20'), '__r__status': 'inactive'}),
+            ]),
+        ],
+    )
+
+    try:
+        result_columns, items, total = await sql_builder.run_dataset_query(
+            dataset_id=65,
+            columns=[{'source_code': 'r.amount', 'instance_id': 'r.amount#2'}],
+            filters=[],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[],
+            aggregate=True,
+            aggregations={'r.amount#2': aggregation},
+            column_settings={
+                'r.amount#2': {
+                    'metric_filters': [{'column': 'r.status', 'op': 'eq', 'value': 'active'}],
+                },
+            },
+            transpose={},
+            rounding_corrections=[],
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+        )
+    finally:
+        restore_table(table_name, old)
+
+    assert total == 1
+    assert [column['code'] for column in result_columns] == ['r.amount#2']
+    assert items == [{'r.amount#2': expected}]
+    assert all('r.status' not in item for item in items)
+    sql = '\n'.join(str(statement) for statement, _ in db.executed)
+    assert 'AS __r__status' in sql

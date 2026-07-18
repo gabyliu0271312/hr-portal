@@ -106,8 +106,8 @@ const selectedFieldGroups = computed(() => [
     empty: '单击左侧指标字段后会加入这里',
   },
 ])
-const numericAllCols = computed(() =>
-  props.allColumns.filter((item) => item.agg_role === 'measure' || item.data_type === 'number')
+const numericSelectedCols = computed(() =>
+  selectedCols.value.filter((item) => item.agg_role === 'measure' || item.data_type === 'number')
 )
 const draggingCode = ref('')
 const fieldSearch = ref('')
@@ -216,7 +216,7 @@ function clearSettingKey(code: string, key: keyof ColumnSetting) {
 }
 
 function displayLabel(col: ColumnInfo & { key?: string }) {
-  return colSetting((col.key || col.code)).display_name || cleanFieldLabel(col)
+  return colSetting((col.key || col.code)).display_name || instanceLabel(col.key || col.code)
 }
 
 function aggRoleOf(code: string) {
@@ -235,10 +235,8 @@ function addColumn(code: string) {
   emit('update:selectedCodes', next)
 }
 
-function removeColumnAt(index: number) {
-  const next = [...props.selectedCodes]
-  next.splice(index, 1)
-  emit('update:selectedCodes', next)
+function removeColumn(instanceId: string) {
+  emit('update:selectedCodes', props.selectedCodes.filter((code) => code !== instanceId))
 }
 
 function reorderColumn(code: string, targetCode: string) {
@@ -574,12 +572,12 @@ function openAdvanced(tab: AdvancedTab) {
                 v-for="(col, i) in group.columns"
                 :key="col._instance_id || col.code"
                 class="selected-shell"
-                :class="{ 'is-dragging': draggingCode === col.code, 'is-hidden': colSetting((col.key || col.code)).hidden }"
+                :class="{ 'is-dragging': draggingCode === col.key, 'is-hidden': colSetting((col.key || col.code)).hidden }"
                 draggable="true"
-                @dragstart="draggingCode = col.code"
+                @dragstart="draggingCode = col.key"
                 @dragend="draggingCode = ''"
                 @dragover.prevent
-                @drop.prevent="reorderColumn(draggingCode, col.code); draggingCode = ''"
+                @drop.prevent="reorderColumn(draggingCode, col.key); draggingCode = ''"
               >
                 <div
                   class="selected-field"
@@ -645,7 +643,7 @@ function openAdvanced(tab: AdvancedTab) {
                             <el-icon><Edit /></el-icon>
                             编辑公式
                           </el-button>
-                          <el-button size="small" type="danger" plain @click="removeColumnAt(i)">
+                          <el-button size="small" type="danger" plain @click="removeColumn(col.key)">
                             <el-icon><Close /></el-icon>
                             移除字段
                           </el-button>
@@ -774,15 +772,15 @@ function openAdvanced(tab: AdvancedTab) {
                               clearable
                               placeholder="选择系数字段"
                               style="width: 150px"
-                              @update:model-value="(v: string) => setSplitFactor(col.code, i, v)"
+                              @update:model-value="(v: string) => setSplitFactor(col.key, i, v)"
                             >
-                              <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
+                              <el-option v-for="item in numericSelectedCols" :key="item.key" :label="displayLabel(item)" :value="item.key" />
                             </el-select>
-                            <el-button link type="danger" size="small" @click="removeSplitFactor(col.code, i)">
+                            <el-button link type="danger" size="small" @click="removeSplitFactor(col.key, i)">
                               <el-icon><Delete /></el-icon>
                             </el-button>
                           </div>
-                          <el-button link type="primary" size="small" style="margin-top: 6px" @click="addSplitFactor(col.code)">
+                          <el-button link type="primary" size="small" style="margin-top: 6px" @click="addSplitFactor(col.key)">
                             <el-icon style="margin-right: 2px"><Plus /></el-icon>添加系数
                           </el-button>
                         </template>
@@ -921,7 +919,7 @@ function openAdvanced(tab: AdvancedTab) {
                       style="width: min(280px, 100%)"
                       @update:model-value="(v: string) => setDefaultFactor(i, v)"
                     >
-                      <el-option v-for="item in numericAllCols" :key="item.code" :label="item.label" :value="item.code" />
+                      <el-option v-for="item in numericSelectedCols" :key="item.key" :label="displayLabel(item)" :value="item.key" />
                     </el-select>
                     <el-button link type="danger" :disabled="!defaultSplitRule.enabled" @click="removeDefaultFactor(i)">
                       <el-icon><Delete /></el-icon>
@@ -951,7 +949,7 @@ function openAdvanced(tab: AdvancedTab) {
                     style="width: min(520px, 100%)"
                     @update:model-value="(v: string[]) => emit('update:roundingGroupBy', v)"
                   >
-                    <el-option v-for="item in selectedDimensions" :key="item.code" :label="item.label" :value="item.code" />
+                    <el-option v-for="item in selectedDimensions" :key="item.key" :label="displayLabel(item)" :value="item.key" />
                   </el-select>
                   <p>汇总后按这些维度做尾差归集，减少四舍五入造成的金额差异。</p>
                 </div>

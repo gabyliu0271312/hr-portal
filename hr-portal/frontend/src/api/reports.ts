@@ -255,7 +255,7 @@ export interface ReportConfigExplainPayload {
   report_id?: number | null
   report_name?: string
   description?: string | null
-  columns: string[]
+  columns: (string | ColumnInstance)[]
   filters: Record<string, any>[]
   sorts: Record<string, any>[]
   aggregate?: boolean

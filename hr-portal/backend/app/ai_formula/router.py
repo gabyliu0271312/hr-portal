@@ -569,6 +569,7 @@ async def draft_formula_impl(
         should_update_raw = raw.get("should_update_formula")
         should_update = bool(raw_formula) if should_update_raw is None else bool(should_update_raw)
         intent = str(raw.get("intent") or ("formula_draft" if should_update else "formula_question"))
+        formula_compile: dict | None = None
         if should_update:
             if not str(raw_formula).strip():
                 raise RuntimeError("模型要求更新公式，但未返回 formula 或 formula_display")
@@ -757,4 +758,3 @@ async def _ast_compile_for_draft(
         "repair_hints": repair_hints,
         "compiler": result.compiler,
     }
-

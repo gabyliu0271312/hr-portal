@@ -105,13 +105,13 @@ const previewPage = ref(1)
 const previewPageSize = ref(20)
 const reportPushSourceTable = computed(() => reportId.value ? `report:${reportId.value}` : '')
 const reportPushColumns = computed(() => selectedColsDetail.value.map((c) => ({
-  code: c.code,
-  label: form.column_settings[c.code]?.display_name || c.label || c.code,
+  code: instanceIdOf(c),
+  label: outputLabel(c),
   data_type: c.data_type || 'text',
   is_pk_part: false,
   is_sensitive: !!c.is_sensitive,
   is_visible: true,
-  display_order: form.selected_codes.indexOf(c.code),
+  display_order: form.selected_codes.indexOf(instanceIdOf(c)),
   auto_discovered: false,
   agg_role: c.agg_role || '',
   is_computed: !!c.is_computed,
@@ -155,8 +155,18 @@ function isCountAggregation(value?: string) {
   return value === 'count' || value === 'count_distinct'
 }
 
-function isCountMetric(col: ColumnInfo) {
-  return col.agg_role !== 'measure' && isCountAggregation(form.column_settings[col.code]?.aggregation)
+function instanceIdOf(col: ColumnInfo & { _instance_id?: string }) {
+  return col._instance_id || col.code
+}
+
+function outputLabel(col: ColumnInfo & { _instance_id?: string }) {
+  const instanceId = instanceIdOf(col)
+  const label = form.column_settings[instanceId]?.display_name || col.label || col.code
+  return instanceId === col.code ? label : `${label} (${instanceId.split('#').pop()})`
+}
+
+function isCountMetric(col: ColumnInfo & { _instance_id?: string }) {
+  return col.agg_role !== 'measure' && isCountAggregation(form.column_settings[instanceIdOf(col)]?.aggregation)
 }
 
 function isMeasureLike(col: ColumnInfo) {
@@ -361,14 +371,8 @@ function normalizeFilters(filters: any[], withViewControls = false) {
 }
 
 function normalizeColumnSettings() {
-  // 剔除指向数据集中已不存在字段（如已删除计算字段）的孤儿设置键，避免脏引用被持久化。
-  // 守卫 allColumns 非空：字段尚未加载完时不过滤，防误删。
-  const known = allColumns.value.length
-    ? new Set(allColumns.value.map((c) => c.code))
-    : null
   return Object.fromEntries(
     Object.entries(form.column_settings)
-      .filter(([code]) => !known || known.has(code))
       .map(([code, setting]) => {
       const next: ColumnSetting = { ...setting }
       next.metric_filters = normalizeFilters(next.metric_filters || [])
@@ -386,18 +390,22 @@ function normalizeColumnSettings() {
 }
 
 function buildPayload() {
-  const tailCode = (q: string) => (q.includes('.') ? q.slice(q.indexOf('.') + 1) : q)
+  const tailCode = (q: string) => {
+    const source = sourceCode(q)
+    return source.includes('.') ? source.slice(source.indexOf('.') + 1) : source
+  }
   // 剔除数据集里已不存在的字段引用（如已删除的计算字段），避免脏引用被持久化后在查看时反复告警。
   // 守卫 allColumns 非空：字段尚未加载完时保持原样，不误清空。
   // Track B: 转为 ColumnInstance[] 格式发送
-  const validSelectedColumns = allColumns.value.length
-    ? form.selected_codes
-        .filter((id) => allColumns.value.some((c) => c.code === sourceCode(id)))
-        .map((id) => ({ source_code: sourceCode(id), instance_id: id }))
-    : form.selected_codes.map((id) => ({ source_code: sourceCode(id), instance_id: id }))
-  const selectedDimCodes = selectedDimensions.value.map((c) => c.code)
-  const selectedMeasureCodes = selectedMeasures.value.map((c) => c.code)
-  const selectedPhysicalMeasureCodes = selectedMeasures.value.filter((c) => c.agg_role === 'measure').map((c) => c.code)
+  const validSelectedColumns = form.selected_codes.map((id) => ({
+    source_code: sourceCode(id),
+    instance_id: id,
+  }))
+  const selectedDimCodes = selectedDimensions.value.map(instanceIdOf)
+  const selectedMeasureCodes = selectedMeasures.value.map(instanceIdOf)
+  const selectedPhysicalMeasureCodes = selectedMeasures.value
+    .filter((c) => c.agg_role === 'measure')
+    .map(instanceIdOf)
   const c2r = form.transpose.column_to_row || {}
   const r2c = form.transpose.row_to_column || {}
   const filterLogic: FilterLogic | null =
@@ -468,17 +476,17 @@ function buildPayload() {
           }),
         column_to_row: {
           enabled: !!c2r.enabled,
-          source_cols: [...(c2r.source_cols || [])].filter((code) => form.selected_codes.includes(code)),
-          group_by: [...(c2r.group_by || [])].filter((code) => form.selected_codes.includes(code)),
+          source_cols: [...(c2r.source_cols || [])],
+          group_by: [...(c2r.group_by || [])],
           item_label: c2r.item_label || '项目',
           value_label: c2r.value_label || '金额',
           conflict_strategy: (c2r.conflict_strategy || 'keep_all') as ReshapeConflictStrategy,
         },
         row_to_column: {
           enabled: !!r2c.enabled,
-          group_by: [...(r2c.group_by || [])].filter((code) => form.selected_codes.includes(code)),
-          pivot_col: form.selected_codes.includes(r2c.pivot_col || '') ? r2c.pivot_col : '',
-          value_col: form.selected_codes.includes(r2c.value_col || '') ? r2c.value_col : '',
+          group_by: [...(r2c.group_by || [])],
+          pivot_col: r2c.pivot_col || '',
+          value_col: r2c.value_col || '',
           pivot_values: (r2c.pivot_values || [])
             .filter((item: any) => item.value !== '')
             .map((item: any) => ({ value: item.value, label: item.label || '' })),
@@ -594,7 +602,7 @@ function buildExplainPayload(question: string) {
     report_id: reportId.value,
     report_name: payload.name || '未命名报表',
     description: payload.description,
-    columns: payload.config.columns.map((c: any) => (typeof c === 'string' ? c : c.source_code)),
+    columns: payload.config.columns,
     filters: payload.config.filters,
     sorts: payload.config.sorts,
     aggregate: payload.config.aggregate,

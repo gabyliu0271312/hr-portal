@@ -11,9 +11,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from fastapi import HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.reports.models import Report
+from app.reports.validation import ensure_valid_report_config, ensure_valid_report_field_references
+from app.users.models import User
 
 
 logger = logging.getLogger("reports.service")
@@ -31,12 +35,27 @@ async def run_report_query(
     实际数据不需要返回，只记录运行结果。
     """
     from datetime import datetime
+    from app.reports.config import ReportConfig
+    from app.reports.runtime import apply_runtime_overrides, validate_runtime_filters
     from app.reports.sql_builder import run_dataset_query
 
     if report.dataset_id is None:
         raise RuntimeError(f"报表 {report.id} 未绑定数据集")
 
-    config = report.config or {}
+    if report.owner_id is None:
+        raise RuntimeError(f'报表 {report.id} 缺少创建人，无法按报表权限范围执行')
+    owner = await db.get(User, report.owner_id)
+    if owner is None:
+        raise RuntimeError(f'报表 {report.id} 创建人不存在，无法执行')
+
+    try:
+        config_model = ReportConfig(**(report.config or {}))
+    except ValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    validate_runtime_filters(config_model, runtime_filters)
+    config_model = ensure_valid_report_config(apply_runtime_overrides(config_model, runtime_filters))
+    await ensure_valid_report_field_references(config_model, report.dataset_id, owner, db, runtime_filters)
+    config = config_model.model_dump()
     columns = config.get("columns", [])
     filters = config.get("filters", [])
     filter_logic = config.get("filter_logic")
@@ -66,7 +85,7 @@ async def run_report_query(
         list_lookup=list_lookup if isinstance(list_lookup, dict) else {},
         page=1,
         page_size=1,
-        user=None,
+        user=owner,
         db=db,
         scope_strategy=report.scope_strategy,
         warnings_sink=warnings,

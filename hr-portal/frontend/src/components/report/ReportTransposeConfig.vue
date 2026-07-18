@@ -48,11 +48,13 @@ interface TransposeConfig {
   row_to_column?: RowToColumnConfig
 }
 
+type SelectedColumn = ColumnInfo & { _instance_id?: string }
+
 const props = defineProps<{
   transpose: TransposeConfig
-  selectedDimensions: ColumnInfo[]
-  selectedMeasures: ColumnInfo[]
-  selectedColumns?: ColumnInfo[]
+  selectedDimensions: SelectedColumn[]
+  selectedMeasures: SelectedColumn[]
+  selectedColumns?: SelectedColumn[]
 }>()
 
 const emit = defineEmits<{
@@ -67,6 +69,20 @@ const allSelectedColumns = computed(() => props.selectedColumns?.length
   ? props.selectedColumns
   : [...props.selectedDimensions, ...props.selectedMeasures]
 )
+
+function instanceIdOf(column: SelectedColumn): string {
+  return column._instance_id || column.code
+}
+
+function sourceCode(instanceId: string): string {
+  return instanceId.replace(/#\d+$/, '')
+}
+
+function columnLabel(column: SelectedColumn): string {
+  const instanceId = instanceIdOf(column)
+  if (instanceId === column.code) return column.label
+  return `${column.label} (${instanceId.split('#').pop()})`
+}
 
 const activeTab = ref('remap')
 
@@ -129,7 +145,8 @@ async function ensureCcMaster() {
 }
 
 function tdimKind(qual: string): 'name' | 'code' | null {
-  const t = qual.includes('.') ? qual.slice(qual.indexOf('.') + 1) : qual
+  const source = sourceCode(qual)
+  const t = source.includes('.') ? source.slice(source.indexOf('.') + 1) : source
   if (t === 'dimension_value' || t === 'name') return 'name'
   if (t === 'code') return 'code'
   return null
@@ -140,8 +157,8 @@ function onTransposeDimValue(rule: TransposeRule, d: TransposeDim) {
   const opt = ccNameOptions.value.find((o) => o.value === d.value)
   if (!opt || !opt.extra) return
   const codeQuals = props.selectedDimensions
-    .filter((c) => (c.code.includes('.') ? c.code.slice(c.code.indexOf('.') + 1) : c.code) === 'code')
-    .map((c) => c.code)
+    .filter((column) => tdimKind(instanceIdOf(column)) === 'code')
+    .map(instanceIdOf)
   for (const cq of codeQuals) {
     const ex = rule.dims.find((x) => x.dim === cq)
     if (ex) ex.value = opt.extra
@@ -274,7 +291,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
             <div class="reshape-line">
               <span class="reshape-label">源度量</span>
               <el-select v-model="rule.source_col" placeholder="选要搬运的度量列" style="width: 240px" filterable>
-                <el-option v-for="c in selectedMeasures" :key="c.code" :label="c.label" :value="c.code" />
+                <el-option v-for="c in selectedMeasures" :key="instanceIdOf(c)" :label="columnLabel(c)" :value="instanceIdOf(c)" />
               </el-select>
               <el-button link type="danger" style="margin-left: auto" @click="removeRule(ri)">
                 <el-icon><Delete /></el-icon>删除规则
@@ -295,7 +312,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
                     filterable
                     @change="ensureCcMaster()"
                   >
-                    <el-option v-for="c in selectedDimensions" :key="c.code" :label="c.label" :value="c.code" />
+                    <el-option v-for="c in selectedDimensions" :key="instanceIdOf(c)" :label="columnLabel(c)" :value="instanceIdOf(c)" />
                   </el-select>
                   <span class="arrow">→</span>
                   <el-select
@@ -349,7 +366,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
                 style="flex: 1"
                 filterable
               >
-                <el-option v-for="c in selectedMeasures" :key="c.code" :label="c.label" :value="c.code" />
+                <el-option v-for="c in selectedMeasures" :key="instanceIdOf(c)" :label="columnLabel(c)" :value="instanceIdOf(c)" />
               </el-select>
             </div>
           </div>
@@ -399,7 +416,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
                 style="flex: 1"
                 @update:model-value="(v: string[]) => patchColumnToRow({ source_cols: v })"
               >
-                <el-option v-for="c in allSelectedColumns" :key="c.code" :label="c.label" :value="c.code" />
+                <el-option v-for="c in allSelectedColumns" :key="instanceIdOf(c)" :label="columnLabel(c)" :value="instanceIdOf(c)" />
               </el-select>
             </div>
             <div class="reshape-line align-top">
@@ -414,7 +431,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
                 style="flex: 1"
                 @update:model-value="(v: string[]) => patchColumnToRow({ group_by: v })"
               >
-                <el-option v-for="c in selectedDimensions" :key="c.code" :label="c.label" :value="c.code" />
+                <el-option v-for="c in selectedDimensions" :key="instanceIdOf(c)" :label="columnLabel(c)" :value="instanceIdOf(c)" />
               </el-select>
             </div>
             <div class="reshape-line">
@@ -491,7 +508,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
                 style="flex: 1"
                 @update:model-value="(v: string[]) => patchRowToColumn({ group_by: v })"
               >
-                <el-option v-for="c in selectedDimensions" :key="c.code" :label="c.label" :value="c.code" />
+                <el-option v-for="c in selectedDimensions" :key="instanceIdOf(c)" :label="columnLabel(c)" :value="instanceIdOf(c)" />
               </el-select>
             </div>
             <div class="reshape-line">
@@ -504,7 +521,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
                 style="width: 240px"
                 @update:model-value="(v: string) => patchRowToColumn({ pivot_col: v })"
               >
-                <el-option v-for="c in allSelectedColumns" :key="c.code" :label="c.label" :value="c.code" />
+                <el-option v-for="c in allSelectedColumns" :key="instanceIdOf(c)" :label="columnLabel(c)" :value="instanceIdOf(c)" />
               </el-select>
               <span class="reshape-label compact">值字段</span>
               <el-select
@@ -515,7 +532,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
                 style="width: 240px"
                 @update:model-value="(v: string) => patchRowToColumn({ value_col: v })"
               >
-                <el-option v-for="c in allSelectedColumns" :key="c.code" :label="c.label" :value="c.code" />
+                <el-option v-for="c in allSelectedColumns" :key="instanceIdOf(c)" :label="columnLabel(c)" :value="instanceIdOf(c)" />
               </el-select>
             </div>
             <div class="reshape-line">

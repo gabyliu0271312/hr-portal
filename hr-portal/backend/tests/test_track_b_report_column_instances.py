@@ -8,8 +8,9 @@
 - 前缀不匹配/重复ID/非法格式校验
 """
 import pytest
+from pydantic import ValidationError
 
-from app.reports.router import _normalize_columns, ColumnInstance
+from app.reports.router import _normalize_columns, ColumnInstance, ReportConfig
 
 
 # ==================== _normalize_columns ====================
@@ -37,6 +38,40 @@ def test_normalize_mixed():
     """混合格式"""
     result = _normalize_columns(["emp.count", {"source_code": "emp.count", "instance_id": "emp.count#2"}])
     assert len(result) == 2
+
+
+def test_report_config_normalizes_legacy_strings_to_instances():
+    config = ReportConfig(columns=["emp.count"])
+    assert config.columns == [ColumnInstance(source_code="emp.count", instance_id="emp.count")]
+
+
+def test_report_config_rejects_invalid_instance_id():
+    with pytest.raises(ValidationError, match="instance_id"):
+        ReportConfig(columns=[{"source_code": "emp.count", "instance_id": "other.count#2"}])
+
+
+def test_report_config_rejects_stale_output_instance_reference():
+    config = ReportConfig(
+        columns=[
+            {"source_code": "emp.count", "instance_id": "emp.count"},
+            {"source_code": "emp.count", "instance_id": "emp.count#2"},
+        ],
+        sorts=[{"column": "emp.count#3", "order": "asc"}],
+    )
+    with pytest.raises(ValueError, match="sorts.column"):
+        config.validate_config_references()
+
+
+def test_report_config_rejects_instance_id_in_filter():
+    config = ReportConfig(
+        columns=[
+            {"source_code": "emp.count", "instance_id": "emp.count"},
+            {"source_code": "emp.count", "instance_id": "emp.count#2"},
+        ],
+        filters=[{"column": "emp.count#2", "op": "eq", "value": 1}],
+    )
+    with pytest.raises(ValueError, match="filters.column"):
+        config.validate_config_references()
 
 
 # ==================== 校验 ====================

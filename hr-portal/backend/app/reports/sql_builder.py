@@ -1170,8 +1170,7 @@ async def run_dataset_query(
     # ---- Track B: 列实例标准化（双路径共存） ----
     from app.reports.router import _normalize_columns
     _col_instances = _normalize_columns(columns or [])
-    # 判断是否为 Track B 模式：任一实例的 instance_id ≠ source_code
-    _has_duplicates = any(ci.instance_id != ci.source_code for ci in _col_instances) if _col_instances else False
+    _has_duplicates = any(not isinstance(column, str) for column in (columns or []))
     # instance_id → source_code（输出投影用）
     _instance_id_to_source: dict[str, str] = {}
     # 内部字段解析仍用 source_code SET 去重
@@ -1380,7 +1379,10 @@ async def run_dataset_query(
         if raw and not raw.startswith("calc.") and "." in raw:
             _reject_hidden_ref(raw, "指标筛选字段")
             selected.append(_split_qualified(raw))
-    selected = _dedupe_pairs(selected)
+    selected = _dedupe_pairs([
+        _split_qualified(_instance_id_to_source.get(f"{alias}.{code}", f"{alias}.{code}"))
+        for alias, code in selected
+    ])
 
     # 构造 SELECT 列表：每个 alias 取 id，并按需取实体列。
     used_aliases = list({a for a, _ in selected} | {a for a in alias_to_model.keys()})
@@ -1397,30 +1399,27 @@ async def run_dataset_query(
     for a in used_aliases:
         m = aliased_models[a]
         select_cols.append(m.id.label(f"__{a}__id"))
-    for a, code in selected:
-        if a not in aliased_models:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"未知数据集别名: {a}")
-        select_cols.append(_entity_column(aliased_models[a], code).label(_select_label(a, code)))
-
-    # Track B：重复实例需要额外 SELECT 列（使用 instance_id 作为别名）
     if _has_duplicates:
-        _selected_set = {f"{a}.{c}" for a, c in selected}
+        output_sources = {ci.source_code for ci in _col_instances if not ci.source_code.startswith("calc.")}
         for ci in _col_instances:
-            source_parts = ci.source_code.split(".", 1)
-            if len(source_parts) == 2:
-                a, code = source_parts
-                q = ci.source_code
-            else:
-                # calc field
+            if ci.source_code.startswith("calc."):
                 continue
-            if q not in _selected_set:
-                continue
-            if ci.instance_id == ci.source_code:
-                continue  # 首个实例已由 _select_label 处理
+            a, code = _split_qualified(ci.source_code)
             if a not in aliased_models:
-                continue
-            # 额外列：同一字段表达式，不同别名（instance_id）
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"未知数据集别名: {a}")
             select_cols.append(_entity_column(aliased_models[a], code).label(ci.instance_id))
+        for a, code in selected:
+            source = f"{a}.{code}"
+            if source in output_sources:
+                continue
+            if a not in aliased_models:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"未知数据集别名: {a}")
+            select_cols.append(_entity_column(aliased_models[a], code).label(_select_label(a, code)))
+    else:
+        for a, code in selected:
+            if a not in aliased_models:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"未知数据集别名: {a}")
+            select_cols.append(_entity_column(aliased_models[a], code).label(_select_label(a, code)))
 
     stmt = select(*select_cols)
     count_stmt = select(func.count()).select_from(aliased_models[primary_alias])
@@ -1588,6 +1587,8 @@ async def run_dataset_query(
     sql_sort_applied = False
     for s in sorts:
         col_qual = s.get("column", "")
+        if _has_duplicates:
+            col_qual = _instance_id_to_source.get(col_qual, col_qual)
         if str(col_qual).startswith("calc."):
             continue
         if "." not in col_qual:
@@ -1618,20 +1619,32 @@ async def run_dataset_query(
         return (aggregations or {}).get(qual) in COUNT_AGG_FUNCS
 
     output_pairs = display_selected + [("calc", f.code) for f in selected_calc_fields]
-    dim_quals = [
-        f"{a}.{c}"
-        for (a, c) in output_pairs
-        if _role(a, c) == "dimension" and not _explicit_count_metric(f"{a}.{c}")
-    ]
-    mea_quals = [
-        f"{a}.{c}"
-        for (a, c) in output_pairs
-        if _role(a, c) == "measure" or _explicit_count_metric(f"{a}.{c}")
-    ]
-    # Track B：聚合迭代改为逐实例
     if _has_duplicates:
-        _mea_source_set = set(mea_quals)
-        mea_quals = [ci.instance_id for ci in _col_instances if ci.source_code in _mea_source_set]
+        dim_quals = []
+        mea_quals = []
+        valid_sources = {f"{a}.{c}" for a, c in output_pairs}
+        for ci in _col_instances:
+            source = ci.source_code
+            if source not in valid_sources:
+                continue
+            alias, code = _split_qualified(source)
+            is_count_metric = (aggregations or {}).get(ci.instance_id) in COUNT_AGG_FUNCS
+            if _role(alias, code) == "measure" or is_count_metric:
+                mea_quals.append(ci.instance_id)
+            else:
+                dim_quals.append(ci.instance_id)
+    else:
+        dim_quals = [
+            f"{a}.{c}"
+            for (a, c) in output_pairs
+            if _role(a, c) == "dimension" and not _explicit_count_metric(f"{a}.{c}")
+        ]
+        mea_quals = [
+            f"{a}.{c}"
+            for (a, c) in output_pairs
+            if _role(a, c) == "measure" or _explicit_count_metric(f"{a}.{c}")
+        ]
+    # Track B：聚合迭代改为逐实例
     agg_on = bool(aggregate) and len(mea_quals) > 0
     transpose_rules = (transpose or {}).get("rules") or []
     transpose_enabled = bool((transpose or {}).get("enabled"))
@@ -1764,6 +1777,8 @@ async def run_dataset_query(
                 source = _instance_id_to_source.get(instance_id, instance_id)
                 raw_value = d.get(instance_id)
                 formula_item[instance_id] = raw_value
+                formula_item.setdefault(source, raw_value)
+                item.setdefault(source, _normalize_report_value(raw_value))
                 v = _normalize_report_value(raw_value)
                 if source.startswith("calc."):
                     field = selected_calc_codes.get(source)
@@ -1804,6 +1819,13 @@ async def run_dataset_query(
                         except (TypeError, ValueError):
                             v = ""
                 item[qual] = v
+        for alias, code in selected:
+            source = f"{alias}.{code}"
+            if source in item:
+                continue
+            raw_value = d.get(_select_label(alias, code))
+            formula_item.setdefault(source, raw_value)
+            item[source] = _normalize_report_value(raw_value)
         for field in internal_calc_fields:
             qual = calc_qual(field.code)
             value = evaluate_formula(
@@ -1814,8 +1836,29 @@ async def run_dataset_query(
             formula_item[qual] = value  # 供下游计算字段引用，始终用真实值
             if calc_masked.get(field.code) and value not in (None, ""):
                 value = "******"
-            item[qual] = value
+            if _has_duplicates:
+                for ci in _col_instances:
+                    if ci.source_code == qual:
+                        item[ci.instance_id] = value
+                        formula_item[ci.instance_id] = value
+            else:
+                item[qual] = value
         for target_qual, factor_quals in rules_by_target.items():
+            if _has_duplicates:
+                if target_qual not in item:
+                    continue
+                try:
+                    target_source = _instance_id_to_source.get(target_qual, target_qual)
+                    raw_prod = _num(formula_item.get(target_qual, formula_item.get(target_source)))
+                    for factor_qual in factor_quals:
+                        factor_source = _instance_id_to_source.get(factor_qual, factor_qual)
+                        factor_value = formula_item.get(factor_qual, formula_item.get(factor_source))
+                        raw_prod = raw_prod * _num(factor_value)
+                    item[f"__rawprod__{target_qual}"] = raw_prod
+                    item[target_qual] = round(raw_prod, 2)
+                except (TypeError, ValueError):
+                    item[target_qual] = ""
+                continue
             if not (target_qual.startswith("calc.") or any(fq.startswith("calc.") for fq in factor_quals)):
                 continue
             if target_qual not in item:

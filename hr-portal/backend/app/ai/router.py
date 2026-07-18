@@ -5,11 +5,11 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -106,11 +106,18 @@ class ReportExplainHistoryItem(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
 
 
+class ReportExplainColumnInstance(BaseModel):
+    model_config = {"extra": "forbid"}
+    source_code: str
+    instance_id: str
+    label: str | None = None
+
+
 class ReportExplainConfigIn(BaseModel):
     report_id: int | None = Field(default=None, ge=1)
     report_name: str = Field(default="", max_length=128)
     description: str | None = Field(default=None, max_length=1000)
-    columns: list[str] = Field(default_factory=list, max_length=100)
+    columns: list[str | ReportExplainColumnInstance] = Field(default_factory=list, max_length=100)
     filters: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
     sorts: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
     aggregate: bool = False
@@ -164,18 +171,183 @@ class AiActionOut(BaseModel):
     query: dict[str, Any] = Field(default_factory=dict)
 
 
+AI_EXECUTION_STATUSES = {
+    "pending",
+    "requires_input",
+    "requires_confirmation",
+    "running",
+    "succeeded",
+    "partial_success",
+    "failed",
+    "cancelled",
+}
+AI_RESULT_TYPES = {
+    "message",
+    "compensation_input",
+    "compensation_preview",
+    "compensation_comparison",
+    "automation_rule_draft",
+    "data_compare_result",
+}
+
+
+class MessageResultData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason_code: str | None = None
+
+
+class CompensationInputResultData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidates: list[EmployeeCandidate] = Field(default_factory=list)
+    missing_fields: list[str] = Field(default_factory=list)
+
+
+class CompensationPreviewResultData(CompensationInputResultData):
+    compensation: CompensationCalcOut
+
+
+class CompensationComparisonResultData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    previous: dict[str, Any]
+    current: dict[str, Any]
+    compensation: CompensationCalcOut | None = None
+
+
+class AutomationRuleDraftResultData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_type: Literal["automation_rule"] = "automation_rule"
+    status: Literal["draft"] = "draft"
+    rule_draft: dict[str, Any] | None = None
+    validation_errors: list[str] = Field(default_factory=list)
+    missing_slots: list[str] = Field(default_factory=list)
+    needs_config: list[str] = Field(default_factory=list)
+    follow_up_question: str | None = None
+
+
+class DataCompareResultData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    compare_type: str
+    table_a: str
+    table_b: str
+    period_a: str | None = None
+    period_b: str | None = None
+    status: str
+    summary: dict[str, Any]
+    details: list[dict[str, Any]]
+    conclusion: str
+    duration_ms: int | None = None
+    display: dict[str, Any] | None = None
+
+
+RESULT_DATA_MODELS: dict[str, type[BaseModel]] = {
+    "message": MessageResultData,
+    "compensation_input": CompensationInputResultData,
+    "compensation_preview": CompensationPreviewResultData,
+    "compensation_comparison": CompensationComparisonResultData,
+    "automation_rule_draft": AutomationRuleDraftResultData,
+    "data_compare_result": DataCompareResultData,
+}
+
+
+class CapabilityArtifactOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str
+    name: str
+    url: str | None = None
+
+
+class CapabilityResultOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    artifacts: list[CapabilityArtifactOut] = Field(default_factory=list)
+    actions: list[AiActionOut] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_typed_data(self) -> CapabilityResultOut:
+        data_model = RESULT_DATA_MODELS.get(self.type)
+        if data_model is None:
+            raise ValueError(f"未知的 result.type: {self.type}")
+        self.data = data_model.model_validate(self.data).model_dump(mode="json")
+        return self
+
+
+class PermissionResultOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    filtered: bool
+    note: str = ""
+
+
+class MaskingResultOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    applied: bool
+
+
 class AiChatOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     intent: str
     answer: str
     status: str
+    capability_id: str
+    result: CapabilityResultOut
+    permission: PermissionResultOut
+    masking: MaskingResultOut
     trace_id: str | None = None
     conversation_id: int | None = None
-    actions: list[AiActionOut] = Field(default_factory=list)
-    candidates: list[EmployeeCandidate] = Field(default_factory=list)
-    compensation: CompensationCalcOut | None = None
-    missing_fields: list[str] = Field(default_factory=list)
-    extracted: dict[str, Any] = Field(default_factory=dict)
-    artifact: dict[str, Any] | None = Field(default=None)
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        if value not in AI_EXECUTION_STATUSES:
+            raise ValueError(f"未知的 AI 执行状态: {value}")
+        return value
+
+
+def _chat_out(
+    *,
+    intent: str,
+    status: str,
+    answer: str,
+    capability_id: str,
+    result_type: str = "message",
+    data: BaseModel | dict[str, Any] | None = None,
+    actions: list[AiActionOut] | None = None,
+    permission_filtered: bool = False,
+    permission_note: str = "",
+    masking_applied: bool = False,
+    trace_id: str | None = None,
+    conversation_id: int | None = None,
+) -> AiChatOut:
+    result_data = data.model_dump(mode="json") if isinstance(data, BaseModel) else data or {}
+    return AiChatOut(
+        intent=intent,
+        status=status,
+        answer=answer,
+        capability_id=capability_id,
+        conversation_id=conversation_id,
+        result=CapabilityResultOut(
+            type=result_type,
+            data=result_data,
+            artifacts=[],
+            actions=actions or [],
+        ),
+        permission=PermissionResultOut(
+            filtered=permission_filtered,
+            note=permission_note,
+        ),
+        masking=MaskingResultOut(applied=masking_applied),
+        trace_id=trace_id,
+    )
 
 
 class AiBadCaseCaptureIn(BaseModel):
@@ -346,12 +518,26 @@ def _report_explain_payload_from_row(row: Any) -> ReportExplainConfigIn:
     )
 
 
+def _report_explain_column_id(column: str | ReportExplainColumnInstance) -> str:
+    return column if isinstance(column, str) else column.instance_id
+
+
+def _report_explain_column_snapshot(column: str | ReportExplainColumnInstance) -> dict[str, str]:
+    if isinstance(column, str):
+        return {"source_code": column, "instance_id": column, "label": column}
+    return {
+        "source_code": column.source_code,
+        "instance_id": column.instance_id,
+        "label": column.label or column.source_code,
+    }
+
+
 def _explain_report_config(payload: ReportExplainConfigIn) -> ReportExplainConfigOut:
     settings = payload.column_settings or {}
     visible_fields = [
-        column
+        _report_explain_column_id(column)
         for column in payload.columns
-        if not (settings.get(column) or {}).get("hidden")
+        if not (settings.get(_report_explain_column_id(column)) or {}).get("hidden")
     ]
     hidden_count = len(payload.columns) - len(visible_fields)
     warnings: list[str] = []
@@ -383,7 +569,7 @@ def _explain_report_config(payload: ReportExplainConfigIn) -> ReportExplainConfi
             "mode": "read_only",
         },
         data={
-            "columns": payload.columns,
+            "columns": [_report_explain_column_snapshot(column) for column in payload.columns],
             "visible_fields": visible_fields,
             "filters": payload.filters,
             "sorts": payload.sorts,
@@ -770,11 +956,13 @@ def _compare_comp_result_snapshots(
         answer += "差额主要来自 +1 金额。"
     else:
         answer += "差异可能来自方案、离职日期、员工或地区等试算条件变化。"
-    return AiChatOut(
+    return _chat_out(
         intent="compensation.calculate",
-        status="compare_results",
+        status="succeeded",
         answer=answer,
-        extracted={"followup_action": "compare_results"},
+        capability_id=COMP_CAP,
+        result_type="compensation_comparison",
+        data=CompensationComparisonResultData(previous=previous, current=current),
     )
 
 
@@ -856,7 +1044,6 @@ async def _handle_compensation_chat(
         if compared is not None:
             _comp_ctx_to_session(session, prev_ctx, active=True)
             compared.trace_id = timer.trace_id
-            compared.extracted = extracted
             return compared
     if followup_action in {"agreement_preview", "agreement_print"}:
         if (
@@ -865,14 +1052,21 @@ async def _handle_compensation_chat(
             or not extracted.get("plan")
         ):
             _comp_ctx_to_session(session, prev_ctx, active=True)
-            return AiChatOut(
+            return _chat_out(
                 intent="compensation.calculate",
-                status="need_compensation_context",
+                status="requires_input",
                 answer="还没有可用于生成协议的完整补偿金结果。请先完成补偿金试算，再让我预览或打印协议。",
+                capability_id=COMP_CAP,
+                result_type="compensation_input",
+                data=CompensationInputResultData(
+                    missing_fields=["employee_id", "leave_date", "plan"]
+                ),
+                actions=[
+                    _compensation_action(
+                        _compensation_route_query(plan=extracted.get("plan") or "N+1")
+                    )
+                ],
                 trace_id=timer.trace_id,
-                missing_fields=["employee_id", "leave_date", "plan"],
-                actions=[_compensation_action(_compensation_route_query(plan=extracted.get("plan") or "N+1"))],
-                extracted=extracted,
             )
         parsed_leave_date = date.fromisoformat(str(extracted.get("leave_date")))
         ctx = CompensationChatContext(
@@ -895,34 +1089,40 @@ async def _handle_compensation_chat(
         )
         action = _agreement_document_action(ctx, followup_action)
         answer = "已准备好解除协议预览。" if followup_action == "agreement_preview" else "已准备好打印解除协议。"
-        return AiChatOut(
+        return _chat_out(
             intent="compensation.calculate",
-            status=followup_action,
+            status="succeeded",
             answer=answer,
-            trace_id=timer.trace_id,
+            capability_id=capability.capability_id,
             actions=[action],
-            extracted=extracted,
+            trace_id=timer.trace_id,
         )
     if not keyword and not selected_employee_id:
         if followup_action == "compare_results":
             _comp_ctx_to_session(session, prev_ctx, active=True)
-            return AiChatOut(
+            return _chat_out(
                 intent="compensation.calculate",
-                status="need_more_results",
+                status="requires_input",
                 answer="我还没有两次可对比的补偿金试算结果。请先完成至少两次试算，例如分别算 N 和 N+1，再让我比较差额。",
+                capability_id=COMP_CAP,
+                result_type="compensation_input",
+                data=CompensationInputResultData(missing_fields=["recent_results"]),
                 trace_id=timer.trace_id,
-                missing_fields=["recent_results"],
-                extracted=extracted,
             )
         _comp_ctx_to_session(session, prev_ctx, active=True)
-        return AiChatOut(
+        return _chat_out(
             intent="compensation.calculate",
-            status="need_employee",
+            status="requires_input",
             answer="请告诉我要计算哪位员工的补偿金，可以输入姓名、工号或英文名。",
+            capability_id=COMP_CAP,
+            result_type="compensation_input",
+            data=CompensationInputResultData(missing_fields=["employee_keyword"]),
+            actions=[
+                _compensation_action(
+                    _compensation_route_query(plan=extracted.get("plan") or "N+1")
+                )
+            ],
             trace_id=timer.trace_id,
-            missing_fields=["employee_keyword"],
-            actions=[_compensation_action(_compensation_route_query(plan=extracted.get("plan") or "N+1"))],
-            extracted=extracted,
         )
 
     candidates: list[EmployeeCandidate] = []
@@ -933,24 +1133,46 @@ async def _handle_compensation_chat(
         candidates = await search_compensation_employees(keyword=keyword, limit=10, user=user, db=db)
         if not candidates:
             _comp_ctx_to_session(session, prev_ctx, active=True)
-            return AiChatOut(
+            return _chat_out(
                 intent="compensation.calculate",
-                status="not_found",
+                status="failed",
                 answer=f"没有找到「{keyword}」对应、且你有权限查看的员工。请换工号或更完整姓名再试。",
+                capability_id=COMP_CAP,
+                data=MessageResultData(reason_code="employee_not_found"),
+                actions=[
+                    _compensation_action(
+                        _compensation_route_query(
+                            keyword=keyword,
+                            plan=extracted.get("plan") or "N+1",
+                        )
+                    )
+                ],
+                permission_filtered=True,
+                permission_note="已按当前用户数据范围过滤",
                 trace_id=timer.trace_id,
-                actions=[_compensation_action(_compensation_route_query(keyword=keyword, plan=extracted.get("plan") or "N+1"))],
-                extracted=extracted,
             )
         if len(candidates) > 1:
             _comp_ctx_to_session(session, prev_ctx, active=True)
-            return AiChatOut(
+            return _chat_out(
                 intent="compensation.calculate",
-                status="need_employee_selection",
+                status="requires_input",
                 answer=f"我找到了 {len(candidates)} 个可能的员工，请先选择具体人员后再计算。",
+                capability_id=COMP_CAP,
+                result_type="compensation_input",
+                data=CompensationInputResultData(candidates=candidates),
+                actions=[
+                    _compensation_action(
+                        _compensation_route_query(
+                            keyword=keyword,
+                            leave_date=extracted.get("leave_date"),
+                            plan=extracted.get("plan") or "N+1",
+                            region=extracted.get("region"),
+                        )
+                    )
+                ],
+                permission_filtered=True,
+                permission_note="已按当前用户数据范围过滤",
                 trace_id=timer.trace_id,
-                candidates=candidates,
-                actions=[_compensation_action(_compensation_route_query(keyword=keyword, leave_date=extracted.get("leave_date"), plan=extracted.get("plan") or "N+1", region=extracted.get("region")))],
-                extracted=extracted,
             )
         selected_employee_id = candidates[0].id
 
@@ -974,15 +1196,31 @@ async def _handle_compensation_chat(
                 recent_results=prev_ctx.recent_results if prev_ctx else [],
             )
             _comp_ctx_to_session(session, pending_ctx, active=True)
-            return AiChatOut(
+            return _chat_out(
                 intent="compensation.calculate",
-                status="need_more_info",
+                status="requires_input",
                 answer="我已找到员工，但缺少离职日期。请补充离职日期，例如：2026-06-30。",
+                capability_id=COMP_CAP,
+                result_type="compensation_input",
+                data=CompensationInputResultData(
+                    candidates=candidates,
+                    missing_fields=missing,
+                ),
+                actions=[
+                    _compensation_action(
+                        _compensation_route_query(
+                            employee_id=selected_employee_id,
+                            keyword=keyword,
+                            plan=extracted.get("plan") or "N+1",
+                            region=extracted.get("region"),
+                        )
+                    )
+                ],
+                permission_filtered=not bool(payload.selected_employee_id),
+                permission_note=(
+                    "已按当前用户数据范围过滤" if not payload.selected_employee_id else ""
+                ),
                 trace_id=timer.trace_id,
-                candidates=candidates,
-                missing_fields=missing,
-                actions=[_compensation_action(_compensation_route_query(employee_id=selected_employee_id, keyword=keyword, plan=extracted.get("plan") or "N+1", region=extracted.get("region")))],
-                extracted=extracted,
             )
 
     try:
@@ -1023,9 +1261,8 @@ async def _handle_compensation_chat(
             subject="N 与 N+1 两个方案",
         )
         compared.trace_id = timer.trace_id
-        compared.extracted = extracted
-        compared.compensation = n1_result
-        compared.actions = [
+        compared.result.data["compensation"] = n1_result.model_dump(mode="json")
+        compared.result.actions = [
             _compensation_action(
                 _compensation_route_query(
                     employee_id=selected_employee_id,
@@ -1037,6 +1274,10 @@ async def _handle_compensation_chat(
                 label="打开并核对 N+1 补偿金计算",
             )
         ]
+        compared.permission = PermissionResultOut(
+            filtered=True,
+            note="已按当前用户数据范围过滤",
+        )
         return compared
 
     calc_in = CompensationCalcIn(
@@ -1067,15 +1308,20 @@ async def _handle_compensation_chat(
         f"N 年限 {result.service_years_n}，补偿基数 {result.compensation_base:.2f}，"
         f"合计 {result.total_amount:.2f}。我已准备好跳转到补偿金计算页供你核对。"
     )
-    return AiChatOut(
+    return _chat_out(
         intent="compensation.calculate",
-        status="success",
+        status="succeeded",
         answer=answer,
-        trace_id=timer.trace_id,
-        candidates=candidates,
-        compensation=result,
+        capability_id=COMP_CAP,
+        result_type="compensation_preview",
+        data=CompensationPreviewResultData(
+            compensation=result,
+            candidates=candidates,
+        ),
         actions=[_compensation_action(query, label="打开并核对补偿金计算")],
-        extracted=extracted,
+        permission_filtered=True,
+        permission_note="已按当前用户数据范围过滤",
+        trace_id=timer.trace_id,
     )
 
 
@@ -1240,10 +1486,11 @@ async def _handle_my_scope_chat(
         is_super_admin=is_super,
         tag_count=len(bundles),
     )
-    return AiChatOut(
+    return _chat_out(
         intent="scope.describe_my_scope",
-        status="ok",
+        status="succeeded",
         answer=answer,
+        capability_id=capability.capability_id,
         trace_id=timer.trace_id,
     )
 
@@ -1363,7 +1610,7 @@ async def _extract_automation_rule_request(
             "missing_slots": missing_slots,
             "follow_up_question": follow_up,
         }
-        return extracted, artifact, "missing_slots"
+        return extracted, usage, "missing_slots"
 
     # 信息充足 → 生成草稿 artifact
     rule_draft = _build_automation_rule_draft(extracted)
@@ -1375,7 +1622,7 @@ async def _extract_automation_rule_request(
         "missing_slots": [],
         "follow_up_question": None,
     }
-    return extracted, artifact, "llm_extract"
+    return extracted, usage, "llm_extract"
 
 
 def _build_automation_rule_draft(extracted: dict[str, Any]) -> dict[str, Any]:
@@ -1492,14 +1739,15 @@ async def _handle_automation_rule_chat(
             "needs_config": needs_config,
             "follow_up_question": follow_up,
         }
-        return AiChatOut(
+        return _chat_out(
             intent="automation.rule.create_draft",
-            status="missing_slots",
+            status="requires_input",
             answer=follow_up,
+            capability_id=capability.capability_id,
+            result_type="automation_rule_draft",
+            data=AutomationRuleDraftResultData(**artifact),
             trace_id=timer.trace_id,
             conversation_id=session.conversation_id,
-            artifact=artifact,
-            extracted=extracted,
         )
 
     # 信息充足：生成草稿并校验
@@ -1518,14 +1766,15 @@ async def _handle_automation_rule_chat(
             "needs_config": needs_config,
             "follow_up_question": f"规则草稿校验失败：{ve}",
         }
-        return AiChatOut(
+        return _chat_out(
             intent="automation.rule.create_draft",
-            status="validation_error",
+            status="failed",
             answer=f"规则草稿校验失败：{ve}",
+            capability_id=capability.capability_id,
+            result_type="automation_rule_draft",
+            data=AutomationRuleDraftResultData(**artifact),
             trace_id=timer.trace_id,
             conversation_id=session.conversation_id,
-            artifact=artifact,
-            extracted=extracted,
         )
 
     artifact = {
@@ -1545,14 +1794,15 @@ async def _handle_automation_rule_chat(
         f"{config_notice}"
         f"请在下方预览并确认，确认后可保存并启用。"
     )
-    return AiChatOut(
+    return _chat_out(
         intent="automation.rule.create_draft",
-        status="draft_created",
+        status="requires_confirmation",
         answer=answer,
+        capability_id=capability.capability_id,
+        result_type="automation_rule_draft",
+        data=AutomationRuleDraftResultData(**artifact),
         trace_id=timer.trace_id,
         conversation_id=session.conversation_id,
-        artifact=artifact,
-        extracted=extracted,
     )
 
 
@@ -1606,6 +1856,16 @@ async def _extract_data_compare_request(
     return spec.model_dump(), None, "llm_extract"
 
 
+def _contains_masked_value(value: Any) -> bool:
+    if value == "***":
+        return True
+    if isinstance(value, dict):
+        return any(_contains_masked_value(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_masked_value(item) for item in value)
+    return False
+
+
 async def _handle_data_compare_chat(
     payload: AiChatIn,
     extracted: dict[str, Any],
@@ -1621,27 +1881,33 @@ async def _handle_data_compare_chat(
     try:
         spec = CompareSpec.model_validate(extracted)
     except Exception as e:
-        return AiChatOut(
+        return _chat_out(
             intent="data.compare",
-            status="error",
+            status="failed",
             answer=f"无法解析对比参数: {e}",
+            capability_id=capability.capability_id,
+            data=MessageResultData(reason_code="invalid_compare_spec"),
             trace_id=timer.trace_id,
         )
 
     try:
         result = await run_data_compare(spec, user, db)
     except SchemaValidationError as e:
-        return AiChatOut(
+        return _chat_out(
             intent="data.compare",
-            status="error",
+            status="failed",
             answer=f"参数校验失败: {'; '.join(e.errors)}",
+            capability_id=capability.capability_id,
+            data=MessageResultData(reason_code="compare_validation_failed"),
             trace_id=timer.trace_id,
         )
     except ValueError as e:
-        return AiChatOut(
+        return _chat_out(
             intent="data.compare",
-            status="error",
+            status="failed",
             answer=str(e),
+            capability_id=capability.capability_id,
+            data=MessageResultData(reason_code="compare_failed"),
             trace_id=timer.trace_id,
         )
 
@@ -1654,12 +1920,17 @@ async def _handle_data_compare_chat(
 
     session.clear_active()
 
-    return AiChatOut(
+    return _chat_out(
         intent="data.compare",
-        status="ok",
+        status="succeeded",
         answer=answer,
+        capability_id=capability.capability_id,
+        result_type="data_compare_result",
+        data=DataCompareResultData.model_validate(result),
+        permission_filtered=True,
+        permission_note="已按当前用户数据范围过滤",
+        masking_applied=_contains_masked_value(result),
         trace_id=timer.trace_id,
-        artifact=result,  # 前端通过 artifact 渲染 CompareResultCard
     )
 
 
@@ -1870,10 +2141,12 @@ async def global_ai_chat(
         ai_config = await active_ai_config(db)
         if not ai_config or not ai_config.api_key_encrypted or not (ai_config.model_reasoning or ai_config.model_fast_json):
             # 全局 AI 入口完全依赖大模型做意图识别和语义解析,未配置模型时直接降级提示,不做正则猜测。
-            out = AiChatOut(
+            out = _chat_out(
                 intent="general_question",
-                status="ai_unconfigured",
+                status="failed",
                 answer="当前未配置可用的 AI 模型,无法理解自然语言请求。请联系管理员在「系统设置 → AI 配置」中启用模型,或在对应功能页手动操作。",
+                capability_id=capability.capability_id,
+                data=MessageResultData(reason_code="ai_unconfigured"),
                 trace_id=timer.trace_id,
                 conversation_id=session.conversation_id,
             )
@@ -1882,10 +2155,12 @@ async def global_ai_chat(
             route, parse_mode, usage = await _resolve_chat_route(payload, session, db, timer)
             if route is None:
                 session.clear_active()
-                out = AiChatOut(
+                out = _chat_out(
                     intent="general_question",
-                    status="unsupported",
-                    answer="当前全局 AI 支持：补偿金只读试算、查询你的数据权限范围。你可以说：帮我算某某的补偿金 / 我能看到哪些数据权限范围。",
+                    status="failed",
+                    answer="当前全局 AI 支持：补偿金只读试算、查询你的数据权限范围、自动化规则草稿和数据对比。",
+                    capability_id=capability.capability_id,
+                    data=MessageResultData(reason_code="unsupported_intent"),
                     trace_id=timer.trace_id,
                 )
             else:
@@ -1894,10 +2169,12 @@ async def global_ai_chat(
                 parse_mode = f"{parse_mode}+{extract_mode}"
                 if extracted is None:
                     # 大模型解析失败:不猜,提示用户换种说法;保留在途任务以便重试。
-                    out = AiChatOut(
+                    out = _chat_out(
                         intent=route.intent,
-                        status="unclear",
+                        status="requires_input",
                         answer="我没太理解你的意思,可以说得更具体些吗?例如:帮我算 张三 2026-06-30 的 N+1 补偿金。",
+                        capability_id=route.capability_id,
+                        data=MessageResultData(reason_code="unclear_request"),
                         trace_id=timer.trace_id,
                     )
                 else:
@@ -1916,13 +2193,13 @@ async def global_ai_chat(
             output_payload=out.model_dump(),
             status=out.status,
             metadata={
-                "capability_id": capability.capability_id,
+                "capability_id": out.capability_id,
                 "conversation_id": session.conversation_id,
                 "active_capability_id": session.active_capability_id,
                 "intent": out.intent,
                 "parse_mode": parse_mode,
-                "action_count": len(out.actions),
-                "candidate_count": len(out.candidates),
+                "action_count": len(out.result.actions),
+                "candidate_count": len(out.result.data.get("candidates", [])),
                 "read_only": True,
             },
             token_usage=usage,

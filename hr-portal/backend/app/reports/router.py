@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,11 @@ from app.core.db import get_session
 from app.core.deps import current_user, require_any_op, require_op
 from app.permissions.strategy import ensure_scope_strategy
 from app.reports.models import Report, ReportAcl
+from app.reports.config import ColumnInstance, FilterCond, ReportConfig, SortCond, _columns_to_instance_ids, _normalize_columns
+from app.reports.validation import ensure_valid_report_config as _shared_ensure_valid_report_config
+from app.reports.validation import ensure_valid_report_field_references as _shared_ensure_valid_report_field_references
+from app.reports.validation import iter_report_source_references as _shared_iter_report_source_references
+from app.reports.runtime import apply_runtime_overrides as _apply_runtime_overrides, normalize_runtime_filters as _normalize_runtime_filters, validate_runtime_filters as _ensure_valid_runtime_filters
 from app.users.models import Role, User, UserRole
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -25,89 +30,30 @@ logger = logging.getLogger(__name__)
 LIST_LOOKUP_DEBUG = os.getenv("REPORT_LIST_LOOKUP_DEBUG", "").lower() in {"1", "true", "yes"}
 
 
-class FilterCond(BaseModel):
-    column: str
-    op: str = "eq"
-    value: Any = None
-    visible: bool = True
-    locked: bool = False
+def _ensure_valid_report_config(config: ReportConfig) -> ReportConfig:
+    """将列实例引用错误统一转换为请求可识别的 422 响应。"""
+    return _shared_ensure_valid_report_config(config)
+
+def _ensure_valid_runtime_filters(
+    config: ReportConfig, raw_filters: list[dict[str, Any]] | None
+) -> None:
+    runtime_filters = _normalize_runtime_filters(raw_filters)
+    if not runtime_filters:
+        return
+    data = config.model_dump()
+    data["filters"] = [*data["filters"], *runtime_filters]
+    _ensure_valid_report_config(ReportConfig(**data))
+
+def _iter_report_source_references(config: ReportConfig) -> list[tuple[str, str]]:
+    """返回所有查询前按 source_code 解析的配置引用及其可定位路径。"""
+    return _shared_iter_report_source_references(config)
 
 
-class SortCond(BaseModel):
-    column: str
-    order: str = "asc"
-
-
-class ColumnInstance(BaseModel):
-    """列实例：允许同一 source_code 出现多次，用 instance_id 区分。"""
-    model_config = {"extra": "forbid"}
-    source_code: str         # 原始字段 code
-    instance_id: str         # 唯一实例 ID："emp.count" / "emp.count#2"
-    label: str | None = None # 显示名："员工数" / "员工数 (2)"
-
-
-def _normalize_columns(columns: list) -> list[ColumnInstance]:
-    """将 columns 统一转为 ColumnInstance 列表（兼容旧 string[] 格式）。
-    校验 instance_id 全局唯一、格式合法、与 source_code 前缀匹配。
-    """
-    result: list[ColumnInstance] = []
-    seen_ids: set[str] = set()
-    for item in columns:
-        if isinstance(item, str):
-            ci = ColumnInstance(source_code=item, instance_id=item)
-        elif isinstance(item, dict):
-            ci = ColumnInstance(**item)
-        else:
-            raise ValueError(f"不支持的列格式: {type(item).__name__}")
-        # 校验 instance_id 格式
-        sc = ci.source_code
-        iid = ci.instance_id
-        if iid == sc:
-            pass  # 首实例，OK
-        elif "#" in iid:
-            parts = iid.rsplit("#", 1)
-            prefix, suffix = parts[0], parts[1]
-            if prefix != sc:
-                raise ValueError(
-                    f"instance_id 前缀必须匹配 source_code: "
-                    f"instance_id={iid}, source_code={sc}"
-                )
-            if not (suffix.isdigit() and int(suffix) >= 2):
-                raise ValueError(f"instance_id 格式非法: {iid}，期望 source_code#N (N>=2)")
-        else:
-            raise ValueError(
-                f"instance_id 必须等于 source_code 或 source_code#N: "
-                f"instance_id={iid}, source_code={sc}"
-            )
-        # 全局唯一
-        if iid in seen_ids:
-            raise ValueError(f"instance_id 重复: {iid}")
-        seen_ids.add(iid)
-        result.append(ci)
-    return result
-
-
-def _columns_to_instance_ids(columns: list) -> list[str]:
-    """从 columns 提取 instance_id 数组（用于解耦 columns 结构细节）。"""
-    return [c.instance_id if isinstance(c, ColumnInstance) else
-            (c["instance_id"] if isinstance(c, dict) else c)
-            for c in columns]
-
-
-class ReportConfig(BaseModel):
-    columns: list[str | ColumnInstance] = Field(default_factory=list)
-    filters: list[FilterCond] = Field(default_factory=list)
-    sorts: list[SortCond] = Field(default_factory=list)
-    value_rules: list[dict] = Field(default_factory=list)
-    column_settings: dict[str, dict] = Field(default_factory=dict)
-    default_split_rule: dict = Field(default_factory=dict)
-    aggregate: bool = False
-    default_aggregation: str = "sum"
-    aggregations: dict[str, str] = Field(default_factory=dict)
-    transpose: dict = Field(default_factory=dict)
-    rounding_corrections: list[dict] = Field(default_factory=list)
-    filter_logic: dict | None = None
-    list_lookup: dict = Field(default_factory=dict)
+async def _ensure_valid_report_field_references(
+    config: ReportConfig, dataset_id: int, user: User, db: AsyncSession,
+    runtime_filters: list[dict[str, Any]] | None = None,
+) -> None:
+    await _shared_ensure_valid_report_field_references(config, dataset_id, user, db, runtime_filters)
 
 
 class ReportAclIn(BaseModel):
@@ -700,6 +646,9 @@ async def create_report(
     acl_items = payload.acl if visibility == "scoped" else []
     if acl_items:
         await _validate_acl_principals(payload.dataset_id, acl_items, db)
+    _ensure_valid_report_config(payload.config)
+    await _ensure_valid_report_field_references(payload.config, payload.dataset_id, user, db)
+
 
     report = Report(
         name=payload.name,
@@ -774,6 +723,9 @@ async def update_report(
     acl_items = payload.acl if visibility == "scoped" else []
     if acl_items:
         await _validate_acl_principals(payload.dataset_id, acl_items, db)
+    _ensure_valid_report_config(payload.config)
+    await _ensure_valid_report_field_references(payload.config, payload.dataset_id, user, db)
+
 
     report.name = payload.name
     report.description = payload.description
@@ -812,68 +764,6 @@ async def delete_report(
     return {"ok": True}
 
 
-def _normalize_runtime_filters(raw_filters: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
-    for item in raw_filters or []:
-        if not isinstance(item, dict) or not item.get("column"):
-            continue
-        next_filter = dict(item)
-        op = next_filter.get("op") or "eq"
-        value = next_filter.get("value")
-        if op in {"is_null", "is_not_null"}:
-            value = None
-        elif op in {"between", "in"} and isinstance(value, str):
-            value = [part.strip() for part in value.split(",") if part.strip()]
-        next_filter["op"] = op
-        next_filter["value"] = value
-        normalized.append(next_filter)
-    return normalized
-
-
-def _apply_runtime_overrides(
-    cfg: ReportConfig, raw_filters: list[dict[str, Any]] | None
-) -> ReportConfig:
-    runtime_filters = _normalize_runtime_filters(raw_filters)
-    if not runtime_filters:
-        return cfg
-
-    base = [item.model_dump() for item in cfg.filters]
-    used: set[int] = set()
-    for runtime_filter in runtime_filters:
-        replaced = False
-        raw_index = runtime_filter.get("__index")
-        if isinstance(raw_index, int) and 0 <= raw_index < len(base):
-            existing = base[raw_index]
-            if existing.get("visible", True) and not existing.get("locked", False):
-                base[raw_index] = {
-                    **existing,
-                    "op": runtime_filter.get("op", existing.get("op", "eq")),
-                    "value": runtime_filter.get("value"),
-                }
-                used.add(raw_index)
-                replaced = True
-        if replaced:
-            continue
-        for index, existing in enumerate(base):
-            if index in used:
-                continue
-            if existing.get("column") != runtime_filter.get("column"):
-                continue
-            if not existing.get("visible", True) or existing.get("locked", False):
-                continue
-            base[index] = {
-                **existing,
-                "op": runtime_filter.get("op", existing.get("op", "eq")),
-                "value": runtime_filter.get("value"),
-            }
-            used.add(index)
-            break
-
-    data = cfg.model_dump()
-    data["filters"] = base
-    return ReportConfig(**data)
-
-
 def _parse_runtime_filters(raw: str | None) -> list[dict[str, Any]]:
     if not raw:
         return []
@@ -907,9 +797,14 @@ async def run_report(
     if report.dataset_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
 
-    cfg = _apply_runtime_overrides(
-        ReportConfig(**(report.config or {})),
+    cfg = ReportConfig(**(report.config or {}))
+    _ensure_valid_runtime_filters(cfg, overrides.filters if overrides else None)
+    cfg = _ensure_valid_report_config(_apply_runtime_overrides(
+        cfg,
         overrides.filters if overrides else None,
+    ))
+    await _ensure_valid_report_field_references(
+        cfg, report.dataset_id, user, db, overrides.filters if overrides else None
     )
     _log_list_lookup_filters("report.run", report, cfg.list_lookup)
 
@@ -1087,7 +982,10 @@ async def _collect_export_rows(
     if report.dataset_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
 
-    cfg = _apply_runtime_overrides(ReportConfig(**(report.config or {})), runtime_filters)
+    cfg = ReportConfig(**(report.config or {}))
+    _ensure_valid_runtime_filters(cfg, runtime_filters)
+    cfg = _ensure_valid_report_config(_apply_runtime_overrides(cfg, runtime_filters))
+    await _ensure_valid_report_field_references(cfg, report.dataset_id, user, db, runtime_filters)
 
     from app.reports.sql_builder import run_dataset_query
 
@@ -1154,7 +1052,8 @@ async def get_report_push_columns(report: Report, db: AsyncSession) -> list[dict
     owner = await db.get(User, report.owner_id) if report.owner_id else None
     if owner is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表创建人不存在")
-    cfg = ReportConfig(**(report.config or {}))
+    cfg = _ensure_valid_report_config(ReportConfig(**(report.config or {})))
+    await _ensure_valid_report_field_references(cfg, report.dataset_id, owner, db)
     from app.reports.sql_builder import run_dataset_query
     columns_meta, items, _ = await run_dataset_query(
         dataset_id=report.dataset_id,
@@ -1214,6 +1113,9 @@ async def push_report(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
     if not await _can_edit(user, report, db):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="仅报表创建人可推送")
+    cfg = _ensure_valid_report_config(ReportConfig(**(report.config or {})))
+    push_owner = await db.get(User, report.owner_id) if report.owner_id else None
+    await _ensure_valid_report_field_references(cfg, report.dataset_id, push_owner or user, db)
 
     targets = (await db.execute(
         select(PushTarget)

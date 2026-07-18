@@ -246,5 +246,6 @@ async def test_phase1_formula_question_keeps_current_formula(monkeypatch):
     assert out.should_update_formula is False
     assert out.formula == current_formula
     assert out.formula_display == current_formula
+    assert out.formula_compile is None
     assert log_calls[-1]["action"] == "formula_question"
     assert log_calls[-1]["metadata"]["should_update_formula"] is False

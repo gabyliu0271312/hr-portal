@@ -583,8 +583,12 @@ async def create_row(
     db.add(row)
     await db.commit()
     await db.refresh(row)
-    await _publish_ods_data_changed(table, "row_inserted", 1, user.login_name, db)
+    await _publish_ods_data_changed(table, "row_inserted", 1, _event_actor(user), db)
     return {"ok": True, "id": row.id}
+
+
+def _event_actor(user: User) -> str:
+    return str(getattr(user, "login_name", None) or getattr(user, "id", "unknown"))
 
 
 async def _publish_ods_data_changed(
@@ -685,7 +689,7 @@ async def bulk_update_rows(
         _apply_entity_values(row, payload.values, columns_by_code)
         _apply_computed_values(row, computed, columns_by_code)
     await db.commit()
-    await _publish_ods_data_changed(table, "bulk_updated", len(rows), user.login_name, db)
+    await _publish_ods_data_changed(table, "bulk_updated", len(rows), _event_actor(user), db)
     return {"ok": True, "updated": len(rows)}
 
 
@@ -707,7 +711,7 @@ async def bulk_delete_rows(
     Model = DATA_TABLES[table]
     result = await db.execute(sql_delete(Model).where(Model.id.in_(payload.row_ids)))
     await db.commit()
-    await _publish_ods_data_changed(table, "bulk_deleted", result.rowcount, user.login_name, db)
+    await _publish_ods_data_changed(table, "bulk_deleted", result.rowcount, _event_actor(user), db)
     return {"ok": True, "deleted": result.rowcount}
 
 
@@ -751,5 +755,5 @@ async def update_row(
     _apply_entity_values(row, payload.values, columns_by_code)
     _apply_computed_values(row, computed, columns_by_code)
     await db.commit()
-    await _publish_ods_data_changed(table, "row_updated", 1, user.login_name, db)
+    await _publish_ods_data_changed(table, "row_updated", 1, _event_actor(user), db)
     return {"ok": True}

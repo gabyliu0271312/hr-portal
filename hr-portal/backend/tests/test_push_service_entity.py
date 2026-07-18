@@ -50,14 +50,20 @@ class FakeResult:
 
 
 class FakeSession:
-    def __init__(self, *, results=(), get_obj=None):
+    def __init__(self, *, results=(), get_obj=None, count_result=None, finebi_schemas=None):
         self.results = list(results)
         self.get_obj = get_obj
+        self.count_result = count_result
+        self.finebi_schemas = finebi_schemas
         self.executed = []
         self.commits = 0
 
     async def execute(self, statement, params=None):
         self.executed.append((statement, params))
+        if self.finebi_schemas is not None and "FROM pg_namespace" in str(statement):
+            return FakeResult(rows=self.finebi_schemas)
+        if self.count_result is not None and str(statement).startswith("SELECT COUNT(*) FROM"):
+            return FakeResult(self.count_result)
         result = self.results.pop(0) if self.results else None
         if isinstance(result, FakeResult):
             return result
@@ -411,9 +417,9 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
     db = FakeSession(
         results=[
             FakeResult(rows=columns),
-        ] + [FakeResult()] * 30 + [
-            FakeResult(value=3),  # SELECT COUNT
-        ],
+        ] + [FakeResult()] * 30,
+        count_result=3,
+        finebi_schemas=["finebi_other_target"],
     )
 
     try:
