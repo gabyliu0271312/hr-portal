@@ -23,11 +23,17 @@ from app.ai.router import (
     _compare_comp_result_snapshots,
     _compare_recent_comp_results,
     _comp_result_snapshot,
+    CompensationComparisonSnapshotOut,
+    CompensationComparisonResultData,
+    MessageCapabilityResult,
+    CompensationInputCapabilityResult,
     _handle_compensation_chat,
     _handle_my_scope_chat,
     _handle_automation_rule_chat,
     _handle_data_compare_chat,
     _result_candidate_count,
+    _extract_my_scope_request,
+    ExtractorResult,
     global_ai_chat,
     CompensationChatContext,
     _comp_ctx_from_session,
@@ -35,6 +41,7 @@ from app.ai.router import (
     _route_by_capability,
     _route_by_intent,
 )
+from app.ai.schema_validator import AiOutputSchemaValidationError
 from app.main import app
 from app.tools.router import CompensationCalcOut, EmployeeCandidate
 
@@ -60,7 +67,7 @@ def test_ai_chat_output_contract_forbids_legacy_top_level_fields():
     }
     base = {
         "intent": "general_question", "answer": "ok", "status": "succeeded",
-        "capability_id": "ai.chat", "result": CapabilityResultOut(type="message", data={}),
+        "capability_id": "ai.chat", "result": MessageCapabilityResult(),
         "permission": PermissionResultOut(filtered=False), "masking": MaskingResultOut(applied=False),
     }
     AiChatOut(**base)
@@ -69,6 +76,13 @@ def test_ai_chat_output_contract_forbids_legacy_top_level_fields():
             AiChatOut(**base, **{field: [] if field.endswith("s") else {}})
     with pytest.raises(ValidationError):
         AiChatOut(**{**base, "status": "ok"})
+
+
+def test_ai_chat_openapi_result_uses_discriminated_union():
+    schema = app.openapi()["components"]["schemas"]["AiChatOut"]
+    result_schema = schema["properties"]["result"]
+    assert result_schema["discriminator"]["propertyName"] == "type"
+    assert len(result_schema["oneOf"]) == len(AI_RESULT_TYPES)
 
 
 def test_ai_chat_openapi_schema_excludes_legacy_fields():
@@ -87,15 +101,37 @@ def test_capability_result_contract_rejects_invalid_type_data_and_extra_fields()
         "pending", "requires_input", "requires_confirmation", "running", "succeeded",
         "partial_success", "failed", "cancelled",
     }
+    base = {
+        "intent": "general_question", "answer": "ok", "status": "succeeded",
+        "capability_id": "ai.chat", "permission": PermissionResultOut(filtered=False),
+        "masking": MaskingResultOut(applied=False),
+    }
     with pytest.raises(ValidationError):
-        CapabilityResultOut(type="unknown", data={})
+        AiChatOut(**{**base, "result": {"type": "unknown", "data": {}}})
     with pytest.raises(ValidationError):
-        CapabilityResultOut(type="compensation_input", data={"compensation": {}})
+        AiChatOut(**{**base, "result": {"type": "compensation_input", "data": {"compensation": {}}}})
     with pytest.raises(ValidationError):
-        CapabilityResultOut(type="message", data={}, unexpected=True)
+        MessageCapabilityResult(unexpected=True)
 
 
-def test_formula_capabilities_are_registered_with_expected_risk():
+def test_compensation_comparison_snapshot_rejects_unknown_missing_and_invalid_fields():
+    snapshot = _comp_result_snapshot(_comp_result("N", 75.0))
+    payload = snapshot.model_dump()
+    assert set(payload) == {
+        "employee_id", "employee_name", "employee_no", "leave_date", "plan",
+        "service_years_n", "compensation_base", "n_amount", "extra_amount", "total_amount",
+    }
+    assert CompensationComparisonResultData(previous=snapshot, current=snapshot).previous.total_amount == 75.0
+
+    with pytest.raises(ValidationError):
+        CompensationComparisonSnapshotOut(**{**payload, "unexpected": "blocked"})
+    with pytest.raises(ValidationError):
+        CompensationComparisonSnapshotOut(**{key: value for key, value in payload.items() if key != "total_amount"})
+    with pytest.raises(ValidationError):
+        CompensationComparisonSnapshotOut(**{**payload, "total_amount": "75.0"})
+
+
+
     generate = get_capability("formula.generate")
     validate = get_capability("formula.validate")
     save = get_capability("calculated_field.save")
@@ -217,28 +253,28 @@ async def test_compensation_branches_emit_envelope(monkeypatch):
     missing = await _handle_compensation_chat(AiChatIn(message="计算补偿金"), {"changed_fields": []}, ChatSession(conversation_id=1), object(), object(), timer)
     assert missing.status == "requires_input"
     assert missing.result.type == "compensation_input"
-    assert missing.result.data["missing_fields"] == ["employee_keyword"]
+    assert missing.result.data.missing_fields == ["employee_keyword"]
     _out_json(missing)
 
     async def no_result(*args, **kwargs): return []
     monkeypatch.setattr(ai_router, "search_compensation_employees", no_result)
     absent = await _handle_compensation_chat(AiChatIn(message="算张三"), {"employee_keyword": "张三", "changed_fields": ["employee_keyword"]}, ChatSession(conversation_id=1), object(), object(), timer)
     assert absent.status == "failed" and absent.result.type == "message"
-    assert absent.result.data["reason_code"] == "employee_not_found"
+    assert absent.result.data.reason_code == "employee_not_found"
     assert absent.permission.filtered is True
     _out_json(absent)
 
     async def same_name(*args, **kwargs): return [_candidate(1, "张三"), _candidate(2, "张三")]
     monkeypatch.setattr(ai_router, "search_compensation_employees", same_name)
     ambiguous = await _handle_compensation_chat(AiChatIn(message="算张三"), {"employee_keyword": "张三", "changed_fields": ["employee_keyword"]}, ChatSession(conversation_id=1), object(), object(), timer)
-    assert ambiguous.status == "requires_input" and len(ambiguous.result.data["candidates"]) == 2
+    assert ambiguous.status == "requires_input" and len(ambiguous.result.data.candidates) == 2
     _out_json(ambiguous)
 
     async def no_leave(*args, **kwargs): return [_candidate(1, "张三", None)]
     monkeypatch.setattr(ai_router, "search_compensation_employees", no_leave)
     need_date = await _handle_compensation_chat(AiChatIn(message="算张三"), {"employee_keyword": "张三", "changed_fields": ["employee_keyword"]}, ChatSession(conversation_id=1), object(), object(), timer)
     assert need_date.status == "requires_input"
-    assert need_date.result.data["missing_fields"] == ["leave_date"]
+    assert need_date.result.data.missing_fields == ["leave_date"]
     _out_json(need_date)
 
 
@@ -256,7 +292,7 @@ async def test_compensation_compare_and_document_actions_emit_envelope(monkeypat
         ChatSession(conversation_id=1), object(), object(), AiAuditTimer(),
     )
     assert result.status == "succeeded" and result.result.type == "compensation_comparison"
-    assert result.result.data["compensation"]["plan"] == "N+1"
+    assert result.result.data.compensation.plan == "N+1"
     assert len(result.result.actions) == 1
     _out_json(result)
 
@@ -319,7 +355,7 @@ async def test_automation_draft_missing_slots(monkeypatch, extracted, expected_s
     monkeypatch.setattr(ai_router, "user_has_permission", _allow_permission)
     out = await _handle_automation_rule_chat(AiChatIn(message="生成规则"), extracted, ChatSession(conversation_id=1), object(), object(), AiAuditTimer())
     assert out.status == expected_status and out.result.type == "automation_rule_draft"
-    assert expect_slot in out.result.data["missing_slots"]
+    assert expect_slot in out.result.data.missing_slots
     _out_json(out)
 
 
@@ -329,8 +365,8 @@ async def test_automation_draft_needs_config_and_permission(monkeypatch):
     extracted = {"trigger_type": "scheduled_report_success", "feishu_receivers": "薪酬组群", "feishu_message_template": "完成", "rule_name": "通知"}
     out = await _handle_automation_rule_chat(AiChatIn(message="生成规则"), extracted, ChatSession(conversation_id=1), object(), object(), AiAuditTimer())
     assert out.status == "requires_confirmation"
-    assert out.result.data["needs_config"]
-    assert out.result.data["rule_draft"]["enabled"] is False
+    assert out.result.data.needs_config
+    assert out.result.data.rule_draft.enabled is False
     _out_json(out)
 
     async def deny(*args): return False
@@ -366,12 +402,12 @@ async def test_data_compare_envelope_permission_scope_and_masking(monkeypatch):
 async def test_data_compare_errors_and_permission(monkeypatch):
     monkeypatch.setattr(ai_router, "user_has_permission", _allow_permission)
     invalid = await _handle_data_compare_chat(AiChatIn(message="对比"), {}, ChatSession(conversation_id=1), object(), object(), AiAuditTimer())
-    assert invalid.status == "failed" and invalid.result.data["reason_code"] == "invalid_compare_spec"
+    assert invalid.status == "failed" and invalid.result.data.reason_code == "invalid_compare_spec"
 
     async def denied(*args, **kwargs): raise ai_router.ScopeDeniedError("denied")
     monkeypatch.setattr(ai_router, "run_data_compare", denied)
     scope_denied = await _handle_data_compare_chat(AiChatIn(message="对比"), {"compare_type": "roster", "source_a": {"table": "A"}, "source_b": {"table": "B"}, "join_keys": ["id"]}, ChatSession(conversation_id=1), object(), object(), AiAuditTimer())
-    assert scope_denied.status == "failed" and scope_denied.result.data["reason_code"] == "compare_permission_denied"
+    assert scope_denied.status == "failed" and scope_denied.result.data.reason_code == "compare_permission_denied"
 
     async def no_permission(*args): return False
     monkeypatch.setattr(ai_router, "user_has_permission", no_permission)
@@ -408,11 +444,46 @@ async def test_global_chat_unconfigured_returns_envelope_and_result_audit(monkey
 
 
 def test_candidate_count_is_result_type_controlled():
-    assert _result_candidate_count(CapabilityResultOut(type="message", data={})) == 0
-    assert _result_candidate_count(CapabilityResultOut(type="compensation_input", data={"candidates": [_candidate()], "missing_fields": []})) == 1
+    assert _result_candidate_count(MessageCapabilityResult()) == 0
+    assert _result_candidate_count(CompensationInputCapabilityResult(data={"candidates": [_candidate()], "missing_fields": []})) == 1
 
 
-# ── 调度(LLM-first):路由按意图,续接按会话状态,均不依赖关键词 ──
+@pytest.mark.asyncio
+async def test_global_chat_output_schema_failure_is_500_with_trace(monkeypatch):
+    recorded = []
+
+    async def no_config(db): return None
+    async def load_conversation(db, user, conversation_id): return SimpleNamespace(), ChatSession(conversation_id=9)
+    async def persist(*args): return None
+    async def record(**kwargs): recorded.append(kwargs)
+    def fail_output(model, payload, *, label, phase="input"):
+        if phase == "output":
+            raise AiOutputSchemaValidationError("invalid output")
+        return payload
+    async def commit(): return None
+
+    monkeypatch.setattr(ai_router, "active_ai_config", no_config)
+    monkeypatch.setattr(ai_router, "load_or_create_conversation", load_conversation)
+    monkeypatch.setattr(ai_router, "persist_conversation", persist)
+    monkeypatch.setattr(ai_router, "record_ai_log", record)
+    monkeypatch.setattr(ai_router, "validate_model_payload", fail_output)
+    db = SimpleNamespace(commit=commit)
+
+    with pytest.raises(ai_router.HTTPException) as exc:
+        await global_ai_chat(AiChatIn(message="测试"), user=object(), db=db)
+    assert exc.value.status_code == 500
+    assert exc.value.detail["message"] == "服务端响应校验失败"
+    assert exc.value.detail["trace_id"]
+    assert recorded[0]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_scope_extractor_returns_named_noop_result():
+    result = await _extract_my_scope_request(AiChatIn(message="我的权限"), ChatSession(conversation_id=1), object(), AiAuditTimer())
+    assert isinstance(result, ExtractorResult)
+    assert result.extracted == {}
+    assert result.usage is None
+    assert result.parse_mode == "noop"
 
 def test_active_capability_drives_session_continuation():
     session = ChatSession(conversation_id=1, active_capability_id="compensation.calculate_preview", state={"compensation.calculate_preview": {"employee_id": 106401, "leave_date": None, "plan": "N+1"}})

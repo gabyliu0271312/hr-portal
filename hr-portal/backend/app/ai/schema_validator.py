@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
 
 class AiSchemaValidationError(ValueError):
+    pass
+
+
+class AiOutputSchemaValidationError(AiSchemaValidationError):
     pass
 
 
@@ -18,6 +22,7 @@ def validate_model_payload(
     payload: Any,
     *,
     label: str,
+    phase: Literal["input", "output"] = "input",
 ) -> BaseModel:
     try:
         if isinstance(payload, BaseModel):
@@ -28,4 +33,5 @@ def validate_model_payload(
             data = dict(payload)
         return model.model_validate(data)
     except (TypeError, ValidationError) as exc:
-        raise AiSchemaValidationError(f"{label} schema 校验失败: {exc}") from exc
+        error_type = AiOutputSchemaValidationError if phase == "output" else AiSchemaValidationError
+        raise error_type(f"{label} schema 校验失败: {exc}") from exc

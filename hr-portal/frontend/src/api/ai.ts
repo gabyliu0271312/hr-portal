@@ -70,6 +70,25 @@ export interface AutomationRuleDraftData {
 
 export type AutomationRuleArtifact = AutomationRuleDraftData
 
+export interface CompensationComparisonSnapshot {
+  employee_id: number
+  employee_name: string | null
+  employee_no: string | null
+  leave_date: string
+  plan: string
+  service_years_n: number
+  compensation_base: number
+  n_amount: number
+  extra_amount: number
+  total_amount: number
+}
+
+export interface CompensationComparisonData {
+  previous: CompensationComparisonSnapshot
+  current: CompensationComparisonSnapshot
+  compensation?: CompensationResult | null
+}
+
 export type CapabilityResult =
   | {
       type: 'message'
@@ -91,7 +110,7 @@ export type CapabilityResult =
     }
   | {
       type: 'compensation_comparison'
-      data: { previous: Record<string, any>; current: Record<string, any>; compensation?: CompensationResult | null }
+      data: CompensationComparisonData
       artifacts: CapabilityArtifact[]
       actions: AiAction[]
     }

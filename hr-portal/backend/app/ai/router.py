@@ -5,7 +5,7 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, NamedTuple
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -24,7 +24,7 @@ from app.ai.provider import (
     chat_completion_openai_compatible,
     parse_json_content,
 )
-from app.ai.schema_validator import AiSchemaValidationError, schema_from_model, validate_model_payload
+from app.ai.schema_validator import AiOutputSchemaValidationError, AiSchemaValidationError, schema_from_model, validate_model_payload
 from app.ai.service import active_ai_config
 from app.ai.conversation import ChatSession, load_or_create as load_or_create_conversation, persist as persist_conversation
 from app.ai_formula.router import FormulaDraftIn, FormulaDraftOut, FormulaValidateIn, FormulaValidateOut
@@ -210,11 +210,26 @@ class CompensationPreviewResultData(CompensationInputResultData):
     compensation: CompensationCalcOut
 
 
+class CompensationComparisonSnapshotOut(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    employee_id: int
+    employee_name: str | None
+    employee_no: str | None
+    leave_date: str
+    plan: str
+    service_years_n: float
+    compensation_base: float
+    n_amount: float
+    extra_amount: float
+    total_amount: float
+
+
 class CompensationComparisonResultData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    previous: dict[str, Any]
-    current: dict[str, Any]
+    previous: CompensationComparisonSnapshotOut
+    current: CompensationComparisonSnapshotOut
     compensation: CompensationCalcOut | None = None
 
 
@@ -240,16 +255,6 @@ class DataCompareResultData(CompareResult):
     model_config = ConfigDict(extra="forbid")
 
 
-RESULT_DATA_MODELS: dict[str, type[BaseModel]] = {
-    "message": MessageResultData,
-    "compensation_input": CompensationInputResultData,
-    "compensation_preview": CompensationPreviewResultData,
-    "compensation_comparison": CompensationComparisonResultData,
-    "automation_rule_draft": AutomationRuleDraftResultData,
-    "data_compare_result": DataCompareResultData,
-}
-
-
 class CapabilityArtifactOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -261,18 +266,59 @@ class CapabilityArtifactOut(BaseModel):
 class CapabilityResultOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: str
-    data: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[CapabilityArtifactOut] = Field(default_factory=list)
     actions: list[AiActionOut] = Field(default_factory=list)
 
-    @model_validator(mode="after")
-    def validate_typed_data(self) -> CapabilityResultOut:
-        data_model = RESULT_DATA_MODELS.get(self.type)
-        if data_model is None:
-            raise ValueError(f"未知的 result.type: {self.type}")
-        self.data = data_model.model_validate(self.data).model_dump(mode="json")
-        return self
+
+class MessageCapabilityResult(CapabilityResultOut):
+    type: Literal["message"] = "message"
+    data: MessageResultData = Field(default_factory=MessageResultData)
+
+
+class CompensationInputCapabilityResult(CapabilityResultOut):
+    type: Literal["compensation_input"] = "compensation_input"
+    data: CompensationInputResultData
+
+
+class CompensationPreviewCapabilityResult(CapabilityResultOut):
+    type: Literal["compensation_preview"] = "compensation_preview"
+    data: CompensationPreviewResultData
+
+
+class CompensationComparisonCapabilityResult(CapabilityResultOut):
+    type: Literal["compensation_comparison"] = "compensation_comparison"
+    data: CompensationComparisonResultData
+
+
+class AutomationRuleDraftCapabilityResult(CapabilityResultOut):
+    type: Literal["automation_rule_draft"] = "automation_rule_draft"
+    data: AutomationRuleDraftResultData
+
+
+class DataCompareCapabilityResult(CapabilityResultOut):
+    type: Literal["data_compare_result"] = "data_compare_result"
+    data: DataCompareResultData
+
+
+CapabilityResult = Annotated[
+    MessageCapabilityResult
+    | CompensationInputCapabilityResult
+    | CompensationPreviewCapabilityResult
+    | CompensationComparisonCapabilityResult
+    | AutomationRuleDraftCapabilityResult
+    | DataCompareCapabilityResult,
+    Field(discriminator="type"),
+]
+
+
+RESULT_TYPES: dict[str, type[CapabilityResultOut]] = {
+    "message": MessageCapabilityResult,
+    "compensation_input": CompensationInputCapabilityResult,
+    "compensation_preview": CompensationPreviewCapabilityResult,
+    "compensation_comparison": CompensationComparisonCapabilityResult,
+    "automation_rule_draft": AutomationRuleDraftCapabilityResult,
+    "data_compare_result": DataCompareCapabilityResult,
+}
 
 
 class PermissionResultOut(BaseModel):
@@ -295,7 +341,7 @@ class AiChatOut(BaseModel):
     answer: str
     status: str
     capability_id: str
-    result: CapabilityResultOut
+    result: CapabilityResult
     permission: PermissionResultOut
     masking: MaskingResultOut
     trace_id: str | None = None
@@ -307,6 +353,21 @@ class AiChatOut(BaseModel):
         if value not in AI_EXECUTION_STATUSES:
             raise ValueError(f"未知的 AI 执行状态: {value}")
         return value
+
+
+def _chat_result(
+    result_type: str,
+    data: BaseModel | dict[str, Any] | None,
+    actions: list[AiActionOut] | None,
+) -> CapabilityResult:
+    result_model = RESULT_TYPES.get(result_type)
+    if result_model is None:
+        raise ValueError(f"未知的 result.type: {result_type}")
+    return result_model(
+        data=data or {},
+        artifacts=[],
+        actions=actions or [],
+    )
 
 
 def _chat_out(
@@ -331,12 +392,7 @@ def _chat_out(
         answer=answer,
         capability_id=capability_id,
         conversation_id=conversation_id,
-        result=CapabilityResultOut(
-            type=result_type,
-            data=result_data,
-            artifacts=[],
-            actions=actions or [],
-        ),
+        result=_chat_result(result_type, result_data, actions),
         permission=PermissionResultOut(
             filtered=permission_filtered,
             note=permission_note,
@@ -764,12 +820,18 @@ def _merge_compensation_request(
     return merged
 
 
+class ExtractorResult(NamedTuple):
+    extracted: dict[str, Any] | None
+    usage: dict[str, Any] | None
+    parse_mode: str
+
+
 async def _extract_compensation_request_with_model(
     payload: AiChatIn,
     session: ChatSession,
     db: AsyncSession,
     timer: AiAuditTimer,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
+) -> ExtractorResult:
     """纯大模型解析:把自然语言抽成结构化补偿金请求。无正则兜底解析。
 
     无法解析(模型报错/非法 JSON)时返回 (None, ...),由上层提示用户换种说法。
@@ -840,18 +902,22 @@ async def _extract_compensation_request_with_model(
         changed_fields = raw.get("changed_fields")
         if not isinstance(changed_fields, list):
             changed_fields = []
-        return {
-            "intent": str(raw.get("intent") or "compensation.calculate"),
-            "employee_keyword": _clean_name(raw.get("employee_keyword")),
-            "leave_date": raw.get("leave_date") or None,
-            "plan": _normalize_optional_plan(raw.get("plan")),
-            "region": raw.get("region") or None,
-            "followup_action": _normalize_followup_action(raw.get("followup_action")),
-            "changed_fields": changed_fields,
-        }, usage, "model"
+        return ExtractorResult(
+            extracted={
+                "intent": str(raw.get("intent") or "compensation.calculate"),
+                "employee_keyword": _clean_name(raw.get("employee_keyword")),
+                "leave_date": raw.get("leave_date") or None,
+                "plan": _normalize_optional_plan(raw.get("plan")),
+                "region": raw.get("region") or None,
+                "followup_action": _normalize_followup_action(raw.get("followup_action")),
+                "changed_fields": changed_fields,
+            },
+            usage=usage,
+            parse_mode="model",
+        )
     except Exception as exc:
         timer.add_event("model_call", status="error", capability_id="ai.chat", reason=str(exc)[:500])
-        return None, None, "parse_error"
+        return ExtractorResult(extracted=None, usage=None, parse_mode="parse_error")
 
 
 def _compensation_route_query(
@@ -902,53 +968,53 @@ def _agreement_document_action(ctx: CompensationChatContext, action_type: str) -
     )
 
 
-def _comp_result_snapshot(result: CompensationCalcOut) -> dict[str, Any]:
+def _comp_result_snapshot(result: CompensationCalcOut) -> CompensationComparisonSnapshotOut:
     employee_name = result.employee.name or result.employee.chinese_name or result.employee.english_name or result.employee.employee_no
-    return {
-        "employee_id": result.employee.id,
-        "employee_name": employee_name,
-        "employee_no": result.employee.employee_no,
-        "leave_date": result.leave_date.isoformat(),
-        "plan": result.plan,
-        "service_years_n": result.service_years_n,
-        "compensation_base": result.compensation_base,
-        "n_amount": result.n_amount,
-        "extra_amount": result.extra_amount,
-        "total_amount": result.total_amount,
-    }
+    return CompensationComparisonSnapshotOut(
+        employee_id=result.employee.id,
+        employee_name=employee_name,
+        employee_no=result.employee.employee_no,
+        leave_date=result.leave_date.isoformat(),
+        plan=result.plan,
+        service_years_n=result.service_years_n,
+        compensation_base=result.compensation_base,
+        n_amount=result.n_amount,
+        extra_amount=result.extra_amount,
+        total_amount=result.total_amount,
+    )
 
 
 def _append_recent_comp_result(ctx: CompensationChatContext, result: CompensationCalcOut) -> CompensationChatContext:
-    snapshot = _comp_result_snapshot(result)
+    snapshot = _comp_result_snapshot(result).model_dump(mode="json")
     recent = [item for item in (ctx.recent_results or []) if isinstance(item, dict)]
     recent.append(snapshot)
     ctx.recent_results = recent[-5:]
     return ctx
 
 
-def _format_comp_result_label(item: dict[str, Any]) -> str:
-    employee = item.get("employee_name") or item.get("employee_no") or "该员工"
-    return f"{employee} / {item.get('leave_date') or '--'} / 方案 {item.get('plan') or '--'}"
+def _format_comp_result_label(item: CompensationComparisonSnapshotOut) -> str:
+    employee = item.employee_name or item.employee_no or "该员工"
+    return f"{employee} / {item.leave_date or '--'} / 方案 {item.plan or '--'}"
 
 
 def _compare_comp_result_snapshots(
-    previous: dict[str, Any],
-    current: dict[str, Any],
+    previous: CompensationComparisonSnapshotOut,
+    current: CompensationComparisonSnapshotOut,
     *,
     subject: str = "两次补偿金试算",
 ) -> AiChatOut:
-    previous_total = float(previous.get("total_amount") or 0)
-    current_total = float(current.get("total_amount") or 0)
+    previous_total = previous.total_amount
+    current_total = current.total_amount
     delta = current_total - previous_total
     abs_delta = abs(delta)
     higher = current if current_total >= previous_total else previous
     lower = previous if current_total >= previous_total else current
     answer = (
         f"{subject}差额为 {abs_delta:.2f}。"
-        f"{_format_comp_result_label(higher)} 合计 {float(higher.get('total_amount') or 0):.2f}，"
-        f"{_format_comp_result_label(lower)} 合计 {float(lower.get('total_amount') or 0):.2f}。"
+        f"{_format_comp_result_label(higher)} 合计 {higher.total_amount:.2f}，"
+        f"{_format_comp_result_label(lower)} 合计 {lower.total_amount:.2f}。"
     )
-    if (previous.get("plan"), current.get("plan")) in {("N+1", "N"), ("N", "N+1")}:
+    if (previous.plan, current.plan) in {("N+1", "N"), ("N", "N+1")}:
         answer += "差额主要来自 +1 金额。"
     else:
         answer += "差异可能来自方案、离职日期、员工或地区等试算条件变化。"
@@ -966,7 +1032,11 @@ def _compare_recent_comp_results(ctx: CompensationChatContext | None) -> AiChatO
     recent = [item for item in ((ctx.recent_results if ctx else None) or []) if isinstance(item, dict)]
     if len(recent) < 2:
         return None
-    return _compare_comp_result_snapshots(recent[-2], recent[-1], subject="最近两次补偿金试算")
+    return _compare_comp_result_snapshots(
+        CompensationComparisonSnapshotOut.model_validate(recent[-2]),
+        CompensationComparisonSnapshotOut.model_validate(recent[-1]),
+        subject="最近两次补偿金试算",
+    )
 
 
 def _context_from_result(result: CompensationCalcOut, keyword: str | None = None) -> CompensationChatContext:
@@ -1241,7 +1311,7 @@ async def _handle_compensation_chat(
                 plan=plan,
             )
             compare_result, _raw = await calculate_compensation_impl(compare_calc_in, user, db)
-            validate_model_payload(CompensationCalcOut, compare_result, label=f"compensation.calculate_preview {plan} output")
+            validate_model_payload(CompensationCalcOut, compare_result, label=f"compensation.calculate_preview {plan} output", phase="output")
             compare_results[plan] = compare_result
 
         n_result = compare_results["N"]
@@ -1263,8 +1333,8 @@ async def _handle_compensation_chat(
             capability_id=calc_capability.capability_id,
             result_type="compensation_comparison",
             data=CompensationComparisonResultData(
-                previous=comparison.result.data["previous"],
-                current=comparison.result.data["current"],
+                previous=comparison.result.data.previous,
+                current=comparison.result.data.current,
                 compensation=n1_result,
             ),
             actions=[
@@ -1293,7 +1363,7 @@ async def _handle_compensation_chat(
     validate_model_payload(CompensationCalcIn, calc_in, label="compensation.calculate_preview input")
     timer.add_event("tool", tool_name="compensation.calculate", capability_id=calc_capability.capability_id, employee_id=selected_employee_id)
     result, _raw = await calculate_compensation_impl(calc_in, user, db)
-    validate_model_payload(CompensationCalcOut, result, label="compensation.calculate_preview output")
+    validate_model_payload(CompensationCalcOut, result, label="compensation.calculate_preview output", phase="output")
     query = _compensation_route_query(
         employee_id=selected_employee_id,
         keyword=keyword or result.employee.name,
@@ -1348,9 +1418,9 @@ async def _extract_my_scope_request(
     session: ChatSession,
     db: AsyncSession,
     timer: AiAuditTimer,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
+) -> ExtractorResult:
     """无参 query：无需模型解析，固定返回空参数。"""
-    return {}, None, "noop"
+    return ExtractorResult(extracted={}, usage=None, parse_mode="noop")
 
 
 async def _load_my_scope_bundles(user: User, db: AsyncSession) -> list[dict[str, Any]]:
@@ -1524,7 +1594,7 @@ async def _extract_automation_rule_request(
     session: ChatSession,
     db: AsyncSession,
     timer: AiAuditTimer,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
+) -> ExtractorResult:
     """LLM extractor：从自然语言提取自动化规则槽位。
 
     返回 (extracted, usage, parse_mode):
@@ -1535,7 +1605,7 @@ async def _extract_automation_rule_request(
     config = await active_ai_config(db)
     model = (config.model_reasoning or config.model_fast_json or "").strip()
     if not model or not config.api_key_encrypted:
-        return None, None, "no_model"
+        return ExtractorResult(extracted=None, usage=None, parse_mode="no_model")
     trigger_types_text = _automation_trigger_types_text()
 
     # 构建 prompt：让 LLM 提取结构化槽位
@@ -1587,7 +1657,7 @@ async def _extract_automation_rule_request(
         timer.add_event("model_call", status="success", purpose="extract_slots", usage=usage)
     except Exception as exc:
         timer.add_event("model_call", status="error", purpose="extract_slots", reason=str(exc)[:300])
-        return None, None, "error"
+        return ExtractorResult(extracted=None, usage=None, parse_mode="error")
 
     trigger_type = raw.get("trigger_type")
     missing_slots = raw.get("missing_slots") or []
@@ -1608,9 +1678,9 @@ async def _extract_automation_rule_request(
     }
 
     if missing_slots:
-        return extracted, usage, "missing_slots"
+        return ExtractorResult(extracted=extracted, usage=usage, parse_mode="missing_slots")
 
-    return extracted, usage, "llm_extract"
+    return ExtractorResult(extracted=extracted, usage=usage, parse_mode="llm_extract")
 
 
 def _build_automation_rule_draft(extracted: dict[str, Any]) -> AutomationRuleDraftOut:
@@ -1733,6 +1803,7 @@ async def _handle_automation_rule_chat(
             AutomationRuleCreate,
             AutomationRuleCreate(**rule_draft.model_dump(exclude={"receiver_query"})),
             label="automation_rule_draft",
+            phase="output",
         )
     except Exception as ve:
         timer.add_event("validation", status="failed", reason=str(ve)[:300])
@@ -1788,12 +1859,12 @@ async def _extract_data_compare_request(
     session: ChatSession,
     db: AsyncSession,
     timer: AiAuditTimer,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
+) -> ExtractorResult:
     """LLM extractor：从自然语言提取 CompareSpec JSON。"""
     config = await active_ai_config(db)
     model = (config.model_reasoning or config.model_fast_json or "").strip()
     if not model or not config.api_key_encrypted:
-        return None, None, "no_model"
+        return ExtractorResult(extracted=None, usage=None, parse_mode="no_model")
 
     loader = MetadataLoader(db)
 
@@ -1819,12 +1890,12 @@ async def _extract_data_compare_request(
     try:
         spec = await extract_compare_spec(payload.message, loader, model_call)
     except ValueError as e:
-        return None, None, "error"
+        return ExtractorResult(extracted=None, usage=None, parse_mode="error")
     except Exception:
-        return None, None, "error"
+        return ExtractorResult(extracted=None, usage=None, parse_mode="error")
 
     # 返回 extracted（供 handler 使用）
-    return spec.model_dump(), None, "llm_extract"
+    return ExtractorResult(extracted=spec.model_dump(), usage=None, parse_mode="llm_extract")
 
 
 def _contains_masked_value(value: Any) -> bool:
@@ -1931,10 +2002,10 @@ async def _handle_data_compare_chat(
 #   3. 多轮续接由会话层 active_capability_id 承载(状态,不是关键词):
 #      分类为 general_question 但有在途任务时,续接到该任务。
 # ──────────────────────────────────────────────────────────────────────────
-def _result_candidate_count(result: CapabilityResultOut) -> int:
-    if result.type not in {"compensation_input", "compensation_preview"}:
-        return 0
-    return len(result.data["candidates"])
+def _result_candidate_count(result: CapabilityResult) -> int:
+    if isinstance(result, (CompensationInputCapabilityResult, CompensationPreviewCapabilityResult)):
+        return len(result.data.candidates)
+    return 0
 
 
 @dataclass(frozen=True)
@@ -1942,7 +2013,7 @@ class ChatRoute:
     intent: str
     capability_id: str
     description: str  # 供意图分类器识别该能力的自然语言说明
-    extractor: Callable[[AiChatIn, ChatSession, AsyncSession, AiAuditTimer], Awaitable[tuple[dict[str, Any] | None, dict[str, Any] | None, str]]]
+    extractor: Callable[[AiChatIn, ChatSession, AsyncSession, AiAuditTimer], Awaitable[ExtractorResult]]
     handler: Callable[[AiChatIn, dict[str, Any], ChatSession, User, AsyncSession, AiAuditTimer], Awaitable[AiChatOut]]
 
 
@@ -2159,10 +2230,10 @@ async def global_ai_chat(
                     trace_id=timer.trace_id,
                 )
             else:
-                extracted, extract_usage, extract_mode = await route.extractor(payload, session, db, timer)
-                usage = extract_usage or usage
-                parse_mode = f"{parse_mode}+{extract_mode}"
-                if extracted is None:
+                extraction = await route.extractor(payload, session, db, timer)
+                usage = extraction.usage or usage
+                parse_mode = f"{parse_mode}+{extraction.parse_mode}"
+                if extraction.extracted is None:
                     # 大模型解析失败:不猜,提示用户换种说法;保留在途任务以便重试。
                     out = _chat_out(
                         intent=route.intent,
@@ -2173,10 +2244,10 @@ async def global_ai_chat(
                         trace_id=timer.trace_id,
                     )
                 else:
-                    out = await route.handler(payload, extracted, session, user, db, timer)
+                    out = await route.handler(payload, extraction.extracted, session, user, db, timer)
         out.conversation_id = session.conversation_id
         await persist_conversation(db, conv, session)
-        validate_model_payload(AiChatOut, out, label="ai.chat output")
+        validate_model_payload(AiChatOut, out, label="ai.chat output", phase="output")
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="output")
         await record_ai_log(
             db=db,
@@ -2220,6 +2291,11 @@ async def global_ai_chat(
             timer=timer,
         )
         await db.commit()
+        if isinstance(exc, AiOutputSchemaValidationError):
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"message": "服务端响应校验失败", "trace_id": timer.trace_id},
+            ) from exc
         if isinstance(exc, HTTPException):
             raise
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(detail)) from exc
@@ -2251,7 +2327,7 @@ async def draft_formula_capability(
             timer=timer,
             capability_id=capability.capability_id,
         )
-        validate_model_payload(FormulaDraftOut, out, label="formula.generate output")
+        validate_model_payload(FormulaDraftOut, out, label="formula.generate output", phase="output")
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="output")
         return out
     except (AiSchemaValidationError, AiPolicyError) as exc:
@@ -2299,7 +2375,7 @@ async def validate_formula_capability(
             timer=timer,
             capability_id=capability.capability_id,
         )
-        validate_model_payload(FormulaValidateOut, out, label="formula.validate output")
+        validate_model_payload(FormulaValidateOut, out, label="formula.validate output", phase="output")
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="output")
         await record_ai_log(
             db=db,
@@ -2365,7 +2441,7 @@ async def repair_formula_capability(
             timer=timer,
             capability_id=capability.capability_id,
         )
-        validate_model_payload(FormulaDraftOut, out, label="formula.repair output")
+        validate_model_payload(FormulaDraftOut, out, label="formula.repair output", phase="output")
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="output")
         return out
     except (AiSchemaValidationError, AiPolicyError) as exc:
@@ -2410,7 +2486,7 @@ async def save_calculated_field_capability(
         timer.add_event("user_confirmation", capability_id=capability.capability_id, confirmed=confirmed)
         timer.add_event("policy_validation", capability_id=capability.capability_id, target="capability")
         out = await create_calculated_field_impl(ds_id=dataset_id, payload=payload, user=user, db=db)
-        validate_model_payload(CalculatedFieldOut, out, label="calculated_field.save output")
+        validate_model_payload(CalculatedFieldOut, out, label="calculated_field.save output", phase="output")
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="output")
         await record_ai_log(
             db=db,
@@ -2520,7 +2596,7 @@ async def explain_report_config_capability(
             answer_mode = "fallback_model_error"
         out.mode = "read_only_chat"
         out.trace_id = timer.trace_id
-        validate_model_payload(ReportExplainConfigOut, out, label="report.explain_config output")
+        validate_model_payload(ReportExplainConfigOut, out, label="report.explain_config output", phase="output")
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="output")
         await record_ai_log(
             db=db,

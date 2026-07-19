@@ -8,6 +8,7 @@ import type { EmployeeCandidate } from '@/api/tools'
 import DocumentActionPreview from '@/components/document/DocumentActionPreview.vue'
 import AutomationRuleArtifactPreview from '@/components/automation/AutomationRuleArtifactPreview.vue'
 import CompareResultCard from '@/components/ai/CompareResultCard.vue'
+import CompensationComparisonCard from '@/components/ai/CompensationComparisonCard.vue'
 
 interface ChatMessage {
   id: number
@@ -225,6 +226,10 @@ function handleKeydown(event: KeyboardEvent) {
               :artifact="item.result.data"
               @saved="handleArtifactSaved(item)"
               @dismissed="handleArtifactDismissed(item)"
+            />
+            <CompensationComparisonCard
+              v-if="item.result?.type === 'compensation_comparison'"
+              :result="item.result.data"
             />
             <CompareResultCard
               v-if="item.result?.type === 'data_compare_result'"
