@@ -1,0 +1,27 @@
+﻿{
+    "columns":  [
+                    {
+                        "code":  "current.base_salary",
+                        "label":  "åºæ¬å·¥èµ",
+                        "data_type":  "number",
+                        "is_sensitive":  false,
+                        "source_code":  "current.base_salary"
+                    },
+                    {
+                        "code":  "current.base_salary#2",
+                        "label":  "åºæ¬å·¥èµ (2)",
+                        "data_type":  "number",
+                        "is_sensitive":  false,
+                        "source_code":  "current.base_salary"
+                    }
+                ],
+    "items":  [
+
+              ],
+    "total":  0,
+    "page":  1,
+    "page_size":  50,
+    "warnings":  [
+
+                 ]
+}

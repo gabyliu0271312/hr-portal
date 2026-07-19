@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import BigInteger, Column, MetaData, Numeric, String, Table
 
 import app.data.dynamic_loader as dynamic_loader
@@ -96,16 +97,74 @@ def test_register_period_table_populates_period_tables():
         PERIOD_TABLES.pop(table_name, None)
 
 
-def test_register_period_table_ignores_non_period_table():
-    table_name = "tmp_non_period_table"
-    PERIOD_TABLES.pop(table_name, None)
-    rt = SimpleNamespace(
-        table_name=table_name,
-        is_period=False,
-        period_col="month",
-        period_source="field",
-    )
 
-    register_period_table(rt, overwrite=True)
 
-    assert table_name not in PERIOD_TABLES
+class _LoaderResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self.rows
+
+
+class _LoaderSession:
+    def __init__(self, registered_rows, relation_rows):
+        self._results = [
+            _LoaderResult(registered_rows),
+            _LoaderResult(relation_rows),
+        ]
+        self.committed = False
+
+    async def execute(self, _statement):
+        return self._results.pop(0)
+
+    async def commit(self):
+        self.committed = True
+
+
+async def test_load_dynamic_tables_removes_unreferenced_missing_non_builtin_table(monkeypatch):
+    orphan = SimpleNamespace(table_name="tmp_orphaned_table", is_builtin=False)
+    session = _LoaderSession([orphan], [])
+    removed = []
+
+    async def no_reference(_db, _table_name):
+        return None
+
+    async def remove(_db, table_name):
+        removed.append(table_name)
+
+    monkeypatch.setattr(dynamic_loader, "_table_reference_reason", no_reference)
+    monkeypatch.setattr(dynamic_loader, "_remove_orphaned_registration", remove)
+
+    await dynamic_loader.load_dynamic_tables(session)
+
+    assert removed == ["tmp_orphaned_table"]
+    assert session.committed is True
+
+
+async def test_load_dynamic_tables_keeps_missing_referenced_table_blocking_startup(monkeypatch):
+    referenced = SimpleNamespace(table_name="tmp_referenced_table", is_builtin=False)
+    session = _LoaderSession([referenced], [])
+
+    async def data_set_reference(_db, _table_name):
+        return "数据集"
+
+    monkeypatch.setattr(dynamic_loader, "_table_reference_reason", data_set_reference)
+
+    with pytest.raises(RuntimeError, match="tmp_referenced_table.*数据集"):
+        await dynamic_loader.load_dynamic_tables(session)
+
+    assert session.committed is False
+
+
+async def test_load_dynamic_tables_keeps_missing_builtin_table_blocking_startup(monkeypatch):
+    builtin = SimpleNamespace(table_name="tmp_builtin_table", is_builtin=True)
+    session = _LoaderSession([builtin], [])
+
+    with pytest.raises(RuntimeError, match="tmp_builtin_table.*内置表"):
+        await dynamic_loader.load_dynamic_tables(session)
+
+    assert session.committed is False

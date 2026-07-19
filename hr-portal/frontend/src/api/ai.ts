@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { CompareResult } from './data-compare'
 import type { CompensationResult, EmployeeCandidate } from './tools'
 
 const AI_CHAT_TIMEOUT_MS = 130_000
@@ -8,14 +9,15 @@ export interface AiChatMessage {
   content: string
 }
 
-export interface CompensationChatContext {
-  employee_id?: number | null
-  employee_keyword?: string | null
-  employee_name?: string | null
-  leave_date?: string | null
-  plan?: string | null
-  region?: string | null
-}
+export type AiExecutionStatus =
+  | 'pending'
+  | 'requires_input'
+  | 'requires_confirmation'
+  | 'running'
+  | 'succeeded'
+  | 'partial_success'
+  | 'failed'
+  | 'cancelled'
 
 export interface AiAction {
   type: string
@@ -24,22 +26,24 @@ export interface AiAction {
   query: Record<string, any>
 }
 
-export interface AiChatResult {
-  intent: string
-  answer: string
-  status: string
-  trace_id?: string | null
-  conversation_id?: number | null
-  actions: AiAction[]
-  candidates: EmployeeCandidate[]
-  compensation?: CompensationResult | null
-  missing_fields: string[]
-  extracted: Record<string, any>
-  artifact?: AutomationRuleArtifact | Record<string, any> | null
+export interface CapabilityArtifact {
+  type: string
+  name: string
+  url?: string | null
 }
 
-export interface AutomationRuleArtifact {
-  artifact_type: string
+export interface PermissionResult {
+  filtered: boolean
+  note: string
+}
+
+export interface MaskingResult {
+  applied: boolean
+}
+
+export interface AutomationRuleDraftData {
+  artifact_type: 'automation_rule'
+  status: 'draft'
   rule_draft: {
     name: string
     description: string | null
@@ -64,6 +68,58 @@ export interface AutomationRuleArtifact {
   follow_up_question: string | null
 }
 
+export type AutomationRuleArtifact = AutomationRuleDraftData
+
+export type CapabilityResult =
+  | {
+      type: 'message'
+      data: { reason_code?: string | null }
+      artifacts: CapabilityArtifact[]
+      actions: AiAction[]
+    }
+  | {
+      type: 'compensation_input'
+      data: { candidates: EmployeeCandidate[]; missing_fields: string[] }
+      artifacts: CapabilityArtifact[]
+      actions: AiAction[]
+    }
+  | {
+      type: 'compensation_preview'
+      data: { compensation: CompensationResult; candidates: EmployeeCandidate[]; missing_fields: string[] }
+      artifacts: CapabilityArtifact[]
+      actions: AiAction[]
+    }
+  | {
+      type: 'compensation_comparison'
+      data: { previous: Record<string, any>; current: Record<string, any>; compensation?: CompensationResult | null }
+      artifacts: CapabilityArtifact[]
+      actions: AiAction[]
+    }
+  | {
+      type: 'automation_rule_draft'
+      data: AutomationRuleDraftData
+      artifacts: CapabilityArtifact[]
+      actions: AiAction[]
+    }
+  | {
+      type: 'data_compare_result'
+      data: CompareResult
+      artifacts: CapabilityArtifact[]
+      actions: AiAction[]
+    }
+
+export interface CapabilityResultEnvelope {
+  intent: string
+  answer: string
+  status: AiExecutionStatus
+  capability_id: string
+  result: CapabilityResult
+  permission: PermissionResult
+  masking: MaskingResult
+  trace_id?: string | null
+  conversation_id?: number | null
+}
+
 export const aiApi = {
   chat: (body: {
     message: string
@@ -73,6 +129,6 @@ export const aiApi = {
     selected_employee_id?: number | null
   }) =>
     api
-      .post<AiChatResult>('/ai/chat', body, { timeout: AI_CHAT_TIMEOUT_MS })
+      .post<CapabilityResultEnvelope>('/ai/chat', body, { timeout: AI_CHAT_TIMEOUT_MS })
       .then((r) => r.data),
 }

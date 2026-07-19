@@ -223,7 +223,7 @@ CAPABILITIES: tuple[CapabilityDefinition, ...] = (
         side_effect_tags=[],
         tools=["compensation.employee_search", "compensation.calculate"],
         policy_profile={
-            "output_contract": "compensation_preview_schema",
+            "output_contract": "ai_chat_schema",
             "allowed_side_effect": "none",
             "field_context": "authorized_business_data",
         },
@@ -347,7 +347,7 @@ CAPABILITIES: tuple[CapabilityDefinition, ...] = (
         confirmation="none",
         tools=["automation.list_trigger_types", "automation.list_action_types"],
         policy_profile={
-            "output_contract": "automation_rule_draft_schema",
+            "output_contract": "ai_chat_schema",
             "allowed_side_effect": "draft_only",
             "deny_patterns": ["sql", "code", "external_url"],
         },
@@ -378,13 +378,7 @@ CAPABILITIES: tuple[CapabilityDefinition, ...] = (
         },
         output_schema={
             "type": "object",
-            "properties": {
-                "artifact_type": {"type": "string", "enum": ["automation_rule"]},
-                "status": {"type": "string", "enum": ["draft"]},
-                "content": {"type": "object"},
-                "missing_slots": {"type": "array", "items": {"type": "string"}},
-                "follow_up_question": {"type": "string"},
-            },
+            "description": "通过 /ai/chat 返回的统一 CapabilityResultEnvelope；草稿位于 result.data。",
         },
     ),
     CapabilityDefinition(
@@ -508,7 +502,7 @@ CAPABILITIES: tuple[CapabilityDefinition, ...] = (
             "data_compare.execute_compare",
         ],
         policy_profile={
-            "output_contract": "data_compare_compare_spec_schema",
+            "output_contract": "ai_chat_schema",
             "allowed_side_effect": "none",
             "deny_patterns": [],
             "table_whitelist": "registered_tables_only",

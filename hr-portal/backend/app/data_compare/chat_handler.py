@@ -127,7 +127,8 @@ async def run_data_compare(
     db,
     model_call: callable | None = None,
     instruction: str | None = None,
-) -> dict:
+    return_execution_metadata: bool = False,
+) -> dict | tuple[dict, dict[str, bool]]:
     """完整的对比执行流程：Scope → 校验 → 编译 → 执行 → 格式化。
 
     如果 spec 已经是 CompareSpec 对象（来自 LLM extractor），直接执行。
@@ -224,4 +225,7 @@ async def run_data_compare(
         display=spec.display,
     )
 
-    return result.model_dump()
+    result_dict = result.model_dump()
+    if return_execution_metadata:
+        return result_dict, {"permission_filtered": scope_a.strip() != "true" or scope_b.strip() != "true"}
+    return result_dict

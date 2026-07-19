@@ -2,7 +2,8 @@
 
 版本：v0.1  
 日期：2026-06-08  
-状态：待开发  
+状态：已实施，历史首个 AI 技术验证场景  
+作用：验证结构化草稿、确定性校验和 Capability 接入；后续公共架构以 `README.md`、`current-state-and-gaps.md` 和 `ai-capability-registry.md` 为准。  
 适用项目：`D:\AI项目\HR提效工具搭建\hr-portal`
 
 ## 1. 目标

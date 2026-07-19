@@ -3,24 +3,18 @@ import { nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { MagicStick, Position } from '@element-plus/icons-vue'
-import { aiApi, type AiAction, type AiChatMessage, type AutomationRuleArtifact } from '@/api/ai'
-import type { CompensationResult, EmployeeCandidate } from '@/api/tools'
-import type { CompareResult } from '@/api/data-compare'
+import { aiApi, type AiAction, type AiChatMessage, type AutomationRuleArtifact, type CapabilityResult } from '@/api/ai'
+import type { EmployeeCandidate } from '@/api/tools'
 import DocumentActionPreview from '@/components/document/DocumentActionPreview.vue'
 import AutomationRuleArtifactPreview from '@/components/automation/AutomationRuleArtifactPreview.vue'
 import CompareResultCard from '@/components/ai/CompareResultCard.vue'
-
-type AssistantArtifact = AutomationRuleArtifact | CompareResult
 
 interface ChatMessage {
   id: number
   role: 'user' | 'assistant'
   content: string
   traceId?: string | null
-  candidates?: EmployeeCandidate[]
-  actions?: AiAction[]
-  compensation?: CompensationResult | null
-  artifact?: AssistantArtifact | null
+  result?: CapabilityResult
 }
 
 const route = useRoute()
@@ -35,26 +29,11 @@ const messages = ref<ChatMessage[]>([])
 const conversationId = ref<number | null>(null)
 let messageId = 0
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object'
-}
-
-function isAutomationRuleArtifact(value: unknown): value is AutomationRuleArtifact {
-  return isObject(value) && value.artifact_type === 'automation_rule'
-}
-
-function isCompareResultArtifact(value: unknown): value is CompareResult {
-  return isObject(value)
-    && typeof value.compare_type === 'string'
-    && isObject(value.summary)
-    && Array.isArray(value.details)
-}
-
-function toAssistantArtifact(value: unknown): AssistantArtifact | null {
-  if (isAutomationRuleArtifact(value) || isCompareResultArtifact(value)) {
-    return value
+function messageCandidates(item: ChatMessage): EmployeeCandidate[] {
+  if (!item.result || (item.result.type !== 'compensation_input' && item.result.type !== 'compensation_preview')) {
+    return []
   }
-  return null
+  return item.result.data.candidates
 }
 
 function chatHistory(): AiChatMessage[] {
@@ -105,18 +84,17 @@ function runAutoActions(actions: AiAction[]) {
   }
 }
 
-async function chooseCandidate(candidate: EmployeeCandidate, source: ChatMessage) {
+async function chooseCandidate(candidate: EmployeeCandidate) {
   const text = `选择 ${employeeTitle(candidate)}`
   messages.value.push({ id: ++messageId, role: 'user', content: text })
   scrollToBottom()
-  await sendMessage(`计算 ${employeeTitle(candidate)} 的补偿金`, candidate.id, false, source)
+  await sendMessage(`计算 ${employeeTitle(candidate)} 的补偿金`, candidate.id, false)
 }
 
 async function sendMessage(
   text: string = input.value,
   selectedEmployeeId: number | null = null,
   showUserMessage = true,
-  source?: ChatMessage,
 ) {
   const message = text.trim()
   if (!message) {
@@ -140,16 +118,13 @@ async function sendMessage(
     if (result.conversation_id) {
       conversationId.value = result.conversation_id
     }
-    const actions = result.actions || []
+    const actions = result.result.actions
     messages.value.push({
       id: ++messageId,
       role: 'assistant',
       content: result.answer,
       traceId: result.trace_id,
-      candidates: result.candidates || source?.candidates || [],
-      actions,
-      compensation: result.compensation,
-      artifact: toAssistantArtifact(result.artifact),
+      result: result.result,
     })
     runAutoActions(actions)
     scrollToBottom()
@@ -165,13 +140,19 @@ async function sendMessage(
   }
 }
 
+function clearAutomationRuleDraft(item: ChatMessage) {
+  if (item.result?.type === 'automation_rule_draft') {
+    item.result = undefined
+  }
+}
+
 function handleArtifactSaved(item: ChatMessage) {
   ElMessage.success('自动化规则已保存，请在自动化规则页面查看')
-  item.artifact = null // 清除 artifact，避免重复操作
+  clearAutomationRuleDraft(item)
 }
 
 function handleArtifactDismissed(item: ChatMessage) {
-  item.artifact = null // 清除 artifact
+  clearAutomationRuleDraft(item)
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -196,39 +177,39 @@ function handleKeydown(event: KeyboardEvent) {
         <div v-for="item in messages" :key="item.id" class="chat-message" :class="item.role">
           <div class="chat-bubble">
             <div class="chat-content">{{ item.content }}</div>
-            <div v-if="item.compensation" class="result-card">
+            <div v-if="item.result?.type === 'compensation_preview'" class="result-card">
               <div class="result-row">
                 <span>员工</span>
-                <strong>{{ item.compensation.employee.name || item.compensation.employee.employee_no }}</strong>
+                <strong>{{ item.result.data.compensation.employee.name || item.result.data.compensation.employee.employee_no }}</strong>
               </div>
               <div class="result-row">
                 <span>离职日期</span>
-                <strong>{{ item.compensation.leave_date || '--' }}</strong>
+                <strong>{{ item.result.data.compensation.leave_date || '--' }}</strong>
               </div>
               <div class="result-row">
                 <span>方案</span>
-                <strong>{{ item.compensation.plan }}</strong>
+                <strong>{{ item.result.data.compensation.plan }}</strong>
               </div>
               <div class="result-row">
                 <span>合计</span>
-                <strong>{{ formatMoney(item.compensation.total_amount) }}</strong>
+                <strong>{{ formatMoney(item.result.data.compensation.total_amount) }}</strong>
               </div>
             </div>
-            <div v-if="item.candidates?.length" class="candidate-list">
+            <div v-if="messageCandidates(item).length" class="candidate-list">
               <button
-                v-for="candidate in item.candidates"
+                v-for="candidate in messageCandidates(item)"
                 :key="candidate.id"
                 type="button"
                 class="candidate-item"
-                @click="chooseCandidate(candidate, item)"
+                @click="chooseCandidate(candidate)"
               >
                 <span>{{ employeeTitle(candidate) }}</span>
                 <small>{{ candidate.company || '--' }} · {{ candidate.department || '--' }}</small>
               </button>
             </div>
-            <div v-if="item.actions?.length" class="action-list">
+            <div v-if="item.result?.actions.length" class="action-list">
               <el-button
-                v-for="action in item.actions"
+                v-for="action in item.result.actions"
                 :key="`${action.type}-${action.route || action.label}`"
                 size="small"
                 type="primary"
@@ -240,14 +221,14 @@ function handleKeydown(event: KeyboardEvent) {
             </div>
             <div v-if="item.traceId" class="trace-line">trace_id: {{ item.traceId }}</div>
             <AutomationRuleArtifactPreview
-              v-if="isAutomationRuleArtifact(item.artifact)"
-              :artifact="item.artifact"
+              v-if="item.result?.type === 'automation_rule_draft'"
+              :artifact="item.result.data"
               @saved="handleArtifactSaved(item)"
               @dismissed="handleArtifactDismissed(item)"
             />
             <CompareResultCard
-              v-if="isCompareResultArtifact(item.artifact)"
-              :result="item.artifact"
+              v-if="item.result?.type === 'data_compare_result'"
+              :result="item.result.data"
             />
           </div>
         </div>

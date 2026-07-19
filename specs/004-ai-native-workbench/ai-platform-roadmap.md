@@ -53,10 +53,11 @@
 编排层
   - Intent Classifier
   - Capability Resolver
-  - Workflow Orchestrator
+  - Dynamic Plan / Plan Validator
+  - UCP Pipeline Adapter
   - Artifact Manager
   - Confirmation Manager
-  - Task Orchestrator
+  - UCP Run / Step Run
 
 能力层
   - Capability Registry
@@ -380,6 +381,8 @@
 
 ## 9. Phase 5：工作流编排
 
+> **已采纳架构决策（2026-07-18）**：本阶段不新建 `WorkflowOrchestrator` 或 `Task Orchestrator`。工作流执行统一复用 `app/ucp/pipeline_engine.py` 及 UCP 的 Pipeline Run、Step Run、审批、等待、重试和监控。AI 层只补 Dynamic Plan、Plan Validator、Capability/UCP 节点映射、结果解释和 AI 审计关联。完整边界见 `current-state-and-gaps.md` 与 `../011-universal-connector-platform/implementation-plan.md`。
+
 ### 目标
 
 从“AI 调用单个 Capability”升级为“AI 编排多个 Capability 完成一个 HR 工作流”。
@@ -455,7 +458,7 @@ Phase 5 MVP
 
 复杂模式检测不是永久不做，而是不作为 Phase 5 的进入门槛。只有当真实工作流数量增加、出现高风险组合案例、或准备把 Dynamic Plan 扩展到外部渠道/跨系统执行时，才评估进入后续治理增强。
 
-Workflow 必须支持异步步骤。耗时 Capability 可以返回 task_id，由 Task Orchestrator 跟踪 pending、running、success、failed、cancelled 状态，并把结果回填到后续步骤。HTTP 请求不应依赖长时间阻塞来等待结果。
+耗时 Capability 统一映射为 UCP Pipeline/Step Run 的异步状态，由 UCP 跟踪 `pending`、`running`、`succeeded`、`partial_success`、`failed`、`cancelled`，AI Runtime 再归一化为 `CapabilityResultEnvelope`。HTTP 请求不依赖长时间阻塞等待结果。
 
 ### 示例
 
@@ -483,17 +486,15 @@ workflow: cost_allocation_monthly_analysis
 
 ### 交付物
 
-- Workflow Definition。
 - Dynamic Plan 生成与审查。
-- Capability 版本绑定。
-- Async Capability / Task Orchestrator。
 - Plan Validator 最小规则集。
-- Workflow Orchestrator。
-- Step-level Artifact。
-- Step-level Confirmation。
-- Workflow Audit Trace。
+- Capability / UCP Node 映射协议。
+- Capability 版本绑定。
+- 复用 UCP Pipeline Template、Run、Step Run 和异步状态。
+- Step-level Artifact 与 Confirmation。
+- AI Audit 与 UCP Trace 关联。
 - Workflow Eval Cases。
-- Workflow 失败恢复策略。
+- 基于 UCP 的失败恢复策略。
 
 ### 进入条件
 
@@ -664,38 +665,43 @@ workflow: cost_allocation_monthly_analysis
 - 每个阶段启动前必须写回滚计划，至少包含触发条件、关闭步骤、数据处理、用户通知、保留资产和替代方案。
 - 实验能力必须设置有效期，默认最长 60 天；延期必须重新评审。
 
-## 13. 当前建议
+## 13. 当前状态与建议
 
-当前项目应停留在：
+> 本路线图最初写于 2026-06-08。阶段编号描述公共平台能力演进，不等同于 HR Agent 当前业务实施阶段。最新代码事实以 `current-state-and-gaps.md` 为准，当前产品开发顺序以 `../../HR-Agent建设方案-专家修订版.md` 为准。
+
+### 13.1 公共平台状态
+
+| 平台阶段 | 设计状态 | 代码状态 | 验证状态 | 下一动作 |
+| --- | --- | --- | --- | --- |
+| Phase 0 最小底座 | 已设计 | 核心已实现 | 多个 ChatRoute 已使用 | 进入 Runtime 收口，不重建 |
+| Phase 1 公式/计算字段 | 已设计 | 已实现 | 已完成技术场景验证 | 保留为历史首个验证场景 |
+| Phase 2 多场景复用 | 已设计 | 部分实现 | 补偿金、权限解释、自动化、数据对账等已运行 | 用统一 Plan/Result/Handler 契约收口 |
+| Phase 3 管理治理 | 已设计 | 部分实现 | AI 配置、日志、Bad Case 已有 | DB Override 和完整能力管理待评估 |
+| Phase 4 知识/RAG | 已设计 | 未正式实施 | 未验证 | 非当前优先级 |
+| Phase 5 工作流编排 | 已设计 | UCP 执行底座已完成，AI 适配未完成 | UCP 已验证 | 补 Plan Validator 和节点映射，不建新引擎 |
+| Phase 6 渠道扩展 | 已设计 | 通知/卡片基础已实现，对话 Bot 未完成 | 推送能力已验证 | Web 闭环后复用同一 Handler 接入 |
+| Phase 7 模型优化 | 已设计 | 未实施 | 未验证 | 真实评测数据驱动后再评估 |
+
+阶段不能用单一“完成/未完成”概括；公共底座、治理能力和具体业务场景必须分别判断。
+
+### 13.2 当前权威实施顺序
 
 ```text
-Phase 0：最小 AI 底座
+阶段 0A：收口现有 AI 主链
+  → 阶段 0B：北森 + UCP 技术切片
+  → 阶段 1：组织与人员调整 Web 闭环
+  → 阶段 2：UCP 预演、审批和执行
+  → 阶段 3：飞书入口
+  → 阶段 4：继续 HR Agent 指标、分析和图表能力
 ```
 
-并尽快进入：
-
-```text
-Phase 1：公式/计算字段首个场景验证
-```
-
-Phase 1 执行时应采用风险分层：
-
-- 先做公式解释、校验和修复建议。
-- 再做公式草稿生成，进入编辑区前必须确认用户意图。
-- 保存始终由用户确认，并通过后端校验。
-- 并行保留一个只读对照场景，用于验证底座不是公式专用。
+组织与人员调整助手是 HR Agent 的首个完整高风险写业务场景，用于验证结构化 Plan、多轮歧义、行级权限、人工确认、UCP 执行、共享 Handler、全链路 trace_id 和部分失败闭环。执行文档：`../008-hr-adjustment-assistant/atomic-tasks.md`。
 
 暂不建议提前开发：
 
-- Phase 4 面向普通员工的正式 RAG。
-- Phase 5 正式工作流编排。
-- Phase 6 正式飞书机器人或外部 Gateway。
-- Phase 7 微调。
+- 面向普通员工的正式 RAG；
+- 第二套 Workflow/Task Orchestrator；
+- 绕过 Web/共享 Handler 的独立飞书 Bot；
+- 模型微调。
 
-可以作为受限实验提前评估：
-
-- 管理员可用的白名单文档 RAG，用于整理制度和发现口径冲突。
-- 只读、单轮、个人会话的飞书实验入口。
-- 低风险只读的 `ai.experiment` / `sandbox.chat` 能力。
-
-但这些阶段必须保留在路线图里，作为后续评估和升级依据。
+可以作为受限实验评估白名单文档 RAG、只读个人飞书入口和低风险 `ai.experiment`，但必须可关闭、可回滚、可审计，且不影响当前 0A → 0B → 1 → 2 → 3 → 4 主线。

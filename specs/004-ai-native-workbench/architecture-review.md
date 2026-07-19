@@ -1,4 +1,8 @@
-# AI 原生 HR 工作台架构评估与设计
+# AI 原生 HR 工作台历史架构评审与 ADR
+
+> **文档状态（2026-07-18）**：本文保留 2026-06-08 的架构评审、批判性分析和 ADR 依据。文中的建议目录、表和组件不代表均已实施，当前事实与公共协议分别以 `current-state-and-gaps.md` 和 `ai-capability-registry.md` 为准。
+>
+> 当前已采纳补充决策：收口现有 LLM-first ChatRoute 主链，不建第二套 Runtime；AI Workflow 复用 UCP Pipeline Engine；Web 与飞书共享业务 Handler；组织与人员调整助手作为 HR Agent 首个完整高风险写场景。
 
 版本：v0.1  
 日期：2026-06-08  

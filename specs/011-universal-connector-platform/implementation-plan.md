@@ -17,6 +17,10 @@
 - 真实前端：`hr-portal/frontend/src/views/datasource/ucp/`
 - 前端 API：`hr-portal/frontend/src/api/ucp.ts`
 - 后端 UCP：`hr-portal/backend/app/ucp/`
+- AI 公共协议：`specs/004-ai-native-workbench/ai-capability-registry.md`
+- HR Agent 首个高风险业务场景：`specs/008-hr-adjustment-assistant/atomic-tasks.md`
+
+> **与 AI/业务场景的边界**：UCP 是外部连接、凭证、Pipeline、审批、执行、重试和监控的单一真理源。AI Capability 和调整助手是调用方；结构化 Plan、业务规则、草稿、批次和业务状态仍由 AI Runtime 与业务域负责。不得在业务场景中复制 UCP 执行引擎，也不得把调整业务规则写入 UCP 通用层。
 
 ---
 

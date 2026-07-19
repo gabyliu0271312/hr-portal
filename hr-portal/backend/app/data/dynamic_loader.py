@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from sqlalchemy import MetaData, Table
+from sqlalchemy import MetaData, Table, delete, exists, text
 from sqlalchemy.sql import func, select
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,39 @@ def register_period_table(rt: "RegisteredTable", *, overwrite: bool = False) -> 
     }
 
 
+async def _table_reference_reason(db: "AsyncSession", table_name: str) -> str | None:
+    from app.allocation.models import AllocationScheme
+    from app.datasets.models import DataSetTable
+    from app.reports.models import Report
+
+    checks = (
+        ("数据集", exists().where(DataSetTable.table_name == table_name)),
+        ("报表", exists().where(Report.table_name == table_name)),
+        (
+            "成本分摊方案",
+            exists().where(
+                (AllocationScheme.table_name == table_name)
+                | (AllocationScheme.result_table == table_name)
+            ),
+        ),
+    )
+    for label, statement in checks:
+        if (await db.execute(select(statement))).scalar():
+            return label
+    return None
+
+
+async def _remove_orphaned_registration(db: "AsyncSession", table_name: str) -> None:
+    from app.data.models import RegisteredTable, TableColumn
+    from app.datasources.sync_service import PERIOD_TABLES
+
+    await db.execute(delete(TableColumn).where(TableColumn.table_name == table_name))
+    await db.execute(delete(RegisteredTable).where(RegisteredTable.table_name == table_name))
+    unregister_source_table_model(table_name)
+    PERIOD_TABLES.pop(table_name, None)
+    logger.warning("[dynamic-tables] removed orphaned registration: %s", table_name)
+
+
 async def load_dynamic_tables(db: "AsyncSession") -> None:
     """从 registered_tables 加载业务表，注入 DATA_TABLES / PERIOD_TABLES。"""
     from app.data.models import DATA_TABLES, RegisteredTable
@@ -147,17 +180,31 @@ async def load_dynamic_tables(db: "AsyncSession") -> None:
         )
     ).scalars().all()
 
-    # 查询所有视图名
-    from sqlalchemy import text as sa_text
-    view_rows = await db.execute(sa_text(
-        "SELECT table_name FROM information_schema.views WHERE table_schema = 'public'"
-    ))
-    view_names = {r[0] for r in view_rows.all()}
+    relation_rows = await db.execute(
+        text(
+            "SELECT table_name, table_type FROM information_schema.tables "
+            "WHERE table_schema = 'public'"
+        )
+    )
+    relation_types = {row[0]: row[1] for row in relation_rows.all()}
 
+    orphaned = False
     for rt in rows:
-        if rt.table_name in view_names:
+        relation_type = relation_types.get(rt.table_name)
+        if relation_type is None:
+            reason = None if rt.is_builtin else await _table_reference_reason(db, rt.table_name)
+            if rt.is_builtin or reason:
+                detail = "内置表" if rt.is_builtin else f"仍被{reason}引用"
+                raise RuntimeError(f"动态表 {rt.table_name} 缺失，{detail}，拒绝自动清理")
+            await _remove_orphaned_registration(db, rt.table_name)
+            orphaned = True
+            continue
+        if relation_type == "VIEW":
             await _register_view_model(db, rt.table_name, force=True)
             logger.info("[dynamic-tables] registered view: %s", rt.table_name)
         else:
             await register_source_table_model(db, rt.table_name, force=True)
             register_period_table(rt, overwrite=True)
+
+    if orphaned:
+        await db.commit()

@@ -19,10 +19,33 @@
 | 编排 `WorkflowOrchestrator` + `workflow_definitions` | 新建 | **复用** `app/ucp/pipeline_engine.py`（生产级 DAG：CONNECTOR/TRANSFORM/BRANCH/LOOP） |
 | 审批/二次确认 | 新建 | **复用** `app/ucp/approval_service.py`（SINGLE/ANY/ALL + NONE/SIMPLE/TOKEN） |
 | AI 审计 `ai_interaction_logs` | 新建 | **复用** `app/ai/audit.py` + `AiConversation` |
-| 指标层 | "七层数仓已 populated" | **二次校准**：实为 4 层（ODS/DWD/DWS/ADS）；`WarehouseMetric` 是口径目录；当前 `compute_metric` 已改为基于已发布 `DwsAggregateDefinition` 生成 DWS view 后计算，**不再是旧版单行 LIMIT 1 bug**；但缺少 HR 指标 seed + DWS 聚合定义 + 端到端验证 → Phase 0 改为 **HR 指标计算链路补齐** |
+| 指标层 | "七层数仓已 populated" | **二次校准**：实为 4 层（ODS/DWD/DWS/ADS）；指标定义和聚合链路已有基础，但 HR 指标 seed、DWS 聚合定义和端到端验证仍缺失，统一后移至当前阶段 4 |
 | 权限 `PermissionContext`/`feishu_user_mapping` | 新建 | **派生**自现有 `app/auth`+`app/roles`+`app/scopes`+`app/menus`（RBAC：menu_code × V/C/U/D/E）；`feishu_user_mapping` 先核实是否已存在 |
 | 迭代工期 | 1-2 天/版本、硬骨头低估 | **重排**：将工程量从建表/CRUD 挪到 Planner/Reasoner/RAG/飞书对话 bot/指标引擎修复；取消不切实际的 1 天承诺 |
 | 评估/质检 | 仅"成功率统计" | **新增**：复用 `app/ai/evals.py`，设定可量化 KPI（见第十三章） |
+
+---
+
+## 文档定位与实施关系
+
+本文档是 HR Agent 的总体架构、产品战略和长期演进路线，不直接承载所有业务场景的原子开发任务。
+
+| 文档 | 权威职责 |
+|:---|:---|
+| `specs/004-ai-native-workbench/` | AI 技术宪法、公共 Runtime 协议和实施状态台账 |
+| 本文档 | HR Agent 总架构、产品路线图、业务场景索引 |
+| `specs/008-hr-adjustment-assistant/atomic-tasks.md` | 首个完整高风险业务场景——组织与人员调整助手的执行文档 |
+| `specs/011-universal-connector-platform/implementation-plan.md` | 外部连接、凭证、Pipeline、审批、执行、重试和监控底座 |
+
+实施关系：
+
+- 004 定义公共能力和技术边界，本文不重复定义公共协议细节；
+- 本文决定产品建设顺序和各业务场景在 HR Agent 中的位置；
+- 008 定义调整业务模型、状态机、页面、接口、UCP 配置和原子任务；
+- 011 定义外部执行机制，不决定调整业务规则；
+- 业务场景不得重复建设 Capability Runtime、权限闸、审计、UCP 或飞书基础设施。
+
+公式/计算字段是 AI 底座的首个技术验证场景；组织与人员调整助手是 HR Agent 的首个完整高风险业务场景。
 
 ---
 
@@ -129,7 +152,27 @@
 | 指标定义模型 | `app/datasets/models.py:209` `WarehouseMetric`（表 `warehouse_metrics`） | **复用**，作为指标定义载体 |
 | 数仓管道（DWS/ADS 物化） | `app/warehouse/materialization.py`、`modeling.py`(`generate_dws_view`)、`metric_automation.py` | **复用**物理视图构建 |
 
-### 2.2 需修正/重建的部分
+### 2.2 AI 公共能力真实状态
+
+> 详细代码证据、缺口和禁止重建事项以 `specs/004-ai-native-workbench/current-state-and-gaps.md` 为准。
+
+| 公共能力 | 状态 | 当前依据 | 当前动作 |
+|:---|:---|:---|:---|
+| Capability 注册与权限/风险元数据 | 已实现 | `app/ai/capabilities.py` | 直接复用 |
+| ChatRoute 与 LLM-first 分类 | 已实现 | `app/ai/router.py` | 追加 Route，不建关键词 Router |
+| Schema Validator / Policy Guard | 已实现基础 | `app/ai/schema_validator.py`、`policy_guard.py` | 补目标 Capability 统一校验 |
+| PostgreSQL 会话 | 已实现 | `app/ai/conversation.py`、`AiConversation` | 直接复用 |
+| AI Audit / trace_id | 已实现基础 | `app/ai/audit.py` | 补实际命中能力与失败阶段 |
+| Context Packet | 已实现基础 | `app/ai/context_builder.py` | 强制权限过滤、字段裁剪和脱敏契约 |
+| `BaseCapabilityPlan` | 未统一 | Extractor 当前返回普通 `dict` | 阶段 0A 收口 |
+| `CapabilityResultEnvelope` | 部分实现 | `AiChatOut` + 任意 `artifact` | 阶段 0A 收口并兼容旧字段 |
+| 通用 Runtime | 部分实现 | `global_ai_chat` 主链集中于 `router.py` | 收口现有主链，不另建平台 |
+| Web/飞书共享 Handler | 未完成 | Web 已有，飞书以通知/卡片为主 | Web 稳定后接入同一 Handler |
+| AI 与 UCP Pipeline 适配 | 未完成 | UCP 执行底座已实现 | 只补 Plan Validator 和节点映射 |
+
+**结论**：现有底层组件大部分已具备，第一阶段不是“建设 HR Agent 最小底座”，而是“盘点并收口现有 AI 公共底座，补齐统一 Runtime 缺口”。
+
+### 2.3 需修正/重建的部分
 
 | 项目 | 问题 | 修正方向 |
 |:---|:---|:---|
@@ -138,7 +181,7 @@
 | 新建 `feishu_user_mapping` | 需先核实 `app/auth` 是否已存飞书 open_id 映射 | 核实后决定复用 or 扩展 |
 | 新建独立 `PermissionContext` | 会与现有 RBAC/scope 形成双真理源 | **从现有角色/范围/用户模型派生** |
 
-### 2.3 指标层现状复核〔据代码核实〕
+### 2.4 指标层现状复核〔据代码核实〕
 
 - **分层实为 4 层**：`layer_policy.py:40` `LAYER_ORDER = {"ODS":0,"DWD":1,"DWS":2,"ADS":3}`，无 DM 层、无独立 METRIC 层。原方案"七层数仓"与代码不符。
 - **`WarehouseMetric` 自身定位**：docstring 写明"一期为口径目录，不自动计算"。
@@ -148,7 +191,7 @@
 
 > **结论**：指标**定义骨架 + DWS 聚合计算链路**已具备，但**HR 指标未补齐、聚合定义未形成可直接消费的标准资产、权限过滤未完成端到端验证**。方案不能把指标层当"已完成依赖"直接消费，必须单列 Phase 0；但 Phase 0 的重点应从"修复单行 bug"改为"补齐 HR 指标计算链路"。
 
-### 2.4 技术栈基线〔专家明确〕
+### 2.5 技术栈基线〔专家明确〕
 
 - **数据库**：PostgreSQL（`asyncpg`）+ SQLAlchemy 2.0 async + Alembic。所有表以 ORM 模型 + 迁移脚本落地，禁止裸 MySQL DDL。
 - **LLM 提供方**：OpenAI-compatible HTTP 端点（`app/ai/provider.py` 经 `httpx` 直连）。**不引入未经预研的 Agent SDK**；如确需增强编排能力（如 function-calling），在现有 provider 上扩展，保持提供方无关。
@@ -606,14 +649,16 @@ MVP 阶段采用关键词/规则路由，避免一开始依赖不稳定的 LLM P
 
 一期可先以内存/审计日志记录轻量状态；二期做顺序编排时再持久化 run/step 状态；三期接 DAG 时再适配 `pipeline_engine`。
 
-#### 6.4.6 分阶段落地
+#### 6.4.6 当前收口与后续演进
 
 | 阶段 | Runtime 能力 |
 |:---|:---|
-| 一期 | 关键词 Router + 单 Capability Handler + 统一 Result Schema + 审计 |
-| 二期 | 顺序编排：`query_metric → trend → drill_down → summary` |
-| 三期 | DAG 编排：适配 `pipeline_engine`，支持并行、条件、失败跳过 |
-| 五期 | Capability 管理界面：需先设计 DB override，不能只读静态 `capabilities.py` |
+| 阶段 0A | 收口现有 LLM-first ChatRoute、目标 Capability 权限/Policy 闸、Plan、Result、审计和 Handler 契约 |
+| 阶段 0B-3 | 用调整助手验证单 Capability、多轮歧义、UCP 执行及 Web/飞书共享 Handler |
+| 阶段 4 及以后 | 在同一公共协议上扩展指标、趋势、拆解、分析、图表和组合 Plan |
+| 治理成熟期 | Capability 管理界面；需先设计受限 DB override，不能覆盖代码安全边界 |
+
+工作流 DAG 始终复用 `pipeline_engine`，不新建独立 Orchestrator。
 
 ### 6.5 Capability 自沉淀 / 受控发布〔二次校准新增〕
 
@@ -818,9 +863,9 @@ WHERE dept_id IN (${user_department_ids})  -- 自动注入，无需手写
 
 ---
 
-## 八、指标体系前置建设〔专家重写·关键路径〕
+## 八、指标体系后续建设〔阶段 4 能力〕
 
-> 本章对应原方案最大的隐含假设。经代码核实，指标层**不是**"已 populated 的七层"，而是"定义骨架 + 数仓管道已具备，但计算引擎对 HR 聚合不可用、且未定义任何指标"。故单列 **Phase 0** 前置迭代。
+> 指标体系仍是完整 HR Agent 的重要基础，但不再作为当前首个业务场景的 Phase 0。当前先用组织与人员调整助手收口公共 Runtime 并跑通高风险写闭环；指标、分析和图表能力在阶段 4 继续建设。
 
 ### 8.1 现状
 
@@ -830,7 +875,7 @@ WHERE dept_id IN (${user_department_ids})  -- 自动注入，无需手写
 - 因此当前瓶颈不是“系统完全不会聚合”，而是：首批 HR 指标缺少 seed、每个指标缺少对应 DWS 聚合定义、period 规则未统一、行/列权限未在指标查询链路中完成端到端验证。
 - `metric_automation`/L4 级联 feature flag 默认 `False`，自动发布能力不能作为 MVP 默认依赖。
 
-### 8.2 Phase 0-A：补齐 HR 指标计算链路
+### 8.2 阶段 4-A：补齐 HR 指标计算链路
 
 沿用现有 `WarehouseMetric → DwsAggregateDefinition → DWS view → MetricResult/MetricResultRow` 链路，不另写一套指标 SQL 编译器。Phase 0-A 的任务是：
 
@@ -840,7 +885,7 @@ WHERE dept_id IN (${user_department_ids})  -- 自动注入，无需手写
 4. 通过 `compute_metric` 跑通结果写入，验证 `MetricResultRow` 能承载明细维度结果。
 5. 在 Agent 查询层接入权限过滤：Capability 的 `required_permission` 只管“能否使用能力”，行级/列级权限必须在数据查询和结果裁剪层再次执行。
 
-### 8.3 Phase 0-B：定义首批 HR 指标（seed + 聚合定义）
+### 8.3 阶段 4-B：定义首批 HR 指标（seed + 聚合定义）
 
 向 `warehouse_metrics` 写入并发布首批指标，同时为每个指标配置/生成对应 `DwsAggregateDefinition`：
 
@@ -852,38 +897,76 @@ WHERE dept_id IN (${user_department_ids})  -- 自动注入，无需手写
 
 每个指标至少包含：`metric_code`、`metric_name`、`business_definition`、`calculation_desc`、`formula_expr`、`related_dataset_id`、`related_fields`、`subject_area`、`stat_period`，以及对应 DWS 聚合定义。
 
-> 完成 Phase 0 后，迭代 1.2「查离职率」方可真正跑通。Phase 0 的验收不是“表里有指标”，而是 Web/后端 API 能返回可信数值、口径说明、权限过滤后的结果，并留下审计痕迹。
+> 完成阶段 4-A/4-B 后，HR 指标问答才可真正跑通。验收不是“表里有指标”，而是 Web/后端 API 能返回可信数值、口径说明、权限过滤后的结果，并留下审计痕迹。
 
 ---
 
-## 九、极小迭代规划〔保留全部细节 + 修正技术实现〕
+## 九、当前实施顺序与长期迭代路线
 
-### 9.1 迭代地图（修正）
+### 9.1 当前权威开发顺序
+
+当前不是重做一遍 HR Agent 底座，也不是绕开 HR Agent 直接开发调整助手。权威顺序为：
+
+| 阶段 | 目标 | 主要交付与进入条件 |
+|:---|:---|:---|
+| **阶段 0A** | 收口现有 HR Agent 公共能力 | 目标 Capability 权限/Policy 闸、`BaseCapabilityPlan`、`CapabilityResultEnvelope`、审计和 Handler 契约；完成后才新增调整 ChatRoute |
+| **阶段 0B** | 北森 + UCP 技术切片 | 固化业务规则，跑通人员调动、调动+换上级、纯上级变更；切片通过后才开发正式执行 |
+| **阶段 1** | 调整助手 Web 业务闭环 | 草稿、实体歧义、确认、批次、SSC 复核、待办；Web UAT 通过后才进入飞书 |
+| **阶段 2** | UCP 预演、审批和执行 | 预演、审批、正式执行、部分失败、重试和全链路审计 |
+| **阶段 3** | 飞书入口 | 复用同一 Handler、Result Envelope 和业务状态，不复制业务逻辑 |
+| **阶段 4** | 完整 HR Agent 能力 | 继续指标、趋势、分析、图表、报告、RAG 等长期能力 |
+
+首个业务场景是“组织与人员调整助手”，它用真实高风险 HR 写场景验证：结构化 Plan、多轮槽位和歧义处理、行级权限、人工确认、UCP 审批执行、Web/飞书共享 Handler、trace_id、部分失败和待办闭环。
+
+执行文档：`specs/008-hr-adjustment-assistant/atomic-tasks.md`。
+
+### 9.2 阶段 0A：现有 AI 主链收口（约 3-5 人天）
+
+目标不是新建另一套 Runtime，而是将现有 `global_ai_chat` 主链收口为可复用协议：
+
+1. 在 ChatRoute 分发后统一校验目标 Capability 权限和 Policy；
+2. 定义 `BaseCapabilityPlan`；
+3. 定义 `CapabilityResultEnvelope`，兼容旧字段但禁止新增顶层业务专属字段；
+4. 审计记录 `matched_capability_id`、`normalized_intent`、权限拒绝和 `failure_stage`；
+5. 明确 Handler 的权限过滤、脱敏和 Context Packet 契约；
+6. 对补偿金、权限解释、自动化和数据对账做回归，保持已有能力兼容。
+
+沿用现有 LLM-first ChatRoute：LLM 在已注册 Route 中分类，`active_capability_id` 承担多轮续接，分类失败返回 `general_question`。不使用散落的关键词 Router；高风险动作始终通过确定性业务 API、确认和审批。
+
+### 9.3 阶段 0B 至阶段 3：首场景执行
+
+具体业务规则、表、API、页面、UCP Pipeline 和任务编号只在 008 中定义。本文只保留里程碑和进入条件，不复制原子任务。
+
+### 9.4 阶段 4 及以后：长期能力路线
+
+原指标问答、维度拆解、趋势分析、图表、深度工作台、RAG、预警和 Capability 沉淀方案继续有效，但统一后移到阶段 4 及以后，复用阶段 0A-3 形成的公共底座。以下原迭代细节作为长期能力池保留，不代表当前优先级。
+
+#### 9.4.1 HR 指标计算链路与可信问答
 
 | 里程碑 | 迭代 | 天数（修正） | 飞书能力 | Web 能力 | 权限 | 数据安全 | Capability 编排 | 超链接 |
 |:---|:---|:---|:---|:---|:---|:---|:---|:---|
-| **Phase 0** | 0-A/0-B | 5-8 天 | — | 后端/API验证 | 权限链路验证 | 审计/脱敏链路验证 | 指标 Capability 依赖准备 | — |
-| 一期 MVP | 1.1-1.6 | 12-16 天 | 对话 Bot MVP | 先复用全局 AI 助手，不先做三栏 | 身份映射+行级 | 脱敏+审计 | HR 指标 Capability + 轻量 Router/Runtime + 统一 Result Schema | 基础跳转 |
+| **长期指标准备** | 原 0-A/0-B | 5-8 天 | — | 后端/API验证 | 权限链路验证 | 审计/脱敏链路验证 | 指标 Capability 依赖准备 | — |
+| **长期可信问答** | 原 1.1-1.6 | 12-16 天 | 飞书能力须遵循当前阶段 3 门禁 | 复用全局 AI 助手 | 身份映射+行级 | 脱敏+审计 | HR 指标 Capability 复用统一 Runtime | 基础跳转 |
 | 二期扩展 | 2.1-2.9 | 14-18 天 | 维度拆解+多轮+按钮 | 同步增强 | 列级+角色 | 脱敏扩展 | 复合+顺序编排 | 上下文链接 |
 | 三期分析 | 3.1-3.6 | 14-18 天 | 分析摘要+链接 | 完整归因报告 | 操作权限+审计 | 审计增强 | 工作流(DAG) | 报告跳转 |
 | 四期图表 | 4.1-4.6 | 12-16 天 | 图表预览+链接 | 图表交互+下载+下钻 | 脱敏+导出权限 | 飞书消息脱敏 | 图表 Capability | 图表跳转 |
 | 五期成熟 | 5.1-5.8 | 18-24 天 | 预警卡片+命令 | 深度分析模式(渐进式三栏)+RAG | 完整 RBAC | 审计看板 | 工作流库+编排界面 | 全场景 |
 | 六期主动 | 6.1-6.3 | 8-12 天 | 预警推送 | 预警看板 | 权限审计 | 合规报告 | Capability 自沉淀 | 预警跳转 |
 
-> **专家说明**：原"1-2 天/版本"对建表/CRUD 类成立，但对"搭建对话 bot / Planner / Reasoner / RAG / 指标链路补齐"等严重低估。本表将工程量重排到硬骨头，天数相应上调，更贴近真实。二次校准后，一期 MVP 不再追求 11 个小迭代全部铺开，而是压缩为能验证真实业务闭环的 6 个必需迭代：先跑通 Web 全局 AI 助手 + HR 指标可信查询，再叠飞书 Bot 和反馈闭环。
+> **历史工期说明**：以下指标/分析能力估算保留作阶段 4 以后排期参考，不代表当前实施优先级。飞书对话入口统一遵循阶段 3 门禁，不与指标问答同步抢跑。
 
 ---
 
-### 9.2 Phase 0：HR 指标计算链路补齐（5-8 天）〔二次校准〕
+#### 9.4.2 HR 指标计算链路补齐（历史估算 5-8 天）
 
 | 迭代 | 做什么 | 技术实现（复用/修正） | 验收标准 |
 |:---|:---|:---|:---|
 | 0-A | 核实源表、字段、周期规则和权限链路 | 梳理员工月度/实时花名册/薪酬/成本/离职状态字段；明确 `YYYY-MM` 到 DWS view 的 period 映射；确定行级 scope 与列级裁剪落点 | 能列出每个核心指标的数据来源、字段、过滤条件、权限规则 |
 | 0-B | 定义首批 HR 指标并配置 DWS 聚合定义 | 向 `warehouse_metrics` seed HC/入职人数/离职人数/离职率/人均成本；同步创建/发布对应 `DwsAggregateDefinition`；沿用现有 `compute_metric` 计算结果 | `POST /metrics/{id}/compute` 能返回正确结果；`MetricResultRow` 有维度明细；不同权限用户结果不同 |
 
-> Phase 0 不再定义为“修复 `compute_metric` 单行 bug”。当前代码已走 DWS 聚合链路，真正要补的是 HR 指标资产、DWS 聚合定义、周期规则、权限过滤和端到端验收数据。
+> 本项不再定义为当前 Phase 0，也不是“修复 `compute_metric` 单行 bug”。当前代码已走 DWS 聚合链路，需补的是 HR 指标资产、DWS 聚合定义、周期规则、权限过滤和端到端验收数据。
 
-### 9.3 一期：MVP 可信指标问答闭环（12-16 天）〔二次校准〕
+#### 9.4.3 可信指标问答闭环（长期能力）
 
 > 一期目标从“铺开 11 个功能点”调整为“跑通一个真实可信闭环”：用户在 Web 全局 AI 助手中询问 HR 指标，系统返回真实计算值、口径说明、权限过滤后的结果、脱敏提示和审计记录；随后再接入飞书对话 Bot。三栏工作台、Capability 管理界面、脱敏规则配置界面后移，不阻塞 MVP。
 
@@ -892,7 +975,7 @@ WHERE dept_id IN (${user_department_ids})  -- 自动注入，无需手写
 | 项目 | 内容 |
 |:---|:---|
 | 做什么 | 在 `capabilities.py` 注册 HR 指标查询能力，如 `hr.metric.query` / `query_metric`；同步建立一期轻量 Capability Runtime 协议 |
-| 技术实现 | 复用 `WarehouseMetric` + `MetricComputeService` + `MetricResultRow`；不建 `metric_definitions` / `agent_skills` 表；一期先完成关键词 Router、单 Capability Handler、统一 Result Schema |
+| 技术实现 | 复用 `WarehouseMetric` + `MetricComputeService` + `MetricResultRow`；不建 `metric_definitions` / `agent_skills` 表；按阶段 0A 已收口的 LLM-first ChatRoute、Handler 和 Result Envelope 接入 |
 | 用户可感知 | 能问“6月 HC 是多少”“离职率是多少” |
 | 验收标准 | 3-5 个核心指标能返回数值、口径说明、周期、维度结果；返回结构符合统一 Result Schema |
 
@@ -910,7 +993,7 @@ WHERE dept_id IN (${user_department_ids})  -- 自动注入，无需手写
 | 项目 | 内容 |
 |:---|:---|
 | 做什么 | 复用 `GlobalAiAssistant.vue`，让 Web 先具备 HR 指标问答能力 |
-| 技术实现 | 扩展现有 `aiApi.chat()` 后端路由/handler，优先 keyword 路由到 HR 指标 Capability；前端先渲染文本、表格和口径说明 |
+| 技术实现 | 扩展现有 `aiApi.chat()` 对应的 LLM-first ChatRoute/Handler；前端渲染文本、表格、口径、权限和脱敏说明 |
 | 用户可感知 | 在任意页面右下角 AI 助手直接问 HR 指标 |
 | 验收标准 | Web 对话可用；回答包含数值、口径、周期、权限/脱敏提示 |
 
@@ -923,7 +1006,9 @@ WHERE dept_id IN (${user_department_ids})  -- 自动注入，无需手写
 | 用户可感知 | 敏感字段被屏蔽或标记“🔒 已脱敏” |
 | 验收标准 | 审计日志可查；敏感字段漏脱率为 0；LLM 不接收未脱敏行级明细；能按问题/意图/Capability/未命中/失败原因统计，为后续受控沉淀提供数据 |
 
-#### 迭代 1.5：飞书对话 Bot MVP（3-4 天）
+#### 历史迭代 1.5：飞书对话 Bot（统一后移至当前阶段 3）
+
+> 本能力不再与指标问答同步建设。只有组织与人员调整 Web UAT 及 UCP 闭环通过后，才按当前阶段 3 接入；届时必须复用同一 Handler 和 Result Envelope。
 
 | 项目 | 内容 |
 |:---|:---|
@@ -1231,7 +1316,7 @@ https://{portal_domain}/agent/redirect?thread_id={thread_id}&chart_id={chart_id}
 
 | 风险 | 等级 | 说明 | 缓解 |
 |:---|:---|:---|:---|
-| 指标链路未补齐即消费 | 高 | 当前不是旧版单行 bug，而是 HR 指标 seed、DWS 聚合定义、period 规则、权限过滤和验收数据不足；Phase 0 未做则 1.2 仍会卡死 | 强制 Phase 0 先于一期；沿用 `WarehouseMetric → DwsAggregateDefinition → DWS view → MetricResult` 链路 |
+| 指标链路未补齐即消费 | 高 | HR 指标 seed、DWS 聚合定义、period 规则、权限过滤和验收数据不足 | 作为当前阶段 4 的进入条件；沿用 `WarehouseMetric → DwsAggregateDefinition → DWS view → MetricResult` 链路 |
 | Capability Runtime 缺失 | 高 | 只有 `capabilities.py` 元数据不等于能力可执行；若没有 Router/Executor/Result Schema/Execution State，Web、飞书和后续编排会各自实现，形成重复和混乱 | 第六章新增 Runtime 协议；一期先做轻量 Router + 单 Capability Handler + 统一 Result Schema |
 | 权限只做入口校验 | 高 | `required_permission` 只能判断能否使用 Capability，不能替代行级过滤、列级裁剪、脱敏和导出权限 | 单列权限上下文与查询过滤适配层；数据查询层和结果返回层双重兜底 |
 | 飞书 Bot 被低估 | 高 | 现有飞书模块主要是通知/卡片回调，不等于对话 Bot；还需 message 事件、open_id 映射、幂等、群聊/私聊上下文和权限失败提示 | 飞书 Bot 放在 Web 指标切片之后；先复用发送能力，再补对话主链路 |

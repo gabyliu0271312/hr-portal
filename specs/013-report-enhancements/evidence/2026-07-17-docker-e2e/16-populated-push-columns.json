@@ -1,0 +1,16 @@
+﻿[
+    {
+        "code":  "current.employee_no",
+        "label":  "å·¥å·",
+        "data_type":  "number",
+        "is_sensitive":  false,
+        "source_code":  "current.employee_no"
+    },
+    {
+        "code":  "current.employee_no#2",
+        "label":  "å·¥å· (2)",
+        "data_type":  "number",
+        "is_sensitive":  false,
+        "source_code":  "current.employee_no"
+    }
+]

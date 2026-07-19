@@ -1,0 +1,42 @@
+﻿{
+    "name":  "track-b-docker-e2e-20260717",
+    "description":  "Temporary real-environment Track B acceptance report",
+    "dataset_id":  5,
+    "config":  {
+                   "columns":  [
+                                   {
+                                       "source_code":  "current.employee_no",
+                                       "instance_id":  "current.employee_no"
+                                   },
+                                   {
+                                       "source_code":  "current.employee_no",
+                                       "instance_id":  "current.employee_no#2"
+                                   }
+                               ],
+                   "filters":  [
+
+                               ],
+                   "sorts":  [
+
+                             ],
+                   "value_rules":  [
+
+                                   ],
+                   "column_settings":  {
+
+                                       },
+                   "aggregate":  true,
+                   "default_aggregation":  "sum",
+                   "aggregations":  {
+                                        "current.employee_no":  "sum",
+                                        "current.employee_no#2":  "count"
+                                    },
+                   "transpose":  {
+
+                                 },
+                   "rounding_corrections":  [
+
+                                            ]
+               },
+    "visibility":  "private"
+}

@@ -1,0 +1,27 @@
+﻿{
+    "id":  7,
+    "name":  "ds_emp_monthly_salary",
+    "label":  "åå·¥æåº¦å·¥èµè¡¨",
+    "description":  "ç³»ç»èªå¨åå»ºï¼ç¨äº åå·¥æåº¦å·¥èµè¡¨ çæ¥è¡¨ãææ¬åæä¸è®¡ç®å­æ®µã",
+    "is_active":  true,
+    "warehouse_layer":  "DWD",
+    "scope_strategy":  null,
+    "created_by":  null,
+    "tables":  [
+                   {
+                       "table_name":  "emp_monthly_salary",
+                       "alias":  "current",
+                       "id":  79,
+                       "table_label":  "åå·¥æåº¦å·¥èµè¡¨"
+                   }
+               ],
+    "relations":  [
+
+                  ],
+    "acl":  [
+
+            ],
+    "referenced_by_reports":  0,
+    "created_at":  "2026-06-09T12:21:34.615672Z",
+    "updated_at":  "2026-06-09T12:21:34.615672Z"
+}

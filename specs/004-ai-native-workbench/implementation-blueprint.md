@@ -1,4 +1,8 @@
-# AI 原生工作台一期实施蓝图
+# AI 原生工作台 Phase 0/1 历史实施蓝图与验收记录
+
+> **文档状态（2026-07-18）**：本文记录 2026-06-08 时 Phase 0/1 的原始设计和建设过程，不再作为新增 AI 场景的直接开发依据。文中的“建议新增”目录、表、权限、API 和开发顺序可能已被真实代码替代；实际状态以 `current-state-and-gaps.md` 为准。
+>
+> 新增 AI 场景请依次阅读：`README.md` → `ai-native-development-principles.md` → `current-state-and-gaps.md` → `ai-capability-registry.md` → `../../HR-Agent建设方案-专家修订版.md` → 对应业务场景文档。
 
 版本：v0.1  
 日期：2026-06-08  

@@ -32,9 +32,11 @@ from app.ai_formula.router import draft_formula_impl, validate_formula_impl
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.data_compare.chat_handler import extract_compare_spec, run_data_compare
+from app.data_compare.executor import ScopeDeniedError
 from app.data_compare.metadata import MetadataLoader
-from app.data_compare.schemas import CompareSpec
+from app.data_compare.schemas import CompareResult, CompareSpec
 from app.data_compare.validator import validate_compare_spec, SchemaValidationError
+from app.automation.schemas import AutomationRuleCreate
 from app.core.secret_box import decrypt, encrypt
 from app.datasets.calculated_fields import CalculatedFieldIn, CalculatedFieldOut
 from app.datasets.calculated_fields import create_calculated_field as create_calculated_field_impl
@@ -216,32 +218,26 @@ class CompensationComparisonResultData(BaseModel):
     compensation: CompensationCalcOut | None = None
 
 
+class AutomationRuleDraftOut(AutomationRuleCreate):
+    model_config = ConfigDict(extra="forbid")
+
+    receiver_query: str | None = None
+
+
 class AutomationRuleDraftResultData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     artifact_type: Literal["automation_rule"] = "automation_rule"
     status: Literal["draft"] = "draft"
-    rule_draft: dict[str, Any] | None = None
+    rule_draft: AutomationRuleDraftOut | None = None
     validation_errors: list[str] = Field(default_factory=list)
     missing_slots: list[str] = Field(default_factory=list)
     needs_config: list[str] = Field(default_factory=list)
     follow_up_question: str | None = None
 
 
-class DataCompareResultData(BaseModel):
+class DataCompareResultData(CompareResult):
     model_config = ConfigDict(extra="forbid")
-
-    compare_type: str
-    table_a: str
-    table_b: str
-    period_a: str | None = None
-    period_b: str | None = None
-    status: str
-    summary: dict[str, Any]
-    details: list[dict[str, Any]]
-    conclusion: str
-    duration_ms: int | None = None
-    display: dict[str, Any] | None = None
 
 
 RESULT_DATA_MODELS: dict[str, type[BaseModel]] = {
@@ -1255,30 +1251,38 @@ async def _handle_compensation_chat(
         next_context = _append_recent_comp_result(next_context, n_result)
         next_context = _append_recent_comp_result(next_context, n1_result)
         _comp_ctx_to_session(session, next_context, active=True)
-        compared = _compare_comp_result_snapshots(
+        comparison = _compare_comp_result_snapshots(
             _comp_result_snapshot(n_result),
             _comp_result_snapshot(n1_result),
             subject="N 与 N+1 两个方案",
         )
-        compared.trace_id = timer.trace_id
-        compared.result.data["compensation"] = n1_result.model_dump(mode="json")
-        compared.result.actions = [
-            _compensation_action(
-                _compensation_route_query(
-                    employee_id=selected_employee_id,
-                    keyword=keyword or n1_result.employee.name,
-                    leave_date=n1_result.leave_date.isoformat(),
-                    plan=n1_result.plan,
-                    region=n1_result.work_region,
-                ),
-                label="打开并核对 N+1 补偿金计算",
-            )
-        ]
-        compared.permission = PermissionResultOut(
-            filtered=True,
-            note="已按当前用户数据范围过滤",
+        return _chat_out(
+            intent="compensation.calculate",
+            status="succeeded",
+            answer=comparison.answer,
+            capability_id=calc_capability.capability_id,
+            result_type="compensation_comparison",
+            data=CompensationComparisonResultData(
+                previous=comparison.result.data["previous"],
+                current=comparison.result.data["current"],
+                compensation=n1_result,
+            ),
+            actions=[
+                _compensation_action(
+                    _compensation_route_query(
+                        employee_id=selected_employee_id,
+                        keyword=keyword or n1_result.employee.name,
+                        leave_date=n1_result.leave_date.isoformat(),
+                        plan=n1_result.plan,
+                        region=n1_result.work_region,
+                    ),
+                    label="打开并核对 N+1 补偿金计算",
+                )
+            ],
+            permission_filtered=True,
+            permission_note="已按当前用户数据范围过滤",
+            trace_id=timer.trace_id,
         )
-        return compared
 
     calc_in = CompensationCalcIn(
         employee_id=selected_employee_id,
@@ -1491,6 +1495,9 @@ async def _handle_my_scope_chat(
         status="succeeded",
         answer=answer,
         capability_id=capability.capability_id,
+        permission_filtered=not is_super,
+        permission_note="" if is_super else "已按当前用户数据权限范围说明",
+        masking_applied=False,
         trace_id=timer.trace_id,
     )
 
@@ -1520,10 +1527,10 @@ async def _extract_automation_rule_request(
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
     """LLM extractor：从自然语言提取自动化规则槽位。
 
-    返回 (extracted, artifact, parse_mode):
+    返回 (extracted, usage, parse_mode):
     - extracted: 提取的槽位字典
-    - artifact: 规则草稿 artifact（信息充足时）；否则 None
-    - parse_mode: "llm_extract" 或 "missing_slots"
+    - usage: 模型调用用量；未调用或失败时为 None
+    - parse_mode: "llm_extract"、"missing_slots" 或失败状态
     """
     config = await active_ai_config(db)
     model = (config.model_reasoning or config.model_fast_json or "").strip()
@@ -1600,32 +1607,13 @@ async def _extract_automation_rule_request(
         "rule_name": raw.get("rule_name"),
     }
 
-    # 信息不足 → 追问
     if missing_slots:
-        artifact = {
-            "artifact_type": "automation_rule",
-            "status": "draft",
-            "rule_draft": None,
-            "validation_errors": [],
-            "missing_slots": missing_slots,
-            "follow_up_question": follow_up,
-        }
         return extracted, usage, "missing_slots"
 
-    # 信息充足 → 生成草稿 artifact
-    rule_draft = _build_automation_rule_draft(extracted)
-    artifact = {
-        "artifact_type": "automation_rule",
-        "status": "draft",
-        "rule_draft": rule_draft,
-        "validation_errors": [],
-        "missing_slots": [],
-        "follow_up_question": None,
-    }
     return extracted, usage, "llm_extract"
 
 
-def _build_automation_rule_draft(extracted: dict[str, Any]) -> dict[str, Any]:
+def _build_automation_rule_draft(extracted: dict[str, Any]) -> AutomationRuleDraftOut:
     """根据提取的槽位构建 AutomationRuleCreate 草稿内容。"""
     trigger_type = extracted.get("trigger_type") or "scheduled_report_success"
     trigger_config = {}
@@ -1666,19 +1654,18 @@ def _build_automation_rule_draft(extracted: dict[str, Any]) -> dict[str, Any]:
     ]
 
     rule_name = extracted.get("rule_name") or f"自动规则-{trigger_type}"
-    return {
-        "name": rule_name,
-        "description": f"由 AI 生成的自动化规则，触发器：{trigger_type}",
-        "biz_type": None,
-        "trigger_type": trigger_type,
-        "trigger_config": trigger_config,
-        "condition_config": [],
-        "actions_config": actions_config,
-        "enabled": False,  # 草稿默认不启用
-        "source": "ai_generated",
-        # AI 无法解析具体 ID，附加自然语言查询供前端选择器降级
-        "receiver_query": receiver_query,
-    }
+    return AutomationRuleDraftOut(
+        name=rule_name,
+        description=f"由 AI 生成的自动化规则，触发器：{trigger_type}",
+        biz_type=None,
+        trigger_type=trigger_type,
+        trigger_config=trigger_config,
+        condition_config=[],
+        actions_config=actions_config,
+        enabled=False,
+        source="ai_generated",
+        receiver_query=receiver_query,
+    )
 
 
 async def _handle_automation_rule_chat(
@@ -1689,18 +1676,13 @@ async def _handle_automation_rule_chat(
     db: AsyncSession,
     timer: AiAuditTimer,
 ) -> AiChatOut:
-    """处理自动化规则草稿生成请求。
-
-    流程：
-    1. 如果 extractor 返回了 artifact（含草稿或追问），直接使用
-    2. 调用规则校验（如果草稿存在）
-    3. 返回 AiChatOut 含 artifact
-    """
+    """处理自动化规则草稿生成请求。"""
     capability = _ensure_capability("automation.rule.create_draft")
     validate_capability_policy(capability, used_tools=[])
+    if not await user_has_permission(user, db, capability.required_permission):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权创建自动化规则草稿")
 
-    # extractor 已经生成了 artifact，直接从 session 或 extracted 获取
-    # 这里重新生成以确保一致性（extractor 已设置 session.active_capability_id）
+    # Handler 基于提取槽位构建草稿并作为唯一 API 结果生产者。
     session.active_capability_id = capability.capability_id
 
     rule_draft = _build_automation_rule_draft(extracted)
@@ -1716,10 +1698,9 @@ async def _handle_automation_rule_chat(
 
     # 检查接收人配置：如果有 receiver_query 但 action 中 receiver IDs 为空，标记 needs_config
     if extracted.get("feishu_receivers"):
-        actions = rule_draft.get("actions_config", [])
-        for action in actions:
-            if action.get("type") == "feishu_send_message":
-                recvs = action.get("config", {}).get("receivers", [])
+        for action in rule_draft.actions_config:
+            if action.type == "feishu_send_message":
+                recvs = action.config.get("receivers", [])
                 has_ids = any(
                     (r.get("type") == "fixed_chats" and r.get("chat_ids"))
                     or (r.get("type") == "fixed_users" and r.get("user_ids"))
@@ -1730,66 +1711,56 @@ async def _handle_automation_rule_chat(
 
     if missing_slots:
         follow_up = "请补充以下信息：" + "、".join(missing_slots)
-        artifact = {
-            "artifact_type": "automation_rule",
-            "status": "draft",
-            "rule_draft": rule_draft,
-            "validation_errors": [],
-            "missing_slots": missing_slots,
-            "needs_config": needs_config,
-            "follow_up_question": follow_up,
-        }
+        draft_data = AutomationRuleDraftResultData(
+            rule_draft=rule_draft,
+            missing_slots=missing_slots,
+            needs_config=needs_config,
+            follow_up_question=follow_up,
+        )
         return _chat_out(
             intent="automation.rule.create_draft",
             status="requires_input",
             answer=follow_up,
             capability_id=capability.capability_id,
             result_type="automation_rule_draft",
-            data=AutomationRuleDraftResultData(**artifact),
+            data=draft_data,
             trace_id=timer.trace_id,
             conversation_id=session.conversation_id,
         )
 
-    # 信息充足：生成草稿并校验
-    from app.automation.schemas import AutomationRuleCreate
     try:
-        validate_model_payload(AutomationRuleCreate, AutomationRuleCreate(**rule_draft), label="automation_rule_draft")
+        validate_model_payload(
+            AutomationRuleCreate,
+            AutomationRuleCreate(**rule_draft.model_dump(exclude={"receiver_query"})),
+            label="automation_rule_draft",
+        )
     except Exception as ve:
-        timer.add_event("validation", status="error", reason=str(ve)[:300])
-        # 校验失败 → 返回带错误的草稿
-        artifact = {
-            "artifact_type": "automation_rule",
-            "status": "draft",
-            "rule_draft": rule_draft,
-            "validation_errors": [str(ve)[:500]],
-            "missing_slots": [],
-            "needs_config": needs_config,
-            "follow_up_question": f"规则草稿校验失败：{ve}",
-        }
+        timer.add_event("validation", status="failed", reason=str(ve)[:300])
+        draft_data = AutomationRuleDraftResultData(
+            rule_draft=rule_draft,
+            validation_errors=[str(ve)[:500]],
+            needs_config=needs_config,
+            follow_up_question=f"规则草稿校验失败：{ve}",
+        )
         return _chat_out(
             intent="automation.rule.create_draft",
             status="failed",
             answer=f"规则草稿校验失败：{ve}",
             capability_id=capability.capability_id,
             result_type="automation_rule_draft",
-            data=AutomationRuleDraftResultData(**artifact),
+            data=draft_data,
             trace_id=timer.trace_id,
             conversation_id=session.conversation_id,
         )
 
-    artifact = {
-        "artifact_type": "automation_rule",
-        "status": "draft",
-        "rule_draft": rule_draft,
-        "validation_errors": [],
-        "missing_slots": [],
-        "needs_config": needs_config,
-        "follow_up_question": None,
-    }
+    draft_data = AutomationRuleDraftResultData(
+        rule_draft=rule_draft,
+        needs_config=needs_config,
+    )
     config_notice = "⚠️ 提示：接收人已识别但待配置具体用户/群，请在前端选择器中选择。\n" if needs_config else ""
     answer = (
-        f"已为你生成自动化规则草稿「{rule_draft['name']}」：\n"
-        f"- 触发器：{rule_draft['trigger_type']}\n"
+        f"已为你生成自动化规则草稿「{rule_draft.name}」：\n"
+        f"- 触发器：{rule_draft.trigger_type}\n"
         f"- 动作：发送飞书消息\n"
         f"{config_notice}"
         f"请在下方预览并确认，确认后可保存并启用。"
@@ -1800,7 +1771,7 @@ async def _handle_automation_rule_chat(
         answer=answer,
         capability_id=capability.capability_id,
         result_type="automation_rule_draft",
-        data=AutomationRuleDraftResultData(**artifact),
+        data=draft_data,
         trace_id=timer.trace_id,
         conversation_id=session.conversation_id,
     )
@@ -1877,6 +1848,8 @@ async def _handle_data_compare_chat(
     """Handler：执行对比并返回结果。"""
     capability = _ensure_capability("data.compare")
     validate_capability_policy(capability, used_tools=[])
+    if not await user_has_permission(user, db, capability.required_permission):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权使用数据对比")
 
     try:
         spec = CompareSpec.model_validate(extracted)
@@ -1891,7 +1864,21 @@ async def _handle_data_compare_chat(
         )
 
     try:
-        result = await run_data_compare(spec, user, db)
+        result, execution_metadata = await run_data_compare(
+            spec,
+            user,
+            db,
+            return_execution_metadata=True,
+        )
+    except ScopeDeniedError:
+        return _chat_out(
+            intent="data.compare",
+            status="failed",
+            answer="你没有权限访问本次对比所需的数据范围。",
+            capability_id=capability.capability_id,
+            data=MessageResultData(reason_code="compare_permission_denied"),
+            trace_id=timer.trace_id,
+        )
     except SchemaValidationError as e:
         return _chat_out(
             intent="data.compare",
@@ -1927,8 +1914,10 @@ async def _handle_data_compare_chat(
         capability_id=capability.capability_id,
         result_type="data_compare_result",
         data=DataCompareResultData.model_validate(result),
-        permission_filtered=True,
-        permission_note="已按当前用户数据范围过滤",
+        permission_filtered=execution_metadata["permission_filtered"],
+        permission_note=(
+            "已按当前用户数据范围过滤" if execution_metadata["permission_filtered"] else ""
+        ),
         masking_applied=_contains_masked_value(result),
         trace_id=timer.trace_id,
     )
@@ -1942,6 +1931,12 @@ async def _handle_data_compare_chat(
 #   3. 多轮续接由会话层 active_capability_id 承载(状态,不是关键词):
 #      分类为 general_question 但有在途任务时,续接到该任务。
 # ──────────────────────────────────────────────────────────────────────────
+def _result_candidate_count(result: CapabilityResultOut) -> int:
+    if result.type not in {"compensation_input", "compensation_preview"}:
+        return 0
+    return len(result.data["candidates"])
+
+
 @dataclass(frozen=True)
 class ChatRoute:
     intent: str
@@ -2199,7 +2194,7 @@ async def global_ai_chat(
                 "intent": out.intent,
                 "parse_mode": parse_mode,
                 "action_count": len(out.result.actions),
-                "candidate_count": len(out.result.data.get("candidates", [])),
+                "candidate_count": _result_candidate_count(out.result),
                 "read_only": True,
             },
             token_usage=usage,
@@ -2209,7 +2204,7 @@ async def global_ai_chat(
         return out
     except (AiSchemaValidationError, AiPolicyError, HTTPException, ValueError) as exc:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
-        timer.add_event("failure", status="error", capability_id=capability.capability_id, reason=str(detail)[:500])
+        timer.add_event("failure", status="failed", capability_id=capability.capability_id, reason=str(detail)[:500])
         await record_ai_log(
             db=db,
             user=user,
@@ -2218,7 +2213,7 @@ async def global_ai_chat(
             response_summary=None,
             input_payload=payload.model_dump(),
             output_payload={},
-            status="error",
+            status="failed",
             metadata={"capability_id": capability.capability_id},
             error=str(detail),
             token_usage=usage,
@@ -2438,7 +2433,7 @@ async def save_calculated_field_capability(
         return out
     except (AiSchemaValidationError, AiPolicyError, HTTPException) as exc:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
-        timer.add_event("failure", status="error", capability_id=capability.capability_id, reason=str(detail)[:500])
+        timer.add_event("failure", status="failed", capability_id=capability.capability_id, reason=str(detail)[:500])
         await record_ai_log(
             db=db,
             user=user,
@@ -2553,7 +2548,7 @@ async def explain_report_config_capability(
         return out
     except (AiSchemaValidationError, AiPolicyError, HTTPException) as exc:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
-        timer.add_event("failure", status="error", capability_id=capability.capability_id, reason=str(detail)[:500])
+        timer.add_event("failure", status="failed", capability_id=capability.capability_id, reason=str(detail)[:500])
         await record_ai_log(
             db=db,
             user=user,

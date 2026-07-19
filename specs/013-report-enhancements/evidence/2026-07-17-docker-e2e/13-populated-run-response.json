@@ -1,0 +1,30 @@
+﻿{
+    "columns":  [
+                    {
+                        "code":  "current.employee_no",
+                        "label":  "å·¥å·",
+                        "data_type":  "number",
+                        "is_sensitive":  false,
+                        "source_code":  "current.employee_no"
+                    },
+                    {
+                        "code":  "current.employee_no#2",
+                        "label":  "å·¥å· (2)",
+                        "data_type":  "number",
+                        "is_sensitive":  false,
+                        "source_code":  "current.employee_no"
+                    }
+                ],
+    "items":  [
+                  {
+                      "current.employee_no":  6014415.0,
+                      "current.employee_no#2":  56
+                  }
+              ],
+    "total":  1,
+    "page":  1,
+    "page_size":  50,
+    "warnings":  [
+
+                 ]
+}

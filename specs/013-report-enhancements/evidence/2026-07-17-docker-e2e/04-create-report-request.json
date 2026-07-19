@@ -1,0 +1,44 @@
+﻿{
+    "name":  "Track B Docker E2E 验收报表 2026-07-17",
+    "description":  "Temporary report created for Track B real Docker acceptance evidence.",
+    "dataset_id":  7,
+    "config":  {
+                   "columns":  [
+                                   {
+                                       "source_code":  "current.base_salary",
+                                       "instance_id":  "current.base_salary",
+                                       "label":  "基本工资（SUM）"
+                                   },
+                                   {
+                                       "source_code":  "current.base_salary",
+                                       "instance_id":  "current.base_salary#2",
+                                       "label":  "基本工资（COUNT）"
+                                   }
+                               ],
+                   "filters":  [
+
+                               ],
+                   "sorts":  [
+
+                             ],
+                   "value_rules":  [
+
+                                   ],
+                   "column_settings":  {
+
+                                       },
+                   "aggregate":  true,
+                   "default_aggregation":  "sum",
+                   "aggregations":  {
+                                        "current.base_salary":  "sum",
+                                        "current.base_salary#2":  "count"
+                                    },
+                   "transpose":  {
+
+                                 },
+                   "rounding_corrections":  [
+
+                                            ]
+               },
+    "visibility":  "private"
+}
