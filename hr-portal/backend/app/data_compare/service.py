@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,11 @@ from app.data_compare.schemas import (
     SkillUpdate,
 )
 from app.permissions.scope_filter import _is_super_admin
+
+
+def to_json_compatible(value: object) -> object:
+    """Convert comparison output to values accepted by JSON database columns."""
+    return jsonable_encoder(value)
 
 
 async def user_can_access(skill: AiSkill, user_id: int, db: AsyncSession) -> bool:
@@ -116,6 +122,6 @@ async def record_skill_run(db: AsyncSession, skill_id: int, result: dict) -> Non
     if skill is None:
         return
     skill.last_run_at = datetime.now(timezone.utc)
-    skill.last_run_result = result
+    skill.last_run_result = to_json_compatible(result)
     skill.run_count = (skill.run_count or 0) + 1
     await db.commit()

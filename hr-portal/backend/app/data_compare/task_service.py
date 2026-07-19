@@ -224,6 +224,7 @@ async def execute_task(
     """
     from app.data_compare.chat_handler import run_data_compare
     from app.data_compare.executor import ScopeDeniedError
+    from app.data_compare.service import to_json_compatible
     from app.data_compare.validator import SchemaValidationError
 
     started_at = datetime.now(timezone.utc)
@@ -264,8 +265,8 @@ async def execute_task(
         if run.status == "consistent":
             run.status = "success"
         run.diff_count = result_dict.get("summary", {}).get("diff_count", 0)
-        run.summary = result_dict.get("summary")
-        run.detail = {"details": result_dict.get("details", [])}
+        run.summary = to_json_compatible(result_dict.get("summary"))
+        run.detail = to_json_compatible({"details": result_dict.get("details", [])})
         run.duration_ms = result_dict.get("duration_ms")
         run.finished_at = datetime.now(timezone.utc)
 
