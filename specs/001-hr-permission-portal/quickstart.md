@@ -59,8 +59,21 @@ hr-portal-backend   Up
 hr-portal-frontend  Up
 ```
 
----
+**健康检查通过前端反向代理执行：**
 
+```bash
+curl http://localhost:${FRONTEND_PORT:-8080}/api/v1/health
+```
+
+应返回 `"status":"ok"` 且 `db.ok=true`。默认 Compose 不将 HR Portal 后端端口发布到宿主机，因此不会与服务器既有的 `8000` 服务冲突。
+
+**仅开发调试时**，如需从宿主机直接访问 FastAPI 的 `http://localhost:8000/docs`，使用开发端口覆盖：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+---
 ## 3. 第一次登录
 
 浏览器打开 `http://你服务器的IP/`，应该看到登录页。
