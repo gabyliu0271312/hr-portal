@@ -95,6 +95,16 @@ class MappingDraftOut(BaseModel):
     warnings: list[str]
 
 
+class MappingDraftsOut(BaseModel):
+    mappings: list[MappingDraftMappingOut]
+    low_confidence: list[MappingDraftLowConfidenceOut]
+    warnings: list[str]
+
+
+class SourceMappingBatchIn(BaseModel):
+    mappings: list[SourceMappingIn] = Field(min_length=1)
+
+
 # ── 序列化 ─────────────────────────────────────────────────
 def _mapping_to_engine(m: MergeSourceMapping) -> dict:
     return {
@@ -306,6 +316,33 @@ async def update_template(
     return _template_out(t)
 
 
+@router.post("/templates/{tid}/mappings/batch", status_code=status.HTTP_201_CREATED)
+async def create_source_mappings_batch(
+    tid: int,
+    payload: SourceMappingBatchIn,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "U")),
+) -> dict:
+    """校验全部源映射后原子新增，避免批量上传产生部分写入。"""
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    names = {item.name for item in template.mappings}
+    prepared: list[dict] = []
+    for mapping in payload.mappings:
+        values = _validate_source_mapping(template, mapping)
+        if values["name"] in names:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=f"映射名称已存在: {values['name']}")
+        names.add(values["name"])
+        prepared.append(values)
+
+    created = [MergeSourceMapping(**values) for values in prepared]
+    template.mappings.extend(created)
+    template.version += 1
+    await db.commit()
+    for mapping in created:
+        await db.refresh(mapping)
+    return {"mappings": [_mapping_out(mapping) for mapping in created]}
+
 # ── 单条源映射维护 ──────────────────────────────────────────
 @router.post("/templates/{tid}/mappings", status_code=status.HTTP_201_CREATED)
 async def create_source_mapping(tid: int, payload: SourceMappingIn, db: AsyncSession = Depends(get_session), user: User = Depends(require_op(MENU, "U"))) -> dict:
@@ -425,6 +462,65 @@ async def download_merge(
         headers={"Content-Disposition": 'attachment; filename="merged_result.xlsx"'},
     )
 
+
+@router.post("/templates/{tid}/mapping-drafts", response_model=MappingDraftsOut)
+async def mapping_drafts(
+    tid: int,
+    files: list[UploadFile] = File(...),
+    business_context: str = "",
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "U")),
+) -> MappingDraftsOut:
+    """批量上传样表，为既有模板生成待确认的源映射草稿。"""
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    capability = get_capability(AI_DRAFT_CAPABILITY)
+    if capability is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="AI 能力未注册")
+    try:
+        validate_capability_policy(capability)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"AI 能力未启用: {exc}") from exc
+
+    blobs = await _read_files(files)
+    timer = AiAuditTimer()
+    timer.add_event("entry", capability_id=AI_DRAFT_CAPABILITY)
+    status_text = "ok"
+    error: str | None = None
+    mappings: list[dict] = []
+    try:
+        timer.add_event("model_call", capability_id=AI_DRAFT_CAPABILITY)
+        mappings = await ai_builder.build_mapping_drafts(
+            blobs, template.std_fields, template.merge_keys, business_context, db,
+        )
+        enforce_output_deny_patterns(capability, _draft_scan_text({"std_fields": [], "mappings": mappings}))
+    except Exception as exc:
+        status_text = "error"
+        error = str(exc)
+
+    await record_ai_log(
+        db=db,
+        user=user,
+        action="table_merge_suggest_mapping",
+        request_summary=f"批量单映射草稿 {len(blobs)} 个文件 {business_context[:60]}",
+        response_summary=f"生成 {len(mappings)} 条映射草稿" if status_text == "ok" else (error or ""),
+        input_payload={"files": [name for name, _ in blobs], "business_context": business_context},
+        output_payload={"mapping": _draft_scan_text({"std_fields": [], "mappings": mappings})},
+        status=status_text,
+        error=error,
+        metadata={"capability_id": AI_DRAFT_CAPABILITY, "metadata_only": True},
+        timer=timer,
+    )
+    await db.commit()
+    if status_text != "ok":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=error or "AI 生成失败")
+
+    low_confidence = [
+        {"sheet": mapping["name"], "confidence": float(mapping.get("_confidence", 0.0)), "notes": mapping.get("_notes", "")}
+        for mapping in mappings
+        if float(mapping.get("_confidence", 0.0)) < 0.85
+    ]
+    return MappingDraftsOut(mappings=mappings, low_confidence=low_confidence, warnings=[])
 
 @router.post("/templates/{tid}/mapping-draft", response_model=MappingDraftOut)
 async def mapping_draft(

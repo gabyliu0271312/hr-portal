@@ -92,6 +92,14 @@ export const tableToolsApi = {
     if (sheetName) fd.append('sheet_name', sheetName)
     return api.post(`/table-tools/templates/${templateId}/mapping-draft`, fd).then((r) => r.data)
   },
+  mappingDrafts: (templateId: number, files: File[], businessContext: string): Promise<{ mappings: SourceMappingIn[]; low_confidence: MappingDraft['low_confidence']; warnings: string[] }> => {
+    const fd = new FormData()
+    files.forEach((file) => fd.append('files', file))
+    fd.append('business_context', businessContext)
+    return api.post(`/table-tools/templates/${templateId}/mapping-drafts`, fd, { timeout: 300000 }).then((r) => r.data)
+  },
+  createMappings: (templateId: number, mappings: SourceMappingIn[]): Promise<{ mappings: SourceMappingOut[] }> =>
+    api.post(`/table-tools/templates/${templateId}/mappings/batch`, { mappings }).then((r) => r.data),
   createMapping: (templateId: number, payload: SourceMappingIn): Promise<SourceMappingOut> =>
     api.post(`/table-tools/templates/${templateId}/mappings`, payload).then((r) => r.data),
 

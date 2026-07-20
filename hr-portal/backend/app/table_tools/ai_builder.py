@@ -347,6 +347,49 @@ async def build_draft(
         },
     }
 
+async def build_mapping_drafts(
+    files: list[tuple[str, bytes]],
+    std_fields: list[str],
+    merge_keys: list[str],
+    business_context: str,
+    db: AsyncSession,
+) -> list[dict]:
+    """为既有模板的多个样表生成源映射草稿，不修改模板级字段。"""
+    headers = _collect_all_headers(files)
+    if not headers:
+        raise ValueError("未从上传文件中解析到有效表头")
+
+    api_key, base_url, model, timeout = await _get_ai_config(db)
+    semaphore = asyncio.Semaphore(10)
+
+    async def map_sheet(sheet_info: dict) -> dict:
+        async with semaphore:
+            return await _step2_map_sheet(
+                sheet_info, std_fields, merge_keys, api_key, base_url, model, timeout, business_context,
+            )
+
+    raw_results = await asyncio.gather(*(map_sheet(header) for header in headers), return_exceptions=True)
+    mappings: list[dict] = []
+    for header, result in zip(headers, raw_results):
+        if isinstance(result, Exception):
+            mappings.append({
+                "name": f"{header['file']} / {header['sheet']}",
+                "match_signature": header["columns"][:5],
+                "sheet_kw": header["sheet"],
+                "header_start": header.get("header_start", 1),
+                "header_end": header["header_end"],
+                "key_map": {},
+                "column_map": {},
+                "derived_fields": [],
+                "derive_check": None,
+                "skip_tokens": ["合计", "小计", "总计"],
+                "_confidence": 0.0,
+                "_notes": f"AI 调用失败，请手工确认该映射：{result}",
+            })
+        else:
+            mappings.append(result)
+    return mappings
+
 async def build_mapping_draft(
     sheet_info: dict,
     std_fields: list[str],

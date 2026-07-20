@@ -211,3 +211,45 @@ def test_mapping_draft_response_model_is_serialized_and_documented():
     response_schema = schema["paths"][route.path]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
     assert response_schema == {"$ref": "#/components/schemas/MappingDraftOut"}
     assert "_confidence" in schema["components"]["schemas"]["MappingDraftMappingOut"]["properties"]
+
+def test_batch_create_mappings_is_atomic_and_returns_created_mappings(monkeypatch):
+    db = FakeDb()
+    template = _template(_mapping())
+    _install_template(monkeypatch, template)
+    client = _client(db)
+
+    created = client.post(
+        "/api/v1/table-tools/templates/1/mappings/batch",
+        json={"mappings": [_payload("source-a"), _payload("source-b")]},
+    )
+
+    assert created.status_code == status.HTTP_201_CREATED
+    assert [item["name"] for item in created.json()["mappings"]] == ["source-a", "source-b"]
+    assert [item["id"] for item in created.json()["mappings"]] == [100, 101]
+    assert template.version == 2
+
+
+def test_batch_create_mappings_rejects_all_when_one_name_conflicts(monkeypatch):
+    db = FakeDb()
+    template = _template(_mapping())
+    _install_template(monkeypatch, template)
+    client = _client(db)
+
+    response = client.post(
+        "/api/v1/table-tools/templates/1/mappings/batch",
+        json={"mappings": [_payload("source-a"), _payload("source-a")]},
+    )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert [item.name for item in template.mappings] == ["existing-source"]
+    assert db.commits == 0
+
+
+def test_batch_mapping_draft_route_is_documented():
+    app = FastAPI()
+    app.include_router(table_routes.router, prefix="/api/v1")
+    route = next(
+        route for route in app.routes
+        if getattr(route, "path", None) == "/api/v1/table-tools/templates/{tid}/mapping-drafts"
+    )
+    assert route.response_model is table_routes.MappingDraftsOut
