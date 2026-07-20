@@ -71,7 +71,7 @@ function openNew() {
   mode.value = 'build'
 }
 
-async function openEdit(id: number) {
+async function openEdit(id: number): Promise<boolean> {
   editingId.value = id
   try {
     const detail: TemplateDetail = await tableToolsApi.getTemplate(id)
@@ -87,7 +87,15 @@ async function openEdit(id: number) {
     editingMapping.value = null
     buildStep.value = 'form'
     mode.value = 'build'
-  } catch { ElMessage.error('加载模板详情失败') }
+    return true
+  } catch {
+    ElMessage.error('加载模板详情失败')
+    return false
+  }
+}
+
+async function openAddMapping(id: number) {
+  if (await openEdit(id)) addMapping()
 }
 
 function resetForm() {
@@ -444,6 +452,9 @@ const editingColMapEntries = computed({
           </div>
           <div class="tpl-card-actions">
             <el-button type="primary" size="small" :icon="Upload" @click="openMerge(t)">合并</el-button>
+            <PermissionButton v-if="canModify(t)" menu="table_tools" op="U" size="small" :icon="Plus" @click="openAddMapping(t.id)">
+              新增映射表
+            </PermissionButton>
             <PermissionButton v-if="canModify(t)" menu="table_tools" op="U" size="small" :icon="Edit" @click="openEdit(t.id)">
               编辑
             </PermissionButton>
