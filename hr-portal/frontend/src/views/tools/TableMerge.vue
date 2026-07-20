@@ -94,8 +94,151 @@ async function openEdit(id: number): Promise<boolean> {
   }
 }
 
+const addMappingDialogVisible = ref(false)
+const addMappingTemplate = ref<TemplateDetail | null>(null)
+const addMappingForm = ref<any | null>(null)
+const addMappingFile = ref<File | null>(null)
+const addMappingSheets = ref<string[]>([])
+const addMappingSheet = ref('')
+const addMappingWarnings = ref<string[]>([])
+const addMappingLowConfidence = ref<{ confidence: number; notes: string } | null>(null)
+const addMappingLoading = ref(false)
+const addMappingSaving = ref(false)
+const addMappingKeyEntries = ref<{ key: string; val: string }[]>([])
+const addMappingColumnEntries = ref<{ key: string; val: string }[]>([])
+
+function blankMapping() {
+  return {
+    name: '新映射',
+    match_signature: [],
+    sheet_kw: null,
+    header_start: 1,
+    header_end: 1,
+    key_map: {},
+    column_map: {},
+    derived_fields: [],
+    derive_check: null,
+    skip_tokens: ['合计', '小计', '总计'],
+  }
+}
+
+function syncAddMappingEntries() {
+  if (!addMappingForm.value) return
+  addMappingForm.value.key_map = entriesToObj(addMappingKeyEntries.value)
+  addMappingForm.value.column_map = entriesToObj(addMappingColumnEntries.value)
+}
+
+function nextMappingName(proposedName: string) {
+  const baseName = proposedName.trim() || '新映射'
+  const names = new Set(addMappingTemplate.value?.mappings.map((mapping) => mapping.name) || [])
+  if (!names.has(baseName)) return baseName
+  let sequence = 2
+  while (names.has(`${baseName}-${sequence}`)) sequence += 1
+  return `${baseName}-${sequence}`
+}
+
+function resetAddMappingDialog() {
+  addMappingForm.value = { ...blankMapping(), name: nextMappingName('新映射') }
+  addMappingFile.value = null
+  addMappingSheets.value = []
+  addMappingSheet.value = ''
+  addMappingWarnings.value = []
+  addMappingLowConfidence.value = null
+  addMappingKeyEntries.value = []
+  addMappingColumnEntries.value = []
+}
+
 async function openAddMapping(id: number) {
-  if (await openEdit(id)) addMapping()
+  try {
+    addMappingTemplate.value = await tableToolsApi.getTemplate(id)
+    resetAddMappingDialog()
+    addMappingDialogVisible.value = true
+  } catch {
+    ElMessage.error('加载模板详情失败')
+  }
+}
+
+function closeAddMappingDialog() {
+  addMappingDialogVisible.value = false
+  addMappingTemplate.value = null
+}
+
+async function handleAddMappingSample(uploadFile: any) {
+  if (!addMappingTemplate.value || !addMappingForm.value) return
+  addMappingLoading.value = true
+  try {
+    const sampleFile = uploadFile.raw as File
+    addMappingFile.value = sampleFile
+    const result = await tableToolsApi.mappingDraft(
+      addMappingTemplate.value.id,
+      sampleFile,
+      addMappingSheet.value || undefined,
+    )
+    addMappingSheets.value = result.available_sheets
+    addMappingSheet.value = result.mapping.sheet_kw || ''
+    addMappingWarnings.value = result.warnings
+    addMappingLowConfidence.value = result.low_confidence[0] || null
+    addMappingForm.value = {
+      ...addMappingForm.value,
+      ...result.mapping,
+      name: nextMappingName(result.mapping.name),
+    }
+    addMappingKeyEntries.value = objToEntries(result.mapping.key_map || {})
+    addMappingColumnEntries.value = objToEntries(result.mapping.column_map || {})
+    ElMessage.success('已根据样表自动生成映射草稿，请确认后保存')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '样表解析失败')
+  } finally {
+    addMappingLoading.value = false
+  }
+}
+
+async function reloadAddMappingDraft() {
+  if (addMappingFile.value) await handleAddMappingSample({ raw: addMappingFile.value })
+}
+
+function addDialogKeyMapEntry() {
+  addMappingKeyEntries.value.push({ key: '', val: '' })
+}
+
+function addDialogColumnMapEntry() {
+  addMappingColumnEntries.value.push({ key: '', val: '' })
+}
+
+function addDialogDerivedField() {
+  addMappingForm.value?.derived_fields.push({ target: '', expr: '', round: 2 })
+}
+
+function removeDialogDerivedField(index: number) {
+  addMappingForm.value?.derived_fields.splice(index, 1)
+}
+
+async function saveAddMapping() {
+  if (!addMappingTemplate.value || !addMappingForm.value) return
+  syncAddMappingEntries()
+  addMappingSaving.value = true
+  try {
+    await tableToolsApi.createMapping(addMappingTemplate.value.id, {
+      name: addMappingForm.value.name,
+      match_signature: addMappingForm.value.match_signature || [],
+      sheet_kw: addMappingForm.value.sheet_kw || null,
+      header_start: addMappingForm.value.header_start || 1,
+      header_end: addMappingForm.value.header_end || 1,
+      key_map: addMappingForm.value.key_map || {},
+      column_map: addMappingForm.value.column_map || {},
+      derived_fields: addMappingForm.value.derived_fields || [],
+      derive_check: addMappingForm.value.derive_check || null,
+      skip_tokens: addMappingForm.value.skip_tokens || ['合计', '小计', '总计'],
+    })
+    closeAddMappingDialog()
+    mode.value = 'list'
+    await loadTemplates()
+    ElMessage.success('源映射已新增')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '源映射保存失败')
+  } finally {
+    addMappingSaving.value = false
+  }
 }
 
 function resetForm() {
@@ -150,15 +293,6 @@ function cancelEditMapping() {
   editingMapping.value = null
 }
 
-function addMapping() {
-  form.value.mappings.push({
-    name: `新映射${form.value.mappings.length + 1}`,
-    match_signature: [], sheet_kw: null, header_start: 1, header_end: 1,
-    key_map: {}, column_map: {}, derived_fields: [], derive_check: null,
-    skip_tokens: ['合计', '小计', '总计'],
-  })
-  startEditMapping(form.value.mappings.length - 1)
-}
 
 async function saveEditMapping() {
   if (expandedMapping.value === null || !editingMapping.value) return
@@ -601,7 +735,7 @@ const editingColMapEntries = computed({
             <div class="mappings-header">
               <h3 class="section-title">数据源映射</h3>
               <span class="mappings-count">{{ form.mappings.length }} 个</span>
-              <el-button v-if="editingId" size="small" type="primary" plain :icon="Plus" @click="addMapping">新增映射表</el-button>
+              <el-button v-if="editingId" size="small" type="primary" plain :icon="Plus" @click="openAddMapping(editingId!)">新增映射表</el-button>
             </div>
             <p class="section-desc" style="margin-bottom:12px">
               点击每个数据源可展开查看和编辑映射关系
@@ -886,6 +1020,137 @@ const editingColMapEntries = computed({
         </div>
       </div>
     </template>
+
+    <el-dialog
+      v-model="addMappingDialogVisible"
+      class="add-mapping-dialog"
+      width="960px"
+      top="6vh"
+      :close-on-click-modal="false"
+      :destroy-on-close="true"
+      @closed="closeAddMappingDialog">
+      <template #header>
+        <div>
+          <div class="add-mapping-dialog-title">新增源映射</div>
+          <div class="add-mapping-dialog-subtitle">{{ addMappingTemplate?.name }} · 上传样表后自动识别表头与映射建议</div>
+        </div>
+      </template>
+
+      <div v-if="addMappingForm && addMappingTemplate" class="add-mapping-dialog-body">
+        <el-alert
+          title="仅解析样表的 Sheet 与表头，不会将数据明细发送给 AI。"
+          type="info"
+          :closable="false"
+          show-icon />
+
+        <section class="add-mapping-sample">
+          <div>
+            <div class="add-mapping-section-title">1. 上传样表并自动识别</div>
+            <p>系统会生成映射名称、表头特征和主键/字段映射草稿；你只需确认或微调。</p>
+          </div>
+          <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx"
+            :disabled="addMappingLoading" :on-change="handleAddMappingSample">
+            <el-button type="primary" :loading="addMappingLoading" :icon="Upload">上传样表并识别</el-button>
+          </el-upload>
+        </section>
+
+        <el-select v-if="addMappingSheets.length > 1" v-model="addMappingSheet" class="add-mapping-sheet-select"
+          placeholder="选择要识别的 Sheet" @change="reloadAddMappingDraft">
+          <el-option v-for="sheet in addMappingSheets" :key="sheet" :label="sheet" :value="sheet" />
+        </el-select>
+        <div v-if="addMappingLowConfidence" class="ai-notes">
+          AI 置信度 {{ Math.round(addMappingLowConfidence.confidence * 100) }}%：{{ addMappingLowConfidence.notes }}
+        </div>
+        <div v-for="warning in addMappingWarnings" :key="warning" class="ai-notes">{{ warning }}</div>
+
+        <div class="add-mapping-form">
+          <div class="add-mapping-section-title">2. 确认映射</div>
+          <div class="editor-row">
+            <div class="editor-field">
+              <label class="editor-label">映射名称</label>
+              <el-input v-model="addMappingForm.name" placeholder="上传样表后自动生成" />
+            </div>
+            <div class="editor-field">
+              <label class="editor-label">Sheet</label>
+              <el-input v-model="addMappingForm.sheet_kw" placeholder="上传样表后自动识别" />
+            </div>
+            <div class="editor-field editor-field--small">
+              <label class="editor-label">表头起止行</label>
+              <div class="header-row-inputs">
+                <el-input-number v-model="addMappingForm.header_start" :min="1" :max="10" :controls="false" />
+                <span>至</span>
+                <el-input-number v-model="addMappingForm.header_end" :min="1" :max="10" :controls="false" />
+              </div>
+            </div>
+          </div>
+
+          <div class="editor-section">
+            <div class="editor-section-header"><span>表头识别特征（至少 3 项）</span></div>
+            <el-input :model-value="(addMappingForm.match_signature || []).join(',')"
+              placeholder="上传样表后自动识别；多个特征以逗号分隔"
+              @update:model-value="addMappingForm.match_signature = $event.split(',').map((value: string) => value.trim()).filter(Boolean)" />
+          </div>
+
+          <div class="editor-section">
+            <div class="editor-section-header">
+              <span>主键映射</span>
+              <button class="add-row-btn" @click="addDialogKeyMapEntry">+ 新增</button>
+            </div>
+            <div class="map-table">
+              <div class="map-row map-row-head"><span>样表源列</span><span>→</span><span>模板归集主键</span><span></span></div>
+              <div class="map-row" v-for="(entry, index) in addMappingKeyEntries" :key="index">
+                <el-input v-model="entry.key" size="small" placeholder="样表源列" @change="syncAddMappingEntries" />
+                <span class="map-arrow">→</span>
+                <el-select v-model="entry.val" size="small" filterable @change="syncAddMappingEntries">
+                  <el-option v-for="key in addMappingTemplate.merge_keys" :key="key" :label="key" :value="key" />
+                </el-select>
+                <button class="del-row-btn" @click="() => { addMappingKeyEntries.splice(index, 1); syncAddMappingEntries() }">×</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="editor-section">
+            <div class="editor-section-header">
+              <span>字段映射</span>
+              <button class="add-row-btn" @click="addDialogColumnMapEntry">+ 新增</button>
+            </div>
+            <div class="map-table">
+              <div class="map-row map-row-head"><span>样表源列</span><span>→</span><span>模板标准字段</span><span></span></div>
+              <div class="map-row" v-for="(entry, index) in addMappingColumnEntries" :key="index">
+                <el-input v-model="entry.key" size="small" placeholder="样表源列" @change="syncAddMappingEntries" />
+                <span class="map-arrow">→</span>
+                <el-select v-model="entry.val" size="small" filterable @change="syncAddMappingEntries">
+                  <el-option v-for="field in addMappingTemplate.std_fields" :key="field" :label="field" :value="field" />
+                </el-select>
+                <button class="del-row-btn" @click="() => { addMappingColumnEntries.splice(index, 1); syncAddMappingEntries() }">×</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="editor-section">
+            <div class="editor-section-header">
+              <span>派生字段（可选）</span>
+              <button class="add-row-btn" @click="addDialogDerivedField">+ 新增</button>
+            </div>
+            <div v-if="!addMappingForm.derived_fields?.length" class="derived-empty">如需计算字段，可在此添加公式。</div>
+            <div class="derived-row" v-for="(field, index) in addMappingForm.derived_fields" :key="index">
+              <el-select v-model="field.target" size="small" filterable placeholder="目标标准字段" style="width: 160px">
+                <el-option v-for="item in addMappingTemplate.std_fields" :key="item" :label="item" :value="item" />
+              </el-select>
+              <span class="map-arrow">=</span>
+              <el-input v-model="field.expr" size="small" placeholder="{列名A}+{列名B}" style="flex: 1" />
+              <el-input-number v-model="field.round" :min="0" :max="6" size="small" :controls="false" style="width: 82px" />
+              <button class="del-row-btn" @click="removeDialogDerivedField(index)">×</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="closeAddMappingDialog">取消</el-button>
+        <el-button type="primary" :loading="addMappingSaving" @click="saveAddMapping">保存映射</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1239,8 +1504,39 @@ const editingColMapEntries = computed({
 }
 
 /* ── 合并页 ─────────────────────────────────────────────── */
-.merge-layout {
-  display: grid;
+.add-mapping-dialog :deep(.el-dialog__body) {
+  max-height: calc(88vh - 150px);
+  overflow-y: auto;
+  padding-top: 12px;
+}
+.add-mapping-dialog-title { font-size: 18px; font-weight: 600; color: var(--color-text-primary); }
+.add-mapping-dialog-subtitle { margin-top: 5px; font-size: 12px; color: var(--color-text-secondary); }
+.add-mapping-dialog-body { display: flex; flex-direction: column; gap: 16px; }
+.add-mapping-sample {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 16px; background: var(--color-bg-subtle); border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+}
+.add-mapping-sample p { margin: 5px 0 0; font-size: 12px; color: var(--color-text-secondary); }
+.add-mapping-section-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
+.add-mapping-sheet-select { width: 280px; }
+.add-mapping-form {
+  padding: 18px; border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  background: var(--color-bg-card);
+}
+.add-mapping-form > .add-mapping-section-title { margin-bottom: 16px; }
+.editor-field--small { flex: 0 1 220px; }
+.header-row-inputs { display: flex; align-items: center; gap: 8px; }
+.header-row-inputs :deep(.el-input-number) { width: 84px; }
+
+@media (max-width: 768px) {
+  .add-mapping-dialog { width: calc(100vw - 24px) !important; }
+  .add-mapping-sample { align-items: flex-start; flex-direction: column; }
+  .add-mapping-sheet-select { width: 100%; }
+  .map-row { grid-template-columns: 1fr 18px 1fr 20px; gap: 4px; }
+}
+
+.merge-layout {  display: grid;
   grid-template-columns: 320px 1fr;
   gap: 20px;
   align-items: start;
