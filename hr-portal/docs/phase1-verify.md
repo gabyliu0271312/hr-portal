@@ -42,16 +42,17 @@ docker compose ps
 ```
 NAME                  STATUS              PORTS
 hr-portal-db          Up (healthy)        0.0.0.0:5432->5432/tcp
-hr-portal-backend     Up                  0.0.0.0:8000->8000/tcp
+hr-portal-backend     Up                  8000/tcp (Docker 内网)
 hr-portal-frontend    Up                  0.0.0.0:8080->80/tcp
 ```
 
 ## 步骤 3：健康检查
 
+> 默认 Compose 不将后端端口发布到宿主机，健康检查请通过前端 Nginx 反向代理访问。开发环境若需直接访问后端端口，请使用 `docker-compose.dev.yml`：`docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`。
 ### 3.1 直接调后端
 
 ```bash
-curl http://localhost:8000/api/v1/health
+curl http://localhost:${FRONTEND_PORT:-8080}/api/v1/health
 ```
 
 期望输出（注意 `db.ok=true`）：
@@ -68,7 +69,7 @@ curl http://localhost:8000/api/v1/health
 ### 3.2 通过 nginx（前端反代）
 
 ```bash
-curl http://localhost/api/v1/health
+curl http://localhost:${FRONTEND_PORT:-8080}/api/v1/health
 ```
 
 输出应与上面**一致**。
@@ -90,7 +91,7 @@ curl http://localhost/api/v1/health
 
 | 现象                                   | 排查                                                                                       |
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `docker compose up` 卡住或报端口占用   | 80 / 8000 / 5432 被占？改 `docker-compose.yml` 端口映射；或 `docker compose down` 清干净   |
+| `docker compose up` 卡住或报端口占用   | 前端或数据库端口被占？检查 `FRONTEND_PORT` / `5432`；后端默认不占用宿主机 8000   |
 | backend 容器反复重启                   | `docker compose logs backend` 查；80% 是 `.env` 没建好或 DB 连不上                         |
 | db.ok=false                            | `docker compose logs db` 查 postgres 启动日志                                              |
 | 前端打开是空白                         | F12 看 console；检查 `nginx.conf` 反代是否生效；`docker compose logs frontend` 查 nginx    |
@@ -110,7 +111,7 @@ rm -rf data/pg
 ## 验收清单
 
 - [ ] 三个容器 `docker compose ps` 全 Up
-- [ ] `curl http://localhost:8000/api/v1/health` 返回 `db.ok=true`
+- [ ] `curl http://localhost:${FRONTEND_PORT:-8080}/api/v1/health` 返回 `db.ok=true`
 - [ ] 浏览器 `http://localhost/` 看到绿色 OK 卡片
 - [ ] 浏览器 `http://localhost/docs` 看到 Swagger UI
 - [ ] `docker compose down && docker compose up -d` 第二次启动 < 30 秒（不重新构建）

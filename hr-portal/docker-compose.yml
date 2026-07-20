@@ -52,8 +52,6 @@ services:
       WAREHOUSE_FEATURE_ODS_DWD_AUTOMATION: ${WAREHOUSE_FEATURE_ODS_DWD_AUTOMATION:-false}
       WAREHOUSE_FEATURE_METRIC_AUTOMATION: ${WAREHOUSE_FEATURE_METRIC_AUTOMATION:-true}
 
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app:cached
       - ./backend/data:/app/data

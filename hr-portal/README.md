@@ -23,9 +23,11 @@ cp .env.example .env
 docker compose up -d
 
 # 3. 验证
-curl http://localhost:8000/api/v1/health
+curl http://localhost:${FRONTEND_PORT:-8080}/api/v1/health
 # 应返回 {"status":"ok",...}
 
+# 开发环境如需从宿主机直接访问后端 /docs，显式叠加开发端口配置：
+# docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 # 4. 打开前端
 # 浏览器访问 http://localhost/
 ```
