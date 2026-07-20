@@ -19,6 +19,7 @@
 | A07 | 历史无效筛选在运行、导出与推送前被阻断 | `test_invalid_filter_returns_422_in_run_export_and_push_paths` | 通过 |
 | A08 | AI 解释保留 `ColumnInstance` 语义 | `test_track_b_ai_column_instances.py` | 通过 |
 | A09 | 前端类型契约和生产构建 | `npm.cmd run build` | 通过 |
+| A10 | 移除字段时按 `instance_id` 清理排序、聚合、分摊与舍入依赖 | `src/utils/reportColumnDependencies.spec.ts` | 通过 |
 
 ## 2. 浏览器人工验收用例
 
@@ -42,6 +43,7 @@
 | M07 | 两实例分别为 `SUM` / `COUNT` 后运行、导出 CSV/XLSX | 预览与两个文件的表头区分正确；数值分别对应聚合结果 | 待人工执行 | 待补充 |
 | M08 | 查看推送字段映射并执行测试推送 | 映射键为 `r.amount`、`r.amount#2`；推送值为原始数值，不受千分位展示影响 | 待人工执行 | 待补充 |
 | M09 | 打开旧报表 `columns: ["r.amount"]`，编辑、保存、运行、导出和推送 | 首实例保持 `r.amount`；行为不产生 `#2` 且不回归 | 待人工执行 | 待补充 |
+| M10 | 移除被排序、聚合或分摊规则引用的字段 | 显示影响确认；确认后保存和运行不产生失效 `instance_id` 引用 | 待人工执行 | 待补充 |
 
 ## 3. 执行命令
 

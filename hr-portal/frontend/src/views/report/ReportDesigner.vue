@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, View, Check, MagicStick, Position } from '@element-plus/icons-vue'
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
 import ReportBasicInfo from '@/components/report/ReportBasicInfo.vue'
@@ -17,6 +17,10 @@ import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 import { useTableOptions } from '@/composables/useTableOptions'
 import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
+import {
+  dependencyCount,
+  removeReportColumnInstance,
+} from '@/utils/reportColumnDependencies'
 
 const { tables: TABLES } = useTableOptions()
 
@@ -87,6 +91,41 @@ const form = reactive({
   rounding_corrections: [] as { group_by: string; target_cols: string[] }[],
   acl: [] as { id?: number; role_id: number | null; user_id: number | null }[],
 })
+
+async function removeSelectedColumn(instanceId: string) {
+  const result = removeReportColumnInstance({
+    selectedCodes: form.selected_codes,
+    columnSettings: form.column_settings,
+    defaultSplitRule: form.default_split_rule,
+    sorts: form.sorts,
+    aggregations: form.aggregations,
+    roundingGroupBy: form.rounding_group_by,
+  }, instanceId)
+  const count = dependencyCount(result.dependencies)
+
+  if (count) {
+    try {
+      await ElMessageBox.confirm(
+        `该字段被 ${count} 项排序、聚合或分摊配置引用。移除会同步清理这些配置，可能改变报表口径。`,
+        '确认移除字段',
+        {
+          confirmButtonText: '移除并清理依赖',
+          cancelButtonText: '取消',
+          type: 'warning',
+        },
+      )
+    } catch {
+      return
+    }
+  }
+
+  form.selected_codes = result.state.selectedCodes
+  form.column_settings = result.state.columnSettings
+  form.default_split_rule = result.state.defaultSplitRule
+  form.sorts = result.state.sorts
+  form.aggregations = result.state.aggregations
+  form.rounding_group_by = result.state.roundingGroupBy
+}
 
 const allColumns = ref<ColumnInfo[]>([])
 const datasets = ref<DatasetItem[]>([])
@@ -788,6 +827,7 @@ watch(
               v-model:aggregate="form.aggregate"
               v-model:rounding-group-by="form.rounding_group_by"
               v-model:sorts="form.sorts"
+              @remove-column="removeSelectedColumn"
               :all-columns="columns"
               :source-groups="sourceGroups"
               :current-dataset-tables="currentDataset?.tables"

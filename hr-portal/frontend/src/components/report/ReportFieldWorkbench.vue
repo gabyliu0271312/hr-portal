@@ -33,6 +33,7 @@ const emit = defineEmits<{
   'update:aggregate': [v: boolean]
   'update:roundingGroupBy': [v: string[]]
   'update:sorts': [v: SortCond[]]
+  removeColumn: [instanceId: string]
   createField: []
   editField: [col: ColumnInfo]
 }>()
@@ -236,7 +237,7 @@ function addColumn(code: string) {
 }
 
 function removeColumn(instanceId: string) {
-  emit('update:selectedCodes', props.selectedCodes.filter((code) => code !== instanceId))
+  emit('removeColumn', instanceId)
 }
 
 function reorderColumn(code: string, targetCode: string) {
