@@ -114,3 +114,111 @@ def test_derived_missing_column_returns_none():
     row = {"基数": 10000}
     assert eval_derived("{不存在}*2", row.get) is None
 
+
+# ── 源映射维护 ──────────────────────────────────────────────
+def test_source_mapping_validation_rejects_short_signature():
+    from app.table_tools.models import MergeTemplate
+    from app.table_tools.router import SourceMappingIn, _validate_source_mapping
+
+    template = MergeTemplate(name="test", merge_keys=["姓名"], std_fields=["金额"], aggregate="sum")
+    payload = SourceMappingIn(
+        name="新增映射", match_signature=["姓名", "金额"],
+        key_map={"姓名": "姓名"}, column_map={"金额": "金额"},
+    )
+    with pytest.raises(Exception, match="表头特征至少需要 3 项"):
+        _validate_source_mapping(template, payload)
+
+
+def test_run_merge_reports_unmatched_sheet():
+    import io
+    import openpyxl
+    from app.table_tools.engine import run_merge
+
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "明细"
+    worksheet.append(["姓名", "金额"])
+    worksheet.append(["张三", 100])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    result = run_merge(
+        [("测试.xlsx", buffer.getvalue())],
+        {"merge_keys": ["姓名"], "std_fields": ["金额"], "aggregate": "sum"},
+        [],
+    )
+    assert result["anomalies"][0]["type"] == "未匹配源映射"
+    assert result["anomalies"][0]["file"] == "测试.xlsx"
+
+
+def test_run_merge_reports_ambiguous_mapping():
+    import io
+    import openpyxl
+    from app.table_tools.engine import run_merge
+
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.append(["姓名", "金额", "部门"])
+    worksheet.append(["张三", 100, "研发"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    mapping = {
+        "sheet_kw": None, "header": [1, 1],
+        "match": ["姓名", "金额", "部门"],
+        "key_map": {"姓名": "姓名"}, "column_map": {"金额": "金额"},
+        "derived_fields": [], "derive_check": None, "skip_tokens": [],
+    }
+    result = run_merge(
+        [("歧义.xlsx", buffer.getvalue())],
+        {"merge_keys": ["姓名"], "std_fields": ["金额"], "aggregate": "sum"},
+        [{**mapping, "name": "映射A"}, {**mapping, "name": "映射B"}],
+    )
+    assert result["anomalies"][0]["type"] == "映射命中歧义"
+
+
+def test_source_mapping_schema_keeps_existing_id():
+    from app.table_tools.router import SourceMappingIn
+
+    payload = SourceMappingIn(
+        id=42, name="映射", match_signature=["姓名", "证件号", "金额"],
+        key_map={"姓名": "姓名"}, column_map={"金额": "金额"},
+    )
+    assert payload.id == 42
+
+
+def test_source_mapping_validation_rejects_blank_name():
+    from app.table_tools.models import MergeTemplate
+    from app.table_tools.router import SourceMappingIn, _validate_source_mapping
+
+    template = MergeTemplate(name="test", merge_keys=["姓名"], std_fields=["金额"], aggregate="sum")
+    payload = SourceMappingIn(
+        name="   ", match_signature=["姓名", "证件号", "金额"],
+        key_map={"姓名": "姓名"}, column_map={"金额": "金额"},
+    )
+    with pytest.raises(Exception, match="映射名称不能为空"):
+        _validate_source_mapping(template, payload)
+
+
+@pytest.mark.asyncio
+async def test_single_mapping_ai_builder_keeps_parent_template_contract(monkeypatch):
+    from app.table_tools import ai_builder
+
+    captured = {}
+
+    async def fake_config(_db):
+        return "key", None, "model", 30
+
+    async def fake_map(sheet_info, std_fields, merge_keys, *_args):
+        captured.update(sheet_info=sheet_info, std_fields=std_fields, merge_keys=merge_keys)
+        return {"key_map": {"员工姓名": "姓名"}, "column_map": {"个人缴存": "公积金个人"},
+                "derived_fields": [], "_confidence": 0.9, "_notes": ""}
+
+    monkeypatch.setattr(ai_builder, "_get_ai_config", fake_config)
+    monkeypatch.setattr(ai_builder, "_step2_map_sheet", fake_map)
+    result = await ai_builder.build_mapping_draft(
+        {"file": "样表.xlsx", "sheet": "明细", "columns": ["员工姓名", "个人缴存"]},
+        ["公积金个人"], ["姓名"], "", object(),
+    )
+    assert result["column_map"] == {"个人缴存": "公积金个人"}
+    assert captured["std_fields"] == ["公积金个人"]
+    assert captured["merge_keys"] == ["姓名"]
+    assert captured["sheet_info"]["columns"] == ["员工姓名", "个人缴存"]

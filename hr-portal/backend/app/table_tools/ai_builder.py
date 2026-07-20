@@ -346,3 +346,17 @@ async def build_draft(
             ],
         },
     }
+
+async def build_mapping_draft(
+    sheet_info: dict,
+    std_fields: list[str],
+    merge_keys: list[str],
+    business_context: str,
+    db: AsyncSession,
+) -> dict:
+    """为既有模板的一张源表生成映射建议；模板字段和主键不可被 AI 改写。"""
+    api_key, base_url, model, timeout = await _get_ai_config(db)
+    return await _step2_map_sheet(
+        sheet_info, std_fields, merge_keys, api_key, base_url, model, timeout,
+        business_context,
+    )

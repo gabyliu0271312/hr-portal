@@ -142,12 +142,76 @@ function cancelEditMapping() {
   editingMapping.value = null
 }
 
-function saveEditMapping() {
-  if (expandedMapping.value !== null && editingMapping.value) {
-    form.value.mappings[expandedMapping.value] = { ...editingMapping.value }
+function addMapping() {
+  form.value.mappings.push({
+    name: `新映射${form.value.mappings.length + 1}`,
+    match_signature: [], sheet_kw: null, header_start: 1, header_end: 1,
+    key_map: {}, column_map: {}, derived_fields: [], derive_check: null,
+    skip_tokens: ['合计', '小计', '总计'],
+  })
+  startEditMapping(form.value.mappings.length - 1)
+}
+
+async function saveEditMapping() {
+  if (expandedMapping.value === null || !editingMapping.value) return
+  const index = expandedMapping.value
+  const payload = { ...editingMapping.value }
+  try {
+    if (editingId.value) {
+      const saved = payload.id
+        ? await tableToolsApi.updateMapping(editingId.value, payload.id, payload)
+        : await tableToolsApi.createMapping(editingId.value, payload)
+      form.value.mappings[index] = saved
+    } else {
+      form.value.mappings[index] = payload
+    }
+    expandedMapping.value = null
+    editingMapping.value = null
+    ElMessage.success('源映射已保存')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '源映射保存失败')
   }
-  expandedMapping.value = null
-  editingMapping.value = null
+}
+
+const mappingDraftLoading = ref(false)
+const mappingDraftFile = ref<File | null>(null)
+const mappingDraftSheets = ref<string[]>([])
+const mappingDraftSheet = ref("")
+const mappingDraftWarnings = ref<string[]>([])
+const mappingDraftLowConfidence = ref<{ confidence: number; notes: string } | null>(null)
+async function handleMappingSample(uploadFile: any) {
+  if (!editingId.value || !editingMapping.value) return
+  mappingDraftLoading.value = true
+  try {
+    const sampleFile = uploadFile.raw as File
+    mappingDraftFile.value = sampleFile
+    const result = await tableToolsApi.mappingDraft(editingId.value, sampleFile, mappingDraftSheet.value || undefined)
+    mappingDraftSheets.value = result.available_sheets
+    mappingDraftSheet.value = result.mapping.sheet_kw || ""
+    mappingDraftWarnings.value = result.warnings
+    mappingDraftLowConfidence.value = result.low_confidence[0] || null
+    editingMapping.value = { ...editingMapping.value, ...result.mapping }
+    ElMessage.success('已根据样表表头回填映射草稿，请确认后保存')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '样表解析失败')
+  } finally {
+    mappingDraftLoading.value = false
+  }
+}
+async function reloadMappingDraft() {
+  if (mappingDraftFile.value) await handleMappingSample({ raw: mappingDraftFile.value })
+}
+async function removeMapping(idx: number) {
+  const mapping = form.value.mappings[idx]
+  try {
+    await ElMessageBox.confirm(`确认删除映射「${mapping.name}」？`, '确认删除', { type: 'warning' })
+    if (editingId.value && mapping.id) await tableToolsApi.deleteMapping(editingId.value, mapping.id)
+    form.value.mappings.splice(idx, 1)
+    cancelEditMapping()
+    ElMessage.success('源映射已删除')
+  } catch (e: any) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.response?.data?.detail || '删除映射失败')
+  }
 }
 
 // key_map / column_map 编辑辅助
@@ -232,6 +296,7 @@ async function saveTemplate() {
       std_fields: form.value.std_fields,
       aggregate: form.value.aggregate,
       mappings: form.value.mappings.map((m) => ({
+        id: m.id || null,
         name: m.name,
         match_signature: m.match_signature || [],
         sheet_kw: m.sheet_kw || null,
@@ -418,7 +483,7 @@ const editingColMapEntries = computed({
 
             <el-upload
               drag multiple :auto-upload="false" :show-file-list="false"
-              accept=".xlsx,.xls" :on-change="handleTplFileChange"
+              accept=".xlsx" :on-change="handleTplFileChange"
               class="upload-dragger">
               <el-icon class="upload-icon"><Upload /></el-icon>
               <div class="upload-text">拖拽文件到此处，或<em>点击选择</em></div>
@@ -525,6 +590,7 @@ const editingColMapEntries = computed({
             <div class="mappings-header">
               <h3 class="section-title">数据源映射</h3>
               <span class="mappings-count">{{ form.mappings.length }} 个</span>
+              <el-button v-if="editingId" size="small" type="primary" plain :icon="Plus" @click="addMapping">新增映射表</el-button>
             </div>
             <p class="section-desc" style="margin-bottom:12px">
               点击每个数据源可展开查看和编辑映射关系
@@ -561,6 +627,36 @@ const editingColMapEntries = computed({
 
                 <!-- 展开编辑区 -->
                 <div v-if="expandedMapping === idx && editingMapping" class="mapping-editor">
+                  <div class="editor-row">
+                    <div class="editor-field">
+                      <label class="editor-label">映射名称</label>
+                      <el-input v-model="editingMapping.name" size="small" placeholder="例如：北京-公积金导出表" />
+                    </div>
+                    <div class="editor-field">
+                      <label class="editor-label">表头识别特征（至少 3 项，逗号分隔）</label>
+                      <el-input :model-value="(editingMapping.match_signature || []).join(',')" size="small"
+                        placeholder="姓名,证件号码,缴存基数"
+                        @update:model-value="editingMapping.match_signature = $event.split(',').map((v: string) => v.trim()).filter(Boolean)" />
+                    </div>
+                  </div>
+
+                  <div v-if="editingId" class="editor-row">
+                    <div class="editor-field">
+                      <label class="editor-label">从样表回填（仅解析表头）</label>
+                      <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx"
+                        :disabled="mappingDraftLoading" :on-change="handleMappingSample">
+                        <el-button size="small" :loading="mappingDraftLoading" :icon="Upload">上传样表并回填</el-button>
+                      </el-upload>
+                      <el-select v-if="mappingDraftSheets.length > 1" v-model="mappingDraftSheet" size="small"
+                        placeholder="选择要解析的 Sheet" style="margin-top:8px" @change="reloadMappingDraft">
+                        <el-option v-for="sheet in mappingDraftSheets" :key="sheet" :label="sheet" :value="sheet" />
+                      </el-select>
+                      <div v-if="mappingDraftLowConfidence" class="ai-notes">
+                        ⚠ AI 置信度 {{ Math.round(mappingDraftLowConfidence.confidence * 100) }}%：{{ mappingDraftLowConfidence.notes }}
+                      </div>
+                      <div v-for="warning in mappingDraftWarnings" :key="warning" class="ai-notes">⚠ {{ warning }}</div>
+                    </div>
+                  </div>
 
                   <!-- Sheet 关键词 & 表头行 -->
                   <div class="editor-row">
@@ -649,6 +745,7 @@ const editingColMapEntries = computed({
 
                   <!-- 操作按钮 -->
                   <div class="editor-actions">
+                    <PermissionButton menu="table_tools" op="D" size="small" type="danger" @click="removeMapping(idx)">删除映射</PermissionButton>
                     <el-button size="small" @click="cancelEditMapping">取消</el-button>
                     <el-button size="small" type="primary" :icon="CircleCheck" @click="saveEditMapping">
                       确认修改
@@ -695,7 +792,7 @@ const editingColMapEntries = computed({
           <h3 class="section-title">上传文件</h3>
           <el-upload
             drag multiple :auto-upload="false" :show-file-list="false"
-            accept=".xlsx,.xls" :on-change="handleMergeFileChange"
+            accept=".xlsx" :on-change="handleMergeFileChange"
             class="upload-dragger upload-dragger--sm">
             <el-icon class="upload-icon" style="font-size:28px"><Upload /></el-icon>
             <div class="upload-text" style="font-size:13px">拖拽或点击选择 Excel 文件</div>

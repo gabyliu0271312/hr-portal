@@ -9,11 +9,14 @@
 """
 from __future__ import annotations
 
+import io
 from typing import Any
+
+import openpyxl
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -38,6 +41,7 @@ AI_DRAFT_CAPABILITY = "table_merge.suggest_mapping"
 
 # ── Schemas ────────────────────────────────────────────────
 class SourceMappingIn(BaseModel):
+    id: int | None = None
     name: str = Field(min_length=1, max_length=128)
     match_signature: list[str] = []
     sheet_kw: str | None = None
@@ -71,6 +75,26 @@ class TemplateOut(BaseModel):
     created_by: int | None
 
 
+class MappingDraftMappingOut(SourceMappingIn):
+    model_config = ConfigDict(populate_by_name=True)
+    confidence: float = Field(default=0.0, validation_alias="_confidence", serialization_alias="_confidence")
+    notes: str = Field(default="", validation_alias="_notes", serialization_alias="_notes")
+
+
+class MappingDraftLowConfidenceOut(BaseModel):
+    sheet: str
+    confidence: float
+    notes: str
+
+
+class MappingDraftOut(BaseModel):
+    mapping: MappingDraftMappingOut
+    available_sheets: list[str]
+    effective_headers: list[str]
+    low_confidence: list[MappingDraftLowConfidenceOut]
+    warnings: list[str]
+
+
 # ── 序列化 ─────────────────────────────────────────────────
 def _mapping_to_engine(m: MergeSourceMapping) -> dict:
     return {
@@ -94,6 +118,60 @@ def _template_out(t: MergeTemplate) -> TemplateOut:
         mapping_count=len(t.mappings), created_by=t.created_by,
     )
 
+
+def _mapping_out(m: MergeSourceMapping) -> dict:
+    return {
+        "id": m.id,
+        "name": m.name,
+        "match_signature": m.match_signature,
+        "sheet_kw": m.sheet_kw,
+        "header_start": m.header_start,
+        "header_end": m.header_end,
+        "key_map": m.key_map,
+        "column_map": m.column_map,
+        "derived_fields": m.derived_fields,
+        "derive_check": m.derive_check,
+        "skip_tokens": m.skip_tokens,
+    }
+
+
+def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) -> dict:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="映射名称不能为空")
+    signature = list(dict.fromkeys(item.strip() for item in payload.match_signature if item.strip()))
+    if len(signature) < 3:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="表头特征至少需要 3 项")
+    if not 1 <= payload.header_start <= payload.header_end <= 10:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="表头行范围必须在 1 到 10 行之间")
+    key_map = {key.strip(): value for key, value in payload.key_map.items() if key.strip()}
+    if not key_map:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="至少配置一项主键映射")
+    if any(value not in template.merge_keys for value in key_map.values()):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="主键映射目标必须属于模板归集主键")
+    column_map = {key.strip(): value for key, value in payload.column_map.items() if key.strip()}
+    if any(value not in template.std_fields for value in column_map.values()):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="字段映射目标必须属于模板标准字段")
+    derived_fields = payload.derived_fields or []
+    if any(field.get("target") not in template.std_fields for field in derived_fields):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生字段目标必须属于模板标准字段")
+    return {
+        "name": name,
+        "match_signature": signature,
+        "sheet_kw": payload.sheet_kw.strip() if payload.sheet_kw else None,
+        "header_start": payload.header_start,
+        "header_end": payload.header_end,
+        "key_map": key_map,
+        "column_map": column_map,
+        "derived_fields": derived_fields,
+        "derive_check": payload.derive_check,
+        "skip_tokens": list(dict.fromkeys(item.strip() for item in (payload.skip_tokens or []) if item.strip())) or ["合计", "小计", "总计"],
+    }
+
+
+def _apply_source_mapping(mapping: MergeSourceMapping, values: dict) -> None:
+    for key, value in values.items():
+        setattr(mapping, key, value)
 
 async def _load_template(db: AsyncSession, tid: int) -> MergeTemplate:
     row = (await db.execute(
@@ -170,14 +248,13 @@ async def create_template(
         merge_keys=payload.merge_keys, std_fields=payload.std_fields,
         aggregate=payload.aggregate, created_by=user.id,
     )
+    mapping_names: set[str] = set()
     for ms in payload.mappings:
-        t.mappings.append(MergeSourceMapping(
-            name=ms.name, match_signature=ms.match_signature, sheet_kw=ms.sheet_kw,
-            header_start=ms.header_start, header_end=ms.header_end,
-            key_map=ms.key_map, column_map=ms.column_map,
-            derived_fields=ms.derived_fields, derive_check=ms.derive_check,
-            skip_tokens=ms.skip_tokens,
-        ))
+        values = _validate_source_mapping(t, ms)
+        if values["name"] in mapping_names:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="映射名称已存在")
+        mapping_names.add(values["name"])
+        t.mappings.append(MergeSourceMapping(**values))
     db.add(t)
     await db.commit()
     await db.refresh(t, ["mappings"])
@@ -198,21 +275,81 @@ async def update_template(
     t.merge_keys = payload.merge_keys
     t.std_fields = payload.std_fields
     t.aggregate = payload.aggregate
-    t.version += 1
-    t.mappings.clear()
-    await db.flush()
+    existing_mappings = {mapping.id: mapping for mapping in t.mappings}
+    names: set[str] = set()
+    mapping_ids: set[int] = set()
+    prepared: list[tuple[int | None, dict]] = []
     for ms in payload.mappings:
-        t.mappings.append(MergeSourceMapping(
-            name=ms.name, match_signature=ms.match_signature, sheet_kw=ms.sheet_kw,
-            header_start=ms.header_start, header_end=ms.header_end,
-            key_map=ms.key_map, column_map=ms.column_map,
-            derived_fields=ms.derived_fields, derive_check=ms.derive_check,
-            skip_tokens=ms.skip_tokens,
-        ))
+        values = _validate_source_mapping(t, ms)
+        if ms.id is not None:
+            if ms.id in mapping_ids:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="映射 ID 不可重复")
+            if ms.id not in existing_mappings:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="源映射不存在")
+            mapping_ids.add(ms.id)
+        if values["name"] in names:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="映射名称已存在")
+        names.add(values["name"])
+        prepared.append((ms.id, values))
+    retained_ids = {mapping_id for mapping_id, _ in prepared if mapping_id is not None}
+    for mapping_id, mapping in existing_mappings.items():
+        if mapping_id not in retained_ids:
+            await db.delete(mapping)
+    for mapping_id, values in prepared:
+        if mapping_id is None:
+            t.mappings.append(MergeSourceMapping(**values))
+        else:
+            _apply_source_mapping(existing_mappings[mapping_id], values)
+    t.version += 1
     await db.commit()
     await db.refresh(t, ["mappings"])
     return _template_out(t)
 
+
+# ── 单条源映射维护 ──────────────────────────────────────────
+@router.post("/templates/{tid}/mappings", status_code=status.HTTP_201_CREATED)
+async def create_source_mapping(tid: int, payload: SourceMappingIn, db: AsyncSession = Depends(get_session), user: User = Depends(require_op(MENU, "U"))) -> dict:
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    values = _validate_source_mapping(template, payload)
+    if any(item.name == values["name"] for item in template.mappings):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="映射名称已存在")
+    mapping = MergeSourceMapping(**values)
+    template.mappings.append(mapping)
+    template.version += 1
+    await db.commit()
+    await db.refresh(mapping)
+    return _mapping_out(mapping)
+
+
+@router.put("/templates/{tid}/mappings/{mid}")
+async def update_source_mapping(tid: int, mid: int, payload: SourceMappingIn, db: AsyncSession = Depends(get_session), user: User = Depends(require_op(MENU, "U"))) -> dict:
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    mapping = next((item for item in template.mappings if item.id == mid), None)
+    if mapping is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="源映射不存在")
+    values = _validate_source_mapping(template, payload)
+    if any(item.id != mid and item.name == values["name"] for item in template.mappings):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="映射名称已存在")
+    _apply_source_mapping(mapping, values)
+    template.version += 1
+    await db.commit()
+    await db.refresh(mapping)
+    return _mapping_out(mapping)
+
+
+@router.delete("/templates/{tid}/mappings/{mid}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_source_mapping(tid: int, mid: int, db: AsyncSession = Depends(get_session), user: User = Depends(require_op(MENU, "D"))) -> Response:
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    mapping = next((item for item in template.mappings if item.id == mid), None)
+    if mapping is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="源映射不存在")
+    await db.delete(mapping)
+    template.version += 1
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.delete("/templates/{tid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_template(
@@ -289,6 +426,85 @@ async def download_merge(
     )
 
 
+@router.post("/templates/{tid}/mapping-draft", response_model=MappingDraftOut)
+async def mapping_draft(
+    tid: int,
+    file: UploadFile = File(...),
+    sheet_name: str | None = None,
+    header_start: int = 1,
+    header_end: int = 1,
+    business_context: str = "",
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "U")),
+) -> dict:
+    """只发送有效表头与既有模板字段，生成一条待人工确认的 AI 映射草稿。"""
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    filename = file.filename or ""
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="请上传 .xlsx Excel 文件")
+    if not 1 <= header_start <= header_end <= 10:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="表头行范围必须在 1 到 10 行之间")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="样表不得超过 10MB")
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Excel 解析失败: {exc}") from exc
+    try:
+        if sheet_name and sheet_name not in workbook.sheetnames:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="指定 Sheet 不存在")
+        worksheet = workbook[sheet_name] if sheet_name else workbook.active
+        headers = [item for item in engine.parse_header(worksheet, header_start, header_end) if item]
+        if not headers:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="未解析到有效表头")
+        fallback = {
+            "name": f"{filename.rsplit('.', 1)[0]}-映射", "match_signature": headers[:3],
+            "sheet_kw": worksheet.title, "header_start": header_start, "header_end": header_end,
+            "key_map": {}, "column_map": {}, "derived_fields": [], "derive_check": None,
+            "skip_tokens": ["合计", "小计", "总计"], "_confidence": 0.0,
+            "_notes": "AI 不可用，已生成表头草稿，请手工配置映射。",
+        }
+        timer = AiAuditTimer()
+        timer.add_event("entry", capability_id=AI_DRAFT_CAPABILITY)
+        capability = get_capability(AI_DRAFT_CAPABILITY)
+        warning: str | None = None
+        mapping = fallback
+        status_text = "fallback"
+        if capability is None:
+            warning = "AI 能力未注册，已切换为手工草稿"
+        else:
+            try:
+                validate_capability_policy(capability)
+                timer.add_event("model_call", capability_id=AI_DRAFT_CAPABILITY)
+                mapping = await ai_builder.build_mapping_draft(
+                    {"file": filename, "sheet": worksheet.title, "columns": headers,
+                     "header_start": header_start, "header_end": header_end},
+                    template.std_fields, template.merge_keys, business_context, db,
+                )
+                enforce_output_deny_patterns(capability, _draft_scan_text({"std_fields": [], "mappings": [mapping]}))
+                status_text = "ok"
+            except Exception as exc:
+                warning = f"AI 建议不可用，已切换为手工草稿：{exc}"
+        confidence = float(mapping.get("_confidence", 0.0))
+        await record_ai_log(
+            db=db, user=user, action="table_merge_suggest_mapping",
+            request_summary=f"单映射草稿 {filename}/{worksheet.title}",
+            response_summary=f"置信度 {confidence:.2f}" if status_text == "ok" else (warning or ""),
+            input_payload={"file": filename, "sheet": worksheet.title, "headers": headers, "business_context": business_context},
+            output_payload={"mapping": _draft_scan_text({"std_fields": [], "mappings": [mapping]})},
+            status=status_text, error=warning, metadata={"capability_id": AI_DRAFT_CAPABILITY, "metadata_only": True}, timer=timer,
+        )
+        await db.commit()
+        return {
+            "mapping": mapping, "available_sheets": workbook.sheetnames, "effective_headers": headers,
+            "low_confidence": ([{"sheet": worksheet.title, "confidence": confidence, "notes": mapping.get("_notes", "")}]
+                               if confidence < 0.85 else []),
+            "warnings": [warning] if warning else [],
+        }
+    finally:
+        workbook.close()
 # ── AI 建模板草稿(走 004 底座:capability 注册 + 策略闸门 + 输出 deny + 审计)──────
 
 @router.post("/ai-draft")

@@ -34,8 +34,20 @@ export interface TemplateOut {
   created_by: number | null
 }
 
+export interface SourceMappingOut extends SourceMappingIn {
+  id: number
+}
+
 export interface TemplateDetail extends TemplateOut {
-  mappings: (SourceMappingIn & { id: number })[]
+  mappings: SourceMappingOut[]
+}
+
+export interface MappingDraft {
+  mapping: SourceMappingIn
+  available_sheets: string[]
+  effective_headers: string[]
+  low_confidence: { sheet: string; confidence: number; notes: string }[]
+  warnings: string[]
 }
 
 export interface MergeResult {
@@ -74,6 +86,20 @@ export const tableToolsApi = {
   deleteTemplate: (id: number): Promise<void> =>
     api.delete(`/table-tools/templates/${id}`).then(() => undefined),
 
+  mappingDraft: (templateId: number, file: File, sheetName?: string): Promise<MappingDraft> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (sheetName) fd.append('sheet_name', sheetName)
+    return api.post(`/table-tools/templates/${templateId}/mapping-draft`, fd).then((r) => r.data)
+  },
+  createMapping: (templateId: number, payload: SourceMappingIn): Promise<SourceMappingOut> =>
+    api.post(`/table-tools/templates/${templateId}/mappings`, payload).then((r) => r.data),
+
+  updateMapping: (templateId: number, mappingId: number, payload: SourceMappingIn): Promise<SourceMappingOut> =>
+    api.put(`/table-tools/templates/${templateId}/mappings/${mappingId}`, payload).then((r) => r.data),
+
+  deleteMapping: (templateId: number, mappingId: number): Promise<void> =>
+    api.delete(`/table-tools/templates/${templateId}/mappings/${mappingId}`).then(() => undefined),
   runMerge: (templateId: number, files: File[]): Promise<MergeResult> => {
     const fd = new FormData()
     files.forEach((f) => fd.append('files', f))

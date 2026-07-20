@@ -294,6 +294,7 @@ def run_merge(
             # 找命中的 mapping(表头特征 + sheet 关键词 + 表头行区间一致)
             best: tuple[dict, float] | None = None
             best_hdr: list | None = None
+            is_ambiguous = False
             for m in mappings:
                 if m.get("sheet_kw") and m["sheet_kw"] not in ws.title:
                     continue
@@ -307,7 +308,24 @@ def run_merge(
                     score = hit / len(need)
                     if best is None or score > best[1]:
                         best, best_hdr = (m, score), hdr
+                        is_ambiguous = False
+                    elif best is not None and score == best[1]:
+                        is_ambiguous = True
             if best is None:
+                anomalies.append({
+                    "type": "未匹配源映射",
+                    "key": f"{fname} / {ws.title}",
+                    "detail": "未找到符合表头特征和 Sheet 规则的源映射",
+                    "file": fname,
+                })
+                continue
+            if is_ambiguous:
+                anomalies.append({
+                    "type": "映射命中歧义",
+                    "key": f"{fname} / {ws.title}",
+                    "detail": "存在多个同分源映射，已跳过该 Sheet，请维护更稳定的表头特征",
+                    "file": fname,
+                })
                 continue
             m, score = best
             recognize_log.append({"file": fname, "sheet": ws.title,
