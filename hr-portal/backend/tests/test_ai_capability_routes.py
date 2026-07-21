@@ -95,7 +95,8 @@ def test_ai_chat_openapi_schema_excludes_legacy_fields():
 def test_capability_result_contract_rejects_invalid_type_data_and_extra_fields():
     assert AI_RESULT_TYPES == {
         "message", "compensation_input", "compensation_preview", "compensation_comparison",
-        "automation_rule_draft", "data_compare_result",
+        "automation_rule_draft", "data_compare_result", "employee_profile_input",
+        "employee_profile_result", "employee_profile_candidates",
     }
     assert AI_EXECUTION_STATUSES == {
         "pending", "requires_input", "requires_confirmation", "running", "succeeded",

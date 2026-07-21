@@ -13,7 +13,7 @@
 | 组织与人员调整业务模型、状态机、API、页面和原子任务 | [008 atomic-tasks.md](../008-hr-adjustment-assistant/atomic-tasks.md) |
 | 外部连接、凭证、Pipeline、审批、执行、重试和监控 | [011 implementation-plan.md](../011-universal-connector-platform/implementation-plan.md) |
 
-公式/计算字段是 AI 公共底座的首个技术验证场景；组织与人员调整助手是 HR Agent 的首个完整高风险业务场景。两者的“首个”口径不同，不互相替代。
+公式/计算字段是 AI 公共底座的首个技术验证场景；`employee.profile.query` 可作为飞书公共渠道底座的首个低风险、只读受控验证 Capability；组织与人员调整助手仍是 HR Agent 的首个完整高风险业务场景。三者的“首个”口径不同，不互相替代。
 
 ## 2. 当前有效规范
 

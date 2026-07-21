@@ -59,3 +59,97 @@ class AiConversation(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+
+class AiControlledAction(Base):
+    """Server-issued, one-time action authorization bound to an AI conversation."""
+
+    __tablename__ = "ai_controlled_actions"
+    __table_args__ = (
+        UniqueConstraint("selection_handle_hash", name="uq_ai_controlled_actions_handle_hash"),
+        Index("ix_ai_controlled_actions_conversation_user", "conversation_id", "user_id"),
+        Index("ix_ai_controlled_actions_expires_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    capability_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    action_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    selection_handle_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    action_context: Mapped[dict] = mapped_column(JSON, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AiCapabilityRateLimit(Base):
+    """Cross-channel fixed-window counters keyed by user and capability."""
+
+    __tablename__ = "ai_capability_rate_limits"
+    __table_args__ = (
+        UniqueConstraint("user_id", "capability_id", name="uq_ai_capability_rate_limits_user_capability"),
+        Index("ix_ai_capability_rate_limits_window", "window_started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    capability_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    request_count: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class AiChannelSession(Base):
+    """Generic channel-to-conversation binding; external session keys are hashed."""
+
+    __tablename__ = "ai_channel_sessions"
+    __table_args__ = (
+        UniqueConstraint("channel", "external_session_hash", name="uq_ai_channel_sessions_channel_external"),
+        Index("ix_ai_channel_sessions_user_channel", "user_id", "channel"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    external_session_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class AiChannelEvent(Base):
+    """Channel-neutral idempotency receipt; event identifiers are hashed."""
+
+    __tablename__ = "ai_channel_events"
+    __table_args__ = (
+        UniqueConstraint("channel", "event_key_hash", name="uq_ai_channel_events_channel_event"),
+        Index("ix_ai_channel_events_received", "received_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    event_key_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="received", server_default="received")
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

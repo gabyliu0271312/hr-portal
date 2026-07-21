@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     FEISHU_VERIFICATION_TOKEN: str = ""
     # 飞书事件回调最大时间偏差（秒），防重放
     FEISHU_CALLBACK_MAX_TIMESTAMP_DIFF: int = 300
+    # ?? Bot ??????????????? AI ??????????
+    FEISHU_BOT_ENABLED: bool = False
+    # ???????????????????allowlist ?? Portal user_id?
+    FEISHU_EMPLOYEE_PROFILE_ENABLED: bool = False
+    FEISHU_EMPLOYEE_PROFILE_ALLOWED_USER_IDS: str = ""
 
     LOGIN_FAIL_LIMIT: int = 5
     LOGIN_LOCK_MINUTES: int = 15
@@ -70,6 +75,18 @@ class Settings(BaseSettings):
     # Excel 公式编译器灰度开关（AST0001+、AST0019）
     # ast | legacy | ast_with_legacy_fallback
     FORMULA_COMPILER_ENGINE: str = "ast"
+
+    # Employee-profile controlled rollout. All three values must be valid for access.
+    EMPLOYEE_PROFILE_ENABLED: bool = False
+    EMPLOYEE_PROFILE_ALLOWED_USER_IDS: str = ""
+    EMPLOYEE_PROFILE_EXPIRES_AT: str = ""
+
+    # Shared across channels and enforced after a target capability gate succeeds.
+    AI_CAPABILITY_RATE_LIMIT_MAX_REQUESTS: int = 20
+    AI_CAPABILITY_RATE_LIMIT_WINDOW_SECONDS: int = 300
+    AI_CONTROLLED_ACTION_AUDIT_RETENTION_DAYS: int = 180
+    AI_CONTROLLED_ACTION_STATE_RETENTION_DAYS: int = 7
+    AI_CONTROLLED_ACTION_TTL_SECONDS: int = 300
 
     @property
     def formula_ast_enabled(self) -> bool:

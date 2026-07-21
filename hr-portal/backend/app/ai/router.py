@@ -4,7 +4,7 @@ import json
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Literal, NamedTuple
 
 import httpx
@@ -14,8 +14,41 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.audit import AiAuditTimer, record_ai_log
+from app.ai.action_audit import record_controlled_action_audit
+from app.ai.actions import (
+    ControlledActionRequest,
+    ControlledActionResponse,
+    ControlledActionUnavailableError,
+    UnknownControlledActionError,
+    controlled_action_capability_id,
+    consume_controlled_action,
+)
+from app.ai.capability_rate_limit import (
+    CapabilityRateLimitExceeded,
+    enforce_capability_rate_limit,
+)
 from app.ai.capabilities import CAPABILITY_BY_ID, CapabilityDefinition, get_capability, user_has_permission, visible_capabilities
 from app.ai.context_builder import build_context_packet
+from app.ai.employee_profile_gate import EMPLOYEE_PROFILE_CAPABILITY_ID, employee_profile_rollout_decision
+from app.integrations.feishu.ai_gate import enforce_feishu_capability_gate
+from app.ai.employee_profile_actions import register_employee_profile_controlled_actions
+from app.ai.employee_profile_actions import issue_employee_profile_candidate_actions
+from app.ai.employee_profile_schemas import (
+    CANDIDATE_DISPLAY_FIELD_LABELS,
+    EMPLOYEE_PROFILE_FIELD_LABELS,
+    CandidateDisplayField,
+    CandidateDisplayFieldCode,
+    DEFAULT_EMPLOYEE_PROFILE_FIELD_CODES,
+    EmployeeProfileCandidateItem,
+    EmployeeProfileCandidatesData,
+    EmployeeProfileField,
+    EmployeeProfileInputData,
+    EmployeeProfileQuerySpec,
+    EmployeeProfileResultData,
+    effective_requested_fields,
+)
+from app.ai.employee_profile_service import EmployeeProfileQueryService
+from app.ai.employee_profile_audit import record_employee_profile_query_audit
 from app.ai.models import AiProviderConfig
 from app.ai.policy_guard import AiPolicyError, policy_profile_for_capability, validate_capability_policy
 from app.ai.provider import (
@@ -30,6 +63,7 @@ from app.ai.conversation import ChatSession, load_or_create as load_or_create_co
 from app.ai_formula.router import FormulaDraftIn, FormulaDraftOut, FormulaValidateIn, FormulaValidateOut
 from app.ai_formula.router import draft_formula_impl, validate_formula_impl
 from app.core.db import get_session
+from app.core.config import settings
 from app.core.deps import current_user, require_op
 from app.data_compare.chat_handler import extract_compare_spec, run_data_compare
 from app.data_compare.executor import ScopeDeniedError
@@ -55,6 +89,116 @@ from app.users.models import User
 
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+register_employee_profile_controlled_actions()
+
+
+@router.post(
+    "/conversations/{conversation_id}/actions",
+    response_model=None,
+)
+async def consume_ai_controlled_action(
+    conversation_id: int,
+    payload: ControlledActionRequest,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> Any:
+    try:
+        capability_id = controlled_action_capability_id(payload.action_type)
+        await _enforce_controlled_action_gate(payload, user, db)
+        await enforce_capability_rate_limit(
+            db,
+            user_id=user.id,
+            capability_id=capability_id,
+            max_requests=settings.AI_CAPABILITY_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=settings.AI_CAPABILITY_RATE_LIMIT_WINDOW_SECONDS,
+        )
+        result = await consume_controlled_action(
+            db,
+            request=payload,
+            conversation_id=conversation_id,
+            user=user,
+            channel="web",
+        )
+        await record_controlled_action_audit(
+            db=db,
+            user=user,
+            action_type=payload.action_type,
+            capability_id=capability_id,
+            conversation_id=conversation_id,
+            channel="web",
+            status="succeeded",
+        )
+        await db.commit()
+    except UnknownControlledActionError as exc:
+        await db.rollback()
+        await record_controlled_action_audit(
+            db=db,
+            user=user,
+            action_type=payload.action_type,
+            capability_id=None,
+            conversation_id=conversation_id,
+            channel="web",
+            status="failed",
+            failure_stage="unknown_action",
+        )
+        await db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="\u4e0d\u652f\u6301\u7684\u53d7\u63a7\u64cd\u4f5c\u3002") from exc
+    except ControlledActionUnavailableError as exc:
+        await db.rollback()
+        await record_controlled_action_audit(
+            db=db,
+            user=user,
+            action_type=payload.action_type,
+            capability_id=capability_id,
+            conversation_id=conversation_id,
+            channel="web",
+            status="failed",
+            failure_stage="unavailable_handle",
+        )
+        await db.commit()
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="\u53d7\u63a7\u64cd\u4f5c\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u67e5\u8be2\u3002") from exc
+    except CapabilityRateLimitExceeded as exc:
+        await db.rollback()
+        await record_controlled_action_audit(
+            db=db,
+            user=user,
+            action_type=payload.action_type,
+            capability_id=capability_id,
+            conversation_id=conversation_id,
+            channel="web",
+            status="failed",
+            failure_stage="rate_limited",
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="\u64cd\u4f5c\u8bf7\u6c42\u8fc7\u4e8e\u9891\u7e41\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+    except TargetCapabilityGateDenied as exc:
+        await db.rollback()
+        await record_controlled_action_audit(
+            db=db,
+            user=user,
+            action_type=payload.action_type,
+            capability_id=capability_id,
+            conversation_id=conversation_id,
+            channel="web",
+            status="failed",
+            failure_stage=exc.failure_stage,
+        )
+        await db.commit()
+        raise
+    except Exception:
+        await db.rollback()
+        raise
+    if capability_id == EMPLOYEE_PROFILE_CAPABILITY_ID:
+        return _employee_profile_action_envelope(
+            result,
+            conversation_id=conversation_id,
+        )
+    return ControlledActionResponse(action_type=payload.action_type, result=result)
 
 
 class AiConfigIn(BaseModel):
@@ -190,6 +334,9 @@ AI_RESULT_TYPES = {
     "compensation_comparison",
     "automation_rule_draft",
     "data_compare_result",
+    "employee_profile_input",
+    "employee_profile_result",
+    "employee_profile_candidates",
 }
 
 
@@ -300,13 +447,31 @@ class DataCompareCapabilityResult(CapabilityResultOut):
     data: DataCompareResultData
 
 
+class EmployeeProfileInputCapabilityResult(CapabilityResultOut):
+    type: Literal["employee_profile_input"] = "employee_profile_input"
+    data: EmployeeProfileInputData
+
+
+class EmployeeProfileResultCapabilityResult(CapabilityResultOut):
+    type: Literal["employee_profile_result"] = "employee_profile_result"
+    data: EmployeeProfileResultData
+
+
+class EmployeeProfileCandidatesCapabilityResult(CapabilityResultOut):
+    type: Literal["employee_profile_candidates"] = "employee_profile_candidates"
+    data: EmployeeProfileCandidatesData
+
+
 CapabilityResult = Annotated[
     MessageCapabilityResult
     | CompensationInputCapabilityResult
     | CompensationPreviewCapabilityResult
     | CompensationComparisonCapabilityResult
     | AutomationRuleDraftCapabilityResult
-    | DataCompareCapabilityResult,
+    | DataCompareCapabilityResult
+    | EmployeeProfileInputCapabilityResult
+    | EmployeeProfileResultCapabilityResult
+    | EmployeeProfileCandidatesCapabilityResult,
     Field(discriminator="type"),
 ]
 
@@ -318,6 +483,9 @@ RESULT_TYPES: dict[str, type[CapabilityResultOut]] = {
     "compensation_comparison": CompensationComparisonCapabilityResult,
     "automation_rule_draft": AutomationRuleDraftCapabilityResult,
     "data_compare_result": DataCompareCapabilityResult,
+    "employee_profile_input": EmployeeProfileInputCapabilityResult,
+    "employee_profile_result": EmployeeProfileResultCapabilityResult,
+    "employee_profile_candidates": EmployeeProfileCandidatesCapabilityResult,
 }
 
 
@@ -399,6 +567,37 @@ def _chat_out(
         ),
         masking=MaskingResultOut(applied=masking_applied),
         trace_id=trace_id,
+    )
+
+
+def _employee_profile_action_envelope(
+    result: dict[str, Any],
+    *,
+    conversation_id: int,
+) -> AiChatOut:
+    """Adapt the employee action's server-only result into the shared AI envelope."""
+    if result.get("status") == "succeeded":
+        data = EmployeeProfileResultData.model_validate(result.get("data"))
+        return _chat_out(
+            intent=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            status="succeeded",
+            answer="\u5df2\u67e5\u8be2\u5230\u5458\u5de5\u6863\u6848\u3002",
+            capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            result_type="employee_profile_result",
+            data=data,
+            permission_filtered=bool(result.get("permission_filtered")),
+            permission_note=("\u5df2\u6309\u5f53\u524d\u6743\u9650\u8fc7\u6ee4\u4e0d\u53ef\u89c1\u5b57\u6bb5\u3002" if result.get("permission_filtered") else ""),
+            masking_applied=bool(result.get("masking_applied")),
+            conversation_id=conversation_id,
+        )
+    return _chat_out(
+        intent=EMPLOYEE_PROFILE_CAPABILITY_ID,
+        status="failed",
+        answer="\u672a\u67e5\u8be2\u5230\u7b26\u5408\u6761\u4ef6\u7684\u5458\u5de5\u3002",
+        capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+        result_type="message",
+        data=MessageResultData(reason_code="no_viewable_match"),
+        conversation_id=conversation_id,
     )
 
 
@@ -2008,6 +2207,294 @@ def _result_candidate_count(result: CapabilityResult) -> int:
     return 0
 
 
+class TargetCapabilityGateDenied(HTTPException):
+    def __init__(self, failure_stage: str, detail: str):
+        super().__init__(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+        self.failure_stage = failure_stage
+
+
+async def _enforce_controlled_action_gate(
+    payload: ControlledActionRequest,
+    user: User,
+    db: AsyncSession,
+) -> None:
+    """Apply the target capability gate before a valid handle can be consumed."""
+    if payload.action_type != "employee.profile.select_candidate":
+        return
+    rollout = employee_profile_rollout_decision(settings, user.id)
+    if not rollout.allowed:
+        raise TargetCapabilityGateDenied(
+            rollout.failure_stage or "controlled_rollout_denied",
+            "\u5f53\u524d\u529f\u80fd\u6682\u672a\u5f00\u653e",
+        )
+    target_capability = _ensure_capability(EMPLOYEE_PROFILE_CAPABILITY_ID)
+    if not await user_has_permission(user, db, target_capability.required_permission):
+        raise TargetCapabilityGateDenied(
+            "target_permission_denied",
+            "\u65e0\u6743\u4f7f\u7528\u5f53\u524d\u529f\u80fd",
+        )
+
+
+async def _enforce_chat_route_gate(
+    route: "ChatRoute", user: User, db: AsyncSession, timer: AiAuditTimer
+) -> None:
+    target_capability = _ensure_capability(route.capability_id)
+    if target_capability.capability_id == EMPLOYEE_PROFILE_CAPABILITY_ID:
+        rollout = employee_profile_rollout_decision(settings, user.id)
+        if not rollout.allowed:
+            timer.add_event(
+                "controlled_rollout_gate",
+                status="denied",
+                capability_id=target_capability.capability_id,
+                failure_stage=rollout.failure_stage,
+            )
+            raise TargetCapabilityGateDenied(rollout.failure_stage or "controlled_rollout_denied", "\u5f53\u524d\u529f\u80fd\u6682\u672a\u5f00\u653e")
+    if not await user_has_permission(user, db, target_capability.required_permission):
+        timer.add_event(
+            "target_capability_gate",
+            status="denied",
+            capability_id=target_capability.capability_id,
+            failure_stage="target_permission_denied",
+        )
+        raise TargetCapabilityGateDenied("target_permission_denied", "\u65e0\u6743\u4f7f\u7528\u5f53\u524d\u529f\u80fd")
+
+
+async def _extract_employee_profile_pending(
+    payload: AiChatIn, session: ChatSession, db: AsyncSession, timer: AiAuditTimer
+) -> ExtractorResult:
+    config = await active_ai_config(db)
+    active_profile = session.capability_state(EMPLOYEE_PROFILE_CAPABILITY_ID)
+    continuation_context = {
+        "lookup_type": active_profile.get("lookup_type"),
+        "lookup_value": active_profile.get("lookup_value"),
+        "requested_field_codes": active_profile.get("requested_field_codes", []),
+    } if active_profile else None
+    model = (config.model_fast_json or config.model_reasoning or "").strip()
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You extract an employee-profile lookup request. Return only JSON. "
+                "Allowed lookup_type values are name and employee_no. "
+                "requested_field_codes may only contain full_name, employee_no, business_unit, "
+                "organization_name, position_name, standard_position, position_level, employee_type, "
+                "employment_status, hire_date. "
+                "Do not emit employee IDs, scopes, SQL, extra fields, or any result data. "
+                "For an employee-profile follow-up, return only the additional requested_field_codes; "
+                "lookup_value may be null and the server will reuse the active employee context. "
+                "Map BU or business unit requests to business_unit. "
+                "When no name or employee number is supplied outside a follow-up, return lookup_value as null."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "message": payload.message,
+                    "active_employee_profile": continuation_context,
+                    "output_schema_hint": {
+                        "lookup_type": "name | employee_no | null",
+                        "lookup_value": "string | null",
+                        "requested_field_codes": "array of fixed codes",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    timer.add_event("model_call", capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID, model=model, purpose="employee_profile_extract")
+    try:
+        _, content, usage = await chat_completion_openai_compatible(
+            api_key=decrypt(config.api_key_encrypted),
+            base_url=config.base_url,
+            model=model,
+            messages=messages,
+            timeout=int(config.timeout_seconds or 30),
+            response_format={"type": "json_object"},
+        )
+        raw = parse_json_content(content)
+        if not isinstance(raw, dict):
+            return ExtractorResult(None, usage, "employee_profile_model_invalid")
+        requested_field_codes = raw.get("requested_field_codes")
+        if isinstance(requested_field_codes, list):
+            raw = dict(raw)
+            raw["requested_field_codes"] = [
+                "business_unit" if isinstance(code, str) and code.casefold() == "bu" else code
+                for code in requested_field_codes
+            ]
+            if not continuation_context:
+                supported_field_codes = {code.value for code in EMPLOYEE_PROFILE_FIELD_LABELS}
+                if set(raw["requested_field_codes"]) == supported_field_codes:
+                    raw["requested_field_codes"] = []
+        if raw.get("lookup_value") is None and continuation_context:
+            lookup_type = continuation_context.get("lookup_type")
+            lookup_value = continuation_context.get("lookup_value")
+            previous_fields = continuation_context.get("requested_field_codes")
+            additional_fields = raw.get("requested_field_codes")
+            if lookup_type in {"name", "employee_no"} and isinstance(lookup_value, str) and lookup_value.strip():
+                raw = dict(raw)
+                raw["lookup_type"] = lookup_type
+                raw["lookup_value"] = lookup_value
+                if isinstance(previous_fields, list) and isinstance(additional_fields, list):
+                    supported_field_codes = {code.value for code in EMPLOYEE_PROFILE_FIELD_LABELS}
+                    if set(previous_fields) == supported_field_codes:
+                        previous_fields = [field_code.value for field_code in DEFAULT_EMPLOYEE_PROFILE_FIELD_CODES]
+                    merged_fields = list(dict.fromkeys([*previous_fields, *additional_fields]))
+                    if not set(merged_fields) - set(previous_fields):
+                        return ExtractorResult({"no_additional_requested_fields": True}, usage, "employee_profile_no_additional_fields")
+                    raw["requested_field_codes"] = merged_fields
+        if raw.get("lookup_value") is None or not str(raw.get("lookup_value", "")).strip():
+            return ExtractorResult({"missing_lookup_value": True}, usage, "employee_profile_model_missing")
+        query_spec = EmployeeProfileQuerySpec.model_validate(raw)
+        return ExtractorResult(query_spec.model_dump(mode="json"), usage, "employee_profile_model")
+    except Exception:
+        return ExtractorResult(None, None, "employee_profile_model_invalid")
+
+
+async def _handle_employee_profile_pending(
+    payload: AiChatIn,
+    extracted: dict[str, Any],
+    session: ChatSession,
+    user: User,
+    db: AsyncSession,
+    timer: AiAuditTimer,
+) -> AiChatOut:
+    if extracted.get("no_additional_requested_fields"):
+        return _chat_out(
+            intent=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            status="requires_input",
+            answer="\u672a\u8bc6\u522b\u51fa\u53ef\u65b0\u589e\u7684\u5458\u5de5\u6863\u6848\u5b57\u6bb5\u3002\u8bf7\u6307\u5b9a\u5df2\u652f\u6301\u7684\u5b57\u6bb5\uff0c\u4f8b\u5982 BU\u3001\u5c97\u4f4d\u3001\u5728\u804c\u72b6\u6001\u6216\u5165\u804c\u65e5\u671f\u3002",
+            capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            result_type="message",
+            data=MessageResultData(reason_code="employee_profile_no_additional_fields"),
+            trace_id=timer.trace_id,
+        )
+    if extracted.get("missing_lookup_value"):
+        return _chat_out(
+            intent=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            status="requires_input",
+            answer="\u8bf7\u63d0\u4f9b\u5458\u5de5\u59d3\u540d\u6216\u5de5\u53f7\u3002",
+            capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            result_type="employee_profile_input",
+            data=EmployeeProfileInputData(missing_fields=["lookup_value"]),
+            trace_id=timer.trace_id,
+        )
+    try:
+        query_spec = EmployeeProfileQuerySpec.model_validate(extracted)
+    except Exception:
+        return _chat_out(
+            intent=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            status="failed",
+            answer="\u5458\u5de5\u4fe1\u606f\u8bf7\u6c42\u89e3\u6790\u5931\u8d25\uff0c\u8bf7\u6362\u4e00\u79cd\u8bf4\u6cd5\u3002",
+            capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            data=MessageResultData(reason_code="employee_profile_parse_failed"),
+            trace_id=timer.trace_id,
+        )
+
+    result = await EmployeeProfileQueryService().query(query_spec, user=user, db=db)
+    timer.add_event(
+        "employee_profile_query",
+        capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+        lookup_type=query_spec.lookup_type,
+        match_kind=result.match_kind,
+        scope_filter_applied=result.scope_filter_applied,
+        scope_filter_restrictive=result.scope_filter_restrictive,
+    )
+    if result.match_kind == "unique":
+        data = EmployeeProfileResultData(
+            fields=[
+                EmployeeProfileField(
+                    code=field_code,
+                    label=EMPLOYEE_PROFILE_FIELD_LABELS[field_code],
+                    value=str(result.rows[0][field_code.value]),
+                )
+                for field_code in result.effective_requested_field_codes
+            ]
+        )
+        session.activate(
+            EMPLOYEE_PROFILE_CAPABILITY_ID,
+            {
+                "lookup_type": query_spec.lookup_type,
+                "lookup_value": query_spec.lookup_value,
+                "requested_field_codes": [field_code.value for field_code in result.effective_requested_field_codes],
+            },
+        )
+        return _chat_out(
+            intent=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            status="succeeded",
+            answer="\u5df2\u67e5\u8be2\u5230\u5458\u5de5\u6863\u6848\u3002",
+            capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            result_type="employee_profile_result",
+            data=data,
+            permission_filtered=result.permission_filtered,
+            permission_note=("\u5df2\u6309\u5f53\u524d\u6743\u9650\u8fc7\u6ee4\u4e0d\u53ef\u89c1\u5b57\u6bb5\u3002" if result.permission_filtered else ""),
+            masking_applied=result.masking_applied,
+            trace_id=timer.trace_id,
+        )
+    if result.match_kind == "candidates":
+        issued = await issue_employee_profile_candidate_actions(
+            db,
+            conversation_id=session.conversation_id,
+            user_id=user.id,
+            channel=session.channel,
+            candidate_rows=result.rows,
+            effective_requested_field_codes=result.effective_requested_field_codes,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=settings.AI_CONTROLLED_ACTION_TTL_SECONDS),
+        )
+        if len(issued) != len(result.rows):
+            raise RuntimeError("candidate action issuance must be all-or-nothing")
+        data = EmployeeProfileCandidatesData(
+            candidates=[
+                EmployeeProfileCandidateItem(
+                    selection_handle=issued_action.selection_handle,
+                    display_fields=[
+                        CandidateDisplayField(
+                            code=CandidateDisplayFieldCode(code),
+                            label=CANDIDATE_DISPLAY_FIELD_LABELS[CandidateDisplayFieldCode(code)],
+                            value=row[code],
+                        )
+                        for code in ("full_name", "organization_name", "employment_status")
+                        if code in row
+                    ],
+                )
+                for row, issued_action in zip(result.rows, issued, strict=True)
+            ]
+        )
+        return _chat_out(
+            intent=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            status="requires_input",
+            answer="\u5339\u914d\u5230\u591a\u540d\u5458\u5de5\uff0c\u8bf7\u9009\u62e9\u5176\u4e2d\u4e00\u4eba\u3002",
+            capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            result_type="employee_profile_candidates",
+            data=data,
+            permission_filtered=result.permission_filtered,
+            permission_note=("\u5df2\u6309\u5f53\u524d\u6743\u9650\u8fc7\u6ee4\u4e0d\u53ef\u89c1\u5b57\u6bb5\u3002" if result.permission_filtered else ""),
+            masking_applied=result.masking_applied,
+            trace_id=timer.trace_id,
+        )
+    if result.match_kind == "too_many":
+        return _chat_out(
+            intent=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            status="failed",
+            answer="\u5339\u914d\u5230\u7684\u5458\u5de5\u8fc7\u591a\uff0c\u8bf7\u8865\u5145\u66f4\u5b8c\u6574\u7684\u59d3\u540d\u6216\u5de5\u53f7\u3002",
+            capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            data=MessageResultData(reason_code="employee_profile_too_many"),
+            permission_filtered=result.permission_filtered,
+            permission_note=("\u5df2\u6309\u5f53\u524d\u6743\u9650\u8fc7\u6ee4\u4e0d\u53ef\u89c1\u5b57\u6bb5\u3002" if result.permission_filtered else ""),
+            trace_id=timer.trace_id,
+        )
+    return _chat_out(
+        intent=EMPLOYEE_PROFILE_CAPABILITY_ID,
+        status="failed",
+        answer="\u672a\u67e5\u8be2\u5230\u7b26\u5408\u6761\u4ef6\u7684\u5458\u5de5\u3002",
+        capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+        data=MessageResultData(reason_code="employee_profile_no_match"),
+        permission_filtered=result.permission_filtered,
+        permission_note=("\u5df2\u6309\u5f53\u524d\u6743\u9650\u8fc7\u6ee4\u4e0d\u53ef\u89c1\u5b57\u6bb5\u3002" if result.permission_filtered else ""),
+        trace_id=timer.trace_id,
+    )
+
+
 @dataclass(frozen=True)
 class ChatRoute:
     intent: str
@@ -2018,6 +2505,13 @@ class ChatRoute:
 
 
 CHAT_ROUTES: tuple[ChatRoute, ...] = (
+    ChatRoute(
+        intent="employee.profile.query",
+        capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+        description="\u6309\u59d3\u540d\u6216\u5de5\u53f7\u67e5\u8be2\u5458\u5de5\u7684\u57fa\u7840\u5de5\u4f5c\u4fe1\u606f",
+        extractor=_extract_employee_profile_pending,
+        handler=_handle_employee_profile_pending,
+    ),
     ChatRoute(
         intent="compensation.calculate",
         capability_id="compensation.calculate_preview",
@@ -2101,6 +2595,10 @@ async def _classify_chat_intent(
                 + "\n"
                 + active_hint
             ),
+        },
+        {
+            "role": "system",
+            "content": "Return JSON only. Use employee.profile.query for any employee lookup or employee field update. An employee identifier may be a Chinese name, English name, dotted login, email-like value, or employee number. Tianhao.wu is an employee lookup. If an active employee-profile context exists, a request to supplement or add a field such as BU must remain employee.profile.query even when the user omits the employee identifier.",
         },
         {
             "role": "user",
@@ -2187,6 +2685,7 @@ async def global_ai_chat(
     timer = AiAuditTimer()
     capability = _ensure_capability("ai.chat")
     usage: dict[str, Any] | None = None
+    target_capability_id: str | None = None
     try:
         timer.add_event("entry", capability_id=capability.capability_id, route="/ai/chat", page_path=payload.page_path)
         timer.add_event("capability", capability_id=capability.capability_id, risk_level=capability.risk_level)
@@ -2230,6 +2729,17 @@ async def global_ai_chat(
                     trace_id=timer.trace_id,
                 )
             else:
+                target_capability_id = route.capability_id
+                await _enforce_chat_route_gate(route, user, db, timer)
+                if session.channel == "feishu":
+                    enforce_feishu_capability_gate(route.capability_id, user.id)
+                await enforce_capability_rate_limit(
+                    db,
+                    user_id=user.id,
+                    capability_id=route.capability_id,
+                    max_requests=settings.AI_CAPABILITY_RATE_LIMIT_MAX_REQUESTS,
+                    window_seconds=settings.AI_CAPABILITY_RATE_LIMIT_WINDOW_SECONDS,
+                )
                 extraction = await route.extractor(payload, session, db, timer)
                 usage = extraction.usage or usage
                 parse_mode = f"{parse_mode}+{extraction.parse_mode}"
@@ -2249,47 +2759,121 @@ async def global_ai_chat(
         await persist_conversation(db, conv, session)
         validate_model_payload(AiChatOut, out, label="ai.chat output", phase="output")
         timer.add_event("schema_validation", capability_id=capability.capability_id, target="output")
-        await record_ai_log(
-            db=db,
-            user=user,
-            action="global_ai_chat",
-            request_summary=payload.message[:300],
-            response_summary=out.answer[:500],
-            input_payload=payload.model_dump(),
-            output_payload=out.model_dump(),
-            status=out.status,
-            metadata={
-                "capability_id": out.capability_id,
-                "conversation_id": session.conversation_id,
-                "active_capability_id": session.active_capability_id,
-                "intent": out.intent,
-                "parse_mode": parse_mode,
-                "action_count": len(out.result.actions),
-                "candidate_count": _result_candidate_count(out.result),
-                "read_only": True,
-            },
-            token_usage=usage,
-            timer=timer,
-        )
+        if out.capability_id == EMPLOYEE_PROFILE_CAPABILITY_ID:
+            execution = next(
+                (event.data for event in reversed(timer.events) if event.event == "employee_profile_query"),
+                {},
+            )
+            returned_field_codes = (
+                [field.code.value for field in out.result.data.fields]
+                if isinstance(out.result, EmployeeProfileResultCapabilityResult)
+                else []
+            )
+            candidate_count = (
+                len(out.result.data.candidates)
+                if isinstance(out.result, EmployeeProfileCandidatesCapabilityResult)
+                else 0
+            )
+            await record_employee_profile_query_audit(
+                db=db,
+                user=user,
+                lookup_type=execution.get("lookup_type"),
+                status=out.status,
+                result_type=out.result.type,
+                returned_field_codes=returned_field_codes,
+                candidate_count=candidate_count,
+                scope_filter_applied=execution.get("scope_filter_applied"),
+                scope_filter_restrictive=execution.get("scope_filter_restrictive"),
+                masking_applied=out.masking.applied,
+                conversation_id=session.conversation_id,
+                timer=timer,
+                record_log=record_ai_log,
+            )
+        else:
+            await record_ai_log(
+                db=db,
+                user=user,
+                action="global_ai_chat",
+                request_summary=payload.message[:300],
+                response_summary=out.answer[:500],
+                input_payload=payload.model_dump(),
+                output_payload=out.model_dump(),
+                status=out.status,
+                metadata={
+                    "capability_id": out.capability_id,
+                    "conversation_id": session.conversation_id,
+                    "active_capability_id": session.active_capability_id,
+                    "intent": out.intent,
+                    "parse_mode": parse_mode,
+                    "action_count": len(out.result.actions),
+                    "candidate_count": _result_candidate_count(out.result),
+                    "read_only": True,
+                },
+                token_usage=usage,
+                timer=timer,
+            )
         await db.commit()
         return out
+    except CapabilityRateLimitExceeded as exc:
+        timer.add_event(
+            "capability_rate_limit",
+            status="denied",
+            capability_id=target_capability_id,
+            retry_after_seconds=exc.retry_after_seconds,
+        )
+        if target_capability_id == EMPLOYEE_PROFILE_CAPABILITY_ID:
+            await record_employee_profile_query_audit(
+                db=db,
+                user=user,
+                lookup_type=None,
+                status="failed",
+                result_type=None,
+                conversation_id=getattr(locals().get("session", None), "conversation_id", None),
+                failure_stage="rate_limited",
+                timer=timer,
+                record_log=record_ai_log,
+            )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="\u64cd\u4f5c\u8bf7\u6c42\u8fc7\u4e8e\u9891\u7e41\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
     except (AiSchemaValidationError, AiPolicyError, HTTPException, ValueError) as exc:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
         timer.add_event("failure", status="failed", capability_id=capability.capability_id, reason=str(detail)[:500])
-        await record_ai_log(
-            db=db,
-            user=user,
-            action="global_ai_chat",
-            request_summary=payload.message[:300],
-            response_summary=None,
-            input_payload=payload.model_dump(),
-            output_payload={},
-            status="failed",
-            metadata={"capability_id": capability.capability_id},
-            error=str(detail),
-            token_usage=usage,
-            timer=timer,
-        )
+        employee_profile_request = target_capability_id == EMPLOYEE_PROFILE_CAPABILITY_ID
+        failure_stage = getattr(exc, "failure_stage", None)
+        if employee_profile_request:
+            await record_employee_profile_query_audit(
+                db=db,
+                user=user,
+                lookup_type=None,
+                status="failed",
+                result_type=None,
+                conversation_id=getattr(locals().get("session", None), "conversation_id", None),
+                failure_stage=failure_stage or "employee_profile_failed",
+                timer=timer,
+                record_log=record_ai_log,
+            )
+        else:
+            await record_ai_log(
+                db=db,
+                user=user,
+                action="global_ai_chat",
+                request_summary=payload.message[:300],
+                response_summary=None,
+                input_payload=payload.model_dump(),
+                output_payload={},
+                status="failed",
+                metadata={
+                    "capability_id": target_capability_id or capability.capability_id,
+                    **({"failure_stage": failure_stage} if failure_stage else {}),
+                },
+                error=str(detail),
+                token_usage=usage,
+                timer=timer,
+            )
         await db.commit()
         if isinstance(exc, AiOutputSchemaValidationError):
             raise HTTPException(
@@ -2299,6 +2883,31 @@ async def global_ai_chat(
         if isinstance(exc, HTTPException):
             raise
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(detail)) from exc
+    except Exception as exc:
+        if target_capability_id != EMPLOYEE_PROFILE_CAPABILITY_ID:
+            raise
+        timer.add_event(
+            "failure",
+            status="failed",
+            capability_id=EMPLOYEE_PROFILE_CAPABILITY_ID,
+            reason="employee_profile_internal_error",
+        )
+        await record_employee_profile_query_audit(
+            db=db,
+            user=user,
+            lookup_type=None,
+            status="failed",
+            result_type=None,
+            conversation_id=getattr(locals().get("session", None), "conversation_id", None),
+            failure_stage="employee_profile_internal_error",
+            timer=timer,
+            record_log=record_ai_log,
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "\u670d\u52a1\u7aef\u54cd\u5e94\u6821\u9a8c\u5931\u8d25\u3002", "trace_id": timer.trace_id},
+        ) from exc
 
 
 @router.post(

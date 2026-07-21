@@ -144,6 +144,7 @@ MENU_TREE: list[dict] = [
                 "children": [
                     {"code": "tools.center", "label": "工具中心", "icon": "Grid"},
                     {"code": "tools.compensation_calc", "label": "补偿金计算", "icon": "Money"},
+                    {"code": "employee.profile", "label": "员工基础信息查询", "icon": "User"},
                     {"code": "tools.income_certificate", "label": "证明开具", "icon": "Document"},
                     {"code": "tools.cost_allocation", "label": "成本分摊", "icon": "Histogram"},
                     {"code": "table_tools", "label": "表格归集", "icon": "Grid"},
@@ -327,6 +328,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_admin_user(db, super_role)
         await _ensure_datasources(db)
         await _ensure_datasource_jobs(db)
+        await _ensure_ai_controlled_action_retention_job(db)
         await _ensure_registered_tables(db)
         await _ensure_single_table_datasets(db)
         await _ensure_document_templates(db)
@@ -429,6 +431,21 @@ async def _ensure_datasource_jobs(db: AsyncSession) -> None:
             enabled=ds.is_active,
         )
         logger.info("[seed] scheduled_job for ds %d (%s) created", ds.id, ds.table_name)
+    await db.commit()
+
+
+async def _ensure_ai_controlled_action_retention_job(db: AsyncSession) -> None:
+    """Create the platform-owned daily cleanup job without exposing business payloads."""
+    from app.scheduler.service import upsert_job
+
+    await upsert_job(
+        db,
+        kind="ai_controlled_action_retention",
+        business_id=0,
+        cron="30 3 * * *",
+        payload={},
+        enabled=True,
+    )
     await db.commit()
 
 

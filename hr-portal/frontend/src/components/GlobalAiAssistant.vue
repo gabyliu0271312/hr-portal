@@ -9,6 +9,7 @@ import DocumentActionPreview from '@/components/document/DocumentActionPreview.v
 import AutomationRuleArtifactPreview from '@/components/automation/AutomationRuleArtifactPreview.vue'
 import CompareResultCard from '@/components/ai/CompareResultCard.vue'
 import CompensationComparisonCard from '@/components/ai/CompensationComparisonCard.vue'
+import EmployeeProfileResultCard from '@/components/ai/EmployeeProfileResultCard.vue'
 
 interface ChatMessage {
   id: number
@@ -28,6 +29,7 @@ const documentActionRef = ref<InstanceType<typeof DocumentActionPreview> | null>
 const messages = ref<ChatMessage[]>([])
 // 多轮会话:前端只持有后端发的 conversation_id,任务状态/槽位由后端 PG 持久化。
 const conversationId = ref<number | null>(null)
+const selectingEmployeeProfileMessageId = ref<number | null>(null)
 let messageId = 0
 
 function messageCandidates(item: ChatMessage): EmployeeCandidate[] {
@@ -92,11 +94,48 @@ async function chooseCandidate(candidate: EmployeeCandidate) {
   await sendMessage(`计算 ${employeeTitle(candidate)} 的补偿金`, candidate.id, false)
 }
 
+function controlledActionErrorDetail(error: any) {
+  if (error?.response?.status === 410) return '\u5458\u5de5\u5019\u9009\u9879\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u67e5\u8be2\u3002'
+  return error?.response?.data?.detail || '\u5458\u5de5\u4fe1\u606f\u67e5\u8be2\u5931\u8d25\u3002'
+}
+
+function isEmployeeProfileCard(item: ChatMessage) {
+  return item.result?.type === 'employee_profile_result' || item.result?.type === 'employee_profile_candidates'
+}
+
+async function chooseEmployeeProfileCandidate(item: ChatMessage, selectionHandle: string) {
+  if (!conversationId.value || item.result?.type !== 'employee_profile_candidates') {
+    item.result = undefined
+    item.content = '\u5458\u5de5\u5019\u9009\u9879\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u67e5\u8be2\u3002'
+    return
+  }
+  selectingEmployeeProfileMessageId.value = item.id
+  try {
+    const result = await aiApi.consumeControlledAction(conversationId.value, {
+      action_type: 'employee.profile.select_candidate',
+      selection_handle: selectionHandle,
+    })
+    if (result.conversation_id) conversationId.value = result.conversation_id
+    item.content = result.answer
+    item.traceId = result.trace_id
+    item.result = result.result
+  } catch (error: any) {
+    const detail = controlledActionErrorDetail(error)
+    item.result = undefined
+    item.content = detail
+    ElMessage.warning(detail)
+  } finally {
+    selectingEmployeeProfileMessageId.value = null
+    scrollToBottom()
+  }
+}
+
 async function sendMessage(
   text: string = input.value,
   selectedEmployeeId: number | null = null,
   showUserMessage = true,
 ) {
+  if (sending.value) return
   const message = text.trim()
   if (!message) {
     ElMessage.warning('请先输入要让 AI 处理的事情')
@@ -169,15 +208,15 @@ function handleKeydown(event: KeyboardEvent) {
     <el-icon><MagicStick /></el-icon>
   </el-button>
 
-  <el-drawer v-model="open" title="全局 AI 助手" size="460px" append-to-body class="global-ai-drawer">
+  <el-drawer v-model="open" title="全局 AI 助手" size="620px" append-to-body class="global-ai-drawer">
     <div class="ai-chat">
       <div ref="threadRef" class="chat-thread">
         <div v-if="!messages.length" class="chat-empty">
           可以在任何页面发起受控任务，例如：帮我计算刘琦的补偿金。
         </div>
-        <div v-for="item in messages" :key="item.id" class="chat-message" :class="item.role">
+        <div v-for="item in messages" :key="item.id" class="chat-message" :class="[item.role, { 'employee-profile-message': isEmployeeProfileCard(item) }]">
           <div class="chat-bubble">
-            <div class="chat-content">{{ item.content }}</div>
+            <div v-if="!isEmployeeProfileCard(item)" class="chat-content">{{ item.content }}</div>
             <div v-if="item.result?.type === 'compensation_preview'" class="result-card">
               <div class="result-row">
                 <span>员工</span>
@@ -220,7 +259,6 @@ function handleKeydown(event: KeyboardEvent) {
                 {{ action.label }}
               </el-button>
             </div>
-            <div v-if="item.traceId" class="trace-line">trace_id: {{ item.traceId }}</div>
             <AutomationRuleArtifactPreview
               v-if="item.result?.type === 'automation_rule_draft'"
               :artifact="item.result.data"
@@ -234,6 +272,12 @@ function handleKeydown(event: KeyboardEvent) {
             <CompareResultCard
               v-if="item.result?.type === 'data_compare_result'"
               :result="item.result.data"
+            />
+            <EmployeeProfileResultCard
+              v-if="item.result?.type === 'employee_profile_result' || item.result?.type === 'employee_profile_candidates'"
+              :result="item.result"
+              :loading="selectingEmployeeProfileMessageId === item.id"
+              @select="chooseEmployeeProfileCandidate(item, $event)"
             />
           </div>
         </div>
@@ -326,6 +370,13 @@ function handleKeydown(event: KeyboardEvent) {
   line-height: 1.6;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+.chat-message.employee-profile-message .chat-bubble {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 .chat-message.user .chat-bubble {
   border-color: var(--color-primary);

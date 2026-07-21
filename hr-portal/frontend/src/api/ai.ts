@@ -41,6 +41,52 @@ export interface MaskingResult {
   applied: boolean
 }
 
+export type EmployeeProfileFieldCode =
+  | 'full_name'
+  | 'employee_no'
+  | 'organization_name'
+  | 'position_name'
+  | 'standard_position'
+  | 'position_level'
+  | 'employee_type'
+  | 'employment_status'
+  | 'hire_date'
+  | 'probation_end_date'
+
+export interface EmployeeProfileField {
+  code: EmployeeProfileFieldCode
+  label: string
+  value: string
+}
+
+export interface EmployeeProfileResultData {
+  fields: EmployeeProfileField[]
+}
+
+export type EmployeeProfileCandidateDisplayFieldCode =
+  | 'full_name'
+  | 'organization_name'
+  | 'employment_status'
+
+export interface EmployeeProfileCandidateDisplayField {
+  code: EmployeeProfileCandidateDisplayFieldCode
+  label: string
+  value: string
+}
+
+export interface EmployeeProfileCandidate {
+  selection_handle: string
+  display_fields: EmployeeProfileCandidateDisplayField[]
+}
+
+export interface EmployeeProfileCandidatesData {
+  candidates: EmployeeProfileCandidate[]
+}
+
+export interface EmployeeProfileInputData {
+  missing_fields: Array<'lookup_value'>
+}
+
 export interface AutomationRuleDraftData {
   artifact_type: 'automation_rule'
   status: 'draft'
@@ -126,6 +172,24 @@ export type CapabilityResult =
       artifacts: CapabilityArtifact[]
       actions: AiAction[]
     }
+  | {
+      type: 'employee_profile_input'
+      data: EmployeeProfileInputData
+      artifacts: CapabilityArtifact[]
+      actions: AiAction[]
+    }
+  | {
+      type: 'employee_profile_result'
+      data: EmployeeProfileResultData
+      artifacts: CapabilityArtifact[]
+      actions: AiAction[]
+    }
+  | {
+      type: 'employee_profile_candidates'
+      data: EmployeeProfileCandidatesData
+      artifacts: CapabilityArtifact[]
+      actions: AiAction[]
+    }
 
 export interface CapabilityResultEnvelope {
   intent: string
@@ -149,5 +213,9 @@ export const aiApi = {
   }) =>
     api
       .post<CapabilityResultEnvelope>('/ai/chat', body, { timeout: AI_CHAT_TIMEOUT_MS })
+      .then((r) => r.data),
+  consumeControlledAction: (conversationId: number, body: { action_type: string; selection_handle: string }) =>
+    api
+      .post<CapabilityResultEnvelope>(`/ai/conversations/${conversationId}/actions`, body, { timeout: AI_CHAT_TIMEOUT_MS })
       .then((r) => r.data),
 }

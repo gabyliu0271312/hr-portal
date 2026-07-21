@@ -232,6 +232,23 @@ async def _handler_scd_run(job: ScheduledJob, db: AsyncSession, triggered_by: st
     return total, f"scd: new={result.get('new_count', 0)} updated={result.get('updated_count', 0)} closed={result.get('closed_count', 0)}"
 
 
+async def _handler_ai_controlled_action_retention(
+    job: ScheduledJob,
+    db: AsyncSession,
+    triggered_by: str,
+) -> tuple[int, str]:
+    from app.ai.maintenance import purge_controlled_action_data
+    from app.core.config import settings
+
+    result = await purge_controlled_action_data(
+        db,
+        audit_retention_days=settings.AI_CONTROLLED_ACTION_AUDIT_RETENTION_DAYS,
+        state_retention_days=settings.AI_CONTROLLED_ACTION_STATE_RETENTION_DAYS,
+    )
+    deleted = sum(result.values())
+    return deleted, f"controlled action retention: {result}"
+
+
 JOB_HANDLERS: dict[str, HandlerFn] = {
     "datasource_sync": _handler_datasource_sync,
     "push_target": _handler_push_target,
@@ -242,6 +259,7 @@ JOB_HANDLERS: dict[str, HandlerFn] = {
     "metric_compute": _handler_metric_compute,
     "quality_run": _handler_quality_run,
     "scd_run": _handler_scd_run,
+    "ai_controlled_action_retention": _handler_ai_controlled_action_retention,
 }
 
 

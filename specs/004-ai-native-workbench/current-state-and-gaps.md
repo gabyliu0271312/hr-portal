@@ -30,11 +30,34 @@
 | 子 Capability 统一权限/Policy 闸 | 未完全收口 | `/ai/chat` 当前先校验 `ai.chat` | 分发后强制校验目标 Capability |
 | 行级/列级权限统一注入 | 场景化实现 | 各业务 Handler/查询服务 | Handler 必须显式声明并执行 |
 | AI 输入统一脱敏 | 未完全收口 | `app/ucp/masking.py` 已有工具 | 建立模型调用前统一契约和调用点 |
-| Web/飞书共享 Handler | 未完成 | Web 主链已存在；飞书以通知/卡片为主 | Web UAT 后接入同一 Handler |
+| 飞书公共渠道底座 | 未完成 | 飞书以通知/卡片为主；对话 Bot 入站、身份桥接与受控回调未收口 | 在 `app/integrations/feishu` 建设公共验签、幂等、映射、会话、Envelope 适配、受控 action 与总开关 |
+| Web/飞书共享 Handler | 部分完成 | Web 主链已存在；飞书业务接入未完成 | 首个只读 Capability 可复用公共底座验证；正式写业务闭环仍在调整助手 Web/UCP 验收后接入 |
 | 通用 Execution State | 未完成 | 各场景状态不统一 | 定义 pending/running/partial_success 等公共语义 |
 | AI Plan 与 UCP Pipeline 适配 | 未完成 | `app/ucp/pipeline_engine.py` 已实现执行底座 | 只补 Plan Validator 和节点映射 |
 
 ## 3. 当前 P0 缺口
+
+### 3.0 飞书公共渠道底座与受控会话动作
+
+飞书可以先以低风险只读场景验证，但不是业务场景各自建设机器人。公共层必须先在 `app/integrations/feishu` 收口以下能力：
+
+1. 事件验签、URL challenge、时间窗/nonce 校验和事件幂等；
+2. `open_id` 到启用 Portal User 的身份映射，以及渠道会话创建和绑定；
+3. `CapabilityResultEnvelope` 到飞书消息/卡片的通用适配入口；
+4. 卡片回调验签与通用受控 action 分发；
+5. 统一渠道审计字段、测试应用隔离和可立即关闭的总开关。
+
+候选选择等授权状态转换使用无业务语义的 opaque selection handle。公共 action 分发器必须在 LLM-first 分类前完成用户、渠道、会话、过期和单次消费校验，再重新执行对象范围和字段权限；handle 不得进入模型消息、模型审计载荷或通用会话 history。公共 action 控制记录可保存经注册、由服务端签发且不可由客户端覆盖的最小 action context，用于模型外确定性续接；不得保存原始消息、人员字段值、候选展示值或其他业务结果。业务 Capability 只注册 action、其受限 context Schema 和复用 Handler，不得私建回调协议。
+
+公共 Web action 契约固定为 `POST /api/v1/ai/conversations/{conversation_id}/actions`：请求体仅含 `action_type` 和 action 所需的受控字段（例如 `selection_handle`），不得复用聊天 `message`；成功响应统一为 `CapabilityResultEnvelope`。公共错误语义至少包括 `400`（Schema/未知 action）、`401`（认证失效）、`403`（目标 Capability Gate 拒绝）、`410`（统一的 handle 无效/过期/已消费/绑定不匹配）、`429`（Capability 限速）和 `500`（受控内部错误）。飞书卡片回调先完成平台验签后调用同一分发器。
+
+通用 Capability 限速必须由 004 提供并通过统一 Settings/配置注入，不允许业务 Capability 各自按 IP、渠道或临时内存语义实现。限速键固定为已认证 Portal `user_id + capability_id`，同一 Portal 用户经 Web 与飞书进入时共享计数；飞书必须先将 `open_id` 映射为 Portal User，才可参与计数。生产默认启用滚动窗口 `window_seconds=300`、`max_requests=20`，默认值可配置但不得缺失；测试可通过 Settings/依赖 override 注入更小窗口与阈值。计数发生在目标 Capability Gate 成功后、Extractor、数据查询和 action Handler 前，覆盖该 Capability 的所有请求结果，包括成功、无匹配、缺输入、候选返回和受控 action 选择。超过限额返回 HTTP `429` 与中性文案“请求过于频繁，请稍后再试”，可设置 `Retry-After`，但不得返回剩余额度、查询条件、候选数量或人员线索。限速日志/告警仅记录 `user_id`、`capability_id`、当前计数、窗口、`trace_id` 与 `channel`，不得记录姓名、工号、候选内容或 handle；同一用户/能力/窗口的告警必须去重。
+
+004 必须提供 Capability 级审计投影/净化契约，而不是默认持久化完整聊天 `message`、`history`、`input_payload` 或 `output_payload`。涉及个人资料等受控读取的 Capability 只能写入经注册的最小审计字段；公共 action 控制记录与 AI 审计记录必须分别定义访问权限、保留期、清理/归档策略及可验证执行路径。业务 Capability 只能声明自身允许的审计投影，不得私建审计表、绕过公共清理机制或把 action handle、原始消息、人员字段值写入通用审计载荷。
+
+`employee.profile.query` 是首个受控验证接入：仅内部测试账号、仅私聊、只读、单 Capability、无群聊/导出、限速、独立审计、可关闭并设置有效期。该验证不改变“调整助手正式飞书业务闭环在阶段 3 推进”的主路径。
+
+受控验证必须使用统一 Settings 并 fail closed。015 的最小配置为：`EMPLOYEE_PROFILE_ENABLED=false`、`EMPLOYEE_PROFILE_ALLOWED_USER_IDS=`、`EMPLOYEE_PROFILE_EXPIRES_AT=`、`FEISHU_EMPLOYEE_PROFILE_ENABLED=false`、`FEISHU_EMPLOYEE_PROFILE_ALLOWED_USER_IDS=`。两个 allowlist 均存 Portal `user_id`；前者同时限制 Web 与飞书，后者仅在已完成 `open_id` 映射后的飞书请求上追加限制。自然语言入口先以完整、低敏 Route Catalog 完成 LLM-first 分类：未命中 `employee.profile.query` 时，既有 Capability 链路不受这些配置影响；命中后才执行全局开关 → 到期时间 → 通用 Portal 用户 allowlist →（仅飞书）渠道开关与飞书 allowlist → Target Capability Gate → 通用限速 → Extractor/查询 Handler。配置缺失、空 allowlist、解析失败、当前时间已达到/超过到期时间或渠道开关关闭时，必须以 HTTP `403` 拒绝已命中的员工查询或显式 action，对外统一文案为“当前功能暂未开放”，且不得进入员工画像 Extractor、Context Packet、查询、action Handler 或员工查询审计投影；分类器可被调用。内部仅记录无敏感载荷的细分拒绝原因，例如 `controlled_rollout_disabled`、`controlled_rollout_expired`、`controlled_rollout_allowlist_denied`、`feishu_rollout_denied`，不得把这些原因返回前端、飞书卡片或普通用户。显式 action 已由 `action_type` 指明目标 Capability，可在 LLM-first 分类前执行同一受控验证 Gate；handle 的无效、过期、已消费或绑定不匹配仍统一为 HTTP `410`。到期时间使用带时区的 UTC ISO-8601 值；在受控验证阶段不得为空。
 
 ### 3.1 目标 Capability 统一权限和 Policy 闸
 
@@ -96,7 +119,10 @@ AI 审计需要明确记录：
 - `parse_mode`；
 - 权限/Policy 拒绝；
 - `failure_stage`；
+- `scope_filter_applied`、`scope_filter_restrictive` 与 `scope_resolution_status`（仅内部审计，不复用为面向用户的权限提示）；
 - 业务执行和 UCP Run/Step Run 关联。
+
+审计运行时必须支持 Capability 专属的最小投影：高敏或受控读取场景不能直接复用“完整请求/完整响应”持久化。投影配置要明确允许字段、审计表与 action 控制表的访问角色、保留期和清理/归档作业；日志、异常和告警也必须使用相同的净化边界。
 
 通用执行状态至少覆盖：`pending`、`requires_input`、`requires_confirmation`、`running`、`succeeded`、`partial_success`、`failed`、`cancelled`。
 

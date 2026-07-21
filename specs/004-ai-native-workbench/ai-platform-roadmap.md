@@ -107,7 +107,7 @@
 | Phase 3 | 管理治理平台 | 管理员可维护能力、Prompt、评测、Trace、版本和失败分析 | Capability 超过 5-8 个后做 |
 | Phase 4 | 知识/RAG 能力 | 制度、模板、SOP、字段口径可被检索引用，支持文件解析入库 | 正式开放需稳定文档库和 ACL；管理员受限实验可更早做 |
 | Phase 5 | 工作流编排 | 多个 Capability 组合完成跨模块 HR 任务，支持异步步骤 | 单点能力稳定后做，支持受控动态计划 |
-| Phase 6 | 渠道与网关扩展 | 飞书机器人、外部 Gateway、多系统复用 | Web 工作台成熟后做；只读单轮实验入口可更早评估 |
+| Phase 6 | 渠道与网关扩展 | 飞书机器人、外部 Gateway、多系统复用 | 正式业务闭环在 Web/UCP 成熟后做；公共渠道底座可由单一低风险只读 Capability 受控验证 |
 | Phase 7 | 模型优化/微调 | 专有术语、固定输出和复杂意图优化 | 有评测集和真实样本后做 |
 
 ## 4. Phase 0：最小 AI 底座
@@ -691,17 +691,19 @@ workflow: cost_allocation_monthly_analysis
   → 阶段 0B：北森 + UCP 技术切片
   → 阶段 1：组织与人员调整 Web 闭环
   → 阶段 2：UCP 预演、审批和执行
-  → 阶段 3：飞书入口
+  → 阶段 3：调整助手正式飞书业务闭环
   → 阶段 4：继续 HR Agent 指标、分析和图表能力
 ```
 
 组织与人员调整助手是 HR Agent 的首个完整高风险写业务场景，用于验证结构化 Plan、多轮歧义、行级权限、人工确认、UCP 执行、共享 Handler、全链路 trace_id 和部分失败闭环。执行文档：`../008-hr-adjustment-assistant/atomic-tasks.md`。
 
+飞书公共渠道底座可先以 `employee.profile.query` 等单一低风险、只读 Capability 做受控验证：仅内部测试账号与私聊、无群聊/导出、限速、独立审计、可关闭并设置有效期。它必须复用公共验签、幂等、身份映射、会话、Envelope 适配和受控 action 分发；不得成为独立飞书业务链路，也不改变调整助手正式飞书闭环仍在阶段 3 的顺序。
+
 暂不建议提前开发：
 
 - 面向普通员工的正式 RAG；
 - 第二套 Workflow/Task Orchestrator；
-- 绕过 Web/共享 Handler 的独立飞书 Bot；
+- 绕过公共渠道底座或共享 Handler 的独立飞书 Bot；
 - 模型微调。
 
 可以作为受限实验评估白名单文档 RAG、只读个人飞书入口和低风险 `ai.experiment`，但必须可关闭、可回滚、可审计，且不影响当前 0A → 0B → 1 → 2 → 3 → 4 主线。

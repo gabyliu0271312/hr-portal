@@ -15,6 +15,7 @@ class ChatSession:
     """一次对话的可变会话视图。handler 读写它,router 负责持久化。"""
 
     conversation_id: int | None
+    channel: str = "web"
     active_capability_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
 
@@ -57,6 +58,7 @@ async def load_or_create(
         await db.flush()  # 取得自增 id
     session = ChatSession(
         conversation_id=conv.id,
+        channel=conv.channel,
         active_capability_id=conv.active_capability_id,
         state=dict(conv.state or {}),
     )

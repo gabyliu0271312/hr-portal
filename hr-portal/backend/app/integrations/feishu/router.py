@@ -29,6 +29,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
+from app.ai.actions import (
+    ControlledActionRequest,
+    ControlledActionUnavailableError,
+    UnknownControlledActionError,
+    consume_controlled_action,
+    controlled_action_capability_id,
+)
+from app.ai.action_audit import record_controlled_action_audit
+from app.ai.capability_rate_limit import CapabilityRateLimitExceeded, enforce_capability_rate_limit
+from app.ai.channel_sessions import claim_channel_event, complete_channel_event, load_or_create_channel_conversation
+from app.core.config import settings
+from app.integrations.feishu.ai_channel import (
+    FEISHU_CHANNEL,
+    claim_feishu_nonce,
+    event_chat_id,
+    event_open_id,
+    is_private_message,
+    message_text,
+    render_envelope_card,
+    render_employee_profile_action_unavailable_card,
+    resolve_feishu_portal_user,
+    run_feishu_chat,
+    verify_feishu_signed_request,
+)
+from app.integrations.feishu.ai_gate import enforce_feishu_capability_gate
 from app.integrations.feishu.feishu_client import (
     build_completed_card,
     get_feishu_client,
@@ -56,6 +81,163 @@ from app.users.models import User
 
 logger = logging.getLogger("feishu.router")
 router = APIRouter(prefix="/feishu", tags=["feishu"])
+
+
+async def _send_bot_text(open_id: str, text: str) -> None:
+    if open_id:
+        await get_feishu_client().send_text_to_user(open_id, text)
+
+
+@router.post("/bot/events")
+async def handle_bot_event(request: Request, db: AsyncSession = Depends(get_session)):
+    """Shared, private-chat-only Feishu Bot ingress for all AI capabilities."""
+    raw_body = await request.body()
+    try:
+        body = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid JSON") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid event payload")
+    verify_feishu_signed_request(headers=request.headers, raw_body=raw_body, body=body)
+    if body.get("type") == "url_verification":
+        return {"challenge": body.get("challenge", "")}
+    if not await claim_feishu_nonce(db, request.headers):
+        await db.commit()
+        return {"ok": True}
+
+    header = body.get("header") or {}
+    if header.get("event_type") != "im.message.receive_v1":
+        await db.commit()
+        return {"ok": True}
+    event = body.get("event") or {}
+    message = event.get("message") or {}
+    event_key = str(header.get("event_id") or message.get("message_id") or "")
+    if not event_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing event id")
+    if not await claim_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key):
+        await db.commit()
+        return {"ok": True}
+
+    open_id = event_open_id(event)
+    try:
+        enforce_feishu_capability_gate("ai.chat", -1)
+        if not is_private_message(event):
+            await _send_bot_text(open_id, "?????????????")
+            await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key, status="ignored_group")
+            await db.commit()
+            return {"ok": True}
+        user = await resolve_feishu_portal_user(db, open_id)
+        if user is None:
+            await _send_bot_text(open_id, "????????????? Portal ???")
+            await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key, status="unmapped_user")
+            await db.commit()
+            return {"ok": True}
+        chat_id = event_chat_id(event)
+        text = message_text(event)
+        if not chat_id or text is None:
+            await _send_bot_text(open_id, "???????????")
+            await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key, status="unsupported_message")
+            await db.commit()
+            return {"ok": True}
+        try:
+            out = await run_feishu_chat(db, user=user, chat_id=chat_id, text=text)
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_403_FORBIDDEN:
+                await _send_bot_text(open_id, "????????")
+                await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key, status="capability_denied")
+                await db.commit()
+                return {"ok": True}
+            raise
+        await get_feishu_client().send_interactive_card_to_user(open_id, render_envelope_card(out))
+        await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key)
+        await db.commit()
+        return {"ok": True}
+    except Exception:
+        await db.rollback()
+        logger.exception("[feishu] bot event processing failed")
+        raise
+
+
+async def _consume_bot_card_action(
+    *, request: Request, db: AsyncSession, body: dict[str, Any], open_id: str, action_value: dict[str, Any]
+) -> dict[str, Any]:
+    raw_body = (_get_raw_body(request) or "").encode("utf-8")
+    verify_feishu_signed_request(headers=request.headers, raw_body=raw_body, body=body)
+    if not await claim_feishu_nonce(db, request.headers):
+        await db.commit()
+        return {"ok": True, "toast": "??????"}
+    user = await resolve_feishu_portal_user(db, open_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="????????")
+    event = body.get("event") or {}
+    context = event.get("context") or {}
+    if context.get("chat_type") not in (None, "p2p"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="????????")
+    chat_id = str(context.get("open_chat_id") or "")
+    if not chat_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="????????")
+    payload = ControlledActionRequest(
+        action_type=action_value["action_type"], selection_handle=action_value["selection_handle"]
+    )
+    conversation = await load_or_create_channel_conversation(
+        db, user=user, channel=FEISHU_CHANNEL, external_session_key=chat_id
+    )
+    capability_id: str | None = None
+    try:
+        capability_id = controlled_action_capability_id(payload.action_type)
+        enforce_feishu_capability_gate(capability_id, user.id)
+        await enforce_capability_rate_limit(
+            db,
+            user_id=user.id,
+            capability_id=capability_id,
+            max_requests=settings.AI_CAPABILITY_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=settings.AI_CAPABILITY_RATE_LIMIT_WINDOW_SECONDS,
+        )
+        result = await consume_controlled_action(
+            db, request=payload, conversation_id=conversation.id, user=user, channel=FEISHU_CHANNEL
+        )
+        await record_controlled_action_audit(
+            db=db, user=user, action_type=payload.action_type, capability_id=capability_id,
+            conversation_id=conversation.id, channel=FEISHU_CHANNEL, status="succeeded"
+        )
+        await db.commit()
+        if capability_id == "employee.profile.query":
+            from app.ai.router import _employee_profile_action_envelope
+
+            message_id = str(context.get("open_message_id") or "")
+            if message_id:
+                try:
+                    out = _employee_profile_action_envelope(result, conversation_id=conversation.id)
+                    await get_feishu_client().update_interactive_message(message_id, render_envelope_card(out))
+                except Exception:
+                    logger.warning("[feishu] controlled action card update failed", exc_info=True)
+                    return {"ok": False, "toast": "????????????"}
+        return {"ok": True, "toast": "?????"}
+    except (ControlledActionUnavailableError, CapabilityRateLimitExceeded, UnknownControlledActionError, HTTPException) as exc:
+        await db.rollback()
+        failure_stage = "action_failed"
+        if isinstance(exc, ControlledActionUnavailableError):
+            failure_stage = "unavailable_handle"
+        elif isinstance(exc, CapabilityRateLimitExceeded):
+            failure_stage = "rate_limited"
+        elif isinstance(exc, UnknownControlledActionError):
+            failure_stage = "unknown_action"
+        await record_controlled_action_audit(
+            db=db, user=user, action_type=payload.action_type,
+            capability_id=capability_id,
+            conversation_id=conversation.id, channel=FEISHU_CHANNEL, status="failed", failure_stage=failure_stage
+        )
+        await db.commit()
+        if isinstance(exc, ControlledActionUnavailableError):
+            message_id = str(context.get("open_message_id") or "")
+            if message_id:
+                try:
+                    await get_feishu_client().update_interactive_message(
+                        message_id, render_employee_profile_action_unavailable_card()
+                    )
+                except Exception:
+                    logger.warning("[feishu] unavailable action card update failed", exc_info=True)
+        return {"ok": False, "toast": "????????" if isinstance(exc, HTTPException) else "???????????"}
 
 
 # ===== 接收人预览 =====
@@ -347,6 +529,19 @@ async def handle_card_action(
     except json.JSONDecodeError:
         logger.warning("[feishu] 无法解析 action value: %s", action_value_str)
         return {"ok": False, "msg": "invalid action value"}
+
+    if (
+        isinstance(action_value, dict)
+        and isinstance(action_value.get("action_type"), str)
+        and isinstance(action_value.get("selection_handle"), str)
+    ):
+        return await _consume_bot_card_action(
+            request=request,
+            db=db,
+            body=body,
+            open_id=open_id,
+            action_value=action_value,
+        )
 
     notification_log_id = action_value.get("notification_log_id")
     if not notification_log_id:
