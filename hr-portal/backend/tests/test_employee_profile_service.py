@@ -20,8 +20,20 @@ class _Db:
     async def execute(self, statement, params): self.statements.append((statement, params)); return _Result(self.rows)
 
 
-def _model():
-    table = Table("emp_realtime_roster", MetaData(), Column("id", BigInteger, primary_key=True), Column("employee_no", String), Column("chinese_name", String), Column("english_name", String), Column("full_name", String), Column("department", String), Column("company_name", String), Column("employment_status", String), Column("org_node_code", String))
+def _model(*, include_employment_status=True):
+    columns = [
+        Column("id", BigInteger, primary_key=True),
+        Column("employee_no", String),
+        Column("chinese_name", String),
+        Column("english_name", String),
+        Column("full_name", String),
+        Column("department", String),
+        Column("company_name", String),
+        Column("org_node_code", String),
+    ]
+    if include_employment_status:
+        columns.append(Column("employment_status", String))
+    table = Table("emp_realtime_roster", MetaData(), *columns)
     return SimpleNamespace(__table__=table)
 
 
@@ -56,6 +68,27 @@ async def test_hidden_dynamic_field_returns_neutral_no_match(monkeypatch):
     monkeypatch.setattr(service_module, "resolve_field_access", access)
     result = await service_module.EmployeeProfileQueryService().query(EmployeeProfileQuerySpec(lookup_type="employee_no", lookup_value="E001", requested_field_codes=["company_name"]), user=SimpleNamespace(id=1), db=_Db([{"employee_id": 1, "company_name": "Acme"}]))
     assert result.match_kind == "no_match" and result.rows == ()
+
+
+@pytest.mark.asyncio
+async def test_missing_optional_candidate_column_does_not_block_employee_lookup(monkeypatch):
+    async def access(*_args, **_kwargs): return {}
+
+    monkeypatch.setattr(service_module, "_roster_model", lambda: _model(include_employment_status=False))
+    monkeypatch.setattr(service_module, "resolve_field_access", access)
+    db = _Db([{"employee_id": 1, "company_name": "Acme", "employee_no": "106401", "full_name": "Alice"}])
+
+    result = await service_module.EmployeeProfileQueryService().query(
+        EmployeeProfileQuerySpec(lookup_type="employee_no", lookup_value="106401", requested_field_codes=["company_name"]),
+        user=SimpleNamespace(id=1),
+        db=db,
+    )
+
+    compiled = str(db.statements[0][0])
+    assert "employment_status" not in compiled
+    assert result.match_kind == "unique"
+    assert result.employee_no == "106401"
+    assert result.full_name == "Alice"
 
 
 @pytest.mark.asyncio

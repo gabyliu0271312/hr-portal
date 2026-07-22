@@ -79,6 +79,15 @@ def _field_columns(items: tuple[EmployeeProfileCatalogItem, ...]) -> dict[str, s
     return {item.field_code: item.column_name for item in items}
 
 
+def _candidate_columns(model) -> dict[str, str]:
+    available_columns = set(model.__table__.columns.keys())
+    return {
+        field_code: column_name
+        for field_code, column_name in _CANDIDATE_COLUMNS.items()
+        if column_name in available_columns
+    }
+
+
 class EmployeeProfileQueryService:
     async def query(self, query_spec: EmployeeProfileQuerySpec, *, user: User, db: AsyncSession, candidate_displayable=None) -> EmployeeProfileLookupResult:
         model = _roster_model()
@@ -87,7 +96,7 @@ class EmployeeProfileQueryService:
         verdicts = await resolve_field_access(user, EMPLOYEE_PROFILE_ROSTER_TABLE, db, tool_key="employee.profile.query")
         visible = _visible(requested, verdicts)
         lookup_type: Literal["employee_no", "employee_name"] = "employee_no" if query_spec.lookup_type == "employee_no" else "employee_name"
-        projection = {**_CANDIDATE_COLUMNS, **_field_columns(visible)}
+        projection = {**_candidate_columns(model), **_field_columns(visible)}
         rows = tuple(dict(row) for row in (await db.execute(build_employee_profile_lookup_statement(model, lookup_type=lookup_type, scope_filter=scope_filter, field_columns=projection), {"employee_lookup_value": query_spec.lookup_value})).mappings().all())
         kind = _match_kind(lookup_type, len(rows))
         codes = tuple(item.field_code for item in visible)
