@@ -142,24 +142,32 @@ def render_docx_template(
     variables: Iterable[Any] = (),
     business_type: str = "",
 ) -> bytes:
-    """渲染上传的 DOCX 模板：仅替换 {{变量}}，保留原始版式。
+    """渲染上传的 DOCX 模板：替换 {{变量}}，保留模板版式。
 
-    不会修改页边距、行距、段距、字体、表格结构等任何原始样式。
+    解除协议会限制过大的倍数行距，避免 LibreOffice 打印时溢出到第 3 页。
     """
     from docx import Document
+    from docx.shared import Mm
 
     merged = _values_with_defaults(values, variables)
     if business_type:
         merged = enrich_values(business_type, merged)
     doc = Document(BytesIO(content))
-    # 仅变量替换，不修改任何段落/页面格式
+    if business_type == "agreement":
+        for section in doc.sections:
+            section.page_width = Mm(210)
+            section.page_height = Mm(297)
     for paragraph in _iter_paragraphs(doc):
         _replace_in_paragraph(paragraph, merged)
+        if business_type == "agreement":
+            _cap_line_spacing(paragraph)
     for table in _iter_tables(doc):
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
                     _replace_in_paragraph(paragraph, merged)
+                    if business_type == "agreement":
+                        _cap_line_spacing(paragraph)
     buf = BytesIO()
     doc.save(buf)
     return buf.getvalue()
