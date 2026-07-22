@@ -146,7 +146,8 @@ def render_employee_profile_card(out: AiChatOut) -> str:
             value for value in (getattr(result.data, "employee_no", None), getattr(result.data, "full_name", None)) if value
         ) or "员工档案"
         elements: list[dict[str, Any]] = [
-            {"tag": "div", "text": {"tag": "lark_md", "content": "## 基础资料"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": "**员工档案**"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": "**基础资料**"}},
             {"tag": "hr"},
         ]
         for index, field in enumerate(result.data.fields):
@@ -155,10 +156,17 @@ def render_employee_profile_card(out: AiChatOut) -> str:
                     "tag": "div",
                     "fields": [
                         {
-                            "is_short": False,
+                            "is_short": True,
                             "text": {
                                 "tag": "lark_md",
-                                "content": f"**{_markdown_text(field.label)}**\n{_markdown_text(field.value)}",
+                                "content": f"{_markdown_text(field.label)}：",
+                            },
+                        },
+                        {
+                            "is_short": True,
+                            "text": {
+                                "tag": "lark_md",
+                                "content": f"**{_markdown_text(field.value)}**",
                             },
                         }
                     ],

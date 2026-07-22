@@ -114,9 +114,14 @@ def test_employee_profile_cards_only_render_authorized_envelope_data():
     assert result_card["header"]["title"]["content"] == "员工档案"
     assert result_card["config"]["enable_forward"] is False
     assert result_card["header"]["template"] == "green"
-    assert result_card["elements"][0]["text"]["content"] == "## 基础资料"
-    assert "??" in result_card["elements"][2]["fields"][0]["text"]["content"]
-    assert "?????" in result_card["elements"][4]["fields"][0]["text"]["content"]
+    assert result_card["elements"][0]["text"]["content"] == "**员工档案**"
+    assert result_card["elements"][1]["text"]["content"] == "**基础资料**"
+    first_field_row = result_card["elements"][3]["fields"]
+    assert [field["is_short"] for field in first_field_row] == [True, True]
+    assert "??" in first_field_row[0]["text"]["content"]
+    assert "??" in first_field_row[1]["text"]["content"]
+    second_field_row = result_card["elements"][5]["fields"]
+    assert "?????" in second_field_row[1]["text"]["content"]
 
     profile_with_identity = json.loads(
         ai_channel.render_envelope_card(
@@ -132,7 +137,8 @@ def test_employee_profile_cards_only_render_authorized_envelope_data():
     )
     assert profile_with_identity["header"]["title"]["content"] == "102840 -- gaby.li刘琦"
     assert profile_with_identity["header"]["template"] == "green"
-    assert profile_with_identity["elements"][0]["text"]["content"] == "## 基础资料"
+    assert profile_with_identity["elements"][0]["text"]["content"] == "**员工档案**"
+    assert profile_with_identity["elements"][1]["text"]["content"] == "**基础资料**"
 
     handle = "a" * 32
     candidates_card = json.loads(
