@@ -4,6 +4,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import unicodedata
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -124,6 +125,17 @@ def _markdown_text(value: str) -> str:
     return value.replace("\\", "\\\\").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
 
 
+def _display_width(value: str) -> int:
+    return sum(2 if unicodedata.east_asian_width(character) in {"W", "F"} else 1 for character in value)
+
+
+def _employee_profile_field_line(label: str, value: str) -> str:
+    label_width = _display_width(label)
+    additional_spacing = max(0, (8 - label_width + 1) // 2)
+    spacing = "　" * (2 + additional_spacing)
+    return f"{_markdown_text(label)}：{spacing}**{_markdown_text(value)}**"
+
+
 def _employee_card(title: str, elements: list[dict[str, Any]], *, template: str | None = None) -> str:
     header: dict[str, Any] = {"title": {"tag": "plain_text", "content": title}}
     if template:
@@ -156,7 +168,7 @@ def render_employee_profile_card(out: AiChatOut) -> str:
                     "tag": "div",
                     "text": {
                         "tag": "lark_md",
-                        "content": f"{_markdown_text(field.label)}：　　**{_markdown_text(field.value)}**",
+                        "content": _employee_profile_field_line(field.label, field.value),
                     },
                 }
             )

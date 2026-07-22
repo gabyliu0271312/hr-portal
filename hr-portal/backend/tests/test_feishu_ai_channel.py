@@ -94,6 +94,15 @@ def test_private_text_event_and_generic_card_are_minimally_rendered():
     assert card["elements"] == [{"tag": "markdown", "content": "????"}]
 
 
+def test_employee_profile_field_lines_align_short_and_cjk_labels():
+    cjk_line = ai_channel._employee_profile_field_line("所属组织", "质效中心")
+    short_line = ai_channel._employee_profile_field_line("BU", "创梦天地")
+    cjk_prefix = cjk_line.split("**", 1)[0]
+    short_prefix = short_line.split("**", 1)[0]
+
+    assert ai_channel._display_width(cjk_prefix) == ai_channel._display_width(short_prefix)
+
+
 def _employee_out(result_type, data, *, answer="????"):
     return SimpleNamespace(
         capability_id="employee.profile.query",
