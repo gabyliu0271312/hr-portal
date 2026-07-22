@@ -113,7 +113,7 @@ def render_envelope_card(out: AiChatOut) -> str:
     return json.dumps(
         {
             "config": {"wide_screen_mode": True, "enable_forward": False},
-            "header": {"title": {"tag": "plain_text", "content": "HR ??"}},
+            "header": {"title": {"tag": "plain_text", "content": "HR 助手"}},
             "elements": [{"tag": "markdown", "content": out.answer}],
         },
         ensure_ascii=False,
@@ -139,21 +139,21 @@ def render_employee_profile_card(out: AiChatOut) -> str:
     """Render only the employee fields already authorized by the shared Envelope."""
     result = out.result
     if result.type == "employee_profile_result":
-        lines = [f"**{_markdown_text(field.label)}**?{_markdown_text(field.value)}" for field in result.data.fields]
+        lines = [f"**{_markdown_text(field.label)}**：{_markdown_text(field.value)}" for field in result.data.fields]
         return _employee_card(
-            "????????",
+            "员工档案",
             [{"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(lines)}}],
         )
     if result.type == "employee_profile_candidates":
         if not result.data.candidates or any(not candidate.display_fields for candidate in result.data.candidates):
             return _employee_card(
-                "????????",
-                [{"tag": "div", "text": {"tag": "lark_md", "content": "???????????"}}],
+                "请选择员工",
+                [{"tag": "div", "text": {"tag": "lark_md", "content": "未找到可展示的候选员工。"}}],
             )
         elements: list[dict[str, Any]] = []
         for candidate in result.data.candidates:
             lines = [
-                f"**{_markdown_text(field.label)}**?{_markdown_text(field.value)}"
+                f"**{_markdown_text(field.label)}**：{_markdown_text(field.value)}"
                 for field in candidate.display_fields
             ]
             elements.extend(
@@ -165,7 +165,7 @@ def render_employee_profile_card(out: AiChatOut) -> str:
                             {
                                 "tag": "button",
                                 "type": "primary",
-                                "text": {"tag": "plain_text", "content": "?????"},
+                                "text": {"tag": "plain_text", "content": "选择"},
                                 "value": {
                                     "action_type": EMPLOYEE_PROFILE_SELECT_CANDIDATE_ACTION,
                                     "selection_handle": candidate.selection_handle,
@@ -175,22 +175,22 @@ def render_employee_profile_card(out: AiChatOut) -> str:
                     },
                 ]
             )
-        return _employee_card("?????", elements)
+        return _employee_card("请选择员工", elements)
     if result.type == "employee_profile_input":
         return _employee_card(
-            "????????",
+            "员工档案查询",
             [{"tag": "div", "text": {"tag": "lark_md", "content": _markdown_text(out.answer)}}],
         )
     return _employee_card(
-        "????????",
+        "HR 助手",
         [{"tag": "div", "text": {"tag": "lark_md", "content": _markdown_text(out.answer)}}],
     )
 
 
 def render_employee_profile_action_unavailable_card() -> str:
     return _employee_card(
-        "????????",
-        [{"tag": "div", "text": {"tag": "lark_md", "content": "?????????????????"}}],
+        "操作不可用",
+        [{"tag": "div", "text": {"tag": "lark_md", "content": "该操作已失效或没有权限，请重新发起查询。"}}],
     )
 
 

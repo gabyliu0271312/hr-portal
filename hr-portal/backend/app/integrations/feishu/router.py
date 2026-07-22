@@ -122,20 +122,20 @@ async def handle_bot_event(request: Request, db: AsyncSession = Depends(get_sess
     try:
         enforce_feishu_capability_gate("ai.chat", -1)
         if not is_private_message(event):
-            await _send_bot_text(open_id, "?????????????")
+            await _send_bot_text(open_id, "当前机器人仅支持单聊，请在单聊中发送查询。")
             await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key, status="ignored_group")
             await db.commit()
             return {"ok": True}
         user = await resolve_feishu_portal_user(db, open_id)
         if user is None:
-            await _send_bot_text(open_id, "????????????? Portal ???")
+            await _send_bot_text(open_id, "当前飞书账号未绑定 HR Portal 用户，请联系管理员完成绑定。")
             await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key, status="unmapped_user")
             await db.commit()
             return {"ok": True}
         chat_id = event_chat_id(event)
         text = message_text(event)
         if not chat_id or text is None:
-            await _send_bot_text(open_id, "???????????")
+            await _send_bot_text(open_id, "暂仅支持文本消息，请发送文字查询。")
             await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key, status="unsupported_message")
             await db.commit()
             return {"ok": True}
@@ -143,7 +143,7 @@ async def handle_bot_event(request: Request, db: AsyncSession = Depends(get_sess
             out = await run_feishu_chat(db, user=user, chat_id=chat_id, text=text)
         except HTTPException as exc:
             if exc.status_code == status.HTTP_403_FORBIDDEN:
-                await _send_bot_text(open_id, "????????")
+                await _send_bot_text(open_id, "当前账号暂无此功能权限。")
                 await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key, status="capability_denied")
                 await db.commit()
                 return {"ok": True}
@@ -165,17 +165,17 @@ async def _consume_bot_card_action(
     verify_feishu_signed_request(headers=request.headers, raw_body=raw_body, body=body)
     if not await claim_feishu_nonce(db, request.headers):
         await db.commit()
-        return {"ok": True, "toast": "??????"}
+        return {"ok": True, "toast": "请求已处理"}
     user = await resolve_feishu_portal_user(db, open_id)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="????????")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前飞书账号未绑定 HR Portal 用户")
     event = body.get("event") or {}
     context = event.get("context") or {}
     if context.get("chat_type") not in (None, "p2p"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="????????")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前操作仅支持单聊")
     chat_id = str(context.get("open_chat_id") or "")
     if not chat_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="????????")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="缺少飞书会话标识")
     payload = ControlledActionRequest(
         action_type=action_value["action_type"], selection_handle=action_value["selection_handle"]
     )
@@ -211,8 +211,8 @@ async def _consume_bot_card_action(
                     await get_feishu_client().update_interactive_message(message_id, render_envelope_card(out))
                 except Exception:
                     logger.warning("[feishu] controlled action card update failed", exc_info=True)
-                    return {"ok": False, "toast": "????????????"}
-        return {"ok": True, "toast": "?????"}
+                    return {"ok": False, "toast": "操作结果已生成，但卡片更新失败，请重新查询。"}
+        return {"ok": True, "toast": "操作成功"}
     except (ControlledActionUnavailableError, CapabilityRateLimitExceeded, UnknownControlledActionError, HTTPException) as exc:
         await db.rollback()
         failure_stage = "action_failed"
@@ -237,7 +237,7 @@ async def _consume_bot_card_action(
                     )
                 except Exception:
                     logger.warning("[feishu] unavailable action card update failed", exc_info=True)
-        return {"ok": False, "toast": "????????" if isinstance(exc, HTTPException) else "???????????"}
+        return {"ok": False, "toast": "当前操作无权限或已失效" if isinstance(exc, HTTPException) else "操作已失效，请重新查询"}
 
 
 # ===== 接收人预览 =====

@@ -364,7 +364,7 @@ def build_completion_card(
                     *([
                         {
                             "tag": "button",
-                            "text": {"tag": "plain_text", "content": _card_button_get(card_button, "text", "????")},
+                            "text": {"tag": "plain_text", "content": _card_button_get(card_button, "text", "查看详情")},
                             "type": "default",
                             "url": _card_button_get(card_button, "url", ""),
                         }

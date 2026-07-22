@@ -28,7 +28,7 @@ def test_feishu_employee_channel_gate_is_fail_closed(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         ai_gate.enforce_feishu_capability_gate("employee.profile.query", 7)
     assert exc_info.value.status_code == 403
-    assert exc_info.value.detail == "????????"
+    assert exc_info.value.detail == "员工档案查询暂未开放"
 
     monkeypatch.setattr(ai_gate, "settings", _settings(FEISHU_EMPLOYEE_PROFILE_ALLOWED_USER_IDS=""))
     with pytest.raises(HTTPException):
@@ -111,7 +111,7 @@ def test_employee_profile_cards_only_render_authorized_envelope_data():
             )
         )
     )
-    assert result_card["header"]["title"]["content"] == "????????"
+    assert result_card["header"]["title"]["content"] == "员工档案"
     assert result_card["config"]["enable_forward"] is False
     assert "??" in result_card["elements"][0]["text"]["content"]
     assert "?????" in result_card["elements"][0]["text"]["content"]
@@ -131,7 +131,7 @@ def test_employee_profile_cards_only_render_authorized_envelope_data():
         )
     )
     button = candidates_card["elements"][1]["actions"][0]
-    assert button["text"]["content"] == "?????"
+    assert button["text"]["content"] == "选择"
     assert button["value"] == {
         "action_type": "employee.profile.select_candidate",
         "selection_handle": handle,
@@ -158,7 +158,7 @@ def test_employee_candidate_card_fails_closed_when_display_fields_are_missing():
             )
         )
     )
-    assert "?????" in card["elements"][0]["text"]["content"]
+    assert "未找到可展示的候选员工" in card["elements"][0]["text"]["content"]
     assert all(element["tag"] != "action" for element in card["elements"])
 
 
@@ -217,7 +217,7 @@ async def test_bot_event_sends_employee_candidate_card(monkeypatch):
     }
     assert await feishu_router.handle_bot_event(_request(body), db=db) == {"ok": True}
     assert sent_cards[0][0] == "ou_1"
-    assert sent_cards[0][1]["header"]["title"]["content"] == "?????"
+    assert sent_cards[0][1]["header"]["title"]["content"] == "请选择员工"
     assert sent_cards[0][1]["elements"][1]["actions"][0]["value"] == {
         "action_type": "employee.profile.select_candidate",
         "selection_handle": "a" * 32,
@@ -274,8 +274,8 @@ async def test_candidate_action_updates_card_and_expiry_clears_candidates(monkey
         open_id="ou_1",
         action_value={"action_type": "employee.profile.select_candidate", "selection_handle": "a" * 32},
     )
-    assert result == {"ok": True, "toast": "?????"}
-    assert updated_cards[-1][1]["header"]["title"]["content"] == "????????"
+    assert result == {"ok": True, "toast": "操作成功"}
+    assert updated_cards[-1][1]["header"]["title"]["content"] == "员工档案"
 
     async def expired(*args, **kwargs):
         raise ControlledActionUnavailableError("expired")
@@ -289,8 +289,8 @@ async def test_candidate_action_updates_card_and_expiry_clears_candidates(monkey
         action_value={"action_type": "employee.profile.select_candidate", "selection_handle": "b" * 32},
     )
     assert result["ok"] is False
-    assert "????" in result["toast"]
-    assert "?????" in updated_cards[-1][1]["elements"][0]["text"]["content"]
+    assert "操作" in result["toast"]
+    assert "重新发起查询" in updated_cards[-1][1]["elements"][0]["text"]["content"]
 
 
 @pytest.mark.asyncio
@@ -385,3 +385,7 @@ async def test_group_and_unmapped_feishu_events_never_enter_chat_handler(monkeyp
     assert await feishu_router.handle_bot_event(_request(base), db=db) == {"ok": True}
     assert handler_calls == []
     assert len(sent_texts) == 2
+    assert sent_texts == [
+        ("ou_1", "当前机器人仅支持单聊，请在单聊中发送查询。"),
+        ("ou_1", "当前飞书账号未绑定 HR Portal 用户，请联系管理员完成绑定。"),
+    ]
