@@ -1,6 +1,4 @@
-import hashlib
 import json
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -25,16 +23,6 @@ def _settings(**overrides):
     return SimpleNamespace(**values)
 
 
-def _signed_headers(raw_body: bytes, *, timestamp: str | None = None, nonce: str = "nonce-1"):
-    timestamp = timestamp or str(int(time.time()))
-    signature = hashlib.sha256(f"{timestamp}{nonce}test-token".encode("utf-8") + raw_body).hexdigest()
-    return {
-        "X-Lark-Request-Timestamp": timestamp,
-        "X-Lark-Request-Nonce": nonce,
-        "X-Lark-Signature": signature,
-    }
-
-
 def test_feishu_employee_channel_gate_is_fail_closed(monkeypatch):
     monkeypatch.setattr(ai_gate, "settings", _settings(FEISHU_EMPLOYEE_PROFILE_ENABLED=False))
     with pytest.raises(HTTPException) as exc_info:
@@ -51,24 +39,24 @@ def test_feishu_employee_channel_gate_is_fail_closed(monkeypatch):
         ai_gate.enforce_feishu_capability_gate("ai.chat", 7)
 
 
-def test_signed_request_accepts_challenge_and_rejects_bad_or_expired_signatures(monkeypatch):
+def test_event_request_accepts_configured_token_and_rejects_invalid_tokens(monkeypatch):
     monkeypatch.setattr(ai_channel, "settings", _settings())
     challenge = {"type": "url_verification", "token": "test-token", "challenge": "value"}
     ai_channel.verify_feishu_signed_request(headers={}, raw_body=b"{}", body=challenge)
 
-    raw_body = json.dumps({"header": {"event_type": "im.message.receive_v1"}}).encode("utf-8")
+    raw_body = json.dumps(
+        {"header": {"event_type": "im.message.receive_v1", "token": "test-token"}}
+    ).encode("utf-8")
     ai_channel.verify_feishu_signed_request(
-        headers=_signed_headers(raw_body), raw_body=raw_body, body=json.loads(raw_body)
+        headers={}, raw_body=raw_body, body=json.loads(raw_body)
     )
     with pytest.raises(HTTPException):
         ai_channel.verify_feishu_signed_request(
-            headers=_signed_headers(raw_body, nonce="wrong"), raw_body=raw_body + b" ", body=json.loads(raw_body)
+            headers={}, raw_body=raw_body, body={"header": {"token": "incorrect-token"}}
         )
     with pytest.raises(HTTPException):
         ai_channel.verify_feishu_signed_request(
-            headers=_signed_headers(raw_body, timestamp=str(int(time.time()) - 301)),
-            raw_body=raw_body,
-            body=json.loads(raw_body),
+            headers={}, raw_body=raw_body, body={"header": {"event_type": "im.message.receive_v1"}}
         )
 
 

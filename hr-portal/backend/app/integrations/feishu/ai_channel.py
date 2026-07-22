@@ -1,10 +1,8 @@
 """Shared Feishu Bot ingress, identity mapping, and Envelope rendering."""
 from __future__ import annotations
 
-import hashlib
 import hmac
 import json
-import time
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -23,29 +21,16 @@ FEISHU_CHANNEL = "feishu"
 
 
 def verify_feishu_signed_request(*, headers: Any, raw_body: bytes, body: dict[str, Any]) -> None:
-    """Validate URL challenge or signed Feishu callbacks without logging payloads."""
+    """Validate Feishu event callbacks using their configured verification token."""
     if body.get("type") == "url_verification":
-        if not settings.FEISHU_VERIFICATION_TOKEN or not hmac.compare_digest(
-            str(body.get("token", "")), settings.FEISHU_VERIFICATION_TOKEN
-        ):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="verification token mismatch")
-        return
-
-    timestamp = headers.get("X-Lark-Request-Timestamp") or headers.get("X-Feishu-Request-Timestamp")
-    nonce = headers.get("X-Lark-Request-Nonce") or headers.get("X-Feishu-Request-Nonce")
-    signature = headers.get("X-Lark-Signature") or headers.get("X-Feishu-Signature")
-    if not settings.FEISHU_VERIFICATION_TOKEN or not timestamp or not nonce or not signature:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid callback signature")
-    try:
-        if abs(int(time.time()) - int(timestamp)) > settings.FEISHU_CALLBACK_MAX_TIMESTAMP_DIFF:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="callback timestamp expired")
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid callback timestamp") from exc
-    expected = hashlib.sha256(
-        f"{timestamp}{nonce}{settings.FEISHU_VERIFICATION_TOKEN}".encode("utf-8") + raw_body
-    ).hexdigest()
-    if not hmac.compare_digest(expected, signature):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid callback signature")
+        received_token = str(body.get("token", ""))
+    else:
+        header = body.get("header") or {}
+        received_token = str(header.get("token", ""))
+    if not settings.FEISHU_VERIFICATION_TOKEN or not hmac.compare_digest(
+        received_token, settings.FEISHU_VERIFICATION_TOKEN
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="verification token mismatch")
 
 
 async def claim_feishu_nonce(db: AsyncSession, headers: Any) -> bool:
