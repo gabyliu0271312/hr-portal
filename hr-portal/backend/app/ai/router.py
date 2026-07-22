@@ -33,19 +33,17 @@ from app.ai.employee_profile_gate import EMPLOYEE_PROFILE_CAPABILITY_ID, employe
 from app.integrations.feishu.ai_gate import enforce_feishu_capability_gate
 from app.ai.employee_profile_actions import register_employee_profile_controlled_actions
 from app.ai.employee_profile_actions import issue_employee_profile_candidate_actions
+from app.ai.employee_profile_catalog import EmployeeProfileCatalogError, load_employee_profile_extractor_catalog
 from app.ai.employee_profile_schemas import (
     CANDIDATE_DISPLAY_FIELD_LABELS,
-    EMPLOYEE_PROFILE_FIELD_LABELS,
     CandidateDisplayField,
     CandidateDisplayFieldCode,
-    DEFAULT_EMPLOYEE_PROFILE_FIELD_CODES,
     EmployeeProfileCandidateItem,
     EmployeeProfileCandidatesData,
     EmployeeProfileField,
     EmployeeProfileInputData,
     EmployeeProfileQuerySpec,
     EmployeeProfileResultData,
-    effective_requested_fields,
 )
 from app.ai.employee_profile_service import EmployeeProfileQueryService
 from app.ai.employee_profile_audit import record_employee_profile_query_audit
@@ -2264,11 +2262,21 @@ async def _extract_employee_profile_pending(
 ) -> ExtractorResult:
     config = await active_ai_config(db)
     active_profile = session.capability_state(EMPLOYEE_PROFILE_CAPABILITY_ID)
+    active_lookup_type = active_profile.get("lookup_type") if active_profile else None
+    active_lookup_value = active_profile.get("lookup_value") if active_profile else None
     continuation_context = {
-        "lookup_type": active_profile.get("lookup_type"),
-        "lookup_value": active_profile.get("lookup_value"),
+        "active": True,
         "requested_field_codes": active_profile.get("requested_field_codes", []),
     } if active_profile else None
+    try:
+        extractor_catalog = await load_employee_profile_extractor_catalog(db)
+    except EmployeeProfileCatalogError:
+        return ExtractorResult(None, None, "employee_profile_catalog_unavailable")
+    allowed_field_codes = {item.field_code for item in extractor_catalog}
+    catalog_context = [
+        {"code": item.field_code, "name": item.display_name, "type": item.data_type}
+        for item in extractor_catalog
+    ]
     model = (config.model_fast_json or config.model_reasoning or "").strip()
     messages = [
         {
@@ -2276,13 +2284,13 @@ async def _extract_employee_profile_pending(
             "content": (
                 "You extract an employee-profile lookup request. Return only JSON. "
                 "Allowed lookup_type values are name and employee_no. "
-                "requested_field_codes may only contain full_name, employee_no, business_unit, "
-                "organization_name, position_name, standard_position, position_level, employee_type, "
-                "employment_status, hire_date. "
+                "requested_field_codes may only contain codes from employee_profile_fields. "
+                "When the user does not explicitly name any profile fields, return requested_field_codes as an empty array. "
+                "For a follow-up that adds fields to the current card, set field_selection_mode to append; "
+                "when the user asks to show only specific fields, set it to replace. "
                 "Do not emit employee IDs, scopes, SQL, extra fields, or any result data. "
                 "For an employee-profile follow-up, return only the additional requested_field_codes; "
                 "lookup_value may be null and the server will reuse the active employee context. "
-                "Map BU or business unit requests to business_unit. "
                 "When no name or employee number is supplied outside a follow-up, return lookup_value as null."
             ),
         },
@@ -2292,10 +2300,12 @@ async def _extract_employee_profile_pending(
                 {
                     "message": payload.message,
                     "active_employee_profile": continuation_context,
+                    "employee_profile_fields": catalog_context,
                     "output_schema_hint": {
                         "lookup_type": "name | employee_no | null",
                         "lookup_value": "string | null",
-                        "requested_field_codes": "array of fixed codes",
+                        "requested_field_codes": "array of employee_profile_fields codes",
+                        "field_selection_mode": "append | replace",
                     },
                 },
                 ensure_ascii=False,
@@ -2315,30 +2325,30 @@ async def _extract_employee_profile_pending(
         raw = parse_json_content(content)
         if not isinstance(raw, dict):
             return ExtractorResult(None, usage, "employee_profile_model_invalid")
-        requested_field_codes = raw.get("requested_field_codes")
-        if isinstance(requested_field_codes, list):
-            raw = dict(raw)
-            raw["requested_field_codes"] = [
-                "business_unit" if isinstance(code, str) and code.casefold() == "bu" else code
-                for code in requested_field_codes
-            ]
-            if not continuation_context:
-                supported_field_codes = {code.value for code in EMPLOYEE_PROFILE_FIELD_LABELS}
-                if set(raw["requested_field_codes"]) == supported_field_codes:
-                    raw["requested_field_codes"] = []
+        raw = dict(raw)
+        field_selection_mode = raw.pop("field_selection_mode", "replace")
+        if field_selection_mode not in {"append", "replace"}:
+            return ExtractorResult(None, usage, "employee_profile_model_invalid")
+        requested_field_codes = raw.get("requested_field_codes", [])
+        if requested_field_codes is None:
+            requested_field_codes = []
+        raw["requested_field_codes"] = requested_field_codes
+        if not isinstance(requested_field_codes, list) or any(
+            not isinstance(code, str) or code not in allowed_field_codes for code in requested_field_codes
+        ):
+            return ExtractorResult(None, usage, "employee_profile_unknown_field")
         if raw.get("lookup_value") is None and continuation_context:
-            lookup_type = continuation_context.get("lookup_type")
-            lookup_value = continuation_context.get("lookup_value")
-            previous_fields = continuation_context.get("requested_field_codes")
-            additional_fields = raw.get("requested_field_codes")
+            lookup_type = active_lookup_type
+            lookup_value = active_lookup_value
             if lookup_type in {"name", "employee_no"} and isinstance(lookup_value, str) and lookup_value.strip():
                 raw = dict(raw)
                 raw["lookup_type"] = lookup_type
                 raw["lookup_value"] = lookup_value
-                if isinstance(previous_fields, list) and isinstance(additional_fields, list):
-                    supported_field_codes = {code.value for code in EMPLOYEE_PROFILE_FIELD_LABELS}
-                    if set(previous_fields) == supported_field_codes:
-                        previous_fields = [field_code.value for field_code in DEFAULT_EMPLOYEE_PROFILE_FIELD_CODES]
+                if field_selection_mode == "append":
+                    previous_fields = continuation_context.get("requested_field_codes")
+                    additional_fields = raw["requested_field_codes"]
+                    if any(not isinstance(code, str) or code not in allowed_field_codes for code in previous_fields):
+                        return ExtractorResult(None, usage, "employee_profile_unknown_field")
                     merged_fields = list(dict.fromkeys([*previous_fields, *additional_fields]))
                     if not set(merged_fields) - set(previous_fields):
                         return ExtractorResult({"no_additional_requested_fields": True}, usage, "employee_profile_no_additional_fields")
@@ -2402,11 +2412,13 @@ async def _handle_employee_profile_pending(
     )
     if result.match_kind == "unique":
         data = EmployeeProfileResultData(
+            employee_no=result.employee_no,
+            full_name=result.full_name,
             fields=[
                 EmployeeProfileField(
                     code=field_code,
-                    label=EMPLOYEE_PROFILE_FIELD_LABELS[field_code],
-                    value=str(result.rows[0][field_code.value]),
+                    label=result.field_labels[field_code],
+                    value=str(result.rows[0][field_code]),
                 )
                 for field_code in result.effective_requested_field_codes
             ]
@@ -2416,7 +2428,7 @@ async def _handle_employee_profile_pending(
             {
                 "lookup_type": query_spec.lookup_type,
                 "lookup_value": query_spec.lookup_value,
-                "requested_field_codes": [field_code.value for field_code in result.effective_requested_field_codes],
+                "requested_field_codes": list(result.effective_requested_field_codes),
             },
         )
         return _chat_out(
@@ -2612,29 +2624,40 @@ async def _classify_chat_intent(
         },
     ]
     timer.add_event("model_call", capability_id="ai.chat", purpose="intent_classify", model=model)
-    try:
-        _, content, usage = await chat_completion_openai_compatible(
-            api_key=decrypt(config.api_key_encrypted),
-            base_url=config.base_url,
-            model=model,
-            messages=messages,
-            timeout=int(config.timeout_seconds or 30),
-            response_format={"type": "json_object"},
-        )
-        raw = parse_json_content(content)
-        intent = str(raw.get("intent") or "general_question")
-        if _route_by_intent(intent) is None:
-            intent = "general_question"
-        return intent, usage
-    except Exception as exc:
-        timer.add_event(
-            "model_call",
-            status="error",
-            capability_id="ai.chat",
-            purpose="intent_classify",
-            reason=str(exc)[:300],
-        )
-        return "general_question", None
+    for attempt in range(2):
+        try:
+            _, content, usage = await chat_completion_openai_compatible(
+                api_key=decrypt(config.api_key_encrypted),
+                base_url=config.base_url,
+                model=model,
+                messages=messages,
+                timeout=int(config.timeout_seconds or 30),
+                response_format={"type": "json_object"},
+            )
+            raw = parse_json_content(content)
+            intent = str(raw.get("intent") or "general_question")
+            if _route_by_intent(intent) is None:
+                intent = "general_question"
+            return intent, usage
+        except httpx.TimeoutException as exc:
+            timer.add_event(
+                "model_call",
+                status="error",
+                capability_id="ai.chat",
+                purpose="intent_classify",
+                reason=type(exc).__name__,
+                attempt=attempt + 1,
+            )
+        except Exception as exc:
+            timer.add_event(
+                "model_call",
+                status="error",
+                capability_id="ai.chat",
+                purpose="intent_classify",
+                reason=str(exc)[:300] or type(exc).__name__,
+            )
+            return "general_question", None
+    return "general_question", None
 
 
 async def _resolve_chat_route(
@@ -2720,12 +2743,25 @@ async def global_ai_chat(
             route, parse_mode, usage = await _resolve_chat_route(payload, session, db, timer)
             if route is None:
                 session.clear_active()
+                intent_classification_timed_out = any(
+                    event.event == "model_call"
+                    and event.status == "error"
+                    and event.data.get("purpose") == "intent_classify"
+                    and event.data.get("reason") in {"ConnectTimeout", "PoolTimeout", "ReadTimeout", "WriteTimeout"}
+                    for event in timer.events
+                )
                 out = _chat_out(
                     intent="general_question",
                     status="failed",
-                    answer="当前全局 AI 支持：补偿金只读试算、查询你的数据权限范围、自动化规则草稿和数据对比。",
+                    answer=(
+                        "AI 意图识别服务响应超时，请稍后重试。"
+                        if intent_classification_timed_out
+                        else "当前全局 AI 支持：补偿金只读试算、查询你的数据权限范围、自动化规则草稿和数据对比。"
+                    ),
                     capability_id=capability.capability_id,
-                    data=MessageResultData(reason_code="unsupported_intent"),
+                    data=MessageResultData(
+                        reason_code="ai_intent_classification_timeout" if intent_classification_timed_out else "unsupported_intent"
+                    ),
                     trace_id=timer.trace_id,
                 )
             else:
@@ -2765,7 +2801,7 @@ async def global_ai_chat(
                 {},
             )
             returned_field_codes = (
-                [field.code.value for field in out.result.data.fields]
+                [field.code for field in out.result.data.fields]
                 if isinstance(out.result, EmployeeProfileResultCapabilityResult)
                 else []
             )

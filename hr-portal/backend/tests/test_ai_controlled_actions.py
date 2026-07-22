@@ -142,7 +142,7 @@ def test_employee_profile_action_result_uses_shared_ai_envelope_without_internal
     )
 
     assert out.result.type == "employee_profile_result"
-    assert [field.code.value for field in out.result.data.fields] == ["organization_name", "hire_date"]
+    assert [field.code for field in out.result.data.fields] == ["organization_name", "hire_date"]
     assert out.permission.filtered is True
     assert out.conversation_id == 11
     assert "employee_id" not in out.model_dump_json()

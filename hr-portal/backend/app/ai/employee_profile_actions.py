@@ -14,9 +14,7 @@ from app.ai.actions import (
     register_controlled_action,
 )
 from app.ai.employee_profile_schemas import (
-    EMPLOYEE_PROFILE_FIELD_LABELS,
     EmployeeProfileField,
-    EmployeeProfileFieldCode,
     EmployeeProfileResultData,
     EmployeeProfileSelectCandidateActionContext,
 )
@@ -45,11 +43,13 @@ async def handle_employee_profile_select_candidate(
     if result.match_kind != "unique":
         return {"status": "failed", "reason_code": "no_viewable_match"}
     fields = EmployeeProfileResultData(
+        employee_no=result.employee_no,
+        full_name=result.full_name,
         fields=[
             EmployeeProfileField(
                 code=field_code,
-                label=EMPLOYEE_PROFILE_FIELD_LABELS[field_code],
-                value=str(result.rows[0][field_code.value]),
+                label=result.field_labels[field_code],
+                value=str(result.rows[0][field_code]),
             )
             for field_code in result.effective_requested_field_codes
         ]
@@ -70,7 +70,7 @@ async def issue_employee_profile_candidate_actions(
     user_id: int,
     channel: str,
     candidate_rows: Sequence[Mapping[str, Any]],
-    effective_requested_field_codes: tuple[EmployeeProfileFieldCode, ...],
+    effective_requested_field_codes: tuple[str, ...],
     expires_at: datetime,
 ) -> tuple[IssuedControlledAction, ...]:
     """Issue handles only for a complete, already-adjudicated candidate collection."""

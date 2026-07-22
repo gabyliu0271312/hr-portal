@@ -16,6 +16,7 @@ from app.codegen.router import router as codegen_router
 from app.core.config import settings
 from app.core.db import AsyncSessionLocal, Base, engine
 from app.data.columns_router import router as columns_router
+from app.ai.employee_profile_fields_router import router as employee_profile_fields_router
 from app.data.router import router as data_router
 from app.datasets.calculated_fields import router as dataset_calculated_fields_router
 from app.datasets.router import router as datasets_router
@@ -186,6 +187,7 @@ app.include_router(field_cat_router, prefix=settings.API_PREFIX)
 app.include_router(datasources_router, prefix=settings.API_PREFIX)
 app.include_router(data_router, prefix=settings.API_PREFIX)
 app.include_router(columns_router, prefix=settings.API_PREFIX)
+app.include_router(employee_profile_fields_router, prefix=settings.API_PREFIX)
 app.include_router(trees_router, prefix=settings.API_PREFIX)
 app.include_router(reports_router, prefix=settings.API_PREFIX)
 app.include_router(scheduler_router, prefix=settings.API_PREFIX)

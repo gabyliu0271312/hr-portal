@@ -6,6 +6,7 @@ import { ArrowLeft, View, Connection, EditPen, Plus, Delete } from '@element-plu
 import Sortable from 'sortablejs'
 import { listAssetColumns, impactField, type AssetColumn, type ImpactResult } from '@/api/warehouse'
 import { tableColumnsApi, type ColumnUpdatePayload } from '@/api/table_columns'
+import { employeeProfileFieldsApi, type EmployeeProfileFieldConfig } from '@/api/employee_profile_fields'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
@@ -16,6 +17,8 @@ const tableName = route.params.table as string
 const columns = ref<AssetColumn[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const employeeProfileFields = ref<EmployeeProfileFieldConfig[]>([])
+const isEmployeeRoster = computed(() => tableName === 'emp_realtime_roster')
 
 // 详情/编辑抽屉
 const drawerVisible = ref(false)
@@ -84,8 +87,19 @@ async function load() {
   try {
     const res = await listAssetColumns(tableName)
     columns.value = res.columns.sort((a, b) => a.display_order - b.display_order)
+    employeeProfileFields.value = isEmployeeRoster.value ? await employeeProfileFieldsApi.list() : []
     await nextTick(); initSortable()
   } catch (e: any) { error.value = e?.response?.data?.detail || '加载字段列表失败' } finally { loading.value = false }
+}
+
+function employeeProfileField(columnCode: string) { return employeeProfileFields.value.find(field => field.column_name === columnCode) }
+async function setEmployeeProfileQueryable(columnCode: string, isQueryable: boolean) {
+  const field = employeeProfileField(columnCode)
+  if (!field) return
+  const previous = field.is_queryable
+  field.is_queryable = isQueryable
+  try { employeeProfileFields.value = await employeeProfileFieldsApi.update(employeeProfileFields.value) }
+  catch (cause: any) { field.is_queryable = previous; ElMessage.error(cause?.response?.data?.detail || '员工档案字段配置保存失败') }
 }
 
 function goBack() { router.back() }
@@ -239,6 +253,9 @@ onMounted(load)
               <el-tag v-if="row.scope_role" size="small" type="primary" effect="plain">权限：{{ SCOPE_ROLES.find(r => r.value === row.scope_role)?.label || row.scope_role }}</el-tag>
             </div>
           </template>
+        </el-table-column>
+        <el-table-column v-if="isEmployeeRoster" label="员工档案可查询" width="150">
+          <template #default="{ row }"><el-switch :model-value="employeeProfileField(row.column_code)?.is_queryable || false" :disabled="!userStore.hasOp('warehouse.assets','U')" inline-prompt active-text="开" inactive-text="关" @change="setEmployeeProfileQueryable(row.column_code, $event)" /></template>
         </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
