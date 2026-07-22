@@ -124,11 +124,14 @@ def _markdown_text(value: str) -> str:
     return value.replace("\\", "\\\\").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
 
 
-def _employee_card(title: str, elements: list[dict[str, Any]]) -> str:
+def _employee_card(title: str, elements: list[dict[str, Any]], *, template: str | None = None) -> str:
+    header: dict[str, Any] = {"title": {"tag": "plain_text", "content": title}}
+    if template:
+        header["template"] = template
     return json.dumps(
         {
             "config": {"wide_screen_mode": True, "enable_forward": False},
-            "header": {"title": {"tag": "plain_text", "content": title}},
+            "header": header,
             "elements": elements,
         },
         ensure_ascii=False,
@@ -139,10 +142,34 @@ def render_employee_profile_card(out: AiChatOut) -> str:
     """Render only the employee fields already authorized by the shared Envelope."""
     result = out.result
     if result.type == "employee_profile_result":
-        lines = [f"**{_markdown_text(field.label)}**：{_markdown_text(field.value)}" for field in result.data.fields]
+        identity = " -- ".join(
+            value for value in (getattr(result.data, "employee_no", None), getattr(result.data, "full_name", None)) if value
+        ) or "员工档案"
+        elements: list[dict[str, Any]] = [
+            {"tag": "div", "text": {"tag": "lark_md", "content": "## 基础资料"}},
+            {"tag": "hr"},
+        ]
+        for index, field in enumerate(result.data.fields):
+            elements.append(
+                {
+                    "tag": "div",
+                    "fields": [
+                        {
+                            "is_short": False,
+                            "text": {
+                                "tag": "lark_md",
+                                "content": f"**{_markdown_text(field.label)}**\n{_markdown_text(field.value)}",
+                            },
+                        }
+                    ],
+                }
+            )
+            if index < len(result.data.fields) - 1:
+                elements.append({"tag": "hr"})
         return _employee_card(
-            "员工档案",
-            [{"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(lines)}}],
+            identity,
+            elements,
+            template="green",
         )
     if result.type == "employee_profile_candidates":
         if not result.data.candidates or any(not candidate.display_fields for candidate in result.data.candidates):

@@ -40,6 +40,15 @@ def test_lookup_is_parameterized_scoped_and_limited():
     assert statement._limit_clause.value == EMPLOYEE_PROFILE_LOOKUP_LIMIT
 
 
+def test_name_lookup_supports_partial_english_name_matches():
+    statement = build_employee_profile_lookup_statement(
+        _model(), lookup_type="employee_name", scope_filter=true(), field_columns={"department": "department"}
+    )
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+    assert "english_name ILIKE" in compiled
+    assert "full_name ILIKE" in compiled
+
+
 def test_unknown_catalog_column_and_missing_identity_column_fail_closed():
     with pytest.raises(EmployeeProfileRosterContractError, match="missing_column"):
         build_employee_profile_lookup_statement(_model(), lookup_type="employee_no", scope_filter=true(), field_columns={"x": "missing_column"})

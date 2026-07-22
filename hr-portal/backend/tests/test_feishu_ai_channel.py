@@ -113,8 +113,26 @@ def test_employee_profile_cards_only_render_authorized_envelope_data():
     )
     assert result_card["header"]["title"]["content"] == "员工档案"
     assert result_card["config"]["enable_forward"] is False
-    assert "??" in result_card["elements"][0]["text"]["content"]
-    assert "?????" in result_card["elements"][0]["text"]["content"]
+    assert result_card["header"]["template"] == "green"
+    assert result_card["elements"][0]["text"]["content"] == "## 基础资料"
+    assert "??" in result_card["elements"][2]["fields"][0]["text"]["content"]
+    assert "?????" in result_card["elements"][4]["fields"][0]["text"]["content"]
+
+    profile_with_identity = json.loads(
+        ai_channel.render_envelope_card(
+            _employee_out(
+                "employee_profile_result",
+                SimpleNamespace(
+                    employee_no="102840",
+                    full_name="gaby.li刘琦",
+                    fields=[SimpleNamespace(label="所属组织", value="人力资源行政部")],
+                ),
+            )
+        )
+    )
+    assert profile_with_identity["header"]["title"]["content"] == "102840 -- gaby.li刘琦"
+    assert profile_with_identity["header"]["template"] == "green"
+    assert profile_with_identity["elements"][0]["text"]["content"] == "## 基础资料"
 
     handle = "a" * 32
     candidates_card = json.loads(

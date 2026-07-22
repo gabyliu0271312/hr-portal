@@ -45,7 +45,12 @@ def build_employee_profile_lookup_statement(model, *, lookup_type: EmployeeProfi
     if lookup_type == "employee_no":
         lookup_filter = columns["employee_no"] == bindparam("employee_lookup_value")
     elif lookup_type == "employee_name":
-        lookup_filter = or_(columns["chinese_name"].ilike("%" + bindparam("employee_lookup_value") + "%"), columns["english_name"] == bindparam("employee_lookup_value"), columns["full_name"] == bindparam("employee_lookup_value"))
+        lookup_value = bindparam("employee_lookup_value")
+        lookup_filter = or_(
+            columns["chinese_name"].ilike("%" + lookup_value + "%"),
+            columns["english_name"].ilike("%" + lookup_value + "%"),
+            columns["full_name"].ilike("%" + lookup_value + "%"),
+        )
     else:
         raise EmployeeProfileRosterContractError(f"unsupported lookup type: {lookup_type}")
     return select(*_projection(model, field_columns, include_employee_id=True)).where(scope_filter, lookup_filter).order_by(columns[EMPLOYEE_PROFILE_STABLE_SORT_COLUMN].asc()).limit(EMPLOYEE_PROFILE_LOOKUP_LIMIT)
