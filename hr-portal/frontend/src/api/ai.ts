@@ -41,17 +41,7 @@ export interface MaskingResult {
   applied: boolean
 }
 
-export type EmployeeProfileFieldCode =
-  | 'full_name'
-  | 'employee_no'
-  | 'organization_name'
-  | 'position_name'
-  | 'standard_position'
-  | 'position_level'
-  | 'employee_type'
-  | 'employment_status'
-  | 'hire_date'
-  | 'probation_end_date'
+export type EmployeeProfileFieldCode = string
 
 export interface EmployeeProfileField {
   code: EmployeeProfileFieldCode
@@ -60,6 +50,8 @@ export interface EmployeeProfileField {
 }
 
 export interface EmployeeProfileResultData {
+  employee_no: string | null
+  full_name: string | null
   fields: EmployeeProfileField[]
 }
 

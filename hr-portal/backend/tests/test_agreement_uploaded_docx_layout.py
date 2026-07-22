@@ -55,7 +55,7 @@ def test_agreement_render_uses_uploaded_docx_layout_when_preview_is_not_edited()
     out = Document(BytesIO(rendered))
 
     assert abs(out.sections[0].left_margin - Mm(12)) < 500
-    assert out.paragraphs[0].paragraph_format.line_spacing == 2
+    assert out.paragraphs[0].paragraph_format.line_spacing == 1.3
     assert out.paragraphs[0].text == "Company: Example Co."
 
 

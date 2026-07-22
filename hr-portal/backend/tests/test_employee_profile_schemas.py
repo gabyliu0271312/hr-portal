@@ -56,7 +56,6 @@ def test_query_schema_uses_explicit_or_fixed_default_requested_fields():
     "payload",
     [
         {"lookup_type": "employee_name", "lookup_value": "Alice"},
-        {"lookup_type": "name", "lookup_value": "Alice", "requested_field_codes": ["department"]},
         {"lookup_type": "name", "lookup_value": "Alice", "requested_field_codes": ["SELECT"]},
         {"lookup_type": "name", "lookup_value": "Alice", "scope": {"org": "platform"}},
         {"lookup_type": "name", "lookup_value": "Alice", "requested_field_codes": ["full_name"] * 8},
@@ -101,8 +100,9 @@ def test_result_data_and_candidate_data_are_strict_and_typed():
         CandidateDisplayField(code="employee_name", label=name_label, value="")
     with pytest.raises(ValidationError):
         CandidateDisplayField(code="employee_no", label="employee_no", value="E-1001")
+    assert EmployeeProfileField(code="department", label="Department", value="Platform").code == "department"
     with pytest.raises(ValidationError):
-        EmployeeProfileField(code="full_name", label="wrong", value="Alice")
+        EmployeeProfileField(code="Legacy-Code", label="legacy", value="Alice")
     with pytest.raises(ValidationError):
         EmployeeProfileCandidateItem(
             selection_handle="employee-1",

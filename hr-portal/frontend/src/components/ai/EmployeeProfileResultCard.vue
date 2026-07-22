@@ -1,23 +1,21 @@
 <script>
 import { defineComponent, h } from 'vue'
 
-const fieldOrder = ['business_unit', 'organization_name', 'hire_date', 'employee_type', 'position_name', 'standard_position', 'position_level', 'employment_status']
-
 function fieldValue(fields, code) {
   const field = fields.find((item) => item.code === code)
   return field?.value
 }
 
-function profileHeader(fields) {
-  const employeeNo = fieldValue(fields, 'employee_no')
-  const employeeName = fieldValue(fields, 'full_name')
+function profileHeader(data) {
+  const fields = data.fields || []
+  const employeeNo = data.employee_no || fieldValue(fields, 'employee_no')
+  const employeeName = data.full_name || fieldValue(fields, 'full_name')
   if (employeeNo && employeeName) return `${employeeNo} -- ${employeeName}`
   return employeeName || employeeNo || '\u5458\u5de5\u57fa\u7840\u4fe1\u606f'
 }
 
 function detailFields(fields) {
-  const ordered = fieldOrder.map((code) => fields.find((field) => field.code === code)).filter(Boolean)
-  return ordered
+  return fields.filter((field) => field.code !== 'full_name' && field.code !== 'employee_no')
 }
 
 function fieldNode(field, className) {
@@ -44,7 +42,7 @@ export default defineComponent({
               h('span', { class: 'employee-profile-kicker-mark' }),
               h('span', null, '\u5458\u5de5\u6863\u6848'),
             ]),
-            h('h3', { class: 'employee-profile-title' }, profileHeader(fields)),
+            h('h3', { class: 'employee-profile-title' }, profileHeader(props.result.data)),
           ]),
           h('div', { class: 'employee-profile-body' }, [
             h('div', { class: 'employee-profile-section-title' }, [

@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 from enum import Enum
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.ai.actions import ControlledActionContext
+
+
+EMPLOYEE_PROFILE_FIELD_CODE_PATTERN = r"^[a-z][a-z0-9_]{0,127}$"
 
 
 class EmployeeProfileFieldCode(str, Enum):
@@ -53,7 +57,7 @@ class EmployeeProfileQuerySpec(BaseModel):
 
     lookup_type: Literal["name", "employee_no"]
     lookup_value: str = Field(min_length=1, max_length=64)
-    requested_field_codes: list[EmployeeProfileFieldCode] = Field(default_factory=list, max_length=10)
+    requested_field_codes: list[str] = Field(default_factory=list, max_length=10)
 
     @field_validator("lookup_value")
     @classmethod
@@ -71,8 +75,10 @@ class EmployeeProfileQuerySpec(BaseModel):
     @field_validator("requested_field_codes")
     @classmethod
     def _validate_requested_field_codes(
-        cls, value: list[EmployeeProfileFieldCode]
-    ) -> list[EmployeeProfileFieldCode]:
+        cls, value: list[str]
+    ) -> list[str]:
+        if any(not isinstance(code, str) or not re.fullmatch(EMPLOYEE_PROFILE_FIELD_CODE_PATTERN, code) for code in value):
+            raise ValueError("requested_field_codes contains an invalid field code")
         if len(set(value)) != len(value):
             raise ValueError("requested_field_codes must not contain duplicates")
         return value
@@ -82,27 +88,22 @@ def effective_requested_fields(
     query_spec: EmployeeProfileQuerySpec,
 ) -> tuple[EmployeeProfileFieldCode, ...]:
     if query_spec.requested_field_codes:
-        return tuple(query_spec.requested_field_codes)
+        return tuple(EmployeeProfileFieldCode(code) for code in query_spec.requested_field_codes)
     return DEFAULT_EMPLOYEE_PROFILE_FIELD_CODES
 
 
 class EmployeeProfileField(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    code: EmployeeProfileFieldCode
-    label: str = Field(min_length=1, max_length=32)
+    code: str = Field(pattern=EMPLOYEE_PROFILE_FIELD_CODE_PATTERN)
+    label: str = Field(min_length=1, max_length=64)
     value: str
-
-    @model_validator(mode="after")
-    def _ensure_fixed_label(self) -> "EmployeeProfileField":
-        if self.label != EMPLOYEE_PROFILE_FIELD_LABELS[self.code]:
-            raise ValueError("label must match the server-defined field label")
-        return self
-
 
 class EmployeeProfileResultData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    employee_no: str | None = Field(default=None, max_length=128)
+    full_name: str | None = Field(default=None, max_length=256)
     fields: list[EmployeeProfileField] = Field(min_length=1, max_length=10)
 
     @field_validator("fields")
@@ -183,7 +184,7 @@ class EmployeeProfileSelectCandidateActionContext(ControlledActionContext):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     employee_id: int = Field(ge=1)
-    effective_requested_field_codes: tuple[EmployeeProfileFieldCode, ...] = Field(
+    effective_requested_field_codes: tuple[str, ...] = Field(
         min_length=1,
         max_length=10,
     )
@@ -191,8 +192,10 @@ class EmployeeProfileSelectCandidateActionContext(ControlledActionContext):
     @field_validator("effective_requested_field_codes")
     @classmethod
     def _ensure_unique_codes(
-        cls, value: tuple[EmployeeProfileFieldCode, ...]
-    ) -> tuple[EmployeeProfileFieldCode, ...]:
+        cls, value: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if any(not isinstance(code, str) or not re.fullmatch(EMPLOYEE_PROFILE_FIELD_CODE_PATTERN, code) for code in value):
+            raise ValueError("effective_requested_field_codes contains an invalid field code")
         if len(set(value)) != len(value):
             raise ValueError("effective_requested_field_codes must not contain duplicates")
         return value

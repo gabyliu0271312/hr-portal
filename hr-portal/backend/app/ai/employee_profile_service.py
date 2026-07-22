@@ -1,52 +1,39 @@
-"""Deterministic, scope-first employee-profile lookup service."""
+"""Deterministic, catalog-backed employee profile lookup service."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from collections.abc import Callable
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.employee_profile_repository import (
-    EMPLOYEE_PROFILE_FIELD_COLUMNS,
-    EMPLOYEE_PROFILE_ROSTER_TABLE,
-    EMPLOYEE_PROFILE_SCOPE_STRATEGY,
-    EmployeeProfileRosterContractError,
-    build_employee_profile_lookup_statement,
-    build_employee_profile_selected_lookup_statement,
-    validate_employee_profile_roster_model,
-)
-from app.ai.employee_profile_schemas import (
-    CandidateDisplayFieldCode,
-    EmployeeProfileFieldCode,
-    EmployeeProfileQuerySpec,
-    effective_requested_fields,
-)
+from app.ai.employee_profile_catalog import EmployeeProfileCatalogError, EmployeeProfileCatalogItem, load_employee_profile_catalog, resolve_employee_profile_codes
+from app.ai.employee_profile_repository import EMPLOYEE_PROFILE_ROSTER_TABLE, EMPLOYEE_PROFILE_SCOPE_STRATEGY, build_employee_profile_lookup_statement, build_employee_profile_selected_lookup_statement, validate_employee_profile_roster_model
+from app.ai.employee_profile_schemas import EmployeeProfileQuerySpec
 from app.data.models import DATA_TABLES
 from app.permissions.masker import VERDICT_HIDE, resolve_field_access
 from app.permissions.scope_filter import build_scope_filter, is_unrestricted
 from app.users.models import User
 
 EmployeeProfileMatchKind = Literal["no_match", "unique", "candidates", "too_many"]
-
-_CANDIDATE_DISPLAY_FIELD_CODES: tuple[EmployeeProfileFieldCode, ...] = tuple(
-    EmployeeProfileFieldCode(code.value) for code in CandidateDisplayFieldCode
-)
-_CANDIDATE_PLACEHOLDER_VALUES = {"-", "--", "n/a", "\u6682\u65e0", "\u2014"}
+_HEADER_COLUMNS = {"employee_no": "employee_no", "full_name": "full_name"}
+_CANDIDATE_COLUMNS = {**_HEADER_COLUMNS, "organization_name": "department", "employment_status": "employment_status"}
 
 
 class EmployeeProfileServiceContractError(RuntimeError):
-    """Raised before SQL execution when the fixed employee lookup contract is unavailable."""
+    pass
 
 
 @dataclass(frozen=True)
 class EmployeeProfileLookupResult:
     match_kind: EmployeeProfileMatchKind
     rows: tuple[dict[str, Any], ...]
-    effective_requested_field_codes: tuple[EmployeeProfileFieldCode, ...]
+    effective_requested_field_codes: tuple[str, ...]
+    field_labels: dict[str, str]
     scope_filter_applied: bool
     scope_filter_restrictive: bool
     masking_applied: bool = False
+    employee_no: str | None = None
+    full_name: str | None = None
 
     @property
     def permission_filtered(self) -> bool:
@@ -55,190 +42,98 @@ class EmployeeProfileLookupResult:
 
 def _roster_model():
     model = DATA_TABLES.get(EMPLOYEE_PROFILE_ROSTER_TABLE)
-    if model is None:
+    if model is None or "raw" in model.__table__.columns:
         raise EmployeeProfileServiceContractError("employee profile roster is not registered")
-    if "raw" in model.__table__.columns:
-        raise EmployeeProfileServiceContractError("employee profile roster must expose entity columns")
-    try:
-        validate_employee_profile_roster_model(model)
-    except EmployeeProfileRosterContractError as exc:
-        raise EmployeeProfileServiceContractError(str(exc)) from exc
+    validate_employee_profile_roster_model(model)
     return model
 
 
-def _lookup_type(query_spec: EmployeeProfileQuerySpec) -> Literal["employee_no", "employee_name"]:
-    if query_spec.lookup_type == "employee_no":
-        return "employee_no"
-    return "employee_name"
-
-
-def _match_kind(lookup_type: str, row_count: int) -> EmployeeProfileMatchKind:
-    if row_count == 0:
+def _match_kind(lookup_type: str, count: int) -> EmployeeProfileMatchKind:
+    if count == 0:
         return "no_match"
-    if row_count == 1:
+    if count == 1:
         return "unique"
-    if lookup_type == "employee_name" and row_count <= 5:
-        return "candidates"
-    return "too_many"
+    return "candidates" if lookup_type == "employee_name" and count <= 5 else "too_many"
 
 
-def _mapping_rows(result) -> tuple[dict[str, Any], ...]:
-    mappings = result.mappings().all()
-    return tuple(dict(row) for row in mappings)
+async def _requested_catalog(db: AsyncSession, codes: list[str]) -> tuple[EmployeeProfileCatalogItem, ...]:
+    catalog = await load_employee_profile_catalog(db)
+    defaults = tuple(item for item in catalog if item.is_default_card and item.is_queryable)
+    if not codes:
+        return defaults
+    by_code = {item.field_code: item for item in catalog}
+    try:
+        requested = tuple(by_code[code] for code in codes)
+    except KeyError as exc:
+        raise EmployeeProfileServiceContractError("unsupported employee profile field") from exc
+    if any(not item.is_queryable for item in requested):
+        raise EmployeeProfileServiceContractError("unsupported employee profile field")
+    return tuple(dict.fromkeys(requested))
 
 
-def _field_is_visible(
-    field_code: EmployeeProfileFieldCode,
-    verdicts: dict[str, str],
-) -> bool:
-    physical_column = EMPLOYEE_PROFILE_FIELD_COLUMNS[field_code.value]
-    return verdicts.get(physical_column) != VERDICT_HIDE
+def _visible(items: tuple[EmployeeProfileCatalogItem, ...], verdicts: dict[str, str]) -> tuple[EmployeeProfileCatalogItem, ...]:
+    return tuple(item for item in items if verdicts.get(item.column_name) != VERDICT_HIDE)
 
 
-def _detail_field_codes(
-    query_spec: EmployeeProfileQuerySpec,
-    verdicts: dict[str, str],
-) -> tuple[EmployeeProfileFieldCode, ...]:
-    return tuple(
-        field_code
-        for field_code in effective_requested_fields(query_spec)
-        if _field_is_visible(field_code, verdicts)
-    )
-
-
-def _candidate_displayable_fields(
-    row: dict[str, Any],
-    verdicts: dict[str, str],
-) -> tuple[EmployeeProfileFieldCode, ...]:
-    displayable: list[EmployeeProfileFieldCode] = []
-    for field_code in _CANDIDATE_DISPLAY_FIELD_CODES:
-        value = row.get(field_code.value)
-        if not _field_is_visible(field_code, verdicts):
-            continue
-        if not isinstance(value, str) or not value.strip():
-            continue
-        if value.strip().casefold() in _CANDIDATE_PLACEHOLDER_VALUES:
-            continue
-        displayable.append(field_code)
-    return tuple(displayable)
-
-
-def _project_row(
-    row: dict[str, Any],
-    field_codes: tuple[EmployeeProfileFieldCode, ...],
-) -> dict[str, Any]:
-    return {
-        "employee_id": row["employee_id"],
-        **{field_code.value: row[field_code.value] for field_code in field_codes},
-    }
+def _field_columns(items: tuple[EmployeeProfileCatalogItem, ...]) -> dict[str, str]:
+    return {item.field_code: item.column_name for item in items}
 
 
 class EmployeeProfileQueryService:
-    async def query(
-        self,
-        query_spec: EmployeeProfileQuerySpec,
-        *,
-        user: User,
-        db: AsyncSession,
-        candidate_displayable: Callable[[dict[str, Any]], bool] | None = None,
-    ) -> EmployeeProfileLookupResult:
+    async def query(self, query_spec: EmployeeProfileQuerySpec, *, user: User, db: AsyncSession, candidate_displayable=None) -> EmployeeProfileLookupResult:
         model = _roster_model()
-        scope_filter = await build_scope_filter(
-            user,
-            EMPLOYEE_PROFILE_ROSTER_TABLE,
-            db,
-            strategy=EMPLOYEE_PROFILE_SCOPE_STRATEGY,
-        )
-        field_verdicts = await resolve_field_access(
-            user,
-            EMPLOYEE_PROFILE_ROSTER_TABLE,
-            db,
-            tool_key=None,
-        )
-        detail_field_codes = _detail_field_codes(query_spec, field_verdicts)
-        lookup_type = _lookup_type(query_spec)
-        statement = build_employee_profile_lookup_statement(
-            model,
-            lookup_type=lookup_type,
-            scope_filter=scope_filter,
-        )
-        result = await db.execute(statement, {"employee_lookup_value": query_spec.lookup_value})
-        rows = _mapping_rows(result)
-        match_kind = _match_kind(lookup_type, len(rows))
-        if match_kind == "unique":
-            if not detail_field_codes:
-                match_kind = "no_match"
-                rows = ()
-            else:
-                rows = (_project_row(rows[0], detail_field_codes),)
-        elif match_kind == "candidates":
-            candidate_field_codes = tuple(
-                _candidate_displayable_fields(row, field_verdicts) for row in rows
-            )
-            if (
-                not all(candidate_field_codes)
-                or (candidate_displayable is not None and not all(candidate_displayable(row) for row in rows))
-            ):
-                match_kind = "too_many"
-                rows = ()
-            else:
-                rows = tuple(
-                    _project_row(row, fields)
-                    for row, fields in zip(rows, candidate_field_codes, strict=True)
-                )
+        requested = await _requested_catalog(db, query_spec.requested_field_codes)
+        scope_filter = await build_scope_filter(user, EMPLOYEE_PROFILE_ROSTER_TABLE, db, strategy=EMPLOYEE_PROFILE_SCOPE_STRATEGY)
+        verdicts = await resolve_field_access(user, EMPLOYEE_PROFILE_ROSTER_TABLE, db, tool_key="employee.profile.query")
+        visible = _visible(requested, verdicts)
+        lookup_type: Literal["employee_no", "employee_name"] = "employee_no" if query_spec.lookup_type == "employee_no" else "employee_name"
+        projection = {**_CANDIDATE_COLUMNS, **_field_columns(visible)}
+        rows = tuple(dict(row) for row in (await db.execute(build_employee_profile_lookup_statement(model, lookup_type=lookup_type, scope_filter=scope_filter, field_columns=projection), {"employee_lookup_value": query_spec.lookup_value})).mappings().all())
+        kind = _match_kind(lookup_type, len(rows))
+        codes = tuple(item.field_code for item in visible)
+        labels = {item.field_code: item.display_name for item in visible}
+        employee_no = None
+        full_name = None
+        if kind == "unique":
+            employee_no = str(rows[0].get("employee_no") or "") or None
+            full_name = str(rows[0].get("full_name") or "") or None
+            rows = ({"employee_id": rows[0]["employee_id"], **{code: rows[0][code] for code in codes}},) if codes else ()
+            kind = "unique" if rows else "no_match"
+        elif kind == "candidates":
+            if candidate_displayable is not None and not all(candidate_displayable(row) for row in rows):
+                kind, rows = "too_many", ()
+        else:
+            rows = ()
         return EmployeeProfileLookupResult(
-            match_kind=match_kind,
-            rows=rows,
-            effective_requested_field_codes=detail_field_codes,
-            scope_filter_applied=True,
-            scope_filter_restrictive=not is_unrestricted(scope_filter),
+            kind,
+            rows,
+            codes,
+            labels,
+            True,
+            not is_unrestricted(scope_filter),
+            employee_no=employee_no,
+            full_name=full_name,
         )
 
-    async def query_selected_employee(
-        self,
-        *,
-        employee_id: int,
-        effective_requested_field_codes: tuple[EmployeeProfileFieldCode, ...],
-        user: User,
-        db: AsyncSession,
-    ) -> EmployeeProfileLookupResult:
-        """Resolve a consumed candidate handle against the user's current scope and field access."""
+    async def query_selected_employee(self, *, employee_id: int, effective_requested_field_codes: tuple[str, ...], user: User, db: AsyncSession) -> EmployeeProfileLookupResult:
         model = _roster_model()
-        scope_filter = await build_scope_filter(
-            user,
-            EMPLOYEE_PROFILE_ROSTER_TABLE,
-            db,
-            strategy=EMPLOYEE_PROFILE_SCOPE_STRATEGY,
-        )
-        field_verdicts = await resolve_field_access(
-            user,
-            EMPLOYEE_PROFILE_ROSTER_TABLE,
-            db,
-            tool_key=None,
-        )
-        detail_field_codes = tuple(
-            field_code
-            for field_code in effective_requested_field_codes
-            if _field_is_visible(field_code, field_verdicts)
-        )
-        statement = build_employee_profile_selected_lookup_statement(
-            model,
-            scope_filter=scope_filter,
-        )
-        result = await db.execute(statement, {"employee_profile_employee_id": employee_id})
-        rows = _mapping_rows(result)
-        if len(rows) != 1 or not detail_field_codes:
-            return EmployeeProfileLookupResult(
-                match_kind="no_match",
-                rows=(),
-                effective_requested_field_codes=detail_field_codes,
-                scope_filter_applied=True,
-                scope_filter_restrictive=not is_unrestricted(scope_filter),
-            )
+        requested = await _requested_catalog(db, list(effective_requested_field_codes))
+        scope_filter = await build_scope_filter(user, EMPLOYEE_PROFILE_ROSTER_TABLE, db, strategy=EMPLOYEE_PROFILE_SCOPE_STRATEGY)
+        verdicts = await resolve_field_access(user, EMPLOYEE_PROFILE_ROSTER_TABLE, db, tool_key="employee.profile.query")
+        visible = _visible(requested, verdicts)
+        codes = tuple(item.field_code for item in visible)
+        labels = {item.field_code: item.display_name for item in visible}
+        projection = {**_HEADER_COLUMNS, **_field_columns(visible)}
+        rows = tuple(dict(row) for row in (await db.execute(build_employee_profile_selected_lookup_statement(model, scope_filter=scope_filter, field_columns=projection), {"employee_profile_employee_id": employee_id})).mappings().all())
+        if len(rows) != 1:
+            return EmployeeProfileLookupResult("no_match", (), codes, labels, True, not is_unrestricted(scope_filter))
         return EmployeeProfileLookupResult(
-            match_kind="unique",
-            rows=(_project_row(rows[0], detail_field_codes),),
-            effective_requested_field_codes=detail_field_codes,
-            scope_filter_applied=True,
-            scope_filter_restrictive=not is_unrestricted(scope_filter),
+            "unique",
+            ({"employee_id": rows[0]["employee_id"], **{code: rows[0][code] for code in codes}},),
+            codes,
+            labels,
+            True,
+            not is_unrestricted(scope_filter),
+            employee_no=str(rows[0].get("employee_no") or "") or None,
+            full_name=str(rows[0].get("full_name") or "") or None,
         )
