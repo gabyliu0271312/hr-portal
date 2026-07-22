@@ -111,7 +111,7 @@ async def handle_bot_event(request: Request, db: AsyncSession = Depends(get_sess
         return {"ok": True}
     event = body.get("event") or {}
     message = event.get("message") or {}
-    event_key = str(header.get("event_id") or message.get("message_id") or "")
+    event_key = str(message.get("message_id") or header.get("event_id") or "")
     if not event_key:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing event id")
     if not await claim_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key):

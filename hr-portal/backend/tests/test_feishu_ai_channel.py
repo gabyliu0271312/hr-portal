@@ -111,17 +111,16 @@ def test_employee_profile_cards_only_render_authorized_envelope_data():
             )
         )
     )
-    assert result_card["header"]["title"]["content"] == "员工档案"
+    assert result_card["header"]["title"]["content"] == "● 员工档案"
     assert result_card["config"]["enable_forward"] is False
     assert result_card["header"]["template"] == "green"
-    assert result_card["elements"][0]["text"]["content"] == "**员工档案**"
-    assert result_card["elements"][1]["text"]["content"] == "**基础资料**"
-    first_field_row = result_card["elements"][3]["fields"]
-    assert [field["is_short"] for field in first_field_row] == [True, True]
+    assert result_card["elements"][0]["text"]["content"] == "**▌ 基础资料**"
+    first_field_row = result_card["elements"][2]["fields"]
+    assert [field["is_short"] for field in first_field_row] == [False]
     assert "??" in first_field_row[0]["text"]["content"]
-    assert "??" in first_field_row[1]["text"]["content"]
-    second_field_row = result_card["elements"][5]["fields"]
-    assert "?????" in second_field_row[1]["text"]["content"]
+    assert "??" in first_field_row[0]["text"]["content"]
+    second_field_row = result_card["elements"][4]["fields"]
+    assert "?????" in second_field_row[0]["text"]["content"]
 
     profile_with_identity = json.loads(
         ai_channel.render_envelope_card(
@@ -135,10 +134,9 @@ def test_employee_profile_cards_only_render_authorized_envelope_data():
             )
         )
     )
-    assert profile_with_identity["header"]["title"]["content"] == "102840 -- gaby.li刘琦"
+    assert profile_with_identity["header"]["title"]["content"] == "● 员工档案\n102840 -- gaby.li刘琦"
     assert profile_with_identity["header"]["template"] == "green"
-    assert profile_with_identity["elements"][0]["text"]["content"] == "**员工档案**"
-    assert profile_with_identity["elements"][1]["text"]["content"] == "**基础资料**"
+    assert profile_with_identity["elements"][0]["text"]["content"] == "**▌ 基础资料**"
 
     handle = "a" * 32
     candidates_card = json.loads(
@@ -299,7 +297,7 @@ async def test_candidate_action_updates_card_and_expiry_clears_candidates(monkey
         action_value={"action_type": "employee.profile.select_candidate", "selection_handle": "a" * 32},
     )
     assert result == {"ok": True, "toast": "操作成功"}
-    assert updated_cards[-1][1]["header"]["title"]["content"] == "员工档案"
+    assert updated_cards[-1][1]["header"]["title"]["content"] == "● 员工档案"
 
     async def expired(*args, **kwargs):
         raise ControlledActionUnavailableError("expired")
@@ -321,7 +319,7 @@ async def test_candidate_action_updates_card_and_expiry_clears_candidates(monkey
 async def test_replayed_feishu_event_never_requeries_or_resends_a_card(monkeypatch):
     query_calls = []
     sent_cards = []
-    event_claims = iter([True, False])
+    event_keys = []
 
     async def no_op(*args, **kwargs):
         return None
@@ -330,7 +328,8 @@ async def test_replayed_feishu_event_never_requeries_or_resends_a_card(monkeypat
         return True
 
     async def claim_event(*args, **kwargs):
-        return next(event_claims)
+        event_keys.append(kwargs["event_key"])
+        return len(event_keys) == 1
 
     async def mapped_user(*args, **kwargs):
         return SimpleNamespace(id=7)
@@ -360,7 +359,9 @@ async def test_replayed_feishu_event_never_requeries_or_resends_a_card(monkeypat
         },
     }
     assert await feishu_router.handle_bot_event(_request(body), db=db) == {"ok": True}
+    body["header"]["event_id"] = "evt-replay-delivery-2"
     assert await feishu_router.handle_bot_event(_request(body), db=db) == {"ok": True}
+    assert event_keys == ["msg-1", "msg-1"]
     assert query_calls == [True]
     assert len(sent_cards) == 1
 
