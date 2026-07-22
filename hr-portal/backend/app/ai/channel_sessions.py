@@ -5,6 +5,7 @@ import hashlib
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.models import AiChannelEvent, AiChannelSession, AiConversation
@@ -67,25 +68,20 @@ async def claim_channel_event(
     if not channel or not event_key:
         raise ValueError("channel and event_key are required")
     event_hash = channel_key_hash(event_key)
-    existing = (
+    inserted_id = (
         await db.execute(
-            select(AiChannelEvent)
-            .where(AiChannelEvent.channel == channel, AiChannelEvent.event_key_hash == event_hash)
-            .with_for_update()
+            pg_insert(AiChannelEvent)
+            .values(
+                channel=channel,
+                event_key_hash=event_hash,
+                status="received",
+                received_at=datetime.now(timezone.utc),
+            )
+            .on_conflict_do_nothing(index_elements=[AiChannelEvent.channel, AiChannelEvent.event_key_hash])
+            .returning(AiChannelEvent.id)
         )
     ).scalar_one_or_none()
-    if existing is not None:
-        return False
-    db.add(
-        AiChannelEvent(
-            channel=channel,
-            event_key_hash=event_hash,
-            status="received",
-            received_at=datetime.now(timezone.utc),
-        )
-    )
-    await db.flush()
-    return True
+    return inserted_id is not None
 
 
 async def complete_channel_event(

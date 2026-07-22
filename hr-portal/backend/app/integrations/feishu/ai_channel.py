@@ -146,27 +146,14 @@ def render_employee_profile_card(out: AiChatOut) -> str:
             value for value in (getattr(result.data, "employee_no", None), getattr(result.data, "full_name", None)) if value
         ) or "员工档案"
         header_title = f"● 员工档案\n{identity}" if identity != "员工档案" else "● 员工档案"
+        field_lines = "\n".join(
+            f"{_markdown_text(field.label)}：　　**{_markdown_text(field.value)}**"
+            for field in result.data.fields
+        )
         elements: list[dict[str, Any]] = [
             {"tag": "div", "text": {"tag": "lark_md", "content": "**▌ 基础资料**"}},
-            {"tag": "hr"},
+            {"tag": "div", "text": {"tag": "lark_md", "content": field_lines}},
         ]
-        for index, field in enumerate(result.data.fields):
-            elements.append(
-                {
-                    "tag": "div",
-                    "fields": [
-                        {
-                            "is_short": False,
-                            "text": {
-                                "tag": "lark_md",
-                                "content": f"{_markdown_text(field.label)}：　　**{_markdown_text(field.value)}**",
-                            },
-                        }
-                    ],
-                }
-            )
-            if index < len(result.data.fields) - 1:
-                elements.append({"tag": "hr"})
         return _employee_card(
             header_title,
             elements,

@@ -115,12 +115,9 @@ def test_employee_profile_cards_only_render_authorized_envelope_data():
     assert result_card["config"]["enable_forward"] is False
     assert result_card["header"]["template"] == "green"
     assert result_card["elements"][0]["text"]["content"] == "**▌ 基础资料**"
-    first_field_row = result_card["elements"][2]["fields"]
-    assert [field["is_short"] for field in first_field_row] == [False]
-    assert "??" in first_field_row[0]["text"]["content"]
-    assert "??" in first_field_row[0]["text"]["content"]
-    second_field_row = result_card["elements"][4]["fields"]
-    assert "?????" in second_field_row[0]["text"]["content"]
+    field_lines = result_card["elements"][1]["text"]["content"]
+    assert "??" in field_lines
+    assert "?????" in field_lines
 
     profile_with_identity = json.loads(
         ai_channel.render_envelope_card(

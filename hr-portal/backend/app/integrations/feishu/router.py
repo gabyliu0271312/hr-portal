@@ -111,10 +111,25 @@ async def handle_bot_event(request: Request, db: AsyncSession = Depends(get_sess
         return {"ok": True}
     event = body.get("event") or {}
     message = event.get("message") or {}
-    event_key = str(message.get("message_id") or header.get("event_id") or "")
+    message_id = str(message.get("message_id") or "")
+    event_id = str(header.get("event_id") or "")
+    event_key = message_id or event_id
     if not event_key:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing event id")
+    logger.info(
+        "[feishu] bot message received event_id=%s message_id=%s chat_id=%s sender_type=%s message_type=%s",
+        event_id or "(empty)",
+        message_id or "(empty)",
+        str(message.get("chat_id") or "(empty)"),
+        str((event.get("sender") or {}).get("sender_type") or "(empty)"),
+        str(message.get("message_type") or "(empty)"),
+    )
     if not await claim_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key):
+        logger.info(
+            "[feishu] duplicate bot message ignored event_id=%s message_id=%s",
+            event_id or "(empty)",
+            message_id or "(empty)",
+        )
         await db.commit()
         return {"ok": True}
 
@@ -149,6 +164,13 @@ async def handle_bot_event(request: Request, db: AsyncSession = Depends(get_sess
                 return {"ok": True}
             raise
         await get_feishu_client().send_interactive_card_to_user(open_id, render_envelope_card(out))
+        logger.info(
+            "[feishu] bot message replied event_id=%s message_id=%s capability_id=%s result_type=%s",
+            event_id or "(empty)",
+            message_id or "(empty)",
+            getattr(out, "capability_id", None),
+            getattr(getattr(out, "result", None), "type", None),
+        )
         await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key)
         await db.commit()
         return {"ok": True}
