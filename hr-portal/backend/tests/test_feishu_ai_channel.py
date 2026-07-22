@@ -39,7 +39,7 @@ def test_feishu_employee_channel_gate_is_fail_closed(monkeypatch):
         ai_gate.enforce_feishu_capability_gate("ai.chat", 7)
 
 
-def test_event_request_accepts_configured_token_and_rejects_invalid_tokens(monkeypatch):
+def test_event_request_accepts_configured_token_and_logs_safe_rejection_diagnostics(monkeypatch, caplog):
     monkeypatch.setattr(ai_channel, "settings", _settings())
     challenge = {"type": "url_verification", "token": "test-token", "challenge": "value"}
     ai_channel.verify_feishu_signed_request(headers={}, raw_body=b"{}", body=challenge)
@@ -50,10 +50,13 @@ def test_event_request_accepts_configured_token_and_rejects_invalid_tokens(monke
     ai_channel.verify_feishu_signed_request(
         headers={}, raw_body=raw_body, body=json.loads(raw_body)
     )
-    with pytest.raises(HTTPException):
+    with caplog.at_level("WARNING", logger=ai_channel.__name__), pytest.raises(HTTPException):
         ai_channel.verify_feishu_signed_request(
             headers={}, raw_body=raw_body, body={"header": {"token": "incorrect-token"}}
         )
+    assert "verification token rejected" in caplog.text
+    assert "incorrect-token" not in caplog.text
+    assert "test-token" not in caplog.text
     with pytest.raises(HTTPException):
         ai_channel.verify_feishu_signed_request(
             headers={}, raw_body=raw_body, body={"header": {"event_type": "im.message.receive_v1"}}

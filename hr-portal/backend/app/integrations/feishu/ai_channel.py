@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import logging
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -18,19 +19,46 @@ from app.users.models import User
 
 
 FEISHU_CHANNEL = "feishu"
+logger = logging.getLogger(__name__)
 
 
 def verify_feishu_signed_request(*, headers: Any, raw_body: bytes, body: dict[str, Any]) -> None:
     """Validate Feishu event callbacks using their configured verification token."""
     if body.get("type") == "url_verification":
         received_token = str(body.get("token", ""))
+        token_source = "body"
     else:
         header = body.get("header") or {}
         received_token = str(header.get("token", ""))
+        token_source = "header"
     expected_token = settings.FEISHU_VERIFICATION_TOKEN
     if not expected_token or not hmac.compare_digest(
         received_token.encode("utf-8"), expected_token.encode("utf-8")
     ):
+        header = body.get("header") or {}
+        body_token = str(body.get("token", ""))
+        body_token_matches = bool(expected_token and body_token) and hmac.compare_digest(
+            body_token.encode("utf-8"), expected_token.encode("utf-8")
+        )
+        logger.warning(
+            "[feishu] verification token rejected: type=%s schema=%s event_type=%s event_id=%s "
+            "encrypt_present=%s header_token_present=%s header_token_length=%d "
+            "body_token_present=%s body_token_length=%d body_token_matches=%s "
+            "configured_token_present=%s configured_token_length=%d token_source=%s",
+            body.get("type") or "event_callback",
+            body.get("schema") or "",
+            header.get("event_type") or "",
+            header.get("event_id") or "",
+            bool(body.get("encrypt")),
+            bool(header.get("token")),
+            len(str(header.get("token", ""))),
+            bool(body_token),
+            len(body_token),
+            body_token_matches,
+            bool(expected_token),
+            len(expected_token),
+            token_source,
+        )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="verification token mismatch")
 
 
