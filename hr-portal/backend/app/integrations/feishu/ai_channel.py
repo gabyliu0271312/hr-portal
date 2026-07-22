@@ -27,8 +27,9 @@ def verify_feishu_signed_request(*, headers: Any, raw_body: bytes, body: dict[st
     else:
         header = body.get("header") or {}
         received_token = str(header.get("token", ""))
-    if not settings.FEISHU_VERIFICATION_TOKEN or not hmac.compare_digest(
-        received_token, settings.FEISHU_VERIFICATION_TOKEN
+    expected_token = settings.FEISHU_VERIFICATION_TOKEN
+    if not expected_token or not hmac.compare_digest(
+        received_token.encode("utf-8"), expected_token.encode("utf-8")
     ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="verification token mismatch")
 

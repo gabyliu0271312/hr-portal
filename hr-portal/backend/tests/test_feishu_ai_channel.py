@@ -59,6 +59,16 @@ def test_event_request_accepts_configured_token_and_rejects_invalid_tokens(monke
             headers={}, raw_body=raw_body, body={"header": {"event_type": "im.message.receive_v1"}}
         )
 
+    monkeypatch.setattr(ai_channel, "settings", _settings(FEISHU_VERIFICATION_TOKEN="测试令牌"))
+    ai_channel.verify_feishu_signed_request(
+        headers={}, raw_body=raw_body, body={"header": {"token": "测试令牌"}}
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        ai_channel.verify_feishu_signed_request(
+            headers={}, raw_body=raw_body, body={"header": {"token": "错误令牌"}}
+        )
+    assert exc_info.value.status_code == 403
+
 
 def test_private_text_event_and_generic_card_are_minimally_rendered():
     event = {
