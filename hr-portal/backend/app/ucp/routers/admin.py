@@ -99,7 +99,7 @@ async def route_config_batch_toggle(
                 pl = await db.get(UcpPipelineConfig, tid)
                 if pl:
                     pl.status = new_status
-                    pl.updated_by = user.username
+                    pl.updated_by = user.login_name
                     success_count += 1
                 else:
                     failed_count += 1
@@ -108,7 +108,7 @@ async def route_config_batch_toggle(
                 cred = await db.get(UcpCredential, tid)
                 if cred:
                     cred.is_active = 1 if new_status == 1 else 0
-                    cred.updated_by = user.username
+                    cred.updated_by = user.login_name
                     success_count += 1
                 else:
                     failed_count += 1
@@ -257,7 +257,7 @@ async def route_config_import(
                 if skip_existing:
                     result["credentials"]["skipped"] += 1
                     continue
-            obj = UcpCredential(credential_code=cred_data["credential_code"], credential_name=cred_data.get("credential_name", ""), secrets_encrypted={}, created_by=user.username)
+            obj = UcpCredential(credential_code=cred_data["credential_code"], credential_name=cred_data.get("credential_name", ""), secrets_encrypted={}, created_by=user.login_name)
             db.add(obj)
             result["credentials"]["created"] += 1
         except Exception as e:
@@ -385,7 +385,7 @@ async def route_create_notification_template(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(require_op("ucp.admin", "C")),
 ):
-    tpl = await create_notification_template(db, user=user.username, **payload)
+    tpl = await create_notification_template(db, user=user.login_name, **payload)
     return tpl
 
 
@@ -508,7 +508,7 @@ async def route_register_adapter(
         schema=payload.get("schema"),
         sample_payload=payload.get("sample_payload"),
         version=payload.get("version", "1.0.0"),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     await db.commit()
     return serialize_adapter(defn)
@@ -574,7 +574,7 @@ async def route_create_api_template(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(require_op("ucp.admin", "C")),
 ):
-    tpl = await create_api_template(db, created_by=user.username, **payload)
+    tpl = await create_api_template(db, created_by=user.login_name, **payload)
     await db.commit()
     return tpl
 
@@ -598,7 +598,7 @@ async def route_copy_api_template(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(require_op("ucp.admin", "C")),
 ):
-    tpl = await copy_template(db, source, new_code=payload["new_code"], new_name=payload["new_name"], created_by=user.username)
+    tpl = await copy_template(db, source, new_code=payload["new_code"], new_name=payload["new_name"], created_by=user.login_name)
     await db.commit()
     return tpl
 
@@ -643,7 +643,7 @@ async def route_import_api_template(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(require_op("ucp.admin", "C")),
 ):
-    tpl = await create_api_template(db, created_by=user.username, **payload)
+    tpl = await create_api_template(db, created_by=user.login_name, **payload)
     await db.commit()
     return tpl
 
@@ -834,7 +834,7 @@ async def route_create_change(
         change_summary=payload.get("change_summary"),
         risk_level=payload.get("risk_level", "LOW"),
         reason=payload.get("reason"),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     await db.commit()
     return _serialize_change(ch)

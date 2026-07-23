@@ -1,0 +1,20 @@
+{
+  "contract_version": "x0201-v1",
+  "offer_enrichment": {
+    "source_records": [
+      {"employee_candidate_key": "cand-001", "candidate_id": "fs-candidate-001", "candidate_name": "张**", "planned_onboard_date": "2026-08-01"},
+      {"employee_candidate_key": "cand-002", "candidate_id": "fs-candidate-002", "candidate_name": "李**", "planned_onboard_date": "2026-08-03"},
+      {"employee_candidate_key": "cand-003", "candidate_id": null, "candidate_name": "王**", "planned_onboard_date": "2026-08-05"}
+    ],
+    "offer_lookup": {
+      "fs-candidate-001": {"offer_id": "offer-001", "offer_status": "SIGNED", "salary_amount": 25000, "salary_currency": "CNY", "offer_effective_date": "2026-08-01"},
+      "fs-candidate-002": null
+    },
+    "expected_statuses": {"cand-001": "SUCCESS", "cand-002": "NO_DATA", "cand-003": "SKIPPED_MISSING_KEY"}
+  },
+  "account_lifecycle": {
+    "onboard_event": {"event_id": "evt-onboard-001", "event_type": "EMPLOYEE_ONBOARDED", "employee_id": "emp-001", "employee_name": "张**", "occurred_at": "2026-07-23T09:00:00+08:00"},
+    "offboard_event": {"event_id": "evt-offboard-001", "event_type": "EMPLOYEE_OFFBOARDED", "employee_id": "emp-001", "occurred_at": "2026-07-23T18:00:00+08:00"},
+    "expected_actions": {"onboard": "CREATE_OR_REACTIVATE", "offboard": "DISABLE", "delete": "REQUIRES_APPROVAL_AND_RETENTION"}
+  }
+}

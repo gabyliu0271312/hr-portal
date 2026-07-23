@@ -35,6 +35,24 @@ class UserRole(Base):
     )
 
 
+class RoleAiCapabilityGrant(Base):
+    __tablename__ = "role_ai_capability_grants"
+
+    role_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True
+    )
+    capability_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+
+
+class UserAiCapabilityGrant(Base):
+    __tablename__ = "user_ai_capability_grants"
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    capability_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+
+
 class User(Base):
     __tablename__ = "users"
 

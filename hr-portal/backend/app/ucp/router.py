@@ -21,6 +21,7 @@ from app.ucp.routers.systems import router as systems_router
 from app.ucp.routers.executions import router as executions_router
 from app.ucp.routers.events import router as events_router
 from app.ucp.routers.external import router as external_router
+from app.ucp.routers.lifecycle import router as lifecycle_router
 from app.ucp.routers.admin import router as admin_router
 from app.ucp.routers.monitor import router as monitor_router
 from app.ucp.routers.assets import router as assets_router
@@ -30,6 +31,7 @@ router.include_router(systems_router)
 router.include_router(executions_router)
 router.include_router(events_router)
 router.include_router(external_router)
+router.include_router(lifecycle_router)
 router.include_router(admin_router)
 router.include_router(monitor_router)
 router.include_router(assets_router)

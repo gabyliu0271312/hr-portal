@@ -44,6 +44,18 @@ from app.ucp.credential_service import (
 )
 from app.ucp.datasource_bridge import list_bridge_targets
 from app.ucp.push_bridge import list_bridge_push_targets
+from app.ucp.bitable_table_service import (
+    BitableTableConfigError,
+    create_bitable_table,
+    delete_bitable_table,
+    get_bitable_resource,
+    get_bitable_table,
+    list_bitable_tables,
+    serialize_bitable_table,
+    table_params,
+    update_bitable_table,
+)
+from app.ucp.adapters import get_adapter
 
 logger = logging.getLogger("ucp.routers.systems")
 router = APIRouter()
@@ -75,7 +87,7 @@ async def route_create_system(
         icon=payload.get("icon"),
         owner=payload.get("owner"),
         description=payload.get("description"),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     return {"id": obj.id, "system_code": obj.system_code, "system_name": obj.system_name}
 
@@ -171,7 +183,7 @@ async def route_create_resource(
         notification_config=payload.get("notification_config"),
         retry_config=payload.get("retry_config"),
         circuit_breaker_config=payload.get("circuit_breaker_config"),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     return {"id": obj.id, "resource_code": obj.resource_code}
 
@@ -238,6 +250,93 @@ async def route_resource_pipelines(
     return {"resource_id": resource_id, "total": len(items), "items": items}
 
 
+# ── Feishu Bitable table objects ──
+
+@router.get("/resources/{resource_id}/bitable-tables")
+async def route_list_bitable_tables(
+    resource_id: int,
+    is_active: bool | None = Query(None),
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(require_op("ucp.resources", "V")),
+):
+    try:
+        items = await list_bitable_tables(db, resource_id, is_active=is_active)
+    except BitableTableConfigError as exc:
+        raise HTTPException(404 if str(exc) == "资源不存在" else 400, str(exc)) from exc
+    return {"total": len(items), "items": [serialize_bitable_table(item) for item in items]}
+
+
+@router.post("/resources/{resource_id}/bitable-tables", status_code=201)
+async def route_create_bitable_table(
+    resource_id: int,
+    payload: dict[str, Any],
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op("ucp.resources", "C")),
+):
+    try:
+        item = await create_bitable_table(db, resource_id, payload, created_by=user.login_name)
+    except BitableTableConfigError as exc:
+        status = 409 if "已存在" in str(exc) else 400
+        raise HTTPException(status, str(exc)) from exc
+    return serialize_bitable_table(item)
+
+
+@router.patch("/resources/{resource_id}/bitable-tables/{table_config_id}")
+async def route_update_bitable_table(
+    resource_id: int,
+    table_config_id: int,
+    payload: dict[str, Any],
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op("ucp.resources", "U")),
+):
+    try:
+        item = await update_bitable_table(db, resource_id, table_config_id, payload, updated_by=user.login_name)
+    except BitableTableConfigError as exc:
+        status = 409 if "已存在" in str(exc) else 404 if "不存在" in str(exc) else 400
+        raise HTTPException(status, str(exc)) from exc
+    return serialize_bitable_table(item)
+
+
+@router.delete("/resources/{resource_id}/bitable-tables/{table_config_id}")
+async def route_delete_bitable_table(
+    resource_id: int,
+    table_config_id: int,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(require_op("ucp.resources", "D")),
+):
+    try:
+        await delete_bitable_table(db, resource_id, table_config_id)
+    except BitableTableConfigError as exc:
+        status = 409 if "引用" in str(exc) else 404 if "不存在" in str(exc) else 400
+        raise HTTPException(status, str(exc)) from exc
+    return {"deleted": table_config_id}
+
+
+@router.post("/resources/{resource_id}/bitable-tables/{table_config_id}/preview")
+async def route_preview_bitable_table(
+    resource_id: int,
+    table_config_id: int,
+    payload: dict[str, Any] | None = None,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(require_op("ucp.resources", "V")),
+):
+    try:
+        resource = await get_bitable_resource(db, resource_id)
+        item = await get_bitable_table(db, resource_id, table_config_id, require_active=True)
+    except BitableTableConfigError as exc:
+        raise HTTPException(404 if "不存在" in str(exc) else 400, str(exc)) from exc
+    limit = (payload or {}).get("limit", 20)
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+        raise HTTPException(400, "limit 必须在 1 到 100 之间")
+    if not resource.credential_id:
+        raise HTTPException(400, "资源未绑定飞书凭证")
+    secrets = await decrypt_credential_secrets(db, resource.credential_id)
+    params = {**(resource.protocol or {}), **table_params(item), "max_records": min(item.max_records, limit)}
+    result = await get_adapter(resource.adapter_code or "")(params, secrets, db)
+    if result.status != "success":
+        raise HTTPException(502, result.error_message or "飞书多维表格预览失败")
+    return {"status": result.status, "data": result.data, "row_count": result.row_count, "success_count": result.success_count, "failed_count": result.failed_count, "extra": result.extra}
+
 # ── Credentials ──
 
 @router.get("/credentials")
@@ -263,7 +362,7 @@ async def route_create_credential(
         secrets=payload["secrets"],
         auth_type=payload.get("auth_type", "custom"),
         description=payload.get("description"),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     # Handle system_id, env_tag, is_primary
     if "system_id" in payload:
@@ -291,7 +390,7 @@ async def route_update_credential(
         secrets=payload.get("secrets"),
         auth_type=payload.get("auth_type"),
         description=payload.get("description"),
-        updated_by=user.username,
+        updated_by=user.login_name,
     )
     if payload.get("is_primary") is not None:
         obj.is_primary = payload["is_primary"]
@@ -308,7 +407,7 @@ async def route_toggle_credential(
     user: User = Depends(require_op("ucp.credentials", "U")),
 ):
     is_active = payload.get("is_active", True)
-    obj = await toggle_credential(db, credential_id, bool(is_active), updated_by=user.username)
+    obj = await toggle_credential(db, credential_id, bool(is_active), updated_by=user.login_name)
     return {"id": obj.id, "credential_code": obj.credential_code, "is_active": obj.is_active, "message": "凭证状态已更新"}
 
 
@@ -390,7 +489,7 @@ async def route_create_pipeline(
         run_as_type=payload.get("run_as_type", "SERVICE_ACCOUNT"),
         service_account_code=payload.get("service_account_code"),
         description=payload.get("description"),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     return {"id": obj.id, "pipeline_code": obj.pipeline_code, "message": "流水线创建成功"}
 
@@ -402,7 +501,7 @@ async def route_update_pipeline(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(require_op("ucp.pipelines", "U")),
 ):
-    obj = await update_pipeline_fields(db, pipeline_id, payload, updated_by=user.username)
+    obj = await update_pipeline_fields(db, pipeline_id, payload, updated_by=user.login_name)
     return {"id": obj.id, "pipeline_code": obj.pipeline_code, "message": "流水线更新成功"}
 
 
@@ -414,7 +513,7 @@ async def route_toggle_pipeline(
     user: User = Depends(require_op("ucp.pipelines", "U")),
 ):
     status = payload.get("status", 1)
-    obj = await toggle_pipeline(db, pipeline_id, status, updated_by=user.username)
+    obj = await toggle_pipeline(db, pipeline_id, status, updated_by=user.login_name)
     return {"id": obj.id, "pipeline_code": obj.pipeline_code, "status": obj.status, "message": "流水线状态已更新"}
 
 
@@ -424,7 +523,7 @@ async def route_delete_pipeline(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(require_op("ucp.pipelines", "D")),
 ):
-    ok = await delete_pipeline(db, pipeline_id, deleted_by=user.username)
+    ok = await delete_pipeline(db, pipeline_id, deleted_by=user.login_name)
     if not ok:
         raise HTTPException(404, "流水线不存在")
     return {"message": "流水线已删除"}

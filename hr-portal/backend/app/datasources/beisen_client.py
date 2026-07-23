@@ -450,6 +450,57 @@ class HttpGenericClient:
 # ===== 飞书在线表格 =====
 
 
+class FeishuBitableClient:
+    """Independent warehouse client for a single Feishu Bitable table."""
+
+    def __init__(self, settings: dict, secrets: dict):
+        self.settings, self.secrets = settings, secrets
+        self.base_url = str(settings.get("FEISHU_BASE_URL") or "https://open.feishu.cn").rstrip("/")
+
+    async def fetch(self) -> list[dict]:
+        app_id = str(self.secrets.get("FEISHU_APP_ID") or "")
+        app_secret = str(self.secrets.get("FEISHU_APP_SECRET") or "")
+        app_token = str(self.settings.get("FEISHU_BITABLE_APP_TOKEN") or "")
+        table_id = str(self.settings.get("FEISHU_BITABLE_TABLE_ID") or "")
+        if not all((app_id, app_secret, app_token, table_id)):
+            raise RuntimeError("???????????????????")
+        page_size = max(1, min(int(self.settings.get("FEISHU_BITABLE_PAGE_SIZE") or 100), 500))
+        max_records = max(1, min(int(self.settings.get("FEISHU_BITABLE_MAX_RECORDS") or 10000), 50000))
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            token_response = await client.post(
+                f"{self.base_url}/open-apis/auth/v3/tenant_access_token/internal",
+                json={"app_id": app_id, "app_secret": app_secret},
+            )
+            token_response.raise_for_status()
+            token_body = token_response.json()
+            token = token_body.get("tenant_access_token")
+            if token_body.get("code", 0) != 0 or not token:
+                raise RuntimeError(f"????????: {token_body.get('msg') or token_body.get('code')}")
+            rows: list[dict] = []
+            page_token: str | None = None
+            while len(rows) < max_records:
+                params: dict[str, object] = {"page_size": min(page_size, max_records - len(rows))}
+                if page_token:
+                    params["page_token"] = page_token
+                view_id = str(self.settings.get("FEISHU_BITABLE_VIEW_ID") or "")
+                if view_id:
+                    params["view_id"] = view_id
+                response = await client.get(
+                    f"{self.base_url}/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records",
+                    params=params, headers={"Authorization": f"Bearer {token}"},
+                )
+                response.raise_for_status()
+                body = response.json()
+                if body.get("code", 0) != 0:
+                    raise RuntimeError(f"??????????: {body.get('msg') or body.get('code')}")
+                data = body.get("data") or {}
+                rows.extend(item["fields"] for item in data.get("items") or [] if isinstance(item, dict) and isinstance(item.get("fields"), dict))
+                if not data.get("has_more") or not data.get("page_token"):
+                    break
+                page_token = str(data["page_token"])
+        return rows[:max_records]
+
+
 class FeishuSheetClient:
     """读取飞书在线表格并转换为 list[dict]。
 
@@ -791,4 +842,6 @@ def make_client(source_type: str, settings: dict, secrets: dict):
         return HttpGenericClient(settings, secrets)
     if source_type == "feishu_sheet":
         return FeishuSheetClient(settings, secrets)
+    if source_type == "feishu_bitable":
+        return FeishuBitableClient(settings, secrets)
     raise RuntimeError(f"暂不支持的接入类型: {source_type}")

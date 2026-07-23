@@ -17,7 +17,7 @@ import {
 import { useUserStore } from '@/stores/user'
 import { formatDateTime } from '@/utils/datetime'
 import { dataApi, type ColumnInfo } from '@/api/data'
-import { datasourcesApi, type DataSourceListItem } from '@/api/datasources'
+import { datasourcesApi, type ConnectorTypeDefinition, type DataSourceListItem } from '@/api/datasources'
 import { adminTablesApi } from '@/api/admin_tables'
 import {
   SOURCE_TYPES,
@@ -93,7 +93,22 @@ const dsTestResult = ref<{ ok: boolean; message: string } | null>(null)
 // 月度自动偏移表
 const injectTables = ref<Set<string>>(new Set())
 
-const currentType = computed(() => findSourceType(dsForm.source_type))
+const sourceTypes = ref([...SOURCE_TYPES])
+const connectorCatalogLoading = ref(false)
+const currentType = computed(() => sourceTypes.value.find((item) => item.code === dsForm.source_type))
+const hasResolvableFeishuLink = computed(() => {
+  if (dsForm.source_type !== 'feishu_sheet') return false
+  const value = String(dsForm.config.FEISHU_WIKI_URL_OR_TOKEN || '').trim()
+  try {
+    const url = new URL(value)
+    return /(^|\.)feishu\.cn$/i.test(url.hostname) && /\/(wiki|sheets)\//.test(url.pathname)
+  } catch {
+    return false
+  }
+})
+const feishuLinkStatus = computed(() => hasResolvableFeishuLink.value
+  ? '\u5df2\u8bc6\u522b\u98de\u4e66\u8868\u683c\u94fe\u63a5\uff1a\u7cfb\u7edf\u5c06\u81ea\u52a8\u5b9a\u4f4d\u8868\u683c\u4e0e\u5de5\u4f5c\u8868\u3002'
+  : '\u8bf7\u7c98\u8d34\u98de\u4e66 Wiki \u6216\u5728\u7ebf\u8868\u683c\u5b8c\u6574\u94fe\u63a5\uff1b\u65e0\u6cd5\u8bc6\u522b\u65f6\u518d\u624b\u52a8\u8865\u5145\u5b9a\u4f4d\u4fe1\u606f\u3002')
 const isPeriodTable = computed(() => injectTables.value.has(tableName))
 
 const monthOffset = computed<number>({
@@ -113,11 +128,53 @@ const SECRET_KEY_SET = new Set([
   'HTTP_CREDENTIAL', 'WEBHOOK_TOKEN', 'DB_PASSWORD', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET',
 ])
 
+const connectorCatalogFallback = ref(false)
+
+function getSourceType(code: string) {
+  return sourceTypes.value.find((item) => item.code === code)
+}
+
+function initFormForSourceType(code: string): Record<string, string> {
+  const type = getSourceType(code)
+  return Object.fromEntries((type?.groups || []).flatMap((group) => group.fields.map((field) => [field.key, field.default ?? ''])))
+}
+
+function shouldShowSourceField(key: string): boolean {
+  if (dsForm.source_type !== 'feishu_sheet') return true
+  if (!hasResolvableFeishuLink.value) return true
+  return !['FEISHU_SPREADSHEET_TOKEN', 'FEISHU_SHEET_ID'].includes(key)
+}
+
+async function loadConnectorCatalog() {
+  connectorCatalogLoading.value = true
+  try {
+    const remoteTypes = await datasourcesApi.types('warehouse')
+    for (const remote of remoteTypes as ConnectorTypeDefinition[]) {
+      const index = sourceTypes.value.findIndex((item) => item.code === remote.code)
+      const normalized = {
+        code: remote.code,
+        label: remote.label,
+        description: remote.description,
+        groups: remote.groups,
+        testable: remote.testable,
+        defaultSchedule: remote.defaultSchedule,
+      }
+      if (index >= 0) sourceTypes.value[index] = { ...sourceTypes.value[index], ...normalized }
+      else sourceTypes.value.push(normalized)
+      for (const key of remote.secret_keys || []) SECRET_KEY_SET.add(key)
+    }
+  } catch (_error) {
+    connectorCatalogFallback.value = true
+  } finally {
+    connectorCatalogLoading.value = false
+  }
+}
+
 function onTypeChange(newType: string) {
   const old = { ...dsForm.config }
-  const t = findSourceType(newType)
+  const t = getSourceType(newType)
   if (!t) return
-  const fresh = initFormForType(newType)
+  const fresh = initFormForSourceType(newType)
   for (const k of Object.keys(fresh)) { if (old[k]) fresh[k] = old[k] }
   dsForm.config = fresh
   dsForm.schedule = t.defaultSchedule ?? dsForm.schedule
@@ -151,11 +208,11 @@ async function openCreateDS() {
   dsDrawerMode.value = 'create'
   dsEditId.value = null
   dsEditRow.value = null
-  const t = findSourceType('beisen_report')
+  const t = getSourceType('beisen_report')
   dsForm.source_type = 'beisen_report'
   dsForm.schedule = t?.defaultSchedule ?? '每日 06:00'
   dsForm.is_active = true
-  dsForm.config = initFormForType('beisen_report')
+  dsForm.config = initFormForSourceType('beisen_report')
   dsTestResult.value = null
   dsDrawerVisible.value = true
 }
@@ -165,8 +222,8 @@ async function openEditDS(ep: ConnectionEndpointSummary) {
   dsEditId.value = ep.endpoint_id
   try {
     const saved = await datasourcesApi.get(ep.endpoint_id)
-    const t = findSourceType(saved.source_type) || findSourceType('beisen_report')
-    const merged = initFormForType(saved.source_type)
+    const t = getSourceType(saved.source_type) || getSourceType('beisen_report')
+    const merged = initFormForSourceType(saved.source_type)
     for (const [k, v] of Object.entries(saved.settings || {})) {
       merged[k] = String(v ?? '')
     }
@@ -386,6 +443,7 @@ function epFlat(): ConnectionEndpointSummary[] {
 const statusTagType: Record<string, string> = { draft: 'info', published: 'success', disabled: 'warning', archived: 'info' }
 
 onMounted(() => {
+  loadConnectorCatalog()
   load()
   loadInjectTables()
   if (route.query.tab === 'preview') { activeTab.value = 'preview'; loadPreview() }
@@ -788,9 +846,11 @@ onMounted(() => {
         </el-form-item>
 
         <el-form-item label="接入类型">
-          <el-select v-model="dsForm.source_type" style="width: 100%" @change="onTypeChange">
-            <el-option v-for="t in SOURCE_TYPES" :key="t.code" :label="t.label" :value="t.code" />
+          <el-select v-model="dsForm.source_type" style="width: 100%" :loading="connectorCatalogLoading" :disabled="connectorCatalogLoading" @change="onTypeChange">
+            <el-option v-for="t in sourceTypes" :key="t.code" :label="t.label" :value="t.code" />
           </el-select>
+          <div v-if="connectorCatalogLoading" style="margin-top: 6px; font-size: 12px; color: #909399">?????????????</div>
+          <div v-else-if="connectorCatalogFallback" style="margin-top: 6px; font-size: 12px; color: #e6a23c">??????????????????????</div>
           <div v-if="currentType" style="margin-top: 6px; font-size: 12px; color: #909399; line-height: 1.5">
             {{ currentType.description }}
           </div>
@@ -803,7 +863,7 @@ onMounted(() => {
               {{ grp.title }}
             </div>
             <el-form-item
-              v-for="f in grp.fields" :key="f.key" :label="f.label" :required="f.required"
+              v-for="f in grp.fields" v-show="shouldShowSourceField(f.key)" :key="f.key" :label="f.label" :required="f.required"
             >
               <el-input
                 v-if="f.type === 'text' || f.type === 'url'"
@@ -845,6 +905,7 @@ onMounted(() => {
                 <el-option v-for="opt in f.options" :key="opt.value" :label="opt.label" :value="opt.value" />
               </el-select>
               <div v-if="f.hint" style="font-size: 12px; color: #909399; margin-top: 4px">{{ f.hint }}</div>
+              <div v-if="f.key === 'FEISHU_WIKI_URL_OR_TOKEN'" style="font-size: 12px; color: #409eff; margin-top: 4px">{{ feishuLinkStatus }}</div>
             </el-form-item>
           </div>
         </template>

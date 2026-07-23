@@ -50,6 +50,8 @@ FEISHU_EVENT_TYPE_MAP: dict[str, str] = {
     "contact.department.deleted_v3": "ORG_DEPT_DELETED",
     "contact.user.created_v3": "CONTACT_USER_CREATED",
     "contact.user.updated_v3": "CONTACT_USER_UPDATED",
+    "contact.user.deleted_v3": "EMPLOYEE_OFFBOARD",
+    "contact.user.created_v3": "EMPLOYEE_ONBOARD",
     # 审批
     "approval.approval.approved_v1": "APPROVAL_APPROVED",
     "approval.approval.rejected_v1": "APPROVAL_REJECTED",

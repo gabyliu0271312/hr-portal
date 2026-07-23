@@ -227,9 +227,28 @@ async def feishu_webhook(trigger_code: str, r: Request, db: AsyncSession=Depends
         encrypt_key=trig.feishu_encrypt_key,
         verification_token=trig.feishu_verification_token,
     )
-    from app.ucp.event_bus import receive_event
-    evt = await receive_event(db, normalized)
-    return {"id": evt.id, "event_id": evt.event_id, "status": evt.status, "trace_id": evt.trace_id}
+    from app.ucp.account_lifecycle_service import dispatch_event as dispatch_lifecycle_event
+    from app.ucp.event_bus import EVENT_SOURCE_FEISHU, receive_event
+    evt = await receive_event(
+        db,
+        event_id=normalized["event_id"],
+        event_type=normalized["event_type"],
+        source=EVENT_SOURCE_FEISHU,
+        payload=normalized.get("payload") or {},
+        metadata={
+            "feishu_event_type": normalized.get("feishu_event_type"),
+            "tenant_key": normalized.get("tenant_key"),
+            "app_id": normalized.get("app_id"),
+        },
+    )
+    lifecycle_results = await dispatch_lifecycle_event(db, evt)
+    return {
+        "id": evt.id,
+        "event_id": evt.event_id,
+        "status": evt.status,
+        "trace_id": evt.trace_id,
+        "lifecycle_results": lifecycle_results,
+    }
 
 
 @router.get("/dead-letters", dependencies=[Depends(require_op("ucp.dead_letters", "V"))])

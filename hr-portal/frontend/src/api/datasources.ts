@@ -23,6 +23,21 @@ export interface DataSourceUpdatePayload {
   is_active: boolean
 }
 
+export interface ConnectorTypeDefinition {
+  code: string
+  label: string
+  description: string
+  groups: any[]
+  secret_keys?: string[]
+  testable?: boolean
+  defaultSchedule?: string
+  supports_warehouse?: boolean
+  supports_ucp?: boolean
+  ucp_adapter_code?: string | null
+  protocol?: string
+  status?: string
+}
+
 export interface TestResult {
   ok: boolean
   message: string
@@ -48,6 +63,8 @@ export interface SyncRunItem {
 }
 
 export const datasourcesApi = {
+  types: (consumer?: 'warehouse' | 'ucp') =>
+    api.get<{ items: ConnectorTypeDefinition[] }>('/datasources/types', { params: consumer ? { consumer } : undefined }).then((r) => r.data.items),
   list: () => api.get<DataSourceListItem[]>('/datasources').then((r) => r.data),
   get: (id: number) => api.get<DataSourceListItem>(`/datasources/${id}`).then((r) => r.data),
   create: (body: { table_name: string; table_label?: string; source_type?: string; schedule?: string; is_active?: boolean }) =>

@@ -135,6 +135,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'ucp/scenarios', name: 'UcpScenarios', component: () => import('@/views/ucp/ScenarioListView.vue'), meta: { label: '场景方案', menuCode: 'ucp.scenarios' } },
       { path: 'ucp/scenarios/oa-sync', name: 'UcpOaSync', component: () => import('@/views/ucp/OaSyncView.vue'), meta: { label: 'OA 组织同步', menuCode: 'ucp.scenarios', hideInMenu: true } },
       { path: 'ucp/scenarios/external-accounts', name: 'UcpExternalAccounts', component: () => import('@/views/ucp/ExternalAccountListView.vue'), meta: { label: '外部账号', menuCode: 'ucp.scenarios', hideInMenu: true } },
+      { path: 'ucp/scenarios/account-lifecycle', name: 'UcpAccountLifecycle', component: () => import('@/views/ucp/AccountLifecycleRuleView.vue'), meta: { label: '????????', menuCode: 'ucp.scenarios', hideInMenu: true } },
       { path: 'ucp/assets', name: 'UcpAssetCatalog', component: () => import('@/views/ucp/AssetCatalogView.vue'), meta: { label: '资产治理', menuCode: 'ucp.assets' } },
       // 旧路由重定向
       { path: 'ucp/executions', redirect: '/ucp/runs' },

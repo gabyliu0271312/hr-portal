@@ -2,6 +2,8 @@
 
 > **文档标注**：本文档为 `011-universal-connector-platform` 的实施拆解补充文档，用于承接主规格 `spec.md`、UI 蓝图 `outputs/ucp-blueprint/index.html` 和现有 UCP 代码。  
 > **本版重要定调**：当前 UCP 仍处于开发期，不做旧模型兼容，不保留“连接器优先”的产品路径；后续按蓝图终态彻底统一为 `系统 → 资源 → 凭证 → 流水线画布`。
+>
+> **适用范围覆盖说明（2026-07-23）**：涉及标准 SaaS 能力包、标准 SaaS 不按原始 API 创建资源、数据连接流程写入数据仓库资产、飞书招聘 Offer 补全、飞书事件到企业滴滴生命周期时，本文档的上述“无兼容/资源唯一模型”表述已被 `standard-saas-capability-card-platform-development-spec.md` v1.5 与 `contracts/x0201-architecture-baseline.md` 覆盖。既有 `DataSource`、`UcpResource`、生产连接和数据仓库独立入仓能力必须兼容保留；后续任务以新规格的 X0201～X0212 为准。
 
 版本：v2.3  
 日期：2026-07-12  

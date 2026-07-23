@@ -10,7 +10,7 @@
 from datetime import datetime, UTC
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -126,6 +126,17 @@ def _decrypt_secrets(ds: DataSource) -> dict[str, str]:
 
 
 # ===== Endpoints =====
+
+
+@router.get("/types")
+async def list_connector_types_endpoint(
+    consumer: str | None = Query(None, pattern="^(warehouse|ucp)$"),
+    _: User = Depends(current_user),
+) -> dict[str, list[dict[str, Any]]]:
+    """Return non-sensitive connector metadata shared by product modules."""
+    from app.connectors.catalog import list_connector_types
+
+    return {"items": list_connector_types(consumer)}
 
 
 @router.get("", response_model=list[DataSourceOut])

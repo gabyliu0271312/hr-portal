@@ -98,6 +98,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.exception("[startup] seed failed: %s", e)
 
+    # 适配器代码由 Python 注册表维护，资源配置页从数据库注册表读取。
+    try:
+        from app.ucp.builtin_adapter_definitions import ensure_builtin_adapter_definitions
+
+        async with AsyncSessionLocal() as db:
+            created_count = await ensure_builtin_adapter_definitions(db)
+        if created_count:
+            logger.info("[startup] registered %s built-in UCP adapters", created_count)
+    except Exception as e:
+        logger.exception("[startup] built-in adapter bootstrap failed: %s", e)
     # 启动：加载用户新建的动态表到 DATA_TABLES / PERIOD_TABLES
     # 失败时直接抛出，阻断启动 —— 配合 restart: unless-stopped 自动重试，
     # 绝不带病对外服务（缺表会导致整个数据集字段不显示）
@@ -130,6 +140,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    lifecycle_stop_event.set()
+    lifecycle_task.cancel()
+    try:
+        await lifecycle_task
+    except asyncio.CancelledError:
+        pass
     try:
         await scheduler_engine.shutdown()
     except Exception:

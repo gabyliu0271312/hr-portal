@@ -234,7 +234,7 @@ async def route_run_pipeline(
         pipeline_code=pipeline_code,
         db=db,
         trigger_type="MANUAL",
-        triggered_by=user.username,
+        triggered_by=user.login_name,
         dry_run=dry_run,
         time_range=time_range,
         override_params=override_params,
@@ -288,7 +288,7 @@ async def route_retry_failed(
     user: User = Depends(require_op("ucp.pipelines", "U")),
 ):
     try:
-        result = await retry_failed_items(db, pipeline_run_id, triggered_by=user.username)
+        result = await retry_failed_items(db, pipeline_run_id, triggered_by=user.login_name)
         return result
     except RetryError as e:
         raise HTTPException(400, str(e))
@@ -302,7 +302,7 @@ async def route_retry_item(
     user: User = Depends(require_op("ucp.pipelines", "U")),
 ):
     try:
-        result = await retry_single_item(db, pipeline_run_id, item_id, triggered_by=user.username)
+        result = await retry_single_item(db, pipeline_run_id, item_id, triggered_by=user.login_name)
         return result
     except RetryError as e:
         raise HTTPException(400, str(e))
@@ -316,7 +316,7 @@ async def route_retry_step(
     user: User = Depends(require_op("ucp.pipelines", "U")),
 ):
     try:
-        result = await retry_step(db, pipeline_run_id, step_run_id, triggered_by=user.username)
+        result = await retry_step(db, pipeline_run_id, step_run_id, triggered_by=user.login_name)
         return result
     except RetryError as e:
         raise HTTPException(400, str(e))

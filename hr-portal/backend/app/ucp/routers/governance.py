@@ -266,7 +266,7 @@ async def route_create_master_data_object(
         resource_id=payload.get("resource_id"),
         attributes=payload.get("attributes"),
         description=payload.get("description"),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     await db.commit()
     return obj
@@ -313,7 +313,7 @@ async def route_create_id_mapping(
         external_id=payload["external_id"],
         external_name=payload.get("external_name"),
         mapping_type=payload.get("mapping_type", "ONE_TO_ONE"),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     await db.commit()
     return mapping
@@ -429,7 +429,7 @@ async def route_create_governance_task(
         assigned_to=payload.get("assigned_to"),
         due_date=payload.get("due_date"),
         description=payload.get("description"),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     await db.commit()
     return task

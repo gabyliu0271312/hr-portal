@@ -170,7 +170,7 @@ async def create_resource(
 ) -> UcpResource:
     # Phase 5-4: 按 adapter schema 校验 8 个 JSON 字段
     if not skip_schema_validation:
-        _validate_resource_fields_against_schema(
+        await _validate_resource_fields_against_schema(
             db,
             adapter_code=adapter_code,
             fields={
@@ -238,7 +238,7 @@ async def update_resource(
         }
         # 过滤 None: 客户端未传 = 不动 = 用对象原值
         merged = {k: v for k, v in merged.items() if v is not None}
-        _validate_resource_fields_against_schema(
+        await _validate_resource_fields_against_schema(
             db, adapter_code=final_adapter_code, fields=merged
         )
 

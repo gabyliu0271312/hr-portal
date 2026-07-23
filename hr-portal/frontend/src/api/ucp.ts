@@ -346,6 +346,16 @@ export const ucpApi = {
   systemDefaultCredential: (systemId: number) =>
     api.get<{ credential_id: number | null }>(`/ucp/systems/${systemId}/default-credential`).then((r) => r.data),
 
+  bitableTables: (resourceId: number, params: { is_active?: boolean } = {}) =>
+    api.get<{ total: number; items: any[] }>(`/ucp/resources/${resourceId}/bitable-tables`, { params }).then((r) => r.data),
+  createBitableTable: (resourceId: number, payload: Record<string, any>) =>
+    api.post<any>(`/ucp/resources/${resourceId}/bitable-tables`, payload).then((r) => r.data),
+  updateBitableTable: (resourceId: number, tableId: number, payload: Record<string, any>) =>
+    api.patch<any>(`/ucp/resources/${resourceId}/bitable-tables/${tableId}`, payload).then((r) => r.data),
+  deleteBitableTable: (resourceId: number, tableId: number) =>
+    api.delete<{ deleted: number }>(`/ucp/resources/${resourceId}/bitable-tables/${tableId}`).then((r) => r.data),
+  previewBitableTable: (resourceId: number, tableId: number, limit = 20) =>
+    api.post<any>(`/ucp/resources/${resourceId}/bitable-tables/${tableId}/preview`, { limit }).then((r) => r.data),
   /* ── Pipeline Config CRUD ── */
   pipelines: (triggerType?: string) =>
     api.get<Paginated<PipelineConfigItem>>('/ucp/pipelines', { params: { trigger_type: triggerType } }).then((r) => ({ total: r.data.total, items: extractItems(r.data) })),
@@ -1688,3 +1698,42 @@ export const securityApi = {
 /* Phase 5-4: 把 adapterRegistry 入口并入 ucpApi */
 ;(ucpApi as any).adapterRegistryList = adapterRegistryApi.list
 ;(ucpApi as any).adapterSchema = adapterRegistryApi.getSchema
+
+/* ── Account lifecycle rules ── */
+export interface AccountLifecycleRule {
+  rule_code: string
+  rule_name: string
+  internal_event_type: string
+  target_system_code: string
+  target_resource_code: string
+  lifecycle_action: string
+  retention_days: number
+  approval_required: boolean
+  status: number
+  field_mapping: Record<string, any>
+  filter_rule: Record<string, any>
+}
+
+export interface AccountLifecycleJob {
+  job_code: string
+  rule_id: number
+  account_id: number | null
+  action: string
+  status: string
+  scheduled_at: string
+  retry_count: number
+  last_error_message: string | null
+}
+
+export const accountLifecycleApi = {
+  listRules: () => api.get<{ total: number; items: AccountLifecycleRule[] }>('/ucp/account-lifecycle-rules').then((r) => r.data),
+  createRule: (payload: Record<string, any>) => api.post<AccountLifecycleRule>('/ucp/account-lifecycle-rules', payload).then((r) => r.data),
+  setRuleEnabled: (code: string, enabled: boolean) => api.post<AccountLifecycleRule>(`/ucp/account-lifecycle-rules/${code}/${enabled ? 'enable' : 'disable'}`).then((r) => r.data),
+  dryRun: (code: string, event: Record<string, any>) => api.post<Record<string, any>>(`/ucp/account-lifecycle-rules/${code}/dry-run`, { event }).then((r) => r.data),
+  listJobs: () => api.get<{ total: number; items: AccountLifecycleJob[] }>('/ucp/account-lifecycle-jobs').then((r) => r.data),
+  retryJob: (code: string) => api.post<AccountLifecycleJob>(`/ucp/account-lifecycle-jobs/${code}/retry`).then((r) => r.data),
+}
+
+export const accountLifecycleReleaseApi = {
+  readiness: () => api.get<{ ready: boolean; checks: Array<{ key: string; ok: boolean; message: string; count?: number }> }>('/ucp/account-lifecycle-readiness').then((r) => r.data),
+}

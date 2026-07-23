@@ -166,7 +166,7 @@ async def route_create_alert_rule(
         notify_receivers=payload.get("notify_receivers"),
         cooldown_minutes=payload.get("cooldown_minutes", 60),
         description=payload.get("description"),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     db.add(rule)
     await db.commit()
@@ -293,7 +293,7 @@ async def route_create_sla_config(
         p99_duration_ms_max=payload.get("p99_duration_ms_max"),
         recovery_time_minutes=payload.get("recovery_time_minutes"),
         hours=payload.get("hours", 24),
-        created_by=user.username,
+        created_by=user.login_name,
     )
     await db.commit()
     return _serialize_sla(sla)

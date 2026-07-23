@@ -136,3 +136,28 @@ async def list_oa_records(run_id:int,diff_type:str|None=None,process_status:str|
 async def trigger_oa_sync(payload:dict,db:AsyncSession=Depends(get_session),_user=Depends(current_user))->dict:
     from app.ucp.oa_sync_service import trigger_sync
     return await trigger_sync(db,payload)
+
+
+@router.post("/external-accounts/{account_id}/reconcile", dependencies=[Depends(require_op("ucp.external_accounts", "U"))])
+async def reconcile_ext_account(account_id: int, db: AsyncSession=Depends(get_session), _user=Depends(current_user)) -> dict:
+    from sqlalchemy import select
+    from app.ucp.credential_service import decrypt_credential_secrets
+    from app.ucp.external_account_adapters import DidiAccountClient
+    from app.ucp.masking import mask_dict
+    from app.ucp.models import ExternalAccount, UcpSystemConfig
+    account = (await db.execute(select(ExternalAccount).where(ExternalAccount.id == account_id))).scalar_one_or_none()
+    if not account: raise HTTPException(404, "Account not found")
+    if account.system_code != "DIDI": raise HTTPException(422, "Only DIDI reconciliation is supported")
+    config = (await db.execute(select(UcpSystemConfig).where(UcpSystemConfig.system_code == "DIDI_ACCOUNT"))).scalar_one_or_none()
+    if not config: raise HTTPException(422, "DIDI_ACCOUNT resource is not configured")
+    secrets = await decrypt_credential_secrets(db, config.credential_id) if config.credential_id else {}
+    client = DidiAccountClient(secrets.get("base_url", ""), secrets.get("client_id", ""), secrets.get("client_secret", ""), config.protocol or {})
+    try:
+        result = await client.query_account(account.external_user_id)
+    except Exception as exc:
+        raise HTTPException(502, detail={"code": "DIDI_QUERY_FAILED", "message": str(exc)[:300]}) from exc
+    data = result.get("data") if isinstance(result, dict) else {}
+    remote_status = str((data or {}).get("status") or "").upper()
+    if remote_status in {"ACTIVE", "DISABLED", "DELETED"}: account.status = remote_status
+    await db.flush()
+    return {"account_id": account.id, "status": account.status, "remote": mask_dict(result if isinstance(result, dict) else {})}

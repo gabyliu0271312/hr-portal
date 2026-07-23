@@ -861,6 +861,73 @@ class ExternalAccountAudit(Base):
 
 
 # ============================================================
+# Account lifecycle rules and persistent jobs
+# ============================================================
+
+
+class UcpAccountLifecycleRule(Base):
+    """Configuration rule from employee events to external account actions."""
+
+    __tablename__ = "ucp_account_lifecycle_rule"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    rule_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    rule_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_system_code: Mapped[str] = mapped_column(String(64), nullable=False, default="FEISHU")
+    feishu_event_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    internal_event_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_system_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_resource_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    lifecycle_action: Mapped[str] = mapped_column(String(16), nullable=False)
+    filter_rule: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    field_mapping: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    account_match_strategy: Mapped[str] = mapped_column(String(32), nullable=False, default="EMPLOYEE_ID")
+    approval_required: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    retention_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_policy: Mapped[str] = mapped_column(String(32), nullable=False, default="RETRY_AND_ALERT")
+    notification_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_ucp_lifecycle_rule_source_target", "source_system_code", "target_system_code", "status"),
+        Index("ix_ucp_lifecycle_rule_event", "source_system_code", "internal_event_type", "status"),
+    )
+
+
+class UcpAccountLifecycleJob(Base):
+    """Persistent delayed lifecycle job that survives process restarts."""
+
+    __tablename__ = "ucp_account_lifecycle_job"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    job_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    rule_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("ucp_account_lifecycle_rule.id", ondelete="RESTRICT"), nullable=False)
+    account_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("external_account.id", ondelete="SET NULL"), nullable=True)
+    event_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ucp_event.id", ondelete="SET NULL"), nullable=True)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="PENDING")
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_ucp_lifecycle_job_status_scheduled", "status", "scheduled_at"),
+        Index("ix_ucp_lifecycle_job_account", "account_id", "status"),
+    )
+
+
+# ============================================================
 # Phase 3-5: 高风险动作审批
 # ============================================================
 
@@ -1253,7 +1320,43 @@ class UcpResource(Base):
     )
 
 
-# ===== Phase 3-8: 流水线模板与版本快照 =====
+
+
+class UcpBitableTableConfig(Base):
+    """A reusable Feishu Bitable table configuration under one UCP resource."""
+
+    __tablename__ = "ucp_bitable_table_config"
+    __table_args__ = (
+        UniqueConstraint(
+            "resource_id", "object_code", name="uq_ucp_bitable_table_resource_code"
+        ),
+        Index("ix_ucp_bitable_table_resource_active", "resource_id", "is_active"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    resource_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("ucp_resource.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    object_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    app_token: Mapped[str] = mapped_column(String(128), nullable=False)
+    table_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    view_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    field_mapping: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    filter_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    page_size: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    max_records: Mapped[int] = mapped_column(Integer, nullable=False, default=10000)
+    is_active: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )# ===== Phase 3-8: 流水线模板与版本快照 =====
 
 
 class UcpPipelineTemplate(Base):

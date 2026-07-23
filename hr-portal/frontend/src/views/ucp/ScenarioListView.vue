@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="scenario-list">
     <div class="page-header"><h2 class="page-title">场景方案</h2><span class="page-subtitle">基于数据连接平台包装的 HR 业务场景</span></div>
     <div class="scenario-cards">
@@ -12,7 +12,7 @@
         <div class="card-icon"><el-icon :size="32"><UserFilled /></el-icon></div>
         <div class="card-body"><h3 class="card-title">外部账号生命周期</h3><p class="card-desc">入职账号开通、离职账号回收、变更自动同步</p>
           <div class="card-meta"><el-tag size="small" type="info">已启用</el-tag></div></div>
-        <div class="card-actions"><el-button size="small" @click.stop="router.push('/ucp/scenarios/external-accounts')">进入方案</el-button><el-button size="small" link @click.stop="router.push('/ucp/runs')">查看异常</el-button></div>
+        <div class="card-actions"><el-button size="small" @click.stop="router.push('/ucp/scenarios/external-accounts')">账号列表</el-button><el-button size="small" type="primary" plain @click.stop="router.push('/ucp/scenarios/account-lifecycle')">配置规则</el-button><el-button size="small" link @click.stop="router.push('/ucp/runs')">查看异常</el-button></div>
       </div>
       <div class="scenario-card" @click="router.push('/ucp/approvals')">
         <div class="card-icon"><el-icon :size="32"><Document /></el-icon></div>
@@ -48,3 +48,4 @@ onMounted(() => loadStatus())
 .card-meta { display: flex; align-items: center; gap: 12px } .meta-text { font-size: 12px; color: var(--color-text-placeholder) }
 .card-actions { width: 100%; margin-top: 16px; display: flex; gap: 12px }
 </style>
+

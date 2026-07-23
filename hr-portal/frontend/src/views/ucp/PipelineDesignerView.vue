@@ -75,7 +75,7 @@
             <el-form-item label="标签"><el-input v-model="selectedNode.label" placeholder="自定义标签" /></el-form-item>
             <template v-if="(selectedNode.type as string) === 'CONNECTOR'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
-              <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.resource_id = v; const r = allResources.find(x=>x.id===v); if(r){cfg.resource_name=r.resource_name;cfg.resource_code=r.resource_code;cfg.adapter_code=r.adapter_code||null} selectedNode.config = cfg } }" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>
+              <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.resource_id = v; const r = allResources.find(x=>x.id===v); if(r){cfg.resource_name=r.resource_name;cfg.resource_code=r.resource_code;cfg.adapter_code=r.adapter_code||null} selectedNode.config = cfg } }" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>              <el-form-item v-if="selectedNode.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER'" label="数据对象"><el-select v-model="selectedNode.config.bitable_table_id" clearable filterable placeholder="选择具体多维表格" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadBitableTablesForNode(Number(selectedNode.config?.resource_id) || null)"><el-option v-for="item in bitableTableOptions" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'LOOP_RESOURCE' || selectedNode.type === 'LOOP'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
@@ -192,10 +192,22 @@ function getNodeLabel(type: string): string { const m: Record<string, string> = 
 function getNodeSchema(type: string): Record<string, string> { const m: Record<string, Record<string, string>> = { TRANSFORM: { input_keys: '输入字段(逗号分隔)', output_key: '输出字段' }, NOTIFY: { template_id: '通知模板ID', receivers: '接收人(逗号分隔)' }, WAIT: { duration_seconds: '等待时间(秒)' }, APPROVAL: { approver: '审批人', reason: '审批原因' } }; return m[type] || {} }
 function stringifyConfig(v: any): string { if (v === undefined || v === null) return ''; if (Array.isArray(v)) return v.join(', '); return String(v) }
 function updateNodeConfig(key: string, value: string): void { if (!selectedNode.value) return; const cfg = { ...(selectedNode.value.config || {}) } as Record<string, any>; if (value === '') { delete cfg[key] } else if (value.includes(',')) { cfg[key] = value.split(',').map((s: string) => s.trim()) } else { cfg[key] = value }; selectedNode.value.config = cfg }
-function nodeHasError(node: PipelineNode): boolean { const t = node.type as string; if (t === 'CONNECTOR' || t === 'LOOP_RESOURCE') return !node.config?.system_id || !node.config?.resource_id; return false }
+async function loadBitableTablesForNode(resourceId: number | null | undefined) {
+  if (!resourceId) { bitableTableOptions.value = []; return }
+  try { bitableTableOptions.value = (await (ucpApi as any).bitableTables(resourceId, { is_active: true })).items || [] }
+  catch { bitableTableOptions.value = [] }
+}
+function nodeHasError(node: PipelineNode): boolean {
+  const type = node.type as string
+  if (type !== 'CONNECTOR' && type !== 'LOOP_RESOURCE') return false
+  if (!node.config?.system_id || !node.config?.resource_id) return true
+  return node.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER' && !node.config?.bitable_table_id
+}
+
 
 // ===== TRANSFORM 字段映射 =====
 interface FieldMapping { from: string; to: string }
+const bitableTableOptions = ref<any[]>([])
 const transformMappings = ref<FieldMapping[]>([])
 const upstreamFields = ref<{ name: string; type: string }[]>([])
 const upstreamSourceName = ref('')

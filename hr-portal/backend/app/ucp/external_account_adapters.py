@@ -106,58 +106,52 @@ class ExternalSystemClient:
 
 
 class DidiAccountClient(ExternalSystemClient):
-    """滴滴企业版账号 API 客户端（占位）。"""
+    """Configuration-driven Didi account client."""
 
-    async def create_account(
-        self,
-        employee_id: str,
-        employee_name: str,
-        employee_mobile: str,
-        department: str | None = None,
-    ) -> dict:
-        """调用滴滴 API 创建账号。"""
-        payload = {
-            "employee_id": employee_id,
-            "name": employee_name,
-            "mobile": employee_mobile,
-            "department": department or "",
-        }
-        # 真实环境:
-        #   return await self._request("POST", "/api/v1/accounts", json_body=payload)
-        # 当前为占位实现, 返回模拟成功
-        return {
-            "code": 0,
-            "msg": "ok (simulated)",
-            "data": {
-                "external_user_id": f"didi_{hashlib.md5(employee_id.encode()).hexdigest()[:12]}",
-                "account_name": employee_name,
-                "status": "ACTIVE",
-            },
-            "simulated": True,
-        }
+    def __init__(self, base_url: str, client_id: str, client_secret: str, protocol: dict | None = None):
+        super().__init__(base_url, client_id, client_secret)
+        self._protocol = protocol or {}
+
+    def _auth_headers(self) -> dict[str, str]:
+        if str(self._protocol.get("auth_mode") or "basic").lower() == "bearer":
+            token = self._client_secret or self._client_id
+            if not token:
+                raise RuntimeError("Didi bearer token is not configured")
+            return {"Authorization": f"Bearer {token}"}
+        return super()._auth_headers()
+
+    async def _call(self, action: str, payload: dict, external_user_id: str | None = None) -> dict:
+        if self._protocol.get("simulate"):
+            identifier = external_user_id or f"didi_{hashlib.md5(str(payload.get('employee_id', '')).encode()).hexdigest()[:12]}"
+            return {"code": 0, "data": {"external_user_id": identifier}, "simulated": True}
+        endpoint = (self._protocol.get("endpoints") or {}).get(action)
+        if not isinstance(endpoint, dict) or not endpoint.get("path"):
+            raise RuntimeError(f"Didi endpoint '{action}' is not configured")
+        path = str(endpoint["path"])
+        if external_user_id:
+            path = path.replace("{external_user_id}", str(external_user_id))
+        return await self._request(str(endpoint.get("method") or "POST").upper(), path, json_body=payload)
+
+    async def create_account(self, employee_id: str, employee_name: str, employee_mobile: str, department: str | None = None) -> dict:
+        return await self._call("create", {"employee_id": employee_id, "name": employee_name, "mobile": employee_mobile, "department": department or ""})
 
     async def disable_account(self, external_user_id: str) -> dict:
-        # 真实环境:
-        #   return await self._request("POST", f"/api/v1/accounts/{external_user_id}/disable")
-        return {"code": 0, "msg": "ok (simulated)", "data": {"status": "DISABLED"}, "simulated": True}
+        return await self._call("disable", {}, external_user_id)
 
     async def delete_account(self, external_user_id: str) -> dict:
-        # 真实环境:
-        #   return await self._request("DELETE", f"/api/v1/accounts/{external_user_id}")
-        return {"code": 0, "msg": "ok (simulated)", "data": {"status": "DELETED"}, "simulated": True}
+        return await self._call("delete", {}, external_user_id)
 
     async def update_account(self, external_user_id: str, **fields) -> dict:
-        # 真实环境:
-        #   return await self._request("PATCH", f"/api/v1/accounts/{external_user_id}", json_body=fields)
-        return {"code": 0, "msg": "ok (simulated)", "data": {"status": "ACTIVE"}, "simulated": True}
+        return await self._call("update", fields, external_user_id)
 
     async def reactivate_account(self, external_user_id: str) -> dict:
-        # 真实环境:
-        #   return await self._request("POST", f"/api/v1/accounts/{external_user_id}/enable")
-        return {"code": 0, "msg": "ok (simulated)", "data": {"status": "ACTIVE"}, "simulated": True}
+        return await self._call("reactivate", {}, external_user_id)
+
+    async def query_account(self, external_user_id: str) -> dict:
+        return await self._call("query", {}, external_user_id)
 
 
-# ===== 曹操出行企业账号客户端 =====
+# ===== CAOCAO account client =====
 
 
 class CaocaoAccountClient(ExternalSystemClient):
@@ -272,6 +266,17 @@ async def didi_account_push_adapter(
     except ValueError as e:
         return AdapterResult(status="failed", error_code="INVALID_PARAMS", error_message=str(e))
 
+    # The vendor contract is intentionally fail-closed. The previous implementation
+    # returned a simulated success for every production request, which could mark an
+    # account deleted without ever reaching Didi. Simulation is only valid when a
+    # caller explicitly enables it for tests/dry-runs.
+    if not params.get("simulate"):
+        return AdapterResult(
+            status="failed",
+            error_code="DIDI_CONTRACT_REQUIRED",
+            error_message="Didi production endpoint/signature contract is not configured; set simulate only in tests",
+        )
+
     employee_id = params.get("employee_id", "")
     employee_name = params.get("employee_name", "")
     employee_mobile = params.get("employee_mobile", "")
@@ -325,6 +330,7 @@ async def didi_account_push_adapter(
         base_url=base_url,
         client_id=secrets.get("client_id", ""),
         client_secret=secrets.get("client_secret", ""),
+        protocol=params,
     )
     try:
         result = await _call_system_action(
@@ -426,6 +432,17 @@ async def caocao_account_push_adapter(
         action, external_user_id = _extract_action_and_target(params)
     except ValueError as e:
         return AdapterResult(status="failed", error_code="INVALID_PARAMS", error_message=str(e))
+
+    # The vendor contract is intentionally fail-closed. The previous implementation
+    # returned a simulated success for every production request, which could mark an
+    # account deleted without ever reaching Didi. Simulation is only valid when a
+    # caller explicitly enables it for tests/dry-runs.
+    if not params.get("simulate"):
+        return AdapterResult(
+            status="failed",
+            error_code="DIDI_CONTRACT_REQUIRED",
+            error_message="Didi production endpoint/signature contract is not configured; set simulate only in tests",
+        )
 
     employee_id = params.get("employee_id", "")
     employee_name = params.get("employee_name", "")

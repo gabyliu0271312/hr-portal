@@ -121,7 +121,7 @@
                   <el-icon><Plus /></el-icon>添加
                 </el-button>
               </div>
-              <el-table v-if="resourcesOf(activeSystem.id).length" :data="resourcesOf(activeSystem.id)" stripe size="small" max-height="400">
+              <el-table v-if="resourcesOf(activeSystem.id).length" :data="resourcesOf(activeSystem.id)" stripe size="small" max-height="400" style="cursor: pointer" @row-click="(row: any) => openResource(activeSystem, row)">
                 <el-table-column prop="resource_name" label="名称" min-width="100" />
                 <el-table-column label="类型" width="90">
                   <template #default="{ row }">
@@ -139,6 +139,10 @@
                     <el-tag v-if="row.status === 1" type="success" size="small">启用</el-tag>
                     <el-tag v-else-if="row.status === 2" type="info" size="small">停用</el-tag>
                     <el-tag v-else type="warning" size="small">未启用</el-tag>
+                  </template>
+                </el-table-column>                <el-table-column label="操作" width="76">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click.stop="openResource(activeSystem, row)">配置</el-button>
                   </template>
                 </el-table-column>
               </el-table>
@@ -268,8 +272,7 @@
               v-model="resourceEditForm.adapter_code"
               filterable
               clearable
-              allow-create
-              placeholder="选择或输入 adapter_code"
+              placeholder="选择已启用的适配器"
               style="width: 100%"
               @change="onEditAdapterChange"
             >
@@ -308,6 +311,18 @@
             empty-text="当前 adapter 未注册 schema, 无扩展字段。"
           />
         </el-form>
+        <template v-if="resourceEditForm.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER'">
+          <el-divider content-position="left">飞书多维表格数据对象</el-divider>
+          <div class="resource-object-toolbar"><span>一个资源可配置多张业务表</span><el-button type="primary" size="small" @click="openBitableTableDialog()">新增数据对象</el-button></div>
+          <el-table v-loading="bitableTablesLoading" :data="bitableTables" size="small" max-height="240">
+            <el-table-column prop="object_name" label="名称" min-width="110" />
+            <el-table-column prop="object_code" label="编码" min-width="130" />
+            <el-table-column prop="table_id_masked" label="数据表" min-width="100" />
+            <el-table-column label="状态" width="70"><template #default="{ row }"><el-tag :type="row.is_active ? 'success' : 'info'" size="small">{{ row.is_active ? '启用' : '停用' }}</el-tag></template></el-table-column>
+            <el-table-column label="操作" width="160"><template #default="{ row }"><el-button link size="small" @click="openBitableTableDialog(row)">编辑</el-button><el-button link size="small" @click="previewBitableTable(row)">预览</el-button><el-button link type="danger" size="small" @click="removeBitableTable(row)">删除</el-button></template></el-table-column>
+          </el-table>
+          <el-empty v-if="!bitableTablesLoading && bitableTables.length === 0" description="暂无数据对象，新增后可在流水线中选择具体表" :image-size="50" />
+        </template>
 
         <!-- Phase 6-3: 反向引用 — 哪些流水线引用了此 resource (蓝本 v2 场景 6) -->
         <el-divider content-position="left">
@@ -358,7 +373,10 @@
           <el-button type="primary" @click="saveResource">保存</el-button>
         </div>
       </div>
-    </el-drawer>
+    <el-dialog v-model="bitableDialogVisible" :title="editingBitableTable ? '编辑数据对象' : '新增数据对象'" width="620px" append-to-body>
+      <el-form :model="bitableForm" label-width="105px"><el-form-item label="对象编码" required><el-input v-model="bitableForm.object_code" placeholder="FEISHU_EMPLOYEE_ROSTER" /></el-form-item><el-form-item label="对象名称" required><el-input v-model="bitableForm.object_name" placeholder="员工花名册" /></el-form-item><el-form-item label="App Token" required><el-input v-model="bitableForm.app_token" /></el-form-item><el-form-item label="Table ID" required><el-input v-model="bitableForm.table_id" /></el-form-item><el-form-item label="View ID"><el-input v-model="bitableForm.view_id" /></el-form-item><el-form-item label="字段映射"><el-input v-model="bitableForm.field_mapping" type="textarea" :rows="4" placeholder='{"飞书字段": "平台字段"}' /></el-form-item><el-form-item label="单页条数"><el-input-number v-model="bitableForm.page_size" :min="1" :max="500" /></el-form-item><el-form-item label="最大记录数"><el-input-number v-model="bitableForm.max_records" :min="1" :max="50000" /></el-form-item><el-form-item label="启用"><el-switch v-model="bitableForm.is_active" /></el-form-item></el-form>
+      <template #footer><el-button @click="bitableDialogVisible = false">取消</el-button><el-button type="primary" :loading="bitableSaving" @click="saveBitableTable">保存</el-button></template>
+    </el-dialog>    </el-drawer>
 
     <!-- 添加系统对话框 (4 步向导: 系统信息 → 第一套凭证 → 第一个资源 → 测试与完成) -->
     <el-dialog
@@ -640,8 +658,7 @@
             v-model="resourceForm.adapter_code"
             filterable
             clearable
-            allow-create
-            placeholder="选择或输入 adapter_code"
+            placeholder="选择已启用的适配器"
             style="width: 100%"
             @change="onAddAdapterChange"
           >
@@ -751,6 +768,7 @@ import {
   Search,
 } from '@element-plus/icons-vue'
 import { ucpApi, monitorApi } from '@/api/ucp'
+import { datasourcesApi } from '@/api/datasources'
 import SchemaFormField, { type SchemaCategory } from '../components/SchemaFormField.vue'
 import SystemCard from '../components/SystemCard.vue'
 
@@ -836,8 +854,17 @@ function buildBackendJsonFields(
 
 async function loadAdapters() {
   try {
-    const list = await (ucpApi as any).adapterRegistryList({ is_active: true, limit: 200 })
-    adapters.value = list || []
+    const [list, connectorTypes] = await Promise.all([
+      (ucpApi as any).adapterRegistryList({ is_active: true, limit: 200 }),
+      datasourcesApi.types('ucp'),
+    ])
+    const merged = new Map<string, any>((list || []).map((item: any) => [item.adapter_code, item]))
+    for (const item of connectorTypes) {
+      if (item.ucp_adapter_code && !merged.has(item.ucp_adapter_code)) {
+        merged.set(item.ucp_adapter_code, { adapter_code: item.ucp_adapter_code, name: item.label, description: item.description, connector_type: item.code })
+      }
+    }
+    adapters.value = [...merged.values()]
   } catch (_e) {
     adapters.value = []
   }
@@ -892,6 +919,13 @@ const systemCredentials = ref<any[]>([])
 // 资源详情抽屉
 const resourceDrawerOpen = ref(false)
 const activeResource = ref<any>(null)
+const bitableTables = ref<any[]>([])
+const bitableTablesLoading = ref(false)
+const bitableDialogVisible = ref(false)
+const bitableSaving = ref(false)
+const editingBitableTable = ref<any>(null)
+const bitableForm = ref<any>({ object_code: '', object_name: '', app_token: '', table_id: '', view_id: '', field_mapping: '{}', page_size: 100, max_records: 10000, is_active: true })
+const bitablePreview = ref<any>(null)
 // Phase 6-3: 反向引用状态
 const usingPipelines = ref<{ resource_id: number; total: number; items: any[] } | null>(null)
 const usingPipelinesLoading = ref(false)
@@ -1160,6 +1194,43 @@ async function loadDetailExecutions(sysId: number) {
   } catch { detailExecutions.value = [] }
 }
 
+async function loadBitableTables(resourceId: number) {
+  bitableTablesLoading.value = true
+  try { bitableTables.value = (await (ucpApi as any).bitableTables(resourceId)).items || [] }
+  catch { bitableTables.value = [] }
+  finally { bitableTablesLoading.value = false }
+}
+function openBitableTableDialog(item?: any) {
+  editingBitableTable.value = item || null
+  bitablePreview.value = null
+  bitableForm.value = item ? { ...item, field_mapping: JSON.stringify(item.field_mapping || {}, null, 2) } : { object_code: '', object_name: '', app_token: '', table_id: '', view_id: '', field_mapping: '{}', page_size: 100, max_records: 10000, is_active: true }
+  bitableDialogVisible.value = true
+}
+async function saveBitableTable() {
+  if (!activeResource.value) return
+  let mapping: Record<string, any> = {}
+  try { mapping = JSON.parse(bitableForm.value.field_mapping || '{}') } catch { ElMessage.error('字段映射必须是合法 JSON 对象'); return }
+  bitableSaving.value = true
+  try {
+    const payload = { ...bitableForm.value, field_mapping: mapping }
+    if (editingBitableTable.value) await (ucpApi as any).updateBitableTable(activeResource.value.id, editingBitableTable.value.id, payload)
+    else await (ucpApi as any).createBitableTable(activeResource.value.id, payload)
+    ElMessage.success('数据对象已保存')
+    bitableDialogVisible.value = false
+    await loadBitableTables(activeResource.value.id)
+  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') }
+  finally { bitableSaving.value = false }
+}
+async function removeBitableTable(item: any) {
+  if (!activeResource.value) return
+  try { await (ucpApi as any).deleteBitableTable(activeResource.value.id, item.id); ElMessage.success('数据对象已删除'); await loadBitableTables(activeResource.value.id) }
+  catch (e: any) { ElMessage.error(e?.response?.data?.detail || '删除失败') }
+}
+async function previewBitableTable(item: any) {
+  if (!activeResource.value) return
+  try { bitablePreview.value = await (ucpApi as any).previewBitableTable(activeResource.value.id, item.id); ElMessage.success(`预览成功，共 ${bitablePreview.value.row_count} 条`) }
+  catch (e: any) { ElMessage.error(e?.response?.data?.detail || '预览失败') }
+}
 async function openResource(sys: any, res: any) {
   activeResource.value = res
   resourceEditForm.value = {
@@ -1173,6 +1244,7 @@ async function openResource(sys: any, res: any) {
   resourceDrawerOpen.value = true
   // Phase 6-3: 反向引用 — 拉取引用此 resource 的流水线
   loadUsingPipelines(res.id)
+  if (res.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER') await loadBitableTables(res.id)
 }
 
 async function loadUsingPipelines(resourceId: number) {
@@ -1903,7 +1975,6 @@ onMounted(async () => {
   .ops-overview { grid-template-columns: 1fr; }
 }
 </style>
-
 
 
 

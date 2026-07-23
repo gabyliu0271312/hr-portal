@@ -307,6 +307,10 @@ ADAPTER_REGISTRY.update(ADAPTER_REGISTRY_PUSH_BRIDGE)
 from app.ucp.external_account_adapters import register_external_account_adapters  # noqa: E402
 register_external_account_adapters()
 
+# Phase 4: Feishu Bitable reusable resource adapter
+from app.ucp.feishu_bitable_adapter import feishu_bitable_pull_adapter  # noqa: E402
+ADAPTER_REGISTRY["FEISHU_BITABLE_PULL_ADAPTER"] = feishu_bitable_pull_adapter
+
 # Phase 3-6: OA 组织架构同步适配器
 from app.ucp.oa_sync_adapters import register_oa_sync_adapters  # noqa: E402
 register_oa_sync_adapters()

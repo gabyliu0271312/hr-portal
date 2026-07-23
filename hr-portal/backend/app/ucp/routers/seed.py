@@ -81,8 +81,8 @@ async def route_seed_offer_sync(
             system_code=system_code,
             system_name=payload.get("system_name") or system_code,
             system_type=payload.get("system_type", "HR_SAAS"),
-            owner=user.username,
-            created_by=user.username,
+            owner=user.login_name,
+            created_by=user.login_name,
         )
         db.add(sys_row)
         await db.flush()
@@ -95,7 +95,7 @@ async def route_seed_offer_sync(
         secrets_encrypted=_encrypt_secrets(beisen_secrets),
         auth_type="beisen",
         system_id=sys_row.id,
-        created_by=user.username,
+        created_by=user.login_name,
     )
     db.add(c1)
     await db.flush()
@@ -108,7 +108,7 @@ async def route_seed_offer_sync(
         secrets_encrypted=_encrypt_secrets(feishu_secrets),
         auth_type="feishu",
         system_id=sys_row.id,
-        created_by=user.username,
+        created_by=user.login_name,
     )
     db.add(c2)
     await db.flush()
@@ -121,7 +121,7 @@ async def route_seed_offer_sync(
         resource_name=f"{system_code} 北森Offer数据",
         adapter_code="BEISEN_REPORT_ADAPTER",
         credential_id=c1.id,
-        created_by=user.username,
+        created_by=user.login_name,
     )
     db.add(r1)
     await db.flush()
@@ -134,7 +134,7 @@ async def route_seed_offer_sync(
         resource_name=f"{system_code} 飞书消息",
         adapter_code="FEISHU_MESSAGE_ADAPTER",
         credential_id=c2.id,
-        created_by=user.username,
+        created_by=user.login_name,
     )
     db.add(r2)
     await db.flush()
@@ -150,7 +150,7 @@ async def route_seed_offer_sync(
         ],
         trigger_type="SCHEDULED",
         status=1,
-        created_by=user.username,
+        created_by=user.login_name,
     )
     db.add(pl)
     await db.flush()

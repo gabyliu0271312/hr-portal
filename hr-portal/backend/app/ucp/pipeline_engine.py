@@ -42,6 +42,7 @@ from app.ucp.models import (
     UcpPipelineExecution,
     UcpPipelineStepExecution,
     UcpSystemConfig,
+    UcpResource,
 )
 from app.ucp.rate_limiter import (
     RateLimitError,
@@ -623,90 +624,88 @@ async def _execute_resource_step(
     db: AsyncSession,
     trace_id: str,
 ) -> dict:
-    """执行 RESOURCE 步骤：调用单个资源。
-
-    Phase 2-9：增加熔断 + QPS 限流拦截
-      - 调用前 cb_check(resource_code, conn_config.circuit_breaker_config)
-        → 命中熔断抛 CircuitBreakerError
-      - 调用前 rl_acquire(f"resource:{resource_code}", conn_config.rate_limit_config)
-        → 命中限流抛 RateLimitError
-      - 调用成功后 cb_record_success
-      - 调用失败后 cb_record_failure
-    """
+    """Execute a resource step with new-resource and legacy-config compatibility."""
+    resource_id = step_config.get("resource_id")
     resource_code = step_config.get("resource_code", "")
+    protocol: dict[str, Any] = {}
+    report_config: dict[str, Any] = {}
+    circuit_config: dict[str, Any] = {}
+    rate_limit_config: dict[str, Any] = {}
+    adapter_code = ""
+    credential_id: int | None = None
 
-    # 加载资源配置
-    conn_config = (
-        await db.execute(
-            select(UcpSystemConfig).where(
-                UcpSystemConfig.system_code == resource_code,
+    if resource_id:
+        resource = await db.get(UcpResource, resource_id)
+        if resource is None:
+            raise RuntimeError(f"Resource id '{resource_id}' not found")
+        if not resource.adapter_code:
+            raise RuntimeError(f"Resource '{resource.resource_code}' has no adapter")
+        resource_code = resource.resource_code
+        adapter_code = resource.adapter_code
+        credential_id = resource.credential_id
+        protocol = dict(resource.protocol or {})
+        report_config = dict(resource.report_config or {})
+        circuit_config = dict(resource.circuit_breaker_config or {})
+
+        if adapter_code == "FEISHU_BITABLE_PULL_ADAPTER":
+            table_config_id = step_config.get("bitable_table_id")
+            if not isinstance(table_config_id, int):
+                raise RuntimeError("Feishu Bitable resource requires bitable_table_id")
+            from app.ucp.bitable_table_service import (
+                BitableTableConfigError,
+                get_bitable_table,
+                table_params,
             )
-        )
-    ).scalar_one_or_none()
-    if conn_config is None:
-        raise RuntimeError(f"Resource '{resource_code}' not found")
+            try:
+                table_config = await get_bitable_table(
+                    db, resource.id, table_config_id, require_active=True
+                )
+            except BitableTableConfigError as exc:
+                raise RuntimeError(str(exc)) from exc
+            protocol.update(table_params(table_config))
+    else:
+        conn_config = (
+            await db.execute(
+                select(UcpSystemConfig).where(UcpSystemConfig.system_code == resource_code)
+            )
+        ).scalar_one_or_none()
+        if conn_config is None:
+            raise RuntimeError(f"Resource '{resource_code}' not found")
+        adapter_code = conn_config.adapter_code or ""
+        credential_id = conn_config.credential_id
+        protocol = dict(conn_config.protocol or {})
+        report_config = dict(conn_config.report_config or {})
+        circuit_config = dict(conn_config.circuit_breaker_config or {})
+        rate_limit_config = dict(getattr(conn_config, "rate_limit_config", None) or {})
 
-    cb_cfg = conn_config.circuit_breaker_config or {}
-    rl_cfg = getattr(conn_config, "rate_limit_config", None) or {}
-
-    # Phase 2-9：熔断检查（命中熔断直接抛错，不进入 adapter 调用）
+    if not resource_code:
+        raise RuntimeError("Resource code is required")
     try:
-        cb_check(resource_code, cb_cfg)
-    except CircuitBreakerError as e:
-        # 写一条 connection log 记录熔断拦截
-        await _write_circuit_blocked_log(
-            db, trace_id, resource_code, "CIRCUIT_OPEN", str(e),
-        )
+        cb_check(resource_code, circuit_config)
+    except CircuitBreakerError as exc:
+        await _write_circuit_blocked_log(db, trace_id, resource_code, "CIRCUIT_OPEN", str(exc))
+        raise
+    try:
+        rl_acquire(f"resource:{resource_code}", rate_limit_config)
+    except RateLimitError as exc:
+        await _write_circuit_blocked_log(db, trace_id, resource_code, "RATE_LIMIT_EXCEEDED", str(exc))
         raise
 
-    # Phase 2-9：限流检查
-    try:
-        rl_acquire(f"resource:{resource_code}", rl_cfg)
-    except RateLimitError as e:
-        await _write_circuit_blocked_log(
-            db, trace_id, resource_code, "RATE_LIMIT_EXCEEDED", str(e),
-        )
-        raise
-
-    # 解密凭证
     secrets: dict[str, str] = {}
-    if conn_config.credential_id:
-        secrets = await decrypt_credential_secrets(db, conn_config.credential_id)
-
-    # 构建适配器参数
-    params = dict(conn_config.protocol or {})
-    params.update(conn_config.report_config or {})
-    # 合入步骤级额外参数
-    params.update(step_config.get("params", {}))
-
-    # 调用适配器（同时维护熔断状态）
-    adapter = get_adapter(conn_config.adapter_code or "")
+    if credential_id:
+        secrets = await decrypt_credential_secrets(db, credential_id)
+    params = {**protocol, **report_config, **(step_config.get("params") or {})}
+    adapter = get_adapter(adapter_code)
     try:
         result: AdapterResult = await adapter(params, secrets, db)
-    except Exception as e:
-        # 记录熔断失败
-        cb_record_failure(
-            resource_code, cb_cfg,
-            error_code="ADAPTER_EXCEPTION",
-            error_message=str(e)[:500],
-        )
+    except Exception as exc:
+        cb_record_failure(resource_code, circuit_config, error_code="ADAPTER_EXCEPTION", error_message=str(exc)[:500])
         raise
-
-    # 根据结果更新熔断
     if result.status == "success":
-        cb_record_success(resource_code, cb_cfg)
+        cb_record_success(resource_code, circuit_config)
     else:
-        cb_record_failure(
-            resource_code, cb_cfg,
-            error_code=result.error_code or "ADAPTER_FAILED",
-            error_message=result.error_message or "适配器返回失败",
-        )
-
-    # 写资源执行日志
-    await _write_ucp_execution_log(
-        db, trace_id, resource_code, result, "pipeline_step"
-    )
-
+        cb_record_failure(resource_code, circuit_config, error_code=result.error_code or "ADAPTER_FAILED", error_message=result.error_message or "适配器返回失败")
+    await _write_ucp_execution_log(db, trace_id, resource_code, result, "pipeline_step")
     return {
         "status": result.status,
         "data": result.data,
@@ -715,7 +714,6 @@ async def _execute_resource_step(
         "failed_count": result.failed_count,
         "extra": result.extra,
     }
-
 
 async def _execute_loop_step(
     step_config: dict,
