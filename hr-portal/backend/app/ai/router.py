@@ -2466,7 +2466,9 @@ async def _handle_employee_profile_pending(
                             value=row[code],
                         )
                         for code in ("full_name", "organization_name", "employment_status")
-                        if code in row
+                        if isinstance(row.get(code), str)
+                        and row[code].strip()
+                        and row[code].strip() not in {'-', '--', 'N/A', '暂无'}
                     ],
                 )
                 for row, issued_action in zip(result.rows, issued, strict=True)

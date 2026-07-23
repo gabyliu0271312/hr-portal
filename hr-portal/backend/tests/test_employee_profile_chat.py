@@ -460,6 +460,59 @@ async def test_employee_profile_handler_returns_complete_candidates_without_inte
 
 
 @pytest.mark.asyncio
+async def test_employee_profile_handler_skips_null_candidate_display_fields(monkeypatch):
+    class QueryService:
+        async def query(self, query_spec, *, user, db):
+            return SimpleNamespace(
+                match_kind='candidates',
+                rows=(
+                    {
+                        'employee_id': 1,
+                        'full_name': 'Alice',
+                        'organization_name': None,
+                        'employment_status': None,
+                    },
+                    {
+                        'employee_id': 2,
+                        'full_name': 'Alice',
+                        'organization_name': 'Platform',
+                        'employment_status': 'Active',
+                    },
+                ),
+                effective_requested_field_codes=(EmployeeProfileFieldCode.ORGANIZATION_NAME,),
+                permission_filtered=False,
+                masking_applied=False,
+                scope_filter_applied=True,
+                scope_filter_restrictive=False,
+            )
+
+    async def issue_actions(*args, **kwargs):
+        return (
+            SimpleNamespace(selection_handle='a' * 43),
+            SimpleNamespace(selection_handle='b' * 43),
+        )
+
+    monkeypatch.setattr(ai_router, 'EmployeeProfileQueryService', QueryService)
+    monkeypatch.setattr(ai_router, 'issue_employee_profile_candidate_actions', issue_actions)
+    out = await ai_router._handle_employee_profile_pending(
+        AiChatIn(message='Find Alice'),
+        {'lookup_type': 'name', 'lookup_value': 'Alice', 'requested_field_codes': []},
+        ChatSession(conversation_id=11),
+        SimpleNamespace(id=7),
+        FakeDb(),
+        AiAuditTimer(),
+    )
+
+    assert out.result.type == 'employee_profile_candidates'
+    assert [field.code for field in out.result.data.candidates[0].display_fields] == ['full_name']
+    assert [field.code for field in out.result.data.candidates[1].display_fields] == [
+        'full_name',
+        'organization_name',
+        'employment_status',
+    ]
+
+
+@pytest.mark.asyncio
 async def test_employee_profile_handler_returns_neutral_no_match(monkeypatch):
     class QueryService:
         async def query(self, query_spec, *, user, db):
