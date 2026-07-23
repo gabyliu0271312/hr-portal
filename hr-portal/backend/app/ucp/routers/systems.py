@@ -26,6 +26,15 @@ from app.ucp.system_service import (
     get_system_overview,
     get_systems_overview,
     find_credential_id_for_system,
+    serialize_resource,
+)
+from app.ucp.resource_data_object_service import (
+    ResourceDataObjectError,
+    create_resource_data_object,
+    delete_resource_data_object,
+    list_resource_data_objects,
+    serialize_resource_data_object,
+    update_resource_data_object,
 )
 from app.ucp.config_service import (
     list_pipelines,
@@ -110,6 +119,7 @@ async def route_get_system(
     overview = await get_system_overview(db, system_id)
     if not overview:
         raise HTTPException(404, "系统不存在")
+    overview["resources"] = [serialize_resource(item) for item in overview["resources"]]
     return overview
 
 
@@ -168,24 +178,28 @@ async def route_create_resource(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(require_op("ucp.resources", "C")),
 ):
-    obj = await create_resource(
-        db,
-        system_id=payload["system_id"],
-        resource_code=payload["resource_code"],
-        resource_name=payload["resource_name"],
-        adapter_code=payload.get("adapter_code"),
-        credential_id=payload.get("credential_id"),
-        protocol=payload.get("protocol"),
-        report_config=payload.get("report_config"),
-        mapping_config=payload.get("mapping_config"),
-        file_config=payload.get("file_config"),
-        scheduling=payload.get("scheduling"),
-        notification_config=payload.get("notification_config"),
-        retry_config=payload.get("retry_config"),
-        circuit_breaker_config=payload.get("circuit_breaker_config"),
-        created_by=user.login_name,
-    )
-    return {"id": obj.id, "resource_code": obj.resource_code}
+    try:
+        obj = await create_resource(
+            db,
+            system_id=payload["system_id"],
+            resource_code=payload["resource_code"],
+            resource_name=payload["resource_name"],
+            connector_type=payload.get("connector_type"),
+            adapter_code=payload.get("adapter_code"),
+            credential_id=payload.get("credential_id"),
+            protocol=payload.get("protocol"),
+            report_config=payload.get("report_config"),
+            mapping_config=payload.get("mapping_config"),
+            file_config=payload.get("file_config"),
+            scheduling=payload.get("scheduling"),
+            notification_config=payload.get("notification_config"),
+            retry_config=payload.get("retry_config"),
+            circuit_breaker_config=payload.get("circuit_breaker_config"),
+            created_by=user.login_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return serialize_resource(obj)
 
 
 @router.patch("/resources/{resource_id}")
@@ -195,10 +209,78 @@ async def route_update_resource(
     db: AsyncSession = Depends(get_session),
     _user: User = Depends(require_op("ucp.resources", "U")),
 ):
-    obj = await update_resource(db, resource_id, **payload)
+    try:
+        obj = await update_resource(db, resource_id, **payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if not obj:
         raise HTTPException(404, "资源不存在")
-    return {"id": obj.id}
+    return serialize_resource(obj)
+
+
+@router.get("/resources/{resource_id}/data-objects")
+async def route_list_resource_data_objects(
+    resource_id: int,
+    is_active: bool | None = Query(None),
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(require_op("ucp.resources", "V")),
+):
+    try:
+        items = await list_resource_data_objects(db, resource_id, is_active=is_active)
+    except ResourceDataObjectError as exc:
+        raise HTTPException(404 if str(exc) == "资源不存在" else 400, str(exc)) from exc
+    return {"total": len(items), "items": [serialize_resource_data_object(item) for item in items]}
+
+
+@router.post("/resources/{resource_id}/data-objects", status_code=201)
+async def route_create_resource_data_object(
+    resource_id: int,
+    payload: dict[str, Any],
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op("ucp.resources", "C")),
+):
+    try:
+        item = await create_resource_data_object(db, resource_id, payload, created_by=user.login_name)
+    except ResourceDataObjectError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("create resource data object failed")
+        raise HTTPException(409, "数据对象编码已存在") from exc
+    return serialize_resource_data_object(item)
+
+
+@router.patch("/resources/{resource_id}/data-objects/{object_id}")
+async def route_update_resource_data_object(
+    resource_id: int,
+    object_id: int,
+    payload: dict[str, Any],
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op("ucp.resources", "U")),
+):
+    try:
+        item = await update_resource_data_object(
+            db, resource_id, object_id, payload, updated_by=user.login_name
+        )
+    except ResourceDataObjectError as exc:
+        raise HTTPException(404 if "不存在" in str(exc) else 400, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("update resource data object failed")
+        raise HTTPException(409, "数据对象编码已存在") from exc
+    return serialize_resource_data_object(item)
+
+
+@router.delete("/resources/{resource_id}/data-objects/{object_id}")
+async def route_delete_resource_data_object(
+    resource_id: int,
+    object_id: int,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(require_op("ucp.resources", "D")),
+):
+    try:
+        await delete_resource_data_object(db, resource_id, object_id)
+    except ResourceDataObjectError as exc:
+        raise HTTPException(404 if "不存在" in str(exc) else 400, str(exc)) from exc
+    return {"deleted": object_id}
 
 
 @router.delete("/resources/{resource_id}")
@@ -390,6 +472,9 @@ async def route_update_credential(
         secrets=payload.get("secrets"),
         auth_type=payload.get("auth_type"),
         description=payload.get("description"),
+        env_tag=payload.get("env_tag"),
+        expires_at=payload.get("expires_at"),
+        remind_before_days=payload.get("remind_before_days"),
         updated_by=user.login_name,
     )
     if payload.get("is_primary") is not None:

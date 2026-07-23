@@ -34,9 +34,13 @@ CONNECTOR_TYPES: tuple[dict[str, Any], ...] = (
         "testable": True,
         "defaultSchedule": "\u6bcf\u65e5 06:00",
         "supports_warehouse": True,
-        "supports_ucp": False,
-        "ucp_adapter_code": None,
+        "supports_ucp": True,
+        # 仅供 UCP 服务端内部映射；普通产品界面不得展示 adapter code。
+        "ucp_adapter_code": "FEISHU_SHEET_PULL_ADAPTER",
         "protocol": "feishu_sheets",
+        "connection_kind": "DATA_OBJECT",
+        "object_config_kind": "feishu_sheet",
+        "object_label": "工作表数据对象",
         "status": "active",
     },
     {
@@ -63,17 +67,90 @@ CONNECTOR_TYPES: tuple[dict[str, Any], ...] = (
         "supports_ucp": True,
         "ucp_adapter_code": "FEISHU_BITABLE_PULL_ADAPTER",
         "protocol": "feishu_bitable",
+        "connection_kind": "DATA_OBJECT",
+        "object_config_kind": "feishu_bitable",
+        "object_label": "多维表格数据对象",
+        "status": "active",
+    },
+    {
+        "code": "beisen_report",
+        "label": "北森报表",
+        "description": "通过北森报表 API 拉取一个或多个业务报表数据对象。",
+        "groups": [
+            {"title": "认证信息", "fields": [
+                _field("BEISEN_APP_KEY", "AppKey", required=True, placeholder="北森后台 → 应用管理获取"),
+                _field("BEISEN_APP_SECRET", "AppSecret", "password", required=True),
+                _field("BEISEN_REPORT_ID", "Report ID", required=True, placeholder="北森后台 → 报表管理"),
+            ]},
+            {"title": "报表数据对象", "fields": [
+                _field("BEISEN_TOKEN_URL", "Token 接口", "url", required=True, default="https://openapi.italent.cn/token"),
+                _field("BEISEN_HEADER_URL", "表头接口", "url", required=True, default="https://openapi.italent.cn/Ocean/api/v2/Reports/GridHeader"),
+                _field("BEISEN_DATA_URL", "数据接口", "url", required=True, default="https://openapi.italent.cn/Ocean/api/v2/Reports/GridData"),
+            ]},
+        ],
+        # 数据仓库沿用完整独立来源表单；UCP 按 credential / connection / object 分层消费。
+        "ucp_credential_fields": ["BEISEN_APP_KEY", "BEISEN_APP_SECRET"],
+        "ucp_connection_defaults": {
+            "BEISEN_TOKEN_URL": "https://openapi.italent.cn/token",
+            "BEISEN_HEADER_URL": "https://openapi.italent.cn/Ocean/api/v2/Reports/GridHeader",
+            "BEISEN_DATA_URL": "https://openapi.italent.cn/Ocean/api/v2/Reports/GridData",
+        },
+        "ucp_object_fields": [
+            _field("report_id", "Report ID", required=True, placeholder="北森后台 → 报表管理"),
+        ],
+        "secret_keys": ["BEISEN_APP_KEY", "BEISEN_APP_SECRET"],
+        "testable": True,
+        "defaultSchedule": "每日 06:00",
+        "supports_warehouse": True,
+        "supports_ucp": True,
+        "ucp_adapter_code": "BEISEN_REPORT_PULL_ADAPTER",
+        "legacy_ucp_adapter_codes": ["BEISEN_PENDING_LIST_ADAPTER"],
+        "protocol": "beisen_report",
+        "connection_kind": "DATA_OBJECT",
+        "object_config_kind": "beisen_report",
+        "object_label": "北森报表数据对象",
+        "legacy_source_types": ["beisen_api"],
         "status": "active",
     },
 )
 
 
-def list_connector_types(consumer: Consumer | None = None) -> list[dict[str, Any]]:
+def _public_connector_type(item: dict[str, Any]) -> dict[str, Any]:
+    """Return the product-facing DTO without technical adapter implementation details."""
+    public = deepcopy(item)
+    public.pop("ucp_adapter_code", None)
+    return public
+
+
+def list_connector_types(
+    consumer: Consumer | None = None, *, include_internal: bool = False
+) -> list[dict[str, Any]]:
     if consumer not in (None, "warehouse", "ucp"):
         raise ValueError(f"unsupported connector consumer: {consumer}")
     capability = f"supports_{consumer}" if consumer else None
-    return [deepcopy(item) for item in CONNECTOR_TYPES if capability is None or item[capability]]
+    items = [item for item in CONNECTOR_TYPES if capability is None or item[capability]]
+    if include_internal:
+        return [deepcopy(item) for item in items]
+    return [_public_connector_type(item) for item in items]
 
 
-def get_connector_type(code: str) -> dict[str, Any] | None:
-    return next((deepcopy(item) for item in CONNECTOR_TYPES if item["code"] == code), None)
+def get_connector_type(code: str, *, include_internal: bool = False) -> dict[str, Any] | None:
+    item = next((item for item in CONNECTOR_TYPES if item["code"] == code), None)
+    if item is None:
+        return None
+    return deepcopy(item) if include_internal else _public_connector_type(item)
+
+
+def find_connector_type_by_adapter(adapter_code: str | None) -> dict[str, Any] | None:
+    """Compatibility projection for resources created before connector_type existed."""
+    if not adapter_code:
+        return None
+    item = next(
+        (
+            item for item in CONNECTOR_TYPES
+            if item.get("ucp_adapter_code") == adapter_code
+            or adapter_code in item.get("legacy_ucp_adapter_codes", [])
+        ),
+        None,
+    )
+    return deepcopy(item) if item else None

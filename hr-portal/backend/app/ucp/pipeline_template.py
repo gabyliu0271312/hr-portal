@@ -37,7 +37,10 @@ class PipelineTemplateError(ValueError):
     """模板操作错误."""
 
 
-NODE_TYPES = {"CONNECTOR", "TRANSFORM", "BRANCH", "LOOP"}
+NODE_TYPES = {
+    "CONNECTOR", "TRANSFORM", "BRANCH", "LOOP", "CAPABILITY",
+    "CAPABILITY_LOOKUP", "RECORD_MERGE", "WAREHOUSE_ASSET_SINK",
+}
 TEMPLATE_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+([+-][\w.]+)?$")
 

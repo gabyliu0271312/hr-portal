@@ -128,9 +128,9 @@
                     <el-tag size="small">{{ row.resource_type || 'API' }}</el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column label="适配器" min-width="110">
+                <el-table-column label="接入类型" min-width="110">
                   <template #default="{ row }">
-                    <code v-if="row.adapter_code" style="font-size:11px">{{ row.adapter_code }}</code>
+                    <span v-if="row.connector_type">{{ connectorLabel(row.connector_type) }}</span>
                     <span v-else class="text-muted">—</span>
                   </template>
                 </el-table-column>
@@ -177,8 +177,21 @@
                   <el-button v-if="!c.is_primary" size="small" link type="primary" @click="setPrimaryCredential(c)">
                     设为激活
                   </el-button>
+                  <el-button size="small" link type="primary" @click="openEditCredential(c)">编辑</el-button>
                 </div>
               </div>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="业务能力" name="capabilities">
+            <div class="tab-content">
+              <el-alert type="info" :closable="false" style="margin-bottom: 12px" title="标准 SaaS 系统在此管理业务能力；不会要求创建资源或填写接口信息。" />
+              <el-table v-if="systemCapabilities.length" :data="systemCapabilities" stripe size="small">
+                <el-table-column prop="operation_name" label="业务能力" min-width="170" />
+                <el-table-column label="状态" width="140"><template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '已启用' : '未启用' }}</el-tag><div v-if="row.enabled" class="text-muted">{{ row.test_status }}</div></template></el-table-column>
+                <el-table-column label="操作" width="210"><template #default="{ row }"><el-button v-if="row.enabled" link type="primary" size="small" @click="openCapabilityTest(row)">测试</el-button><el-button v-if="row.enabled" link type="primary" size="small" @click="openCapabilityTestResults(row)">测试记录</el-button><el-button link type="primary" size="small" @click="toggleSystemCapability(row)">{{ row.enabled ? '停用' : '启用' }}</el-button></template></el-table-column>
+              </el-table>
+              <el-empty v-else description="此系统尚未启用标准业务能力" :image-size="60" />
             </div>
           </el-tab-pane>
 
@@ -252,6 +265,55 @@
       </template>
     </el-drawer>
 
+    <el-dialog v-model="capabilityTestVisible" title="测试业务能力" width="520px">
+      <el-alert type="info" :closable="false" style="margin-bottom: 16px">仅输入业务参数；系统不会展示接口地址、Scope 或凭证内容。测试记录会保存脱敏摘要和 Trace。</el-alert>
+      <el-form label-width="110px"><el-form-item v-for="field in capabilityTestFields" :key="field.key" :label="field.label" required><el-input v-model="capabilityTestParameters[field.key]" :placeholder="`输入${field.label}`" /></el-form-item></el-form>
+      <template #footer><el-button @click="capabilityTestVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="submitCapabilityTest">开始测试</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="capabilityTestResultVisible" :title="`${capabilityUnderTest?.operation_name || '业务能力'}测试结果`" width="760px" destroy-on-close>
+      <el-tabs v-model="capabilityResultTab">
+        <el-tab-pane label="本次结果" name="current">
+          <el-alert :type="capabilityTestResult?.status === 'SUCCESS' ? 'success' : 'warning'" :closable="false" style="margin-bottom:16px" :title="capabilityTestResult?.error_message || capabilityTestResult?.status || '暂无测试结果'" />
+          <el-descriptions v-if="capabilityTestResult" :column="2" border size="small" style="margin-bottom:16px">
+            <el-descriptions-item label="Trace"><code>{{ capabilityTestResult.trace_id?.slice(0, 8) }}</code></el-descriptions-item>
+            <el-descriptions-item label="测试时间">{{ formatDateTime(capabilityTestResult.created_at) }}</el-descriptions-item>
+          </el-descriptions>
+          <el-divider content-position="left">返回结果（已脱敏）</el-divider>
+          <el-empty v-if="capabilityResultRows.length === 0" description="本次未返回可展示的数据" :image-size="56" />
+          <el-collapse v-else>
+            <el-collapse-item v-for="(row, index) in capabilityResultRows" :key="index" :title="`结果 ${index + 1}`" :name="index">
+              <el-descriptions :column="1" border size="small">
+                <el-descriptions-item v-for="([key, value]) in objectEntries(row)" :key="key" :label="resultFieldLabel(key)">{{ displayResultValue(value) }}</el-descriptions-item>
+              </el-descriptions>
+            </el-collapse-item>
+          </el-collapse>
+        </el-tab-pane>
+        <el-tab-pane label="测试记录" name="history">
+          <div class="capability-result-toolbar"><span>仅保留脱敏的输入和响应摘要</span><el-button link type="primary" :loading="capabilityTestHistoryLoading" @click="loadCapabilityTestHistory">刷新</el-button></div>
+          <el-table v-if="capabilityTestHistory.length" :data="capabilityTestHistory" stripe size="small" max-height="360">
+            <el-table-column label="时间" min-width="145"><template #default="{ row }">{{ formatDateTime(row.created_at) }}</template></el-table-column>
+            <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="row.status === 'SUCCESS' ? 'success' : 'warning'" size="small">{{ row.status }}</el-tag></template></el-table-column>
+            <el-table-column label="Trace" width="100"><template #default="{ row }"><code>{{ row.trace_id?.slice(0, 8) }}</code></template></el-table-column>
+            <el-table-column label="结果" min-width="120"><template #default="{ row }">{{ (row.response_summary?.rows || []).length }} 条</template></el-table-column>
+            <el-table-column label="操作" width="70"><template #default="{ row }"><el-button link type="primary" size="small" @click="viewCapabilityTestRun(row)">查看</el-button></template></el-table-column>
+          </el-table>
+          <el-empty v-else-if="!capabilityTestHistoryLoading" description="暂无测试记录" :image-size="56" />
+        </el-tab-pane>
+      </el-tabs>
+    </el-dialog>
+
+    <el-dialog v-model="credentialEditVisible" title="编辑凭证" width="520px">
+      <el-form :model="credentialEditForm" label-width="105px">
+        <el-form-item label="凭证名称" required><el-input v-model="credentialEditForm.credential_name" /></el-form-item>
+        <el-form-item label="环境"><el-select v-model="credentialEditForm.env_tag" style="width:100%"><el-option label="生产" value="prod" /><el-option label="测试" value="staging" /><el-option label="开发" value="dev" /><el-option label="备份" value="backup" /></el-select></el-form-item>
+        <el-form-item label="认证方式"><el-select v-model="credentialEditForm.auth_type" style="width:100%"><el-option label="API Key" value="api_key" /><el-option label="Basic" value="basic" /><el-option label="OAuth2" value="oauth2" /><el-option label="Token" value="token" /></el-select></el-form-item>
+        <el-form-item label="更新密钥"><div v-for="field in currentEditCredentialFields" :key="field.key" class="cred-row"><el-input :model-value="field.label" disabled style="width:160px" /><el-input v-model="credentialEditForm.secrets[field.key]" type="password" :placeholder="`留空则不修改；输入新的 ${field.label}`" style="flex:1" /></div></el-form-item>
+        <el-form-item label="说明"><el-input v-model="credentialEditForm.description" type="textarea" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="credentialEditVisible=false">取消</el-button><el-button type="primary" :loading="submitting" @click="saveCredentialEdit">保存</el-button></template>
+    </el-dialog>
+
     <!-- 资源详情/编辑抽屉 (Phase 5-4: schema 驱动字段渲染) -->
     <el-drawer
       v-model="resourceDrawerOpen"
@@ -267,20 +329,19 @@
           <el-form-item label="资源名称">
             <el-input v-model="resourceEditForm.resource_name" />
           </el-form-item>
-          <el-form-item label="适配器">
+          <el-form-item label="接入类型">
             <el-select
-              v-model="resourceEditForm.adapter_code"
+              v-model="resourceEditForm.connector_type"
               filterable
-              clearable
-              placeholder="选择已启用的适配器"
+              placeholder="选择接入类型"
               style="width: 100%"
-              @change="onEditAdapterChange"
+              @change="onEditConnectorChange"
             >
               <el-option
-                v-for="a in adapters"
-                :key="a.adapter_code"
-                :label="`${a.name} (${a.adapter_code})`"
-                :value="a.adapter_code"
+                v-for="item in connectorTypes"
+                :key="item.code"
+                :label="item.label"
+                :value="item.code"
               />
             </el-select>
           </el-form-item>
@@ -311,7 +372,7 @@
             empty-text="当前 adapter 未注册 schema, 无扩展字段。"
           />
         </el-form>
-        <template v-if="resourceEditForm.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER'">
+        <template v-if="resourceEditForm.connector_type === '__legacy_bitable__'">
           <el-divider content-position="left">飞书多维表格数据对象</el-divider>
           <div class="resource-object-toolbar"><span>一个资源可配置多张业务表</span><el-button type="primary" size="small" @click="openBitableTableDialog()">新增数据对象</el-button></div>
           <el-table v-loading="bitableTablesLoading" :data="bitableTables" size="small" max-height="240">
@@ -322,6 +383,16 @@
             <el-table-column label="操作" width="160"><template #default="{ row }"><el-button link size="small" @click="openBitableTableDialog(row)">编辑</el-button><el-button link size="small" @click="previewBitableTable(row)">预览</el-button><el-button link type="danger" size="small" @click="removeBitableTable(row)">删除</el-button></template></el-table-column>
           </el-table>
           <el-empty v-if="!bitableTablesLoading && bitableTables.length === 0" description="暂无数据对象，新增后可在流水线中选择具体表" :image-size="50" />
+        </template>
+        <template v-if="resourceEditForm.connector_type && resourceEditForm.connector_type !== '__legacy_bitable__'">
+          <el-divider content-position="left">{{ connectorObjectLabel(resourceEditForm.connector_type) }}</el-divider>
+          <div class="resource-object-toolbar"><span>连接共用凭证；在这里配置可被流水线选择的多个数据对象。</span><el-button type="primary" size="small" @click="openDataObjectDialog()">新增数据对象</el-button></div>
+          <el-table v-if="dataObjects.length" :data="dataObjects" size="small" border style="margin-top:10px">
+            <el-table-column prop="object_code" label="编码" min-width="120" /><el-table-column prop="object_name" label="名称" min-width="140" />
+            <el-table-column label="状态" width="76"><template #default="{ row }"><el-tag size="small" :type="row.is_active ? 'success' : 'info'">{{ row.is_active ? '启用' : '停用' }}</el-tag></template></el-table-column>
+            <el-table-column label="操作" width="130"><template #default="{ row }"><el-button link type="primary" size="small" @click="openDataObjectDialog(row)">编辑</el-button><el-button link type="danger" size="small" @click="removeDataObject(row)">删除</el-button></template></el-table-column>
+          </el-table>
+          <el-empty v-else description="暂无数据对象，新增后可在流水线中选择" :image-size="50" />
         </template>
 
         <!-- Phase 6-3: 反向引用 — 哪些流水线引用了此 resource (蓝本 v2 场景 6) -->
@@ -400,8 +471,14 @@
           凭证是「钥匙」，稍后录入；同一系统可挂多套凭证（生产 / 测试 / 备份）。
         </el-alert>
         <el-form :model="systemForm" label-width="100px">
+          <el-form-item label="标准系统">
+            <el-select v-model="selectedPackageCode" clearable placeholder="可选：选择已内置的标准系统" style="width: 100%" @change="selectStandardPackage">
+              <el-option v-for="item in standardPackages" :key="item.package_code" :label="item.package_name" :value="item.package_code" />
+            </el-select>
+            <div v-if="isStandardSystem" class="text-muted">后续直接启用业务能力，无需添加资源、选择适配器或填写接口信息。</div>
+          </el-form-item>
           <el-form-item label="系统编码" required>
-            <el-input v-model="systemForm.system_code" placeholder="如 BEISEN / FEISHU" />
+            <el-input v-model="systemForm.system_code" placeholder="如 BEISEN / FEISHU" :disabled="isStandardSystem" />
           </el-form-item>
           <el-form-item label="系统名称" required>
             <el-input v-model="systemForm.system_name" placeholder="如 北森 / 飞书" />
@@ -506,6 +583,18 @@
 
       <!-- Step 3: 添加资源（可选，列表 + 添加按钮，蓝本 v2 场景 3） -->
       <template v-else-if="wizardStep === 3">
+        <template v-if="isStandardSystem">
+          <el-alert type="success" :closable="false" style="margin-bottom: 16px" title="选择要启用的业务能力" />
+          <div class="text-muted" style="margin-bottom: 12px">能力测试需要真实业务参数；当前可先启用，状态将显示为“待补充测试参数”。</div>
+          <el-checkbox-group v-model="selectedOperationIds" class="capability-list">
+            <el-card v-for="operation in selectedPackageOperations" :key="operation.operation_id" shadow="never" class="capability-card">
+              <el-checkbox :label="operation.operation_id">{{ operation.operation_name }}</el-checkbox>
+              <div class="text-muted capability-fields">输入：{{ operation.input_fields.join('、') || '无' }}　输出：{{ operation.output_fields.join('、') || '无' }}</div>
+              <el-tag size="small" type="warning">待补充测试参数</el-tag>
+            </el-card>
+          </el-checkbox-group>
+        </template>
+        <template v-else>
         <el-alert
           type="info"
           :closable="false"
@@ -560,6 +649,7 @@
           description="尚未添加资源（点击右上角「+ 添加资源」开始；或跳过此步,稍后到系统详情补加）"
           :image-size="80"
         />
+        </template>
       </template>
 
       <!-- Step 4: 配置检查 -->
@@ -575,17 +665,19 @@
           <el-descriptions-item label="系统类型">{{ systemForm.system_type }}</el-descriptions-item>
           <el-descriptions-item label="凭证">{{ credForm.credential_name }} · {{ credForm.env_tag }} · {{ credForm.auth_type }}</el-descriptions-item>
           <el-descriptions-item label="资源">
-            <span v-if="wizardResources.length > 0">已添加 {{ wizardResources.length }} 个</span>
+            <span v-if="isStandardSystem">标准 SaaS 不需要创建资源</span>
+            <span v-else-if="wizardResources.length > 0">已添加 {{ wizardResources.length }} 个</span>
             <span v-else class="text-muted">跳过（稍后添加）</span>
           </el-descriptions-item>
+          <el-descriptions-item v-if="isStandardSystem" label="业务能力">已启用 {{ selectedOperationIds.length }} 项；测试状态：待补充测试参数</el-descriptions-item>
         </el-descriptions>
         <div class="finish-checklist">
           <div class="check-item"><el-icon class="ok"><CircleCheck /></el-icon>系统信息已录入</div>
           <div class="check-item"><el-icon class="ok"><CircleCheck /></el-icon>第一套凭证已绑定</div>
           <div class="check-item">
-            <el-icon v-if="wizardResources.length > 0" class="ok"><CircleCheck /></el-icon>
+            <el-icon v-if="isStandardSystem || wizardResources.length > 0" class="ok"><CircleCheck /></el-icon>
             <el-icon v-else class="skip"><DocumentRemove /></el-icon>
-            {{ wizardResources.length > 0 ? `已添加 ${wizardResources.length} 个资源` : '资源 — 跳过' }}
+            {{ isStandardSystem ? `已启用 ${selectedOperationIds.length} 项业务能力` : (wizardResources.length > 0 ? `已添加 ${wizardResources.length} 个资源` : '资源 — 跳过') }}
           </div>
         </div>
       </template>
@@ -595,8 +687,8 @@
         <el-button v-if="wizardStep > 1" @click="wizardStep--">← 上一步</el-button>
         <el-button @click="cancelWizard">取消</el-button>
         <el-button
-          v-if="wizardStep === 3"
-          @click="wizardStep = 4"
+          v-if="wizardStep === 3 && !isStandardSystem"
+          @click="submitSystemStep3"
         >
           跳过
         </el-button>
@@ -653,20 +745,19 @@
         <el-form-item label="资源名称" required>
           <el-input v-model="resourceForm.resource_name" placeholder="如 员工表" />
         </el-form-item>
-        <el-form-item label="适配器">
+        <el-form-item label="接入类型" required>
           <el-select
-            v-model="resourceForm.adapter_code"
+            v-model="resourceForm.connector_type"
             filterable
-            clearable
-            placeholder="选择已启用的适配器"
+            placeholder="选择接入类型"
             style="width: 100%"
-            @change="onAddAdapterChange"
+            @change="onAddConnectorChange"
           >
             <el-option
-              v-for="a in adapters"
-              :key="a.adapter_code"
-              :label="`${a.name} (${a.adapter_code})`"
-              :value="a.adapter_code"
+              v-for="item in connectorTypes"
+              :key="item.code"
+              :label="item.label"
+              :value="item.code"
             />
           </el-select>
         </el-form-item>
@@ -691,7 +782,7 @@
 
         <!-- Phase 5-4: schema 驱动的动态字段 (通用组件) -->
         <SchemaFormField
-          v-if="addSchema"
+          v-if="addSchema && !resourceForm.connector_type"
           :schema="addSchema"
           v-model="addFormValues"
           title="配置（schema 驱动）"
@@ -702,6 +793,11 @@
         <el-button @click="showAddResource = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="submitResource">创建</el-button>
       </template>
+    </el-dialog>
+
+    <el-dialog v-model="dataObjectDialogVisible" :title="editingDataObject ? '编辑数据对象' : '新增数据对象'" width="620px" append-to-body>
+      <el-form :model="dataObjectForm" label-width="105px"><el-form-item label="对象编码" required><el-input v-model="dataObjectForm.object_code" placeholder="如 PENDING_EMPLOYEE" /></el-form-item><el-form-item label="对象名称" required><el-input v-model="dataObjectForm.object_name" placeholder="如 待入职人员" /></el-form-item><template v-if="activeResource?.connector_type === 'beisen_report'"><el-alert type="info" :closable="false" style="margin-bottom:16px" title="北森凭证和报表接口由连接统一复用；每个数据对象只需指定一张北森报表。" /><el-form-item label="Report ID" required><el-input v-model="dataObjectForm.report_id" placeholder="北森后台 → 报表管理" /></el-form-item></template><el-form-item v-else :label="objectConfigTitle"><el-input v-model="dataObjectForm.object_config" type="textarea" :rows="8" :placeholder="objectConfigPlaceholder" /></el-form-item><el-form-item label="字段映射"><el-input v-model="dataObjectForm.field_mapping" type="textarea" :rows="3" placeholder="可选，JSON 对象" /></el-form-item><el-form-item label="启用"><el-switch v-model="dataObjectForm.is_active" /></el-form-item></el-form>
+      <template #footer><el-button @click="dataObjectDialogVisible = false">取消</el-button><el-button type="primary" :loading="dataObjectSaving" @click="saveDataObject">保存</el-button></template>
     </el-dialog>
 
     <!-- 编辑系统 -->
@@ -783,7 +879,7 @@ const resourcesMap = ref<Record<number, any[]>>({})
 const credentials = ref<any[]>([])
 
 // ── Phase 5-4: schema 驱动配置 ──
-const adapters = ref<any[]>([])
+const connectorTypes = ref<any[]>([])
 
 // 抽屉（编辑已有资源）
 const editSchema = ref<{ categories: any[] } | null>(null)
@@ -852,22 +948,20 @@ function buildBackendJsonFields(
   return out
 }
 
-async function loadAdapters() {
+async function loadConnectorTypes() {
   try {
-    const [list, connectorTypes] = await Promise.all([
-      (ucpApi as any).adapterRegistryList({ is_active: true, limit: 200 }),
-      datasourcesApi.types('ucp'),
-    ])
-    const merged = new Map<string, any>((list || []).map((item: any) => [item.adapter_code, item]))
-    for (const item of connectorTypes) {
-      if (item.ucp_adapter_code && !merged.has(item.ucp_adapter_code)) {
-        merged.set(item.ucp_adapter_code, { adapter_code: item.ucp_adapter_code, name: item.label, description: item.description, connector_type: item.code })
-      }
-    }
-    adapters.value = [...merged.values()]
+    const items = await datasourcesApi.types('ucp')
+    connectorTypes.value = (items || []).filter((item: any) => item.connection_kind === 'DATA_OBJECT')
   } catch (_e) {
-    adapters.value = []
+    connectorTypes.value = []
   }
+}
+
+function connectorLabel(code: string | null | undefined) {
+  return connectorTypes.value.find((item: any) => item.code === code)?.label || code || '旧版资源'
+}
+function connectorObjectLabel(code: string | null | undefined) {
+  return connectorTypes.value.find((item: any) => item.code === code)?.object_label || '数据对象'
 }
 
 async function loadAdapterSchema(code: string | null | undefined): Promise<SchemaCategory[]> {
@@ -884,6 +978,11 @@ async function onAddAdapterChange(code: string | null) {
   const cats = await loadAdapterSchema(code || null)
   addSchema.value = cats.length > 0 ? { categories: cats } : null
   addFormValues.value = initFormValuesFromSchema(cats)
+}
+
+async function onAddConnectorChange(_code: string | null) {
+  addSchema.value = null
+  addFormValues.value = {}
 }
 
 async function onEditAdapterChange(code: string | null) {
@@ -911,10 +1010,29 @@ async function onEditAdapterChange(code: string | null) {
   }
 }
 
+async function onEditConnectorChange(_code: string | null) {
+  editSchema.value = null
+  editFormValues.value = {}
+}
+
 // 系统详情抽屉
 const drawerOpen = ref(false)
 const activeSystem = ref<any>(null)
 const systemCredentials = ref<any[]>([])
+const systemCapabilities = ref<any[]>([])
+const capabilityTestVisible = ref(false)
+const capabilityUnderTest = ref<any>(null)
+const capabilityTestParameters = ref<Record<string, string>>({})
+const capabilityTestFields = computed(() => capabilityUnderTest.value?.input_parameters || [])
+const capabilityTestResultVisible = ref(false)
+const capabilityResultTab = ref('current')
+const capabilityTestResult = ref<any>(null)
+const capabilityTestHistory = ref<any[]>([])
+const capabilityTestHistoryLoading = ref(false)
+const capabilityResultRows = computed(() => capabilityTestResult.value?.response_summary?.rows || [])
+const credentialEditVisible = ref(false)
+const credentialEditForm = ref<any>({})
+const currentEditCredentialFields = computed(() => AUTH_FIELDS[credentialEditForm.value.auth_type] || [])
 
 // 资源详情抽屉
 const resourceDrawerOpen = ref(false)
@@ -926,6 +1044,22 @@ const bitableSaving = ref(false)
 const editingBitableTable = ref<any>(null)
 const bitableForm = ref<any>({ object_code: '', object_name: '', app_token: '', table_id: '', view_id: '', field_mapping: '{}', page_size: 100, max_records: 10000, is_active: true })
 const bitablePreview = ref<any>(null)
+const dataObjects = ref<any[]>([])
+const dataObjectDialogVisible = ref(false)
+const dataObjectSaving = ref(false)
+const editingDataObject = ref<any>(null)
+const dataObjectForm = ref<any>({ object_code: '', object_name: '', report_id: '', object_config: '{}', field_mapping: '{}', is_active: true })
+const objectConfigTitle = computed(() => {
+  const type = activeResource.value?.connector_type
+  return type === 'feishu_sheet' ? '表格配置' : type === 'feishu_bitable' ? '多维表格配置' : type === 'beisen_report' ? '报表配置' : '对象配置'
+})
+const objectConfigPlaceholder = computed(() => {
+  const type = activeResource.value?.connector_type
+  if (type === 'feishu_sheet') return '{ "source_url": "飞书链接", "sheet_id": "可选", "range": "A1:ZZ10000" }'
+  if (type === 'feishu_bitable') return '{ "app_token": "appxxx", "table_id": "tblxxx", "view_id": "可选" }'
+  if (type === 'beisen_report') return '{ "report_id": "报表ID", "data_url": "报表地址", "method": "POST", "body_template": {} }'
+  return '{}'
+})
 // Phase 6-3: 反向引用状态
 const usingPipelines = ref<{ resource_id: number; total: number; items: any[] } | null>(null)
 const usingPipelinesLoading = ref(false)
@@ -934,8 +1068,14 @@ const resourceEditForm = ref<any>({})
 // 添加系统向导
 const showAddSystem = ref(false)
 const wizardStep = ref(1)
-const wizardSteps = ['系统信息', '第一套凭证', '添加资源', '配置检查']
-const wizardTitle = computed(() => `添加业务系统 — 第 ${wizardStep.value}/4 步：${wizardSteps[wizardStep.value - 1]}`)
+const standardPackages = ref<any[]>([])
+const selectedPackageCode = ref('')
+const selectedOperationIds = ref<number[]>([])
+const isStandardSystem = computed(() => Boolean(selectedPackageCode.value))
+const selectedPackage = computed(() => standardPackages.value.find((item) => item.package_code === selectedPackageCode.value))
+const selectedPackageOperations = computed(() => selectedPackage.value?.operations || [])
+const wizardSteps = computed(() => isStandardSystem.value ? ['系统信息', '第一套凭证', '启用业务能力', '配置检查'] : ['系统信息', '第一套凭证', '添加资源', '配置检查'])
+const wizardTitle = computed(() => `添加业务系统 — 第 ${wizardStep.value}/4 步：${wizardSteps.value[wizardStep.value - 1]}`)
 const pendingSystemId = ref<number | null>(null)
 const pendingCredId = ref<number | null>(null)
 const systemForm = ref({
@@ -955,7 +1095,7 @@ const addResourceSystem = ref<any>(null)
 const resourceForm = ref<any>({
   resource_code: '',
   resource_name: '',
-  adapter_code: '',
+  connector_type: '',
   credential_id: null,
 })
 
@@ -995,7 +1135,17 @@ const AUTH_FIELDS: Record<string, { key: string; label: string }[]> = {
   token: [{ key: 'token', label: 'token' }],
 }
 
-const currentCredFields = computed(() => AUTH_FIELDS[credForm.value.auth_type] || [])
+const currentCredFields = computed(() => {
+  const systemCode = String(systemForm.value.system_code || '').toUpperCase()
+  const systemName = String(systemForm.value.system_name || '')
+  if (systemCode.includes('BEISEN') || systemName.includes('北森')) {
+    return [
+      { key: 'BEISEN_APP_KEY', label: '北森 AppKey' },
+      { key: 'BEISEN_APP_SECRET', label: '北森 AppSecret' },
+    ]
+  }
+  return AUTH_FIELDS[credForm.value.auth_type] || []
+})
 
 watch(
   () => credForm.value.auth_type,
@@ -1165,18 +1315,115 @@ async function openSystem(sys: any) {
   detailPipelines.value = []
   detailExecutions.value = []
   detailAuditLogs.value = []
+  systemCapabilities.value = []
   // 拉详情（含凭证）
   try {
     const detail = await ucpApi.systemDetail(sys.id)
     systemCredentials.value = detail.credentials || []
     // 同步资源（防止遗漏）
     resourcesMap.value[sys.id] = detail.resources || []
+    systemCapabilities.value = await ucpApi.systemCapabilities(sys.id)
   } catch (_e) {
   }
   // 异步加载流水线和执行记录
   loadDetailPipelines(sys.id)
   loadDetailExecutions(sys.id)
   drawerOpen.value = true
+}
+
+async function toggleSystemCapability(capability: any) {
+  if (!activeSystem.value) return
+  try {
+    await ucpApi.setSystemCapability(activeSystem.value.id, capability.operation_id, {
+      credential_id: systemCredentials.value.find((item: any) => item.is_primary)?.id || systemCredentials.value[0]?.id,
+      enabled: !capability.enabled,
+    })
+    systemCapabilities.value = await ucpApi.systemCapabilities(activeSystem.value.id)
+    ElMessage.success(capability.enabled ? '业务能力已停用' : '业务能力已启用')
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '更新业务能力失败')
+  }
+}
+
+function openEditCredential(credential: any) {
+  credentialEditForm.value = { id: credential.id, credential_name: credential.credential_name, env_tag: credential.env_tag || 'prod', auth_type: credential.auth_type, description: credential.description || '', secrets: {} }
+  credentialEditVisible.value = true
+}
+
+async function saveCredentialEdit() {
+  submitting.value = true
+  try {
+    const payload = { ...credentialEditForm.value }
+    const fields = currentEditCredentialFields.value
+    const provided = fields.filter((field) => payload.secrets[field.key]?.trim())
+    if (provided.length > 0 && provided.length !== fields.length) { ElMessage.warning('如需轮换密钥，请完整填写当前认证方式要求的全部密钥字段'); return }
+    if (provided.length === 0) delete payload.secrets
+    await ucpApi.updateCredential(payload.id, payload)
+    credentialEditVisible.value = false
+    ElMessage.success('凭证已更新')
+    if (activeSystem.value) await openSystem(activeSystem.value)
+    await load()
+  } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '更新凭证失败') } finally { submitting.value = false }
+}
+
+function openCapabilityTest(capability: any) {
+  capabilityUnderTest.value = capability
+  capabilityTestParameters.value = Object.fromEntries((capability.input_parameters || []).map((field: any) => [field.key, '']))
+  capabilityTestVisible.value = true
+}
+
+async function submitCapabilityTest() {
+  if (!activeSystem.value || !capabilityUnderTest.value) return
+  submitting.value = true
+  try {
+    const result = await ucpApi.testSystemCapability(activeSystem.value.id, capabilityUnderTest.value.operation_id, capabilityTestParameters.value)
+    ElMessage.success(`${result.message}（Trace：${result.trace_id.slice(0, 8)}）`)
+    capabilityTestVisible.value = false
+    capabilityTestResult.value = result.test_run || null
+    capabilityResultTab.value = 'current'
+    capabilityTestResultVisible.value = true
+    await loadCapabilityTestHistory()
+    systemCapabilities.value = await ucpApi.systemCapabilities(activeSystem.value.id)
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '能力测试失败')
+  } finally { submitting.value = false }
+}
+
+async function loadCapabilityTestHistory() {
+  if (!activeSystem.value || !capabilityUnderTest.value) return
+  capabilityTestHistoryLoading.value = true
+  try {
+    capabilityTestHistory.value = await ucpApi.systemCapabilityTestRuns(activeSystem.value.id, capabilityUnderTest.value.operation_id)
+  } catch (error: any) {
+    capabilityTestHistory.value = []
+    ElMessage.error(error?.response?.data?.detail || '加载测试记录失败')
+  } finally { capabilityTestHistoryLoading.value = false }
+}
+
+async function openCapabilityTestResults(capability: any) {
+  capabilityUnderTest.value = capability
+  capabilityTestResult.value = null
+  capabilityResultTab.value = 'history'
+  capabilityTestResultVisible.value = true
+  await loadCapabilityTestHistory()
+}
+
+function viewCapabilityTestRun(testRun: any) {
+  capabilityTestResult.value = testRun
+  capabilityResultTab.value = 'current'
+}
+
+function objectEntries(row: Record<string, any>): [string, any][] {
+  return Object.entries(row || {})
+}
+
+function resultFieldLabel(key: string) {
+  const labels: Record<string, string> = { application_id: '投递记录 ID', id: 'Offer ID', offer_id: 'Offer ID', offer_status: 'Offer 状态' }
+  return labels[key] || key
+}
+
+function displayResultValue(value: unknown) {
+  return typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '—')
 }
 
 async function loadDetailPipelines(sysId: number) {
@@ -1231,20 +1478,50 @@ async function previewBitableTable(item: any) {
   try { bitablePreview.value = await (ucpApi as any).previewBitableTable(activeResource.value.id, item.id); ElMessage.success(`预览成功，共 ${bitablePreview.value.row_count} 条`) }
   catch (e: any) { ElMessage.error(e?.response?.data?.detail || '预览失败') }
 }
+async function loadDataObjects(resourceId: number) {
+  try { dataObjects.value = (await ucpApi.resourceDataObjects(resourceId)).items || [] } catch { dataObjects.value = [] }
+}
+function openDataObjectDialog(item?: any) {
+  editingDataObject.value = item || null
+  dataObjectForm.value = item ? { ...item, report_id: item.object_config?.report_id || '', object_config: JSON.stringify(item.object_config || {}, null, 2), field_mapping: JSON.stringify(item.field_mapping || {}, null, 2) } : { object_code: '', object_name: '', report_id: '', object_config: '{}', field_mapping: '{}', is_active: true }
+  dataObjectDialogVisible.value = true
+}
+async function saveDataObject() {
+  if (!activeResource.value) return
+  let objectConfig: Record<string, any>; let fieldMapping: Record<string, any>
+  try {
+    objectConfig = activeResource.value.connector_type === 'beisen_report'
+      ? { report_id: String(dataObjectForm.value.report_id || '').trim() }
+      : JSON.parse(dataObjectForm.value.object_config || '{}')
+    fieldMapping = JSON.parse(dataObjectForm.value.field_mapping || '{}')
+  } catch { ElMessage.error('对象配置和字段映射必须是合法 JSON 对象'); return }
+  if (activeResource.value.connector_type === 'beisen_report' && !objectConfig.report_id) { ElMessage.warning('请填写 Report ID'); return }
+  dataObjectSaving.value = true
+  try {
+    const payload = { ...dataObjectForm.value, object_config: objectConfig, field_mapping: fieldMapping }
+    if (editingDataObject.value) await ucpApi.updateResourceDataObject(activeResource.value.id, editingDataObject.value.id, payload)
+    else await ucpApi.createResourceDataObject(activeResource.value.id, payload)
+    ElMessage.success('数据对象已保存'); dataObjectDialogVisible.value = false; await loadDataObjects(activeResource.value.id)
+  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') } finally { dataObjectSaving.value = false }
+}
+async function removeDataObject(item: any) {
+  if (!activeResource.value) return
+  try { await ucpApi.deleteResourceDataObject(activeResource.value.id, item.id); ElMessage.success('数据对象已删除'); await loadDataObjects(activeResource.value.id) } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '删除失败') }
+}
 async function openResource(sys: any, res: any) {
   activeResource.value = res
   resourceEditForm.value = {
     resource_name: res.resource_name,
-    adapter_code: res.adapter_code,
+    connector_type: res.connector_type,
     credential_id: res.credential_id,
     status: res.status,
   }
   // 触发 schema 加载并反填历史值
-  await onEditAdapterChange(res.adapter_code)
+  await onEditConnectorChange(res.connector_type)
   resourceDrawerOpen.value = true
   // Phase 6-3: 反向引用 — 拉取引用此 resource 的流水线
   loadUsingPipelines(res.id)
-  if (res.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER') await loadBitableTables(res.id)
+  if (res.connector_type) await loadDataObjects(res.id)
 }
 
 async function loadUsingPipelines(resourceId: number) {
@@ -1286,7 +1563,7 @@ async function addResource(sys: any) {
   resourceForm.value = {
     resource_code: '',
     resource_name: '',
-    adapter_code: '',
+    connector_type: '',
     // 向导 Step 3 触发时,默认凭证 = 刚创建的 pendingCredId
     credential_id: addResourceFromWizardFlag.value && pendingCredId.value ? pendingCredId.value : null,
   }
@@ -1379,9 +1656,8 @@ async function saveResource() {
       status: resourceEditForm.value.status,
       ...jsonFields,
     }
-    // adapter_code 允许空(用 sendUndefined)——后端不传则不动
-    if (resourceEditForm.value.adapter_code) {
-      body.adapter_code = resourceEditForm.value.adapter_code
+    if (resourceEditForm.value.connector_type) {
+      body.connector_type = resourceEditForm.value.connector_type
     }
     await ucpApi.updateResource(activeResource.value.id, body)
     ElMessage.success('已保存')
@@ -1439,8 +1715,30 @@ function openAddSystemWizard(opts: { mode?: 'system' | 'credOnly'; system?: any 
     secrets: {} as Record<string, string>,
   }
   pendingSystemId.value = null
+  selectedPackageCode.value = ''
+  selectedOperationIds.value = []
   wizardStep.value = 1
+  loadStandardPackages()
   showAddSystem.value = true
+}
+
+async function loadStandardPackages() {
+  try {
+    standardPackages.value = await ucpApi.standardPackages()
+  } catch {
+    standardPackages.value = []
+  }
+}
+
+function selectStandardPackage() {
+  const packageItem = selectedPackage.value
+  if (!packageItem) return
+  systemForm.value.system_code = packageItem.package_code
+  systemForm.value.system_name = packageItem.package_name
+  systemForm.value.system_type = 'HR_SAAS'
+  selectedOperationIds.value = packageItem.operations
+    .filter((item: any) => item.object_code === 'OFFER')
+    .map((item: any) => item.operation_id)
 }
 
 // ── 给已存在系统补充凭证 ──
@@ -1559,6 +1857,10 @@ async function submitSystemStep2() {
     })
     pendingCredId.value = r.id
     ElMessage.success('凭证已创建并绑定到系统')
+    if (isStandardSystem.value) {
+      wizardStep.value = 3
+      return
+    }
     // 预填资源 form 凭证
     resourceForm.value.credential_id = r.id
     // 进入 Step 3: 加载该系统下的资源列表
@@ -1575,6 +1877,24 @@ async function submitSystemStep2() {
 // 这里只做"下一步"按钮的兜底提交（资源为空时直接进 Step 4）；
 // 若列表非空,说明用户已通过对话框完成创建,直接到 Step 4。
 async function submitSystemStep3() {
+  if (isStandardSystem.value) {
+    if (!pendingSystemId.value || !pendingCredId.value || selectedOperationIds.value.length === 0) {
+      ElMessage.warning('请至少启用一项业务能力')
+      return
+    }
+    submitting.value = true
+    try {
+      await Promise.all(selectedOperationIds.value.map((operationId) => ucpApi.setSystemCapability(
+        pendingSystemId.value!, operationId, { credential_id: pendingCredId.value!, enabled: true }
+      )))
+      ElMessage.success('业务能力已启用，待补充测试参数后可进行连接测试')
+    } catch (e: any) {
+      ElMessage.error(e?.response?.data?.detail || '启用业务能力失败')
+      return
+    } finally {
+      submitting.value = false
+    }
+  }
   wizardStep.value = 4
 }
 
@@ -1628,6 +1948,10 @@ async function submitResource() {
     ElMessage.warning('请填写资源编码和名称')
     return
   }
+  if (!resourceForm.value.connector_type) {
+    ElMessage.warning('请选择接入类型')
+    return
+  }
   submitting.value = true
   try {
     // Phase 5-4: 按 schema 重组 8 个 JSON 字段
@@ -1638,7 +1962,7 @@ async function submitResource() {
       system_id: addResourceSystem.value.id,
       resource_code: resourceForm.value.resource_code,
       resource_name: resourceForm.value.resource_name,
-      adapter_code: resourceForm.value.adapter_code || undefined,
+      connector_type: resourceForm.value.connector_type,
       credential_id: resourceForm.value.credential_id || undefined,
       ...jsonFields,
     })
@@ -1662,7 +1986,8 @@ async function submitResource() {
 
 // 加载 adapter 列表
 onMounted(async () => {
-  await loadAdapters()
+  await loadConnectorTypes()
+  await loadStandardPackages()
   await load()
 })
 </script>
@@ -1804,6 +2129,7 @@ onMounted(async () => {
 .resource-detail { padding: 0 8px; }
 .drawer-footer { display: flex; justify-content: space-between; margin-top: 24px; }
 .cred-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
+.capability-result-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; color: #8f959e; font-size: 12px; }
 
 /* ── Phase 6-3: 反向引用列表 ── */
 .ref-loading {
@@ -1975,7 +2301,3 @@ onMounted(async () => {
   .ops-overview { grid-template-columns: 1fr; }
 }
 </style>
-
-
-
-

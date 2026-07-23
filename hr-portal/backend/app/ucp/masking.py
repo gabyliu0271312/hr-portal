@@ -78,7 +78,15 @@ def mask_dict(data: dict) -> dict:
     """对 dict 中所有敏感字段值做脱敏。"""
     if not isinstance(data, dict):
         return data
-    return {k: mask_value(v, k) for k, v in data.items()}
+    masked: dict = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            masked[key] = mask_dict(value)
+        elif isinstance(value, list):
+            masked[key] = [mask_dict(item) if isinstance(item, dict) else item for item in value]
+        else:
+            masked[key] = mask_value(value, key)
+    return masked
 
 
 def mask_sensitive_fields(data: list[dict] | dict, max_rows: int = 20) -> list[dict]:

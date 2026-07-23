@@ -132,15 +132,11 @@ class FeishuRecruitClient:
             "Content-Type": "application/json",
         }
 
-        # 飞书招聘 Offer 查询 API（具体路径需联调确认）
-        # 预期路径：/hire/v1/offers?application_id={application_id}
-        # 或：/hire/v1/applications/{application_id}/offer
-        url = f"{self.FEISHU_OPEN_API}/hire/v1/offers"
+        url = f"{self.FEISHU_OPEN_API}/hire/v1/applications/{application_id}/offer"
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(
                 url,
-                params={"application_id": application_id},
                 headers=headers,
             )
 
@@ -310,6 +306,14 @@ register_external_account_adapters()
 # Phase 4: Feishu Bitable reusable resource adapter
 from app.ucp.feishu_bitable_adapter import feishu_bitable_pull_adapter  # noqa: E402
 ADAPTER_REGISTRY["FEISHU_BITABLE_PULL_ADAPTER"] = feishu_bitable_pull_adapter
+
+# X0211: shared connector catalog runtime bridge for Feishu online spreadsheets.
+from app.ucp.feishu_sheet_adapter import feishu_sheet_pull_adapter  # noqa: E402
+ADAPTER_REGISTRY["FEISHU_SHEET_PULL_ADAPTER"] = feishu_sheet_pull_adapter
+
+# X0211: standard Beisen report connection, with platform-owned endpoint defaults.
+from app.ucp.beisen_report_adapter import beisen_report_pull_adapter  # noqa: E402
+ADAPTER_REGISTRY["BEISEN_REPORT_PULL_ADAPTER"] = beisen_report_pull_adapter
 
 # Phase 3-6: OA 组织架构同步适配器
 from app.ucp.oa_sync_adapters import register_oa_sync_adapters  # noqa: E402

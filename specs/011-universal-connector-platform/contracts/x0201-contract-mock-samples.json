@@ -2,13 +2,13 @@
   "contract_version": "x0201-v1",
   "offer_enrichment": {
     "source_records": [
-      {"employee_candidate_key": "cand-001", "candidate_id": "fs-candidate-001", "candidate_name": "张**", "planned_onboard_date": "2026-08-01"},
-      {"employee_candidate_key": "cand-002", "candidate_id": "fs-candidate-002", "candidate_name": "李**", "planned_onboard_date": "2026-08-03"},
-      {"employee_candidate_key": "cand-003", "candidate_id": null, "candidate_name": "王**", "planned_onboard_date": "2026-08-05"}
+      {"employee_candidate_key": "cand-001", "application_id": "fs-application-001", "candidate_name": "张**", "planned_onboard_date": "2026-08-01"},
+      {"employee_candidate_key": "cand-002", "application_id": "fs-application-002", "candidate_name": "李**", "planned_onboard_date": "2026-08-03"},
+      {"employee_candidate_key": "cand-003", "application_id": null, "candidate_name": "王**", "planned_onboard_date": "2026-08-05"}
     ],
     "offer_lookup": {
-      "fs-candidate-001": {"offer_id": "offer-001", "offer_status": "SIGNED", "salary_amount": 25000, "salary_currency": "CNY", "offer_effective_date": "2026-08-01"},
-      "fs-candidate-002": null
+      "fs-application-001": {"offer_id": "offer-001", "offer_status": "SIGNED", "salary_amount": 25000, "salary_currency": "CNY", "offer_effective_date": "2026-08-01"},
+      "fs-application-002": null
     },
     "expected_statuses": {"cand-001": "SUCCESS", "cand-002": "NO_DATA", "cand-003": "SKIPPED_MISSING_KEY"}
   },

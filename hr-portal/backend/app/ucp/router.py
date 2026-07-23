@@ -26,6 +26,7 @@ from app.ucp.routers.admin import router as admin_router
 from app.ucp.routers.monitor import router as monitor_router
 from app.ucp.routers.assets import router as assets_router
 from app.ucp.routers.governance import router as governance_router
+from app.ucp.routers.capabilities import router as capabilities_router
 
 router.include_router(systems_router)
 router.include_router(executions_router)
@@ -36,6 +37,7 @@ router.include_router(admin_router)
 router.include_router(monitor_router)
 router.include_router(assets_router)
 router.include_router(governance_router)
+router.include_router(capabilities_router)
 
 # ===== Dev-only modules =====
 

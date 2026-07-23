@@ -22,6 +22,12 @@ BUILTIN_ADAPTER_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "description": "从北森拉取待入职人员名单。",
     },
     {
+        "adapter_code": "BEISEN_REPORT_PULL_ADAPTER",
+        "adapter_type": "HTTP",
+        "name": "北森报表读取",
+        "description": "复用北森凭证和平台内置接口读取指定 Report ID。",
+    },
+    {
         "adapter_code": "FEISHU_OFFER_DETAIL_ADAPTER",
         "adapter_type": "HTTP",
         "name": "飞书 Offer 明细",

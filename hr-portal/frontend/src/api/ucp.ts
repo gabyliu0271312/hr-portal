@@ -307,6 +307,24 @@ export const ucpApi = {
   systemsOverview: () =>
     api.get<{ total: number; items: SystemOverview[] }>('/ucp/systems/overview').then((r) => r.data),
 
+  standardPackages: () =>
+    api.get<{ items: any[] }>('/ucp/standard-packages').then((r) => r.data.items),
+
+  systemCapabilities: (systemId: number) =>
+    api.get<{ items: any[] }>(`/ucp/systems/${systemId}/capabilities`).then((r) => r.data.items),
+
+  setSystemCapability: (systemId: number, operationId: number, payload: { credential_id?: number; enabled: boolean }) =>
+    api.put<any>(`/ucp/systems/${systemId}/capabilities/${operationId}`, payload).then((r) => r.data),
+
+  testSystemCapability: (systemId: number, operationId: number, parameters: Record<string, string>) =>
+    api.post<any>(`/ucp/systems/${systemId}/capabilities/${operationId}/test`, { parameters }).then((r) => r.data),
+
+  systemCapabilityTestRuns: (systemId: number, operationId: number, limit = 20) =>
+    api.get<{ items: any[] }>(`/ucp/systems/${systemId}/capabilities/${operationId}/test-runs`, { params: { limit } }).then((r) => r.data.items),
+
+  verifiedCapabilityCatalog: () =>
+    api.get<{ items: any[] }>('/ucp/capabilities/catalog').then((r) => r.data.items),
+
   createSystem: (payload: { system_code: string; system_name: string; system_type?: string; icon?: string; owner?: string; domain?: string; description?: string; tags?: string[]; sensitivity?: string }) =>
     api.post<{ id: number; system_code: string; system_name: string }>('/ucp/systems', payload).then((r) => r.data),
 
@@ -324,6 +342,7 @@ export const ucpApi = {
     system_id: number
     resource_code: string
     resource_name: string
+    connector_type?: string
     adapter_code?: string
     credential_id?: number
     protocol?: Record<string, any>
@@ -339,6 +358,15 @@ export const ucpApi = {
 
   updateResource: (resourceId: number, payload: Record<string, any>) =>
     api.patch<{ id: number }>(`/ucp/resources/${resourceId}`, payload).then((r) => r.data),
+
+  resourceDataObjects: (resourceId: number) =>
+    api.get<{ total: number; items: any[] }>(`/ucp/resources/${resourceId}/data-objects`).then((r) => r.data),
+  createResourceDataObject: (resourceId: number, payload: Record<string, any>) =>
+    api.post<any>(`/ucp/resources/${resourceId}/data-objects`, payload).then((r) => r.data),
+  updateResourceDataObject: (resourceId: number, objectId: number, payload: Record<string, any>) =>
+    api.patch<any>(`/ucp/resources/${resourceId}/data-objects/${objectId}`, payload).then((r) => r.data),
+  deleteResourceDataObject: (resourceId: number, objectId: number) =>
+    api.delete<{ deleted: number }>(`/ucp/resources/${resourceId}/data-objects/${objectId}`).then((r) => r.data),
 
   deleteResource: (resourceId: number) =>
     api.delete<{ deleted: boolean }>(`/ucp/resources/${resourceId}`).then((r) => r.data),

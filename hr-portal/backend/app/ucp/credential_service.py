@@ -59,6 +59,9 @@ async def update_credential(
     secrets: dict[str, str] | None = None,
     auth_type: str | None = None,
     description: str | None = None,
+    env_tag: str | None = None,
+    expires_at=None,
+    remind_before_days: int | None = None,
     updated_by: str | None = None,
 ) -> UcpCredential:
     """更新凭证配置（名称、密钥、类型、描述）。"""
@@ -75,6 +78,12 @@ async def update_credential(
         cred.auth_type = auth_type
     if description is not None:
         cred.description = description
+    if env_tag is not None:
+        cred.env_tag = env_tag
+    if expires_at is not None:
+        cred.expires_at = expires_at
+    if remind_before_days is not None:
+        cred.remind_before_days = remind_before_days
     cred.updated_by = updated_by
     await db.flush()
     logger.info("[ucp] credential updated: id=%d", credential_id)

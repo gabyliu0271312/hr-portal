@@ -43,6 +43,8 @@ from app.ucp.models import (
     UcpPipelineStepExecution,
     UcpSystemConfig,
     UcpResource,
+    UcpSystemCapability,
+    UcpOperationDefinition,
 )
 from app.ucp.rate_limiter import (
     RateLimitError,
@@ -604,6 +606,14 @@ async def _execute_step(
         return await _execute_resource_step(step_config, ctx, db, trace_id)
     elif step_type == "CONNECTOR_LOOP":
         return await _execute_loop_step(step_config, ctx, db, trace_id, pipeline_run_id, step_run_id)
+    elif step_type == "CAPABILITY":
+        return await _execute_capability_step(step_config, db)
+    elif step_type == "CAPABILITY_LOOKUP":
+        return await _execute_capability_lookup_step(step_config, ctx, db)
+    elif step_type == "RECORD_MERGE":
+        return await _execute_record_merge_step(step_config, ctx)
+    elif step_type == "WAREHOUSE_ASSET_SINK":
+        return await _execute_warehouse_asset_sink_step(step_config, ctx, db)
     elif step_type == "TRANSFORM":
         return await _execute_transform_step(step_config, ctx, db)
     elif step_type == "NOTIFY":
@@ -616,6 +626,69 @@ async def _execute_step(
         return await _execute_approval_step(step_config, ctx, db, trace_id, pipeline_run_id)
     else:
         raise RuntimeError(f"Unsupported step type: {step_type}")
+
+
+async def _execute_capability_step(step_config: dict, db: AsyncSession) -> dict:
+    """Execute an enabled, verified standard-SaaS business capability."""
+    capability_id = step_config.get("capability_id")
+    if not capability_id:
+        raise RuntimeError("请选择业务能力")
+    capability = await db.get(UcpSystemCapability, capability_id)
+    if not capability or not capability.enabled:
+        raise RuntimeError("所选业务能力未启用")
+    if capability.verification_status != "VERIFIED":
+        raise RuntimeError("所选业务能力尚未验证，不能在流程中执行")
+    operation = await db.get(UcpOperationDefinition, capability.operation_id)
+    if not operation or not operation.adapter_code:
+        raise RuntimeError("所选业务能力暂不支持执行")
+    params = dict(step_config.get("params") or {})
+    required = list((operation.input_schema or {}).get("required", []))
+    missing = [field for field in required if not params.get(field)]
+    if missing:
+        raise RuntimeError(f"缺少业务参数：{'、'.join(missing)}")
+    secrets = await decrypt_credential_secrets(db, capability.credential_id) if capability.credential_id else {}
+    result: AdapterResult = await get_adapter(operation.adapter_code)(params, secrets, db)
+    return {"status": result.status, "data": result.data, "row_count": result.row_count, "success_count": result.success_count, "failed_count": result.failed_count, "extra": result.extra}
+
+
+async def _execute_capability_lookup_step(step_config: dict, ctx: PipelineContext, db: AsyncSession) -> dict:
+    rows = ctx.resolve_ref(step_config.get("input_key", "")) or []
+    lookup_field, parameter_name = step_config.get("lookup_field"), step_config.get("parameter_name", "application_id")
+    if not isinstance(rows, list) or not lookup_field:
+        raise RuntimeError("请配置来源记录和业务键字段")
+    output, failed = [], 0
+    for row in rows:
+        item = dict(row) if isinstance(row, dict) else {}
+        key = item.get(lookup_field)
+        if not key:
+            item["lookup_status"] = "MISSING_KEY"; output.append(item); failed += 1; continue
+        result = await _execute_capability_step({"capability_id": step_config.get("capability_id"), "params": {parameter_name: key}}, db)
+        item["lookup_status"] = result["status"]
+        item["lookup_data"] = (result.get("data") or [{}])[0] if result.get("data") else {}
+        output.append(item)
+    return {"status": "success" if not failed else "partial_success", "data": output, "row_count": len(output), "success_count": len(output) - failed, "failed_count": failed}
+
+
+async def _execute_record_merge_step(step_config: dict, ctx: PipelineContext) -> dict:
+    rows = ctx.resolve_ref(step_config.get("input_key", "")) or []
+    mappings = step_config.get("field_mapping") or []
+    output = []
+    for item in rows:
+        row = {key: value for key, value in dict(item).items() if key not in {"lookup_data", "lookup_status"}}
+        lookup = item.get("lookup_data") or {}
+        for rule in mappings:
+            target, source = rule.get("target"), rule.get("source")
+            if target and source and row.get(target) in (None, "") and lookup.get(source) not in (None, ""):
+                row[target] = lookup[source]
+        output.append(row)
+    return {"status": "success", "data": output, "row_count": len(output), "success_count": len(output)}
+
+
+async def _execute_warehouse_asset_sink_step(step_config: dict, ctx: PipelineContext, db: AsyncSession) -> dict:
+    rows = ctx.resolve_ref(step_config.get("input_key", "")) or []
+    from app.warehouse.asset_sink import WarehouseAssetSink
+    result = await WarehouseAssetSink(db).write(target_asset=step_config.get("target_asset", ""), rows=rows, write_mode=step_config.get("write_mode", "upsert"), primary_key=step_config.get("primary_key"), field_whitelist=step_config.get("field_whitelist") or [])
+    return {"status": "success", "data": [], "row_count": result["written_count"], "success_count": result["written_count"], "extra": result}
 
 
 async def _execute_resource_step(

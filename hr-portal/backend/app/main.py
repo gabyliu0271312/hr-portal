@@ -108,6 +108,17 @@ async def lifespan(app: FastAPI):
             logger.info("[startup] registered %s built-in UCP adapters", created_count)
     except Exception as e:
         logger.exception("[startup] built-in adapter bootstrap failed: %s", e)
+
+    # 标准 SaaS 能力包只注册平台可识别的业务定义；不调用第三方接口。
+    try:
+        from app.ucp.feishu_recruit_capability import ensure_feishu_recruit_capability_package
+
+        async with AsyncSessionLocal() as db:
+            package = await ensure_feishu_recruit_capability_package(db)
+        logger.info("[startup] ensured standard SaaS capability package: %s", package.package_code)
+    except Exception as e:
+        logger.exception("[startup] standard SaaS capability bootstrap failed: %s", e)
+
     # 启动：加载用户新建的动态表到 DATA_TABLES / PERIOD_TABLES
     # 失败时直接抛出，阻断启动 —— 配合 restart: unless-stopped 自动重试，
     # 绝不带病对外服务（缺表会导致整个数据集字段不显示）

@@ -1288,6 +1288,8 @@ class UcpResource(Base):
     )
     resource_code: Mapped[str] = mapped_column(String(64), nullable=False)
     resource_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    # 面向产品的共享接入类型目录编码；旧资源为空时由 adapter_code 兼容推导。
+    connector_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # 1 resource 绑 1 adapter
     adapter_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # 凭证引用（与系统解耦，N resource : 1 credential）
@@ -1359,6 +1361,71 @@ class UcpBitableTableConfig(Base):
     )# ===== Phase 3-8: 流水线模板与版本快照 =====
 
 
+# ===== Standard SaaS capability package (X0202) =====
+
+
+class UcpConnectorPackage(Base):
+    __tablename__ = "ucp_connector_package"
+    __table_args__ = (UniqueConstraint("package_code", name="uq_ucp_connector_package_code"), Index("ix_ucp_connector_package_status", "status"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    package_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    package_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    connection_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="STANDARD_SAAS")
+    version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.0.0")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="DRAFT")
+    host_allowlist: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class UcpOperationDefinition(Base):
+    __tablename__ = "ucp_operation_definition"
+    __table_args__ = (UniqueConstraint("package_id", "object_code", "operation_code", "version", name="uq_ucp_operation_definition_version"), Index("ix_ucp_operation_definition_package", "package_id", "status"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    package_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("ucp_connector_package.id", ondelete="RESTRICT"), nullable=False)
+    object_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    adapter_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    required_scopes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    input_schema: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    output_schema: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    risk_level: Mapped[str] = mapped_column(String(32), nullable=False, default="read_low")
+    version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.0.0")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="DRAFT")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class UcpSystemCapability(Base):
+    __tablename__ = "ucp_system_capability"
+    __table_args__ = (UniqueConstraint("system_id", "operation_id", name="uq_ucp_system_capability_operation"), Index("ix_ucp_system_capability_system", "system_id", "enabled"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    system_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("ucp_system.id", ondelete="RESTRICT"), nullable=False)
+    operation_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("ucp_operation_definition.id", ondelete="RESTRICT"), nullable=False)
+    credential_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ucp_credentials.id", ondelete="SET NULL"), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    connection_status: Mapped[str] = mapped_column(String(32), nullable=False, default="UNVERIFIED")
+    verification_status: Mapped[str] = mapped_column(String(32), nullable=False, default="NOT_TESTED")
+    runtime_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class UcpCapabilityTestRun(Base):
+    __tablename__ = "ucp_capability_test_run"
+    __table_args__ = (Index("ix_ucp_capability_test_run_capability", "capability_id", "created_at"), Index("ix_ucp_capability_test_run_trace", "trace_id"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    capability_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("ucp_system_capability.id", ondelete="RESTRICT"), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    request_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    response_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
 class UcpPipelineTemplate(Base):
     """可视化编排的 pipeline 模板."""
 
@@ -1373,6 +1440,36 @@ class UcpPipelineTemplate(Base):
     version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.0.0")
     created_by: Mapped[str] = mapped_column(String(64), nullable=False, default="system")
     # 时间
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class UcpResourceDataObject(Base):
+    """可挂在同一数据对象型连接下的业务数据对象配置。"""
+
+    __tablename__ = "ucp_resource_data_object"
+    __table_args__ = (
+        UniqueConstraint("resource_id", "object_code", name="uq_ucp_resource_data_object_code"),
+        Index("ix_ucp_resource_data_object_active", "resource_id", "is_active"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    resource_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ucp_resource.id", ondelete="CASCADE"), nullable=False
+    )
+    connector_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    object_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    field_mapping: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    incremental_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    is_active: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

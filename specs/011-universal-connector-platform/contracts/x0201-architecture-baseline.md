@@ -46,7 +46,7 @@ SourceReader → RecordLoop → LookupCapability → MergeMap → WarehouseAsset
 
 ```text
 北森待入职人员读取
-→ 按 candidate_id 查询飞书招聘 Offer
+→ 按投递记录 ID `application_id` 查询飞书招聘 Offer
 → 合并批准字段
 → WarehouseAssetSink upsert 到“待入职人员”资产
 ```
@@ -58,7 +58,7 @@ SourceReader → RecordLoop → LookupCapability → MergeMap → WarehouseAsset
 | 规范字段 | 来源 | 必填 | 敏感级别 | 写入资产列 | 规则 |
 |---|---|---:|---|---|---|
 | `employee_candidate_key` | 北森 | 是 | internal | `employee_candidate_key` | 资产 upsert 主键；不可由 Offer 覆盖 |
-| `candidate_id` | 北森 | 是 | internal | `beisen_candidate_id` | 飞书 Offer 查询键；空值为 `SKIPPED_MISSING_KEY` |
+| `application_id` | 北森 | 是 | internal | `beisen_application_id` | 飞书 Offer 查询键（投递记录 ID）；空值为 `SKIPPED_MISSING_KEY` |
 | `candidate_name` | 北森 | 否 | pii | `beisen_candidate_name` | 仅脱敏日志 |
 | `planned_onboard_date` | 北森 | 否 | internal | `beisen_planned_onboard_date` | 用于待入职过滤 |
 | `offer_id` | 飞书招聘 | 否 | internal | `feishu_offer_id` | 多 Offer 按已确认选择策略处理 |
@@ -72,7 +72,7 @@ SourceReader → RecordLoop → LookupCapability → MergeMap → WarehouseAsset
 
 ### 3.3 关联、冲突与幂等
 
-- 关联键：`candidate_id`；不得以姓名或手机号进行自动关联。
+- 关联键：投递记录 ID `application_id`；不得以姓名或手机号进行自动关联。
 - 多 Offer：先按正式业务确认的 `offer_effective_date`、状态优先级和唯一 `offer_id` 规则选择；确认前返回 `FAILED_AMBIGUOUS_OFFER`，不得随机选取。
 - 幂等键：`employee_candidate_key + selected_offer_id + offer_version_or_updated_at`；无 Offer 时使用 `employee_candidate_key + source_batch_id`。
 - 写入模式：默认 `upsert`；只允许写入 `feishu_offer_*` 与 `offer_enrichment_*`，不得覆盖 `beisen_*`。
@@ -133,7 +133,7 @@ SourceReader → RecordLoop → LookupCapability → MergeMap → WarehouseAsset
 
 1. 在数据连接中选择已配置北森来源、已启用飞书招聘 Offer 能力和目标数据仓库资产。
 2. 在流程设计器创建或打开“待入职人员入仓及 Offer 薪酬补充”模板。
-3. 试运行 Mock 批次：一条成功、一条无 Offer、一条缺 `candidate_id`。
+3. 试运行 Mock 批次：一条成功、一条无 Offer、一条缺投递记录 ID `application_id`。
 4. 查看运行中心：三条记录均有 `record_key`、`trace_id` 和终态；无 Offer/缺键不被误报为权限问题。
 5. 查看数据仓库：无需任何新配置，既有资产目录出现目标资产及写入结果；原始北森字段未被覆盖。
 

@@ -7,6 +7,7 @@
         <span class="toolbar-title">{{ currentTpl ? `编辑流程 — ${form.name || form.template_code}` : '新建流程' }}</span>
       </div>
       <div class="toolbar-right">
+        <el-button @click="loadPendingHireTemplate">使用待入职补全模板</el-button>
         <el-button @click="viewVersions(currentTpl!)" :disabled="!currentTpl">版本历史</el-button>
         <el-button type="success" @click="dryRun">试运行</el-button>
         <el-button type="primary" :loading="saving" @click="saveTemplate">保存</el-button>
@@ -44,6 +45,7 @@
               <div class="cfg-line"><el-icon><Box /></el-icon><span class="muted">{{ node.config?.system_code || '未选系统' }}</span></div>
               <div class="cfg-line"><el-icon><Document /></el-icon><span class="strong">{{ node.config?.resource_name || '未选资源' }}</span></div>
             </div>
+            <div v-else-if="String(node.type) === 'CAPABILITY'" class="cfg"><div class="cfg-line"><el-icon><Connection /></el-icon><span class="strong">{{ node.config?.capability_name || '未选业务能力' }}</span></div></div>
             <div v-else-if="node.type === 'BRANCH'" class="cfg">{{ node.config?.condition || '(无条件)' }}</div>
             <div v-else-if="node.type === 'LOOP'" class="cfg">{{ node.config?.input_var || '(未配置输入)' }}</div>
             <div v-else class="cfg">{{ Object.keys(node.config || {}).length }} 配置项</div>
@@ -76,6 +78,12 @@
             <template v-if="(selectedNode.type as string) === 'CONNECTOR'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
               <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.resource_id = v; const r = allResources.find(x=>x.id===v); if(r){cfg.resource_name=r.resource_name;cfg.resource_code=r.resource_code;cfg.adapter_code=r.adapter_code||null} selectedNode.config = cfg } }" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>              <el-form-item v-if="selectedNode.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER'" label="数据对象"><el-select v-model="selectedNode.config.bitable_table_id" clearable filterable placeholder="选择具体多维表格" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadBitableTablesForNode(Number(selectedNode.config?.resource_id) || null)"><el-option v-for="item in bitableTableOptions" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
+            </template>
+            <template v-else-if="(selectedNode.type as string) === 'CAPABILITY'">
+              <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" clearable placeholder="选择系统" style="width:100%" @change="selectCapabilitySystem"><el-option v-for="item in capabilitySystems" :key="item.system_id" :label="item.system_name" :value="item.system_id" /></el-select></el-form-item>
+              <el-form-item label="对象"><el-select :model-value="selectedNode.config?.object_code" clearable placeholder="选择业务对象" style="width:100%" @change="selectCapabilityObject"><el-option v-for="item in capabilityObjects" :key="item" :label="item" :value="item" /></el-select></el-form-item>
+              <el-form-item label="操作"><el-select :model-value="selectedNode.config?.capability_id" clearable placeholder="选择已验证操作" style="width:100%" @change="selectCapabilityOperation"><el-option v-for="item in capabilityOperations" :key="item.capability_id" :label="item.operation_name" :value="item.capability_id" /></el-select></el-form-item>
+              <div class="text-muted">仅显示已启用、已验证的只读业务能力。</div>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'LOOP_RESOURCE' || selectedNode.type === 'LOOP'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
@@ -148,6 +156,10 @@ function resolveIcon(name: string) { return ICON_MAP[name] || Box }
 
 const NODE_TYPE_DEFS: NodeTypeMeta[] = [
   { type: 'CONNECTOR' as any, label: '资源调用', color: '#409eff', icon: 'Connection', config_schema: {} },
+  { type: 'CAPABILITY' as any, label: '业务能力', color: '#8e44ad', icon: 'Connection', config_schema: {} },
+  { type: 'CAPABILITY_LOOKUP' as any, label: '逐人查询业务能力', color: '#8e44ad', icon: 'Connection', config_schema: {} },
+  { type: 'RECORD_MERGE' as any, label: '补全并合并记录', color: '#e6a23c', icon: 'MagicStick', config_schema: {} },
+  { type: 'WAREHOUSE_ASSET_SINK' as any, label: '写入数据仓库资产', color: '#16a085', icon: 'DataBoard', config_schema: {} },
   { type: 'LOOP_RESOURCE' as any, label: '循环资源', color: '#67c23a', icon: 'Refresh', config_schema: {} },
   { type: 'TRANSFORM' as any, label: '字段转换', color: '#e6a23c', icon: 'MagicStick', config_schema: {} },
   { type: 'NOTIFY' as any, label: '通知', color: '#f56c6c', icon: 'BellFilled', config_schema: {} },
@@ -158,12 +170,19 @@ async function loadNodeTypes(): Promise<void> {
 }
 
 const systems = ref<SystemItem[]>([]); const allResources = ref<ResourceItem[]>([]); const resourcesLoading = ref(false)
+const capabilityCatalog = ref<any[]>([])
+const capabilitySystems = computed(() => Array.from(new Map(capabilityCatalog.value.map(item => [item.system_id, item])).values()))
+const capabilityObjects = computed(() => Array.from(new Set(capabilityCatalog.value.filter(item => item.system_id === selectedNode.value?.config?.system_id).map(item => item.object_code))))
+const capabilityOperations = computed(() => capabilityCatalog.value.filter(item => item.system_id === selectedNode.value?.config?.system_id && item.object_code === selectedNode.value?.config?.object_code))
 async function loadSystemsAndResources(): Promise<void> {
-  try { resourcesLoading.value = true; const [sysRes, resRes] = await Promise.all([ucpApi.systems(), ucpApi.resources({})]); systems.value = sysRes.items as SystemItem[]; allResources.value = resRes.items as ResourceItem[] }
+  try { resourcesLoading.value = true; const [sysRes, resRes, capabilityRes] = await Promise.all([ucpApi.systems(), ucpApi.resources({}), ucpApi.verifiedCapabilityCatalog()]); systems.value = sysRes.items as SystemItem[]; allResources.value = resRes.items as ResourceItem[]; capabilityCatalog.value = capabilityRes }
   catch (e: unknown) { ElMessage.warning(`加载系统/资源失败: ${e instanceof Error ? e.message : String(e)}`) }
   finally { resourcesLoading.value = false }
 }
 function resourcesOf(systemId: number | undefined | null): ResourceItem[] { if (!systemId) return []; return allResources.value.filter((r) => r.system_id === systemId) }
+function selectCapabilitySystem(value: number) { if (!selectedNode.value) return; selectedNode.value.config = { system_id: value } }
+function selectCapabilityObject(value: string) { if (!selectedNode.value) return; selectedNode.value.config = { ...(selectedNode.value.config || {}), object_code: value, capability_id: null, capability_name: '' } }
+function selectCapabilityOperation(value: number) { if (!selectedNode.value) return; const item = capabilityCatalog.value.find(row => row.capability_id === value); if (item) selectedNode.value.config = { ...(selectedNode.value.config || {}), capability_id: value, capability_name: item.operation_name, operation_id: item.operation_id } }
 
 const currentTpl = ref<PipelineTemplate | null>(null)
 const form = reactive<{ template_code: string; name: string; description: string; version: string; change_note: string; nodes: PipelineNode[]; edges: PipelineEdge[] }>({ template_code: '', name: '', description: '', version: '1.0.0', change_note: '', nodes: [], edges: [] })
@@ -187,9 +206,9 @@ function selectNode(node: PipelineNode): void { selectedNodeId.value = node.id }
 function deselectNode(): void { selectedNodeId.value = null }
 function removeNode(id: string): void { form.nodes = form.nodes.filter((n) => n.id !== id); form.edges = form.edges.filter((e: any) => e.from !== id && e.to !== id); if (selectedNodeId.value === id) selectedNodeId.value = null }
 
-function getNodeColor(type: string): string { const m: Record<string, string> = { CONNECTOR: '#409eff', LOOP_RESOURCE: '#67c23a', TRANSFORM: '#e6a23c', NOTIFY: '#f56c6c', BRANCH: '#909399', WAIT: '#b37feb', APPROVAL: '#fa8c16' }; return m[type] || '#dcdfe6' }
-function getNodeLabel(type: string): string { const m: Record<string, string> = { CONNECTOR: '资源调用', LOOP_RESOURCE: '循环资源', TRANSFORM: '字段转换', NOTIFY: '通知', BRANCH: '条件分支', WAIT: '等待', APPROVAL: '审批' }; return m[type] || type }
-function getNodeSchema(type: string): Record<string, string> { const m: Record<string, Record<string, string>> = { TRANSFORM: { input_keys: '输入字段(逗号分隔)', output_key: '输出字段' }, NOTIFY: { template_id: '通知模板ID', receivers: '接收人(逗号分隔)' }, WAIT: { duration_seconds: '等待时间(秒)' }, APPROVAL: { approver: '审批人', reason: '审批原因' } }; return m[type] || {} }
+function getNodeColor(type: string): string { const m: Record<string, string> = { CONNECTOR: '#409eff', CAPABILITY: '#8e44ad', CAPABILITY_LOOKUP: '#8e44ad', RECORD_MERGE: '#e6a23c', WAREHOUSE_ASSET_SINK: '#16a085', LOOP_RESOURCE: '#67c23a', TRANSFORM: '#e6a23c', NOTIFY: '#f56c6c', BRANCH: '#909399', WAIT: '#b37feb', APPROVAL: '#fa8c16' }; return m[type] || '#dcdfe6' }
+function getNodeLabel(type: string): string { const m: Record<string, string> = { CONNECTOR: '读取来源数据', CAPABILITY: '业务能力', CAPABILITY_LOOKUP: '逐人查询业务能力', RECORD_MERGE: '补全并合并记录', WAREHOUSE_ASSET_SINK: '写入数据仓库资产', LOOP_RESOURCE: '循环资源', TRANSFORM: '字段转换', NOTIFY: '通知', BRANCH: '条件分支', WAIT: '等待', APPROVAL: '审批' }; return m[type] || type }
+function getNodeSchema(type: string): Record<string, string> { const m: Record<string, Record<string, string>> = { CAPABILITY_LOOKUP: { input_key: '来源记录', lookup_field: '投递记录 ID 字段', parameter_name: '能力入参名称' }, RECORD_MERGE: { input_key: '待补全记录', field_mapping: 'Offer 字段映射' }, WAREHOUSE_ASSET_SINK: { input_key: '待写入记录', target_asset: '目标数据资产', write_mode: '写入模式', primary_key: '主键字段', field_whitelist: '允许写入字段' }, TRANSFORM: { input_keys: '输入字段(逗号分隔)', output_key: '输出字段' }, NOTIFY: { template_id: '通知模板ID', receivers: '接收人(逗号分隔)' }, WAIT: { duration_seconds: '等待时间(秒)' }, APPROVAL: { approver: '审批人', reason: '审批原因' } }; return m[type] || {} }
 function stringifyConfig(v: any): string { if (v === undefined || v === null) return ''; if (Array.isArray(v)) return v.join(', '); return String(v) }
 function updateNodeConfig(key: string, value: string): void { if (!selectedNode.value) return; const cfg = { ...(selectedNode.value.config || {}) } as Record<string, any>; if (value === '') { delete cfg[key] } else if (value.includes(',')) { cfg[key] = value.split(',').map((s: string) => s.trim()) } else { cfg[key] = value }; selectedNode.value.config = cfg }
 async function loadBitableTablesForNode(resourceId: number | null | undefined) {
@@ -199,6 +218,7 @@ async function loadBitableTablesForNode(resourceId: number | null | undefined) {
 }
 function nodeHasError(node: PipelineNode): boolean {
   const type = node.type as string
+  if (type === 'CAPABILITY') return !node.config?.capability_id
   if (type !== 'CONNECTOR' && type !== 'LOOP_RESOURCE') return false
   if (!node.config?.system_id || !node.config?.resource_id) return true
   return node.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER' && !node.config?.bitable_table_id
@@ -296,6 +316,23 @@ function storedEdge(e: PipelineEdge): CoordEdge { const from = form.nodes.find((
 function edgePath(e: DrawingEdge | CoordEdge): string { const fromX = 'fromNodeId' in e ? (form.nodes.find((n) => n.id === (e as DrawingEdge).fromNodeId)?.x ?? 0) + 75 : (e as CoordEdge).fromX; const fromY = 'fromNodeId' in e ? (form.nodes.find((n) => n.id === (e as DrawingEdge).fromNodeId)?.y ?? 0) + 40 : (e as CoordEdge).fromY; const toX = 'endX' in e ? (e as DrawingEdge).endX : (e as CoordEdge).toX; const toY = 'endY' in e ? (e as DrawingEdge).endY : (e as CoordEdge).toY; const cx = (fromX + toX) / 2; return `M${fromX},${fromY} C${cx},${fromY} ${cx},${toY} ${toX},${toY}` }
 
 async function openDesigner(tpl: PipelineTemplate): Promise<void> { currentTpl.value = tpl; form.template_code = tpl.template_code; form.name = tpl.name; form.description = tpl.description || ''; form.version = tpl.version; form.change_note = ''; form.nodes = JSON.parse(JSON.stringify(tpl.nodes)); form.edges = JSON.parse(JSON.stringify(tpl.edges)); selectedNodeId.value = null; await loadSystemsAndResources() }
+
+function loadPendingHireTemplate(): void {
+  currentTpl.value = null
+  form.template_code = 'PENDING_HIRE_OFFER_ENRICHMENT'
+  form.name = '待入职人员入仓及 Offer 薪酬补充'
+  form.description = '选择待入职来源、投递记录 ID、Offer 能力和目标数据资产后保存。'
+  form.version = '1.0.0'
+  form.nodes = [
+    { id: 'read_pending', type: 'CONNECTOR' as any, x: 80, y: 180, label: '读取待入职人员', config: {} },
+    { id: 'lookup_offer', type: 'CAPABILITY_LOOKUP' as any, x: 340, y: 180, label: '按投递记录 ID 查询 Offer', config: { input_key: '${read_pending.result.data}', lookup_field: 'application_id', parameter_name: 'application_id' } },
+    { id: 'merge_offer', type: 'RECORD_MERGE' as any, x: 630, y: 180, label: '补全 Offer 字段', config: { input_key: '${lookup_offer.result.data}', field_mapping: [] } },
+    { id: 'write_asset', type: 'WAREHOUSE_ASSET_SINK' as any, x: 890, y: 180, label: '写入待入职人员资产', config: { input_key: '${merge_offer.result.data}', write_mode: 'upsert', field_whitelist: [] } },
+  ]
+  form.edges = [{ from: 'read_pending', to: 'lookup_offer' }, { from: 'lookup_offer', to: 'merge_offer' }, { from: 'merge_offer', to: 'write_asset' }]
+  selectedNodeId.value = null
+  ElMessage.success('已加载待入职人员补全模板，请依次选择来源、业务能力和目标资产')
+}
 
 const saving = ref(false)
 async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { if (currentTpl.value) { await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, version: form.version, change_note: form.change_note || undefined }); ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { ElMessage.error(`保存失败: ${e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }

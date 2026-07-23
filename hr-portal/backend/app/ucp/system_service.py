@@ -27,10 +27,67 @@ from app.ucp.adapter_schema import (
     extract_categories,
     validate_payload_against_schema,
 )
+from app.connectors.catalog import (
+    find_connector_type_by_adapter,
+    get_connector_type,
+)
 
 
 class ResourceSchemaError(ValueError):
     """resource 字段不符合 adapter schema."""
+
+
+def resolve_resource_connector_type(resource: UcpResource) -> str | None:
+    """Return a stable product connector type for new and legacy resources."""
+    if resource.connector_type:
+        return resource.connector_type
+    legacy = find_connector_type_by_adapter(resource.adapter_code)
+    return legacy["code"] if legacy else None
+
+
+def serialize_resource(resource: UcpResource) -> dict[str, Any]:
+    """Product DTO. Adapter codes stay available only for legacy runtime compatibility."""
+    return {
+        "id": resource.id,
+        "system_id": resource.system_id,
+        "system_code": getattr(resource, "system_code", None),
+        "resource_code": resource.resource_code,
+        "resource_name": resource.resource_name,
+        "connector_type": resolve_resource_connector_type(resource),
+        "credential_id": resource.credential_id,
+        "protocol": resource.protocol,
+        "report_config": resource.report_config,
+        "mapping_config": resource.mapping_config,
+        "file_config": resource.file_config,
+        "scheduling": resource.scheduling,
+        "notification_config": resource.notification_config,
+        "retry_config": resource.retry_config,
+        "circuit_breaker_config": resource.circuit_breaker_config,
+        "test_status": resource.test_status,
+        "test_result": resource.test_result,
+        "test_time": resource.test_time,
+        "status": resource.status,
+        "created_at": resource.created_at,
+        "updated_at": resource.updated_at,
+    }
+
+
+def _resolve_connector_for_write(
+    connector_type: str | None,
+    adapter_code: str | None,
+) -> tuple[str | None, str | None]:
+    """Map a product connector type to its private runtime adapter."""
+    if not connector_type:
+        return None, adapter_code
+    connector = get_connector_type(connector_type, include_internal=True)
+    if not connector or not connector.get("supports_ucp"):
+        raise ResourceSchemaError("不支持的接入类型")
+    if connector.get("connection_kind") != "DATA_OBJECT":
+        raise ResourceSchemaError("标准 SaaS 请在业务能力中启用，不能创建为数据资源")
+    mapped_adapter = connector.get("ucp_adapter_code")
+    if not mapped_adapter:
+        raise ResourceSchemaError("该接入类型尚未配置运行适配器")
+    return connector["code"], mapped_adapter
 
 
 # ===== UcpSystem =====
@@ -154,6 +211,7 @@ async def create_resource(
     system_id: int,
     resource_code: str,
     resource_name: str,
+    connector_type: str | None = None,
     adapter_code: str | None = None,
     credential_id: int | None = None,
     protocol: dict | None = None,
@@ -168,6 +226,7 @@ async def create_resource(
     # Phase 5-4: 跳过 schema 校验(供导入脚本/迁移使用)
     skip_schema_validation: bool = False,
 ) -> UcpResource:
+    connector_type, adapter_code = _resolve_connector_for_write(connector_type, adapter_code)
     # Phase 5-4: 按 adapter schema 校验 8 个 JSON 字段
     if not skip_schema_validation:
         await _validate_resource_fields_against_schema(
@@ -189,6 +248,7 @@ async def create_resource(
         system_id=system_id,
         resource_code=resource_code,
         resource_name=resource_name,
+        connector_type=connector_type,
         adapter_code=adapter_code,
         credential_id=credential_id,
         protocol=protocol,
@@ -217,6 +277,13 @@ async def update_resource(
     obj = await db.get(UcpResource, resource_id)
     if not obj:
         return None
+
+    if "connector_type" in fields:
+        connector_type, adapter_code = _resolve_connector_for_write(
+            fields.get("connector_type"), fields.get("adapter_code", obj.adapter_code)
+        )
+        fields["connector_type"] = connector_type
+        fields["adapter_code"] = adapter_code
 
     # Phase 5-4: 收集将要写入的 JSON 字段,做合并校验
     # 1) 先确定最终 adapter_code (可能本次更新, 也可能沿用旧的)
