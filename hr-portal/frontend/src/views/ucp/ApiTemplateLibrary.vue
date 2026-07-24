@@ -33,6 +33,7 @@
               <el-button size="small" @click="openDetail(row)">详情</el-button>
               <el-button size="small" @click="openEdit(row)">编辑</el-button>
               <el-button size="small" type="primary" @click="openTest(row)">测试</el-button>
+              <el-button v-if="!row.is_published" size="small" type="success" @click="approvePublish(row)">审批发布</el-button>
               <el-button size="small" @click="copyTemplate(row)">复制</el-button>
             </template>
           </el-table-column>
@@ -207,11 +208,14 @@
     </el-dialog>
 
     <!-- Import Dialog -->
-    <el-dialog v-model="showImport" title="导入 API 模板" width="500px">
-      <el-input v-model="importJson" type="textarea" :rows="12" placeholder="粘贴 JSON 模板内容"/>
+    <el-dialog v-model="showImport" title="导入 OpenAPI 3.x" width="640px" @closed="openApiPreview = null">
+      <el-alert title="仅导入白名单 HTTPS 的 GET 或查询型 POST；写操作、外部引用和未知认证会被拒绝。" type="info" :closable="false" style="margin-bottom:12px"/>
+      <el-form label-width="100px"><el-form-item label="允许域名"><el-input v-model="openApiDomains" placeholder="api.example.com, *.example.com"/></el-form-item></el-form>
+      <el-input v-model="importJson" type="textarea" :rows="10" placeholder="粘贴 OpenAPI 3.x JSON 规范"/>
+      <div v-if="openApiPreview" class="openapi-preview"><el-divider>选择只读操作</el-divider><el-checkbox-group v-model="selectedOperationIds"><el-checkbox v-for="item in openApiPreview.operations" :key="item.operation_id" :label="item.operation_id">{{ item.method }} {{ item.path }} · {{ item.template_name }}</el-checkbox></el-checkbox-group><el-alert v-if="openApiPreview.rejected?.length" :title="`已拒绝 ${openApiPreview.rejected.length} 个不安全操作`" type="warning" :closable="false" style="margin-top:10px"/></div>
       <template #footer>
         <el-button @click="showImport = false">取消</el-button>
-        <el-button type="primary" @click="doImport">导入</el-button>
+        <el-button type="primary" @click="doImport">{{ openApiPreview ? '确认导入草稿' : '解析规范' }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -273,6 +277,9 @@ const allowedDomainsStr = computed({
 
 const showImport = ref(false)
 const importJson = ref('')
+const openApiDomains = ref('')
+const openApiPreview = ref<any>(null)
+const selectedOperationIds = ref<string[]>([])
 
 const testVisible = ref(false)
 const testLoading = ref(false)
@@ -409,10 +416,25 @@ async function exportTemplate(row: any) {
 
 async function doImport() {
   try {
-    const content = JSON.parse(importJson.value)
-    await apiTemplateApi.importTemplate(content)
-    ElMessage.success('导入成功'); showImport.value = false; load()
+    const document = JSON.parse(importJson.value)
+    const allowed_domains = openApiDomains.value.split(',').map((item:string) => item.trim()).filter(Boolean)
+    if (!openApiPreview.value) {
+      openApiPreview.value = await apiTemplateApi.previewOpenApi({ document, allowed_domains })
+      selectedOperationIds.value = openApiPreview.value.operations.map((item:any) => item.operation_id)
+      if (!selectedOperationIds.value.length) ElMessage.warning('未发现可安全导入的只读操作')
+      return
+    }
+    await apiTemplateApi.importOpenApi({ document, allowed_domains, selected_operation_ids: selectedOperationIds.value })
+    ElMessage.success('已创建草稿，测试通过后可审批发布'); showImport.value = false; openApiPreview.value = null; load()
   } catch(e: any) { ElMessage.error('导入失败: '+(e?.response?.data?.detail||e?.message)) }
+}
+
+async function approvePublish(row: any) {
+  try {
+    await ElMessageBox.confirm(`确认审批发布草稿 ${row.template_code}？`, '审批发布', { type: 'warning' })
+    await apiTemplateApi.approvePublish(row.template_code)
+    ElMessage.success('已发布'); load()
+  } catch(e: any) { if (e !== 'cancel') ElMessage.error('发布失败: '+(e?.response?.data?.detail||e?.message)) }
 }
 
 async function rollbackVersion(versionId: number) {

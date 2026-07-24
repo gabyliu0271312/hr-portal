@@ -356,6 +356,8 @@ async def dispatch_event(
     ).scalar_one_or_none()
     if pl is None:
         raise EventBusError("PIPELINE_NOT_FOUND", f"pipeline '{trigger.pipeline_code}' 不存在")
+    if pl.status != 1:
+        raise EventBusError("PIPELINE_INACTIVE", f"pipeline '{trigger.pipeline_code}' 未发布或已停用")
 
     # 延迟导入，避免循环
     from app.ucp.pipeline_engine import execute_pipeline
@@ -370,15 +372,17 @@ async def dispatch_event(
     await db.flush()
 
     # Phase 3-3: 写一条派发尝试记录（用于重试/死信）
+    delivery_id: int | None = None
     try:
         from app.ucp.event_reliability import create_delivery_record
-        await create_delivery_record(
+        delivery = await create_delivery_record(
             db,
             event=event,
             trigger=trigger,
             pipeline_run_id=run_id,
             trigger_source="AUTO",
         )
+        delivery_id = delivery.id
     except Exception:  # noqa: BLE001
         logger.exception("create_delivery_record failed (non-fatal)")
 
@@ -391,6 +395,10 @@ async def dispatch_event(
             event_payload=event.payload or {},
             run_as_type=trigger.run_as_type,
             service_account_code=trigger.service_account_code,
+            event_db_id=event.id,
+            event_id=event.event_id,
+            trigger_code=trigger.trigger_code,
+            delivery_id=delivery_id,
         )
     )
 
@@ -409,8 +417,12 @@ async def _run_pipeline_in_background(
     event_payload: dict,
     run_as_type: str,
     service_account_code: str | None,
+    event_db_id: int,
+    event_id: str,
+    trigger_code: str,
+    delivery_id: int | None,
 ) -> None:
-    """后台 fire-and-forget 执行 pipeline。错误仅记日志（不抛回事件总线）。"""
+    """后台执行并把实际运行结果回写到事件派发记录。"""
     from app.core.database import async_session_factory  # type: ignore
     from app.ucp.pipeline_engine import execute_pipeline
 
@@ -421,21 +433,80 @@ async def _run_pipeline_in_background(
                 "trigger_type": "event",
                 "run_id": run_id,
                 "trace_id": trace_id,
+                "event_id": event_id,
+                "trigger_code": trigger_code,
                 "event": event_payload,
                 "run_as_type": run_as_type,
                 "service_account_code": service_account_code,
             }
-            await execute_pipeline(
+            execution = await execute_pipeline(
                 pipeline_code=pipeline_code,
                 db=bg_db,
                 trigger_type="event",
                 trigger_payload=trigger_payload,
+                pipeline_run_id=run_id,
+                trace_id=trace_id,
             )
-    except Exception:  # noqa: BLE001
+            if delivery_id is not None:
+                from app.ucp.event_reliability import mark_delivery_failed, mark_delivery_success
+                from app.ucp.models import UcpEventDelivery
+
+                delivery = await bg_db.get(UcpEventDelivery, delivery_id)
+                if delivery is not None:
+                    if execution.status in {"SUCCESS", "PARTIAL_SUCCESS"}:
+                        await mark_delivery_success(bg_db, delivery)
+                    else:
+                        await mark_delivery_failed(
+                            bg_db,
+                            delivery,
+                            error_code="PIPELINE_EXECUTION_FAILED",
+                            error_message=f"Pipeline run {run_id} ended with {execution.status}",
+                        )
+
+            event = await bg_db.get(UcpEvent, event_db_id)
+            if event is not None:
+                from app.ucp.models import UcpEventDelivery
+
+                delivery_statuses = list((await bg_db.execute(
+                    select(UcpEventDelivery.status).where(UcpEventDelivery.event_id == event_db_id)
+                )).scalars())
+                if "PENDING" in delivery_statuses:
+                    event.status = EVENT_STATUS_DISPATCHED
+                elif delivery_statuses and all(status == "SUCCESS" for status in delivery_statuses):
+                    event.status = EVENT_STATUS_COMPLETED
+                    event.completed_at = datetime.now(timezone.utc)
+                else:
+                    event.status = EVENT_STATUS_FAILED
+                    event.error_code = "PIPELINE_EXECUTION_FAILED"
+                    event.error_message = f"Pipeline run {run_id} ended with {execution.status}"
+                await bg_db.commit()
+    except Exception as exc:  # noqa: BLE001
         logger.exception(
             "background pipeline failed: pipeline=%s run_id=%s",
             pipeline_code, run_id,
         )
+        try:
+            async with async_session_factory()() as recovery_db:
+                if delivery_id is not None:
+                    from app.ucp.event_reliability import mark_delivery_failed
+                    from app.ucp.models import UcpEventDelivery
+
+                    delivery = await recovery_db.get(UcpEventDelivery, delivery_id)
+                    if delivery is not None:
+                        await mark_delivery_failed(
+                            recovery_db,
+                            delivery,
+                            error_code="PIPELINE_EXECUTION_EXCEPTION",
+                            error_message=str(exc),
+                        )
+                event = await recovery_db.get(UcpEvent, event_db_id)
+                if event is not None:
+                    event.status = EVENT_STATUS_FAILED
+                    event.error_code = "PIPELINE_EXECUTION_EXCEPTION"
+                    event.error_message = str(exc)[:1000]
+                await recovery_db.commit()
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to persist background pipeline failure: run_id=%s", run_id)
 
 
 async def process_event_pipeline(
@@ -457,17 +528,20 @@ async def process_event_pipeline(
     event.status = EVENT_STATUS_MATCHED
     await db.flush()
 
-    # 多个触发器串行派发（不并行，避免 pipeline 锁冲突）
+    # 多个触发器串行派发（不并行，避免 pipeline 锁冲突）。
+    # 单个触发器失败不得阻断其它匹配触发器。
+    dispatch_errors: list[EventBusError] = []
     for trig in triggers:
         try:
             await dispatch_event(db, event, trig)
         except EventBusError as e:
             logger.warning("dispatch failed: %s (%s)", e.message, e.code)
-            event.status = EVENT_STATUS_FAILED
-            event.error_code = e.code
-            event.error_message = e.message
-            await db.flush()
-            break  # 同一事件触发多个 trigger 时，第一个失败就停止后续
+            dispatch_errors.append(e)
+    if dispatch_errors and len(dispatch_errors) == len(triggers):
+        event.status = EVENT_STATUS_FAILED
+        event.error_code = dispatch_errors[0].code
+        event.error_message = dispatch_errors[0].message
+        await db.flush()
     else:
         event.status = EVENT_STATUS_DISPATCHED
         await db.flush()

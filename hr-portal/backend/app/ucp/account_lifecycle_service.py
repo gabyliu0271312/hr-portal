@@ -316,7 +316,13 @@ async def _create_job(db: AsyncSession, rule: UcpAccountLifecycleRule, event: Uc
         status=status,
         scheduled_at=_utcnow() + timedelta(days=rule.retention_days),
         idempotency_key=key,
-        payload_snapshot=mask_dict(values),
+        payload_snapshot=mask_dict({
+            **values,
+            "_event_id": event.event_id,
+            "_trace_id": event.trace_id,
+            "_rule_code": rule.rule_code,
+            "_rule_updated_at": rule.updated_at.isoformat() if rule.updated_at else None,
+        }),
     )
     db.add(job)
     await db.flush()

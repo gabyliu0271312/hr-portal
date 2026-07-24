@@ -228,6 +228,57 @@ async def copy_template(
     return _serialize_template(new_tpl)
 
 
+async def create_openapi_drafts(
+    db: AsyncSession,
+    candidates: list[dict[str, Any]],
+    selected_operation_ids: list[str],
+    created_by: str | None = None,
+) -> list[dict]:
+    selected = set(selected_operation_ids)
+    if not selected:
+        raise ApiTemplateError("MISSING_OPERATION", "至少选择一个只读操作")
+    chosen = [item for item in candidates if item.get("operation_id") in selected]
+    if len(chosen) != len(selected):
+        raise ApiTemplateError("INVALID_OPERATION", "存在未通过安全校验的操作")
+    codes = [item["template_code"] for item in chosen]
+    existing = set((await db.execute(select(UcpApiTemplate.template_code).where(UcpApiTemplate.template_code.in_(codes)))).scalars())
+    if existing:
+        raise ApiTemplateError("DUPLICATE_CODE", f"模板编码已存在: {', '.join(sorted(existing))}")
+    drafts = []
+    for item in chosen:
+        drafts.append(await create_template(
+            db, template_code=item["template_code"], template_name=item["template_name"],
+            method=item["method"], base_url=item["base_url"], path=item["path"],
+            auth_type=item.get("auth_type"), query_config=item.get("query_config"),
+            body_template=item.get("body_template"), data_path=item.get("data_path"),
+            total_path=item.get("total_path"), pagination_type=item.get("pagination_type") or "NONE",
+            allowed_domains=item["allowed_domains"], tags=item.get("tags"),
+            description=item.get("description"), created_by=created_by,
+        ))
+    return drafts
+
+
+async def publish_template(db: AsyncSession, template_code: str, operator: str | None = None) -> dict:
+    tpl = (await db.execute(select(UcpApiTemplate).where(UcpApiTemplate.template_code == template_code))).scalar_one_or_none()
+    if not tpl:
+        raise ApiTemplateError("NOT_FOUND", f"模板 '{template_code}' 不存在")
+    if tpl.is_published:
+        raise ApiTemplateError("ALREADY_PUBLISHED", "模板已发布")
+    from app.ucp.generic_http_adapter import GenericHttpPolicyError, validate_generic_http_config
+    try:
+        validate_generic_http_config(_serialize_template(tpl))
+    except GenericHttpPolicyError as exc:
+        raise ApiTemplateError("INVALID_POLICY", str(exc)) from exc
+    tpl.is_published = 1
+    tpl.updated_by = operator
+    parts = tpl.version.split(".")
+    parts[-1] = str(int(parts[-1]) + 1)
+    tpl.version = ".".join(parts)
+    _save_version(db, tpl, tpl.version, "审批发布", operator)
+    await db.flush()
+    return _serialize_template(tpl)
+
+
 async def delete_template(db: AsyncSession, template_code: str) -> bool:
     tpl = (await db.execute(
         select(UcpApiTemplate).where(UcpApiTemplate.template_code == template_code)
@@ -285,18 +336,33 @@ async def rollback_template(
 def _save_version(db: AsyncSession, tpl: UcpApiTemplate, version: str, note: str | None, by: str | None):
     snap = {
         "template_name": tpl.template_name,
+        "description": tpl.description,
+        "category": tpl.category,
+        "system_type": tpl.system_type,
         "method": tpl.method,
         "base_url": tpl.base_url,
         "path": tpl.path,
+        "content_type": tpl.content_type,
+        "timeout_seconds": tpl.timeout_seconds,
         "headers_config": tpl.headers_config,
         "query_config": tpl.query_config,
         "body_template": tpl.body_template,
         "auth_type": tpl.auth_type,
         "data_path": tpl.data_path,
         "total_path": tpl.total_path,
+        "next_cursor_path": tpl.next_cursor_path,
         "pagination_type": tpl.pagination_type,
+        "page_param": tpl.page_param,
+        "page_size_param": tpl.page_size_param,
+        "rate_limit_qps": tpl.rate_limit_qps,
+        "rate_limit_concurrency": tpl.rate_limit_concurrency,
+        "retry_max": tpl.retry_max,
+        "retry_backoff": tpl.retry_backoff,
         "field_mappings": tpl.field_mappings,
         "error_code_map": tpl.error_code_map,
+        "allowed_domains": tpl.allowed_domains,
+        "tags": tpl.tags,
+        "is_published": tpl.is_published,
     }
     db.add(UcpApiTemplateVersion(
         template_id=tpl.id,

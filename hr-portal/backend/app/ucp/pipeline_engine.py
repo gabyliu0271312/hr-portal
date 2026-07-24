@@ -35,14 +35,18 @@ from app.ucp.circuit_breaker import (
     record_success as cb_record_success,
 )
 from app.ucp.credential_service import decrypt_credential_secrets
+from app.permissions.scope_filter import _is_super_admin
+from app.ucp.masking import mask_dict, mask_sensitive_fields
 from app.ucp.models import (
     UcpExecutionLog,
     UcpLoopItemExecution,
     UcpPipelineConfig,
+    UcpPipelineTemplate,
     UcpPipelineExecution,
     UcpPipelineStepExecution,
     UcpSystemConfig,
     UcpResource,
+    UcpResourceDataObject,
     UcpSystemCapability,
     UcpOperationDefinition,
 )
@@ -265,6 +269,8 @@ class PipelineContext:
         current = step_data
         for part in parts[1:]:
             if isinstance(current, dict):
+                if part == "result" and "result" not in current:
+                    continue
                 current = current.get(part)
             else:
                 return None
@@ -321,11 +327,17 @@ def _build_step_input_snapshot(step_config: dict, override_params: dict | None =
         snapshot["loop_input"] = step_config.get("loop_input")
     if step_config.get("item_key_field"):
         snapshot["item_key_field"] = step_config.get("item_key_field")
+    if step_config.get("data_object_id"):
+        snapshot["data_object_id"] = step_config.get("data_object_id")
     # 步骤参数（脱敏）
     raw_params = step_config.get("params") or {}
     if raw_params:
         snapshot["params"] = mask_dict(raw_params)
     # TRANSFORM 配置
+    if step_config.get("type") == "CAPABILITY_LOOKUP":
+        snapshot["capability_id"] = step_config.get("capability_id")
+        snapshot["lookup_field"] = step_config.get("lookup_field")
+        snapshot["parameter_name"] = step_config.get("parameter_name", "application_id")
     if step_config.get("transform_config"):
         tc = step_config.get("transform_config")
         snapshot["transform_operation"] = tc.get("operation")
@@ -360,6 +372,21 @@ def _apply_mapping_rules(row: dict, mapping_rules: list[dict]) -> dict:
         mapped[mapped_key] = value
     return mapped
 
+def _resource_mapping_rules(field_mapping: Any) -> list[dict]:
+    """Normalize resource data-object mappings to pipeline mapping rules."""
+    if isinstance(field_mapping, list):
+        return [rule for rule in field_mapping if isinstance(rule, dict)]
+    if not isinstance(field_mapping, dict):
+        return []
+    rules = field_mapping.get("rules")
+    if isinstance(rules, list):
+        return [rule for rule in rules if isinstance(rule, dict)]
+    return [
+        {"source": source, "target": target}
+        for source, target in field_mapping.items()
+        if isinstance(source, str) and source and isinstance(target, str) and target
+    ]
+
 
 # ===== Pipeline 执行 =====
 
@@ -371,7 +398,10 @@ async def execute_pipeline(
     dry_run: bool = False,
     time_range: dict | None = None,
     override_params: dict | None = None,
-    ) -> UcpPipelineExecution:
+    trigger_payload: dict | None = None,
+    pipeline_run_id: str | None = None,
+    trace_id: str | None = None,
+) -> UcpPipelineExecution:
     """执行一次完整流水线。
 
     1. 加载 Pipeline 配置
@@ -383,8 +413,8 @@ async def execute_pipeline(
     7. 保存 Context 摘要
     8. 发送执行结果通知
     """
-    trace_id = _gen_trace_id()
-    pipeline_run_id = _gen_pipeline_run_id()
+    trace_id = trace_id or _gen_trace_id()
+    pipeline_run_id = pipeline_run_id or _gen_pipeline_run_id()
 
     # 1. 加载配置
     pl_config = await _load_pipeline_config(db, pipeline_code)
@@ -421,7 +451,11 @@ async def execute_pipeline(
         "dry_run": dry_run,
         "time_range": time_range,
         "override_params": override_params,
+        "trigger_payload": trigger_payload or {},
     })
+    if trigger_payload:
+        ctx.set("trigger", trigger_payload)
+        ctx.set("event", trigger_payload.get("event", trigger_payload))
 
     start_time = time.monotonic()
     success_count = 0
@@ -467,9 +501,15 @@ async def execute_pipeline(
                 "failed_count": result.get("failed_count", 0),
             }
             # Phase 4: APPROVAL 节点返回 waiting_approval
-            if result_status == "waiting_approval":
+            normalized_result_status = str(result_status).upper()
+            if normalized_result_status in {"FAILED", "ERROR"}:
+                raise RuntimeError(result.get("error_message") or result.get("error_code") or f"Step {step_id} failed")
+            if normalized_result_status == "WAITING_APPROVAL":
                 step_status = "WAITING_APPROVAL"
                 overall_status = "WAITING_APPROVAL"
+            elif normalized_result_status == "PARTIAL_SUCCESS":
+                step_status = "PARTIAL_SUCCESS"
+                overall_status = "PARTIAL_SUCCESS"
         except Exception as e:
             step_status = "FAILED"
             step_error = str(e)[:1000]
@@ -493,8 +533,8 @@ async def execute_pipeline(
 
         # 更新步骤执行实例
         if step_status == "WAITING_APPROVAL":
-            success_count += 1  # 审批创建成功算作成功
-        elif step_status != "FAILED" or error_handling == "CONTINUE_ON_ERROR":
+            success_count += 1
+        elif step_status != "FAILED":
             success_count += 1
 
         step_exec.status = step_status
@@ -566,6 +606,12 @@ async def execute_pipeline(
     # 7. 发送通知
     await _send_pipeline_notification(db, pipeline_code, pipeline_run_id, trace_id, overall_status, ctx, pl_config)
 
+    if dry_run:
+        await db.rollback()
+    else:
+        await db.commit()
+        await db.refresh(exec_instance)
+
     logger.info(
         "[ucp] pipeline completed: code=%s run_id=%s status=%s duration=%dms",
         pipeline_code, pipeline_run_id, overall_status, exec_instance.duration_ms,
@@ -586,9 +632,30 @@ async def _load_pipeline_config(
             )
         )
     ).scalar_one_or_none()
-    if pl is None:
+    if pl is not None:
+        return pl
+
+    template = (
+        await db.execute(
+            select(UcpPipelineTemplate).where(UcpPipelineTemplate.template_code == pipeline_code)
+        )
+    ).scalar_one_or_none()
+    if template is None:
         raise RuntimeError(f"Pipeline '{pipeline_code}' not found or not enabled")
-    return pl
+    steps = []
+    for node in template.nodes_json or []:
+        config = dict(node.get("config") or {})
+        steps.append({"step_id": node.get("id"), "type": node.get("type", "CONNECTOR"), **config})
+    return UcpPipelineConfig(
+        pipeline_code=template.template_code,
+        pipeline_name=template.name,
+        description=template.description,
+        steps=steps,
+        trigger_type="MANUAL",
+        error_handling="CONTINUE_ON_ERROR",
+        run_as_type="SERVICE_ACCOUNT",
+        status=1,
+    )
 
 
 async def _execute_step(
@@ -609,11 +676,11 @@ async def _execute_step(
     elif step_type == "CAPABILITY":
         return await _execute_capability_step(step_config, db)
     elif step_type == "CAPABILITY_LOOKUP":
-        return await _execute_capability_lookup_step(step_config, ctx, db)
+        return await _execute_capability_lookup_step(step_config, ctx, db, trace_id, pipeline_run_id, step_run_id)
     elif step_type == "RECORD_MERGE":
         return await _execute_record_merge_step(step_config, ctx)
     elif step_type == "WAREHOUSE_ASSET_SINK":
-        return await _execute_warehouse_asset_sink_step(step_config, ctx, db)
+        return await _execute_warehouse_asset_sink_step(step_config, ctx, db, pipeline_run_id)
     elif step_type == "TRANSFORM":
         return await _execute_transform_step(step_config, ctx, db)
     elif step_type == "NOTIFY":
@@ -648,25 +715,72 @@ async def _execute_capability_step(step_config: dict, db: AsyncSession) -> dict:
         raise RuntimeError(f"缺少业务参数：{'、'.join(missing)}")
     secrets = await decrypt_credential_secrets(db, capability.credential_id) if capability.credential_id else {}
     result: AdapterResult = await get_adapter(operation.adapter_code)(params, secrets, db)
-    return {"status": result.status, "data": result.data, "row_count": result.row_count, "success_count": result.success_count, "failed_count": result.failed_count, "extra": result.extra}
+    return {
+        "status": result.status,
+        "data": result.data,
+        "row_count": result.row_count,
+        "success_count": result.success_count,
+        "failed_count": result.failed_count,
+        "error_code": result.error_code,
+        "error_message": result.error_message,
+        "extra": result.extra,
+    }
 
 
-async def _execute_capability_lookup_step(step_config: dict, ctx: PipelineContext, db: AsyncSession) -> dict:
+async def _execute_capability_lookup_step(
+    step_config: dict,
+    ctx: PipelineContext,
+    db: AsyncSession,
+    trace_id: str,
+    pipeline_run_id: str,
+    step_run_id: str,
+) -> dict:
     rows = ctx.resolve_ref(step_config.get("input_key", "")) or []
-    lookup_field, parameter_name = step_config.get("lookup_field"), step_config.get("parameter_name", "application_id")
-    if not isinstance(rows, list) or not lookup_field:
-        raise RuntimeError("请配置来源记录和业务键字段")
-    output, failed = [], 0
+    lookup_field = step_config.get("lookup_field")
+    parameter_name = step_config.get("parameter_name", "application_id")
+    capability_id = step_config.get("capability_id")
+    failure_policy = step_config.get("failure_policy", "CONTINUE")
+    if failure_policy not in {"CONTINUE", "STOP"}:
+        raise RuntimeError("CAPABILITY_LOOKUP failure_policy must be CONTINUE or STOP")
+    if not isinstance(rows, list) or not lookup_field or not capability_id:
+        raise RuntimeError("CAPABILITY_LOOKUP requires input records, lookup_field, and capability_id")
+
+    output: list[dict] = []
+    failed = 0
     for row in rows:
         item = dict(row) if isinstance(row, dict) else {}
-        key = item.get(lookup_field)
+        key = str(item.get(lookup_field) or "")
         if not key:
-            item["lookup_status"] = "MISSING_KEY"; output.append(item); failed += 1; continue
-        result = await _execute_capability_step({"capability_id": step_config.get("capability_id"), "params": {parameter_name: key}}, db)
-        item["lookup_status"] = result["status"]
-        item["lookup_data"] = (result.get("data") or [{}])[0] if result.get("data") else {}
+            result = {"status": "MISSING_KEY", "data": [], "error_code": "MISSING_LOOKUP_KEY", "error_message": f"{lookup_field} is required"}
+        else:
+            lookup_params = dict(step_config.get("params") or {})
+            lookup_params[parameter_name] = key
+            result = await _execute_capability_step({"capability_id": capability_id, "params": lookup_params}, db)
+        status = str(result.get("status") or "failed").upper()
+        lookup_data = (result.get("data") or [{}])[0] if result.get("data") else {}
+        item["lookup_status"] = status
+        item["lookup_data"] = lookup_data if isinstance(lookup_data, dict) else {}
         output.append(item)
-    return {"status": "success" if not failed else "partial_success", "data": output, "row_count": len(output), "success_count": len(output) - failed, "failed_count": failed}
+        if status != "SUCCESS":
+            failed += 1
+        db.add(UcpLoopItemExecution(
+            trace_id=trace_id,
+            pipeline_run_id=pipeline_run_id,
+            step_run_id=step_run_id,
+            resource_code=f"CAPABILITY:{capability_id}",
+            item_key=key or f"row-{len(output)}",
+            status=status,
+            request_params_masked=mask_dict({parameter_name: key}) if key else {},
+            response_summary_masked=mask_sensitive_fields([item["lookup_data"]])[0] if item["lookup_data"] else {},
+            error_code=result.get("error_code"),
+            error_message=result.get("error_message"),
+            is_retryable=0 if status in {"SUCCESS", "OFFER_NOT_FOUND", "NOT_FOUND", "MISSING_KEY"} else 1,
+        ))
+        if status != "SUCCESS" and failure_policy == "STOP":
+            break
+    await db.flush()
+    step_status = "success" if not failed else ("failed" if failure_policy == "STOP" else "partial_success")
+    return {"status": step_status, "data": output, "row_count": len(output), "success_count": len(output) - failed, "failed_count": failed}
 
 
 async def _execute_record_merge_step(step_config: dict, ctx: PipelineContext) -> dict:
@@ -684,10 +798,22 @@ async def _execute_record_merge_step(step_config: dict, ctx: PipelineContext) ->
     return {"status": "success", "data": output, "row_count": len(output), "success_count": len(output)}
 
 
-async def _execute_warehouse_asset_sink_step(step_config: dict, ctx: PipelineContext, db: AsyncSession) -> dict:
+async def _execute_warehouse_asset_sink_step(
+    step_config: dict,
+    ctx: PipelineContext,
+    db: AsyncSession,
+    pipeline_run_id: str,
+) -> dict:
     rows = ctx.resolve_ref(step_config.get("input_key", "")) or []
     from app.warehouse.asset_sink import WarehouseAssetSink
-    result = await WarehouseAssetSink(db).write(target_asset=step_config.get("target_asset", ""), rows=rows, write_mode=step_config.get("write_mode", "upsert"), primary_key=step_config.get("primary_key"), field_whitelist=step_config.get("field_whitelist") or [])
+    result = await WarehouseAssetSink(db).write(
+        target_asset=step_config.get("target_asset", ""),
+        rows=rows,
+        write_mode=step_config.get("write_mode", "upsert"),
+        primary_key=step_config.get("primary_key"),
+        field_whitelist=step_config.get("field_whitelist") or [],
+        batch_id=step_config.get("batch_id") or pipeline_run_id,
+    )
     return {"status": "success", "data": [], "row_count": result["written_count"], "success_count": result["written_count"], "extra": result}
 
 
@@ -704,6 +830,7 @@ async def _execute_resource_step(
     report_config: dict[str, Any] = {}
     circuit_config: dict[str, Any] = {}
     rate_limit_config: dict[str, Any] = {}
+    mapping_rules: list[dict] = []
     adapter_code = ""
     credential_id: int | None = None
 
@@ -736,6 +863,15 @@ async def _execute_resource_step(
             except BitableTableConfigError as exc:
                 raise RuntimeError(str(exc)) from exc
             protocol.update(table_params(table_config))
+        elif adapter_code == "BEISEN_REPORT_PULL_ADAPTER":
+            data_object_id = step_config.get("data_object_id")
+            if not isinstance(data_object_id, int):
+                raise RuntimeError("Beisen report resource requires data_object_id")
+            data_object = await db.get(UcpResourceDataObject, data_object_id)
+            if data_object is None or data_object.resource_id != resource.id or not data_object.is_active:
+                raise RuntimeError("Selected Beisen report data object is unavailable")
+            report_config["object_config"] = dict(data_object.object_config or {})
+            mapping_rules = _resource_mapping_rules(data_object.field_mapping)
     else:
         conn_config = (
             await db.execute(
@@ -779,9 +915,17 @@ async def _execute_resource_step(
     else:
         cb_record_failure(resource_code, circuit_config, error_code=result.error_code or "ADAPTER_FAILED", error_message=result.error_message or "适配器返回失败")
     await _write_ucp_execution_log(db, trace_id, resource_code, result, "pipeline_step")
+    if result.status != "success":
+        raise RuntimeError(result.error_message or result.error_code or f"Resource {resource_code} failed")
+    data = result.data
+    if mapping_rules and isinstance(data, list):
+        data = [
+            _apply_mapping_rules(row, mapping_rules) if isinstance(row, dict) else row
+            for row in data
+        ]
     return {
         "status": result.status,
-        "data": result.data,
+        "data": data,
         "row_count": result.row_count,
         "success_count": result.success_count,
         "failed_count": result.failed_count,
@@ -1393,6 +1537,16 @@ async def check_pipeline_concurrent_lock(
         )
 
 
+def _is_pipeline_owner(owner: Any, user: Any) -> bool:
+    owner_value = str(owner)
+    identities = {str(getattr(user, "id", ""))}
+    for attribute in ("login_name", "username"):
+        value = getattr(user, attribute, None)
+        if value:
+            identities.add(str(value))
+    return owner_value in identities
+
+
 async def check_pipeline_trigger_permission(
     db: AsyncSession,
     pipeline_code: str,
@@ -1410,7 +1564,7 @@ async def check_pipeline_trigger_permission(
     """
     # 规则 1：系统管理员
     is_admin = bool(getattr(user, "is_admin", False) or getattr(user, "is_superuser", False))
-    if is_admin:
+    if is_admin or await _is_super_admin(user, db):
         return
 
     # 规则 3：Pipeline owner
@@ -1419,7 +1573,18 @@ async def check_pipeline_trigger_permission(
     )
     pl_config = (await db.execute(stmt)).scalar_one_or_none()
     if pl_config is not None and pl_config.created_by is not None:
-        if str(pl_config.created_by) == str(user.id):
+        if _is_pipeline_owner(pl_config.created_by, user):
+            return
+
+    template = (
+        await db.execute(
+            select(UcpPipelineTemplate).where(
+                UcpPipelineTemplate.template_code == pipeline_code
+            )
+        )
+    ).scalar_one_or_none()
+    if template is not None and template.created_by is not None:
+        if _is_pipeline_owner(template.created_by, user):
             return
 
     # 否则拒绝
@@ -1490,24 +1655,51 @@ async def retry_single_item(
     resource_code = item.resource_code or step_exec.resource_code or ""
 
     try:
-        from app.ucp.adapters import ADAPTER_REGISTRY, AdapterContext
-        ctx = AdapterContext(trace_id=pipeline_exec.trace_id if pipeline_exec else "", resource_code=resource_code)
-        result = await ADAPTER_REGISTRY.execute(adapter_code=resource_code, params=params, context=ctx)
+        if step_config.get("type") == "CAPABILITY_LOOKUP":
+            parameter_name = step_config.get("parameter_name", "application_id")
+            result = await _execute_capability_step(
+                {"capability_id": step_config.get("capability_id"), "params": {parameter_name: item.item_key}},
+                db,
+            )
+            status = str(result.get("status") or "failed").upper()
+            if status != "SUCCESS":
+                raise RetryError(result.get("error_code") or "CAPABILITY_RETRY_FAILED", result.get("error_message") or status)
+            response_summary = mask_sensitive_fields(result.get("data") or [])
+        else:
+            item_key_field = step_config.get("item_key_field", "application_id")
+            conn_config = (
+                await db.execute(
+                    select(UcpSystemConfig).where(UcpSystemConfig.system_code == resource_code)
+                )
+            ).scalar_one_or_none()
+            if conn_config is None or not conn_config.adapter_code:
+                raise RetryError("CONNECTOR_NOT_FOUND", f"Resource {resource_code} is unavailable")
+            secrets = await decrypt_credential_secrets(db, conn_config.credential_id) if conn_config.credential_id else {}
+            adapter_params = dict(conn_config.protocol or {})
+            adapter_params.update(conn_config.report_config or {})
+            adapter_params.update(step_config.get("params") or {})
+            adapter_params[item_key_field] = item.item_key
+            result = await get_adapter(conn_config.adapter_code)(adapter_params, secrets, db)
+            if result.status != "success":
+                raise RetryError(result.error_code or "CONNECTOR_RETRY_FAILED", result.error_message or result.status)
+            params = mask_dict(adapter_params)
+            response_summary = mask_sensitive_fields(result.data or [])
         new_item = UcpLoopItemExecution(
+            trace_id=pipeline_exec.trace_id if pipeline_exec else "",
             pipeline_run_id=pipeline_run_id,
             step_run_id=item.step_run_id,
             item_key=item.item_key,
             resource_code=resource_code,
             status="SUCCESS",
             request_params_masked=params,
-            response_summary_masked={"result": str(result)[:500]} if result else None,
+            response_summary_masked=response_summary[0] if response_summary else {},
             retry_count=item.retry_count + 1,
             is_retryable=0,
         )
         db.add(new_item)
         item.is_retryable = 0
         await db.flush()
-        return {"status": "SUCCESS", "item_id": item_id, "message": "重试成功"}
+        return {"status": "SUCCESS", "item_id": item_id, "message": "retry succeeded"}
     except Exception as e:
         item.retry_count = (item.retry_count or 0) + 1
         item.last_failed_at = datetime.now(UTC)

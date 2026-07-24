@@ -257,7 +257,7 @@ import {
   VideoPlay,
   Clock,
 } from '@element-plus/icons-vue'
-import { approvalApi, type ApprovalRequest } from '@/api/ucp'
+import { approvalApi, controlledWriteApi, type ApprovalRequest } from '@/api/ucp'
 import PermissionButton from '@/components/PermissionButton.vue'
 
 const items = ref<ApprovalRequest[]>([])
@@ -463,14 +463,17 @@ const onExecute = async (req: ApprovalRequest) => {
   }
   actionSubmitting.value = true
   try {
-    current.value = await approvalApi.doAction(req.id, {
-      action: 'EXECUTE',
-      confirmation_token: confirmationToken.value || undefined,
-    })
+    const executed = req.business_type === 'UCP_WRITE'
+      ? await controlledWriteApi.execute(req.id, confirmationToken.value || undefined)
+      : await approvalApi.doAction(req.id, {
+          action: 'EXECUTE',
+          confirmation_token: confirmationToken.value || undefined,
+        })
+    current.value = executed
     ElMessage.success(
-      current.value.execution_result === 'SUCCESS'
+      executed.execution_result === 'SUCCESS'
         ? '执行成功'
-        : `执行失败: ${current.value.execution_error}`,
+        : `执行失败: ${executed.execution_error}`,
     )
     loadList()
   } catch (e: any) {

@@ -43,6 +43,20 @@ NODE_TYPES = {
 }
 TEMPLATE_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+([+-][\w.]+)?$")
+LEGACY_SEMVER_RE = re.compile(r"^\d+\.\d+$")
+
+
+def normalize_semver_version(version: str) -> str:
+    return f"{version}.0" if LEGACY_SEMVER_RE.fullmatch(version) else version
+
+
+def next_patch_version(version: str) -> str:
+    normalized = normalize_semver_version(version)
+    parts = normalized.split(".")
+    try:
+        return f"{parts[0]}.{parts[1]}.{int(parts[2].split('-')[0]) + 1}"
+    except (IndexError, ValueError):
+        return "1.0.1"
 
 
 # ===== 节点 / 连线校验 =====
@@ -181,6 +195,7 @@ async def create_template(
 ) -> UcpPipelineTemplate:
     """创建新模板 (含初始版本快照)."""
     code = template_code.strip()
+    version = normalize_semver_version(version)
     if not TEMPLATE_CODE_RE.match(code):
         raise PipelineTemplateError(
             f"template_code 格式错误: {code!r}"
@@ -243,6 +258,8 @@ async def update_template(
         tpl.name = name.strip()
     if description is not None:
         tpl.description = description.strip() or None
+    if tpl.created_by in {"seed", "system"} and created_by:
+        tpl.created_by = created_by
 
     graph_changed = nodes is not None or edges is not None
     if graph_changed:
@@ -255,17 +272,17 @@ async def update_template(
         tpl.edges_json = norm_edges
         # 自动 bump version
         if version:
-            if not SEMVER_RE.match(version):
-                raise PipelineTemplateError(f"version 不是 semver: {version!r}")
-            tpl.version = version
+            requested_version = normalize_semver_version(version)
+            if not SEMVER_RE.match(requested_version):
+                raise PipelineTemplateError(f"version ?? semver: {requested_version!r}")
+            tpl.version = (
+                next_patch_version(tpl.version)
+                if requested_version == normalize_semver_version(tpl.version)
+                else requested_version
+            )
         else:
-            # 默认 +0.0.1
-            parts = tpl.version.split(".")
-            try:
-                tpl.version = f"{parts[0]}.{parts[1]}.{int(parts[2].split('-')[0]) + 1}"
-            except (IndexError, ValueError):
-                tpl.version = "1.0.1"
-        # 创建新版本快照
+            tpl.version = next_patch_version(tpl.version)
+        # ???????
         ver = UcpPipelineTemplateVersion(
             template_id=tpl.id,
             version=tpl.version,

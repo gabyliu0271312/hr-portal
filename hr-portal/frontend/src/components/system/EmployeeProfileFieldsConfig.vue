@@ -9,6 +9,8 @@ const saving = ref(false)
 const error = ref('')
 const governance = ref<EmployeeProfileGovernanceCheck | null>(null)
 const governanceError = ref('')
+const defaultCardCount = computed(() => fields.value.filter((field) => field.is_default_card).length)
+const defaultCardSummary = computed(() => `默认项 ${defaultCardCount.value}/5`)
 
 function fieldGovernanceMessages(columnName: string) {
   return governance.value?.issues.filter((issue) => issue.column_name === columnName).map((issue) => issue.message) || []
@@ -26,6 +28,10 @@ async function load() {
 }
 
 async function save() {
+  if (defaultCardCount.value !== 5) {
+    ElMessage.warning('默认卡片必须恰好选择五项')
+    return
+  }
   saving.value = true
   try { fields.value = await employeeProfileFieldsApi.update(fields.value); ElMessage.success('员工档案展示配置已保存') }
   catch (cause: any) {
@@ -45,6 +51,7 @@ onMounted(load)
         <el-button :loading="saving" type="primary" @click="save">保存配置</el-button>
       </div>
     </template>
+    <el-text v-if="!loading && !error && fields.length" type="info" size="small">{{ defaultCardSummary }}</el-text>
     <el-skeleton v-if="loading" :rows="4" animated />
     <el-alert v-else-if="error" type="error" :title="error" show-icon :closable="false"><template #default><el-button size="small" @click="load">重试</el-button></template></el-alert>
     <el-empty v-else-if="!fields.length" description="当前没有可配置的员工档案字段" />

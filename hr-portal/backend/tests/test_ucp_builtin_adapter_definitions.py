@@ -17,8 +17,10 @@ def test_builtin_adapter_catalogue_has_unique_active_codes():
     assert len(codes) == len(set(codes))
     assert {
         "BEISEN_PENDING_LIST_ADAPTER",
+        "BEISEN_REPORT_PULL_ADAPTER",
         "FEISHU_OFFER_DETAIL_ADAPTER",
         "FEISHU_BITABLE_PULL_ADAPTER",
+        "GENERIC_HTTP_ACTION_ADAPTER",
         "EXCEL_IMPORT_ADAPTER",
         "DATASOURCE_BRIDGE_ADAPTER",
         "PUSH_TARGET_BRIDGE_ADAPTER",

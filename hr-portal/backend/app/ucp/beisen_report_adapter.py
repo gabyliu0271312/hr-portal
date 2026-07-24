@@ -1,6 +1,8 @@
 """UCP bridge for the standard Beisen Report connection."""
 from __future__ import annotations
 
+import httpx
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.datasources.beisen_client import BeisenReportClient
@@ -34,5 +36,18 @@ async def beisen_report_pull_adapter(params: dict, secrets: dict, db: AsyncSessi
             page_size=int(object_config.get("page_size") or 1000)
         )
         return AdapterResult(status="success", data=rows, row_count=len(rows), success_count=len(rows))
+    except httpx.HTTPStatusError as exc:
+        response_text = exc.response.text.strip()[:500]
+        if exc.response.status_code == 403 and "\u53d7\u4fe1IP" in response_text:
+            return AdapterResult(
+                status="failed",
+                error_code="BEISEN_TRUSTED_IP_REQUIRED",
+                error_message=response_text,
+            )
+        return AdapterResult(
+            status="failed",
+            error_code=f"BEISEN_HTTP_{exc.response.status_code}",
+            error_message=response_text or str(exc)[:500],
+        )
     except Exception as exc:
-        return AdapterResult(status="failed", error_message=str(exc)[:500])
+        return AdapterResult(status="failed", error_code="BEISEN_REPORT_PULL_FAILED", error_message=str(exc)[:500])

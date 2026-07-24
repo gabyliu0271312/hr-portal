@@ -77,13 +77,32 @@
             <el-form-item label="标签"><el-input v-model="selectedNode.label" placeholder="自定义标签" /></el-form-item>
             <template v-if="(selectedNode.type as string) === 'CONNECTOR'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
-              <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.resource_id = v; const r = allResources.find(x=>x.id===v); if(r){cfg.resource_name=r.resource_name;cfg.resource_code=r.resource_code;cfg.adapter_code=r.adapter_code||null} selectedNode.config = cfg } }" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>              <el-form-item v-if="selectedNode.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER'" label="数据对象"><el-select v-model="selectedNode.config.bitable_table_id" clearable filterable placeholder="选择具体多维表格" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadBitableTablesForNode(Number(selectedNode.config?.resource_id) || null)"><el-option v-for="item in bitableTableOptions" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
+              <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.resource_id = v; const r = allResources.find(x=>x.id===v); if(r){cfg.resource_name=r.resource_name;cfg.resource_code=r.resource_code;cfg.adapter_code=r.adapter_code||null} selectedNode.config = cfg } }" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>
+              <el-form-item v-if="selectedNode.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER'" label="数据对象"><el-select v-model="selectedNode.config.bitable_table_id" clearable filterable placeholder="选择具体多维表格" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadBitableTablesForNode(Number(selectedNode.config?.resource_id) || null)"><el-option v-for="item in bitableTableOptions" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
+              <el-form-item v-if="selectedNode.config?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER'" label="北森报表"><el-select v-model="selectedNode.config.data_object_id" clearable filterable placeholder="选择待入职人员报表" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadResourceDataObjects(Number(selectedNode.config?.resource_id) || null)"><el-option v-for="item in resourceDataObjects" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'CAPABILITY'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" clearable placeholder="选择系统" style="width:100%" @change="selectCapabilitySystem"><el-option v-for="item in capabilitySystems" :key="item.system_id" :label="item.system_name" :value="item.system_id" /></el-select></el-form-item>
               <el-form-item label="对象"><el-select :model-value="selectedNode.config?.object_code" clearable placeholder="选择业务对象" style="width:100%" @change="selectCapabilityObject"><el-option v-for="item in capabilityObjects" :key="item" :label="item" :value="item" /></el-select></el-form-item>
               <el-form-item label="操作"><el-select :model-value="selectedNode.config?.capability_id" clearable placeholder="选择已验证操作" style="width:100%" @change="selectCapabilityOperation"><el-option v-for="item in capabilityOperations" :key="item.capability_id" :label="item.operation_name" :value="item.capability_id" /></el-select></el-form-item>
               <div class="text-muted">仅显示已启用、已验证的只读业务能力。</div>
+            </template>
+            <template v-else-if="(selectedNode.type as string) === 'CAPABILITY_LOOKUP'">
+              <el-form-item label="业务系统"><el-select :model-value="selectedNode.config?.system_id" clearable placeholder="选择飞书招聘系统" style="width:100%" @change="selectCapabilitySystem"><el-option v-for="item in capabilitySystems" :key="item.system_id" :label="item.system_name" :value="item.system_id" /></el-select></el-form-item>
+              <el-form-item label="业务对象"><el-select :model-value="selectedNode.config?.object_code" clearable placeholder="选择 Offer" style="width:100%" @change="selectCapabilityObject"><el-option v-for="item in capabilityObjects" :key="item" :label="item" :value="item" /></el-select></el-form-item>
+              <el-form-item label="Offer 能力"><el-select :model-value="selectedNode.config?.capability_id" clearable placeholder="选择已验证 Offer 查询能力" style="width:100%" @change="selectCapabilityOperation"><el-option v-for="item in capabilityOperations" :key="item.capability_id" :label="item.operation_name" :value="item.capability_id" /></el-select></el-form-item>
+              <el-form-item label="投递记录 ID"><el-select v-model="selectedNode.config.lookup_field" allow-create filterable placeholder="选择北森来源字段" style="width:100%"><el-option label="投递记录 ID (application_id)" value="application_id" /></el-select></el-form-item>
+              <el-form-item label="失败策略"><el-select v-model="selectedNode.config.failure_policy" style="width:100%"><el-option label="单人失败继续" value="CONTINUE" /><el-option label="遇到失败停止" value="STOP" /></el-select></el-form-item>
+            </template>
+            <template v-else-if="(selectedNode.type as string) === 'RECORD_MERGE'">
+              <el-form-item label="Offer 字段映射"><div class="field-mappings"><div v-for="(mapping, index) in offerMappings" :key="index" class="mapping-row"><el-select v-model="mapping.source" filterable placeholder="选择 Offer 字段" style="width:130px"><el-option v-for="field in offerFieldOptions" :key="field.code" :label="field.label" :value="field.code" /></el-select><span class="mapping-arrow">→</span><el-select v-model="mapping.target" filterable placeholder="选择目标资产字段" style="width:130px"><el-option v-for="column in targetAssetColumns" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select><el-button link size="small" type="danger" @click="removeOfferMapping(index)"><el-icon><Delete /></el-icon></el-button></div><el-button size="small" @click="addOfferMapping">+ 添加 Offer 字段</el-button></div></el-form-item>
+              <div class="text-muted">只补全空字段，北森原始字段保持优先。</div>
+            </template>
+            <template v-else-if="(selectedNode.type as string) === 'WAREHOUSE_ASSET_SINK'">
+              <el-form-item label="目标资产"><el-select :model-value="selectedNode.config?.target_asset" filterable placeholder="选择已发布数据资产" style="width:100%" @change="selectTargetAsset"><el-option v-for="asset in publishedAssets" :key="asset.table_name" :label="asset.table_label" :value="asset.table_name" /></el-select></el-form-item>
+              <el-form-item label="写入模式"><el-select v-model="selectedNode.config.write_mode" style="width:100%"><el-option label="追加写入" value="append" /><el-option label="按主键更新" value="upsert" /><el-option label="替换资产数据" value="replace" /></el-select></el-form-item>
+              <el-form-item label="主键字段"><el-select v-model="selectedNode.config.primary_key" filterable clearable placeholder="选择资产声明主键" style="width:100%"><el-option v-for="column in targetAssetColumns.filter(column => column.is_pk_part)" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select></el-form-item>
+              <el-form-item label="允许写入字段"><el-select v-model="selectedNode.config.field_whitelist" multiple filterable placeholder="选择审批字段" style="width:100%"><el-option v-for="column in targetAssetColumns" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select></el-form-item>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'LOOP_RESOURCE' || selectedNode.type === 'LOOP'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
@@ -145,10 +164,12 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Connection, MagicStick, Share, Refresh, Delete, Aim, Box, Document, DataBoard, BellFilled, TrendCharts, UserFilled, Setting, Warning, Clock, Edit, FolderOpened, Key, Grid } from '@element-plus/icons-vue'
 import { pipelineTemplateApi, ucpApi, type PipelineTemplate, type PipelineNode, type PipelineEdge, type NodeTypeMeta } from '@/api/ucp'
+import { listAssets, listAssetColumns, type Asset, type AssetColumn } from '@/api/warehouse'
 
 interface SystemItem { id: number; system_code: string; system_name: string }
 interface ResourceItem { id: number; resource_code: string; resource_name: string; system_id: number; adapter_code?: string | null }
 interface VersionItem { id: number; version: string; change_note: string | null; created_by: string; created_at: string | null }
+interface ResourceDataObject { id: number; object_code: string; object_name: string; is_active: boolean }
 
 const nodeTypes = ref<NodeTypeMeta[]>([])
 const ICON_MAP: Record<string, any> = { Connection, MagicStick, Share, Refresh, Delete, Aim, Box, Document, Plus, DataBoard, BellFilled, TrendCharts, UserFilled, Setting, Warning, Clock, Edit, FolderOpened, Key, Grid }
@@ -180,9 +201,40 @@ async function loadSystemsAndResources(): Promise<void> {
   finally { resourcesLoading.value = false }
 }
 function resourcesOf(systemId: number | undefined | null): ResourceItem[] { if (!systemId) return []; return allResources.value.filter((r) => r.system_id === systemId) }
-function selectCapabilitySystem(value: number) { if (!selectedNode.value) return; selectedNode.value.config = { system_id: value } }
+function selectCapabilitySystem(value: number) { if (!selectedNode.value) return; selectedNode.value.config = { ...(selectedNode.value.config || {}), system_id: value, object_code: null, capability_id: null, capability_name: '' } }
 function selectCapabilityObject(value: string) { if (!selectedNode.value) return; selectedNode.value.config = { ...(selectedNode.value.config || {}), object_code: value, capability_id: null, capability_name: '' } }
 function selectCapabilityOperation(value: number) { if (!selectedNode.value) return; const item = capabilityCatalog.value.find(row => row.capability_id === value); if (item) selectedNode.value.config = { ...(selectedNode.value.config || {}), capability_id: value, capability_name: item.operation_name, operation_id: item.operation_id } }
+interface OfferFieldMapping { source: string; target: string }
+interface OfferFieldOption { code: string; label: string }
+const publishedAssets = ref<Asset[]>([])
+const targetAssetColumns = ref<AssetColumn[]>([])
+const offerMappings = computed<OfferFieldMapping[]>(() => {
+  const mappings = (selectedNode.value?.config as Record<string, unknown> | undefined)?.field_mapping
+  return Array.isArray(mappings) ? mappings as OfferFieldMapping[] : []
+})
+function offerCapabilityForMerge(): Record<string, any> | null {
+  const mergeNode = selectedNode.value
+  if (!mergeNode) return null
+  const upstream = findUpstreamNode(mergeNode.id)
+  const inputKey = String(mergeNode.config?.input_key || '')
+  const sourceNodeId = inputKey.match(/^\$\{([^.}]+)/)?.[1]
+  const sourceNode = upstream || form.nodes.find(node => node.id === sourceNodeId)
+  const capabilityId = Number(sourceNode?.config?.capability_id || 0)
+  return capabilityCatalog.value.find(item => item.capability_id === capabilityId) || null
+}
+const offerFieldOptions = computed<OfferFieldOption[]>(() => {
+  const properties = offerCapabilityForMerge()?.output_schema?.properties
+  if (!properties || typeof properties !== 'object') return []
+  return Object.entries(properties as Record<string, Record<string, unknown>>).map(([code, schema]) => ({
+    code,
+    label: String(schema?.label || code),
+  }))
+})
+async function loadPublishedAssets(): Promise<void> { try { publishedAssets.value = (await listAssets({ page: 1, page_size: 200, asset_status: 'published' })).items } catch { publishedAssets.value = [] } }
+async function loadTargetAssetColumns(value: string): Promise<void> { try { targetAssetColumns.value = (await listAssetColumns(value)).columns } catch { targetAssetColumns.value = [] } }
+async function selectTargetAsset(value: string): Promise<void> { if (!selectedNode.value) return; const config = { ...(selectedNode.value.config || {}), target_asset: value, primary_key: null, field_whitelist: [] }; selectedNode.value.config = config; await loadTargetAssetColumns(value) }
+function addOfferMapping(): void { if (!selectedNode.value) return; const config = { ...(selectedNode.value.config || {}) } as Record<string, unknown>; config.field_mapping = [...offerMappings.value, { source: offerFieldOptions.value[0]?.code || '', target: targetAssetColumns.value[0]?.column_code || '' }]; selectedNode.value.config = config }
+function removeOfferMapping(index: number): void { if (!selectedNode.value) return; const config = { ...(selectedNode.value.config || {}) } as Record<string, unknown>; config.field_mapping = offerMappings.value.filter((_, itemIndex) => itemIndex !== index); selectedNode.value.config = config }
 
 const currentTpl = ref<PipelineTemplate | null>(null)
 const form = reactive<{ template_code: string; name: string; description: string; version: string; change_note: string; nodes: PipelineNode[]; edges: PipelineEdge[] }>({ template_code: '', name: '', description: '', version: '1.0.0', change_note: '', nodes: [], edges: [] })
@@ -221,13 +273,21 @@ function nodeHasError(node: PipelineNode): boolean {
   if (type === 'CAPABILITY') return !node.config?.capability_id
   if (type !== 'CONNECTOR' && type !== 'LOOP_RESOURCE') return false
   if (!node.config?.system_id || !node.config?.resource_id) return true
-  return node.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER' && !node.config?.bitable_table_id
+  if (node.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER') return !node.config?.bitable_table_id
+  if (node.config?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER') return !node.config?.data_object_id
+  return false
 }
 
 
 // ===== TRANSFORM 字段映射 =====
 interface FieldMapping { from: string; to: string }
 const bitableTableOptions = ref<any[]>([])
+const resourceDataObjects = ref<ResourceDataObject[]>([])
+async function loadResourceDataObjects(resourceId: number | null | undefined): Promise<void> {
+  if (!resourceId) { resourceDataObjects.value = []; return }
+  try { resourceDataObjects.value = ((await ucpApi.resourceDataObjects(resourceId)).items || []).filter((item: ResourceDataObject) => item.is_active) }
+  catch { resourceDataObjects.value = [] }
+}
 const transformMappings = ref<FieldMapping[]>([])
 const upstreamFields = ref<{ name: string; type: string }[]>([])
 const upstreamSourceName = ref('')
@@ -310,14 +370,33 @@ watch(selectedNodeId, async (newId) => {
   if (!newId) { transformMappings.value = []; upstreamFields.value = []; return }
   syncMappingsFromConfig()
   await loadUpstreamFields(newId)
+  const node = selectedNode.value
+  if ((node?.type as string) === 'RECORD_MERGE') {
+    const sinkNode = form.nodes.find(item => (item.type as string) === 'WAREHOUSE_ASSET_SINK')
+    const targetAsset = String(sinkNode?.config?.target_asset || '')
+    if (targetAsset) await loadTargetAssetColumns(targetAsset)
+  }
 })
 interface CoordEdge { fromX: number; fromY: number; toX: number; toY: number }
 function storedEdge(e: PipelineEdge): CoordEdge { const from = form.nodes.find((n) => n.id === e.from); const to = form.nodes.find((n) => n.id === e.to); return { fromX: (from?.x ?? 0) + 75, fromY: (from?.y ?? 0) + 40, toX: (to?.x ?? 0) + 75, toY: (to?.y ?? 0) + 40 } }
 function edgePath(e: DrawingEdge | CoordEdge): string { const fromX = 'fromNodeId' in e ? (form.nodes.find((n) => n.id === (e as DrawingEdge).fromNodeId)?.x ?? 0) + 75 : (e as CoordEdge).fromX; const fromY = 'fromNodeId' in e ? (form.nodes.find((n) => n.id === (e as DrawingEdge).fromNodeId)?.y ?? 0) + 40 : (e as CoordEdge).fromY; const toX = 'endX' in e ? (e as DrawingEdge).endX : (e as CoordEdge).toX; const toY = 'endY' in e ? (e as DrawingEdge).endY : (e as CoordEdge).toY; const cx = (fromX + toX) / 2; return `M${fromX},${fromY} C${cx},${fromY} ${cx},${toY} ${toX},${toY}` }
 
-async function openDesigner(tpl: PipelineTemplate): Promise<void> { currentTpl.value = tpl; form.template_code = tpl.template_code; form.name = tpl.name; form.description = tpl.description || ''; form.version = tpl.version; form.change_note = ''; form.nodes = JSON.parse(JSON.stringify(tpl.nodes)); form.edges = JSON.parse(JSON.stringify(tpl.edges)); selectedNodeId.value = null; await loadSystemsAndResources() }
+async function openDesigner(tpl: PipelineTemplate): Promise<void> { currentTpl.value = tpl; form.template_code = tpl.template_code; form.name = tpl.name; form.description = tpl.description || ''; form.version = /^\d+\.\d+$/.test(tpl.version) ? `${tpl.version}.0` : tpl.version; form.change_note = ''; form.nodes = JSON.parse(JSON.stringify(tpl.nodes)); form.edges = JSON.parse(JSON.stringify(tpl.edges)); selectedNodeId.value = null; await loadSystemsAndResources(); const sinkNode = form.nodes.find(node => (node.type as string) === 'WAREHOUSE_ASSET_SINK'); const targetAsset = String(sinkNode?.config?.target_asset || ''); if (targetAsset) await loadTargetAssetColumns(targetAsset); else targetAssetColumns.value = [] }
 
-function loadPendingHireTemplate(): void {
+async function loadPendingHireTemplate(): Promise<void> {
+  try {
+    const existing = await pipelineTemplateApi.get('PENDING_HIRE_OFFER_ENRICHMENT')
+    await openDesigner(existing)
+    ElMessage.success('\u5df2\u6253\u5f00\u5f85\u5165\u804c\u4eba\u5458\u8865\u5168\u6a21\u677f\uff0c\u8bf7\u5b8c\u6210\u914d\u7f6e\u540e\u4fdd\u5b58')
+    return
+  } catch (error: unknown) {
+    const status = (error as { response?: { status?: number } }).response?.status
+    if (status !== 404) {
+      ElMessage.error(`\u52a0\u8f7d\u6a21\u677f\u5931\u8d25: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+  }
+
   currentTpl.value = null
   form.template_code = 'PENDING_HIRE_OFFER_ENRICHMENT'
   form.name = '待入职人员入仓及 Offer 薪酬补充'
@@ -335,7 +414,7 @@ function loadPendingHireTemplate(): void {
 }
 
 const saving = ref(false)
-async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { if (currentTpl.value) { await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, version: form.version, change_note: form.change_note || undefined }); ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { ElMessage.error(`保存失败: ${e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
+async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { if (currentTpl.value) { const saved = await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, change_note: form.change_note || undefined }); currentTpl.value = { ...saved, nodes: form.nodes, edges: form.edges }; form.version = saved.version; ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail; ElMessage.error(`保存失败: ${typeof detail === 'string' ? detail : e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
 
 async function dryRun(): Promise<void> { if (!form.template_code) { ElMessage.error('请先保存后再试运行'); return }; try { const result = await ucpApi.runPipeline(form.template_code, { dry_run: true }); ElMessage.success(`试运行已触发，Trace ID: ${result.pipeline_run_id}`) } catch (e: unknown) { ElMessage.error(`试运行失败: ${e instanceof Error ? e.message : String(e)}`) } }
 
@@ -344,7 +423,7 @@ async function viewVersions(tpl: PipelineTemplate): Promise<void> { try { const 
 async function rollbackTo(row: VersionItem): Promise<void> { if (!currentTpl.value) { ElMessage.warning('请先打开流程设计'); return }; try { await ElMessageBox.confirm('确认回滚到此版本? 将创建新版本快照.', '提示', { type: 'warning' }); await pipelineTemplateApi.rollback(currentTpl.value.template_code, row.id); ElMessage.success('已回滚'); versionsVisible.value = false } catch {} }
 
 const route = useRoute()
-onMounted(async () => { await loadNodeTypes(); await loadSystemsAndResources(); const tplCode = route.query.code as string | undefined; if (tplCode) { try { const tpl = await pipelineTemplateApi.get(tplCode); if (tpl) await openDesigner(tpl) } catch {} } })
+onMounted(async () => { await loadNodeTypes(); await loadSystemsAndResources(); await loadPublishedAssets(); const tplCode = route.query.code as string | undefined; if (tplCode) { try { const tpl = await pipelineTemplateApi.get(tplCode); if (tpl) await openDesigner(tpl) } catch {} } })
 </script>
 
 <style scoped>

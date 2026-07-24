@@ -275,7 +275,7 @@ async def get_recent_runs(
             "duration_ms": r.duration_ms,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "started_at": r.started_at.isoformat() if r.started_at else None,
-            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            "finished_at": r.ended_at.isoformat() if r.ended_at else None,
         }
         for r in rows
     ]

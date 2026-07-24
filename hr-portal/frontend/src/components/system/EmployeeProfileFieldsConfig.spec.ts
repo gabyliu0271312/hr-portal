@@ -28,6 +28,7 @@ function mountComponent() {
         'el-button': { template: '<button @click="$emit(\'click\')"><slot /></button>' },
         'el-tag': { template: '<span><slot /></span>' },
         'el-text': { template: '<span><slot /></span>' },
+        'el-switch': { template: '<input type="checkbox" />' },
         'el-input': { template: '<input />' },
         'el-checkbox': { template: '<input type="checkbox" />' },
         'el-input-number': { template: '<input type="number" />' },

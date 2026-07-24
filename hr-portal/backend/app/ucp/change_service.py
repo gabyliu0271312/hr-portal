@@ -44,6 +44,7 @@ async def create_change(
     publish_window_start: datetime | None = None,
     publish_window_end: datetime | None = None,
     created_by: str | None = None,
+    after_snapshot: dict | None = None,
 ) -> dict:
     # 生成 change_code
     ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
@@ -62,6 +63,7 @@ async def create_change(
         change_target_code=change_target_code,
         change_summary=change_summary,
         before_snapshot=before_snapshot,
+        after_snapshot=after_snapshot,
         risk_level=risk_level,
         status="DRAFT" if risk_level == "LOW" else "PENDING_APPROVAL",
         publish_window_start=publish_window_start,

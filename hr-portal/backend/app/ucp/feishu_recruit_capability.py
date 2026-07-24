@@ -19,7 +19,16 @@ FEISHU_RECRUIT_OPERATIONS: tuple[dict[str, Any], ...] = (
         "adapter_code": "FEISHU_OFFER_DETAIL_ADAPTER",
         "required_scopes": ["hire:application:readonly"],
         "input_schema": {"required": ["application_id"], "properties": {"application_id": {"type": "string", "label": "投递记录 ID"}}},
-        "output_schema": {"properties": {"offer_id": {"type": "string"}, "offer_status": {"type": "string"}, "salary_amount": {"type": "number", "sensitivity": "compensation_high"}, "salary_currency": {"type": "string", "sensitivity": "compensation_high"}}},
+        "output_schema": {"properties": {"application_id": {"type": "string", "label": "投递记录 ID"}, "offer_id": {"type": "string", "label": "Offer ID"}, "offer_status": {"type": "string", "label": "Offer 状态"}, "salary_amount": {"type": "number", "label": "基本工资", "sensitivity": "compensation_high"}, "salary_currency": {"type": "string", "label": "薪资币种", "sensitivity": "compensation_high"}, "target_bonus": {"type": "number", "label": "目标奖金", "sensitivity": "compensation_high"}}},
+    },
+    {
+        "object_code": "CANDIDATE",
+        "operation_code": "QUERY_LIST",
+        "operation_name": "分页查询应聘者",
+        "adapter_code": "FEISHU_RECRUIT_CANDIDATE_LIST_ADAPTER",
+        "required_scopes": ["hire:candidates:read"],
+        "input_schema": {"properties": {"page_size": {"type": "integer", "minimum": 1, "maximum": 100}, "page_token": {"type": "string"}}},
+        "output_schema": {"properties": {"candidate_id": {"type": "string"}, "name": {"type": "string", "sensitivity": "pii"}, "page_token": {"type": "string"}, "has_more": {"type": "boolean"}}},
     },
     {
         "object_code": "CANDIDATE",
@@ -29,6 +38,15 @@ FEISHU_RECRUIT_OPERATIONS: tuple[dict[str, Any], ...] = (
         "required_scopes": ["hire:candidates:read"],
         "input_schema": {"required": ["candidate_id"], "properties": {"candidate_id": {"type": "string"}}},
         "output_schema": {"properties": {"candidate_id": {"type": "string"}, "name": {"type": "string", "sensitivity": "pii"}}},
+    },
+    {
+        "object_code": "JOB",
+        "operation_code": "QUERY_LIST",
+        "operation_name": "分页查询职位",
+        "adapter_code": "FEISHU_RECRUIT_JOB_LIST_ADAPTER",
+        "required_scopes": ["hire:jobs:read"],
+        "input_schema": {"properties": {"page_size": {"type": "integer", "minimum": 1, "maximum": 100}, "page_token": {"type": "string"}}},
+        "output_schema": {"properties": {"job_id": {"type": "string"}, "job_name": {"type": "string"}, "page_token": {"type": "string"}, "has_more": {"type": "boolean"}}},
     },
     {
         "object_code": "JOB",

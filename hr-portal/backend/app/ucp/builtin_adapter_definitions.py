@@ -28,6 +28,12 @@ BUILTIN_ADAPTER_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "description": "复用北森凭证和平台内置接口读取指定 Report ID。",
     },
     {
+        "adapter_code": "GENERIC_HTTP_ACTION_ADAPTER",
+        "adapter_type": "HTTP",
+        "name": "受控通用 HTTP 读取",
+        "description": "通过 HTTPS、域名白名单与只读策略执行 GET 或查询型 POST。",
+    },
+    {
         "adapter_code": "FEISHU_OFFER_DETAIL_ADAPTER",
         "adapter_type": "HTTP",
         "name": "飞书 Offer 明细",

@@ -686,6 +686,10 @@ async def _ensure_pipeline_templates(db: AsyncSession) -> None:
         },
     ]
 
+    from app.ucp.x0210_template import PENDING_HIRE_OFFER_ENRICHMENT_TEMPLATE
+    if PENDING_HIRE_OFFER_ENRICHMENT_TEMPLATE["template_code"] not in existing_codes:
+        templates.append(PENDING_HIRE_OFFER_ENRICHMENT_TEMPLATE)
+
     for tpl in templates:
         if tpl["template_code"] in existing_codes:
             continue
@@ -695,7 +699,7 @@ async def _ensure_pipeline_templates(db: AsyncSession) -> None:
             description=tpl.get("description"),
             nodes_json=tpl["nodes"],
             edges_json=tpl["edges"],
-            version="1.0",
+            version=tpl.get("version", "1.0.0"),
             created_by="seed",
         ))
         logger.info("[seed] pipeline template added: %s", tpl["template_code"])

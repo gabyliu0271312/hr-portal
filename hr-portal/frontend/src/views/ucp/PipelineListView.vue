@@ -53,7 +53,8 @@
       </el-table-column>
       <el-table-column label="状态" width="80" align="center">
         <template #default="{ row }">
-          <el-tag size="small" :type="row.status === 1 ? 'success' : 'info'">
+          <el-tag v-if="row.source_type === 'template'" size="small" type="success">已保存</el-tag>
+          <el-tag v-else size="small" :type="row.status === 1 ? 'success' : 'info'">
             {{ row.status === 1 ? '启用' : '禁用' }}
           </el-tag>
         </template>
@@ -65,7 +66,7 @@
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="openDesigner(row)">编排</el-button>
           <el-button size="small" link type="success" @click="runPipeline(row)" :loading="runningId === row.id">执行</el-button>
-          <el-button size="small" link :type="row.status === 1 ? 'warning' : 'success'" @click="toggleStatus(row)">
+          <el-button v-if="row.source_type !== 'template'" size="small" link :type="row.status === 1 ? 'warning' : 'success'" @click="toggleStatus(row)">
             {{ row.status === 1 ? '禁用' : '启用' }}
           </el-button>
           <el-button size="small" link type="danger" @click="deletePipeline(row)">删除</el-button>
@@ -92,7 +93,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
-import { ucpApi } from '@/api/ucp'
+import { ucpApi, pipelineTemplateApi } from '@/api/ucp'
 
 const router = useRouter()
 const items = ref<any[]>([])
@@ -114,6 +115,7 @@ const triggerLabel = (t: string) => {
     case 'manual': return '手动'
     case 'cron': return '定时'
     case 'event': return '事件'
+    case 'template': return '设计模板'
     default: return t || '-'
   }
 }
@@ -123,19 +125,34 @@ const formatTime = (s: string | null) => (s ? formatDateTime(s) : '-')
 const loadList = async () => {
   loading.value = true
   try {
-    const res = await ucpApi.pipelines(filterTrigger.value || undefined)
-    let data = res.items || []
+    const [pipelineRes, templates] = await Promise.all([
+      ucpApi.pipelines(filterTrigger.value || undefined),
+      pipelineTemplateApi.list({ limit: 200, offset: 0 }),
+    ])
+    const pipelineItems = (pipelineRes.items || []).map((item: any) => ({ ...item, source_type: 'pipeline' }))
+    const templateItems = (filterTrigger.value ? [] : templates).map((template: any) => ({
+      id: -Number(template.id),
+      pipeline_code: template.template_code,
+      pipeline_name: template.name,
+      trigger_type: 'template',
+      status: 1,
+      updated_at: template.updated_at,
+      source_type: 'template',
+      recent_run_status: null,
+    }))
+    let data = [...pipelineItems, ...templateItems]
     if (filterStatus.value !== '') {
-      data = data.filter(x => x.status === Number(filterStatus.value))
+      data = data.filter(item => item.source_type === 'pipeline' && item.status === Number(filterStatus.value))
     }
     if (keyword.value) {
       const kw = keyword.value.toLowerCase()
-      data = data.filter(x => (x.pipeline_code || '').toLowerCase().includes(kw) || (x.pipeline_name || '').toLowerCase().includes(kw))
+      data = data.filter(item => (item.pipeline_code || '').toLowerCase().includes(kw) || (item.pipeline_name || '').toLowerCase().includes(kw))
     }
+    data.sort((left, right) => String(right.updated_at || '').localeCompare(String(left.updated_at || '')))
     items.value = data
-    totalCount.value = res.total || data.length
+    totalCount.value = data.length
   } catch (e: any) {
-    ElMessage.error('加载流水线列表失败: ' + (e?.message || e))
+    ElMessage.error('加载流程编排列表失败: ' + (e?.message || e))
   } finally {
     loading.value = false
   }
@@ -177,7 +194,8 @@ const toggleStatus = async (row: any) => {
 const deletePipeline = async (row: any) => {
   try {
     await ElMessageBox.confirm(`确认删除流水线「${row.pipeline_name || row.pipeline_code}」？此操作不可恢复。`, '确认删除', { type: 'warning' })
-    await ucpApi.deletePipeline(row.id)
+    if (row.source_type === 'template') await pipelineTemplateApi.remove(row.pipeline_code)
+    else await ucpApi.deletePipeline(row.id)
     ElMessage.success('删除成功')
     loadList()
   } catch (e: any) {

@@ -1,5 +1,6 @@
 """UCP events routes."""
 from __future__ import annotations
+import os
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,11 @@ router = APIRouter()
 
 def _user_id(u) -> str:
     return u.username if hasattr(u, "username") else str(u.id)
+
+
+def _lifecycle_direct_dispatch_enabled() -> bool:
+    value = os.getenv("UCP_LIFECYCLE_DIRECT_DISPATCH_ENABLED", "true")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 @router.get("/events", dependencies=[Depends(require_op("ucp.events", "V"))])
@@ -36,11 +42,35 @@ async def list_events(source: str|None=None, event_type: str|None=None, status: 
 
 @router.post("/events", dependencies=[Depends(require_op("ucp.events", "C"))])
 async def ingest_event(payload: dict, db: AsyncSession=Depends(get_session), _user=Depends(current_user)) -> dict:
-    from app.ucp.event_bus import receive_event
-    evt = await receive_event(db, payload)
+    from app.ucp.event_bus import DuplicateEventError, get_event as _get, process_event_pipeline, receive_event
+    required = ("event_id", "event_type", "source")
+    missing = [field for field in required if not payload.get(field)]
+    if missing:
+        raise HTTPException(422, f"Missing event fields: {', '.join(missing)}")
+    try:
+        evt = await receive_event(
+            db,
+            event_id=str(payload["event_id"]),
+            event_type=str(payload["event_type"]),
+            source=str(payload["source"]),
+            payload=payload.get("payload") or {},
+            trigger=str(payload.get("trigger") or "REALTIME"),
+            metadata=payload.get("metadata"),
+            is_dedup=bool(payload.get("is_dedup", True)),
+        )
+    except DuplicateEventError:
+        existing = await _get(db, str(payload["event_id"]))
+        if existing is None:
+            raise
+        return {"id": existing.id, "event_id": existing.event_id, "status": existing.status,
+                "matched_trigger_code": existing.matched_trigger_code,
+                "pipeline_run_id": existing.pipeline_run_id, "trace_id": existing.trace_id,
+                "deduplicated": True}
+    await process_event_pipeline(db, evt)
     return {"id": evt.id, "event_id": evt.event_id, "status": evt.status,
             "matched_trigger_code": evt.matched_trigger_code,
-            "pipeline_run_id": evt.pipeline_run_id, "trace_id": evt.trace_id}
+            "pipeline_run_id": evt.pipeline_run_id, "trace_id": evt.trace_id,
+            "deduplicated": False}
 
 
 @router.get("/events/{event_id}", dependencies=[Depends(require_op("ucp.events", "V"))])
@@ -51,7 +81,7 @@ async def get_event(event_id: str, db: AsyncSession=Depends(get_session), _user=
     return {
         "id": r.id, "event_id": r.event_id, "event_type": r.event_type,
         "source": r.source, "trigger": r.trigger, "payload": r.payload,
-        "metadata": r.metadata, "status": r.status, "trace_id": r.trace_id,
+        "metadata": r.metadata_, "status": r.status, "trace_id": r.trace_id,
         "matched_trigger_id": r.matched_trigger_id, "matched_trigger_code": r.matched_trigger_code,
         "pipeline_run_id": r.pipeline_run_id, "retry_count": r.retry_count,
         "error_code": r.error_code, "error_message": r.error_message,
@@ -64,19 +94,12 @@ async def get_event(event_id: str, db: AsyncSession=Depends(get_session), _user=
 
 @router.post("/events/{event_id}/dispatch", dependencies=[Depends(require_op("ucp.events", "C"))])
 async def dispatch_event(event_id: str, db: AsyncSession=Depends(get_session), _user=Depends(current_user)) -> dict:
-    from app.ucp.event_bus import get_event as _get, list_triggers as _lt, dispatch_event as _d
+    from app.ucp.event_bus import get_event as _get, process_event_pipeline
     evt = await _get(db, event_id)
     if not evt: raise HTTPException(404, "Event not found")
-    triggers = await _lt(db, event_source=evt.source, is_active=1, limit=200)
-    matched = None
-    for t in triggers:
-        types = [x.strip() for x in (t.event_types or "").split(",") if x.strip()]
-        if evt.event_type in types or not types:
-            matched = t; break
-    if not matched: raise HTTPException(400, "No matching trigger found for this event")
-    run_id = await _d(db, evt, matched)
-    return {"id": evt.id, "event_id": evt.event_id, "status": "dispatched",
-            "matched_trigger_code": matched.trigger_code, "pipeline_run_id": run_id}
+    await process_event_pipeline(db, evt)
+    return {"id": evt.id, "event_id": evt.event_id, "status": evt.status,
+            "matched_trigger_code": evt.matched_trigger_code, "pipeline_run_id": evt.pipeline_run_id}
 
 
 @router.post("/events/{event_id}/replay", dependencies=[Depends(require_op("ucp.events", "C"))])
@@ -227,27 +250,51 @@ async def feishu_webhook(trigger_code: str, r: Request, db: AsyncSession=Depends
         encrypt_key=trig.feishu_encrypt_key,
         verification_token=trig.feishu_verification_token,
     )
-    from app.ucp.account_lifecycle_service import dispatch_event as dispatch_lifecycle_event
-    from app.ucp.event_bus import EVENT_SOURCE_FEISHU, receive_event
-    evt = await receive_event(
-        db,
-        event_id=normalized["event_id"],
-        event_type=normalized["event_type"],
-        source=EVENT_SOURCE_FEISHU,
-        payload=normalized.get("payload") or {},
-        metadata={
-            "feishu_event_type": normalized.get("feishu_event_type"),
-            "tenant_key": normalized.get("tenant_key"),
-            "app_id": normalized.get("app_id"),
-        },
+    from app.ucp.event_bus import (
+        DuplicateEventError, EVENT_SOURCE_FEISHU, get_event as get_ucp_event,
+        process_event_pipeline, receive_event,
     )
-    lifecycle_results = await dispatch_lifecycle_event(db, evt)
+    try:
+        evt = await receive_event(
+            db,
+            event_id=normalized["event_id"],
+            event_type=normalized["event_type"],
+            source=EVENT_SOURCE_FEISHU,
+            payload=normalized.get("payload") or {},
+            metadata={
+                "feishu_event_type": normalized.get("feishu_event_type"),
+                "tenant_key": normalized.get("tenant_key"),
+                "app_id": normalized.get("app_id"),
+            },
+        )
+    except DuplicateEventError:
+        evt = await get_ucp_event(db, normalized["event_id"])
+        if evt is None:
+            raise
+        return {"id": evt.id, "event_id": evt.event_id, "status": evt.status,
+                "trace_id": evt.trace_id, "deduplicated": True, "lifecycle_results": []}
+
+    await process_event_pipeline(db, evt)
+    lifecycle_results = []
+    compatibility_enabled = _lifecycle_direct_dispatch_enabled()
+    if compatibility_enabled:
+        from app.ucp.account_lifecycle_service import dispatch_event as dispatch_lifecycle_event
+        lifecycle_results = await dispatch_lifecycle_event(db, evt)
+    metadata = dict(evt.metadata_ or {})
+    metadata["lifecycle_direct_dispatch"] = {
+        "enabled": compatibility_enabled,
+        "result_count": len(lifecycle_results),
+    }
+    evt.metadata_ = metadata
+    await db.flush()
     return {
         "id": evt.id,
         "event_id": evt.event_id,
         "status": evt.status,
         "trace_id": evt.trace_id,
         "lifecycle_results": lifecycle_results,
+        "deduplicated": False,
+        "lifecycle_direct_dispatch_enabled": compatibility_enabled,
     }
 
 

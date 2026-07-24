@@ -220,7 +220,7 @@ async def route_run_pipeline(
 ):
     try:
         await check_pipeline_concurrent_lock(db, pipeline_code)
-        await check_pipeline_trigger_permission(db, user, pipeline_code)
+        await check_pipeline_trigger_permission(db, pipeline_code, user)
     except PipelineLockedError as e:
         raise HTTPException(409, str(e))
     except PipelinePermissionError as e:

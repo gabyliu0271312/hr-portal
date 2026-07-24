@@ -31,7 +31,7 @@ async def route_verified_capability_catalog(
         .where(UcpSystemCapability.enabled.is_(True), UcpSystemCapability.verification_status == "VERIFIED")
         .order_by(UcpSystem.system_name, UcpOperationDefinition.object_code, UcpOperationDefinition.operation_name)
     )).all()
-    return {"items": [{"capability_id": capability.id, "system_id": system.id, "system_name": system.system_name, "object_code": operation.object_code, "operation_name": operation.operation_name, "operation_id": operation.id} for capability, operation, system in rows]}
+    return {"items": [{"capability_id": capability.id, "system_id": system.id, "system_name": system.system_name, "object_code": operation.object_code, "operation_name": operation.operation_name, "operation_id": operation.id, "output_schema": operation.output_schema or {}} for capability, operation, system in rows]}
 
 
 @router.get("/standard-packages")

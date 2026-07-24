@@ -1083,6 +1083,8 @@ export const approvalApi = {
       .then((r) => r.data),
 }
 
+export const controlledWriteApi = { execute: (requestId: number, confirmation_token?: string) => api.post(`/ucp/write-operations/${requestId}/execute`, { confirmation_token }).then(r => r.data) }
+
 /* ── Phase 3-6: OA 组织架构同步 ── */
 
 export interface OaSyncRun {
@@ -1524,6 +1526,12 @@ export const apiTemplateApi = {
     api.get<{ items: any[] }>(`/ucp/api-templates/${code}/versions`).then((r) => r.data),
   rollback: (code: string, versionId: number) =>
     api.post<ApiTemplateItem>(`/ucp/api-templates/${code}/rollback`, { version_id: versionId }).then((r) => r.data),
+  previewOpenApi: (payload: { document: Record<string, any>; allowed_domains: string[]; code_prefix?: string }) =>
+    api.post<{ operations: any[]; rejected: any[] }>('/ucp/api-templates/openapi/preview', payload).then((r) => r.data),
+  importOpenApi: (payload: { document: Record<string, any>; allowed_domains: string[]; selected_operation_ids: string[]; code_prefix?: string }) =>
+    api.post<{ items: ApiTemplateItem[]; rejected: any[] }>('/ucp/api-templates/openapi/import', payload).then((r) => r.data),
+  approvePublish: (code: string) =>
+    api.post<ApiTemplateItem>(`/ucp/api-templates/${code}/approve-publish`).then((r) => r.data),
   importTemplate: (payload: Record<string, any>) =>
     api.post<ApiTemplateItem>('/ucp/api-templates/import', payload).then((r) => r.data),
   exportTemplate: (code: string) =>
@@ -1621,6 +1629,15 @@ export const changeApi = {
     api.post<Record<string, any>>(`/ucp/changes/${changeId}/publish`).then((r) => r.data),
   rollback: (changeId: number) =>
     api.post<Record<string, any>>(`/ucp/changes/${changeId}/rollback`).then((r) => r.data),
+}
+
+export const migrationApi = {
+  preview: (payload: { legacy_adapter_codes: string[]; target_adapter_code: string }) =>
+    api.post('/ucp/migrations/adapter/preview', payload).then((r) => r.data),
+  confirm: (payload: { resource_id: number; target_adapter_code: string }) =>
+    api.post('/ucp/migrations/adapter/confirm', payload).then((r) => r.data),
+  publish: (changeId: number) =>
+    api.post('/ucp/migrations/adapter/publish', { change_id: changeId }).then((r) => r.data),
 }
 
 /* ── Phase 6-E: 治理评分 ── */

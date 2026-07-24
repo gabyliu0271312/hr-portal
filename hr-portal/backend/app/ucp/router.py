@@ -27,6 +27,10 @@ from app.ucp.routers.monitor import router as monitor_router
 from app.ucp.routers.assets import router as assets_router
 from app.ucp.routers.governance import router as governance_router
 from app.ucp.routers.capabilities import router as capabilities_router
+from app.ucp.routers.api_templates import router as api_templates_router
+from app.ucp.routers.migration import router as migration_router
+from app.ucp.routers.write_operations import router as write_operations_router
+from app.ucp.routers.pipeline_templates import router as pipeline_templates_router
 
 router.include_router(systems_router)
 router.include_router(executions_router)
@@ -38,6 +42,10 @@ router.include_router(monitor_router)
 router.include_router(assets_router)
 router.include_router(governance_router)
 router.include_router(capabilities_router)
+router.include_router(api_templates_router)
+router.include_router(migration_router)
+router.include_router(write_operations_router)
+router.include_router(pipeline_templates_router)
 
 # ===== Dev-only modules =====
 
