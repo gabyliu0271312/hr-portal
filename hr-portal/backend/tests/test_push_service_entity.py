@@ -12,7 +12,7 @@ from app.data.models import DATA_TABLES, TableColumn
 from app.datasources.sync_service import PERIOD_TABLES
 from app.push import push_service
 from app.push.models import PushTarget
-from app.push.router import _to_out, expose_data
+from app.push.router import _build_integration_documentation, _runtime_filters_from_request, _to_out, expose_data
 from tests.entity_helpers import make_legacy_raw_model
 
 
@@ -535,9 +535,71 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
     assert insert_calls == [{"period_ym": "202606"}]
 
 
+async def test_report_query_parameters_require_registered_values(monkeypatch):
+    pt = PushTarget(
+        id=17,
+        source_table="report:8",
+        name="月度成本入账表",
+        push_type="api_expose",
+        settings={
+            "query_parameters": [{
+                "name": "period_ym", "label": "月份", "column": "salary.pay_month",
+                "op": "eq", "required": True, "pattern": r"^\d{6}$", "format_hint": "YYYYMM",
+            }],
+        },
+    )
+
+    async def metadata(source_table, db):
+        return [{"column": "salary.pay_month", "visible": True, "locked": False}]
+
+    monkeypatch.setattr("app.push.router._report_filter_metadata", metadata)
+    valid = SimpleNamespace(query_params={"period_ym": "202606"})
+    assert await _runtime_filters_from_request(pt, valid, FakeSession()) == [
+        {"column": "salary.pay_month", "op": "eq", "value": "202606"}
+    ]
+    with pytest.raises(HTTPException) as missing:
+        await _runtime_filters_from_request(pt, SimpleNamespace(query_params={}), FakeSession())
+    assert missing.value.status_code == 400
+    with pytest.raises(HTTPException) as malformed:
+        await _runtime_filters_from_request(pt, SimpleNamespace(query_params={"period_ym": "2026-06"}), FakeSession())
+    assert malformed.value.status_code == 400
+    with pytest.raises(HTTPException) as unknown:
+        await _runtime_filters_from_request(pt, SimpleNamespace(query_params={"period_ym": "202606", "all": "true"}), FakeSession())
+    assert unknown.value.status_code == 400
+
+
+async def test_integration_documentation_contains_nine_sections_without_secret(monkeypatch):
+    pt = PushTarget(
+        id=17,
+        source_table="push_api_entity",
+        source_label="月度成本入账表",
+        name="月度成本入账表",
+        push_type="api_expose",
+        settings={
+            "app_id": "app-1",
+            "query_parameters": [{
+                "name": "period_ym", "label": "月份", "column": "pay_month",
+                "required": True, "format_hint": "YYYYMM", "example": "202606",
+            }],
+        },
+        secrets_encrypted={"app_secret": encrypt("real-secret")},
+        field_mappings=[],
+    )
+
+    async def meta(source_table, db):
+        return ["pay_month", "amount"], {"pay_month": "发薪月", "amount": "金额"}, {"pay_month": "string", "amount": "number"}
+
+    monkeypatch.setattr("app.push.push_service._load_source_columns_meta", meta)
+    content = await _build_integration_documentation(pt, FakeSession())
+    for section in ("一、接口概览", "二、鉴权请求头", "三、cURL 调用示例", "四、Python 调用示例", "五、接口原始响应示例", "六、字段名称对照表", "七、业务阅读版响应示例", "八、返回状态说明", "九、接入与安全约定"):
+        assert section in content
+    assert "real-secret" not in content
+    assert "period_ym" in content
+    assert "发薪月" in content
+
+
 @pytest.mark.asyncio
 async def test_normalize_push_report_sources_repairs_database_row(monkeypatch):
-    from app.push.models import PushTarget
     from scripts.normalize_push_report_sources import normalize_push_report_sources
 
     pt = PushTarget(

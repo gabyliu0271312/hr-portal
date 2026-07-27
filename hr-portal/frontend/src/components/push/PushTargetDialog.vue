@@ -2,12 +2,13 @@
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Hide, Refresh, View } from '@element-plus/icons-vue'
-import type { PushTargetIn, PushTargetOut } from '@/api/push_targets'
+import type { PushTargetIn, PushTargetOut, QueryParameter } from '@/api/push_targets'
 import { pushTargetsApi } from '@/api/push_targets'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import { SCHEDULE_OPTIONS } from '@/config/dataSources'
 import { PASSWORD_POLICY_HINT, generateStrongPassword } from '@/utils/passwordPolicy'
 import PushFieldMapper from './PushFieldMapper.vue'
+import ApiExposeQueryParameters from './ApiExposeQueryParameters.vue'
 import ServiceSourcePicker from '@/components/warehouse/ServiceSourcePicker.vue'
 
 const props = defineProps<{ sourceTable: string; sourceColumns?: ColumnInfo[] }>()
@@ -77,6 +78,7 @@ const form = reactive<{
   app_secret: string
   readonly_password: string
   ip_whitelist: string
+  query_parameters: QueryParameter[]
   feishu_app_id: string
   feishu_app_secret: string
   feishu_wiki_url_or_token: string
@@ -90,7 +92,7 @@ const form = reactive<{
   is_active: true, schedule: '手动触发', field_mappings: [], period_ym: '',
   dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
   url: '', method: 'POST', bearer_token: '', batch_size: '500',
-  app_id: '', app_secret: '', readonly_password: '', ip_whitelist: '',
+  app_id: '', app_secret: '', readonly_password: '', ip_whitelist: '', query_parameters: [],
   feishu_app_id: '', feishu_app_secret: '', feishu_wiki_url_or_token: '',
   feishu_spreadsheet_token: '', feishu_sheet_id: '', feishu_start_cell: 'A1',
   feishu_include_header: true, feishu_batch_size: '1000',
@@ -119,6 +121,7 @@ async function open(target?: PushTargetOut | null) {
     form.schedule = s.schedule ?? '手动触发'
     form.period_ym = s.period_ym ?? ''
     form.ip_whitelist = (s.ip_whitelist || []).join(', ')
+    form.query_parameters = (s.query_parameters || []).map((item: QueryParameter) => ({ ...item }))
     if (target.push_type === 'external_db') {
       form.dialect = s.dialect ?? 'mysql'
       form.host = s.host ?? ''
@@ -146,7 +149,7 @@ async function open(target?: PushTargetOut | null) {
     }
     Object.assign(form, {
       name: '', description: '', push_type: 'external_db', is_active: true,
-      schedule: '手动触发', field_mappings: [], period_ym: '', ip_whitelist: '',
+      schedule: '手动触发', field_mappings: [], period_ym: '', ip_whitelist: '', query_parameters: [],
       dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
       url: '', method: 'POST', bearer_token: '', batch_size: '500',
       app_id: '', app_secret: '', readonly_password: '',
@@ -220,7 +223,11 @@ function buildPayload(): PushTargetIn {
     base.settings = { period_ym: form.period_ym, url: form.url, method: form.method, batch_size: Number(form.batch_size) }
     if (form.bearer_token) base.secrets = { bearer_token: form.bearer_token }
   } else if (form.push_type === 'api_expose') {
-    base.settings = { app_id: form.app_id, ip_whitelist: parseIpWhitelist() }
+    base.settings = {
+      app_id: form.app_id,
+      ip_whitelist: parseIpWhitelist(),
+      query_parameters: form.query_parameters.filter((item) => item.name && item.column),
+    }
     if (form.app_secret) base.secrets = { app_secret: form.app_secret }
   } else if (form.push_type === 'db_expose') {
     base.settings = { ip_whitelist: parseIpWhitelist() }
@@ -257,6 +264,21 @@ async function confirm() {
     ElMessage.error(e?.response?.data?.detail || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function downloadDocumentation() {
+  if (!currentTarget.value) return
+  try {
+    const blob = await pushTargetsApi.integrationDocumentation(currentTarget.value.id)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `push-target-${currentTarget.value.id}-integration.txt`
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    ElMessage.error('下载对接文档失败')
   }
 }
 
@@ -412,9 +434,14 @@ defineExpose({ open })
             保存后系统将自动生成 AppID 和 AppSecret，在编辑页查看。
           </el-alert>
         </template>
-        <el-form-item label="IP 白名单（逗号或换行分隔，空则不限制）">
+        <el-form-item label="IP 白名单（必填：仅允许这些来源 IP）">
           <el-input v-model="form.ip_whitelist" type="textarea" :rows="3" placeholder="192.168.1.100, 10.0.0.1" />
         </el-form-item>
+        <ApiExposeQueryParameters
+          v-if="(isMultiSource ? sourceRef.source_type === 'report' : props.sourceTable.startsWith('report:'))"
+          v-model="form.query_parameters"
+          :source-table="isMultiSource ? legacySourceTable(sourceRef) : props.sourceTable"
+        />
         <div style="font-size: 12px; color: var(--color-text-placeholder); line-height: 1.6; margin-bottom: 8px">
           对方拉取时需在请求头携带：<code>X-App-Id: {AppID}</code>
           <code style="margin-left: 8px">X-App-Secret: {AppSecret}</code>
@@ -524,6 +551,7 @@ defineExpose({ open })
     </el-form>
 
     <template #footer>
+      <el-button v-if="currentTarget" @click="downloadDocumentation">下载对接文档</el-button>
       <el-button @click="visible = false">取消</el-button>
       <el-button type="primary" :loading="saving" @click="confirm">保存</el-button>
     </template>

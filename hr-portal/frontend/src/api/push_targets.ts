@@ -2,12 +2,36 @@ import { api } from './client'
 
 export type PushType = 'external_db' | 'http_push' | 'api_expose' | 'db_expose' | 'feishu_sheet'
 
+export interface QueryParameter {
+  name: string
+  label: string
+  column: string
+  op: 'eq'
+  required: boolean
+  pattern?: string
+  format_hint?: string
+  example?: string
+}
+
+export interface ReportFilterMetadata {
+  column: string
+  op: string
+  default_value: unknown
+  visible: boolean
+  locked: boolean
+}
+
+export interface PushTargetSettings {
+  query_parameters?: QueryParameter[]
+  [key: string]: any
+}
+
 export interface PushTargetIn {
   source_table: string
   name: string
   description?: string | null
   push_type: PushType
-  settings: Record<string, any>
+  settings: PushTargetSettings
   secrets: Record<string, string>
   field_mappings: { source: string; target: string }[]
   is_active?: boolean
@@ -23,7 +47,7 @@ export interface PushTargetOut {
   name: string
   description: string | null
   push_type: PushType
-  settings: Record<string, any>
+  settings: PushTargetSettings
   field_mappings: { source: string; target: string }[]
   is_active: boolean
   last_push_at: string | null
@@ -74,4 +98,10 @@ export const pushTargetsApi = {
 
   reveal: (id: number) =>
     api.get<Record<string, string>>(`/push-targets/${id}/reveal`).then((r) => r.data),
+
+  queryParameterMetadata: (sourceTable: string) =>
+    api.get<ReportFilterMetadata[]>('/push-targets/query-parameter-metadata', { params: { source_table: sourceTable } }).then((r) => r.data),
+
+  integrationDocumentation: (id: number) =>
+    api.get(`/push-targets/${id}/integration-documentation`, { responseType: 'blob' }).then((r) => r.data as Blob),
 }

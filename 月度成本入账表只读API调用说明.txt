@@ -5,8 +5,8 @@
 接口名称：月度成本入账表
 调用方式：对方系统主动拉取
 请求方法：GET
-接口地址：https://hr-portal.example.com/api/v1/push-targets/17/data
-数据范围：2026 年 6 月；费用类型仅包含“工资”“劳务”
+接口地址：https://hr-portal.example.com/api/v1/push-targets/17/data?period_ym=202606
+数据范围：调用时必须通过 `period_ym` 指定月份；费用类型仅包含“工资”“劳务”
 返回内容：按“发薪月 × 客户 × 费用类型 × 成本中心”聚合后的成本入账数据
 返回格式：JSON 数组
 分页：当前接口不分页，一次返回全部符合条件的数据
@@ -14,6 +14,7 @@
 鉴权方式：X-App-Id + X-App-Secret 请求头
 
 说明：
+- `period_ym` 为必传查询参数，格式为 `YYYYMM`；缺失、格式错误或传入未登记参数时接口返回 HTTP 400，不会返回全量数据。
 - https://hr-portal.example.com 是文档示例域名。IT 接入时请替换为 HR Portal 实际生产域名。
 - 推送配置 ID 已确认是 17。
 - 接口实际响应只返回字段编码，不会同时附带中文字段名。本文同时提供字段中文名称对照表，便于业务理解和字段映射。
@@ -38,14 +39,14 @@ Header：Accept
 
 三、cURL 调用示例
 
-curl --request GET "https://hr-portal.example.com/api/v1/push-targets/17/data" \
+curl --request GET "https://hr-portal.example.com/api/v1/push-targets/17/data?period_ym=202606" \
   --header "X-App-Id: dxz4FYbOQLNIZfjim9mI" \
   --header "X-App-Secret: 由HRPortal管理员单独提供的AppSecret" \
   --header "Accept: application/json"
 
 如需只查看第一条数据，可在 Linux、macOS 或 Git Bash 环境执行：
 
-curl --silent --show-error --request GET "https://hr-portal.example.com/api/v1/push-targets/17/data" \
+curl --silent --show-error --request GET "https://hr-portal.example.com/api/v1/push-targets/17/data?period_ym=202606" \
   --header "X-App-Id: dxz4FYbOQLNIZfjim9mI" \
   --header "X-App-Secret: 由HRPortal管理员单独提供的AppSecret" \
   --header "Accept: application/json" \
@@ -55,7 +56,7 @@ curl --silent --show-error --request GET "https://hr-portal.example.com/api/v1/p
 
 import requests
 
-url = "https://hr-portal.example.com/api/v1/push-targets/17/data"
+url = "https://hr-portal.example.com/api/v1/push-targets/17/data?period_ym=202606"
 
 headers = {
     "X-App-Id": "dxz4FYbOQLNIZfjim9mI",
@@ -270,6 +271,10 @@ HTTP 状态码：200，响应 []
 说明：请求成功，但当前无符合条件数据
 建议处理方式：视为正常空数据结果
 
+HTTP 状态码：400
+说明：period_ym 缺失、格式错误或传入未登记的查询参数
+建议处理方式：传入格式为 YYYYMM 的 period_ym，例如 202606
+
 HTTP 状态码：401
 说明：X-App-Id 或 X-App-Secret 缺失或错误
 建议处理方式：核对凭证内容、大小写及请求头名称
@@ -291,6 +296,6 @@ HTTP 状态码：500
 1. 必须通过 HTTPS 调用。
 2. AppSecret 仅保存于对方系统的密钥管理工具或受控配置中心。
 3. 禁止将 AppSecret 写入前端代码、客户端代码、日志、截图、邮件或群聊。
-4. 当前 IP 白名单为空；正式联调前，对方应提供固定的出口公网 IP，由 HR Portal 管理员加入白名单。
+4. 当前 IP 白名单为空时，接口会拒绝所有拉取；正式联调前，对方应提供固定的出口公网 IP，由 HR Portal 管理员加入白名单。
 5. 该接口返回薪资、社保、个税、扣款等敏感财务信息；调用方应遵循最小权限、访问日志审计和数据留存管理要求。
 6. 报表当前固定读取 2026 年 6 月、工资和劳务两类数据；若要切换月份或费用范围，需要由 HR Portal 管理员调整报表配置。
