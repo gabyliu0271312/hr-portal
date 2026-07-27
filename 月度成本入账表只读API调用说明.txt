@@ -1,0 +1,296 @@
+月度成本入账表—只读拉取 API
+
+一、接口概览
+
+接口名称：月度成本入账表
+调用方式：对方系统主动拉取
+请求方法：GET
+接口地址：https://hr-portal.example.com/api/v1/push-targets/17/data
+数据范围：2026 年 6 月；费用类型仅包含“工资”“劳务”
+返回内容：按“发薪月 × 客户 × 费用类型 × 成本中心”聚合后的成本入账数据
+返回格式：JSON 数组
+分页：当前接口不分页，一次返回全部符合条件的数据
+写入能力：无，仅支持读取
+鉴权方式：X-App-Id + X-App-Secret 请求头
+
+说明：
+- https://hr-portal.example.com 是文档示例域名。IT 接入时请替换为 HR Portal 实际生产域名。
+- 推送配置 ID 已确认是 17。
+- 接口实际响应只返回字段编码，不会同时附带中文字段名。本文同时提供字段中文名称对照表，便于业务理解和字段映射。
+
+二、鉴权请求头
+
+Header：X-App-Id
+是否必传：是
+说明：接口调用标识
+当前值：dxz4FYbOQLNIZfjim9mI
+
+Header：X-App-Secret
+是否必传：是
+说明：接口调用密钥
+取值：由 HR Portal 管理员通过受控渠道单独提供
+
+Header：Accept
+是否必传：建议
+取值：application/json
+
+注意：AppSecret 不要写入本文档、邮件正文、群聊或代码仓库。
+
+三、cURL 调用示例
+
+curl --request GET "https://hr-portal.example.com/api/v1/push-targets/17/data" \
+  --header "X-App-Id: dxz4FYbOQLNIZfjim9mI" \
+  --header "X-App-Secret: 由HRPortal管理员单独提供的AppSecret" \
+  --header "Accept: application/json"
+
+如需只查看第一条数据，可在 Linux、macOS 或 Git Bash 环境执行：
+
+curl --silent --show-error --request GET "https://hr-portal.example.com/api/v1/push-targets/17/data" \
+  --header "X-App-Id: dxz4FYbOQLNIZfjim9mI" \
+  --header "X-App-Secret: 由HRPortal管理员单独提供的AppSecret" \
+  --header "Accept: application/json" \
+  | jq '.[0]'
+
+四、Python 调用示例
+
+import requests
+
+url = "https://hr-portal.example.com/api/v1/push-targets/17/data"
+
+headers = {
+    "X-App-Id": "dxz4FYbOQLNIZfjim9mI",
+    "X-App-Secret": "由HRPortal管理员单独提供的AppSecret",
+    "Accept": "application/json",
+}
+
+response = requests.get(
+    url,
+    headers=headers,
+    timeout=30,
+)
+
+response.raise_for_status()
+rows = response.json()
+
+print(f"拉取成功，共 {len(rows)} 条汇总记录")
+
+for row in rows:
+    print(
+        f"发薪月：{row.get('dwd_emp_monthly_salary.pay_month')}，"
+        f"客户：{row.get('dwd_emp_monthly_salary.client')}，"
+        f"费用类型：{row.get('dwd_emp_monthly_salary.expense_type')}，"
+        f"应发工资：{row.get('calc.gross_salary_including_bonus')}"
+    )
+
+五、接口原始响应示例
+
+说明：以下是接口实际返回的 JSON 结构。数值为脱敏演示值，不代表生产真实金额。
+
+[
+  {
+    "dwd_emp_monthly_salary.pay_month": "202606",
+    "dwd_emp_monthly_salary.client": "示例客户A",
+    "dwd_emp_monthly_salary.expense_type": "工资",
+    "dwd_cost_center_monthly.name": "示例成本中心",
+    "dwd_emp_monthly_salary.currency": "CNY",
+
+    "calc.gross_salary_including_bonus": 125000.00,
+    "dwd_emp_monthly_salary.social_security_employee_part": 8200.00,
+    "dwd_emp_monthly_salary.provident_fund_employee_total": 12500.00,
+    "dwd_emp_monthly_salary.individual_income_tax_total": 9800.00,
+    "dwd_emp_monthly_salary.post_tax_deductions_total": 1600.00,
+    "calc.net_salary_including_bonus": 92900.00,
+
+    "dwd_emp_realtime_roster_4.installment_2": 0.00,
+    "dwd_emp_realtime_roster_4.installment_3": 0.00,
+    "dwd_emp_realtime_roster_4.installment_4": 0.00,
+
+    "dwd_emp_monthly_salary.interest_free_loan_repayment": 0.00,
+    "dwd_emp_monthly_salary.interest_free_loan_interest": 0.00,
+    "dwd_emp_monthly_salary.housing_allowance_post_tax": 0.00,
+    "dwd_emp_monthly_salary.rent": 0.00,
+    "dwd_emp_monthly_salary.property_management_fee": 0.00,
+    "dwd_emp_monthly_salary.electricity_fee": 0.00,
+    "dwd_emp_monthly_salary.gas_fee": 0.00,
+
+    "dwd_emp_monthly_salary.employee_card_reissue_deduction": 0.00,
+    "dwd_emp_monthly_salary.exit_employee_card_loss_deduction": 0.00,
+    "dwd_emp_monthly_salary.didi_deduction": 0.00,
+    "dwd_emp_monthly_salary.travel_excess_deduction": 0.00,
+    "dwd_emp_monthly_salary.fixed_asset_deduction": 0.00,
+    "dwd_emp_monthly_salary.parking_fee": 0.00,
+    "dwd_emp_monthly_salary.training_deduction": 0.00,
+    "dwd_emp_monthly_salary.social_security_fund_special_adjustment": 0.00,
+    "dwd_emp_monthly_salary.other_deductions": 0.00,
+    "dwd_emp_monthly_salary.tax_exempt_income_post_tax_deduction": 0.00,
+    "dwd_emp_monthly_salary.welfare_taxable_item_universal": 0.00,
+    "dwd_emp_monthly_salary.welfare_taxable_item_non_universal": 0.00,
+    "dwd_emp_monthly_salary.economic_compensation": 0.00,
+
+    "dwd_emp_monthly_allocation.headcount": 10,
+    "calc.remark": null
+  }
+]
+
+六、字段名称对照表
+
+A. 维度字段
+
+接口字段编码：dwd_emp_monthly_salary.pay_month
+中文字段名称：发薪月
+类型：字符串
+示例：202606
+
+接口字段编码：dwd_emp_monthly_salary.client
+中文字段名称：客户
+类型：字符串
+示例：示例客户A
+
+接口字段编码：dwd_emp_monthly_salary.expense_type
+中文字段名称：费用类型
+类型：字符串
+示例：工资 / 劳务
+
+接口字段编码：dwd_cost_center_monthly.name
+中文字段名称：成本中心名称
+类型：字符串
+示例：示例成本中心
+
+接口字段编码：dwd_emp_monthly_salary.currency
+中文字段名称：币种
+类型：字符串
+示例：CNY
+
+接口字段编码：dwd_emp_monthly_allocation.headcount
+中文字段名称：人数
+类型：数值
+示例：10
+
+接口字段编码：calc.remark
+中文字段名称：备注
+类型：字符串或空值
+示例：null
+
+B. 薪资、社保及税费字段
+
+calc.gross_salary_including_bonus：应发工资（含奖金）
+dwd_emp_monthly_salary.social_security_employee_part：个人社保
+dwd_emp_monthly_salary.provident_fund_employee_total：个人公积金
+dwd_emp_monthly_salary.individual_income_tax_total：个人所得税
+dwd_emp_monthly_salary.post_tax_deductions_total：税后扣款合计
+calc.net_salary_including_bonus：本月实发（含奖金）
+
+C. 分期、贷款及住房相关字段
+
+dwd_emp_realtime_roster_4.installment_2：分期付款 2
+dwd_emp_realtime_roster_4.installment_3：分期付款 3
+dwd_emp_realtime_roster_4.installment_4：分期付款 4
+dwd_emp_monthly_salary.interest_free_loan_repayment：免息贷款还款
+dwd_emp_monthly_salary.interest_free_loan_interest：免息贷款利息
+dwd_emp_monthly_salary.housing_allowance_post_tax：税后住房补贴
+dwd_emp_monthly_salary.rent：房租
+dwd_emp_monthly_salary.property_management_fee：物业管理费
+dwd_emp_monthly_salary.electricity_fee：电费
+dwd_emp_monthly_salary.gas_fee：燃气费
+
+D. 其他扣款、福利及补偿字段
+
+dwd_emp_monthly_salary.employee_card_reissue_deduction：员工卡补办扣款
+dwd_emp_monthly_salary.exit_employee_card_loss_deduction：离职员工卡遗失扣款
+dwd_emp_monthly_salary.didi_deduction：滴滴扣款
+dwd_emp_monthly_salary.travel_excess_deduction：差旅超标扣款
+dwd_emp_monthly_salary.fixed_asset_deduction：固定资产扣款
+dwd_emp_monthly_salary.parking_fee：停车费
+dwd_emp_monthly_salary.training_deduction：培训扣款
+dwd_emp_monthly_salary.social_security_fund_special_adjustment：社保公积金专项调整
+dwd_emp_monthly_salary.other_deductions：其他扣款
+dwd_emp_monthly_salary.tax_exempt_income_post_tax_deduction：免税收入税后扣减
+dwd_emp_monthly_salary.welfare_taxable_item_universal：福利应税项目（普惠）
+dwd_emp_monthly_salary.welfare_taxable_item_non_universal：福利应税项目（非普惠）
+dwd_emp_monthly_salary.economic_compensation：经济补偿金
+
+以上金额字段均为数值类型。
+
+七、业务阅读版响应示例
+
+说明：以下为字段名称中文化后的阅读版，仅用于业务确认。IT 程序不可直接按此字段名解析，应以“接口原始响应示例”中的编码为准。
+
+[
+  {
+    "发薪月": "202606",
+    "客户": "示例客户A",
+    "费用类型": "工资",
+    "成本中心名称": "示例成本中心",
+    "币种": "CNY",
+
+    "应发工资（含奖金）": 125000.00,
+    "个人社保": 8200.00,
+    "个人公积金": 12500.00,
+    "个人所得税": 9800.00,
+    "税后扣款合计": 1600.00,
+    "本月实发（含奖金）": 92900.00,
+
+    "分期付款 2": 0.00,
+    "分期付款 3": 0.00,
+    "分期付款 4": 0.00,
+    "免息贷款还款": 0.00,
+    "免息贷款利息": 0.00,
+    "税后住房补贴": 0.00,
+    "房租": 0.00,
+    "物业管理费": 0.00,
+    "电费": 0.00,
+    "燃气费": 0.00,
+
+    "员工卡补办扣款": 0.00,
+    "离职员工卡遗失扣款": 0.00,
+    "滴滴扣款": 0.00,
+    "差旅超标扣款": 0.00,
+    "固定资产扣款": 0.00,
+    "停车费": 0.00,
+    "培训扣款": 0.00,
+    "社保公积金专项调整": 0.00,
+    "其他扣款": 0.00,
+    "免税收入税后扣减": 0.00,
+    "福利应税项目（普惠）": 0.00,
+    "福利应税项目（非普惠）": 0.00,
+    "经济补偿金": 0.00,
+
+    "人数": 10,
+    "备注": null
+  }
+]
+
+八、返回状态说明
+
+HTTP 状态码：200
+说明：请求成功
+建议处理方式：解析 JSON 数组
+
+HTTP 状态码：200，响应 []
+说明：请求成功，但当前无符合条件数据
+建议处理方式：视为正常空数据结果
+
+HTTP 状态码：401
+说明：X-App-Id 或 X-App-Secret 缺失或错误
+建议处理方式：核对凭证内容、大小写及请求头名称
+
+HTTP 状态码：403
+说明：调用方 IP 不在白名单
+建议处理方式：联系 HR Portal 管理员配置出口 IP
+
+HTTP 状态码：404
+说明：推送配置不存在，或不是 API 暴露类型
+建议处理方式：核对接口地址中的 17
+
+HTTP 状态码：500
+说明：服务端读取或报表执行异常
+建议处理方式：提供请求时间、响应内容给 HR Portal 管理员排查
+
+九、接入与安全约定
+
+1. 必须通过 HTTPS 调用。
+2. AppSecret 仅保存于对方系统的密钥管理工具或受控配置中心。
+3. 禁止将 AppSecret 写入前端代码、客户端代码、日志、截图、邮件或群聊。
+4. 当前 IP 白名单为空；正式联调前，对方应提供固定的出口公网 IP，由 HR Portal 管理员加入白名单。
+5. 该接口返回薪资、社保、个税、扣款等敏感财务信息；调用方应遵循最小权限、访问日志审计和数据留存管理要求。
+6. 报表当前固定读取 2026 年 6 月、工资和劳务两类数据；若要切换月份或费用范围，需要由 HR Portal 管理员调整报表配置。

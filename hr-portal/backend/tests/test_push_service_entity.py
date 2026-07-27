@@ -3,6 +3,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import BigInteger, Column, Date, DateTime, MetaData, Numeric, String, Table
 
 from app.core.secret_box import encrypt
@@ -290,7 +291,7 @@ async def test_api_expose_endpoint_returns_json_ready_rows():
         source_table=table_name,
         name="API 暴露",
         push_type="api_expose",
-        settings={"app_id": "app-1"},
+        settings={"app_id": "app-1", "ip_whitelist": ["127.0.0.1"]},
         secrets_encrypted={"app_secret": encrypt("secret-1")},
         field_mappings=[{"source": "amount", "target": "pay_amount"}],
         is_active=True,
@@ -319,6 +320,79 @@ async def test_api_expose_endpoint_returns_json_ready_rows():
             "hire_date": "2021-01-01",
         }
     ]
+
+
+async def test_api_expose_endpoint_rejects_inactive_target():
+    pt = PushTarget(
+        id=9,
+        source_table="push_api_entity",
+        name="API 暴露",
+        push_type="api_expose",
+        settings={"app_id": "app-1", "ip_whitelist": ["127.0.0.1"]},
+        secrets_encrypted={"app_secret": encrypt("secret-1")},
+        is_active=False,
+    )
+    db = FakeSession(get_obj=pt)
+    request = SimpleNamespace(
+        headers={"X-App-Id": "app-1", "X-App-Secret": "secret-1"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await expose_data(9, request, db)
+
+    assert exc_info.value.status_code == 404
+    assert db.executed == []
+
+
+@pytest.mark.parametrize("settings", [
+    {"app_id": "app-1"},
+    {"app_id": "app-1", "ip_whitelist": []},
+])
+async def test_api_expose_endpoint_rejects_empty_ip_whitelist(settings):
+    pt = PushTarget(
+        id=9,
+        source_table="push_api_entity",
+        name="API 暴露",
+        push_type="api_expose",
+        settings=settings,
+        secrets_encrypted={"app_secret": encrypt("secret-1")},
+        is_active=True,
+    )
+    db = FakeSession(get_obj=pt)
+    request = SimpleNamespace(
+        headers={"X-App-Id": "app-1", "X-App-Secret": "secret-1"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await expose_data(9, request, db)
+
+    assert exc_info.value.status_code == 403
+    assert db.executed == []
+
+
+async def test_api_expose_endpoint_rejects_ip_outside_whitelist():
+    pt = PushTarget(
+        id=9,
+        source_table="push_api_entity",
+        name="API 暴露",
+        push_type="api_expose",
+        settings={"app_id": "app-1", "ip_whitelist": ["10.0.0.1"]},
+        secrets_encrypted={"app_secret": encrypt("secret-1")},
+        is_active=True,
+    )
+    db = FakeSession(get_obj=pt)
+    request = SimpleNamespace(
+        headers={"X-App-Id": "app-1", "X-App-Secret": "secret-1"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await expose_data(9, request, db)
+
+    assert exc_info.value.status_code == 403
+    assert db.executed == []
 
 
 async def test_push_target_out_resolves_physical_table_label():

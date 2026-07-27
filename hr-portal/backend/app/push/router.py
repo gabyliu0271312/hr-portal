@@ -577,7 +577,7 @@ async def expose_data(
     from app.push.push_service import _load_source_rows, apply_field_mappings, json_ready_row
 
     pt = await db.get(PushTarget, pt_id)
-    if pt is None or pt.push_type != "api_expose":
+    if pt is None or pt.push_type != "api_expose" or not pt.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
 
     secrets = {k: decrypt(v) for k, v in (pt.secrets_encrypted or {}).items()}
@@ -593,10 +593,11 @@ async def expose_data(
 
     # IP 白名单校验
     ip_whitelist: list[str] = s.get("ip_whitelist") or []
-    if ip_whitelist:
-        client_ip = request.client.host if request.client else ""
-        if client_ip not in ip_whitelist:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"IP {client_ip} 不在白名单")
+    if not ip_whitelist:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="未配置 IP 白名单")
+    client_ip = request.client.host if request.client else ""
+    if client_ip not in ip_whitelist:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"IP {client_ip} 不在白名单")
 
     period_ym = s.get("period_ym", "")
     # P2: 统一来源协议 — 非 table 类型解析来源表名
