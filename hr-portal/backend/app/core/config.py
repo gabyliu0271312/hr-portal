@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "HR Portal"
     APP_ENV: str = Field(default="dev", description="dev | staging | prod")
     API_PREFIX: str = "/api/v1"
+    PUBLIC_BASE_URL: str = ""
 
     DB_HOST: str = "db"
     DB_PORT: int = 5432

@@ -15,7 +15,7 @@
 
 说明：
 - `period_ym` 为必传查询参数，格式为 `YYYYMM`；缺失、格式错误或传入未登记参数时接口返回 HTTP 400，不会返回全量数据。
-- https://hr-portal.example.com 是文档示例域名。IT 接入时请替换为 HR Portal 实际生产域名。
+- 下载的对接文档会从生产配置 `PUBLIC_BASE_URL` 生成真实可用地址；本文域名仅作示例，IT 应以最新下载文档为准。
 - 推送配置 ID 已确认是 17。
 - 接口实际响应只返回字段编码，不会同时附带中文字段名。本文同时提供字段中文名称对照表，便于业务理解和字段映射。
 
@@ -24,7 +24,7 @@
 Header：X-App-Id
 是否必传：是
 说明：接口调用标识
-当前值：dxz4FYbOQLNIZfjim9mI
+取值：由 HR Portal 管理员通过受控渠道单独提供
 
 Header：X-App-Secret
 是否必传：是
@@ -35,31 +35,40 @@ Header：Accept
 是否必传：建议
 取值：application/json
 
-注意：AppSecret 不要写入本文档、邮件正文、群聊或代码仓库。
+注意：AppID 和 AppSecret 均不要写入本文档、邮件正文、群聊或代码仓库。
 
-三、cURL 调用示例
+三、查询参数
+
+参数名：period_ym
+中文名称：发薪月
+是否必传：是
+格式：YYYYMM
+示例：202606
+说明：缺失、格式错误或传入未登记参数时接口返回 HTTP 400，不会返回全量数据。
+
+四、cURL 调用示例
 
 curl --request GET "https://hr-portal.example.com/api/v1/push-targets/17/data?period_ym=202606" \
-  --header "X-App-Id: dxz4FYbOQLNIZfjim9mI" \
+  --header "X-App-Id: 由HRPortal管理员单独提供的AppID" \
   --header "X-App-Secret: 由HRPortal管理员单独提供的AppSecret" \
   --header "Accept: application/json"
 
 如需只查看第一条数据，可在 Linux、macOS 或 Git Bash 环境执行：
 
 curl --silent --show-error --request GET "https://hr-portal.example.com/api/v1/push-targets/17/data?period_ym=202606" \
-  --header "X-App-Id: dxz4FYbOQLNIZfjim9mI" \
+  --header "X-App-Id: 由HRPortal管理员单独提供的AppID" \
   --header "X-App-Secret: 由HRPortal管理员单独提供的AppSecret" \
   --header "Accept: application/json" \
   | jq '.[0]'
 
-四、Python 调用示例
+五、Python 调用示例
 
 import requests
 
 url = "https://hr-portal.example.com/api/v1/push-targets/17/data?period_ym=202606"
 
 headers = {
-    "X-App-Id": "dxz4FYbOQLNIZfjim9mI",
+    "X-App-Id": "由HRPortal管理员单独提供的AppID",
     "X-App-Secret": "由HRPortal管理员单独提供的AppSecret",
     "Accept": "application/json",
 }
@@ -83,7 +92,7 @@ for row in rows:
         f"应发工资：{row.get('calc.gross_salary_including_bonus')}"
     )
 
-五、接口原始响应示例
+六、接口原始响应示例
 
 说明：以下是接口实际返回的 JSON 结构。数值为脱敏演示值，不代表生产真实金额。
 
@@ -133,7 +142,7 @@ for row in rows:
   }
 ]
 
-六、字段名称对照表
+七、字段名称对照表
 
 A. 维度字段
 
@@ -212,7 +221,7 @@ dwd_emp_monthly_salary.economic_compensation：经济补偿金
 
 以上金额字段均为数值类型。
 
-七、业务阅读版响应示例
+八、业务阅读版响应示例
 
 说明：以下为字段名称中文化后的阅读版，仅用于业务确认。IT 程序不可直接按此字段名解析，应以“接口原始响应示例”中的编码为准。
 
@@ -261,7 +270,7 @@ dwd_emp_monthly_salary.economic_compensation：经济补偿金
   }
 ]
 
-八、返回状态说明
+九、返回状态说明
 
 HTTP 状态码：200
 说明：请求成功
@@ -291,7 +300,7 @@ HTTP 状态码：500
 说明：服务端读取或报表执行异常
 建议处理方式：提供请求时间、响应内容给 HR Portal 管理员排查
 
-九、接入与安全约定
+十、接入与安全约定
 
 1. 必须通过 HTTPS 调用。
 2. AppSecret 仅保存于对方系统的密钥管理工具或受控配置中心。

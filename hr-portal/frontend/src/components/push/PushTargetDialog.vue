@@ -2,7 +2,7 @@
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Hide, Refresh, View } from '@element-plus/icons-vue'
-import type { PushTargetIn, PushTargetOut, QueryParameter } from '@/api/push_targets'
+import type { PushTargetIn, PushTargetOut, QueryParameterInput } from '@/api/push_targets'
 import { pushTargetsApi } from '@/api/push_targets'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import { SCHEDULE_OPTIONS } from '@/config/dataSources'
@@ -78,7 +78,7 @@ const form = reactive<{
   app_secret: string
   readonly_password: string
   ip_whitelist: string
-  query_parameters: QueryParameter[]
+  query_parameters: QueryParameterInput[]
   feishu_app_id: string
   feishu_app_secret: string
   feishu_wiki_url_or_token: string
@@ -121,7 +121,10 @@ async function open(target?: PushTargetOut | null) {
     form.schedule = s.schedule ?? '手动触发'
     form.period_ym = s.period_ym ?? ''
     form.ip_whitelist = (s.ip_whitelist || []).join(', ')
-    form.query_parameters = (s.query_parameters || []).map((item: QueryParameter) => ({ ...item }))
+    form.query_parameters = (s.query_parameters || []).map((item: QueryParameterInput) => ({
+      column: item.column,
+      required: Boolean(item.required),
+    }))
     if (target.push_type === 'external_db') {
       form.dialect = s.dialect ?? 'mysql'
       form.host = s.host ?? ''
@@ -226,7 +229,7 @@ function buildPayload(): PushTargetIn {
     base.settings = {
       app_id: form.app_id,
       ip_whitelist: parseIpWhitelist(),
-      query_parameters: form.query_parameters.filter((item) => item.name && item.column),
+      query_parameters: form.query_parameters.filter((item) => item.column),
     }
     if (form.app_secret) base.secrets = { app_secret: form.app_secret }
   } else if (form.push_type === 'db_expose') {

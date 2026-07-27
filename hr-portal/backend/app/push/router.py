@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, UTC
 from decimal import Decimal
+import hashlib
 import json
 import re
 from typing import Any
@@ -210,6 +211,7 @@ def _report_source_id(source_table: str) -> int:
 
 
 async def _report_filter_metadata(source_table: str, db: AsyncSession) -> list[dict[str, Any]]:
+    from app.datasets.models import DatasetOutputField
     from app.reports.config import ReportConfig
     from app.reports.models import Report
 
@@ -217,10 +219,30 @@ async def _report_filter_metadata(source_table: str, db: AsyncSession) -> list[d
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
     cfg = ReportConfig(**(report.config or {}))
+    output_fields = []
+    if report.dataset_id:
+        output_fields = (
+            await db.execute(
+                select(DatasetOutputField).where(DatasetOutputField.dataset_id == report.dataset_id)
+            )
+        ).scalars().all()
+
+    def field_meta(column: str) -> tuple[str, str]:
+        tail = column.rsplit(".", 1)[-1]
+        matched = next(
+            (field for field in output_fields if field.output_code == column or field.source_column == column or field.source_column == tail),
+            None,
+        )
+        return (
+            (matched.output_label if matched else tail),
+            (matched.data_type if matched else "string"),
+        )
+
     return [
         {
             "column": item.column,
-            "op": item.op,
+            "label": field_meta(item.column)[0],
+            "data_type": field_meta(item.column)[1],
             "default_value": item.value,
             "visible": item.visible,
             "locked": item.locked,
@@ -228,6 +250,71 @@ async def _report_filter_metadata(source_table: str, db: AsyncSession) -> list[d
         for item in cfg.filters
         if item.visible and not item.locked
     ]
+
+
+def _parameter_rule(column: str, label: str, data_type: str, used_names: set[str]) -> dict[str, Any]:
+    tail = column.rsplit(".", 1)[-1]
+    normalized = re.sub(r"[^A-Za-z0-9_]+", "_", tail).strip("_").lower()
+    if tail in {"pay_month", "month"} or normalized in {"pay_month", "month"}:
+        name, pattern, hint, example = "period_ym", r"^\d{6}$", "YYYYMM", "202606"
+    else:
+        name = normalized or f"p_{hashlib.sha1(column.encode()).hexdigest()[:8]}"
+        if name[0].isdigit():
+            name = f"p_{name}"
+        kind = str(data_type or "string").lower()
+        if kind == "date":
+            pattern, hint, example = r"^\d{4}-\d{2}-\d{2}$", "YYYY-MM-DD", "2026-01-01"
+        elif kind in {"datetime", "timestamp"}:
+            pattern, hint, example = r"^\d{4}-\d{2}-\d{2}T.+$", "ISO 8601", "2026-01-01T00:00:00+00:00"
+        elif kind in {"integer", "int"}:
+            pattern, hint, example = r"^-?\d+$", "整数", "1"
+        elif kind in {"number", "decimal", "numeric", "float", "double"}:
+            pattern, hint, example = r"^-?\d+(\.\d+)?$", "数值", "1234.56"
+        elif kind in {"boolean", "bool"}:
+            pattern, hint, example = r"^(true|false)$", "true 或 false", "true"
+        else:
+            pattern, hint, example = None, None, "示例值"
+    base_name = name
+    suffix = 2
+    while name in used_names:
+        name = f"{base_name}_{suffix}"
+        suffix += 1
+    used_names.add(name)
+    return {
+        "name": name, "label": label or tail, "column": column, "op": "eq",
+        "pattern": pattern, "format_hint": hint, "example": example,
+    }
+
+
+async def _normalize_query_parameters(
+    source_table: str, settings: dict, db: AsyncSession, existing: list[dict] | None = None
+) -> None:
+    parameters = settings.get("query_parameters") or []
+    if not parameters:
+        settings["query_parameters"] = []
+        return
+    if not _is_report_source(source_table) or not isinstance(parameters, list):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="受控查询参数仅支持报表来源的只读 API")
+    filters = {item["column"]: item for item in await _report_filter_metadata(source_table, db)}
+    old_by_column = {str(item.get("column")): item for item in (existing or []) if isinstance(item, dict)}
+    normalized: list[dict] = []
+    seen_columns: set[str] = set()
+    used_names: set[str] = set()
+    for item in parameters:
+        if not isinstance(item, dict):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="查询参数配置格式不正确")
+        column = str(item.get("column") or "")
+        if column not in filters or column in seen_columns:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="查询参数必须绑定唯一且可覆盖的报表筛选字段")
+        seen_columns.add(column)
+        old = old_by_column.get(column)
+        rule = _parameter_rule(column, filters[column]["label"], filters[column]["data_type"], used_names)
+        if old and _QUERY_PARAMETER_NAME_RE.fullmatch(str(old.get("name") or "")):
+            rule.update({key: old[key] for key in ("name", "label", "pattern", "format_hint", "example") if key in old})
+            used_names.add(rule["name"])
+        rule["required"] = bool(item.get("required"))
+        normalized.append(rule)
+    settings["query_parameters"] = normalized
 
 
 async def _validate_query_parameters(source_table: str, settings: dict, db: AsyncSession) -> None:
@@ -389,6 +476,7 @@ async def create_push_target(
 
     await _ensure_report_push_editable(payload.source_table, user, db)
     await _ensure_system_op_for_non_report(payload.source_table, user, db, "C")
+    await _normalize_query_parameters(payload.source_table, payload.settings, db)
     await _validate_query_parameters(payload.source_table, payload.settings, db)
     _validate_db_expose_password(payload)
     secrets_enc = {k: encrypt(v) for k, v in payload.secrets.items()}
@@ -504,6 +592,7 @@ async def update_push_target(
     await _ensure_report_push_editable(payload.source_table, user, db)
     await _ensure_system_op_for_non_report(pt.source_table, user, db, "U")
     await _ensure_system_op_for_non_report(payload.source_table, user, db, "U")
+    await _normalize_query_parameters(pt.source_table, payload.settings, db, pt.settings.get("query_parameters") if pt.settings else None)
     await _validate_query_parameters(pt.source_table, payload.settings, db)
     _validate_db_expose_password(payload)
 
@@ -697,7 +786,7 @@ async def _build_integration_documentation(pt: PushTarget, db: AsyncSession) -> 
     output_types = {mappings.get(code, code): types.get(code, "string") for code in codes}
     sample = {code: _documentation_sample_value(output_types[code]) for code in output_codes}
     source_label = pt.source_label or pt.source_table
-    base_url = "https://<HR-Portal-生产域名>"
+    from app.core.config import settings as app_settings
 
     lines = [
         f"{pt.name}—对接说明", "",
@@ -709,28 +798,52 @@ async def _build_integration_documentation(pt: PushTarget, db: AsyncSession) -> 
         f"启用状态：{'启用' if pt.is_active else '停用'}",
     ]
     if pt.push_type == "api_expose":
+        base_url = str(app_settings.PUBLIC_BASE_URL or "").rstrip("/")
+        if not base_url.startswith("https://"):
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="请由 HR Portal 管理员配置 PUBLIC_BASE_URL 为 HTTPS 生产访问地址")
+        parameters = settings.get("query_parameters") or []
+        query = "&".join(
+            f"{item.get('name')}={item.get('example')}"
+            for item in parameters if item.get("name") and item.get("example")
+        )
+        endpoint = f"{base_url}/api/v1/push-targets/{pt.id}/data"
+        request_url = f"{endpoint}?{query}" if query else endpoint
         lines += [
             "调用方式：对方系统主动拉取", "请求方法：GET",
-            f"接口地址：{base_url}/api/v1/push-targets/{pt.id}/data",
+            f"接口地址：{request_url}",
             "返回格式：JSON 数组；当前不分页。", "",
             "二、鉴权请求头",
-            f"X-App-Id：{settings.get('app_id') or '由 HR Portal 管理员提供'}",
-            "X-App-Secret：由 HR Portal 管理员通过受控渠道单独提供，禁止写入本文档。",
-            "Accept：application/json", "",
-            "三、cURL 调用示例",
-            f'curl --request GET "{base_url}/api/v1/push-targets/{pt.id}/data" \\\n  --header "X-App-Id: {settings.get("app_id") or "由管理员提供"}" \\\n  --header "X-App-Secret: 由管理员单独提供" \\\n  --header "Accept: application/json"', "",
-            "四、Python 调用示例",
-            "import requests\n\nresponse = requests.get(\n"
-            f"    \"{base_url}/api/v1/push-targets/{pt.id}/data\",\n"
-            "    headers={\"X-App-Id\": \"由管理员提供\", \"X-App-Secret\": \"由管理员单独提供\"},\n"
-            "    timeout=30,\n)\nresponse.raise_for_status()\nrows = response.json()",
+            "Header：X-App-Id", "是否必传：是", "取值：由 HR Portal 管理员通过受控渠道单独提供。", "",
+            "Header：X-App-Secret", "是否必传：是", "取值：由 HR Portal 管理员通过受控渠道单独提供。", "",
+            "Header：Accept", "是否必传：建议", "取值：application/json", "",
+            "三、查询参数",
         ]
-        parameters = settings.get("query_parameters") or []
         if parameters:
-            lines += ["", "受控查询参数："]
             for item in parameters:
-                required = "必填" if item.get("required") else "可选"
-                lines.append(f"- {item.get('name')}（{item.get('label') or item.get('column')}）：{required}，格式：{item.get('format_hint') or item.get('pattern') or '不限'}，示例：{item.get('example') or ''}")
+                required = "是" if item.get("required") else "否"
+                lines += [
+                    f"参数名：{item.get('name')}",
+                    f"中文名称：{item.get('label') or item.get('column')}",
+                    f"是否必传：{required}",
+                    f"格式：{item.get('format_hint') or '不限'}",
+                    f"示例：{item.get('example') or ''}",
+                    "",
+                ]
+            lines.append("说明：必填参数缺失、格式错误或传入未登记参数时，接口返回 HTTP 400。")
+        else:
+            lines.append("无。")
+        lines += [
+            "", "四、cURL 调用示例",
+            f'curl --request GET "{request_url}" \\\n  --header "X-App-Id: 由HRPortal管理员单独提供的AppID" \\\n  --header "X-App-Secret: 由HRPortal管理员单独提供的AppSecret" \\\n  --header "Accept: application/json"', "",
+            "五、Python 调用示例",
+            "import requests\n\nresponse = requests.get(\n"
+            f"    \"{request_url}\",\n"
+            "    headers={\n"
+            "        \"X-App-Id\": \"由HRPortal管理员单独提供的AppID\",\n"
+            "        \"X-App-Secret\": \"由HRPortal管理员单独提供的AppSecret\",\n"
+            "        \"Accept\": \"application/json\",\n"
+            "    },\n    timeout=30,\n)\nresponse.raise_for_status()\nrows = response.json()",
+        ]
     elif pt.push_type == "http_push":
         lines += ["", "二、鉴权请求头", "如配置 Bearer Token，由 HR Portal 在服务端发送；本文档不包含 Token。", "", "三、cURL 调用示例", f"平台将以 {settings.get('method', 'POST')} 请求 {_mask_url(settings.get('url', ''))}。", "", "四、Python 调用示例", "由 HR Portal 后台主动推送，无需对方调用。"]
     elif pt.push_type == "external_db":
@@ -740,18 +853,27 @@ async def _build_integration_documentation(pt: PushTarget, db: AsyncSession) -> 
     else:
         lines += ["", "二、鉴权请求头", "飞书应用凭证由管理员受控配置，本文档不包含 App Secret。", "", "三、cURL 调用示例", "不适用：平台主动写入飞书在线表格。", "", "四、Python 调用示例", f"目标 Sheet：{settings.get('sheet_id') or '默认工作表'}，起始单元格：{settings.get('start_cell', 'A1')}。"]
 
+    response_start = 6 if pt.push_type == "api_expose" else 5
     lines += [
-        "", "五、接口原始响应示例", json.dumps([sample], ensure_ascii=False, indent=2),
-        "", "六、字段名称对照表",
+        f"", f"{['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][response_start]}、接口原始响应示例", json.dumps([sample], ensure_ascii=False, indent=2),
+        "", f"{['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][response_start + 1]}、字段名称对照表",
     ]
     for code in output_codes:
         lines.append(f"{code}：{output_labels[code]}（{output_types[code]}）")
-    lines += ["", "七、业务阅读版响应示例", json.dumps([{output_labels[code]: sample[code] for code in output_codes}], ensure_ascii=False, indent=2), "", "八、返回状态说明"]
+    lines += [
+        "", f"{['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][response_start + 2]}、业务阅读版响应示例", json.dumps([{output_labels[code]: sample[code] for code in output_codes}], ensure_ascii=False, indent=2),
+        "", f"{['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][response_start + 3]}、返回状态说明",
+    ]
     if pt.push_type == "api_expose":
         lines += ["200：请求成功。", "400：查询参数缺失、格式错误或未登记。", "401：AppID 或 AppSecret 错误。", "403：来源 IP 不在白名单，或白名单为空。", "404：配置不存在、已停用或不是 API 暴露类型。", "500：服务端读取异常。"]
     else:
         lines += ["成功：以推送记录显示 success 为准。", "失败：以推送记录中的错误信息为准，由 HR Portal 管理员处理。"]
-    lines += ["", "九、接入与安全约定", "1. 凭证、密码、Token 和 App Secret 必须通过受控渠道交付，不得写入文档、邮件、群聊、代码或日志。", "2. 请按最小权限、访问审计和数据留存要求处理数据。", "3. 配置停用后不应继续使用；只读 API 的 IP 白名单为空时拒绝所有访问。"]
+    lines += [
+        "", f"{['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][response_start + 4]}、接入与安全约定",
+        "1. X-App-Id、X-App-Secret、密码、Token 和 App Secret 必须通过受控渠道交付，不得写入文档、邮件、群聊、代码或日志。",
+        "2. 请按最小权限、访问审计和数据留存要求处理数据。",
+        "3. 配置停用后不应继续使用；只读 API 的 IP 白名单为空时拒绝所有访问。",
+    ]
     return "\n".join(lines) + "\n"
 
 

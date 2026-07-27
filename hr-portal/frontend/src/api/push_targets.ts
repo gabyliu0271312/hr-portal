@@ -2,7 +2,12 @@ import { api } from './client'
 
 export type PushType = 'external_db' | 'http_push' | 'api_expose' | 'db_expose' | 'feishu_sheet'
 
-export interface QueryParameter {
+export interface QueryParameterInput {
+  column: string
+  required: boolean
+}
+
+export interface QueryParameter extends QueryParameterInput {
   name: string
   label: string
   column: string
@@ -15,14 +20,14 @@ export interface QueryParameter {
 
 export interface ReportFilterMetadata {
   column: string
-  op: string
-  default_value: unknown
+  label: string
+  data_type: string
   visible: boolean
   locked: boolean
 }
 
 export interface PushTargetSettings {
-  query_parameters?: QueryParameter[]
+  query_parameters?: QueryParameterInput[]
   [key: string]: any
 }
 

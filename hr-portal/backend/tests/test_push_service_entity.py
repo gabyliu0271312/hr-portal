@@ -12,7 +12,7 @@ from app.data.models import DATA_TABLES, TableColumn
 from app.datasources.sync_service import PERIOD_TABLES
 from app.push import push_service
 from app.push.models import PushTarget
-from app.push.router import _build_integration_documentation, _runtime_filters_from_request, _to_out, expose_data
+from app.push.router import _build_integration_documentation, _normalize_query_parameters, _runtime_filters_from_request, _to_out, expose_data
 from tests.entity_helpers import make_legacy_raw_model
 
 
@@ -535,7 +535,41 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
     assert insert_calls == [{"period_ym": "202606"}]
 
 
-async def test_report_query_parameters_require_registered_values(monkeypatch):
+async def test_minimal_query_parameter_configuration_is_normalized(monkeypatch):
+    settings = {"query_parameters": [{"column": "salary.pay_month", "required": True}]}
+
+    async def metadata(source_table, db):
+        return [{
+            "column": "salary.pay_month", "label": "发薪月", "data_type": "string",
+            "visible": True, "locked": False,
+        }]
+
+    monkeypatch.setattr("app.push.router._report_filter_metadata", metadata)
+    await _normalize_query_parameters("report:8", settings, FakeSession())
+    assert settings["query_parameters"] == [{
+        "name": "period_ym", "label": "发薪月", "column": "salary.pay_month", "op": "eq",
+        "pattern": r"^\d{6}$", "format_hint": "YYYYMM", "example": "202606", "required": True,
+    }]
+
+
+async def test_normalize_query_parameters_preserves_existing_contract(monkeypatch):
+    settings = {"query_parameters": [{"column": "salary.pay_month", "required": False}]}
+    existing = [{
+        "name": "payroll_period", "label": "历史发薪月", "column": "salary.pay_month", "op": "eq",
+        "pattern": r"^\d{6}$", "format_hint": "YYYYMM", "example": "202601", "required": True,
+    }]
+
+    async def metadata(source_table, db):
+        return [{
+            "column": "salary.pay_month", "label": "发薪月", "data_type": "string",
+            "visible": True, "locked": False,
+        }]
+
+    monkeypatch.setattr("app.push.router._report_filter_metadata", metadata)
+    await _normalize_query_parameters("report:8", settings, FakeSession(), existing)
+    assert settings["query_parameters"][0]["name"] == "payroll_period"
+    assert settings["query_parameters"][0]["label"] == "历史发薪月"
+    assert settings["query_parameters"][0]["required"] is False
     pt = PushTarget(
         id=17,
         source_table="report:8",
@@ -568,7 +602,7 @@ async def test_report_query_parameters_require_registered_values(monkeypatch):
     assert unknown.value.status_code == 400
 
 
-async def test_integration_documentation_contains_nine_sections_without_secret(monkeypatch):
+async def test_integration_documentation_contains_ten_api_sections_without_credentials(monkeypatch):
     pt = PushTarget(
         id=17,
         source_table="push_api_entity",
@@ -590,12 +624,33 @@ async def test_integration_documentation_contains_nine_sections_without_secret(m
         return ["pay_month", "amount"], {"pay_month": "发薪月", "amount": "金额"}, {"pay_month": "string", "amount": "number"}
 
     monkeypatch.setattr("app.push.push_service._load_source_columns_meta", meta)
+    monkeypatch.setattr("app.core.config.settings.PUBLIC_BASE_URL", "https://portal.example.test")
     content = await _build_integration_documentation(pt, FakeSession())
-    for section in ("一、接口概览", "二、鉴权请求头", "三、cURL 调用示例", "四、Python 调用示例", "五、接口原始响应示例", "六、字段名称对照表", "七、业务阅读版响应示例", "八、返回状态说明", "九、接入与安全约定"):
+    for section in ("一、接口概览", "二、鉴权请求头", "三、查询参数", "四、cURL 调用示例", "五、Python 调用示例", "六、接口原始响应示例", "七、字段名称对照表", "八、业务阅读版响应示例", "九、返回状态说明", "十、接入与安全约定"):
         assert section in content
     assert "real-secret" not in content
+    assert "app-1" not in content
+    assert "https://portal.example.test/api/v1/push-targets/17/data?period_ym=202606" in content
+    assert "由HRPortal管理员单独提供的AppID" in content
     assert "period_ym" in content
     assert "发薪月" in content
+
+
+async def test_api_documentation_requires_public_base_url(monkeypatch):
+    pt = PushTarget(
+        id=17, source_table="push_api_entity", name="API", push_type="api_expose",
+        settings={"app_id": "app-1"}, secrets_encrypted={"app_secret": encrypt("secret-1")},
+    )
+
+    async def meta(source_table, db):
+        return [], {}, {}
+
+    monkeypatch.setattr("app.push.push_service._load_source_columns_meta", meta)
+    monkeypatch.setattr("app.core.config.settings.PUBLIC_BASE_URL", "")
+    with pytest.raises(HTTPException) as exc_info:
+        await _build_integration_documentation(pt, FakeSession())
+    assert exc_info.value.status_code == 503
+    assert "PUBLIC_BASE_URL" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
