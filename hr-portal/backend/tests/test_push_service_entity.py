@@ -624,13 +624,13 @@ async def test_integration_documentation_contains_ten_api_sections_without_crede
         return ["pay_month", "amount"], {"pay_month": "发薪月", "amount": "金额"}, {"pay_month": "string", "amount": "number"}
 
     monkeypatch.setattr("app.push.push_service._load_source_columns_meta", meta)
-    monkeypatch.setattr("app.core.config.settings.PUBLIC_BASE_URL", "https://portal.example.test")
+    monkeypatch.setattr("app.core.config.settings.PUBLIC_BASE_URL", "http://portal.example.test")
     content = await _build_integration_documentation(pt, FakeSession())
     for section in ("一、接口概览", "二、鉴权请求头", "三、查询参数", "四、cURL 调用示例", "五、Python 调用示例", "六、接口原始响应示例", "七、字段名称对照表", "八、业务阅读版响应示例", "九、返回状态说明", "十、接入与安全约定"):
         assert section in content
     assert "real-secret" not in content
     assert "app-1" not in content
-    assert "https://portal.example.test/api/v1/push-targets/17/data?period_ym=202606" in content
+    assert "http://portal.example.test/api/v1/push-targets/17/data?period_ym=202606" in content
     assert "由HRPortal管理员单独提供的AppID" in content
     assert "period_ym" in content
     assert "发薪月" in content

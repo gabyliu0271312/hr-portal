@@ -799,8 +799,8 @@ async def _build_integration_documentation(pt: PushTarget, db: AsyncSession) -> 
     ]
     if pt.push_type == "api_expose":
         base_url = str(app_settings.PUBLIC_BASE_URL or "").rstrip("/")
-        if not base_url.startswith("https://"):
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="请由 HR Portal 管理员配置 PUBLIC_BASE_URL 为 HTTPS 生产访问地址")
+        if not base_url.startswith(("https://", "http://")):
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="请由 HR Portal 管理员配置 PUBLIC_BASE_URL 为对外访问地址")
         parameters = settings.get("query_parameters") or []
         query = "&".join(
             f"{item.get('name')}={item.get('example')}"
