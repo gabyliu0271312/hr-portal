@@ -185,11 +185,14 @@ function onStartTimeChange(val: string) {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: 100%;
+  min-width: 260px;
 }
 .ss-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
 }
 .ss-label {
   font-size: 13px;
@@ -206,6 +209,11 @@ function onStartTimeChange(val: string) {
   display: flex;
   gap: 8px;
   align-items: center;
+  width: 100%;
+}
+.ss-select-wrap :deep(.el-select) {
+  flex: 1;
+  min-width: 0;
 }
 .ss-advanced-toggle {
   width: 32px; height: 32px;
