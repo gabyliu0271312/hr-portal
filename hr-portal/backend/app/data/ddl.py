@@ -107,6 +107,82 @@ def postgres_type(data_type: str | None) -> str:
         raise DDLValidationError(f"不支持的字段类型: {data_type}") from exc
 
 
+def normalize_data_type(data_type: str | None) -> str:
+    """归一应用字段类型，供物理 schema 对齐比较使用。"""
+    key = (data_type or "string").strip().lower()
+    if key in {"string", "text", "enum"}:
+        return "text"
+    if key in {"number", "decimal", "float", "double", "numeric"}:
+        return "numeric"
+    if key == "integer":
+        return "integer"
+    if key == "date":
+        return "date"
+    if key == "datetime":
+        return "datetime"
+    if key in {"boolean", "bool"}:
+        return "boolean"
+    raise DDLValidationError(f"不支持的字段类型: {data_type}")
+
+
+def physical_data_type(data_type: str | None) -> str:
+    """将 information_schema.data_type 归一为应用字段类型。"""
+    key = (data_type or "").strip().lower()
+    mapping = {
+        "text": "text",
+        "character varying": "text",
+        "character": "text",
+        "numeric": "numeric",
+        "decimal": "numeric",
+        "integer": "integer",
+        "smallint": "integer",
+        "bigint": "integer",
+        "date": "date",
+        "timestamp with time zone": "datetime",
+        "timestamp without time zone": "datetime",
+        "boolean": "boolean",
+    }
+    return mapping.get(key, key)
+
+
+def is_safe_type_widening(source_type: str | None, target_type: str | None) -> bool:
+    """判断将 source_type 迁移为 target_type 是否可无损自动执行。"""
+    source = normalize_data_type(source_type)
+    target = normalize_data_type(target_type)
+    return source == target or (source, target) in {
+        ("integer", "numeric"),
+        ("integer", "text"),
+        ("numeric", "text"),
+        ("date", "text"),
+        ("datetime", "text"),
+        ("boolean", "text"),
+    }
+
+
+def type_change_using_expr(column_code: str, target_type: str) -> str:
+    """返回受控类型迁移的 USING 表达式。"""
+    col = quote_ident(column_code)
+    target = normalize_data_type(target_type)
+    if target == "text":
+        return f"{col}::text"
+    if target == "numeric":
+        return f"{col}::numeric"
+    return col
+
+
+async def get_physical_column_types(db: AsyncSession, table_name: str) -> dict[str, str]:
+    """读取 public schema 下指定表的物理列类型。"""
+    table = validate_table_name(table_name)
+    result = await db.execute(
+        text(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = :table_name"
+        ),
+        {"table_name": table},
+    )
+    return {row[0]: physical_data_type(row[1]) for row in result.all()}
+
+
 def make_identifier(prefix: str, table_name: str, suffix: str = "") -> str:
     """Build a deterministic PostgreSQL identifier within 63 bytes."""
     validate_table_name(table_name)

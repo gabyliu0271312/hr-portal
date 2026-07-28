@@ -162,6 +162,9 @@ defineExpose({ refreshDetectedMode })
             <el-tag :type="e.status === 'success' ? 'success' : 'danger'" size="small">{{ e.status }}</el-tag>
             <span class="exec-mode">{{ e.mode ? e.mode : e.trigger_label }}</span>
             <span v-if="e.rows" class="exec-rows">{{ e.rows }} 行</span>
+            <el-tooltip v-if="e.status === 'failed' && (e.error_message || e.actions?.[0]?.output?.detail || e.actions?.[0]?.error)" :content="e.error_message || e.actions?.[0]?.output?.detail || e.actions?.[0]?.error" placement="top" :show-after="300">
+              <el-icon class="exec-error"><InfoFilled /></el-icon>
+            </el-tooltip>
           </div>
         </div>
       </div>
@@ -188,4 +191,5 @@ defineExpose({ refreshDetectedMode })
 .exec-time { color: #909399; min-width: 100px; }
 .exec-mode { color: #409EFF; }
 .exec-rows { color: #909399; }
+.exec-error { color: #f56c6c; cursor: help; }
 </style>

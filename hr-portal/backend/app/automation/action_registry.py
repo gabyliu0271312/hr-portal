@@ -300,8 +300,17 @@ async def _passthrough_sync(
     ods_table: str, dwd_table: str, config, db: AsyncSession,
 ) -> int:
     """直通同步：按 DWD 写入策略把 ODS 数据写入 DWD。"""
-    from sqlalchemy import text as sa_text, inspect as sa_inspect
-    from app.data.ddl import add_source_column, column_exists
+    from sqlalchemy import text as sa_text
+    from app.data.ddl import (
+        add_source_column,
+        alter_source_column_type,
+        column_exists,
+        get_physical_column_types,
+        is_safe_type_widening,
+        normalize_data_type,
+        type_change_using_expr,
+    )
+    from app.data.dynamic_loader import register_source_table_model
 
     # 同步 table_columns 元数据（每次执行都同步 ODS → DWD）
     from app.data.models import TableColumn
@@ -311,10 +320,27 @@ async def _passthrough_sync(
     dwd_cols = {c.column_code: c for c in (await db.execute(
         select(TableColumn).where(TableColumn.table_name == dwd_table)
     )).scalars().all()}
+    physical_types = await get_physical_column_types(db, dwd_table)
+    schema_changed = False
     for col in ods_cols:
-        # 无论元数据是否存在，都确保物理列存在
+        target_type = normalize_data_type(col.data_type)
         if not await column_exists(db, dwd_table, col.column_code):
             await add_source_column(db, dwd_table, col.column_code, col.data_type)
+            schema_changed = True
+        else:
+            current_type = physical_types.get(col.column_code)
+            if current_type != target_type:
+                if not is_safe_type_widening(current_type, target_type):
+                    raise RuntimeError(
+                        f"字段类型变更需人工确认: {dwd_table}.{col.column_code} "
+                        f"当前为 {current_type}，ODS 为 {target_type}。"
+                        "该转换可能导致历史数据无法转换，请通过数据清洗规则或人工字段变更确认迁移策略。"
+                    )
+                await alter_source_column_type(
+                    db, dwd_table, col.column_code, col.data_type,
+                    using_expr=type_change_using_expr(col.column_code, col.data_type),
+                )
+                schema_changed = True
         if col.column_code in dwd_cols:
             existing = dwd_cols[col.column_code]
             for attr in ("column_label", "data_type", "is_pk_part", "is_sensitive", "is_visible", "display_order", "description"):
@@ -333,6 +359,8 @@ async def _passthrough_sync(
         if code not in ods_codes and code not in ("id", "pk_hash", "synced_at"):
             col.is_visible = False
     await db.commit()
+    if schema_changed:
+        await register_source_table_model(db, dwd_table, force=True)
 
     strategy = config.dwd_write_strategy
 

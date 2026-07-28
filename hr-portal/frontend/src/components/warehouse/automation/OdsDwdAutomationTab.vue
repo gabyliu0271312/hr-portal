@@ -90,7 +90,13 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="最近状态" width="90">
         <template #default="{ row }">
-          <span v-if="row.last_execution_status" :style="{ color: row.last_execution_status === 'success' ? '#67C23A' : '#F56C6C' }">
+          <el-tooltip v-if="row.last_execution_status === 'failed' && row.last_execution_error" :content="row.last_execution_error" placement="top" :show-after="300">
+            <span :style="{ color: '#F56C6C', cursor: 'help' }">
+              <component :is="statusIcon(row.last_execution_status)" style="font-size:14px;vertical-align:middle" />
+              失败
+            </span>
+          </el-tooltip>
+          <span v-else-if="row.last_execution_status" :style="{ color: row.last_execution_status === 'success' ? '#67C23A' : '#F56C6C' }">
             <component :is="statusIcon(row.last_execution_status)" style="font-size:14px;vertical-align:middle" />
             {{ row.last_execution_status === 'success' ? '成功' : '失败' }}
           </span>

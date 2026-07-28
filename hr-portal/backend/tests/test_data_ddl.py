@@ -8,7 +8,10 @@ from app.data.ddl import (
     build_create_source_table_sql,
     build_drop_source_column_sql,
     build_drop_source_table_sql,
+    is_safe_type_widening,
     make_identifier,
+    normalize_data_type,
+    physical_data_type,
     postgres_type,
     quote_ident,
     validate_column_name,
@@ -63,6 +66,27 @@ def test_postgres_type_maps_table_column_types(data_type, pg_type):
 def test_postgres_type_rejects_unknown_type():
     with pytest.raises(DDLValidationError):
         postgres_type("money")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("string", "text"), ("enum", "text"), ("decimal", "numeric"), ("bool", "boolean")],
+)
+def test_normalize_data_type(value, expected):
+    assert normalize_data_type(value) == expected
+
+
+def test_physical_data_type_normalizes_postgres_aliases():
+    assert physical_data_type("character varying") == "text"
+    assert physical_data_type("bigint") == "integer"
+    assert physical_data_type("timestamp with time zone") == "datetime"
+
+
+def test_safe_type_widening_accepts_annual_bonus_factor_code_case():
+    assert is_safe_type_widening("numeric", "text") is True
+    assert is_safe_type_widening("integer", "numeric") is True
+    assert is_safe_type_widening("text", "numeric") is False
+    assert is_safe_type_widening("numeric", "integer") is False
 
 
 def test_quote_identifier_validates_before_quoting():
