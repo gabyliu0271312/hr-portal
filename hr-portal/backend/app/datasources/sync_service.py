@@ -1067,19 +1067,21 @@ async def _publish_ods_data_changed_event(table_name: str, change_type: str, aff
         from app.automation.events import AutomationEvent, publish_event
         from app.core.db import get_session_factory
         async with get_session_factory()() as new_db:
+            payload = {
+                "trigger_type": "ods_table_data_changed",
+                "table_name": table_name,
+                "source": "api_sync",
+                "change_type": change_type,
+                "affected_row_count": affected_rows,
+                "changed_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            }
             await publish_event(AutomationEvent(
                 trigger_type="ods_table_data_changed",
                 biz_type="ods_table",
                 biz_id=table_name,
-                payload={
-                    "trigger_type": "ods_table_data_changed",
-                    "table_name": table_name,
-                    "source": "api_sync",
-                    "change_type": change_type,
-                    "affected_row_count": affected_rows,
-                    "changed_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
-                },
+                payload=payload,
             ), new_db)
+            await _publish_ucp_platform_event(new_db, "ods_table_data_changed", table_name, payload)
     except Exception:
         logger.warning("[sync] 发布 ods_table_data_changed 失败 table=%s", table_name)
 
@@ -1094,23 +1096,25 @@ async def _publish_sync_completed_event(
         from app.core.db import get_session_factory
 
         async with get_session_factory()() as new_db:
+            payload = {
+                "trigger_type": "datasource_sync_completed",
+                "table_name": table_name,
+                "sync_status": sync_status,
+                "sync_rows": sync_rows,
+                "sync_message": sync_message,
+                "error_message": error_message,
+                "synced_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            }
             await publish_event(
                 AutomationEvent(
                     trigger_type="datasource_sync_completed",
                     biz_type="datasource",
                     biz_id=table_name,
-                    payload={
-                        "trigger_type": "datasource_sync_completed",
-                        "table_name": table_name,
-                        "sync_status": sync_status,
-                        "sync_rows": sync_rows,
-                        "sync_message": sync_message,
-                        "error_message": error_message,
-                        "synced_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
-                    },
+                    payload=payload,
                 ),
                 new_db,
             )
+            await _publish_ucp_platform_event(new_db, "datasource_sync_completed", table_name, payload)
         logger.info(
             "[sync] 发布 datasource_sync_completed table=%s status=%s rows=%s",
             table_name, sync_status, sync_rows,
@@ -1119,6 +1123,25 @@ async def _publish_sync_completed_event(
         logger.exception(
             "[sync] 发布 datasource_sync_completed 失败 table=%s", table_name,
         )
+
+
+async def _publish_ucp_platform_event(db: AsyncSession, event_type: str, table_name: str, payload: dict) -> None:
+    """Bridge a warehouse event into the UCP internal-event bus."""
+    from uuid import uuid4
+
+    from app.ucp.event_bus import process_event_pipeline, receive_event
+
+    event = await receive_event(
+        db,
+        event_id=f"internal:{event_type}:{table_name}:{uuid4().hex}",
+        event_type=event_type,
+        source="INTERNAL",
+        trigger="DATA_WAREHOUSE",
+        payload=payload,
+        metadata={"category": "DATA_CHANGE", "source": "DATA_WAREHOUSE"},
+    )
+    await process_event_pipeline(db, event)
+    await db.commit()
 
 
 async def sync_to_table(

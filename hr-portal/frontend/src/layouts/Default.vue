@@ -174,6 +174,7 @@ function isLeafActive(leaf: LeafMenu): boolean {
 // UCP 导航重构：基于用户实际权限聚合判断，7 项四字菜单
 const UCP_MENU_AGGREGATION: Record<string, string[]> = {
   'ucp.systems': ['ucp.systems'],
+  'ucp.connector_catalog': ['ucp.connector_catalog'],
   'ucp.pipelines': ['ucp.pipelines'],
   'ucp.executions': ['ucp.executions'],
   'ucp.events': ['ucp.events'],

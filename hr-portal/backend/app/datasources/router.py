@@ -25,6 +25,23 @@ from app.users.models import User
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 
+_SYNC_SEMANTICS = {"full_snapshot", "incremental_append", "incremental_upsert"}
+_WRITE_STRATEGIES = {"full_refresh", "incremental_upsert", "append"}
+_MISSING_ROW_STRATEGIES = {"hard_delete", "mark_inactive", "keep_history"}
+
+
+def _validate_write_policy(
+    sync_semantics: str | None,
+    write_strategy: str | None,
+    missing_row_strategy: str | None,
+    business_key_fields: list[str],
+) -> None:
+    if any(value is not None for value in (sync_semantics, write_strategy, missing_row_strategy)):
+        if sync_semantics not in _SYNC_SEMANTICS or write_strategy not in _WRITE_STRATEGIES or missing_row_strategy not in _MISSING_ROW_STRATEGIES:
+            raise HTTPException(422, "入仓更新策略无效")
+        if write_strategy == "incremental_upsert" and not business_key_fields:
+            raise HTTPException(422, "增量更新策略必须配置业务主键")
+
 # ===== 哪些字段是敏感字段（需加密）=====
 SECRET_KEYS = {
     "BEISEN_APP_KEY",
@@ -52,6 +69,10 @@ class DataSourceOut(BaseModel):
     # 不返回密文，仅返回是否已配置
     has_secret: dict[str, bool]
     is_active: bool
+    sync_semantics: str | None
+    write_strategy: str | None
+    missing_row_strategy: str | None
+    business_key_fields: list[str]
     last_sync_at: datetime | None
     last_status: str
     last_rows: int | None
@@ -65,6 +86,10 @@ class DataSourceCreateIn(BaseModel):
     source_type: str = "http_api"
     schedule: str = ""
     is_active: bool = True
+    sync_semantics: str | None = None
+    write_strategy: str | None = None
+    missing_row_strategy: str | None = None
+    business_key_fields: list[str] = Field(default_factory=list)
 
 
 class DataSourceUpdateIn(BaseModel):
@@ -75,6 +100,10 @@ class DataSourceUpdateIn(BaseModel):
     # secrets 是明文输入；后端加密后存
     secrets: dict[str, str] = Field(default_factory=dict)
     is_active: bool = True
+    sync_semantics: str | None = None
+    write_strategy: str | None = None
+    missing_row_strategy: str | None = None
+    business_key_fields: list[str] = Field(default_factory=list)
 
 
 class TestResult(BaseModel):
@@ -114,6 +143,10 @@ def _to_out(ds: DataSource) -> DataSourceOut:
         settings=ds.settings or {},
         has_secret={k: bool(v) for k, v in (ds.secrets_encrypted or {}).items()},
         is_active=ds.is_active,
+        sync_semantics=ds.sync_semantics,
+        write_strategy=ds.write_strategy,
+        missing_row_strategy=ds.missing_row_strategy,
+        business_key_fields=list(ds.business_key_fields or []),
         last_sync_at=ds.last_sync_at,
         last_status=ds.last_status,
         last_rows=ds.last_rows,
@@ -158,12 +191,17 @@ async def create_datasource(
     db: AsyncSession = Depends(get_session),
 ) -> DataSourceOut:
     """创建新的 DataSource（T0211 仓库侧创建入口）"""
+    _validate_write_policy(body.sync_semantics, body.write_strategy, body.missing_row_strategy, body.business_key_fields)
     ds = DataSource(
         table_name=body.table_name,
         table_label=body.table_label or body.table_name,
         source_type=body.source_type,
         schedule=body.schedule or "",
         is_active=body.is_active,
+        sync_semantics=body.sync_semantics,
+        write_strategy=body.write_strategy,
+        missing_row_strategy=body.missing_row_strategy,
+        business_key_fields=body.business_key_fields,
     )
     db.add(ds)
     await db.commit()
@@ -201,6 +239,11 @@ async def update_datasource(
     ds.schedule = payload.schedule
     ds.is_active = payload.is_active
     ds.settings = dict(payload.settings)
+    _validate_write_policy(payload.sync_semantics, payload.write_strategy, payload.missing_row_strategy, payload.business_key_fields)
+    ds.sync_semantics = payload.sync_semantics
+    ds.write_strategy = payload.write_strategy
+    ds.missing_row_strategy = payload.missing_row_strategy
+    ds.business_key_fields = payload.business_key_fields
 
     # 凭证处理：保留原密文 + 覆盖新提交的字段（空串忽略 = 不变更）
     new_secrets: dict[str, str] = dict(ds.secrets_encrypted or {})

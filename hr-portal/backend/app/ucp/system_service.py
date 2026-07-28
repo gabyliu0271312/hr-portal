@@ -22,6 +22,7 @@ from app.ucp.models import (
     UcpPipelineExecution,
     UcpPipelineTemplate,
     UcpEventDelivery,
+    UcpConnectorPackage,
 )
 from app.ucp.adapter_schema import (
     extract_categories,
@@ -53,6 +54,7 @@ def serialize_resource(resource: UcpResource) -> dict[str, Any]:
         "system_code": getattr(resource, "system_code", None),
         "resource_code": resource.resource_code,
         "resource_name": resource.resource_name,
+        "resource_template_code": resource.resource_code,
         "connector_type": resolve_resource_connector_type(resource),
         "credential_id": resource.credential_id,
         "protocol": resource.protocol,
@@ -116,6 +118,47 @@ async def get_system_by_code(db: AsyncSession, system_code: str) -> UcpSystem | 
     return r.scalar_one_or_none()
 
 
+async def list_system_resource_templates(
+    db: AsyncSession, system_id: int
+) -> list[UcpConnectorPackage]:
+    system = await db.get(UcpSystem, system_id)
+    if system is None:
+        raise ValueError("SYSTEM_NOT_FOUND")
+    if system.package_id is None:
+        return []
+    parent_package = await db.get(UcpConnectorPackage, system.package_id)
+    if parent_package is None:
+        return []
+    templates = list(
+        (
+            await db.execute(
+                select(UcpConnectorPackage)
+                .where(
+                    UcpConnectorPackage.category == "INSTANCE_RESOURCE",
+                    UcpConnectorPackage.status == "PUBLISHED",
+                )
+                .order_by(UcpConnectorPackage.package_code)
+            )
+        ).scalars()
+    )
+    existing_template_codes = set(
+        (
+            await db.execute(
+                select(UcpResource.resource_code).where(
+                    UcpResource.system_id == system_id
+                )
+            )
+        ).scalars()
+    )
+    return [
+        item
+        for item in templates
+        if str((item.system_schema or {}).get("parent_package_code") or "").upper()
+        == parent_package.package_code.upper()
+        and item.package_code not in existing_template_codes
+    ]
+
+
 async def create_system(
     db: AsyncSession,
     *,
@@ -126,7 +169,38 @@ async def create_system(
     owner: str | None = None,
     description: str | None = None,
     created_by: str | None = None,
+    package_id: int | None = None,
+    catalog_version: str | None = None,
+    connection_mode: str | None = None,
+    instance_config: dict[str, Any] | None = None,
+    is_catalog_test_instance: bool = False,
 ) -> UcpSystem:
+    if instance_config is not None and not isinstance(instance_config, dict):
+        raise ValueError('系统实例配置必须是对象')
+    normalized_instance_config = dict(instance_config or {})
+    package = None
+    if package_id is not None:
+        package = await db.get(UcpConnectorPackage, package_id)
+        if package is None:
+            raise ValueError('接入类型不存在')
+        if package.status != 'PUBLISHED' or package.deprecated_at is not None:
+            raise ValueError('接入类型未发布或已弃用，不能用于新增系统')
+        if package.category == 'INSTANCE_RESOURCE':
+            raise ValueError('实例资源必须在已接入系统的“资源管理”中新增，不能作为独立系统创建')
+        connection_mode = package.category or package.connection_mode
+        catalog_version = package.version
+        schema_fields = (package.system_schema or {}).get('fields') or []
+        allowed_keys = {str(field.get('key')) for field in schema_fields if isinstance(field, dict) and field.get('key')}
+        unknown_keys = set(normalized_instance_config) - allowed_keys
+        if unknown_keys:
+            raise ValueError(f'系统实例配置包含未定义字段：{", ".join(sorted(unknown_keys))}')
+        missing_keys = [
+            str(field['key'])
+            for field in schema_fields
+            if isinstance(field, dict) and field.get('key') and field.get('required') and normalized_instance_config.get(field['key']) in (None, '')
+        ]
+        if missing_keys:
+            raise ValueError(f'请填写必填系统字段：{", ".join(missing_keys)}')
     obj = UcpSystem(
         system_code=system_code,
         system_name=system_name,
@@ -135,6 +209,11 @@ async def create_system(
         owner=owner,
         description=description,
         created_by=created_by,
+        package_id=package_id,
+        catalog_version=catalog_version,
+        connection_mode=connection_mode,
+        instance_config=normalized_instance_config,
+        is_catalog_test_instance=1 if is_catalog_test_instance else 0,
     )
     db.add(obj)
     await db.commit()
@@ -209,8 +288,8 @@ async def create_resource(
     db: AsyncSession,
     *,
     system_id: int,
-    resource_code: str,
-    resource_name: str,
+    resource_code: str | None = None,
+    resource_name: str | None = None,
     connector_type: str | None = None,
     adapter_code: str | None = None,
     credential_id: int | None = None,
@@ -223,9 +302,64 @@ async def create_resource(
     retry_config: dict | None = None,
     circuit_breaker_config: dict | None = None,
     created_by: str | None = None,
+    resource_template_code: str | None = None,
     # Phase 5-4: 跳过 schema 校验(供导入脚本/迁移使用)
     skip_schema_validation: bool = False,
 ) -> UcpResource:
+    if not resource_template_code:
+        raise ValueError("RESOURCE_TEMPLATE_REQUIRED")
+    system = await db.get(UcpSystem, system_id)
+    if system is None:
+        raise ValueError("SYSTEM_NOT_FOUND")
+    if system.package_id is None:
+        raise ValueError("SYSTEM_PACKAGE_REQUIRED")
+    template = (
+        await db.execute(
+            select(UcpConnectorPackage).where(
+                UcpConnectorPackage.package_code == resource_template_code.upper()
+            )
+        )
+    ).scalar_one_or_none()
+    if template is None or template.category != "INSTANCE_RESOURCE":
+        raise ValueError("RESOURCE_TEMPLATE_NOT_FOUND")
+    if template.status != "PUBLISHED":
+        raise ValueError("RESOURCE_TEMPLATE_NOT_PUBLISHED")
+    parent_package = await db.get(UcpConnectorPackage, system.package_id)
+    metadata = template.system_schema or {}
+    parent_package_code = str(metadata.get("parent_package_code") or "").upper()
+    template_connector_type = str(metadata.get("resource_connector_type") or "")
+    if not parent_package or parent_package.package_code.upper() != parent_package_code:
+        raise ValueError("RESOURCE_TEMPLATE_PARENT_MISMATCH")
+    template_connector_type, template_adapter_code = _resolve_connector_for_write(
+        template_connector_type, None
+    )
+    duplicate = (
+        await db.execute(
+            select(UcpResource.id).where(
+                UcpResource.system_id == system_id,
+                UcpResource.resource_code == template.package_code,
+            )
+        )
+    ).scalar_one_or_none()
+    if duplicate is not None:
+        raise ValueError("RESOURCE_TEMPLATE_ALREADY_ADDED")
+    primary_credential_id = await find_credential_id_for_system(db, system_id)
+    if primary_credential_id is None:
+        raise ValueError("SYSTEM_PRIMARY_CREDENTIAL_REQUIRED")
+    obj = UcpResource(
+        system_id=system_id,
+        resource_code=template.package_code,
+        resource_name=template.package_name,
+        connector_type=template_connector_type,
+        adapter_code=template_adapter_code,
+        credential_id=primary_credential_id,
+        created_by=created_by,
+    )
+    db.add(obj)
+    await db.commit()
+    await db.refresh(obj)
+    return obj
+
     connector_type, adapter_code = _resolve_connector_for_write(connector_type, adapter_code)
     # Phase 5-4: 按 adapter schema 校验 8 个 JSON 字段
     if not skip_schema_validation:
@@ -277,6 +411,10 @@ async def update_resource(
     obj = await db.get(UcpResource, resource_id)
     if not obj:
         return None
+
+    inherited_fields = {"resource_code", "resource_name", "connector_type", "adapter_code", "credential_id"}
+    if inherited_fields & set(fields):
+        raise ValueError("RESOURCE_TEMPLATE_INHERITED_FIELDS_IMMUTABLE")
 
     if "connector_type" in fields:
         connector_type, adapter_code = _resolve_connector_for_write(
@@ -423,9 +561,10 @@ async def find_credential_id_for_system(
 ) -> int | None:
     """查找该系统下任意 resource 使用的凭证 ID（用于「添加表」时默认带出凭证）."""
     stmt = (
-        select(UcpResource.credential_id)
-        .where(UcpResource.system_id == system_id)
-        .where(UcpResource.credential_id.is_not(None))
+        select(UcpCredential.id)
+        .where(UcpCredential.system_id == system_id)
+        .where(UcpCredential.is_primary == 1)
+        .order_by(UcpCredential.id.desc())
         .limit(1)
     )
     r = await db.execute(stmt)

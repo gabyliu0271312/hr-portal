@@ -276,6 +276,7 @@ async def publish_template(db: AsyncSession, template_code: str, operator: str |
     tpl.version = ".".join(parts)
     _save_version(db, tpl, tpl.version, "审批发布", operator)
     await db.flush()
+    await db.refresh(tpl)
     return _serialize_template(tpl)
 
 

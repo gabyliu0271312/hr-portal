@@ -19,6 +19,9 @@
             <el-tag :type="sourceTagType(event.source)" size="small">{{ event.source }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="触发模式">{{ event.trigger }}</el-descriptions-item>
+          <el-descriptions-item label="Resource">{{ event.resource_id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Event Object">{{ event.resource_object_id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Definition">{{ event.event_definition_id || '-' }}</el-descriptions-item>
           <el-descriptions-item label="Trace ID">
             <code v-if="event.trace_id">{{ event.trace_id }}</code>
             <span v-else class="empty">-</span>
@@ -44,6 +47,16 @@
           </el-descriptions-item>
         </el-descriptions>
 
+        <el-divider>Source chain</el-divider>
+        <el-descriptions :column="2" border class="source-chain">
+          <el-descriptions-item label="Resource"><el-link v-if="event.source_chain?.resource" type="primary" @click="router.push(event.source_chain.resource.href)">{{ event.source_chain.resource.name }} ({{ event.source_chain.resource.code }})</el-link><span v-else>-</span></el-descriptions-item>
+          <el-descriptions-item label="Event object"><el-link v-if="event.source_chain?.resource_object" type="primary" @click="router.push(event.source_chain.resource_object.href)">{{ event.source_chain.resource_object.name }} ({{ event.source_chain.resource_object.code }})</el-link><span v-else>-</span></el-descriptions-item>
+          <el-descriptions-item label="Event definition"><span v-if="event.source_chain?.event_definition">{{ event.source_chain.event_definition.name }} v{{ event.source_chain.event_definition.version }}</span><span v-else>-</span></el-descriptions-item>
+          <el-descriptions-item label="Trigger"><el-link v-if="event.source_chain?.trigger" type="primary" @click="router.push(event.source_chain.trigger.href)">{{ event.source_chain.trigger.name }} ({{ event.source_chain.trigger.code }})</el-link><span v-else>-</span></el-descriptions-item>
+          <el-descriptions-item label="Template"><el-link v-if="event.source_chain?.template" type="primary" @click="router.push(event.source_chain.template.href)">{{ event.source_chain.template.name }} v{{ event.source_chain.template.version }}</el-link><span v-else>-</span></el-descriptions-item>
+          <el-descriptions-item label="Execution"><el-link v-if="event.source_chain?.execution" type="primary" @click="router.push(event.source_chain.execution.href)">{{ event.source_chain.execution.pipeline_run_id }}</el-link><span v-else>-</span></el-descriptions-item>
+        </el-descriptions>
+
         <el-alert
           v-if="event.error_message"
           :title="`[${event.error_code || 'ERROR'}] ${event.error_message}`"
@@ -58,12 +71,17 @@
         <template #header>
           <div class="card-header">
             <span class="title">Payload（脱敏后）</span>
-            <el-button size="small" @click="copyJson(event.payload)">复制 JSON</el-button>
+           <el-button size="small" @click="copyJson(event.payload)">复制 JSON</el-button>
+              <el-button size="small" type="warning" :loading="rawLoading" @click="openRawPayload">View original (audited)</el-button>
           </div>
         </template>
         <pre class="json-block">{{ prettyJson(event.payload) }}</pre>
       </el-card>
 
+      <el-dialog v-model="rawVisible" title="Original payload (audited access)" width="720px">
+        <el-alert type="warning" :closable="false" title="This access is recorded and requires event export permission." />
+        <pre class="json-block raw-payload">{{ prettyJson(rawPayload) }}</pre>
+      </el-dialog>
       <!-- Metadata -->
       <el-card v-if="event.metadata" class="metadata" shadow="hover">
         <template #header>
@@ -152,6 +170,9 @@ const router = useRouter()
 const event = ref<any>(null)
 const loading = ref(false)
 const deliveries = ref<any[]>([])
+const rawVisible = ref(false)
+const rawLoading = ref(false)
+const rawPayload = ref<Record<string, any>>({})
 
 async function loadDetail() {
   const id = String(route.params.eventId || '')
@@ -175,6 +196,25 @@ async function loadDetail() {
 
 function goBack() {
   router.push({ name: 'UcpEventList' })
+}
+
+async function openRawPayload() {
+  if (!event.value) return
+  try {
+    const { value } = await ElMessageBox.prompt(
+      'Provide a reason for viewing the original payload. This access is audited.',
+      'View original payload',
+      { inputPattern: /\S{3,}/, inputErrorMessage: 'Please provide at least 3 characters.' },
+    )
+    rawLoading.value = true
+    const result = await ucpApi.getRawEventPayload(event.value.event_id, value)
+    rawPayload.value = result.payload || {}
+    rawVisible.value = true
+  } catch (error: any) {
+    if (error !== 'cancel') ElMessage.error(error?.response?.data?.detail || 'Original payload is unavailable')
+  } finally {
+    rawLoading.value = false
+  }
 }
 
 async function manualDispatch() {

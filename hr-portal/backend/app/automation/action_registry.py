@@ -387,11 +387,15 @@ async def _passthrough_sync(
             await db.execute(sa_text(f'INSERT INTO "{dwd_table}" ({cols}) VALUES ({vals})'), dict(row))
             inserted += 1
 
-    # full_snapshot: 标记 ODS 中不存在的 DWD 行
-    if config.ods_sync_semantics == "full_snapshot" and config.missing_row_strategy == "mark_inactive":
+    # full_snapshot: 按配置处理 ODS 中不存在的 DWD 行
+    if config.ods_sync_semantics == "full_snapshot" and ods_rows:
         ods_pks = {r['pk_hash'] for r in ods_rows}
         stale = [pk for pk in dwd_rows if pk not in ods_pks]
-        if stale:
+        if stale and config.missing_row_strategy == "hard_delete":
+            placeholders = ', '.join(f':pk_{i}' for i in range(len(stale)))
+            params = {f'pk_{i}': pk for i, pk in enumerate(stale)}
+            await db.execute(sa_text(f'DELETE FROM "{dwd_table}" WHERE pk_hash IN ({placeholders})'), params)
+        elif stale and config.missing_row_strategy == "mark_inactive":
             sample = dwd_rows[list(dwd_rows.keys())[0]] if dwd_rows else {}
             if 'is_active' in sample:
                 placeholders = ', '.join(f':pk_{i}' for i in range(len(stale)))

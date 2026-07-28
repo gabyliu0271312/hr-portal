@@ -52,6 +52,14 @@ def parse_schedule(expr: str) -> CronTrigger | None:
     if s == "每小时整点":
         return CronTrigger(minute=0, timezone=TZ)
 
+    # 每 N 小时
+    m = re.match(r"^每\s*(\d{1,2})\s*小时$", s)
+    if m:
+        interval = int(m.group(1))
+        if interval < 1 or interval > 23:
+            raise ScheduleParseError(f"非法小时间隔: {s}")
+        return CronTrigger(hour=f"*/{interval}", minute=0, timezone=TZ)
+
     # 每日 HH:MM
     m = re.match(r"^每日\s*(\d{1,2}):(\d{1,2})$", s)
     if m:

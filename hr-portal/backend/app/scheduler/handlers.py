@@ -249,6 +249,27 @@ async def _handler_ai_controlled_action_retention(
     return deleted, f"controlled action retention: {result}"
 
 
+async def _handler_ucp_pipeline_trigger(
+    job: ScheduledJob,
+    db: AsyncSession,
+    triggered_by: str,
+) -> tuple[int, str]:
+    from app.ucp.models import UcpEventTrigger
+    from app.ucp.pipeline_engine import execute_pipeline
+
+    trigger = await db.get(UcpEventTrigger, job.business_id)
+    if trigger is None or not trigger.is_active or trigger.trigger_type != "SCHEDULE":
+        return 0, "pipeline trigger is disabled or no longer scheduled"
+    run = await execute_pipeline(
+        trigger.pipeline_code,
+        db,
+        trigger_type="SCHEDULED",
+        triggered_by=triggered_by,
+        trigger_payload={"trigger_code": trigger.trigger_code, "schedule_config": trigger.schedule_config or {}},
+    )
+    return 1, f"pipeline trigger {trigger.trigger_code} completed: {run.pipeline_run_id}"
+
+
 JOB_HANDLERS: dict[str, HandlerFn] = {
     "datasource_sync": _handler_datasource_sync,
     "push_target": _handler_push_target,
@@ -260,6 +281,7 @@ JOB_HANDLERS: dict[str, HandlerFn] = {
     "quality_run": _handler_quality_run,
     "scd_run": _handler_scd_run,
     "ai_controlled_action_retention": _handler_ai_controlled_action_retention,
+    "ucp_pipeline_trigger": _handler_ucp_pipeline_trigger,
 }
 
 

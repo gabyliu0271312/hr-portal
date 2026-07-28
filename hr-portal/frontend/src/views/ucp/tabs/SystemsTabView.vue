@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="systems-tab">
     <div class="kpi-row kpi-row-4col">
       <div class="kpi-card kpi-sys">
@@ -185,7 +185,7 @@
 
           <el-tab-pane label="业务能力" name="capabilities">
             <div class="tab-content">
-              <el-alert type="info" :closable="false" style="margin-bottom: 12px" title="标准 SaaS 系统在此管理业务能力；不会要求创建资源或填写接口信息。" />
+              <el-alert type="info" :closable="false" style="margin-bottom: 12px" title="在此管理接入类型预置能力与系统扩展能力；接口地址、认证和安全策略均继承自能力包。" />
               <el-table v-if="systemCapabilities.length" :data="systemCapabilities" stripe size="small">
                 <el-table-column prop="operation_name" label="业务能力" min-width="170" />
                 <el-table-column label="状态" width="140"><template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '已启用' : '未启用' }}</el-tag><div v-if="row.enabled" class="text-muted">{{ row.test_status }}</div></template></el-table-column>
@@ -267,7 +267,7 @@
 
     <el-dialog v-model="capabilityTestVisible" title="测试业务能力" width="520px">
       <el-alert type="info" :closable="false" style="margin-bottom: 16px">仅输入业务参数；系统不会展示接口地址、Scope 或凭证内容。测试记录会保存脱敏摘要和 Trace。</el-alert>
-      <el-form label-width="110px"><el-form-item v-for="field in capabilityTestFields" :key="field.key" :label="field.label" required><el-input v-model="capabilityTestParameters[field.key]" :placeholder="`输入${field.label}`" /></el-form-item></el-form>
+      <el-form label-width="110px"><el-form-item v-for="field in capabilityTestFields" :key="field.key" :label="field.label" required><el-select v-if="field.enum?.length" v-model="capabilityTestParameters[field.key]" style="width:100%"><el-option v-for="item in field.enum" :key="String(item)" :label="String(item)" :value="item" /></el-select><el-switch v-else-if="field.type === 'boolean'" v-model="capabilityTestParameters[field.key]" /><el-input-number v-else-if="['number', 'integer'].includes(field.type)" v-model="capabilityTestParameters[field.key]" style="width:100%" /><el-date-picker v-else-if="field.type === 'date'" v-model="capabilityTestParameters[field.key]" type="date" value-format="YYYY-MM-DD" style="width:100%" /><el-input v-else v-model="capabilityTestParameters[field.key]" :placeholder="`输入${field.label}`" /></el-form-item></el-form>
       <template #footer><el-button @click="capabilityTestVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="submitCapabilityTest">开始测试</el-button></template>
     </el-dialog>
 
@@ -471,14 +471,29 @@
           凭证是「钥匙」，稍后录入；同一系统可挂多套凭证（生产 / 测试 / 备份）。
         </el-alert>
         <el-form :model="systemForm" label-width="100px">
-          <el-form-item label="标准系统">
-            <el-select v-model="selectedPackageCode" clearable placeholder="可选：选择已内置的标准系统" style="width: 100%" @change="selectStandardPackage">
-              <el-option v-for="item in standardPackages" :key="item.package_code" :label="item.package_name" :value="item.package_code" />
-            </el-select>
-            <div v-if="isStandardSystem" class="text-muted">后续直接启用业务能力，无需添加资源、选择适配器或填写接口信息。</div>
+          <el-form-item label="接入类型" required>
+            <el-radio-group v-model="selectedConnectorCategory">
+              <el-radio value="STANDARD_SAAS">标准 SaaS</el-radio>
+              <el-radio value="CONTROLLED_API">受控自定义 API</el-radio>
+            </el-radio-group>
+            <div class="text-muted">接入类型由平台管理员维护，决定系统接入方式、认证规则及可用能力范围。</div>
           </el-form-item>
+          <el-form-item label="连接器能力包" required>
+            <el-select v-model="selectedPackageCode" clearable placeholder="选择已发布的系统接入类型" style="width: 100%" @change="selectConnectorPackage">
+              <el-option v-for="item in connectorPackages" :key="item.package_code" :label="item.package_name" :value="item.package_code" />
+            </el-select>
+            <div v-if="selectedPackage" class="text-muted">该系统将继承接入类型的认证、凭证 Schema、域名与安全策略；可启用已发布业务动作。<br />当前页只用于创建业务系统；飞书报表、飞书多维表等实例资源，请在系统创建后进入“资源管理”新增。</div>
+          </el-form-item>
+          <template v-if="currentSystemFields.length">
+            <el-form-item v-for="field in currentSystemFields" :key="field.key" :label="field.label" :required="field.required">
+              <el-select v-if="field.type === 'select'" v-model="systemForm.instance_config[field.key]" clearable style="width: 100%">
+                <el-option v-for="option in field.options || []" :key="String(option.value ?? option)" :label="String(option.label ?? option)" :value="option.value ?? option" />
+              </el-select>
+              <el-input v-else v-model="systemForm.instance_config[field.key]" :type="field.type === 'number' ? 'number' : 'text'" :placeholder="`请输入${field.label}`" />
+            </el-form-item>
+          </template>
           <el-form-item label="系统编码" required>
-            <el-input v-model="systemForm.system_code" placeholder="如 BEISEN / FEISHU" :disabled="isStandardSystem" />
+            <el-input v-model="systemForm.system_code" placeholder="如 BEISEN / FEISHU" :disabled="usesCapabilityPackage" />
           </el-form-item>
           <el-form-item label="系统名称" required>
             <el-input v-model="systemForm.system_name" placeholder="如 北森 / 飞书" />
@@ -542,7 +557,9 @@
           </el-form-item>
           <el-form-item label="认证方式">
             <el-select v-model="credForm.auth_type" style="width: 100%">
+              <el-option label="无认证" value="none" />
               <el-option label="API Key" value="api_key" />
+              <el-option label="App Key / Secret" value="app_key_secret" />
               <el-option label="Basic" value="basic" />
               <el-option label="OAuth2" value="oauth2" />
               <el-option label="Token" value="token" />
@@ -583,7 +600,7 @@
 
       <!-- Step 3: 添加资源（可选，列表 + 添加按钮，蓝本 v2 场景 3） -->
       <template v-else-if="wizardStep === 3">
-        <template v-if="isStandardSystem">
+        <template v-if="usesCapabilityPackage">
           <el-alert type="success" :closable="false" style="margin-bottom: 16px" title="选择要启用的业务能力" />
           <div class="text-muted" style="margin-bottom: 12px">能力测试需要真实业务参数；当前可先启用，状态将显示为“待补充测试参数”。</div>
           <el-checkbox-group v-model="selectedOperationIds" class="capability-list">
@@ -665,19 +682,19 @@
           <el-descriptions-item label="系统类型">{{ systemForm.system_type }}</el-descriptions-item>
           <el-descriptions-item label="凭证">{{ credForm.credential_name }} · {{ credForm.env_tag }} · {{ credForm.auth_type }}</el-descriptions-item>
           <el-descriptions-item label="资源">
-            <span v-if="isStandardSystem">标准 SaaS 不需要创建资源</span>
+            <span v-if="usesCapabilityPackage">该接入类型不需要创建资源</span>
             <span v-else-if="wizardResources.length > 0">已添加 {{ wizardResources.length }} 个</span>
             <span v-else class="text-muted">跳过（稍后添加）</span>
           </el-descriptions-item>
-          <el-descriptions-item v-if="isStandardSystem" label="业务能力">已启用 {{ selectedOperationIds.length }} 项；测试状态：待补充测试参数</el-descriptions-item>
+          <el-descriptions-item v-if="usesCapabilityPackage" label="业务能力">已启用 {{ selectedOperationIds.length }} 项；测试状态：待补充测试参数</el-descriptions-item>
         </el-descriptions>
         <div class="finish-checklist">
           <div class="check-item"><el-icon class="ok"><CircleCheck /></el-icon>系统信息已录入</div>
           <div class="check-item"><el-icon class="ok"><CircleCheck /></el-icon>第一套凭证已绑定</div>
           <div class="check-item">
-            <el-icon v-if="isStandardSystem || wizardResources.length > 0" class="ok"><CircleCheck /></el-icon>
+            <el-icon v-if="usesCapabilityPackage || wizardResources.length > 0" class="ok"><CircleCheck /></el-icon>
             <el-icon v-else class="skip"><DocumentRemove /></el-icon>
-            {{ isStandardSystem ? `已启用 ${selectedOperationIds.length} 项业务能力` : (wizardResources.length > 0 ? `已添加 ${wizardResources.length} 个资源` : '资源 — 跳过') }}
+            {{ usesCapabilityPackage ? `已启用 ${selectedOperationIds.length} 项业务能力` : (wizardResources.length > 0 ? `已添加 ${wizardResources.length} 个资源` : '资源 — 跳过') }}
           </div>
         </div>
       </template>
@@ -687,7 +704,7 @@
         <el-button v-if="wizardStep > 1" @click="wizardStep--">← 上一步</el-button>
         <el-button @click="cancelWizard">取消</el-button>
         <el-button
-          v-if="wizardStep === 3 && !isStandardSystem"
+          v-if="wizardStep === 3 && requiresResourceSetup"
           @click="submitSystemStep3"
         >
           跳过
@@ -712,7 +729,7 @@
           v-else-if="wizardStep === 3"
           type="primary"
           :loading="submitting"
-          @click="wizardStep = 4"
+          @click="submitSystemStep3"
         >
           下一步 →
         </el-button>
@@ -730,13 +747,13 @@
     <!-- 添加资源对话框（在系统下加表）(Phase 5-4: schema 驱动) -->
     <el-dialog
       v-model="showAddResource"
-      :title="`添加数据资源${addResourceSystem ? ' — ' + addResourceSystem.system_name : ''}`"
+      :title="`新增资源（依附系统）${addResourceSystem ? ' — ' + addResourceSystem.system_name : ''}`"
       width="640px"
       :close-on-click-modal="false"
     >
-      <el-form :model="resourceForm" label-width="100px">
+      <el-form v-if="false" :model="resourceForm" label-width="100px">
         <el-alert type="info" :closable="false" style="margin-bottom: 16px">
-          一个系统可包含多个资源（员工表/组织表/职位表…），共用同一凭证。<br />
+          资源必须依附已接入系统，并继承其凭证与安全策略；例如“飞书报表”应在“飞书”系统下新增。<br />
           <span style="color: #3b82f6">选择适配器后,下方配置项会自动按 schema 渲染。</span>
         </el-alert>
         <el-form-item label="资源编码" required>
@@ -789,9 +806,21 @@
           empty-text="当前 adapter 未注册 schema, 跳过扩展配置。"
         />
       </el-form>
+      <div class="resource-template-picker">
+        <el-alert type="info" :closable="false" style="margin-bottom: 16px">
+          请选择资源模板。资源编码、资源名称、实现类型及父系统主凭证均由模板自动继承。
+        </el-alert>
+        <el-empty v-if="!resourceTemplates.length" description="当前 SaaS 模板暂无可添加的已发布资源模板，请先在接入类型管理中创建并发布。" />
+        <el-radio-group v-else v-model="resourceForm.resource_template_code" class="resource-template-options">
+          <el-radio v-for="item in resourceTemplates" :key="item.resource_template_code" :value="item.resource_template_code" class="resource-template-option">
+            <strong>{{ item.resource_template_name }}</strong>
+            <span>{{ item.description || item.resource_connector_type || item.resource_template_code }}</span>
+          </el-radio>
+        </el-radio-group>
+      </div>
       <template #footer>
         <el-button @click="showAddResource = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitResource">创建</el-button>
+        <el-button type="primary" :loading="submitting" :disabled="!resourceTemplates.length || !resourceForm.resource_template_code" @click="submitResource">创建</el-button>
       </template>
     </el-dialog>
 
@@ -1068,13 +1097,21 @@ const resourceEditForm = ref<any>({})
 // 添加系统向导
 const showAddSystem = ref(false)
 const wizardStep = ref(1)
-const standardPackages = ref<any[]>([])
+const connectorPackages = ref<any[]>([])
+const selectedConnectorCategory = ref('STANDARD_SAAS')
 const selectedPackageCode = ref('')
+watch(selectedConnectorCategory, () => {
+  selectedPackageCode.value = ''
+  selectedOperationIds.value = []
+  void loadConnectorPackages()
+})
 const selectedOperationIds = ref<number[]>([])
-const isStandardSystem = computed(() => Boolean(selectedPackageCode.value))
-const selectedPackage = computed(() => standardPackages.value.find((item) => item.package_code === selectedPackageCode.value))
+const usesCapabilityPackage = computed(() => ['STANDARD_SAAS', 'CONTROLLED_API'].includes(selectedPackage.value?.category))
+const requiresResourceSetup = computed(() => !usesCapabilityPackage.value)
+const selectedPackage = computed(() => connectorPackages.value.find((item) => item.package_code === selectedPackageCode.value))
 const selectedPackageOperations = computed(() => selectedPackage.value?.operations || [])
-const wizardSteps = computed(() => isStandardSystem.value ? ['系统信息', '第一套凭证', '启用业务能力', '配置检查'] : ['系统信息', '第一套凭证', '添加资源', '配置检查'])
+const packageOptionLabel = (item: any) => `${item.package_name}${item.category === 'STANDARD_SAAS' ? '??? SaaS?' : '?????? API?'}`
+const wizardSteps = computed(() => usesCapabilityPackage.value ? ['系统信息', '第一套凭证', '启用业务能力', '配置检查'] : ['系统信息', '第一套凭证', '添加资源', '配置检查'])
 const wizardTitle = computed(() => `添加业务系统 — 第 ${wizardStep.value}/4 步：${wizardSteps.value[wizardStep.value - 1]}`)
 const pendingSystemId = ref<number | null>(null)
 const pendingCredId = ref<number | null>(null)
@@ -1087,17 +1124,20 @@ const systemForm = ref({
   description: '',
   tagsStr: '',
   sensitivity: 'internal',
+  instance_config: {} as Record<string, any>,
 })
 
 // 添加资源
 const showAddResource = ref(false)
 const addResourceSystem = ref<any>(null)
 const resourceForm = ref<any>({
+  resource_template_code: '',
   resource_code: '',
   resource_name: '',
   connector_type: '',
   credential_id: null,
 })
+const resourceTemplates = ref<any[]>([])
 
 // 凭证（向导第 2 步复用）
 const showSecret = ref(false)
@@ -1133,9 +1173,23 @@ const AUTH_FIELDS: Record<string, { key: string; label: string }[]> = {
     { key: 'token_url', label: 'token_url' },
   ],
   token: [{ key: 'token', label: 'token' }],
+  app_key_secret: [
+    { key: 'app_id', label: 'App ID' },
+    { key: 'app_secret', label: 'App Secret' },
+  ],
+  none: [],
 }
 
+const currentSystemFields = computed(() => {
+  const fields = selectedPackage.value?.system_schema?.fields
+  return Array.isArray(fields) ? fields.filter((field: any) => field?.key) : []
+})
+
 const currentCredFields = computed(() => {
+  const packageSchema = selectedPackage.value?.auth_policy?.credential_schema
+  if (Array.isArray(packageSchema) && packageSchema.length > 0) {
+    return packageSchema.filter((field: any) => field.required !== false).map((field: any) => ({ key: field.key, label: field.label || field.key }))
+  }
   const systemCode = String(systemForm.value.system_code || '').toUpperCase()
   const systemName = String(systemForm.value.system_name || '')
   if (systemCode.includes('BEISEN') || systemName.includes('北森')) {
@@ -1319,6 +1373,7 @@ async function openSystem(sys: any) {
   // 拉详情（含凭证）
   try {
     const detail = await ucpApi.systemDetail(sys.id)
+    activeSystem.value = { ...sys, ...(detail.system || {}) }
     systemCredentials.value = detail.credentials || []
     // 同步资源（防止遗漏）
     resourcesMap.value[sys.id] = detail.resources || []
@@ -1561,6 +1616,7 @@ function goToPipeline(pipelineId: number) {
 async function addResource(sys: any) {
   addResourceSystem.value = sys
   resourceForm.value = {
+    resource_template_code: '',
     resource_code: '',
     resource_name: '',
     connector_type: '',
@@ -1570,6 +1626,12 @@ async function addResource(sys: any) {
   // 清空 schema
   addSchema.value = null
   addFormValues.value = {}
+  resourceTemplates.value = []
+  try {
+    resourceTemplates.value = await ucpApi.resourceTemplates(sys.id)
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || 'Failed to load resource templates')
+  }
   // 默认带出该系统已用的凭证
   try {
     const r = await ucpApi.systemDefaultCredential(sys.id)
@@ -1704,7 +1766,7 @@ function openAddSystemWizard(opts: { mode?: 'system' | 'credOnly'; system?: any 
     openAddCredentialForSystem(opts.system)
     return
   }
-  systemForm.value = { system_code: '', system_name: '', system_type: 'HR_SAAS', owner: '', domain: '', description: '', tagsStr: '', sensitivity: 'internal' }
+  systemForm.value = { system_code: '', system_name: '', system_type: 'HR_SAAS', owner: '', domain: '', description: '', tagsStr: '', sensitivity: 'internal', instance_config: {} }
   credForm.value = {
     credential_code: '',
     credential_name: '',
@@ -1715,29 +1777,32 @@ function openAddSystemWizard(opts: { mode?: 'system' | 'credOnly'; system?: any 
     secrets: {} as Record<string, string>,
   }
   pendingSystemId.value = null
+  selectedConnectorCategory.value = 'STANDARD_SAAS'
   selectedPackageCode.value = ''
   selectedOperationIds.value = []
   wizardStep.value = 1
-  loadStandardPackages()
+  loadConnectorPackages()
   showAddSystem.value = true
 }
 
-async function loadStandardPackages() {
+async function loadConnectorPackages() {
   try {
-    standardPackages.value = await ucpApi.standardPackages()
+    connectorPackages.value = await ucpApi.connectorPackages({ category: selectedConnectorCategory.value, status: 'PUBLISHED' })
   } catch {
-    standardPackages.value = []
+    connectorPackages.value = []
   }
 }
 
-function selectStandardPackage() {
+function selectConnectorPackage() {
   const packageItem = selectedPackage.value
   if (!packageItem) return
   systemForm.value.system_code = packageItem.package_code
   systemForm.value.system_name = packageItem.package_name
-  systemForm.value.system_type = 'HR_SAAS'
-  selectedOperationIds.value = packageItem.operations
-    .filter((item: any) => item.object_code === 'OFFER')
+  systemForm.value.system_type = packageItem.category === 'STANDARD_SAAS' ? 'HR_SAAS' : 'CUSTOM'
+  systemForm.value.instance_config = {}
+  credForm.value.auth_type = packageItem.auth_policy?.auth_type || credForm.value.auth_type
+  credForm.value.secrets = {}
+  selectedOperationIds.value = (packageItem.operations || [])
     .map((item: any) => item.operation_id)
 }
 
@@ -1753,6 +1818,7 @@ function openAddCredentialForSystem(sys: any) {
     description: sys.description || '',
     tagsStr: '',
     sensitivity: 'internal',
+    instance_config: sys.instance_config || {},
   }
   // 自动选下一个未用的 env_tag
   const used = new Set((systemCredentials.value || []).map((c: any) => c.env_tag))
@@ -1814,6 +1880,10 @@ async function submitSystemStep1() {
       description: systemForm.value.description,
       tags,
       sensitivity: systemForm.value.sensitivity,
+      package_id: selectedPackage.value?.id,
+      catalog_version: selectedPackage.value?.version,
+      connection_mode: selectedPackage.value?.category,
+      instance_config: systemForm.value.instance_config,
     })
     pendingSystemId.value = r.id
     ElMessage.success(`系统「${systemForm.value.system_name}」已创建`)
@@ -1857,7 +1927,7 @@ async function submitSystemStep2() {
     })
     pendingCredId.value = r.id
     ElMessage.success('凭证已创建并绑定到系统')
-    if (isStandardSystem.value) {
+    if (usesCapabilityPackage.value) {
       wizardStep.value = 3
       return
     }
@@ -1877,7 +1947,7 @@ async function submitSystemStep2() {
 // 这里只做"下一步"按钮的兜底提交（资源为空时直接进 Step 4）；
 // 若列表非空,说明用户已通过对话框完成创建,直接到 Step 4。
 async function submitSystemStep3() {
-  if (isStandardSystem.value) {
+  if (usesCapabilityPackage.value) {
     if (!pendingSystemId.value || !pendingCredId.value || selectedOperationIds.value.length === 0) {
       ElMessage.warning('请至少启用一项业务能力')
       return
@@ -1944,6 +2014,30 @@ function finishWizardSkipCred() {
 
 async function submitResource() {
   if (!addResourceSystem.value) return
+  if (!resourceForm.value.resource_template_code) {
+    ElMessage.warning('请选择资源模板')
+    return
+  }
+  submitting.value = true
+  try {
+    await ucpApi.createResource({
+      system_id: addResourceSystem.value.id,
+      resource_template_code: resourceForm.value.resource_template_code,
+    })
+    ElMessage.success('资源已创建')
+    showAddResource.value = false
+    if (addResourceFromWizardFlag.value) {
+      await loadWizardResources()
+      addResourceFromWizardFlag.value = false
+    } else {
+      await load()
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '创建资源失败')
+  } finally {
+    submitting.value = false
+  }
+  return
   if (!resourceForm.value.resource_code || !resourceForm.value.resource_name) {
     ElMessage.warning('请填写资源编码和名称')
     return
@@ -1958,7 +2052,7 @@ async function submitResource() {
     const cats = (addSchema.value?.categories || []) as SchemaCategory[]
     const payload = flattenFormToJson(cats, addFormValues.value)
     const jsonFields = buildBackendJsonFields(payload)
-    await ucpApi.createResource({
+    await (ucpApi as any).createResource({
       system_id: addResourceSystem.value.id,
       resource_code: resourceForm.value.resource_code,
       resource_name: resourceForm.value.resource_name,
@@ -1987,12 +2081,37 @@ async function submitResource() {
 // 加载 adapter 列表
 onMounted(async () => {
   await loadConnectorTypes()
-  await loadStandardPackages()
+  await loadConnectorPackages()
   await load()
 })
 </script>
 
 <style scoped>
+.resource-template-options {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  gap: 10px;
+}
+.resource-template-option {
+  width: 100%;
+  height: auto;
+  margin-right: 0;
+  padding: 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+}
+.resource-template-option :deep(.el-radio__label) {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  white-space: normal;
+}
+.resource-template-option span {
+  color: #909399;
+  font-size: 12px;
+}
 /* ── KPI 卡片横排 (蓝本 v2) ── */
 .kpi-row {
   display: grid;

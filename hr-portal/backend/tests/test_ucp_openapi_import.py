@@ -100,10 +100,11 @@ async def test_publish_validates_policy_and_creates_a_version(monkeypatch):
     template.is_published = 0
     template.id = 1
     result = MagicMock(); result.scalar_one_or_none.return_value = template
-    db = SimpleNamespace(execute=AsyncMock(return_value=result), add=MagicMock(), flush=AsyncMock())
+    db = SimpleNamespace(execute=AsyncMock(return_value=result), add=MagicMock(), flush=AsyncMock(), refresh=AsyncMock())
 
     published = await publish_template(db, "SAFE_EMPLOYEES", "admin")
 
+    db.refresh.assert_awaited_once_with(template)
     assert template.is_published == 1
     assert template.version == "1.0.1"
     assert published["is_published"] is True

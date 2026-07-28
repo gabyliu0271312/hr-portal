@@ -26,6 +26,7 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   'cost_allocation.admin': '/cost-allocation-system/admin',
   // UCP — 数据连接平台（导航重构：7项四字菜单）
   'ucp.systems': '/ucp/systems',
+  'ucp.connector_catalog': '/ucp/connector-catalog',
   'ucp.resources': '/ucp/systems',
   'ucp.credentials': '/ucp/systems',
   'ucp.pipelines': '/ucp/pipelines',

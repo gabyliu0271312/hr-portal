@@ -57,6 +57,8 @@ export interface PipelineExecutionDetail {
   pipeline_run_id: string
   trace_id: string
   pipeline_code: string
+  template_version: string | null
+  source_event: { event_id: string; event_type: string; matched_trigger_code: string | null; href: string } | null
   trigger_type: string
   status: string
   total_steps: number
@@ -235,7 +237,7 @@ export const ucpApi = {
 
   /* Manual trigger (Phase 2-4: with concurrent lock + permission + params) */
   runPipeline: (pipelineCode: string, params?: { dry_run?: boolean; time_range?: { start: string; end: string } | null; override_params?: Record<string, any> | null }) =>
-    api.post<{pipeline_run_id: string; trace_id: string; status: string; duration_ms: number | null; dry_run?: boolean}>(`/ucp/pipelines/${pipelineCode}/run`, params ?? {}).then((r) => r.data),
+    api.post<{pipeline_run_id: string; trace_id: string; status: string; duration_ms: number | null; dry_run?: boolean; node_results?: Array<{node_id: string; status: string; output_summary?: Record<string, any>; message?: string; suggested_action?: string}>}>(`/ucp/pipelines/${pipelineCode}/run`, params ?? {}).then((r) => r.data),
 
   /* Failed items */
   failedItems: (pipelineRunId: string) =>
@@ -310,6 +312,51 @@ export const ucpApi = {
   standardPackages: () =>
     api.get<{ items: any[] }>('/ucp/standard-packages').then((r) => r.data.items),
 
+  connectorPackages: (params: { category?: string; status?: string } = {}) =>
+    api.get<{ items: any[] }>('/ucp/connector-packages', { params }).then((r) => r.data.items),
+
+  createConnectorPackage: (payload: Record<string, any>) =>
+    api.post<any>('/ucp/connector-packages', payload).then((r) => r.data),
+
+  updateConnectorPackage: (packageCode: string, payload: Record<string, any>) =>
+    api.patch<any>(`/ucp/connector-packages/${packageCode}`, payload).then((r) => r.data),
+
+  validateConnectorPackage: (packageCode: string) =>
+    api.post<{ valid: boolean; errors: string[] }>(`/ucp/connector-packages/${packageCode}/validate`).then((r) => r.data),
+
+  publishConnectorPackage: (packageCode: string) =>
+    api.post<any>(`/ucp/connector-packages/${packageCode}/publish`).then((r) => r.data),
+
+  deprecateConnectorPackage: (packageCode: string) =>
+    api.post<any>(`/ucp/connector-packages/${packageCode}/deprecate`).then((r) => r.data),
+
+  packageOperations: (packageCode: string) =>
+    api.get<{ items: any[] }>(`/ucp/connector-packages/${packageCode}/operations`).then((r) => r.data.items),
+
+  createPackageOperation: (packageCode: string, payload: Record<string, any>) =>
+    api.post<any>(`/ucp/connector-packages/${packageCode}/operations`, payload).then((r) => r.data),
+
+  updatePackageOperation: (packageCode: string, operationId: number, payload: Record<string, any>) =>
+    api.patch<any>(`/ucp/connector-packages/${packageCode}/operations/${operationId}`, payload).then((r) => r.data),
+
+  testPackageOperation: (packageCode: string, operationId: number, payload: { system_id: number; context?: Record<string, any> }) =>
+    api.post<any>(`/ucp/connector-packages/${packageCode}/operations/${operationId}/test`, payload).then((r) => r.data),
+
+  ensureCatalogTestInstance: (packageCode: string) =>
+    api.post<{ id: number; system_code: string; system_name: string; created: boolean }>(`/ucp/connector-packages/${packageCode}/catalog-test-instance`).then((r) => r.data),
+
+  publishPackageOperation: (packageCode: string, operationId: number) =>
+    api.post<any>(`/ucp/connector-packages/${packageCode}/operations/${operationId}/publish`).then((r) => r.data),
+
+  disablePackageOperation: (packageCode: string, operationId: number) =>
+    api.post<any>(`/ucp/connector-packages/${packageCode}/operations/${operationId}/disable`).then((r) => r.data),
+
+  previewPackageOpenApi: (packageCode: string, document: Record<string, any>) =>
+    api.post<{ operations: any[]; rejected: any[] }>(`/ucp/connector-packages/${packageCode}/operations/openapi/preview`, { document }).then((r) => r.data),
+
+  importPackageOpenApi: (packageCode: string, payload: { document: Record<string, any>; selected_operation_ids: string[] }) =>
+    api.post<{ items: any[]; rejected: any[] }>(`/ucp/connector-packages/${packageCode}/operations/openapi/import`, payload).then((r) => r.data),
+
   systemCapabilities: (systemId: number) =>
     api.get<{ items: any[] }>(`/ucp/systems/${systemId}/capabilities`).then((r) => r.data.items),
 
@@ -325,7 +372,7 @@ export const ucpApi = {
   verifiedCapabilityCatalog: () =>
     api.get<{ items: any[] }>('/ucp/capabilities/catalog').then((r) => r.data.items),
 
-  createSystem: (payload: { system_code: string; system_name: string; system_type?: string; icon?: string; owner?: string; domain?: string; description?: string; tags?: string[]; sensitivity?: string }) =>
+  createSystem: (payload: { system_code: string; system_name: string; system_type?: string; icon?: string; owner?: string; domain?: string; description?: string; tags?: string[]; sensitivity?: string; package_id?: number; catalog_version?: string; connection_mode?: string; instance_config?: Record<string, any> }) =>
     api.post<{ id: number; system_code: string; system_name: string }>('/ucp/systems', payload).then((r) => r.data),
 
   updateSystem: (systemId: number, payload: Record<string, any>) =>
@@ -338,21 +385,12 @@ export const ucpApi = {
   resources: (params: { system_id?: number; credential_id?: number; status?: number } = {}) =>
     api.get<{ total: number; items: any[] }>('/ucp/resources', { params }).then((r) => r.data),
 
+  resourceTemplates: (systemId: number) =>
+    api.get<{ items: { resource_template_code: string; resource_template_name: string; description?: string; resource_connector_type?: string }[] }>(`/ucp/systems/${systemId}/resource-templates`).then((r) => r.data.items),
+
   createResource: (payload: {
     system_id: number
-    resource_code: string
-    resource_name: string
-    connector_type?: string
-    adapter_code?: string
-    credential_id?: number
-    protocol?: Record<string, any>
-    report_config?: Record<string, any>
-    mapping_config?: Record<string, any>
-    file_config?: Record<string, any>
-    scheduling?: Record<string, any>
-    notification_config?: Record<string, any>
-    retry_config?: Record<string, any>
-    circuit_breaker_config?: Record<string, any>
+    resource_template_code: string
   }) =>
     api.post<{ id: number; resource_code: string }>('/ucp/resources', payload).then((r) => r.data),
 
@@ -367,6 +405,41 @@ export const ucpApi = {
     api.patch<any>(`/ucp/resources/${resourceId}/data-objects/${objectId}`, payload).then((r) => r.data),
   deleteResourceDataObject: (resourceId: number, objectId: number) =>
     api.delete<{ deleted: number }>(`/ucp/resources/${resourceId}/data-objects/${objectId}`).then((r) => r.data),
+
+  resourceObjects: (resourceId: number, params: { object_type?: string; is_active?: boolean } = {}) =>
+    api.get<{ total: number; items: any[] }>(`/ucp/resources/${resourceId}/objects`, { params }).then((r) => r.data),
+  createResourceObject: (resourceId: number, payload: Record<string, any>) =>
+    api.post<any>(`/ucp/resources/${resourceId}/objects`, payload).then((r) => r.data),
+  updateResourceObject: (resourceId: number, objectId: number, payload: Record<string, any>) =>
+    api.patch<any>(`/ucp/resources/${resourceId}/objects/${objectId}`, payload).then((r) => r.data),
+  deleteResourceObject: (resourceId: number, objectId: number) =>
+    api.delete<{ deleted: number; impact: string[] }>(`/ucp/resources/${resourceId}/objects/${objectId}`).then((r) => r.data),
+  verifyWebhookResource: (resourceId: number) =>
+    api.post<any>(`/ucp/resources/${resourceId}/verify`).then((r) => r.data),
+  verifyResourceObject: (resourceId: number, objectId: number, sample_event?: Record<string, any>) =>
+    api.post<any>(`/ucp/resources/${resourceId}/objects/${objectId}/verify`, { sample_event }).then((r) => r.data),
+  eventDefinitions: (params: { source_system_type?: string; status?: string } = {}) =>
+    api.get<{ items: any[] }>('/ucp/event-definitions', { params }).then((r) => r.data),
+  platformEventCatalog: () =>
+    api.get<{ items: any[] }>('/ucp/platform-event-catalog').then((r) => r.data),
+  pipelineTriggers: (params: Record<string, any> = {}) =>
+    api.get<{ items: any[] }>('/ucp/pipeline-triggers', { params }).then((r) => r.data),
+  triggerMigrationStatus: () =>
+    api.get<{ resource_ingress_enabled: boolean; legacy_trigger_count: number; resource_bound_trigger_count: number; verified_event_object_count: number; legacy_triggers: Array<{ trigger_code: string; webhook_path: string | null; is_active: boolean }> }>('/ucp/trigger-migration/status').then((r) => r.data),
+  migrateLegacyPipelineTrigger: (code: string, source_resource_object_id: number) =>
+    api.post<any>(`/ucp/trigger-migration/${code}`, { source_resource_object_id }).then((r) => r.data),
+  rollbackLegacyPipelineTrigger: (code: string) =>
+    api.post<any>(`/ucp/trigger-migration/${code}/rollback`).then((r) => r.data),
+  createPipelineTrigger: (payload: Record<string, any>) =>
+    api.post<any>('/ucp/pipeline-triggers', payload).then((r) => r.data),
+  updatePipelineTrigger: (code: string, payload: Record<string, any>) =>
+    api.patch<any>(`/ucp/pipeline-triggers/${code}`, payload).then((r) => r.data),
+  enablePipelineTrigger: (code: string, enabled: boolean) =>
+    api.post<any>(`/ucp/pipeline-triggers/${code}/enable`, null, { params: { enabled } }).then((r) => r.data),
+  testPipelineTrigger: (code: string, payload: { dry_run: boolean; sample_payload?: Record<string, any> }) =>
+    api.post<any>(`/ucp/pipeline-triggers/${code}/test`, payload).then((r) => r.data),
+  deletePipelineTrigger: (code: string) =>
+    api.delete<{ deleted: string }>(`/ucp/pipeline-triggers/${code}`).then((r) => r.data),
 
   deleteResource: (resourceId: number) =>
     api.delete<{ deleted: boolean }>(`/ucp/resources/${resourceId}`).then((r) => r.data),
@@ -718,7 +791,11 @@ export const ucpApi = {
       received_at: string | null
       dispatched_at: string | null
       completed_at: string | null
+      source_chain: Record<string, any>
     }>(`/ucp/events/${eventId}`).then((r) => r.data),
+
+  getRawEventPayload: (eventId: string, reason: string) =>
+    api.get<{ event_id: string; payload: Record<string, any>; metadata: Record<string, any>; audited: boolean }>(`/ucp/events/${eventId}/payload/raw`, { params: { reason } }).then((r) => r.data),
 
   manualDispatchEvent: (eventId: string) =>
     api.post<{
@@ -1236,7 +1313,7 @@ export const adapterRegistryApi = {
 
 export interface PipelineNode {
   id: string
-  type: 'CONNECTOR' | 'TRANSFORM' | 'BRANCH' | 'LOOP'
+  type: 'START_TRIGGER' | 'CONNECTOR' | 'TRANSFORM' | 'BRANCH' | 'LOOP' | 'LOOP_RESOURCE' | 'CAPABILITY' | 'CAPABILITY_LOOKUP' | 'RECORD_MERGE' | 'WAREHOUSE_ASSET_SINK' | 'NOTIFY' | 'WAIT' | 'APPROVAL' | 'TIME_STRATEGY'
   x: number
   y: number
   label: string
@@ -1275,9 +1352,13 @@ export interface PipelineTemplateVersion {
 
 export interface NodeTypeMeta {
   type: PipelineNode['type']
+  code: string
   label: string
+  category: string
   color: string
   icon: string
+  palette: boolean
+  locked?: boolean
   config_schema: Record<string, string>
 }
 
@@ -1777,6 +1858,8 @@ export const accountLifecycleApi = {
   dryRun: (code: string, event: Record<string, any>) => api.post<Record<string, any>>(`/ucp/account-lifecycle-rules/${code}/dry-run`, { event }).then((r) => r.data),
   listJobs: () => api.get<{ total: number; items: AccountLifecycleJob[] }>('/ucp/account-lifecycle-jobs').then((r) => r.data),
   retryJob: (code: string) => api.post<AccountLifecycleJob>(`/ucp/account-lifecycle-jobs/${code}/retry`).then((r) => r.data),
+  cancelJob: (code: string) => api.post<AccountLifecycleJob>(`/ucp/account-lifecycle-jobs/${code}/cancel`).then((r) => r.data),
+  rescheduleJob: (code: string, scheduled_at: string) => api.post<AccountLifecycleJob>(`/ucp/account-lifecycle-jobs/${code}/reschedule`, { scheduled_at }).then((r) => r.data),
 }
 
 export const accountLifecycleReleaseApi = {

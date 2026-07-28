@@ -31,6 +31,31 @@ _PARAM_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _FORBIDDEN_HEADERS = {"host", "content-length", "transfer-encoding", "connection"}
 _RATE_WINDOWS: dict[str, deque[float]] = defaultdict(deque)
 _RATE_LOCK = asyncio.Lock()
+_FEISHU_TOKENS: dict[str, tuple[str, float]] = {}
+
+
+async def _feishu_tenant_token(secrets: dict[str, Any]) -> str:
+    app_id = str(secrets.get("app_id") or "")
+    app_secret = str(secrets.get("app_secret") or "")
+    if not app_id or not app_secret:
+        raise GenericHttpPolicyError("FEISHU_TENANT_APP requires app_id and app_secret")
+    cached = _FEISHU_TOKENS.get(app_id)
+    if cached and time.time() < cached[1] - 60:
+        return cached[0]
+    token_url = check_url(
+        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        ["open.feishu.cn"],
+    )
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+        response = await client.post(token_url, json={"app_id": app_id, "app_secret": app_secret})
+    if response.status_code >= 400:
+        raise GenericHttpPolicyError(f"Feishu token request failed: HTTP {response.status_code}")
+    payload = response.json()
+    if payload.get("code") != 0 or not payload.get("tenant_access_token"):
+        raise GenericHttpPolicyError("Feishu token request failed")
+    token = str(payload["tenant_access_token"])
+    _FEISHU_TOKENS[app_id] = (token, time.time() + int(payload.get("expire") or 7200))
+    return token
 
 
 def _http_config(params: dict[str, Any]) -> dict[str, Any]:
@@ -115,15 +140,21 @@ class GenericHttpActionAdapter:
     async def execute(self, params: dict, secrets: dict, db: AsyncSession) -> AdapterResult:
         del db
         try:
-            config = validate_generic_http_config(_http_config(params))
+            raw_config = _http_config(params)
             context = {
                 **build_system_context(),
                 **(params.get("context") or {}),
                 "secret": secrets or {},
             }
+            rendered_path = resolve_variables(str(raw_config.get("path") or ""), context)
+            if not isinstance(rendered_path, str) or "{{" in rendered_path:
+                raise GenericHttpPolicyError("path contains unresolved variables")
+            config = validate_generic_http_config({**raw_config, "path": rendered_path})
             headers = _as_pairs(config, "headers_config", context)
             if any(header.lower() in _FORBIDDEN_HEADERS for header in headers):
                 raise GenericHttpPolicyError("restricted request header")
+            if config.get("auth_type") == "FEISHU_TENANT_APP":
+                headers["Authorization"] = f"Bearer {await _feishu_tenant_token(secrets or {})}"
             headers.setdefault("Accept", "application/json")
             query = _as_pairs(config, "query_config", context)
             body = resolve_variables(config.get("body_template") or {}, context)
@@ -151,11 +182,23 @@ class GenericHttpActionAdapter:
                         config["method"], config["url"], headers=headers, params=page_query,
                         json=body if config["method"] == "POST" else None,
                     )
+                    if response.status_code == 403:
+                        return AdapterResult(status="failed", error_code="FORBIDDEN", error_message="read request forbidden")
+                    if response.status_code == 404:
+                        return AdapterResult(status="not_found", data=[], row_count=0)
+                    if response.status_code == 429:
+                        return AdapterResult(status="failed", error_code="RATE_LIMITED", error_message="read request rate limited")
                     if response.status_code >= 400:
                         return AdapterResult(status="failed", error_code=f"HTTP_{response.status_code}", error_message="read request failed")
                     if "json" not in response.headers.get("content-type", "").lower():
                         raise GenericHttpPolicyError("response must use a JSON content type")
                     response_body = response.json()
+                    if config.get("auth_type") == "FEISHU_TENANT_APP" and response_body.get("code") != 0:
+                        return AdapterResult(
+                            status="failed",
+                            error_code=(config.get("error_code_map") or {}).get(str(response_body.get("code")), "UPSTREAM_BUSINESS_ERROR"),
+                            error_message=str(response_body.get("msg") or "upstream business error")[:500],
+                        )
                     extracted = extract_response_data(response_body, config.get("data_path"))
                     page_items = extracted if isinstance(extracted, list) else [extracted]
                     if not all(isinstance(item, dict) for item in page_items):

@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import hashlib
 
-from sqlalchemy import text, select
+from sqlalchemy import bindparam, text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.data.ddl import validate_column_name, validate_table_name
 from app.data.models import RegisteredTable, TableColumn
+from app.datasources.models import DataSource
 
 
 def _business_key_hash(row: dict, primary_key: str) -> str:
@@ -31,6 +32,18 @@ class WarehouseAssetSink:
         if not whitelist or not whitelist.issubset(allowed):
             raise ValueError("字段白名单包含目标资产未批准的字段")
         declared_primary_keys = {column.column_code for column in columns if column.is_pk_part}
+        source = await self.db.scalar(select(DataSource).where(DataSource.table_name == target_asset))
+        policy = None
+        if source and source.sync_semantics and source.write_strategy and source.missing_row_strategy:
+            policy = {
+                "sync_semantics": source.sync_semantics,
+                "write_strategy": source.write_strategy,
+                "missing_row_strategy": source.missing_row_strategy,
+                "business_key_fields": list(source.business_key_fields or []),
+            }
+            write_mode = {"full_refresh": "replace", "incremental_upsert": "upsert", "append": "append"}[source.write_strategy]
+            if policy["business_key_fields"]:
+                primary_key = policy["business_key_fields"][0]
         if write_mode == "upsert":
             if not primary_key or validate_column_name(primary_key) not in whitelist:
                 raise ValueError("upsert must use a whitelisted primary key")
@@ -46,6 +59,8 @@ class WarehouseAssetSink:
         if write_mode == "replace":
             await self.db.execute(text(f'DELETE FROM "{target_asset}"'))
         written = 0
+        inserted = 0
+        updated = 0
         for row in clean_rows:
             if not row:
                 continue
@@ -57,8 +72,18 @@ class WarehouseAssetSink:
                     if updates:
                         await self.db.execute(text(f'UPDATE "{target_asset}" SET ' + ", ".join(f'"{field}" = :{field}' for field in updates) + f' WHERE "{primary_key}" = :{primary_key}'), row)
                     written += 1
+                    updated += 1
                     continue
             await self.db.execute(text(f'INSERT INTO "{target_asset}" (' + ", ".join(f'"{field}"' for field in fields) + ') VALUES (' + ", ".join(f':{field}' for field in fields) + ')'), row)
             written += 1
+            inserted += 1
+        deleted = 0
+        if policy and policy["sync_semantics"] == "full_snapshot" and policy["missing_row_strategy"] == "hard_delete" and clean_rows:
+            current_hashes = [row["pk_hash"] for row in clean_rows]
+            result = await self.db.execute(
+                text(f'DELETE FROM "{target_asset}" WHERE pk_hash NOT IN :hashes').bindparams(bindparam("hashes", expanding=True)),
+                {"hashes": current_hashes},
+            )
+            deleted = result.rowcount or 0
         await self.db.flush()
-        return {"target_asset": target_asset, "write_mode": write_mode, "written_count": written, "field_whitelist": sorted(whitelist), "batch_id": batch_id}
+        return {"target_asset": target_asset, "write_mode": write_mode, "written_count": written, "inserted_count": inserted, "updated_count": updated, "deleted_count": deleted, "field_whitelist": sorted(whitelist), "batch_id": batch_id, "effective_policy": policy}

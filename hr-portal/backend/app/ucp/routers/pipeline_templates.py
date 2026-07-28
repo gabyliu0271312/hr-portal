@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import require_op
+from app.ucp.pipeline_node_catalog import node_type_metadata
 from app.ucp.pipeline_template import (
-    NODE_TYPES,
     PipelineTemplateError,
     create_template,
     delete_template,
@@ -58,21 +58,7 @@ def _error(error: PipelineTemplateError) -> HTTPException:
 
 @router.get("/pipeline-templates/_meta/node-types")
 async def route_node_types(_user=Depends(require_op("ucp.pipelines", "V"))):
-    labels = {
-        "CONNECTOR": "资源调用",
-        "CAPABILITY": "业务能力",
-        "CAPABILITY_LOOKUP": "逐人查询业务能力",
-        "RECORD_MERGE": "记录补全合并",
-        "WAREHOUSE_ASSET_SINK": "写入数据仓库资产",
-        "LOOP": "循环",
-        "LOOP_RESOURCE": "循环资源",
-        "TRANSFORM": "字段转换",
-        "NOTIFY": "通知",
-        "BRANCH": "条件分支",
-        "WAIT": "等待",
-        "APPROVAL": "审批",
-    }
-    return {"node_types": [{"type": item, "label": labels.get(item, item), "color": "#409eff", "icon": "Box", "config_schema": {}} for item in sorted(NODE_TYPES)], "node_count_limit": 100}
+    return {"node_types": node_type_metadata(), "node_count_limit": 100}
 
 
 @router.get("/pipeline-templates")

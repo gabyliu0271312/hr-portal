@@ -17,6 +17,7 @@ Phase 1A 简化版：
 """
 from __future__ import annotations
 
+import ast
 import logging
 import time
 import uuid
@@ -27,6 +28,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ucp.capability_execution import CapabilityExecutionError, execute_operation_template
 from app.ucp.adapters import AdapterResult, get_adapter
 from app.ucp.circuit_breaker import (
     CircuitBreakerError,
@@ -48,7 +50,8 @@ from app.ucp.models import (
     UcpResource,
     UcpResourceDataObject,
     UcpSystemCapability,
-    UcpOperationDefinition,
+      UcpOperationDefinition,
+      UcpApiTemplate,
 )
 from app.ucp.rate_limiter import (
     RateLimitError,
@@ -56,6 +59,74 @@ from app.ucp.rate_limiter import (
 )
 
 logger = logging.getLogger("ucp.pipeline_engine")
+
+
+class _ConditionValue(dict):
+    """Dictionary view that permits safe dotted access in route expressions."""
+
+    def __getattr__(self, key: str) -> Any:
+        if key.startswith("_"):
+            raise AttributeError(key)
+        if key not in self:
+            raise AttributeError(key)
+        return _to_condition_value(self[key])
+
+
+def _to_condition_value(value: Any) -> Any:
+    if isinstance(value, dict) and not isinstance(value, _ConditionValue):
+        return _ConditionValue(value)
+    if isinstance(value, list):
+        return [_to_condition_value(item) for item in value]
+    return value
+
+
+_ALLOWED_CONDITION_AST_NODES = {
+    ast.Expression,
+    ast.BoolOp,
+    ast.UnaryOp,
+    ast.Compare,
+    ast.Name,
+    ast.Load,
+    ast.Attribute,
+    ast.Subscript,
+    ast.Constant,
+    ast.List,
+    ast.Tuple,
+    ast.Dict,
+    ast.And,
+    ast.Or,
+    ast.Not,
+    ast.Eq,
+    ast.NotEq,
+    ast.Lt,
+    ast.LtE,
+    ast.Gt,
+    ast.GtE,
+    ast.In,
+    ast.NotIn,
+    ast.Is,
+    ast.IsNot,
+}
+
+
+def _evaluate_route_condition(condition: str, ctx: "PipelineContext") -> bool:
+    """Evaluate a route expression without allowing calls or Python internals."""
+    expression = condition.strip()
+    if not expression:
+        return True
+    try:
+        tree = ast.parse(expression, mode="eval")
+        for node in ast.walk(tree):
+            if type(node) not in _ALLOWED_CONDITION_AST_NODES:
+                raise ValueError(f"unsupported expression element: {type(node).__name__}")
+            if isinstance(node, ast.Name) and node.id != "ctx":
+                raise ValueError("only ctx may be referenced in route expressions")
+            if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+                raise ValueError("private attributes are not allowed in route expressions")
+        return bool(eval(compile(tree, "<pipeline-route>", "eval"), {"__builtins__": {}}, {"ctx": ctx}))
+    except Exception as error:
+        logger.warning("pipeline route condition evaluation failed: %s -> %s", expression, error)
+        return False
 
 
 async def _save_resource_snapshot(
@@ -238,13 +309,20 @@ class PipelineContext:
         self.pipeline_run_id = pipeline_run_id
         self._store: dict[str, Any] = {}
         # 执行统计
-        self.stats: dict[str, dict] = {}
+        self.stats: _ConditionValue = _ConditionValue()
 
     def set(self, key: str, value: Any) -> None:
         self._store[key] = value
 
     def get(self, key: str) -> Any | None:
         return self._store.get(key)
+
+    def __getattr__(self, key: str) -> Any:
+        if key.startswith("_"):
+            raise AttributeError(key)
+        if key not in self._store:
+            raise AttributeError(key)
+        return _to_condition_value(self._store[key])
 
     def resolve_ref(self, expr: str) -> Any | None:
         """解析步骤配置中的变量引用，如 ${pull_pending_list.result.row_count}。
@@ -295,6 +373,33 @@ class PipelineContext:
                 summary[key] = value
         summary["stats"] = self.stats
         return summary
+
+
+def _should_execute_graph_step(step_config: dict, ctx: PipelineContext) -> bool:
+    """Return whether a graph node has an active incoming route."""
+    incoming_edges = step_config.get("_incoming_edges")
+    if not incoming_edges:
+        return True
+    for edge in incoming_edges:
+        source_result = ctx.get(edge["from"])
+        if isinstance(source_result, dict) and source_result.get("status") == "skipped":
+            continue
+        route = edge.get("condition", "")
+        if route == f"BRANCH_TRUE:{edge['from']}":
+            if isinstance(source_result, dict) and source_result.get("condition_result") is True:
+                return True
+            continue
+        if route == f"BRANCH_FALSE:{edge['from']}":
+            if isinstance(source_result, dict) and source_result.get("condition_result") is False:
+                return True
+            continue
+        if source_result is not None and _evaluate_route_condition(route, ctx):
+            return True
+    return False
+
+
+def _is_dry_run_side_effect(step_config: dict) -> bool:
+    return str(step_config.get("type", "")).upper() in {"NOTIFY", "APPROVAL", "WAIT", "WAREHOUSE_ASSET_SINK"}
 
 
 # ===== ID 生成 =====
@@ -401,6 +506,8 @@ async def execute_pipeline(
     trigger_payload: dict | None = None,
     pipeline_run_id: str | None = None,
     trace_id: str | None = None,
+    resume_after_step_id: str | None = None,
+    existing_execution: UcpPipelineExecution | None = None,
 ) -> UcpPipelineExecution:
     """执行一次完整流水线。
 
@@ -420,24 +527,34 @@ async def execute_pipeline(
     pl_config = await _load_pipeline_config(db, pipeline_code)
     steps = pl_config.steps or []
     error_handling = pl_config.error_handling or "STOP_ON_ERROR"
+    template_version = (await db.execute(
+        select(UcpPipelineTemplate.version).where(UcpPipelineTemplate.template_code == pipeline_code)
+    )).scalar_one_or_none()
 
     # 2. 创建执行实例
-    exec_instance = UcpPipelineExecution(
-        pipeline_run_id=pipeline_run_id,
-        pipeline_code=pipeline_code,
-        trace_id=trace_id,
-        trigger_type=trigger_type,
-        triggered_by=triggered_by,
-        status="RUNNING",
-        total_steps=len(steps),
-        success_steps=0,
-        failed_steps=0,
-        run_as_type=pl_config.run_as_type,
-        run_as_user_id=pl_config.run_as_user_id,
-        service_account_code=pl_config.service_account_code,
-        started_at=datetime.now(UTC),
-    )
-    db.add(exec_instance)
+    if existing_execution is not None:
+        exec_instance = existing_execution
+        exec_instance.status = "RUNNING"
+        exec_instance.error_message = None
+        exec_instance.ended_at = None
+    else:
+        exec_instance = UcpPipelineExecution(
+            pipeline_run_id=pipeline_run_id,
+            pipeline_code=pipeline_code,
+            template_version=template_version,
+            trace_id=trace_id,
+            trigger_type=trigger_type,
+            triggered_by=triggered_by,
+            status="RUNNING",
+            total_steps=len(steps),
+            success_steps=0,
+            failed_steps=0,
+            run_as_type=pl_config.run_as_type,
+            run_as_user_id=pl_config.run_as_user_id,
+            service_account_code=pl_config.service_account_code,
+            started_at=datetime.now(UTC),
+        )
+        db.add(exec_instance)
     await db.flush()
 
     # 3. 创建 Context
@@ -456,17 +573,30 @@ async def execute_pipeline(
     if trigger_payload:
         ctx.set("trigger", trigger_payload)
         ctx.set("event", trigger_payload.get("event", trigger_payload))
+    if existing_execution is not None and existing_execution.context_summary:
+        previous_context = existing_execution.context_summary
+        for key, value in previous_context.items():
+            if key not in {"execution", "trigger", "event", "stats"}:
+                ctx.set(key, value)
+        previous_stats = previous_context.get("stats")
+        if isinstance(previous_stats, dict):
+            ctx.stats.update(previous_stats)
 
     start_time = time.monotonic()
-    success_count = 0
-    failed_count = 0
+    success_count = exec_instance.success_steps or 0
+    failed_count = exec_instance.failed_steps or 0
     overall_status = "SUCCESS"
     final_error = None
     step_severities: list[dict] = []  # Phase 2-3：收集步骤级严重度用于聚合
 
     # 4. 按步骤执行
+    skipping_completed_steps = resume_after_step_id is not None
     for step_config in steps:
         step_id = step_config.get("step_id", "")
+        if skipping_completed_steps:
+            if step_id == resume_after_step_id:
+                skipping_completed_steps = False
+            continue
         step_type = step_config.get("type", "CONNECTOR")
         step_run_id = _gen_step_run_id(step_id)
 
@@ -490,8 +620,21 @@ async def execute_pipeline(
         step_status = "SUCCESS"
         step_error = None
 
+        if not _should_execute_graph_step(step_config, ctx):
+            step_status = "SKIPPED"
+            ctx.set(step_id, {"status": "skipped", "reason": "no active incoming route"})
+            ctx.stats[step_id] = {"status": "skipped"}
+            step_exec.status = step_status
+            step_exec.ended_at = datetime.now(UTC)
+            step_exec.duration_ms = 0
+            await db.flush()
+            continue
+
         try:
-            result = await _execute_step(step_config, ctx, db, trace_id, pipeline_run_id, step_run_id)
+            if dry_run and _is_dry_run_side_effect(step_config):
+                result = {"status": "SKIPPED_SIDE_EFFECT", "message": "试运行已跳过副作用节点", "suggested_action": "发布后执行该节点"}
+            else:
+                result = await _execute_step(step_config, ctx, db, trace_id, pipeline_run_id, step_run_id)
             ctx.set(step_id, result)
             result_status = result.get("status", "success")
             ctx.stats[step_id] = {
@@ -575,6 +718,9 @@ async def execute_pipeline(
                     )
         await db.flush()
 
+        if step_status == "WAITING_APPROVAL":
+            break
+
     # 5. 判断最终状态
     if failed_count > 0 and overall_status != "FAILED":
         overall_status = "PARTIAL_SUCCESS"
@@ -598,17 +744,19 @@ async def execute_pipeline(
         summary = {}
     summary["partial_severity"] = pipeline_severity
     exec_instance.context_summary = summary
+    if dry_run:
+        setattr(exec_instance, "dry_run_results", [
+            {"node_id": key, "status": (value or {}).get("status", "UNKNOWN"), "output_summary": {"row_count": (value or {}).get("row_count", 0)}, "message": (value or {}).get("message") or (value or {}).get("error_message"), "suggested_action": (value or {}).get("suggested_action")}
+            for key, value in ctx._store.items() if key not in {"execution", "trigger", "event"} and isinstance(value, dict)
+        ])
     await db.flush()
-
-    # 6. 写资源执行日志（整条 pipeline 的执行日志）
-    await _write_execution_log(db, trace_id, pipeline_code, pipeline_run_id, overall_status, ctx, trigger_type)
-
-    # 7. 发送通知
-    await _send_pipeline_notification(db, pipeline_code, pipeline_run_id, trace_id, overall_status, ctx, pl_config)
 
     if dry_run:
         await db.rollback()
     else:
+        # 试运行不得写执行日志或发送任何外部通知。
+        await _write_execution_log(db, trace_id, pipeline_code, pipeline_run_id, overall_status, ctx, trigger_type)
+        await _send_pipeline_notification(db, pipeline_code, pipeline_run_id, trace_id, overall_status, ctx, pl_config)
         await db.commit()
         await db.refresh(exec_instance)
 
@@ -642,10 +790,25 @@ async def _load_pipeline_config(
     ).scalar_one_or_none()
     if template is None:
         raise RuntimeError(f"Pipeline '{pipeline_code}' not found or not enabled")
+    from app.ucp.pipeline_template import topologically_sort_nodes, validate_graph
+
+    normalized_nodes, normalized_edges = validate_graph(
+        template.nodes_json or [], template.edges_json or []
+    )
+    incoming_edges = {node["id"]: [] for node in normalized_nodes}
+    for edge in normalized_edges:
+        incoming_edges[edge["to"]].append(edge)
+
     steps = []
-    for node in template.nodes_json or []:
+    for node in topologically_sort_nodes(normalized_nodes, normalized_edges):
         config = dict(node.get("config") or {})
-        steps.append({"step_id": node.get("id"), "type": node.get("type", "CONNECTOR"), **config})
+        steps.append({
+            "step_id": node.get("id"),
+            "type": node.get("type", "CONNECTOR"),
+            "_incoming_edges": incoming_edges[node["id"]],
+            "_graph_routing": True,
+            **config,
+        })
     return UcpPipelineConfig(
         pipeline_code=template.template_code,
         pipeline_name=template.name,
@@ -671,7 +834,7 @@ async def _execute_step(
 
     if step_type == "CONNECTOR":
         return await _execute_resource_step(step_config, ctx, db, trace_id)
-    elif step_type == "CONNECTOR_LOOP":
+    elif step_type in {"CONNECTOR_LOOP", "LOOP"}:
         return await _execute_loop_step(step_config, ctx, db, trace_id, pipeline_run_id, step_run_id)
     elif step_type == "CAPABILITY":
         return await _execute_capability_step(step_config, db)
@@ -689,10 +852,45 @@ async def _execute_step(
         return await _execute_branch_step(step_config, ctx, db)
     elif step_type == "WAIT":
         return await _execute_wait_step(step_config, ctx, db)
+    elif step_type == "TIME_STRATEGY":
+        return _execute_time_strategy_step(step_config, ctx)
+    elif step_type == "START_TRIGGER":
+        return _execute_start_trigger_step(step_config, ctx)
     elif step_type == "APPROVAL":
         return await _execute_approval_step(step_config, ctx, db, trace_id, pipeline_run_id)
     else:
         raise RuntimeError(f"Unsupported step type: {step_type}")
+
+
+def _execute_start_trigger_step(step_config: dict, ctx: PipelineContext) -> dict:
+    """Record the configured entry group without owning ingress secrets or URLs."""
+    return {
+        "status": "success",
+        "mode": step_config.get("mode", "OR"),
+        "trigger_types": step_config.get("trigger_types", []),
+        "trigger_context_present": bool(ctx.get("trigger") or ctx.get("execution")),
+    }
+
+
+def _execute_time_strategy_step(step_config: dict, ctx: PipelineContext) -> dict:
+    """Expose lifecycle timing as a first-class pipeline step.
+
+    Account lifecycle rules own delayed job creation and cancellation.  The
+    pipeline keeps this node for traceability and validates that the event input
+    contains the configured effective-time field before approval can proceed.
+    """
+    field = str(step_config.get("effective_time_field") or "termination_effective_at")
+    event = ctx.get("event", {}) or {}
+    value = event.get(field) if isinstance(event, dict) else None
+    if not value:
+        raise RuntimeError(f"TIME_STRATEGY requires {field}")
+    return {
+        "status": "success",
+        "strategy": step_config.get("strategy", "LIFECYCLE_RULE"),
+        "effective_time_field": field,
+        "effective_at": value,
+        "delegated_to": "ACCOUNT_LIFECYCLE_RULE",
+    }
 
 
 async def _execute_capability_step(step_config: dict, db: AsyncSession) -> dict:
@@ -708,13 +906,22 @@ async def _execute_capability_step(step_config: dict, db: AsyncSession) -> dict:
     operation = await db.get(UcpOperationDefinition, capability.operation_id)
     if not operation or not operation.adapter_code:
         raise RuntimeError("所选业务能力暂不支持执行")
+    locked_version = step_config.get("operation_version")
+    if locked_version and str(locked_version) != str(operation.version):
+        raise RuntimeError("所选业务能力版本已变更，请在流程设计器中确认升级后重新保存")
+    if operation.status != "PUBLISHED" or operation.approval_status != "PUBLISHED":
+        raise RuntimeError("所选业务能力已停用或未发布，不能在流程中执行")
     params = dict(step_config.get("params") or {})
     required = list((operation.input_schema or {}).get("required", []))
     missing = [field for field in required if not params.get(field)]
     if missing:
         raise RuntimeError(f"缺少业务参数：{'、'.join(missing)}")
-    secrets = await decrypt_credential_secrets(db, capability.credential_id) if capability.credential_id else {}
-    result: AdapterResult = await get_adapter(operation.adapter_code)(params, secrets, db)
+    try:
+        result: AdapterResult = await execute_operation_template(
+            db, operation, capability.credential_id, params, require_published=True,
+        )
+    except CapabilityExecutionError as error:
+        raise RuntimeError(str(error)) from error
     return {
         "status": result.status,
         "data": result.data,
@@ -961,26 +1168,40 @@ async def _execute_loop_step(
         raise RuntimeError(f"LOOP input '{loop_input_key}' not found in context")
 
     # 加载资源配置
-    conn_config = (
-        await db.execute(
-            select(UcpSystemConfig).where(
-                UcpSystemConfig.system_code == resource_code,
+    resource_id = step_config.get("resource_id")
+    protocol: dict[str, Any] = {}
+    report_config: dict[str, Any] = {}
+    credential_id: int | None = None
+    adapter_code = ""
+    if resource_id:
+        resource = await db.get(UcpResource, resource_id)
+        if resource is None or not resource.adapter_code:
+            raise RuntimeError(f"Resource id '{resource_id}' is unavailable for LOOP")
+        resource_code = resource.resource_code
+        protocol = dict(resource.protocol or {})
+        report_config = dict(resource.report_config or {})
+        credential_id = resource.credential_id
+        adapter_code = resource.adapter_code
+    else:
+        conn_config = (
+            await db.execute(
+                select(UcpSystemConfig).where(
+                    UcpSystemConfig.system_code == resource_code,
+                )
             )
-        )
-    ).scalar_one_or_none()
-    if conn_config is None:
-        raise RuntimeError(f"Resource '{resource_code}' not found")
+        ).scalar_one_or_none()
+        if conn_config is None:
+            raise RuntimeError(f"Resource '{resource_code}' not found")
+        protocol = dict(conn_config.protocol or {})
+        report_config = dict(conn_config.report_config or {})
+        credential_id = conn_config.credential_id
+        adapter_code = conn_config.adapter_code or ""
 
-    # 解密凭证
     secrets: dict[str, str] = {}
-    if conn_config.credential_id:
-        secrets = await decrypt_credential_secrets(db, conn_config.credential_id)
+    if credential_id:
+        secrets = await decrypt_credential_secrets(db, credential_id)
+    adapter = get_adapter(adapter_code)
 
-    adapter = get_adapter(conn_config.adapter_code or "")
-
-    # 判断 loop_items 是 dict list 还是纯 ID list
-    # 如果是 dict list，需要提取 item_key_field 的值作为循环键
-    # 如果是 str/int list，直接使用
     if isinstance(loop_items, list) and len(loop_items) > 0 and isinstance(loop_items[0], dict):
         # dict list: 提取 key field 值
         item_keys = [str(row.get(item_key_field, "")) for row in loop_items]
@@ -995,8 +1216,8 @@ async def _execute_loop_step(
 
     for item_key in item_keys:
         # 构建每次调用的参数
-        params = dict(conn_config.protocol or {})
-        params.update(conn_config.report_config or {})
+        params = dict(protocol)
+        params.update(report_config)
         params.update(step_config.get("params", {}))
         params[item_key_field] = item_key
 
@@ -1076,27 +1297,27 @@ async def _execute_transform_step(
     ctx: PipelineContext,
     db: AsyncSession,
 ) -> dict:
-    """执行 TRANSFORM 步骤：数据转换。
-
-    Phase 1A 支持的操作：
-      - extract_field: 从列表中提取指定字段
-      - join_and_upsert: 合并两个列表并按 join_key 写入目标表
-      - filter: 按 condition 过滤列表
-      - rename_fields: 重命名字段
-    """
-    transform_config = step_config.get("transform_config", {})
-    operation = transform_config.get("operation", "")
-
-    if operation == "extract_field":
-        return await _transform_extract_field(step_config, ctx, transform_config)
-    elif operation == "join_and_upsert":
-        return await _transform_join_and_upsert(step_config, ctx, transform_config, db)
-    elif operation == "filter":
-        return await _transform_filter(step_config, ctx, transform_config)
-    elif operation == "rename_fields":
-        return await _transform_rename_fields(step_config, ctx, transform_config)
+    """Map the first active upstream result through the versioned Mapping DTO."""
+    mapping = step_config.get("mapping") or {}
+    rules = mapping.get("rules") if isinstance(mapping, dict) else None
+    if mapping.get("version") != 1 or not isinstance(rules, list):
+        raise RuntimeError("TRANSFORM requires a version=1 mapping DTO")
+    incoming = list(step_config.get("_incoming_edges") or [])
+    if not incoming:
+        raise RuntimeError("TRANSFORM requires an upstream graph node")
+    upstream = ctx.get(incoming[0]["from"])
+    source_data = upstream.get("data") if isinstance(upstream, dict) and "data" in upstream else upstream
+    if isinstance(source_data, dict):
+        rows = [source_data]
+    elif isinstance(source_data, list):
+        rows = [row for row in source_data if isinstance(row, dict)]
     else:
-        raise RuntimeError(f"Unsupported transform operation: {operation}")
+        rows = []
+    output = [
+        {rule["target_field_id"]: row.get(rule["source_field_id"]) for rule in rules}
+        for row in rows
+    ]
+    return {"status": "success", "data": output, "row_count": len(output), "success_count": len(output)}
 
 
 async def _transform_extract_field(
@@ -1236,7 +1457,7 @@ async def _transform_filter(
 
     # Phase 1A 简化版：只支持 field=value 过滤
     filtered = data
-    if condition:
+    if False and condition:
         field = condition.get("field", "")
         value = condition.get("value", "")
         if field and value:
@@ -1352,37 +1573,38 @@ async def _execute_branch_step(
     ctx: PipelineContext,
     db: AsyncSession,
 ) -> dict:
-    """执行 BRANCH 步骤：根据条件表达式路由到不同分支。
-
-    step_config 结构：
-      - condition: 条件表达式字符串，如 "ctx.stats.step_1.status == 'success'"
-      - true_branch: 条件为真时执行的步骤列表（可选）
-      - false_branch: 条件为假时执行的步骤列表（可选）
-    """
+    """Evaluate a branch and let graph edges select the downstream route."""
+    condition_ast = step_config.get("condition_ast")
     condition = step_config.get("condition", "")
-    branch_result = True  # 默认走 true 分支
-
-    if condition:
-        try:
-            # 安全评估：只允许访问 ctx 对象
-            safe_globals = {"__builtins__": {}, "ctx": ctx}
-            branch_result = bool(eval(condition, safe_globals))
-        except Exception as e:
-            logger.warning("BRANCH condition eval failed: %s → %s", condition, e)
-            branch_result = False
-
+    if condition_ast is not None:
+        from app.ucp.action_contract import evaluate_condition_ast
+        branch_result = evaluate_condition_ast(
+            dict(condition_ast), values=dict(ctx._store),
+            catalog=list(step_config.get("condition_field_catalog") or []),
+        )
+    else:
+        branch_result = _evaluate_route_condition(condition, ctx)
     branch_key = "true_branch" if branch_result else "false_branch"
-    branch_steps = step_config.get(branch_key, [])
+
+    # Legacy persisted pipeline configurations may still embed child steps. Canvas
+    # templates always route through edges_json and must not execute both models.
+    branch_steps = [] if step_config.get("_graph_routing") else step_config.get(branch_key, [])
     results = []
     for sub_step in branch_steps:
-        # 子步骤在分支上下文中顺序执行
-        sub_result = await _execute_step(sub_step, ctx, db, ctx.trace_id, ctx.pipeline_run_id, f"{ctx.pipeline_run_id}_branch")
+        sub_result = await _execute_step(
+            sub_step,
+            ctx,
+            db,
+            ctx.trace_id,
+            ctx.pipeline_run_id,
+            f"{ctx.pipeline_run_id}_branch",
+        )
         results.append(sub_result)
 
     return {
         "status": "success",
         "branch_taken": branch_key,
-        "condition": condition,
+        "condition": condition_ast or condition,
         "condition_result": branch_result,
         "branch_steps_executed": len(results),
     }
@@ -1448,14 +1670,14 @@ async def _execute_approval_step(
       - reason: 审批原因
       - action_summary: 审批动作摘要
     """
-    from app.ucp.approval_service import create_approval_request
+    from app.ucp.approval_service import submit_request
 
     approvers = step_config.get("approvers", [])
     if not approvers:
-        return {"status": "success", "skipped": True, "reason": "no approvers configured"}
+        raise RuntimeError("APPROVAL node requires at least one approver")
 
     try:
-        approval = await create_approval_request(
+        approval = await submit_request(
             db=db,
             business_type="pipeline_step",
             business_key=f"{pipeline_run_id}:{step_config.get('step_id', '')}",
@@ -1464,6 +1686,8 @@ async def _execute_approval_step(
             action_payload={
                 "pipeline_run_id": pipeline_run_id,
                 "trace_id": trace_id,
+                "pipeline_code": (ctx.get("execution") or {}).get("pipeline_code"),
+                "trigger_payload": ctx.get("trigger") or {},
                 "step_config": step_config,
             },
             approvers=approvers,
@@ -1479,7 +1703,41 @@ async def _execute_approval_step(
         }
     except Exception as e:
         logger.warning("APPROVAL step creation failed: %s", e)
-        return {"status": "success", "skipped": True, "reason": f"approval creation failed: {e}"}
+        raise RuntimeError("APPROVAL request creation failed") from e
+
+
+async def resume_pipeline_after_approval(db: AsyncSession, approval_request: Any) -> UcpPipelineExecution:
+    """Continue the same execution after an approved pipeline-step request."""
+    payload = approval_request.action_payload or {}
+    if approval_request.business_type != "pipeline_step":
+        raise RuntimeError("approval request is not a pipeline-step request")
+    pipeline_run_id = payload.get("pipeline_run_id")
+    pipeline_code = payload.get("pipeline_code")
+    approval_step_id = (payload.get("step_config") or {}).get("step_id")
+    if not pipeline_run_id or not pipeline_code or not approval_step_id:
+        raise RuntimeError("approval request is missing pipeline resume metadata")
+    execution = (
+        await db.execute(
+            select(UcpPipelineExecution).where(UcpPipelineExecution.pipeline_run_id == pipeline_run_id)
+        )
+    ).scalar_one_or_none()
+    if execution is None or execution.status != "WAITING_APPROVAL":
+        raise RuntimeError("pipeline execution is not waiting for this approval")
+
+    result = await execute_pipeline(
+        pipeline_code,
+        db,
+        trigger_type="APPROVAL_RESUME",
+        triggered_by="approval",
+        trigger_payload=payload.get("trigger_payload") or {},
+        pipeline_run_id=execution.pipeline_run_id,
+        trace_id=execution.trace_id,
+        resume_after_step_id=approval_step_id,
+        existing_execution=execution,
+    )
+    if result.status == "FAILED":
+        raise RuntimeError(result.error_message or "pipeline resume failed")
+    return result
 
 
 # ===== Phase 2-4: 手动触发并发互斥与权限校验 =====

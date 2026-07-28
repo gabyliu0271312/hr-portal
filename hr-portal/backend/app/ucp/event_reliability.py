@@ -195,6 +195,7 @@ async def replay_event(
     *,
     event_uuid: str,
     triggered_by: str | None = None,
+    allow_delivered_replay: bool = False,
 ) -> UcpEvent:
     """重放指定事件: 重新匹配触发器 + 创建新的派发记录 + 异步执行 pipeline。
 
@@ -207,6 +208,12 @@ async def replay_event(
     from app.ucp.event_bus import get_event, get_trigger
 
     event = await get_event(db, event_uuid)
+    if not allow_delivered_replay and event is not None and event.status not in {"FAILED", "NO_MATCH"}:
+        from app.ucp.event_bus import EventBusError
+        raise EventBusError(
+            "EVENT_NOT_REPLAYABLE",
+            "Only failed or unmatched events may be replayed directly",
+        )
     if event is None:
         from app.ucp.event_bus import EventBusError
         raise EventBusError("EVENT_NOT_FOUND", f"事件 '{event_uuid}' 不存在")
@@ -293,7 +300,12 @@ async def replay_dead_letter(
     await db.flush()
 
     # 同步重放事件
-    event = await replay_event(db, event_uuid=delivery.event_uuid, triggered_by=triggered_by)
+    event = await replay_event(
+        db,
+        event_uuid=delivery.event_uuid,
+        triggered_by=triggered_by,
+        allow_delivered_replay=True,
+    )
 
     delivery.pipeline_run_id = event.pipeline_run_id
     await db.flush()

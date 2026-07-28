@@ -33,6 +33,22 @@ from app.ucp.models import (
 
 logger = logging.getLogger("ucp.account_lifecycle")
 
+
+def _termination_effective_at(event: UcpEvent, values: dict[str, Any]) -> datetime:
+    raw = values.get("termination_effective_at") or (event.payload or {}).get("termination_effective_at")
+    if not raw:
+        raise LifecycleError("MISSING_EFFECTIVE_TIME", "termination_effective_at is required for account deactivation")
+    if isinstance(raw, datetime):
+        value = raw
+    elif isinstance(raw, str):
+        try:
+            value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise LifecycleError("INVALID_EFFECTIVE_TIME", "termination_effective_at must be an ISO-8601 datetime") from error
+    else:
+        raise LifecycleError("INVALID_EFFECTIVE_TIME", "termination_effective_at must be an ISO-8601 datetime")
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
 ACTIONS = {ACTION_CREATE, ACTION_UPDATE, ACTION_DISABLE, ACTION_REACTIVATE, ACTION_DELETE}
 JOB_PENDING = "PENDING"
 JOB_RUNNING = "RUNNING"
@@ -301,7 +317,8 @@ async def _execute_action(db: AsyncSession, rule: UcpAccountLifecycleRule, value
 
 
 async def _create_job(db: AsyncSession, rule: UcpAccountLifecycleRule, event: UcpEvent, account_id: int | None, values: dict[str, Any]) -> UcpAccountLifecycleJob:
-    effective_date = event.event_timestamp.date().isoformat() if event.event_timestamp else _utcnow().date().isoformat()
+    effective_at = _termination_effective_at(event, values) if rule.lifecycle_action in {ACTION_DISABLE, ACTION_DELETE} else (event.event_timestamp or _utcnow())
+    effective_date = effective_at.date().isoformat()
     key = f"{rule.rule_code}:{account_id or values.get('employee_id')}:{rule.lifecycle_action}:{effective_date}"
     existing = (await db.execute(select(UcpAccountLifecycleJob).where(UcpAccountLifecycleJob.idempotency_key == key))).scalar_one_or_none()
     if existing:
@@ -314,7 +331,7 @@ async def _create_job(db: AsyncSession, rule: UcpAccountLifecycleRule, event: Uc
         event_id=event.id,
         action=rule.lifecycle_action,
         status=status,
-        scheduled_at=_utcnow() + timedelta(days=rule.retention_days),
+        scheduled_at=max(effective_at, _utcnow()) + timedelta(days=rule.retention_days),
         idempotency_key=key,
         payload_snapshot=mask_dict({
             **values,
@@ -322,6 +339,7 @@ async def _create_job(db: AsyncSession, rule: UcpAccountLifecycleRule, event: Uc
             "_trace_id": event.trace_id,
             "_rule_code": rule.rule_code,
             "_rule_updated_at": rule.updated_at.isoformat() if rule.updated_at else None,
+            "_termination_effective_at": effective_at.isoformat(),
         }),
     )
     db.add(job)
@@ -371,6 +389,31 @@ async def retry_job(db: AsyncSession, job_code: str) -> dict[str, Any]:
     job.scheduled_at = _utcnow()
     job.last_error_code = None
     job.last_error_message = None
+    await db.flush()
+    return _serialize_job(job)
+
+
+async def cancel_job(db: AsyncSession, job_code: str) -> dict[str, Any]:
+    job = (await db.execute(select(UcpAccountLifecycleJob).where(UcpAccountLifecycleJob.job_code == job_code))).scalar_one_or_none()
+    if not job:
+        raise LifecycleError("JOB_NOT_FOUND", "Lifecycle job does not exist")
+    if job.status not in {JOB_PENDING, JOB_WAITING_APPROVAL}:
+        raise LifecycleError("JOB_NOT_CANCELLABLE", "Only pending or waiting-approval jobs can be cancelled")
+    job.status = JOB_CANCELLED
+    await db.flush()
+    return _serialize_job(job)
+
+
+async def reschedule_job(db: AsyncSession, job_code: str, scheduled_at: datetime) -> dict[str, Any]:
+    job = (await db.execute(select(UcpAccountLifecycleJob).where(UcpAccountLifecycleJob.job_code == job_code))).scalar_one_or_none()
+    if not job:
+        raise LifecycleError("JOB_NOT_FOUND", "Lifecycle job does not exist")
+    if job.status not in {JOB_PENDING, JOB_WAITING_APPROVAL}:
+        raise LifecycleError("JOB_NOT_RESCHEDULABLE", "Only pending or waiting-approval jobs can be rescheduled")
+    value = scheduled_at.replace(tzinfo=timezone.utc) if scheduled_at.tzinfo is None else scheduled_at.astimezone(timezone.utc)
+    if value <= _utcnow():
+        raise LifecycleError("INVALID_SCHEDULE_TIME", "Rescheduled time must be in the future")
+    job.scheduled_at = value
     await db.flush()
     return _serialize_job(job)
 

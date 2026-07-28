@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import current_user, require_op
 from app.core.db import get_session
 from app.users.models import User
+from app.ucp.models import UcpEventDefinition, UcpEventPayloadAccessAudit, UcpEventTrigger, UcpPipelineExecution, UcpPipelineTemplate, UcpResource, UcpResourceDataObject
 router = APIRouter()
 
 
@@ -19,6 +20,39 @@ def _lifecycle_direct_dispatch_enabled() -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _mask_event_value(value):
+    if isinstance(value, dict):
+        return {
+            key: "***" if any(word in key.lower() for word in ("secret", "token", "password", "signature", "authorization", "phone", "mobile", "salary")) else _mask_event_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_mask_event_value(item) for item in value]
+    return value
+
+
+async def _source_chain(db: AsyncSession, event) -> dict:
+    resource = await db.get(UcpResource, event.resource_id) if event.resource_id else None
+    resource_object = await db.get(UcpResourceDataObject, event.resource_object_id) if event.resource_object_id else None
+    definition = await db.get(UcpEventDefinition, event.event_definition_id) if event.event_definition_id else None
+    trigger = await db.get(UcpEventTrigger, event.matched_trigger_id) if event.matched_trigger_id else None
+    if trigger is None and event.matched_trigger_code:
+        trigger = (await db.execute(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == event.matched_trigger_code))).scalar_one_or_none()
+    execution = None
+    if event.pipeline_run_id:
+        execution = (await db.execute(select(UcpPipelineExecution).where(UcpPipelineExecution.pipeline_run_id == event.pipeline_run_id))).scalar_one_or_none()
+    pipeline_code = (trigger.pipeline_code if trigger else None) or (execution.pipeline_code if execution else None)
+    template = (await db.execute(select(UcpPipelineTemplate).where(UcpPipelineTemplate.template_code == pipeline_code))).scalar_one_or_none() if pipeline_code else None
+    return {
+        "resource": {"id": resource.id, "code": resource.resource_code, "name": resource.resource_name, "href": f"/ucp/systems?resource_id={resource.id}"} if resource else None,
+        "resource_object": {"id": resource_object.id, "code": resource_object.object_code, "name": resource_object.object_name, "href": f"/ucp/systems?resource_id={resource_object.resource_id}&object_id={resource_object.id}"} if resource_object else None,
+        "event_definition": {"id": definition.id, "code": definition.event_code, "name": definition.event_name, "version": definition.version} if definition else None,
+        "trigger": {"id": trigger.id, "code": trigger.trigger_code, "name": trigger.trigger_name, "href": "/ucp/events/triggers"} if trigger else None,
+        "template": {"code": template.template_code, "name": template.name, "version": execution.template_version if execution and execution.template_version else template.version, "href": f"/ucp/pipelines/designer?code={template.template_code}"} if template else None,
+        "execution": {"pipeline_run_id": execution.pipeline_run_id, "href": f"/ucp/runs/{execution.pipeline_run_id}"} if execution else None,
+    }
+
+
 @router.get("/events", dependencies=[Depends(require_op("ucp.events", "V"))])
 async def list_events(source: str|None=None, event_type: str|None=None, status: str|None=None,
     trigger_code: str|None=None, limit: int=Query(default=50, le=200), offset: int=Query(default=0, ge=0),
@@ -28,7 +62,8 @@ async def list_events(source: str|None=None, event_type: str|None=None, status: 
     items, total = await _list(db, flt)
     return {"total": total, "items": [{
         "id": e.id, "event_id": e.event_id, "event_type": e.event_type,
-        "source": e.source, "trigger": e.trigger, "payload": e.payload,
+        "source": e.source, "trigger": e.trigger, "payload": _mask_event_value(e.payload or {}),
+        "resource_id": e.resource_id, "resource_object_id": e.resource_object_id, "event_definition_id": e.event_definition_id,
         "status": e.status, "trace_id": e.trace_id,
         "matched_trigger_code": e.matched_trigger_code,
         "pipeline_run_id": e.pipeline_run_id, "retry_count": e.retry_count,
@@ -78,10 +113,12 @@ async def get_event(event_id: str, db: AsyncSession=Depends(get_session), _user=
     from app.ucp.event_bus import get_event as _get
     r = await _get(db, event_id)
     if not r: raise HTTPException(404, "Event not found")
+    source_chain = await _source_chain(db, r)
     return {
         "id": r.id, "event_id": r.event_id, "event_type": r.event_type,
-        "source": r.source, "trigger": r.trigger, "payload": r.payload,
-        "metadata": r.metadata_, "status": r.status, "trace_id": r.trace_id,
+        "source": r.source, "trigger": r.trigger, "payload": _mask_event_value(r.payload or {}),
+        "resource_id": r.resource_id, "resource_object_id": r.resource_object_id, "event_definition_id": r.event_definition_id,
+        "metadata": _mask_event_value(r.metadata_ or {}), "status": r.status, "trace_id": r.trace_id,
         "matched_trigger_id": r.matched_trigger_id, "matched_trigger_code": r.matched_trigger_code,
         "pipeline_run_id": r.pipeline_run_id, "retry_count": r.retry_count,
         "error_code": r.error_code, "error_message": r.error_message,
@@ -89,6 +126,35 @@ async def get_event(event_id: str, db: AsyncSession=Depends(get_session), _user=
         "received_at": r.received_at.isoformat() if r.received_at else None,
         "dispatched_at": r.dispatched_at.isoformat() if r.dispatched_at else None,
         "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+        "source_chain": source_chain,
+    }
+
+
+@router.get("/events/{event_id}/payload/raw", dependencies=[Depends(require_op("ucp.events", "E"))])
+async def get_raw_event_payload(
+    event_id: str,
+    reason: str = Query(min_length=3, max_length=256),
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(current_user),
+) -> dict:
+    """Return an audited payload view only to users with export permission."""
+    from app.ucp.event_bus import get_event as _get
+
+    event = await _get(db, event_id)
+    if not event:
+        raise HTTPException(404, "Event not found")
+    db.add(UcpEventPayloadAccessAudit(
+        event_id=event.id,
+        event_uuid=event.event_id,
+        operator=_user_id(_user),
+        reason=reason,
+    ))
+    await db.commit()
+    return {
+        "event_id": event.event_id,
+        "payload": event.payload or {},
+        "metadata": _mask_event_value(event.metadata_ or {}),
+        "audited": True,
     }
 
 
@@ -151,35 +217,18 @@ async def list_triggers(event_source: str|None=None, is_active: int|None=None,
 
 @router.post("/triggers", dependencies=[Depends(require_op("ucp.triggers", "C"))])
 async def create_trigger(payload: dict, db: AsyncSession=Depends(get_session), _user=Depends(current_user)) -> dict:
-    from app.ucp.models import UcpEventTrigger
-    trig = UcpEventTrigger(
-        trigger_code=payload["trigger_code"], trigger_name=payload.get("trigger_name", payload["trigger_code"]),
-        description=payload.get("description"), event_source=payload.get("event_source", ""),
-        event_types=payload.get("event_types", ""), pipeline_code=payload.get("pipeline_code", ""),
-        filter_rule=payload.get("filter_rule"), signing_secret=payload.get("signing_secret"),
-        signature_header=payload.get("signature_header"),
-        feishu_verification_token=payload.get("feishu_verification_token"),
-        feishu_encrypt_key=payload.get("feishu_encrypt_key"),
-        run_as_type=payload.get("run_as_type", "SERVICE_ACCOUNT"),
-        service_account_code=payload.get("service_account_code"),
-        is_active=payload.get("is_active", True), webhook_path=payload.get("webhook_path"),
+    raise HTTPException(
+        410,
+        "Legacy trigger writes are retired. Use /ucp/pipeline-triggers and bind a verified resource event object.",
     )
-    db.add(trig); await db.flush()
-    return {"id": trig.id, "trigger_code": trig.trigger_code, "is_active": trig.is_active}
 
 
 @router.patch("/triggers/{trigger_id}", dependencies=[Depends(require_op("ucp.triggers", "U"))])
 async def update_trigger(trigger_id: str, payload: dict, db: AsyncSession=Depends(get_session), _user=Depends(current_user)) -> dict:
-    from app.ucp.models import UcpEventTrigger
-    trig = (await db.execute(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == trigger_id))).scalar_one_or_none()
-    if not trig: raise HTTPException(404, "Trigger not found")
-    for f in ("trigger_name", "description", "event_source", "event_types", "pipeline_code",
-              "filter_rule", "signature_header", "feishu_verification_token", "feishu_encrypt_key",
-              "run_as_type", "service_account_code", "webhook_path"):
-        if f in payload: setattr(trig, f, payload[f])
-    if "is_active" in payload: trig.is_active = bool(payload["is_active"])
-    await db.flush()
-    return {"id": trig.id, "trigger_code": trig.trigger_code, "is_active": trig.is_active}
+    raise HTTPException(
+        410,
+        "Legacy trigger writes are retired. Use /ucp/pipeline-triggers and bind a verified resource event object.",
+    )
 
 
 @router.delete("/triggers/{trigger_id}", dependencies=[Depends(require_op("ucp.triggers", "D"))])

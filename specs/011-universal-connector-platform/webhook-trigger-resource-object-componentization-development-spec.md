@@ -79,12 +79,14 @@ UCP 已具备接入系统、资源、资源数据对象、标准 SaaS 业务能�
   - challenge、签名、解密或连通性失败时给出可读错误码与脱敏摘要，不显示请求密钥。
   - 未验证资源及未启用事件对象不可绑定到生产流程触发器。
 
-### 2.2 流程管理员：为流程选择定时或 Webhook 起点
+### 2.2 流程管理员：为流程选择定时、Webhook 或平台事件起点
 
 - 入口：`/ucp/pipelines/designer?code={template_code}` 的“流程属性 → 触发方式”区域，或 `/ucp/events/triggers` 的“新建触发器”。
 - 操作：
   - 待入职人员入仓流程选择“定时”，配置 Cron、时区和批处理窗口。
   - 离职账号停用流程选择“Webhook”，依次选择系统、Webhook 资源、事件对象；可附加业务过滤条件、流程级幂等键、运行身份和失败策略。
+  - 选择“平台事件”时，按“事件分类 → 事件来源 → 具体事件 → 筛选条件”配置；数据变更是平台事件的 `DATA_CHANGE` 分类，不得作为一级触发方式。
+  - 当前已开放的数据变更事件为“入仓同步完成（`datasource_sync_completed`）”和“入仓数据变更（`ods_table_data_changed`）”，由数据仓库同步服务桥接到 UCP 内部事件总线；审批、业务流程和系统运行事件在其发布方完成标准事件接入前不得暴露为可选项。
 - 系统反馈：触发配置以摘要卡片显示；Webhook 配置只显示资源状态和事件对象，不显示/不要求输入路径、Token、飞书验签字段。
 - 成功结果：触发器处于“已启用”，事件中心命中事件后创建对应 Pipeline Run；定时器到点时创建批处理 Pipeline Run。
 - 失败/空态/无权限：
@@ -154,6 +156,44 @@ UcpPipelineTemplate（流程模板）
 UcpEvent（实际接收/发布的事件）
   └─ 记录 system_code、resource_id、resource_object_id、event_definition_id、trigger_id、pipeline_run_id
 ```
+## X0226 Frontend Node Library Semantics
+
+- `N01`?`N13` remain backend-only stable type identifiers. The frontend does not render type codes or internal type strings.
+- The designer has two visual groups: one visible system-created fixed node (`????`) and twelve draggable orchestration nodes.
+- The palette order is a presentation grouping only. Execution order, branching, and convergence are defined exclusively by `edges_json` on the canvas.
+## X0225 Runtime Node Library Presentation
+
+- The node library lists all `N01`?`N13` types, including `N01 ? ????`.
+- `START_TRIGGER` remains in the visible fixed-node area, but is draggable like every other palette node. The designer never auto-creates or auto-inserts it.
+- Users drag the single start node onto the canvas. Client-side feedback prevents a second insertion; template validation remains the authoritative rule requiring exactly one start node with no incoming edge and full graph reachability.
+- `business_alias` remains a storage-only compatibility field. It is not rendered as a node title, subtitle, or editable designer field; the designer presents only the standardized code and four-character type title.
+
+## X0227 User-placed Start Trigger Contract
+
+- The fixed-node area is an organization aid, not a lock or automatic-instantiation mechanism.
+- A new empty canvas contains no nodes. Every node, including `START_TRIGGER`, is introduced by user drag-and-drop.
+- Removing the start node is permitted during editing; saving a graph without exactly one start node is rejected by the existing backend validation.
+- Opening an existing template renders its persisted graph exactly and must not silently add nodes or edges.
+
+## X0229 Trigger Classification and Shared Scheduling Contract
+
+- `SCHEDULE` and data-change/data-ingress completion are independent start-trigger types. A schedule is never modeled as a sub-option of data-change handling.
+- A scheduled pipeline directly invokes the `ucp_pipeline_trigger` scheduler handler. It may reuse the shared schedule-selector UI and the common scheduler engine, but it must not invoke the `datasource_sync` handler.
+- Data-ingress completion is a future `DATA_CHANGE` trigger. It may be selected only after the existing `datasource_sync_completed` automation event is bridged into a verified UCP platform-event contract.
+- The pending-hire enrichment template is a direct scheduled batch: read pending-hire data, look up Offer data, merge records, and write the completed record set once to the data asset.
+## X0224 Node Naming Replacement Contract
+
+- Every pipeline node has two distinct display concepts: immutable **type title** (`N01`?`N13` plus the four-character catalog label) and optional **business alias** (`config.business_alias`).
+- `nodes_json[].label` is normalized on every template create/update and by migration `0130`; it must equal the catalog label for its node type. Legacy labels are preserved as aliases, not discarded.
+- The canvas header always renders the catalog code and type title. Business aliases are subordinate context only and cannot replace the type title.
+- Seed templates use the same normalizer, preventing old English or business-specific node labels from being reintroduced.
+## X0223 Review Remediation: Graph Routing and Approval Gate
+
+- `edges_json.condition` is now an executable contract for template-backed canvas pipelines. A node runs only when at least one incoming edge is active; an empty incoming list is the graph root and executes normally.
+- A `BRANCH` node must have exactly two outgoing edges: `ctx.<branch_id>.condition_result == True` and `ctx.<branch_id>.condition_result == False`. The designer exposes these two route selections rather than leaving visible edges as decoration.
+- Route expressions support only safe, read-only `ctx` comparisons. Calls, private attributes, and unknown names are rejected and evaluate as false.
+- `APPROVAL` creates a real approval request through `submit_request`; missing approvers or request failures fail closed. Once it returns `WAITING_APPROVAL`, the pipeline records the paused state and does not execute downstream nodes.
+- Approval execution resumes the original `UcpPipelineExecution` from the node immediately after the approved `APPROVAL` step. It does not replay preceding nodes; the approval request carries the originating pipeline, execution, approval-step, and trigger metadata needed for this controlled continuation.
 
 #### 4.1.2 资源对象兼容改造
 
@@ -557,6 +597,14 @@ Webhook 事件对象弹窗字段：
 6. 试运行弹窗根据触发器类型生成样例输入：Webhook 选择已脱敏事件样例；定时填写时间窗口；手动填写参数。真实外部写操作仍遵循受控写入/审批/干跑策略。
 
 #### 4.4.4 事件中心与运行中心
+##### X0222???????????????
+
+- ????????????????????????????????????????????????????????????????????????????????????????
+- ????????????????????????????????????????????????????????????? `LOOP`???????? `NOTIFY`?
+- ????? `edges_json` ??????????????? JSON ????????????????????????????????????????????????????????????
+- ??????????? Webhook?????????????????????????????????????????????????????????????????????????????
+- ??????????????????????????????????????????????????????????????????????????????? `Nxx` ???????????????
+
 
 **页面：**`/ucp/events`、`/ucp/events/:eventId`、`/ucp/runs/:id`。
 
@@ -591,9 +639,46 @@ Webhook 事件对象弹窗字段：
 5. **敏感数据：**员工 ID、手机号、离职原因、薪资、账号标识均按现有敏感性标签脱敏；事件原文采用最小化存储、加密/访问控制和保留期策略。
 6. **多租户/系统隔离：**触发器只能引用当前租户可见、已授权的系统/资源/对象/模板；不得跨系统资源伪造来源。
 
+## X0234 流程画布可读性与起点配置分离契约
+
+### 目标
+
+- 画布只表达流程结构、节点业务摘要与状态；右侧属性面板承担完整配置编辑。
+- 任何节点的配置复杂度不得改变其画布尺寸；流程起点不得在画布内展示下拉框、输入框、开关或保存按钮。
+- 所有已保存连线必须带有指向目标节点的箭头，端口方向固定为左入右出；起点节点仅保留输出端口。
+
+### 节点与连线规则
+
+- 普通节点使用统一固定卡片规格，标题栏、两行摘要、状态区与端口位置保持一致；起点节点允许轻微加宽但高度固定。
+- 节点摘要只显示中文业务语义：资源调用显示系统/资源与对象，数据处理显示规则数量或主键，写入显示目标资产与写入策略，起点显示触发方式与来源摘要。
+- 超出两行的摘要必须截断，不得拉伸卡片；技术编码仅在调试或高级信息中出现。
+- 连线默认使用低饱和中性色，选中链路高亮，校验失败使用错误色，正在创建的连线使用虚线；箭头终点不得压住节点边框、标题或文本。
+
+### 起点编辑规则
+
+- 点击 `START_TRIGGER` 后，右侧面板先展示触发方式；选择方式立即展示对应配置，禁止被已有其他类型 Trigger 的摘要遮挡。
+- 平台事件遵循 `事件分类 → 事件来源 → 具体事件 → 筛选条件 → 启用状态` 联动；画布起点只展示如“平台事件 / 数据仓库 · 入仓同步完成 / 已启用”的摘要。
+- 定时执行继续复用现有调度组件，但画布只展示人类可读计划与保存状态。
+- 修改未保存时，起点摘要显示“待保存”；保存后刷新画布摘要与触发器列表。
+
+### 画布布局规则
+
+- 默认按从左到右阅读，起点位于第一列；同一主链使用统一水平间距，分支在上下泳道展开。
+- 打开已有流程时，系统必须先检测节点包围盒；如存在重叠则自动按主链与分支泳道整理，不能要求用户先点击整理按钮才能看到可读画布。
+- 画布右下角固定提供缩放减小、缩放增大、适配画布、居中显示四项操作；不得用页面顶部工具栏替代。缩放、拖动、连线和投放坐标必须在同一缩放坐标系中计算。
+- 提供“整理流程”能力；整理后不得出现节点重叠或明显无意义的连线交叉。
+
+### 验收
+
+- 选择平台事件后，右侧立即显示中文联动配置；已有手动、定时或 Webhook Trigger 不得遮挡该配置。
+- 所有画布节点在相同类型规格内尺寸一致，起点完成复杂配置后高度不变。
+- 所有正式连线均有可见箭头，主链与分支方向可一眼识别；打开的种子流程和已保存流程均不存在卡片重叠。
+- 缩放、适配画布、居中显示控件固定出现在画布右下角，并在缩放后保持可用。
+- 前端组件测试、生产构建、UCP/Pipeline 回归、容器重建和运行态页面检查通过。
+
 ## 5. 原子任务清单
 
-- [ ] X0213 资源对象泛化与数据库兼容迁移
+- [x] X0213 资源对象泛化与数据库兼容迁移
   - 前置任务：X0212 已稳定；确认现有 `ucp_resource_data_object` 的数据量、调用方和外键引用。
   - 功能范围：新增资源对象类型、事件对象字段、事件定义表、事件实例追溯字段、索引和兼容 migration；保持旧报表/表对象、旧 API 和已有流程可用。
   - 代码交付物：Alembic migration；`UcpResourceObject` 领域模型/序列化（物理表一期可复用）；`UcpEventDefinition` 模型；资源对象服务校验与影响分析；旧数据回填脚本和迁移报告。
@@ -603,7 +688,7 @@ Webhook 事件对象弹窗字段：
   - 验收标准：旧北森报表和飞书表对象查询、保存、流程引用均正常；可创建 `EVENT_TYPE` 对象并关联已发布事件定义；升级失败可安全回滚且不丢旧数据。
   - 完成定义：开发 + UI + 测试 + 验收全部完成并有证据后才可勾选。
 
-- [ ] X0214 事件定义元数据与标准化契约
+- [x] X0214 事件定义元数据与标准化契约
   - 前置任务：X0213。
   - 功能范围：新增事件定义元数据、版本管理、Schema 校验、标准化映射和预置飞书/自定义事件定义；该元数据供 Webhook 事件对象引用，不混入业务操作定义，也不新增普通用户可见的额外事件配置层。
   - 代码交付物：事件定义 CRUD/发布服务；Pydantic Request/Response Schema；事件 Schema 校验器；标准化事件 Envelope；预置事件定义 seed；只读目录接口。
@@ -613,7 +698,7 @@ Webhook 事件对象弹窗字段：
   - 验收标准：可为飞书账号创建/停用、员工离职生效创建版本化事件定义；定义仅由 Webhook 资源对象引用以获得 Schema/版本治理，且不能直接作为流程节点或触发器来源选择项执行。
   - 完成定义：开发 + UI + 测试 + 验收全部完成并有证据后才可勾选。
 
-- [ ] X0215 Webhook 事件接入资源与资源对象管理
+- [x] X0215 Webhook 事件接入资源与资源对象管理
   - 前置任务：X0213、X0214。
   - 功能范围：在接入系统中支持 `WEBHOOK_INGRESS` 资源，完成凭证引用、受控路径、验签/挑战验证、Webhook 事件对象启用与验证；沿用“系统 → 资源 → 对象”交互。
   - 代码交付物：Webhook ingress adapter/验证服务；资源验证 API；资源对象 CRUD API；旧 `/data-objects` 兼容别名；受控路径生成器；接收配置版本审计。
@@ -623,7 +708,7 @@ Webhook 事件对象弹窗字段：
   - 验收标准：管理员可在一个“飞书事件接入”资源下启用多个事件对象；路径和密钥不出现在流程/触发器配置；未验证资源对象不能被生产触发器选择。
   - 完成定义：开发 + UI + 测试 + 验收全部完成并有证据后才可勾选。
 
-- [ ] X0216 通用 Pipeline Trigger 模型、接口与事件分发改造
+- [x] X0216 通用 Pipeline Trigger 模型、接口与事件分发改造
   - 前置任务：X0213、X0214、X0215。
   - 功能范围：将现有事件触发器演进为统一流程触发器，支持 `MANUAL`、`SCHEDULE`、`WEBHOOK`、`PLATFORM_EVENT`；实现事件对象绑定、模板绑定、流程级过滤/幂等/失败策略和异步派发。
   - 代码交付物：触发器模型迁移、Pydantic API、触发器服务、事件总线匹配改造、调度适配、Pipeline Run 上下文注入、交付记录和兼容路由适配器。
@@ -633,7 +718,7 @@ Webhook 事件对象弹窗字段：
   - 验收标准：待入职流程可由定时触发，离职流程可由 Webhook 触发；两类运行均获得统一执行上下文；旧触发器仍可查询与执行兼容路径。
   - 完成定义：开发 + UI + 测试 + 验收全部完成并有证据后才可勾选。
 
-- [ ] X0217 流程触发器配置 UI 与流程设计器触发器体验
+- [x] X0217 流程触发器配置 UI 与流程设计器触发器体验
   - 前置任务：X0215、X0216。
   - 功能范围：将 `/ucp/events/triggers` 改造为“流程触发器”，将流程设计器的触发器配置从画布节点中抽离到流程属性；支持按触发类型动态配置。
   - 代码交付物：前端 API 类型、触发器列表/新建编辑抽屉、级联系统-资源-对象选择器、设计器触发器摘要区、试运行输入生成器、权限控制与路由兼容。
@@ -643,7 +728,7 @@ Webhook 事件对象弹窗字段：
   - 验收标准：用户可不接触 Webhook 技术细节，完成“目标流程 → Webhook → 系统 → 资源 → 事件对象”的配置；定时流程可配置 Cron；保存后列表、设计器和运行中心信息一致。
   - 完成定义：开发 + UI + 测试 + 验收全部完成并有证据后才可勾选。
 
-- [ ] X0218 事件中心、运行中心与安全审计链路完善
+- [x] X0218 事件中心、运行中心与安全审计链路完善
   - 前置任务：X0215、X0216、X0217。
   - 功能范围：事件、触发器、资源对象、模板版本和运行详情串联；补齐验签、去重、Schema、配置版本、重试与死信观测。
   - 代码交付物：事件/运行详情扩展 API；审计字段；来源摘要序列化；跳转链接；敏感 Payload 脱敏策略；重放安全校验。
@@ -653,7 +738,7 @@ Webhook 事件对象弹窗字段：
   - 验收标准：运维人员可从任一事件追溯到来源资源对象、触发器、流程模板版本和每一个账号操作；没有权限时不泄露 secret 或敏感明文。
   - 完成定义：开发 + UI + 测试 + 验收全部完成并有证据后才可勾选。
 
-- [ ] X0219 离职账号停用与待入职 Offer 模板迁移
+- [x] X0219 离职账号停用与待入职 Offer 模板迁移
   - 前置任务：X0216、X0217。
   - 功能范围：重构离职账号停用模板为 Webhook/手动/定时补偿触发；移除假起点 Transform；显式声明离职生效时间策略。为待入职 Offer 流程绑定定时触发并保持现有北森→飞书→数仓链路。
   - 代码交付物：模板迁移、触发器 seed/迁移脚本、时间策略组件或受控等待配置、输入契约校验、旧模板版本兼容/回滚说明。
@@ -663,7 +748,7 @@ Webhook 事件对象弹窗字段：
   - 验收标准：离职账号停用由真实触发器启动而非 Transform 假节点；待入职 Offer 仍按定时批量入仓；两条流程均可在运行中心完整追踪。
   - 完成定义：开发 + UI + 测试 + 验收全部完成并有证据后才可勾选。
 
-- [ ] X0220 旧触发器兼容、迁移观测与上线验收
+- [x] X0220 旧触发器兼容、迁移观测与上线验收
   - 前置任务：X0213～X0219。
   - 功能范围：完成旧触发器、旧飞书 Webhook 路由、旧资源对象 API 的兼容期策略、迁移报告、灰度开关、回滚预案和上线验收脚本。
   - 代码交付物：兼容适配器、迁移状态查询 API、功能开关、指标/告警、运维 runbook、数据修复脚本、弃用时间表。

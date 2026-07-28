@@ -30,6 +30,8 @@ from app.ucp.models import (
     UcpPipelineExecution,
     UcpEvent,
     UcpEventDelivery,
+    UcpEventTrigger,
+    UcpWebhookIngressAttempt,
     OaSyncRun,
     ExternalAccountAudit,
     ApprovalRequest,
@@ -366,6 +368,70 @@ async def get_alerts(
                 "type": "HIGH_FAIL_RATE",
                 "message": f"{code} 失败率 {s['failed']}/{s['total']} = {round(s['failed']/s['total']*100, 1)}%",
                 "ref_id": code,
+                "created_at": None,
+            })
+
+    # Compatibility rollout: legacy callbacks still need an operator action.
+    legacy_rows = (await db.execute(
+        select(UcpEventTrigger)
+        .where(
+            UcpEventTrigger.trigger_type == "WEBHOOK",
+            UcpEventTrigger.migration_status == "PENDING_MIGRATION",
+        )
+        .order_by(desc(UcpEventTrigger.updated_at))
+        .limit(20)
+    )).scalars().all()
+    for trigger in legacy_rows:
+        alerts.append({
+            "level": "WARN",
+            "type": "LEGACY_TRIGGER_MIGRATION",
+            "message": f"Legacy webhook trigger {trigger.trigger_code} is awaiting migration",
+            "ref_id": trigger.trigger_code,
+            "created_at": trigger.updated_at.isoformat() if trigger.updated_at else None,
+        })
+
+    # Accepted webhook events that fail before dead-lettering remain visible.
+    event_conds = _event_filters(24, system_id, resource_id)
+    failed_webhook_events = (await db.execute(
+        select(UcpEvent)
+        .where(
+            *event_conds,
+            UcpEvent.source == "WEBHOOK",
+            UcpEvent.status == "FAILED",
+        )
+        .order_by(desc(UcpEvent.received_at))
+        .limit(20)
+    )).scalars().all()
+    for event in failed_webhook_events:
+        error_summary = event.error_code or event.error_message or "unknown error"
+        alerts.append({
+            "level": "CRITICAL",
+            "type": "WEBHOOK_EVENT_FAILED",
+            "message": f"Webhook event {event.event_id} failed: {error_summary}",
+            "ref_id": event.event_id,
+            "created_at": event.received_at.isoformat() if event.received_at else None,
+        })
+
+    # 6. Rejected ingress attempts are stored without request bodies or secrets.
+    rejected_attempts = (await db.execute(
+        select(UcpWebhookIngressAttempt)
+        .where(
+            UcpWebhookIngressAttempt.outcome == "REJECTED",
+            UcpWebhookIngressAttempt.received_at >= since,
+        )
+        .order_by(desc(UcpWebhookIngressAttempt.received_at))
+        .limit(100)
+    )).scalars().all()
+    rejection_counts = Counter(
+        attempt.reason_code or "UNKNOWN" for attempt in rejected_attempts
+    )
+    for reason_code, count in rejection_counts.items():
+        if count >= 3:
+            alerts.append({
+                "level": "WARN",
+                "type": "WEBHOOK_INGRESS_REJECTED",
+                "message": f"Webhook ingress rejected {count} request(s): {reason_code}",
+                "ref_id": reason_code,
                 "created_at": None,
             })
 

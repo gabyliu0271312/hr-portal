@@ -58,13 +58,13 @@ class UcpCredential(Base):
     # 用途标签: prod / staging / dev / backup 等, 仅辅助展示
     env_tag: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # 是否为该系统下的"激活凭证"(同一 system 同一时间只有一个激活)
-    is_primary: Mapped[bool] = mapped_column(Integer, nullable=False, default=1)
+    is_primary: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # 加密后的凭证内容，格式：{"app_key": "encrypted...", "app_secret": "encrypted...", ...}
     secrets_encrypted: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     # 凭证类型标识，如 beisen / feishu / http_bearer 等
     auth_type: Mapped[str] = mapped_column(String(32), nullable=False, default="custom")
     # 凭证是否可用
-    is_active: Mapped[bool] = mapped_column(Integer, nullable=False, default=1)  # 1=active, 0=inactive
+    is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)  # 1=active, 0=inactive
     # Phase 4: 凭证过期管理
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     remind_before_days: Mapped[int | None] = mapped_column(Integer, nullable=True, default=7)
@@ -249,6 +249,7 @@ class UcpPipelineExecution(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     pipeline_run_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     pipeline_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    template_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
 
     # 触发信息
@@ -673,6 +674,53 @@ class UcpEvent(Base):
     resource_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("ucp_resource.id", ondelete="SET NULL"), nullable=True
     )
+    resource_object_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ucp_resource_data_object.id", ondelete="SET NULL"), nullable=True
+    )
+    event_definition_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ucp_event_definition.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class UcpWebhookIngressAttempt(Base):
+    """Metadata-only audit record for resource webhook ingress attempts."""
+
+    __tablename__ = "ucp_webhook_ingress_attempt"
+    __table_args__ = (
+        Index("ix_ucp_webhook_attempt_received", "received_at"),
+        Index("ix_ucp_webhook_attempt_resource_outcome", "resource_id", "outcome"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    resource_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ucp_resource.id", ondelete="SET NULL"), nullable=True
+    )
+    resource_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class UcpEventPayloadAccessAudit(Base):
+    """Audit trail for privileged access to unmasked event payloads."""
+
+    __tablename__ = "ucp_event_payload_access_audit"
+    __table_args__ = (
+        Index("ix_ucp_event_payload_audit_event", "event_id"),
+        Index("ix_ucp_event_payload_audit_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    event_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("ucp_event.id", ondelete="CASCADE"), nullable=False)
+    event_uuid: Mapped[str] = mapped_column(String(128), nullable=False)
+    operator: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class UcpEventTrigger(Base):
@@ -716,6 +764,8 @@ class UcpEventTrigger(Base):
     is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # Webhook 路径（外部系统推送入口）
     webhook_path: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
+    legacy_webhook_path: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    migration_status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
     # 审计
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -725,6 +775,14 @@ class UcpEventTrigger(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    trigger_type: Mapped[str] = mapped_column(String(32), nullable=False, default="WEBHOOK")
+    source_resource_object_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ucp_resource_data_object.id", ondelete="SET NULL"), nullable=True
+    )
+    schedule_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    input_schema: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    idempotency_expression: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    failure_policy: Mapped[str] = mapped_column(String(32), nullable=False, default="RETRY")
 
 
 # ============================================================
@@ -1233,6 +1291,11 @@ class AdapterDefinition(Base):
 
 
 class UcpSystem(Base):
+    package_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey('ucp_connector_package.id', ondelete='RESTRICT'), nullable=True)
+    catalog_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    connection_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    instance_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    is_catalog_test_instance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     """业务系统（逻辑分组）。
 
     与 UcpResource 1:N 关系。
@@ -1365,6 +1428,14 @@ class UcpBitableTableConfig(Base):
 
 
 class UcpConnectorPackage(Base):
+    category: Mapped[str] = mapped_column(String(32), nullable=False, default='STANDARD_SAAS')
+    icon: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    auth_policy: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    system_schema: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    feature_flags: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deprecated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     __tablename__ = "ucp_connector_package"
     __table_args__ = (UniqueConstraint("package_code", name="uq_ucp_connector_package_code"), Index("ix_ucp_connector_package_status", "status"))
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -1375,11 +1446,26 @@ class UcpConnectorPackage(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="DRAFT")
     host_allowlist: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    release_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compatibility_impact: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class UcpOperationDefinition(Base):
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default='PRESET')
+    approval_status: Mapped[str] = mapped_column(String(32), nullable=False, default='PUBLISHED')
+    executor_template_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey('ucp_api_template.id', ondelete='SET NULL'), nullable=True)
+    field_catalog: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    masking_rules: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error_rules: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    sample_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    sample_schema_hash: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    catalog_test_system_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey('ucp_system.id', ondelete='SET NULL'), nullable=True)
+    tested_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    submitted_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    published_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     __tablename__ = "ucp_operation_definition"
     __table_args__ = (UniqueConstraint("package_id", "object_code", "operation_code", "version", name="uq_ucp_operation_definition_version"), Index("ix_ucp_operation_definition_package", "package_id", "status"))
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -1467,6 +1553,14 @@ class UcpResourceDataObject(Base):
     object_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     field_mapping: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     incremental_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    object_type: Mapped[str] = mapped_column(String(32), nullable=False, default="REPORT")
+    event_definition_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ucp_event_definition.id", ondelete="RESTRICT"), nullable=True
+    )
+    event_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    verification_status: Mapped[str] = mapped_column(String(32), nullable=False, default="NOT_REQUIRED")
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    schema_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     is_active: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -1476,6 +1570,30 @@ class UcpResourceDataObject(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class UcpEventDefinition(Base):
+    """Versioned backend-governed event contract for EVENT_TYPE resource objects."""
+
+    __tablename__ = "ucp_event_definition"
+    __table_args__ = (
+        UniqueConstraint("event_code", "version", name="uq_ucp_event_definition_code_version"),
+        Index("ix_ucp_event_definition_source_status", "source_system_type", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    package_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    event_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_system_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_schema: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    normalization_schema: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    verification_strategy: Mapped[str] = mapped_column(String(64), nullable=False, default="NONE")
+    version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.0.0")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="DRAFT")
+    risk_level: Mapped[str] = mapped_column(String(32), nullable=False, default="read_low")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class UcpPipelineTemplateVersion(Base):
@@ -1568,6 +1686,11 @@ class UcpAlertLog(Base):
 
 
 class UcpApiTemplate(Base):
+    package_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey('ucp_connector_package.id', ondelete='SET NULL'), nullable=True)
+    owning_system_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey('ucp_system.id', ondelete='SET NULL'), nullable=True)
+    operation_definition_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey('ucp_operation_definition.id', ondelete='SET NULL'), nullable=True)
+    allowed_domains_snapshot: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    auth_policy_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     """API 资源模板库（Phase 5-E）。
 
     可保存、复制、导入、导出的 API 资源配置模板。

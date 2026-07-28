@@ -288,6 +288,7 @@ onMounted(loadDetail)
         <!-- 概览信息 -->
         <el-descriptions :column="4" border style="margin-bottom: 24px">
           <el-descriptions-item label="Pipeline">{{ detail.pipeline_code }}</el-descriptions-item>
+          <el-descriptions-item label="Template version">{{ detail.template_version || '-' }}</el-descriptions-item>
           <el-descriptions-item label="Trace ID">{{ detail.trace_id }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <div style="display: flex; align-items: center; gap: 6px">
@@ -311,6 +312,11 @@ onMounted(loadDetail)
             <span v-if="detail.failed_steps" style="color: var(--color-danger)">（{{ detail.failed_steps }} 失败）</span>
           </el-descriptions-item>
         </el-descriptions>
+        <el-alert v-if="detail.source_event" type="info" :closable="false" style="margin-bottom: 16px">
+          <template #title>Source event</template>
+          <el-link type="primary" @click="router.push(detail.source_event.href)">{{ detail.source_event.event_type }} / {{ detail.source_event.event_id }}</el-link>
+          <span v-if="detail.source_event.matched_trigger_code"> via {{ detail.source_event.matched_trigger_code }}</span>
+        </el-alert>
 
         <!-- Phase 2-3：PARTIAL 严重度明细卡片 -->
         <el-alert

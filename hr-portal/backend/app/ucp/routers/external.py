@@ -102,9 +102,17 @@ async def approval_action(request_id:int,payload:dict,db:AsyncSession=Depends(ge
     elif action == "WITHDRAW":
         req = await withdraw_request(db, request_id=request_id, operator_id=approver_id, comment=comment)
     elif action == "EXECUTE":
+        from app.ucp.pipeline_engine import resume_pipeline_after_approval
+
+        async def execute_approved_pipeline(req):
+            if req.business_type == "pipeline_step":
+                await resume_pipeline_after_approval(db, req)
+
         req = await execute_approved_request(
-            db, request_id=request_id,
+            db,
+            request_id=request_id,
             confirmation_token=payload.get("confirmation_token"),
+            executor=execute_approved_pipeline,
         )
     else:
         raise HTTPException(400, f"不支持的操作: {action}")

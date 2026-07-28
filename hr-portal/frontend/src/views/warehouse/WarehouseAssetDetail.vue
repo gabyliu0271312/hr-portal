@@ -40,6 +40,7 @@ const error = ref<string | null>(null)
 // 来源与开放
 const endpoints = ref<AssetEndpoints | null>(null)
 const endpointsLoading = ref(false)
+const syncingEndpointIds = ref<Set<number>>(new Set())
 
 // 数据预览
 const previewRows = ref<Record<string, any>[]>([])
@@ -79,11 +80,19 @@ const dsForm = reactive<{
   source_type: string
   schedule: string
   is_active: boolean
+  sync_semantics: string
+  write_strategy: string
+  missing_row_strategy: string
+  business_key_fields: string
   config: Record<string, string>
 }>({
   source_type: 'beisen_report',
   schedule: '每日 06:00',
   is_active: true,
+  sync_semantics: '',
+  write_strategy: '',
+  missing_row_strategy: '',
+  business_key_fields: '',
   config: {},
 })
 const dsSaving = ref(false)
@@ -212,6 +221,10 @@ async function openCreateDS() {
   dsForm.source_type = 'beisen_report'
   dsForm.schedule = t?.defaultSchedule ?? '每日 06:00'
   dsForm.is_active = true
+  dsForm.sync_semantics = ''
+  dsForm.write_strategy = ''
+  dsForm.missing_row_strategy = ''
+  dsForm.business_key_fields = ''
   dsForm.config = initFormForSourceType('beisen_report')
   dsTestResult.value = null
   dsDrawerVisible.value = true
@@ -231,6 +244,10 @@ async function openEditDS(ep: ConnectionEndpointSummary) {
     dsForm.source_type = saved.source_type
     dsForm.schedule = saved.schedule || t?.defaultSchedule || ''
     dsForm.is_active = saved.is_active
+    dsForm.sync_semantics = saved.sync_semantics || ''
+    dsForm.write_strategy = saved.write_strategy || ''
+    dsForm.missing_row_strategy = saved.missing_row_strategy || ''
+    dsForm.business_key_fields = (saved.business_key_fields || []).join(', ')
     dsForm.config = merged
     dsEditRow.value = saved
   } catch (e: any) {
@@ -256,6 +273,12 @@ async function saveDS() {
   dsSaving.value = true
   try {
     const { settings, secrets } = splitPayload()
+    const writePolicy = {
+      sync_semantics: dsForm.sync_semantics || null,
+      write_strategy: dsForm.write_strategy || null,
+      missing_row_strategy: dsForm.missing_row_strategy || null,
+      business_key_fields: dsForm.business_key_fields.split(',').map(item => item.trim()).filter(Boolean),
+    }
     if (dsDrawerMode.value === 'create') {
       await datasourcesApi.create({
         table_name: tableName,
@@ -263,15 +286,16 @@ async function saveDS() {
         source_type: dsForm.source_type,
         schedule: dsForm.schedule,
         is_active: dsForm.is_active,
+        ...writePolicy,
       })
       const allDs = await datasourcesApi.list()
       const created = allDs.find(d => d.table_name === tableName && d.source_type === dsForm.source_type)
       if (created) {
-        await datasourcesApi.update(created.id, { source_type: dsForm.source_type, schedule: dsForm.schedule, settings, secrets, is_active: dsForm.is_active })
+        await datasourcesApi.update(created.id, { source_type: dsForm.source_type, schedule: dsForm.schedule, settings, secrets, is_active: dsForm.is_active, ...writePolicy })
       }
       ElMessage.success('入仓来源已创建')
     } else if (dsEditId.value) {
-      await datasourcesApi.update(dsEditId.value, { source_type: dsForm.source_type, schedule: dsForm.schedule, settings, secrets, is_active: dsForm.is_active })
+      await datasourcesApi.update(dsEditId.value, { source_type: dsForm.source_type, schedule: dsForm.schedule, settings, secrets, is_active: dsForm.is_active, ...writePolicy })
       ElMessage.success('入仓来源已更新')
     }
     dsDrawerVisible.value = false
@@ -298,14 +322,35 @@ async function dsTest() {
 }
 
 async function dsSync(ep: ConnectionEndpointSummary) {
+  if (syncingEndpointIds.value.has(ep.endpoint_id)) return
+  syncingEndpointIds.value = new Set(syncingEndpointIds.value).add(ep.endpoint_id)
   try {
-    ElMessage.info('正在触发同步...')
+    ElMessage.info('正在读取飞书并写入本地 ODS，请稍候...')
     const res = await datasourcesApi.sync(ep.endpoint_id)
-    if (res.ok) ElMessage.success(`同步成功：${res.message}`)
-    else ElMessage.error(`同步失败：${res.message}`)
-    endpoints.value = null; loadEndpoints()
+    if (res.ok) {
+      ElMessage.success(`同步完成：${res.message}`)
+      endpoints.value = null
+      syncHistory.value = []
+      await Promise.all([load(), loadEndpoints(), loadSyncHistory()])
+      await loadPreview(true)
+    } else {
+      ElMessage.error(`同步失败：${res.message}`)
+      endpoints.value = null
+      syncHistory.value = []
+      await Promise.all([loadEndpoints(), loadSyncHistory()])
+    }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '触发失败')
+    const message = e?.code === 'ECONNABORTED'
+      ? '同步请求等待超时，请到同步历史查看最终状态'
+      : (e?.response?.data?.detail || '同步触发失败')
+    ElMessage.error(message)
+    endpoints.value = null
+    syncHistory.value = []
+    await Promise.all([loadEndpoints(), loadSyncHistory()])
+  } finally {
+    const next = new Set(syncingEndpointIds.value)
+    next.delete(ep.endpoint_id)
+    syncingEndpointIds.value = next
   }
 }
 
@@ -618,7 +663,9 @@ onMounted(() => {
                       <span class="ep-meta" v-if="ep.last_rows != null">{{ ep.last_rows }} 行</span>
                       <span class="ep-meta">{{ ep.last_run_at ? formatDateTime(ep.last_run_at) : '—' }}</span>
                       <el-button text size="small" @click="openEditDS(ep)">编辑</el-button>
-                      <el-button text size="small" @click="dsSync(ep)">同步</el-button>
+                      <el-button text size="small" :loading="syncingEndpointIds.has(ep.endpoint_id)" :disabled="syncingEndpointIds.has(ep.endpoint_id)" @click="dsSync(ep)">
+                        {{ syncingEndpointIds.has(ep.endpoint_id) ? '同步中' : '同步' }}
+                      </el-button>
                     </div>
                   </div>
                 </div>
@@ -933,6 +980,30 @@ onMounted(() => {
           </el-form-item>
           <el-form-item label="启用">
             <el-switch v-model="dsForm.is_active" active-text="启用" inactive-text="停用" />
+          </el-form-item>
+          <el-form-item label="输入语义">
+            <el-select v-model="dsForm.sync_semantics" clearable placeholder="未配置时保留历史数据" style="width: 100%">
+              <el-option label="全量快照" value="full_snapshot" />
+              <el-option label="增量追加" value="incremental_append" />
+              <el-option label="增量更新" value="incremental_upsert" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="更新策略">
+            <el-select v-model="dsForm.write_strategy" clearable placeholder="选择写入策略" style="width: 100%">
+              <el-option label="全量刷新" value="full_refresh" />
+              <el-option label="增量更新" value="incremental_upsert" />
+              <el-option label="追加写入" value="append" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="缺失行处理">
+            <el-select v-model="dsForm.missing_row_strategy" clearable placeholder="选择缺失行处理方式" style="width: 100%">
+              <el-option label="物理删除" value="hard_delete" />
+              <el-option label="标记失效" value="mark_inactive" />
+              <el-option label="保留历史" value="keep_history" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="业务主键">
+            <el-input v-model="dsForm.business_key_fields" placeholder="多个字段用英文逗号分隔" />
           </el-form-item>
         </div>
 

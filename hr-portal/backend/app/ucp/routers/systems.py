@@ -26,6 +26,7 @@ from app.ucp.system_service import (
     get_system_overview,
     get_systems_overview,
     find_credential_id_for_system,
+    list_system_resource_templates,
     serialize_resource,
 )
 from app.ucp.resource_data_object_service import (
@@ -88,16 +89,23 @@ async def route_create_system(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(require_op("ucp.systems", "C")),
 ):
-    obj = await create_system(
-        db,
-        system_code=payload["system_code"],
-        system_name=payload["system_name"],
-        system_type=payload.get("system_type", "CUSTOM"),
-        icon=payload.get("icon"),
-        owner=payload.get("owner"),
-        description=payload.get("description"),
-        created_by=user.login_name,
-    )
+    try:
+        obj = await create_system(
+            db,
+            system_code=payload["system_code"],
+            system_name=payload["system_name"],
+            system_type=payload.get("system_type", "CUSTOM"),
+            icon=payload.get("icon"),
+            owner=payload.get("owner"),
+            description=payload.get("description"),
+            created_by=user.login_name,
+            package_id=payload.get('package_id'),
+            catalog_version=payload.get('catalog_version'),
+            connection_mode=payload.get('connection_mode'),
+            instance_config=payload.get('instance_config'),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"id": obj.id, "system_code": obj.system_code, "system_name": obj.system_name}
 
 
@@ -158,6 +166,31 @@ async def route_system_default_credential(
     return {"credential_id": cred_id}
 
 
+@router.get("/systems/{system_id}/resource-templates")
+async def route_list_system_resource_templates(
+    system_id: int,
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(require_op("ucp.resources", "V")),
+):
+    try:
+        items = await list_system_resource_templates(db, system_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {
+        "items": [
+            {
+                "resource_template_code": item.package_code,
+                "resource_template_name": item.package_name,
+                "description": item.description,
+                "resource_connector_type": (item.system_schema or {}).get(
+                    "resource_connector_type"
+                ),
+            }
+            for item in items
+        ]
+    }
+
+
 # ── Resources ──
 
 @router.get("/resources")
@@ -178,27 +211,19 @@ async def route_create_resource(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(require_op("ucp.resources", "C")),
 ):
+    allowed = {"system_id", "resource_template_code"}
+    if set(payload) != allowed:
+        raise HTTPException(422, "RESOURCE_CREATE_PAYLOAD_INVALID")
     try:
         obj = await create_resource(
             db,
             system_id=payload["system_id"],
-            resource_code=payload["resource_code"],
-            resource_name=payload["resource_name"],
-            connector_type=payload.get("connector_type"),
-            adapter_code=payload.get("adapter_code"),
-            credential_id=payload.get("credential_id"),
-            protocol=payload.get("protocol"),
-            report_config=payload.get("report_config"),
-            mapping_config=payload.get("mapping_config"),
-            file_config=payload.get("file_config"),
-            scheduling=payload.get("scheduling"),
-            notification_config=payload.get("notification_config"),
-            retry_config=payload.get("retry_config"),
-            circuit_breaker_config=payload.get("circuit_breaker_config"),
+            resource_template_code=payload["resource_template_code"],
             created_by=user.login_name,
         )
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        status = 409 if str(exc) == "RESOURCE_TEMPLATE_ALREADY_ADDED" else 422
+        raise HTTPException(status, str(exc)) from exc
     return serialize_resource(obj)
 
 

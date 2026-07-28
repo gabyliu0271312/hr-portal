@@ -19,7 +19,7 @@
     </el-tabs>
 
     <EventListInner v-if="activeTab === 'list'" ref="eventListRef" />
-    <EventTriggerConfigView v-else-if="activeTab === 'triggers'" ref="triggerRef" />
+    <PipelineTriggerConfigView v-else-if="activeTab === 'triggers'" ref="triggerRef" />
     <DeadLetterListView v-else-if="activeTab === 'dead'" />
   </div>
 </template>
@@ -28,7 +28,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ucpApi } from '@/api/ucp'
 import EventListInner from './EventListInner.vue'
-import EventTriggerConfigView from './EventTriggerConfigView.vue'
+import PipelineTriggerConfigView from './PipelineTriggerConfigView.vue'
 import DeadLetterListView from './DeadLetterListView.vue'
 
 const activeTab = ref('list')

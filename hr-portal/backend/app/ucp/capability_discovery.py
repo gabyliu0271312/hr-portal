@@ -1,4 +1,4 @@
-"""Standard SaaS capability discovery for the system onboarding wizard."""
+"""Published type-level action discovery for the system onboarding wizard."""
 from __future__ import annotations
 
 from sqlalchemy import desc, select
@@ -8,8 +8,7 @@ from app.ucp.models import UcpConnectorPackage, UcpOperationDefinition, UcpSyste
 from app.ucp.models import UcpCapabilityTestRun
 from app.ucp.masking import mask_dict
 from app.ucp.masking import mask_sensitive_fields
-from app.ucp.credential_service import decrypt_credential_secrets
-from app.ucp.adapters import get_adapter
+from app.ucp.capability_execution import execute_operation_template
 import uuid
 
 
@@ -27,7 +26,7 @@ def operation_summary(operation: UcpOperationDefinition, capability: UcpSystemCa
         "verification_status": capability.verification_status if capability else "NOT_TESTED",
         "test_status": test_status,
         "input_fields": list((operation.input_schema or {}).get("required", [])),
-        "input_parameters": [{"key": key, "label": ((operation.input_schema or {}).get("properties", {}).get(key, {}) or {}).get("label", key)} for key in (operation.input_schema or {}).get("required", [])],
+        "input_parameters": [{"key": key, "label": ((operation.input_schema or {}).get("properties", {}).get(key, {}) or {}).get("title", ((operation.input_schema or {}).get("properties", {}).get(key, {}) or {}).get("label", key)), "type": ((operation.input_schema or {}).get("properties", {}).get(key, {}) or {}).get("type", "string"), "enum": ((operation.input_schema or {}).get("properties", {}).get(key, {}) or {}).get("enum", [])} for key in (operation.input_schema or {}).get("required", [])],
         "output_fields": list((operation.output_schema or {}).get("properties", {}).keys()),
     }
 
@@ -48,14 +47,18 @@ def capability_test_run_summary(run: UcpCapabilityTestRun) -> dict:
 async def list_standard_packages(db: AsyncSession) -> list[dict]:
     packages = list((await db.execute(
         select(UcpConnectorPackage).where(
-            UcpConnectorPackage.connection_mode == "STANDARD_SAAS",
+            UcpConnectorPackage.connection_mode.in_(("STANDARD_SAAS", "CONTROLLED_API")),
             UcpConnectorPackage.status == "PUBLISHED",
         ).order_by(UcpConnectorPackage.package_name)
     )).scalars())
     if not packages:
         return []
     operations = list((await db.execute(
-        select(UcpOperationDefinition).where(UcpOperationDefinition.package_id.in_([item.id for item in packages]))
+        select(UcpOperationDefinition).where(
+            UcpOperationDefinition.package_id.in_([item.id for item in packages]),
+            UcpOperationDefinition.status == 'PUBLISHED',
+            UcpOperationDefinition.approval_status == 'PUBLISHED',
+        )
         .order_by(UcpOperationDefinition.object_code, UcpOperationDefinition.operation_code)
     )).scalars())
     grouped: dict[int, list[UcpOperationDefinition]] = {item.id: [] for item in packages}
@@ -65,6 +68,8 @@ async def list_standard_packages(db: AsyncSession) -> list[dict]:
         "package_code": package.package_code,
         "package_name": package.package_name,
         "description": package.description,
+        "version": package.version,
+        "auth_policy": package.auth_policy or {},
         "operations": [operation_summary(operation) for operation in grouped[package.id]],
     } for package in packages]
 
@@ -81,7 +86,7 @@ async def list_system_capabilities(db: AsyncSession, system_id: int) -> list[dic
         )
         .join(UcpConnectorPackage, UcpConnectorPackage.id == UcpOperationDefinition.package_id)
         .where(
-            UcpConnectorPackage.connection_mode == "STANDARD_SAAS",
+            UcpConnectorPackage.connection_mode.in_(("STANDARD_SAAS", "CONTROLLED_API")),
             UcpConnectorPackage.status == "PUBLISHED",
         )
         .order_by(UcpConnectorPackage.package_name, UcpOperationDefinition.object_code)
@@ -135,7 +140,7 @@ async def test_system_capability(db: AsyncSession, *, system_id: int, operation_
         status, error_code, message = "CREDENTIAL_REQUIRED", "MISSING_CREDENTIAL", "请先绑定有效凭证"
     else:
         try:
-            result = await get_adapter(operation.adapter_code or "")(parameters, await decrypt_credential_secrets(db, capability.credential_id), db)
+            result = await execute_operation_template(db, operation, capability.credential_id, parameters)
             status = "SUCCESS" if result.status == "success" else result.status.upper()
             error_code = result.error_code
             message = "Offer 查询成功" if result.status == "success" else (result.error_message or "Offer 查询失败")

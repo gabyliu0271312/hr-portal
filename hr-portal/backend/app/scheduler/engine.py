@@ -185,6 +185,15 @@ class SchedulerEngine:
                         job2.last_run_at = run2.finished_at
                         job2.last_status = "failed"
                         job2.last_message = str(e)[:1000]
+                        if job2.kind == "datasource_sync":
+                            from app.datasources.models import DataSource
+
+                            datasource = await db2.get(DataSource, job2.business_id)
+                            if datasource:
+                                datasource.last_sync_at = run2.finished_at
+                                datasource.last_status = "failed"
+                                datasource.last_rows = 0
+                                datasource.last_message = str(e)[:1000]
                     await db2.commit()
                     logger.exception("[scheduler] job %d (%s) failed", job_id, run2.kind)
                     # 发布标准调度事件（failed）

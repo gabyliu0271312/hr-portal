@@ -17,6 +17,7 @@ from app.ucp.models import (
     UcpLoopItemExecution,
     UcpPipelineExecution,
     UcpPipelineStepExecution,
+    UcpEvent,
 )
 from app.ucp.pipeline_engine import (
     execute_pipeline,
@@ -66,6 +67,7 @@ async def route_list_executions(
             "pipeline_run_id": e.pipeline_run_id,
             "trace_id": e.trace_id,
             "pipeline_code": e.pipeline_code,
+            "template_version": e.template_version,
             "trigger_type": e.trigger_type,
             "triggered_by": e.triggered_by,
             "status": e.status,
@@ -104,6 +106,7 @@ async def route_get_execution(
         "pipeline_run_id": exec_obj.pipeline_run_id,
         "trace_id": exec_obj.trace_id,
         "pipeline_code": exec_obj.pipeline_code,
+        "template_version": exec_obj.template_version,
         "trigger_type": exec_obj.trigger_type,
         "status": exec_obj.status,
         "total_steps": exec_obj.total_steps,
@@ -115,6 +118,15 @@ async def route_get_execution(
         "error_message": exec_obj.error_message,
         "context_summary": exec_obj.context_summary,
     }
+    source_event = (await db.execute(
+        select(UcpEvent).where(UcpEvent.pipeline_run_id == pipeline_run_id).order_by(desc(UcpEvent.id)).limit(1)
+    )).scalar_one_or_none()
+    execution["source_event"] = ({
+        "event_id": source_event.event_id,
+        "event_type": source_event.event_type,
+        "matched_trigger_code": source_event.matched_trigger_code,
+        "href": f"/ucp/events/{source_event.event_id}",
+    } if source_event else None)
     step_items = []
     for s in steps:
         step_items.append({
@@ -245,6 +257,7 @@ async def route_run_pipeline(
         "status": exec_instance.status,
         "duration_ms": exec_instance.duration_ms,
         "dry_run": dry_run,
+        "node_results": getattr(exec_instance, "dry_run_results", []) if dry_run else [],
     }
 
 

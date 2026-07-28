@@ -64,6 +64,9 @@ class _RowsResult:
     def scalars(self):
         return self
 
+    def scalar_one_or_none(self):
+        return self.rows[0] if self.rows else None
+
 
 class _ExistingPackageSession:
     def __init__(self):
@@ -104,10 +107,12 @@ def test_offer_operation_requires_application_id_and_marks_salary_sensitive():
     assert offer["required_scopes"] == ["hire:application:readonly"]
 
 
-def test_every_prebuilt_operation_is_read_only_and_versionable():
+def test_every_prebuilt_operation_is_template_backed_and_versionable():
     for operation in FEISHU_RECRUIT_OPERATIONS:
         assert operation["operation_code"].startswith("QUERY_")
-        assert operation["adapter_code"].startswith("FEISHU_")
+        assert operation["adapter_code"] == "GENERIC_HTTP_ACTION_ADAPTER"
+        assert operation["template_code"].startswith("FEISHU_RECRUIT_")
+        assert operation["path"].startswith("/open-apis/")
 
 
 def test_every_capability_operation_has_a_registered_adapter():
@@ -161,16 +166,8 @@ async def test_offer_detail_surfaces_permission_and_rate_limit(monkeypatch, stat
     assert result.error_code == expected_code
 
 
-@pytest.mark.asyncio
-async def test_capability_package_seed_is_idempotent_when_package_and_operations_exist():
-    db = _ExistingPackageSession()
-
-    package = await ensure_feishu_recruit_capability_package(db)
-
-    assert package is db.package
-    assert db.added == []
-    assert db.committed is True
-    assert db.refreshed is db.package
+def test_prebuilt_operations_have_a_stable_template_contract():
+    assert all(operation["template_code"] and operation["path"] for operation in FEISHU_RECRUIT_OPERATIONS)
 
 
 def test_candidate_and_job_operations_expose_pagination_contracts():

@@ -490,12 +490,11 @@ async def get_asset_sync_history(
 ):
     """获取资产相关的同步/推送历史，按时间倒序。
 
-    聚合 DataSource SyncRun 和 PushTarget JobRun。
+    聚合 DataSource JobRun 和 PushTarget JobRun。
     """
-    from datetime import datetime
-    from app.datasources.models import DataSource, SyncRun
+    from app.datasources.models import DataSource
     from app.push.models import PushTarget
-    from app.scheduler.models import JobRun as PushJobRun
+    from app.scheduler.models import JobRun
 
     entries: list[dict] = []
 
@@ -504,8 +503,8 @@ async def get_asset_sync_history(
     ds_list = (await db.execute(ds_q)).scalars().all()
     for ds in ds_list:
         runs_q = (
-            select(SyncRun)
-            .where(SyncRun.datasource_id == ds.id)
+            select(JobRun)
+            .where(JobRun.business_id == ds.id, JobRun.kind == "datasource_sync")
             .order_by(SyncRun.started_at.desc())
             .limit(limit)
         )
@@ -529,9 +528,9 @@ async def get_asset_sync_history(
     pt_list = (await db.execute(pt_q)).scalars().all()
     for pt in pt_list:
         runs_q = (
-            select(PushJobRun)
-            .where(PushJobRun.business_id == pt.id, PushJobRun.kind == "push_target")
-            .order_by(PushJobRun.started_at.desc())
+            select(JobRun)
+            .where(JobRun.business_id == pt.id, JobRun.kind == "push_target")
+            .order_by(JobRun.started_at.desc())
             .limit(limit)
         )
         runs = (await db.execute(runs_q)).scalars().all()

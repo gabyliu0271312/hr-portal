@@ -272,6 +272,8 @@ async def match_triggers(
 
     matched: list[UcpEventTrigger] = []
     for trig in triggers:
+        if getattr(trig, "source_resource_object_id", None) is not None and getattr(event, "resource_object_id", None) != trig.source_resource_object_id:
+            continue
         # 资源 / 系统粒度过滤
         if trig.source_resource_id is not None:
             if getattr(event, "resource_id", None) != trig.source_resource_id:
@@ -532,6 +534,8 @@ async def process_event_pipeline(
     # 单个触发器失败不得阻断其它匹配触发器。
     dispatch_errors: list[EventBusError] = []
     for trig in triggers:
+        if getattr(trig, "source_resource_object_id", None) is not None and getattr(event, "resource_object_id", None) != trig.source_resource_object_id:
+            continue
         try:
             await dispatch_event(db, event, trig)
         except EventBusError as e:

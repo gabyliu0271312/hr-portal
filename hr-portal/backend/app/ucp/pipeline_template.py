@@ -31,16 +31,18 @@ from app.ucp.models import (
     UcpPipelineTemplate,
     UcpPipelineTemplateVersion,
 )
+from app.ucp.pipeline_node_catalog import (
+    NODE_TYPES,
+    START_TRIGGER_TYPES,
+    normalize_node_display,
+)
+from app.ucp.action_contract import ActionContractError, validate_condition_ast, validate_mapping
 
 
 class PipelineTemplateError(ValueError):
     """模板操作错误."""
 
 
-NODE_TYPES = {
-    "CONNECTOR", "TRANSFORM", "BRANCH", "LOOP", "CAPABILITY",
-    "CAPABILITY_LOOKUP", "RECORD_MERGE", "WAREHOUSE_ASSET_SINK",
-}
 TEMPLATE_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+([+-][\w.]+)?$")
 LEGACY_SEMVER_RE = re.compile(r"^\d+\.\d+$")
@@ -64,31 +66,52 @@ def next_patch_version(version: str) -> str:
 
 def _validate_node(node: Any, idx: int) -> dict:
     if not isinstance(node, dict):
-        raise PipelineTemplateError(f"node[{idx}] 必须为 dict")
-    nid = node.get("id")
-    if not isinstance(nid, str) or not nid.strip():
-        raise PipelineTemplateError(f"node[{idx}].id 必填且非空")
-    ntype = node.get("type")
-    if ntype not in NODE_TYPES:
-        raise PipelineTemplateError(
-            f"node[{idx}].type 错误 {ntype!r}, 允许 {sorted(NODE_TYPES)}"
-        )
-    x = node.get("x", 0)
-    y = node.get("y", 0)
+        raise PipelineTemplateError(f"node[{idx}] must be a dict")
+    node_id = node.get("id")
+    if not isinstance(node_id, str) or not node_id.strip():
+        raise PipelineTemplateError(f"node[{idx}].id is required")
+    node_type = node.get("type")
+    if not isinstance(node_type, str) or node_type not in NODE_TYPES:
+        raise PipelineTemplateError(f"node[{idx}].type is unsupported: {node_type!r}")
+    x, y = node.get("x", 0), node.get("y", 0)
     if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
-        raise PipelineTemplateError(f"node[{idx}].x/y 必须为数字")
+        raise PipelineTemplateError(f"node[{idx}].x/y must be numeric")
     label = node.get("label", "")
     if not isinstance(label, str):
-        raise PipelineTemplateError(f"node[{idx}].label 必须为 string")
+        raise PipelineTemplateError(f"node[{idx}].label must be a string")
     config = node.get("config", {})
     if not isinstance(config, dict):
-        raise PipelineTemplateError(f"node[{idx}].config 必须为 dict")
+        raise PipelineTemplateError(f"node[{idx}].config must be a dict")
+    try:
+        label, config = normalize_node_display(node_type, label, config)
+    except ValueError as error:
+        raise PipelineTemplateError(f"node[{idx}].config is invalid: {error}") from error
+    if node_type == "BRANCH":
+        if "condition" in config or config.get("condition_ast") is None:
+            raise PipelineTemplateError(f"node[{idx}] 的分支条件必须使用结构化 condition_ast")
+        try:
+            validate_condition_ast(
+                dict(config["condition_ast"]),
+                catalog=list(config.get("condition_field_catalog") or []),
+            )
+        except ActionContractError as error:
+            raise PipelineTemplateError(f"node[{idx}] 的结构化条件无效：{error}") from error
+    if node_type == "TRANSFORM":
+        if any(key in config for key in ("field_mappings", "input_keys", "output_key")) or config.get("mapping") is None:
+            raise PipelineTemplateError(f"node[{idx}] 的字段映射必须使用版本化 mapping DTO")
+        try:
+            validate_mapping(
+                dict(config["mapping"]), source_catalog=list(config.get("mapping_source_catalog") or []),
+                target_catalog=list(config.get("mapping_target_catalog") or []),
+            )
+        except ActionContractError as error:
+            raise PipelineTemplateError(f"node[{idx}] 的字段映射无效：{error}") from error
     return {
-        "id": nid.strip(),
-        "type": ntype,
+        "id": node_id.strip(),
+        "type": node_type,
         "x": float(x),
         "y": float(y),
-        "label": label[:64],
+        "label": label,
         "config": config,
     }
 
@@ -100,7 +123,7 @@ async def _validate_resource_node_refs(
 
     防止跨 system 引用, 同时防止引用不存在的 resource.
     """
-    from app.ucp.models import UcpResource
+    from app.ucp.models import UcpResource, UcpSystem
 
     need_check = [n for n in nodes if n["type"] == "CONNECTOR"]
     if not need_check:
@@ -132,6 +155,9 @@ async def _validate_resource_node_refs(
                 f"CONNECTOR 节点 {n['id']!r} 跨 system 引用: "
                 f"resource {rid} 属于 system {res_map[rid]}, 与声明 system {sys_id} 不一致"
             )
+    test_system_ids = set((await db.execute(select(UcpSystem.id).where(UcpSystem.id.in_([n["config"]["system_id"] for n in need_check]), UcpSystem.is_catalog_test_instance == 1))).scalars())
+    if test_system_ids:
+        raise PipelineTemplateError("目录测试实例不能被 Pipeline 引用")
 
 
 def _validate_edge(edge: Any, idx: int, node_ids: set[str]) -> dict:
@@ -152,31 +178,104 @@ def _validate_edge(edge: Any, idx: int, node_ids: set[str]) -> dict:
 
 
 def validate_graph(nodes: list, edges: list) -> tuple[list[dict], list[dict]]:
-    """校验并规范化 nodes / edges, 返回 (norm_nodes, norm_edges)."""
+    """Validate, normalize, and enforce executable graph invariants."""
     if not isinstance(nodes, list):
-        raise PipelineTemplateError("nodes 必须为 list")
+        raise PipelineTemplateError("nodes must be a list")
     if not isinstance(edges, list):
-        raise PipelineTemplateError("edges 必须为 list")
+        raise PipelineTemplateError("edges must be a list")
 
-    norm_nodes = [_validate_node(n, i) for i, n in enumerate(nodes)]
-    node_ids = {n["id"] for n in norm_nodes}
-    norm_edges = [_validate_edge(e, i, node_ids) for i, e in enumerate(edges)]
+    norm_nodes = [_validate_node(node, index) for index, node in enumerate(nodes)]
+    node_ids = {node["id"] for node in norm_nodes}
+    if len(node_ids) != len(norm_nodes):
+        raise PipelineTemplateError("node id values must be unique")
 
-    # LOOP 出度校验
-    out_degree: dict[str, int] = {nid: 0 for nid in node_ids}
-    for e in norm_edges:
-        out_degree[e["from"]] = out_degree.get(e["from"], 0) + 1
-    for n in norm_nodes:
-        if n["type"] == "LOOP" and out_degree[n["id"]] > 1:
+    start_nodes = [node for node in norm_nodes if node["type"] == "START_TRIGGER"]
+    if len(start_nodes) != 1:
+        raise PipelineTemplateError("a pipeline template must contain exactly one START_TRIGGER node")
+    start_node = start_nodes[0]
+    start_config = start_node["config"]
+    allowed_start_config_keys = {"mode", "trigger_types", "management_path", "business_alias"}
+    if set(start_config) - allowed_start_config_keys:
+        raise PipelineTemplateError(
+            "START_TRIGGER config may only contain mode, trigger_types, and management_path"
+        )
+    if start_config.get("mode", "OR") != "OR":
+        raise PipelineTemplateError("START_TRIGGER only supports OR trigger semantics")
+    trigger_types = start_config.get("trigger_types", [])
+    if not isinstance(trigger_types, list) or not all(
+        isinstance(trigger_type, str) and trigger_type in START_TRIGGER_TYPES
+        for trigger_type in trigger_types
+    ):
+        raise PipelineTemplateError("START_TRIGGER.trigger_types contains an unsupported trigger type")
+    management_path = start_config.get("management_path")
+    if management_path is not None and management_path != "/ucp/events/triggers":
+        raise PipelineTemplateError("START_TRIGGER.management_path must reference the trigger management page")
+
+    norm_edges = [_validate_edge(edge, index, node_ids) for index, edge in enumerate(edges)]
+    if any(edge["to"] == start_node["id"] for edge in norm_edges):
+        raise PipelineTemplateError("START_TRIGGER cannot have incoming edges")
+
+    for branch_node in (node for node in norm_nodes if node["type"] == "BRANCH"):
+        outgoing_edges = [edge for edge in norm_edges if edge["from"] == branch_node["id"]]
+        expected_conditions = {f"BRANCH_TRUE:{branch_node['id']}", f"BRANCH_FALSE:{branch_node['id']}"}
+        if len(outgoing_edges) != 2 or {edge["condition"].strip() for edge in outgoing_edges} != expected_conditions:
             raise PipelineTemplateError(
-                f"LOOP 节点 {n['id']!r} 出度不能超过 1, 当前 {out_degree[n['id']]}"
+                f"BRANCH node {branch_node['id']!r} must have true and false conditional outgoing edges"
             )
 
-    # id 唯一
-    if len(node_ids) != len(norm_nodes):
-        raise PipelineTemplateError("node id 存在重复")
+    adjacency: dict[str, list[str]] = {node_id: [] for node_id in node_ids}
+    in_degree: dict[str, int] = {node_id: 0 for node_id in node_ids}
+    for edge in norm_edges:
+        adjacency[edge["from"]].append(edge["to"])
+        in_degree[edge["to"]] += 1
 
+    ready = [node["id"] for node in norm_nodes if in_degree[node["id"]] == 0]
+    visited_count = 0
+    while ready:
+        node_id = ready.pop(0)
+        visited_count += 1
+        for target_id in adjacency[node_id]:
+            in_degree[target_id] -= 1
+            if in_degree[target_id] == 0:
+                ready.append(target_id)
+    if visited_count != len(norm_nodes):
+        raise PipelineTemplateError("pipeline graph must not contain cycles")
+
+    reachable: set[str] = set()
+    pending = [start_node["id"]]
+    while pending:
+        node_id = pending.pop()
+        if node_id in reachable:
+            continue
+        reachable.add(node_id)
+        pending.extend(adjacency[node_id])
+    if reachable != node_ids:
+        raise PipelineTemplateError("every pipeline node must be reachable from START_TRIGGER")
     return norm_nodes, norm_edges
+
+
+def topologically_sort_nodes(nodes: list[dict], edges: list[dict]) -> list[dict]:
+    """Return nodes in deterministic edge-defined execution order."""
+    order = {node["id"]: index for index, node in enumerate(nodes)}
+    adjacency: dict[str, list[str]] = {node_id: [] for node_id in order}
+    in_degree: dict[str, int] = {node_id: 0 for node_id in order}
+    for edge in edges:
+        adjacency[edge["from"]].append(edge["to"])
+        in_degree[edge["to"]] += 1
+    ready = sorted((node_id for node_id, degree in in_degree.items() if degree == 0), key=order.get)
+    sorted_ids: list[str] = []
+    while ready:
+        node_id = ready.pop(0)
+        sorted_ids.append(node_id)
+        for target_id in sorted(adjacency[node_id], key=order.get):
+            in_degree[target_id] -= 1
+            if in_degree[target_id] == 0:
+                ready.append(target_id)
+                ready.sort(key=order.get)
+    if len(sorted_ids) != len(nodes):
+        raise PipelineTemplateError("pipeline graph must not contain cycles")
+    node_map = {node["id"]: node for node in nodes}
+    return [node_map[node_id] for node_id in sorted_ids]
 
 
 # ===== CRUD =====

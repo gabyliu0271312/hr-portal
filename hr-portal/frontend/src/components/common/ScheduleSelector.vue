@@ -31,6 +31,8 @@ const props = defineProps<{
   startTime?: string
   /** 是否允许高级模式（RRULE 自定义） */
   allowAdvanced?: boolean
+  allowManual?: boolean
+  showHint?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -47,8 +49,10 @@ const scheduleOptions: ScheduleOption[] = [
   { label: '每月 1 日 06:00', value: '每月 1 日 06:00', rrule: 'FREQ=MONTHLY;BYMONTHDAY=1' },
   { label: '每月 5 日 06:00', value: '每月 5 日 06:00', rrule: 'FREQ=MONTHLY;BYMONTHDAY=5' },
   { label: '每小时整点', value: '每小时整点', rrule: 'FREQ=HOURLY;INTERVAL=1' },
+  { label: '每 6 小时', value: '每 6 小时', rrule: 'FREQ=HOURLY;INTERVAL=6' },
   { label: '手动触发', value: '手动触发', rrule: '' },
 ]
+const availableScheduleOptions = computed(() => props.allowManual === false ? scheduleOptions.filter((option) => option.value !== '手动触发') : scheduleOptions)
 
 // ── 高级模式 ────────────────────────────────────────
 const isAdvanced = ref(false)
@@ -114,7 +118,7 @@ function onStartTimeChange(val: string) {
           style="width: 100%"
         >
           <el-option
-            v-for="opt in scheduleOptions"
+            v-for="opt in availableScheduleOptions"
             :key="opt.value"
             :label="opt.label"
             :value="opt.value"
@@ -133,7 +137,7 @@ function onStartTimeChange(val: string) {
           </svg>
         </button>
       </div>
-      <span v-if="!$attrs.required" class="ss-hint">与接口配置中的调度计划保持一致</span>
+      <span v-if="showHint !== false && !$attrs.required" class="ss-hint">与接口配置中的调度计划保持一致</span>
     </div>
 
     <!-- 开始时间 -->
@@ -166,7 +170,7 @@ function onStartTimeChange(val: string) {
       <div class="ss-advanced-presets">
         <span class="ss-advanced-presets-label">快速填入：</span>
         <button
-          v-for="opt in scheduleOptions.filter(o => o.rrule)"
+          v-for="opt in availableScheduleOptions.filter(o => o.rrule)"
           :key="opt.rrule"
           class="ss-preset-btn"
           @click="onCustomRRule(opt.rrule!)"

@@ -16,7 +16,7 @@
 </template>
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { accountLifecycleApi, type AccountLifecycleRule, type AccountLifecycleJob } from '@/api/ucp'
 const rules=ref<AccountLifecycleRule[]>([]), jobs=ref<AccountLifecycleJob[]>([]), loading=ref(false), visible=ref(false)
@@ -26,6 +26,8 @@ function openCreate(){form.value={...form.value,rule_code:'',rule_name:''};visib
 async function create(){try{await accountLifecycleApi.createRule({...form.value,field_mapping:{employee_id:form.value.employeePath}});visible.value=false;ElMessage.success('已保存');load()}catch(e:any){ElMessage.error(e?.response?.data?.detail||'保存失败')}}
 async function toggle(row:AccountLifecycleRule){await accountLifecycleApi.setRuleEnabled(row.rule_code,!row.status);ElMessage.success('状态已更新');load()}
 async function retry(row:AccountLifecycleJob){await accountLifecycleApi.retryJob(row.job_code);ElMessage.success('已重试');load()}
+async function cancel(row:AccountLifecycleJob){try{await ElMessageBox.confirm('Cancel this unexecuted lifecycle task?','Cancel task',{type:'warning'});await accountLifecycleApi.cancelJob(row.job_code);ElMessage.success('Task cancelled');load()}catch(e:any){if(e!=='cancel')ElMessage.error(e?.response?.data?.detail?.message||e?.response?.data?.detail||'Cancel failed')}}
+async function reschedule(row:AccountLifecycleJob){try{const r=await ElMessageBox.prompt('New execution time (ISO-8601, e.g. 2026-07-30T09:00:00+08:00)','Reschedule task',{inputValue:row.scheduled_at||'',inputPattern:/^\d{4}-\d{2}-\d{2}T/,inputErrorMessage:'Enter an ISO-8601 datetime'});await accountLifecycleApi.rescheduleJob(row.job_code,r.value);ElMessage.success('Task rescheduled');load()}catch(e:any){if(e!=='cancel')ElMessage.error(e?.response?.data?.detail?.message||e?.response?.data?.detail||'Reschedule failed')}}
 async function runDry(row:AccountLifecycleRule){try{const r=await accountLifecycleApi.dryRun(row.rule_code,{employee:{employee_id:'DRY-RUN-001'}});ElMessage.success(r.matched?'规则匹配成功':'规则未匹配')}catch(e:any){ElMessage.error(e?.response?.data?.detail||'模拟失败')}}
 onMounted(load)
 </script><style scoped>.lifecycle-page{padding:24px}.header{display:flex;justify-content:space-between;align-items:center}.header p{margin:6px 0 0;color:#909399;font-size:13px}.jobs{margin-top:16px}</style>

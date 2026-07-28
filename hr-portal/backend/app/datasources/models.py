@@ -46,6 +46,11 @@ class DataSource(Base):
     secrets_encrypted: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 入仓更新策略：供数据源同步和 UCP 资产写入统一使用；空值表示历史来源沿用节点策略。
+    sync_semantics: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    write_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    missing_row_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    business_key_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
     # 上次同步状态摘要
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

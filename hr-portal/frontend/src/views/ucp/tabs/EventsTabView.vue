@@ -36,7 +36,7 @@
 
       <div class="sub-content">
         <EventListView v-if="subTab === 'list'" :system-code="currentSystemCode" />
-        <EventTriggerConfigView v-else-if="subTab === 'triggers'" :system-code="currentSystemCode" />
+        <PipelineTriggerConfigView v-else-if="subTab === 'triggers'" :system-code="currentSystemCode" />
         <DeadLetterListView v-else-if="subTab === 'dead'" />
       </div>
     </div>
@@ -46,7 +46,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import EventListView from '../EventListView.vue'
-import EventTriggerConfigView from '../EventTriggerConfigView.vue'
+import PipelineTriggerConfigView from '../PipelineTriggerConfigView.vue'
 import DeadLetterListView from '../DeadLetterListView.vue'
 import { ucpApi } from '@/api/ucp'
 

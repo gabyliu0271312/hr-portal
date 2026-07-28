@@ -14,6 +14,8 @@ from app.ucp.account_lifecycle_service import (
     list_jobs,
     list_rules,
     retry_job,
+    cancel_job,
+    reschedule_job,
     set_rule_status,
     update_rule,
 )
@@ -22,7 +24,7 @@ router = APIRouter(tags=["ucp-account-lifecycle"])
 
 
 def _http_error(exc: LifecycleError) -> HTTPException:
-    code = status.HTTP_404_NOT_FOUND if exc.code.endswith("NOT_FOUND") else status.HTTP_409_CONFLICT if exc.code in {"RULE_CODE_EXISTS", "JOB_NOT_RETRYABLE"} else status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = status.HTTP_404_NOT_FOUND if exc.code.endswith("NOT_FOUND") else status.HTTP_409_CONFLICT if exc.code in {"RULE_CODE_EXISTS", "JOB_NOT_RETRYABLE", "JOB_NOT_CANCELLABLE", "JOB_NOT_RESCHEDULABLE"} else status.HTTP_422_UNPROCESSABLE_ENTITY
     return HTTPException(code, detail={"code": exc.code, "message": exc.message})
 
 
@@ -103,6 +105,26 @@ async def get_jobs(
 async def post_retry(job_code: str, db: AsyncSession = Depends(get_session), _user: User = Depends(current_user)) -> dict:
     try:
         return await retry_job(db, job_code)
+    except LifecycleError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post("/account-lifecycle-jobs/{job_code}/cancel", dependencies=[Depends(require_op("ucp.external_accounts", "U"))])
+async def post_cancel(job_code: str, db: AsyncSession = Depends(get_session), _user: User = Depends(current_user)) -> dict:
+    try:
+        return await cancel_job(db, job_code)
+    except LifecycleError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post("/account-lifecycle-jobs/{job_code}/reschedule", dependencies=[Depends(require_op("ucp.external_accounts", "U"))])
+async def post_reschedule(job_code: str, payload: dict, db: AsyncSession = Depends(get_session), _user: User = Depends(current_user)) -> dict:
+    from datetime import datetime
+    value = payload.get("scheduled_at")
+    try:
+        return await reschedule_job(db, job_code, datetime.fromisoformat(str(value).replace("Z", "+00:00")))
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": "INVALID_SCHEDULE_TIME", "message": "scheduled_at must be an ISO-8601 datetime"}) from exc
     except LifecycleError as exc:
         raise _http_error(exc) from exc
 
