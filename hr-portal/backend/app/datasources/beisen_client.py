@@ -835,6 +835,33 @@ class FeishuSheetClient:
             rows.append(row)
         return rows
 
+    async def discover_fields(self) -> list[dict]:
+        """读取表头及少量样本行，用于同步前确认字段，不执行正式全量读取。"""
+        self._validate()
+        token = await self.get_token()
+        spreadsheet_token = await self._ensure_spreadsheet_token()
+        read_range = await self._range(spreadsheet_token)
+        parsed = self._parse_range_for_chunking(read_range)
+        if not parsed:
+            raise RuntimeError("飞书表格读取范围无法解析，无法发现字段")
+        sheet_id, start_col, start_row, end_col, _end_row = parsed
+        sample_end = start_row + max(self.header_row, 1) + 9
+        sample_range = f"{sheet_id}!{start_col}{start_row}:{end_col}{sample_end}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            values = await self._fetch_value_range(client, spreadsheet_token, token, sample_range)
+        if len(values) < self.header_row:
+            return []
+        headers = values[self.header_row - 1] or []
+        fields = []
+        for index, header in enumerate(headers):
+            label = str(header or "").strip() or f"列{index + 1}"
+            samples = [
+                row[index] for row in values[self.header_row:]
+                if isinstance(row, list) and index < len(row) and row[index] not in (None, "")
+            ]
+            fields.append({"source_key": label, "label": label, "sample_values": samples[:3]})
+        return fields
+
     async def fetch(self, timeout: float = 60.0) -> list[dict]:
         self._validate()
         token = await self.get_token()

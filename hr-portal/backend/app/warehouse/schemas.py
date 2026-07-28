@@ -90,6 +90,19 @@ class WarehouseAssetUpdateIn(BaseModel):
     ucp_connector_config_id: Optional[int] = None
 
 
+class WarehousePeriodConfigIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    period_col: str
+    period_source: Literal["field", "inject"]
+    source_label: str | None = None
+
+
+class WarehousePeriodConfigOut(BaseModel):
+    table_name: str
+    period_col: str
+    period_source: Literal["field", "inject"]
+
+
 # ==================== 数据模型 ====================
 
 class WarehouseModelCreateIn(BaseModel):

@@ -484,6 +484,11 @@ async def _ensure_period_meta(table_name: str, db: AsyncSession) -> None:
             )
         )
     ).scalars().all()
+    if not cols:
+        raise RuntimeError(
+            f"月度表 {table_name} 的期间字段 {period_col} 尚未注册为实体列，"
+            "请先发现字段并保存期间配置"
+        )
     for c in cols:
         c.is_pk_part = True
         c.display_order = 0
@@ -649,8 +654,18 @@ async def _dynamic_upsert(
             if not isinstance(r, dict):
                 continue
             if r.get(period_col) in (None, ""):
+                if cfg.get("period_source") == "field":
+                    raise RuntimeError(
+                        f"月度表 {table_name} 尚未确认期间字段 {period_col}，"
+                        "请先在来源与开放中发现字段并保存期间配置"
+                    )
                 raise RuntimeError(f"月度表 {table_name} 缺少期间字段: {period_col}")
-            r[period_col] = _normalize_yyyymm(r[period_col])
+            normalized = _normalize_yyyymm(r[period_col])
+            if not normalized:
+                raise RuntimeError(
+                    f"月度表 {table_name} 的期间字段 {period_col} 不是有效年月"
+                )
+            r[period_col] = normalized
 
     # 2) 月度表：收口期间列主键
     await _ensure_period_meta(table_name, db)
@@ -1257,16 +1272,27 @@ async def _sync_to_table_impl(
     # 写入业务表（统一走 upsert + 删孤儿）
     # field 模式下源端可能含多月数据（如北森一次返回多月），分组分别写入
     if period_cfg and period_cfg.get("period_source", "inject") == "field" and rows:
+        period_meta = await db.scalar(
+            select(TableColumn).where(
+                TableColumn.table_name == table_name,
+                TableColumn.column_code == period_col,
+            )
+        )
+        source_period_key = period_meta.column_label if period_meta else period_col
         _groups: dict[str, list] = {}
         for _r in rows:
             if isinstance(_r, dict):
-                _rv = _normalize_yyyymm(str(_r.get(period_col, "")))
-                _groups.setdefault(_rv or cur_ym, []).append(_r)
+                _rv = _normalize_yyyymm(str(_r.get(period_col, _r.get(source_period_key, ""))))
+                if not _rv:
+                    raise RuntimeError(
+                        f"月度表 {table_name} 的期间字段 {period_col} 未返回有效年月"
+                    )
+                _groups.setdefault(_rv, []).append(_r)
         inserted = 0
         for _ym, _grp in sorted(_groups.items()):
             inserted += await _dynamic_upsert(table_name, _grp, db, period_ym=_ym)
         if _groups:
-            cur_ym = max(_groups)  # 最近期（供后续树构建用）
+            cur_ym = max(_groups)
     else:
         inserted = await _dynamic_upsert(table_name, rows or [], db, period_ym=cur_ym)
 

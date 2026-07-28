@@ -367,7 +367,19 @@ export function updateAsset(
   return api.patch(`/warehouse/assets/${encodeURIComponent(tableName)}`, payload).then(r => r.data)
 }
 
-/** 资产字段列表 */
+export interface PeriodConfigPayload {
+  period_col: string
+  period_source: 'field' | 'inject'
+  source_label?: string
+}
+
+export function updatePeriodConfig(
+  tableName: string,
+  payload: PeriodConfigPayload,
+): Promise<{ table_name: string; period_col: string; period_source: string }> {
+  return api.put(`/warehouse/assets/${encodeURIComponent(tableName)}/period-config`, payload).then(r => r.data)
+}
+
 export function listAssetColumns(tableName: string): Promise<{ table_name: string; columns: AssetColumn[] }> {
   return api.get(`/warehouse/assets/${encodeURIComponent(tableName)}/columns`).then(r => r.data)
 }

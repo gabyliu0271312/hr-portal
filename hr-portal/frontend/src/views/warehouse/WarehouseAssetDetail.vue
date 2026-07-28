@@ -5,7 +5,7 @@ import { ElMessage } from 'element-plus'
 import { ArrowLeft, Link, Edit, List, DataAnalysis, Connection, Refresh } from '@element-plus/icons-vue'
 import ResourcePicker from '@/components/warehouse/ResourcePicker.vue'
 import {
-  getAsset, updateAsset, getAssetEndpoints, getAssetSyncHistory,
+  getAsset, updateAsset, updatePeriodConfig, getAssetEndpoints, getAssetSyncHistory,
   getUcpRoute,
   UCP_DISABLED_TEXT,
   UCP_NOT_CONNECTED_TEXT,
@@ -17,7 +17,7 @@ import {
 import { useUserStore } from '@/stores/user'
 import { formatDateTime } from '@/utils/datetime'
 import { dataApi, type ColumnInfo } from '@/api/data'
-import { datasourcesApi, type ConnectorTypeDefinition, type DataSourceListItem } from '@/api/datasources'
+import { datasourcesApi, type ConnectorTypeDefinition, type DataSourceListItem, type DiscoveredField } from '@/api/datasources'
 import { adminTablesApi } from '@/api/admin_tables'
 import {
   SOURCE_TYPES,
@@ -97,6 +97,9 @@ const dsForm = reactive<{
 })
 const dsSaving = ref(false)
 const dsTesting = ref(false)
+const dsDiscovering = ref(false)
+const discoveredFields = ref<DiscoveredField[]>([])
+const selectedPeriodField = ref('')
 const dsTestResult = ref<{ ok: boolean; message: string } | null>(null)
 
 // 月度自动偏移表
@@ -227,6 +230,8 @@ async function openCreateDS() {
   dsForm.business_key_fields = ''
   dsForm.config = initFormForSourceType('beisen_report')
   dsTestResult.value = null
+  discoveredFields.value = []
+  selectedPeriodField.value = ''
   dsDrawerVisible.value = true
 }
 
@@ -255,6 +260,8 @@ async function openEditDS(ep: ConnectionEndpointSummary) {
     return
   }
   dsTestResult.value = null
+  discoveredFields.value = []
+  selectedPeriodField.value = ''
   dsDrawerVisible.value = true
 }
 
@@ -321,6 +328,36 @@ async function dsTest() {
   } finally { dsTesting.value = false }
 }
 
+async function dsDiscoverFields() {
+  if (!dsEditId.value) { ElMessage.warning('请先保存来源配置'); return }
+  dsDiscovering.value = true
+  try {
+    discoveredFields.value = await datasourcesApi.discoverFields(dsEditId.value)
+    if (!discoveredFields.value.length) ElMessage.warning('未发现字段，请检查读取范围和表头行')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '字段发现失败')
+  } finally {
+    dsDiscovering.value = false
+  }
+}
+
+async function savePeriodField() {
+  const field = discoveredFields.value.find(item => item.column_code === selectedPeriodField.value)
+  if (!field) { ElMessage.warning('请选择期间字段'); return }
+  if (!field.is_yearmonth) { ElMessage.warning('该字段样本不是有效年月'); return }
+  try {
+    await updatePeriodConfig(tableName, {
+      period_col: field.column_code,
+      period_source: 'field',
+      source_label: field.label,
+    })
+    ElMessage.success(`期间字段已设置为 ${field.label}`)
+    await load()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存期间字段失败')
+  }
+}
+
 async function dsSync(ep: ConnectionEndpointSummary) {
   if (syncingEndpointIds.value.has(ep.endpoint_id)) return
   syncingEndpointIds.value = new Set(syncingEndpointIds.value).add(ep.endpoint_id)
@@ -370,7 +407,7 @@ import { SCOPE_STRATEGY_OPTIONS } from '@/constants/scopeStrategy'
 import LayerTag from '@/components/warehouse/LayerTag.vue'
 import { WAREHOUSE_LAYER_OPTIONS } from '@/constants/warehouseLayers'
 
-const editForm = ref({ warehouse_layer: '', subject_area: '', owner_name: '', asset_status: '', description: '', scope_strategy: '', ucp_system_id: null as number | null, ucp_resource_id: null as number | null, ucp_resource_name: '', period_col: '' })
+const editForm = ref({ warehouse_layer: '', subject_area: '', owner_name: '', asset_status: '', description: '', scope_strategy: '', ucp_system_id: null as number | null, ucp_resource_id: null as number | null, ucp_resource_name: '' })
 const editSaving = ref(false)
 
 const STATUS_OPTIONS = ['draft', 'published', 'disabled', 'archived']
@@ -443,7 +480,6 @@ function enterEdit() {
     ucp_system_id: asset.value.ucp_system_id ?? null,
     ucp_resource_id: asset.value.ucp_resource_id ?? null,
     ucp_resource_name: '',
-    period_col: asset.value.period_col || '',
   }
   editMode.value = true
 }
@@ -463,7 +499,6 @@ async function saveEdit() {
       asset_status: editForm.value.asset_status,
       description: editForm.value.description || null,
       scope_strategy: editForm.value.scope_strategy || null,
-      period_col: editForm.value.period_col || null,
     })
     ElMessage.success('保存成功')
     editMode.value = false
@@ -595,12 +630,7 @@ onMounted(() => {
               <el-descriptions-item label="创建时间">
                 {{ asset.created_at ? formatDateTime(asset.created_at) : '—' }}
               </el-descriptions-item>
-              <el-descriptions-item v-if="asset.is_period" label="周期字段">
-                <template v-if="editMode">
-                  <el-input v-model="editForm.period_col" style="width: 140px" placeholder="month" size="small" />
-                </template>
-                <template v-else>{{ asset.period_col || '—' }}</template>
-              </el-descriptions-item>
+              <el-descriptions-item v-if="asset.is_period" label="周期字段">{{ asset.period_col || '待发现' }}</el-descriptions-item>
               <el-descriptions-item label="数据范围策略">{{ asset.scope_strategy || '—' }}</el-descriptions-item>
             </el-descriptions>
           </el-tab-pane>
@@ -970,6 +1000,18 @@ onMounted(() => {
           </el-form-item>
         </div>
 
+        <div v-if="asset?.is_period && asset.period_source === 'field'" style="margin-bottom: 8px">
+          <div style="font-size: 12px; font-weight: 600; color: #909399; margin: 16px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #f0f0f0">期间字段</div>
+          <el-alert type="info" :closable="false" show-icon style="margin-bottom: 10px" title="请先发现飞书字段，再选择实际年月字段作为月度期间。" />
+          <template v-if="discoveredFields.length">
+            <el-select v-model="selectedPeriodField" placeholder="选择年月字段" style="width: 100%">
+              <el-option v-for="field in discoveredFields" :key="field.column_code" :value="field.column_code" :disabled="!field.is_yearmonth" :label="`${field.label} → ${field.column_code}${field.is_yearmonth ? '' : '（非年月）'}`" />
+            </el-select>
+            <div style="font-size: 12px; color: #909399; margin: 6px 0">样本：{{ discoveredFields.find(item => item.column_code === selectedPeriodField)?.sample_values.join('、') || '—' }}</div>
+            <el-button type="primary" plain size="small" @click="savePeriodField">保存期间字段</el-button>
+          </template>
+        </div>
+
         <!-- 调度与状态 -->
         <div style="margin-bottom: 8px">
           <div style="font-size: 12px; font-weight: 600; color: #909399; margin: 16px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #f0f0f0">
@@ -1023,6 +1065,7 @@ onMounted(() => {
       <template #footer>
         <div style="display: flex; justify-content: space-between; align-items: center">
           <div>
+            <el-button v-if="dsEditId && dsForm.source_type === 'feishu_sheet'" :loading="dsDiscovering" @click="dsDiscoverFields" style="margin-right: 8px">发现字段</el-button>
             <el-button v-if="currentType?.testable" :loading="dsTesting" @click="dsTest" style="margin-right: 8px">
               测试连接
             </el-button>

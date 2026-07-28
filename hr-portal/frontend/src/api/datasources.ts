@@ -60,6 +60,14 @@ export interface SyncResult {
   finished_at: string | null
 }
 
+export interface DiscoveredField {
+  source_key: string
+  label: string
+  column_code: string
+  sample_values: any[]
+  is_yearmonth: boolean
+}
+
 export interface SyncRunItem {
   id: number
   started_at: string
@@ -81,6 +89,8 @@ export const datasourcesApi = {
     api.put<DataSourceListItem>(`/datasources/${id}`, body).then((r) => r.data),
   test: (id: number, body?: DataSourceUpdatePayload) =>
     api.post<TestResult>(`/datasources/${id}/test`, body ?? null).then((r) => r.data),
+  discoverFields: (id: number) =>
+    api.post<DiscoveredField[]>(`/datasources/${id}/discover-fields`).then((r) => r.data),
   sync: (id: number) =>
     api
       .post<SyncResult>(`/datasources/${id}/sync`, null, { timeout: 300_000 })

@@ -206,8 +206,11 @@ defineExpose({ open })
         <el-switch v-model="form.is_period" active-text="是（按月存储，历史月份保留）" inactive-text="否（全量替换）" />
       </el-form-item>
       <template v-if="form.is_period">
-        <el-form-item label="期间字段编码">
-          <span style="font-size: 13px; color: var(--color-text-secondary)">默认为 <b>month</b>，创建后可在「来源与开放」中修改</span>
+        <el-form-item v-if="form.period_source === 'field'" label="期间字段">
+          <span style="font-size: 13px; color: var(--color-text-secondary)">请先保存来源配置并发现字段，再选择飞书中的实际年月字段。</span>
+        </el-form-item>
+        <el-form-item v-else label="期间字段编码">
+          <span style="font-size: 13px; color: var(--color-text-secondary)">系统将在同步时自动写入 <b>month</b>。</span>
         </el-form-item>
         <el-form-item label="月份来源">
           <el-radio-group v-model="form.period_source">

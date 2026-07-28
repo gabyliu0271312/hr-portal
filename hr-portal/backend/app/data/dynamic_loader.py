@@ -119,11 +119,11 @@ def unregister_source_table_model(table_name: str) -> None:
 
 def register_period_table(rt: "RegisteredTable", *, overwrite: bool = False) -> None:
     """Register period-table metadata for sync orphan deletion rules."""
-    if not rt.is_period:
-        return
-
     from app.datasources.sync_service import PERIOD_TABLES
 
+    if not rt.is_period:
+        PERIOD_TABLES.pop(rt.table_name, None)
+        return
     if not overwrite and rt.table_name in PERIOD_TABLES:
         return
     PERIOD_TABLES[rt.table_name] = {

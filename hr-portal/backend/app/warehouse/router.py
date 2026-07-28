@@ -16,6 +16,8 @@ from app.warehouse.schemas import (
     WAREHOUSE_LAYERS,
     ASSET_STATUSES,
     WarehouseAssetUpdateIn,
+    WarehousePeriodConfigIn,
+    WarehousePeriodConfigOut,
     WarehouseModelCreateIn,
     WarehouseModelUpdateIn,
     DatasetOutputFieldIn,
@@ -294,6 +296,64 @@ async def get_asset(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"资产不存在: {table_name}")
     return result
 
+
+@router.put(
+    "/assets/{table_name}/period-config",
+    response_model=WarehousePeriodConfigOut,
+    summary="更新月度资产期间配置",
+    dependencies=[Depends(require_op("warehouse.assets", "U"))],
+)
+async def update_period_config(
+    table_name: str,
+    payload: WarehousePeriodConfigIn,
+    db: AsyncSession = Depends(get_session),
+):
+    from app.data.dynamic_loader import register_period_table, register_source_table_model
+    from app.data.models import RegisteredTable, TableColumn
+    from app.data.ddl import DDLValidationError, add_source_column, validate_column_name
+
+    rt = await db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == table_name))
+    if rt is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"资产不存在: {table_name}")
+    if not rt.is_period:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="非月度资产不能配置期间字段")
+    try:
+        validate_column_name(payload.period_col)
+    except DDLValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if payload.period_source == "field":
+        period_column = await db.scalar(
+            select(TableColumn).where(
+                TableColumn.table_name == table_name,
+                TableColumn.column_code == payload.period_col,
+            )
+        )
+        if period_column is None:
+            await add_source_column(db, table_name, payload.period_col, "string")
+            db.add(TableColumn(
+                table_name=table_name,
+                column_code=payload.period_col,
+                column_label=payload.source_label or payload.period_col,
+                data_type="string",
+                is_pk_part=True,
+                is_sensitive=False,
+                is_visible=True,
+                display_order=0,
+                auto_discovered=True,
+                agg_role="dimension",
+            ))
+            await db.flush()
+            await register_source_table_model(db, table_name, force=True)
+    rt.period_col = payload.period_col
+    rt.period_source = payload.period_source
+    await db.commit()
+    await db.refresh(rt)
+    register_period_table(rt, overwrite=True)
+    return WarehousePeriodConfigOut(
+        table_name=rt.table_name,
+        period_col=rt.period_col,
+        period_source=rt.period_source,
+    )
 
 @router.patch(
     "/assets/{table_name}",
