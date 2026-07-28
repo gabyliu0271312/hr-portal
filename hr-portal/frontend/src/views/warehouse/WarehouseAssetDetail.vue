@@ -236,6 +236,15 @@ async function openCreateDS() {
   dsDrawerVisible.value = true
 }
 
+function openDataSourceConfig() {
+  const existing = endpoints.value?.pulls[0]
+  if (existing) {
+    void openEditDS(existing)
+    return
+  }
+  void openCreateDS()
+}
+
 async function openEditDS(ep: ConnectionEndpointSummary) {
   dsDrawerMode.value = 'edit'
   dsEditId.value = ep.endpoint_id
@@ -305,7 +314,7 @@ async function saveDS() {
     }
     dsDrawerVisible.value = false
     endpoints.value = null
-    loadEndpoints()
+    await loadEndpoints()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '保存失败')
   } finally {
@@ -684,7 +693,7 @@ onMounted(() => {
                       <span style="font-weight: 600">入仓来源 Pull Sources</span>
                       <span style="color: #909399; font-size: 12px; margin-left: 8px">{{ endpoints?.pulls.length || 0 }} 个</span>
                     </span>
-                    <PermissionButton menu="warehouse.assets" op="C" size="small" type="primary" @click="openCreateDS()">配置入仓来源</PermissionButton>
+                    <PermissionButton menu="warehouse.assets" op="C" size="small" type="primary" @click="openDataSourceConfig()">{{ endpoints?.pulls.length ? '编辑入仓来源' : '配置入仓来源' }}</PermissionButton>
                   </div>
                 </template>
                 <div v-if="endpoints?.pulls.length">
