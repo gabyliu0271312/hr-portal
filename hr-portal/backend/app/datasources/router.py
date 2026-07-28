@@ -386,12 +386,30 @@ async def sync_datasource(
     db: AsyncSession = Depends(get_session),
 ) -> SyncResult:
     """触发拉取 — 走通用 scheduler.engine.run_job_now，与 cron 触发同一路径"""
+    from app.data.models import RegisteredTable, TableColumn
     from app.scheduler.engine import get_engine
     from app.scheduler.service import get_job_by_business, upsert_job
 
     ds = await db.get(DataSource, ds_id)
     if ds is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="数据源不存在")
+
+    table = await db.scalar(
+        select(RegisteredTable).where(RegisteredTable.table_name == ds.table_name)
+    )
+    if table and table.is_period and table.period_source == "field":
+        period_column = await db.scalar(
+            select(TableColumn).where(
+                TableColumn.table_name == ds.table_name,
+                TableColumn.column_code == table.period_col,
+                TableColumn.is_pk_part.is_(True),
+            )
+        )
+        if period_column is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="请先在来源与开放中发现字段并保存实际期间字段，再同步",
+            )
 
     # 兜底：若该 ds 还没对应的 scheduled_job（历史数据 / 首次启动），现场建一条
     job = await get_job_by_business(db, "datasource_sync", ds.id)

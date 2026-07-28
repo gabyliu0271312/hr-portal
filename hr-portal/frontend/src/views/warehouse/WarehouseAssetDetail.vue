@@ -5,7 +5,7 @@ import { ElMessage } from 'element-plus'
 import { ArrowLeft, Link, Edit, List, DataAnalysis, Connection, Refresh } from '@element-plus/icons-vue'
 import ResourcePicker from '@/components/warehouse/ResourcePicker.vue'
 import {
-  getAsset, updateAsset, updatePeriodConfig, getAssetEndpoints, getAssetSyncHistory,
+  getAsset, updateAsset, updatePeriodConfig, listAssetColumns, getAssetEndpoints, getAssetSyncHistory,
   getUcpRoute,
   UCP_DISABLED_TEXT,
   UCP_NOT_CONNECTED_TEXT,
@@ -41,6 +41,7 @@ const error = ref<string | null>(null)
 const endpoints = ref<AssetEndpoints | null>(null)
 const endpointsLoading = ref(false)
 const syncingEndpointIds = ref<Set<number>>(new Set())
+const periodFieldReady = ref(false)
 
 // 数据预览
 const previewRows = ref<Record<string, any>[]>([])
@@ -353,6 +354,7 @@ async function savePeriodField() {
     })
     ElMessage.success(`期间字段已设置为 ${field.label}`)
     await load()
+    periodFieldReady.value = true
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '保存期间字段失败')
   }
@@ -422,6 +424,12 @@ async function load() {
   error.value = null
   try {
     asset.value = await getAsset(tableName)
+    if (asset.value.is_period && asset.value.period_source === 'field') {
+      const columns = await listAssetColumns(tableName)
+      periodFieldReady.value = columns.columns.some(column => column.column_code === asset.value?.period_col && column.is_pk_part)
+    } else {
+      periodFieldReady.value = true
+    }
   } catch (e: any) {
     const detail = e?.response?.data?.detail
     if (e?.response?.status === 404) error.value = '资产不存在'
@@ -665,6 +673,12 @@ onMounted(() => {
                 </div>
               </el-card>
 
+              <el-card v-if="asset?.is_period && asset.period_source === 'field' && !periodFieldReady" shadow="never" class="ep-section" style="border-left: 3px solid #e6a23c">
+                <el-alert type="warning" :closable="false" show-icon title="请先配置实际期间字段">
+                  <template #default>保存飞书来源后，点击“发现字段”，选择实际年月字段并保存；完成后才能同步。</template>
+                </el-alert>
+              </el-card>
+
               <!-- 入仓来源 -->
               <el-card shadow="never" class="ep-section">
                 <template #header>
@@ -693,8 +707,8 @@ onMounted(() => {
                       <span class="ep-meta" v-if="ep.last_rows != null">{{ ep.last_rows }} 行</span>
                       <span class="ep-meta">{{ ep.last_run_at ? formatDateTime(ep.last_run_at) : '—' }}</span>
                       <el-button text size="small" @click="openEditDS(ep)">编辑</el-button>
-                      <el-button text size="small" :loading="syncingEndpointIds.has(ep.endpoint_id)" :disabled="syncingEndpointIds.has(ep.endpoint_id)" @click="dsSync(ep)">
-                        {{ syncingEndpointIds.has(ep.endpoint_id) ? '同步中' : '同步' }}
+                      <el-button text size="small" :loading="syncingEndpointIds.has(ep.endpoint_id)" :disabled="syncingEndpointIds.has(ep.endpoint_id) || (asset?.is_period && asset.period_source === 'field' && !periodFieldReady)" @click="dsSync(ep)">
+                        {{ syncingEndpointIds.has(ep.endpoint_id) ? '同步中' : (asset?.is_period && asset.period_source === 'field' && !periodFieldReady ? '先配置期间字段' : '同步') }}
                       </el-button>
                     </div>
                   </div>
