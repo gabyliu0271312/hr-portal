@@ -2639,13 +2639,20 @@ async def _classify_chat_intent(
         },
         {
             "role": "system",
-            "content": "Return JSON only. Use employee.profile.query for any employee lookup or employee field update. An employee identifier may be a Chinese name, English name, dotted login, email-like value, or employee number. Tianhao.wu is an employee lookup. If an active employee-profile context exists, a request to supplement or add a field such as BU must remain employee.profile.query even when the user omits the employee identifier.",
+            "content": (
+                "Return JSON only. Use employee.profile.query only when the user's goal is to view or update an employee profile or its fields. "
+                "An employee identifier may be a Chinese name, English name, dotted login, email-like value, or employee number, but it identifies a subject and does not determine the capability. "
+                "When the user's goal is to calculate, estimate, or preview termination compensation for a person, return compensation.calculate, even if an employee-profile context is active. "
+                "Do not route a request to employee.profile.query merely because it names or mentions an employee. "
+                "If an active employee-profile context exists, a request to supplement or add a field such as BU remains employee.profile.query even when the user omits the employee identifier."
+            ),
         },
         {
             "role": "user",
             "content": json.dumps(
                 {
                     "message": payload.message,
+                    "referenced_people": payload.referenced_people,
                     "history": [item.model_dump() for item in payload.history[-6:]],
                 },
                 ensure_ascii=False,

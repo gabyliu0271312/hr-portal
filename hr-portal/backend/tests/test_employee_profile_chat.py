@@ -204,7 +204,7 @@ async def test_intent_classifier_marks_dotted_english_name_as_employee_profile(m
         )
 
     async def model_call(**kwargs):
-        assert "Tianhao.wu is an employee lookup" in str(kwargs["messages"])
+        assert "identifies a subject and does not determine the capability" in str(kwargs["messages"])
         return None, '{"intent":"employee.profile.query"}', {"total_tokens": 1}
 
     monkeypatch.setattr(ai_router, "active_ai_config", config)

@@ -201,6 +201,35 @@ async def test_compensation_extractor_supplies_channel_person_references_to_mode
     assert extracted.extracted["employee_keyword"] == "Sammi Zheng"
 
 
+@pytest.mark.asyncio
+async def test_intent_classifier_distinguishes_compensation_from_employee_profile_mentions(monkeypatch):
+    async def config(*args, **kwargs):
+        return SimpleNamespace(
+            model_reasoning="reasoning", model_fast_json=None, api_key_encrypted="encrypted", base_url=None, timeout_seconds=30
+        )
+
+    async def model_call(**kwargs):
+        routing_prompt = kwargs["messages"][1]["content"]
+        model_input = json.loads(kwargs["messages"][2]["content"])
+        assert "does not determine the capability" in routing_prompt
+        assert "return compensation.calculate" in routing_prompt
+        assert model_input["referenced_people"] == ["Howey Jin"]
+        return None, '{"intent":"compensation.calculate"}', {"total_tokens": 1}
+
+    monkeypatch.setattr(ai_router, "active_ai_config", config)
+    monkeypatch.setattr(ai_router, "decrypt", lambda value: value)
+    monkeypatch.setattr(ai_router, "chat_completion_openai_compatible", model_call)
+
+    intent, _ = await ai_router._classify_chat_intent(
+        AiChatIn(message="Calculate termination compensation for the mentioned employee", referenced_people=["Howey Jin"]),
+        ChatSession(conversation_id=1, active_capability_id=ai_router.EMPLOYEE_PROFILE_CAPABILITY_ID),
+        object(),
+        AiAuditTimer(),
+    )
+
+    assert intent == "compensation.calculate"
+
+
 def test_person_references_are_excluded_from_ai_audit_payload():
     payload = AiChatIn(message="Query employee", referenced_people=["Sammi Zheng"])
 
