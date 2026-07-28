@@ -26,17 +26,13 @@ def _settings(**overrides):
 def test_feishu_employee_channel_gate_is_fail_closed(monkeypatch):
     monkeypatch.setattr(ai_gate, "settings", _settings(FEISHU_EMPLOYEE_PROFILE_ENABLED=False))
     with pytest.raises(HTTPException) as exc_info:
-        ai_gate.enforce_feishu_capability_gate("employee.profile.query", 7)
+        ai_gate.enforce_feishu_capability_gate("employee.profile.query")
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "员工档案查询暂未开放"
 
-    monkeypatch.setattr(ai_gate, "settings", _settings(FEISHU_EMPLOYEE_PROFILE_ALLOWED_USER_IDS=""))
-    with pytest.raises(HTTPException):
-        ai_gate.enforce_feishu_capability_gate("employee.profile.query", 7)
-
     monkeypatch.setattr(ai_gate, "settings", _settings(FEISHU_BOT_ENABLED=False))
     with pytest.raises(HTTPException):
-        ai_gate.enforce_feishu_capability_gate("ai.chat", 7)
+        ai_gate.enforce_feishu_capability_gate("ai.chat")
 
 
 def test_event_request_accepts_configured_token_and_logs_safe_rejection_diagnostics(monkeypatch, caplog):
@@ -92,6 +88,26 @@ def test_private_text_event_and_generic_card_are_minimally_rendered():
     card = json.loads(ai_channel.render_envelope_card(SimpleNamespace(answer="????")))
     assert card["config"]["enable_forward"] is False
     assert card["elements"] == [{"tag": "markdown", "content": "????"}]
+
+
+def test_message_context_replaces_feishu_person_placeholders_and_deduplicates_names():
+    event = {
+        "message": {
+            "message_type": "text",
+            "content": '{"text":"Query @_user_1 and @_user_2"}',
+            "mentions": [
+                {"key": "@_user_1", "name": "Sammi Zheng", "id": {"open_id": "ou_person_1"}},
+                {"key": "@_user_2", "name": "Sammi Zheng", "id": {"open_id": "ou_person_1"}},
+            ],
+        },
+    }
+
+    context = ai_channel.message_context(event)
+
+    assert context is not None
+    assert context.text == "Query Sammi Zheng and Sammi Zheng"
+    assert context.referenced_people == ("Sammi Zheng",)
+    assert ai_channel.message_text(event) == context.text
 
 
 def test_employee_profile_field_lines_align_short_and_cjk_labels():
@@ -254,6 +270,56 @@ async def test_bot_event_sends_employee_candidate_card(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_bot_event_passes_normalized_person_mentions_to_ai_channel(monkeypatch):
+    observed = {}
+
+    async def no_op(*args, **kwargs):
+        return None
+
+    async def claim(*args, **kwargs):
+        return True
+
+    async def mapped_user(*args, **kwargs):
+        return SimpleNamespace(id=7)
+
+    async def chat(*args, **kwargs):
+        observed.update(kwargs)
+        return _employee_out("message", SimpleNamespace(), answer="ok")
+
+    class Client:
+        async def send_interactive_card_to_user(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(feishu_router, "verify_feishu_signed_request", lambda **kwargs: None)
+    monkeypatch.setattr(feishu_router, "claim_feishu_nonce", claim)
+    monkeypatch.setattr(feishu_router, "claim_channel_event", claim)
+    monkeypatch.setattr(feishu_router, "complete_channel_event", no_op)
+    monkeypatch.setattr(feishu_router, "enforce_feishu_capability_gate", lambda *args: None)
+    monkeypatch.setattr(feishu_router, "resolve_feishu_portal_user", mapped_user)
+    monkeypatch.setattr(feishu_router, "run_feishu_chat", chat)
+    monkeypatch.setattr(feishu_router, "get_feishu_client", lambda: Client())
+    db = SimpleNamespace(commit=no_op, rollback=no_op)
+    body = {
+        "header": {"event_type": "im.message.receive_v1", "event_id": "evt-mentioned-person"},
+        "event": {
+            "sender": {"sender_id": {"open_id": "ou_1"}},
+            "message": {
+                "message_id": "msg-mentioned-person",
+                "chat_id": "oc_1",
+                "chat_type": "p2p",
+                "message_type": "text",
+                "content": '{"text":"Calculate for @_user_1"}',
+                "mentions": [{"key": "@_user_1", "name": "Sammi Zheng", "id": {"open_id": "ou_person_1"}}],
+            },
+        },
+    }
+
+    assert await feishu_router.handle_bot_event(_request(body), db=db) == {"ok": True}
+    assert observed["text"] == "Calculate for Sammi Zheng"
+    assert observed["referenced_people"] == ["Sammi Zheng"]
+
+
+@pytest.mark.asyncio
 async def test_candidate_action_updates_card_and_expiry_clears_candidates(monkeypatch):
     updated_cards = []
 
@@ -281,7 +347,10 @@ async def test_candidate_action_updates_card_and_expiry_clears_candidates(monkey
     monkeypatch.setattr(feishu_router, "resolve_feishu_portal_user", mapped_user)
     monkeypatch.setattr(feishu_router, "load_or_create_channel_conversation", conversation)
     monkeypatch.setattr(feishu_router, "controlled_action_capability_id", lambda *args: "employee.profile.query")
-    monkeypatch.setattr(feishu_router, "enforce_feishu_capability_gate", lambda *args: None)
+    async def allow_capability(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(feishu_router, "enforce_feishu_capability_authorization", allow_capability)
     monkeypatch.setattr(feishu_router, "enforce_capability_rate_limit", no_op)
     monkeypatch.setattr(feishu_router, "record_controlled_action_audit", no_op)
     monkeypatch.setattr(feishu_router, "get_feishu_client", lambda: Client())

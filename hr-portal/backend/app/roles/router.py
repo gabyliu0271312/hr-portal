@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import require_op
-from app.users.models import Menu, Role, RoleMenu, UserRole
+from app.ai.capabilities import registered_capability_ids
+from app.users.models import Menu, Role, RoleAiCapabilityGrant, RoleMenu, UserRole
 from app.roles.schemas import (
     RoleCreateIn,
     RoleDetail,
@@ -48,6 +49,13 @@ async def _detail(db: AsyncSession, role: Role) -> RoleDetail:
             select(func.count()).select_from(UserRole).where(UserRole.role_id == role.id)
         )
     ).scalar_one()
+    ai_capability_ids = (
+        await db.execute(
+            select(RoleAiCapabilityGrant.capability_id).where(
+                RoleAiCapabilityGrant.role_id == role.id
+            )
+        )
+    ).scalars().all()
     return RoleDetail(
         id=role.id,
         name=role.name,
@@ -55,7 +63,25 @@ async def _detail(db: AsyncSession, role: Role) -> RoleDetail:
         is_active=role.is_active,
         user_count=user_count,
         menus=menus,
+        ai_capability_ids=sorted(ai_capability_ids),
     )
+
+
+async def _replace_ai_capability_grants(
+    db: AsyncSession, role: Role, capability_ids: list[str]
+) -> None:
+    requested_ids = set(capability_ids)
+    if not requested_ids.issubset(registered_capability_ids()):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown AI capability")
+    existing = (
+        await db.execute(
+            select(RoleAiCapabilityGrant).where(RoleAiCapabilityGrant.role_id == role.id)
+        )
+    ).scalars().all()
+    for grant in existing:
+        await db.delete(grant)
+    for capability_id in requested_ids:
+        db.add(RoleAiCapabilityGrant(role_id=role.id, capability_id=capability_id))
 
 
 async def _replace_menus(
@@ -153,6 +179,7 @@ async def create_role(
     await db.flush()
 
     await _replace_menus(db, role, payload.menus)
+    await _replace_ai_capability_grants(db, role, payload.ai_capability_ids)
     await db.commit()
     await db.refresh(role)
     return await _detail(db, role)
@@ -195,6 +222,8 @@ async def update_role(
 
     if payload.menus is not None:
         await _replace_menus(db, role, payload.menus)
+    if payload.ai_capability_ids is not None:
+        await _replace_ai_capability_grants(db, role, payload.ai_capability_ids)
 
     await db.commit()
     await db.refresh(role)

@@ -91,6 +91,7 @@ MENU_TREE: list[dict] = [
         "icon": "Connection",
         "children": [
             {"code": "ucp.systems", "label": "接入系统", "icon": "DataBoard"},
+            {"code": "ucp.connector_catalog", "label": "接入类型管理", "icon": "Collection"},
             {"code": "ucp.pipelines", "label": "流程编排", "icon": "Share"},
             {"code": "ucp.executions", "label": "运行中心", "icon": "Clock"},
             {"code": "ucp.events", "label": "事件处理", "icon": "BellFilled"},
@@ -334,6 +335,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_document_templates(db)
         await _ensure_formula_functions(db)
         await _ensure_pipeline_templates(db)
+        await _ensure_lifecycle_pipeline_triggers(db)
         await _ensure_ods_dwd_automation_rules(db)
         await _ensure_l4_cascade_rules(db)
         logger.info("[seed] done")
@@ -632,6 +634,7 @@ async def _ensure_formula_functions(db: AsyncSession) -> None:
 async def _ensure_pipeline_templates(db: AsyncSession) -> None:
     """幂等创建 Phase 4 预置流水线模板：入职账号创建、离职账号停用"""
     from app.ucp.models import UcpPipelineTemplate as PT
+    from app.ucp.pipeline_node_catalog import normalize_node_display
 
     existing_codes = {
         code for (code,) in (await db.execute(select(PT.template_code))).all()
@@ -643,8 +646,6 @@ async def _ensure_pipeline_templates(db: AsyncSession) -> None:
             "name": "入职账号创建",
             "description": "HR 入职事件触发 → 为员工创建滴滴/曹操等外部系统账号",
             "nodes": [
-                {"id": "start", "type": "TRANSFORM", "x": 100, "y": 120, "label": "解析入职事件",
-                 "config": {"mappings": [{"src": "payload.employee_id", "dst": "employee_id"}]}},
                 {"id": "create_didi", "type": "CONNECTOR", "x": 350, "y": 80, "label": "创建滴滴账号",
                  "config": {"adapter_code": "didi_account_push_adapter", "action": "CREATE"}},
                 {"id": "create_caocao", "type": "CONNECTOR", "x": 350, "y": 200, "label": "创建曹操账号",
@@ -653,8 +654,6 @@ async def _ensure_pipeline_templates(db: AsyncSession) -> None:
                  "config": {"template_code": "TPL_ONBOARDING_DONE", "receivers": ["hr_admin"]}},
             ],
             "edges": [
-                {"from": "start", "to": "create_didi"},
-                {"from": "start", "to": "create_caocao"},
                 {"from": "create_didi", "to": "notify"},
                 {"from": "create_caocao", "to": "notify"},
             ],
@@ -662,10 +661,10 @@ async def _ensure_pipeline_templates(db: AsyncSession) -> None:
         {
             "template_code": "TPL_OFFBOARDING_ACCOUNT",
             "name": "离职账号停用",
-            "description": "离职事件触发 → 停用/删除外部系统账号，需审批",
+            "description": "离职事件触发 → 生效时间策略 → 审批 → 停用/删除外部系统账号",
             "nodes": [
-                {"id": "start", "type": "TRANSFORM", "x": 100, "y": 120, "label": "解析离职事件",
-                 "config": {"mappings": [{"src": "payload.employee_id", "dst": "employee_id"}]}},
+                {"id": "effective_time", "type": "TIME_STRATEGY", "x": 100, "y": 120, "label": "离职生效时间策略",
+                 "config": {"strategy": "LIFECYCLE_RULE", "effective_time_field": "termination_effective_at"}},
                 {"id": "approval", "type": "APPROVAL", "x": 350, "y": 120, "label": "审批确认",
                  "config": {"approvers": [], "approval_mode": "SINGLE", "reason": "离职账号停用需审批",
                   "action_summary": "停用离职员工外部账号"}},
@@ -677,7 +676,7 @@ async def _ensure_pipeline_templates(db: AsyncSession) -> None:
                  "config": {"template_code": "TPL_OFFBOARDING_DONE", "receivers": ["hr_admin"]}},
             ],
             "edges": [
-                {"from": "start", "to": "approval"},
+                {"from": "effective_time", "to": "approval"},
                 {"from": "approval", "to": "disable_didi"},
                 {"from": "approval", "to": "disable_caocao"},
                 {"from": "disable_didi", "to": "notify"},
@@ -693,16 +692,91 @@ async def _ensure_pipeline_templates(db: AsyncSession) -> None:
     for tpl in templates:
         if tpl["template_code"] in existing_codes:
             continue
+        nodes = [dict(node) for node in tpl["nodes"]]
+        edges = [dict(edge) for edge in tpl["edges"]]
+        if not any(node.get("type") == "START_TRIGGER" for node in nodes):
+            inbound_node_ids = {edge.get("to") for edge in edges}
+            root_node_ids = [
+                node["id"] for node in nodes if node.get("id") not in inbound_node_ids
+            ]
+            nodes.insert(0, {
+                "id": "start_trigger",
+                "type": "START_TRIGGER",
+                "x": 0,
+                "y": 120,
+                "label": "Trigger start",
+                "config": {
+                    "mode": "OR",
+                    "trigger_types": ["WEBHOOK", "SCHEDULE", "MANUAL", "PLATFORM_EVENT"],
+                    "management_path": "/ucp/events/triggers",
+                },
+            })
+            edges = [
+                {"from": "start_trigger", "to": node_id}
+                for node_id in root_node_ids
+            ] + edges
+        for node in nodes:
+            node["label"], node["config"] = normalize_node_display(
+                node["type"],
+                str(node.get("label") or ""),
+                dict(node.get("config") or {}),
+            )
         db.add(PT(
             template_code=tpl["template_code"],
             name=tpl["name"],
             description=tpl.get("description"),
-            nodes_json=tpl["nodes"],
-            edges_json=tpl["edges"],
+            nodes_json=nodes,
+            edges_json=edges,
             version=tpl.get("version", "1.0.0"),
             created_by="seed",
         ))
         logger.info("[seed] pipeline template added: %s", tpl["template_code"])
+
+
+def _lifecycle_pipeline_trigger_defaults() -> list[dict]:
+    return [
+        {
+            "trigger_code": "OFFBOARDING_MANUAL_COMPENSATION",
+            "trigger_name": "Offboarding manual compensation",
+            "pipeline_code": "TPL_OFFBOARDING_ACCOUNT",
+            "trigger_type": "MANUAL",
+            "schedule_config": {},
+        },
+    ]
+
+
+async def _ensure_lifecycle_pipeline_triggers(db: AsyncSession) -> None:
+    """Create safe lifecycle entry points after their templates exist.
+
+    Webhook triggers deliberately are not seeded because they must bind a verified
+    event object belonging to a tenant's actual ingress resource.
+    """
+    from app.ucp.models import UcpEventTrigger
+
+    existing_codes = {
+        code for (code,) in (await db.execute(select(UcpEventTrigger.trigger_code))).all()
+    }
+    for config in _lifecycle_pipeline_trigger_defaults():
+        if config["trigger_code"] in existing_codes:
+            continue
+        trigger = UcpEventTrigger(
+            trigger_code=config["trigger_code"],
+            trigger_name=config["trigger_name"],
+            event_source="UCP",
+            event_types="",
+            pipeline_code=config["pipeline_code"],
+            trigger_type=config["trigger_type"],
+            schedule_config=config["schedule_config"],
+            input_schema={},
+            filter_rule={},
+            failure_policy="RETRY",
+            run_as_type="SERVICE_ACCOUNT",
+            is_active=int(config.get("is_active", True)),
+            migration_status="ACTIVE",
+            created_by="seed",
+        )
+        db.add(trigger)
+        logger.info("[seed] lifecycle pipeline trigger added: %s", config["trigger_code"])
 
 
 async def _ensure_ods_dwd_automation_rules(db: AsyncSession) -> None:

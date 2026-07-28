@@ -6,6 +6,7 @@ const fields = Array.from({ length: 5 }, (_, index) => ({
   column_name: `field_${index + 1}`,
   field_code: `field_${index + 1}`,
   display_name: `Field ${index + 1}`,
+  semantic_description: `Definition ${index + 1}`,
   is_default_card: true,
   default_display_order: index + 1,
   append_display_order: 10,
@@ -24,7 +25,7 @@ function mountComponent() {
       stubs: {
         'el-card': { template: '<section><slot name="header" /><slot /></section>' },
         'el-table': { template: '<div><slot /></div>' },
-        'el-table-column': { props: ['label'], template: `<div>{{ label }}<slot :row="{ column_name: 'field_1', field_code: 'field_1', display_name: 'Field 1', is_default_card: true, default_display_order: 1, append_display_order: 10, sensitive_category_names: ['薪酬'] }" /></div>` },
+        'el-table-column': { props: ['label'], template: `<div>{{ label }}<slot :row="{ column_name: 'field_1', field_code: 'field_1', display_name: 'Field 1', semantic_description: 'Definition 1', is_default_card: true, default_display_order: 1, append_display_order: 10, sensitive_category_names: ['薪酬'] }" /></div>` },
         'el-button': { template: '<button @click="$emit(\'click\')"><slot /></button>' },
         'el-tag': { template: '<span><slot /></span>' },
         'el-text': { template: '<span><slot /></span>' },
@@ -60,6 +61,12 @@ describe('EmployeeProfileFieldsConfig', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('敏感分类（只读）')
     expect(wrapper.text()).toContain('薪酬')
+  })
+
+  it('shows the semantic definition editor for AI field disambiguation', async () => {
+    const wrapper = mountComponent()
+    await flushPromises()
+    expect(wrapper.text()).toContain('业务定义（供 AI 消歧）')
   })
 
   it('shows governance warnings without blocking field configuration', async () => {

@@ -91,3 +91,57 @@ async def test_catalog_only_exposes_safe_reflected_fields_and_settings(roster_mo
 async def test_catalog_rejects_unknown_code(roster_model):
     with pytest.raises(catalog.EmployeeProfileCatalogError, match="unknown employee profile field"):
         await catalog.resolve_employee_profile_codes(FakeDb([[], [], []]), ["does_not_exist"])
+
+
+@pytest.mark.asyncio
+async def test_extractor_catalog_keeps_permitted_sensitive_field_metadata(monkeypatch):
+    items = (
+        catalog.EmployeeProfileCatalogItem(
+            "base_salary", "base_salary", "\u57fa\u672c\u5de5\u8d44", "string", False, None, 1, True, "\u56fa\u5b9a\u85aa\u916c"
+        ),
+        catalog.EmployeeProfileCatalogItem(
+            "position_salary", "position_salary", "\u5c97\u4f4d\u5de5\u8d44", "string", False, None, 2, True, "\u5c97\u4f4d\u85aa\u916c"
+        ),
+    )
+
+    async def load(_db):
+        return items
+
+    async def access(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(catalog, "load_employee_profile_catalog", load)
+    monkeypatch.setattr("app.permissions.masker.resolve_field_access", access)
+    result = await catalog.load_employee_profile_extractor_catalog(
+        FakeDb([[SimpleNamespace(column_code="base_salary", is_sensitive=False)]]),
+        user=SimpleNamespace(id=1),
+    )
+
+    assert [item.field_code for item in result] == ["base_salary", "position_salary"]
+
+
+@pytest.mark.asyncio
+async def test_extractor_catalog_hides_sensitive_field_metadata_without_access(monkeypatch):
+    items = (
+        catalog.EmployeeProfileCatalogItem(
+            "base_salary", "base_salary", "\u57fa\u672c\u5de5\u8d44", "string", False, None, 1, True, "\u56fa\u5b9a\u85aa\u916c"
+        ),
+        catalog.EmployeeProfileCatalogItem(
+            "position_salary", "position_salary", "\u5c97\u4f4d\u5de5\u8d44", "string", False, None, 2, True, "\u5c97\u4f4d\u85aa\u916c"
+        ),
+    )
+
+    async def load(_db):
+        return items
+
+    async def access(*_args, **_kwargs):
+        return {"base_salary": "hide"}
+
+    monkeypatch.setattr(catalog, "load_employee_profile_catalog", load)
+    monkeypatch.setattr("app.permissions.masker.resolve_field_access", access)
+    result = await catalog.load_employee_profile_extractor_catalog(
+        FakeDb([[SimpleNamespace(column_code="base_salary", is_sensitive=False)]]),
+        user=SimpleNamespace(id=2),
+    )
+
+    assert [item.field_code for item in result] == ["position_salary"]

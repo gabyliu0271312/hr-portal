@@ -240,6 +240,9 @@ onMounted(load)
         <el-table-column label="类型" width="80" align="center">
           <template #default="{ row }">{{ DATA_TYPE_LABELS[row.data_type] || row.data_type }}</template>
         </el-table-column>
+        <el-table-column label="业务定义" min-width="220">
+          <template #default="{ row }"><span>{{ row.description || '—' }}</span></template>
+        </el-table-column>
         <el-table-column label="维度/度量" width="80" align="center">
           <template #default="{ row }">
             <el-tag size="small" :type="row.agg_role === 'measure' ? 'success' : 'info'" effect="plain">{{ AGG_LABELS[row.agg_role] || row.agg_role }}</el-tag>
@@ -314,7 +317,7 @@ onMounted(load)
           <el-form-item label="显示顺序">
             <el-input-number v-model="editForm.display_order" :min="0" :max="9999" controls-position="right" />
           </el-form-item>
-          <el-form-item label="描述">
+          <el-form-item label="业务定义">
             <el-input v-model="editForm.description" type="textarea" :rows="2" />
           </el-form-item>
         </el-form>

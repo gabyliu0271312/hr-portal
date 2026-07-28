@@ -23,6 +23,7 @@ class EmployeeProfileFieldSetting(Base):
     column_name: Mapped[str] = mapped_column(String(128), nullable=False)
     field_code: Mapped[str] = mapped_column(String(128), nullable=False)
     display_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    semantic_description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     is_queryable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_default_card: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     default_display_order: Mapped[int | None] = mapped_column(Integer, nullable=True)

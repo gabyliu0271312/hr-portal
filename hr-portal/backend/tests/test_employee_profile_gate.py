@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import app.ai.capabilities as capabilities
 import app.ai.router as ai_router
 from app.ai.employee_profile_gate import employee_profile_rollout_decision
 from app.ai.router import AiAuditTimer, AiChatIn, ChatRoute, ChatSession, TargetCapabilityGateDenied, _enforce_chat_route_gate, global_ai_chat
@@ -20,11 +21,56 @@ def _settings(**overrides):
     return SimpleNamespace(**values)
 
 
-def test_rollout_is_fail_closed_for_disabled_allowlist_and_expiry():
-    assert employee_profile_rollout_decision(_settings(EMPLOYEE_PROFILE_ENABLED=False), 7).failure_stage == "controlled_rollout_disabled"
-    assert employee_profile_rollout_decision(_settings(EMPLOYEE_PROFILE_ALLOWED_USER_IDS=""), 7).failure_stage == "controlled_rollout_allowlist_denied"
-    assert employee_profile_rollout_decision(_settings(EMPLOYEE_PROFILE_EXPIRES_AT="invalid"), 7).failure_stage == "controlled_rollout_expired"
-    assert employee_profile_rollout_decision(_settings(EMPLOYEE_PROFILE_EXPIRES_AT=(datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()), 7).failure_stage == "controlled_rollout_expired"
+class _GrantSession:
+    def __init__(self, values):
+        self.values = iter(values)
+
+    async def scalar(self, _statement):
+        return next(self.values)
+
+
+@pytest.mark.asyncio
+async def test_employee_profile_capability_grant_unions_direct_and_role_grants():
+    user = SimpleNamespace(id=7)
+
+    assert await capabilities.user_has_capability_grant(
+        user, _GrantSession([7]), "employee.profile.query"
+    )
+    assert await capabilities.user_has_capability_grant(
+        user, _GrantSession([None, 3]), "employee.profile.query"
+    )
+    assert not await capabilities.user_has_capability_grant(
+        user, _GrantSession([None, None]), "employee.profile.query"
+    )
+    assert not await capabilities.user_has_capability_grant(
+        user, _GrantSession([]), "unregistered.capability"
+    )
+
+
+@pytest.mark.asyncio
+async def test_super_admin_role_has_all_ai_capabilities_without_explicit_grant():
+    capability = capabilities.get_capability("employee.profile.query")
+
+    assert capability is not None
+    assert await capabilities.user_can_use_capability(
+        SimpleNamespace(id=7), _GrantSession([3]), capability
+    )
+
+
+@pytest.mark.asyncio
+async def test_admin_flag_has_all_ai_capabilities_without_database_grant():
+    capability = capabilities.get_capability("employee.profile.query")
+
+    assert capability is not None
+    assert await capabilities.user_can_use_capability(
+        SimpleNamespace(id=7, is_admin=True), _GrantSession([]), capability
+    )
+
+
+def test_rollout_is_fail_closed_for_disabled_and_expiry():
+    assert employee_profile_rollout_decision(_settings(EMPLOYEE_PROFILE_ENABLED=False)).failure_stage == "controlled_rollout_disabled"
+    assert employee_profile_rollout_decision(_settings(EMPLOYEE_PROFILE_EXPIRES_AT="invalid")).failure_stage == "controlled_rollout_expired"
+    assert employee_profile_rollout_decision(_settings(EMPLOYEE_PROFILE_EXPIRES_AT=(datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat())).failure_stage == "controlled_rollout_expired"
 
 
 @pytest.mark.asyncio
@@ -35,7 +81,7 @@ async def test_employee_profile_gate_blocks_before_permission_when_rollout_denie
     async def permission_should_not_run(*args):
         raise AssertionError("permission check must not run before rollout gate")
 
-    monkeypatch.setattr(ai_router, "user_has_permission", permission_should_not_run)
+    monkeypatch.setattr(ai_router, "user_can_use_capability", permission_should_not_run)
     with pytest.raises(TargetCapabilityGateDenied) as exc_info:
         await _enforce_chat_route_gate(route, SimpleNamespace(id=7), object(), AiAuditTimer())
     assert exc_info.value.status_code == 403
@@ -51,7 +97,7 @@ async def test_employee_profile_gate_checks_target_permission_after_rollout(monk
     async def denied(*args):
         return False
 
-    monkeypatch.setattr(ai_router, "user_has_permission", denied)
+    monkeypatch.setattr(ai_router, "user_can_use_capability", denied)
     with pytest.raises(TargetCapabilityGateDenied) as exc_info:
         await _enforce_chat_route_gate(route, SimpleNamespace(id=7), object(), AiAuditTimer())
     assert exc_info.value.failure_stage == "target_permission_denied"
@@ -144,7 +190,7 @@ async def test_feishu_gate_blocks_employee_handler_after_routing(monkeypatch):
     monkeypatch.setattr(ai_router, "load_or_create_conversation", load_conversation)
     monkeypatch.setattr(ai_router, "persist_conversation", persist)
     monkeypatch.setattr(ai_router, "_enforce_chat_route_gate", permit_route)
-    monkeypatch.setattr(ai_router, "enforce_feishu_capability_gate", deny_channel)
+    monkeypatch.setattr(ai_router, "enforce_feishu_capability_authorization", deny_channel)
     monkeypatch.setattr(ai_router, "record_ai_log", record)
     db = SimpleNamespace(commit=commit)
 
@@ -189,7 +235,7 @@ async def test_global_chat_rate_limits_employee_route_before_extractor(monkeypat
     monkeypatch.setattr(ai_router, "_resolve_chat_route", resolve_route)
     monkeypatch.setattr(ai_router, "active_ai_config", ai_config)
     monkeypatch.setattr(ai_router, "load_or_create_conversation", load_conversation)
-    monkeypatch.setattr(ai_router, "user_has_permission", allow_permission)
+    monkeypatch.setattr(ai_router, "user_can_use_capability", allow_permission)
     monkeypatch.setattr(ai_router, "enforce_capability_rate_limit", rate_limit)
     monkeypatch.setattr(ai_router, "record_ai_log", record)
     db = SimpleNamespace(commit=commit)
@@ -241,7 +287,7 @@ async def test_global_chat_converts_employee_internal_error_to_sanitized_500(mon
     monkeypatch.setattr(ai_router, "_resolve_chat_route", resolve_route)
     monkeypatch.setattr(ai_router, "active_ai_config", ai_config)
     monkeypatch.setattr(ai_router, "load_or_create_conversation", load_conversation)
-    monkeypatch.setattr(ai_router, "user_has_permission", allow_permission)
+    monkeypatch.setattr(ai_router, "user_can_use_capability", allow_permission)
     monkeypatch.setattr(ai_router, "enforce_capability_rate_limit", allow_rate)
     monkeypatch.setattr(ai_router, "record_ai_log", record)
     db = SimpleNamespace(commit=commit)

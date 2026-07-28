@@ -26,6 +26,7 @@ export interface UserDetail {
   role_names: string[]
   org_scope_names: string[]
   cost_center_scope_names: string[]
+  ai_capability_ids: string[]
 }
 
 export interface UserListResp {
@@ -53,8 +54,9 @@ export const usersApi = {
     email?: string | null
     password: string
     role_ids?: number[]
+    ai_capability_ids?: string[]
   }) => api.post<UserDetail>('/users', body).then((r) => r.data),
-  update: (id: number, body: { display_name?: string; email?: string | null }) =>
+  update: (id: number, body: { display_name?: string; email?: string | null; ai_capability_ids?: string[] }) =>
     api.put<UserDetail>(`/users/${id}`, body).then((r) => r.data),
   activate: (id: number) => api.post(`/users/${id}/activate`).then((r) => r.data),
   deactivate: (id: number) =>

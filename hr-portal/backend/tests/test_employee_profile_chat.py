@@ -24,7 +24,7 @@ class FakeDb:
 @pytest.fixture(autouse=True)
 def extractor_catalog(monkeypatch):
     codes = ("full_name", "employee_no", "organization_name", "business_unit", "position_name", "employment_status", "hire_date", "employee_type", "standard_position", "position_level", "company_name", "work_location")
-    async def load(_db):
+    async def load(*_args, **_kwargs):
         return tuple(EmployeeProfileCatalogItem(code, code, code.replace("_", " ").title(), "string", False, None, 999) for code in codes)
     monkeypatch.setattr(ai_router, "load_employee_profile_extractor_catalog", load)
 
@@ -64,6 +64,32 @@ async def test_employee_profile_extractor_only_emits_strict_query_spec(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_employee_profile_extractor_supplies_channel_person_references_to_model(monkeypatch):
+    async def config(*args, **kwargs):
+        return SimpleNamespace(
+            model_fast_json="fast-json", model_reasoning=None, api_key_encrypted="encrypted", base_url=None, timeout_seconds=30
+        )
+
+    async def model_call(**kwargs):
+        model_input = json.loads(kwargs["messages"][1]["content"])
+        assert model_input["referenced_people"] == ["Sammi Zheng"]
+        return None, '{"lookup_type":"name","lookup_value":"Sammi Zheng","requested_field_codes":["organization_name"]}', {"total_tokens": 1}
+
+    monkeypatch.setattr(ai_router, "active_ai_config", config)
+    monkeypatch.setattr(ai_router, "decrypt", lambda value: value)
+    monkeypatch.setattr(ai_router, "chat_completion_openai_compatible", model_call)
+
+    extracted = await ai_router._extract_employee_profile_pending(
+        AiChatIn(message="Query the mentioned employee", referenced_people=["Sammi Zheng"]),
+        ChatSession(conversation_id=11),
+        FakeDb(),
+        AiAuditTimer(),
+    )
+
+    assert extracted.extracted["lookup_value"] == "Sammi Zheng"
+
+
+@pytest.mark.asyncio
 async def test_employee_profile_extractor_defaults_omitted_requested_fields_to_empty_array(monkeypatch):
     async def config(*args, **kwargs):
         return SimpleNamespace(
@@ -75,7 +101,7 @@ async def test_employee_profile_extractor_defaults_omitted_requested_fields_to_e
         )
 
     async def model_call(**kwargs):
-        assert "requested_field_codes as an empty array" in kwargs["messages"][0]["content"]
+        assert "all default_card field codes" in kwargs["messages"][0]["content"]
         return None, '{"lookup_type":"employee_no","lookup_value":"106401"}', {"total_tokens": 1}
 
     monkeypatch.setattr(ai_router, "active_ai_config", config)
@@ -104,14 +130,14 @@ async def test_employee_profile_extractor_sends_only_safe_catalog_metadata_and_r
     async def model_call(**kwargs):
         payload = json.loads(kwargs["messages"][1]["content"])
         assert payload["employee_profile_fields"] == [
-            {"code": "company_name", "name": "Company Name", "type": "string"},
-            {"code": "work_location", "name": "Work Location", "type": "string"},
+            {"code": "company_name", "name": "Company Name", "type": "string", "semantic_description": "", "default_card": False},
+            {"code": "work_location", "name": "Work Location", "type": "string", "semantic_description": "", "default_card": False},
         ]
         assert payload["active_employee_profile"] is None
         assert "scope" not in kwargs["messages"][1]["content"]
         return None, '{"lookup_type":"name","lookup_value":"Alice","requested_field_codes":["unknown_field"]}', {"total_tokens": 1}
 
-    async def safe_catalog(_db):
+    async def safe_catalog(*_args, **_kwargs):
         return (
             EmployeeProfileCatalogItem("company_name", "company_name", "Company Name", "string", False, None, 1),
             EmployeeProfileCatalogItem("work_location", "work_location", "Work Location", "string", False, None, 2),
@@ -124,6 +150,50 @@ async def test_employee_profile_extractor_sends_only_safe_catalog_metadata_and_r
     extracted = await ai_router._extract_employee_profile_pending(AiChatIn(message="find Alice"), ChatSession(conversation_id=11), FakeDb(), AiAuditTimer())
     assert extracted.extracted is None
     assert extracted.parse_mode == "employee_profile_unknown_field"
+
+
+@pytest.mark.asyncio
+async def test_employee_profile_extractor_instructs_model_to_append_exact_base_salary(monkeypatch):
+    async def config(*args, **kwargs):
+        return SimpleNamespace(
+            model_fast_json="fast-json", model_reasoning=None, api_key_encrypted="encrypted", base_url=None, timeout_seconds=30
+        )
+
+    async def model_call(**kwargs):
+        assert "never substitute an adjacent field" in kwargs["messages"][0]["content"]
+        assert "all default_card field codes plus" in kwargs["messages"][0]["content"]
+        payload = json.loads(kwargs["messages"][1]["content"])
+        assert payload["employee_profile_fields"] == [
+            {"code": "department", "name": "\u6240\u5c5e\u7ec4\u7ec7", "type": "string", "semantic_description": "", "default_card": True},
+            {"code": "base_salary", "name": "\u57fa\u672c\u5de5\u8d44", "type": "number", "semantic_description": "\u5458\u5de5\u56fa\u5b9a\u7684\u57fa\u672c\u85aa\u916c\uff0c\u4e0d\u7b49\u4e8e\u5c97\u4f4d\u5de5\u8d44\u3002", "default_card": False},
+            {"code": "position_salary", "name": "\u5c97\u4f4d\u5de5\u8d44", "type": "number", "semantic_description": "\u4e0e\u5c97\u4f4d\u76f8\u5173\u7684\u5c97\u4f4d\u5de5\u8d44\uff0c\u4e0d\u7b49\u4e8e\u57fa\u672c\u5de5\u8d44\u3002", "default_card": False},
+        ]
+        return None, '{"lookup_type":"employee_no","lookup_value":"106401","requested_field_codes":["department","base_salary"],"field_selection_mode":"append"}', {"total_tokens": 1}
+
+    async def catalog(*_args, **_kwargs):
+        return (
+            EmployeeProfileCatalogItem("department", "department", "\u6240\u5c5e\u7ec4\u7ec7", "string", True, 1, 1, True),
+            EmployeeProfileCatalogItem("base_salary", "base_salary", "\u57fa\u672c\u5de5\u8d44", "number", False, None, 2, True, "\u5458\u5de5\u56fa\u5b9a\u7684\u57fa\u672c\u85aa\u916c\uff0c\u4e0d\u7b49\u4e8e\u5c97\u4f4d\u5de5\u8d44\u3002"),
+            EmployeeProfileCatalogItem("position_salary", "position_salary", "\u5c97\u4f4d\u5de5\u8d44", "number", False, None, 3, True, "\u4e0e\u5c97\u4f4d\u76f8\u5173\u7684\u5c97\u4f4d\u5de5\u8d44\uff0c\u4e0d\u7b49\u4e8e\u57fa\u672c\u5de5\u8d44\u3002"),
+        )
+
+    monkeypatch.setattr(ai_router, "active_ai_config", config)
+    monkeypatch.setattr(ai_router, "decrypt", lambda value: value)
+    monkeypatch.setattr(ai_router, "load_employee_profile_extractor_catalog", catalog)
+    monkeypatch.setattr(ai_router, "chat_completion_openai_compatible", model_call)
+
+    extracted = await ai_router._extract_employee_profile_pending(
+        AiChatIn(message="\u67e5\u8be2106401\u7684\u4fe1\u606f\uff0c\u9700\u5305\u542b\u57fa\u672c\u5de5\u8d44"),
+        ChatSession(conversation_id=11),
+        FakeDb(),
+        AiAuditTimer(),
+    )
+
+    assert extracted.extracted == {
+        "lookup_type": "employee_no",
+        "lookup_value": "106401",
+        "requested_field_codes": ["department", "base_salary"],
+    }
 
 
 @pytest.mark.asyncio

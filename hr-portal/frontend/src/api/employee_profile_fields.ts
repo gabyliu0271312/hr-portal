@@ -4,6 +4,7 @@ export interface EmployeeProfileFieldConfig {
   column_name: string
   field_code: string
   display_name: string
+  semantic_description: string
   is_queryable: boolean
   is_default_card: boolean
   default_display_order: number | null

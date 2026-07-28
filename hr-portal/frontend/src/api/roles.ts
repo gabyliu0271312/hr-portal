@@ -27,6 +27,7 @@ export interface RoleDetail {
   is_active: boolean
   user_count: number
   menus: RoleMenuItem[]
+  ai_capability_ids: string[]
 }
 
 export interface MenuNode {
@@ -42,7 +43,7 @@ export const rolesApi = {
   list: () =>
     api.get<{ items: RoleListItem[]; total: number }>('/roles').then((r) => r.data),
   get: (id: number) => api.get<RoleDetail>(`/roles/${id}`).then((r) => r.data),
-  create: (body: { name: string; description?: string; menus?: RoleMenuItem[] }) =>
+  create: (body: { name: string; description?: string; menus?: RoleMenuItem[]; ai_capability_ids?: string[] }) =>
     api.post<RoleDetail>('/roles', body).then((r) => r.data),
   update: (
     id: number,
@@ -51,6 +52,7 @@ export const rolesApi = {
       description?: string
       is_active?: boolean
       menus?: RoleMenuItem[]
+      ai_capability_ids?: string[]
     }
   ) => api.put<RoleDetail>(`/roles/${id}`, body).then((r) => r.data),
   activate: (id: number) => api.post(`/roles/${id}/activate`).then((r) => r.data),

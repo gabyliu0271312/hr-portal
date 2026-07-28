@@ -33,11 +33,13 @@ class UserCreateIn(BaseModel):
     email: EmailStr | None = None
     password: str = Field(..., max_length=128)
     role_ids: list[int] = []
+    ai_capability_ids: list[str] = []
 
 
 class UserUpdateIn(BaseModel):
     display_name: str | None = Field(None, min_length=1, max_length=64)
     email: EmailStr | None = None
+    ai_capability_ids: list[str] | None = None
 
 
 class UserDetail(BaseModel):
@@ -53,6 +55,7 @@ class UserDetail(BaseModel):
     role_names: list[str]
     org_scope_names: list[str] = []
     cost_center_scope_names: list[str] = []
+    ai_capability_ids: list[str] = []
 
 
 class ResetPasswordIn(BaseModel):

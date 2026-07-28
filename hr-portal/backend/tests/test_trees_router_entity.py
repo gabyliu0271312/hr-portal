@@ -40,6 +40,7 @@ def make_roster_model(table_name: str = "emp_realtime_roster"):
         Column("company_name", String),
         Column("full_name", String),
         Column("company_org", String),
+        Column("employment_status", String),
         Column("employee_status", String),
         Column("active_status", String),
     )
@@ -83,7 +84,7 @@ async def test_employment_type_distinct_reads_entity_columns():
     assert_no_raw_sql(db)
     sql = str(db.executed[0][0])
     assert "employee_type" in sql
-    assert "active_status" in sql
+    assert "employment_status" in sql
 
 
 async def test_persons_reads_name_and_department_entity_columns():
@@ -106,7 +107,7 @@ async def test_persons_reads_name_and_department_entity_columns():
     sql = str(db.executed[0][0])
     assert "full_name" in sql
     assert "company_org" in sql
-    assert "active_status" in sql
+    assert "employment_status" in sql
 
 
 async def test_tree_distinct_rejects_legacy_raw_roster():

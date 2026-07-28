@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.employee_profile_fields import EmployeeProfileFieldSetting
 from app.ai.employee_profile_repository import EMPLOYEE_PROFILE_ROSTER_TABLE
 from app.data.models import DATA_TABLES, TableColumn
+from app.users.models import User
 
 _ALLOWED_TYPES = {"string", "number", "date", "datetime", "bool", "enum"}
 _TECHNICAL_COLUMNS = {"id", "pk_hash", "synced_at", "created_at", "updated_at", "raw"}
@@ -31,6 +32,7 @@ class EmployeeProfileCatalogItem:
     default_display_order: int | None
     append_display_order: int
     is_queryable: bool = False
+    semantic_description: str = ""
 
 
 def _safe_column(column_name: str, data_type: str) -> bool:
@@ -64,6 +66,7 @@ async def load_employee_profile_catalog(db: AsyncSession) -> tuple[EmployeeProfi
             display_name=setting.display_name if setting else (column.column_label if column else column_name),
             data_type=data_type,
             is_queryable=getattr(setting, "is_queryable", False) if setting else False,
+            semantic_description=(getattr(column, "description", "") or "").strip(),
             is_default_card=default_order is not None,
             default_display_order=default_order,
             append_display_order=999,
@@ -93,20 +96,28 @@ def _safe_display_name(value: str) -> str | None:
     return normalized
 
 
-async def load_employee_profile_extractor_catalog(db: AsyncSession) -> tuple[EmployeeProfileCatalogItem, ...]:
-    """Return metadata safe to disclose to the extractor, never personnel data or sensitive fields."""
-    from app.permissions.masker import _table_sensitive_category_map
+async def load_employee_profile_extractor_catalog(
+    db: AsyncSession, *, user: User
+) -> tuple[EmployeeProfileCatalogItem, ...]:
+    """Return field metadata visible to the current user, never personnel data."""
+    from app.permissions.masker import VERDICT_HIDE, resolve_field_access
 
     catalog = await load_employee_profile_catalog(db)
     metadata_rows = (
         await db.execute(select(TableColumn).where(TableColumn.table_name == EMPLOYEE_PROFILE_ROSTER_TABLE))
     ).scalars().all()
     explicit_sensitive = {row.column_code for row in metadata_rows if row.is_sensitive}
-    categorized_sensitive = set((await _table_sensitive_category_map(EMPLOYEE_PROFILE_ROSTER_TABLE, db)).keys())
+    access_verdicts = await resolve_field_access(
+        user, EMPLOYEE_PROFILE_ROSTER_TABLE, db, tool_key="employee.profile.query"
+    )
     safe_items: list[EmployeeProfileCatalogItem] = []
     for item in catalog:
         display_name = _safe_display_name(item.display_name)
-        if item.column_name in explicit_sensitive or item.column_name in categorized_sensitive or display_name is None:
+        if (
+            item.column_name in explicit_sensitive
+            or access_verdicts.get(item.column_name) == VERDICT_HIDE
+            or display_name is None
+        ):
             continue
         safe_items.append(EmployeeProfileCatalogItem(
             field_code=item.field_code,
@@ -114,6 +125,7 @@ async def load_employee_profile_extractor_catalog(db: AsyncSession) -> tuple[Emp
             display_name=display_name,
             data_type=item.data_type,
             is_queryable=item.is_queryable,
+            semantic_description=item.semantic_description,
             is_default_card=item.is_default_card,
             default_display_order=item.default_display_order,
             append_display_order=item.append_display_order,

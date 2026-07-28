@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,7 @@ class FieldConfig(BaseModel):
     column_name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,127}$")
     field_code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,127}$")
     display_name: str = Field(min_length=1, max_length=64)
+    semantic_description: str = Field(default="", max_length=500)
     is_queryable: bool = False
     is_default_card: bool
     default_display_order: int | None = Field(default=None, ge=1, le=5)
@@ -31,11 +32,21 @@ class FieldConfigInput(BaseModel):
     column_name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,127}$")
     field_code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,127}$")
     display_name: str = Field(min_length=1, max_length=64)
+    semantic_description: str = Field(default="", max_length=500)
     is_queryable: bool = False
     is_default_card: bool
     default_display_order: int | None = Field(default=None, ge=1, le=5)
     append_display_order: int = Field(ge=1, le=9999)
     version: int | None = Field(default=None, ge=1)
+
+    @field_validator("semantic_description")
+    @classmethod
+    def _validate_semantic_description(cls, value: str) -> str:
+        normalized = value.strip()
+        forbidden = set("{}[]<>") | {"`", chr(34), chr(92)}
+        if any(ord(character) < 32 or character in forbidden for character in normalized):
+            raise ValueError("semantic description contains unsupported characters")
+        return normalized
 
 
 class FieldConfigUpdate(BaseModel):
@@ -154,7 +165,7 @@ async def _governance_issues(db: AsyncSession) -> list[GovernanceIssue]:
 async def _response(db: AsyncSession, sensitive_category_names: dict[str, list[str]] | None = None) -> list[FieldConfig]:
     settings = await _settings(db)
     categories = sensitive_category_names or {}
-    return [FieldConfig(column_name=item.column_name, field_code=item.field_code, display_name=item.display_name, is_queryable=item.is_queryable, is_default_card=item.is_default_card, default_display_order=item.default_display_order, append_display_order=item.append_display_order, version=settings[item.column_name].version if item.column_name in settings else None, sensitive_category_names=categories.get(item.column_name, [])) for item in await load_employee_profile_catalog(db)]
+    return [FieldConfig(column_name=item.column_name, field_code=item.field_code, display_name=item.display_name, semantic_description=item.semantic_description, is_queryable=item.is_queryable, is_default_card=item.is_default_card, default_display_order=item.default_display_order, append_display_order=item.append_display_order, version=settings[item.column_name].version if item.column_name in settings else None, sensitive_category_names=categories.get(item.column_name, [])) for item in await load_employee_profile_catalog(db)]
 
 
 @router.get("", response_model=list[FieldConfig])
@@ -204,6 +215,6 @@ async def update_fields(payload: FieldConfigUpdate, user: User = Depends(require
         if row is None:
             row = EmployeeProfileFieldSetting(table_name=EMPLOYEE_PROFILE_ROSTER_TABLE, column_name=field.column_name, created_by=user.id, version=0)
             db.add(row)
-        row.field_code = field.field_code; row.display_name = field.display_name.strip(); row.is_queryable = field.is_queryable; row.updated_by = user.id; row.version += 1
+        row.field_code = field.field_code; row.display_name = field.display_name.strip(); row.semantic_description = field.semantic_description.strip(); row.is_queryable = field.is_queryable; row.updated_by = user.id; row.version += 1
     await db.commit()
     return await _response(db, await _visible_sensitive_category_names(user, db))

@@ -8,7 +8,7 @@ from app.ai.employee_profile_catalog import EmployeeProfileCatalogItem
 
 
 def _field(column_name: str, *, default: bool, order: int | None, version: int | None = None):
-    return router.FieldConfigInput(column_name=column_name, field_code=column_name, display_name=column_name, is_default_card=default, default_display_order=order, append_display_order=10, version=version)
+    return router.FieldConfigInput(column_name=column_name, field_code=column_name, display_name=column_name, semantic_description=f"definition:{column_name}", is_default_card=default, default_display_order=order, append_display_order=10, version=version)
 
 
 def test_queryable_capability_defaults_to_disabled():
@@ -49,17 +49,19 @@ async def test_update_persists_complete_catalog_with_versions(monkeypatch):
     result = await router.update_fields(router.FieldConfigUpdate(fields=fields), user=SimpleNamespace(id=7), db=Db())
     assert result == fields
     assert len(saved) == 5 and all(row.version == 1 and row.created_by == 7 for row in saved)
+    assert {row.semantic_description for row in saved} == {f"definition:field_{index}" for index in range(1, 6)}
 
 
 @pytest.mark.asyncio
 async def test_response_includes_visible_sensitive_category_summary(monkeypatch):
-    item = EmployeeProfileCatalogItem("base_salary", "base_salary", "基本工资", "number", True, 1, 10)
+    item = EmployeeProfileCatalogItem("base_salary", "base_salary", "基本工资", "number", True, 1, 10, True, "固定薪酬")
     async def catalog(_db): return (item,)
     async def settings(_db): return {}
     monkeypatch.setattr(router, "load_employee_profile_catalog", catalog)
     monkeypatch.setattr(router, "_settings", settings)
     result = await router._response(SimpleNamespace(), {"base_salary": ["薪酬"]})
     assert result[0].sensitive_category_names == ["薪酬"]
+    assert result[0].semantic_description == "固定薪酬"
 
 
 @pytest.mark.asyncio

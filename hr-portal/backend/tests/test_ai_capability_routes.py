@@ -1,3 +1,5 @@
+import json
+
 from app.ai.capabilities import get_capability
 from datetime import date
 from types import SimpleNamespace
@@ -171,6 +173,38 @@ def test_compensation_patch_merges_with_previous_context():
     assert merged["employee_keyword"] == "gaby.liu刘琦"
     assert merged["leave_date"] == "2026-06-25"
     assert merged["plan"] == "N"
+
+
+@pytest.mark.asyncio
+async def test_compensation_extractor_supplies_channel_person_references_to_model(monkeypatch):
+    async def config(*args, **kwargs):
+        return SimpleNamespace(
+            model_reasoning="reasoning", model_fast_json=None, api_key_encrypted="encrypted", base_url=None, timeout_seconds=30
+        )
+
+    async def model_call(**kwargs):
+        model_input = json.loads(kwargs["messages"][1]["content"])
+        assert model_input["referenced_people"] == ["Sammi Zheng"]
+        return None, '{"intent":"compensation.calculate","employee_keyword":"Sammi Zheng","leave_date":null,"plan":null,"region":null,"changed_fields":["employee_keyword"]}', {"total_tokens": 1}
+
+    monkeypatch.setattr(ai_router, "active_ai_config", config)
+    monkeypatch.setattr(ai_router, "decrypt", lambda value: value)
+    monkeypatch.setattr(ai_router, "chat_completion_openai_compatible", model_call)
+
+    extracted = await ai_router._extract_compensation_request_with_model(
+        AiChatIn(message="Calculate for the mentioned employee", referenced_people=["Sammi Zheng"]),
+        ChatSession(conversation_id=1),
+        object(),
+        AiAuditTimer(),
+    )
+
+    assert extracted.extracted["employee_keyword"] == "Sammi Zheng"
+
+
+def test_person_references_are_excluded_from_ai_audit_payload():
+    payload = AiChatIn(message="Query employee", referenced_people=["Sammi Zheng"])
+
+    assert "referenced_people" not in payload.model_dump()
 
 
 def test_compensation_document_followup_action_merges_with_previous_context():

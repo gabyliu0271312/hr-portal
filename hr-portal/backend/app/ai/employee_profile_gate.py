@@ -14,22 +14,11 @@ class EmployeeProfileRolloutDecision:
     failure_stage: str | None = None
 
 
-def _parse_allowed_user_ids(raw_value: str) -> set[int] | None:
-    values = [item.strip() for item in raw_value.split(",") if item.strip()]
-    if not values:
-        return None
-    try:
-        return {int(item) for item in values}
-    except ValueError:
-        return None
-
-
-def employee_profile_rollout_decision(settings, user_id: int, *, now: datetime | None = None) -> EmployeeProfileRolloutDecision:
+def employee_profile_rollout_decision(
+    settings, *, now: datetime | None = None
+) -> EmployeeProfileRolloutDecision:
     if not settings.EMPLOYEE_PROFILE_ENABLED:
         return EmployeeProfileRolloutDecision(False, "controlled_rollout_disabled")
-    allowed_user_ids = _parse_allowed_user_ids(settings.EMPLOYEE_PROFILE_ALLOWED_USER_IDS)
-    if allowed_user_ids is None or user_id not in allowed_user_ids:
-        return EmployeeProfileRolloutDecision(False, "controlled_rollout_allowlist_denied")
     try:
         expires_at = datetime.fromisoformat(settings.EMPLOYEE_PROFILE_EXPIRES_AT.replace("Z", "+00:00"))
     except (AttributeError, ValueError):

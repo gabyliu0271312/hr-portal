@@ -6,7 +6,15 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.users.models import Menu, Role, RoleMenu, User, UserRole
+from app.users.models import (
+    Menu,
+    Role,
+    RoleAiCapabilityGrant,
+    RoleMenu,
+    User,
+    UserAiCapabilityGrant,
+    UserRole,
+)
 
 
 Permission = tuple[str, str] | None
@@ -586,11 +594,73 @@ async def user_has_permission(user: User, db: AsyncSession, permission: Permissi
     return (await db.execute(stmt)).first() is not None
 
 
+def registered_capability_ids() -> set[str]:
+    return set(CAPABILITY_BY_ID)
+
+
+_SUPER_ADMIN_ROLE_NAME = "\u8d85\u7ea7\u7ba1\u7406\u5458"
+
+
+async def user_is_super_admin(user: User, db: AsyncSession) -> bool:
+    if bool(getattr(user, "is_admin", False) or getattr(user, "is_superuser", False)):
+        return True
+    role_id = await db.scalar(
+        select(Role.id)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .where(
+            UserRole.user_id == user.id,
+            Role.is_active.is_(True),
+            Role.name == _SUPER_ADMIN_ROLE_NAME,
+        )
+        .limit(1)
+    )
+    return role_id is not None
+
+
+async def user_has_capability_grant(
+    user: User, db: AsyncSession, capability_id: str
+) -> bool:
+    if capability_id not in CAPABILITY_BY_ID:
+        return False
+    direct_grant = await db.scalar(
+        select(UserAiCapabilityGrant.user_id)
+        .where(
+            UserAiCapabilityGrant.user_id == user.id,
+            UserAiCapabilityGrant.capability_id == capability_id,
+        )
+        .limit(1)
+    )
+    if direct_grant is not None:
+        return True
+    role_grant = await db.scalar(
+        select(RoleAiCapabilityGrant.role_id)
+        .join(UserRole, UserRole.role_id == RoleAiCapabilityGrant.role_id)
+        .join(Role, Role.id == RoleAiCapabilityGrant.role_id)
+        .where(
+            UserRole.user_id == user.id,
+            Role.is_active.is_(True),
+            RoleAiCapabilityGrant.capability_id == capability_id,
+        )
+        .limit(1)
+    )
+    return role_grant is not None
+
+
+async def user_can_use_capability(
+    user: User, db: AsyncSession, capability: CapabilityDefinition
+) -> bool:
+    if await user_is_super_admin(user, db):
+        return True
+    if capability.capability_id == "employee.profile.query":
+        return await user_has_capability_grant(user, db, capability.capability_id)
+    return await user_has_permission(user, db, capability.required_permission)
+
+
 async def visible_capabilities(user: User, db: AsyncSession) -> list[CapabilityDefinition]:
     result: list[CapabilityDefinition] = []
     for item in CAPABILITIES:
         if not item.is_enabled or not item.ai_visible:
             continue
-        if await user_has_permission(user, db, item.required_permission):
+        if await user_can_use_capability(user, db, item):
             result.append(item)
     return result

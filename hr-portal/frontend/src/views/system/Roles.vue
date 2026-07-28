@@ -80,6 +80,9 @@
           </el-form-item>
         </el-form>
 
+        <div style="margin-top: 16px; font-size: 14px; font-weight: 600">AI 能力授权</div>
+        <AiCapabilityGrantEditor v-model="form.ai_capability_ids" />
+
         <div style="margin-top: 24px; font-size: 14px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px">
           菜单与操作权限矩阵
         </div>
@@ -202,6 +205,7 @@ import { computed, onMounted, ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, InfoFilled } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
+import AiCapabilityGrantEditor from '@/components/system/AiCapabilityGrantEditor.vue'
 import {
   rolesApi,
   menusApi,
@@ -238,11 +242,13 @@ const form = reactive<{
   name: string
   description: string
   is_active: boolean
+  ai_capability_ids: string[]
   matrix: MatrixRow[]
 }>({
   name: '',
   description: '',
   is_active: true,
+  ai_capability_ids: [],
   matrix: [],
 })
 const saving = ref(false)
@@ -331,8 +337,9 @@ async function openCreate() {
   Object.assign(form, {
     name: '',
     description: '',
-    is_active: true,
-    matrix: buildMatrix(null),
+      is_active: true,
+      ai_capability_ids: [],
+      matrix: buildMatrix(null),
   })
 }
 
@@ -348,6 +355,7 @@ async function openEdit(id: number) {
       name: detail.name,
       description: detail.description ?? '',
       is_active: detail.is_active,
+      ai_capability_ids: detail.ai_capability_ids,
       matrix: buildMatrix(detail),
     })
   } catch (e: any) {
@@ -391,6 +399,7 @@ async function onSave() {
         name: form.name,
         description: form.description || undefined,
         menus,
+        ai_capability_ids: form.ai_capability_ids,
       })
       // 新建后保存可见分类
       if (selectedCategoryIds.value.length > 0) {
@@ -405,6 +414,7 @@ async function onSave() {
         description: form.description || undefined,
         is_active: form.is_active,
         menus,
+        ai_capability_ids: form.ai_capability_ids,
       })
       await fieldCategoriesApi
         .setRoleVisible(editingId.value, selectedCategoryIds.value)

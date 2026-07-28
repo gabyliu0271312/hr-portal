@@ -47,7 +47,7 @@ onMounted(load)
   <el-card style="margin-bottom: 16px">
     <template #header>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-        <div><b>员工档案字段配置</b><div style="margin-top:4px;color:var(--color-text-secondary);font-size:12px">开启后字段才可进入默认候选或用户追问；敏感分类和字段授权仍在原有入口维护。</div></div>
+        <div><b>员工档案字段配置</b><div style="margin-top:4px;color:var(--color-text-secondary);font-size:12px">业务定义会随字段目录提供给 AI 用于语义消歧；敏感分类和字段授权仍在原有入口维护。</div></div>
         <el-button :loading="saving" type="primary" @click="save">保存配置</el-button>
       </div>
     </template>
@@ -62,6 +62,7 @@ onMounted(load)
       <el-table :data="fields" size="small" border>
       <el-table-column label="字段" min-width="150"><template #default="{ row }"><div>{{ row.column_name }}</div><el-text type="info" size="small">{{ row.field_code }}</el-text></template></el-table-column>
       <el-table-column label="展示名称" min-width="180"><template #default="{ row }"><el-input v-model="row.display_name" maxlength="64" show-word-limit /></template></el-table-column>
+      <el-table-column label="业务定义（供 AI 消歧）" min-width="300"><template #default="{ row }"><el-input v-model="row.semantic_description" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" maxlength="500" show-word-limit placeholder="说明该字段的业务含义及与易混字段的区别" /></template></el-table-column>
       <el-table-column label="敏感分类（只读）" min-width="160"><template #default="{ row }"><el-tag v-for="categoryName in row.sensitive_category_names" :key="categoryName" size="small" type="warning" style="margin-right:4px">{{ categoryName }}</el-tag><span v-if="!row.sensitive_category_names.length">—</span></template></el-table-column>
       <el-table-column label="治理状态" min-width="200"><template #default="{ row }"><el-tag v-for="message in fieldGovernanceMessages(row.column_name)" :key="message" size="small" type="warning" style="margin-right:4px">{{ message }}</el-tag><span v-if="!fieldGovernanceMessages(row.column_name).length">正常</span></template></el-table-column>
       <el-table-column label="员工档案可查询" width="140"><template #default="{ row }"><el-switch v-model="row.is_queryable" inline-prompt active-text="开" inactive-text="关" /></template></el-table-column>

@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import unicodedata
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -21,6 +22,14 @@ from app.users.models import User
 
 FEISHU_CHANNEL = "feishu"
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class FeishuMessageContext:
+    """Normalized Feishu text content and protocol-level person mentions."""
+
+    text: str
+    referenced_people: tuple[str, ...] = ()
 
 
 def verify_feishu_signed_request(*, headers: Any, raw_body: bytes, body: dict[str, Any]) -> None:
@@ -95,7 +104,7 @@ def is_private_message(event: dict[str, Any]) -> bool:
     return message.get("chat_type") == "p2p"
 
 
-def message_text(event: dict[str, Any]) -> str | None:
+def message_context(event: dict[str, Any]) -> FeishuMessageContext | None:
     message = event.get("message") or {}
     if message.get("message_type") != "text":
         return None
@@ -104,7 +113,32 @@ def message_text(event: dict[str, Any]) -> str | None:
     except json.JSONDecodeError:
         return None
     text = content.get("text")
-    return text.strip() if isinstance(text, str) and text.strip() else None
+    if not isinstance(text, str) or not text.strip():
+        return None
+
+    mentioned_people: list[str] = []
+    mentions = message.get("mentions") or content.get("mentions") or []
+    if isinstance(mentions, list):
+        for mention in mentions:
+            if not isinstance(mention, dict):
+                continue
+            key = mention.get("key")
+            name = mention.get("name")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            normalized_name = name.strip()
+            if isinstance(key, str) and key:
+                text = text.replace(key, normalized_name)
+            if normalized_name not in mentioned_people and len(mentioned_people) < 10:
+                mentioned_people.append(normalized_name)
+    normalized_text = text.strip()
+    return FeishuMessageContext(normalized_text, tuple(mentioned_people)) if normalized_text else None
+
+
+def message_text(event: dict[str, Any]) -> str | None:
+    """Compatibility accessor for callers that only require normalized text."""
+    context = message_context(event)
+    return context.text if context else None
 
 
 def render_envelope_card(out: AiChatOut) -> str:
@@ -229,14 +263,26 @@ def render_employee_profile_action_unavailable_card() -> str:
     )
 
 
-async def run_feishu_chat(db: AsyncSession, *, user: User, chat_id: str, text: str) -> AiChatOut:
+async def run_feishu_chat(
+    db: AsyncSession,
+    *,
+    user: User,
+    chat_id: str,
+    text: str,
+    referenced_people: list[str] | None = None,
+) -> AiChatOut:
     from app.ai.channel_sessions import load_or_create_channel_conversation
 
     conversation = await load_or_create_channel_conversation(
         db, user=user, channel=FEISHU_CHANNEL, external_session_key=chat_id
     )
     return await global_ai_chat(
-        AiChatIn(message=text, page_path="feishu:bot", conversation_id=conversation.id),
+        AiChatIn(
+            message=text,
+            page_path="feishu:bot",
+            conversation_id=conversation.id,
+            referenced_people=referenced_people or [],
+        ),
         user=user,
         db=db,
     )

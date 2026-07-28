@@ -7,10 +7,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.password import hash_password, is_strong_enough
+from app.ai.capabilities import registered_capability_ids
 from app.core.db import get_session
 from app.core.deps import require_op
 from app.scopes.models import ScopeTag, UserScopeTag
-from app.users.models import Role, User, UserRole
+from app.users.models import Role, User, UserAiCapabilityGrant, UserRole
 from app.users.schemas import (
     ResetPasswordIn,
     SetRolesIn,
@@ -59,6 +60,23 @@ async def _scope_names_by_user(
         if dimension in out[user_id]:
             out[user_id][dimension].append(name)
     return dict(out)
+
+
+async def _replace_ai_capability_grants(
+    db: AsyncSession, user: User, capability_ids: list[str]
+) -> None:
+    requested_ids = set(capability_ids)
+    if not requested_ids.issubset(registered_capability_ids()):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown AI capability")
+    existing = (
+        await db.execute(
+            select(UserAiCapabilityGrant).where(UserAiCapabilityGrant.user_id == user.id)
+        )
+    ).scalars().all()
+    for grant in existing:
+        await db.delete(grant)
+    for capability_id in requested_ids:
+        db.add(UserAiCapabilityGrant(user_id=user.id, capability_id=capability_id))
 
 
 async def _user_to_list_item(
@@ -165,6 +183,7 @@ async def create_user(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="存在无效角色 ID")
         for r in roles:
             db.add(UserRole(user_id=user.id, role_id=r.id))
+    await _replace_ai_capability_grants(db, user, payload.ai_capability_ids)
 
     await db.commit()
     await db.refresh(user)
@@ -187,6 +206,13 @@ async def get_user(
 async def _detail(user: User, db: AsyncSession) -> UserDetail:
     scope_names = await _scope_names_by_user(db, [user.id])
     names = scope_names.get(user.id, {})
+    ai_capability_ids = (
+        await db.execute(
+            select(UserAiCapabilityGrant.capability_id).where(
+                UserAiCapabilityGrant.user_id == user.id
+            )
+        )
+    ).scalars().all()
     return UserDetail(
         id=user.id,
         login_name=user.login_name,
@@ -200,6 +226,7 @@ async def _detail(user: User, db: AsyncSession) -> UserDetail:
         role_names=[r.name for r in user.roles],
         org_scope_names=names.get("org", []),
         cost_center_scope_names=names.get("cost_center", []),
+        ai_capability_ids=sorted(ai_capability_ids),
     )
 
 
@@ -216,6 +243,8 @@ async def update_user(
         user.display_name = payload.display_name
     if payload.email is not None:
         user.email = payload.email
+    if payload.ai_capability_ids is not None:
+        await _replace_ai_capability_grants(db, user, payload.ai_capability_ids)
 
     await db.commit()
     await db.refresh(user)

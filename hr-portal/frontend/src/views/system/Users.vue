@@ -180,6 +180,9 @@
             </el-checkbox>
           </el-checkbox-group>
         </el-form-item>
+        <el-form-item label="AI 能力授权">
+          <AiCapabilityGrantEditor v-model="form.ai_capability_ids" />
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -263,6 +266,7 @@ import { onMounted, reactive, ref, computed, h } from 'vue'
 import { ElInput, ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
+import AiCapabilityGrantEditor from '@/components/system/AiCapabilityGrantEditor.vue'
 import { usersApi, type UserDetail, type UserListItem } from '@/api/users'
 import { scopesApi, type ScopeTagItem } from '@/api/scopes'
 import { fieldCategoriesApi, type FieldCategory } from '@/api/field_categories'
@@ -344,6 +348,7 @@ const form = reactive({
   email: '',
   password: '',
   role_ids: [] as number[],
+  ai_capability_ids: [] as string[],
 })
 const saving = ref(false)
 
@@ -356,6 +361,7 @@ function openCreate() {
     email: '',
     password: generateStrongPassword(),
     role_ids: [],
+    ai_capability_ids: [],
   })
   drawerOpen.value = true
 }
@@ -371,6 +377,7 @@ async function openEdit(id: number) {
       email: detail.email || '',
       password: '',
       role_ids: [...detail.role_ids],
+      ai_capability_ids: [...detail.ai_capability_ids],
     })
     drawerOpen.value = true
   } catch (e: any) {
@@ -408,12 +415,14 @@ async function onSave() {
         email: form.email || null,
         password: form.password,
         role_ids: form.role_ids,
+        ai_capability_ids: form.ai_capability_ids,
       })
       ElMessage.success('用户已创建')
     } else if (editing.value) {
       await usersApi.update(editing.value.id, {
         display_name: form.display_name,
         email: form.email || null,
+        ai_capability_ids: form.ai_capability_ids,
       })
       await usersApi.setRoles(editing.value.id, form.role_ids)
       ElMessage.success('用户信息已更新')

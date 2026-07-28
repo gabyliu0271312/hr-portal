@@ -46,14 +46,17 @@ from app.integrations.feishu.ai_channel import (
     event_chat_id,
     event_open_id,
     is_private_message,
-    message_text,
+    message_context,
     render_envelope_card,
     render_employee_profile_action_unavailable_card,
     resolve_feishu_portal_user,
     run_feishu_chat,
     verify_feishu_signed_request,
 )
-from app.integrations.feishu.ai_gate import enforce_feishu_capability_gate
+from app.integrations.feishu.ai_gate import (
+    enforce_feishu_capability_authorization,
+    enforce_feishu_capability_gate,
+)
 from app.integrations.feishu.feishu_client import (
     build_completed_card,
     get_feishu_client,
@@ -135,7 +138,7 @@ async def handle_bot_event(request: Request, db: AsyncSession = Depends(get_sess
 
     open_id = event_open_id(event)
     try:
-        enforce_feishu_capability_gate("ai.chat", -1)
+        enforce_feishu_capability_gate("ai.chat")
         if not is_private_message(event):
             await _send_bot_text(open_id, "当前机器人仅支持单聊，请在单聊中发送查询。")
             await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key, status="ignored_group")
@@ -148,14 +151,20 @@ async def handle_bot_event(request: Request, db: AsyncSession = Depends(get_sess
             await db.commit()
             return {"ok": True}
         chat_id = event_chat_id(event)
-        text = message_text(event)
-        if not chat_id or text is None:
+        inbound = message_context(event)
+        if not chat_id or inbound is None:
             await _send_bot_text(open_id, "暂仅支持文本消息，请发送文字查询。")
             await complete_channel_event(db, channel=FEISHU_CHANNEL, event_key=event_key, status="unsupported_message")
             await db.commit()
             return {"ok": True}
         try:
-            out = await run_feishu_chat(db, user=user, chat_id=chat_id, text=text)
+            out = await run_feishu_chat(
+                db,
+                user=user,
+                chat_id=chat_id,
+                text=inbound.text,
+                referenced_people=list(inbound.referenced_people),
+            )
         except HTTPException as exc:
             if exc.status_code == status.HTTP_403_FORBIDDEN:
                 await _send_bot_text(open_id, "当前账号暂无此功能权限。")
@@ -207,7 +216,7 @@ async def _consume_bot_card_action(
     capability_id: str | None = None
     try:
         capability_id = controlled_action_capability_id(payload.action_type)
-        enforce_feishu_capability_gate(capability_id, user.id)
+        await enforce_feishu_capability_authorization(capability_id, user, db)
         await enforce_capability_rate_limit(
             db,
             user_id=user.id,

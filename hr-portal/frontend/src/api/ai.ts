@@ -195,6 +195,12 @@ export interface CapabilityResultEnvelope {
   conversation_id?: number | null
 }
 
+export interface AiCapability {
+  capability_id: string
+  name: string
+  description: string
+}
+
 export const aiApi = {
   chat: (body: {
     message: string
@@ -210,4 +216,5 @@ export const aiApi = {
     api
       .post<CapabilityResultEnvelope>(`/ai/conversations/${conversationId}/actions`, body, { timeout: AI_CHAT_TIMEOUT_MS })
       .then((r) => r.data),
+  registry: () => api.get<AiCapability[]>('/ai/capabilities/registry').then((r) => r.data),
 }

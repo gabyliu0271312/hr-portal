@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Literal, NamedTuple
@@ -27,10 +28,10 @@ from app.ai.capability_rate_limit import (
     CapabilityRateLimitExceeded,
     enforce_capability_rate_limit,
 )
-from app.ai.capabilities import CAPABILITY_BY_ID, CapabilityDefinition, get_capability, user_has_permission, visible_capabilities
+from app.ai.capabilities import CAPABILITIES, CAPABILITY_BY_ID, CapabilityDefinition, get_capability, user_can_use_capability, user_has_permission, visible_capabilities
 from app.ai.context_builder import build_context_packet
 from app.ai.employee_profile_gate import EMPLOYEE_PROFILE_CAPABILITY_ID, employee_profile_rollout_decision
-from app.integrations.feishu.ai_gate import enforce_feishu_capability_gate
+from app.integrations.feishu.ai_gate import enforce_feishu_capability_authorization
 from app.ai.employee_profile_actions import register_employee_profile_controlled_actions
 from app.ai.employee_profile_actions import issue_employee_profile_candidate_actions
 from app.ai.employee_profile_catalog import EmployeeProfileCatalogError, load_employee_profile_extractor_catalog
@@ -304,6 +305,7 @@ class AiChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
     page_path: str | None = Field(default=None, max_length=300)
     conversation_id: int | None = Field(default=None, ge=1)
+    referenced_people: list[str] = Field(default_factory=list, max_length=10, exclude=True)
     history: list[AiChatMessage] = Field(default_factory=list, max_length=20)
     selected_employee_id: int | None = Field(default=None, ge=1)
 
@@ -1068,6 +1070,7 @@ async def _extract_compensation_request_with_model(
                 {
                     "today": today,
                     "message": payload.message,
+                    "referenced_people": payload.referenced_people,
                     "page_path": payload.page_path,
                     "compensation_context": prev_ctx.model_dump(mode="json") if prev_ctx else None,
                     "history": [item.model_dump() for item in payload.history[-6:]],
@@ -1082,6 +1085,14 @@ async def _extract_compensation_request_with_model(
                     },
                 },
                 ensure_ascii=False,
+            ),
+        },
+        {
+            "role": "system",
+            "content": (
+                "referenced_people contains display names resolved from channel-level person mentions. "
+                "When the request targets a mentioned person, use that exact name as employee_keyword; "
+                "otherwise do not infer a target from the list."
             ),
         },
     ]
@@ -2219,14 +2230,14 @@ async def _enforce_controlled_action_gate(
     """Apply the target capability gate before a valid handle can be consumed."""
     if payload.action_type != "employee.profile.select_candidate":
         return
-    rollout = employee_profile_rollout_decision(settings, user.id)
+    rollout = employee_profile_rollout_decision(settings)
     if not rollout.allowed:
         raise TargetCapabilityGateDenied(
             rollout.failure_stage or "controlled_rollout_denied",
             "\u5f53\u524d\u529f\u80fd\u6682\u672a\u5f00\u653e",
         )
     target_capability = _ensure_capability(EMPLOYEE_PROFILE_CAPABILITY_ID)
-    if not await user_has_permission(user, db, target_capability.required_permission):
+    if not await user_can_use_capability(user, db, target_capability):
         raise TargetCapabilityGateDenied(
             "target_permission_denied",
             "\u65e0\u6743\u4f7f\u7528\u5f53\u524d\u529f\u80fd",
@@ -2238,7 +2249,7 @@ async def _enforce_chat_route_gate(
 ) -> None:
     target_capability = _ensure_capability(route.capability_id)
     if target_capability.capability_id == EMPLOYEE_PROFILE_CAPABILITY_ID:
-        rollout = employee_profile_rollout_decision(settings, user.id)
+        rollout = employee_profile_rollout_decision(settings)
         if not rollout.allowed:
             timer.add_event(
                 "controlled_rollout_gate",
@@ -2247,7 +2258,7 @@ async def _enforce_chat_route_gate(
                 failure_stage=rollout.failure_stage,
             )
             raise TargetCapabilityGateDenied(rollout.failure_stage or "controlled_rollout_denied", "\u5f53\u524d\u529f\u80fd\u6682\u672a\u5f00\u653e")
-    if not await user_has_permission(user, db, target_capability.required_permission):
+    if not await user_can_use_capability(user, db, target_capability):
         timer.add_event(
             "target_capability_gate",
             status="denied",
@@ -2269,12 +2280,20 @@ async def _extract_employee_profile_pending(
         "requested_field_codes": active_profile.get("requested_field_codes", []),
     } if active_profile else None
     try:
-        extractor_catalog = await load_employee_profile_extractor_catalog(db)
+        extractor_catalog = await load_employee_profile_extractor_catalog(
+            db, user=_employee_profile_extractor_user.get()
+        )
     except EmployeeProfileCatalogError:
         return ExtractorResult(None, None, "employee_profile_catalog_unavailable")
     allowed_field_codes = {item.field_code for item in extractor_catalog}
     catalog_context = [
-        {"code": item.field_code, "name": item.display_name, "type": item.data_type}
+        {
+            "code": item.field_code,
+            "name": item.display_name,
+            "type": item.data_type,
+            "semantic_description": item.semantic_description,
+            "default_card": item.is_default_card,
+        }
         for item in extractor_catalog
     ]
     model = (config.model_fast_json or config.model_reasoning or "").strip()
@@ -2285,7 +2304,14 @@ async def _extract_employee_profile_pending(
                 "You extract an employee-profile lookup request. Return only JSON. "
                 "Allowed lookup_type values are name and employee_no. "
                 "requested_field_codes may only contain codes from employee_profile_fields. "
-                "When the user does not explicitly name any profile fields, return requested_field_codes as an empty array. "
+                "Interpret field selection semantically from the user's request and the catalog name, not by approximate field similarity. "
+                "Use each field's semantic_description as the source of truth for business meaning. "
+                "Before returning JSON, verify every explicitly requested field against its selected field name and semantic_description. "
+                "When the user explicitly names a catalog field, select that exact code and never substitute an adjacent field. "
+                "referenced_people contains display names resolved from channel-level person mentions. "
+                "When the request targets a mentioned person, use that exact name as lookup_value; otherwise do not infer a target from the list. "
+                "For a new profile request without explicitly named fields, return all default_card field codes. "
+                "When the user asks to include or add a field, return all default_card field codes plus the explicitly requested field codes. "
                 "For a follow-up that adds fields to the current card, set field_selection_mode to append; "
                 "when the user asks to show only specific fields, set it to replace. "
                 "Do not emit employee IDs, scopes, SQL, extra fields, or any result data. "
@@ -2299,6 +2325,7 @@ async def _extract_employee_profile_pending(
             "content": json.dumps(
                 {
                     "message": payload.message,
+                    "referenced_people": payload.referenced_people,
                     "active_employee_profile": continuation_context,
                     "employee_profile_fields": catalog_context,
                     "output_schema_hint": {
@@ -2698,6 +2725,24 @@ async def list_capabilities(
     return [_capability_out(item) for item in await visible_capabilities(user, db)]
 
 
+async def _require_capability_administration(
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> User:
+    if await user_has_permission(user, db, ("system.roles", "V")):
+        return user
+    if await user_has_permission(user, db, ("system.users", "V")):
+        return user
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权查看 AI 能力目录")
+
+
+@router.get("/capabilities/registry", response_model=list[CapabilityOut])
+async def list_capability_registry(
+    _: User = Depends(_require_capability_administration),
+) -> list[CapabilityOut]:
+    return [_capability_out(item) for item in CAPABILITIES if item.is_enabled and item.ai_visible]
+
+
 @router.post(
     "/chat",
     response_model=AiChatOut,
@@ -2770,7 +2815,7 @@ async def global_ai_chat(
                 target_capability_id = route.capability_id
                 await _enforce_chat_route_gate(route, user, db, timer)
                 if session.channel == "feishu":
-                    enforce_feishu_capability_gate(route.capability_id, user.id)
+                    await enforce_feishu_capability_authorization(route.capability_id, user, db)
                 await enforce_capability_rate_limit(
                     db,
                     user_id=user.id,
@@ -2778,7 +2823,14 @@ async def global_ai_chat(
                     max_requests=settings.AI_CAPABILITY_RATE_LIMIT_MAX_REQUESTS,
                     window_seconds=settings.AI_CAPABILITY_RATE_LIMIT_WINDOW_SECONDS,
                 )
-                extraction = await route.extractor(payload, session, db, timer)
+                extractor_user_token = None
+                if route.capability_id == EMPLOYEE_PROFILE_CAPABILITY_ID:
+                    extractor_user_token = _employee_profile_extractor_user.set(user)
+                try:
+                    extraction = await route.extractor(payload, session, db, timer)
+                finally:
+                    if extractor_user_token is not None:
+                        _employee_profile_extractor_user.reset(extractor_user_token)
                 usage = extraction.usage or usage
                 parse_mode = f"{parse_mode}+{extraction.parse_mode}"
                 if extraction.extracted is None:
@@ -3573,3 +3625,6 @@ async def test_ai_config(
         )
         await db.commit()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"模型测试失败: {exc}") from exc
+_employee_profile_extractor_user: ContextVar[User | None] = ContextVar(
+    "employee_profile_extractor_user", default=None
+)
