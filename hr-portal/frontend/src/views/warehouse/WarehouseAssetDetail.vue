@@ -267,6 +267,7 @@ async function openEditDS(ep: ConnectionEndpointSummary) {
 }
 
 async function saveDS() {
+  if (dsSaving.value) return
   const t = currentType.value
   if (t) {
     for (const g of t.groups) {
@@ -288,7 +289,7 @@ async function saveDS() {
       business_key_fields: dsForm.business_key_fields.split(',').map(item => item.trim()).filter(Boolean),
     }
     if (dsDrawerMode.value === 'create') {
-      await datasourcesApi.create({
+      const created = await datasourcesApi.create({
         table_name: tableName,
         table_label: asset.value?.table_label || tableName,
         source_type: dsForm.source_type,
@@ -296,12 +297,8 @@ async function saveDS() {
         is_active: dsForm.is_active,
         ...writePolicy,
       })
-      const allDs = await datasourcesApi.list()
-      const created = allDs.find(d => d.table_name === tableName && d.source_type === dsForm.source_type)
-      if (created) {
-        await datasourcesApi.update(created.id, { source_type: dsForm.source_type, schedule: dsForm.schedule, settings, secrets, is_active: dsForm.is_active, ...writePolicy })
-      }
-      ElMessage.success('入仓来源已创建')
+      await datasourcesApi.update(created.id, { source_type: dsForm.source_type, schedule: dsForm.schedule, settings, secrets, is_active: dsForm.is_active, ...writePolicy })
+      ElMessage.success('入仓来源已保存')
     } else if (dsEditId.value) {
       await datasourcesApi.update(dsEditId.value, { source_type: dsForm.source_type, schedule: dsForm.schedule, settings, secrets, is_active: dsForm.is_active, ...writePolicy })
       ElMessage.success('入仓来源已更新')

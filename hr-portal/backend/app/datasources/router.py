@@ -10,9 +10,10 @@
 from datetime import datetime, UTC
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -191,29 +192,41 @@ async def list_datasources(
     return [_to_out(r) for r in rows]
 
 
-@router.post("", response_model=DataSourceOut, status_code=status.HTTP_201_CREATED,
+@router.post("", response_model=DataSourceOut,
               dependencies=[Depends(require_op("datasource.endpoints", "C"))])
 async def create_datasource(
     body: DataSourceCreateIn,
+    response: Response,
     _: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> DataSourceOut:
-    """创建新的 DataSource（T0211 仓库侧创建入口）"""
+    """确保一张表拥有唯一 DataSource；已有记录直接复用，完整配置由 PUT 保存。"""
     _validate_write_policy(body.sync_semantics, body.write_strategy, body.missing_row_strategy, body.business_key_fields)
-    ds = DataSource(
-        table_name=body.table_name,
-        table_label=body.table_label or body.table_name,
-        source_type=body.source_type,
-        schedule=body.schedule or "",
-        is_active=body.is_active,
-        sync_semantics=body.sync_semantics,
-        write_strategy=body.write_strategy,
-        missing_row_strategy=body.missing_row_strategy,
-        business_key_fields=body.business_key_fields,
+    insert_stmt = (
+        pg_insert(DataSource)
+        .values(
+            table_name=body.table_name,
+            table_label=body.table_label or body.table_name,
+            source_type=body.source_type,
+            schedule=body.schedule or "",
+            is_active=body.is_active,
+            sync_semantics=body.sync_semantics,
+            write_strategy=body.write_strategy,
+            missing_row_strategy=body.missing_row_strategy,
+            business_key_fields=body.business_key_fields,
+        )
+        .on_conflict_do_nothing(index_elements=["table_name"])
+        .returning(DataSource.id)
     )
-    db.add(ds)
+    created_id = (await db.execute(insert_stmt)).scalar_one_or_none()
     await db.commit()
-    await db.refresh(ds)
+    if created_id is None:
+        response.status_code = status.HTTP_200_OK
+        ds = await db.scalar(select(DataSource).where(DataSource.table_name == body.table_name))
+    else:
+        ds = await db.get(DataSource, created_id)
+    if ds is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="数据源创建冲突，请重试")
     return _to_out(ds)
 
 
