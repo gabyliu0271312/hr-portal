@@ -1,0 +1,554 @@
+"""Resource-object webhook ingress and unified pipeline-trigger APIs."""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import os
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db import get_session
+from app.core.deps import require_op
+from app.ucp.credential_service import decrypt_credential_secrets
+from app.ucp.event_bus import DuplicateEventError, process_event_pipeline, receive_event
+from app.ucp.feishu_webhook import normalize_feishu_event, verify_feishu_signature
+from app.ucp.models import UcpEventDefinition, UcpEventTrigger, UcpResource, UcpResourceDataObject, UcpWebhookIngressAttempt
+from app.ucp.rate_limiter import RateLimitError, acquire as acquire_rate_limit
+
+router = APIRouter()
+OBJECT_TYPES = {"REPORT", "TABLE", "API_OBJECT", "EVENT_TYPE"}
+TRIGGER_TYPES = {"MANUAL", "SCHEDULE", "WEBHOOK", "PLATFORM_EVENT"}
+DEFINITION_STATUSES = {"DRAFT", "PUBLISHED", "DEPRECATED"}
+
+
+def _resource_ingress_enabled() -> bool:
+    return os.getenv("UCP_WEBHOOK_RESOURCE_INGRESS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+async def _record_ingress_attempt(
+    db: AsyncSession,
+    *,
+    resource_code: str,
+    resource_id: int | None,
+    outcome: str,
+    reason_code: str | None = None,
+    event_id: str | None = None,
+) -> None:
+    db.add(UcpWebhookIngressAttempt(
+        resource_code=resource_code,
+        resource_id=resource_id,
+        outcome=outcome,
+        reason_code=reason_code,
+        event_id=event_id,
+    ))
+    await db.flush()
+
+
+async def _reject_webhook(
+    db: AsyncSession,
+    *,
+    resource_code: str,
+    resource_id: int | None,
+    reason_code: str,
+    status_code: int,
+    detail: str,
+    headers: dict[str, str] | None = None,
+) -> None:
+    await _record_ingress_attempt(
+        db,
+        resource_code=resource_code,
+        resource_id=resource_id,
+        outcome="REJECTED",
+        reason_code=reason_code,
+    )
+    await db.commit()
+    raise HTTPException(status_code, detail, headers=headers)
+
+
+class EventDefinitionRequest(BaseModel):
+    event_code: str = Field(min_length=3, max_length=128)
+    event_name: str = Field(min_length=1, max_length=128)
+    source_system_type: str = Field(min_length=1, max_length=64)
+    payload_schema: dict[str, Any] = Field(default_factory=dict)
+    normalization_schema: dict[str, Any] = Field(default_factory=dict)
+    verification_strategy: str = "NONE"
+    version: str = "1.0.0"
+    status: Literal["DRAFT", "PUBLISHED", "DEPRECATED"] = "DRAFT"
+    risk_level: str = "read_low"
+
+
+class ResourceObjectRequest(BaseModel):
+    object_code: str = Field(min_length=1, max_length=64)
+    object_name: str = Field(min_length=1, max_length=128)
+    object_type: Literal["REPORT", "TABLE", "API_OBJECT", "EVENT_TYPE"] = "REPORT"
+    event_definition_id: int | None = None
+    event_config: dict[str, Any] = Field(default_factory=dict)
+    object_config: dict[str, Any] = Field(default_factory=dict)
+    field_mapping: dict[str, Any] = Field(default_factory=dict)
+    incremental_config: dict[str, Any] = Field(default_factory=dict)
+    is_active: bool = True
+
+    @model_validator(mode="after")
+    def validate_event_reference(self):
+        if self.object_type == "EVENT_TYPE" and self.event_definition_id is None:
+            raise ValueError("EVENT_TYPE requires event_definition_id")
+        if self.object_type != "EVENT_TYPE" and self.event_definition_id is not None:
+            raise ValueError("event_definition_id is only allowed for EVENT_TYPE")
+        if any("secret" in key.lower() or "token" in key.lower() for key in self.event_config):
+            raise ValueError("event_config must reference credentials and cannot contain secrets")
+        return self
+
+
+class PipelineTriggerRequest(BaseModel):
+    trigger_code: str = Field(min_length=3, max_length=64)
+    trigger_name: str = Field(min_length=1, max_length=128)
+    pipeline_template_code: str = Field(min_length=1, max_length=64)
+    trigger_type: Literal["MANUAL", "SCHEDULE", "WEBHOOK", "PLATFORM_EVENT"]
+    platform_event_type: str | None = Field(default=None, max_length=128)
+    source_resource_object_id: int | None = None
+    filter_rule: dict[str, Any] = Field(default_factory=dict)
+    schedule_config: dict[str, Any] = Field(default_factory=dict)
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    idempotency_expression: str | None = Field(default=None, max_length=256)
+    failure_policy: Literal["RETRY", "DEAD_LETTER", "STOP"] = "RETRY"
+    run_as_type: str = "SERVICE_ACCOUNT"
+    service_account_code: str | None = None
+    is_active: bool = False
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if self.trigger_type == "WEBHOOK" and self.source_resource_object_id is None:
+            raise ValueError("WEBHOOK requires source_resource_object_id")
+        if self.trigger_type == "SCHEDULE":
+            if self.source_resource_object_id is not None:
+                raise ValueError("SCHEDULE cannot use source_resource_object_id")
+            if not self.schedule_config.get("cron") or not self.schedule_config.get("timezone"):
+                raise ValueError("SCHEDULE requires schedule_config.cron and timezone")
+        if self.trigger_type == "PLATFORM_EVENT":
+            from app.ucp.platform_event_catalog import get_platform_event, validate_platform_filter
+
+            item = get_platform_event(self.platform_event_type)
+            if item is None or not item["enabled"]:
+                raise ValueError("PLATFORM_EVENT requires an available platform_event_type")
+            if self.source_resource_object_id is not None:
+                raise ValueError("PLATFORM_EVENT cannot use source_resource_object_id")
+            validate_platform_filter(self.platform_event_type or "", self.filter_rule)
+        return self
+
+
+class PipelineTriggerTestRequest(BaseModel):
+    sample_payload: dict[str, Any] = Field(default_factory=dict)
+    dry_run: bool = True
+
+
+def _serialize_definition(item: UcpEventDefinition) -> dict[str, Any]:
+    return {key: getattr(item, key) for key in (
+        "id", "event_code", "event_name", "source_system_type", "payload_schema",
+        "normalization_schema", "verification_strategy", "version", "status", "risk_level",
+    )}
+
+
+def _serialize_object(item: UcpResourceDataObject, definition: UcpEventDefinition | None = None) -> dict[str, Any]:
+    return {
+        "id": item.id, "resource_id": item.resource_id, "connector_type": item.connector_type,
+        "object_code": item.object_code, "object_name": item.object_name, "object_type": item.object_type,
+        "event_definition_id": item.event_definition_id, "event_definition": _serialize_definition(definition) if definition else None,
+        "event_config": item.event_config or {}, "object_config": item.object_config or {},
+        "field_mapping": item.field_mapping or {}, "incremental_config": item.incremental_config or {},
+        "verification_status": item.verification_status, "last_verified_at": item.last_verified_at,
+        "schema_version": item.schema_version, "is_active": bool(item.is_active),
+    }
+
+
+def _serialize_trigger(item: UcpEventTrigger) -> dict[str, Any]:
+    return {
+        "id": item.id, "trigger_code": item.trigger_code, "trigger_name": item.trigger_name,
+        "pipeline_template_code": item.pipeline_code, "trigger_type": item.trigger_type,
+        "platform_event_type": item.event_types if item.trigger_type == "PLATFORM_EVENT" else None,
+        "source_resource_object_id": item.source_resource_object_id, "source_resource_id": item.source_resource_id, "filter_rule": item.filter_rule or {},
+        "schedule_config": item.schedule_config or {}, "input_schema": item.input_schema or {},
+        "idempotency_expression": item.idempotency_expression, "failure_policy": item.failure_policy,
+        "run_as_type": item.run_as_type, "service_account_code": item.service_account_code,
+        "is_active": bool(item.is_active), "migration_status": item.migration_status,
+        "legacy_webhook_path": item.legacy_webhook_path,
+    }
+
+
+async def _get_resource(db: AsyncSession, resource_id: int) -> UcpResource:
+    item = await db.get(UcpResource, resource_id)
+    if item is None:
+        raise HTTPException(404, "Resource not found")
+    return item
+
+
+async def _event_definition(db: AsyncSession, definition_id: int, *, published: bool = False) -> UcpEventDefinition:
+    item = await db.get(UcpEventDefinition, definition_id)
+    if item is None or (published and item.status != "PUBLISHED"):
+        raise HTTPException(422, "Event definition is unavailable")
+    return item
+
+
+async def _validate_event_object(db: AsyncSession, object_id: int, *, require_verified: bool) -> UcpResourceDataObject:
+    item = await db.get(UcpResourceDataObject, object_id)
+    if item is None or item.object_type != "EVENT_TYPE" or not item.is_active:
+        raise HTTPException(409, "Source event object is unavailable")
+    if require_verified and item.verification_status != "VERIFIED":
+        raise HTTPException(409, "Source event object must be verified")
+    await _event_definition(db, item.event_definition_id or 0, published=True)
+    return item
+
+
+@router.get("/event-definitions")
+async def list_event_definitions(source_system_type: str | None = None, status: str | None = "PUBLISHED", db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.events", "V"))):
+    stmt = select(UcpEventDefinition)
+    if source_system_type:
+        stmt = stmt.where(UcpEventDefinition.source_system_type == source_system_type)
+    if status:
+        stmt = stmt.where(UcpEventDefinition.status == status)
+    return {"items": [_serialize_definition(item) for item in (await db.execute(stmt.order_by(UcpEventDefinition.event_code))).scalars()]}
+
+
+@router.post("/event-definitions", status_code=201)
+async def create_event_definition(payload: EventDefinitionRequest, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.systems", "C"))):
+    existing = (await db.execute(select(UcpEventDefinition).where(UcpEventDefinition.event_code == payload.event_code, UcpEventDefinition.version == payload.version))).scalar_one_or_none()
+    if existing:
+        raise HTTPException(409, "Event definition version already exists")
+    item = UcpEventDefinition(**payload.model_dump())
+    db.add(item)
+    await db.commit(); await db.refresh(item)
+    return _serialize_definition(item)
+
+
+@router.patch("/event-definitions/{definition_id}")
+async def update_event_definition(definition_id: int, payload: EventDefinitionRequest, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.systems", "U"))):
+    item = await _event_definition(db, definition_id)
+    if item.status == "PUBLISHED" and (payload.event_code != item.event_code or payload.payload_schema != item.payload_schema or payload.version != item.version):
+        raise HTTPException(409, "Published event definitions require a new version for breaking changes")
+    for key, value in payload.model_dump().items():
+        setattr(item, key, value)
+    await db.commit(); await db.refresh(item)
+    return _serialize_definition(item)
+
+
+@router.get("/resources/{resource_id}/objects")
+async def list_resource_objects(resource_id: int, object_type: str | None = None, is_active: bool | None = None, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.resources", "V"))):
+    await _get_resource(db, resource_id)
+    stmt = select(UcpResourceDataObject).where(UcpResourceDataObject.resource_id == resource_id)
+    if object_type:
+        if object_type not in OBJECT_TYPES: raise HTTPException(422, "Invalid object_type")
+        stmt = stmt.where(UcpResourceDataObject.object_type == object_type)
+    if is_active is not None: stmt = stmt.where(UcpResourceDataObject.is_active == int(is_active))
+    items = list((await db.execute(stmt.order_by(UcpResourceDataObject.object_code))).scalars())
+    definitions = {item.id: item for item in (await db.execute(select(UcpEventDefinition).where(UcpEventDefinition.id.in_([obj.event_definition_id for obj in items if obj.event_definition_id])))).scalars()} if any(obj.event_definition_id for obj in items) else {}
+    return {"total": len(items), "items": [_serialize_object(item, definitions.get(item.event_definition_id)) for item in items]}
+
+
+@router.post("/resources/{resource_id}/objects", status_code=201)
+async def create_resource_object(resource_id: int, payload: ResourceObjectRequest, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.resources", "C"))):
+    resource = await _get_resource(db, resource_id)
+    definition = await _event_definition(db, payload.event_definition_id, published=True) if payload.event_definition_id else None
+    item = UcpResourceDataObject(resource_id=resource.id, connector_type=resource.connector_type or "webhook_ingress", **payload.model_dump(), verification_status="PENDING" if payload.object_type == "EVENT_TYPE" else "NOT_REQUIRED", schema_version=definition.version if definition else None)
+    db.add(item)
+    try: await db.commit()
+    except Exception as error:
+        await db.rollback(); raise HTTPException(409, "Object code already exists") from error
+    await db.refresh(item)
+    return _serialize_object(item, definition)
+
+
+@router.patch("/resources/{resource_id}/objects/{object_id}")
+async def update_resource_object(resource_id: int, object_id: int, payload: ResourceObjectRequest, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.resources", "U"))):
+    await _get_resource(db, resource_id)
+    item = await db.get(UcpResourceDataObject, object_id)
+    if item is None or item.resource_id != resource_id: raise HTTPException(404, "Resource object not found")
+    definition = await _event_definition(db, payload.event_definition_id, published=True) if payload.event_definition_id else None
+    for key, value in payload.model_dump().items(): setattr(item, key, value)
+    item.schema_version = definition.version if definition else None
+    if item.object_type == "EVENT_TYPE": item.verification_status = "PENDING"
+    await db.commit(); await db.refresh(item)
+    return _serialize_object(item, definition)
+
+
+@router.delete("/resources/{resource_id}/objects/{object_id}")
+async def delete_resource_object(resource_id: int, object_id: int, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.resources", "D"))):
+    item = await db.get(UcpResourceDataObject, object_id)
+    if item is None or item.resource_id != resource_id: raise HTTPException(404, "Resource object not found")
+    triggers = list((await db.execute(select(UcpEventTrigger.trigger_code).where(UcpEventTrigger.source_resource_object_id == object_id, UcpEventTrigger.is_active == 1))).scalars())
+    if triggers: raise HTTPException(409, {"message": "Object is used by active triggers", "impact": triggers})
+    await db.delete(item); await db.commit()
+    return {"deleted": object_id, "impact": []}
+
+
+@router.post("/resources/{resource_id}/verify")
+async def verify_webhook_resource(resource_id: int, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.resources", "U"))):
+    resource = await _get_resource(db, resource_id)
+    ingress = (resource.protocol or {}).get("ingress", {})
+    if (resource.connector_type or "").lower() not in {"webhook_ingress", "webhook"} and not ingress:
+        raise HTTPException(409, "Resource is not a webhook ingress")
+    if not resource.credential_id and ingress.get("verification_strategy") not in {None, "NONE"}:
+        raise HTTPException(409, "Webhook resource requires a credential reference")
+    resource.test_status = "VERIFIED"; resource.test_time = datetime.now(timezone.utc); resource.test_result = {"verified": True, "credential_reference": bool(resource.credential_id)}
+    await db.commit()
+    return {"resource_id": resource.id, "status": resource.test_status, "credential_reference": bool(resource.credential_id)}
+
+
+@router.post("/resources/{resource_id}/objects/{object_id}/verify")
+async def verify_resource_object(resource_id: int, object_id: int, sample_event: dict[str, Any] | None = None, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.resources", "U"))):
+    resource = await _get_resource(db, resource_id)
+    if resource.test_status != "VERIFIED":
+        raise HTTPException(409, "Webhook resource must be verified before its event objects")
+    item = await _validate_event_object(db, object_id, require_verified=False)
+    if item.resource_id != resource.id: raise HTTPException(404, "Resource object not found")
+    definition = await _event_definition(db, item.event_definition_id or 0, published=True)
+    if sample_event is not None:
+        required = (definition.payload_schema or {}).get("required", [])
+        missing = [key for key in required if key not in sample_event]
+        if missing: raise HTTPException(422, {"message": "Schema validation failed", "missing": missing})
+    item.verification_status = "VERIFIED"; item.last_verified_at = datetime.now(timezone.utc)
+    await db.commit(); await db.refresh(item)
+    return {"object": _serialize_object(item, definition), "schema_matched": True}
+
+
+@router.get("/platform-event-catalog")
+async def list_platform_event_catalog(_events=Depends(require_op("ucp.events", "V"))):
+    from app.ucp.platform_event_catalog import list_platform_events
+
+    return {"items": list_platform_events()}
+
+
+@router.get("/pipeline-triggers")
+async def list_pipeline_triggers(pipeline_template_code: str | None = None, trigger_type: str | None = None, source_resource_id: int | None = None, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.events", "V"))):
+    stmt = select(UcpEventTrigger)
+    if pipeline_template_code: stmt = stmt.where(UcpEventTrigger.pipeline_code == pipeline_template_code)
+    if trigger_type: stmt = stmt.where(UcpEventTrigger.trigger_type == trigger_type)
+    if source_resource_id: stmt = stmt.where(UcpEventTrigger.source_resource_id == source_resource_id)
+    return {"items": [_serialize_trigger(item) for item in (await db.execute(stmt.order_by(UcpEventTrigger.id.desc()))).scalars()]}
+
+
+@router.get("/trigger-migration/status")
+async def trigger_migration_status(db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.events", "V"))):
+    triggers = list((await db.execute(select(UcpEventTrigger))).scalars())
+    objects = list((await db.execute(select(UcpResourceDataObject).where(UcpResourceDataObject.object_type == "EVENT_TYPE"))).scalars())
+    legacy = [item for item in triggers if item.migration_status == "PENDING_MIGRATION"]
+    resource_bound = [item for item in triggers if item.source_resource_object_id is not None]
+    return {
+        "resource_ingress_enabled": _resource_ingress_enabled(),
+        "legacy_trigger_count": len(legacy),
+        "resource_bound_trigger_count": len(resource_bound),
+        "verified_event_object_count": sum(item.verification_status == "VERIFIED" for item in objects),
+        "legacy_triggers": [{"trigger_code": item.trigger_code, "webhook_path": item.webhook_path, "is_active": bool(item.is_active), "migration_status": item.migration_status} for item in legacy],
+    }
+
+
+class TriggerMigrationRequest(BaseModel):
+    source_resource_object_id: int
+
+
+@router.post("/trigger-migration/{trigger_code}")
+async def migrate_legacy_trigger(trigger_code: str, payload: TriggerMigrationRequest, db: AsyncSession = Depends(get_session), _events=Depends(require_op("ucp.events", "U")), _pipelines=Depends(require_op("ucp.pipelines", "U"))):
+    item = (await db.execute(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == trigger_code))).scalar_one_or_none()
+    if item is None or item.migration_status != "PENDING_MIGRATION" or not item.webhook_path:
+        raise HTTPException(409, "Trigger is not pending migration")
+    source = await _validate_event_object(db, payload.source_resource_object_id, require_verified=True)
+    definition = await _event_definition(db, source.event_definition_id or 0, published=True)
+    item.legacy_webhook_path = item.webhook_path
+    item.webhook_path = None
+    item.source_resource_object_id = source.id
+    item.source_resource_id = source.resource_id
+    item.event_source = "WEBHOOK"
+    item.event_types = definition.event_code
+    item.migration_status = "MIGRATED"
+    await db.commit(); await db.refresh(item)
+    return _serialize_trigger(item)
+
+
+@router.post("/trigger-migration/{trigger_code}/rollback")
+async def rollback_legacy_trigger_migration(trigger_code: str, db: AsyncSession = Depends(get_session), _events=Depends(require_op("ucp.events", "U")), _pipelines=Depends(require_op("ucp.pipelines", "U"))):
+    item = (await db.execute(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == trigger_code))).scalar_one_or_none()
+    if item is None or item.migration_status != "MIGRATED" or not item.legacy_webhook_path:
+        raise HTTPException(409, "Trigger migration cannot be rolled back")
+    collision = (await db.execute(select(UcpEventTrigger.id).where(UcpEventTrigger.webhook_path == item.legacy_webhook_path, UcpEventTrigger.id != item.id))).scalar_one_or_none()
+    if collision is not None:
+        raise HTTPException(409, "Legacy webhook path is already in use")
+    item.webhook_path = item.legacy_webhook_path
+    item.source_resource_object_id = None
+    item.source_resource_id = None
+    item.migration_status = "PENDING_MIGRATION"
+    await db.commit(); await db.refresh(item)
+    return _serialize_trigger(item)
+
+
+async def _write_trigger(db: AsyncSession, payload: PipelineTriggerRequest, item: UcpEventTrigger | None = None) -> UcpEventTrigger:
+    source = await _validate_event_object(db, payload.source_resource_object_id, require_verified=payload.is_active) if payload.source_resource_object_id else None
+    if item is None:
+        item = UcpEventTrigger(trigger_code=payload.trigger_code, trigger_name=payload.trigger_name, event_source="UCP", event_types="", pipeline_code=payload.pipeline_template_code)
+        db.add(item)
+    values = payload.model_dump()
+    item.trigger_name = values["trigger_name"]; item.pipeline_code = values["pipeline_template_code"]; item.trigger_type = values["trigger_type"]
+    item.source_resource_object_id = values["source_resource_object_id"]; item.source_resource_id = source.resource_id if source else None
+    if source:
+        item.event_source = "WEBHOOK"
+        item.event_types = (await _event_definition(db, source.event_definition_id or 0, published=True)).event_code
+    elif payload.trigger_type == "PLATFORM_EVENT":
+        item.event_source = "INTERNAL"
+        item.event_types = payload.platform_event_type or ""
+    else:
+        item.event_source = "UCP"
+        item.event_types = ""
+    item.filter_rule = values["filter_rule"]; item.schedule_config = values["schedule_config"]; item.input_schema = values["input_schema"]
+    item.idempotency_expression = values["idempotency_expression"]; item.failure_policy = values["failure_policy"]
+    item.run_as_type = values["run_as_type"]; item.service_account_code = values["service_account_code"]; item.is_active = int(values["is_active"])
+    await db.flush()
+    from app.scheduler.service import upsert_job
+    cron = item.schedule_config.get("cron", "0 0 * * *") if item.trigger_type == "SCHEDULE" else "0 0 * * *"
+    job = await upsert_job(db, "ucp_pipeline_trigger", item.id, cron, {"trigger_code": item.trigger_code}, enabled=bool(item.is_active and item.trigger_type == "SCHEDULE"))
+    await db.commit(); await db.refresh(item)
+    try:
+        from app.scheduler.engine import get_engine
+        await get_engine().reload_job(job.id)
+    except RuntimeError:
+        pass
+    return item
+
+
+@router.post("/pipeline-triggers", status_code=201)
+async def create_pipeline_trigger(payload: PipelineTriggerRequest, db: AsyncSession = Depends(get_session), _events=Depends(require_op("ucp.events", "C")), _pipelines=Depends(require_op("ucp.pipelines", "U"))):
+    existing = (await db.execute(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == payload.trigger_code))).scalar_one_or_none()
+    if existing: raise HTTPException(409, "Trigger code already exists")
+    return _serialize_trigger(await _write_trigger(db, payload))
+
+
+@router.patch("/pipeline-triggers/{trigger_code}")
+async def update_pipeline_trigger(trigger_code: str, payload: PipelineTriggerRequest, db: AsyncSession = Depends(get_session), _events=Depends(require_op("ucp.events", "U")), _pipelines=Depends(require_op("ucp.pipelines", "U"))):
+    item = (await db.execute(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == trigger_code))).scalar_one_or_none()
+    if item is None: raise HTTPException(404, "Pipeline trigger not found")
+    if payload.trigger_code != trigger_code: raise HTTPException(422, "trigger_code is immutable")
+    return _serialize_trigger(await _write_trigger(db, payload, item))
+
+
+@router.post("/pipeline-triggers/{trigger_code}/enable")
+async def enable_pipeline_trigger(trigger_code: str, enabled: bool, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.events", "U"))):
+    item = (await db.execute(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == trigger_code))).scalar_one_or_none()
+    if item is None: raise HTTPException(404, "Pipeline trigger not found")
+    if enabled and item.trigger_type == "WEBHOOK": await _validate_event_object(db, item.source_resource_object_id or 0, require_verified=True)
+    item.is_active = int(enabled)
+    if item.trigger_type == "SCHEDULE":
+        from app.scheduler.service import upsert_job
+        job = await upsert_job(db, "ucp_pipeline_trigger", item.id, item.schedule_config.get("cron", "0 0 * * *"), {"trigger_code": item.trigger_code}, enabled=enabled)
+    else:
+        job = None
+    await db.commit(); await db.refresh(item)
+    if job is not None:
+        try:
+            from app.scheduler.engine import get_engine
+            await get_engine().reload_job(job.id)
+        except RuntimeError:
+            pass
+    return _serialize_trigger(item)
+
+
+@router.post("/pipeline-triggers/{trigger_code}/test")
+async def test_pipeline_trigger(trigger_code: str, payload: PipelineTriggerTestRequest, db: AsyncSession = Depends(get_session), _events=Depends(require_op("ucp.events", "V")), _pipelines=Depends(require_op("ucp.pipelines", "V"))):
+    item = (await db.execute(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == trigger_code))).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(404, "Pipeline trigger not found")
+    if not payload.dry_run:
+        raise HTTPException(422, "Only dry-run trigger tests are allowed")
+    if item.trigger_type == "WEBHOOK":
+        source = await _validate_event_object(db, item.source_resource_object_id or 0, require_verified=True)
+        definition = await _event_definition(db, source.event_definition_id or 0, published=True)
+        required = (definition.payload_schema or {}).get("required", [])
+        missing = [key for key in required if key not in payload.sample_payload]
+        if missing:
+            raise HTTPException(422, {"message": "Schema validation failed", "missing": missing})
+    return {"trigger": _serialize_trigger(item), "dry_run": True, "matched": True, "pipeline_started": False}
+
+
+@router.delete("/pipeline-triggers/{trigger_code}")
+async def delete_pipeline_trigger(trigger_code: str, db: AsyncSession = Depends(get_session), _events=Depends(require_op("ucp.events", "D")), _pipelines=Depends(require_op("ucp.pipelines", "U"))):
+    item = (await db.execute(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == trigger_code))).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(404, "Pipeline trigger not found")
+    if item.is_active:
+        raise HTTPException(409, "Disable the pipeline trigger before deletion")
+    await db.delete(item)
+    await db.commit()
+    return {"deleted": trigger_code}
+
+
+@router.post("/webhooks/resources/{resource_code}")
+async def receive_resource_webhook(resource_code: str, request: Request, db: AsyncSession = Depends(get_session)):
+    if not _resource_ingress_enabled():
+        await _reject_webhook(db, resource_code=resource_code, resource_id=None, reason_code="INGRESS_DISABLED", status_code=503, detail="Resource webhook ingress is disabled during compatibility rollout")
+    resources = list((await db.execute(select(UcpResource).where(UcpResource.resource_code == resource_code).limit(2))).scalars())
+    if not resources:
+        await _reject_webhook(db, resource_code=resource_code, resource_id=None, reason_code="RESOURCE_NOT_FOUND", status_code=404, detail="Webhook resource not found")
+    if len(resources) > 1:
+        raise HTTPException(409, "Webhook resource code is ambiguous across systems")
+    resource = resources[0]
+    raw = await request.body(); ingress = (resource.protocol or {}).get("ingress", {})
+    try:
+        acquire_rate_limit(
+            f"webhook:{resource.id}",
+            {"enabled": True, "qps": ingress.get("rate_limit_per_minute", 120) / 60, "burst": ingress.get("rate_limit_burst", 10)},
+        )
+    except RateLimitError as error:
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="RATE_LIMITED", status_code=429, detail=error.message, headers={"Retry-After": str(max(1, int(error.retry_after_seconds)))})
+    if len(raw) > int(ingress.get("max_body_bytes", 1048576)):
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="BODY_TOO_LARGE", status_code=413, detail="Webhook body exceeds limit")
+    try:
+        body = json.loads(raw or b"{}")
+    except json.JSONDecodeError:
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="INVALID_JSON", status_code=400, detail="Webhook body must be JSON")
+    if not isinstance(body, dict):
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="INVALID_BODY", status_code=400, detail="Webhook body must be an object")
+    if "challenge" in body:
+        await _record_ingress_attempt(db, resource_code=resource_code, resource_id=resource.id, outcome="ACCEPTED", reason_code="CHALLENGE")
+        await db.commit()
+        return {"challenge": body["challenge"]}
+    strategy = ingress.get("verification_strategy", "NONE")
+    if strategy == "HMAC_SHA256":
+        secrets = await decrypt_credential_secrets(db, resource.credential_id) if resource.credential_id else {}
+        secret = secrets.get("signing_secret") or secrets.get("webhook_secret")
+        header = ingress.get("signature_header", "X-Signature")
+        provided = request.headers.get(header, "")
+        expected = hmac.new(str(secret or "").encode(), raw, hashlib.sha256).hexdigest()
+        if not secret or not hmac.compare_digest(provided, expected):
+            await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="SIGNATURE_INVALID", status_code=401, detail="Webhook signature verification failed")
+    if strategy == "FEISHU_ENCRYPTED_EVENT":
+        secrets = await decrypt_credential_secrets(db, resource.credential_id) if resource.credential_id else {}
+        encrypt_key = secrets.get("encrypt_key") or secrets.get("feishu_encrypt_key")
+        timestamp = request.headers.get("X-Lark-Request-Timestamp", "")
+        nonce = request.headers.get("X-Lark-Request-Nonce", "")
+        signature = request.headers.get("X-Lark-Signature", "")
+        if signature and not verify_feishu_signature(timestamp, nonce, raw, signature, str(encrypt_key or "")):
+            await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="SIGNATURE_INVALID", status_code=401, detail="Feishu webhook signature verification failed")
+        try:
+            normalized = normalize_feishu_event(body, encrypt_key=encrypt_key, verification_token=secrets.get("verification_token"))
+        except Exception:
+            await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="FEISHU_PAYLOAD_INVALID", status_code=400, detail="Feishu webhook payload verification failed")
+        body = {"event_id": normalized["event_id"], "event_type": normalized["event_type"], "event": normalized["payload"]}
+    event_code = str(body.get("event_type") or (body.get("header") or {}).get("event_type") or "")
+    objects = list((await db.execute(select(UcpResourceDataObject).where(UcpResourceDataObject.resource_id == resource.id, UcpResourceDataObject.object_type == "EVENT_TYPE", UcpResourceDataObject.is_active == 1, UcpResourceDataObject.verification_status == "VERIFIED"))).scalars())
+    definitions = {definition.id: definition for definition in (await db.execute(select(UcpEventDefinition).where(UcpEventDefinition.id.in_([item.event_definition_id for item in objects])))).scalars()} if objects else {}
+    obj = next((item for item in objects if definitions.get(item.event_definition_id) and definitions[item.event_definition_id].event_code == event_code), None)
+    if obj is None:
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="EVENT_OBJECT_UNAVAILABLE", status_code=404, detail="No verified event object accepts this webhook event")
+    event_id = str(body.get("event_id") or (body.get("header") or {}).get("event_id") or uuid.uuid4())
+    try: event = await receive_event(db, event_id=event_id, event_type=event_code, source="WEBHOOK", payload=body.get("event") or body, metadata={"resource_code": resource.resource_code}, is_dedup=True)
+    except DuplicateEventError:
+        await _record_ingress_attempt(db, resource_code=resource_code, resource_id=resource.id, outcome="DEDUPLICATED", event_id=event_id)
+        await db.commit()
+        return {"accepted": True, "deduplicated": True}
+    event.system_code = str(resource.system_id); event.resource_id = resource.id; event.resource_object_id = obj.id; event.event_definition_id = obj.event_definition_id
+    await process_event_pipeline(db, event)
+    await _record_ingress_attempt(db, resource_code=resource_code, resource_id=resource.id, outcome="ACCEPTED", event_id=event.event_id)
+    await db.commit()
+    return {"accepted": True, "event_id": event.event_id, "trace_id": event.trace_id}
