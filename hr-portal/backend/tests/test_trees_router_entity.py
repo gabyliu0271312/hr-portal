@@ -29,7 +29,10 @@ class FakeSession:
         return FakeResult(self.rows)
 
 
-def make_roster_model(table_name: str = "emp_realtime_roster"):
+def make_roster_model(
+    table_name: str = "emp_realtime_roster",
+    status_columns: tuple[str, ...] = ("employment_status", "employee_status", "active_status"),
+):
     table = Table(
         table_name,
         MetaData(),
@@ -40,9 +43,7 @@ def make_roster_model(table_name: str = "emp_realtime_roster"):
         Column("company_name", String),
         Column("full_name", String),
         Column("company_org", String),
-        Column("employment_status", String),
-        Column("employee_status", String),
-        Column("active_status", String),
+        *(Column(column_code, String) for column_code in status_columns),
     )
     return _make_model_from_table(table_name, table)
 
@@ -108,6 +109,24 @@ async def test_persons_reads_name_and_department_entity_columns():
     assert "full_name" in sql
     assert "company_org" in sql
     assert "employment_status" in sql
+
+
+async def test_tree_distinct_uses_legacy_employee_status_when_current_status_column_is_absent():
+    old_model = register_roster(make_roster_model(status_columns=("employee_status",)))
+    db = FakeSession(rows=[("??", 2, 3)])
+
+    try:
+        out = await trees_router.get_employment_types(
+            include_inactive=False,
+            db=db,
+        )
+    finally:
+        restore_roster(old_model)
+
+    assert out[0].value == "??"
+    sql = str(db.executed[0][0])
+    assert "employee_status" in sql
+    assert "employment_status" not in sql
 
 
 async def test_tree_distinct_rejects_legacy_raw_roster():

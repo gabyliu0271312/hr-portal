@@ -97,7 +97,7 @@ class DistinctValueOut(BaseModel):
 
 
 _ROSTER_TABLE = "emp_realtime_roster"
-_STATUS_COL = "employment_status"
+_STATUS_COLUMN_CANDIDATES = ("employment_status", "employee_status", "active_status")
 
 
 def _roster_model():
@@ -115,6 +115,16 @@ def _entity_column(model, column_code: str):
     return model.__table__.c[column_code]
 
 
+def _roster_status_column(model):
+    for column_code in _STATUS_COLUMN_CANDIDATES:
+        if column_code in model.__table__.columns:
+            return model.__table__.c[column_code]
+    raise RuntimeError(
+        "????????????????: "
+        + " / ".join(_STATUS_COLUMN_CANDIDATES)
+    )
+
+
 async def _distinct_values_by_column(
     column_code: str, include_inactive: bool, db: AsyncSession
 ) -> list[DistinctValueOut]:
@@ -125,7 +135,7 @@ async def _distinct_values_by_column(
     """
     model = _roster_model()
     value_expr = cast(_entity_column(model, column_code), String)
-    status_expr = cast(_entity_column(model, _STATUS_COL), String)
+    status_expr = cast(_roster_status_column(model), String)
     active_count = func.count().filter(status_expr != "离职").label("active_count")
     total_count = func.count().label("total_count")
     stmt = (
@@ -193,7 +203,7 @@ async def get_persons(
     model = _roster_model()
     name_expr = cast(_entity_column(model, "full_name"), String)
     department_expr = cast(_entity_column(model, "company_org"), String)
-    status_expr = cast(_entity_column(model, _STATUS_COL), String)
+    status_expr = cast(_roster_status_column(model), String)
     active_expr = func.bool_or(status_expr != "离职").label("active")
     stmt = (
         select(name_expr.label("value"), department_expr.label("department"), active_expr)
