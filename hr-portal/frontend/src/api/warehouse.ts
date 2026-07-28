@@ -197,6 +197,8 @@ export interface ModelUpdatePayload {
   owner_user_id?: number | null
   owner_name?: string | null
   business_definition?: string | null
+  tables?: ModelTableIn[]
+  relations?: ModelRelationPayload[]
 }
 
 // ==================== 输出字段 ====================

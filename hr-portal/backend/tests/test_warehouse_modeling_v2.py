@@ -140,3 +140,20 @@ def test_model_update_empty():
     assert m.name is None
     assert m.warehouse_layer is None
     assert m.subject_area is None
+
+
+def test_model_update_accepts_table_and_relation_replacement():
+    model = WarehouseModelUpdateIn(
+        tables=[{"table_name": "dwd_employee", "alias": "current"}],
+        relations=[
+            {
+                "left_alias": "current",
+                "right_alias": "current",
+                "left_keys": ["employee_no"],
+                "right_keys": ["direct_supervisor"],
+            }
+        ],
+    )
+
+    assert model.tables[0].alias == "current"
+    assert model.relations[0].left_keys == ["employee_no"]

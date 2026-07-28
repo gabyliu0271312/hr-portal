@@ -256,14 +256,15 @@ function removeOF(i: number) { outputFields.value.splice(i, 1) }
 async function saveDraft() {
   saving.value = true
   try {
+    const tablePayload = tables.value.map(t => ({ table_name: t.table_name, alias: t.alias }))
+    const relationPayload = relations.value.filter(r => r.from && r.to).map(r => ({ left_alias: r.from, right_alias: r.to, join_type: r.join_type, cardinality: r.cardinality, left_keys: r.keys.filter(k => k.left).map(k => k.left), right_keys: r.keys.filter(k => k.right).map(k => k.right) }))
     if (modelId) {
-      await updateModel(modelId, { label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined })
+      await updateModel(modelId, { label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined, tables: tablePayload, relations: relationPayload })
       const v = outputFields.value.filter(f => f.output_code && f.output_label); if (v.length) await saveOutputFields(modelId, v)
+      await load()
       ElMessage.success('已更新')
     } else {
-      const tl = tables.value.map(t => ({ table_name: t.table_name, alias: t.alias }))
-      const rl = relations.value.filter(r => r.from && r.to).map(r => ({ left_alias: r.from, right_alias: r.to, join_type: r.join_type, cardinality: r.cardinality, left_keys: r.keys.filter(k => k.left).map(k => k.left), right_keys: r.keys.filter(k => k.right).map(k => k.right) }))
-      const res = await createModel({ name: makeModelCode(form.value.label), label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined, tables: tl, relations: rl })
+      const res = await createModel({ name: makeModelCode(form.value.label), label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined, tables: tablePayload, relations: relationPayload })
       ElMessage.success(`已创建 ID:${res.id}`); router.replace(`/warehouse/modeling/visual/${res.id}`)
     }
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') } finally { saving.value = false }
@@ -281,6 +282,9 @@ function goBack() { router.back() }
 // ==================== 加载 ====================
 async function load() {
   loading.value = true; error.value = null
+  tables.value = []
+  relations.value = []
+  outputFields.value = []
   try {
     const datasets = await datasetsApi.list(); availableTables.value = (datasets || []).filter(isSingleTableDataset).map(ds => ({ table_name: ds.tables[0].table_name, table_label: ds.label || ds.tables[0].table_label || ds.tables[0].table_name, dataset_code: formatDatasetCode(ds), warehouse_layer: ds.warehouse_layer || 'DWD' }))
     if (modelId) {

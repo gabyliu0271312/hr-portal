@@ -704,7 +704,10 @@ async def update_model(
     权限要求：warehouse.assets:U
     """
     data = payload.model_dump(exclude_unset=True)
-    ds = await _svc(db).update_model(model_id, data)
+    try:
+        ds = await _svc(db).update_model(model_id, data)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if ds is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"模型不存在: {model_id}")
     await db.commit()

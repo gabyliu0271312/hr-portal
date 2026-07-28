@@ -175,6 +175,8 @@ class WarehouseModelUpdateIn(BaseModel):
     owner_user_id: Optional[int] = None
     owner_name: Optional[str] = None
     business_definition: Optional[str] = None
+    tables: Optional[list["ModelTableIn"]] = None
+    relations: Optional[list["ModelRelationIn"]] = None
 
 
 # ==================== 输出字段 ====================

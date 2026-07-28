@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.warehouse.service import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -553,7 +553,7 @@ class WarehouseService:
         }
 
     async def update_model(self, model_id: int, payload: dict) -> Optional[DataSet]:
-        """更新模型元数据"""
+        """更新模型元数据和表间关联。"""
         ds = await self.session.get(DataSet, model_id)
         if ds is None:
             return None
@@ -565,6 +565,92 @@ class WarehouseService:
         for key, val in payload.items():
             if key in allowed and val is not None:
                 setattr(ds, key, val)
+
+        tables_payload = payload.get("tables")
+        relations_payload = payload.get("relations")
+        if tables_payload is not None:
+            aliases = [table["alias"] for table in tables_payload]
+            if len(aliases) != len(set(aliases)):
+                raise ValueError("模型表别名不能重复")
+
+            table_names = [table["table_name"] for table in tables_payload]
+            if table_names:
+                rows = (
+                    await self.session.execute(
+                        select(RegisteredTable.table_name, RegisteredTable.warehouse_layer).where(
+                            RegisteredTable.table_name.in_(table_names)
+                        )
+                    )
+                ).all()
+                layer_by_table = {row.table_name: row.warehouse_layer for row in rows}
+                invalid_tables = [
+                    table_name
+                    for table_name in table_names
+                    if layer_by_table.get(table_name) != "DWD"
+                ]
+                if invalid_tables:
+                    raise ValueError(
+                        f"模型输入必须是 DWD 层表: {', '.join(invalid_tables)}"
+                    )
+
+        if relations_payload is not None:
+            aliases = (
+                {table["alias"] for table in tables_payload}
+                if tables_payload is not None
+                else {
+                    row.alias
+                    for row in (
+                        await self.session.execute(
+                            select(DataSetTable).where(DataSetTable.dataset_id == model_id)
+                        )
+                    ).scalars()
+                }
+            )
+            for relation in relations_payload:
+                if (
+                    relation["left_alias"] not in aliases
+                    or relation["right_alias"] not in aliases
+                ):
+                    raise ValueError("关联引用了不存在的表别名")
+                if len(relation["left_keys"]) != len(relation["right_keys"]):
+                    raise ValueError("关联左右字段数量必须一致")
+
+        if tables_payload is not None or relations_payload is not None:
+            await self.session.execute(
+                delete(DataSetRelation).where(DataSetRelation.dataset_id == model_id)
+            )
+            if tables_payload is not None:
+                await self.session.execute(
+                    delete(DataSetTable).where(DataSetTable.dataset_id == model_id)
+                )
+            await self.session.flush()
+
+            if tables_payload is not None:
+                for table in tables_payload:
+                    self.session.add(
+                        DataSetTable(
+                            dataset_id=model_id,
+                            table_name=table["table_name"],
+                            alias=table["alias"],
+                        )
+                    )
+
+            for relation in relations_payload or []:
+                self.session.add(
+                    DataSetRelation(
+                        dataset_id=model_id,
+                        left_alias=relation["left_alias"],
+                        right_alias=relation["right_alias"],
+                        join_type=relation.get("join_type", "left"),
+                        cardinality=relation.get("cardinality", "1:N"),
+                        keys=[
+                            {"left": left_key, "right": right_key}
+                            for left_key, right_key in zip(
+                                relation["left_keys"], relation["right_keys"]
+                            )
+                        ],
+                    )
+                )
         return ds
 
     async def publish_model(self, model_id: int, user_id: int) -> Optional[dict]:
