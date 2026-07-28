@@ -330,6 +330,13 @@ def _payload_for_entity_row(
     return payload
 
 
+def _is_identifier_field(column_code: str, column_label: str) -> bool:
+    code_tokens = set(re.split(r"[_\s-]+", (column_code or "").lower()))
+    return bool(code_tokens & {"code", "id"}) or (column_label or "").strip() in {
+        "编码", "代码", "标识", "编号",
+    }
+
+
 async def _ensure_columns(
     table_name: str,
     sample_row: dict,
@@ -402,7 +409,7 @@ async def _ensure_columns(
         if new_code in existing_by_code:
             continue
         max_order += 10
-        dtype = _guess_data_type(val)
+        dtype = "string" if _is_identifier_field(new_code, label) else _guess_data_type(val)
         try:
             await add_source_column(db, table_name, new_code, dtype)
         except DDLValidationError as exc:

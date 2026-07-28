@@ -162,6 +162,30 @@ async def test_ensure_columns_adds_physical_column_and_metadata(monkeypatch):
     assert db.added_all[0].auto_discovered is True
 
 
+async def test_ensure_columns_keeps_identifier_code_as_string(monkeypatch):
+    add_calls = []
+
+    async def fake_add_source_column(_db, table_name, column_code, data_type):
+        add_calls.append((table_name, column_code, data_type))
+
+    async def fake_register_source_table_model(*_args, **_kwargs):
+        pass
+
+    async def fake_ai_translate_code(_db, *, label, scope, context):
+        return "factor_code", "ok", {}
+
+    monkeypatch.setattr(sync_service, "add_source_column", fake_add_source_column)
+    monkeypatch.setattr(sync_service, "register_source_table_model", fake_register_source_table_model)
+    monkeypatch.setattr("app.codegen.service.ai_translate_code", fake_ai_translate_code)
+    db = FakeSession(results=[FakeResult(rows=[]), FakeResult(value=0)])
+
+    rename_map = await sync_service._ensure_columns("sync_entity_table", {"编码": "001"}, db)
+
+    assert rename_map == {"编码": "factor_code"}
+    assert add_calls == [("sync_entity_table", "factor_code", "string")]
+    assert db.added_all[0].data_type == "string"
+
+
 async def test_dynamic_upsert_writes_entity_payload_without_raw(monkeypatch):
     table_name = "sync_entity_upsert"
     model = make_entity_model(table_name)
