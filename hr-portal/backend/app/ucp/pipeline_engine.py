@@ -470,10 +470,21 @@ def _apply_mapping_rules(row: dict, mapping_rules: list[dict]) -> dict:
     if not mapping_rules:
         return row
 
-    rename_map = {r.get("source", ""): r.get("target", "") for r in mapping_rules if r.get("source") and r.get("target")}
+    rename_map: dict[str, str] = {}
+    target_sources: dict[str, str] = {}
+    for rule in mapping_rules:
+        source, target = rule.get("source", ""), rule.get("target", "")
+        if not source or not target:
+            continue
+        previous = target_sources.setdefault(target, source)
+        if previous != source:
+            raise ValueError(f"字段映射冲突：{previous} 和 {source} 都映射到 {target}")
+        rename_map[source] = target
     mapped = {}
     for key, value in row.items():
         mapped_key = rename_map.get(key, key)
+        if mapped_key in mapped and mapped_key != key:
+            raise ValueError(f"字段映射冲突：来源记录包含重复目标字段 {mapped_key}")
         mapped[mapped_key] = value
     return mapped
 

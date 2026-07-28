@@ -26,6 +26,14 @@ def test_bitable_field_mapping_renames_only_configured_fields():
     }
 
 
+def test_bitable_field_mapping_rejects_duplicate_targets():
+    with pytest.raises(Exception, match="字段映射冲突"):
+        _mapped_fields(
+            {"招聘组编码": "hr.zpyhrbpz", "岗位编码": "hr.zpyhrbp"},
+            {"招聘组编码": "code", "岗位编码": "code"},
+        )
+
+
 @pytest.mark.asyncio
 async def test_bitable_adapter_rejects_missing_table_configuration():
     result = await feishu_bitable_pull_adapter({}, {}, None)

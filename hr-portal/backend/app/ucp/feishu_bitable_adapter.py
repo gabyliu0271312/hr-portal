@@ -38,7 +38,23 @@ async def _get_tenant_access_token(secrets: dict[str, str]) -> str:
 
 
 def _mapped_fields(fields: dict[str, Any], mapping: dict[str, Any]) -> dict[str, Any]:
-    return {str(mapping.get(key) or key): value for key, value in fields.items()}
+    targets: dict[str, str] = {}
+    for source, target in mapping.items():
+        if not target:
+            continue
+        target_text = str(target)
+        previous = targets.setdefault(target_text, str(source))
+        if previous != str(source):
+            raise FeishuBitableError(
+                f"字段映射冲突：{previous} 和 {source} 都映射到 {target_text}"
+            )
+    mapped: dict[str, Any] = {}
+    for key, value in fields.items():
+        target = str(mapping.get(key) or key)
+        if target in mapped and target != key:
+            raise FeishuBitableError(f"字段映射冲突：来源记录包含重复目标字段 {target}")
+        mapped[target] = value
+    return mapped
 
 
 async def feishu_bitable_pull_adapter(
