@@ -505,7 +505,7 @@ async def get_asset_sync_history(
         runs_q = (
             select(JobRun)
             .where(JobRun.business_id == ds.id, JobRun.kind == "datasource_sync")
-            .order_by(SyncRun.started_at.desc())
+            .order_by(JobRun.started_at.desc())
             .limit(limit)
         )
         runs = (await db.execute(runs_q)).scalars().all()
