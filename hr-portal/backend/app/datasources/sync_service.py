@@ -323,7 +323,13 @@ def _payload_for_entity_row(
         "pk_hash": pk_hash,
         "synced_at": datetime.now(UTC),
     }
+    if _model_has_column(model, "is_active"):
+        payload["is_active"] = True
+    if _model_has_column(model, "sync_status"):
+        payload["sync_status"] = "ACTIVE"
     for code, col in columns_by_code.items():
+        if code in {"id", "pk_hash", "synced_at", "created_at", "updated_at", "is_active", "sync_status"}:
+            continue
         if not _model_has_column(model, code):
             raise RuntimeError(f"业务表 {model.__tablename__} 缺少实体列: {code}")
         payload[code] = _coerce_db_value(merged.get(code), col.data_type)
