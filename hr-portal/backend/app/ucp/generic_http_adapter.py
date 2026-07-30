@@ -34,6 +34,24 @@ _RATE_LOCK = asyncio.Lock()
 _FEISHU_TOKENS: dict[str, tuple[str, float]] = {}
 
 
+def _upstream_error_summary(response: httpx.Response) -> str:
+    parts = [f"HTTP {response.status_code}"]
+    content_type = response.headers.get("content-type", "").lower()
+    if "json" not in content_type:
+        return "; ".join(parts)
+    try:
+        payload = response.json()
+    except ValueError:
+        return "; ".join(parts)
+    if not isinstance(payload, dict):
+        return "; ".join(parts)
+    for key in ("code", "msg", "log_id"):
+        value = payload.get(key)
+        if value not in (None, ""):
+            parts.append(f"{key}={str(value).replace(chr(10), ' ').replace(chr(13), ' ')[:300]}")
+    return "; ".join(parts)
+
+
 async def _feishu_tenant_token(secrets: dict[str, Any]) -> str:
     app_id = str(secrets.get("app_id") or "")
     app_secret = str(secrets.get("app_secret") or "")
@@ -189,7 +207,11 @@ class GenericHttpActionAdapter:
                     if response.status_code == 429:
                         return AdapterResult(status="failed", error_code="RATE_LIMITED", error_message="read request rate limited")
                     if response.status_code >= 400:
-                        return AdapterResult(status="failed", error_code=f"HTTP_{response.status_code}", error_message="read request failed")
+                        return AdapterResult(
+                            status="failed",
+                            error_code=f"HTTP_{response.status_code}",
+                            error_message=f"read request failed ({_upstream_error_summary(response)})",
+                        )
                     if "json" not in response.headers.get("content-type", "").lower():
                         raise GenericHttpPolicyError("response must use a JSON content type")
                     response_body = response.json()

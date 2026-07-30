@@ -120,6 +120,22 @@ async def _package_operation(
     return operation
 
 
+def _business_test_message(operation: UcpOperationDefinition, result: Any, success: bool) -> str:
+    message = resolve_business_error(
+        operation.error_rules or [],
+        status_code=getattr(result, "status_code", None),
+        error_code=result.error_code,
+        fallback="动作测试成功" if success else "动作测试失败，请检查参数和系统凭证",
+    )
+    if (
+        not success
+        and str(result.error_code or "").startswith("HTTP_")
+        and result.error_message
+    ):
+        return f"{message}（{result.error_message}）"
+    return message
+
+
 async def _test_package_operation(
     db: AsyncSession,
     package: UcpConnectorPackage,
@@ -153,11 +169,7 @@ async def _test_package_operation(
             'error_message': str(error)[:500],
         })()
     success = result.status == 'success'
-    status_code = getattr(result, 'status_code', None)
-    business_message = resolve_business_error(
-        operation.error_rules or [], status_code=status_code, error_code=result.error_code,
-        fallback='动作测试成功' if success else '动作测试失败，请检查参数和系统凭证',
-    )
+    business_message = _business_test_message(operation, result, success)
     capability.credential_id = credential.id
     capability.enabled = False
     capability.verification_status, capability.connection_status = (

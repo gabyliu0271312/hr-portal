@@ -87,6 +87,23 @@ async def test_adapter_handles_timeout(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_adapter_preserves_safe_upstream_error_diagnostics(monkeypatch):
+    _mock_client(
+        monkeypatch,
+        lambda _request: httpx.Response(
+            400,
+            json={"code": 99991672, "msg": "permission denied", "log_id": "02123456789"},
+        ),
+    )
+
+    result = await GenericHttpActionAdapter().execute({"http_config": _config()}, {}, None)
+
+    assert result.status == "failed"
+    assert result.error_code == "HTTP_400"
+    assert result.error_message == "read request failed (HTTP 400; code=99991672; msg=permission denied; log_id=02123456789)"
+
+
+@pytest.mark.asyncio
 async def test_adapter_rejects_non_json_response(monkeypatch):
     _mock_client(monkeypatch, lambda _request: httpx.Response(200, text="not json"))
 
