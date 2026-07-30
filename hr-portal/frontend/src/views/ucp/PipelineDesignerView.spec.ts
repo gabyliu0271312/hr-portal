@@ -3,14 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PipelineDesignerView from './PipelineDesignerView.vue'
 
 const mocks = vi.hoisted(() => ({
-  nodeTypes: vi.fn(), getTemplate: vi.fn(), systems: vi.fn(), resources: vi.fn(), verifiedCapabilityCatalog: vi.fn(),
+  nodeTypes: vi.fn(), getTemplate: vi.fn(), systems: vi.fn(), resources: vi.fn(), capabilityCatalog: vi.fn(), resourceDataObjects: vi.fn(),
   pipelineTriggers: vi.fn(), platformEventCatalog: vi.fn(), listAssets: vi.fn(), listAssetColumns: vi.fn(),
 }))
 
 vi.mock('@/api/ucp', () => ({
   pipelineTemplateApi: { nodeTypes: mocks.nodeTypes, get: mocks.getTemplate },
   ucpApi: {
-    systems: mocks.systems, resources: mocks.resources, verifiedCapabilityCatalog: mocks.verifiedCapabilityCatalog,
+    systems: mocks.systems, resources: mocks.resources, capabilityCatalog: mocks.capabilityCatalog, resourceDataObjects: mocks.resourceDataObjects,
     pipelineTriggers: mocks.pipelineTriggers, platformEventCatalog: mocks.platformEventCatalog,
   },
 }))
@@ -49,7 +49,7 @@ describe('PipelineDesignerView canvas interaction', () => {
       ],
       edges: [{ from: 'start', to: 'source' }],
     })
-    mocks.systems.mockResolvedValue({ items: [] }); mocks.resources.mockResolvedValue({ items: [] }); mocks.verifiedCapabilityCatalog.mockResolvedValue([])
+    mocks.systems.mockResolvedValue({ items: [] }); mocks.resources.mockResolvedValue({ items: [] }); mocks.capabilityCatalog.mockResolvedValue([]); mocks.resourceDataObjects.mockResolvedValue({ items: [] })
     mocks.pipelineTriggers.mockResolvedValue({ items: [{ trigger_code: 'MANUAL_DEMO', trigger_type: 'MANUAL', trigger_name: '人工启动', is_active: true }] })
     mocks.platformEventCatalog.mockResolvedValue({ items: [{ category: 'DATA_CHANGE', category_name: '数据变更', source: 'DATA_WAREHOUSE', source_name: '数据仓库', event_type: 'datasource_sync_completed', event_name: '入仓同步完成', enabled: true, filter_fields: ['table_name'] }] })
     mocks.listAssets.mockResolvedValue({ items: [] }); mocks.listAssetColumns.mockResolvedValue({ items: [] })
@@ -70,6 +70,56 @@ describe('PipelineDesignerView canvas interaction', () => {
     expect(wrapper.text()).toContain('数据变更')
     expect(wrapper.find('.node-card.start-trigger').text()).toContain('平台事件')
     expect(wrapper.get('.canvas-controls').findAll('button')).toHaveLength(3)
+  })
+
+  it('loads enabled unverified capabilities for lookup configuration', async () => {
+    mocks.getTemplate.mockResolvedValue({
+      template_code: 'PENDING_HIRE_OFFER_ENRICHMENT', name: 'Offer 补充', description: '', version: '1.0.0',
+      nodes: [
+        { id: 'start', type: 'START_TRIGGER', x: 48, y: 96, label: '流程起点', config: {} },
+        { id: 'lookup', type: 'CAPABILITY_LOOKUP', x: 328, y: 96, label: '逐条查询', config: {} },
+      ], edges: [{ from: 'start', to: 'lookup' }],
+    })
+    mocks.capabilityCatalog.mockResolvedValue([{
+      capability_id: 8, system_id: 2, system_name: '招聘系统', object_code: 'OFFER', operation_name: '按投递记录 ID 查询 Offer', verification_status: 'NOT_TESTED',
+    }])
+
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.findAll('.node-card')[1].trigger('click'); await flushPromises()
+
+    expect(mocks.capabilityCatalog).toHaveBeenCalledWith({ include_unverified: true })
+    expect(wrapper.text()).toContain('招聘系统')
+    expect(wrapper.text()).toContain('待验证能力可先编排，发布或执行前仍需验证成功。')
+  })
+
+  it('rehydrates a saved schedule trigger when reopening the pipeline', async () => {
+    mocks.pipelineTriggers.mockResolvedValue({ items: [{
+      trigger_code: 'SCHEDULE_OFFER_ENRICHMENT', trigger_type: 'SCHEDULE', trigger_name: '每天同步',
+      schedule_config: { cron: '0 6 * * *' }, is_active: true,
+    }] })
+
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.get('.node-card.start-trigger').trigger('click'); await flushPromises()
+
+    expect((wrapper.findAll('select')[0].element as HTMLSelectElement).value).toBe('SCHEDULE')
+    expect(wrapper.get('.node-card.start-trigger').text()).toContain('每日 06:00')
+  })
+
+  it('preloads persisted Beisen report options on connector selection', async () => {
+    mocks.getTemplate.mockResolvedValue({
+      template_code: 'PENDING_HIRE_OFFER_ENRICHMENT', name: 'Offer 补充', description: '', version: '1.0.0',
+      nodes: [
+        { id: 'start', type: 'START_TRIGGER', x: 48, y: 96, label: '流程起点', config: {} },
+        { id: 'source', type: 'CONNECTOR', x: 328, y: 96, label: '资源调用', config: { system_id: 1, resource_id: 1, adapter_code: 'BEISEN_REPORT_PULL_ADAPTER', data_object_id: 1 } },
+      ], edges: [{ from: 'start', to: 'source' }],
+    })
+    mocks.resourceDataObjects.mockResolvedValue({ items: [{ id: 1, object_code: 'PENDING_HIRE_REPORT', object_name: '待入职人员报表', is_active: true }] })
+
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.findAll('.node-card')[1].trigger('click'); await flushPromises()
+
+    expect(mocks.resourceDataObjects).toHaveBeenCalledWith(1)
+    expect(wrapper.text()).toContain('PENDING_HIRE_REPORT - 待入职人员报表')
   })
 
   it('zooms around the pointer with the mouse wheel and keeps only reset, fit, and center controls', async () => {

@@ -1,4 +1,5 @@
 from app.ucp.capability_discovery import capability_test_run_summary, operation_summary
+from app.ucp.routers.capabilities import route_verified_capability_catalog
 
 
 class _Operation:
@@ -43,3 +44,27 @@ def test_capability_test_run_summary_only_exposes_masked_snapshot_fields():
 
     assert result["trace_id"] == "trace-001"
     assert result["response_summary"]["rows"][0]["salary_amount"] == "[已脱敏]"
+
+
+async def test_capability_catalog_only_includes_unverified_rows_when_requested():
+    verified = type("Capability", (), {"id": 1, "verification_status": "VERIFIED"})()
+    pending = type("Capability", (), {"id": 2, "verification_status": "NOT_TESTED"})()
+    operation = type("Operation", (), {"id": 3, "object_code": "OFFER", "operation_name": "查询 Offer", "version": "1.0.0", "source_type": "PACKAGE", "risk_level": "LOW", "output_schema": {}})()
+    system = type("System", (), {"id": 4, "system_name": "招聘系统"})()
+
+    class Result:
+        def __init__(self, rows): self.rows = rows
+        def all(self): return self.rows
+
+    class Db:
+        async def execute(self, statement):
+            has_verification_filter = any("verification_status" in str(criterion) for criterion in statement._where_criteria)
+            rows = [(verified, operation, system)] if has_verification_filter else [(verified, operation, system), (pending, operation, system)]
+            return Result(rows)
+
+    default_catalog = await route_verified_capability_catalog(False, Db())
+    editable_catalog = await route_verified_capability_catalog(True, Db())
+
+    assert [item["capability_id"] for item in default_catalog["items"]] == [1]
+    assert [item["capability_id"] for item in editable_catalog["items"]] == [1, 2]
+    assert editable_catalog["items"][1]["verification_status"] == "NOT_TESTED"

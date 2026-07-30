@@ -119,7 +119,7 @@
             </template>
             <template v-else-if="(selectedNode.type as string) === 'CONNECTOR'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
-              <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.resource_id = v; const r = allResources.find(x=>x.id===v); if(r){cfg.resource_name=r.resource_name;cfg.resource_code=r.resource_code;cfg.adapter_code=r.adapter_code||null} selectedNode.config = cfg } }" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>
+              <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="selectConnectorResource" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>
               <el-form-item v-if="selectedNode.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER'" label="数据对象"><el-select v-model="selectedNode.config.bitable_table_id" clearable filterable placeholder="选择具体多维表格" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadBitableTablesForNode(Number(selectedNode.config?.resource_id) || null)"><el-option v-for="item in bitableTableOptions" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
               <el-form-item v-if="selectedNode.config?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER'" label="北森报表"><el-select v-model="selectedNode.config.data_object_id" clearable filterable placeholder="选择待入职人员报表" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadResourceDataObjects(Number(selectedNode.config?.resource_id) || null)"><el-option v-for="item in resourceDataObjects" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
               <el-form-item label="????"><el-input :model-value="connectorParamsText" @update:model-value="updateConnectorParams" type="textarea" :rows="3" placeholder="{&quot;key&quot;: &quot;value&quot;}" /></el-form-item>
@@ -127,13 +127,14 @@
             <template v-else-if="(selectedNode.type as string) === 'CAPABILITY'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" clearable placeholder="选择系统" style="width:100%" @change="selectCapabilitySystem"><el-option v-for="item in capabilitySystems" :key="item.system_id" :label="item.system_name" :value="item.system_id" /></el-select></el-form-item>
               <el-form-item label="对象"><el-select :model-value="selectedNode.config?.object_code" clearable placeholder="选择业务对象" style="width:100%" @change="selectCapabilityObject"><el-option v-for="item in capabilityObjects" :key="item" :label="item" :value="item" /></el-select></el-form-item>
-              <el-form-item label="操作"><el-select :model-value="selectedNode.config?.capability_id" clearable placeholder="选择已验证操作" style="width:100%" @change="selectCapabilityOperation"><el-option v-for="item in capabilityOperations" :key="item.capability_id" :label="item.operation_name" :value="item.capability_id" /></el-select></el-form-item>
-              <div class="text-muted">仅显示已启用、已验证的只读业务能力。</div>
+              <el-form-item label="操作"><el-select :model-value="selectedNode.config?.capability_id" clearable placeholder="选择业务能力" style="width:100%" @change="selectCapabilityOperation"><el-option v-for="item in capabilityOperations" :key="item.capability_id" :label="capabilityOptionLabel(item)" :value="item.capability_id" /></el-select></el-form-item>
+              <div class="text-muted">显示已启用的只读业务能力；待验证能力可编排，发布或执行前仍需验证成功。</div>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'CAPABILITY_LOOKUP'">
               <el-form-item label="业务系统"><el-select :model-value="selectedNode.config?.system_id" clearable placeholder="选择飞书招聘系统" style="width:100%" @change="selectCapabilitySystem"><el-option v-for="item in capabilitySystems" :key="item.system_id" :label="item.system_name" :value="item.system_id" /></el-select></el-form-item>
               <el-form-item label="业务对象"><el-select :model-value="selectedNode.config?.object_code" clearable placeholder="选择 Offer" style="width:100%" @change="selectCapabilityObject"><el-option v-for="item in capabilityObjects" :key="item" :label="item" :value="item" /></el-select></el-form-item>
-              <el-form-item label="Offer 能力"><el-select :model-value="selectedNode.config?.capability_id" clearable placeholder="选择已验证 Offer 查询能力" style="width:100%" @change="selectCapabilityOperation"><el-option v-for="item in capabilityOperations" :key="item.capability_id" :label="item.operation_name" :value="item.capability_id" /></el-select></el-form-item>
+              <el-form-item label="Offer 能力"><el-select :model-value="selectedNode.config?.capability_id" clearable placeholder="选择 Offer 查询能力" style="width:100%" @change="selectCapabilityOperation"><el-option v-for="item in capabilityOperations" :key="item.capability_id" :label="capabilityOptionLabel(item)" :value="item.capability_id" /></el-select></el-form-item>
+              <div class="text-muted">待验证能力可先编排，发布或执行前仍需验证成功。</div>
               <el-form-item label="投递记录 ID"><el-select v-model="selectedNode.config.lookup_field" allow-create filterable placeholder="选择北森来源字段" style="width:100%"><el-option label="投递记录 ID (application_id)" value="application_id" /></el-select></el-form-item>
               <el-form-item label="失败策略"><el-select v-model="selectedNode.config.failure_policy" style="width:100%"><el-option label="单人失败继续" value="CONTINUE" /><el-option label="遇到失败停止" value="STOP" /></el-select></el-form-item>
             </template>
@@ -265,11 +266,23 @@ const capabilitySystems = computed(() => Array.from(new Map(capabilityCatalog.va
 const capabilityObjects = computed(() => Array.from(new Set(capabilityCatalog.value.filter(item => item.system_id === selectedNode.value?.config?.system_id).map(item => item.object_code))))
 const capabilityOperations = computed(() => capabilityCatalog.value.filter(item => item.system_id === selectedNode.value?.config?.system_id && item.object_code === selectedNode.value?.config?.object_code))
 async function loadSystemsAndResources(): Promise<void> {
-  try { resourcesLoading.value = true; const [sysRes, resRes, capabilityRes] = await Promise.all([ucpApi.systems(), ucpApi.resources({}), ucpApi.verifiedCapabilityCatalog()]); systems.value = sysRes.items as SystemItem[]; allResources.value = resRes.items as ResourceItem[]; capabilityCatalog.value = capabilityRes }
+  try { resourcesLoading.value = true; const [sysRes, resRes, capabilityRes] = await Promise.all([ucpApi.systems(), ucpApi.resources({}), ucpApi.capabilityCatalog({ include_unverified: true })]); systems.value = sysRes.items as SystemItem[]; allResources.value = resRes.items as ResourceItem[]; capabilityCatalog.value = capabilityRes }
   catch (e: unknown) { ElMessage.warning(`加载系统/资源失败: ${e instanceof Error ? e.message : String(e)}`) }
   finally { resourcesLoading.value = false }
 }
 function resourcesOf(systemId: number | undefined | null): ResourceItem[] { if (!systemId) return []; return allResources.value.filter((r) => r.system_id === systemId) }
+function capabilityOptionLabel(item: any): string { return item.verification_status === 'VERIFIED' ? item.operation_name : `${item.operation_name}（待验证）` }
+function selectConnectorResource(value: number): void {
+  if (!selectedNode.value) return
+  const resource = allResources.value.find((item) => item.id === value)
+  selectedNode.value.config = {
+    ...(selectedNode.value.config || {}), resource_id: value,
+    resource_name: resource?.resource_name || '', resource_code: resource?.resource_code || '',
+    adapter_code: resource?.adapter_code || null, data_object_id: null,
+  }
+  resourceDataObjects.value = []
+  if (resource?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER') void loadResourceDataObjects(value)
+}
 function selectCapabilitySystem(value: number) { if (!selectedNode.value) return; selectedNode.value.config = { ...(selectedNode.value.config || {}), system_id: value, object_code: null, capability_id: null, capability_name: '' } }
 function selectCapabilityObject(value: string) { if (!selectedNode.value) return; selectedNode.value.config = { ...(selectedNode.value.config || {}), object_code: value, capability_id: null, capability_name: '' } }
 function selectCapabilityOperation(value: number) { if (!selectedNode.value) return; const item = capabilityCatalog.value.find(row => row.capability_id === value); if (item) selectedNode.value.config = { ...(selectedNode.value.config || {}), capability_id: value, capability_name: item.operation_name, operation_id: item.operation_id, operation_version: item.operation_version } }
@@ -390,6 +403,15 @@ function syncSelectedPlatformEventTrigger(): void {
   platformEventEnabled.value = trigger ? Boolean(trigger.is_active) : false
 }
 watch([selectedPlatformEventTrigger, platformEventCatalog], syncSelectedPlatformEventTrigger, { immediate: true })
+function syncStartTriggerModeFromTemplate(): void {
+  const trigger = scheduledTemplateTriggers.value[0] || platformEventTriggers.value[0] || templateTriggers.value[0]
+  startTriggerMode.value = trigger?.trigger_type || ''
+  selectedStartTriggerCode.value = trigger?.trigger_code || ''
+  selectedScheduledTriggerCode.value = startTriggerMode.value === 'SCHEDULE' ? trigger?.trigger_code || '' : ''
+  selectedPlatformEventTriggerCode.value = startTriggerMode.value === 'PLATFORM_EVENT' ? trigger?.trigger_code || '' : ''
+  if (startTriggerMode.value === 'SCHEDULE') syncSelectedSchedulePlan()
+  if (startTriggerMode.value === 'PLATFORM_EVENT') syncSelectedPlatformEventTrigger()
+}
 const filteredStartTriggers = computed(() => templateTriggers.value.filter((trigger) => {
   if (startTriggerMode.value && trigger.trigger_type !== startTriggerMode.value) return false
   if (startTriggerResourceId.value && trigger.source_resource_id !== startTriggerResourceId.value) return false
@@ -540,7 +562,12 @@ function onConnectEnd(e: MouseEvent): void { window.removeEventListener('mousemo
 
 function onPaletteDragStart(e: DragEvent, type: string): void { e.dataTransfer?.setData('nodeType', type) }
 function onCanvasDrop(e: DragEvent): void { if (!canvasRef.value) return; const type = e.dataTransfer?.getData('nodeType'); if (!type) return; if (type === 'START_TRIGGER' && form.nodes.some((node) => node.type === 'START_TRIGGER')) { ElMessage.warning('每个流程只能添加一个流程起点'); return }; const point = canvasPoint(e.clientX, e.clientY); const newNode: any = { id: type === 'START_TRIGGER' ? 'start_trigger' : `node_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, type, label: '', x: Math.max(0, point.x - NODE_CARD_WIDTH / 2), y: Math.max(0, point.y - NODE_CARD_HEIGHT / 2), config: type === 'START_TRIGGER' ? { mode: 'OR', trigger_types: ['WEBHOOK', 'SCHEDULE', 'MANUAL', 'PLATFORM_EVENT'], management_path: '/ucp/events/triggers' } : {} }; form.nodes.push(newNode); selectedNodeId.value = newNode.id }
-function selectNode(node: PipelineNode): void { selectedNodeId.value = node.id }
+function selectNode(node: PipelineNode): void {
+  selectedNodeId.value = node.id
+  if (node.type === 'CONNECTOR' && node.config?.resource_id && (node.config?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER' || node.config?.data_object_id)) {
+    void loadResourceDataObjects(Number(node.config.resource_id))
+  }
+}
 function deselectNode(): void { selectedNodeId.value = null }
 function removeNode(id: string): void { if (form.nodes.find((node) => node.id === id)?.type === 'START_TRIGGER') return; form.nodes = form.nodes.filter((n) => n.id !== id); form.edges = form.edges.filter((e: any) => e.from !== id && e.to !== id); if (selectedNodeId.value === id) selectedNodeId.value = null }
 
@@ -921,7 +948,7 @@ function centerCanvas(): void {
   else { viewport.scrollLeft = left; viewport.scrollTop = top }
 }
 
-async function loadTemplateTriggers(templateCode: string): Promise<void> { triggerLoading.value = true; try { templateTriggers.value = (await ucpApi.pipelineTriggers({ pipeline_template_code: templateCode })).items || [] } catch { templateTriggers.value = [] } finally { triggerLoading.value = false } }
+async function loadTemplateTriggers(templateCode: string): Promise<void> { triggerLoading.value = true; try { templateTriggers.value = (await ucpApi.pipelineTriggers({ pipeline_template_code: templateCode })).items || []; syncStartTriggerModeFromTemplate() } catch { templateTriggers.value = []; syncStartTriggerModeFromTemplate() } finally { triggerLoading.value = false } }
 async function openDesigner(tpl: PipelineTemplate): Promise<void> { currentTpl.value = tpl; form.template_code = tpl.template_code; form.name = tpl.name; form.description = tpl.description || ''; form.version = /^\d+\.\d+$/.test(tpl.version) ? `${tpl.version}.0` : tpl.version; form.change_note = ''; form.nodes = JSON.parse(JSON.stringify(tpl.nodes)); form.edges = JSON.parse(JSON.stringify(tpl.edges)); selectedNodeId.value = null; await Promise.all([loadSystemsAndResources(), loadTemplateTriggers(tpl.template_code)]); if (hasCanvasOverlap()) autoLayout(false); const sinkNode = form.nodes.find(node => (node.type as string) === 'WAREHOUSE_ASSET_SINK'); const targetAsset = String(sinkNode?.config?.target_asset || ''); if (targetAsset) await loadTargetAssetColumns(targetAsset); else targetAssetColumns.value = []; void nextTick(fitCanvas) }
 
 async function loadPendingHireTemplate(): Promise<void> {

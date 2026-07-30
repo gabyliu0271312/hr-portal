@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -201,21 +201,25 @@ async def _test_package_operation(
 
 @router.get("/capabilities/catalog")
 async def route_verified_capability_catalog(
+    include_unverified: bool = Query(False),
     db: AsyncSession = Depends(get_session),
     _user=Depends(require_op("ucp.systems", "V")),
 ):
-    rows = (await db.execute(
+    stmt = (
         select(UcpSystemCapability, UcpOperationDefinition, UcpSystem)
         .join(UcpOperationDefinition, UcpOperationDefinition.id == UcpSystemCapability.operation_id)
         .join(UcpSystem, UcpSystem.id == UcpSystemCapability.system_id)
-        .where(UcpSystemCapability.enabled.is_(True), UcpSystemCapability.verification_status == "VERIFIED")
+        .where(UcpSystemCapability.enabled.is_(True))
         .where(
             UcpOperationDefinition.status == 'PUBLISHED',
             UcpOperationDefinition.approval_status == 'PUBLISHED',
         )
         .order_by(UcpSystem.system_name, UcpOperationDefinition.object_code, UcpOperationDefinition.operation_name)
-    )).all()
-    return {"items": [{"capability_id": capability.id, "system_id": system.id, "system_name": system.system_name, "object_code": operation.object_code, "operation_name": operation.operation_name, "operation_id": operation.id, "operation_version": operation.version, "source_type": operation.source_type, "risk_level": operation.risk_level, "output_schema": operation.output_schema or {}} for capability, operation, system in rows]}
+    )
+    if not include_unverified:
+        stmt = stmt.where(UcpSystemCapability.verification_status == "VERIFIED")
+    rows = (await db.execute(stmt)).all()
+    return {"items": [{"capability_id": capability.id, "system_id": system.id, "system_name": system.system_name, "object_code": operation.object_code, "operation_name": operation.operation_name, "operation_id": operation.id, "operation_version": operation.version, "source_type": operation.source_type, "risk_level": operation.risk_level, "verification_status": capability.verification_status, "output_schema": operation.output_schema or {}} for capability, operation, system in rows]}
 
 
 @router.get("/standard-packages")

@@ -372,6 +372,9 @@ export const ucpApi = {
   verifiedCapabilityCatalog: () =>
     api.get<{ items: any[] }>('/ucp/capabilities/catalog').then((r) => r.data.items),
 
+  capabilityCatalog: (params: { include_unverified?: boolean } = {}) =>
+    api.get<{ items: any[] }>('/ucp/capabilities/catalog', { params }).then((r) => r.data.items),
+
   createSystem: (payload: { system_code: string; system_name: string; system_type?: string; icon?: string; owner?: string; domain?: string; description?: string; tags?: string[]; sensitivity?: string; package_id?: number; catalog_version?: string; connection_mode?: string; instance_config?: Record<string, any> }) =>
     api.post<{ id: number; system_code: string; system_name: string }>('/ucp/systems', payload).then((r) => r.data),
 
