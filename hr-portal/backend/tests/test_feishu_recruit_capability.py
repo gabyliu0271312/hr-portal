@@ -138,12 +138,14 @@ def test_offer_operation_requires_application_id_and_marks_salary_sensitive():
     assert offer["input_schema"]["required"] == ["application_id"]
     assert offer["output_schema"]["properties"]["salary_amount"]["sensitivity"] == "compensation_high"
     assert offer["required_scopes"] == ["hire:application:readonly"]
+    assert offer["adapter_code"] == "FEISHU_OFFER_DETAIL_ADAPTER"
 
 
 def test_every_prebuilt_operation_is_template_backed_and_versionable():
     for operation in FEISHU_RECRUIT_OPERATIONS:
         assert operation["operation_code"].startswith("QUERY_")
-        assert operation["adapter_code"] == "GENERIC_HTTP_ACTION_ADAPTER"
+        expected_adapter = "FEISHU_OFFER_DETAIL_ADAPTER" if operation["object_code"] == "OFFER" else "GENERIC_HTTP_ACTION_ADAPTER"
+        assert operation["adapter_code"] == expected_adapter
         assert operation["template_code"].startswith("FEISHU_RECRUIT_")
         assert operation["path"].startswith("/open-apis/")
 
@@ -196,6 +198,34 @@ async def test_offer_adapter_normalizes_salary_and_rejects_missing_application_i
 
     assert result.status == "success"
     assert result.data == [{"id": "offer-001", "status": "APPROVED", "salary": {"amount": 12000, "currency": "CNY"}, "application_id": "app-001", "offer_id": "offer-001", "offer_status": "APPROVED", "salary_amount": 12000, "salary_currency": "CNY", "target_bonus": None}]
+
+
+@pytest.mark.asyncio
+async def test_offer_adapter_normalizes_salary_and_target_bonus_from_actual_offer_shape(monkeypatch):
+    async def offer_detail(_self, _application_id):
+        return {
+            "offer": {
+                "id": "offer-001",
+                "salary": {
+                    "basic_salary": {"amount": 29800},
+                    "currency": "CNY",
+                    "customize_info_list": [
+                        {"object_id": "6909390106738821390", "customize_value": "50000"},
+                    ],
+                },
+            },
+        }
+
+    monkeypatch.setattr(FeishuRecruitClient, "get_offer_detail", offer_detail)
+    result = await feishu_offer_detail_adapter(
+        {"application_id": "app-001", "target_bonus_custom_field_ids": ["6909390106738821390"]},
+        {"app_id": "id", "app_secret": "secret"},
+        None,
+    )
+
+    assert result.status == "success"
+    assert result.data[0]["salary_amount"] == 29800
+    assert result.data[0]["target_bonus"] == 50000
 
 
 @pytest.mark.asyncio

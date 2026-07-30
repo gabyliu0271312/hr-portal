@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ucp.adapters import get_adapter
 from app.ucp.credential_service import decrypt_credential_secrets
 from app.ucp.generic_http_adapter import GenericHttpActionAdapter
 from app.ucp.models import UcpApiTemplate, UcpOperationDefinition
@@ -43,6 +44,15 @@ async def execute_operation_template(
     *,
     require_published: bool = False,
 ):
+    if operation.adapter_code != "GENERIC_HTTP_ACTION_ADAPTER":
+        if not credential_id:
+            raise CapabilityExecutionError("请先绑定有效凭证")
+        try:
+            adapter = get_adapter(operation.adapter_code or "")
+        except RuntimeError as error:
+            raise CapabilityExecutionError(str(error)) from error
+        return await adapter(parameters, await decrypt_credential_secrets(db, credential_id), db)
+
     if not operation.executor_template_id:
         raise CapabilityExecutionError("所选业务能力未绑定接口模板")
     template = await db.get(UcpApiTemplate, operation.executor_template_id)

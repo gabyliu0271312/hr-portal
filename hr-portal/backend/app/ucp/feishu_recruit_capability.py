@@ -20,12 +20,14 @@ def _operation(
     path: str,
     input_schema: dict,
     output_schema: dict,
+    *,
+    adapter_code: str = "GENERIC_HTTP_ACTION_ADAPTER",
 ) -> dict[str, Any]:
     return {
         "object_code": object_code,
         "operation_code": operation_code,
         "operation_name": operation_name,
-        "adapter_code": "GENERIC_HTTP_ACTION_ADAPTER",
+        "adapter_code": adapter_code,
         "required_scopes": ["hire:application:readonly"] if object_code == "OFFER" else (["hire:candidates:read"] if object_code == "CANDIDATE" else ["hire:jobs:read"]),
         "input_schema": input_schema,
         "output_schema": output_schema,
@@ -40,6 +42,7 @@ FEISHU_RECRUIT_OPERATIONS: tuple[dict[str, Any], ...] = (
         "/open-apis/hire/v1/applications/{{application_id}}/offer",
         {"required": ["application_id"], "properties": {"application_id": {"type": "string", "label": "投递记录 ID"}}},
         {"properties": {"application_id": {"type": "string", "label": "投递记录 ID"}, "offer_id": {"type": "string", "label": "Offer ID"}, "offer_status": {"type": "string", "label": "Offer 状态"}, "salary_amount": {"type": "number", "label": "基本工资", "sensitivity": "compensation_high"}, "salary_currency": {"type": "string", "label": "薪资币种", "sensitivity": "compensation_high"}, "target_bonus": {"type": "number", "label": "目标奖金", "sensitivity": "compensation_high"}}},
+        adapter_code="FEISHU_OFFER_DETAIL_ADAPTER",
     ),
     _operation(
         "CANDIDATE", "QUERY_LIST", "分页查询应聘者", "/open-apis/hire/v1/candidates",
@@ -89,7 +92,7 @@ async def ensure_feishu_recruit_capability_package(db: AsyncSession) -> UcpConne
         if operation is None:
             operation = UcpOperationDefinition(
                 package_id=package.id, object_code=definition["object_code"], operation_code=definition["operation_code"],
-                operation_name=definition["operation_name"], adapter_code="GENERIC_HTTP_ACTION_ADAPTER",
+                operation_name=definition["operation_name"], adapter_code=definition["adapter_code"],
                 required_scopes=[], input_schema=definition["input_schema"], output_schema=definition["output_schema"],
                 field_catalog=build_field_catalog(definition["output_schema"]), source_type="PRESET",
                 approval_status="PUBLISHED", version="1.0.0", status="PUBLISHED", risk_level="read_low",
@@ -97,7 +100,7 @@ async def ensure_feishu_recruit_capability_package(db: AsyncSession) -> UcpConne
             db.add(operation)
             await db.flush()
         elif operation.status != "DISABLED":
-            operation.adapter_code = "GENERIC_HTTP_ACTION_ADAPTER"
+            operation.adapter_code = definition["adapter_code"]
             operation.status = "PUBLISHED"
             operation.approval_status = "PUBLISHED"
             operation.field_catalog = operation.field_catalog or build_field_catalog(operation.output_schema or {})

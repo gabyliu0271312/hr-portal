@@ -9,7 +9,7 @@ PENDING_HIRE_OFFER_ENRICHMENT_TEMPLATE = {
     "version": "1.0.0",
     "nodes": [
         {"id": "read_pending", "type": "CONNECTOR", "x": 80, "y": 180, "label": "读取待入职人员", "config": {}},
-        {"id": "lookup_offer", "type": "CAPABILITY_LOOKUP", "x": 340, "y": 180, "label": "按投递记录 ID 查询 Offer", "config": {"input_key": "${read_pending.result.data}", "lookup_field": "application_id", "parameter_name": "application_id"}},
+        {"id": "lookup_offer", "type": "CAPABILITY_LOOKUP", "x": 340, "y": 180, "label": "按投递记录 ID 查询 Offer", "config": {"input_key": "${read_pending.result.data}", "lookup_field": "feishu_submission_id", "parameter_name": "application_id", "params": {"target_bonus_custom_field_ids": ["6909390106738821390"]}}},
         {"id": "merge_offer", "type": "RECORD_MERGE", "x": 630, "y": 180, "label": "补全 Offer 字段", "config": {"input_key": "${lookup_offer.result.data}", "field_mapping": []}},
         {"id": "write_asset", "type": "WAREHOUSE_ASSET_SINK", "x": 890, "y": 180, "label": "写入待入职人员资产", "config": {"input_key": "${merge_offer.result.data}", "write_mode": "upsert", "field_whitelist": []}},
     ],
