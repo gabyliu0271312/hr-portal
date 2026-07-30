@@ -268,9 +268,14 @@ def build_add_source_column_sql(table_name: str, column_code: str, data_type: st
     )
 
 
-def build_drop_source_column_sql(table_name: str, column_code: str) -> str:
+def build_drop_source_column_sql(
+    table_name: str,
+    column_code: str,
+    *,
+    allow_base: bool = False,
+) -> str:
     table_q = quote_ident(validate_table_name(table_name), kind="table")
-    col = validate_column_name(column_code)
+    col = validate_column_name(column_code, allow_base=allow_base)
     return f"ALTER TABLE {table_q} DROP COLUMN IF EXISTS {quote_ident(col)}"
 
 
@@ -348,8 +353,16 @@ async def add_source_column(
     await db.execute(text(build_add_source_column_sql(table_name, column_code, data_type)))
 
 
-async def drop_source_column(db: AsyncSession, table_name: str, column_code: str) -> None:
-    await db.execute(text(build_drop_source_column_sql(table_name, column_code)))
+async def drop_source_column(
+    db: AsyncSession,
+    table_name: str,
+    column_code: str,
+    *,
+    allow_base: bool = False,
+) -> None:
+    await db.execute(
+        text(build_drop_source_column_sql(table_name, column_code, allow_base=allow_base))
+    )
 
 
 async def alter_source_column_type(

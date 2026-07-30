@@ -421,6 +421,50 @@ async def test_delete_column_drops_physical_column_and_metadata(monkeypatch, reg
     assert db.committed is True
 
 
+async def test_delete_legacy_pending_employee_synced_at_allows_only_base_override(monkeypatch):
+    table_name = "hr_pending_employee_full"
+    DATA_TABLES[table_name] = object()
+    col = make_column(
+        table_name=table_name,
+        column_code="synced_at",
+        column_label="同步时间",
+        auto_discovered=True,
+    )
+    db = FakeSession(get_obj=col)
+    drop_calls = []
+
+    async def fake_dependency_reasons(db_arg, table_arg, col_arg):
+        return []
+
+    async def fake_drop_source_column(db_arg, table_arg, column_code, *, allow_base=False):
+        drop_calls.append((db_arg, table_arg, column_code, allow_base))
+
+    async def fake_register_source_table_model(db_arg, table_arg, *, force=False):
+        return None
+
+    class FakeImpactAnalyzer:
+        async def scan_field(self, table_arg, column_code):
+            return []
+
+    monkeypatch.setattr(columns_router, "_column_dependency_reasons", fake_dependency_reasons)
+    monkeypatch.setattr(columns_router, "drop_source_column", fake_drop_source_column)
+    monkeypatch.setattr(
+        columns_router,
+        "register_source_table_model",
+        fake_register_source_table_model,
+    )
+    monkeypatch.setattr(columns_router, "get_impact_analyzer", lambda db_arg: FakeImpactAnalyzer())
+
+    try:
+        result = await columns_router.delete_column(table_name, col.id, db=db)
+    finally:
+        DATA_TABLES.pop(table_name, None)
+
+    assert result == {"ok": True}
+    assert drop_calls == [(db, table_name, "synced_at", True)]
+    assert db.deleted == [col]
+
+
 async def test_recompute_computed_columns_reads_and_writes_entity_columns(monkeypatch):
     table_name = "columns_recompute_entity"
     table = Table(

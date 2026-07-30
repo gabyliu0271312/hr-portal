@@ -42,6 +42,11 @@ from app.warehouse.impact import get_impact_analyzer
 router = APIRouter(prefix="/table-columns", tags=["table-columns"])
 
 
+LEGACY_REMOVABLE_BASE_COLUMNS = {
+    ("hr_pending_employee_full", "synced_at"),
+}
+
+
 async def _publish_ods_metadata_changed(table_name: str, change_type: str, affected_columns: list[str] | None = None, changed_by: str = "system") -> None:
     """发布 ods_table_metadata_changed 事件。"""
     try:
@@ -838,9 +843,13 @@ async def delete_column(
             + "；".join(r.get("blocking_reason", r.get("usage", "")) for r in blocking_refs),
         )
 
-    # 1) 删物理列
+    # 1) 删物理列。仅允许已迁移到动态同步的待入职目标表清理历史 synced_at。
+    allow_base_column_removal = (table, column_code) in LEGACY_REMOVABLE_BASE_COLUMNS
     try:
-        await drop_source_column(db, table, column_code)
+        if allow_base_column_removal:
+            await drop_source_column(db, table, column_code, allow_base=True)
+        else:
+            await drop_source_column(db, table, column_code)
     except DDLValidationError as exc:
         raise _ddl_http_error(exc) from exc
 

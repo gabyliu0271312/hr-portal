@@ -147,6 +147,20 @@ def test_build_column_operation_sql():
         build_alter_source_column_type_sql("emp_monthly_salary", "base_salary", "number")
         == 'ALTER TABLE "emp_monthly_salary" ALTER COLUMN "base_salary" TYPE NUMERIC'
     )
+
+
+def test_build_drop_source_column_sql_requires_explicit_base_column_override():
+    with pytest.raises(DDLValidationError):
+        build_drop_source_column_sql("hr_pending_employee_full", "synced_at")
+
+    assert (
+        build_drop_source_column_sql(
+            "hr_pending_employee_full",
+            "synced_at",
+            allow_base=True,
+        )
+        == 'ALTER TABLE "hr_pending_employee_full" DROP COLUMN IF EXISTS "synced_at"'
+    )
     assert (
         build_alter_source_column_type_sql(
             "emp_monthly_salary",
