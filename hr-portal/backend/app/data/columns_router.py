@@ -425,6 +425,12 @@ class BulkUpdateIn(BaseModel):
     columns: list[dict[str, Any]]
 
 
+class LocalMaintenanceIn(BaseModel):
+    """将一个同步发现字段永久切换为本地维护。"""
+
+    confirm: bool = False
+
+
 def _to_out(c: TableColumn) -> ColumnOut:
     return ColumnOut(
         id=c.id,
@@ -618,6 +624,41 @@ async def bulk_update(
     await db.commit()
     await _publish_ods_metadata_changed(table, "columns_updated")
     return {"updated": updated}
+
+
+@router.patch(
+    "/{table}/{column_id}/local-maintenance",
+    response_model=ColumnOut,
+    dependencies=[Depends(require_op("warehouse.assets", "U"))],
+)
+async def enable_local_maintenance(
+    table: str,
+    column_id: int,
+    payload: LocalMaintenanceIn,
+    db: AsyncSession = Depends(get_session),
+) -> ColumnOut:
+    """将同步字段转为本地维护，后续同步不再覆盖该字段的已有值。"""
+    table = _ensure_known_table(table)
+    col = await db.get(TableColumn, column_id)
+    if col is None or col.table_name != table:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="字段不存在")
+    if col.is_pk_part:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="业务主键字段不能改为本地维护")
+    if col.is_computed:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="计算字段不能改为本地维护")
+    if not payload.confirm:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="请确认切换为本地维护")
+
+    if col.auto_discovered:
+        col.auto_discovered = False
+        await db.commit()
+        await db.refresh(col)
+        await _publish_ods_metadata_changed(
+            table,
+            "column_local_maintenance_enabled",
+            [col.column_code],
+        )
+    return _to_out(col)
 
 
 @router.put(

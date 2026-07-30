@@ -88,6 +88,7 @@ export interface AssetColumn {
   is_sensitive: boolean
   is_visible: boolean
   display_order: number
+  auto_discovered: boolean
   description: string | null
   scope_role: string | null
   copy_from_last_month: boolean

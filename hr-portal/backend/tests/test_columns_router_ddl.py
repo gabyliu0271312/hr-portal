@@ -169,6 +169,77 @@ async def test_create_column_rejects_invalid_column_name_before_db_work(register
     assert db.added == []
 
 
+async def test_enable_local_maintenance_converts_synced_column(monkeypatch, registered_table):
+    col = make_column(auto_discovered=True)
+    db = FakeSession(get_obj=col)
+    published = []
+
+    async def fake_publish(table_name, change_type, affected_columns=None, changed_by="system"):
+        published.append((table_name, change_type, affected_columns, changed_by))
+
+    monkeypatch.setattr(columns_router, "_publish_ods_metadata_changed", fake_publish)
+
+    result = await columns_router.enable_local_maintenance(
+        registered_table,
+        col.id,
+        columns_router.LocalMaintenanceIn(confirm=True),
+        db=db,
+    )
+
+    assert result.auto_discovered is False
+    assert col.auto_discovered is False
+    assert db.committed is True
+    assert db.refreshed == [col]
+    assert published == [
+        ("custom_entity", "column_local_maintenance_enabled", ["base_salary"], "system")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"is_pk_part": True}, "业务主键字段"),
+        ({"is_computed": True}, "计算字段"),
+    ],
+)
+async def test_enable_local_maintenance_rejects_ineligible_columns(
+    registered_table,
+    overrides,
+    message,
+):
+    col = make_column(auto_discovered=True, **overrides)
+    db = FakeSession(get_obj=col)
+
+    with pytest.raises(HTTPException, match=message) as exc_info:
+        await columns_router.enable_local_maintenance(
+            registered_table,
+            col.id,
+            columns_router.LocalMaintenanceIn(confirm=True),
+            db=db,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert col.auto_discovered is True
+    assert db.committed is False
+
+
+async def test_enable_local_maintenance_requires_confirmation(registered_table):
+    col = make_column(auto_discovered=True)
+    db = FakeSession(get_obj=col)
+
+    with pytest.raises(HTTPException, match="请确认") as exc_info:
+        await columns_router.enable_local_maintenance(
+            registered_table,
+            col.id,
+            columns_router.LocalMaintenanceIn(),
+            db=db,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert col.auto_discovered is True
+    assert db.committed is False
+
+
 async def test_update_column_requires_confirmation_when_existing_values(monkeypatch, registered_table):
     col = make_column(data_type="string")
     db = FakeSession(get_obj=col)

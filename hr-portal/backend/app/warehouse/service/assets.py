@@ -261,6 +261,7 @@ class WarehouseService:
                 "is_visible": col.is_visible,
                 "description": col.description,
                 "source": "auto" if col.auto_discovered else "manual",
+                "auto_discovered": bool(col.auto_discovered),
                 "is_computed": bool(col.is_computed),
                 "formula_expr": col.formula_expr,
                 "display_order": col.display_order,

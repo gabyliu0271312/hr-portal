@@ -755,6 +755,10 @@ async def _dynamic_upsert(
     payload = []
     for h, r in deduped:
         merged = dict(r)
+        # 本地维护字段不接收源端值：无论是既有行还是新行，都由本地数据决定。
+        # 主键字段不允许切换为本地维护，因此这里不会影响 pk_hash 的计算。
+        for code in manual_codes:
+            merged.pop(code, None)
         ex = existing_map.get(h)
         if ex is not None:
             # 同期重拉：保留已维护的手工值

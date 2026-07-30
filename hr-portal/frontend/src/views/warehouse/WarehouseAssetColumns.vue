@@ -8,6 +8,7 @@ import { listAssetColumns, impactField, type AssetColumn, type ImpactResult } fr
 import { tableColumnsApi, type ColumnUpdatePayload } from '@/api/table_columns'
 import { employeeProfileFieldsApi, type EmployeeProfileFieldConfig } from '@/api/employee_profile_fields'
 import { useUserStore } from '@/stores/user'
+import FieldLocalMaintenanceControl from '@/components/data/FieldLocalMaintenanceControl.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -127,7 +128,7 @@ function enterEdit(col: AssetColumn) {
   editForm.value = {
     column_label: col.column_label, agg_role: col.agg_role || 'dimension',
     is_pk_part: col.is_pk_part, is_sensitive: col.is_sensitive, is_visible: col.is_visible,
-    copy_from_last_month: false,
+    copy_from_last_month: col.copy_from_last_month,
     scope_role: col.scope_role || '', display_order: col.display_order, description: col.description || '',
     enum_options: Array.isArray(col.enum_options) ? [...col.enum_options] : [],
     formula_expr: col.formula_expr || '',
@@ -239,6 +240,16 @@ onMounted(load)
         </el-table-column>
         <el-table-column label="类型" width="80" align="center">
           <template #default="{ row }">{{ DATA_TYPE_LABELS[row.data_type] || row.data_type }}</template>
+        </el-table-column>
+        <el-table-column label="维护方式" width="175">
+          <template #default="{ row }">
+            <FieldLocalMaintenanceControl
+              :table-name="tableName"
+              :column="row"
+              :can-manage="userStore.hasOp('warehouse.assets', 'U')"
+              @updated="load"
+            />
+          </template>
         </el-table-column>
         <el-table-column label="业务定义" min-width="220">
           <template #default="{ row }"><span>{{ row.description || '—' }}</span></template>

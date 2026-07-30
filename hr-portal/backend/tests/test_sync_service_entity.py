@@ -272,6 +272,61 @@ async def test_dynamic_upsert_rejects_legacy_raw_model():
             DATA_TABLES[table_name] = old_model
 
 
+async def test_dynamic_upsert_discards_source_values_for_local_maintenance(monkeypatch):
+    table_name = "sync_entity_local_maintenance"
+    model = make_entity_model(table_name)
+    old_model = DATA_TABLES.get(table_name)
+    old_period = sync_service.PERIOD_TABLES.get(table_name)
+    DATA_TABLES[table_name] = model
+    sync_service.PERIOD_TABLES[table_name] = {
+        "period_col": "month",
+        "offset_key": "MONTH_OFFSET",
+        "period_source": "field",
+    }
+    insert_holder = {}
+
+    def fake_pg_insert(model_arg):
+        insert_holder["insert"] = FakeInsert(model_arg)
+        return insert_holder["insert"]
+
+    monkeypatch.setattr(sync_service, "pg_insert", fake_pg_insert)
+    columns = [
+        make_column(table_name=table_name, column_code="month", is_pk_part=True),
+        make_column(table_name=table_name, column_code="employee_no", is_pk_part=True),
+        make_column(table_name=table_name, column_code="status", auto_discovered=False),
+    ]
+    db = FakeSession(
+        results=[
+            FakeResult(rows=columns),
+            FakeResult(value=30),
+            FakeResult(rows=[columns[0]]),
+            FakeResult(rows=columns),
+            FakeResult(rows=[("month",), ("employee_no",)]),
+            FakeResult(rows=[("status", False, "string", None)]),
+            FakeResult(rows=[]),
+            FakeResult(rows=[]),
+        ]
+    )
+
+    try:
+        await sync_service._dynamic_upsert(
+            table_name,
+            [{"month": "202606", "employee_no": "E001", "status": "来自系统"}],
+            db,
+        )
+    finally:
+        if old_model is None:
+            DATA_TABLES.pop(table_name, None)
+        else:
+            DATA_TABLES[table_name] = old_model
+        if old_period is None:
+            sync_service.PERIOD_TABLES.pop(table_name, None)
+        else:
+            sync_service.PERIOD_TABLES[table_name] = old_period
+
+    assert insert_holder["insert"].payload[0]["status"] is None
+
+
 async def test_dynamic_upsert_injects_period_ym_into_month_column(monkeypatch):
     table_name = "sync_entity_period_inject"
     model = make_entity_model(table_name)

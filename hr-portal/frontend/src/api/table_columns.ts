@@ -53,6 +53,10 @@ export const tableColumnsApi = {
     api.post<TableColumn>(`/table-columns/${table}`, body).then((r) => r.data),
   update: (table: string, id: number, body: ColumnUpdatePayload) =>
     api.put<TableColumn>(`/table-columns/${table}/${id}`, body).then((r) => r.data),
+  enableLocalMaintenance: (table: string, id: number) =>
+    api
+      .patch<TableColumn>(`/table-columns/${table}/${id}/local-maintenance`, { confirm: true })
+      .then((r) => r.data),
   remove: (table: string, id: number) =>
     api.delete(`/table-columns/${table}/${id}`).then((r) => r.data),
   bulkUpdate: (table: string, columns: Array<Partial<TableColumn> & { id: number }>) =>
