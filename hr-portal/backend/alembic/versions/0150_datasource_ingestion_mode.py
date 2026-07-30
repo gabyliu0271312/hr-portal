@@ -1,13 +1,13 @@
 """Add business-facing datasource ingestion mode.
 
 Revision ID: 0158
-Revises: 0155, 0155_use_offer_salary_adapter
+Revises: 0155_use_offer_salary_adapter
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "0158"
-down_revision = ("0155", "0155_use_offer_salary_adapter")
+down_revision = "0155_use_offer_salary_adapter"
 branch_labels = None
 depends_on = None
 
