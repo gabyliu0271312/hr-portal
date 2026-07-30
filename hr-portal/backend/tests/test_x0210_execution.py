@@ -186,14 +186,18 @@ async def test_beisen_report_connector_injects_selected_data_object(monkeypatch)
         resource_id=7,
         is_active=True,
         object_config={"report_id": "pending-hire-report"},
-        field_mapping={"飞书投递id": "feishu_submission_id"},
+        field_mapping={
+            "工号": "employee_number",
+            "姓名": "employee_name",
+            "飞书投递id": "feishu_submission_id",
+        },
     )
     db = SimpleNamespace(get=AsyncMock(side_effect=[resource, data_object]))
     received = {}
 
     async def adapter(params, _secrets, _db):
         received.update(params)
-        return SimpleNamespace(status="success", data=[{"飞书投递id": "app-1"}], row_count=1, success_count=1, failed_count=0, extra={})
+        return SimpleNamespace(status="success", data=[{"工号": "107581", "姓名": "梅咏壮", "飞书投递id": "app-1"}], row_count=1, success_count=1, failed_count=0, extra={})
 
     async def write_log(*_args, **_kwargs):
         return None
@@ -210,7 +214,7 @@ async def test_beisen_report_connector_injects_selected_data_object(monkeypatch)
 
     assert result["status"] == "success"
     assert received["object_config"] == {"report_id": "pending-hire-report"}
-    assert result["data"] == [{"feishu_submission_id": "app-1"}]
+    assert result["data"] == [{"employee_number": "107581", "employee_name": "梅咏壮", "feishu_submission_id": "app-1"}]
 
 @pytest.mark.asyncio
 async def test_capability_lookup_preserves_static_params(monkeypatch):
