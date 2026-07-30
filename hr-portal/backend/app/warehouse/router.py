@@ -392,16 +392,22 @@ async def update_asset(
 )
 async def list_asset_columns(
     table_name: str,
+    include_hidden: bool = Query(False, description="字段管理时包含列表隐藏字段"),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ):
     """获取资产的字段列表。
 
-    自动过滤 is_visible=False 的字段和用户无权查看的隐藏列。
+    默认过滤 is_visible=False 的字段；字段管理可显式请求包含隐藏字段。
+    始终过滤用户无权查看的敏感列。
     表不存在时返回 404。
     权限要求：warehouse.assets:V
     """
-    columns = await _svc(db).get_asset_columns(table_name, user)
+    columns = await _svc(db).get_asset_columns(
+        table_name,
+        user,
+        include_hidden=include_hidden,
+    )
     if columns is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"资产不存在: {table_name}")
     return {"table_name": table_name, "columns": columns}

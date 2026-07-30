@@ -214,15 +214,20 @@ class WarehouseService:
         return rt
 
     async def get_asset_columns(
-        self, table_name: str, user: Optional[User] = None
+        self,
+        table_name: str,
+        user: Optional[User] = None,
+        *,
+        include_hidden: bool = False,
     ) -> Optional[list[dict]]:
         """获取资产字段列表。
 
         返回 None 表示表不存在（调用方应返回 404）。
-        自动过滤 is_visible=False 的列和用户无权查看的隐藏列。
+        默认过滤 is_visible=False 的列；字段管理可显式请求包含隐藏列。
+        始终过滤用户无权查看的敏感列。
 
         权限逻辑：
-        1. 只返回 is_visible=True 的列
+        1. 默认只返回 is_visible=True 的列；include_hidden=True 时返回全部元数据列
         2. 调用 get_hidden_columns 过滤用户无权查看的敏感列
         """
         rt = (
@@ -233,14 +238,12 @@ class WarehouseService:
         if rt is None:
             return None
 
+        query = select(TableColumn).where(TableColumn.table_name == table_name)
+        if not include_hidden:
+            query = query.where(TableColumn.is_visible == True)
         columns = (
             await self.session.execute(
-                select(TableColumn)
-                .where(
-                    TableColumn.table_name == table_name,
-                    TableColumn.is_visible == True,
-                )
-                .order_by(TableColumn.display_order, TableColumn.id)
+                query.order_by(TableColumn.display_order, TableColumn.id)
             )
         ).scalars().all()
 

@@ -319,10 +319,9 @@ def _payload_for_entity_row(
     columns_by_code: dict[str, TableColumn],
     pk_hash: str,
 ) -> dict:
-    payload = {
-        "pk_hash": pk_hash,
-        "synced_at": datetime.now(UTC),
-    }
+    payload = {"pk_hash": pk_hash}
+    if _model_has_column(model, "synced_at"):
+        payload["synced_at"] = datetime.now(UTC)
     if _model_has_column(model, "is_active"):
         payload["is_active"] = True
     if _model_has_column(model, "sync_status"):

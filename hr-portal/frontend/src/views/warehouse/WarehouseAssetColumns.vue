@@ -86,7 +86,7 @@ function initSortable() {
 async function load() {
   loading.value = true; error.value = null
   try {
-    const res = await listAssetColumns(tableName)
+    const res = await listAssetColumns(tableName, { include_hidden: true })
     columns.value = res.columns.sort((a, b) => a.display_order - b.display_order)
     employeeProfileFields.value = isEmployeeRoster.value ? await employeeProfileFieldsApi.list() : []
     await nextTick(); initSortable()

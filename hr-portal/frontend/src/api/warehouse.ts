@@ -383,8 +383,14 @@ export function updatePeriodConfig(
   return api.put(`/warehouse/assets/${encodeURIComponent(tableName)}/period-config`, payload).then(r => r.data)
 }
 
-export function listAssetColumns(tableName: string): Promise<{ table_name: string; columns: AssetColumn[] }> {
-  return api.get(`/warehouse/assets/${encodeURIComponent(tableName)}/columns`).then(r => r.data)
+export function listAssetColumns(
+  tableName: string,
+  options: { include_hidden?: boolean } = {},
+): Promise<{ table_name: string; columns: AssetColumn[] }> {
+  return api.get(
+    `/warehouse/assets/${encodeURIComponent(tableName)}/columns`,
+    { params: options },
+  ).then(r => r.data)
 }
 
 // ==================== 来源与开放 (T0202) ====================
