@@ -64,7 +64,7 @@ async def test_record_merge_never_overwrites_source_values():
 @pytest.mark.asyncio
 async def test_asset_sink_receives_pipeline_batch_id(monkeypatch):
     context = PipelineContext("trace-1", "run-99")
-    context.set("merged", {"result": {"data": [{"application_id": "app-1", "salary_amount": 12000}]}})
+    context.set("merged", {"result": {"data": [{"employee_number": "107581", "salary_amount": 12000}]}})
     received = {}
 
     class Sink:
@@ -77,7 +77,7 @@ async def test_asset_sink_receives_pipeline_batch_id(monkeypatch):
 
     monkeypatch.setattr("app.warehouse.asset_sink.WarehouseAssetSink", Sink)
     result = await _execute_warehouse_asset_sink_step(
-        {"input_key": "${merged.result.data}", "target_asset": "pending_hires", "write_mode": "upsert", "primary_key": "application_id", "field_whitelist": ["application_id", "salary_amount"]},
+        {"input_key": "${merged.result.data}", "target_asset": "pending_hires", "write_mode": "upsert", "primary_key": "employee_number", "field_whitelist": ["employee_number", "salary_amount"]},
         context,
         AsyncMock(),
         "run-99",
@@ -186,7 +186,7 @@ async def test_beisen_report_connector_injects_selected_data_object(monkeypatch)
         resource_id=7,
         is_active=True,
         object_config={"report_id": "pending-hire-report"},
-        field_mapping={"飞书投递id": "feishu_applicaiton_id"},
+        field_mapping={"飞书投递id": "feishu_submission_id"},
     )
     db = SimpleNamespace(get=AsyncMock(side_effect=[resource, data_object]))
     received = {}
@@ -210,7 +210,7 @@ async def test_beisen_report_connector_injects_selected_data_object(monkeypatch)
 
     assert result["status"] == "success"
     assert received["object_config"] == {"report_id": "pending-hire-report"}
-    assert result["data"] == [{"feishu_applicaiton_id": "app-1"}]
+    assert result["data"] == [{"feishu_submission_id": "app-1"}]
 
 @pytest.mark.asyncio
 async def test_capability_lookup_preserves_static_params(monkeypatch):
