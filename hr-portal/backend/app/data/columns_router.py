@@ -25,6 +25,8 @@ from app.data.ddl import (
     alter_source_column_type,
     column_exists,
     drop_source_column,
+    get_physical_column_types,
+    normalize_data_type,
     postgres_type,
     quote_ident,
     validate_column_name,
@@ -150,8 +152,6 @@ async def _alter_type_if_needed(
     *,
     confirm_type_change: bool = False,
 ) -> bool:
-    if (next_data_type or "string") == col.data_type:
-        return False
     try:
         postgres_type(next_data_type)
         validate_column_name(col.column_code)
@@ -166,7 +166,17 @@ async def _alter_type_if_needed(
                 "请先完成实体表重建或重新同步补列"
             ),
         )
-    if await _source_column_has_values(db, table_name, col.column_code) and not confirm_type_change:
+    target_type = normalize_data_type(next_data_type)
+    physical_type = (await get_physical_column_types(db, table_name)).get(col.column_code)
+    if physical_type == target_type:
+        return False
+
+    metadata_type_changed = normalize_data_type(col.data_type) != target_type
+    if (
+        metadata_type_changed
+        and await _source_column_has_values(db, table_name, col.column_code)
+        and not confirm_type_change
+    ):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail=f"字段「{col.column_label}」已有数据，修改字段类型需要确认",
@@ -186,6 +196,15 @@ async def _alter_type_if_needed(
             status.HTTP_400_BAD_REQUEST,
             detail=f"字段「{col.column_label}」类型转换失败，请检查已有数据是否符合目标类型",
         ) from exc
+    actual_type = (await get_physical_column_types(db, table_name)).get(col.column_code)
+    if actual_type != target_type:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"字段「{col.column_label}」物理列类型未对齐："
+                f"期望 {target_type}，实际 {actual_type or '未知'}"
+            ),
+        )
     return True
 
 

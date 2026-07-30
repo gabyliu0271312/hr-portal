@@ -251,11 +251,15 @@ async def test_update_column_requires_confirmation_when_existing_values(monkeypa
     async def fake_source_column_has_values(db_arg, table_name, column_code):
         return True
 
+    async def fake_get_physical_column_types(db_arg, table_name):
+        return {"base_salary": "text"}
+
     async def fake_alter_source_column_type(*args, **kwargs):
         alter_calls.append((args, kwargs))
 
     monkeypatch.setattr(columns_router, "column_exists", fake_column_exists)
     monkeypatch.setattr(columns_router, "_source_column_has_values", fake_source_column_has_values)
+    monkeypatch.setattr(columns_router, "get_physical_column_types", fake_get_physical_column_types)
     monkeypatch.setattr(columns_router, "alter_source_column_type", fake_alter_source_column_type)
     payload = columns_router.ColumnIn(
         column_code="base_salary",
@@ -286,6 +290,11 @@ async def test_update_column_confirmed_type_change_alters_physical_column(
     async def fake_source_column_has_values(db_arg, table_name, column_code):
         return True
 
+    physical_types = [{"base_salary": "text"}, {"base_salary": "numeric"}]
+
+    async def fake_get_physical_column_types(db_arg, table_name):
+        return physical_types.pop(0)
+
     async def fake_alter_source_column_type(db_arg, table_name, column_code, data_type, *, using_expr=None):
         alter_calls.append((db_arg, table_name, column_code, data_type, using_expr))
 
@@ -294,6 +303,7 @@ async def test_update_column_confirmed_type_change_alters_physical_column(
 
     monkeypatch.setattr(columns_router, "column_exists", fake_column_exists)
     monkeypatch.setattr(columns_router, "_source_column_has_values", fake_source_column_has_values)
+    monkeypatch.setattr(columns_router, "get_physical_column_types", fake_get_physical_column_types)
     monkeypatch.setattr(columns_router, "alter_source_column_type", fake_alter_source_column_type)
     monkeypatch.setattr(
         columns_router,
@@ -314,6 +324,46 @@ async def test_update_column_confirmed_type_change_alters_physical_column(
         (db, "custom_entity", "base_salary", "number", 'NULLIF("base_salary"::text, \'\')::numeric')
     ]
     assert register_calls == [(db, "custom_entity", True)]
+    assert db.committed is True
+
+
+async def test_update_column_reconciles_physical_type_when_metadata_already_matches(
+    monkeypatch,
+    registered_table,
+):
+    col = make_column(data_type="number")
+    db = FakeSession(get_obj=col)
+    alter_calls = []
+    physical_types = [{"base_salary": "text"}, {"base_salary": "numeric"}]
+
+    async def fake_column_exists(db_arg, table_name, column_code):
+        return True
+
+    async def fake_get_physical_column_types(db_arg, table_name):
+        return physical_types.pop(0)
+
+    async def fake_alter_source_column_type(db_arg, table_name, column_code, data_type, *, using_expr=None):
+        alter_calls.append((db_arg, table_name, column_code, data_type, using_expr))
+
+    async def fake_register_source_table_model(*_args, **_kwargs):
+        pass
+
+    monkeypatch.setattr(columns_router, "column_exists", fake_column_exists)
+    monkeypatch.setattr(columns_router, "get_physical_column_types", fake_get_physical_column_types)
+    monkeypatch.setattr(columns_router, "alter_source_column_type", fake_alter_source_column_type)
+    monkeypatch.setattr(columns_router, "register_source_table_model", fake_register_source_table_model)
+    payload = columns_router.ColumnIn(
+        column_code="base_salary",
+        column_label="基本工资",
+        data_type="number",
+    )
+
+    result = await columns_router.update_column(registered_table, col.id, payload, db=db)
+
+    assert result.data_type == "number"
+    assert alter_calls == [
+        (db, "custom_entity", "base_salary", "number", 'NULLIF("base_salary"::text, \'\')::numeric')
+    ]
     assert db.committed is True
 
 
