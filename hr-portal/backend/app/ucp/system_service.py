@@ -412,16 +412,11 @@ async def update_resource(
     if not obj:
         return None
 
-    inherited_fields = {"resource_code", "resource_name", "connector_type", "adapter_code", "credential_id"}
-    if inherited_fields & set(fields):
-        raise ValueError("RESOURCE_TEMPLATE_INHERITED_FIELDS_IMMUTABLE")
-
-    if "connector_type" in fields:
-        connector_type, adapter_code = _resolve_connector_for_write(
-            fields.get("connector_type"), fields.get("adapter_code", obj.adapter_code)
-        )
-        fields["connector_type"] = connector_type
-        fields["adapter_code"] = adapter_code
+    inherited_fields = {"resource_code", "connector_type", "adapter_code"}
+    for field_name in inherited_fields & set(fields):
+        if fields[field_name] != getattr(obj, field_name):
+            raise ValueError("RESOURCE_TEMPLATE_INHERITED_FIELDS_IMMUTABLE")
+        fields.pop(field_name)
 
     # Phase 5-4: 收集将要写入的 JSON 字段,做合并校验
     # 1) 先确定最终 adapter_code (可能本次更新, 也可能沿用旧的)
