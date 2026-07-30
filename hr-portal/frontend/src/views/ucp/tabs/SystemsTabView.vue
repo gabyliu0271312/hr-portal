@@ -332,6 +332,7 @@
           <el-form-item label="接入类型">
             <el-select
               v-model="resourceEditForm.connector_type"
+              disabled
               filterable
               placeholder="选择接入类型"
               style="width: 100%"
@@ -1717,9 +1718,6 @@ async function saveResource() {
       credential_id: resourceEditForm.value.credential_id,
       status: resourceEditForm.value.status,
       ...jsonFields,
-    }
-    if (resourceEditForm.value.connector_type) {
-      body.connector_type = resourceEditForm.value.connector_type
     }
     await ucpApi.updateResource(activeResource.value.id, body)
     ElMessage.success('已保存')
