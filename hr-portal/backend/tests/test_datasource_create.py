@@ -43,7 +43,7 @@ async def test_create_datasource_returns_existing_record_on_table_conflict():
     existing = SimpleNamespace(
         id=9, table_name="ods_unique", table_label="已有来源", source_type="upload",
         schedule="手动触发", settings={"kept": True}, secrets_encrypted={}, is_active=False,
-        sync_semantics=None, write_strategy=None, missing_row_strategy=None,
+        ingestion_mode=None, sync_semantics=None, write_strategy=None, missing_row_strategy=None,
         business_key_fields=[], last_sync_at=None, last_status="pending", last_rows=None,
         last_message=None,
     )
@@ -62,7 +62,7 @@ async def test_create_datasource_returns_new_record_when_insert_succeeds():
     created = SimpleNamespace(
         id=10, table_name="ods_unique", table_label="唯一来源", source_type="http_api",
         schedule="", settings={}, secrets_encrypted={}, is_active=True,
-        sync_semantics=None, write_strategy=None, missing_row_strategy=None,
+        ingestion_mode=None, sync_semantics=None, write_strategy=None, missing_row_strategy=None,
         business_key_fields=[], last_sync_at=None, last_status="pending", last_rows=None,
         last_message=None,
     )

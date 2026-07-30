@@ -20,6 +20,7 @@ from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.core.secret_box import decrypt, encrypt
 from app.datasources.beisen_client import make_client
+from app.data.models import RegisteredTable, TableColumn
 from app.datasources.models import DataSource, SyncRun
 from app.datasources.sync_service import sync_to_table
 from app.users.models import User
@@ -29,6 +30,15 @@ router = APIRouter(prefix="/datasources", tags=["datasources"])
 _SYNC_SEMANTICS = {"full_snapshot", "incremental_append", "incremental_upsert"}
 _WRITE_STRATEGIES = {"full_refresh", "incremental_upsert", "append"}
 _MISSING_ROW_STRATEGIES = {"hard_delete", "mark_inactive", "keep_history"}
+
+
+_INGESTION_MODES = {"current_snapshot", "incremental_upsert", "append", "period_full_snapshot"}
+_MODE_POLICIES = {
+    "current_snapshot": ("full_snapshot", "incremental_upsert", "mark_inactive"),
+    "incremental_upsert": ("incremental_upsert", "incremental_upsert", "keep_history"),
+    "append": ("incremental_append", "append", "keep_history"),
+    "period_full_snapshot": ("full_snapshot", "incremental_upsert", "hard_delete"),
+}
 
 
 def _validate_write_policy(
@@ -42,6 +52,28 @@ def _validate_write_policy(
             raise HTTPException(422, "入仓更新策略无效")
         if write_strategy == "incremental_upsert" and not business_key_fields:
             raise HTTPException(422, "增量更新策略必须配置业务主键")
+
+
+async def _resolve_ingestion_policy(
+    db: AsyncSession, table_name: str, ingestion_mode: str | None
+) -> tuple[str | None, str | None, str | None, list[str]]:
+    if ingestion_mode is None:
+        return None, None, None, []
+    if ingestion_mode not in _INGESTION_MODES:
+        raise HTTPException(422, "入仓方式无效")
+    asset = await db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == table_name))
+    if asset is None:
+        raise HTTPException(422, "目标数据资产不存在")
+    if ingestion_mode == "period_full_snapshot" and not asset.is_period:
+        raise HTTPException(422, "按期间覆盖仅适用于已登记期间字段的月度资产")
+    keys = list((await db.execute(
+        select(TableColumn.column_code)
+        .where(TableColumn.table_name == table_name, TableColumn.is_pk_part.is_(True))
+        .order_by(TableColumn.display_order)
+    )).scalars())
+    if ingestion_mode in {"current_snapshot", "incremental_upsert", "period_full_snapshot"} and not keys:
+        raise HTTPException(422, "请先在字段管理中标记业务主键")
+    return (*_MODE_POLICIES[ingestion_mode], keys)
 
 # ===== 哪些字段是敏感字段（需加密）=====
 SECRET_KEYS = {
@@ -70,6 +102,7 @@ class DataSourceOut(BaseModel):
     # 不返回密文，仅返回是否已配置
     has_secret: dict[str, bool]
     is_active: bool
+    ingestion_mode: str | None
     sync_semantics: str | None
     write_strategy: str | None
     missing_row_strategy: str | None
@@ -87,6 +120,7 @@ class DataSourceCreateIn(BaseModel):
     source_type: str = "http_api"
     schedule: str = ""
     is_active: bool = True
+    ingestion_mode: str | None = None
     sync_semantics: str | None = None
     write_strategy: str | None = None
     missing_row_strategy: str | None = None
@@ -101,6 +135,7 @@ class DataSourceUpdateIn(BaseModel):
     # secrets 是明文输入；后端加密后存
     secrets: dict[str, str] = Field(default_factory=dict)
     is_active: bool = True
+    ingestion_mode: str | None = None
     sync_semantics: str | None = None
     write_strategy: str | None = None
     missing_row_strategy: str | None = None
@@ -152,6 +187,7 @@ def _to_out(ds: DataSource) -> DataSourceOut:
         settings=ds.settings or {},
         has_secret={k: bool(v) for k, v in (ds.secrets_encrypted or {}).items()},
         is_active=ds.is_active,
+        ingestion_mode=getattr(ds, "ingestion_mode", None),
         sync_semantics=ds.sync_semantics,
         write_strategy=ds.write_strategy,
         missing_row_strategy=ds.missing_row_strategy,
@@ -201,7 +237,11 @@ async def create_datasource(
     db: AsyncSession = Depends(get_session),
 ) -> DataSourceOut:
     """确保一张表拥有唯一 DataSource；已有记录直接复用，完整配置由 PUT 保存。"""
-    _validate_write_policy(body.sync_semantics, body.write_strategy, body.missing_row_strategy, body.business_key_fields)
+    if body.ingestion_mode:
+        sync_semantics, write_strategy, missing_row_strategy, business_key_fields = await _resolve_ingestion_policy(db, body.table_name, body.ingestion_mode)
+    else:
+        _validate_write_policy(body.sync_semantics, body.write_strategy, body.missing_row_strategy, body.business_key_fields)
+        sync_semantics, write_strategy, missing_row_strategy, business_key_fields = body.sync_semantics, body.write_strategy, body.missing_row_strategy, body.business_key_fields
     insert_stmt = (
         pg_insert(DataSource)
         .values(
@@ -210,10 +250,11 @@ async def create_datasource(
             source_type=body.source_type,
             schedule=body.schedule or "",
             is_active=body.is_active,
-            sync_semantics=body.sync_semantics,
-            write_strategy=body.write_strategy,
-            missing_row_strategy=body.missing_row_strategy,
-            business_key_fields=body.business_key_fields,
+            ingestion_mode=body.ingestion_mode,
+            sync_semantics=sync_semantics,
+            write_strategy=write_strategy,
+            missing_row_strategy=missing_row_strategy,
+            business_key_fields=business_key_fields,
         )
         .on_conflict_do_nothing(index_elements=["table_name"])
         .returning(DataSource.id)
@@ -260,11 +301,16 @@ async def update_datasource(
     ds.schedule = payload.schedule
     ds.is_active = payload.is_active
     ds.settings = dict(payload.settings)
-    _validate_write_policy(payload.sync_semantics, payload.write_strategy, payload.missing_row_strategy, payload.business_key_fields)
-    ds.sync_semantics = payload.sync_semantics
-    ds.write_strategy = payload.write_strategy
-    ds.missing_row_strategy = payload.missing_row_strategy
-    ds.business_key_fields = payload.business_key_fields
+    if payload.ingestion_mode:
+        sync_semantics, write_strategy, missing_row_strategy, business_key_fields = await _resolve_ingestion_policy(db, ds.table_name, payload.ingestion_mode)
+    else:
+        _validate_write_policy(payload.sync_semantics, payload.write_strategy, payload.missing_row_strategy, payload.business_key_fields)
+        sync_semantics, write_strategy, missing_row_strategy, business_key_fields = payload.sync_semantics, payload.write_strategy, payload.missing_row_strategy, payload.business_key_fields
+    ds.ingestion_mode = payload.ingestion_mode
+    ds.sync_semantics = sync_semantics
+    ds.write_strategy = write_strategy
+    ds.missing_row_strategy = missing_row_strategy
+    ds.business_key_fields = business_key_fields
 
     # 凭证处理：保留原密文 + 覆盖新提交的字段（空串忽略 = 不变更）
     new_secrets: dict[str, str] = dict(ds.secrets_encrypted or {})

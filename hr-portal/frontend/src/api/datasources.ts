@@ -9,6 +9,7 @@ export interface DataSourceListItem {
   settings: Record<string, any>
   has_secret: Record<string, boolean>
   is_active: boolean
+  ingestion_mode: 'current_snapshot' | 'incremental_upsert' | 'append' | 'period_full_snapshot' | null
   sync_semantics: string | null
   write_strategy: string | null
   missing_row_strategy: string | null
@@ -25,6 +26,7 @@ export interface DataSourceUpdatePayload {
   settings: Record<string, any>
   secrets: Record<string, string>
   is_active: boolean
+  ingestion_mode?: 'current_snapshot' | 'incremental_upsert' | 'append' | 'period_full_snapshot' | null
   sync_semantics?: string | null
   write_strategy?: string | null
   missing_row_strategy?: string | null
@@ -83,7 +85,7 @@ export const datasourcesApi = {
     api.get<{ items: ConnectorTypeDefinition[] }>('/datasources/types', { params: consumer ? { consumer } : undefined }).then((r) => r.data.items),
   list: () => api.get<DataSourceListItem[]>('/datasources').then((r) => r.data),
   get: (id: number) => api.get<DataSourceListItem>(`/datasources/${id}`).then((r) => r.data),
-  create: (body: { table_name: string; table_label?: string; source_type?: string; schedule?: string; is_active?: boolean; sync_semantics?: string | null; write_strategy?: string | null; missing_row_strategy?: string | null; business_key_fields?: string[] }) =>
+  create: (body: { table_name: string; table_label?: string; source_type?: string; schedule?: string; is_active?: boolean; ingestion_mode?: 'current_snapshot' | 'incremental_upsert' | 'append' | 'period_full_snapshot' | null; sync_semantics?: string | null; write_strategy?: string | null; missing_row_strategy?: string | null; business_key_fields?: string[] }) =>
     api.post<DataSourceListItem>('/datasources', body).then((r) => r.data),
   update: (id: number, body: DataSourceUpdatePayload) =>
     api.put<DataSourceListItem>(`/datasources/${id}`, body).then((r) => r.data),

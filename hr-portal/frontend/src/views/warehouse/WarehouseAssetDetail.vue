@@ -27,6 +27,7 @@ import {
 import ScheduleSelector from '@/components/common/ScheduleSelector.vue'
 import PushTargetList from '@/components/push/PushTargetList.vue'
 import PermissionButton from '@/components/PermissionButton.vue'
+import IngestionModeSelect, { type IngestionMode } from '@/components/warehouse/IngestionModeSelect.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -81,6 +82,7 @@ const dsForm = reactive<{
   source_type: string
   schedule: string
   is_active: boolean
+  ingestion_mode: IngestionMode | null
   sync_semantics: string
   write_strategy: string
   missing_row_strategy: string
@@ -90,6 +92,7 @@ const dsForm = reactive<{
   source_type: 'beisen_report',
   schedule: '每日 06:00',
   is_active: true,
+  ingestion_mode: null,
   sync_semantics: '',
   write_strategy: '',
   missing_row_strategy: '',
@@ -123,6 +126,14 @@ const feishuLinkStatus = computed(() => hasResolvableFeishuLink.value
   ? '\u5df2\u8bc6\u522b\u98de\u4e66\u8868\u683c\u94fe\u63a5\uff1a\u7cfb\u7edf\u5c06\u81ea\u52a8\u5b9a\u4f4d\u8868\u683c\u4e0e\u5de5\u4f5c\u8868\u3002'
   : '\u8bf7\u7c98\u8d34\u98de\u4e66 Wiki \u6216\u5728\u7ebf\u8868\u683c\u5b8c\u6574\u94fe\u63a5\uff1b\u65e0\u6cd5\u8bc6\u522b\u65f6\u518d\u624b\u52a8\u8865\u5145\u5b9a\u4f4d\u4fe1\u606f\u3002')
 const isPeriodTable = computed(() => injectTables.value.has(tableName))
+const businessKeyLabels = ref<string[]>([])
+function modeFromSavedPolicy(saved: DataSourceListItem): IngestionMode | null {
+  if (saved.ingestion_mode) return saved.ingestion_mode
+  if (saved.sync_semantics === 'incremental_append' && saved.write_strategy === 'append') return 'append'
+  if (saved.sync_semantics === 'incremental_upsert' && saved.write_strategy === 'incremental_upsert') return 'incremental_upsert'
+  if (saved.sync_semantics === 'full_snapshot' && saved.write_strategy === 'incremental_upsert' && saved.missing_row_strategy === 'mark_inactive') return 'current_snapshot'
+  return null
+}
 
 const monthOffset = computed<number>({
   get: () => parseInt(dsForm.config['MONTH_OFFSET'] ?? '0', 10) || 0,
@@ -225,6 +236,7 @@ async function openCreateDS() {
   dsForm.source_type = 'beisen_report'
   dsForm.schedule = t?.defaultSchedule ?? '每日 06:00'
   dsForm.is_active = true
+  dsForm.ingestion_mode = null
   dsForm.sync_semantics = ''
   dsForm.write_strategy = ''
   dsForm.missing_row_strategy = ''
@@ -259,6 +271,7 @@ async function openEditDS(ep: ConnectionEndpointSummary) {
     dsForm.source_type = saved.source_type
     dsForm.schedule = saved.schedule || t?.defaultSchedule || ''
     dsForm.is_active = saved.is_active
+    dsForm.ingestion_mode = modeFromSavedPolicy(saved)
     dsForm.sync_semantics = saved.sync_semantics || ''
     dsForm.write_strategy = saved.write_strategy || ''
     dsForm.missing_row_strategy = saved.missing_row_strategy || ''
@@ -292,10 +305,7 @@ async function saveDS() {
   try {
     const { settings, secrets } = splitPayload()
     const writePolicy = {
-      sync_semantics: dsForm.sync_semantics || null,
-      write_strategy: dsForm.write_strategy || null,
-      missing_row_strategy: dsForm.missing_row_strategy || null,
-      business_key_fields: dsForm.business_key_fields.split(',').map(item => item.trim()).filter(Boolean),
+      ingestion_mode: dsForm.ingestion_mode,
     }
     if (dsDrawerMode.value === 'create') {
       const created = await datasourcesApi.create({
@@ -430,8 +440,9 @@ async function load() {
   error.value = null
   try {
     asset.value = await getAsset(tableName)
+    const columns = await listAssetColumns(tableName)
+    businessKeyLabels.value = columns.columns.filter(column => column.is_pk_part).map(column => column.column_label)
     if (asset.value.is_period && asset.value.period_source === 'field') {
-      const columns = await listAssetColumns(tableName)
       periodFieldReady.value = columns.columns.some(column => column.column_code === asset.value?.period_col && column.is_pk_part)
     } else {
       periodFieldReady.value = true
@@ -1043,30 +1054,12 @@ onMounted(() => {
           <el-form-item label="启用">
             <el-switch v-model="dsForm.is_active" active-text="启用" inactive-text="停用" />
           </el-form-item>
-          <el-form-item label="输入语义">
-            <el-select v-model="dsForm.sync_semantics" clearable placeholder="未配置时保留历史数据" style="width: 100%">
-              <el-option label="全量快照" value="full_snapshot" />
-              <el-option label="增量追加" value="incremental_append" />
-              <el-option label="增量更新" value="incremental_upsert" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="更新策略">
-            <el-select v-model="dsForm.write_strategy" clearable placeholder="选择写入策略" style="width: 100%">
-              <el-option label="全量刷新" value="full_refresh" />
-              <el-option label="增量更新" value="incremental_upsert" />
-              <el-option label="追加写入" value="append" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="缺失行处理">
-            <el-select v-model="dsForm.missing_row_strategy" clearable placeholder="选择缺失行处理方式" style="width: 100%">
-              <el-option label="物理删除" value="hard_delete" />
-              <el-option label="标记失效" value="mark_inactive" />
-              <el-option label="保留历史" value="keep_history" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="业务主键">
-            <el-input v-model="dsForm.business_key_fields" placeholder="多个字段用英文逗号分隔" />
-          </el-form-item>
+          <IngestionModeSelect
+            v-model="dsForm.ingestion_mode"
+            :is-period="asset?.is_period"
+            :period-label="asset?.period_col"
+            :key-labels="businessKeyLabels"
+          />
         </div>
 
         <!-- 测试结果 -->

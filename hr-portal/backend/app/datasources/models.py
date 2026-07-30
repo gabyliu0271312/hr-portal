@@ -47,6 +47,7 @@ class DataSource(Base):
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 入仓更新策略：供数据源同步和 UCP 资产写入统一使用；空值表示历史来源沿用节点策略。
+    ingestion_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
     sync_semantics: Mapped[str | None] = mapped_column(String(32), nullable=True)
     write_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
     missing_row_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
