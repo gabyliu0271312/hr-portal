@@ -519,6 +519,7 @@ async def execute_pipeline(
     trace_id: str | None = None,
     resume_after_step_id: str | None = None,
     existing_execution: UcpPipelineExecution | None = None,
+    defer_commit: bool = False,
 ) -> UcpPipelineExecution:
     """执行一次完整流水线。
 
@@ -764,7 +765,7 @@ async def execute_pipeline(
 
     if dry_run:
         await db.rollback()
-    else:
+    elif not defer_commit:
         # 试运行不得写执行日志或发送任何外部通知。
         await _write_execution_log(db, trace_id, pipeline_code, pipeline_run_id, overall_status, ctx, trigger_type)
         await _send_pipeline_notification(db, pipeline_code, pipeline_run_id, trace_id, overall_status, ctx, pl_config)
@@ -1023,6 +1024,23 @@ async def _execute_warehouse_asset_sink_step(
     pipeline_run_id: str,
 ) -> dict:
     rows = ctx.resolve_ref(step_config.get("input_key", "")) or []
+    event_fields = step_config.get("event_fields") or []
+    if event_fields:
+        event = ctx.get("event") or {}
+        if not isinstance(event_fields, list) or not isinstance(event, dict):
+            raise RuntimeError("WAREHOUSE_ASSET_SINK event_fields 配置无效")
+        rows = [
+            {**{field: event.get(field) for field in event_fields if isinstance(field, str)}, **row}
+            for row in rows
+            if isinstance(row, dict)
+        ]
+    mapping = step_config.get("mapping")
+    if mapping is not None:
+        from app.ucp.warehouse_ingest_transform import map_and_validate_rows
+
+        if not isinstance(mapping, list):
+            raise RuntimeError("WAREHOUSE_ASSET_SINK mapping 必须是数组")
+        rows = map_and_validate_rows(rows, mapping, step_config.get("validations") or [])
     from app.warehouse.asset_sink import WarehouseAssetSink
     result = await WarehouseAssetSink(db).write(
         target_asset=step_config.get("target_asset", ""),
@@ -1031,6 +1049,7 @@ async def _execute_warehouse_asset_sink_step(
         primary_key=step_config.get("primary_key"),
         field_whitelist=step_config.get("field_whitelist") or [],
         batch_id=step_config.get("batch_id") or pipeline_run_id,
+        period_field=step_config.get("period_field"),
     )
     return {"status": "success", "data": [], "row_count": result["written_count"], "success_count": result["written_count"], "extra": result}
 

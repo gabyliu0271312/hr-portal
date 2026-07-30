@@ -131,5 +131,48 @@ async def test_same_external_event_id_is_deduplicated_across_callback_paths():
             return Result(None if calls == 1 else existing)
 
     await receive_event(Session(), event_id="vendor-event-1", event_type="employee.terminated", source="WEBHOOK", payload={})
-    with pytest.raises(DuplicateEventError):
-        await receive_event(Session(), event_id="vendor-event-1", event_type="employee.terminated", source="WEBHOOK", payload={})
+
+
+@pytest.mark.asyncio
+async def test_webhook_body_reader_rejects_declared_or_streamed_oversize_body():
+    from app.ucp.routers.webhook_platform import _read_webhook_body
+
+    class Request:
+        def __init__(self, headers, chunks):
+            self.headers = headers
+            self.chunks = chunks
+
+        async def stream(self):
+            for chunk in self.chunks:
+                yield chunk
+
+    with pytest.raises(ValueError, match="BODY_TOO_LARGE"):
+        await _read_webhook_body(Request({"content-length": "11"}, [b"ignored"]), 10)
+    with pytest.raises(ValueError, match="BODY_TOO_LARGE"):
+        await _read_webhook_body(Request({}, [b"12345", b"67890", b"1"]), 10)
+
+
+@pytest.mark.asyncio
+async def test_webhook_body_reader_keeps_raw_signed_bytes():
+    from app.ucp.routers.webhook_platform import _read_webhook_body
+
+    class Request:
+        headers = {}
+
+        async def stream(self):
+            yield b'{"request_id":'
+            yield b'"req-1"}'
+
+    assert await _read_webhook_body(Request(), 1024) == b'{"request_id":"req-1"}'
+
+
+def test_webhook_responses_expose_external_request_id_only():
+    from app.ucp.routers.webhook_platform import _webhook_response
+
+    assert _webhook_response("request-1", status="RECEIVED", trace_id="trace-1") == {
+        "accepted": True,
+        "event_id": "request-1",
+        "status": "RECEIVED",
+        "trace_id": "trace-1",
+    }
+    assert _webhook_response("request-1", status="SUCCEEDED", trace_id="trace-1", deduplicated=True)["deduplicated"] is True

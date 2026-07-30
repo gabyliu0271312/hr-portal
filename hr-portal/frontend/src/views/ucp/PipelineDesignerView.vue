@@ -143,10 +143,7 @@
               <div class="text-muted">只补全空字段，北森原始字段保持优先。</div>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'WAREHOUSE_ASSET_SINK'">
-              <el-form-item label="目标资产"><el-select :model-value="selectedNode.config?.target_asset" filterable placeholder="选择已发布数据资产" style="width:100%" @change="selectTargetAsset"><el-option v-for="asset in publishedAssets" :key="asset.table_name" :label="asset.table_label" :value="asset.table_name" /></el-select></el-form-item>
-              <el-form-item label="写入模式"><el-select v-model="selectedNode.config.write_mode" style="width:100%"><el-option label="追加写入" value="append" /><el-option label="按主键更新" value="upsert" /><el-option label="替换资产数据" value="replace" /></el-select></el-form-item>
-              <el-form-item label="主键字段"><el-select v-model="selectedNode.config.primary_key" filterable clearable placeholder="选择资产声明主键" style="width:100%"><el-option v-for="column in targetAssetColumns.filter(column => column.is_pk_part)" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select></el-form-item>
-              <el-form-item label="允许写入字段"><el-select v-model="selectedNode.config.field_whitelist" multiple filterable placeholder="选择审批字段" style="width:100%"><el-option v-for="column in targetAssetColumns" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select></el-form-item>
+              <WarehouseAssetSinkConfig v-model="selectedNode.config" />
             </template>
             <template v-else-if="(selectedNode.type as string) === 'LOOP_RESOURCE' || selectedNode.type === 'LOOP'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
@@ -238,6 +235,7 @@ import { Plus, Connection, MagicStick, Share, Refresh, Delete, Aim, Box, Documen
 import { pipelineTemplateApi, ucpApi, type PipelineTemplate, type PipelineNode, type PipelineEdge, type NodeTypeMeta } from '@/api/ucp'
 import { listAssets, listAssetColumns, type Asset, type AssetColumn } from '@/api/warehouse'
 import ScheduleSelector from '@/components/common/ScheduleSelector.vue'
+import WarehouseAssetSinkConfig from '@/components/ucp/WarehouseAssetSinkConfig.vue'
 
 interface SystemItem { id: number; system_code: string; system_name: string }
 interface ResourceItem { id: number; resource_code: string; resource_name: string; system_id: number; adapter_code?: string | null }
@@ -314,7 +312,7 @@ const offerFieldOptions = computed<OfferFieldOption[]>(() => {
 })
 async function loadPublishedAssets(): Promise<void> { try { publishedAssets.value = (await listAssets({ page: 1, page_size: 200, asset_status: 'published' })).items } catch { publishedAssets.value = [] } }
 async function loadTargetAssetColumns(value: string): Promise<void> { try { targetAssetColumns.value = (await listAssetColumns(value)).columns } catch { targetAssetColumns.value = [] } }
-async function selectTargetAsset(value: string): Promise<void> { if (!selectedNode.value) return; const config = { ...(selectedNode.value.config || {}), target_asset: value, primary_key: null, field_whitelist: [] }; selectedNode.value.config = config; await loadTargetAssetColumns(value) }
+async function selectTargetAsset(value: string): Promise<void> { if (!selectedNode.value) return; const config: Record<string, any> = { ...(selectedNode.value.config || {}), target_asset: value, period_field: null, field_whitelist: [] }; delete config.primary_key; selectedNode.value.config = config; await loadTargetAssetColumns(value) }
 function addOfferMapping(): void { if (!selectedNode.value) return; const config = { ...(selectedNode.value.config || {}) } as Record<string, unknown>; config.field_mapping = [...offerMappings.value, { source: offerFieldOptions.value[0]?.code || '', target: targetAssetColumns.value[0]?.column_code || '' }]; selectedNode.value.config = config }
 function removeOfferMapping(index: number): void { if (!selectedNode.value) return; const config = { ...(selectedNode.value.config || {}) } as Record<string, unknown>; config.field_mapping = offerMappings.value.filter((_, itemIndex) => itemIndex !== index); selectedNode.value.config = config }
 
@@ -982,7 +980,26 @@ async function loadPendingHireTemplate(): Promise<void> {
 }
 
 const saving = ref(false)
-async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { if (currentTpl.value) { const saved = await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, change_note: form.change_note || undefined }); currentTpl.value = { ...saved, nodes: form.nodes, edges: form.edges }; form.version = saved.version; ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail; ElMessage.error(`保存失败: ${typeof detail === 'string' ? detail : e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
+function normalizeWarehouseSinkConfigs(): void {
+  for (const node of form.nodes.filter((item) => (item.type as string) === 'WAREHOUSE_ASSET_SINK')) {
+    const config = node.config as Record<string, any>
+    for (const [textKey, valueKey] of [['mapping_text', 'mapping'], ['validations_text', 'validations']] as const) {
+      const source = config[textKey]
+      if (typeof source !== 'string') continue
+      try {
+        const value = source.trim() ? JSON.parse(source) : []
+        if (!Array.isArray(value)) throw new Error('必须是数组')
+        config[valueKey] = value
+      } catch (error) {
+        throw new Error(`${textKey === 'mapping_text' ? '字段映射' : '校验规则'} JSON 格式无效：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    if (config.write_mode === 'period_full_snapshot' && !config.period_field) {
+      throw new Error('按期间全量快照必须选择期间字段')
+    }
+  }
+}
+async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { normalizeWarehouseSinkConfigs(); const dangerous = form.nodes.filter((node) => (node.type as string) === 'WAREHOUSE_ASSET_SINK' && ['replace', 'period_full_snapshot'].includes(String(node.config?.write_mode))); if (dangerous.length) await ElMessageBox.confirm(`以下节点将执行破坏性写入：${dangerous.map((node) => `${node.id} → ${node.config?.target_asset || '未选择资产'}`).join('；')}。确认保存？`, '危险写入确认', { type: 'warning' }); if (currentTpl.value) { const saved = await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, change_note: form.change_note || undefined }); currentTpl.value = { ...saved, nodes: form.nodes, edges: form.edges }; form.version = saved.version; ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail; ElMessage.error(`保存失败: ${typeof detail === 'string' ? detail : e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
 
 const dryRunVisible = ref(false)
 const dryRunResult = ref<Awaited<ReturnType<typeof ucpApi.runPipeline>> | null>(null)

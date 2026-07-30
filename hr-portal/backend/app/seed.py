@@ -330,11 +330,13 @@ async def run_seed(session_factory) -> None:
         await _ensure_datasources(db)
         await _ensure_datasource_jobs(db)
         await _ensure_ai_controlled_action_retention_job(db)
+        await _ensure_ucp_event_maintenance_job(db)
         await _ensure_registered_tables(db)
         await _ensure_single_table_datasets(db)
         await _ensure_document_templates(db)
         await _ensure_formula_functions(db)
         await _ensure_pipeline_templates(db)
+        await _ensure_cost_allocation_ingest(db)
         await _ensure_lifecycle_pipeline_triggers(db)
         await _ensure_ods_dwd_automation_rules(db)
         await _ensure_l4_cascade_rules(db)
@@ -449,6 +451,15 @@ async def _ensure_ai_controlled_action_retention_job(db: AsyncSession) -> None:
         enabled=True,
     )
     await db.commit()
+
+
+async def _ensure_ucp_event_maintenance_job(db: AsyncSession) -> None:
+    """Create the platform-owned UCP recovery job."""
+    from app.scheduler.service import get_job_by_business, upsert_job
+
+    if await get_job_by_business(db, "ucp_event_maintenance", 0) is None:
+        await upsert_job(db, kind="ucp_event_maintenance", business_id=0, cron="*/1 * * * *", payload={}, enabled=True)
+        await db.commit()
 
 
 # ===== 内置表注册（幂等写入 registered_tables）=====
@@ -743,6 +754,52 @@ def _lifecycle_pipeline_trigger_defaults() -> list[dict]:
             "schedule_config": {},
         },
     ]
+
+
+async def _ensure_cost_allocation_ingest(db: AsyncSession) -> None:
+    """Seed the non-secret cost-allocation webhook contract in a disabled state."""
+    from app.ucp.config_service import upsert_pipeline
+    from app.ucp.models import UcpEventDefinition, UcpEventTrigger, UcpPipelineConfig, UcpResource, UcpResourceDataObject, UcpSystem
+
+    system = await db.scalar(select(UcpSystem).where(UcpSystem.system_code == "COST_ALLOCATION_SYSTEM"))
+    if system is None:
+        system = UcpSystem(system_code="COST_ALLOCATION_SYSTEM", system_name="成本分摊系统", system_type="CUSTOM", description="成本分摊锁定事件入仓", is_active=1, created_by="seed")
+        db.add(system)
+        await db.flush()
+    resource = await db.scalar(select(UcpResource).where(UcpResource.system_id == system.id, UcpResource.resource_code == "cost-allocation-locked"))
+    if resource is None:
+        resource = UcpResource(
+            system_id=system.id, resource_code="cost-allocation-locked", resource_name="成本分摊锁定事件",
+            connector_type="webhook_ingress", protocol={"ingress": {
+                "verification_strategy": "HMAC_SHA256_TIMESTAMPED", "signature_header": "X-Signature",
+                "timestamp_header": "X-Timestamp", "nonce_header": "X-Nonce", "request_id_header": "X-Request-Id",
+                "integration_id_header": "X-Integration-Id", "integration_id": "cost_allocation_system",
+                "max_timestamp_diff_seconds": 300, "max_body_bytes": 1048576, "rate_limit_per_minute": 120,
+                "rate_limit_burst": 10, "event_type_path": "event_type", "event_id_path": "request_id",
+                "batch_id_path": "batch_id", "payload_path": ""
+            }}, status=0, test_status="NOT_TESTED", created_by="seed"
+        )
+        db.add(resource)
+        await db.flush()
+    definition = await db.scalar(select(UcpEventDefinition).where(UcpEventDefinition.event_code == "allocation_period.locked", UcpEventDefinition.version == "1.0.0"))
+    if definition is None:
+        definition = UcpEventDefinition(event_code="allocation_period.locked", event_name="成本分摊周期锁定", source_system_type="COST_ALLOCATION_SYSTEM", payload_schema={"required": ["event_type", "request_id", "batch_id", "period", "records"]}, verification_strategy="HMAC_SHA256_TIMESTAMPED", version="1.0.0", status="PUBLISHED")
+        db.add(definition)
+        await db.flush()
+    event_object = await db.scalar(select(UcpResourceDataObject).where(UcpResourceDataObject.resource_id == resource.id, UcpResourceDataObject.object_code == "ALLOCATION_PERIOD_LOCKED"))
+    if event_object is None:
+        event_object = UcpResourceDataObject(resource_id=resource.id, connector_type="webhook_ingress", object_code="ALLOCATION_PERIOD_LOCKED", object_name="成本分摊周期锁定", object_type="EVENT_TYPE", event_definition_id=definition.id, event_config={}, verification_status="PENDING_CREDENTIAL", is_active=1, created_by="seed")
+        db.add(event_object)
+        await db.flush()
+    steps = [{"id": "warehouse_sink", "type": "WAREHOUSE_ASSET_SINK", "input_key": "${event.records}", "event_fields": ["period"], "target_asset": "emp_monthly_allocation", "write_mode": "period_full_snapshot", "period_field": "cost_period", "field_whitelist": ["cost_period", "employee_no", "employee", "code", "dimension_value", "headcount"], "mapping": [{"source": "period", "target": "cost_period", "transform": "yyyy_mm_to_yyyymm", "required": True}, {"source": "employee_no", "target": "employee_no", "transform": "string", "required": True}, {"source": "employee_name", "target": "employee", "required": True}, {"source": "project_code", "target": "code", "required": True}, {"source": "project_name", "target": "dimension_value", "required": True}, {"source": "allocation_percentage", "target": "headcount", "transform": "decimal_divide_100", "required": True, "minimum": 0, "maximum": 1}], "validations": [{"type": "group_sum_equals", "group_by": ["cost_period", "employee_no"], "sum_field": "headcount", "expected": 1, "tolerance": 0.0001}]}]
+    pipeline = await db.scalar(select(UcpPipelineConfig).where(UcpPipelineConfig.pipeline_code == "COST_ALLOCATION_LOCKED_INGEST"))
+    if pipeline is None:
+        await upsert_pipeline(db, "COST_ALLOCATION_LOCKED_INGEST", "成本分摊锁定数据入仓", steps, trigger_type="EVENT", trigger_config={"event_type": "allocation_period.locked"}, description="待绑定凭证并验证后启用", created_by="seed")
+    trigger = await db.scalar(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == "COST_ALLOCATION_LOCKED_INGEST"))
+    if trigger is None:
+        db.add(UcpEventTrigger(trigger_code="COST_ALLOCATION_LOCKED_INGEST", trigger_name="成本分摊锁定入仓", event_source="WEBHOOK", event_types="allocation_period.locked", pipeline_code="COST_ALLOCATION_LOCKED_INGEST", source_resource_id=resource.id, source_resource_object_id=event_object.id, trigger_type="WEBHOOK", schedule_config={}, input_schema={}, filter_rule={}, failure_policy="RETRY", is_active=0, migration_status="PENDING_CREDENTIAL", created_by="seed"))
+    await db.commit()
+    logger.info("[seed] cost allocation webhook contract ready; bind credential and verify before enabling")
 
 
 async def _ensure_lifecycle_pipeline_triggers(db: AsyncSession) -> None:

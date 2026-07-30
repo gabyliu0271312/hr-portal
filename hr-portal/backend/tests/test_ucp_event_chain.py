@@ -81,6 +81,14 @@ def test_pipeline_execution_accepts_event_trace_contract():
     assert "trace_id" in params
 
 
+def test_ingest_validation_failures_do_not_retry():
+    from app.ucp.event_bus import _is_retryable_pipeline_failure
+
+    assert _is_retryable_pipeline_failure("聚合校验失败: [('202607', '000123')]") is False
+    assert _is_retryable_pipeline_failure("字段白名单包含目标资产未批准的字段") is False
+    assert _is_retryable_pipeline_failure("database connection reset") is True
+
+
 def test_lifecycle_direct_dispatch_flag_defaults_to_compatible_mode(monkeypatch):
     from app.ucp.routers.events import _lifecycle_direct_dispatch_enabled
 

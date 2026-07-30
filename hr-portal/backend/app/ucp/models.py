@@ -647,6 +647,7 @@ class UcpEvent(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     # 外部事件 ID（用于去重）
     event_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    external_event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     trigger: Mapped[str] = mapped_column(String(16), nullable=False, default="REALTIME")
@@ -702,6 +703,82 @@ class UcpWebhookIngressAttempt(Base):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class UcpWebhookIngressReceipt(Base):
+    """Hashed resource-webhook replay receipt; never stores raw nonce or payload."""
+
+    __tablename__ = "ucp_webhook_ingress_receipt"
+    __table_args__ = (
+        UniqueConstraint("resource_id", "nonce_hash", name="uq_ucp_webhook_receipt_resource_nonce"),
+        UniqueConstraint("resource_id", "external_event_id_hash", name="uq_ucp_webhook_receipt_resource_event"),
+        Index("ix_ucp_webhook_receipt_expires", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    resource_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ucp_resource.id", ondelete="CASCADE"), nullable=False
+    )
+    nonce_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    external_event_id_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class UcpWarehouseIngestBatch(Base):
+    """One auditable external batch destined for a registered warehouse asset."""
+
+    __tablename__ = "ucp_warehouse_ingest_batch"
+    __table_args__ = (
+        UniqueConstraint("resource_id", "event_id", name="uq_ucp_ingest_batch_resource_event"),
+        UniqueConstraint("resource_id", "target_asset", "batch_id", name="uq_ucp_ingest_batch_resource_asset_batch"),
+        Index("ix_ucp_ingest_batch_asset_period_status", "target_asset", "period_value", "status"),
+        Index("ix_ucp_ingest_batch_resource_received", "resource_id", "received_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    resource_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ucp_resource.id", ondelete="RESTRICT"), nullable=False
+    )
+    target_asset: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    batch_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    period_value: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payload_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="RECEIVED")
+    received_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    written_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pipeline_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class UcpOutboxMessage(Base):
+    """Transactional messages emitted only after their enclosing write commits."""
+
+    __tablename__ = "ucp_outbox_message"
+    __table_args__ = (
+        UniqueConstraint("topic", "dedup_key", name="uq_ucp_outbox_topic_dedup"),
+        Index("ix_ucp_outbox_status_retry", "status", "next_attempt_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    topic: Mapped[str] = mapped_column(String(64), nullable=False)
+    dedup_key: Mapped[str] = mapped_column(String(192), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class UcpEventPayloadAccessAudit(Base):
@@ -814,6 +891,9 @@ class UcpEventDelivery(Base):
     # 重试
     next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recovery_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # 触发来源
     trigger_source: Mapped[str] = mapped_column(String(16), nullable=False, default="AUTO")
     triggered_by: Mapped[str | None] = mapped_column(String(64), nullable=True)

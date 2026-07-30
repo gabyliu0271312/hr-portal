@@ -120,7 +120,10 @@ def make_entity_model(table_name: str):
         Column("pk_hash", String(64), nullable=False),
         Column("synced_at", String),
         Column("month", String),
+        Column("cost_period", String),
         Column("employee_no", String),
+        Column("code", String),
+        Column("dimension_value", String),
         Column("amount", Numeric),
         Column("status", String),
     )
@@ -381,7 +384,71 @@ async def test_dynamic_upsert_injects_period_ym_into_month_column(monkeypatch):
     assert insert_holder["insert"].payload[0]["month"] == "202606"
 
 
-async def test_build_lookup_maps_reads_entity_columns():
+async def test_dynamic_upsert_uses_allocation_business_key_and_preserves_leading_zero(monkeypatch):
+    table_name = "emp_monthly_allocation"
+    model = make_entity_model(table_name)
+    old_model = DATA_TABLES.get(table_name)
+    DATA_TABLES[table_name] = model
+    insert_holder = {}
+
+    def fake_pg_insert(model_arg):
+        insert_holder["insert"] = FakeInsert(model_arg)
+        return insert_holder["insert"]
+
+    monkeypatch.setattr(sync_service, "pg_insert", fake_pg_insert)
+    columns = [
+        make_column(table_name=table_name, column_code="cost_period", column_label="成本归属年月", is_pk_part=True, display_order=0),
+        make_column(table_name=table_name, column_code="employee_no", column_label="工号", is_pk_part=True, display_order=10),
+        make_column(table_name=table_name, column_code="code", column_label="编码", is_pk_part=True, display_order=20),
+        make_column(table_name=table_name, column_code="dimension_value", column_label="维度值", display_order=30),
+    ]
+    db = FakeSession(
+        results=[
+            FakeResult(rows=columns),
+            FakeResult(value=30),
+            FakeResult(rows=columns),
+            FakeResult(rows=[("cost_period",), ("employee_no",), ("code",)]),
+            FakeResult(rows=[]),
+            FakeResult(rows=[]),
+        ]
+    )
+
+    try:
+        written = await sync_service._dynamic_upsert(
+            table_name,
+            [
+                {
+                    "cost_period": "202607",
+                    "employee_no": "00123",
+                    "code": "PRJ-A001",
+                    "dimension_value": "项目A",
+                },
+                {
+                    "cost_period": "202607",
+                    "employee_no": "00123",
+                    "code": "PRJ-A001",
+                    "dimension_value": "项目A（修订）",
+                },
+            ],
+            db,
+        )
+    finally:
+        if old_model is None:
+            DATA_TABLES.pop(table_name, None)
+        else:
+            DATA_TABLES[table_name] = old_model
+
+    assert written == 1
+    payload = insert_holder["insert"].payload[0]
+    assert payload["cost_period"] == "202607"
+    assert payload["employee_no"] == "00123"
+    assert payload["code"] == "PRJ-A001"
+    assert payload["dimension_value"] == "项目A（修订）"
+    assert payload["pk_hash"] == sync_service._calc_pk_hash(
+        payload,
+        ["cost_period", "employee_no", "code"],
+    )
+
     table_name = "sync_lookup_table"
     model = Table(
         table_name,

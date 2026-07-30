@@ -270,6 +270,20 @@ async def _handler_ucp_pipeline_trigger(
     return 1, f"pipeline trigger {trigger.trigger_code} completed: {run.pipeline_run_id}"
 
 
+async def _handler_ucp_event_maintenance(
+    job: ScheduledJob,
+    db: AsyncSession,
+    triggered_by: str,
+) -> tuple[int, str]:
+    from app.ucp.event_reliability import recover_stale_deliveries, scan_due_retries
+    from app.ucp.outbox_service import dispatch_pending_outbox
+
+    recovered = await recover_stale_deliveries(db)
+    retried = await scan_due_retries(db)
+    dispatched = await dispatch_pending_outbox(db)
+    return recovered + len(retried) + dispatched, f"ucp event maintenance: recovered={recovered}, retried={len(retried)}, dispatched={dispatched}"
+
+
 JOB_HANDLERS: dict[str, HandlerFn] = {
     "datasource_sync": _handler_datasource_sync,
     "push_target": _handler_push_target,
@@ -282,6 +296,7 @@ JOB_HANDLERS: dict[str, HandlerFn] = {
     "scd_run": _handler_scd_run,
     "ai_controlled_action_retention": _handler_ai_controlled_action_retention,
     "ucp_pipeline_trigger": _handler_ucp_pipeline_trigger,
+    "ucp_event_maintenance": _handler_ucp_event_maintenance,
 }
 
 
