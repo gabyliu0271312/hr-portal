@@ -92,13 +92,14 @@ async def ensure_feishu_recruit_capability_package(db: AsyncSession) -> UcpConne
                 operation_name=definition["operation_name"], adapter_code="GENERIC_HTTP_ACTION_ADAPTER",
                 required_scopes=[], input_schema=definition["input_schema"], output_schema=definition["output_schema"],
                 field_catalog=build_field_catalog(definition["output_schema"]), source_type="PRESET",
-                approval_status="DRAFT", version="1.0.0", status="DRAFT", risk_level="read_low",
+                approval_status="PUBLISHED", version="1.0.0", status="PUBLISHED", risk_level="read_low",
             )
             db.add(operation)
             await db.flush()
-        elif operation.status != "PUBLISHED":
+        elif operation.status != "DISABLED":
             operation.adapter_code = "GENERIC_HTTP_ACTION_ADAPTER"
-            operation.approval_status = operation.approval_status if operation.approval_status != "PUBLISHED" else "DRAFT"
+            operation.status = "PUBLISHED"
+            operation.approval_status = "PUBLISHED"
             operation.field_catalog = operation.field_catalog or build_field_catalog(operation.output_schema or {})
 
         template = (await db.execute(select(UcpApiTemplate).where(UcpApiTemplate.template_code == definition["template_code"]))).scalar_one_or_none()
@@ -108,10 +109,12 @@ async def ensure_feishu_recruit_capability_package(db: AsyncSession) -> UcpConne
                 method="GET", base_url="https://open.feishu.cn", path=definition["path"], headers_config=[], query_config=[],
                 auth_type="FEISHU_TENANT_APP", data_path="$.data", pagination_type="NONE", allowed_domains=["open.feishu.cn"],
                 tags=["package-preset"], package_id=package.id, operation_definition_id=operation.id,
-                allowed_domains_snapshot=["open.feishu.cn"], auth_policy_snapshot=package.auth_policy,
+                allowed_domains_snapshot=["open.feishu.cn"], auth_policy_snapshot=package.auth_policy, is_published=1,
             )
             db.add(template)
             await db.flush()
+        else:
+            template.is_published = 1
         if operation.executor_template_id != template.id:
             operation.executor_template_id = template.id
         if template.package_id != package.id:

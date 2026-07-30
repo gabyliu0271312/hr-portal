@@ -64,6 +64,9 @@ class _RowsResult:
     def scalars(self):
         return self
 
+    def __iter__(self):
+        return iter(self.rows)
+
     def scalar_one_or_none(self):
         return self.rows[0] if self.rows else None
 
@@ -95,6 +98,36 @@ class _ExistingPackageSession:
         self.refreshed = entity
 
 
+class _BootstrapSession:
+    def __init__(self):
+        self.added = []
+        self.execute_count = 0
+        self.next_id = 1
+
+    async def execute(self, _statement):
+        self.execute_count += 1
+        if self.execute_count == 1:
+            return _ScalarResult(None)
+        if self.execute_count == 2:
+            return _RowsResult([])
+        return _ScalarResult(None)
+
+    def add(self, entity):
+        if getattr(entity, "id", None) is None:
+            entity.id = self.next_id
+            self.next_id += 1
+        self.added.append(entity)
+
+    async def flush(self):
+        return None
+
+    async def commit(self):
+        return None
+
+    async def refresh(self, _entity):
+        return None
+
+
 def test_feishu_recruit_package_exposes_offer_candidate_and_job_operations():
     assert FEISHU_RECRUIT_PACKAGE_CODE == "FEISHU_RECRUIT"
     assert {item["object_code"] for item in FEISHU_RECRUIT_OPERATIONS} == {"OFFER", "CANDIDATE", "JOB"}
@@ -117,6 +150,20 @@ def test_every_prebuilt_operation_is_template_backed_and_versionable():
 
 def test_every_capability_operation_has_a_registered_adapter():
     assert {item["adapter_code"] for item in FEISHU_RECRUIT_OPERATIONS}.issubset(ADAPTER_REGISTRY)
+
+
+@pytest.mark.asyncio
+async def test_prebuilt_operations_and_templates_are_automatically_published():
+    session = _BootstrapSession()
+
+    await ensure_feishu_recruit_capability_package(session)
+
+    operations = [item for item in session.added if getattr(item, "__tablename__", "") == "ucp_operation_definition"]
+    templates = [item for item in session.added if getattr(item, "__tablename__", "") == "ucp_api_template"]
+    assert operations
+    assert templates
+    assert all(item.status == item.approval_status == "PUBLISHED" for item in operations)
+    assert all(item.is_published == 1 for item in templates)
 
 
 @pytest.mark.asyncio
