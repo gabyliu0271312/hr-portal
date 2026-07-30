@@ -57,14 +57,19 @@ async def test_capability_catalog_only_includes_unverified_rows_when_requested()
         def all(self): return self.rows
 
     class Db:
+        def __init__(self): self.statements = []
         async def execute(self, statement):
+            self.statements.append(statement)
             has_verification_filter = any("verification_status" in str(criterion) for criterion in statement._where_criteria)
             rows = [(verified, operation, system)] if has_verification_filter else [(verified, operation, system), (pending, operation, system)]
             return Result(rows)
 
-    default_catalog = await route_verified_capability_catalog(False, Db())
-    editable_catalog = await route_verified_capability_catalog(True, Db())
+    db = Db()
+    default_catalog = await route_verified_capability_catalog(False, db)
+    editable_catalog = await route_verified_capability_catalog(True, db)
 
     assert [item["capability_id"] for item in default_catalog["items"]] == [1]
     assert [item["capability_id"] for item in editable_catalog["items"]] == [1, 2]
     assert editable_catalog["items"][1]["verification_status"] == "NOT_TESTED"
+    assert "ucp_operation_definition.status" in str(db.statements[0]).partition("WHERE")[2]
+    assert "ucp_operation_definition.status" not in str(db.statements[1]).partition("WHERE")[2]

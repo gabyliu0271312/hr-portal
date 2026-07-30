@@ -211,13 +211,15 @@ async def route_verified_capability_catalog(
         .join(UcpSystem, UcpSystem.id == UcpSystemCapability.system_id)
         .where(UcpSystemCapability.enabled.is_(True))
         .where(
-            UcpOperationDefinition.status == 'PUBLISHED',
             UcpOperationDefinition.approval_status == 'PUBLISHED',
         )
         .order_by(UcpSystem.system_name, UcpOperationDefinition.object_code, UcpOperationDefinition.operation_name)
     )
     if not include_unverified:
-        stmt = stmt.where(UcpSystemCapability.verification_status == "VERIFIED")
+        stmt = stmt.where(
+            UcpSystemCapability.verification_status == "VERIFIED",
+            UcpOperationDefinition.status == 'PUBLISHED',
+        )
     rows = (await db.execute(stmt)).all()
     return {"items": [{"capability_id": capability.id, "system_id": system.id, "system_name": system.system_name, "object_code": operation.object_code, "operation_name": operation.operation_name, "operation_id": operation.id, "operation_version": operation.version, "source_type": operation.source_type, "risk_level": operation.risk_level, "verification_status": capability.verification_status, "output_schema": operation.output_schema or {}} for capability, operation, system in rows]}
 
