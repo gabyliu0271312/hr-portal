@@ -52,6 +52,7 @@ DELIVERY_STATUS_SUCCESS = "SUCCESS"
 DELIVERY_STATUS_FAILED = "FAILED"
 DELIVERY_STATUS_DEAD_LETTER = "DEAD_LETTER"
 DELIVERY_STATUS_SKIPPED = "SKIPPED"
+DELIVERY_STATUS_RUNNING = "RUNNING"
 
 
 def compute_next_retry_at(attempt: int) -> datetime:
@@ -123,25 +124,51 @@ async def mark_delivery_failed(
     *,
     error_code: str,
     error_message: str,
+    retryable: bool = True,
 ) -> None:
-    """标记派发失败。如已达最大重试次数则置为 DEAD_LETTER。"""
+    """标记派发失败；不可重试错误直接进入死信。"""
     delivery.status = DELIVERY_STATUS_FAILED
     delivery.error_code = error_code
     delivery.error_message = (error_message or "")[:500]
     delivery.last_retry_at = datetime.now(timezone.utc)
 
-    if delivery.attempt >= MAX_RETRY_COUNT:
-        # 已达最大重试次数，进入死信
+    if not retryable or delivery.attempt >= MAX_RETRY_COUNT:
         delivery.status = DELIVERY_STATUS_DEAD_LETTER
         delivery.next_retry_at = None
     else:
-        # 计算下一次重试时间
-        delivery.next_retry_at = compute_next_retry_at(delivery.attempt + 1)
+        delivery.next_retry_at = compute_next_retry_at(delivery.attempt)
     await db.flush()
 
 
-# ============================================================
-# 死信队列查询
+async def recover_stale_deliveries(
+    db: AsyncSession,
+    *,
+    stale_after_seconds: int = 900,
+    batch_size: int = 50,
+) -> int:
+    """Return abandoned RUNNING deliveries to the normal retry path."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_after_seconds)
+    stmt = (
+        select(UcpEventDelivery)
+        .where(
+            UcpEventDelivery.status == "RUNNING",
+            func.coalesce(UcpEventDelivery.heartbeat_at, UcpEventDelivery.started_at, UcpEventDelivery.updated_at) < cutoff,
+        )
+        .order_by(UcpEventDelivery.id)
+        .limit(batch_size)
+        .with_for_update(skip_locked=True)
+    )
+    deliveries = list((await db.execute(stmt)).scalars())
+    for delivery in deliveries:
+        delivery.recovery_count += 1
+        await mark_delivery_failed(
+            db,
+            delivery,
+            error_code="DELIVERY_LEASE_EXPIRED",
+            error_message="派发任务租约超时，已安排重试",
+            retryable=True,
+        )
+    return len(deliveries)
 # ============================================================
 async def list_dead_letters(
     db: AsyncSession,
@@ -229,31 +256,17 @@ async def replay_event(
     if event.matched_trigger_id:
         trigger = await get_trigger(db, event.matched_trigger_id)
         if trigger is not None:
-            from app.ucp.event_bus import dispatch_event, match_triggers
+            from app.ucp.event_bus import match_triggers
             triggers = await match_triggers(db, event)
             for trig in triggers:
                 run_id = f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-                # 创建新派发记录（来源 REPLAY）
-                rec = await create_delivery_record(
+                await create_delivery_record(
                     db,
                     event=event,
                     trigger=trig,
                     pipeline_run_id=run_id,
                     trigger_source="REPLAY",
                     triggered_by=triggered_by,
-                )
-                # 触发执行
-                import asyncio
-                from app.ucp.event_bus import _run_pipeline_in_background
-                asyncio.create_task(
-                    _run_pipeline_in_background(
-                        pipeline_code=trig.pipeline_code,
-                        run_id=run_id,
-                        trace_id=event.trace_id or "",
-                        event_payload=event.payload or {},
-                        run_as_type=trig.run_as_type,
-                        service_account_code=trig.service_account_code,
-                    )
                 )
                 event.pipeline_run_id = run_id
                 event.status = EVENT_STATUS_DISPATCHED
@@ -267,6 +280,10 @@ async def replay_event(
         # 未匹配过，重新走一次完整流程
         await process_event_pipeline(db, event)
 
+    await db.flush()
+    await db.commit()
+    from app.ucp.event_bus import start_pending_event_deliveries
+    await start_pending_event_deliveries(event.id)
     return event
 
 
@@ -288,27 +305,13 @@ async def replay_dead_letter(
             f"派发记录状态为 {delivery.status}，无需重放",
         )
 
-    # 重置派发记录 + 重新派发事件
-    delivery.status = DELIVERY_STATUS_PENDING
-    delivery.error_code = None
-    delivery.error_message = None
-    delivery.attempt += 1
-    delivery.next_retry_at = None
-    delivery.last_retry_at = datetime.now(timezone.utc)
-    delivery.trigger_source = "REPLAY"
-    delivery.triggered_by = triggered_by
-    await db.flush()
-
-    # 同步重放事件
+    # 保留原死信记录作为审计，新建 REPLAY delivery。
     event = await replay_event(
         db,
         event_uuid=delivery.event_uuid,
         triggered_by=triggered_by,
         allow_delivered_replay=True,
     )
-
-    delivery.pipeline_run_id = event.pipeline_run_id
-    await db.flush()
     return delivery
 
 
@@ -361,7 +364,9 @@ async def scan_due_retries(
                 UcpEventDelivery.next_retry_at <= now,
             )
         )
+        .order_by(UcpEventDelivery.next_retry_at, UcpEventDelivery.id)
         .limit(batch_size)
+        .with_for_update(skip_locked=True)
     )
     deliveries = (await db.execute(stmt)).scalars().all()
 
@@ -391,15 +396,9 @@ async def scan_due_retries(
                 event.status = EVENT_STATUS_DISPATCHED
                 event.dispatched_at = now
                 await db.flush()
-                asyncio.create_task(
-                    _run_pipeline_in_background(
-                        pipeline_code=trigger.pipeline_code,
-                        run_id=run_id,
-                        trace_id=event.trace_id or "",
-                        event_payload=event.payload or {},
-                        run_as_type=trigger.run_as_type,
-                        service_account_code=trigger.service_account_code,
-                    )
-                )
                 replayed.append(event)
+    await db.commit()
+    from app.ucp.event_bus import start_pending_event_deliveries
+    for event in replayed:
+        await start_pending_event_deliveries(event.id)
     return replayed

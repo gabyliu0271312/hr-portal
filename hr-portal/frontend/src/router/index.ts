@@ -132,6 +132,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'ucp/events/dead-letters', name: 'UcpDeadLetters', component: () => import('@/views/ucp/DeadLetterListView.vue'), meta: { label: '死信队列', menuCode: 'ucp.events', hideInMenu: true } },
       { path: 'ucp/events/:eventId', name: 'UcpEventDetail', component: () => import('@/views/ucp/EventDetailView.vue'), meta: { label: '事件详情', menuCode: 'ucp.events', hideInMenu: true } },
       { path: 'ucp/monitor', name: 'UcpMonitor', component: () => import('@/views/ucp/MonitorDashboardView.vue'), meta: { label: '监控告警', menuCode: 'ucp.monitor' } },
+      { path: 'ucp/monitor/ingest-batches', name: 'UcpIngestBatches', component: () => import('@/views/ucp/WarehouseIngestBatchView.vue'), meta: { label: '入仓批次', menuCode: 'ucp.monitor' } },
       { path: 'ucp/monitor/templates', name: 'UcpNotificationTemplates', component: () => import('@/views/ucp/NotificationTemplateList.vue'), meta: { label: '通知模板', menuCode: 'ucp.monitor', hideInMenu: true } },
       { path: 'ucp/scenarios', name: 'UcpScenarios', component: () => import('@/views/ucp/ScenarioListView.vue'), meta: { label: '场景方案', menuCode: 'ucp.scenarios' } },
       { path: 'ucp/scenarios/oa-sync', name: 'UcpOaSync', component: () => import('@/views/ucp/OaSyncView.vue'), meta: { label: 'OA 组织同步', menuCode: 'ucp.scenarios', hideInMenu: true } },

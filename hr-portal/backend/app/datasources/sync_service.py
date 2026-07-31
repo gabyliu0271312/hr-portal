@@ -1091,7 +1091,12 @@ def _inject_scope_codes(table_name: str, rows: list[dict]) -> None:
 # ===== 派发：源端拉数据 → 落库 =====
 
 
-async def _publish_ods_data_changed_event(table_name: str, change_type: str, affected_rows: int) -> None:
+async def _publish_ods_data_changed_event(
+    table_name: str,
+    change_type: str,
+    affected_rows: int,
+    extra_payload: dict | None = None,
+) -> None:
     """发布 ods_table_data_changed 事件（独立 session）。"""
     try:
         from datetime import UTC, datetime as dt
@@ -1106,6 +1111,7 @@ async def _publish_ods_data_changed_event(table_name: str, change_type: str, aff
                 "affected_row_count": affected_rows,
                 "changed_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
             }
+            payload.update(extra_payload or {})
             await publish_event(AutomationEvent(
                 trigger_type="ods_table_data_changed",
                 biz_type="ods_table",
@@ -1173,6 +1179,9 @@ async def _publish_ucp_platform_event(db: AsyncSession, event_type: str, table_n
     )
     await process_event_pipeline(db, event)
     await db.commit()
+    if getattr(event, "id", None) is not None:
+        from app.ucp.event_bus import start_pending_event_deliveries
+        await start_pending_event_deliveries(event.id)
 
 
 async def sync_to_table(

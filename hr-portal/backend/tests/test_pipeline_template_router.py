@@ -27,3 +27,25 @@ async def test_duplicate_template_create_returns_conflict(monkeypatch):
         )
 
     assert error.value.status_code == 409
+
+
+def test_warehouse_sink_rejects_period_snapshot_without_period_field():
+    from app.ucp.pipeline_template import PipelineTemplateError, validate_graph
+
+    nodes = [
+        {"id": "start", "type": "START_TRIGGER", "x": 0, "y": 0, "label": "", "config": {"trigger_types": ["WEBHOOK"]}},
+        {"id": "sink", "type": "WAREHOUSE_ASSET_SINK", "x": 1, "y": 1, "label": "", "config": {"target_asset": "emp_monthly_allocation", "write_mode": "period_full_snapshot"}},
+    ]
+    with pytest.raises(PipelineTemplateError, match="period_field"):
+        validate_graph(nodes, [{"from": "start", "to": "sink"}])
+
+
+def test_warehouse_sink_keeps_legacy_primary_key_modes_compatible():
+    from app.ucp.pipeline_template import validate_graph
+
+    nodes = [
+        {"id": "start", "type": "START_TRIGGER", "x": 0, "y": 0, "label": "", "config": {"trigger_types": ["WEBHOOK"]}},
+        {"id": "sink", "type": "WAREHOUSE_ASSET_SINK", "x": 1, "y": 1, "label": "", "config": {"target_asset": "pending_hires", "write_mode": "upsert", "primary_key": "application_id"}},
+    ]
+    normalized, _ = validate_graph(nodes, [{"from": "start", "to": "sink"}])
+    assert normalized[1]["config"]["primary_key"] == "application_id"

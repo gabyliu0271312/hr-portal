@@ -1,14 +1,18 @@
 """UCP 监控仪表盘 / 告警规则 / SLA 路由"""
 from __future__ import annotations
 
+import hmac
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import current_user, require_op
+from app.core.deps import current_user, require_op, user_has_op
+from app.core.jwt import decode_token
+from jose import JWTError
+from app.ucp.credential_service import decrypt_credential_secrets
 from app.core.db import get_session
 from app.users.models import User
 from app.ucp.models import (
@@ -16,6 +20,8 @@ from app.ucp.models import (
     UcpAlertLog,
     UcpSlaConfig,
     UcpSlaRecord,
+    UcpResource,
+    UcpWarehouseIngestBatch,
 )
 from app.ucp.monitor_service import (
     get_summary,
@@ -35,9 +41,100 @@ from app.ucp.sla_service import (
     list_sla_dashboard,
     _serialize_sla,
 )
+from app.ucp.warehouse_ingest_service import get_ingest_batch, list_ingest_batches, serialize_ingest_batch
 
 logger = logging.getLogger("ucp.routers.monitor")
 router = APIRouter()
+
+
+async def _authorize_ingest_status_request(
+    request: Request,
+    resource_code: str,
+    db: AsyncSession,
+) -> None:
+    authorization = request.headers.get("Authorization", "")
+    if authorization.startswith("Bearer "):
+        try:
+            user_id = decode_token(authorization.removeprefix("Bearer "))
+        except JWTError as exc:
+            raise HTTPException(401, "登录态无效或已过期") from exc
+        user = await db.get(User, user_id)
+        if user is None or not user.is_active:
+            raise HTTPException(401, "账号不存在或已被禁用")
+        if not await user_has_op(user, db, "ucp.monitor", "V"):
+            raise HTTPException(403, "缺少批次监控查看权限")
+        return
+    resource = await db.scalar(select(UcpResource).where(UcpResource.resource_code == resource_code))
+    if resource is None or not resource.credential_id:
+        raise HTTPException(401, "资源服务身份无效")
+    secrets = await decrypt_credential_secrets(db, resource.credential_id)
+    service_token = str(secrets.get("status_query_token") or "")
+    provided = request.headers.get("X-Integration-Status-Token", "")
+    if not service_token or not provided or not hmac.compare_digest(provided, service_token):
+        raise HTTPException(401, "资源服务身份无效")
+
+
+@router.get("/warehouse-ingest-batches/{resource_code}/{batch_id}")
+async def route_get_ingest_batch(
+    resource_code: str,
+    batch_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
+    await _authorize_ingest_status_request(request, resource_code, db)
+    batch = await get_ingest_batch(db, resource_code=resource_code, batch_id=batch_id)
+    if batch is None:
+        raise HTTPException(404, "入仓批次不存在")
+    return serialize_ingest_batch(batch)
+
+
+@router.get("/warehouse-ingest-batches")
+async def route_list_ingest_batches(
+    resource_code: str | None = Query(None),
+    target_asset: str | None = Query(None),
+    period_value: str | None = Query(None),
+    status: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(require_op("ucp.monitor", "V")),
+):
+    items, total = await list_ingest_batches(
+        db,
+        resource_code=resource_code,
+        target_asset=target_asset,
+        period_value=period_value,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+    return {"total": total, "items": [
+        {**serialize_ingest_batch(item), "resource_code": resource_code_value}
+        for item, resource_code_value in items
+    ]}
+
+
+@router.post("/warehouse-ingest-batches/{resource_code}/{batch_id}/replay")
+async def route_replay_ingest_batch(
+    resource_code: str,
+    batch_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op("ucp.dead_letters", "C")),
+):
+    batch = await get_ingest_batch(db, resource_code=resource_code, batch_id=batch_id)
+    if batch is None:
+        raise HTTPException(404, "入仓批次不存在")
+    if batch.status not in {"FAILED", "DEAD_LETTER"}:
+        raise HTTPException(409, "只有失败或死信批次可以重放")
+    from app.ucp.event_reliability import replay_event
+
+    event = await replay_event(
+        db,
+        event_uuid=batch.event_id,
+        triggered_by=getattr(user, "login_name", None) or getattr(user, "username", None),
+        allow_delivered_replay=True,
+    )
+    return {"batch_id": batch.batch_id, "event_id": event.event_id, "status": event.status}
 
 
 # ── Monitor Dashboard ──

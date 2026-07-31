@@ -28,6 +28,7 @@ from app.ucp.adapter_schema import (
     extract_categories,
     validate_payload_against_schema,
 )
+from app.ucp.webhook_ingress import validate_webhook_ingress_protocol
 from app.connectors.catalog import (
     find_connector_type_by_adapter,
     get_connector_type,
@@ -84,6 +85,8 @@ def _resolve_connector_for_write(
     connector = get_connector_type(connector_type, include_internal=True)
     if not connector or not connector.get("supports_ucp"):
         raise ResourceSchemaError("不支持的接入类型")
+    if connector["code"] == "webhook_ingress":
+        return connector["code"], None
     if connector.get("connection_kind") != "DATA_OBJECT":
         raise ResourceSchemaError("标准 SaaS 请在业务能力中启用，不能创建为数据资源")
     mapped_adapter = connector.get("ucp_adapter_code")
@@ -401,6 +404,44 @@ async def create_resource(
     return obj
 
 
+async def create_webhook_resource(
+    db: AsyncSession,
+    *,
+    system_id: int,
+    resource_code: str,
+    resource_name: str,
+    credential_id: int,
+    protocol: dict[str, Any],
+    created_by: str | None = None,
+) -> UcpResource:
+    system = await db.get(UcpSystem, system_id)
+    if system is None:
+        raise ValueError("SYSTEM_NOT_FOUND")
+    duplicate = await db.scalar(
+        select(UcpResource.id).where(
+            UcpResource.system_id == system_id,
+            UcpResource.resource_code == resource_code,
+        )
+    )
+    if duplicate is not None:
+        raise ValueError("RESOURCE_CODE_ALREADY_EXISTS")
+    validate_webhook_ingress_protocol(protocol)
+    obj = UcpResource(
+        system_id=system_id,
+        resource_code=resource_code,
+        resource_name=resource_name,
+        connector_type="webhook_ingress",
+        credential_id=credential_id,
+        protocol=protocol,
+        status=0,
+        created_by=created_by,
+    )
+    db.add(obj)
+    await db.commit()
+    await db.refresh(obj)
+    return obj
+
+
 async def update_resource(
     db: AsyncSession,
     resource_id: int,
@@ -417,6 +458,9 @@ async def update_resource(
         if fields[field_name] != getattr(obj, field_name):
             raise ValueError("RESOURCE_TEMPLATE_INHERITED_FIELDS_IMMUTABLE")
         fields.pop(field_name)
+
+    if str(getattr(obj, "connector_type", "") or "").lower() in {"webhook_ingress", "webhook"}:
+        validate_webhook_ingress_protocol(fields.get("protocol", obj.protocol))
 
     # Phase 5-4: 收集将要写入的 JSON 字段,做合并校验
     # 1) 先确定最终 adapter_code (可能本次更新, 也可能沿用旧的)

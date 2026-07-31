@@ -397,6 +397,9 @@ export const ucpApi = {
   }) =>
     api.post<{ id: number; resource_code: string }>('/ucp/resources', payload).then((r) => r.data),
 
+  createWebhookResource: (payload: { system_id: number; resource_code: string; resource_name: string; credential_id: number | null; protocol: Record<string, any> }) =>
+    api.post<{ id: number; resource_code: string }>('/ucp/resources/webhook', payload).then((r) => r.data),
+
   updateResource: (resourceId: number, payload: Record<string, any>) =>
     api.patch<{ id: number }>(`/ucp/resources/${resourceId}`, payload).then((r) => r.data),
 
@@ -421,6 +424,12 @@ export const ucpApi = {
     api.post<any>(`/ucp/resources/${resourceId}/verify`).then((r) => r.data),
   verifyResourceObject: (resourceId: number, objectId: number, sample_event?: Record<string, any>) =>
     api.post<any>(`/ucp/resources/${resourceId}/objects/${objectId}/verify`, { sample_event }).then((r) => r.data),
+  warehouseIngestBatches: (params: { resource_code?: string; target_asset?: string; period_value?: string; status?: string; limit?: number; offset?: number } = {}) =>
+    api.get<{ total: number; items: any[] }>('/ucp/warehouse-ingest-batches', { params }).then((r) => r.data),
+  warehouseIngestBatch: (resourceCode: string, batchId: string) =>
+    api.get<any>(`/ucp/warehouse-ingest-batches/${resourceCode}/${batchId}`).then((r) => r.data),
+  replayWarehouseIngestBatch: (resourceCode: string, batchId: string) =>
+    api.post<any>(`/ucp/warehouse-ingest-batches/${resourceCode}/${batchId}/replay`).then((r) => r.data),
   eventDefinitions: (params: { source_system_type?: string; status?: string } = {}) =>
     api.get<{ items: any[] }>('/ucp/event-definitions', { params }).then((r) => r.data),
   platformEventCatalog: () =>

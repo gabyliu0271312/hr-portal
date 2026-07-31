@@ -21,6 +21,7 @@ from app.ucp.system_service import (
     list_resources,
     get_resource,
     create_resource,
+    create_webhook_resource,
     update_resource,
     delete_resource,
     get_system_overview,
@@ -225,6 +226,22 @@ async def route_create_resource(
         status = 409 if str(exc) == "RESOURCE_TEMPLATE_ALREADY_ADDED" else 422
         raise HTTPException(status, str(exc)) from exc
     return serialize_resource(obj)
+
+
+@router.post("/resources/webhook", status_code=201)
+async def route_create_webhook_resource(
+    payload: dict[str, Any],
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op("ucp.resources", "C")),
+):
+    required = {"system_id", "resource_code", "resource_name", "credential_id", "protocol"}
+    if set(payload) != required:
+        raise HTTPException(422, "WEBHOOK_RESOURCE_CREATE_PAYLOAD_INVALID")
+    try:
+        item = await create_webhook_resource(db, created_by=user.login_name, **payload)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return serialize_resource(item)
 
 
 @router.patch("/resources/{resource_id}")

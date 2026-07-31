@@ -363,6 +363,19 @@
               <el-radio :value="2">停用</el-radio>
             </el-radio-group>
           </el-form-item>
+          <template v-if="resourceEditForm.connector_type === 'webhook_ingress'">
+            <el-divider content-position="left">Webhook 入站配置</el-divider>
+            <el-form-item label="接收地址"><el-input :model-value="webhookUrl" readonly><template #append><el-button @click="copyWebhookUrl">复制</el-button></template></el-input></el-form-item>
+            <el-form-item label="签名策略"><el-select v-model="webhookIngress.verification_strategy" style="width:100%"><el-option label="时间戳 HMAC-SHA256" value="HMAC_SHA256_TIMESTAMPED" /><el-option label="HMAC-SHA256" value="HMAC_SHA256" /><el-option label="无需签名" value="NONE" /></el-select></el-form-item>
+            <el-form-item label="来源标识"><el-input v-model="webhookIngress.integration_id" placeholder="成本系统来源标识" /></el-form-item>
+            <el-form-item label="事件类型路径"><el-input v-model="webhookIngress.event_type_path" placeholder="event_type" /></el-form-item>
+            <el-form-item label="请求 ID 路径"><el-input v-model="webhookIngress.event_id_path" placeholder="request_id" /></el-form-item>
+            <el-form-item label="批次 ID 路径"><el-input v-model="webhookIngress.batch_id_path" placeholder="batch_id" /></el-form-item>
+            <el-form-item label="明细路径"><el-input v-model="webhookIngress.payload_path" placeholder="留空表示整个请求体" /></el-form-item>
+            <el-form-item label="最大包体"><el-input-number v-model="webhookIngress.max_body_bytes" :min="1" :max="10485760" /></el-form-item>
+            <el-form-item label="每分钟限流"><el-input-number v-model="webhookIngress.rate_limit_per_minute" :min="1" :max="10000" /></el-form-item>
+            <el-form-item label="凭证状态"><el-tag :type="resourceEditForm.credential_id ? 'success' : 'warning'">{{ resourceEditForm.credential_id ? '已绑定，密钥不回显' : '未绑定凭证' }}</el-tag><el-button link type="primary" @click="verifyWebhook">验证资源</el-button></el-form-item>
+          </template>
 
           <!-- Phase 5-4: schema 驱动的动态字段 (通用组件) -->
           <SchemaFormField
@@ -808,6 +821,7 @@
         />
       </el-form>
       <div class="resource-template-picker">
+        <el-button type="primary" plain style="margin-bottom:12px" @click="openWebhookResourceDialog">新增 Webhook 接收资源</el-button>
         <el-alert type="info" :closable="false" style="margin-bottom: 16px">
           请选择资源模板。资源编码、资源名称、实现类型及父系统主凭证均由模板自动继承。
         </el-alert>
@@ -825,6 +839,21 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="showWebhookResource" title="新增 Webhook 接收资源" width="640px" append-to-body>
+      <el-form :model="webhookResourceForm" label-width="110px">
+        <el-form-item label="资源编码" required><el-input v-model="webhookResourceForm.resource_code" placeholder="如 cost-allocation-locked" /></el-form-item>
+        <el-form-item label="资源名称" required><el-input v-model="webhookResourceForm.resource_name" /></el-form-item>
+        <el-form-item label="凭证"><el-select v-model="webhookResourceForm.credential_id" clearable placeholder="时间戳签名必须绑定凭证" style="width:100%"><el-option v-for="c in systemCredentialsOf(addResourceSystem?.id)" :key="c.id" :label="c.credential_name" :value="c.id" /></el-select></el-form-item>
+        <el-form-item label="签名策略"><el-select v-model="webhookResourceForm.verification_strategy" style="width:100%"><el-option label="时间戳 HMAC-SHA256" value="HMAC_SHA256_TIMESTAMPED" /><el-option label="HMAC-SHA256" value="HMAC_SHA256" /><el-option label="无需签名（高风险）" value="NONE" /></el-select></el-form-item>
+        <el-form-item label="来源标识"><el-input v-model="webhookResourceForm.integration_id" placeholder="如 cost_allocation_system" /></el-form-item>
+        <el-form-item label="事件类型路径"><el-input v-model="webhookResourceForm.event_type_path" /></el-form-item>
+        <el-form-item label="请求 ID 路径"><el-input v-model="webhookResourceForm.event_id_path" /></el-form-item>
+        <el-form-item label="批次 ID 路径"><el-input v-model="webhookResourceForm.batch_id_path" /></el-form-item>
+        <el-form-item label="明细路径"><el-input v-model="webhookResourceForm.payload_path" placeholder="留空表示整个请求体" /></el-form-item>
+        <el-alert title="资源创建后默认停用；绑定凭证并完成验证后才可启用。密钥不会在此页面回显。" type="warning" :closable="false" />
+      </el-form>
+      <template #footer><el-button @click="showWebhookResource = false">取消</el-button><el-button type="primary" :loading="submitting" @click="submitWebhookResource">创建</el-button></template>
+    </el-dialog>
     <el-dialog v-model="dataObjectDialogVisible" :title="editingDataObject ? '编辑数据对象' : '新增数据对象'" width="620px" append-to-body>
       <el-form :model="dataObjectForm" label-width="105px"><el-form-item label="对象编码" required><el-input v-model="dataObjectForm.object_code" placeholder="如 PENDING_EMPLOYEE" /></el-form-item><el-form-item label="对象名称" required><el-input v-model="dataObjectForm.object_name" placeholder="如 待入职人员" /></el-form-item><template v-if="activeResource?.connector_type === 'beisen_report'"><el-alert type="info" :closable="false" style="margin-bottom:16px" title="北森凭证和报表接口由连接统一复用；每个数据对象只需指定一张北森报表。" /><el-form-item label="Report ID" required><el-input v-model="dataObjectForm.report_id" placeholder="北森后台 → 报表管理" /></el-form-item></template><el-form-item v-else :label="objectConfigTitle"><el-input v-model="dataObjectForm.object_config" type="textarea" :rows="8" :placeholder="objectConfigPlaceholder" /></el-form-item><el-form-item label="字段映射"><el-input v-model="dataObjectForm.field_mapping" type="textarea" :rows="3" placeholder="可选，JSON 对象" /></el-form-item><el-form-item label="启用"><el-switch v-model="dataObjectForm.is_active" /></el-form-item></el-form>
       <template #footer><el-button @click="dataObjectDialogVisible = false">取消</el-button><el-button type="primary" :loading="dataObjectSaving" @click="saveDataObject">保存</el-button></template>
@@ -1094,6 +1123,10 @@ const objectConfigPlaceholder = computed(() => {
 const usingPipelines = ref<{ resource_id: number; total: number; items: any[] } | null>(null)
 const usingPipelinesLoading = ref(false)
 const resourceEditForm = ref<any>({})
+const webhookIngress = ref<Record<string, any>>({})
+const webhookUrl = computed(() => activeResource.value ? `${window.location.origin}/api/v1/ucp/webhooks/resources/${activeResource.value.resource_code}` : '')
+function copyWebhookUrl(): void { void navigator.clipboard.writeText(webhookUrl.value).then(() => ElMessage.success('接收地址已复制')) }
+async function verifyWebhook(): Promise<void> { if (!activeResource.value) return; try { await ucpApi.verifyWebhookResource(activeResource.value.id); ElMessage.success('Webhook 资源已验证') } catch (e: any) { ElMessage.error(e?.response?.data?.detail || 'Webhook 资源验证失败') } }
 
 // 添加系统向导
 const showAddSystem = ref(false)
@@ -1139,6 +1172,8 @@ const resourceForm = ref<any>({
   credential_id: null,
 })
 const resourceTemplates = ref<any[]>([])
+const showWebhookResource = ref(false)
+const webhookResourceForm = ref({ resource_code: '', resource_name: '', credential_id: null as number | null, verification_strategy: 'HMAC_SHA256_TIMESTAMPED', integration_id: '', event_type_path: 'event_type', event_id_path: 'request_id', batch_id_path: 'batch_id', payload_path: '' })
 
 // 凭证（向导第 2 步复用）
 const showSecret = ref(false)
@@ -1414,6 +1449,9 @@ async function saveCredentialEdit() {
     const provided = fields.filter((field) => payload.secrets[field.key]?.trim())
     if (provided.length > 0 && provided.length !== fields.length) { ElMessage.warning('如需轮换密钥，请完整填写当前认证方式要求的全部密钥字段'); return }
     if (provided.length === 0) delete payload.secrets
+    if (provided.length > 0) {
+      try { await ElMessageBox.confirm('将立即轮换凭证密钥，依赖该凭证的 Webhook 可能因上游未同步更新而验签失败。确认继续？', '确认轮换密钥', { type: 'warning' }) } catch { return }
+    }
     await ucpApi.updateCredential(payload.id, payload)
     credentialEditVisible.value = false
     ElMessage.success('凭证已更新')
@@ -1572,6 +1610,7 @@ async function openResource(sys: any, res: any) {
     credential_id: res.credential_id,
     status: res.status,
   }
+  webhookIngress.value = { ...(res.protocol?.ingress || {}) }
   // 触发 schema 加载并反填历史值
   await onEditConnectorChange(res.connector_type)
   resourceDrawerOpen.value = true
@@ -1709,6 +1748,9 @@ async function confirmDeleteSystem(sys: any) {
 async function saveResource() {
   if (!activeResource.value) return
   try {
+    if (activeResource.value.status === 1 && resourceEditForm.value.status === 2) {
+      try { await ElMessageBox.confirm('停用资源会立即拒绝外部 Webhook 请求。确认停用？', '确认停用资源', { type: 'warning' }) } catch { return }
+    }
     // Phase 5-4: 按 schema 把 formValues 重组到 8 个 JSON 字段
     const cats = (editSchema.value?.categories || []) as SchemaCategory[]
     const payload = flattenFormToJson(cats, editFormValues.value)
@@ -1718,6 +1760,10 @@ async function saveResource() {
       credential_id: resourceEditForm.value.credential_id,
       status: resourceEditForm.value.status,
       ...jsonFields,
+    }
+    if (resourceEditForm.value.connector_type === 'webhook_ingress') {
+      body.protocol = { ingress: { ...webhookIngress.value, integration_id_header: webhookIngress.value.integration_id ? 'X-Integration-Id' : undefined, signature_header: webhookIngress.value.verification_strategy === 'NONE' ? undefined : 'X-Signature', timestamp_header: webhookIngress.value.verification_strategy === 'HMAC_SHA256_TIMESTAMPED' ? 'X-Timestamp' : undefined, nonce_header: webhookIngress.value.verification_strategy === 'HMAC_SHA256_TIMESTAMPED' ? 'X-Nonce' : undefined, request_id_header: webhookIngress.value.verification_strategy === 'HMAC_SHA256_TIMESTAMPED' ? 'X-Request-Id' : undefined, max_timestamp_diff_seconds: webhookIngress.value.verification_strategy === 'HMAC_SHA256_TIMESTAMPED' ? 300 : undefined } }
+      Object.keys(body.protocol.ingress).forEach((key) => body.protocol.ingress[key] === undefined && delete body.protocol.ingress[key])
     }
     await ucpApi.updateResource(activeResource.value.id, body)
     ElMessage.success('已保存')
@@ -2008,6 +2054,22 @@ function finishWizardSkipCred() {
   showSecret.value = false
   ElMessage.info('系统已创建，可在系统详情中补充凭证')
   load()
+}
+
+function openWebhookResourceDialog() {
+  webhookResourceForm.value = { resource_code: '', resource_name: '', credential_id: null, verification_strategy: 'HMAC_SHA256_TIMESTAMPED', integration_id: '', event_type_path: 'event_type', event_id_path: 'request_id', batch_id_path: 'batch_id', payload_path: '' }
+  showWebhookResource.value = true
+}
+
+async function submitWebhookResource() {
+  if (!addResourceSystem.value || !webhookResourceForm.value.resource_code || !webhookResourceForm.value.resource_name) { ElMessage.warning('请填写资源编码和名称'); return }
+  if (webhookResourceForm.value.verification_strategy !== 'NONE' && !webhookResourceForm.value.credential_id) { ElMessage.warning('签名 Webhook 必须绑定凭证'); return }
+  const form = webhookResourceForm.value
+  const ingress: Record<string, any> = { verification_strategy: form.verification_strategy, integration_id: form.integration_id, integration_id_header: 'X-Integration-Id', event_type_path: form.event_type_path, event_id_path: form.event_id_path, batch_id_path: form.batch_id_path, payload_path: form.payload_path, max_body_bytes: 1048576, rate_limit_per_minute: 120, rate_limit_burst: 10 }
+  if (form.verification_strategy !== 'NONE') ingress.signature_header = 'X-Signature'
+  if (form.verification_strategy === 'HMAC_SHA256_TIMESTAMPED') Object.assign(ingress, { timestamp_header: 'X-Timestamp', nonce_header: 'X-Nonce', request_id_header: 'X-Request-Id', max_timestamp_diff_seconds: 300 })
+  submitting.value = true
+  try { await ucpApi.createWebhookResource({ system_id: addResourceSystem.value.id, resource_code: form.resource_code, resource_name: form.resource_name, credential_id: form.credential_id, protocol: { ingress } }); ElMessage.success('Webhook 资源已创建，完成验证后再启用'); showWebhookResource.value = false; await load() } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '创建 Webhook 资源失败') } finally { submitting.value = false }
 }
 
 async function submitResource() {

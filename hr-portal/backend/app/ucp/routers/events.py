@@ -102,6 +102,9 @@ async def ingest_event(payload: dict, db: AsyncSession=Depends(get_session), _us
                 "pipeline_run_id": existing.pipeline_run_id, "trace_id": existing.trace_id,
                 "deduplicated": True}
     await process_event_pipeline(db, evt)
+    await db.commit()
+    from app.ucp.event_bus import start_pending_event_deliveries
+    await start_pending_event_deliveries(evt.id)
     return {"id": evt.id, "event_id": evt.event_id, "status": evt.status,
             "matched_trigger_code": evt.matched_trigger_code,
             "pipeline_run_id": evt.pipeline_run_id, "trace_id": evt.trace_id,
@@ -164,6 +167,9 @@ async def dispatch_event(event_id: str, db: AsyncSession=Depends(get_session), _
     evt = await _get(db, event_id)
     if not evt: raise HTTPException(404, "Event not found")
     await process_event_pipeline(db, evt)
+    await db.commit()
+    from app.ucp.event_bus import start_pending_event_deliveries
+    await start_pending_event_deliveries(evt.id)
     return {"id": evt.id, "event_id": evt.event_id, "status": evt.status,
             "matched_trigger_code": evt.matched_trigger_code, "pipeline_run_id": evt.pipeline_run_id}
 
@@ -336,6 +342,9 @@ async def feishu_webhook(trigger_code: str, r: Request, db: AsyncSession=Depends
     }
     evt.metadata_ = metadata
     await db.flush()
+    await db.commit()
+    from app.ucp.event_bus import start_pending_event_deliveries
+    await start_pending_event_deliveries(evt.id)
     return {
         "id": evt.id,
         "event_id": evt.event_id,

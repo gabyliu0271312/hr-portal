@@ -6,21 +6,32 @@ import hmac
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import require_op
 from app.ucp.credential_service import decrypt_credential_secrets
-from app.ucp.event_bus import DuplicateEventError, process_event_pipeline, receive_event
+from app.ucp.event_bus import DuplicateEventError, match_triggers, process_event_pipeline, receive_event
 from app.ucp.feishu_webhook import normalize_feishu_event, verify_feishu_signature
-from app.ucp.models import UcpEventDefinition, UcpEventTrigger, UcpResource, UcpResourceDataObject, UcpWebhookIngressAttempt
+from app.ucp.webhook_ingress import (
+    extract_payload_path,
+    verify_timestamped_hmac,
+)
+from app.ucp.models import UcpEventDefinition, UcpEventTrigger, UcpPipelineConfig, UcpPipelineTemplate, UcpResource, UcpResourceDataObject, UcpSystem, UcpWebhookIngressAttempt, UcpWebhookIngressReceipt
 from app.ucp.rate_limiter import RateLimitError, acquire as acquire_rate_limit
+from app.ucp.warehouse_ingest_service import (
+    IngestBatchConflictError,
+    get_ingest_batch_for_event,
+    reserve_ingest_batch,
+)
 
 router = APIRouter()
 OBJECT_TYPES = {"REPORT", "TABLE", "API_OBJECT", "EVENT_TYPE"}
@@ -30,6 +41,75 @@ DEFINITION_STATUSES = {"DRAFT", "PUBLISHED", "DEPRECATED"}
 
 def _resource_ingress_enabled() -> bool:
     return os.getenv("UCP_WEBHOOK_RESOURCE_INGRESS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _payload_checksum(payload: dict) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+async def _warehouse_target_asset(db: AsyncSession, event) -> str | None:
+    targets: set[str] = set()
+    for trigger in await match_triggers(db, event):
+        pipeline = await db.scalar(
+            select(UcpPipelineConfig).where(
+                UcpPipelineConfig.pipeline_code == trigger.pipeline_code,
+                UcpPipelineConfig.status == 1,
+            )
+        )
+        steps = pipeline.steps if pipeline is not None else None
+        if steps is None:
+            template = await db.scalar(
+                select(UcpPipelineTemplate).where(
+                    UcpPipelineTemplate.template_code == trigger.pipeline_code,
+                )
+            )
+            steps = template.nodes_json if template is not None else []
+        targets.update(
+            str(step.get("target_asset") or (step.get("config") or {}).get("target_asset"))
+            for step in (steps or [])
+            if step.get("type") == "WAREHOUSE_ASSET_SINK" and (step.get("target_asset") or (step.get("config") or {}).get("target_asset"))
+        )
+    if len(targets) > 1:
+        raise ValueError("Webhook event maps to multiple warehouse assets")
+    return next(iter(targets), None)
+
+
+async def _read_webhook_body(request: Request, maximum: int) -> bytes:
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > maximum:
+                raise ValueError("BODY_TOO_LARGE")
+        except ValueError as exc:
+            if str(exc) == "BODY_TOO_LARGE":
+                raise
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > maximum:
+            raise ValueError("BODY_TOO_LARGE")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _webhook_response(
+    external_event_id: str,
+    *,
+    status: str,
+    trace_id: str | None,
+    deduplicated: bool = False,
+) -> dict[str, Any]:
+    response: dict[str, Any] = {
+        "accepted": True,
+        "event_id": external_event_id,
+        "status": status,
+        "trace_id": trace_id,
+    }
+    if deduplicated:
+        response["deduplicated"] = True
+    return response
 
 
 async def _record_ingress_attempt(
@@ -493,7 +573,13 @@ async def receive_resource_webhook(resource_code: str, request: Request, db: Asy
     if len(resources) > 1:
         raise HTTPException(409, "Webhook resource code is ambiguous across systems")
     resource = resources[0]
-    raw = await request.body(); ingress = (resource.protocol or {}).get("ingress", {})
+    system = await db.get(UcpSystem, resource.system_id)
+    if resource.status != 1 or resource.connector_type != "webhook_ingress" or resource.test_status != "VERIFIED" or system is None or system.is_active != 1:
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="RESOURCE_UNAVAILABLE", status_code=403, detail="Webhook resource is unavailable")
+    ingress = (resource.protocol or {}).get("ingress", {})
+    content_type = request.headers.get("content-type", "")
+    if content_type.split(";", 1)[0].strip().lower() != "application/json":
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="CONTENT_TYPE_INVALID", status_code=400, detail="Webhook Content-Type must be application/json")
     try:
         acquire_rate_limit(
             f"webhook:{resource.id}",
@@ -501,18 +587,18 @@ async def receive_resource_webhook(resource_code: str, request: Request, db: Asy
         )
     except RateLimitError as error:
         await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="RATE_LIMITED", status_code=429, detail=error.message, headers={"Retry-After": str(max(1, int(error.retry_after_seconds)))})
-    if len(raw) > int(ingress.get("max_body_bytes", 1048576)):
-        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="BODY_TOO_LARGE", status_code=413, detail="Webhook body exceeds limit")
+    try:
+        raw = await _read_webhook_body(request, int(ingress.get("max_body_bytes", 1048576)))
+    except ValueError as exc:
+        if str(exc) == "BODY_TOO_LARGE":
+            await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="BODY_TOO_LARGE", status_code=413, detail="Webhook body exceeds limit")
+        raise
     try:
         body = json.loads(raw or b"{}")
     except json.JSONDecodeError:
         await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="INVALID_JSON", status_code=400, detail="Webhook body must be JSON")
     if not isinstance(body, dict):
         await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="INVALID_BODY", status_code=400, detail="Webhook body must be an object")
-    if "challenge" in body:
-        await _record_ingress_attempt(db, resource_code=resource_code, resource_id=resource.id, outcome="ACCEPTED", reason_code="CHALLENGE")
-        await db.commit()
-        return {"challenge": body["challenge"]}
     strategy = ingress.get("verification_strategy", "NONE")
     if strategy == "HMAC_SHA256":
         secrets = await decrypt_credential_secrets(db, resource.credential_id) if resource.credential_id else {}
@@ -522,6 +608,26 @@ async def receive_resource_webhook(resource_code: str, request: Request, db: Asy
         expected = hmac.new(str(secret or "").encode(), raw, hashlib.sha256).hexdigest()
         if not secret or not hmac.compare_digest(provided, expected):
             await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="SIGNATURE_INVALID", status_code=401, detail="Webhook signature verification failed")
+    if strategy == "HMAC_SHA256_TIMESTAMPED":
+        secrets = await decrypt_credential_secrets(db, resource.credential_id) if resource.credential_id else {}
+        secret = secrets.get("signing_secret") or secrets.get("webhook_secret")
+        verified, reason_code = verify_timestamped_hmac(
+            ingress=ingress,
+            headers=request.headers,
+            raw_body=raw,
+            payload=body,
+            secret=str(secret or ""),
+        )
+        if not verified:
+            status_code = 403 if reason_code == "TIMESTAMP_EXPIRED" else 401
+            await _reject_webhook(
+                db,
+                resource_code=resource_code,
+                resource_id=resource.id,
+                reason_code=reason_code,
+                status_code=status_code,
+                detail="Webhook signature verification failed",
+            )
     if strategy == "FEISHU_ENCRYPTED_EVENT":
         secrets = await decrypt_credential_secrets(db, resource.credential_id) if resource.credential_id else {}
         encrypt_key = secrets.get("encrypt_key") or secrets.get("feishu_encrypt_key")
@@ -535,20 +641,167 @@ async def receive_resource_webhook(resource_code: str, request: Request, db: Asy
         except Exception:
             await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="FEISHU_PAYLOAD_INVALID", status_code=400, detail="Feishu webhook payload verification failed")
         body = {"event_id": normalized["event_id"], "event_type": normalized["event_type"], "event": normalized["payload"]}
-    event_code = str(body.get("event_type") or (body.get("header") or {}).get("event_type") or "")
+    integration_header = ingress.get("integration_id_header")
+    if integration_header and not hmac.compare_digest(str(request.headers.get(integration_header, "")), str(ingress.get("integration_id", ""))):
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="INTEGRATION_ID_INVALID", status_code=401, detail="Webhook integration identity verification failed")
+    if "challenge" in body:
+        await _record_ingress_attempt(db, resource_code=resource_code, resource_id=resource.id, outcome="ACCEPTED", reason_code="CHALLENGE")
+        await db.commit()
+        return {"challenge": body["challenge"]}
+    event_type_path = ingress.get("event_type_path", "event_type")
+    event_id_path = ingress.get("event_id_path", "event_id")
+    payload_path = ingress.get("payload_path", "")
+    batch_id_path = ingress.get("batch_id_path", "batch_id")
+    event_code_value = extract_payload_path(body, event_type_path)
+    event_code = str(event_code_value or "")
+    if not event_code:
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="EVENT_TYPE_MISSING", status_code=422, detail="Webhook event type is missing")
+    event_payload = extract_payload_path(body, payload_path)
+    if not isinstance(event_payload, dict):
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="EVENT_PAYLOAD_INVALID", status_code=422, detail="Webhook event payload must be an object")
     objects = list((await db.execute(select(UcpResourceDataObject).where(UcpResourceDataObject.resource_id == resource.id, UcpResourceDataObject.object_type == "EVENT_TYPE", UcpResourceDataObject.is_active == 1, UcpResourceDataObject.verification_status == "VERIFIED"))).scalars())
     definitions = {definition.id: definition for definition in (await db.execute(select(UcpEventDefinition).where(UcpEventDefinition.id.in_([item.event_definition_id for item in objects])))).scalars()} if objects else {}
     obj = next((item for item in objects if definitions.get(item.event_definition_id) and definitions[item.event_definition_id].event_code == event_code), None)
     if obj is None:
         await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="EVENT_OBJECT_UNAVAILABLE", status_code=404, detail="No verified event object accepts this webhook event")
-    event_id = str(body.get("event_id") or (body.get("header") or {}).get("event_id") or uuid.uuid4())
-    try: event = await receive_event(db, event_id=event_id, event_type=event_code, source="WEBHOOK", payload=body.get("event") or body, metadata={"resource_code": resource.resource_code}, is_dedup=True)
-    except DuplicateEventError:
-        await _record_ingress_attempt(db, resource_code=resource_code, resource_id=resource.id, outcome="DEDUPLICATED", event_id=event_id)
+    event_id_value = extract_payload_path(body, event_id_path)
+    external_event_id = str(event_id_value or "").strip()
+    if not external_event_id:
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="EVENT_ID_MISSING", status_code=422, detail="Webhook event ID is missing")
+    event_id = f"webhook:{resource.id}:{external_event_id}"
+    payload_checksum = _payload_checksum(event_payload)
+    target_asset = await _warehouse_target_asset(
+        db,
+        SimpleNamespace(
+            source="WEBHOOK",
+            event_type=event_code,
+            payload=event_payload,
+            resource_id=resource.id,
+            resource_object_id=obj.id,
+            system_code=str(resource.system_id),
+        ),
+    )
+    batch_id = ""
+    records: list[dict] | None = None
+    if target_asset is not None:
+        batch_id = str(extract_payload_path(body, batch_id_path) or "").strip()
+        candidate_records = event_payload.get("records")
+        if not batch_id:
+            await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="BATCH_ID_MISSING", status_code=422, detail="Webhook batch ID is missing")
+        if not isinstance(candidate_records, list):
+            await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="RECORDS_INVALID", status_code=422, detail="Webhook records must be an array")
+        records = candidate_records
+    nonce = request.headers.get(ingress.get("nonce_header", ""), "") if strategy == "HMAC_SHA256_TIMESTAMPED" else None
+    target_asset = await _warehouse_target_asset(
+        db,
+        SimpleNamespace(
+            resource_id=resource.id,
+            resource_object_id=obj.id,
+            system_code=str(resource.system_id),
+            event_type=event_code,
+            source="WEBHOOK",
+            payload=event_payload,
+        ),
+    )
+    batch_id = str(extract_payload_path(body, batch_id_path) or "").strip()
+    records = event_payload.get("records") if target_asset is not None else None
+    if target_asset is not None and not batch_id:
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="BATCH_ID_MISSING", status_code=422, detail="Webhook batch ID is missing")
+    if target_asset is not None and not isinstance(records, list):
+        await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="RECORDS_INVALID", status_code=422, detail="Webhook records must be an array")
+    receipt_values = {
+        "resource_id": resource.id,
+        "nonce_hash": hashlib.sha256(nonce.encode("utf-8")).hexdigest() if nonce else None,
+        "external_event_id_hash": hashlib.sha256(external_event_id.encode("utf-8")).hexdigest(),
+        "expires_at": datetime.now(timezone.utc) + timedelta(seconds=int(ingress.get("max_timestamp_diff_seconds", 3600))),
+    }
+    receipt_result = await db.execute(
+        pg_insert(UcpWebhookIngressReceipt).values(**receipt_values).on_conflict_do_nothing().returning(UcpWebhookIngressReceipt.id)
+    )
+    if receipt_result.scalar_one_or_none() is None:
+        existing_batch = await get_ingest_batch_for_event(
+            db, resource_id=resource.id, event_id=event_id
+        )
+        if existing_batch is not None and existing_batch.payload_checksum != payload_checksum:
+            await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="INGEST_BATCH_CONFLICT", status_code=409, detail="同一请求标识的数据摘要不一致")
+        await _record_ingress_attempt(db, resource_code=resource_code, resource_id=resource.id, outcome="DEDUPLICATED", event_id=external_event_id)
         await db.commit()
-        return {"accepted": True, "deduplicated": True}
-    event.system_code = str(resource.system_id); event.resource_id = resource.id; event.resource_object_id = obj.id; event.event_definition_id = obj.event_definition_id
+        return _webhook_response(
+            external_event_id,
+            status=existing_batch.status if existing_batch is not None else "RECEIVED",
+            trace_id=existing_batch.trace_id if existing_batch is not None else None,
+            deduplicated=True,
+        )
+    try:
+        event = await receive_event(
+            db,
+            event_id=event_id,
+            external_event_id=external_event_id,
+            event_type=event_code,
+            source="WEBHOOK",
+            payload=event_payload,
+            metadata={"resource_code": resource.resource_code},
+            is_dedup=True,
+            resource_id=resource.id,
+            system_code=str(resource.system_id),
+            resource_object_id=obj.id,
+            event_definition_id=obj.event_definition_id,
+        )
+    except DuplicateEventError:
+        existing_batch = await get_ingest_batch_for_event(
+            db, resource_id=resource.id, event_id=event_id
+        )
+        if existing_batch is not None and existing_batch.payload_checksum != payload_checksum:
+            await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="INGEST_BATCH_CONFLICT", status_code=409, detail="同一请求标识的数据摘要不一致")
+        await _record_ingress_attempt(db, resource_code=resource_code, resource_id=resource.id, outcome="DEDUPLICATED", event_id=external_event_id)
+        await db.commit()
+        return _webhook_response(
+            external_event_id,
+            status=existing_batch.status if existing_batch is not None else "RECEIVED",
+            trace_id=existing_batch.trace_id if existing_batch is not None else None,
+            deduplicated=True,
+        )
+
+    if target_asset is not None:
+        checksum = payload_checksum
+        try:
+            batch, created = await reserve_ingest_batch(
+                db,
+                resource_id=resource.id,
+                target_asset=target_asset,
+                event_id=event_id,
+                batch_id=batch_id,
+                period_value=None,
+                payload_checksum=checksum,
+                received_rows=len(records),
+                trace_id=event.trace_id,
+            )
+        except IngestBatchConflictError as exc:
+            await _reject_webhook(db, resource_code=resource_code, resource_id=resource.id, reason_code="INGEST_BATCH_CONFLICT", status_code=409, detail=str(exc))
+        if not created:
+            await _record_ingress_attempt(db, resource_code=resource_code, resource_id=resource.id, outcome="DEDUPLICATED", event_id=event_id)
+            await db.commit()
+            return _webhook_response(
+                external_event_id,
+                status=batch.status,
+                trace_id=batch.trace_id,
+                deduplicated=True,
+            )
+        metadata = dict(event.metadata_ or {})
+        metadata["warehouse_ingest"] = {
+            "batch_id": batch.batch_id,
+            "payload_checksum": batch.payload_checksum,
+            "received_rows": batch.received_rows,
+            "target_asset": batch.target_asset,
+        }
+        event.metadata_ = metadata
     await process_event_pipeline(db, event)
     await _record_ingress_attempt(db, resource_code=resource_code, resource_id=resource.id, outcome="ACCEPTED", event_id=event.event_id)
     await db.commit()
-    return {"accepted": True, "event_id": event.event_id, "trace_id": event.trace_id}
+    from app.ucp.event_bus import start_pending_event_deliveries
+    await start_pending_event_deliveries(event.id)
+    return _webhook_response(
+        external_event_id,
+        status="RECEIVED",
+        trace_id=event.trace_id,
+    )

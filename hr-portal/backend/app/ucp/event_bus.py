@@ -22,7 +22,7 @@ from typing import Any, Awaitable, Callable, Iterable
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ucp.models import UcpEventTrigger, UcpPipelineConfig, UcpEvent
+from app.ucp.models import UcpEvent, UcpEventDelivery, UcpEventTrigger, UcpPipelineConfig
 
 
 logger = logging.getLogger("ucp.event_bus")
@@ -158,6 +158,11 @@ async def receive_event(
     metadata: dict | None = None,
     event_timestamp: datetime | None = None,
     is_dedup: bool = True,
+    external_event_id: str | None = None,
+    resource_id: int | None = None,
+    system_code: str | None = None,
+    resource_object_id: int | None = None,
+    event_definition_id: int | None = None,
 ) -> UcpEvent:
     """事件接收入口：入库 + 立即派发触发器。
 
@@ -190,6 +195,7 @@ async def receive_event(
 
     event = UcpEvent(
         event_id=event_id,
+        external_event_id=external_event_id,
         event_type=event_type,
         source=source,
         trigger=trigger,
@@ -198,6 +204,10 @@ async def receive_event(
         status=EVENT_STATUS_RECEIVED,
         trace_id=_gen_trace_id(),
         event_timestamp=event_timestamp,
+        resource_id=resource_id,
+        system_code=system_code,
+        resource_object_id=resource_object_id,
+        event_definition_id=event_definition_id,
     )
     db.add(event)
     await db.flush()
@@ -361,10 +371,7 @@ async def dispatch_event(
     if pl.status != 1:
         raise EventBusError("PIPELINE_INACTIVE", f"pipeline '{trigger.pipeline_code}' 未发布或已停用")
 
-    # 延迟导入，避免循环
-    from app.ucp.pipeline_engine import execute_pipeline
-
-    # 派发（异步，不 await pipeline 内部完整执行 —— 实际策略：fire-and-forget task）
+    # 派发（只持久化，调用者在事务提交成功后再启动后台任务）
     run_id = f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     event.matched_trigger_id = trigger.id
     event.matched_trigger_code = trigger.trigger_code
@@ -388,27 +395,104 @@ async def dispatch_event(
     except Exception:  # noqa: BLE001
         logger.exception("create_delivery_record failed (non-fatal)")
 
-    # 后台执行（不阻塞事件接收）
-    asyncio.create_task(
-        _run_pipeline_in_background(
-            pipeline_code=trigger.pipeline_code,
-            run_id=run_id,
-            trace_id=event.trace_id or "",
-            event_payload=event.payload or {},
-            run_as_type=trigger.run_as_type,
-            service_account_code=trigger.service_account_code,
-            event_db_id=event.id,
-            event_id=event.event_id,
-            trigger_code=trigger.trigger_code,
-            delivery_id=delivery_id,
-        )
-    )
-
     logger.info(
         "event dispatched: event_id=%s trigger=%s pipeline=%s run_id=%s",
         event.event_id, trigger.trigger_code, trigger.pipeline_code, run_id,
     )
     return run_id
+
+
+async def start_pending_event_deliveries(event_db_id: int) -> int:
+    """Start persisted pending deliveries in an independent session after commit."""
+    from app.core.db import get_session_factory
+
+    async with get_session_factory()() as db:
+        event = await db.get(UcpEvent, event_db_id)
+        if event is None:
+            logger.error("cannot start event deliveries: event_id=%s not found", event_db_id)
+            return 0
+        deliveries = list((await db.execute(
+            select(UcpEventDelivery)
+            .where(
+                UcpEventDelivery.event_id == event_db_id,
+                UcpEventDelivery.status == "PENDING",
+            )
+            .with_for_update(skip_locked=True)
+        )).scalars())
+        jobs = []
+        for delivery in deliveries:
+            trigger = await db.get(UcpEventTrigger, delivery.trigger_id)
+            if trigger is None or not delivery.pipeline_run_id:
+                continue
+            delivery.status = "RUNNING"
+            delivery.started_at = datetime.now(timezone.utc)
+            delivery.heartbeat_at = delivery.started_at
+            jobs.append((delivery.id, delivery.pipeline_run_id, trigger))
+        await db.commit()
+        for delivery_id, run_id, trigger in jobs:
+            asyncio.create_task(
+                _run_pipeline_in_background(
+                    pipeline_code=trigger.pipeline_code,
+                    run_id=run_id,
+                    trace_id=event.trace_id or "",
+                    event_payload=event.payload or {},
+                    run_as_type=trigger.run_as_type,
+                    service_account_code=trigger.service_account_code,
+                    event_db_id=event.id,
+                    event_id=event.event_id,
+                    trigger_code=trigger.trigger_code,
+                    delivery_id=delivery_id,
+                )
+            )
+        return len(jobs)
+
+def aggregate_event_delivery_status(statuses: list[str]) -> str:
+    if not statuses:
+        return EVENT_STATUS_FAILED
+    has_success = "SUCCESS" in statuses
+    has_failure = "FAILED" in statuses or "DEAD_LETTER" in statuses
+    if has_success and has_failure:
+        return "PARTIAL_SUCCESS"
+    if "PENDING" in statuses or "RUNNING" in statuses:
+        return EVENT_STATUS_DISPATCHED
+    if all(status == "SUCCESS" for status in statuses):
+        return EVENT_STATUS_COMPLETED
+    if all(status == "DEAD_LETTER" for status in statuses):
+        return EVENT_STATUS_DEAD_LETTER
+    return EVENT_STATUS_FAILED
+
+
+def _extract_batch_writer_result(execution, target_asset: str) -> dict | None:
+    matches = []
+    for value in (execution.context_summary or {}).values():
+        extra = value.get("extra") if isinstance(value, dict) else None
+        if isinstance(extra, dict) and extra.get("target_asset") == target_asset and extra.get("write_mode") == "period_full_snapshot":
+            matches.append(extra)
+    if len(matches) != 1 or not matches[0].get("period_value"):
+        return None
+    return matches[0]
+
+
+_NON_RETRYABLE_INGEST_FAILURE_MARKERS = (
+    "WarehouseIngestValidationError",
+    "入仓明细不能为空",
+    "字段映射不能为空",
+    "字段映射必须",
+    "字段白名单",
+    "聚合校验失败",
+    "按期间全量快照",
+    "目标数据资产不存在或尚未发布",
+    "目标数据资产物理表不可用",
+    "写入模式仅支持",
+    "业务主键",
+    "重复业务主键",
+)
+
+
+def _is_retryable_pipeline_failure(error_message: str | None) -> bool:
+    """Keep malformed ingest data out of the retry queue; retry operational failures."""
+    message = error_message or ""
+    return not any(marker in message for marker in _NON_RETRYABLE_INGEST_FAILURE_MARKERS)
 
 
 async def _run_pipeline_in_background(
@@ -425,12 +509,40 @@ async def _run_pipeline_in_background(
     delivery_id: int | None,
 ) -> None:
     """后台执行并把实际运行结果回写到事件派发记录。"""
-    from app.core.database import async_session_factory  # type: ignore
+    from app.core.db import get_session_factory
     from app.ucp.pipeline_engine import execute_pipeline
+    from app.ucp.warehouse_ingest_service import (
+        get_ingest_batch_for_event,
+        mark_ingest_batch_failed,
+        mark_ingest_batch_processing,
+        mark_ingest_batch_succeeded,
+    )
 
     try:
-        async with async_session_factory()() as bg_db:
-            # 构造 trigger_payload —— 透传事件数据
+        async with get_session_factory()() as bg_db:
+            event_record = await bg_db.get(UcpEvent, event_db_id)
+            if event_record is None:
+                return
+            if delivery_id is not None:
+                delivery = await bg_db.get(UcpEventDelivery, delivery_id)
+                if delivery is not None:
+                    delivery.heartbeat_at = datetime.now(timezone.utc)
+                    await bg_db.commit()
+            batch = await get_ingest_batch_for_event(
+                bg_db, resource_id=event_record.resource_id, event_id=event_id
+            )
+            pipeline = await bg_db.scalar(
+                select(UcpPipelineConfig).where(UcpPipelineConfig.pipeline_code == pipeline_code)
+            )
+            is_batch_writer = batch is not None and any(
+                step.get("type") == "WAREHOUSE_ASSET_SINK"
+                and step.get("target_asset") == batch.target_asset
+                for step in (pipeline.steps if pipeline else [])
+            )
+            if is_batch_writer:
+                mark_ingest_batch_processing(batch, run_id)
+                await bg_db.commit()
+
             trigger_payload = {
                 "trigger_type": "event",
                 "run_id": run_id,
@@ -438,6 +550,11 @@ async def _run_pipeline_in_background(
                 "event_id": event_id,
                 "trigger_code": trigger_code,
                 "event": event_payload,
+                "ucp_event": {
+                    "resource_id": event_record.resource_id,
+                    "event_id": event_id,
+                    "trace_id": trace_id,
+                },
                 "run_as_type": run_as_type,
                 "service_account_code": service_account_code,
             }
@@ -448,64 +565,112 @@ async def _run_pipeline_in_background(
                 trigger_payload=trigger_payload,
                 pipeline_run_id=run_id,
                 trace_id=trace_id,
+                defer_commit=True,
             )
-            if delivery_id is not None:
+            success = execution.status == "SUCCESS"
+            writer_result = _extract_batch_writer_result(execution, batch.target_asset) if is_batch_writer else None
+            if is_batch_writer and (not success or writer_result is None):
+                await bg_db.rollback()
+                event_record = await bg_db.get(UcpEvent, event_db_id)
+                if event_record is None:
+                    return
+                batch = await get_ingest_batch_for_event(
+                    bg_db, resource_id=event_record.resource_id, event_id=event_id
+                )
+                if batch is None:
+                    return
+                success = False
+            delivery = await bg_db.get(UcpEventDelivery, delivery_id) if delivery_id is not None else None
+            if delivery is not None:
                 from app.ucp.event_reliability import mark_delivery_failed, mark_delivery_success
-                from app.ucp.models import UcpEventDelivery
-
-                delivery = await bg_db.get(UcpEventDelivery, delivery_id)
-                if delivery is not None:
-                    if execution.status in {"SUCCESS", "PARTIAL_SUCCESS"}:
-                        await mark_delivery_success(bg_db, delivery)
-                    else:
-                        await mark_delivery_failed(
-                            bg_db,
-                            delivery,
-                            error_code="PIPELINE_EXECUTION_FAILED",
-                            error_message=f"Pipeline run {run_id} ended with {execution.status}",
-                        )
+                if success:
+                    await mark_delivery_success(bg_db, delivery)
+                else:
+                    retryable = _is_retryable_pipeline_failure(execution.error_message)
+                    await mark_delivery_failed(
+                        bg_db,
+                        delivery,
+                        error_code="PIPELINE_EXECUTION_FAILED",
+                        error_message=execution.error_message or f"Pipeline run {run_id} ended with {execution.status}",
+                        retryable=retryable,
+                    )
 
             event = await bg_db.get(UcpEvent, event_db_id)
             if event is not None:
-                from app.ucp.models import UcpEventDelivery
-
                 delivery_statuses = list((await bg_db.execute(
                     select(UcpEventDelivery.status).where(UcpEventDelivery.event_id == event_db_id)
                 )).scalars())
-                if "PENDING" in delivery_statuses:
-                    event.status = EVENT_STATUS_DISPATCHED
-                elif delivery_statuses and all(status == "SUCCESS" for status in delivery_statuses):
-                    event.status = EVENT_STATUS_COMPLETED
+                event.status = aggregate_event_delivery_status(delivery_statuses)
+                if event.status == EVENT_STATUS_COMPLETED:
                     event.completed_at = datetime.now(timezone.utc)
-                else:
-                    event.status = EVENT_STATUS_FAILED
+                elif event.status in {EVENT_STATUS_FAILED, EVENT_STATUS_DEAD_LETTER}:
                     event.error_code = "PIPELINE_EXECUTION_FAILED"
-                    event.error_message = f"Pipeline run {run_id} ended with {execution.status}"
-                await bg_db.commit()
+                    event.error_message = execution.error_message or f"Pipeline run {run_id} ended with {execution.status}"
+
+            asset_change_payload: dict | None = None
+            asset_change_batch: tuple[str, str, int] | None = None
+            if is_batch_writer and not success:
+                dead_letter = delivery is not None and delivery.status == "DEAD_LETTER"
+                mark_ingest_batch_failed(
+                    batch,
+                    execution.error_message or f"Pipeline run {run_id} ended with {execution.status}",
+                    dead_letter=dead_letter,
+                )
+            elif is_batch_writer and writer_result is not None:
+                written_rows = int(writer_result["written_count"])
+                period_value = writer_result.get("period_value")
+                if period_value is not None:
+                    batch.period_value = str(period_value)
+                mark_ingest_batch_succeeded(batch, written_rows)
+                asset_change_batch = (batch.target_asset, batch.batch_id, written_rows)
+                asset_change_payload = {
+                    "trigger_type": "ods_table_data_changed",
+                    "table_name": batch.target_asset,
+                    "source": "ucp_webhook_ingest",
+                    "change_type": "period_full_snapshot",
+                    "affected_row_count": written_rows,
+                    "upload_batch_id": batch.batch_id,
+                    "source_run_id": run_id,
+                    "trace_id": trace_id,
+                    "period_value": batch.period_value,
+                }
+                from app.ucp.outbox_service import enqueue_asset_change
+                await enqueue_asset_change(
+                    bg_db,
+                    dedup_key=f"warehouse:{event_record.resource_id}:{batch.target_asset}:{batch.batch_id}",
+                    payload=asset_change_payload,
+                )
+            await bg_db.commit()
     except Exception as exc:  # noqa: BLE001
         logger.exception(
             "background pipeline failed: pipeline=%s run_id=%s",
             pipeline_code, run_id,
         )
         try:
-            async with async_session_factory()() as recovery_db:
-                if delivery_id is not None:
-                    from app.ucp.event_reliability import mark_delivery_failed
-                    from app.ucp.models import UcpEventDelivery
+            async with get_session_factory()() as recovery_db:
+                from app.ucp.event_reliability import mark_delivery_failed
+                from app.ucp.warehouse_ingest_service import get_ingest_batch_for_event, mark_ingest_batch_failed
 
-                    delivery = await recovery_db.get(UcpEventDelivery, delivery_id)
-                    if delivery is not None:
-                        await mark_delivery_failed(
-                            recovery_db,
-                            delivery,
-                            error_code="PIPELINE_EXECUTION_EXCEPTION",
-                            error_message=str(exc),
-                        )
+                delivery = await recovery_db.get(UcpEventDelivery, delivery_id) if delivery_id is not None else None
+                if delivery is not None:
+                    await mark_delivery_failed(
+                        recovery_db,
+                        delivery,
+                        error_code="PIPELINE_EXECUTION_EXCEPTION",
+                        error_message=str(exc),
+                        retryable=_is_retryable_pipeline_failure(str(exc)),
+                    )
                 event = await recovery_db.get(UcpEvent, event_db_id)
                 if event is not None:
-                    event.status = EVENT_STATUS_FAILED
+                    batch = await get_ingest_batch_for_event(
+                        recovery_db, resource_id=event.resource_id, event_id=event_id
+                    )
+                    dead_letter = delivery is not None and delivery.status == "DEAD_LETTER"
+                    event.status = EVENT_STATUS_DEAD_LETTER if dead_letter else EVENT_STATUS_FAILED
                     event.error_code = "PIPELINE_EXECUTION_EXCEPTION"
                     event.error_message = str(exc)[:1000]
+                    if batch is not None:
+                        mark_ingest_batch_failed(batch, str(exc), dead_letter=dead_letter)
                 await recovery_db.commit()
         except Exception:  # noqa: BLE001
             logger.exception("failed to persist background pipeline failure: run_id=%s", run_id)

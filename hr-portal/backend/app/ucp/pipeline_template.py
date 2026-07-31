@@ -64,6 +64,19 @@ def next_patch_version(version: str) -> str:
 # ===== 节点 / 连线校验 =====
 
 
+def _validate_warehouse_sink_config(config: dict, idx: int) -> None:
+    write_mode = config.get("write_mode", "upsert")
+    if write_mode not in {"append", "upsert", "replace", "period_full_snapshot"}:
+        raise PipelineTemplateError(f"node[{idx}] 的资产写入模式不受支持")
+    if write_mode == "period_full_snapshot" and "primary_key" in config:
+        raise PipelineTemplateError(f"node[{idx}] 的按期间全量快照业务主键由资产元数据控制，不能在流水线中配置")
+    if write_mode == "period_full_snapshot" and not isinstance(config.get("period_field"), str):
+        raise PipelineTemplateError(f"node[{idx}] 的按期间全量快照必须配置 period_field")
+    for key in ("mapping", "validations"):
+        if key in config and not isinstance(config[key], list):
+            raise PipelineTemplateError(f"node[{idx}] 的 {key} 必须是数组")
+
+
 def _validate_node(node: Any, idx: int) -> dict:
     if not isinstance(node, dict):
         raise PipelineTemplateError(f"node[{idx}] must be a dict")
@@ -106,6 +119,8 @@ def _validate_node(node: Any, idx: int) -> dict:
             )
         except ActionContractError as error:
             raise PipelineTemplateError(f"node[{idx}] 的字段映射无效：{error}") from error
+    if node_type == "WAREHOUSE_ASSET_SINK":
+        _validate_warehouse_sink_config(config, idx)
     return {
         "id": node_id.strip(),
         "type": node_type,
@@ -114,6 +129,49 @@ def _validate_node(node: Any, idx: int) -> dict:
         "label": label,
         "config": config,
     }
+
+
+async def _validate_warehouse_sink_assets(db: AsyncSession, nodes: list[dict]) -> None:
+    from app.data.models import RegisteredTable, TableColumn
+
+    for node in nodes:
+        if node["type"] != "WAREHOUSE_ASSET_SINK":
+            continue
+        config = node["config"]
+        target_asset = config.get("target_asset")
+        if not isinstance(target_asset, str) or not target_asset:
+            raise PipelineTemplateError(f"node[{node['id']}] 的资产写入必须配置 target_asset")
+        asset = await db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == target_asset))
+        if asset is None or asset.asset_status != "published":
+            raise PipelineTemplateError(f"node[{node['id']}] 的目标资产不存在或尚未发布")
+        columns = list((await db.execute(select(TableColumn).where(TableColumn.table_name == target_asset))).scalars())
+        allowed = {column.column_code for column in columns}
+        whitelist = config.get("field_whitelist") or []
+        if not isinstance(whitelist, list) or not whitelist or len(whitelist) != len(set(whitelist)) or not set(whitelist).issubset(allowed):
+            raise PipelineTemplateError(f"node[{node['id']}] 的字段白名单无效")
+        mapping = config.get("mapping")
+        if not isinstance(mapping, list) or not mapping:
+            raise PipelineTemplateError(f"node[{node['id']}] 的字段映射不能为空")
+        targets = [rule.get("target") for rule in mapping if isinstance(rule, dict)]
+        if len(targets) != len(mapping) or any(not isinstance(target, str) or target not in allowed for target in targets) or len(targets) != len(set(targets)):
+            raise PipelineTemplateError(f"node[{node['id']}] 的字段映射目标无效或重复")
+        if any(target not in whitelist for target in targets):
+            raise PipelineTemplateError(f"node[{node['id']}] 的字段映射目标必须包含在白名单中")
+        for rule in mapping:
+            minimum, maximum = rule.get("minimum"), rule.get("maximum")
+            if minimum is not None and maximum is not None:
+                try:
+                    if float(minimum) > float(maximum):
+                        raise PipelineTemplateError(f"node[{node['id']}] 的字段映射最小值不能大于最大值")
+                except (TypeError, ValueError) as exc:
+                    raise PipelineTemplateError(f"node[{node['id']}] 的字段映射范围无效") from exc
+        if config.get("write_mode") == "period_full_snapshot":
+            pk_columns = {column.column_code for column in columns if column.is_pk_part}
+            if not asset.is_period or config.get("period_field") != asset.period_col:
+                raise PipelineTemplateError(f"node[{node['id']}] 的按期间全量快照期间字段必须与资产元数据一致")
+            if not pk_columns.issubset(set(whitelist)):
+                raise PipelineTemplateError(f"node[{node['id']}] 的按期间全量快照白名单必须包含全部业务主键")
+
 
 
 async def _validate_resource_node_refs(
@@ -306,6 +364,7 @@ async def create_template(
 
     norm_nodes, norm_edges = validate_graph(nodes or [], edges or [])
     await _validate_resource_node_refs(db, norm_nodes)
+    await _validate_warehouse_sink_assets(db, norm_nodes)
 
     tpl = UcpPipelineTemplate(
         template_code=code,
@@ -367,6 +426,7 @@ async def update_template(
         new_edges = edges if edges is not None else tpl.edges_json
         norm_nodes, norm_edges = validate_graph(new_nodes, new_edges)
         await _validate_resource_node_refs(db, norm_nodes)
+        await _validate_warehouse_sink_assets(db, norm_nodes)
         tpl.nodes_json = norm_nodes
         tpl.edges_json = norm_edges
         # 自动 bump version
@@ -464,6 +524,7 @@ async def rollback_to_version(
         target.nodes_json or [], target.edges_json or []
     )
     await _validate_resource_node_refs(db, norm_nodes)
+    await _validate_warehouse_sink_assets(db, norm_nodes)
     tpl.nodes_json = norm_nodes
     tpl.edges_json = norm_edges
     # bump version

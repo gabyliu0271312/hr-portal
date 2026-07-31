@@ -135,8 +135,7 @@
               <el-form-item label="业务对象"><el-select :model-value="selectedNode.config?.object_code" clearable placeholder="选择 Offer" style="width:100%" @change="selectCapabilityObject"><el-option v-for="item in capabilityObjects" :key="item" :label="item" :value="item" /></el-select></el-form-item>
               <el-form-item label="Offer 能力"><el-select :model-value="selectedNode.config?.capability_id" clearable placeholder="选择 Offer 查询能力" style="width:100%" @change="selectCapabilityOperation"><el-option v-for="item in capabilityOperations" :key="item.capability_id" :label="capabilityOptionLabel(item)" :value="item.capability_id" /></el-select></el-form-item>
               <div class="text-muted">待验证能力可先编排，发布或执行前仍需验证成功。</div>
-              <el-form-item label="来源字段"><el-select v-model="selectedNode.config.lookup_field" filterable allow-create placeholder="选择上游字段" style="width:100%"><el-option v-for="field in lookupSourceFields" :key="field.field_id" :label="fieldOptionLabel(field)" :value="field.field_id" /></el-select><div v-if="!lookupSourceFields.length" class="text-muted">暂无来源字段目录，请先刷新或运行一次上游节点。</div></el-form-item>
-              <el-form-item label="能力参数名"><el-input v-model="selectedNode.config.parameter_name" placeholder="例如 application_id" /><div class="text-muted">接口参数名由能力定义决定，通常无需修改。</div></el-form-item>
+              <el-form-item label="投递记录 ID"><el-select v-model="selectedNode.config.lookup_field" allow-create filterable placeholder="选择北森来源字段" style="width:100%"><el-option label="投递记录 ID (application_id)" value="application_id" /></el-select></el-form-item>
               <el-form-item label="失败策略"><el-select v-model="selectedNode.config.failure_policy" style="width:100%"><el-option label="单人失败继续" value="CONTINUE" /><el-option label="遇到失败停止" value="STOP" /></el-select></el-form-item>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'RECORD_MERGE'">
@@ -144,11 +143,7 @@
               <div class="text-muted">只补全空字段，北森原始字段保持优先。</div>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'WAREHOUSE_ASSET_SINK'">
-              <el-form-item label="输入来源"><el-select :model-value="sinkInputNodeId" filterable placeholder="选择上游节点" style="width:100%" @change="selectSinkInputNode"><el-option v-for="item in sinkInputNodeOptions" :key="item.id" :label="item.label" :value="item.id" /></el-select><div v-if="!sinkInputNodeOptions.length" class="text-muted">请先连接一个上游节点。</div></el-form-item>
-              <el-form-item label="目标资产"><el-select :model-value="selectedNode.config?.target_asset" filterable placeholder="选择已发布数据资产" style="width:100%" @change="selectTargetAsset"><el-option v-for="asset in publishedAssets" :key="asset.table_name" :label="asset.table_label" :value="asset.table_name" /></el-select></el-form-item>
-              <el-form-item label="写入模式"><el-select v-model="selectedNode.config.write_mode" style="width:100%"><el-option label="追加写入" value="append" /><el-option label="按主键更新" value="upsert" /><el-option label="替换资产数据" value="replace" /></el-select></el-form-item>
-              <el-form-item label="主键字段"><el-select v-model="selectedNode.config.primary_key" filterable clearable placeholder="选择资产声明主键" style="width:100%"><el-option v-for="column in targetAssetColumns.filter(column => column.is_pk_part)" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select></el-form-item>
-              <el-form-item label="允许写入字段"><el-select v-model="selectedNode.config.field_whitelist" multiple filterable placeholder="选择审批字段" style="width:100%"><el-option v-for="column in targetAssetColumns" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select></el-form-item>
+              <WarehouseAssetSinkConfig v-model="selectedNode.config" />
             </template>
             <template v-else-if="(selectedNode.type as string) === 'LOOP_RESOURCE' || selectedNode.type === 'LOOP'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
@@ -185,17 +180,14 @@
                 </el-radio-group>
               </el-form-item>
               <div v-if="transformMode === 'mapped_plus_same_name'" class="text-muted transform-hint">显式映射优先；目标资产已登记且与上游同名的字段会自动透传。</div>
-              <el-button size="small" style="margin-bottom:10px" @click="selectedNode && loadFieldCatalog(selectedNode.id, true)">刷新字段目录</el-button>
               <el-form-item label="字段映射">
                 <div class="field-mappings">
                   <div v-for="(m, i) in transformMappings" :key="i" class="mapping-row">
-                    <el-select v-model="m.from" filterable placeholder="选择来源字段" style="width:180px" size="small" @change="writeMappingsToConfig">
-                      <el-option v-for="f in transformSourceFields" :key="f.field_id" :label="fieldOptionLabel(f)" :value="f.field_id" />
+                    <el-select v-model="m.from" filterable allow-create placeholder="源字段" style="width:130px" size="small">
+                      <el-option v-for="f in upstreamFields" :key="f.name" :label="f.name" :value="f.name"><span>{{ f.name }} <small style="color:#909399">{{ f.type }}</small></span></el-option>
                     </el-select>
                     <span class="mapping-arrow">→</span>
-                    <el-select v-model="m.to" filterable placeholder="选择目标字段" style="width:180px" size="small" @change="writeMappingsToConfig">
-                      <el-option v-for="f in transformTargetFields" :key="f.field_id" :label="fieldOptionLabel(f)" :value="f.field_id" />
-                    </el-select>
+                    <el-input v-model="m.to" placeholder="目标字段" size="small" style="width:130px" />
                     <el-button link size="small" type="danger" @click="removeTransformMapping(i)"><el-icon><Delete /></el-icon></el-button>
                   </div>
                   <el-button size="small" @click="addTransformMapping">+ 添加映射</el-button>
@@ -256,6 +248,7 @@ import { Plus, Connection, MagicStick, Share, Refresh, Delete, Aim, Box, Documen
 import { pipelineTemplateApi, ucpApi, type PipelineTemplate, type PipelineNode, type PipelineEdge, type NodeTypeMeta } from '@/api/ucp'
 import { listAssets, listAssetColumns, type Asset, type AssetColumn } from '@/api/warehouse'
 import ScheduleSelector from '@/components/common/ScheduleSelector.vue'
+import WarehouseAssetSinkConfig from '@/components/ucp/WarehouseAssetSinkConfig.vue'
 
 interface SystemItem { id: number; system_code: string; system_name: string }
 interface ResourceItem { id: number; resource_code: string; resource_name: string; system_id: number; adapter_code?: string | null }
@@ -332,28 +325,11 @@ const offerFieldOptions = computed<OfferFieldOption[]>(() => {
 })
 async function loadPublishedAssets(): Promise<void> { try { publishedAssets.value = (await listAssets({ page: 1, page_size: 200, asset_status: 'published' })).items } catch { publishedAssets.value = [] } }
 async function loadTargetAssetColumns(value: string): Promise<void> { try { targetAssetColumns.value = (await listAssetColumns(value)).columns } catch { targetAssetColumns.value = [] } }
-async function selectTargetAsset(value: string): Promise<void> { if (!selectedNode.value) return; const config = { ...(selectedNode.value.config || {}), target_asset: value, primary_key: null, field_whitelist: [] }; selectedNode.value.config = config; await loadTargetAssetColumns(value) }
+async function selectTargetAsset(value: string): Promise<void> { if (!selectedNode.value) return; const config: Record<string, any> = { ...(selectedNode.value.config || {}), target_asset: value, period_field: null, field_whitelist: [] }; delete config.primary_key; selectedNode.value.config = config; await loadTargetAssetColumns(value) }
 function addOfferMapping(): void { if (!selectedNode.value) return; const config = { ...(selectedNode.value.config || {}) } as Record<string, unknown>; config.field_mapping = [...offerMappings.value, { source: offerFieldOptions.value[0]?.code || '', target: targetAssetColumns.value[0]?.column_code || '' }]; selectedNode.value.config = config }
 function removeOfferMapping(index: number): void { if (!selectedNode.value) return; const config = { ...(selectedNode.value.config || {}) } as Record<string, unknown>; config.field_mapping = offerMappings.value.filter((_, itemIndex) => itemIndex !== index); selectedNode.value.config = config }
 
 const currentTpl = ref<PipelineTemplate | null>(null)
-const fieldCatalog = ref<{ source_fields: any[]; target_fields: any[]; source_node_id?: string } | null>(null)
-const sinkInputNodeOptions = computed(() => {
-  if (!selectedNode.value) return []
-  return form.edges.filter((edge) => edge.to === selectedNode.value?.id).map((edge) => form.nodes.find((node) => node.id === edge.from)).filter(Boolean).map((node: any) => ({ id: node.id, label: node.config?.business_alias || node.label || node.id }))
-})
-const sinkInputNodeId = computed(() => {
-  const inputKey = String(selectedNode.value?.config?.input_key || '')
-  return inputKey.match(/^\$\{([^.}]+)/)?.[1] || ''
-})
-function selectSinkInputNode(nodeId: string): void {
-  if (!selectedNode.value) return
-  selectedNode.value.config = { ...(selectedNode.value.config || {}), input_key: `\${${nodeId}.result.data}` }
-}
-async function loadFieldCatalog(nodeId: string, refresh = false): Promise<void> {
-  try { fieldCatalog.value = await pipelineTemplateApi.fieldCatalog(form.template_code, nodeId, refresh) }
-  catch { fieldCatalog.value = null }
-}
 const form = reactive<{ template_code: string; name: string; description: string; version: string; change_note: string; nodes: PipelineNode[]; edges: PipelineEdge[] }>({ template_code: '', name: '', description: '', version: '1.0.0', change_note: '', nodes: [], edges: [] })
 const selectedNodeId = ref<string | null>(null); const selectedNode = computed(() => form.nodes.find((n) => n.id === selectedNodeId.value) || null)
 const selectedBranchEdges = computed(() => selectedNode.value?.type === 'BRANCH' ? form.edges.filter((edge) => edge.from === selectedNode.value?.id) : [])
@@ -688,10 +664,6 @@ const transformMode = computed<string>({
   },
 })
 const upstreamFields = ref<{ name: string; type: string }[]>([])
-const lookupSourceFields = computed(() => fieldCatalog.value?.source_fields || [])
-const transformSourceFields = computed(() => fieldCatalog.value?.source_fields || [])
-const transformTargetFields = computed(() => fieldCatalog.value?.target_fields || targetAssetColumns.value.map((column) => ({ field_id: column.column_code, label: column.column_label, type: column.data_type, source: 'asset' })))
-function fieldOptionLabel(field: any): string { return `${field.label || field.field_id}（${field.field_id} · ${field.source || 'schema'}）` }
 const upstreamSourceName = ref('')
 
 // 从 edges 中找到流入当前节点的上游节点
@@ -706,17 +678,10 @@ async function loadUpstreamFields(nodeId: string) {
   upstreamFields.value = []
   upstreamSourceName.value = ''
   const upstream = findUpstreamNode(nodeId)
-  if (!upstream) return
-  upstreamSourceName.value = `(${upstream.config?.business_alias || upstream.label || upstream.config?.resource_name || upstream.config?.adapter_code || upstream.type})`
-  await loadFieldCatalog(nodeId, false)
-  const catalogFields = fieldCatalog.value?.source_fields || []
-  if (catalogFields.length) {
-    upstreamFields.value = catalogFields.map((field: any) => ({ name: field.field_id, type: field.type || 'string' }))
-    return
-  }
-  if ((upstream.type as string) !== 'CONNECTOR') return
+  if (!upstream || (upstream.type as string) !== 'CONNECTOR') return
   const adapterCode = upstream.config?.adapter_code
   if (!adapterCode) return
+  upstreamSourceName.value = `(${upstream.config?.resource_name || adapterCode})`
   try {
     const schema = await (ucpApi as any).adapterSchema?.(adapterCode)
     if (schema?.categories) {
@@ -784,15 +749,6 @@ watch(selectedNodeId, async (newId) => {
     const sinkNode = form.nodes.find(item => (item.type as string) === 'WAREHOUSE_ASSET_SINK')
     const targetAsset = String(sinkNode?.config?.target_asset || '')
     if (targetAsset) await loadTargetAssetColumns(targetAsset)
-  }
-  if ((node?.type as string) === 'CAPABILITY_LOOKUP') {
-    await loadUpstreamFields(newId)
-  }
-  if ((node?.type as string) === 'TRANSFORM') {
-    const sinkNode = form.nodes.find(item => (item.type as string) === 'WAREHOUSE_ASSET_SINK')
-    const targetAsset = String(sinkNode?.config?.target_asset || '')
-    if (targetAsset) await loadTargetAssetColumns(targetAsset)
-    await loadUpstreamFields(newId)
   }
 })
 interface EdgeAnchor { x: number; y: number; side: AnchorSide }
@@ -1051,7 +1007,26 @@ async function loadPendingHireTemplate(): Promise<void> {
 }
 
 const saving = ref(false)
-async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { if (currentTpl.value) { const saved = await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, change_note: form.change_note || undefined }); currentTpl.value = { ...saved, nodes: form.nodes, edges: form.edges }; form.version = saved.version; ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail; ElMessage.error(`保存失败: ${typeof detail === 'string' ? detail : e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
+function normalizeWarehouseSinkConfigs(): void {
+  for (const node of form.nodes.filter((item) => (item.type as string) === 'WAREHOUSE_ASSET_SINK')) {
+    const config = node.config as Record<string, any>
+    for (const [textKey, valueKey] of [['mapping_text', 'mapping'], ['validations_text', 'validations']] as const) {
+      const source = config[textKey]
+      if (typeof source !== 'string') continue
+      try {
+        const value = source.trim() ? JSON.parse(source) : []
+        if (!Array.isArray(value)) throw new Error('必须是数组')
+        config[valueKey] = value
+      } catch (error) {
+        throw new Error(`${textKey === 'mapping_text' ? '字段映射' : '校验规则'} JSON 格式无效：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    if (config.write_mode === 'period_full_snapshot' && !config.period_field) {
+      throw new Error('按期间全量快照必须选择期间字段')
+    }
+  }
+}
+async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { normalizeWarehouseSinkConfigs(); const dangerous = form.nodes.filter((node) => (node.type as string) === 'WAREHOUSE_ASSET_SINK' && ['replace', 'period_full_snapshot'].includes(String(node.config?.write_mode))); if (dangerous.length) await ElMessageBox.confirm(`以下节点将执行破坏性写入：${dangerous.map((node) => `${node.id} → ${node.config?.target_asset || '未选择资产'}`).join('；')}。确认保存？`, '危险写入确认', { type: 'warning' }); if (currentTpl.value) { const saved = await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, change_note: form.change_note || undefined }); currentTpl.value = { ...saved, nodes: form.nodes, edges: form.edges }; form.version = saved.version; ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail; ElMessage.error(`保存失败: ${typeof detail === 'string' ? detail : e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
 
 const dryRunVisible = ref(false)
 const dryRunResult = ref<Awaited<ReturnType<typeof ucpApi.runPipeline>> | null>(null)
