@@ -40,7 +40,19 @@ def _atomic_write(path: Path, content: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(content)
-        os.replace(temp_name, path)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.replace(temp_name, path)
+        except OSError as exc:
+            # A bind-mounted file cannot be renamed over its mount point.
+            if exc.errno not in (16, 18):
+                raise
+            with path.open("wb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.unlink(temp_name)
     except Exception:
         try:
             os.unlink(temp_name)
