@@ -1391,6 +1391,8 @@ export const pipelineTemplateApi = {
       change_note?: string
     },
   ) => api.patch<PipelineTemplate>(`/ucp/pipeline-templates/${code}`, req).then((r) => r.data),
+  fieldCatalog: (code: string, nodeId?: string, refresh = false) =>
+    api.get(`/ucp/pipeline-templates/${code}/field-catalog`, { params: { node_id: nodeId, refresh } }).then((r) => r.data),
   versions: (code: string) =>
     api
       .get<{ items: PipelineTemplateVersion[] }>(`/ucp/pipeline-templates/${code}/versions`)

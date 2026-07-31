@@ -143,6 +143,7 @@
               <div class="text-muted">只补全空字段，北森原始字段保持优先。</div>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'WAREHOUSE_ASSET_SINK'">
+              <el-form-item label="输入来源"><el-select :model-value="sinkInputNodeId" filterable placeholder="选择上游节点" style="width:100%" @change="selectSinkInputNode"><el-option v-for="item in sinkInputNodeOptions" :key="item.id" :label="item.label" :value="item.id" /></el-select><div v-if="!sinkInputNodeOptions.length" class="text-muted">请先连接一个上游节点。</div></el-form-item>
               <el-form-item label="目标资产"><el-select :model-value="selectedNode.config?.target_asset" filterable placeholder="选择已发布数据资产" style="width:100%" @change="selectTargetAsset"><el-option v-for="asset in publishedAssets" :key="asset.table_name" :label="asset.table_label" :value="asset.table_name" /></el-select></el-form-item>
               <el-form-item label="写入模式"><el-select v-model="selectedNode.config.write_mode" style="width:100%"><el-option label="追加写入" value="append" /><el-option label="按主键更新" value="upsert" /><el-option label="替换资产数据" value="replace" /></el-select></el-form-item>
               <el-form-item label="主键字段"><el-select v-model="selectedNode.config.primary_key" filterable clearable placeholder="选择资产声明主键" style="width:100%"><el-option v-for="column in targetAssetColumns.filter(column => column.is_pk_part)" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select></el-form-item>
@@ -183,14 +184,17 @@
                 </el-radio-group>
               </el-form-item>
               <div v-if="transformMode === 'mapped_plus_same_name'" class="text-muted transform-hint">显式映射优先；目标资产已登记且与上游同名的字段会自动透传。</div>
+              <el-button size="small" style="margin-bottom:10px" @click="selectedNode && loadFieldCatalog(selectedNode.id, true)">刷新字段目录</el-button>
               <el-form-item label="字段映射">
                 <div class="field-mappings">
                   <div v-for="(m, i) in transformMappings" :key="i" class="mapping-row">
-                    <el-select v-model="m.from" filterable allow-create placeholder="源字段" style="width:130px" size="small">
-                      <el-option v-for="f in upstreamFields" :key="f.name" :label="f.name" :value="f.name"><span>{{ f.name }} <small style="color:#909399">{{ f.type }}</small></span></el-option>
+                    <el-select v-model="m.from" filterable placeholder="选择来源字段" style="width:180px" size="small" @change="writeMappingsToConfig">
+                      <el-option v-for="f in transformSourceFields" :key="f.field_id" :label="fieldOptionLabel(f)" :value="f.field_id" />
                     </el-select>
                     <span class="mapping-arrow">→</span>
-                    <el-input v-model="m.to" placeholder="目标字段" size="small" style="width:130px" />
+                    <el-select v-model="m.to" filterable placeholder="选择目标字段" style="width:180px" size="small" @change="writeMappingsToConfig">
+                      <el-option v-for="f in transformTargetFields" :key="f.field_id" :label="fieldOptionLabel(f)" :value="f.field_id" />
+                    </el-select>
                     <el-button link size="small" type="danger" @click="removeTransformMapping(i)"><el-icon><Delete /></el-icon></el-button>
                   </div>
                   <el-button size="small" @click="addTransformMapping">+ 添加映射</el-button>
@@ -332,6 +336,23 @@ function addOfferMapping(): void { if (!selectedNode.value) return; const config
 function removeOfferMapping(index: number): void { if (!selectedNode.value) return; const config = { ...(selectedNode.value.config || {}) } as Record<string, unknown>; config.field_mapping = offerMappings.value.filter((_, itemIndex) => itemIndex !== index); selectedNode.value.config = config }
 
 const currentTpl = ref<PipelineTemplate | null>(null)
+const fieldCatalog = ref<{ source_fields: any[]; target_fields: any[]; source_node_id?: string } | null>(null)
+const sinkInputNodeOptions = computed(() => {
+  if (!selectedNode.value) return []
+  return form.edges.filter((edge) => edge.to === selectedNode.value?.id).map((edge) => form.nodes.find((node) => node.id === edge.from)).filter(Boolean).map((node: any) => ({ id: node.id, label: node.config?.business_alias || node.label || node.id }))
+})
+const sinkInputNodeId = computed(() => {
+  const inputKey = String(selectedNode.value?.config?.input_key || '')
+  return inputKey.match(/^\$\{([^.}]+)/)?.[1] || ''
+})
+function selectSinkInputNode(nodeId: string): void {
+  if (!selectedNode.value) return
+  selectedNode.value.config = { ...(selectedNode.value.config || {}), input_key: `\${${nodeId}.result.data}` }
+}
+async function loadFieldCatalog(nodeId: string, refresh = false): Promise<void> {
+  try { fieldCatalog.value = await pipelineTemplateApi.fieldCatalog(form.template_code, nodeId, refresh) }
+  catch { fieldCatalog.value = null }
+}
 const form = reactive<{ template_code: string; name: string; description: string; version: string; change_note: string; nodes: PipelineNode[]; edges: PipelineEdge[] }>({ template_code: '', name: '', description: '', version: '1.0.0', change_note: '', nodes: [], edges: [] })
 const selectedNodeId = ref<string | null>(null); const selectedNode = computed(() => form.nodes.find((n) => n.id === selectedNodeId.value) || null)
 const selectedBranchEdges = computed(() => selectedNode.value?.type === 'BRANCH' ? form.edges.filter((edge) => edge.from === selectedNode.value?.id) : [])
@@ -666,6 +687,9 @@ const transformMode = computed<string>({
   },
 })
 const upstreamFields = ref<{ name: string; type: string }[]>([])
+const transformSourceFields = computed(() => fieldCatalog.value?.source_fields || [])
+const transformTargetFields = computed(() => fieldCatalog.value?.target_fields || targetAssetColumns.value.map((column) => ({ field_id: column.column_code, label: column.column_label, type: column.data_type, source: 'asset' })))
+function fieldOptionLabel(field: any): string { return `${field.label || field.field_id}（${field.field_id} · ${field.source || 'schema'}）` }
 const upstreamSourceName = ref('')
 
 // 从 edges 中找到流入当前节点的上游节点
@@ -680,10 +704,17 @@ async function loadUpstreamFields(nodeId: string) {
   upstreamFields.value = []
   upstreamSourceName.value = ''
   const upstream = findUpstreamNode(nodeId)
-  if (!upstream || (upstream.type as string) !== 'CONNECTOR') return
+  if (!upstream) return
+  upstreamSourceName.value = `(${upstream.config?.business_alias || upstream.label || upstream.config?.resource_name || upstream.config?.adapter_code || upstream.type})`
+  await loadFieldCatalog(nodeId, false)
+  const catalogFields = fieldCatalog.value?.source_fields || []
+  if (catalogFields.length) {
+    upstreamFields.value = catalogFields.map((field: any) => ({ name: field.field_id, type: field.type || 'string' }))
+    return
+  }
+  if ((upstream.type as string) !== 'CONNECTOR') return
   const adapterCode = upstream.config?.adapter_code
   if (!adapterCode) return
-  upstreamSourceName.value = `(${upstream.config?.resource_name || adapterCode})`
   try {
     const schema = await (ucpApi as any).adapterSchema?.(adapterCode)
     if (schema?.categories) {
@@ -751,6 +782,12 @@ watch(selectedNodeId, async (newId) => {
     const sinkNode = form.nodes.find(item => (item.type as string) === 'WAREHOUSE_ASSET_SINK')
     const targetAsset = String(sinkNode?.config?.target_asset || '')
     if (targetAsset) await loadTargetAssetColumns(targetAsset)
+  }
+  if ((node?.type as string) === 'TRANSFORM') {
+    const sinkNode = form.nodes.find(item => (item.type as string) === 'WAREHOUSE_ASSET_SINK')
+    const targetAsset = String(sinkNode?.config?.target_asset || '')
+    if (targetAsset) await loadTargetAssetColumns(targetAsset)
+    await loadUpstreamFields(newId)
   }
 })
 interface EdgeAnchor { x: number; y: number; side: AnchorSide }

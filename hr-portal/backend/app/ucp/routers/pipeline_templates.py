@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -98,7 +99,69 @@ async def route_update_template(template_code: str, payload: TemplateUpdatePaylo
     return serialize_template(template)
 
 
-@router.get("/pipeline-templates/{template_code}/versions")
+@router.get("/pipeline-templates/{template_code}/field-catalog")
+async def route_field_catalog(
+    template_code: str,
+    node_id: str | None = None,
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_session),
+    _user=Depends(require_op("ucp.pipelines", "V")),
+):
+    """返回编排节点可用的业务字段目录，合并 schema 与最近成功运行字段。"""
+    from app.data.models import TableColumn
+    from app.ucp.models import UcpPipelineStepExecution
+
+    template = await get_template(db, template_code)
+    if template is None:
+        raise HTTPException(status_code=404, detail="Pipeline template not found")
+    nodes = template.nodes_json or []
+    edges = template.edges_json or []
+    target_asset = None
+    source_node_id = node_id
+    if node_id:
+        incoming = next((edge for edge in edges if edge.get("to") == node_id), None)
+        source_node_id = incoming.get("from") if incoming else node_id
+    target_node = next((node for node in nodes if node.get("id") == node_id), None)
+    if target_node and target_node.get("type") == "TRANSFORM":
+        sink = next((node for node in nodes if node.get("type") == "WAREHOUSE_ASSET_SINK"), None)
+        target_asset = (sink or {}).get("config", {}).get("target_asset")
+
+    catalog: dict[str, dict] = {}
+    source_node = next((node for node in nodes if node.get("id") == source_node_id), None)
+    if source_node:
+        config = source_node.get("config") or {}
+        for field in config.get("field_catalog") or config.get("mapping_source_catalog") or []:
+            if isinstance(field, dict) and field.get("field_id"):
+                catalog[field["field_id"]] = {**field, "source": "schema"}
+        if source_node.get("type") == "RECORD_MERGE":
+            upstream_edge = next((edge for edge in edges if edge.get("to") == source_node_id), None)
+            upstream = next((node for node in nodes if node.get("id") == (upstream_edge or {}).get("from")), None)
+            upstream_config = (upstream or {}).get("config") or {}
+            for field in upstream_config.get("field_catalog") or upstream_config.get("mapping_source_catalog") or []:
+                if isinstance(field, dict) and field.get("field_id"):
+                    catalog.setdefault(field["field_id"], {**field, "source": "schema"})
+            for rule in config.get("field_mapping") or []:
+                if isinstance(rule, dict) and rule.get("target"):
+                    catalog[rule["target"]] = {"field_id": rule["target"], "label": rule.get("target"), "type": "number" if "salary" in str(rule.get("target")) or "bonus" in str(rule.get("target")) else "string", "source": "schema"}
+
+    if target_asset:
+        columns = (await db.execute(select(TableColumn).where(TableColumn.table_name == target_asset).order_by(TableColumn.display_order))).scalars().all()
+        target_catalog = [{"field_id": column.column_code, "label": column.column_label, "type": column.data_type, "is_pk_part": column.is_pk_part, "is_sensitive": column.is_sensitive, "source": "asset"} for column in columns]
+    else:
+        target_catalog = []
+
+    run = (await db.execute(select(UcpPipelineStepExecution.output_snapshot).where(UcpPipelineStepExecution.step_id == source_node_id, UcpPipelineStepExecution.status == "SUCCESS").order_by(UcpPipelineStepExecution.id.desc()).limit(1))).scalar_one_or_none()
+    runtime_sample = (run or {}).get("sample") if isinstance(run, dict) else None
+    if isinstance(runtime_sample, list):
+        for row in runtime_sample:
+            if not isinstance(row, dict):
+                continue
+            for field_id, value in row.items():
+                catalog.setdefault(field_id, {"field_id": field_id, "label": field_id, "type": "string", "source": "runtime"})
+
+    return {"node_id": node_id, "source_node_id": source_node_id, "source_fields": list(catalog.values()), "target_fields": target_catalog, "refreshed": refresh}
+
+
 async def route_template_versions(template_code: str, db: AsyncSession = Depends(get_session), _user=Depends(require_op("ucp.pipelines", "V"))):
     try:
         return {"items": [serialize_version(item) for item in await list_versions(db, template_code)]}
