@@ -629,6 +629,7 @@ async def update_push_target(
 ) -> PushTargetOut:
     from app.scheduler.service import upsert_job, get_job_by_business
     from app.core.secret_box import encrypt
+    from app.warehouse.service_ref import ServiceSourceRef, SOURCE_TABLE, assert_not_ods_source
     pt = await db.get(PushTarget, pt_id)
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
