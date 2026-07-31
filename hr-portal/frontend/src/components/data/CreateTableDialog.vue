@@ -252,7 +252,8 @@ defineExpose({ open })
               <el-option value="external_db" label="写入外部数据库（MySQL/PostgreSQL）" />
               <el-option value="http_push" label="POST JSON 到接口" />
               <el-option value="api_expose" label="暴露只读 API（对方主动拉取）" />
-              <el-option value="db_expose" label="暴露只读数据库账号（对方直连 PostgreSQL）" />
+              <el-option value="db_realtime" label="实时只读数据库访问（对方直连 PostgreSQL）" />
+              <el-option value="db_snapshot" label="同步快照数据库访问（支持定时刷新）" />
             </el-select>
           </el-form-item>
           <template v-if="pushForm.push_type === 'external_db'">
@@ -305,9 +306,9 @@ defineExpose({ open })
               <el-input v-model="pushForm.access_token" type="password" show-password placeholder="设置一个随机字符串" />
             </el-form-item>
           </template>
-          <template v-else-if="pushForm.push_type === 'db_expose'">
+          <template v-else-if="pushForm.push_type === 'db_realtime' || pushForm.push_type === 'db_snapshot'">
             <el-alert type="info" :closable="false" show-icon style="margin-top: 4px">
-              保存后系统将自动在本地 PostgreSQL 创建只读账号，连接信息到接口配置页「推送接口」Tab 查看。
+              保存后系统将自动创建 PostgreSQL 只读账号，连接信息到接口配置页「推送接口」Tab 查看。
             </el-alert>
           </template>
           <div style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">

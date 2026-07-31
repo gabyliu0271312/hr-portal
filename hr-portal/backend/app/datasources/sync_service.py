@@ -1342,7 +1342,7 @@ async def _sync_to_table_impl(
 
     await db.commit()
 
-    # 同步完成后自动刷新该表关联的 db_expose finebi 物理表
+    # 同步完成后自动刷新该表关联的 db_snapshot 快照
     try:
         from app.push.models import PushTarget
         from app.push.push_service import execute_push
@@ -1350,7 +1350,7 @@ async def _sync_to_table_impl(
         pts = (await db.execute(
             sa_select(PushTarget).where(
                 PushTarget.source_table == table_name,
-                PushTarget.push_type == "db_expose",
+                PushTarget.push_type == "db_snapshot",
                 PushTarget.is_active.is_(True),
             )
         )).scalars().all()

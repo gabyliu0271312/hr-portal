@@ -34,10 +34,20 @@ curl http://localhost:${FRONTEND_PORT:-8080}/api/v1/health
 
 详细部署说明见 [quickstart.md](../specs/001-hr-permission-portal/quickstart.md)。
 
+## 数据库只读访问配置
+
+数据库消费默认仅绑定本机 `127.0.0.1:5432`。要给外部 BI/SQL 客户端使用时，在 `.env` 设置：
+
+```env
+DB_PUBLIC_HOST=192.168.10.13
+DB_PUBLIC_PORT=5432
+```
+
+重启数据库与后端后，系统生成的 JDBC/连接 URL 会使用该地址。每个数据库消费目标的“IP 白名单”会生成 PostgreSQL 账号级 `pg_hba.conf` 规则：仅白名单中的 IP 或 CIDR 可连接，空白名单会拒绝该账号的所有远程连接。每个只读账号默认最多 5 个并发连接，单条 SQL 和空闲事务默认 60 秒超时；PostgreSQL 会记录连接成功和断开日志，IT 可通过数据库容器日志或统一日志平台采集。服务器网络、端口放通、防火墙和安全组仍由 IT 统一管理。
+
 ## 项目结构
 
 ```
-hr-portal/
 ├─ backend/         FastAPI 后端
 ├─ frontend/        Vue 3 前端
 ├─ docker-compose.yml

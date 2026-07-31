@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Hide, Refresh, View } from '@element-plus/icons-vue'
 import type { PushTargetIn, PushTargetOut, QueryParameterInput } from '@/api/push_targets'
@@ -40,11 +40,26 @@ async function revealSecret(key: string) {
   }
 }
 
+const sourceCapabilities = ref<Record<string, { supported: boolean; reason?: string }>>({})
+const availablePushTypes = computed(() => PUSH_TYPES.filter((type) => sourceCapabilities.value[type.value]?.supported !== false))
+
+async function loadSourceCapabilities() {
+  const sourceType = isMultiSource ? sourceRef.value.source_type : props.sourceTable.startsWith('report:') ? 'report' : 'table'
+  const sourceId = isMultiSource ? sourceRef.value.source_id : sourceType === 'report' ? props.sourceTable.split(':', 2)[1] : props.sourceTable
+  if (!sourceId) { sourceCapabilities.value = {}; return }
+  try {
+    sourceCapabilities.value = (await pushTargetsApi.sourceCapabilities(sourceType, sourceId)).capabilities
+  } catch {
+    sourceCapabilities.value = {}
+  }
+}
+
 const PUSH_TYPES = [
   { value: 'external_db', label: '写入外部数据库（MySQL/PostgreSQL）' },
   { value: 'http_push', label: 'POST JSON 到接口' },
   { value: 'api_expose', label: '暴露只读 API（对方主动拉取）' },
-  { value: 'db_expose', label: '暴露只读数据库账号（对方直连 PostgreSQL）' },
+  { value: 'db_realtime', label: '实时只读数据库访问（对方直连 PostgreSQL）' },
+  { value: 'db_snapshot', label: '同步快照数据库访问（支持定时刷新）' },
   { value: 'feishu_sheet', label: '写入飞书在线表格' },
 ]
 
@@ -53,7 +68,7 @@ const DIALECTS = [
   { value: 'postgresql', label: 'PostgreSQL' },
 ]
 
-const isExposeType = (t: string) => t === 'api_expose' || t === 'db_expose'
+const isExposeType = (t: string) => t === 'api_expose' || t === 'db_realtime'
 
 const form = reactive<{
   name: string
@@ -99,6 +114,7 @@ const form = reactive<{
 })
 
 async function open(target?: PushTargetOut | null) {
+  await loadSourceCapabilities()
   currentTarget.value = target ?? null
   revealedSecrets.value = {}
   sourceColumns.value = props.sourceColumns?.length
@@ -138,7 +154,7 @@ async function open(target?: PushTargetOut | null) {
       form.batch_size = String(s.batch_size ?? 500)
     } else if (target.push_type === 'api_expose') {
       form.app_id = s.app_id ?? ''
-    } else if (target.push_type === 'feishu_sheet') {
+    } else if (target.push_type === 'db_snapshot' || target.push_type === 'db_realtime') {
       form.feishu_wiki_url_or_token = s.wiki_url_or_token ?? ''
       form.feishu_spreadsheet_token = s.spreadsheet_token ?? ''
       form.feishu_sheet_id = s.sheet_id ?? ''
@@ -232,8 +248,8 @@ function buildPayload(): PushTargetIn {
       query_parameters: form.query_parameters.filter((item) => item.column),
     }
     if (form.app_secret) base.secrets = { app_secret: form.app_secret }
-  } else if (form.push_type === 'db_expose') {
-    base.settings = { ip_whitelist: parseIpWhitelist() }
+  } else if (form.push_type === 'db_realtime' || form.push_type === 'db_snapshot') {
+    base.settings = { period_ym: form.period_ym, ip_whitelist: parseIpWhitelist() }
     if (form.readonly_password) base.secrets = { readonly_password: form.readonly_password }
   } else if (form.push_type === 'feishu_sheet') {
     base.settings = {
@@ -292,6 +308,8 @@ function copyUrl(id: number) {
 
 const apiBaseUrl = window.location.origin
 
+watch(sourceRef, loadSourceCapabilities, { deep: true })
+
 defineExpose({ open })
 </script>
 
@@ -320,7 +338,7 @@ defineExpose({ open })
       </div>
       <el-form-item label="推送方式" required>
         <el-select v-model="form.push_type" style="width: 100%">
-          <el-option v-for="t in PUSH_TYPES" :key="t.value" :label="t.label" :value="t.value" />
+          <el-option v-for="t in availablePushTypes" :key="t.value" :label="t.label" :value="t.value" />
         </el-select>
       </el-form-item>
 
@@ -497,8 +515,8 @@ defineExpose({ open })
         </el-form-item>
       </template>
 
-      <!-- db_expose -->
-      <template v-else-if="form.push_type === 'db_expose'">
+      <!-- db_realtime / db_snapshot -->
+      <template v-else-if="form.push_type === 'db_realtime' || form.push_type === 'db_snapshot'">
         <div class="section-title">访问控制</div>
         <el-form-item label="IP 白名单（逗号或换行分隔，空则不限制）">
           <el-input v-model="form.ip_whitelist" type="textarea" :rows="3" placeholder="192.168.1.100, 10.0.0.1" />

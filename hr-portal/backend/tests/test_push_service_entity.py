@@ -477,7 +477,7 @@ async def test_push_target_out_normalizes_legacy_report_source_table():
     assert out.source_label == "员工成本报表"
 
 
-async def test_push_db_expose_uses_entity_columns_and_postgres_types():
+async def test_push_db_snapshot_uses_entity_columns_and_postgres_types():
     table_name = "push_db_entity"
     model = make_entity_model(table_name)
     old_model, old_period = register_table(table_name, model, period=True)
@@ -497,7 +497,7 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
     )
 
     try:
-        rows, message = await push_service.push_db_expose(
+        rows, message = await push_service.push_db_snapshot(
             table_name,
             {
                 "_pt_id": "77",
@@ -525,7 +525,7 @@ async def test_push_db_expose_uses_entity_columns_and_postgres_types():
     assert 'FROM public."push_db_entity" WHERE "month" = :period_ym' in full_sql
     assert 'ALTER ROLE "ro_push_db_entity" SET search_path TO "finebi_push_db_entity_77"' in full_sql
     assert 'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA "finebi_other_target" FROM "ro_push_db_entity"' in full_sql
-    assert 'postgresql://ro_push_db_entity:p%27wd@127.0.0.1' in message
+    assert 'postgresql://ro_push_db_entity:p%27wd@localhost' in message
     assert 'options=-csearch_path%3Dfinebi_push_db_entity_77' in message
     insert_calls = [
         params
@@ -636,7 +636,37 @@ async def test_integration_documentation_contains_ten_api_sections_without_crede
     assert "发薪月" in content
 
 
-async def test_api_documentation_requires_public_base_url(monkeypatch):
+@pytest.mark.asyncio
+async def test_database_documentation_distinguishes_realtime_and_snapshot(monkeypatch):
+    from app.push.router import _build_integration_documentation
+
+    async def meta(source_table, db):
+        return ["employee_no", "amount"], {"employee_no": "工号", "amount": "金额"}, {"employee_no": "string", "amount": "number"}
+
+    monkeypatch.setattr("app.push.push_service._load_source_columns_meta", meta)
+    base = dict(
+        id=18, source_table="employee_cost", name="数据库消费", settings={
+            "host": "192.168.10.13", "port": 5432, "database": "hr_portal",
+            "schema": "finebi_employee_cost_18", "view": "employee_cost",
+            "readonly_user": "ro_employee_cost", "jdbc_url": "jdbc:postgresql://192.168.10.13:5432/hr_portal",
+            "conn_url": "postgresql://ro_employee_cost:secret@192.168.10.13:5432/hr_portal",
+            "schedule": "每天 02:00",
+        }, secrets_encrypted={}, field_mappings=[], last_status="success", last_rows=12,
+    )
+    realtime = await _build_integration_documentation(PushTarget(**base, push_type="db_realtime"), FakeSession())
+    snapshot = await _build_integration_documentation(PushTarget(**base, push_type="db_snapshot"), FakeSession())
+    assert "查询时实时读取当前源数据" in realtime
+    assert "无需执行同步" in realtime
+    assert "pg_hba.conf" in realtime
+    assert 'SELECT * FROM "finebi_employee_cost_18"."employee_cost" LIMIT 100;' in realtime
+    assert "最近一次成功同步生成的数据库快照" in snapshot
+    assert "每天 02:00" in snapshot
+    assert "不是实时数据" in snapshot
+    assert "secret" not in realtime
+    assert "secret" not in snapshot
+
+
+
     pt = PushTarget(
         id=17, source_table="push_api_entity", name="API", push_type="api_expose",
         settings={"app_id": "app-1"}, secrets_encrypted={"app_secret": encrypt("secret-1")},

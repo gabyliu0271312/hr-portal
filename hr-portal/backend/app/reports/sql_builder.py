@@ -20,7 +20,10 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
+import hashlib
 from typing import Any
+
+from sqlalchemy.dialects import postgresql
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, desc, except_, func, inspect, intersect, or_, select, text, true, union
@@ -44,9 +47,142 @@ from app.permissions.strategy import DEFAULT_SCOPE_STRATEGY, normalize_scope_str
 from app.reports.filter_logic import build_filter_clause
 from app.users.models import User
 
-
 def _table_name(model) -> str:
     return getattr(model, "__tablename__", getattr(model.__table__, "name", "unknown"))
+
+
+async def assess_report_realtime_deployability(report, db: AsyncSession) -> dict[str, Any]:
+    """Return whether a report can be safely exposed as a PostgreSQL realtime view.
+
+    The first release intentionally accepts only plain detail reports whose output
+    is fully produced by SQLAlchemy before the runtime's Python post-processing.
+    """
+    from app.reports.config import ReportConfig
+
+    reasons: list[str] = []
+    if report.dataset_id is None:
+        reasons.append("报表未绑定数据集")
+        return {"supported": False, "reasons": reasons}
+
+    cfg = ReportConfig(**(report.config or {}))
+    if not cfg.columns:
+        reasons.append("报表未配置输出字段")
+    if cfg.aggregate:
+        reasons.append("当前实时数据库访问暂不支持报表聚合")
+    if cfg.value_rules:
+        reasons.append("当前实时数据库访问暂不支持值规则")
+    if cfg.rounding_corrections:
+        reasons.append("当前实时数据库访问暂不支持舍入平差")
+    if cfg.list_lookup:
+        reasons.append("当前实时数据库访问暂不支持名单查找")
+    if cfg.transpose and (cfg.transpose.get("enabled") or cfg.transpose.get("rules")):
+        reasons.append("当前实时数据库访问暂不支持转置")
+    if cfg.column_settings:
+        reasons.append("当前实时数据库访问暂不支持列级运行时规则")
+    if any(str(column.instance_id if hasattr(column, "instance_id") else column).startswith("calc.") for column in cfg.columns):
+        reasons.append("当前实时数据库访问暂不支持计算字段")
+    if report.scope_strategy:
+        reasons.append("当前实时数据库访问暂不支持动态数据范围权限")
+
+    tables = (await db.execute(
+        select(DataSetTable).where(DataSetTable.dataset_id == report.dataset_id)
+    )).scalars().all()
+    if len(tables) != 1:
+        reasons.append("当前实时数据库访问首期仅支持单表明细报表")
+    for table in tables:
+        model = DATA_TABLES.get(table.table_name)
+        if model is None:
+            reasons.append(f"数据集表不存在：{table.table_name}")
+            continue
+        try:
+            _ensure_entity_model(model)
+        except RuntimeError as exc:
+            reasons.append(str(exc))
+
+    config_hash = hashlib.sha256(
+        repr({"dataset_id": report.dataset_id, "config": report.config or {}}).encode("utf-8")
+    ).hexdigest()
+    return {
+        "supported": not reasons,
+        "reasons": reasons,
+        "config_hash": config_hash,
+    }
+
+
+async def compile_report_realtime_sql(report, db: AsyncSession) -> tuple[str, dict[str, Any]]:
+    """Compile a supported single-table detail report to literal PostgreSQL SQL."""
+    assessment = await assess_report_realtime_deployability(report, db)
+    if not assessment["supported"]:
+        raise RuntimeError("；".join(assessment["reasons"]))
+
+    from app.reports.config import ReportConfig
+
+    cfg = ReportConfig(**(report.config or {}))
+    dataset_table = (await db.execute(
+        select(DataSetTable).where(DataSetTable.dataset_id == report.dataset_id)
+    )).scalars().one()
+    model = DATA_TABLES[dataset_table.table_name]
+    columns = (
+        await db.execute(
+            select(TableColumn)
+            .where(TableColumn.table_name == dataset_table.table_name)
+            .order_by(TableColumn.display_order)
+        )
+    ).scalars().all()
+    meta_by_code = {column.column_code: column for column in columns}
+
+    select_cols = []
+    output_columns: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for instance in cfg.columns:
+        source = instance.source_code if hasattr(instance, "source_code") else str(instance)
+        if source.startswith("calc.") or "." not in source:
+            raise RuntimeError("当前实时数据库访问暂不支持计算字段")
+        alias, code = _split_qualified(source)
+        if alias != dataset_table.alias or code not in meta_by_code:
+            raise RuntimeError(f"报表字段不存在或不属于当前数据集：{source}")
+        if source in seen:
+            raise RuntimeError("当前实时数据库访问暂不支持重复输出字段")
+        seen.add(source)
+        column = meta_by_code[code]
+        label = (column.column_label or code).strip() or code
+        select_cols.append(_entity_column(model, code).label(label))
+        output_columns.append({"code": source, "label": label, "data_type": column.data_type})
+
+    stmt = select(*select_cols).select_from(model)
+
+    def filter_clause(filter_config: dict[str, Any]) -> ColumnElement | None:
+        source = str(filter_config.get("column") or "")
+        if "." not in source:
+            return None
+        alias, code = _split_qualified(source)
+        if alias != dataset_table.alias or code not in meta_by_code:
+            raise RuntimeError(f"报表筛选字段不存在：{source}")
+        return _filter_clause(
+            _entity_column(model, code), meta_by_code[code].data_type,
+            str(filter_config.get("op") or "eq").lower(), filter_config.get("value"),
+        )
+
+    try:
+        clause = build_filter_clause(
+            [item.model_dump() for item in cfg.filters], filter_clause, cfg.filter_logic
+        )
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    if clause is not None:
+        stmt = stmt.where(clause)
+    for sort in cfg.sorts:
+        source = str(sort.column if hasattr(sort, "column") else sort.get("column") or "")
+        if "." not in source:
+            raise RuntimeError(f"报表排序字段不存在：{source}")
+        alias, code = _split_qualified(source)
+        if alias != dataset_table.alias or code not in meta_by_code:
+            raise RuntimeError(f"报表排序字段不存在：{source}")
+        expr = _entity_column(model, code)
+        stmt = stmt.order_by(desc(expr) if str(sort.order if hasattr(sort, "order") else sort.get("order") or "asc").lower() == "desc" else expr)
+
+    sql = str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    return sql, {**assessment, "columns": output_columns}
 
 
 def _ensure_entity_model(model) -> None:

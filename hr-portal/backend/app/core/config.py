@@ -19,10 +19,17 @@ class Settings(BaseSettings):
     PUBLIC_BASE_URL: str = ""
 
     DB_HOST: str = "db"
+    DB_BIND_HOST: str = "127.0.0.1"
     DB_PORT: int = 5432
     DB_NAME: str = "hr_portal"
     DB_USER: str = "hr_portal"
     DB_PASSWORD: str = "change-me"
+    # 供外部 BI/SQL 客户端连接的 PostgreSQL 地址；为空时使用 DB_HOST。
+    DB_PUBLIC_HOST: str = ""
+    DB_PUBLIC_PORT: int = 5432
+    DB_READONLY_CONNECTION_LIMIT: int = 5
+    DB_READONLY_STATEMENT_TIMEOUT_SECONDS: int = 60
+    DB_READONLY_IDLE_TRANSACTION_TIMEOUT_SECONDS: int = 60
 
     JWT_SECRET: str = "please-change-in-env"
     JWT_ALGORITHM: str = "HS256"

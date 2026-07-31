@@ -14,6 +14,8 @@ class PushTarget(Base):
       http_push   — POST JSON 到对方接口
       external_db — 写入对方数据库（当前支持 MySQL / PostgreSQL）
       api_expose  — 暴露只读 API，对方主动拉取（生成 token）
+      db_snapshot — 同步快照数据库（执行时复制，支持定时刷新）
+      db_realtime — 暴露实时只读数据库视图
     """
     __tablename__ = "push_targets"
 
@@ -26,7 +28,7 @@ class PushTarget(Base):
     source_label: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    push_type: Mapped[str] = mapped_column(String(32), nullable=False)  # http_push / external_db / api_expose
+    push_type: Mapped[str] = mapped_column(String(32), nullable=False)  # external_db / http_push / api_expose / db_realtime / db_snapshot
 
     # 非敏感配置（URL、host、port、db名、表名等）
     settings: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

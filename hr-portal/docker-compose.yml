@@ -10,7 +10,7 @@ services:
     volumes:
       - ./data/pg:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5432:5432"
+      - "${DB_BIND_HOST:-127.0.0.1}:${DB_PUBLIC_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hr_portal} -d ${DB_NAME:-hr_portal}"]
       interval: 5s
@@ -30,7 +30,13 @@ services:
       APP_ENV: ${APP_ENV:-prod}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       DB_HOST: db
-      DB_PORT: 5432
+      DB_BIND_HOST: ${DB_BIND_HOST:-127.0.0.1}
+      DB_PUBLIC_HOST: ${DB_PUBLIC_HOST:-}
+      DB_PUBLIC_PORT: ${DB_PUBLIC_PORT:-5432}
+      DB_READONLY_CONNECTION_LIMIT: ${DB_READONLY_CONNECTION_LIMIT:-5}
+      DB_READONLY_STATEMENT_TIMEOUT_SECONDS: ${DB_READONLY_STATEMENT_TIMEOUT_SECONDS:-60}
+      DB_READONLY_IDLE_TRANSACTION_TIMEOUT_SECONDS: ${DB_READONLY_IDLE_TRANSACTION_TIMEOUT_SECONDS:-60}
+      PG_HBA_MANAGED_FILE: /app/pg_hba.conf
       DB_NAME: ${DB_NAME:-hr_portal}
       DB_USER: ${DB_USER:-hr_portal}
       DB_PASSWORD: ${DB_PASSWORD:-change-me}
@@ -63,6 +69,7 @@ services:
 
     volumes:
       - ./backend:/app:cached
+      - ./data/pg/pg_hba.conf:/app/pg_hba.conf:rw
       - ./backend/data:/app/data
       - ./backend/logs:/app/logs
       - ./backend/docker/fonts:/usr/share/fonts/truetype/custom:ro

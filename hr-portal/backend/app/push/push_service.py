@@ -763,7 +763,135 @@ async def push_api_expose(
     return len(rows), f"API 暴露就绪：{len(rows)} 行可供拉取"
 
 
-async def push_db_expose(
+async def push_db_realtime(
+    source_table: str,
+    settings: dict,
+    secrets: dict,
+    field_mappings: list[dict],
+    db: AsyncSession,
+) -> tuple[int, str]:
+    """为实体表创建隔离的实时只读 PostgreSQL View。"""
+    import secrets as py_secrets
+    import string
+    from sqlalchemy import select as sa_select
+    from app.core.config import settings as app_settings
+
+    is_report = is_report_source(source_table)
+    if is_report:
+        from app.reports.models import Report
+        from app.reports.sql_builder import compile_report_realtime_sql
+        report = await db.get(Report, parse_report_source_id(source_table))
+        if report is None:
+            raise RuntimeError(f"报表不存在: {source_table}")
+        source_sql, report_meta = await compile_report_realtime_sql(report, db)
+        view_name = make_identifier("", f"report_{report.id}")
+    else:
+        Model = DATA_TABLES.get(source_table)
+        if Model is None:
+            raise RuntimeError(f"未知数据表: {source_table}")
+        _ensure_entity_model(Model, source_table)
+        view_name = make_identifier("", source_table)
+
+    pt_id = str(settings.get("_pt_id") or "").strip()
+    if not pt_id:
+        raise RuntimeError("实时数据库访问缺少推送目标标识")
+    target_key = f"{source_table}_{pt_id}"
+    schema_name = make_identifier("finebi_", target_key)
+    readonly_user = settings.get("readonly_user") or make_identifier("ro_", target_key)
+    password = secrets.get("readonly_password", "")
+    if not password:
+        alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
+        password = "".join(py_secrets.choice(alphabet) for _ in range(20))
+
+    if not is_report:
+        cols = (
+            await db.execute(
+                sa_select(TableColumn)
+                .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
+                .order_by(TableColumn.display_order)
+            )
+        ).scalars().all()
+        if not cols:
+            raise RuntimeError(f"table_columns 中找不到表 {source_table} 的可见字段定义")
+        for col in cols:
+            _entity_column(Model, source_table, col.column_code)
+        labels = _dedupe_labels(cols)
+        source_table_q = quote_ident(source_table, kind="table")
+        projection = ", ".join(
+            f"{quote_ident(col.column_code)} AS {_quote_pg_identifier(labels[col.column_code])}"
+            for col in cols
+        )
+
+        period_ym = settings.get("period_ym", "")
+        where_sql = ""
+        period_cfg = PERIOD_TABLES.get(source_table)
+        if period_cfg and period_ym:
+            period_col = period_cfg["period_col"]
+            _entity_column(Model, source_table, period_col)
+            where_sql = f" WHERE {quote_ident(period_col)} = {_quote_pg_literal(str(period_ym))}"
+        view_sql = f"SELECT {projection} FROM public.{source_table_q}{where_sql}"
+    else:
+        view_sql = source_sql
+    schema_q = _quote_pg_identifier(schema_name)
+    view_q = _quote_pg_identifier(view_name)
+    user_q = _quote_pg_identifier(readonly_user)
+    db_q = _quote_pg_identifier(app_settings.DB_NAME)
+    await db.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_q}"))
+    await db.execute(text(
+        f"CREATE OR REPLACE VIEW {schema_q}.{view_q} AS {view_sql}"
+    ))
+
+    exists = (await db.execute(
+        text("SELECT EXISTS (SELECT FROM pg_roles WHERE rolname = :rolname)"),
+        {"rolname": readonly_user},
+    )).scalar_one()
+    if exists:
+        await db.execute(text(f"ALTER USER {user_q} WITH PASSWORD {_quote_pg_literal(password)}"))
+    else:
+        await db.execute(text(f"CREATE USER {user_q} WITH PASSWORD {_quote_pg_literal(password)}"))
+    await db.execute(text(f"GRANT CONNECT ON DATABASE {db_q} TO {user_q}"))
+    await db.execute(text(f"REVOKE ALL ON SCHEMA public FROM {user_q}"))
+    schemas = (await db.execute(text(
+        "SELECT nspname FROM pg_namespace WHERE nspname = 'finebi' OR nspname LIKE 'finebi\\_%' ESCAPE '\\'"
+    ))).scalars().all()
+    for name in schemas:
+        name_q = _quote_pg_identifier(name)
+        await db.execute(text(f"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {name_q} FROM {user_q}"))
+        await db.execute(text(f"REVOKE ALL PRIVILEGES ON SCHEMA {name_q} FROM {user_q}"))
+    await db.execute(text(f"GRANT USAGE ON SCHEMA {schema_q} TO {user_q}"))
+    await db.execute(text(f"GRANT SELECT ON {schema_q}.{view_q} TO {user_q}"))
+    await db.execute(text(f"ALTER ROLE {user_q} SET search_path TO {schema_q}"))
+    await db.execute(text(f"ALTER ROLE {user_q} CONNECTION LIMIT {app_settings.DB_READONLY_CONNECTION_LIMIT}"))
+    await db.execute(text(f"ALTER ROLE {user_q} SET statement_timeout TO '{app_settings.DB_READONLY_STATEMENT_TIMEOUT_SECONDS}s'"))
+    await db.execute(text(f"ALTER ROLE {user_q} SET idle_in_transaction_session_timeout TO '{app_settings.DB_READONLY_IDLE_TRANSACTION_TIMEOUT_SECONDS}s'"))
+
+    from app.push.models import PushTarget
+    from app.core.secret_box import encrypt
+    from sqlalchemy.orm.attributes import flag_modified
+    target = await db.get(PushTarget, int(pt_id))
+    if target:
+        conn_host = app_settings.DB_PUBLIC_HOST or app_settings.DB_HOST
+        conn_url = (
+            f"postgresql://{_quote_conn_part(readonly_user)}:{_quote_conn_part(password)}"
+            f"@{conn_host}:{app_settings.DB_PUBLIC_PORT}/{app_settings.DB_NAME}"
+            f"?options=-csearch_path%3D{_quote_conn_part(schema_name)}"
+        )
+        target.secrets_encrypted = {**(target.secrets_encrypted or {}), "readonly_password": encrypt(password)}
+        target.settings = {
+            **(target.settings or {}), "readonly_user": readonly_user,
+            "host": conn_host, "port": app_settings.DB_PORT, "database": app_settings.DB_NAME,
+            "schema": schema_name, "view": view_name, "conn_url": conn_url,
+            "jdbc_url": f"jdbc:postgresql://{conn_host}:{app_settings.DB_PUBLIC_PORT}/{app_settings.DB_NAME}?currentSchema={_quote_conn_part(schema_name)}",
+        }
+        flag_modified(target, "secrets_encrypted")
+        flag_modified(target, "settings")
+    from app.push.pg_hba import sync_pg_hba_rules
+    await sync_pg_hba_rules(db)
+    rows = (await db.execute(text(f"SELECT COUNT(*) FROM {schema_q}.{view_q}"))).scalar_one()
+    return rows, f"实时视图已部署：{schema_name}.{view_name}，只读账号：{readonly_user}"
+
+
+async def push_db_snapshot(
     source_table: str,
     settings: dict,
     secrets: dict,
@@ -852,10 +980,10 @@ async def push_db_expose(
 
     view_name = make_identifier("", safe_source)
     view_name_q = _quote_pg_identifier(view_name)
-    await db.execute(text(f"DROP VIEW IF EXISTS {schema_q}.{view_name_q}"))
-    await db.execute(text(f"DROP TABLE IF EXISTS {schema_q}.{finebi_table_q}"))
+    staging_table = make_identifier("t_", f"{target_key}_{py_secrets.token_hex(4)}")
+    staging_table_q = _quote_pg_identifier(staging_table)
     await db.execute(text(
-        f"CREATE TABLE {schema_q}.{finebi_table_q} "
+        f"CREATE TABLE {schema_q}.{staging_table_q} "
         f"(id BIGINT, synced_at TIMESTAMPTZ, {cols_def})"
     ))
     if is_report:
@@ -864,7 +992,7 @@ async def push_db_expose(
         if rows:
             col_names = [c for c in rows[0].keys()]
             placeholders = ", ".join(f":col_{i}" for i in range(len(col_names)))
-            insert_sql = f"INSERT INTO {schema_q}.{finebi_table_q} (id, synced_at, {insert_cols}) VALUES (DEFAULT, NOW(), {placeholders})"
+            insert_sql = f"INSERT INTO {schema_q}.{staging_table_q} (id, synced_at, {insert_cols}) VALUES (DEFAULT, NOW(), {placeholders})"
             for row in rows:
                 typed_params = {
                     f"col_{i}": _coerce_pg_value(row.get(c), type_by_code.get(c, "string"))
@@ -873,16 +1001,25 @@ async def push_db_expose(
                 await db.execute(text(insert_sql), typed_params)
     else:
         await db.execute(text(
-            f"INSERT INTO {schema_q}.{finebi_table_q} "
+            f"INSERT INTO {schema_q}.{staging_table_q} "
             f"(id, synced_at, {insert_cols}) "
             f"SELECT id, synced_at, {cols_sel} FROM public.{source_table_q}{where_sql}"
         ), params)
 
-    # 2.5 创建同名 VIEW，让用户直接用源表名查询，不用记 t_ 前缀和后缀
+    # 固定 View 在同一事务内切换到已完整写入的暂存表，读者始终查询同一对象。
     await db.execute(text(
         f"CREATE OR REPLACE VIEW {schema_q}.{view_name_q} AS "
-        f"SELECT * FROM {schema_q}.{finebi_table_q}"
+        f"SELECT * FROM {schema_q}.{staging_table_q}"
     ))
+
+    # 清理同目标旧暂存表，但保留当前 View 正在引用的表。
+    old_tables = (await db.execute(text(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = :schema_name AND table_name LIKE :pattern"
+    ), {"schema_name": schema_name, "pattern": f"t_{target_key}_%"})).scalars().all()
+    for old_table in old_tables:
+        if old_table != staging_table:
+            await db.execute(text(f"DROP TABLE IF EXISTS {schema_q}.{_quote_pg_identifier(old_table)}"))
 
     # 3. 创建或更新只读账号密码（始终同步，避免重建推送时密码不一致）
     role_exists = (
@@ -909,18 +1046,22 @@ async def push_db_expose(
         await db.execute(text(f"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {existing_schema_q} FROM {readonly_user_q}"))
         await db.execute(text(f"REVOKE ALL PRIVILEGES ON SCHEMA {existing_schema_q} FROM {readonly_user_q}"))
     await db.execute(text(f"GRANT USAGE ON SCHEMA {schema_q} TO {readonly_user_q}"))
-    await db.execute(text(f"GRANT SELECT ON {schema_q}.{finebi_table_q} TO {readonly_user_q}"))
+    await db.execute(text(f"GRANT SELECT ON {schema_q}.{staging_table_q} TO {readonly_user_q}"))
     await db.execute(text(f"GRANT SELECT ON {schema_q}.{view_name_q} TO {readonly_user_q}"))
     await db.execute(text(f"ALTER ROLE {readonly_user_q} SET search_path TO {schema_q}"))
+    await db.execute(text(f"ALTER ROLE {readonly_user_q} CONNECTION LIMIT {app_settings.DB_READONLY_CONNECTION_LIMIT}"))
+    await db.execute(text(f"ALTER ROLE {readonly_user_q} SET statement_timeout TO '{app_settings.DB_READONLY_STATEMENT_TIMEOUT_SECONDS}s'"))
+    await db.execute(text(f"ALTER ROLE {readonly_user_q} SET idle_in_transaction_session_timeout TO '{app_settings.DB_READONLY_IDLE_TRANSACTION_TIMEOUT_SECONDS}s'"))
 
     await db.commit()
 
+    conn_host = app_settings.DB_PUBLIC_HOST or app_settings.DB_HOST
     conn_url = (
         f"postgresql://{_quote_conn_part(readonly_user)}:{_quote_conn_part(password)}"
-        f"@127.0.0.1:{app_settings.DB_PORT}/{app_settings.DB_NAME}"
+        f"@{conn_host}:{app_settings.DB_PUBLIC_PORT}/{app_settings.DB_NAME}"
         f"?options=-csearch_path%3D{_quote_conn_part(schema_name)}"
     )
-    jdbc_url = f"jdbc:postgresql://127.0.0.1:{app_settings.DB_PORT}/{app_settings.DB_NAME}?currentSchema={_quote_conn_part(schema_name)}"
+    jdbc_url = f"jdbc:postgresql://{conn_host}:{app_settings.DB_PUBLIC_PORT}/{app_settings.DB_NAME}?currentSchema={_quote_conn_part(schema_name)}"
 
     # 5. 回写连接信息到 PushTarget（按 pt_id 精确匹配，防止同表多推送目标写错行）
     from app.push.models import PushTarget
@@ -930,7 +1071,7 @@ async def push_db_expose(
         pts = (await db.execute(
             sa_select(PushTarget).where(
                 PushTarget.source_table == source_table,
-                PushTarget.push_type == "db_expose",
+                PushTarget.push_type == "db_snapshot",
             )
         )).scalars().first()
     if pts:
@@ -942,11 +1083,11 @@ async def push_db_expose(
         pts.settings = {
             **(pts.settings or {}),
             "readonly_user": readonly_user,
-            "host": "127.0.0.1",
-            "port": app_settings.DB_PORT,
+            "host": conn_host,
+            "port": app_settings.DB_PUBLIC_PORT,
             "database": app_settings.DB_NAME,
             "schema": schema_name,
-            "table": finebi_table,
+            "table": staging_table,
             "view": view_name,
             "conn_url": conn_url,
             "jdbc_url": jdbc_url,
@@ -955,8 +1096,8 @@ async def push_db_expose(
         flag_modified(pts, "settings")
         await db.commit()
 
-    rows = (await db.execute(text(f"SELECT COUNT(*) FROM {schema_q}.{finebi_table_q}"))).scalar_one()
-    return rows, f"FineBI 表已刷新：{schema_name}.{finebi_table}，只读账号：{readonly_user}，连接：{conn_url}，JDBC：{jdbc_url}"
+    rows = (await db.execute(text(f"SELECT COUNT(*) FROM {schema_q}.{staging_table_q}"))).scalar_one()
+    return rows, f"FineBI 表已刷新：{schema_name}.{staging_table}，只读账号：{readonly_user}，连接：{conn_url}，JDBC：{jdbc_url}"
 
 
 # ===== 统一调度入口 =====
@@ -965,7 +1106,8 @@ PUSH_HANDLERS = {
     "external_db": push_external_db,
     "http_push": push_http,
     "api_expose": push_api_expose,
-    "db_expose": push_db_expose,
+    "db_snapshot": push_db_snapshot,
+    "db_realtime": push_db_realtime,
     "feishu_sheet": push_feishu_sheet,
 }
 
@@ -995,7 +1137,7 @@ async def execute_push(
     if period_ym:
         settings["period_ym"] = period_ym
 
-    if pt.push_type == "db_expose":
+    if pt.push_type in ("db_snapshot", "db_realtime"):
         settings.setdefault("_pt_id", pt.id)
 
     # P2: 统一来源协议 — 非 table 类型解析来源表名

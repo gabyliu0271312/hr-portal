@@ -428,7 +428,7 @@ async def test_result_table_can_be_exposed_to_finebi_with_entity_types():
     )
 
     try:
-        rows, _ = await push_service.push_db_expose(
+        rows, _ = await push_service.push_db_snapshot(
             table_name,
             {
                 "_pt_id": "42",

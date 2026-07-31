@@ -38,7 +38,7 @@ class PushTargetIn(BaseModel):
     source_table: str = ""                # 旧字段，过渡期兼容
     name: str
     description: str | None = None
-    push_type: str  # external_db / http_push / api_expose
+    push_type: str  # external_db / http_push / api_expose / db_realtime / db_snapshot
     settings: dict = {}
     secrets: dict = {}           # 明文传入，后端加密存储
     field_mappings: list[dict] = []
@@ -376,8 +376,8 @@ async def _runtime_filters_from_request(pt: PushTarget, request: Request, db: As
     return runtime_filters
 
 
-def _validate_db_expose_password(payload: PushTargetIn) -> None:
-    if payload.push_type != "db_expose" or not payload.secrets.get("readonly_password"):
+def _validate_db_snapshot_password(payload: PushTargetIn) -> None:
+    if payload.push_type != "db_snapshot" or not payload.secrets.get("readonly_password"):
         return
     from app.auth.password import is_strong_enough
 
@@ -407,6 +407,44 @@ async def query_parameter_metadata(
     if not _is_report_source(source_table):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="当前来源不是报表，不能配置受控查询参数")
     return await _report_filter_metadata(source_table, db)
+
+
+@router.get("/source-capabilities")
+async def source_capabilities(
+    source_type: str = Query("table"),
+    source_id: str = Query(...),
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """返回来源可用的对外消费方式；实时报表首期保守关闭。"""
+    source_table = f"report:{source_id}" if source_type == "report" else source_id
+    await _ensure_report_push_editable(source_table, user, db)
+    if source_type == "report":
+        from app.reports.models import Report
+        from app.reports.sql_builder import assess_report_realtime_deployability
+
+        report = await db.get(Report, int(source_id))
+        if report is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
+        realtime = await assess_report_realtime_deployability(report, db)
+        return {
+            "source_type": source_type,
+            "source_id": source_id,
+            "capabilities": {
+                "api_expose": {"supported": True, "reason": "请求时由报表查询服务实时计算"},
+                "db_snapshot": {"supported": True, "reason": "执行报表结果同步为数据库快照"},
+                "db_realtime": {"supported": realtime["supported"], "reason": "；".join(realtime["reasons"])},
+            },
+        }
+    return {
+        "source_type": source_type,
+        "source_id": source_id,
+        "capabilities": {
+            "api_expose": {"supported": True},
+            "db_snapshot": {"supported": True},
+            "db_realtime": {"supported": True, "reason": "实体表可创建受控实时视图"},
+        },
+    }
 
 
 # ===== CRUD =====
@@ -442,7 +480,18 @@ async def create_push_target(
     from app.core.secret_box import encrypt
     from app.warehouse.service_ref import ServiceSourceRef, SOURCE_TABLE, assert_not_ods_source, ALLOWED_SOURCE_TYPES
 
-    # P2：统一来源协议 — 解析并写入独立列
+    if payload.push_type not in {"external_db", "http_push", "api_expose", "db_realtime", "db_snapshot", "feishu_sheet"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="不支持的推送方式")
+    if payload.push_type == "db_realtime" and _is_report_source(payload.source_table):
+        from app.reports.models import Report
+        from app.reports.sql_builder import assess_report_realtime_deployability
+        report = await db.get(Report, _report_source_id(payload.source_table))
+        if report is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
+        assessment = await assess_report_realtime_deployability(report, db)
+        if not assessment["supported"]:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="；".join(assessment["reasons"]))
+
     final_source_type = payload.source_type
     final_source_id = payload.source_id
     final_source_label = payload.source_label or ""
@@ -457,6 +506,19 @@ async def create_push_target(
     if final_source_type and final_source_id:
         ref = ServiceSourceRef(source_type=final_source_type, source_id=final_source_id, source_label=final_source_label)
         payload.source_table = ref.to_legacy_source_table()
+
+    if payload.push_type not in {"external_db", "http_push", "api_expose", "db_realtime", "db_snapshot", "feishu_sheet"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="不支持的推送方式")
+
+    if payload.push_type == "db_realtime" and _is_report_source(payload.source_table):
+        from app.reports.models import Report
+        from app.reports.sql_builder import assess_report_realtime_deployability
+        report = await db.get(Report, _report_source_id(payload.source_table))
+        if report is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
+        assessment = await assess_report_realtime_deployability(report, db)
+        if not assessment["supported"]:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="；".join(assessment["reasons"]))
 
     # source_type 枚举校验
     if final_source_type not in ALLOWED_SOURCE_TYPES:
@@ -478,7 +540,14 @@ async def create_push_target(
     await _ensure_system_op_for_non_report(payload.source_table, user, db, "C")
     await _normalize_query_parameters(payload.source_table, payload.settings, db)
     await _validate_query_parameters(payload.source_table, payload.settings, db)
-    _validate_db_expose_password(payload)
+    _validate_db_snapshot_password(payload)
+    if payload.push_type in ("db_realtime", "db_snapshot"):
+        from app.push.pg_hba import _network
+        for value in payload.settings.get("ip_whitelist") or []:
+            try:
+                _network(str(value))
+            except ValueError as exc:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     secrets_enc = {k: encrypt(v) for k, v in payload.secrets.items()}
 
     # api_expose：自动生成 AppID + AppSecret（如果未填）
@@ -511,7 +580,7 @@ async def create_push_target(
     await db.flush()
 
     # 自动创建调度任务
-    if payload.schedule and payload.schedule != "手动触发":
+    if payload.schedule and payload.schedule != "手动触发" and payload.push_type not in ("api_expose", "db_realtime"):
         from app.scheduler.service import upsert_job
         await upsert_job(
             db, kind="push_target", business_id=pt.id,
@@ -519,8 +588,8 @@ async def create_push_target(
             enabled=payload.is_active,
         )
 
-    # db_expose：先建只读账号再 commit，失败时 PushTarget 不残留
-    if pt.push_type == "db_expose":
+    # db_snapshot：先建只读账号再 commit，失败时 PushTarget 不残留
+    if pt.push_type in ("db_snapshot", "db_realtime"):
         from app.push.push_service import execute_push
         try:
             await execute_push(pt.id, db)
@@ -528,6 +597,10 @@ async def create_push_target(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     await db.commit()
+    if pt.push_type in ("db_realtime", "db_snapshot"):
+        from app.push.pg_hba import sync_pg_hba_rules
+        await sync_pg_hba_rules(db)
+        await db.commit()
     await db.refresh(pt)
 
     return await _to_out(pt, db)
@@ -554,12 +627,23 @@ async def update_push_target(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> PushTargetOut:
+    from app.scheduler.service import upsert_job, get_job_by_business
     from app.core.secret_box import encrypt
-    from app.warehouse.service_ref import ServiceSourceRef, SOURCE_TABLE, assert_not_ods_source
-
     pt = await db.get(PushTarget, pt_id)
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
+    if payload.push_type not in {"external_db", "http_push", "api_expose", "db_realtime", "db_snapshot", "feishu_sheet"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="不支持的推送方式")
+    if payload.push_type == "db_realtime" and _is_report_source(payload.source_table):
+        from app.reports.models import Report
+        from app.reports.sql_builder import assess_report_realtime_deployability
+        report = await db.get(Report, _report_source_id(payload.source_table))
+        if report is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
+        assessment = await assess_report_realtime_deployability(report, db)
+        if not assessment["supported"]:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="；".join(assessment["reasons"]))
+
 
     # P2：统一来源协议 — 解析并写入独立列 + source_table
     if payload.source_type and payload.source_id:
@@ -594,19 +678,23 @@ async def update_push_target(
     await _ensure_system_op_for_non_report(payload.source_table, user, db, "U")
     await _normalize_query_parameters(pt.source_table, payload.settings, db, pt.settings.get("query_parameters") if pt.settings else None)
     await _validate_query_parameters(pt.source_table, payload.settings, db)
-    _validate_db_expose_password(payload)
+    _validate_db_snapshot_password(payload)
+    if payload.push_type in ("db_realtime", "db_snapshot"):
+        from app.push.pg_hba import _network
+        for value in payload.settings.get("ip_whitelist") or []:
+            try:
+                _network(str(value))
+            except ValueError as exc:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    pt.name = payload.name
-    pt.description = payload.description
-    pt.push_type = payload.push_type
-    pt.settings = payload.settings
-    pt.field_mappings = payload.field_mappings
-    pt.is_active = payload.is_active
-    if payload.secrets:
-        pt.secrets_encrypted = {k: encrypt(v) for k, v in payload.secrets.items()}
-
-    # db_expose：先建只读账号再 commit，失败时 PushTarget 不残留
-    if pt.push_type == "db_expose":
+    if payload.schedule and payload.schedule != "手动触发" and payload.push_type not in ("api_expose", "db_realtime"):
+        await upsert_job(db, kind="push_target", business_id=pt.id, cron=payload.schedule, payload={"source_table": payload.source_table}, enabled=payload.is_active)
+    else:
+        job = await get_job_by_business(db, "push_target", pt.id)
+        if job:
+            job.enabled = False
+    # db_snapshot：先建只读账号再 commit，失败时 PushTarget 不残留
+    if pt.push_type in ("db_snapshot", "db_realtime"):
         from app.push.push_service import execute_push
         try:
             await execute_push(pt.id, db)
@@ -614,8 +702,15 @@ async def update_push_target(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     await db.commit()
+    if pt.push_type in ("db_realtime", "db_snapshot"):
+        from app.push.pg_hba import sync_pg_hba_rules
+        await sync_pg_hba_rules(db)
+        await db.commit()
+    job = await get_job_by_business(db, "push_target", pt.id)
+    if job:
+        from app.scheduler.engine import get_engine
+        await get_engine().reload_job(job.id)
     await db.refresh(pt)
-
     return await _to_out(pt, db)
 
 
@@ -633,7 +728,7 @@ async def delete_push_target(
     await _ensure_report_push_editable(pt.source_table, user, db)
     await _ensure_system_op_for_non_report(pt.source_table, user, db, "D")
 
-    if pt.push_type == "db_expose":
+    if pt.push_type in ("db_snapshot", "db_realtime"):
         from app.core.config import settings as app_settings
         from app.data.ddl import make_identifier
         from app.push.push_service import _quote_pg_identifier
@@ -660,7 +755,7 @@ async def delete_push_target(
                     await db.execute(
                         select(PushTarget).where(
                             PushTarget.id != pt_id,
-                            PushTarget.push_type == "db_expose",
+                            PushTarget.push_type == "db_snapshot",
                         )
                     )
                 ).scalars().all()
@@ -686,6 +781,9 @@ async def delete_push_target(
         delete(ScheduledJob).where(ScheduledJob.kind == "push_target", ScheduledJob.business_id == pt_id)
     )
     await db.delete(pt)
+    await db.commit()
+    from app.push.pg_hba import sync_pg_hba_rules
+    await sync_pg_hba_rules(db)
     await db.commit()
     return {"ok": True}
 
@@ -847,11 +945,49 @@ async def _build_integration_documentation(pt: PushTarget, db: AsyncSession) -> 
     elif pt.push_type == "http_push":
         lines += ["", "二、鉴权请求头", "如配置 Bearer Token，由 HR Portal 在服务端发送；本文档不包含 Token。", "", "三、cURL 调用示例", f"平台将以 {settings.get('method', 'POST')} 请求 {_mask_url(settings.get('url', ''))}。", "", "四、Python 调用示例", "由 HR Portal 后台主动推送，无需对方调用。"]
     elif pt.push_type == "external_db":
-        lines += ["", "二、鉴权请求头", "通过数据库账号鉴权；密码由管理员受控交付。", "", "三、cURL 调用示例", "不适用：平台主动写入对方数据库。", "", "四、Python 调用示例", f"目标：{settings.get('dialect', 'mysql')}://{settings.get('host', '')}:{settings.get('port', '')}/{settings.get('database', '')}，表：{settings.get('target_table', '')}。"]
-    elif pt.push_type == "db_expose":
-        lines += ["", "二、鉴权请求头", "通过只读数据库账号鉴权；密码由管理员受控交付。", "", "三、cURL 调用示例", "不适用：对方使用 PostgreSQL/JDBC 客户端连接。", "", "四、Python 调用示例", f"连接信息：host={settings.get('host', '')} port={settings.get('port', '')} database={settings.get('database', '')} schema={settings.get('schema', '')} table={settings.get('view') or settings.get('table', '')} user={settings.get('readonly_user', '')}。"]
+        lines += ["", "二、鉴权方式", "通过数据库账号鉴权；密码由管理员受控交付。", "", "三、调用方式", "不适用：平台主动写入对方数据库。", "", "四、目标信息", f"目标：{settings.get('dialect', 'mysql')}://{settings.get('host', '')}:{settings.get('port', '')}/{settings.get('database', '')}，表：{settings.get('target_table', '')}。"]
+    elif pt.push_type in ("db_snapshot", "db_realtime"):
+        is_realtime = pt.push_type == "db_realtime"
+        mode_title = "实时只读数据库访问" if is_realtime else "同步快照数据库访问"
+        schema = settings.get("schema", "")
+        view = settings.get("view") or settings.get("table", "")
+        host = settings.get("host", "")
+        port = settings.get("port", "")
+        database = settings.get("database", "")
+        user = settings.get("readonly_user", "")
+        jdbc_url = settings.get("jdbc_url", "")
+        psql_url = f"postgresql://{user}:由管理员受控提供的密码@{host}:{port}/{database}"
+        query = f'SELECT * FROM "{schema}"."{view}" LIMIT 100;'
+        lines += [
+            "", "二、访问模式", mode_title,
+            ("查询时实时读取当前源数据；每次 SQL 查询都无需执行同步，源数据更新后下次查询即可看到最新结果。" if is_realtime
+             else "读取最近一次成功同步生成的数据库快照，不是实时数据；需要手动或按调度计划同步。"),
+            "", "三、数据库连接信息",
+            f"主机：{host}", f"端口：{port}", f"数据库：{database}", f"Schema：{schema}",
+            f"View：{view}", f"用户名：{user}", "密码：由管理员通过受控渠道单独提供。",
+            f"连接数上限：{getattr(app_settings, 'DB_READONLY_CONNECTION_LIMIT', 5)}",
+            f"SQL 超时：{getattr(app_settings, 'DB_READONLY_STATEMENT_TIMEOUT_SECONDS', 60)} 秒",
+            f"事务空闲超时：{getattr(app_settings, 'DB_READONLY_IDLE_TRANSACTION_TIMEOUT_SECONDS', 60)} 秒",
+            f"JDBC URL：{jdbc_url}",
+            "", "四、访问控制",
+            "数据库 IP 白名单由 PostgreSQL pg_hba.conf 在连接建立阶段强制执行。",
+            "只有配置的 IP 或 CIDR 可以使用该账号连接；IP 白名单为空时拒绝该账号的所有远程连接。",
+            "宿主机防火墙或云安全组也必须只向相同来源 IP 放通数据库端口。",
+            "", "五、连接与查询示例",
+            f'psql "{psql_url}"', query,
+            "", "六、数据时效",
+            ("实时视图不保存数据副本；查询压力会直接作用于源表/报表查询。" if is_realtime
+             else f"以最近一次成功同步结果为准。调度计划：{settings.get('schedule') or '手动触发'}；最近同步时间：{pt.last_push_at.isoformat() if pt.last_push_at else '尚未同步'}；状态：{pt.last_status}；行数：{pt.last_rows if pt.last_rows is not None else '未知'}。同步失败时应继续读取上一份成功快照。"),
+        ]
     else:
         lines += ["", "二、鉴权请求头", "飞书应用凭证由管理员受控配置，本文档不包含 App Secret。", "", "三、cURL 调用示例", "不适用：平台主动写入飞书在线表格。", "", "四、Python 调用示例", f"目标 Sheet：{settings.get('sheet_id') or '默认工作表'}，起始单元格：{settings.get('start_cell', 'A1')}。"]
+
+    if pt.push_type in ("db_snapshot", "db_realtime"):
+        lines += ["", "七、字段说明"]
+        for code in output_codes:
+            lines.append(f"{code}：{output_labels[code]}（{output_types[code]}）")
+        lines += ["", "八、接入与安全约定", "1. 数据库密码必须通过受控渠道交付，不得写入文档、邮件、群聊、代码或日志。", "2. 请按最小权限、访问审计和数据留存要求处理数据。", "3. 目标停用后，账号不应继续使用；管理员应同步回收账号或网络访问规则。"]
+        return "\n".join(lines) + "\n"
 
     response_start = 6 if pt.push_type == "api_expose" else 5
     lines += [

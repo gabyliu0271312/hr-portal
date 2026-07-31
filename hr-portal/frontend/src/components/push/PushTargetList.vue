@@ -45,6 +45,10 @@ async function load() {
 }
 
 async function runNow(target: PushTargetOut) {
+  if (target.push_type === 'db_realtime') {
+    ElMessage.info('实时数据库视图会在查询时读取当前数据，无需手动推送')
+    return
+  }
   running.value = target.id
   try {
     const res = await pushTargetsApi.run(target.id)
@@ -74,7 +78,8 @@ const PUSH_TYPE_LABELS: Record<string, string> = {
   external_db: '写入数据库',
   http_push: 'HTTP 推送',
   api_expose: 'API 暴露',
-  db_expose: '数据库暴露',
+  db_realtime: '实时数据库',
+  db_snapshot: '快照数据库',
   feishu_sheet: '飞书表格',
 }
 
@@ -129,9 +134,9 @@ onMounted(load)
         </el-table-column>
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <PermissionButton :menu="permissionMenu" op="C" size="small" type="primary"
+            <PermissionButton v-if="row.push_type === 'db_snapshot' || !['api_expose', 'db_realtime'].includes(row.push_type)" :menu="permissionMenu" op="C" size="small" type="primary"
               :loading="running === row.id" @click="runNow(row)">
-              <el-icon><VideoPlay /></el-icon>立即推送
+              <el-icon><VideoPlay /></el-icon>{{ row.push_type === 'db_snapshot' ? '立即同步' : '立即推送' }}
             </PermissionButton>
             <el-button size="small" style="margin-left: 8px"
               @click="historyTarget = row">历史</el-button>

@@ -1,6 +1,6 @@
 import { api } from './client'
 
-export type PushType = 'external_db' | 'http_push' | 'api_expose' | 'db_expose' | 'feishu_sheet'
+export type PushType = 'external_db' | 'http_push' | 'api_expose' | 'db_realtime' | 'db_snapshot' | 'feishu_sheet'
 
 export interface QueryParameterInput {
   column: string
@@ -24,6 +24,17 @@ export interface ReportFilterMetadata {
   data_type: string
   visible: boolean
   locked: boolean
+}
+
+export interface SourceCapability {
+  supported: boolean
+  reason?: string
+}
+
+export interface SourceCapabilitiesOut {
+  source_type: string
+  source_id: string
+  capabilities: Record<string, SourceCapability>
 }
 
 export interface PushTargetSettings {
@@ -103,6 +114,9 @@ export const pushTargetsApi = {
 
   reveal: (id: number) =>
     api.get<Record<string, string>>(`/push-targets/${id}/reveal`).then((r) => r.data),
+
+  sourceCapabilities: (source_type: string, source_id: string) =>
+    api.get<SourceCapabilitiesOut>('/push-targets/source-capabilities', { params: { source_type, source_id } }).then((r) => r.data),
 
   queryParameterMetadata: (sourceTable: string) =>
     api.get<ReportFilterMetadata[]>('/push-targets/query-parameter-metadata', { params: { source_table: sourceTable } }).then((r) => r.data),
