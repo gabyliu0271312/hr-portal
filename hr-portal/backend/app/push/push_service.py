@@ -32,6 +32,70 @@ from app.datasources.sync_service import PERIOD_TABLES
 logger = logging.getLogger("push_service")
 
 
+def _is_managed_schema(value: str) -> bool:
+    return bool(re.fullmatch(r"finebi_[a-z0-9_]+", value or ""))
+
+
+def _schema_history(target, current_schema: str) -> list[str]:
+    history = [name for name in (target.schema_history or []) if _is_managed_schema(name)]
+    if _is_managed_schema(current_schema) and current_schema not in history:
+        history.append(current_schema)
+    return history[-20:]
+
+
+async def _referenced_schemas(db: AsyncSession, excluding_target_id: int | None = None) -> set[str]:
+    from app.push.models import PushTarget
+
+    rows = (await db.execute(select(PushTarget).where(
+        PushTarget.push_type.in_(("db_realtime", "db_snapshot"))
+    ))).scalars().all()
+    schemas = set()
+    for target in rows:
+        if target.id == excluding_target_id:
+            continue
+        values = [(target.settings or {}).get("schema"), *(target.schema_history or [])]
+        schemas.update(name for name in values if _is_managed_schema(name))
+    return schemas
+
+
+async def cleanup_managed_schemas(
+    db: AsyncSession, candidates: list[str], excluding_target_id: int | None = None,
+) -> list[str]:
+    referenced = await _referenced_schemas(db, excluding_target_id)
+    removed = []
+    for schema_name in set(candidates):
+        if not _is_managed_schema(schema_name) or schema_name in referenced:
+            continue
+        exists = (await db.execute(text(
+            "SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = :schema_name)"
+        ), {"schema_name": schema_name})).scalar_one()
+        if exists:
+            await db.execute(text(f"DROP SCHEMA IF EXISTS {_quote_pg_identifier(schema_name)} CASCADE"))
+            removed.append(schema_name)
+    return removed
+
+
+async def list_orphan_schemas(db: AsyncSession) -> list[dict]:
+    referenced = await _referenced_schemas(db)
+    rows = (await db.execute(text(
+        "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'finebi\\_%' ESCAPE '\\' ORDER BY nspname"
+    ))).scalars().all()
+    result = []
+    for schema_name in rows:
+        if not _is_managed_schema(schema_name):
+            continue
+        count = (await db.execute(text(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = :schema_name"
+        ), {"schema_name": schema_name})).scalar_one()
+        result.append({
+            "schema": schema_name,
+            "object_count": count,
+            "safe_to_delete": schema_name not in referenced,
+            "reason": "未被任何推送目标引用" if schema_name not in referenced else "仍被推送目标引用",
+        })
+    return result
+
+
 # ===== 字段映射 =====
 
 def apply_field_mappings(row: dict, mappings: list[dict]) -> dict:
@@ -877,6 +941,7 @@ async def push_db_realtime(
             f"@{conn_host}:{app_settings.DB_PUBLIC_PORT}/{app_settings.DB_NAME}"
             f"?options=-csearch_path%3D{_quote_conn_part(schema_name)}"
         )
+        target.schema_history = _schema_history(target, schema_name)
         target.secrets_encrypted = {**(target.secrets_encrypted or {}), "readonly_password": encrypt(password)}
         target.settings = {
             **(target.settings or {}), "readonly_user": readonly_user,
@@ -884,6 +949,7 @@ async def push_db_realtime(
             "schema": schema_name, "view": view_name, "conn_url": conn_url,
             "jdbc_url": f"jdbc:postgresql://{conn_host}:{app_settings.DB_PUBLIC_PORT}/{app_settings.DB_NAME}?currentSchema={_quote_conn_part(schema_name)}",
         }
+        flag_modified(target, "schema_history")
         flag_modified(target, "secrets_encrypted")
         flag_modified(target, "settings")
     from app.push.pg_hba import sync_pg_hba_rules
@@ -1081,6 +1147,7 @@ async def push_db_snapshot(
         new_secrets = dict(pts.secrets_encrypted or {})
         new_secrets["readonly_password"] = encrypt(password)
         pts.secrets_encrypted = new_secrets
+        pts.schema_history = _schema_history(pts, schema_name)
         pts.settings = {
             **(pts.settings or {}),
             "readonly_user": readonly_user,
@@ -1094,6 +1161,7 @@ async def push_db_snapshot(
             "jdbc_url": jdbc_url,
         }
         flag_modified(pts, "secrets_encrypted")
+        flag_modified(pts, "schema_history")
         flag_modified(pts, "settings")
         await db.commit()
 

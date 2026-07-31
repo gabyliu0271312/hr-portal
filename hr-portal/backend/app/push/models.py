@@ -32,6 +32,7 @@ class PushTarget(Base):
 
     # 非敏感配置（URL、host、port、db名、表名等）
     settings: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    schema_history: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     # 敏感配置（password、token），加密存储
     secrets_encrypted: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 

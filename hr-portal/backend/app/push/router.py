@@ -15,6 +15,7 @@ from datetime import date, datetime, UTC
 from decimal import Decimal
 import hashlib
 import json
+import logging
 import re
 from typing import Any
 
@@ -30,6 +31,7 @@ from app.push.models import PushTarget
 from app.users.models import User
 
 router = APIRouter(prefix="/push-targets", tags=["push-targets"])
+logger = logging.getLogger("push_router")
 
 
 # ===== Schemas =====
@@ -612,6 +614,14 @@ async def create_push_target(
     return await _to_out(pt, db)
 
 
+@router.get("/schema-orphans", dependencies=[Depends(require_any_op(("warehouse.service", "D")))])
+async def schema_orphans(
+    db: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    from app.push.push_service import list_orphan_schemas
+    return await list_orphan_schemas(db)
+
+
 @router.get("/{pt_id}", response_model=PushTargetOut)
 async def get_push_target(
     pt_id: int,
@@ -653,6 +663,11 @@ async def update_push_target(
 
 
     previous_push_type = pt.push_type
+    previous_schemas = [
+        (pt.settings or {}).get("schema"),
+        *(pt.schema_history or []),
+    ]
+    # P2：统一来源协议 — 解析并写入独立列 + source_table
     if payload.source_type and payload.source_id:
         pt.source_type = payload.source_type
         pt.source_id = payload.source_id
@@ -715,6 +730,15 @@ async def update_push_target(
         except RuntimeError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
+    if previous_push_type in ("db_realtime", "db_snapshot") or pt.push_type in ("db_realtime", "db_snapshot"):
+        from app.push.push_service import cleanup_managed_schemas
+        current_schema = (pt.settings or {}).get("schema")
+        try:
+            await cleanup_managed_schemas(
+                db, [schema for schema in previous_schemas if schema != current_schema], pt.id,
+            )
+        except Exception:
+            logger.exception("清理推送目标 %s 的旧 Schema 失败", pt.id)
     await db.flush()
     if previous_push_type in ("db_realtime", "db_snapshot") or pt.push_type in ("db_realtime", "db_snapshot"):
         from app.push.pg_hba import PgHbaManagedBlockError, sync_pg_hba_rules
@@ -777,7 +801,7 @@ async def delete_push_target(
                     await db.execute(
                         select(PushTarget).where(
                             PushTarget.id != pt_id,
-                            PushTarget.push_type == "db_snapshot",
+                            PushTarget.push_type.in_(("db_snapshot", "db_realtime")),
                         )
                     )
                 ).scalars().all()
@@ -804,6 +828,11 @@ async def delete_push_target(
     )
     await db.delete(pt)
     await db.flush()
+    if needs_hba_sync:
+        from app.push.push_service import cleanup_managed_schemas
+        await cleanup_managed_schemas(
+            db, [*(pt.schema_history or []), (pt.settings or {}).get("schema")], pt_id,
+        )
     if needs_hba_sync:
         from app.push.pg_hba import PgHbaManagedBlockError, sync_pg_hba_rules
         try:

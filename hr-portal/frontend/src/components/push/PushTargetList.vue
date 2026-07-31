@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, VideoPlay } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, VideoPlay, Search } from '@element-plus/icons-vue'
 import { formatDateTime } from '@/utils/datetime'
 import PermissionButton from '@/components/PermissionButton.vue'
 import PushTargetDialog from './PushTargetDialog.vue'
 import PushRunHistory from './PushRunHistory.vue'
-import type { PushTargetOut } from '@/api/push_targets'
+import type { PushTargetOut, SchemaOrphan } from '@/api/push_targets'
 import { pushTargetsApi } from '@/api/push_targets'
 
 const props = withDefaults(defineProps<{
@@ -29,6 +29,9 @@ const running = ref<number | null>(null)
 const historyTarget = ref<PushTargetOut | null>(null)
 const dialogRef = ref<InstanceType<typeof PushTargetDialog> | null>(null)
 const historyRef = ref<InstanceType<typeof PushRunHistory> | null>(null)
+const orphanDialogVisible = ref(false)
+const orphanLoading = ref(false)
+const orphans = ref<SchemaOrphan[]>([])
 const activeTargets = computed(() => targets.value.filter((item) => item.is_active).length)
 const tableMaxHeight = computed(() => (props.compact ? 300 : 400))
 
@@ -74,6 +77,18 @@ async function remove(target: PushTargetOut) {
   }
 }
 
+async function checkOrphans() {
+  orphanLoading.value = true
+  orphanDialogVisible.value = true
+  try {
+    orphans.value = await pushTargetsApi.schemaOrphans()
+  } catch {
+    ElMessage.error('检查孤儿 Schema 失败')
+  } finally {
+    orphanLoading.value = false
+  }
+}
+
 const PUSH_TYPE_LABELS: Record<string, string> = {
   external_db: '写入数据库',
   http_push: 'HTTP 推送',
@@ -90,12 +105,18 @@ onMounted(load)
 <template>
   <div class="push-target-list" :class="{ 'is-compact': compact }">
     <div v-if="!hideHeader" class="push-list-header">
+      <PermissionButton :menu="permissionMenu" op="D" plain @click="checkOrphans">
+        <el-icon style="margin-right: 4px"><Search /></el-icon>检查孤儿 Schema
+      </PermissionButton>
       <PermissionButton :menu="permissionMenu" op="C" type="primary" @click="dialogRef?.open()">
         <el-icon style="margin-right: 4px"><Plus /></el-icon>新增推送
       </PermissionButton>
     </div>
     <div v-else class="push-list-toolbar">
       <span class="push-summary">已配置 {{ targets.length }} 个推送配置，启用 {{ activeTargets }} 个</span>
+      <PermissionButton :menu="permissionMenu" op="D" plain @click="checkOrphans">
+        <el-icon style="margin-right: 4px"><Search /></el-icon>检查孤儿 Schema
+      </PermissionButton>
       <PermissionButton :menu="permissionMenu" op="C" type="primary" plain @click="dialogRef?.open()">
         <el-icon style="margin-right: 4px"><Plus /></el-icon>新增推送
       </PermissionButton>
@@ -152,6 +173,22 @@ onMounted(load)
         </el-table-column>
       </el-table>
     </div>
+
+    <el-dialog v-model="orphanDialogVisible" title="孤儿 Schema 检查" width="760px">
+      <el-table v-loading="orphanLoading" :data="orphans" stripe>
+        <el-table-column prop="schema" label="Schema" min-width="300" />
+        <el-table-column prop="object_count" label="对象数" width="100" />
+        <el-table-column label="状态" min-width="180">
+          <template #default="{ row }">
+            <el-tag :type="row.safe_to_delete ? 'warning' : 'success'">
+              {{ row.safe_to_delete ? '未被引用' : '仍被引用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="reason" label="说明" min-width="180" />
+      </el-table>
+      <el-empty v-if="!orphanLoading && !orphans.length" description="未发现孤儿 Schema" />
+    </el-dialog>
 
     <!-- 推送历史抽屉 -->
     <el-drawer

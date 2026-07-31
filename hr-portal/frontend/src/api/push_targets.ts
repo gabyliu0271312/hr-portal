@@ -87,6 +87,13 @@ export interface PushRunOut {
   triggered_by: string
 }
 
+export interface SchemaOrphan {
+  schema: string
+  object_count: number
+  safe_to_delete: boolean
+  reason: string
+}
+
 export const pushTargetsApi = {
   list: (source_table?: string) =>
     api.get<PushTargetOut[]>('/push-targets', { params: source_table ? { source_table } : {} })
@@ -120,6 +127,9 @@ export const pushTargetsApi = {
 
   queryParameterMetadata: (sourceTable: string) =>
     api.get<ReportFilterMetadata[]>('/push-targets/query-parameter-metadata', { params: { source_table: sourceTable } }).then((r) => r.data),
+
+  schemaOrphans: () =>
+    api.get<SchemaOrphan[]>('/push-targets/schema-orphans').then((r) => r.data),
 
   integrationDocumentation: (id: number) =>
     api.get(`/push-targets/${id}/integration-documentation`, { responseType: 'blob' }).then((r) => r.data as Blob),
