@@ -237,7 +237,7 @@ export const ucpApi = {
 
   /* Manual trigger (Phase 2-4: with concurrent lock + permission + params) */
   runPipeline: (pipelineCode: string, params?: { dry_run?: boolean; time_range?: { start: string; end: string } | null; override_params?: Record<string, any> | null }) =>
-    api.post<{pipeline_run_id: string; trace_id: string; status: string; duration_ms: number | null; dry_run?: boolean; node_results?: Array<{node_id: string; status: string; output_summary?: Record<string, any>; message?: string; suggested_action?: string}>}>(`/ucp/pipelines/${pipelineCode}/run`, params ?? {}).then((r) => r.data),
+    api.post<{pipeline_run_id: string; trace_id: string; status: string; duration_ms: number | null; dry_run?: boolean; node_results?: Array<{node_id: string; status: string; output_summary?: Record<string, any>; message?: string; suggested_action?: string}>}>(`/ucp/pipelines/${pipelineCode}/run`, params ?? {}, { timeout: params?.dry_run ? 60000 : 300000 }).then((r) => r.data),
 
   /* Failed items */
   failedItems: (pipelineRunId: string) =>
