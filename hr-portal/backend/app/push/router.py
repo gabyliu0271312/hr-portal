@@ -596,11 +596,17 @@ async def create_push_target(
         except RuntimeError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
-    await db.commit()
     if pt.push_type in ("db_realtime", "db_snapshot"):
-        from app.push.pg_hba import sync_pg_hba_rules
-        await sync_pg_hba_rules(db)
-        await db.commit()
+        from app.push.pg_hba import PgHbaManagedBlockError, sync_pg_hba_rules
+        try:
+            await sync_pg_hba_rules(db)
+        except PgHbaManagedBlockError as exc:
+            await db.rollback()
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except OSError as exc:
+            await db.rollback()
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="PostgreSQL 访问规则文件不可写") from exc
+    await db.commit()
     await db.refresh(pt)
 
     return await _to_out(pt, db)
@@ -646,7 +652,7 @@ async def update_push_target(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="；".join(assessment["reasons"]))
 
 
-    # P2：统一来源协议 — 解析并写入独立列 + source_table
+    previous_push_type = pt.push_type
     if payload.source_type and payload.source_id:
         pt.source_type = payload.source_type
         pt.source_id = payload.source_id
@@ -688,6 +694,13 @@ async def update_push_target(
             except ValueError as exc:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    pt.name = payload.name
+    pt.description = payload.description
+    pt.push_type = payload.push_type
+    pt.settings = payload.settings
+    pt.field_mappings = payload.field_mappings
+    pt.is_active = payload.is_active
+
     if payload.schedule and payload.schedule != "手动触发" and payload.push_type not in ("api_expose", "db_realtime"):
         await upsert_job(db, kind="push_target", business_id=pt.id, cron=payload.schedule, payload={"source_table": payload.source_table}, enabled=payload.is_active)
     else:
@@ -702,11 +715,18 @@ async def update_push_target(
         except RuntimeError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
+    await db.flush()
+    if previous_push_type in ("db_realtime", "db_snapshot") or pt.push_type in ("db_realtime", "db_snapshot"):
+        from app.push.pg_hba import PgHbaManagedBlockError, sync_pg_hba_rules
+        try:
+            await sync_pg_hba_rules(db)
+        except PgHbaManagedBlockError as exc:
+            await db.rollback()
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except OSError as exc:
+            await db.rollback()
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="PostgreSQL 访问规则文件不可写") from exc
     await db.commit()
-    if pt.push_type in ("db_realtime", "db_snapshot"):
-        from app.push.pg_hba import sync_pg_hba_rules
-        await sync_pg_hba_rules(db)
-        await db.commit()
     job = await get_job_by_business(db, "push_target", pt.id)
     if job:
         from app.scheduler.engine import get_engine
@@ -729,7 +749,8 @@ async def delete_push_target(
     await _ensure_report_push_editable(pt.source_table, user, db)
     await _ensure_system_op_for_non_report(pt.source_table, user, db, "D")
 
-    if pt.push_type in ("db_snapshot", "db_realtime"):
+    needs_hba_sync = pt.push_type in ("db_snapshot", "db_realtime")
+    if needs_hba_sync:
         from app.core.config import settings as app_settings
         from app.data.ddl import make_identifier
         from app.push.push_service import _quote_pg_identifier
@@ -782,9 +803,17 @@ async def delete_push_target(
         delete(ScheduledJob).where(ScheduledJob.kind == "push_target", ScheduledJob.business_id == pt_id)
     )
     await db.delete(pt)
-    await db.commit()
-    from app.push.pg_hba import sync_pg_hba_rules
-    await sync_pg_hba_rules(db)
+    await db.flush()
+    if needs_hba_sync:
+        from app.push.pg_hba import PgHbaManagedBlockError, sync_pg_hba_rules
+        try:
+            await sync_pg_hba_rules(db)
+        except PgHbaManagedBlockError as exc:
+            await db.rollback()
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except OSError as exc:
+            await db.rollback()
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="PostgreSQL 访问规则文件不可写") from exc
     await db.commit()
     return {"ok": True}
 

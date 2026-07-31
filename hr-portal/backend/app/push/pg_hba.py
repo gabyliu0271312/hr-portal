@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import text
@@ -12,6 +13,66 @@ from sqlalchemy.ext.asyncio import AsyncSession
 _MANAGED_FILE = os.getenv("PG_HBA_MANAGED_FILE", "/app/pg_hba.conf")
 _BEGIN = "# BEGIN HR PORTAL MANAGED RULES"
 _END = "# END HR PORTAL MANAGED RULES"
+
+
+class PgHbaManagedBlockError(RuntimeError):
+    """The configured pg_hba.conf does not contain a safe managed block."""
+
+
+def _render_content(content: str, managed: str) -> str:
+    begin_count = content.count(_BEGIN)
+    end_count = content.count(_END)
+    if begin_count != 1 or end_count != 1:
+        raise PgHbaManagedBlockError(
+            "运行态 pg_hba.conf 的 HR Portal 受管规则标记缺失或重复，请先完成配置升级"
+        )
+    before, remainder = content.split(_BEGIN, 1)
+    managed_block, after = remainder.split(_END, 1)
+    if _BEGIN in managed_block or _END in managed_block or _BEGIN in after or _END in after:
+        raise PgHbaManagedBlockError(
+            "运行态 pg_hba.conf 的 HR Portal 受管规则标记顺序不合法，请先完成配置升级"
+        )
+    return f"{before}{_BEGIN}\n{managed}\n{_END}{after}"
+
+
+def _atomic_write(path: Path, content: bytes) -> None:
+    fd, temp_name = tempfile.mkstemp(prefix=".managed_hba.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+        os.replace(temp_name, path)
+    except Exception:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+
+def prepare_pg_hba_managed_block() -> None:
+    """Add an empty managed block to an existing HBA file without changing other rules."""
+    path = Path(_MANAGED_FILE)
+    if not path.exists():
+        raise PgHbaManagedBlockError(f"pg_hba.conf 不存在: {path}")
+    previous = path.read_bytes()
+    try:
+        content = previous.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PgHbaManagedBlockError("pg_hba.conf 不是合法 UTF-8 文件，无法自动升级") from exc
+    begin_count = content.count(_BEGIN)
+    end_count = content.count(_END)
+    if begin_count == end_count == 1:
+        _render_content(content, "")
+        return
+    if begin_count or end_count:
+        raise PgHbaManagedBlockError("pg_hba.conf 的 HR Portal 受管规则标记不完整或重复，无法自动升级")
+    anchor = "# TYPE  DATABASE"
+    if content.count(anchor) != 1:
+        raise PgHbaManagedBlockError("pg_hba.conf 中找不到唯一的安全插入位置，无法自动升级")
+    backup = path.with_name(f"{path.name}.pre-hr-portal-{datetime.now():%Y%m%d%H%M%S}")
+    _atomic_write(backup, previous)
+    updated = content.replace(anchor, f"{_BEGIN}\n{_END}\n\n{anchor}", 1).encode("utf-8")
+    _atomic_write(path, updated)
 
 
 def _network(value: str) -> str:
@@ -73,27 +134,21 @@ async def sync_pg_hba_rules(db: AsyncSession) -> None:
 
     managed = build_rules([Target(row) for row in rows]).rstrip()
     path = Path(_MANAGED_FILE)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    previous = path.read_bytes() if path.exists() else b""
-    content = previous.decode("utf-8") if previous else f"{_BEGIN}\n{_END}\n"
-    if _BEGIN not in content or _END not in content:
-        raise RuntimeError("pg_hba.conf 缺少 HR Portal 受管规则标记")
-    before, remainder = content.split(_BEGIN, 1)
-    _, after = remainder.split(_END, 1)
-    updated = f"{before}{_BEGIN}\n{managed}\n{_END}{after}"
-    fd, temp_name = tempfile.mkstemp(prefix=".managed_hba.", dir=str(path.parent))
+    if not path.exists():
+        raise PgHbaManagedBlockError(f"pg_hba.conf 不存在: {path}，请先完成配置升级")
+    previous = path.read_bytes()
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(updated)
-        os.replace(temp_name, path)
+        content = previous.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PgHbaManagedBlockError("pg_hba.conf 不是合法 UTF-8 文件，请先完成配置升级") from exc
+    updated = _render_content(content, managed).encode("utf-8")
+    try:
+        _atomic_write(path, updated)
         await db.execute(text("SELECT pg_reload_conf()"))
     except Exception:
         try:
-            path.write_bytes(previous)
-        except OSError:
-            pass
-        try:
-            os.unlink(temp_name)
-        except OSError:
+            _atomic_write(path, previous)
+            await db.execute(text("SELECT pg_reload_conf()"))
+        except Exception:
             pass
         raise

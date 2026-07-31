@@ -11,5 +11,11 @@ if ! alembic upgrade head; then
 fi
 echo "[entrypoint] migrations up to date."
 
+echo "[entrypoint] preparing PostgreSQL HBA managed block..."
+if ! python -c 'from app.push.pg_hba import prepare_pg_hba_managed_block; prepare_pg_hba_managed_block()'; then
+  echo "[entrypoint] ERROR: pg_hba.conf 受管规则区块升级失败 —— 为保护自定义认证规则，拒绝启动。" >&2
+  exit 1
+fi
+
 echo "[entrypoint] starting uvicorn..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 "$@"
