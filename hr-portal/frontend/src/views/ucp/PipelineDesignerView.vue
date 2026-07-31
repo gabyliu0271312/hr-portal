@@ -135,7 +135,8 @@
               <el-form-item label="业务对象"><el-select :model-value="selectedNode.config?.object_code" clearable placeholder="选择 Offer" style="width:100%" @change="selectCapabilityObject"><el-option v-for="item in capabilityObjects" :key="item" :label="item" :value="item" /></el-select></el-form-item>
               <el-form-item label="Offer 能力"><el-select :model-value="selectedNode.config?.capability_id" clearable placeholder="选择 Offer 查询能力" style="width:100%" @change="selectCapabilityOperation"><el-option v-for="item in capabilityOperations" :key="item.capability_id" :label="capabilityOptionLabel(item)" :value="item.capability_id" /></el-select></el-form-item>
               <div class="text-muted">待验证能力可先编排，发布或执行前仍需验证成功。</div>
-              <el-form-item label="投递记录 ID"><el-select v-model="selectedNode.config.lookup_field" allow-create filterable placeholder="选择北森来源字段" style="width:100%"><el-option label="投递记录 ID (application_id)" value="application_id" /></el-select></el-form-item>
+              <el-form-item label="来源字段"><el-select v-model="selectedNode.config.lookup_field" filterable allow-create placeholder="选择上游字段" style="width:100%"><el-option v-for="field in lookupSourceFields" :key="field.field_id" :label="fieldOptionLabel(field)" :value="field.field_id" /></el-select><div v-if="!lookupSourceFields.length" class="text-muted">暂无来源字段目录，请先刷新或运行一次上游节点。</div></el-form-item>
+              <el-form-item label="能力参数名"><el-input v-model="selectedNode.config.parameter_name" placeholder="例如 application_id" /><div class="text-muted">接口参数名由能力定义决定，通常无需修改。</div></el-form-item>
               <el-form-item label="失败策略"><el-select v-model="selectedNode.config.failure_policy" style="width:100%"><el-option label="单人失败继续" value="CONTINUE" /><el-option label="遇到失败停止" value="STOP" /></el-select></el-form-item>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'RECORD_MERGE'">
@@ -687,6 +688,7 @@ const transformMode = computed<string>({
   },
 })
 const upstreamFields = ref<{ name: string; type: string }[]>([])
+const lookupSourceFields = computed(() => fieldCatalog.value?.source_fields || [])
 const transformSourceFields = computed(() => fieldCatalog.value?.source_fields || [])
 const transformTargetFields = computed(() => fieldCatalog.value?.target_fields || targetAssetColumns.value.map((column) => ({ field_id: column.column_code, label: column.column_label, type: column.data_type, source: 'asset' })))
 function fieldOptionLabel(field: any): string { return `${field.label || field.field_id}（${field.field_id} · ${field.source || 'schema'}）` }
@@ -782,6 +784,9 @@ watch(selectedNodeId, async (newId) => {
     const sinkNode = form.nodes.find(item => (item.type as string) === 'WAREHOUSE_ASSET_SINK')
     const targetAsset = String(sinkNode?.config?.target_asset || '')
     if (targetAsset) await loadTargetAssetColumns(targetAsset)
+  }
+  if ((node?.type as string) === 'CAPABILITY_LOOKUP') {
+    await loadUpstreamFields(newId)
   }
   if ((node?.type as string) === 'TRANSFORM') {
     const sinkNode = form.nodes.find(item => (item.type as string) === 'WAREHOUSE_ASSET_SINK')
