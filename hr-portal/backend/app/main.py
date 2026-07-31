@@ -151,12 +151,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    lifecycle_stop_event.set()
-    lifecycle_task.cancel()
-    try:
-        await lifecycle_task
-    except asyncio.CancelledError:
-        pass
     try:
         await scheduler_engine.shutdown()
     except Exception:
