@@ -11,7 +11,8 @@ def upgrade() -> None:
     op.execute("ALTER TABLE push_targets ADD COLUMN IF NOT EXISTS schema_history JSON NOT NULL DEFAULT '[]'::json")
     op.execute(
         "UPDATE push_targets SET schema_history = json_build_array(settings->>'schema') "
-        "WHERE settings ? 'schema' AND settings->>'schema' <> '' AND schema_history = '[]'::json"
+        "WHERE settings->>'schema' IS NOT NULL AND settings->>'schema' <> '' "
+        "AND schema_history = '[]'::json"
     )
 
 
