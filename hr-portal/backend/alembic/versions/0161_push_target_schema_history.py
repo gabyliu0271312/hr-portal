@@ -12,7 +12,7 @@ def upgrade() -> None:
     op.execute(
         "UPDATE push_targets SET schema_history = json_build_array(settings->>'schema') "
         "WHERE settings->>'schema' IS NOT NULL AND settings->>'schema' <> '' "
-        "AND schema_history = '[]'::json"
+        "AND schema_history::text = '[]'"
     )
 
 
