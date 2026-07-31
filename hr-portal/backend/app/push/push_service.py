@@ -837,8 +837,9 @@ async def push_db_realtime(
     user_q = _quote_pg_identifier(readonly_user)
     db_q = _quote_pg_identifier(app_settings.DB_NAME)
     await db.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_q}"))
+    await db.execute(text(f"DROP VIEW IF EXISTS {schema_q}.{view_q}"))
     await db.execute(text(
-        f"CREATE OR REPLACE VIEW {schema_q}.{view_q} AS {view_sql}"
+        f"CREATE VIEW {schema_q}.{view_q} AS {view_sql}"
     ))
 
     exists = (await db.execute(
