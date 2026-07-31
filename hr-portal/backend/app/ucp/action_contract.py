@@ -55,6 +55,9 @@ def redact_sample(value: Any, catalog: list[dict[str, Any]]) -> dict[str, Any]:
 def validate_mapping(mapping: dict[str, Any], *, source_catalog: list[dict[str, Any]], target_catalog: list[dict[str, Any]]) -> dict[str, Any]:
     if not isinstance(mapping, dict) or mapping.get("version") != 1 or not isinstance(mapping.get("rules"), list):
         raise ActionContractError("字段映射必须使用 version=1 的受控结构")
+    mode = mapping.get("mode", "strict")
+    if mode not in {"strict", "mapped_plus_same_name"}:
+        raise ActionContractError("字段映射模式不受支持")
     source, target = ({item["field_id"]: item for item in source_catalog}, {item["field_id"]: item for item in target_catalog})
     for rule in mapping["rules"]:
         source_id, target_id = rule.get("source_field_id"), rule.get("target_field_id")

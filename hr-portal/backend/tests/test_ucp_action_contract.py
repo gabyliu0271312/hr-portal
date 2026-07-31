@@ -60,6 +60,38 @@ def test_manual_action_accepts_a_safe_relative_path():
 
 
 @pytest.mark.asyncio
+async def test_transform_supports_explicit_mapping_and_same_name_passthrough():
+    context = PipelineContext("trace", "run")
+    context.set("source", {"data": [{"employee_number": "106401", "employee_name": "吴天昊", "english_name": "tianhao.wu", "ignored": "secret"}]})
+    result = await _execute_transform_step(
+        {
+            "mapping": {
+                "version": 1,
+                "mode": "mapped_plus_same_name",
+                "rules": [{"source_field_id": "employee_number", "target_field_id": "employee_id", "source_kind": "upstream_field"}],
+                "target_field_catalog": [{"field_id": "employee_id"}, {"field_id": "employee_name"}, {"field_id": "english_name"}],
+            },
+            "_incoming_edges": [{"from": "source"}],
+        },
+        context,
+        None,
+    )
+    assert result["data"] == [{"employee_id": "106401", "employee_name": "吴天昊", "english_name": "tianhao.wu"}]
+
+
+@pytest.mark.asyncio
+async def test_transform_rejects_unsupported_mode():
+    context = PipelineContext("trace", "run")
+    context.set("source", {"data": [{"name": "张三"}]})
+    with pytest.raises(RuntimeError, match="mode"):
+        await _execute_transform_step(
+            {"mapping": {"version": 1, "mode": "anything", "rules": []}, "_incoming_edges": [{"from": "source"}]},
+            context,
+            None,
+        )
+
+
+@pytest.mark.asyncio
 async def test_transform_executes_only_versioned_mapping_dto():
     context = PipelineContext("trace", "run")
     context.set("source", {"data": [{"name": "张三"}]})

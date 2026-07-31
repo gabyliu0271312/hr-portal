@@ -1330,8 +1330,11 @@ async def _execute_transform_step(
     """Map the first active upstream result through the versioned Mapping DTO."""
     mapping = step_config.get("mapping") or {}
     rules = mapping.get("rules") if isinstance(mapping, dict) else None
+    mode = mapping.get("mode", "strict") if isinstance(mapping, dict) else "strict"
     if mapping.get("version") != 1 or not isinstance(rules, list):
         raise RuntimeError("TRANSFORM requires a version=1 mapping DTO")
+    if mode not in {"strict", "mapped_plus_same_name"}:
+        raise RuntimeError("TRANSFORM mapping mode is unsupported")
     incoming = list(step_config.get("_incoming_edges") or [])
     if not incoming:
         raise RuntimeError("TRANSFORM requires an upstream graph node")
@@ -1343,10 +1346,27 @@ async def _execute_transform_step(
         rows = [row for row in source_data if isinstance(row, dict)]
     else:
         rows = []
-    output = [
-        {rule["target_field_id"]: row.get(rule["source_field_id"]) for rule in rules}
-        for row in rows
+
+    target_catalog = mapping.get("target_field_catalog") or []
+    target_fields = [
+        item.get("field_id") for item in target_catalog
+        if isinstance(item, dict) and isinstance(item.get("field_id"), str)
     ]
+    if mode == "mapped_plus_same_name" and not target_fields:
+        raise RuntimeError("mapped_plus_same_name requires target_field_catalog")
+
+    explicit_targets = {rule.get("target_field_id") for rule in rules}
+    output = []
+    for row in rows:
+        transformed = {
+            rule["target_field_id"]: row.get(rule["source_field_id"])
+            for rule in rules
+        }
+        if mode == "mapped_plus_same_name":
+            for field in target_fields:
+                if field not in explicit_targets and field in row:
+                    transformed[field] = row[field]
+        output.append(transformed)
     return {"status": "success", "data": output, "row_count": len(output), "success_count": len(output)}
 
 

@@ -173,6 +173,13 @@
               </el-form-item>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'TRANSFORM'">
+              <el-form-item label="字段处理模式">
+                <el-radio-group v-model="transformMode">
+                  <el-radio value="strict">严格映射</el-radio>
+                  <el-radio value="mapped_plus_same_name">别名映射 + 同名自动透传</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <div v-if="transformMode === 'mapped_plus_same_name'" class="text-muted transform-hint">显式映射优先；目标资产已登记且与上游同名的字段会自动透传。</div>
               <el-form-item label="字段映射">
                 <div class="field-mappings">
                   <div v-for="(m, i) in transformMappings" :key="i" class="mapping-row">
@@ -186,6 +193,12 @@
                   <el-button size="small" @click="addTransformMapping">+ 添加映射</el-button>
                 </div>
               </el-form-item>
+              <div v-if="transformMode === 'mapped_plus_same_name' && targetAssetColumns.length" class="upstream-ref">
+                <div class="upstream-title">可自动透传字段（目标资产已登记）</div>
+                <div class="upstream-field" v-for="f in targetAssetColumns.filter((column) => upstreamFields.some((source) => source.name === column.column_code))" :key="f.column_code">
+                  <span>{{ f.column_label }}</span><small style="color:#909399">{{ f.column_code }}</small>
+                </div>
+              </div>
               <div v-if="upstreamFields.length" class="upstream-ref">
                 <div class="upstream-title">上游字段参考 {{ upstreamSourceName }}</div>
                 <div class="upstream-field" v-for="f in upstreamFields" :key="f.name" @click="addMappingFromField(f.name)">
@@ -636,6 +649,20 @@ async function loadResourceDataObjects(resourceId: number | null | undefined): P
   catch { resourceDataObjects.value = [] }
 }
 const transformMappings = ref<FieldMapping[]>([])
+const transformMode = computed<string>({
+  get: () => String((selectedNode.value?.config as any)?.mapping?.mode || 'strict'),
+  set: (value) => {
+    if (!selectedNode.value) return
+    const cfg = { ...(selectedNode.value.config || {}) } as Record<string, any>
+    cfg.mapping = {
+      ...(cfg.mapping || {}),
+      version: 1,
+      mode: value,
+      target_field_catalog: targetAssetColumns.value.map((column, ordinal) => ({ field_id: column.column_code, label: column.column_label, type: column.data_type || 'string', sensitive: Boolean(column.is_sensitive), parent_field_id: null, ordinal })),
+    }
+    selectedNode.value.config = cfg
+  },
+})
 const upstreamFields = ref<{ name: string; type: string }[]>([])
 const upstreamSourceName = ref('')
 
@@ -678,7 +705,7 @@ function writeMappingsToConfig() {
   const cfg = { ...(selectedNode.value.config || {}) } as Record<string, any>
   const sourceCatalog = upstreamFields.value.map((field, ordinal) => ({ field_id: field.name, label: field.name, type: field.type || 'string', sensitive: false, parent_field_id: null, ordinal }))
   const targetCatalog = mappings.map((mapping, ordinal) => ({ field_id: mapping.to, label: mapping.to, type: sourceCatalog.find(field => field.field_id === mapping.from)?.type || 'string', sensitive: false, parent_field_id: null, ordinal }))
-  cfg.mapping = { version: 1, source_operation_id: 0, source_schema_hash: 'runtime', target_operation_id: 0, target_schema_hash: 'runtime', rules: mappings.map(mapping => ({ target_field_id: mapping.to, source_kind: 'upstream_field', source_field_id: mapping.from })) }
+  cfg.mapping = { version: 1, mode: cfg.mapping?.mode || 'strict', source_operation_id: 0, source_schema_hash: 'runtime', target_operation_id: 0, target_schema_hash: 'runtime', target_field_catalog: targetAssetColumns.value.map((column, ordinal) => ({ field_id: column.column_code, label: column.column_label, type: column.data_type || 'string', sensitive: Boolean(column.is_sensitive), parent_field_id: null, ordinal })), rules: mappings.map(mapping => ({ target_field_id: mapping.to, source_kind: 'upstream_field', source_field_id: mapping.from })) }
   cfg.mapping_source_catalog = sourceCatalog
   cfg.mapping_target_catalog = targetCatalog
   selectedNode.value.config = cfg
