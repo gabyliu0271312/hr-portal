@@ -39,6 +39,18 @@ class ResourceSchemaError(ValueError):
     """resource 字段不符合 adapter schema."""
 
 
+def _validate_webhook_ingress_credential(
+    protocol: dict[str, Any] | None,
+    credential: UcpCredential | None,
+) -> None:
+    ingress = (protocol or {}).get("ingress") if isinstance(protocol, dict) else None
+    strategy = str((ingress or {}).get("verification_strategy") or "NONE").upper()
+    if strategy not in {"HMAC_SHA256", "HMAC_SHA256_TIMESTAMPED"}:
+        return
+    if credential is None or credential.auth_type != "hmac_sha256_timestamped":
+        raise ValueError("WEBHOOK_INGRESS_REQUIRES_HMAC_TIMESTAMPED_CREDENTIAL")
+
+
 def resolve_resource_connector_type(resource: UcpResource) -> str | None:
     """Return a stable product connector type for new and legacy resources."""
     if resource.connector_type:
@@ -85,7 +97,7 @@ def _resolve_connector_for_write(
     connector = get_connector_type(connector_type, include_internal=True)
     if not connector or not connector.get("supports_ucp"):
         raise ResourceSchemaError("不支持的接入类型")
-    if connector["code"] == "webhook_ingress":
+    if connector.get("connection_kind") == "EVENT_INGRESS":
         return connector["code"], None
     if connector.get("connection_kind") != "DATA_OBJECT":
         raise ResourceSchemaError("标准 SaaS 请在业务能力中启用，不能创建为数据资源")
@@ -485,6 +497,11 @@ async def update_resource(
         await _validate_resource_fields_against_schema(
             db, adapter_code=final_adapter_code, fields=merged
         )
+    credential_id = fields.get("credential_id", obj.credential_id)
+    credential = await db.get(UcpCredential, credential_id) if credential_id else None
+    _validate_webhook_ingress_credential(
+        fields.get("protocol", obj.protocol), credential
+    )
 
     for k, v in fields.items():
         if hasattr(obj, k):

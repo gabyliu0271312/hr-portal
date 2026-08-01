@@ -68,12 +68,13 @@
 
     <div class="sub-tabs">
       <el-tabs v-model="subTab">
+        <el-tab-pane label="Circuit & Rate Limits" name="circuits" />
         <el-tab-pane label="运行监控" name="monitor" />
         <el-tab-pane label="执行历史" name="executions" />
         <el-tab-pane label="外部账号" name="external" />
         <el-tab-pane label="审批工作台" name="approvals" />
         <el-tab-pane label="OA 同步" name="oa" />
-        <el-tab-pane label="熔断限流" name="circuits" />
+        <el-tab-pane label="入仓批次" name="batches" />
       </el-tabs>
     </div>
 
@@ -89,6 +90,8 @@
       <ApprovalInboxView v-else-if="subTab === 'approvals'" />
       <OaSyncView v-else-if="subTab === 'oa'" />
       <CircuitBreakerStatus v-else-if="subTab === 'circuits'" />
+      <WarehouseIngestBatchList v-else-if="subTab === 'batches'" :resource-id="filterResourceId" />
+
     </div>
   </div>
 </template>
@@ -101,6 +104,7 @@ import ExternalAccountListView from '../ExternalAccountListView.vue'
 import ApprovalInboxView from '../ApprovalInboxView.vue'
 import OaSyncView from '../OaSyncView.vue'
 import CircuitBreakerStatus from '../CircuitBreakerStatus.vue'
+import WarehouseIngestBatchList from '../WarehouseIngestBatchList.vue'
 import { monitorApi, ucpApi } from '@/api/ucp'
 
 defineProps<{

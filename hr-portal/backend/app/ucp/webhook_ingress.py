@@ -174,3 +174,65 @@ def verify_timestamped_hmac(
     expected = hmac.new(secret.encode("utf-8"), material.encode("utf-8"), hashlib.sha256).hexdigest()
     provided = headers.get(ingress["signature_header"], "")
     return (hmac.compare_digest(provided, expected), "SIGNATURE_INVALID")
+
+def extract_path(payload, path):
+    """Extract a restricted dot-separated object path."""
+    if not path:
+        return None
+    current = payload
+    for segment in str(path).split("."):
+        if not segment or not isinstance(current, dict) or segment not in current:
+            return None
+        current = current[segment]
+    return current
+
+
+def validate_ingress_config(config):
+    """Validate and normalize the supported webhook ingress settings."""
+    strategies = {
+        "NONE",
+        "HMAC_SHA256",
+        "HMAC_SHA256_TIMESTAMPED",
+        "FEISHU_ENCRYPTED_EVENT",
+    }
+    if not isinstance(config, dict):
+        raise ValueError("ingress config must be an object")
+
+    result = dict(config)
+    strategy = str(result.get("verification_strategy") or "NONE").upper()
+    if strategy not in strategies:
+        raise ValueError("unsupported verification strategy")
+    result["verification_strategy"] = strategy
+
+    for key in (
+        "signature_header",
+        "integration_header",
+        "request_id_header",
+        "timestamp_header",
+        "nonce_header",
+    ):
+        if key in result and result[key] is not None:
+            value = str(result[key])
+            if not value or any(char.isspace() for char in value):
+                raise ValueError(f"invalid header: {key}")
+            result[key] = value
+
+    for key in (
+        "event_type_path",
+        "event_id_path",
+        "batch_id_path",
+        "records_path",
+    ):
+        if key in result and result[key] is not None:
+            value = str(result[key])
+            if (
+                not value
+                or any(
+                    not segment or not segment.replace("_", "a").isalnum()
+                    for segment in value.split(".")
+                )
+            ):
+                raise ValueError(f"invalid path: {key}")
+            result[key] = value
+
+    return result
