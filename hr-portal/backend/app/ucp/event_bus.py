@@ -19,13 +19,39 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Iterable
 
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, desc, event as sqlalchemy_event, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session as SyncSession
 
 from app.ucp.models import UcpEvent, UcpEventDelivery, UcpEventTrigger, UcpPipelineConfig
 
 
 logger = logging.getLogger("ucp.event_bus")
+
+_PENDING_BACKGROUND_RUNS = "ucp_pending_background_runs"
+
+
+def _enqueue_background_pipeline(db: AsyncSession, **kwargs: Any) -> None:
+    db.sync_session.info.setdefault(_PENDING_BACKGROUND_RUNS, []).append(kwargs)
+
+
+@sqlalchemy_event.listens_for(SyncSession, "after_commit")
+def _start_committed_background_pipelines(session: SyncSession) -> None:
+    pending = session.info.pop(_PENDING_BACKGROUND_RUNS, [])
+    if not pending:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.error("cannot start committed UCP pipelines without a running event loop")
+        return
+    for kwargs in pending:
+        loop.create_task(_run_pipeline_in_background(**kwargs))
+
+
+@sqlalchemy_event.listens_for(SyncSession, "after_rollback")
+def _discard_rolled_back_background_pipelines(session: SyncSession) -> None:
+    session.info.pop(_PENDING_BACKGROUND_RUNS, None)
 
 
 # ============================================================
@@ -395,6 +421,20 @@ async def dispatch_event(
     except Exception:  # noqa: BLE001
         logger.exception("create_delivery_record failed (non-fatal)")
 
+    _enqueue_background_pipeline(
+        db,
+        pipeline_code=trigger.pipeline_code,
+        run_id=run_id,
+        trace_id=event.trace_id or "",
+        event_payload=event.payload or {},
+        run_as_type=trigger.run_as_type,
+        service_account_code=trigger.service_account_code,
+        event_db_id=event.id,
+        event_id=event.event_id,
+        trigger_code=trigger.trigger_code,
+        delivery_id=delivery_id,
+    )
+
     logger.info(
         "event dispatched: event_id=%s trigger=%s pipeline=%s run_id=%s",
         event.event_id, trigger.trigger_code, trigger.pipeline_code, run_id,
@@ -526,6 +566,8 @@ async def _run_pipeline_in_background(
             if delivery_id is not None:
                 delivery = await bg_db.get(UcpEventDelivery, delivery_id)
                 if delivery is not None:
+                    delivery.status = "RUNNING"
+                    delivery.started_at = getattr(delivery, "started_at", None) or datetime.now(timezone.utc)
                     delivery.heartbeat_at = datetime.now(timezone.utc)
                     await bg_db.commit()
             batch = await get_ingest_batch_for_event(

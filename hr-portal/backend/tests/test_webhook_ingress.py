@@ -89,7 +89,7 @@ def test_webhook_ingress_connector_is_available_to_ucp():
 
     assert connector["supports_ucp"] is True
     assert connector["supports_warehouse"] is False
-    assert connector["connection_kind"] == "DATA_OBJECT"
+    assert connector["connection_kind"] == "EVENT_INGRESS"
     assert "webhook_ingress" in {
         item["code"] for item in list_connector_types("ucp")
     }

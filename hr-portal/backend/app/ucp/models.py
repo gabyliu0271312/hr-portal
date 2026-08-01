@@ -754,6 +754,9 @@ class UcpWebhookIngressReceipt(Base):
     )
 
 
+
+
+class UcpOutboxMessage(Base):
     """Transactional messages emitted only after their enclosing write commits."""
 
     __tablename__ = "ucp_outbox_message"
@@ -792,7 +795,6 @@ class UcpEventPayloadAccessAudit(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-
 
 class UcpEventTrigger(Base):
     """事件触发器：监听特定 event_type，命中后异步执行指定 pipeline。

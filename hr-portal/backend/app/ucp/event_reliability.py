@@ -25,7 +25,7 @@ from app.ucp.event_bus import (
     EVENT_STATUS_FAILED,
     process_event_pipeline,
 )
-from app.ucp.models import UcpEventTrigger, UcpEvent, UcpEventDelivery
+from app.ucp.models import UcpEventTrigger, UcpEvent, UcpEventDelivery, UcpWarehouseIngestBatch
 
 
 logger = logging.getLogger("ucp.event_reliability")
@@ -126,7 +126,7 @@ async def mark_delivery_failed(
     error_message: str,
     retryable: bool = True,
 ) -> None:
-    """标记派发失败；不可重试错误直接进入死信。"""
+    """Mark a failed delivery and project retry/dead-letter state to its ingest batch."""
     delivery.status = DELIVERY_STATUS_FAILED
     delivery.error_code = error_code
     delivery.error_message = (error_message or "")[:500]
@@ -137,8 +137,38 @@ async def mark_delivery_failed(
         delivery.next_retry_at = None
     else:
         delivery.next_retry_at = compute_next_retry_at(delivery.attempt)
-    await db.flush()
 
+    event_uuid = getattr(delivery, "event_uuid", None)
+    batch = None
+    if event_uuid:
+        batch = (
+            await db.execute(
+                select(UcpWarehouseIngestBatch).where(
+                    UcpWarehouseIngestBatch.event_id == event_uuid
+                )
+            )
+        ).scalar_one_or_none()
+    if batch is not None:
+        batch.status = "DEAD_LETTER" if delivery.status == DELIVERY_STATUS_DEAD_LETTER else "PROCESSING"
+        batch.error_summary = (error_message or "")[:1000]
+        batch.processed_at = (
+            datetime.now(timezone.utc)
+            if delivery.status == DELIVERY_STATUS_DEAD_LETTER
+            else None
+        )
+
+    if delivery.status == DELIVERY_STATUS_DEAD_LETTER:
+        event = (
+            await db.execute(
+                select(UcpEvent).where(UcpEvent.event_id == event_uuid)
+            )
+        ).scalar_one_or_none()
+        if event is not None:
+            event.status = EVENT_STATUS_DEAD_LETTER
+            event.error_code = error_code
+            event.error_message = (error_message or "")[:1000]
+
+    await db.flush()
 
 async def recover_stale_deliveries(
     db: AsyncSession,
