@@ -19,46 +19,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Iterable
 
-from sqlalchemy import and_, desc, event as sqlalchemy_event, select
+from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session as SyncSession
 
-from app.ucp.models import (
-    UcpEvent,
-    UcpEventDelivery,
-    UcpEventTrigger,
-    UcpPipelineConfig,
-    UcpPipelineStepExecution,
-    UcpWarehouseIngestBatch,
-)
+from app.ucp.models import UcpEvent, UcpEventDelivery, UcpEventTrigger, UcpPipelineConfig
 
 
 logger = logging.getLogger("ucp.event_bus")
-
-_PENDING_BACKGROUND_RUNS = "ucp_pending_background_runs"
-
-
-def _enqueue_background_pipeline(db: AsyncSession, **kwargs: Any) -> None:
-    db.sync_session.info.setdefault(_PENDING_BACKGROUND_RUNS, []).append(kwargs)
-
-
-@sqlalchemy_event.listens_for(SyncSession, "after_commit")
-def _start_committed_background_pipelines(session: SyncSession) -> None:
-    pending = session.info.pop(_PENDING_BACKGROUND_RUNS, [])
-    if not pending:
-        return
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        logger.error("cannot start committed UCP pipelines without a running event loop")
-        return
-    for kwargs in pending:
-        loop.create_task(_run_pipeline_in_background(**kwargs))
-
-
-@sqlalchemy_event.listens_for(SyncSession, "after_rollback")
-def _discard_rolled_back_background_pipelines(session: SyncSession) -> None:
-    session.info.pop(_PENDING_BACKGROUND_RUNS, None)
 
 
 # ============================================================
@@ -428,14 +395,6 @@ async def dispatch_event(
     except Exception:  # noqa: BLE001
         logger.exception("create_delivery_record failed (non-fatal)")
 
-from app.ucp.models import (
-    UcpEvent,
-    UcpEventDelivery,
-    UcpEventTrigger,
-    UcpPipelineConfig,
-    UcpPipelineStepExecution,
-    UcpWarehouseIngestBatch,
-)
     logger.info(
         "event dispatched: event_id=%s trigger=%s pipeline=%s run_id=%s",
         event.event_id, trigger.trigger_code, trigger.pipeline_code, run_id,
@@ -608,14 +567,21 @@ async def _run_pipeline_in_background(
                 trace_id=trace_id,
                 defer_commit=True,
             )
-from app.ucp.models import (
-    UcpEvent,
-    UcpEventDelivery,
-    UcpEventTrigger,
-    UcpPipelineConfig,
-    UcpPipelineStepExecution,
-    UcpWarehouseIngestBatch,
-)
+            success = execution.status == "SUCCESS"
+            writer_result = _extract_batch_writer_result(execution, batch.target_asset) if is_batch_writer else None
+            if is_batch_writer and (not success or writer_result is None):
+                await bg_db.rollback()
+                event_record = await bg_db.get(UcpEvent, event_db_id)
+                if event_record is None:
+                    return
+                batch = await get_ingest_batch_for_event(
+                    bg_db, resource_id=event_record.resource_id, event_id=event_id
+                )
+                if batch is None:
+                    return
+                success = False
+            delivery = await bg_db.get(UcpEventDelivery, delivery_id) if delivery_id is not None else None
+            if delivery is not None:
                 from app.ucp.event_reliability import mark_delivery_failed, mark_delivery_success
                 if success:
                     await mark_delivery_success(bg_db, delivery)
@@ -703,14 +669,8 @@ from app.ucp.models import (
                     event.status = EVENT_STATUS_DEAD_LETTER if dead_letter else EVENT_STATUS_FAILED
                     event.error_code = "PIPELINE_EXECUTION_EXCEPTION"
                     event.error_message = str(exc)[:1000]
-from app.ucp.models import (
-    UcpEvent,
-    UcpEventDelivery,
-    UcpEventTrigger,
-    UcpPipelineConfig,
-    UcpPipelineStepExecution,
-    UcpWarehouseIngestBatch,
-)
+                    if batch is not None:
+                        mark_ingest_batch_failed(batch, str(exc), dead_letter=dead_letter)
                 await recovery_db.commit()
         except Exception:  # noqa: BLE001
             logger.exception("failed to persist background pipeline failure: run_id=%s", run_id)

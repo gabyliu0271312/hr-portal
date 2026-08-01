@@ -81,8 +81,8 @@ def upgrade() -> None:
     """)
     bind.exec_driver_sql("""
         INSERT INTO ucp_event_trigger
-          (trigger_code, trigger_name, description, event_source, source_resource_id, event_types, pipeline_code, trigger_type, source_resource_object_id, filter_rule, is_active, failure_policy, created_by)
-        SELECT 'COST_ALLOCATION_LOCKED_TRIGGER', '周期锁定事件触发器', '成本分摊锁定事件进入入仓流水线', 'WEBHOOK', r.id, 'allocation_period.locked', 'COST_ALLOCATION_LOCKED_INGEST', 'WEBHOOK', o.id, CAST('{}' AS json), 1, 'RETRY', 'system'
+          (trigger_code, trigger_name, description, event_source, source_resource_id, event_types, pipeline_code, trigger_type, run_as_type, source_resource_object_id, filter_rule, is_active, failure_policy, created_by)
+        SELECT 'COST_ALLOCATION_LOCKED_TRIGGER', '周期锁定事件触发器', '成本分摊锁定事件进入入仓流水线', 'WEBHOOK', r.id, 'allocation_period.locked', 'COST_ALLOCATION_LOCKED_INGEST', 'WEBHOOK', 'SERVICE_ACCOUNT', o.id, CAST('{}' AS json), 1, 'RETRY', 'system'
         FROM ucp_resource r JOIN ucp_resource_data_object o ON o.resource_id = r.id AND o.object_code = 'ALLOCATION_PERIOD_LOCKED'
         WHERE r.resource_code = 'cost-allocation-locked'
           AND EXISTS (SELECT 1 FROM ucp_pipeline_config WHERE pipeline_code = 'COST_ALLOCATION_LOCKED_INGEST')

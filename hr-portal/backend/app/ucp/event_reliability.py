@@ -25,7 +25,7 @@ from app.ucp.event_bus import (
     EVENT_STATUS_FAILED,
     process_event_pipeline,
 )
-from app.ucp.models import UcpEventTrigger, UcpEvent, UcpEventDelivery, UcpWarehouseIngestBatch
+from app.ucp.models import UcpEventTrigger, UcpEvent, UcpEventDelivery
 
 
 logger = logging.getLogger("ucp.event_reliability")
@@ -136,32 +136,7 @@ async def mark_delivery_failed(
         delivery.status = DELIVERY_STATUS_DEAD_LETTER
         delivery.next_retry_at = None
     else:
-        # 计算下一次重试时间
-        delivery.next_retry_at = compute_next_retry_at(delivery.attempt + 1)
-    batch = (
-        await db.execute(
-            select(UcpWarehouseIngestBatch).where(
-                UcpWarehouseIngestBatch.event_id == delivery.event_uuid
-            )
-        )
-    ).scalar_one_or_none()
-    event = (
-        await db.execute(
-            select(UcpEvent).where(UcpEvent.event_id == delivery.event_uuid)
-        )
-    ).scalar_one_or_none()
-    if event is not None and delivery.status == DELIVERY_STATUS_DEAD_LETTER:
-        event.status = EVENT_STATUS_DEAD_LETTER
-        event.error_code = error_code
-        event.error_message = (error_message or "")[:1000]
-    if batch is not None:
-        batch.status = "DEAD_LETTER" if delivery.status == DELIVERY_STATUS_DEAD_LETTER else "PROCESSING"
-        batch.error_summary = (error_message or "")[:1000]
-        batch.processed_at = (
-            datetime.now(timezone.utc)
-            if delivery.status == DELIVERY_STATUS_DEAD_LETTER
-            else None
-        )
+        delivery.next_retry_at = compute_next_retry_at(delivery.attempt)
     await db.flush()
 
 
@@ -293,32 +268,6 @@ async def replay_event(
                     trigger_source="REPLAY",
                     triggered_by=triggered_by,
                 )
-        # 计算下一次重试时间
-        delivery.next_retry_at = compute_next_retry_at(delivery.attempt + 1)
-    batch = (
-        await db.execute(
-            select(UcpWarehouseIngestBatch).where(
-                UcpWarehouseIngestBatch.event_id == delivery.event_uuid
-            )
-        )
-    ).scalar_one_or_none()
-    event = (
-        await db.execute(
-            select(UcpEvent).where(UcpEvent.event_id == delivery.event_uuid)
-        )
-    ).scalar_one_or_none()
-    if event is not None and delivery.status == DELIVERY_STATUS_DEAD_LETTER:
-        event.status = EVENT_STATUS_DEAD_LETTER
-        event.error_code = error_code
-        event.error_message = (error_message or "")[:1000]
-    if batch is not None:
-        batch.status = "DEAD_LETTER" if delivery.status == DELIVERY_STATUS_DEAD_LETTER else "PROCESSING"
-        batch.error_summary = (error_message or "")[:1000]
-        batch.processed_at = (
-            datetime.now(timezone.utc)
-            if delivery.status == DELIVERY_STATUS_DEAD_LETTER
-            else None
-        )
                 event.pipeline_run_id = run_id
                 event.status = EVENT_STATUS_DISPATCHED
                 event.dispatched_at = datetime.now(timezone.utc)

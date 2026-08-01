@@ -754,39 +754,6 @@ class UcpWebhookIngressReceipt(Base):
     )
 
 
-class UcpWarehouseIngestBatch(Base):
-    """One auditable external batch destined for a registered warehouse asset."""
-
-    __tablename__ = "ucp_warehouse_ingest_batch"
-    __table_args__ = (
-        UniqueConstraint("resource_id", "event_id", name="uq_ucp_ingest_batch_resource_event"),
-        UniqueConstraint("resource_id", "target_asset", "batch_id", name="uq_ucp_ingest_batch_resource_asset_batch"),
-        Index("ix_ucp_ingest_batch_asset_period_status", "target_asset", "period_value", "status"),
-        Index("ix_ucp_ingest_batch_resource_received", "resource_id", "received_at"),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    resource_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("ucp_resource.id", ondelete="RESTRICT"), nullable=False
-    )
-    target_asset: Mapped[str] = mapped_column(String(64), nullable=False)
-    event_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    batch_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    period_value: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    payload_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="RECEIVED")
-    received_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    written_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    pipeline_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    received_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-
-class UcpOutboxMessage(Base):
     """Transactional messages emitted only after their enclosing write commits."""
 
     __tablename__ = "ucp_outbox_message"
