@@ -39,3 +39,20 @@ logs/backups/
 # Backup files
 *.bak
 *.bak-*
+
+# Production runtime state and deployment artifacts
+.env.*
+!.env.example
+backend/data/
+backend/logs/
+backend/pg_hba.conf*
+data/pg/
+releases/
+*.pre-hr-portal-*
+backup_*.sql
+_backup_*.sql
+/check_feishu_sync.py
+/-c
+/psql
+/0054_data_compare_tasks,
+/0056_warehouse_ucp_integration,
