@@ -23,6 +23,7 @@ import time
 import uuid
 from copy import deepcopy
 from datetime import datetime, UTC
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import select
@@ -471,6 +472,7 @@ def _apply_mapping_rules(row: dict, mapping_rules: list[dict]) -> dict:
         return row
 
     rename_map: dict[str, str] = {}
+    transform_map: dict[str, str] = {}
     target_sources: dict[str, str] = {}
     for rule in mapping_rules:
         source, target = rule.get("source", ""), rule.get("target", "")
@@ -480,13 +482,48 @@ def _apply_mapping_rules(row: dict, mapping_rules: list[dict]) -> dict:
         if previous != source:
             raise ValueError(f"字段映射冲突：{previous} 和 {source} 都映射到 {target}")
         rename_map[source] = target
+        if rule.get("transform"):
+            transform_map[source] = str(rule["transform"])
+
+    def transform_value(value: Any, transform: str | None) -> Any:
+        if not transform or transform in {"identity", "string"}:
+            return str(value) if transform == "string" and value is not None else value
+        if transform == "yyyy_mm_to_yyyymm":
+            return str(value).replace("-", "") if value is not None else value
+        if transform == "decimal_divide_100":
+            try:
+                return Decimal(str(value)) / Decimal("100")
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise ValueError(f"invalid decimal value for {transform}: {value}") from exc
+        raise ValueError(f"unsupported mapping transform: {transform}")
+
     mapped = {}
     for key, value in row.items():
         mapped_key = rename_map.get(key, key)
         if mapped_key in mapped and mapped_key != key:
             raise ValueError(f"字段映射冲突：来源记录包含重复目标字段 {mapped_key}")
-        mapped[mapped_key] = value
+        mapped[mapped_key] = transform_value(value, transform_map.get(key))
     return mapped
+
+
+def _validate_sink_rows(rows: list[dict], validations: list[dict]) -> None:
+    for validation in validations:
+        if validation.get("type") != "group_sum_equals":
+            raise ValueError(f"unsupported sink validation: {validation.get('type')}")
+        group_by = validation.get("group_by") or []
+        sum_field = validation.get("sum_field")
+        expected = Decimal(str(validation.get("expected", 0)))
+        tolerance = Decimal(str(validation.get("tolerance", "0")))
+        groups: dict[tuple[Any, ...], Decimal] = {}
+        for row in rows:
+            key = tuple(row.get(field) for field in group_by)
+            try:
+                groups[key] = groups.get(key, Decimal("0")) + Decimal(str(row.get(sum_field)))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise ValueError(f"invalid numeric value for sink validation: {sum_field}") from exc
+        for key, actual in groups.items():
+            if abs(actual - expected) > tolerance:
+                raise ValueError(f"sink group sum validation failed for {key}: {actual} != {expected}")
 
 def _resource_mapping_rules(field_mapping: Any) -> list[dict]:
     """Normalize resource data-object mappings to pipeline mapping rules."""
@@ -1022,14 +1059,21 @@ async def _execute_warehouse_asset_sink_step(
     db: AsyncSession,
     pipeline_run_id: str,
 ) -> dict:
-    rows = ctx.resolve_ref(step_config.get("input_key", "")) or []
+    config = dict(step_config.get("config") or {})
+    config.update({key: value for key, value in step_config.items() if key not in {"config", "label"}})
+    rows = ctx.resolve_ref(config.get("input_key", "${event.records}")) or []
+    if not isinstance(rows, list):
+        raise ValueError("warehouse asset sink input must be a list")
+    mapping = config.get("mapping") or []
+    mapped_rows = [_apply_mapping_rules(row, mapping) for row in rows if isinstance(row, dict)]
+    _validate_sink_rows(mapped_rows, config.get("validations") or [])
     from app.warehouse.asset_sink import WarehouseAssetSink
     result = await WarehouseAssetSink(db).write(
-        target_asset=step_config.get("target_asset", ""),
-        rows=rows,
-        write_mode=step_config.get("write_mode", "upsert"),
-        primary_key=step_config.get("primary_key"),
-        field_whitelist=step_config.get("field_whitelist") or [],
+        target_asset=config.get("target_asset", ""),
+        rows=mapped_rows,
+        write_mode=config.get("write_mode", "upsert"),
+        primary_key=config.get("primary_key"),
+        field_whitelist=config.get("field_whitelist") or [],
         batch_id=step_config.get("batch_id") or pipeline_run_id,
     )
     return {"status": "success", "data": [], "row_count": result["written_count"], "success_count": result["written_count"], "extra": result}

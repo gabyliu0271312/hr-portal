@@ -307,8 +307,7 @@
       <el-form :model="credentialEditForm" label-width="105px">
         <el-form-item label="凭证名称" required><el-input v-model="credentialEditForm.credential_name" /></el-form-item>
         <el-form-item label="环境"><el-select v-model="credentialEditForm.env_tag" style="width:100%"><el-option label="生产" value="prod" /><el-option label="测试" value="staging" /><el-option label="开发" value="dev" /><el-option label="备份" value="backup" /></el-select></el-form-item>
-        <el-form-item label="认证方式"><el-select v-model="credentialEditForm.auth_type" style="width:100%"><el-option label="API Key" value="api_key" /><el-option label="Basic" value="basic" /><el-option label="OAuth2" value="oauth2" /><el-option label="Token" value="token" /></el-select></el-form-item>
-        <el-form-item label="更新密钥"><div v-for="field in currentEditCredentialFields" :key="field.key" class="cred-row"><el-input :model-value="field.label" disabled style="width:160px" /><el-input v-model="credentialEditForm.secrets[field.key]" type="password" :placeholder="`留空则不修改；输入新的 ${field.label}`" style="flex:1" /></div></el-form-item>
+        <CredentialForm v-model="credentialEditForm" :edit-mode="true" />
         <el-form-item label="说明"><el-input v-model="credentialEditForm.description" type="textarea" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="credentialEditVisible=false">取消</el-button><el-button type="primary" :loading="submitting" @click="saveCredentialEdit">保存</el-button></template>
@@ -387,13 +386,33 @@
         </template>
         <template v-if="resourceEditForm.connector_type && resourceEditForm.connector_type !== '__legacy_bitable__'">
           <el-divider content-position="left">{{ connectorObjectLabel(resourceEditForm.connector_type) }}</el-divider>
-          <div class="resource-object-toolbar"><span>连接共用凭证；在这里配置可被流水线选择的多个数据对象。</span><el-button type="primary" size="small" @click="openDataObjectDialog()">新增数据对象</el-button></div>
-          <el-table v-if="dataObjects.length" :data="dataObjects" size="small" border style="margin-top:10px">
+          <div v-if="resourceEditForm.connector_type !== 'webhook_ingress'" class="resource-object-toolbar"><span>连接共用凭证；在这里配置可被流水线选择的多个数据对象。</span><el-button type="primary" size="small" @click="openDataObjectDialog()">新增数据对象</el-button></div>
+          <el-table v-if="resourceEditForm.connector_type !== 'webhook_ingress' && dataObjects.length" :data="dataObjects" size="small" border style="margin-top:10px">
             <el-table-column prop="object_code" label="编码" min-width="120" /><el-table-column prop="object_name" label="名称" min-width="140" />
             <el-table-column label="状态" width="76"><template #default="{ row }"><el-tag size="small" :type="row.is_active ? 'success' : 'info'">{{ row.is_active ? '启用' : '停用' }}</el-tag></template></el-table-column>
             <el-table-column label="操作" width="130"><template #default="{ row }"><el-button link type="primary" size="small" @click="openDataObjectDialog(row)">编辑</el-button><el-button link type="danger" size="small" @click="removeDataObject(row)">删除</el-button></template></el-table-column>
           </el-table>
-          <el-empty v-else description="暂无数据对象，新增后可在流水线中选择" :image-size="50" />
+          <el-empty v-else-if="resourceEditForm.connector_type !== 'webhook_ingress'" description="暂无数据对象，新增后可在流水线中选择" :image-size="50" />
+        </template>
+
+        <template v-if="resourceEditForm.connector_type === 'webhook_ingress'">
+          <el-divider content-position="left">Webhook 入站配置</el-divider>
+          <el-form-item label="接收地址"><el-input :model-value="webhookUrl(activeResource)" readonly><template #append><el-button @click="copyWebhookUrl(activeResource)">复制</el-button></template></el-input></el-form-item>
+          <el-form-item label="验签策略"><el-input model-value="HMAC-SHA256 时间戳签名" disabled /></el-form-item>
+        <el-form-item label="Integration ID"><el-input v-model="webhookIngressForm.integration_id" /></el-form-item>
+        <el-form-item label="签名 Header"><el-input v-model="webhookIngressForm.signature_header" /></el-form-item>
+        <el-form-item label="请求 ID Header"><el-input v-model="webhookIngressForm.request_id_header" /></el-form-item>
+        <el-form-item label="时间戳 Header"><el-input v-model="webhookIngressForm.timestamp_header" /></el-form-item>
+        <el-form-item label="Nonce Header"><el-input v-model="webhookIngressForm.nonce_header" /></el-form-item>
+        <el-form-item label="时间容差（秒）"><el-input-number v-model="webhookIngressForm.timestamp_tolerance_seconds" :min="1" :max="3600" /></el-form-item>
+        <el-form-item label="每分钟限流"><el-input-number v-model="webhookIngressForm.rate_limit_per_minute" :min="1" :max="100000" /></el-form-item>
+        <el-form-item label="突发容量"><el-input-number v-model="webhookIngressForm.rate_limit_burst" :min="1" :max="10000" /></el-form-item>
+        <el-form-item label="最大包体（字节）"><el-input-number v-model="webhookIngressForm.max_body_bytes" :min="1024" :max="52428800" /></el-form-item>
+        <el-form-item label="验证"><el-button :loading="webhookVerifying" @click="verifyWebhookResource">验证接收资源</el-button><el-tag v-if="activeResource.test_status" style="margin-left:8px" :type="activeResource.test_status === 'PASS' ? 'success' : 'info'">{{ activeResource.test_status }}</el-tag></el-form-item>
+          <el-form-item label="事件类型路径"><el-input v-model="webhookIngressForm.event_type_path" /></el-form-item>
+          <el-form-item label="请求 ID 路径"><el-input v-model="webhookIngressForm.event_id_path" /></el-form-item>
+          <el-form-item label="批次路径"><el-input v-model="webhookIngressForm.batch_id_path" /></el-form-item>
+          <el-form-item label="明细路径"><el-input v-model="webhookIngressForm.records_path" /></el-form-item>
         </template>
 
         <!-- Phase 6-3: 反向引用 — 哪些流水线引用了此 resource (蓝本 v2 场景 6) -->
@@ -556,30 +575,12 @@
               <el-option label="备份 (backup)" value="backup" />
             </el-select>
           </el-form-item>
-          <el-form-item label="认证方式">
-            <el-select v-model="credForm.auth_type" style="width: 100%">
-              <el-option label="无认证" value="none" />
-              <el-option label="API Key" value="api_key" />
-              <el-option label="App Key / Secret" value="app_key_secret" />
-              <el-option label="Basic" value="basic" />
-              <el-option label="OAuth2" value="oauth2" />
-              <el-option label="Token" value="token" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="密钥字段" required>
-            <div v-for="field in currentCredFields" :key="field.key" class="cred-row">
-              <el-input :model-value="field.label" disabled style="width: 160px" />
-              <el-input
-                v-model="credForm.secrets[field.key]"
-                :type="showSecret ? 'text' : 'password'"
-                :placeholder="`输入 ${field.label}`"
-                style="flex: 1"
-              />
-            </div>
-            <el-button size="small" link @click="showSecret = !showSecret">
-              {{ showSecret ? '隐藏' : '显示' }}值
-            </el-button>
-          </el-form-item>
+          <CredentialForm
+            v-model="credForm"
+            :schema="selectedPackage?.auth_policy?.credential_schema"
+            :allowed-auth-types="selectedPackage?.auth_policy?.auth_type ? [selectedPackage.auth_policy.auth_type] : undefined"
+            :readonly-auth="Boolean(selectedPackage?.auth_policy?.auth_type)"
+          />
           <el-form-item label="过期时间">
             <el-date-picker
               v-model="credForm.expires_at"
@@ -896,6 +897,7 @@ import {
 import { ucpApi, monitorApi } from '@/api/ucp'
 import { datasourcesApi } from '@/api/datasources'
 import SchemaFormField, { type SchemaCategory } from '../components/SchemaFormField.vue'
+import CredentialForm from '../components/CredentialForm.vue'
 import SystemCard from '../components/SystemCard.vue'
 
 const searchKw = ref('')
@@ -981,7 +983,7 @@ function buildBackendJsonFields(
 async function loadConnectorTypes() {
   try {
     const items = await datasourcesApi.types('ucp')
-    connectorTypes.value = (items || []).filter((item: any) => item.connection_kind === 'DATA_OBJECT')
+    connectorTypes.value = (items || []).filter((item: any) => item.connection_kind === 'DATA_OBJECT' || item.connection_kind === 'EVENT_INGRESS')
   } catch (_e) {
     connectorTypes.value = []
   }
@@ -1064,7 +1066,15 @@ const credentialEditVisible = ref(false)
 const credentialEditForm = ref<any>({})
 const currentEditCredentialFields = computed(() => AUTH_FIELDS[credentialEditForm.value.auth_type] || [])
 
-// 资源详情抽屉
+const webhookIngressForm = ref({ integration_id: '', signature_header: 'X-Signature', request_id_header: 'X-Request-Id', timestamp_header: 'X-Timestamp', nonce_header: 'X-Nonce', timestamp_tolerance_seconds: 300, rate_limit_per_minute: 120, rate_limit_burst: 10, max_body_bytes: 1048576, event_type_path: 'event_type', event_id_path: 'request_id', batch_id_path: 'batch_id', period_path: 'period', records_path: 'records' })
+const webhookVerifying = ref(false)
+async function verifyWebhookResource() { if (!activeResource.value) return; webhookVerifying.value = true; try { const result = await ucpApi.verifyWebhookResource(activeResource.value.id); activeResource.value.test_status = result.test_status || 'PASS'; ElMessage.success('Webhook 资源验证通过') } catch (error: any) { ElMessage.error(error?.response?.data?.detail || 'Webhook 资源验证失败') } finally { webhookVerifying.value = false } }
+
+
+function webhookUrl(resource: any) { return `${window.location.origin}/api/v1/ucp/webhooks/resources/${resource?.resource_code || ''}` }
+async function copyWebhookUrl(resource: any) { await navigator.clipboard?.writeText(webhookUrl(resource)); ElMessage.success('接收地址已复制') }
+
+
 const resourceDrawerOpen = ref(false)
 const activeResource = ref<any>(null)
 const bitableTables = ref<any[]>([])
@@ -1159,6 +1169,7 @@ const wizardResources = ref<any[]>([])
 const addResourceFromWizardFlag = ref(false)
 
 const AUTH_FIELDS: Record<string, { key: string; label: string }[]> = {
+  hmac_sha256_timestamped: [{ key: 'signing_secret', label: '签名密钥' }],
   api_key: [
     { key: 'app_id', label: 'app_id' },
     { key: 'app_secret', label: 'app_secret' },
@@ -1486,7 +1497,7 @@ async function loadDetailPipelines(sysId: number) {
   try {
     const res = await ucpApi.pipelines().catch(() => ({ items: [] }))
     // 筛选引用该系统资源的流水线（简化：展示全部启用流水线）
-    detailPipelines.value = (res.items || []).filter((p: any) => p.status === 1)
+    detailPipelines.value = (res.items || []).filter((p: any) => p.status === 1 && (p.system_id === sysId || p.resource_system_id === sysId))
   } catch { detailPipelines.value = [] }
 }
 
@@ -1571,6 +1582,22 @@ async function openResource(sys: any, res: any) {
     connector_type: res.connector_type,
     credential_id: res.credential_id,
     status: res.status,
+  }
+  webhookIngressForm.value = {
+    integration_id: res.protocol?.ingress?.integration_id || res.resource_code,
+    signature_header: res.protocol?.ingress?.signature_header || 'X-Signature',
+    request_id_header: res.protocol?.ingress?.request_id_header || 'X-Request-Id',
+    timestamp_header: res.protocol?.ingress?.timestamp_header || 'X-Timestamp',
+    nonce_header: res.protocol?.ingress?.nonce_header || 'X-Nonce',
+    timestamp_tolerance_seconds: res.protocol?.ingress?.timestamp_tolerance_seconds || 300,
+    rate_limit_per_minute: res.protocol?.ingress?.rate_limit_per_minute || 120,
+    rate_limit_burst: res.protocol?.ingress?.rate_limit_burst || 10,
+    max_body_bytes: res.protocol?.ingress?.max_body_bytes || 1048576,
+    period_path: res.protocol?.ingress?.period_path || 'period',
+    event_type_path: res.protocol?.ingress?.event_type_path || 'event_type',
+    event_id_path: res.protocol?.ingress?.event_id_path || 'request_id',
+    batch_id_path: res.protocol?.ingress?.batch_id_path || 'batch_id',
+    records_path: res.protocol?.ingress?.records_path || 'records',
   }
   // 触发 schema 加载并反填历史值
   await onEditConnectorChange(res.connector_type)
@@ -1718,6 +1745,28 @@ async function saveResource() {
       credential_id: resourceEditForm.value.credential_id,
       status: resourceEditForm.value.status,
       ...jsonFields,
+    }
+    if (resourceEditForm.value.connector_type === 'webhook_ingress') {
+      body.protocol = {
+        ...(activeResource.value.protocol || {}),
+        ingress: {
+          ...((activeResource.value.protocol || {}).ingress || {}),
+          integration_id: webhookIngressForm.value.integration_id,
+          signature_header: webhookIngressForm.value.signature_header,
+          request_id_header: webhookIngressForm.value.request_id_header,
+          timestamp_header: webhookIngressForm.value.timestamp_header,
+          nonce_header: webhookIngressForm.value.nonce_header,
+          timestamp_tolerance_seconds: webhookIngressForm.value.timestamp_tolerance_seconds,
+          rate_limit_per_minute: webhookIngressForm.value.rate_limit_per_minute,
+          rate_limit_burst: webhookIngressForm.value.rate_limit_burst,
+          max_body_bytes: webhookIngressForm.value.max_body_bytes,
+          period_path: webhookIngressForm.value.period_path,
+          event_type_path: webhookIngressForm.value.event_type_path,
+          event_id_path: webhookIngressForm.value.event_id_path,
+          batch_id_path: webhookIngressForm.value.batch_id_path,
+          records_path: webhookIngressForm.value.records_path,
+        },
+      }
     }
     await ucpApi.updateResource(activeResource.value.id, body)
     ElMessage.success('已保存')

@@ -59,7 +59,7 @@
       <el-form label-width="120px">
         <el-form-item label="资源模板编码" required><el-input v-model="resourceForm.package_code" :disabled="Boolean(resourceForm.id)" /></el-form-item>
         <el-form-item label="资源模板名称" required><el-input v-model="resourceForm.package_name" /></el-form-item>
-        <el-form-item label="资源实现类型" required><el-select v-model="resourceForm.resource_connector_type" style="width:100%"><el-option label="飞书在线表格" value="feishu_sheet" /><el-option label="飞书多维表格" value="feishu_bitable" /><el-option label="北森报表" value="beisen_report" /></el-select></el-form-item>
+        <el-form-item label="资源实现类型" required><el-select v-model="resourceForm.resource_connector_type" style="width:100%"><el-option v-for="item in connectorTypes" :key="item.code" :label="item.label" :value="item.code" /></el-select></el-form-item>
         <el-form-item label="维护人"><el-input v-model="resourceForm.owner" /></el-form-item>
         <el-form-item label="版本"><el-input v-model="resourceForm.version" /></el-form-item>
       </el-form>
@@ -77,6 +77,17 @@ import PackageOperations from './PackageOperations.vue'
 const items = ref<any[]>([])
 const loading = ref(false)
 const drawerVisible = ref(false)
+const connectorTypes = ref<any[]>([])
+
+async function loadConnectorTypes() {
+  try {
+    connectorTypes.value = (await ucpApi.connectorTypes('ucp')).filter((item: any) => item.connection_kind === 'DATA_OBJECT' || item.connection_kind === 'EVENT_INGRESS')
+  } catch {
+    connectorTypes.value = []
+  }
+}
+
+
 const resourceEditorVisible = ref(false)
 const activeTab = ref('config')
 const activePackage = ref<any>()
@@ -99,7 +110,7 @@ function openResourceEditor(row?: any) { if (!activePackage.value) return; const
 async function saveResourceTemplate() { if (!resourceForm.package_code || !resourceForm.package_name || !resourceForm.resource_connector_type) return ElMessage.warning('请填写资源模板编码、名称和实现类型'); const payload = { package_code: resourceForm.package_code, package_name: resourceForm.package_name, category: 'INSTANCE_RESOURCE', owner: resourceForm.owner, version: resourceForm.version, host_allowlist: [], auth_policy: {}, system_schema: { parent_package_code: activePackage.value.package_code, resource_connector_type: resourceForm.resource_connector_type } }; try { if (resourceForm.id) await ucpApi.updateConnectorPackage(resourceForm.package_code, payload); else await ucpApi.createConnectorPackage(payload); resourceEditorVisible.value = false; await load(); ElMessage.success('资源模板已保存') } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '保存失败') } }
 async function publish(row: any) { try { await ucpApi.publishConnectorPackage(row.package_code); await load(); if (activePackage.value?.package_code === row.package_code) activePackage.value = items.value.find(item => item.package_code === row.package_code) } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '发布失败') } }
 async function reloadActivePackage() { await load(); if (activePackage.value) activePackage.value = items.value.find(item => item.package_code === activePackage.value.package_code) || activePackage.value }
-onMounted(load)
+onMounted(() => { load(); loadConnectorTypes() })
 </script>
 
 <style scoped>

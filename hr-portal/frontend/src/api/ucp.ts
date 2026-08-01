@@ -223,7 +223,6 @@ export interface SeedResult {
 /* ── API ── */
 
 export const ucpApi = {
-  /* Pipeline execution history */
   executions: (params: {
     pipeline_code?: string
     status?: string
@@ -231,6 +230,10 @@ export const ucpApi = {
     offset?: number
   } = {}) =>
     api.get<Paginated<PipelineExecutionItem>>('/ucp/executions', { params }).then((r) => ({ total: r.data.total, items: extractItems(r.data) })),
+
+  ingestBatches: (params: { resource_id?: number; system_id?: number; target_asset?: string; period_value?: string; status?: string; limit?: number; offset?: number } = {}) => api.get<{ total: number; items: any[] }>('/ucp/warehouse-ingest-batches', { params }).then((r) => r.data),
+  ingestBatchDetail: (resourceCode: string | number, batchId: string) => api.get<any>(`/ucp/warehouse-ingest-batches/${resourceCode}/${batchId}`).then((r) => r.data),
+  ingestBatchReplay: (resourceCode: string, batchId: string) => api.post<any>(`/ucp/warehouse-ingest-batches/${resourceCode}/${batchId}/replay`).then((r) => r.data),
 
   executionDetail: (pipelineRunId: string) =>
     api.get<{execution: PipelineExecutionDetail, steps: PipelineStepExecutionItem[]}>(`/ucp/executions/${pipelineRunId}`).then((r) => r.data),
@@ -309,8 +312,9 @@ export const ucpApi = {
   systemsOverview: () =>
     api.get<{ total: number; items: SystemOverview[] }>('/ucp/systems/overview').then((r) => r.data),
 
-  standardPackages: () =>
-    api.get<{ items: any[] }>('/ucp/standard-packages').then((r) => r.data.items),
+  connectorTypes: (consumer: 'warehouse' | 'ucp' = 'ucp') =>
+    api.get<{ items: any[] }>('/datasources/types', { params: { consumer } }).then((r) => r.data.items),
+
 
   connectorPackages: (params: { category?: string; status?: string } = {}) =>
     api.get<{ items: any[] }>('/ucp/connector-packages', { params }).then((r) => r.data.items),

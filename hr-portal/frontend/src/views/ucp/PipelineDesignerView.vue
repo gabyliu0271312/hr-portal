@@ -144,7 +144,8 @@
               <div class="text-muted">只补全空字段，北森原始字段保持优先。</div>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'WAREHOUSE_ASSET_SINK'">
-              <el-form-item label="输入来源"><el-select :model-value="sinkInputNodeId" filterable placeholder="选择上游节点" style="width:100%" @change="selectSinkInputNode"><el-option v-for="item in sinkInputNodeOptions" :key="item.id" :label="item.label" :value="item.id" /></el-select><div v-if="!sinkInputNodeOptions.length" class="text-muted">请先连接一个上游节点。</div></el-form-item>
+              <WarehouseAssetSinkConfig v-model="selectedNode.config" />
+
               <el-form-item label="目标资产"><el-select :model-value="selectedNode.config?.target_asset" filterable placeholder="选择已发布数据资产" style="width:100%" @change="selectTargetAsset"><el-option v-for="asset in publishedAssets" :key="asset.table_name" :label="asset.table_label" :value="asset.table_name" /></el-select></el-form-item>
               <el-form-item label="写入模式"><el-select v-model="selectedNode.config.write_mode" style="width:100%"><el-option label="追加写入" value="append" /><el-option label="按主键更新" value="upsert" /><el-option label="替换资产数据" value="replace" /></el-select></el-form-item>
               <el-form-item label="主键字段"><el-select v-model="selectedNode.config.primary_key" filterable clearable placeholder="选择资产声明主键" style="width:100%"><el-option v-for="column in targetAssetColumns.filter(column => column.is_pk_part)" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select></el-form-item>
@@ -256,6 +257,7 @@ import { Plus, Connection, MagicStick, Share, Refresh, Delete, Aim, Box, Documen
 import { pipelineTemplateApi, ucpApi, type PipelineTemplate, type PipelineNode, type PipelineEdge, type NodeTypeMeta } from '@/api/ucp'
 import { listAssets, listAssetColumns, type Asset, type AssetColumn } from '@/api/warehouse'
 import ScheduleSelector from '@/components/common/ScheduleSelector.vue'
+import WarehouseAssetSinkConfig from '@/components/ucp/WarehouseAssetSinkConfig.vue'
 
 interface SystemItem { id: number; system_code: string; system_name: string }
 interface ResourceItem { id: number; resource_code: string; resource_name: string; system_id: number; adapter_code?: string | null }

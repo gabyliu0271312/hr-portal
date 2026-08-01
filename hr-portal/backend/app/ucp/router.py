@@ -32,7 +32,6 @@ from app.ucp.routers.migration import router as migration_router
 from app.ucp.routers.write_operations import router as write_operations_router
 from app.ucp.routers.pipeline_templates import router as pipeline_templates_router
 from app.ucp.routers.webhook_platform import router as webhook_platform_router
-from app.ucp.routers.webhook_platform import router as webhook_platform_router
 
 router.include_router(systems_router)
 router.include_router(executions_router)
@@ -48,7 +47,6 @@ router.include_router(api_templates_router)
 router.include_router(migration_router)
 router.include_router(write_operations_router)
 router.include_router(pipeline_templates_router)
-router.include_router(webhook_platform_router)
 router.include_router(webhook_platform_router)
 
 # ===== Dev-only modules =====

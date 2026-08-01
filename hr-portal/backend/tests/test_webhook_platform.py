@@ -69,6 +69,89 @@ async def test_event_object_scopes_trigger_matching():
     assert await match_triggers(Session(), event) == []
 
 
+def test_cost_allocation_sink_mapping_and_group_validation():
+    from app.ucp.pipeline_engine import _apply_mapping_rules, _validate_sink_rows
+
+    rows = [
+        {"period": "2026-07", "employee_no": "E1", "allocation_percentage": "60"},
+        {"period": "2026-07", "employee_no": "E1", "allocation_percentage": "40"},
+    ]
+    mapped = [
+        _apply_mapping_rules(
+            row,
+            [
+                {"source": "period", "target": "cost_period", "transform": "yyyy_mm_to_yyyymm"},
+                {"source": "allocation_percentage", "target": "headcount", "transform": "decimal_divide_100"},
+            ],
+        )
+        for row in rows
+    ]
+    _validate_sink_rows(
+        mapped,
+        [{"type": "group_sum_equals", "group_by": ["cost_period", "employee_no"], "sum_field": "headcount", "expected": 1, "tolerance": 0.0001}],
+    )
+    assert mapped[0]["cost_period"] == "202607"
+    assert str(mapped[0]["headcount"]) == "0.6"
+
+
+@pytest.mark.asyncio
+async def test_committed_pipeline_runner_is_deferred_until_commit(monkeypatch):
+    import asyncio
+    import app.ucp.event_bus as event_bus
+
+    calls = []
+
+    async def fake_runner(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(event_bus, "_run_pipeline_in_background", fake_runner)
+    session = SimpleNamespace(info={"ucp_pending_background_runs": [{"run_id": "run-1"}]})
+    event_bus._start_committed_background_pipelines(session)
+    await asyncio.sleep(0)
+    assert calls == [{"run_id": "run-1"}]
+    assert "ucp_pending_background_runs" not in session.info
+
+
+@pytest.mark.asyncio
+async def test_dead_letter_projects_to_ingest_batch():
+    from app.ucp.event_reliability import MAX_RETRY_COUNT, mark_delivery_failed
+
+    batch = SimpleNamespace(status="FAILED", error_summary=None, processed_at=None)
+    event = SimpleNamespace(status="FAILED", error_code=None, error_message=None)
+
+    class Result:
+        def __init__(self, value):
+            self.value = value
+
+        def scalar_one_or_none(self):
+            return self.value
+
+    class Session:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, _statement):
+            self.calls += 1
+            return Result(batch if self.calls == 1 else event)
+
+        async def flush(self):
+            pass
+
+    delivery = SimpleNamespace(
+        attempt=MAX_RETRY_COUNT,
+        event_uuid="event-1",
+        status="FAILED",
+        error_code=None,
+        error_message=None,
+        last_retry_at=None,
+        next_retry_at=None,
+    )
+    await mark_delivery_failed(Session(), delivery, error_code="PIPELINE_FAILED", error_message="bad rows")
+    assert delivery.status == "DEAD_LETTER"
+    assert batch.status == "DEAD_LETTER"
+    assert batch.error_summary == "bad rows"
+
+
 @pytest.mark.asyncio
 async def test_legacy_trigger_migration_preserves_rollback_path():
     from app.ucp.models import UcpEventDefinition, UcpResourceDataObject

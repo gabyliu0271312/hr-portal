@@ -19,13 +19,45 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Iterable
 
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, desc, event as sqlalchemy_event, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session as SyncSession
 
-from app.ucp.models import UcpEventTrigger, UcpPipelineConfig, UcpEvent
+from app.ucp.models import (
+    UcpEvent,
+    UcpEventTrigger,
+    UcpPipelineConfig,
+    UcpPipelineStepExecution,
+    UcpWarehouseIngestBatch,
+)
 
 
 logger = logging.getLogger("ucp.event_bus")
+
+_PENDING_BACKGROUND_RUNS = "ucp_pending_background_runs"
+
+
+def _enqueue_background_pipeline(db: AsyncSession, **kwargs: Any) -> None:
+    db.sync_session.info.setdefault(_PENDING_BACKGROUND_RUNS, []).append(kwargs)
+
+
+@sqlalchemy_event.listens_for(SyncSession, "after_commit")
+def _start_committed_background_pipelines(session: SyncSession) -> None:
+    pending = session.info.pop(_PENDING_BACKGROUND_RUNS, [])
+    if not pending:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.error("cannot start committed UCP pipelines without a running event loop")
+        return
+    for kwargs in pending:
+        loop.create_task(_run_pipeline_in_background(**kwargs))
+
+
+@sqlalchemy_event.listens_for(SyncSession, "after_rollback")
+def _discard_rolled_back_background_pipelines(session: SyncSession) -> None:
+    session.info.pop(_PENDING_BACKGROUND_RUNS, None)
 
 
 # ============================================================
@@ -388,20 +420,18 @@ async def dispatch_event(
     except Exception:  # noqa: BLE001
         logger.exception("create_delivery_record failed (non-fatal)")
 
-    # 后台执行（不阻塞事件接收）
-    asyncio.create_task(
-        _run_pipeline_in_background(
-            pipeline_code=trigger.pipeline_code,
-            run_id=run_id,
-            trace_id=event.trace_id or "",
-            event_payload=event.payload or {},
-            run_as_type=trigger.run_as_type,
-            service_account_code=trigger.service_account_code,
-            event_db_id=event.id,
-            event_id=event.event_id,
-            trigger_code=trigger.trigger_code,
-            delivery_id=delivery_id,
-        )
+    _enqueue_background_pipeline(
+        db,
+        pipeline_code=trigger.pipeline_code,
+        run_id=run_id,
+        trace_id=event.trace_id or "",
+        event_payload=event.payload or {},
+        run_as_type=trigger.run_as_type,
+        service_account_code=trigger.service_account_code,
+        event_db_id=event.id,
+        event_id=event.event_id,
+        trigger_code=trigger.trigger_code,
+        delivery_id=delivery_id,
     )
 
     logger.info(
@@ -449,6 +479,30 @@ async def _run_pipeline_in_background(
                 pipeline_run_id=run_id,
                 trace_id=trace_id,
             )
+            batch = (
+                await bg_db.execute(
+                    select(UcpWarehouseIngestBatch).where(
+                        UcpWarehouseIngestBatch.event_id == event_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if batch is not None:
+                sink_steps = list(
+                    (
+                        await bg_db.execute(
+                            select(UcpPipelineStepExecution).where(
+                                UcpPipelineStepExecution.pipeline_run_id == run_id,
+                                UcpPipelineStepExecution.step_type == "WAREHOUSE_ASSET_SINK",
+                            )
+                        )
+                    ).scalars()
+                )
+                batch.status = "SUCCEEDED" if execution.status == "SUCCESS" else "FAILED"
+                batch.pipeline_run_id = run_id
+                batch.trace_id = trace_id or batch.trace_id
+                batch.written_rows = sum(int(item.success_items or 0) for item in sink_steps)
+                batch.error_summary = None if batch.status == "SUCCEEDED" else str(execution.error_message or f"Pipeline run {run_id} ended with {execution.status}")[:1000]
+                batch.processed_at = datetime.now(timezone.utc)
             if delivery_id is not None:
                 from app.ucp.event_reliability import mark_delivery_failed, mark_delivery_success
                 from app.ucp.models import UcpEventDelivery
@@ -506,6 +560,19 @@ async def _run_pipeline_in_background(
                     event.status = EVENT_STATUS_FAILED
                     event.error_code = "PIPELINE_EXECUTION_EXCEPTION"
                     event.error_message = str(exc)[:1000]
+                batch = (
+                    await recovery_db.execute(
+                        select(UcpWarehouseIngestBatch).where(
+                            UcpWarehouseIngestBatch.event_id == event_id
+                        )
+                    )
+                ).scalar_one_or_none()
+                if batch is not None:
+                    batch.status = "FAILED"
+                    batch.pipeline_run_id = run_id
+                    batch.trace_id = trace_id or batch.trace_id
+                    batch.error_summary = str(exc)[:1000]
+                    batch.processed_at = datetime.now(timezone.utc)
                 await recovery_db.commit()
         except Exception:  # noqa: BLE001
             logger.exception("failed to persist background pipeline failure: run_id=%s", run_id)

@@ -25,7 +25,7 @@ from app.ucp.event_bus import (
     EVENT_STATUS_FAILED,
     process_event_pipeline,
 )
-from app.ucp.models import UcpEventTrigger, UcpEvent, UcpEventDelivery
+from app.ucp.models import UcpEventTrigger, UcpEvent, UcpEventDelivery, UcpWarehouseIngestBatch
 
 
 logger = logging.getLogger("ucp.event_reliability")
@@ -137,6 +137,30 @@ async def mark_delivery_failed(
     else:
         # 计算下一次重试时间
         delivery.next_retry_at = compute_next_retry_at(delivery.attempt + 1)
+    batch = (
+        await db.execute(
+            select(UcpWarehouseIngestBatch).where(
+                UcpWarehouseIngestBatch.event_id == delivery.event_uuid
+            )
+        )
+    ).scalar_one_or_none()
+    event = (
+        await db.execute(
+            select(UcpEvent).where(UcpEvent.event_id == delivery.event_uuid)
+        )
+    ).scalar_one_or_none()
+    if event is not None and delivery.status == DELIVERY_STATUS_DEAD_LETTER:
+        event.status = EVENT_STATUS_DEAD_LETTER
+        event.error_code = error_code
+        event.error_message = (error_message or "")[:1000]
+    if batch is not None:
+        batch.status = "DEAD_LETTER" if delivery.status == DELIVERY_STATUS_DEAD_LETTER else "PROCESSING"
+        batch.error_summary = (error_message or "")[:1000]
+        batch.processed_at = (
+            datetime.now(timezone.utc)
+            if delivery.status == DELIVERY_STATUS_DEAD_LETTER
+            else None
+        )
     await db.flush()
 
 
@@ -243,17 +267,19 @@ async def replay_event(
                     triggered_by=triggered_by,
                 )
                 # 触发执行
-                import asyncio
-                from app.ucp.event_bus import _run_pipeline_in_background
-                asyncio.create_task(
-                    _run_pipeline_in_background(
-                        pipeline_code=trig.pipeline_code,
-                        run_id=run_id,
-                        trace_id=event.trace_id or "",
-                        event_payload=event.payload or {},
-                        run_as_type=trig.run_as_type,
-                        service_account_code=trig.service_account_code,
-                    )
+                from app.ucp.event_bus import _enqueue_background_pipeline
+                _enqueue_background_pipeline(
+                    db,
+                    pipeline_code=trig.pipeline_code,
+                    run_id=run_id,
+                    trace_id=event.trace_id or "",
+                    event_payload=event.payload or {},
+                    run_as_type=trig.run_as_type,
+                    service_account_code=trig.service_account_code,
+                    event_db_id=event.id,
+                    event_id=event.event_id,
+                    trigger_code=trig.trigger_code,
+                    delivery_id=rec.id,
                 )
                 event.pipeline_run_id = run_id
                 event.status = EVENT_STATUS_DISPATCHED

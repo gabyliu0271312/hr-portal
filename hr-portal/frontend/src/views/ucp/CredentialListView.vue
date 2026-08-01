@@ -29,6 +29,7 @@
         <el-option label="API Key" value="api_key" />
         <el-option label="OAuth2" value="oauth2" />
         <el-option label="Token" value="token" />
+        <el-option label="HMAC-SHA256 时间戳签名" value="hmac_sha256_timestamped" />
       </el-select>
       <el-button :icon="Refresh" @click="loadList">刷新</el-button>
       <el-button type="primary" :icon="Plus" @click="openCreateDialog">创建凭证</el-button>
@@ -84,26 +85,10 @@
         <el-form-item label="名称" required>
           <el-input v-model="form.credential_name" placeholder="北森生产凭证" />
         </el-form-item>
-        <el-form-item label="认证方式">
-          <el-select v-model="form.auth_type" placeholder="选择认证方式" style="width: 100%">
-            <el-option label="Basic Auth" value="basic" />
-            <el-option label="API Key" value="api_key" />
-            <el-option label="OAuth2" value="oauth2" />
-            <el-option label="Token" value="token" />
-          </el-select>
-        </el-form-item>
+        <CredentialForm v-model="form" :edit-mode="isEdit" />
+
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" placeholder="可选描述" />
-        </el-form-item>
-        <el-form-item label="密钥配置" required>
-          <div v-for="(val, key) in form.secrets" :key="key" class="secret-row">
-            <el-input v-model="secretKey" placeholder="键名" style="width: 140px" @input="onSecretKeyChange(key, $event)" />
-            <el-input v-model="form.secrets[key]" :type="showSecret ? 'text' : 'password'" placeholder="值" style="flex: 1" />
-          </div>
-          <div class="secret-actions">
-            <el-button size="small" link type="primary" @click="addSecretKey">+ 添加密钥字段</el-button>
-            <el-button size="small" link @click="showSecret = !showSecret">{{ showSecret ? '隐藏' : '显示' }}值</el-button>
-          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -120,6 +105,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { ucpApi } from '@/api/ucp'
+import CredentialForm from './components/CredentialForm.vue'
 
 const items = ref<any[]>([])
 const totalCount = ref(0)

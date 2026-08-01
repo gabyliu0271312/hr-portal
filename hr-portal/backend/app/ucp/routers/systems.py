@@ -234,6 +234,8 @@ async def route_update_resource(
     db: AsyncSession = Depends(get_session),
     _user: User = Depends(require_op("ucp.resources", "U")),
 ):
+    if "skip_schema_validation" in payload:
+        raise HTTPException(422, "RESOURCE_SCHEMA_BYPASS_NOT_ALLOWED")
     try:
         obj = await update_resource(db, resource_id, **payload)
     except ValueError as exc:
