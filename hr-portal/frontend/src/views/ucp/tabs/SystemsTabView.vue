@@ -395,6 +395,13 @@
           <el-empty v-else-if="resourceEditForm.connector_type !== 'webhook_ingress'" description="暂无数据对象，新增后可在流水线中选择" :image-size="50" />
         </template>
 
+
+        <template v-if="resourceEditForm.connector_type === 'webhook_ingress'">
+          <el-divider content-position="left">事件对象</el-divider>
+          <div class="resource-object-toolbar"><span>同一接收地址可维护多个事件，并分别关联已发布的事件定义和流水线触发器。</span><el-button type="primary" size="small" @click="openEventObjectDialog()">新增事件</el-button></div>
+          <el-table v-if="eventObjects.length" :data="eventObjects" size="small" border style="margin-top:10px"><el-table-column prop="object_code" label="事件编码" min-width="135" /><el-table-column prop="object_name" label="事件名称" min-width="120" /><el-table-column label="定义版本" width="100"><template #default="{ row }">{{ row.event_definition?.version || row.schema_version || '-' }}</template></el-table-column><el-table-column label="启用" width="70"><template #default="{ row }"><el-tag size="small" :type="row.is_active ? 'success' : 'info'">{{ row.is_active ? '启用' : '停用' }}</el-tag></template></el-table-column><el-table-column prop="verification_status" label="验证状态" min-width="100" /><el-table-column label="操作" width="190"><template #default="{ row }"><el-button link type="primary" size="small" @click="openEventObjectDialog(row)">编辑</el-button><el-button link type="primary" size="small" @click="verifyEventObject(row)">验证</el-button><el-button link type="danger" size="small" @click="removeEventObject(row)">删除</el-button></template></el-table-column></el-table>
+          <el-empty v-else description="暂无事件，新增后可在流水线触发器中选择" :image-size="50" />
+        </template>
         <template v-if="resourceEditForm.connector_type === 'webhook_ingress'">
           <el-divider content-position="left">Webhook 入站配置</el-divider>
           <el-form-item label="接收地址"><el-input :model-value="webhookUrl(activeResource)" readonly><template #append><el-button @click="copyWebhookUrl(activeResource)">复制</el-button></template></el-input></el-form-item>
@@ -413,13 +420,6 @@
           <el-form-item label="请求 ID 路径"><el-input v-model="webhookIngressForm.event_id_path" /></el-form-item>
           <el-form-item label="批次路径"><el-input v-model="webhookIngressForm.batch_id_path" /></el-form-item>
           <el-form-item label="明细路径"><el-input v-model="webhookIngressForm.records_path" /></el-form-item>
-        </template>
-
-        <template v-if="resourceEditForm.connector_type === 'webhook_ingress'">
-          <el-divider content-position="left">事件对象</el-divider>
-          <div class="resource-object-toolbar"><span>同一接收地址可维护多个事件，并分别关联已发布的事件定义和流水线触发器。</span><el-button type="primary" size="small" @click="openEventObjectDialog()">新增事件</el-button></div>
-          <el-table v-if="eventObjects.length" :data="eventObjects" size="small" border style="margin-top:10px"><el-table-column prop="object_code" label="事件编码" min-width="135" /><el-table-column prop="object_name" label="事件名称" min-width="120" /><el-table-column label="定义版本" width="100"><template #default="{ row }">{{ row.event_definition?.version || row.schema_version || '-' }}</template></el-table-column><el-table-column label="启用" width="70"><template #default="{ row }"><el-tag size="small" :type="row.is_active ? 'success' : 'info'">{{ row.is_active ? '启用' : '停用' }}</el-tag></template></el-table-column><el-table-column prop="verification_status" label="验证状态" min-width="100" /><el-table-column label="操作" width="190"><template #default="{ row }"><el-button link type="primary" size="small" @click="openEventObjectDialog(row)">编辑</el-button><el-button link type="primary" size="small" @click="verifyEventObject(row)">验证</el-button><el-button link type="danger" size="small" @click="removeEventObject(row)">删除</el-button></template></el-table-column></el-table>
-          <el-empty v-else description="暂无事件，新增后可在流水线触发器中选择" :image-size="50" />
         </template>
         <!-- Phase 6-3: 反向引用 — 哪些流水线引用了此 resource (蓝本 v2 场景 6) -->
         <el-divider content-position="left">
@@ -837,7 +837,22 @@
       <template #footer><el-button @click="dataObjectDialogVisible = false">取消</el-button><el-button type="primary" :loading="dataObjectSaving" @click="saveDataObject">保存</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="eventObjectDialogVisible" :title="editingEventObject ? '编辑事件' : '新增事件'" width="620px" append-to-body><el-form :model="eventObjectForm" label-width="105px"><el-form-item label="事件编码" required><el-input v-model="eventObjectForm.object_code" /></el-form-item><el-form-item label="事件名称" required><el-input v-model="eventObjectForm.object_name" /></el-form-item><el-form-item label="事件定义" required><el-select v-model="eventObjectForm.event_definition_id" filterable style="width:100%"><el-option v-for="item in eventDefinitions" :key="item.id" :label="`${item.event_name} (${item.event_code} v${item.version})`" :value="item.id" /></el-select></el-form-item><el-form-item label="事件配置"><el-input v-model="eventObjectForm.event_config" type="textarea" :rows="5" /></el-form-item><el-form-item label="启用"><el-switch v-model="eventObjectForm.is_active" /></el-form-item></el-form><template #footer><el-button @click="eventObjectDialogVisible = false">取消</el-button><el-button type="primary" :loading="eventObjectSaving" @click="saveEventObject">保存</el-button></template></el-dialog>
+    <el-dialog v-model="eventObjectDialogVisible" :title="editingEventObject ? '编辑事件' : '新增事件'" width="620px" append-to-body>
+      <el-alert type="info" :closable="false" style="margin-bottom:16px" title="事件定义决定事件语义；下方路径仅覆盖该事件的解析规则，不会修改共用 Webhook 接收端点。" />
+      <el-form :model="eventObjectForm" label-width="105px">
+        <el-form-item label="事件编码" required><el-input v-model="eventObjectForm.object_code" placeholder="如 ALLOCATION_PERIOD_UNLOCKED" /></el-form-item>
+        <el-form-item label="事件名称" required><el-input v-model="eventObjectForm.object_name" /></el-form-item>
+        <el-form-item label="事件定义" required><el-select v-model="eventObjectForm.event_definition_id" filterable style="width:100%"><el-option v-for="item in eventDefinitions" :key="item.id" :label="`${item.event_name} (${item.event_code} v${item.version})`" :value="item.id" /></el-select></el-form-item>
+        <el-divider content-position="left">事件匹配与解析</el-divider>
+        <el-form-item label="事件类型路径"><el-input v-model="eventObjectForm.event_type_path" placeholder="event_type" /></el-form-item>
+        <el-form-item label="请求 ID 路径"><el-input v-model="eventObjectForm.event_id_path" placeholder="request_id" /></el-form-item>
+        <el-form-item label="批次路径"><el-input v-model="eventObjectForm.batch_id_path" placeholder="batch_id" /></el-form-item>
+        <el-form-item label="期间路径"><el-input v-model="eventObjectForm.period_path" placeholder="period" /></el-form-item>
+        <el-form-item label="明细路径"><el-input v-model="eventObjectForm.records_path" placeholder="records" /></el-form-item>
+        <el-form-item label="启用"><el-switch v-model="eventObjectForm.is_active" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="eventObjectDialogVisible = false">取消</el-button><el-button type="primary" :loading="eventObjectSaving" @click="saveEventObject">保存</el-button></template>
+    </el-dialog>
     <!-- 编辑系统 -->
     <el-dialog v-model="showEditSystemDialog" title="编辑系统" width="520px" destroy-on-close>
       <el-form v-if="editForm" :model="editForm" label-width="80px">
@@ -1101,7 +1116,7 @@ const eventDefinitions = ref<any[]>([])
 const eventObjectDialogVisible = ref(false)
 const eventObjectSaving = ref(false)
 const editingEventObject = ref<any>(null)
-const eventObjectForm = ref<any>({ object_code: '', object_name: '', event_definition_id: null, event_config: '{}', is_active: true })
+const eventObjectForm = ref<any>({ object_code: '', object_name: '', event_definition_id: null, event_type_path: 'event_type', event_id_path: 'request_id', batch_id_path: 'batch_id', period_path: 'period', records_path: 'records', is_active: true })
 const objectConfigTitle = computed(() => {
   const type = activeResource.value?.connector_type
   return type === 'feishu_sheet' ? '表格配置' : type === 'feishu_bitable' ? '多维表格配置' : type === 'beisen_report' ? '报表配置' : '对象配置'
@@ -1589,8 +1604,8 @@ async function removeDataObject(item: any) {
   try { await ucpApi.deleteResourceDataObject(activeResource.value.id, item.id); ElMessage.success('数据对象已删除'); await loadDataObjects(activeResource.value.id) } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '删除失败') }
 }
 async function loadEventObjects(resourceId: number) { try { eventObjects.value = (await ucpApi.resourceObjects(resourceId, { object_type: 'EVENT_TYPE' })).items || []; eventDefinitions.value = (await ucpApi.eventDefinitions()).items || [] } catch { eventObjects.value = []; eventDefinitions.value = [] } }
-function openEventObjectDialog(item?: any) { editingEventObject.value = item || null; eventObjectForm.value = item ? { ...item, event_config: JSON.stringify(item.event_config || {}, null, 2) } : { object_code: '', object_name: '', event_definition_id: null, event_config: '{}', is_active: true }; eventObjectDialogVisible.value = true }
-async function saveEventObject() { if (!activeResource.value || !eventObjectForm.value.event_definition_id) { ElMessage.warning('请选择已发布事件定义'); return }; let eventConfig: Record<string, any>; try { eventConfig = JSON.parse(eventObjectForm.value.event_config || '{}') } catch { ElMessage.error('事件配置必须是合法 JSON 对象'); return }; eventObjectSaving.value = true; try { const payload = { ...eventObjectForm.value, object_type: 'EVENT_TYPE', event_config: eventConfig }; if (editingEventObject.value) await ucpApi.updateResourceObject(activeResource.value.id, editingEventObject.value.id, payload); else await ucpApi.createResourceObject(activeResource.value.id, payload); ElMessage.success('事件已保存'); eventObjectDialogVisible.value = false; await loadEventObjects(activeResource.value.id) } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '保存失败') } finally { eventObjectSaving.value = false } }
+function openEventObjectDialog(item?: any) { const config = item?.event_config || {}; const ingress = activeResource.value?.protocol?.ingress || {}; editingEventObject.value = item || null; eventObjectForm.value = item ? { ...item, event_type_path: config.event_type_path || ingress.event_type_path || 'event_type', event_id_path: config.event_id_path || ingress.event_id_path || 'request_id', batch_id_path: config.batch_id_path || ingress.batch_id_path || 'batch_id', period_path: config.period_path || ingress.period_path || 'period', records_path: config.records_path || ingress.records_path || 'records' } : { object_code: '', object_name: '', event_definition_id: null, event_type_path: ingress.event_type_path || 'event_type', event_id_path: ingress.event_id_path || 'request_id', batch_id_path: ingress.batch_id_path || 'batch_id', period_path: ingress.period_path || 'period', records_path: ingress.records_path || 'records', is_active: true }; eventObjectDialogVisible.value = true }
+async function saveEventObject() { if (!activeResource.value || !eventObjectForm.value.event_definition_id) { ElMessage.warning('请选择已发布事件定义'); return }; eventObjectSaving.value = true; try { const { event_type_path, event_id_path, batch_id_path, period_path, records_path, ...form } = eventObjectForm.value; const payload = { ...form, object_type: 'EVENT_TYPE', event_config: { event_type_path, event_id_path, batch_id_path, period_path, records_path } }; if (editingEventObject.value) await ucpApi.updateResourceObject(activeResource.value.id, editingEventObject.value.id, payload); else await ucpApi.createResourceObject(activeResource.value.id, payload); ElMessage.success('事件已保存'); eventObjectDialogVisible.value = false; await loadEventObjects(activeResource.value.id) } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '保存失败') } finally { eventObjectSaving.value = false } }
 async function verifyEventObject(item: any) { if (!activeResource.value) return; try { await ucpApi.verifyResourceObject(activeResource.value.id, item.id); ElMessage.success('事件验证通过'); await loadEventObjects(activeResource.value.id) } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '事件验证失败') } }
 async function removeEventObject(item: any) { if (!activeResource.value) return; try { await ucpApi.deleteResourceObject(activeResource.value.id, item.id); ElMessage.success('事件已删除'); await loadEventObjects(activeResource.value.id) } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '删除失败') } }
 async function openResource(sys: any, res: any) {
