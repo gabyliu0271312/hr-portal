@@ -59,6 +59,15 @@ def resolve_resource_connector_type(resource: UcpResource) -> str | None:
     return legacy["code"] if legacy else None
 
 
+def resolve_resource_template_defaults(template: UcpConnectorPackage) -> tuple[str, str]:
+    """Return the stable resource identity declared by an instance-resource template."""
+    metadata = template.system_schema or {}
+    resource_code = str(metadata.get("resource_code") or template.package_code).strip()
+    resource_name = str(metadata.get("resource_name") or template.package_name).strip()
+    if not resource_code or not resource_name:
+        raise ValueError("RESOURCE_TEMPLATE_DEFAULTS_INVALID")
+    return resource_code, resource_name
+
 def serialize_resource(resource: UcpResource) -> dict[str, Any]:
     """Product DTO. Adapter codes stay available only for legacy runtime compatibility."""
     return {
@@ -348,11 +357,12 @@ async def create_resource(
     template_connector_type, template_adapter_code = _resolve_connector_for_write(
         template_connector_type, None
     )
+    resource_code, resource_name = resolve_resource_template_defaults(template)
     duplicate = (
         await db.execute(
             select(UcpResource.id).where(
                 UcpResource.system_id == system_id,
-                UcpResource.resource_code == template.package_code,
+                UcpResource.resource_code == resource_code,
             )
         )
     ).scalar_one_or_none()
@@ -363,8 +373,8 @@ async def create_resource(
         raise ValueError("SYSTEM_PRIMARY_CREDENTIAL_REQUIRED")
     obj = UcpResource(
         system_id=system_id,
-        resource_code=template.package_code,
-        resource_name=template.package_name,
+        resource_code=resource_code,
+        resource_name=resource_name,
         connector_type=template_connector_type,
         adapter_code=template_adapter_code,
         credential_id=primary_credential_id,

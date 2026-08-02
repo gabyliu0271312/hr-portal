@@ -763,13 +763,13 @@ async def _ensure_cost_allocation_ingest(db: AsyncSession) -> None:
 
     system = await db.scalar(select(UcpSystem).where(UcpSystem.system_code == "COST_ALLOCATION_SYSTEM"))
     if system is None:
-        system = UcpSystem(system_code="COST_ALLOCATION_SYSTEM", system_name="成本分摊系统", system_type="CUSTOM", description="成本分摊锁定事件入仓", is_active=1, created_by="seed")
+        system = UcpSystem(system_code="COST_ALLOCATION_SYSTEM", system_name="成本分摊系统", system_type="CUSTOM", description="成本分摊系统 Webhook 事件接入", is_active=1, created_by="seed")
         db.add(system)
         await db.flush()
     resource = await db.scalar(select(UcpResource).where(UcpResource.system_id == system.id, UcpResource.resource_code == "cost-allocation-locked"))
     if resource is None:
         resource = UcpResource(
-            system_id=system.id, resource_code="cost-allocation-locked", resource_name="成本分摊锁定事件",
+            system_id=system.id, resource_code="cost-allocation-locked", resource_name="成本分摊系统 Webhook",
             connector_type="webhook_ingress", protocol={"ingress": {
                 "verification_strategy": "HMAC_SHA256_TIMESTAMPED", "signature_header": "X-Signature",
                 "timestamp_header": "X-Timestamp", "nonce_header": "X-Nonce", "request_id_header": "X-Request-Id",
@@ -781,16 +781,23 @@ async def _ensure_cost_allocation_ingest(db: AsyncSession) -> None:
         )
         db.add(resource)
         await db.flush()
+    else:
+        resource.resource_name = "成本分摊系统 Webhook"
+        resource.connector_type = "webhook_ingress"
     definition = await db.scalar(select(UcpEventDefinition).where(UcpEventDefinition.event_code == "allocation_period.locked", UcpEventDefinition.version == "1.0.0"))
     if definition is None:
-        definition = UcpEventDefinition(event_code="allocation_period.locked", event_name="成本分摊周期锁定", source_system_type="COST_ALLOCATION_SYSTEM", payload_schema={"required": ["event_type", "request_id", "batch_id", "period", "records"]}, verification_strategy="HMAC_SHA256_TIMESTAMPED", version="1.0.0", status="PUBLISHED")
+        definition = UcpEventDefinition(event_code="allocation_period.locked", event_name="周期锁定", source_system_type="COST_ALLOCATION_SYSTEM", payload_schema={"required": ["event_type", "request_id", "batch_id", "period", "records"]}, verification_strategy="HMAC_SHA256_TIMESTAMPED", version="1.0.0", status="PUBLISHED")
         db.add(definition)
         await db.flush()
+    else:
+        definition.event_name = "周期锁定"
     event_object = await db.scalar(select(UcpResourceDataObject).where(UcpResourceDataObject.resource_id == resource.id, UcpResourceDataObject.object_code == "ALLOCATION_PERIOD_LOCKED"))
     if event_object is None:
-        event_object = UcpResourceDataObject(resource_id=resource.id, connector_type="webhook_ingress", object_code="ALLOCATION_PERIOD_LOCKED", object_name="成本分摊周期锁定", object_type="EVENT_TYPE", event_definition_id=definition.id, event_config={}, verification_status="PENDING_CREDENTIAL", is_active=1, created_by="seed")
+        event_object = UcpResourceDataObject(resource_id=resource.id, connector_type="webhook_ingress", object_code="ALLOCATION_PERIOD_LOCKED", object_name="周期锁定", object_type="EVENT_TYPE", event_definition_id=definition.id, event_config={}, verification_status="PENDING_CREDENTIAL", is_active=1, created_by="seed")
         db.add(event_object)
         await db.flush()
+    else:
+        event_object.object_name = "周期锁定"
     steps = [{"id": "warehouse_sink", "type": "WAREHOUSE_ASSET_SINK", "input_key": "${event.records}", "event_fields": ["period"], "target_asset": "emp_monthly_allocation", "write_mode": "period_full_snapshot", "period_field": "cost_period", "field_whitelist": ["cost_period", "employee_no", "employee", "code", "dimension_value", "headcount"], "mapping": [{"source": "period", "target": "cost_period", "transform": "yyyy_mm_to_yyyymm", "required": True}, {"source": "employee_no", "target": "employee_no", "transform": "string", "required": True}, {"source": "employee_name", "target": "employee", "required": True}, {"source": "project_code", "target": "code", "required": True}, {"source": "project_name", "target": "dimension_value", "required": True}, {"source": "allocation_percentage", "target": "headcount", "transform": "decimal_divide_100", "required": True, "minimum": 0, "maximum": 1}], "validations": [{"type": "group_sum_equals", "group_by": ["cost_period", "employee_no"], "sum_field": "headcount", "expected": 1, "tolerance": 0.0001}]}]
     pipeline = await db.scalar(select(UcpPipelineConfig).where(UcpPipelineConfig.pipeline_code == "COST_ALLOCATION_LOCKED_INGEST"))
     if pipeline is None:

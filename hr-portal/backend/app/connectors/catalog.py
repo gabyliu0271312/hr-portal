@@ -142,30 +142,7 @@ CONNECTOR_TYPES: tuple[dict[str, Any], ...] = (
         "legacy_source_types": ["beisen_api"],
         "status": "active",
     },
-    {
-        "code": "webhook_ingress",
-        "label": "Webhook 入站事件",
-        "description": "接收外部系统主动推送的 JSON 事件，由 UCP 验签、限流和事件流水线处理。",
-        "groups": [
-            {"title": "入站接收", "fields": [
-                _field("verification_strategy", "验签策略", required=True, default="HMAC_SHA256"),
-                _field("signature_header", "签名 Header", required=True, default="X-Signature"),
-                _field("max_body_bytes", "最大请求体字节数", "number", required=True, default="1048576"),
-                _field("rate_limit_per_minute", "每分钟请求上限", "number", required=True, default="120"),
-                _field("rate_limit_burst", "瞬时突发上限", "number", required=True, default="10"),
-            ]},
-        ],
-        "secret_keys": [],
-        "testable": True,
-        "defaultSchedule": "外部事件触发",
-        "supports_warehouse": False,
-        "supports_ucp": True,
-        "protocol": "webhook_ingress",
-        "connection_kind": "DATA_OBJECT",
-        "object_config_kind": "webhook_event",
-        "object_label": "Webhook 事件对象",
-        "status": "active",
-    },
+
 )
 
 

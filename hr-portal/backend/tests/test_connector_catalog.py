@@ -36,3 +36,10 @@ def test_beisen_warehouse_schema_and_ucp_object_schema_are_layered():
     assert [field["key"] for field in connector["ucp_object_fields"]] == ["report_id"]
     assert connector["ucp_adapter_code"] == "BEISEN_REPORT_PULL_ADAPTER"
     assert "BEISEN_PENDING_LIST_ADAPTER" in connector["legacy_ucp_adapter_codes"]
+
+
+def test_webhook_ingress_is_registered_once_as_an_event_ingress_connector():
+    webhook_connectors = [item for item in list_connector_types("ucp") if item["code"] == "webhook_ingress"]
+
+    assert len(webhook_connectors) == 1
+    assert webhook_connectors[0]["connection_kind"] == "EVENT_INGRESS"

@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.ucp.models import UcpResource
-from app.ucp.system_service import update_resource
+from app.ucp.models import UcpCredential, UcpResource
+from app.ucp.system_service import resolve_resource_template_defaults, update_resource
 
 
 pytestmark = pytest.mark.asyncio
@@ -16,9 +16,12 @@ class FakeSession:
         self.refreshed = False
 
     async def get(self, model, resource_id):
-        assert model is UcpResource
-        assert resource_id == 1
-        return self.resource
+        if model is UcpResource:
+            assert resource_id == 1
+            return self.resource
+        if model is UcpCredential:
+            return SimpleNamespace(auth_type="token")
+        raise AssertionError(f"unexpected model: {model}")
 
     async def commit(self):
         self.committed = True
@@ -77,3 +80,9 @@ async def test_update_resource_rejects_changed_inherited_fields():
         )
 
     assert db.committed is False
+
+
+async def test_resource_template_can_declare_a_stable_resource_code():
+    template = SimpleNamespace(package_code="COST_ALLOCATION_LOCKED_INGRESS", package_name="周期锁定事件接收", system_schema={"resource_code": "cost-allocation-locked", "resource_name": "成本分摊系统 Webhook"})
+
+    assert resolve_resource_template_defaults(template) == ("cost-allocation-locked", "成本分摊系统 Webhook")
