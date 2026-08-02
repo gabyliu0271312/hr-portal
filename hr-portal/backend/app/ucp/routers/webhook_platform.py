@@ -25,7 +25,7 @@ from app.ucp.webhook_ingress import (
     extract_payload_path,
     verify_timestamped_hmac,
 )
-from app.ucp.models import UcpEventDefinition, UcpEventTrigger, UcpPipelineConfig, UcpPipelineTemplate, UcpResource, UcpResourceDataObject, UcpSystem, UcpWebhookIngressAttempt, UcpWebhookIngressReceipt
+from app.ucp.models import UcpConnectorPackage, UcpEventDefinition, UcpEventTrigger, UcpPipelineConfig, UcpPipelineTemplate, UcpResource, UcpResourceDataObject, UcpSystem, UcpWebhookIngressAttempt, UcpWebhookIngressReceipt
 from app.ucp.rate_limiter import RateLimitError, acquire as acquire_rate_limit
 from app.ucp.warehouse_ingest_service import (
     IngestBatchConflictError,
@@ -267,6 +267,39 @@ async def _get_resource(db: AsyncSession, resource_id: int) -> UcpResource:
         raise HTTPException(404, "Resource not found")
     return item
 
+
+async def _resource_object_template(db: AsyncSession, resource: UcpResource) -> dict[str, Any]:
+    template_id = getattr(resource, "source_template_id", None)
+    template_code = getattr(resource, "source_template_code", None)
+    template = await db.get(UcpConnectorPackage, template_id) if template_id else None
+    if template is None and template_code:
+        template = await db.scalar(select(UcpConnectorPackage).where(UcpConnectorPackage.package_code == template_code))
+    return ((template.system_schema or {}).get("object_template") or {}) if template else {}
+
+
+async def _validate_resource_object_template(
+    db: AsyncSession,
+    resource: UcpResource,
+    payload: ResourceObjectRequest,
+    definition: UcpEventDefinition | None,
+    *,
+    existing_object_id: int | None = None,
+) -> None:
+    object_template = await _resource_object_template(db, resource)
+    expected_type = object_template.get("object_type")
+    if expected_type and payload.object_type != expected_type:
+        raise HTTPException(422, "RESOURCE_TEMPLATE_OBJECT_TYPE_MISMATCH")
+    if payload.object_type == "EVENT_TYPE" and definition is not None:
+        expected_source = object_template.get("event_definition_source_system_type")
+        allowed_codes = set(object_template.get("event_definition_codes") or [])
+        if expected_source and definition.source_system_type != expected_source:
+            raise HTTPException(422, "RESOURCE_TEMPLATE_EVENT_SOURCE_MISMATCH")
+        if allowed_codes and definition.event_code not in allowed_codes:
+            raise HTTPException(422, "RESOURCE_TEMPLATE_EVENT_NOT_ALLOWED")
+    if object_template.get("multiple") is False:
+        existing = await db.scalar(select(UcpResourceDataObject.id).where(UcpResourceDataObject.resource_id == resource.id, UcpResourceDataObject.id != existing_object_id if existing_object_id else True))
+        if existing is not None:
+            raise HTTPException(409, "RESOURCE_TEMPLATE_SINGLE_OBJECT_ONLY")
 
 async def _event_definition(db: AsyncSession, definition_id: int, *, published: bool = False) -> UcpEventDefinition:
     item = await db.get(UcpEventDefinition, definition_id)

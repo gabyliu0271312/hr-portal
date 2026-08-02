@@ -318,6 +318,10 @@ export const ucpApi = {
 
   connectorPackages: (params: { category?: string; status?: string } = {}) =>
     api.get<{ items: any[] }>('/ucp/connector-packages', { params }).then((r) => r.data.items),
+  connectorPackage: (packageCode: string) =>
+    api.get<any>('/ucp/connector-packages/' + packageCode).then((r) => r.data),
+  resourceTemplateImpact: (packageCode: string) =>
+    api.get<{ template: any; total: number; items: any[] }>('/ucp/connector-packages/' + packageCode + '/resource-impact').then((r) => r.data),
 
   createConnectorPackage: (payload: Record<string, any>) =>
     api.post<any>('/ucp/connector-packages', payload).then((r) => r.data),

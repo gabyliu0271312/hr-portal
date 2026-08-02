@@ -112,5 +112,8 @@
   - Contract: replace editable conditions with versioned AST rules; legacy `ctx.*` conditions remain compatible only for existing unchanged flows.
 - [x] X0260 Side-effect-free dry-run results
   - Contract: reuse the formal Pipeline engine, execute only allowed reads, mark all side-effect nodes `SKIPPED_SIDE_EFFECT`, and expose only masked business results.
+- [x] X0261 Resource-template primary configuration and instance inheritance
+  - Contract: connector catalog resource templates own shared defaults, credential requirements, object model, and allowed instance overrides; resource instances retain credential binding, operational status, approved environment overrides, and object/event records. Webhook parser fields remain resource-template-owned and are not event-object settings.
+  - Acceptance: webhook ingress is accepted as an event-ingress resource template; resources persist their source template, inherit template defaults, reject unauthorized overrides, and the catalog provides structured editors for webhook, Beisen report, Feishu sheet, and Feishu bitable templates.
 
 > Detailed scope, DTOs, migration rules, UI requirements, tests, and acceptance criteria are defined in `connector-catalog-unified-action-configuration-development-spec.md`.

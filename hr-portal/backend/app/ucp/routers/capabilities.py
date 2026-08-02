@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.core.db import get_session
 from app.core.deps import require_op
@@ -16,7 +16,7 @@ from app.ucp.capability_discovery import (
     set_system_capability,
     test_system_capability,
 )
-from app.ucp.models import UcpApiTemplate, UcpCapabilityTestRun, UcpConnectorPackage, UcpCredential, UcpSystemCapability, UcpOperationDefinition, UcpSystem
+from app.ucp.models import UcpApiTemplate, UcpCapabilityTestRun, UcpConnectorPackage, UcpCredential, UcpResource, UcpSystemCapability, UcpOperationDefinition, UcpSystem
 from app.ucp.api_template_service import ApiTemplateError, create_openapi_drafts, create_template, publish_template, update_template
 from app.ucp.capability_execution import execute_operation_template
 from app.ucp.credential_service import decrypt_credential_secrets
@@ -35,7 +35,7 @@ def _resource_template_metadata(schema: dict) -> tuple[str, str]:
     if not parent_package_code or not connector_type:
         raise HTTPException(422, "RESOURCE_TEMPLATE_METADATA_REQUIRED")
     connector = get_connector_type(connector_type, include_internal=True)
-    if not connector or connector.get("connection_kind") != "DATA_OBJECT":
+    if not connector or connector.get("connection_kind") not in {"DATA_OBJECT", "EVENT_INGRESS"}:
         raise HTTPException(422, "RESOURCE_TEMPLATE_CONNECTOR_INVALID")
     return parent_package_code, connector_type
 
@@ -331,6 +331,20 @@ async def route_list_connector_packages(category: str | None = None, status: str
 async def route_get_connector_package(package_code: str, db: AsyncSession = Depends(get_session), _user=Depends(require_op('ucp.connector_catalog', 'V'))):
     return _package_item(await _package_by_code(db, package_code))
 
+
+@router.get('/connector-packages/{package_code}/resource-impact')
+async def route_resource_template_impact(package_code: str, db: AsyncSession = Depends(get_session), _user=Depends(require_op('ucp.connector_catalog', 'V'))):
+    package = await _package_by_code(db, package_code)
+    rows = (await db.execute(
+        select(UcpResource, UcpSystem)
+        .join(UcpSystem, UcpSystem.id == UcpResource.system_id)
+        .where(or_(UcpResource.source_template_id == package.id, UcpResource.source_template_code == package.package_code))
+        .order_by(UcpSystem.system_name, UcpResource.resource_name)
+    )).all()
+    return {"template": _package_item(package), "total": len(rows), "items": [
+        {"system_id": system.id, "system_code": system.system_code, "system_name": system.system_name, "resource_id": resource.id, "resource_code": resource.resource_code, "resource_name": resource.resource_name, "status": resource.status, "test_status": resource.test_status}
+        for resource, system in rows
+    ]}
 
 @router.post('/connector-packages', status_code=201)
 async def route_create_connector_package(payload: dict, db: AsyncSession = Depends(get_session), _user=Depends(require_op('ucp.connector_catalog', 'C'))):

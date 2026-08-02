@@ -403,23 +403,12 @@
           <el-empty v-else description="暂无事件，新增后可在流水线触发器中选择" :image-size="50" />
         </template>
         <template v-if="resourceEditForm.connector_type === 'webhook_ingress'">
-          <el-divider content-position="left">Webhook 入站配置</el-divider>
+          <el-divider content-position="left">Webhook 入站摘要</el-divider>
+          <el-alert type="info" :closable="false" title="验签 Header、请求解析路径、最大包体等共用入站规则由资源模板维护；此处仅展示端点、绑定凭证和允许的环境限流覆盖。" style="margin-bottom:12px" />
+          <el-form-item label="来源资源模板"><el-input :model-value="activeResource?.resource_template_code || '历史资源（未记录模板来源）'" readonly /></el-form-item>
           <el-form-item label="接收地址"><el-input :model-value="webhookUrl(activeResource)" readonly><template #append><el-button @click="copyWebhookUrl(activeResource)">复制</el-button></template></el-input></el-form-item>
-          <el-form-item label="验签策略"><el-input model-value="HMAC-SHA256 时间戳签名" disabled /></el-form-item>
-        <el-form-item label="Integration ID"><el-input v-model="webhookIngressForm.integration_id" /></el-form-item>
-        <el-form-item label="签名 Header"><el-input v-model="webhookIngressForm.signature_header" /></el-form-item>
-        <el-form-item label="请求 ID Header"><el-input v-model="webhookIngressForm.request_id_header" /></el-form-item>
-        <el-form-item label="时间戳 Header"><el-input v-model="webhookIngressForm.timestamp_header" /></el-form-item>
-        <el-form-item label="Nonce Header"><el-input v-model="webhookIngressForm.nonce_header" /></el-form-item>
-        <el-form-item label="时间容差（秒）"><el-input-number v-model="webhookIngressForm.timestamp_tolerance_seconds" :min="1" :max="3600" /></el-form-item>
-        <el-form-item label="每分钟限流"><el-input-number v-model="webhookIngressForm.rate_limit_per_minute" :min="1" :max="100000" /></el-form-item>
-        <el-form-item label="突发容量"><el-input-number v-model="webhookIngressForm.rate_limit_burst" :min="1" :max="10000" /></el-form-item>
-        <el-form-item label="最大包体（字节）"><el-input-number v-model="webhookIngressForm.max_body_bytes" :min="1024" :max="52428800" /></el-form-item>
-        <el-form-item label="验证"><el-button :loading="webhookVerifying" @click="verifyWebhookResource">验证接收资源</el-button><el-tag v-if="activeResource.test_status" style="margin-left:8px" :type="activeResource.test_status === 'PASS' ? 'success' : 'info'">{{ activeResource.test_status }}</el-tag></el-form-item>
-          <el-form-item label="事件类型路径"><el-input v-model="webhookIngressForm.event_type_path" /></el-form-item>
-          <el-form-item label="请求 ID 路径"><el-input v-model="webhookIngressForm.event_id_path" /></el-form-item>
-          <el-form-item label="批次路径"><el-input v-model="webhookIngressForm.batch_id_path" /></el-form-item>
-          <el-form-item label="明细路径"><el-input v-model="webhookIngressForm.records_path" /></el-form-item>
+          <el-form-item label="操作"><el-button @click="openResourceTemplateConfig">查看模板配置</el-button><el-button @click="webhookOverrideEditing = !webhookOverrideEditing">{{ webhookOverrideEditing ? '取消环境覆盖编辑' : '编辑环境覆盖' }}</el-button><el-button :loading="webhookVerifying" @click="verifyWebhookResource">验证资源</el-button></el-form-item><el-form-item label="环境覆盖"><template v-if="webhookOverrideEditing"><el-input-number v-model="webhookIngressForm.rate_limit_per_minute" :min="1" :max="100000" /><span style="margin-left:8px">每分钟</span><el-input-number v-model="webhookIngressForm.rate_limit_burst" :min="1" :max="10000" style="margin-left:12px" /><span style="margin-left:8px">突发容量</span></template><template v-else><el-tag type="info">限流 {{ webhookIngressForm.rate_limit_per_minute }} 次/分钟，突发 {{ webhookIngressForm.rate_limit_burst }}</el-tag></template></el-form-item>
+          <el-form-item label="验证"><el-button :loading="webhookVerifying" @click="verifyWebhookResource">验证接收资源</el-button><el-tag v-if="activeResource.test_status" style="margin-left:8px" :type="activeResource.test_status === 'PASS' ? 'success' : 'info'">{{ activeResource.test_status }}</el-tag></el-form-item>
         </template>
         <!-- Phase 6-3: 反向引用 — 哪些流水线引用了此 resource (蓝本 v2 场景 6) -->
         <el-divider content-position="left">
@@ -838,17 +827,12 @@
     </el-dialog>
 
     <el-dialog v-model="eventObjectDialogVisible" :title="editingEventObject ? '编辑事件' : '新增事件'" width="620px" append-to-body>
-      <el-alert type="info" :closable="false" style="margin-bottom:16px" title="事件定义决定事件语义；下方路径仅覆盖该事件的解析规则，不会修改共用 Webhook 接收端点。" />
+      <el-alert type="info" :closable="false" style="margin-bottom:16px" title="事件对象只描述业务事件语义、已发布定义与启用状态；Webhook 的验签和请求解析规则统一由资源模板维护。" />
       <el-form :model="eventObjectForm" label-width="105px">
         <el-form-item label="事件编码" required><el-input v-model="eventObjectForm.object_code" placeholder="如 ALLOCATION_PERIOD_UNLOCKED" /></el-form-item>
         <el-form-item label="事件名称" required><el-input v-model="eventObjectForm.object_name" /></el-form-item>
         <el-form-item label="事件定义" required><el-select v-model="eventObjectForm.event_definition_id" filterable style="width:100%"><el-option v-for="item in eventDefinitions" :key="item.id" :label="`${item.event_name} (${item.event_code} v${item.version})`" :value="item.id" /></el-select></el-form-item>
-        <el-divider content-position="left">事件匹配与解析</el-divider>
-        <el-form-item label="事件类型路径"><el-input v-model="eventObjectForm.event_type_path" placeholder="event_type" /></el-form-item>
-        <el-form-item label="请求 ID 路径"><el-input v-model="eventObjectForm.event_id_path" placeholder="request_id" /></el-form-item>
-        <el-form-item label="批次路径"><el-input v-model="eventObjectForm.batch_id_path" placeholder="batch_id" /></el-form-item>
-        <el-form-item label="期间路径"><el-input v-model="eventObjectForm.period_path" placeholder="period" /></el-form-item>
-        <el-form-item label="明细路径"><el-input v-model="eventObjectForm.records_path" placeholder="records" /></el-form-item>
+
         <el-form-item label="启用"><el-switch v-model="eventObjectForm.is_active" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="eventObjectDialogVisible = false">取消</el-button><el-button type="primary" :loading="eventObjectSaving" @click="saveEventObject">保存</el-button></template>
@@ -1088,13 +1072,15 @@ const credentialEditVisible = ref(false)
 const credentialEditForm = ref<any>({})
 const currentEditCredentialFields = computed(() => AUTH_FIELDS[credentialEditForm.value.auth_type] || [])
 
-const webhookIngressForm = ref({ integration_id: '', signature_header: 'X-Signature', request_id_header: 'X-Request-Id', timestamp_header: 'X-Timestamp', nonce_header: 'X-Nonce', timestamp_tolerance_seconds: 300, rate_limit_per_minute: 120, rate_limit_burst: 10, max_body_bytes: 1048576, event_type_path: 'event_type', event_id_path: 'request_id', batch_id_path: 'batch_id', period_path: 'period', records_path: 'records' })
+const webhookIngressForm = ref({ rate_limit_per_minute: 120, rate_limit_burst: 10 })
 const webhookVerifying = ref(false)
+const webhookOverrideEditing = ref(false)
 async function verifyWebhookResource() { if (!activeResource.value) return; webhookVerifying.value = true; try { const result = await ucpApi.verifyWebhookResource(activeResource.value.id); activeResource.value.test_status = result.test_status || 'PASS'; ElMessage.success('Webhook 资源验证通过') } catch (error: any) { ElMessage.error(error?.response?.data?.detail || 'Webhook 资源验证失败') } finally { webhookVerifying.value = false } }
 
 
 function webhookUrl(resource: any) { return `${window.location.origin}/api/v1/ucp/webhooks/resources/${resource?.resource_code || ''}` }
 async function copyWebhookUrl(resource: any) { await navigator.clipboard?.writeText(webhookUrl(resource)); ElMessage.success('接收地址已复制') }
+async function openResourceTemplateConfig() { const code = activeResource.value?.resource_template_code; if (!code) { ElMessage.warning('历史资源未记录来源模板'); return }; try { const template = await ucpApi.connectorPackage(code); const ingress = template.system_schema?.resource_defaults?.protocol?.ingress || {}; const message = '模板：' + template.package_name + ' v' + template.version + '<br/>验签策略：' + (ingress.verification_strategy || '-') + '<br/>签名 Header：' + (ingress.signature_header || '-') + '<br/>事件类型路径：' + (ingress.event_type_path || '-') + '<br/>允许实例覆盖：' + ((template.system_schema?.instance_override_policy?.allowed_fields || []).join('、') || '无'); await ElMessageBox.alert(message, '资源模板配置', { dangerouslyUseHTMLString: true, confirmButtonText: '关闭' }) } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '读取资源模板失败') } }
 
 
 const resourceDrawerOpen = ref(false)
@@ -1116,7 +1102,7 @@ const eventDefinitions = ref<any[]>([])
 const eventObjectDialogVisible = ref(false)
 const eventObjectSaving = ref(false)
 const editingEventObject = ref<any>(null)
-const eventObjectForm = ref<any>({ object_code: '', object_name: '', event_definition_id: null, event_type_path: 'event_type', event_id_path: 'request_id', batch_id_path: 'batch_id', period_path: 'period', records_path: 'records', is_active: true })
+const eventObjectForm = ref<any>({ object_code: '', object_name: '', event_definition_id: null, is_active: true })
 const objectConfigTitle = computed(() => {
   const type = activeResource.value?.connector_type
   return type === 'feishu_sheet' ? '表格配置' : type === 'feishu_bitable' ? '多维表格配置' : type === 'beisen_report' ? '报表配置' : '对象配置'
@@ -1604,8 +1590,8 @@ async function removeDataObject(item: any) {
   try { await ucpApi.deleteResourceDataObject(activeResource.value.id, item.id); ElMessage.success('数据对象已删除'); await loadDataObjects(activeResource.value.id) } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '删除失败') }
 }
 async function loadEventObjects(resourceId: number) { try { eventObjects.value = (await ucpApi.resourceObjects(resourceId, { object_type: 'EVENT_TYPE' })).items || []; eventDefinitions.value = (await ucpApi.eventDefinitions()).items || [] } catch { eventObjects.value = []; eventDefinitions.value = [] } }
-function openEventObjectDialog(item?: any) { const config = item?.event_config || {}; const ingress = activeResource.value?.protocol?.ingress || {}; editingEventObject.value = item || null; eventObjectForm.value = item ? { ...item, event_type_path: config.event_type_path || ingress.event_type_path || 'event_type', event_id_path: config.event_id_path || ingress.event_id_path || 'request_id', batch_id_path: config.batch_id_path || ingress.batch_id_path || 'batch_id', period_path: config.period_path || ingress.period_path || 'period', records_path: config.records_path || ingress.records_path || 'records' } : { object_code: '', object_name: '', event_definition_id: null, event_type_path: ingress.event_type_path || 'event_type', event_id_path: ingress.event_id_path || 'request_id', batch_id_path: ingress.batch_id_path || 'batch_id', period_path: ingress.period_path || 'period', records_path: ingress.records_path || 'records', is_active: true }; eventObjectDialogVisible.value = true }
-async function saveEventObject() { if (!activeResource.value || !eventObjectForm.value.event_definition_id) { ElMessage.warning('请选择已发布事件定义'); return }; eventObjectSaving.value = true; try { const { event_type_path, event_id_path, batch_id_path, period_path, records_path, ...form } = eventObjectForm.value; const payload = { ...form, object_type: 'EVENT_TYPE', event_config: { event_type_path, event_id_path, batch_id_path, period_path, records_path } }; if (editingEventObject.value) await ucpApi.updateResourceObject(activeResource.value.id, editingEventObject.value.id, payload); else await ucpApi.createResourceObject(activeResource.value.id, payload); ElMessage.success('事件已保存'); eventObjectDialogVisible.value = false; await loadEventObjects(activeResource.value.id) } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '保存失败') } finally { eventObjectSaving.value = false } }
+function openEventObjectDialog(item?: any) { editingEventObject.value = item || null; const { event_config, ...form } = item || {}; eventObjectForm.value = item ? form : { object_code: '', object_name: '', event_definition_id: null, is_active: true }; eventObjectDialogVisible.value = true }
+async function saveEventObject() { if (!activeResource.value || !eventObjectForm.value.event_definition_id) { ElMessage.warning('请选择已发布事件定义'); return }; eventObjectSaving.value = true; try { const payload = { ...eventObjectForm.value, object_type: 'EVENT_TYPE' }; if (editingEventObject.value) await ucpApi.updateResourceObject(activeResource.value.id, editingEventObject.value.id, payload); else await ucpApi.createResourceObject(activeResource.value.id, payload); ElMessage.success('事件已保存'); eventObjectDialogVisible.value = false; await loadEventObjects(activeResource.value.id) } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '保存失败') } finally { eventObjectSaving.value = false } }
 async function verifyEventObject(item: any) { if (!activeResource.value) return; try { await ucpApi.verifyResourceObject(activeResource.value.id, item.id); ElMessage.success('事件验证通过'); await loadEventObjects(activeResource.value.id) } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '事件验证失败') } }
 async function removeEventObject(item: any) { if (!activeResource.value) return; try { await ucpApi.deleteResourceObject(activeResource.value.id, item.id); ElMessage.success('事件已删除'); await loadEventObjects(activeResource.value.id) } catch (error: any) { ElMessage.error(error?.response?.data?.detail || '删除失败') } }
 async function openResource(sys: any, res: any) {
@@ -1616,22 +1602,8 @@ async function openResource(sys: any, res: any) {
     credential_id: res.credential_id,
     status: res.status,
   }
-  webhookIngressForm.value = {
-    integration_id: res.protocol?.ingress?.integration_id || res.resource_code,
-    signature_header: res.protocol?.ingress?.signature_header || 'X-Signature',
-    request_id_header: res.protocol?.ingress?.request_id_header || 'X-Request-Id',
-    timestamp_header: res.protocol?.ingress?.timestamp_header || 'X-Timestamp',
-    nonce_header: res.protocol?.ingress?.nonce_header || 'X-Nonce',
-    timestamp_tolerance_seconds: res.protocol?.ingress?.timestamp_tolerance_seconds || 300,
-    rate_limit_per_minute: res.protocol?.ingress?.rate_limit_per_minute || 120,
-    rate_limit_burst: res.protocol?.ingress?.rate_limit_burst || 10,
-    max_body_bytes: res.protocol?.ingress?.max_body_bytes || 1048576,
-    period_path: res.protocol?.ingress?.period_path || 'period',
-    event_type_path: res.protocol?.ingress?.event_type_path || 'event_type',
-    event_id_path: res.protocol?.ingress?.event_id_path || 'request_id',
-    batch_id_path: res.protocol?.ingress?.batch_id_path || 'batch_id',
-    records_path: res.protocol?.ingress?.records_path || 'records',
-  }
+  webhookIngressForm.value = { rate_limit_per_minute: res.protocol?.ingress?.rate_limit_per_minute || 120, rate_limit_burst: res.protocol?.ingress?.rate_limit_burst || 10 }
+  webhookOverrideEditing.value = false
   // 触发 schema 加载并反填历史值
   await onEditConnectorChange(res.connector_type)
   resourceDrawerOpen.value = true
@@ -1781,26 +1753,7 @@ async function saveResource() {
       ...jsonFields,
     }
     if (resourceEditForm.value.connector_type === 'webhook_ingress') {
-      body.protocol = {
-        ...(activeResource.value.protocol || {}),
-        ingress: {
-          ...((activeResource.value.protocol || {}).ingress || {}),
-          integration_id: webhookIngressForm.value.integration_id,
-          signature_header: webhookIngressForm.value.signature_header,
-          request_id_header: webhookIngressForm.value.request_id_header,
-          timestamp_header: webhookIngressForm.value.timestamp_header,
-          nonce_header: webhookIngressForm.value.nonce_header,
-          timestamp_tolerance_seconds: webhookIngressForm.value.timestamp_tolerance_seconds,
-          rate_limit_per_minute: webhookIngressForm.value.rate_limit_per_minute,
-          rate_limit_burst: webhookIngressForm.value.rate_limit_burst,
-          max_body_bytes: webhookIngressForm.value.max_body_bytes,
-          period_path: webhookIngressForm.value.period_path,
-          event_type_path: webhookIngressForm.value.event_type_path,
-          event_id_path: webhookIngressForm.value.event_id_path,
-          batch_id_path: webhookIngressForm.value.batch_id_path,
-          records_path: webhookIngressForm.value.records_path,
-        },
-      }
+      body.protocol = { ...(activeResource.value.protocol || {}), ingress: { ...((activeResource.value.protocol || {}).ingress || {}), rate_limit_per_minute: webhookIngressForm.value.rate_limit_per_minute, rate_limit_burst: webhookIngressForm.value.rate_limit_burst } }
     }
     await ucpApi.updateResource(activeResource.value.id, body)
     ElMessage.success('已保存')

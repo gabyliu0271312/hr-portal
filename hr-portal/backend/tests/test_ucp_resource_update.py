@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.ucp.models import UcpCredential, UcpResource
-from app.ucp.system_service import resolve_resource_template_defaults, update_resource
+from app.ucp.system_service import _changed_leaf_paths, resource_template_defaults, resolve_resource_template_defaults, update_resource
 
 
 pytestmark = pytest.mark.asyncio
@@ -86,3 +86,26 @@ async def test_resource_template_can_declare_a_stable_resource_code():
     template = SimpleNamespace(package_code="COST_ALLOCATION_LOCKED_INGRESS", package_name="周期锁定事件接收", system_schema={"resource_code": "cost-allocation-locked", "resource_name": "成本分摊系统 Webhook"})
 
     assert resolve_resource_template_defaults(template) == ("cost-allocation-locked", "成本分摊系统 Webhook")
+
+async def test_resource_template_defaults_keep_resource_identity_and_runtime_defaults():
+    template = SimpleNamespace(
+        system_schema={
+            "resource_defaults": {
+                "resource_code": "cost-allocation-locked",
+                "resource_name": "成本分摊系统 Webhook",
+                "protocol": {"ingress": {"rate_limit_per_minute": 120}},
+            }
+        }
+    )
+
+    defaults = resource_template_defaults(template)
+
+    assert defaults["resource_code"] == "cost-allocation-locked"
+    assert defaults["protocol"]["ingress"]["rate_limit_per_minute"] == 120
+
+
+async def test_changed_leaf_paths_only_returns_actual_resource_overrides():
+    before = {"ingress": {"signature_header": "X-Signature", "rate_limit_per_minute": 120}}
+    after = {"ingress": {"signature_header": "X-Signature", "rate_limit_per_minute": 240}}
+
+    assert _changed_leaf_paths(before, after, "protocol") == {"protocol.ingress.rate_limit_per_minute"}

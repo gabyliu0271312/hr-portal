@@ -23,6 +23,8 @@ from app.ucp.models import (
     UcpPipelineTemplate,
     UcpEventDelivery,
     UcpConnectorPackage,
+    UcpResourceDataObject,
+    UcpEventDefinition,
 )
 from app.ucp.adapter_schema import (
     extract_categories,
@@ -59,11 +61,19 @@ def resolve_resource_connector_type(resource: UcpResource) -> str | None:
     return legacy["code"] if legacy else None
 
 
+def resource_template_defaults(template: UcpConnectorPackage) -> dict[str, Any]:
+    metadata = template.system_schema or {}
+    defaults = metadata.get("resource_defaults") or {}
+    if not isinstance(defaults, dict):
+        raise ValueError("RESOURCE_TEMPLATE_DEFAULTS_INVALID")
+    return dict(defaults)
+
 def resolve_resource_template_defaults(template: UcpConnectorPackage) -> tuple[str, str]:
     """Return the stable resource identity declared by an instance-resource template."""
     metadata = template.system_schema or {}
-    resource_code = str(metadata.get("resource_code") or template.package_code).strip()
-    resource_name = str(metadata.get("resource_name") or template.package_name).strip()
+    defaults = resource_template_defaults(template)
+    resource_code = str(metadata.get("resource_code") or defaults.get("resource_code") or template.package_code).strip()
+    resource_name = str(metadata.get("resource_name") or defaults.get("resource_name") or template.package_name).strip()
     if not resource_code or not resource_name:
         raise ValueError("RESOURCE_TEMPLATE_DEFAULTS_INVALID")
     return resource_code, resource_name
@@ -76,7 +86,8 @@ def serialize_resource(resource: UcpResource) -> dict[str, Any]:
         "system_code": getattr(resource, "system_code", None),
         "resource_code": resource.resource_code,
         "resource_name": resource.resource_name,
-        "resource_template_code": resource.resource_code,
+        "resource_template_id": getattr(resource, "source_template_id", None),
+        "resource_template_code": getattr(resource, "source_template_code", None),
         "connector_type": resolve_resource_connector_type(resource),
         "credential_id": resource.credential_id,
         "protocol": resource.protocol,
@@ -168,8 +179,9 @@ async def list_system_resource_templates(
     existing_template_codes = set(
         (
             await db.execute(
-                select(UcpResource.resource_code).where(
-                    UcpResource.system_id == system_id
+                select(UcpResource.source_template_id).where(
+                    UcpResource.system_id == system_id,
+                    UcpResource.source_template_id.is_not(None),
                 )
             )
         ).scalars()
@@ -179,7 +191,7 @@ async def list_system_resource_templates(
         for item in templates
         if str((item.system_schema or {}).get("parent_package_code") or "").upper()
         == parent_package.package_code.upper()
-        and item.package_code not in existing_template_codes
+        and item.id not in existing_template_codes
     ]
 
 
@@ -308,6 +320,53 @@ async def get_resource(db: AsyncSession, resource_id: int) -> UcpResource | None
     return await db.get(UcpResource, resource_id)
 
 
+def _validate_template_credential_requirement(template: UcpConnectorPackage, credential: UcpCredential | None) -> None:
+    requirement = (template.system_schema or {}).get("credential_requirement") or {}
+    expected_auth_type = str(requirement.get("auth_type") or "").strip()
+    required_secret_keys = {str(key) for key in requirement.get("required_secret_keys") or []}
+    if not expected_auth_type and not required_secret_keys:
+        return
+    if credential is None:
+        raise ValueError("RESOURCE_TEMPLATE_CREDENTIAL_REQUIRED")
+    if expected_auth_type and expected_auth_type != "none" and credential.auth_type != expected_auth_type:
+        raise ValueError("RESOURCE_TEMPLATE_CREDENTIAL_AUTH_TYPE_MISMATCH")
+    if missing_keys := required_secret_keys - set((credential.secrets_encrypted or {}).keys()):
+        raise ValueError("RESOURCE_TEMPLATE_CREDENTIAL_SECRET_MISSING")
+
+async def _create_template_default_objects(
+    db: AsyncSession,
+    resource: UcpResource,
+    template: UcpConnectorPackage,
+) -> None:
+    object_template = (template.system_schema or {}).get("object_template") or {}
+    for default_object in object_template.get("default_objects") or []:
+        definition_code = str(default_object.get("event_definition_code") or "").strip()
+        if not definition_code:
+            raise ValueError("RESOURCE_TEMPLATE_DEFAULT_EVENT_INVALID")
+        definition = (
+            await db.execute(
+                select(UcpEventDefinition).where(
+                    UcpEventDefinition.event_code == definition_code,
+                    UcpEventDefinition.status == "PUBLISHED",
+                ).order_by(UcpEventDefinition.updated_at.desc())
+            )
+        ).scalars().first()
+        if definition is None:
+            raise ValueError("RESOURCE_TEMPLATE_DEFAULT_EVENT_UNAVAILABLE")
+        db.add(UcpResourceDataObject(
+            resource_id=resource.id,
+            connector_type=resource.connector_type or "webhook_ingress",
+            object_code=str(default_object.get("object_code") or definition.event_code.upper().replace(".", "_"))[:64],
+            object_name=str(default_object.get("object_name") or definition.event_name)[:128],
+            object_type="EVENT_TYPE",
+            event_definition_id=definition.id,
+            event_config={},
+            verification_status="PENDING",
+            schema_version=definition.version,
+            is_active=int(default_object.get("is_active", True)),
+            created_by=resource.created_by,
+        ))
+
 async def create_resource(
     db: AsyncSession,
     *,
@@ -358,6 +417,7 @@ async def create_resource(
         template_connector_type, None
     )
     resource_code, resource_name = resolve_resource_template_defaults(template)
+    template_defaults = resource_template_defaults(template)
     duplicate = (
         await db.execute(
             select(UcpResource.id).where(
@@ -371,16 +431,29 @@ async def create_resource(
     primary_credential_id = await find_credential_id_for_system(db, system_id)
     if primary_credential_id is None:
         raise ValueError("SYSTEM_PRIMARY_CREDENTIAL_REQUIRED")
+    _validate_template_credential_requirement(template, await db.get(UcpCredential, primary_credential_id))
     obj = UcpResource(
         system_id=system_id,
         resource_code=resource_code,
         resource_name=resource_name,
+        source_template_id=template.id,
+        source_template_code=template.package_code,
         connector_type=template_connector_type,
         adapter_code=template_adapter_code,
         credential_id=primary_credential_id,
+        protocol=template_defaults.get("protocol"),
+        report_config=template_defaults.get("report_config"),
+        mapping_config=template_defaults.get("mapping_config"),
+        file_config=template_defaults.get("file_config"),
+        scheduling=template_defaults.get("scheduling"),
+        notification_config=template_defaults.get("notification_config"),
+        retry_config=template_defaults.get("retry_config"),
+        circuit_breaker_config=template_defaults.get("circuit_breaker_config"),
         created_by=created_by,
     )
     db.add(obj)
+    await db.flush()
+    await _create_template_default_objects(db, obj, template)
     await db.commit()
     await db.refresh(obj)
     return obj
@@ -464,6 +537,51 @@ async def create_webhook_resource(
     return obj
 
 
+def _changed_leaf_paths(before: Any, after: Any, prefix: str = "") -> set[str]:
+    if isinstance(before, dict) and isinstance(after, dict):
+        paths: set[str] = set()
+        for key in set(before) | set(after):
+            child_prefix = f"{prefix}.{key}" if prefix else str(key)
+            paths |= _changed_leaf_paths(before.get(key), after.get(key), child_prefix)
+        return paths
+    return {prefix} if before != after and prefix else set()
+
+
+async def _validate_resource_template_overrides(
+    db: AsyncSession,
+    resource: UcpResource,
+    fields: dict[str, Any],
+) -> None:
+    source_template_id = getattr(resource, "source_template_id", None)
+    source_template_code = getattr(resource, "source_template_code", None)
+    if not source_template_id and not source_template_code:
+        return
+    template = await db.get(UcpConnectorPackage, source_template_id) if source_template_id else (
+        await db.execute(select(UcpConnectorPackage).where(UcpConnectorPackage.package_code == source_template_code))
+    ).scalar_one_or_none()
+    policy = (template.system_schema or {}).get("instance_override_policy") if template else None
+    allowed_fields = set((policy or {}).get("allowed_fields") or [])
+    always_allowed = {"credential_id", "status"}
+    changed_fields = {
+        field_name
+        for field_name, value in fields.items()
+        if field_name in {"resource_name", "protocol", "report_config", "mapping_config", "file_config", "scheduling", "notification_config", "retry_config", "circuit_breaker_config"}
+        and value != getattr(resource, field_name)
+    }
+    disallowed = {
+        field_name
+        for field_name in changed_fields
+        if field_name != "protocol" and field_name not in allowed_fields
+    }
+    if "protocol" in changed_fields:
+        disallowed |= {
+            path
+            for path in _changed_leaf_paths(resource.protocol or {}, fields["protocol"] or {}, "protocol")
+            if path not in allowed_fields
+        }
+    if disallowed:
+        raise ValueError("RESOURCE_TEMPLATE_OVERRIDE_NOT_ALLOWED")
+
 async def update_resource(
     db: AsyncSession,
     resource_id: int,
@@ -480,6 +598,7 @@ async def update_resource(
         if fields[field_name] != getattr(obj, field_name):
             raise ValueError("RESOURCE_TEMPLATE_INHERITED_FIELDS_IMMUTABLE")
         fields.pop(field_name)
+    await _validate_resource_template_overrides(db, obj, fields)
 
     if str(getattr(obj, "connector_type", "") or "").lower() in {"webhook_ingress", "webhook"}:
         validate_webhook_ingress_protocol(fields.get("protocol", obj.protocol))
@@ -509,6 +628,10 @@ async def update_resource(
         )
     credential_id = fields.get("credential_id", obj.credential_id)
     credential = await db.get(UcpCredential, credential_id) if credential_id else None
+    if getattr(obj, "source_template_id", None):
+        template = await db.get(UcpConnectorPackage, obj.source_template_id)
+        if template is not None:
+            _validate_template_credential_requirement(template, credential)
     _validate_webhook_ingress_credential(
         fields.get("protocol", obj.protocol), credential
     )

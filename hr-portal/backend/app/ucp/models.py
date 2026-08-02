@@ -1427,6 +1427,8 @@ class UcpResource(Base):
     )
     resource_code: Mapped[str] = mapped_column(String(64), nullable=False)
     resource_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_template_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ucp_connector_package.id", ondelete="SET NULL"), nullable=True)
+    source_template_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # 面向产品的共享接入类型目录编码；旧资源为空时由 adapter_code 兼容推导。
     connector_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # 1 resource 绑 1 adapter
