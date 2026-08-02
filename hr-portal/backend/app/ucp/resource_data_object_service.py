@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.catalog import get_connector_type
 from app.ucp.models import UcpResource, UcpResourceDataObject
-from app.ucp.system_service import resolve_resource_connector_type
 
 
 class ResourceDataObjectError(ValueError):
@@ -45,7 +44,7 @@ async def _get_data_object_resource(db: AsyncSession, resource_id: int) -> UcpRe
     resource = await db.get(UcpResource, resource_id)
     if not resource:
         raise ResourceDataObjectError("资源不存在")
-    connector_type = resolve_resource_connector_type(resource)
+    connector_type = resource.connector_type
     connector = get_connector_type(connector_type or "", include_internal=True)
     if not connector or connector.get("connection_kind") != "DATA_OBJECT":
         raise ResourceDataObjectError("该资源不是可配置数据对象的接入类型")
@@ -91,7 +90,7 @@ async def create_resource_data_object(
     db: AsyncSession, resource_id: int, payload: dict[str, Any], *, created_by: str | None
 ) -> UcpResourceDataObject:
     resource = await _get_data_object_resource(db, resource_id)
-    connector_type = resolve_resource_connector_type(resource)
+    connector_type = resource.connector_type
     object_code = str(payload.get("object_code") or "").strip()
     object_name = str(payload.get("object_name") or "").strip()
     if not object_code or not object_name:
@@ -132,7 +131,7 @@ async def update_resource_data_object(
     item = await db.get(UcpResourceDataObject, object_id)
     if not item or item.resource_id != resource_id:
         raise ResourceDataObjectError("数据对象不存在")
-    connector_type = resolve_resource_connector_type(resource) or ""
+    connector_type = resource.connector_type or ""
     if item.connector_type != connector_type:
         raise ResourceDataObjectError("资源接入类型已变化，请重新创建数据对象")
     if "object_config" in payload:

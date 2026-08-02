@@ -32,8 +32,8 @@ from app.ucp.adapter_schema import (
 )
 from app.ucp.webhook_ingress import validate_webhook_ingress_protocol
 from app.connectors.catalog import (
-    find_connector_type_by_adapter,
     get_connector_type,
+    resolve_resource_configuration_profile,
 )
 
 
@@ -51,14 +51,6 @@ def _validate_webhook_ingress_credential(
         return
     if credential is None or credential.auth_type != "hmac_sha256_timestamped":
         raise ValueError("WEBHOOK_INGRESS_REQUIRES_HMAC_TIMESTAMPED_CREDENTIAL")
-
-
-def resolve_resource_connector_type(resource: UcpResource) -> str | None:
-    """Return a stable product connector type for new and legacy resources."""
-    if resource.connector_type:
-        return resource.connector_type
-    legacy = find_connector_type_by_adapter(resource.adapter_code)
-    return legacy["code"] if legacy else None
 
 
 def resource_template_defaults(template: UcpConnectorPackage) -> dict[str, Any]:
@@ -79,7 +71,7 @@ def resolve_resource_template_defaults(template: UcpConnectorPackage) -> tuple[s
     return resource_code, resource_name
 
 def serialize_resource(resource: UcpResource) -> dict[str, Any]:
-    """Product DTO. Adapter codes stay available only for legacy runtime compatibility."""
+    """Product DTO. Runtime adapter codes remain internal to the service layer."""
     return {
         "id": resource.id,
         "system_id": resource.system_id,
@@ -88,7 +80,7 @@ def serialize_resource(resource: UcpResource) -> dict[str, Any]:
         "resource_name": resource.resource_name,
         "resource_template_id": getattr(resource, "source_template_id", None),
         "resource_template_code": getattr(resource, "source_template_code", None),
-        "connector_type": resolve_resource_connector_type(resource),
+        "connector_type": resource.connector_type,
         "credential_id": resource.credential_id,
         "protocol": resource.protocol,
         "report_config": resource.report_config,
@@ -410,14 +402,23 @@ async def create_resource(
     parent_package = await db.get(UcpConnectorPackage, system.package_id)
     metadata = template.system_schema or {}
     parent_package_code = str(metadata.get("parent_package_code") or "").upper()
-    template_connector_type = str(metadata.get("resource_connector_type") or "")
     if not parent_package or parent_package.package_code.upper() != parent_package_code:
         raise ValueError("RESOURCE_TEMPLATE_PARENT_MISMATCH")
-    template_connector_type, template_adapter_code = _resolve_connector_for_write(
-        template_connector_type, None
-    )
-    resource_code, resource_name = resolve_resource_template_defaults(template)
     template_defaults = resource_template_defaults(template)
+    object_template = metadata.get("object_template") or {}
+    try:
+        template_profile = resolve_resource_configuration_profile(
+            object_type=object_template.get("object_type"),
+            configuration_profile=template_defaults.get("configuration_profile"),
+        )
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+    runtime_binding = metadata.get("runtime_binding") or {}
+    if not isinstance(runtime_binding, dict) or runtime_binding.get("adapter_code") != template_profile.get("adapter_code"):
+        raise ValueError("RESOURCE_TEMPLATE_RUNTIME_BINDING_INVALID")
+    template_connector_type = template_profile.get("connector_type")
+    template_adapter_code = template_profile.get("adapter_code")
+    resource_code, resource_name = resolve_resource_template_defaults(template)
     duplicate = (
         await db.execute(
             select(UcpResource.id).where(
@@ -457,85 +458,6 @@ async def create_resource(
     await db.commit()
     await db.refresh(obj)
     return obj
-
-    connector_type, adapter_code = _resolve_connector_for_write(connector_type, adapter_code)
-    # Phase 5-4: 按 adapter schema 校验 8 个 JSON 字段
-    if not skip_schema_validation:
-        await _validate_resource_fields_against_schema(
-            db,
-            adapter_code=adapter_code,
-            fields={
-                "protocol": protocol,
-                "report_config": report_config,
-                "mapping_config": mapping_config,
-                "file_config": file_config,
-                "scheduling": scheduling,
-                "notification_config": notification_config,
-                "retry_config": retry_config,
-                "circuit_breaker_config": circuit_breaker_config,
-            },
-        )
-
-    obj = UcpResource(
-        system_id=system_id,
-        resource_code=resource_code,
-        resource_name=resource_name,
-        connector_type=connector_type,
-        adapter_code=adapter_code,
-        credential_id=credential_id,
-        protocol=protocol,
-        report_config=report_config,
-        mapping_config=mapping_config,
-        file_config=file_config,
-        scheduling=scheduling,
-        notification_config=notification_config,
-        retry_config=retry_config,
-        circuit_breaker_config=circuit_breaker_config,
-        created_by=created_by,
-    )
-    db.add(obj)
-    await db.commit()
-    await db.refresh(obj)
-    return obj
-
-
-async def create_webhook_resource(
-    db: AsyncSession,
-    *,
-    system_id: int,
-    resource_code: str,
-    resource_name: str,
-    credential_id: int,
-    protocol: dict[str, Any],
-    created_by: str | None = None,
-) -> UcpResource:
-    system = await db.get(UcpSystem, system_id)
-    if system is None:
-        raise ValueError("SYSTEM_NOT_FOUND")
-    duplicate = await db.scalar(
-        select(UcpResource.id).where(
-            UcpResource.system_id == system_id,
-            UcpResource.resource_code == resource_code,
-        )
-    )
-    if duplicate is not None:
-        raise ValueError("RESOURCE_CODE_ALREADY_EXISTS")
-    validate_webhook_ingress_protocol(protocol)
-    obj = UcpResource(
-        system_id=system_id,
-        resource_code=resource_code,
-        resource_name=resource_name,
-        connector_type="webhook_ingress",
-        credential_id=credential_id,
-        protocol=protocol,
-        status=0,
-        created_by=created_by,
-    )
-    db.add(obj)
-    await db.commit()
-    await db.refresh(obj)
-    return obj
-
 
 def _changed_leaf_paths(before: Any, after: Any, prefix: str = "") -> set[str]:
     if isinstance(before, dict) and isinstance(after, dict):

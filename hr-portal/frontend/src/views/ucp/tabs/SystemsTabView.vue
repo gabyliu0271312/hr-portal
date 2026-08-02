@@ -328,23 +328,6 @@
           <el-form-item label="资源名称">
             <el-input v-model="resourceEditForm.resource_name" />
           </el-form-item>
-          <el-form-item label="接入类型">
-            <el-select
-              v-model="resourceEditForm.connector_type"
-              disabled
-              filterable
-              placeholder="选择接入类型"
-              style="width: 100%"
-              @change="onEditConnectorChange"
-            >
-              <el-option
-                v-for="item in connectorTypes"
-                :key="item.code"
-                :label="item.label"
-                :value="item.code"
-              />
-            </el-select>
-          </el-form-item>
           <el-form-item label="凭证">
             <el-select v-model="resourceEditForm.credential_id" placeholder="选择凭证" clearable style="width: 100%">
               <el-option
@@ -748,61 +731,6 @@
       width="640px"
       :close-on-click-modal="false"
     >
-      <el-form v-if="false" :model="resourceForm" label-width="100px">
-        <el-alert type="info" :closable="false" style="margin-bottom: 16px">
-          资源必须依附已接入系统，并继承其凭证与安全策略；例如“飞书报表”应在“飞书”系统下新增。<br />
-          <span style="color: #3b82f6">选择适配器后,下方配置项会自动按 schema 渲染。</span>
-        </el-alert>
-        <el-form-item label="资源编码" required>
-          <el-input v-model="resourceForm.resource_code" placeholder="如 EMPLOYEE / ORG / POSITION" />
-        </el-form-item>
-        <el-form-item label="资源名称" required>
-          <el-input v-model="resourceForm.resource_name" placeholder="如 员工表" />
-        </el-form-item>
-        <el-form-item label="接入类型" required>
-          <el-select
-            v-model="resourceForm.connector_type"
-            filterable
-            placeholder="选择接入类型"
-            style="width: 100%"
-            @change="onAddConnectorChange"
-          >
-            <el-option
-              v-for="item in connectorTypes"
-              :key="item.code"
-              :label="item.label"
-              :value="item.code"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="凭证">
-          <el-select
-            v-model="resourceForm.credential_id"
-            placeholder="选择凭证（仅显示当前系统下的凭证）"
-            clearable
-            style="width: 100%"
-          >
-            <el-option
-              v-for="c in systemCredentialsOf(addResourceSystem?.id)"
-              :key="c.id"
-              :label="`${c.credential_name} (${c.env_tag}${c.is_primary ? ' · 主' : ''})`"
-              :value="c.id"
-            />
-            <template v-if="systemCredentialsOf(addResourceSystem?.id).length === 0" #empty>
-              <span style="color: #909399; padding: 8px 12px">该系统尚未配置凭证</span>
-            </template>
-          </el-select>
-        </el-form-item>
-
-        <!-- Phase 5-4: schema 驱动的动态字段 (通用组件) -->
-        <SchemaFormField
-          v-if="addSchema && !resourceForm.connector_type"
-          :schema="addSchema"
-          v-model="addFormValues"
-          title="配置（schema 驱动）"
-          empty-text="当前 adapter 未注册 schema, 跳过扩展配置。"
-        />
-      </el-form>
       <div class="resource-template-picker">
         <el-alert type="info" :closable="false" style="margin-bottom: 16px">
           请选择资源模板。资源编码、资源名称、实现类型及父系统主凭证均由模板自动继承。
@@ -811,7 +739,7 @@
         <el-radio-group v-else v-model="resourceForm.resource_template_code" class="resource-template-options">
           <el-radio v-for="item in resourceTemplates" :key="item.resource_template_code" :value="item.resource_template_code" class="resource-template-option">
             <strong>{{ item.resource_template_name }}</strong>
-            <span>{{ item.description || item.resource_connector_type || item.resource_template_code }}</span>
+            <span>{{ item.description || item.configuration_profile_label || item.object_type || item.resource_template_code }}</span>
           </el-radio>
         </el-radio-group>
       </div>
@@ -1653,7 +1581,6 @@ async function addResource(sys: any) {
     resource_template_code: '',
     resource_code: '',
     resource_name: '',
-    connector_type: '',
     // 向导 Step 3 触发时,默认凭证 = 刚创建的 pendingCredId
     credential_id: addResourceFromWizardFlag.value && pendingCredId.value ? pendingCredId.value : null,
   }
@@ -2068,45 +1995,6 @@ async function submitResource() {
     }
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '创建资源失败')
-  } finally {
-    submitting.value = false
-  }
-  return
-  if (!resourceForm.value.resource_code || !resourceForm.value.resource_name) {
-    ElMessage.warning('请填写资源编码和名称')
-    return
-  }
-  if (!resourceForm.value.connector_type) {
-    ElMessage.warning('请选择接入类型')
-    return
-  }
-  submitting.value = true
-  try {
-    // Phase 5-4: 按 schema 重组 8 个 JSON 字段
-    const cats = (addSchema.value?.categories || []) as SchemaCategory[]
-    const payload = flattenFormToJson(cats, addFormValues.value)
-    const jsonFields = buildBackendJsonFields(payload)
-    await (ucpApi as any).createResource({
-      system_id: addResourceSystem.value.id,
-      resource_code: resourceForm.value.resource_code,
-      resource_name: resourceForm.value.resource_name,
-      connector_type: resourceForm.value.connector_type,
-      credential_id: resourceForm.value.credential_id || undefined,
-      ...jsonFields,
-    })
-    ElMessage.success('资源已创建')
-    showAddResource.value = false
-    addFormValues.value = {}
-    addSchema.value = null
-    // 向导内调用 → 局部刷新 Step 3 列表；否则刷新整页
-    if (addResourceFromWizardFlag.value) {
-      await loadWizardResources()
-      addResourceFromWizardFlag.value = false
-    } else {
-      await load()
-    }
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '创建失败')
   } finally {
     submitting.value = false
   }

@@ -315,6 +315,9 @@ export const ucpApi = {
   connectorTypes: (consumer: 'warehouse' | 'ucp' = 'ucp') =>
     api.get<{ items: any[] }>('/datasources/types', { params: { consumer } }).then((r) => r.data.items),
 
+  resourceConfigurationProfiles: (objectType?: string) =>
+    api.get<{ items: any[] }>('/ucp/resource-configuration-profiles', { params: objectType ? { object_type: objectType } : {} }).then((r) => r.data.items),
+
 
   connectorPackages: (params: { category?: string; status?: string } = {}) =>
     api.get<{ items: any[] }>('/ucp/connector-packages', { params }).then((r) => r.data.items),
@@ -397,7 +400,7 @@ export const ucpApi = {
     api.get<{ total: number; items: any[] }>('/ucp/resources', { params }).then((r) => r.data),
 
   resourceTemplates: (systemId: number) =>
-    api.get<{ items: { resource_template_code: string; resource_template_name: string; description?: string; resource_connector_type?: string }[] }>(`/ucp/systems/${systemId}/resource-templates`).then((r) => r.data.items),
+    api.get<{ items: { resource_template_code: string; resource_template_name: string; description?: string; object_type?: string; configuration_profile?: string; configuration_profile_label?: string }[] }>(`/ucp/systems/${systemId}/resource-templates`).then((r) => r.data.items),
 
   createResource: (payload: {
     system_id: number
@@ -405,8 +408,6 @@ export const ucpApi = {
   }) =>
     api.post<{ id: number; resource_code: string }>('/ucp/resources', payload).then((r) => r.data),
 
-  createWebhookResource: (payload: { system_id: number; resource_code: string; resource_name: string; credential_id: number | null; protocol: Record<string, any> }) =>
-    api.post<{ id: number; resource_code: string }>('/ucp/resources/webhook', payload).then((r) => r.data),
 
   updateResource: (resourceId: number, payload: Record<string, any>) =>
     api.patch<{ id: number }>(`/ucp/resources/${resourceId}`, payload).then((r) => r.data),

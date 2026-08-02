@@ -4,7 +4,55 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Literal
 
+from app.ucp.webhook_ingress import validate_webhook_ingress_protocol
+
 Consumer = Literal["warehouse", "ucp"]
+# Resource templates use the object model as their primary product contract.
+# A configuration profile selects the provider-specific connection shape and
+# derives the private runtime connector/adapter without exposing that technical
+# choice as a user-editable "resource implementation type".
+RESOURCE_CONFIGURATION_PROFILES: tuple[dict[str, Any], ...] = (
+    {
+        "code": "webhook_ingress",
+        "label": "Webhook 入站配置",
+        "object_type": "EVENT_TYPE",
+        "connector_type": "webhook_ingress",
+        "configuration_label": "入站事件配置",
+        "object_config_schema": [],
+    },
+    {
+        "code": "beisen_report",
+        "label": "北森报表访问配置",
+        "object_type": "REPORT",
+        "connector_type": "beisen_report",
+        "configuration_label": "报表访问配置",
+        "object_config_schema": [{"key": "report_id", "label": "报表 ID", "required": True}],
+    },
+    {
+        "code": "feishu_sheet",
+        "label": "飞书在线表格",
+        "object_type": "TABLE",
+        "connector_type": "feishu_sheet",
+        "configuration_label": "表格访问配置",
+        "object_config_schema": [{"key": "spreadsheet_token", "label": "Spreadsheet Token", "required": True}, {"key": "sheet_id", "label": "Sheet ID", "required": True}, {"key": "range", "label": "读取范围", "required": True}],
+    },
+    {
+        "code": "feishu_bitable",
+        "label": "飞书多维表格",
+        "object_type": "TABLE",
+        "connector_type": "feishu_bitable",
+        "configuration_label": "表格访问配置",
+        "object_config_schema": [{"key": "app_token", "label": "App Token", "required": True}, {"key": "table_id", "label": "数据表 ID", "required": True}, {"key": "view_id", "label": "视图 ID", "required": False}],
+    },
+    {
+        "code": "generic_api_object",
+        "label": "通用 API 对象",
+        "object_type": "API_OBJECT",
+        "connector_type": None,
+        "configuration_label": "API 访问配置",
+        "object_config_schema": [{"key": "path", "label": "对象路径", "required": True}],
+    },
+)
 
 
 def _field(key: str, label: str, field_type: str = "text", **extra: Any) -> dict[str, Any]:
@@ -172,16 +220,98 @@ def get_connector_type(code: str, *, include_internal: bool = False) -> dict[str
     return deepcopy(item) if include_internal else _public_connector_type(item)
 
 
-def find_connector_type_by_adapter(adapter_code: str | None) -> dict[str, Any] | None:
-    """Compatibility projection for resources created before connector_type existed."""
-    if not adapter_code:
-        return None
-    item = next(
-        (
-            item for item in CONNECTOR_TYPES
-            if item.get("ucp_adapter_code") == adapter_code
-            or adapter_code in item.get("legacy_ucp_adapter_codes", [])
-        ),
+
+def list_resource_configuration_profiles(
+    object_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return product-facing resource configuration profiles.
+
+    Profiles are intentionally independent from connector catalog records so a
+    future TABLE provider only adds a profile/adapter rather than a new object
+    type or a new user-facing implementation-type field.
+    """
+    expected_type = str(object_type or "").strip().upper()
+    return [
+        deepcopy(profile)
+        for profile in RESOURCE_CONFIGURATION_PROFILES
+        if not expected_type or profile["object_type"] == expected_type
+    ]
+
+
+def get_resource_configuration_profile(code: str | None) -> dict[str, Any] | None:
+    normalized_code = str(code or "").strip()
+    profile = next(
+        (item for item in RESOURCE_CONFIGURATION_PROFILES if item["code"] == normalized_code),
         None,
     )
-    return deepcopy(item) if item else None
+    return deepcopy(profile) if profile else None
+
+
+def detect_resource_configuration_profile(
+    *,
+    object_type: str | None,
+    resource_defaults: dict[str, Any] | None = None,
+    object_template: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Derive a profile from stable configuration fields, never a template name."""
+    normalized_type = str(object_type or "").strip().upper()
+    defaults = resource_defaults or {}
+    template = object_template or {}
+    object_defaults = template.get("default_object_config") or {}
+    if not isinstance(object_defaults, dict):
+        raise ValueError("RESOURCE_TEMPLATE_OBJECT_DEFAULTS_INVALID")
+    if normalized_type == "EVENT_TYPE":
+        validate_webhook_ingress_protocol(defaults.get("protocol"))
+        detected = "webhook_ingress"
+    elif normalized_type == "REPORT":
+        detected = "beisen_report"
+    elif normalized_type == "API_OBJECT":
+        detected = "generic_api_object"
+    elif normalized_type == "TABLE":
+        has_sheet = any(_has_configuration_value(object_defaults.get(key)) for key in ("spreadsheet_token", "sheet_id", "range"))
+        has_bitable = any(_has_configuration_value(object_defaults.get(key)) for key in ("app_token", "table_id", "view_id"))
+        if has_sheet and has_bitable:
+            raise ValueError("RESOURCE_TEMPLATE_TABLE_PROFILE_AMBIGUOUS")
+        if has_sheet:
+            detected = "feishu_sheet"
+        elif has_bitable:
+            detected = "feishu_bitable"
+        else:
+            raise ValueError("RESOURCE_TEMPLATE_TABLE_PROFILE_UNDETERMINED")
+    else:
+        raise ValueError("RESOURCE_TEMPLATE_OBJECT_TYPE_INVALID")
+    profile = resolve_resource_configuration_profile(object_type=normalized_type, configuration_profile=detected)
+    validate_resource_configuration_profile_config(profile=profile, object_config=object_defaults)
+    return profile
+
+
+def _has_configuration_value(value: Any) -> bool:
+    return bool(value.strip()) if isinstance(value, str) else value is not None and value != ""
+
+
+def validate_resource_configuration_profile_config(*, profile: dict[str, Any], object_config: dict[str, Any]) -> None:
+    """Require every profile-defined locator before deriving an adapter."""
+    missing_fields = [field["key"] for field in profile.get("object_config_schema", []) if field.get("required") and not _has_configuration_value(object_config.get(field["key"]))]
+    if missing_fields:
+        raise ValueError("RESOURCE_TEMPLATE_CONFIGURATION_FIELDS_REQUIRED:" f"{profile['code']}:{','.join(missing_fields)}")
+
+
+def resolve_resource_configuration_profile(*, object_type: str | None, configuration_profile: str | None) -> dict[str, Any]:
+    """Validate a persisted profile and derive its internal runtime binding."""
+    normalized_type = str(object_type or "").strip().upper()
+    if normalized_type not in {"EVENT_TYPE", "REPORT", "TABLE", "API_OBJECT"}:
+        raise ValueError("RESOURCE_TEMPLATE_OBJECT_TYPE_INVALID")
+    profile = get_resource_configuration_profile(str(configuration_profile or "").strip())
+    if profile is None:
+        raise ValueError("RESOURCE_TEMPLATE_CONFIGURATION_PROFILE_INVALID")
+    if profile["object_type"] != normalized_type:
+        raise ValueError("RESOURCE_TEMPLATE_CONFIGURATION_PROFILE_OBJECT_TYPE_MISMATCH")
+    connector_type = profile.get("connector_type")
+    if connector_type:
+        connector = get_connector_type(connector_type, include_internal=True)
+        if not connector or not connector.get("supports_ucp"):
+            raise ValueError("RESOURCE_TEMPLATE_CONFIGURATION_PROFILE_UNAVAILABLE")
+        profile["adapter_code"] = None if connector.get("connection_kind") == "EVENT_INGRESS" else connector.get("ucp_adapter_code")
+    else:
+        profile["adapter_code"] = None
+    return profile

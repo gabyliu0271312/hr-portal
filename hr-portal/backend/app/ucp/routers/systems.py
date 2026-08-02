@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import current_user, require_op
 from app.core.db import get_session
 from app.users.models import User
+from app.connectors.catalog import get_resource_configuration_profile
 from app.ucp.models import UcpPipelineTemplate
 from app.ucp.system_service import (
     list_systems,
@@ -21,7 +22,6 @@ from app.ucp.system_service import (
     list_resources,
     get_resource,
     create_resource,
-    create_webhook_resource,
     update_resource,
     delete_resource,
     get_system_overview,
@@ -183,9 +183,13 @@ async def route_list_system_resource_templates(
                 "resource_template_code": item.package_code,
                 "resource_template_name": item.package_name,
                 "description": item.description,
-                "resource_connector_type": (item.system_schema or {}).get(
-                    "resource_connector_type"
-                ),
+                "object_type": ((item.system_schema or {}).get("object_template") or {}).get("object_type"),
+                "configuration_profile": ((item.system_schema or {}).get("resource_defaults") or {}).get("configuration_profile"),
+                "configuration_profile_label": (
+                    get_resource_configuration_profile(
+                        ((item.system_schema or {}).get("resource_defaults") or {}).get("configuration_profile")
+                    ) or {}
+                ).get("label"),
             }
             for item in items
         ]
@@ -226,22 +230,6 @@ async def route_create_resource(
         status = 409 if str(exc) == "RESOURCE_TEMPLATE_ALREADY_ADDED" else 422
         raise HTTPException(status, str(exc)) from exc
     return serialize_resource(obj)
-
-
-@router.post("/resources/webhook", status_code=201)
-async def route_create_webhook_resource(
-    payload: dict[str, Any],
-    db: AsyncSession = Depends(get_session),
-    user: User = Depends(require_op("ucp.resources", "C")),
-):
-    required = {"system_id", "resource_code", "resource_name", "credential_id", "protocol"}
-    if set(payload) != required:
-        raise HTTPException(422, "WEBHOOK_RESOURCE_CREATE_PAYLOAD_INVALID")
-    try:
-        item = await create_webhook_resource(db, created_by=user.login_name, **payload)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    return serialize_resource(item)
 
 
 @router.patch("/resources/{resource_id}")

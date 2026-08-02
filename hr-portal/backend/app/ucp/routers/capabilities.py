@@ -24,21 +24,46 @@ from app.ucp.generic_http_adapter import GenericHttpActionAdapter
 from app.ucp.openapi_import_service import OpenApiImportError, preview_openapi
 from app.ucp.system_service import create_system
 from app.ucp.action_contract import ActionContractError, build_field_catalog, redact_sample, resolve_business_error, schema_hash, validate_condition_ast, validate_mapping, validate_schema
-from app.connectors.catalog import get_connector_type
+from app.connectors.catalog import (
+    detect_resource_configuration_profile,
+    list_resource_configuration_profiles,
+)
 
 router = APIRouter()
 
 
 def _resource_template_metadata(schema: dict) -> tuple[str, str]:
+    """Canonicalize a template using strict field-derived provider configuration."""
     parent_package_code = str(schema.get("parent_package_code") or "").strip().upper()
-    connector_type = str(schema.get("resource_connector_type") or "").strip()
-    if not parent_package_code or not connector_type:
+    defaults = schema.get("resource_defaults") or {}
+    object_template = schema.get("object_template") or {}
+    if not parent_package_code or not isinstance(defaults, dict) or not isinstance(object_template, dict):
         raise HTTPException(422, "RESOURCE_TEMPLATE_METADATA_REQUIRED")
-    connector = get_connector_type(connector_type, include_internal=True)
-    if not connector or connector.get("connection_kind") not in {"DATA_OBJECT", "EVENT_INGRESS"}:
-        raise HTTPException(422, "RESOURCE_TEMPLATE_CONNECTOR_INVALID")
-    return parent_package_code, connector_type
+    try:
+        profile = detect_resource_configuration_profile(
+            object_type=object_template.get("object_type"),
+            resource_defaults=defaults,
+            object_template=object_template,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
+    object_template["object_type"] = profile["object_type"]
+    object_template["config_schema"] = profile.get("object_config_schema", [])
+    defaults["configuration_profile"] = profile["code"]
+    schema.pop("resource_connector_type", None)
+    schema["parent_package_code"] = parent_package_code
+    schema["resource_defaults"] = defaults
+    schema["object_template"] = object_template
+    schema["runtime_binding"] = {"adapter_code": profile.get("adapter_code")}
+    return parent_package_code, profile["code"]
+
+@router.get("/resource-configuration-profiles")
+async def route_list_resource_configuration_profiles(
+    object_type: str | None = Query(default=None),
+    _user=Depends(require_op("ucp.connector_catalog", "V")),
+):
+    return {"items": list_resource_configuration_profiles(object_type)}
 
 def _package_item(item: UcpConnectorPackage) -> dict:
     return {
