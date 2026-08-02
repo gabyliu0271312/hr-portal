@@ -22,6 +22,7 @@ from app.core.deps import current_user, require_any_op, require_op
 from app.data.models import DATA_TABLES, TableColumn
 from app.datasets.metadata import table_label, table_label_map, table_options
 from app.datasets.models import DataSet, DataSetAcl, DataSetRelation, DataSetTable
+from app.datasets.relations import validate_dataset_relation_keys
 from app.datasets.single_table import ensure_single_table_dataset as ensure_single_table_dataset_impl
 from app.datasets.single_table import _populate_output_fields_from_table_columns as _populate_output_fields
 from app.permissions.strategy import ensure_scope_strategy
@@ -253,6 +254,13 @@ def _validate_payload(payload: DatasetIn) -> None:
                 detail=f"关联 {r.left_alias}↔{r.right_alias} 至少需要 1 个连接键",
             )
 
+
+    try:
+        validate_dataset_relation_keys(
+            {table.alias: table.table_name for table in payload.tables}, payload.relations
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 # ===== CRUD =====
 

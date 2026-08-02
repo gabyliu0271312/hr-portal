@@ -1791,6 +1791,15 @@ async def rollback_model(
         db.add(DataSetTable(dataset_id=model_id, table_name=t["table_name"], alias=t["alias"]))
 
     # 恢复 relations
+    try:
+        from app.datasets.relations import validate_dataset_relation_keys
+
+        validate_dataset_relation_keys(
+            {table["alias"]: table["table_name"] for table in snap.get("tables", [])},
+            snap.get("relations", []),
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"模型版本包含无效关联: {exc}") from exc
     await db.execute(sa_text("DELETE FROM dataset_relations WHERE dataset_id = :did"), {"did": model_id})
     for r in snap.get("relations", []):
         db.add(DataSetRelation(
