@@ -117,6 +117,9 @@ export const datasetsApi = {
   update: (id: number, body: DatasetPayload) =>
     api.put<DatasetItem>(`/datasets/${id}`, body).then((r) => r.data),
 
+  updateAcl: (id: number, acl: DatasetAclItem[]) =>
+    api.patch<DatasetItem>(`/datasets/${id}/acl`, { acl }).then((r) => r.data),
+
   remove: (id: number) =>
     api.delete<{ ok: boolean }>(`/datasets/${id}`).then((r) => r.data),
 

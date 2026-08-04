@@ -150,10 +150,11 @@ async function openAcl(model: ModelListItem) {
 }
 
 async function saveAcl() {
+  if (aclSaving.value) return
   if (!aclModel.value) return
   aclSaving.value = true
   try {
-    await datasetsApi.update(aclModel.value.id, { acl: aclRows.value } as any)
+    await datasetsApi.updateAcl(aclModel.value.id, aclRows.value)
     ElMessage.success('授权已保存')
     aclVisible.value = false
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') }

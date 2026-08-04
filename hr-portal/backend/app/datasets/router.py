@@ -60,6 +60,10 @@ class DatasetAclIn(BaseModel):
     user_id: int | None = None
 
 
+class DatasetAclUpdateIn(BaseModel):
+    acl: list[DatasetAclIn] = Field(default_factory=list)
+
+
 class DatasetIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     label: str | None = None
@@ -119,6 +123,15 @@ class DatasetOut(BaseModel):
     referenced_by_reports: int
     created_at: datetime
     updated_at: datetime
+
+
+def _validate_acl_payload(payload: DatasetAclUpdateIn) -> None:
+    for index, acl in enumerate(payload.acl):
+        if acl.role_id is None and acl.user_id is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"第 {index + 1} 条授权必须指定角色或用户",
+            )
 
 
 # ===== 工具 =====
@@ -422,6 +435,32 @@ async def get_dataset(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="数据集不存在")
     if not await _can_access(user, ds, db):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该数据集")
+    return await _to_out(ds, db)
+
+
+@router.patch(
+    "/{ds_id}/acl",
+    response_model=DatasetOut,
+    dependencies=[Depends(require_op("datasource.datasets", "U"))],
+)
+async def update_dataset_acl(
+    ds_id: int,
+    payload: DatasetAclUpdateIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> DatasetOut:
+    ds = await db.get(DataSet, ds_id)
+    if ds is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="数据集不存在")
+    if not await _can_access(user, ds, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权修改该数据集")
+    _validate_acl_payload(payload)
+
+    await db.execute(delete(DataSetAcl).where(DataSetAcl.dataset_id == ds_id))
+    for acl in payload.acl:
+        db.add(DataSetAcl(dataset_id=ds_id, role_id=acl.role_id, user_id=acl.user_id))
+    await db.commit()
+    await db.refresh(ds)
     return await _to_out(ds, db)
 
 
