@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Link, Edit, List, DataAnalysis, Connection, Refresh } from '@element-plus/icons-vue'
@@ -51,6 +51,7 @@ const previewLoading = ref(false)
 const previewTotal = ref(0)
 const previewPage = ref(1)
 const PREVIEW_PAGE_SIZE = 20
+const previewTableRef = ref<any>(null)
 
 async function loadPreview(resetPage = false) {
   if (resetPage) previewPage.value = 1
@@ -66,6 +67,8 @@ async function loadPreview(resetPage = false) {
     ElMessage.error(e?.response?.data?.detail || '预览数据加载失败')
   } finally {
     previewLoading.value = false
+    await nextTick()
+    previewTableRef.value?.doLayout?.()
   }
 }
 
@@ -890,7 +893,7 @@ onMounted(() => {
               </div>
               <template v-else>
                 <span style="color: #909399; font-size: 12px; line-height: 1; display: block; margin-bottom: 6px">共 {{ previewTotal }} 条</span>
-                <el-table :data="previewRows" stripe size="small" max-height="calc(100vh - 300px)" empty-text="暂无数据" class="preview-table" :fit="false">
+                <el-table ref="previewTableRef" :data="previewRows" stripe size="small" max-height="calc(100vh - 300px)" empty-text="暂无数据" class="preview-table" :fit="false">
                     <el-table-column
                       v-for="col in previewColumns"
                       :key="col.code"
@@ -1130,20 +1133,12 @@ onMounted(() => {
 .preview-table :deep(.el-table__header-wrapper table),
 .preview-table :deep(.el-table__body-wrapper table) {
   table-layout: fixed;
+  border-collapse: collapse;
 }
 .preview-table :deep(.el-table__header th) {
-  border-top: 1px solid #e4e7ed;
-  border-right: 1px solid #e4e7ed;
-  border-bottom: 1px solid #e4e7ed;
-}
-.preview-table :deep(.el-table__header th:first-child) {
-  border-left: 1px solid #e4e7ed;
+  border: 1px solid #e4e7ed;
 }
 .preview-table :deep(.el-table__body td) {
-  border-right: 1px solid #e4e7ed;
-  border-bottom: 1px solid #e4e7ed;
-}
-.preview-table :deep(.el-table__body td:first-child) {
-  border-left: 1px solid #e4e7ed;
+  border: 1px solid #e4e7ed;
 }
 </style>
