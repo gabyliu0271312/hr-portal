@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Link, Edit, List, DataAnalysis, Connection, Refresh } from '@element-plus/icons-vue'
@@ -89,10 +89,27 @@ async function loadPreview(resetPage = false) {
   } finally {
     previewLoading.value = false
     await nextTick()
-    // 延迟等浏览器布局完成，强制同步 header/body 两套 table 列宽
     setTimeout(() => {
       previewTableRef.value?.doLayout?.()
+      setupPreviewScrollSync()
     }, 100)
+  }
+}
+
+// 横向滚动/窗口缩放时强制同步 header/body 列宽
+let _previewSyncCleanup: (() => void) | null = null
+function setupPreviewScrollSync() {
+  _previewSyncCleanup?.()
+  const table = previewTableRef.value as any
+  if (!table?.$el) return
+  const bodyWrapper = table.$el.querySelector('.el-table__body-wrapper') as HTMLElement | null
+  if (!bodyWrapper) return
+  const sync = () => { table.doLayout?.() }
+  bodyWrapper.addEventListener('scroll', sync, { passive: true })
+  window.addEventListener('resize', sync)
+  _previewSyncCleanup = () => {
+    bodyWrapper.removeEventListener('scroll', sync)
+    window.removeEventListener('resize', sync)
   }
 }
 
@@ -580,6 +597,10 @@ onMounted(() => {
   loadInjectTables()
   if (route.query.tab === 'preview') { activeTab.value = 'preview'; loadPreview() }
 })
+
+onBeforeUnmount(() => {
+  _previewSyncCleanup?.()
+})
 </script>
 
 <template>
@@ -917,7 +938,7 @@ onMounted(() => {
               </div>
               <template v-else>
                 <span style="color: #909399; font-size: 12px; line-height: 1; display: block; margin-bottom: 6px">共 {{ previewTotal }} 条</span>
-                  <el-table :data="previewRows" border stripe size="small" max-height="calc(100vh - 320px)" empty-text="暂无数据" class="preview-table">
+                  <el-table ref="previewTableRef" :data="previewRows" border stripe size="small" max-height="calc(100vh - 320px)" empty-text="暂无数据" class="preview-table">
                     <el-table-column
                       v-for="col in previewColumns"
                       :key="col.code"
