@@ -696,8 +696,8 @@ onMounted(() => {
                 </el-alert>
               </el-card>
 
-              <!-- 入仓来源 -->
-              <el-card shadow="never" class="ep-section">
+              <!-- 入仓来源（仅 ODS 层） -->
+              <el-card v-if="asset?.warehouse_layer === 'ODS'" shadow="never" class="ep-section">
                 <template #header>
                   <div style="display: flex; justify-content: space-between; align-items: center">
                     <span>
@@ -736,8 +736,8 @@ onMounted(() => {
                 </div>
               </el-card>
 
-              <!-- 出仓消费 — 按分层差异化展示 -->
-              <el-card shadow="never" class="ep-section" v-if="asset">
+              <!-- 出仓消费 — 仅非 ODS 层 -->
+              <el-card shadow="never" class="ep-section" v-if="asset && asset.warehouse_layer !== 'ODS'">
                 <template #header>
                   <div style="display: flex; justify-content: space-between; align-items: center">
                     <span>
