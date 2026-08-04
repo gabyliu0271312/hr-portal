@@ -1158,4 +1158,8 @@ onMounted(() => {
 .preview-table :deep(.el-table__body-wrapper table) {
   table-layout: fixed !important;
 }
+/* 始终预留滚动条宽度，消除 body 滚动条出现/消失导致的 header 与 body 列宽差 */
+.preview-table :deep(.el-table__body-wrapper) {
+  overflow-y: scroll !important;
+}
 </style>
