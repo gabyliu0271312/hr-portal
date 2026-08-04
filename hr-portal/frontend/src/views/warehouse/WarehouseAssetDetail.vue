@@ -91,20 +91,38 @@ async function loadPreview(resetPage = false) {
     await nextTick()
     setTimeout(() => {
       previewTableRef.value?.doLayout?.()
-      setupPreviewScrollSync()
+      forceSyncColumnWidths()
     }, 100)
   }
 }
 
-// 横向滚动/窗口缩放时强制同步 header/body 列宽
+// 强制同步 header/body 两套 table 的 colgroup 列宽（根因：el-table 内部会对 body 列宽二次分配）
 let _previewSyncCleanup: (() => void) | null = null
+function forceSyncColumnWidths() {
+  const tableEl = previewTableRef.value?.$el as HTMLElement | undefined
+  if (!tableEl) return
+  const hCols = tableEl.querySelectorAll('.el-table__header-wrapper colgroup col')
+  const bCols = tableEl.querySelectorAll('.el-table__body-wrapper colgroup col')
+  if (hCols.length !== bCols.length) {
+    previewTableRef.value?.doLayout?.()
+    return
+  }
+  hCols.forEach((hCol, i) => {
+    const bCol = bCols[i] as HTMLElement
+    const w = (hCol as HTMLElement).getAttribute('width')
+    if (w && bCol.getAttribute('width') !== w) {
+      bCol.setAttribute('width', w)
+      ;(bCol as HTMLElement).style.width = w + 'px'
+    }
+  })
+}
 function setupPreviewScrollSync() {
   _previewSyncCleanup?.()
   const table = previewTableRef.value as any
   if (!table?.$el) return
   const bodyWrapper = table.$el.querySelector('.el-table__body-wrapper') as HTMLElement | null
   if (!bodyWrapper) return
-  const sync = () => { table.doLayout?.() }
+  const sync = () => { forceSyncColumnWidths() }
   bodyWrapper.addEventListener('scroll', sync, { passive: true })
   window.addEventListener('resize', sync)
   _previewSyncCleanup = () => {
@@ -1173,14 +1191,5 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-/* 数据预览表格：统一 header/body 两套 table 布局，消除分割线不对齐 */
-.preview-table :deep(.el-table__header-wrapper table),
-.preview-table :deep(.el-table__body-wrapper table) {
-  table-layout: fixed !important;
-}
-/* 始终预留滚动条宽度，消除 body 滚动条出现/消失导致的 header 与 body 列宽差 */
-.preview-table :deep(.el-table__body-wrapper) {
-  overflow-y: scroll !important;
 }
 </style>
