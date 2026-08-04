@@ -890,13 +890,13 @@ onMounted(() => {
               </div>
               <template v-else>
                 <span style="color: #909399; font-size: 12px; line-height: 1; display: block; margin-bottom: 6px">共 {{ previewTotal }} 条</span>
-                <el-table :data="previewRows" border stripe size="small" max-height="calc(100vh - 300px)" empty-text="暂无数据">
+                <el-table :data="previewRows" border stripe size="small" max-height="calc(100vh - 300px)" empty-text="暂无数据" class="preview-table">
                     <el-table-column
                       v-for="col in previewColumns"
                       :key="col.code"
                       :prop="col.code"
                       :label="col.label || col.code"
-                      min-width="120"
+                      :width="Math.min(200, Math.max(100, ((col.label || col.code).length * 14) + 32))"
                       show-overflow-tooltip
                     >
                       <template #default="{ row }">
@@ -1125,5 +1125,10 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+/* 修复数据预览表格横向滚动时表头/表体分割线不对齐 */
+.preview-table :deep(.el-table__header-wrapper table),
+.preview-table :deep(.el-table__body-wrapper table) {
+  table-layout: fixed;
 }
 </style>
