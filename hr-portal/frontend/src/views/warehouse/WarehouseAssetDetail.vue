@@ -68,8 +68,22 @@ async function loadPreview(resetPage = false) {
   } finally {
     previewLoading.value = false
     await nextTick()
-    previewTableRef.value?.doLayout?.()
+    // 延迟确保浏览器完成布局后再同步 header/body 列宽
+    setTimeout(() => {
+      previewTableRef.value?.doLayout?.()
+    }, 150)
   }
+}
+
+function getColumnWidth(col: ColumnInfo): number {
+  const text = col.label || col.code
+  let charWidth = 0
+  for (const ch of text) {
+    // 中文字符/全角按 16px，英文数字半角按 9px
+    charWidth += ch.charCodeAt(0) > 127 ? 16 : 9
+  }
+  // +48 预留 padding(24*2) + 排序图标/边框余量
+  return Math.min(320, Math.max(120, charWidth + 48))
 }
 
 // 同步历史
@@ -893,13 +907,13 @@ onMounted(() => {
               </div>
               <template v-else>
                 <span style="color: #909399; font-size: 12px; line-height: 1; display: block; margin-bottom: 6px">共 {{ previewTotal }} 条</span>
-                <el-table ref="previewTableRef" :data="previewRows" stripe size="small" max-height="calc(100vh - 300px)" empty-text="暂无数据" class="preview-table" :fit="false">
+                <el-table ref="previewTableRef" :data="previewRows" border stripe size="small" max-height="calc(100vh - 300px)" empty-text="暂无数据" class="preview-table">
                     <el-table-column
                       v-for="col in previewColumns"
                       :key="col.code"
                       :prop="col.code"
                       :label="col.label || col.code"
-                      :width="Math.min(200, Math.max(100, ((col.label || col.code).length * 14) + 32))"
+                      :width="getColumnWidth(col)"
                       show-overflow-tooltip
                     >
                       <template #default="{ row }">
@@ -1132,13 +1146,6 @@ onMounted(() => {
 /* 修复数据预览表格横向滚动时表头/表体分割线不对齐 */
 .preview-table :deep(.el-table__header-wrapper table),
 .preview-table :deep(.el-table__body-wrapper table) {
-  table-layout: fixed;
-  border-collapse: collapse;
-}
-.preview-table :deep(.el-table__header th) {
-  border: 1px solid #e4e7ed;
-}
-.preview-table :deep(.el-table__body td) {
-  border: 1px solid #e4e7ed;
+  table-layout: fixed !important;
 }
 </style>
