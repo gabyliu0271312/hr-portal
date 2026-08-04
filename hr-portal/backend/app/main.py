@@ -15,6 +15,8 @@ from app.auth.router import router as auth_router
 from app.codegen.router import router as codegen_router
 from app.core.config import settings
 from app.core.db import AsyncSessionLocal, Base, engine
+from app.performance.router import router as performance_auth_router
+from app.performance.seed import PerformanceBootstrapConfigurationError
 from app.data.columns_router import router as columns_router
 from app.ai.employee_profile_fields_router import router as employee_profile_fields_router
 from app.data.router import router as data_router
@@ -95,6 +97,9 @@ async def lifespan(app: FastAPI):
     # 启动：跑 seed
     try:
         await run_seed(AsyncSessionLocal)
+    except PerformanceBootstrapConfigurationError:
+        logger.critical("[startup] performance bootstrap configuration is unsafe")
+        raise
     except Exception as e:
         logger.exception("[startup] seed failed: %s", e)
 
@@ -199,6 +204,7 @@ async def root() -> dict:
 
 # ===== 路由挂载 =====
 app.include_router(auth_router, prefix=settings.API_PREFIX)
+app.include_router(performance_auth_router, prefix=settings.API_PREFIX)
 app.include_router(ai_router, prefix=settings.API_PREFIX)
 app.include_router(codegen_router, prefix=settings.API_PREFIX)
 app.include_router(users_router, prefix=settings.API_PREFIX)

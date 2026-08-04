@@ -19,7 +19,19 @@
         </nav>
       </div>
       <div class="header-right">
-        <span class="user-name">{{ userStore.user?.display_name }}</span>
+        <el-dropdown trigger="click" @command="handleUserCommand">
+          <button class="user-trigger" type="button">
+            <el-avatar :size="30">{{ userInitial }}</el-avatar>
+            <span class="user-name">{{ userStore.user?.display_name }}</span>
+            <el-icon><ArrowDown /></el-icon>
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-if="canAdmin" command="settings">后台管理</el-dropdown-item>
+              <el-dropdown-item command="logout" :divided="canAdmin">退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </div>
 
@@ -46,9 +58,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ArrowDown } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { performanceApi, type PerformanceAccessContext } from '@/api/performance'
+import { canManagePerformanceSettings } from '@/utils/performanceSettingsAccess'
 import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue'
 
 interface PerformanceMenuItem {
@@ -68,7 +83,11 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-const canAdmin = computed(() => userStore.menus.some((m) => m.code === 'performance.admin'))
+const performanceContext = ref<PerformanceAccessContext | null>(null)
+const canAdmin = computed(() =>
+  canManagePerformanceSettings(userStore.menus.map((menu) => menu.code), performanceContext.value),
+)
+const userInitial = computed(() => userStore.user?.display_name?.trim().slice(0, 1) || '我')
 
 const tabs = computed<PerformanceTab[]>(() => [
   {
@@ -106,22 +125,6 @@ const tabs = computed<PerformanceTab[]>(() => [
       { key: 'progress', label: '项目进度', path: '/performance/projects' },
     ],
   },
-  {
-    label: '后台设置',
-    path: '/performance/settings',
-    adminOnly: true,
-    menu: [
-      { key: 'cycles', label: '周期设置', path: '/performance/settings' },
-      { key: 'workflow', label: '流程模板', path: '/performance/settings' },
-      { key: 'templates', label: '评价模板', path: '/performance/settings' },
-      { key: 'grades', label: '绩效等级', path: '/performance/settings' },
-      { key: 'distribution', label: '强制分布', path: '/performance/settings' },
-      { key: 'project-rules', label: '项目规则', path: '/performance/settings' },
-      { key: 'appeal-rules', label: '申诉规则', path: '/performance/settings' },
-      { key: 'people-sync', label: '人员同步', path: '/performance/settings' },
-      { key: 'permissions', label: '权限配置', path: '/performance/settings' },
-    ],
-  },
 ])
 
 const visibleTabs = computed(() => tabs.value.filter((tab) => !tab.adminOnly || canAdmin.value))
@@ -134,6 +137,23 @@ const activeMenu = computed(() => activeTab.value?.menu ?? [])
 function isActive(path: string) {
   return route.path === path || route.path.startsWith(`${path}/`)
 }
+
+async function handleUserCommand(command: 'settings' | 'logout') {
+  if (command === 'settings') {
+    await router.push('/performance/settings')
+    return
+  }
+  await userStore.logout()
+  await router.replace({ name: 'Login' })
+}
+
+onMounted(async () => {
+  try {
+    performanceContext.value = await performanceApi.getAccessContext()
+  } catch {
+    performanceContext.value = null
+  }
+})
 </script>
 
 <style scoped>
@@ -214,6 +234,16 @@ function isActive(path: string) {
 .user-name {
   color: var(--color-text-secondary);
   font-size: 13px;
+}
+.user-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font: inherit;
 }
 .performance-body {
   flex: 1;

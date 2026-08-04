@@ -37,6 +37,10 @@ class Settings(BaseSettings):
 
     ADMIN_INIT_PASSWORD: str = "Admin@2026"
 
+    PERFORMANCE_SUPER_ADMIN_USERNAME: str = "performance-root"
+    PERFORMANCE_SUPER_ADMIN_DISPLAY_NAME: str = "绩效超级管理员"
+    PERFORMANCE_SUPER_ADMIN_INIT_PASSWORD: str = ""
+
     BEISEN_BASE_URL: str = ""
     BEISEN_APP_KEY: str = ""
     BEISEN_APP_SECRET: str = ""

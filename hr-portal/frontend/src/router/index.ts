@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getToken, setUnauthorizedHandler } from '@/api/client'
+import { performanceApi } from '@/api/performance'
+import { canManagePerformanceSettings } from '@/utils/performanceSettingsAccess'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -436,7 +438,11 @@ const routes: RouteRecordRaw[] = [
         path: 'settings',
         name: 'PerformanceSettings',
         component: () => import('@/views/performance/Settings.vue'),
-        meta: { label: '绩效后台设置', menuCode: 'performance.admin' },
+        meta: {
+          label: '绩效后台设置',
+          menuCode: 'performance.admin',
+          requiresPerformanceSettingsAccess: true,
+        },
       },
     ],
   },
@@ -483,6 +489,15 @@ router.beforeEach(async (to) => {
     if (!menuCodes.includes(requiredCode)) return { name: 'Home' }
   } else if (code) {
     if (!menuCodes.includes(code)) return { name: 'Home' }
+  }
+
+  if (to.meta.requiresPerformanceSettingsAccess) {
+    try {
+      const context = await performanceApi.getAccessContext()
+      if (!canManagePerformanceSettings(menuCodes, context)) return { name: 'Home' }
+    } catch {
+      return { name: 'Home' }
+    }
   }
 
   return true
