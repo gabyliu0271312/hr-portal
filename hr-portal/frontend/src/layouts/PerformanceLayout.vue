@@ -64,6 +64,7 @@ import { ArrowDown } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { performanceApi, type PerformanceAccessContext } from '@/api/performance'
 import { canManagePerformanceSettings } from '@/utils/performanceSettingsAccess'
+import { openPerformanceSettingsInNewTab } from '@/utils/performanceSettingsNavigation'
 import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue'
 
 interface PerformanceMenuItem {
@@ -140,7 +141,7 @@ function isActive(path: string) {
 
 async function handleUserCommand(command: 'settings' | 'logout') {
   if (command === 'settings') {
-    await router.push('/performance/settings')
+    openPerformanceSettingsInNewTab()
     return
   }
   await userStore.logout()

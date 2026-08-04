@@ -408,6 +408,22 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
+    path: '/performance/settings',
+    component: () => import('@/layouts/PerformanceAdminLayout.vue'),
+    meta: {
+      menuCode: 'performance.admin',
+      requiresPerformanceSettingsAccess: true,
+    },
+    children: [
+      {
+        path: '',
+        name: 'PerformanceSettings',
+        component: () => import('@/views/performance/Settings.vue'),
+        meta: { label: '绩效后台设置' },
+      },
+    ],
+  },
+  {
     path: '/performance',
     component: () => import('@/layouts/PerformanceLayout.vue'),
     meta: { menuCode: 'performance.app' },
@@ -434,16 +450,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/performance/Projects.vue'),
         meta: { label: '项目管理', menuCode: 'performance.app' },
       },
-      {
-        path: 'settings',
-        name: 'PerformanceSettings',
-        component: () => import('@/views/performance/Settings.vue'),
-        meta: {
-          label: '绩效后台设置',
-          menuCode: 'performance.admin',
-          requiresPerformanceSettingsAccess: true,
-        },
-      },
+
     ],
   },
   {
