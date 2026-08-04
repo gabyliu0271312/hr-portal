@@ -33,6 +33,29 @@
       </div>
     </div>
 
+    <div v-if="result.period_resolution" class="range-notice">
+      <b>本次范围：</b>{{ resolvedRangeText }}（{{ result.period_resolution.timezone }}）
+      <span>· 运行时解析：{{ result.period_resolution.resolved_at }}</span>
+    </div>
+
+    <div v-if="result.period_results?.length" class="period-summary">
+      <h4>按月执行汇总</h4>
+      <div class="detail-table-wrap">
+        <table class="detail-table">
+          <thead><tr><th>月份</th><th>状态</th><th>差异数</th><th>说明</th><th>耗时</th></tr></thead>
+          <tbody>
+            <tr v-for="item in result.period_results" :key="item.period">
+              <td>{{ item.period }}</td>
+              <td><span class="status-tag" :class="periodStatusClass(item.status)">{{ periodStatusLabel(item.status) }}</span></td>
+              <td>{{ item.diff_count }}</td>
+              <td>{{ periodMessage(item) }}</td>
+              <td>{{ item.duration_ms == null ? '-' : `${item.duration_ms}ms` }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- 汇总统计 -->
     <div class="summary-row">
       <div class="stat-item total" :class="{ primary: isPrimaryMetric('total_compared') }">
@@ -124,8 +147,8 @@
     </div>
 
     <div v-else class="no-detail">
-      <span class="no-detail-icon">✅</span>
-      <span>未发现差异，A/B 两侧数据一致。</span>
+      <span class="no-detail-icon">{{ emptyStateIcon }}</span>
+      <span>{{ emptyStateText }}</span>
     </div>
   </div>
 </template>
@@ -139,19 +162,21 @@ const props = defineProps<{
 }>()
 
 const statusClass = computed(() => {
+  if (props.result.status === 'data_incomplete' || props.result.status === 'partial_success') return 'incomplete'
   if (props.result.status === 'significant_diff') return 'significant'
   if (props.result.status === 'partial_diff') return 'partial'
   return 'consistent'
 })
 
 const statusIcon = computed(() => {
-  if (props.result.status === 'consistent') return '✓'
+  if (props.result.status === 'consistent' || props.result.status === 'success') return '✓'
   if (props.result.status === 'significant_diff') return '!'
   return '!'
 })
 
 const fallbackStatusTitle = computed(() => {
-  if (props.result.status === 'consistent') return '对比一致'
+  if (props.result.status === 'data_incomplete' || props.result.status === 'partial_success') return '存在数据未完成月份'
+  if (props.result.status === 'consistent' || props.result.status === 'success') return '对比一致'
   if (props.result.status === 'significant_diff') return '发现显著差异'
   return '发现差异'
 })
@@ -179,11 +204,39 @@ const compareTypeLabel = computed(() => {
 })
 
 const periodText = computed(() => {
+  if (props.result.period_resolution) return resolvedRangeText.value
   const a = props.result.period_a
   const b = props.result.period_b
   if (a && b && a !== b) return `A：${a}；B：${b}`
   return a || b || '未指定'
 })
+
+const resolvedRangeText = computed(() => {
+  const resolution = props.result.period_resolution
+  if (!resolution) return ''
+  const periods = resolution.resolved_periods
+  return periods.length ? `${periods[0]}–${periods[periods.length - 1]}` : '未解析'
+})
+
+function periodStatusLabel(status: string) {
+  return { success: '无差异', partial_diff: '有差异', data_incomplete: '数据未完成', failed: '失败' }[status] || status
+}
+
+function periodStatusClass(status: string) {
+  return { success: 'tag-success', partial_diff: 'tag-diff', data_incomplete: 'tag-incomplete', failed: 'tag-failed' }[status] || 'tag-diff'
+}
+
+function periodMessage(item: { status: string; missing_sources?: string[]; error_message?: string | null }) {
+  if (item.status === 'data_incomplete') return `无数据来源：${(item.missing_sources || []).map(s => s === 'source_a' ? 'A' : 'B').join('、')}`
+  return item.error_message || '-'
+}
+
+const emptyStateText = computed(() => {
+  if (props.result.status === 'data_incomplete' || props.result.status === 'partial_success') return '存在数据未完成或执行失败月份，请查看按月执行汇总。'
+  if (props.result.status === 'failed') return '对比执行失败，请查看错误信息或稍后重试。'
+  return '未发现差异，A/B 两侧数据一致。'
+})
+const emptyStateIcon = computed(() => props.result.status === 'consistent' || props.result.status === 'success' ? '✅' : '⚠️')
 
 const hasRosterDiff = computed(() => (
   props.result.summary.only_in_a_count > 0 || props.result.summary.only_in_b_count > 0
@@ -363,6 +416,39 @@ function isDiff(row: Record<string, any>) {
   background: #ef4444;
   color: #fff;
 }
+
+.conclusion-banner.incomplete {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fdba74;
+}
+
+.conclusion-banner.incomplete .conclusion-icon {
+  background: #f97316;
+  color: #fff;
+}
+
+.range-notice, .period-summary {
+  margin-bottom: 16px;
+}
+
+.range-notice {
+  padding: 10px 12px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.period-summary h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.tag-success { background: #dcfce7; color: #15803d; }
+.tag-incomplete { background: #ffedd5; color: #c2410c; }
+.tag-failed { background: #fee2e2; color: #b91c1c; }
 
 .context-panel {
   display: grid;

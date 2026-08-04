@@ -258,6 +258,7 @@ async def execute_task(
             user,
             db,
             instruction=skill.instruction,
+            max_periods=24 if trigger_type == "scheduled" else None,
         )
 
         # Populate run record
@@ -265,7 +266,20 @@ async def execute_task(
         if run.status == "consistent":
             run.status = "success"
         run.diff_count = result_dict.get("summary", {}).get("diff_count", 0)
-        run.summary = to_json_compatible(result_dict.get("summary"))
+        run.summary = to_json_compatible({
+            **(result_dict.get("summary") or {}),
+            "period_resolution": result_dict.get("period_resolution"),
+            "period_results": result_dict.get("period_results", []),
+            "detail_truncated": result_dict.get("detail_truncated", False),
+        })
+        failed_periods = [
+            item for item in result_dict.get("period_results", [])
+            if item.get("status") == "failed" and item.get("error_message")
+        ]
+        if failed_periods:
+            run.error_message = "; ".join(
+                f"{item['period']}: {item['error_message']}" for item in failed_periods
+            )[:1000]
         run.detail = to_json_compatible({"details": result_dict.get("details", [])})
         run.duration_ms = result_dict.get("duration_ms")
         run.finished_at = datetime.now(timezone.utc)
@@ -328,11 +342,13 @@ async def execute_for_scheduler(
         from app.automation.events import AutomationEvent
         from app.core.db import get_session_factory
 
-        event_trigger = (
-            "scheduled_data_compare_success"
-            if run.status != "failed"
-            else "scheduled_data_compare_failed"
-        )
+        event_trigger = {
+            "success": "scheduled_data_compare_success",
+            "partial_diff": "scheduled_data_compare_success",
+            "data_incomplete": "scheduled_data_compare_warning",
+            "partial_success": "scheduled_data_compare_warning",
+            "failed": "scheduled_data_compare_failed",
+        }.get(run.status, "scheduled_data_compare_failed")
         async with get_session_factory()() as event_db:
             await _publish_event(
                 event_db,

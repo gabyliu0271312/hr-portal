@@ -164,7 +164,8 @@ class SchedulerEngine:
                     job.id, job.kind, rows,
                 )
                 # 发布标准调度事件（success），供自动化规则引擎消费
-                await self._publish_job_events(job_id, job.kind, run.id, "success", rows, message, db)
+                if job.kind != "data_compare":
+                    await self._publish_job_events(job_id, job.kind, run.id, "success", rows, message, db)
             except Exception as e:
                 await db.rollback()
                 # 重新建一个 session 写失败历史（前一个事务已 rollback）
@@ -197,7 +198,8 @@ class SchedulerEngine:
                     await db2.commit()
                     logger.exception("[scheduler] job %d (%s) failed", job_id, run2.kind)
                     # 发布标准调度事件（failed）
-                    await self._publish_job_events(job_id, run2.kind, run2.id, "failed", 0, str(e)[:500], db2)
+                    if run2.kind != "data_compare":
+                        await self._publish_job_events(job_id, run2.kind, run2.id, "failed", 0, str(e)[:500], db2)
                     return run2
 
             await db.refresh(run)

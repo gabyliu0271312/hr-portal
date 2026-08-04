@@ -269,13 +269,13 @@ function compareTypeLabel(type: string) {
 }
 
 function taskStatusLabel(s: string) {
-  const map: Record<string, string> = { success: '成功', partial_diff: '有差异', failed: '失败' }
+  const map: Record<string, string> = { success: '成功', partial_diff: '有差异', partial_success: '部分完成', failed: '失败' }
   return map[s] || s || '-'
 }
 
 function taskStatusTag(s: string): '' | 'success' | 'warning' | 'danger' {
   const map: Record<string, '' | 'success' | 'warning' | 'danger'> = {
-    success: 'success', partial_diff: 'warning', failed: 'danger',
+    success: 'success', partial_diff: 'warning', partial_success: 'warning', failed: 'danger',
   }
   return map[s] || ''
 }

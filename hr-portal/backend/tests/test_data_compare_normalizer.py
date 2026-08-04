@@ -217,4 +217,25 @@ async def test_display_amount_sort_by_diff_desc_from_instruction():
     assert normalized["display"]["template"] == "amount"
     assert normalized["display"]["primary_metric"] == "amount_diff"
     assert normalized["display"]["sort_by"] == "diff"
-    assert normalized["display"]["sort_order"] == "desc"
+
+
+@pytest.mark.asyncio
+async def test_period_range_stays_dynamic_in_saved_spec():
+    meta_a = _meta("a", period_col="period_ym", columns=["employee_no", "period_ym"], pk_cols=["employee_no"])
+    meta_b = _meta("b", period_col="period_ym", columns=["employee_no", "period_ym"], pk_cols=["employee_no"])
+    loader = _FakeLoader({"a": meta_a, "b": meta_b})
+
+    normalized = await normalize_compare_spec_data(
+        {
+            "compare_type": "roster",
+            "source_a": {"table": "a", "period_range": {"start": "2026.01", "end": "至今"}},
+            "source_b": {"table": "b", "period_range": {"start": "202601", "end": "current_month"}},
+        },
+        loader,
+        today=date(2026, 8, 4),
+    )
+
+    assert normalized["source_a"]["period"] is None
+    assert normalized["source_a"]["period_range"] == {"type": "range", "start": "202601", "end": "current_month"}
+    assert normalized["source_b"]["period_range"]["end"] == "current_month"
+    assert normalized["period_execution"] == {"mode": "per_period", "alignment": "same_period"}

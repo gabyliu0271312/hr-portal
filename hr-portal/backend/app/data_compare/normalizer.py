@@ -88,6 +88,18 @@ def extract_period_from_instruction(instruction: str, *, today: date | None = No
     return normalize_period_text(instruction, today=today)
 
 
+def normalize_period_range_data(value: Any, *, today: date | None = None) -> dict[str, str] | None:
+    """Normalize a range draft without resolving current_month at save time."""
+    if not isinstance(value, dict):
+        return None
+    start = normalize_period_text(value.get("start"), today=today)
+    raw_end = str(value.get("end") or "").strip()
+    end = "current_month" if raw_end in {"current_month", "至今", "当前月"} else normalize_period_text(raw_end, today=today)
+    if not start or not end:
+        return None
+    return {"type": "range", "start": start, "end": end}
+
+
 def _source_dict(data: dict[str, Any], key: str) -> dict[str, Any]:
     value = data.get(key)
     if isinstance(value, dict):
@@ -302,14 +314,22 @@ async def normalize_compare_spec_data(
 
     for source, meta in ((source_a, meta_a), (source_b, meta_b)):
         _remove_period_prefilters(source, meta, today=today)
-        source_period = normalize_period_text(source.get("period"), today=today)
-        if source_period:
-            source["period"] = source_period
-        elif meta and meta.is_period and instruction_period:
-            source["period"] = instruction_period
-        elif meta and not meta.is_period:
+        period_range = normalize_period_range_data(source.get("period_range"), today=today)
+        if period_range:
+            source["period_range"] = period_range
             source["period"] = None
+        else:
+            source_period = normalize_period_text(source.get("period"), today=today)
+            if source_period:
+                source["period"] = source_period
+            elif meta and meta.is_period and instruction_period:
+                source["period"] = instruction_period
+            elif meta and not meta.is_period:
+                source["period"] = None
         source.setdefault("prefilter", [])
+
+    if source_a.get("period_range") or source_b.get("period_range"):
+        normalized.setdefault("period_execution", {"mode": "per_period", "alignment": "same_period"})
 
     join_keys = _normalize_join_keys(normalized.get("join_keys"), meta_a, meta_b)
     if join_keys:

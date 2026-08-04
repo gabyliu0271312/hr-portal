@@ -63,7 +63,11 @@ def _spec_summary(spec: CompareSpec) -> str:
         "field": "字段对比",
         "amount": "金额对比",
     }.get(spec.compare_type.value, spec.compare_type.value)
-    period = spec.source_a.period or spec.source_b.period or "未指定"
+    period_range = spec.source_a.period_range or spec.source_b.period_range
+    period = (
+        f"{period_range.start}–{period_range.end}" if period_range
+        else spec.source_a.period or spec.source_b.period or "未指定"
+    )
     join_keys = "、".join(spec.join_keys) or "未指定"
     return (
         f"{type_label}：{spec.source_a.table} → {spec.source_b.table}；"
@@ -251,7 +255,9 @@ async def invoke_skill(
         raise HTTPException(status_code=400, detail=f"技能参数不合法: {e}")
 
     try:
-        result_dict = await run_data_compare(spec, user, db, instruction=skill.instruction)
+        result_dict = await run_data_compare(
+            spec, user, db, instruction=skill.instruction, max_periods=24,
+        )
     except SchemaValidationError as e:
         raise HTTPException(status_code=400, detail=f"参数校验失败: {'; '.join(e.errors)}")
     except ScopeDeniedError as e:
@@ -276,7 +282,7 @@ async def invoke_adhoc(
 ):
     """Execute a one-off comparison (no config saved)."""
     try:
-        result_dict = await run_data_compare(spec, user, db)
+        result_dict = await run_data_compare(spec, user, db, max_periods=24)
     except SchemaValidationError as e:
         raise HTTPException(status_code=400, detail=f"参数校验失败: {'; '.join(e.errors)}")
     except ScopeDeniedError as e:

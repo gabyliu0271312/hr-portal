@@ -10,9 +10,21 @@ export interface Prefilter {
   value?: any
 }
 
+export interface PeriodRange {
+  type: 'range'
+  start: string
+  end: string | 'current_month'
+}
+
+export interface PeriodExecution {
+  mode: 'per_period'
+  alignment: 'same_period'
+}
+
 export interface DataSource {
   table: string
   period?: string | null
+  period_range?: PeriodRange | null
   prefilter: Prefilter[]
 }
 
@@ -75,6 +87,7 @@ export interface CompareSpec {
   source_b: DataSource
   join_keys: string[]
   output: OutputConfig
+  period_execution?: PeriodExecution | null
   display?: DisplayConfig | null
   roster?: RosterSpec | null
   field?: FieldSpec | null
@@ -133,6 +146,23 @@ export interface CompareResultSummary {
   amount_diff: number | null
 }
 
+export interface PeriodResult {
+  period: string
+  status: 'success' | 'partial_diff' | 'data_incomplete' | 'failed'
+  diff_count: number
+  duration_ms?: number | null
+  missing_sources?: ('source_a' | 'source_b')[]
+  error_message?: string | null
+  summary?: CompareResultSummary | null
+}
+
+export interface PeriodResolution {
+  requested: PeriodRange
+  resolved_at: string
+  timezone: string
+  resolved_periods: string[]
+}
+
 export interface CompareResult {
   compare_type: string
   table_a: string
@@ -145,6 +175,9 @@ export interface CompareResult {
   conclusion: string
   duration_ms: number | null
   display?: DisplayConfig | null
+  period_resolution?: PeriodResolution | null
+  period_results?: PeriodResult[]
+  detail_truncated?: boolean
 }
 
 export interface SkillInvokeResponse {

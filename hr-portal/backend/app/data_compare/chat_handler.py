@@ -60,9 +60,16 @@ async def extract_compare_spec(
   "source_a": {{
     "table": "表名（必须在上面的可用表中）",
     "period": "YYYYMM 或 null",
+    "period_range": null | {{"type": "range", "start": "YYYYMM", "end": "YYYYMM|current_month"}},
     "prefilter": [{{"column": "字段名", "op": "eq|ne|in|not_in|gt|gte|lt|lte|contains|between|is_null|is_not_null", "value": ...}}]
   }},
-  "source_b": {{ "table": "...", "period": "...", "prefilter": [...] }},
+  "source_b": {{
+    "table": "表名（必须在上面的可用表中）",
+    "period": "YYYYMM 或 null",
+    "period_range": null | {{"type": "range", "start": "YYYYMM", "end": "YYYYMM|current_month"}},
+    "prefilter": [{{"column": "字段名", "op": "eq|ne|in|not_in|gt|gte|lt|lte|contains|between|is_null|is_not_null", "value": ...}}]
+  }},
+  "period_execution": null | {{"mode": "per_period", "alignment": "same_period"}},
   "join_keys": ["关联键字段名"],
   "output": {{ "only_diff": true, "max_detail": 200 }},
   "display": {{
@@ -88,7 +95,10 @@ async def extract_compare_spec(
 - 只输出 JSON，不要 markdown 代码块，不要解释
 - 所有表名必须来自上面的可用表列表
 - 所有字段名必须来自对应表的字段列表
-- 月度表必须输出 period
+- 单月月度表：输出 period，period_range 必须为 null
+- 连续区间或“至今”：两个来源都输出 period_range，period 必须为 null；“至今”的 end 使用 current_month，并输出 period_execution
+- 非月度表：period 与 period_range 都必须为 null
+- 多月范围仅用于两个来源都是月度表，按同月逐月对比
 - 字段对比（field）必须输出 field.pairs
 - 金额对比（amount）必须输出 amount.group_by + amount.metric_a/b
 - display 用于结果展示，不影响 SQL；如果用户提到“只展示/重点看/按...排序/隐藏...”等展示要求，写入 display
@@ -121,6 +131,139 @@ async def extract_compare_spec(
 
 
 
+async def _run_multi_period_compare(
+    spec: CompareSpec,
+    user,
+    db,
+    *,
+    instruction: str | None = None,
+    max_periods: int | None = None,
+) -> dict:
+    """Resolve a range at execution time and reuse the existing single-month path."""
+    from app.data_compare.executor import source_has_data
+    from app.data_compare.periods import resolve_period_range
+
+    period_range = spec.source_a.period_range
+    if period_range is None:
+        raise ValueError("多月对比缺少 source_a.period_range")
+    resolution = resolve_period_range(period_range, **({"max_periods": max_periods} if max_periods is not None else {}))
+    loader = MetadataLoader(db)
+    meta_a = await loader.get_table(spec.source_a.table)
+    meta_b = await loader.get_table(spec.source_b.table)
+    if meta_a is None or meta_b is None:
+        raise ValueError("对比表不存在")
+
+    alias_a, alias_b = ("v", "v") if spec.compare_type == CompareType.AMOUNT else ("t_a", "t_b")
+    scope_a, scope_b = await build_scope_for_compare(
+        user, spec.source_a.table, spec.source_b.table, loader, db,
+        alias_a=alias_a, alias_b=alias_b,
+    )
+
+    period_results: list[dict] = []
+    details: list[dict] = []
+    total_summary = {"total_compared": 0, "matched_count": 0, "diff_count": 0,
+                     "only_in_a_count": 0, "only_in_b_count": 0,
+                     "total_amount_a": None, "total_amount_b": None, "amount_diff": None}
+    amount_totals_available = True
+    detail_truncated = False
+    started = time.time()
+
+    for period in resolution.resolved_periods:
+        month_started = time.time()
+        try:
+            has_a = await source_has_data(
+                table_name=spec.source_a.table, period=period, prefilters=spec.source_a.prefilter,
+                loader=loader, scope_clause=scope_a, table_alias=alias_a, db=db,
+            )
+            has_b = await source_has_data(
+                table_name=spec.source_b.table, period=period, prefilters=spec.source_b.prefilter,
+                loader=loader, scope_clause=scope_b, table_alias=alias_b, db=db,
+            )
+            if not has_a or not has_b:
+                missing_sources = ([] if has_a else ["source_a"]) + ([] if has_b else ["source_b"])
+                period_results.append({
+                    "period": period, "status": "data_incomplete", "diff_count": 0,
+                    "missing_sources": missing_sources,
+                    "duration_ms": int((time.time() - month_started) * 1000),
+                })
+                continue
+
+            child = spec.model_dump(mode="json")
+            for source_key in ("source_a", "source_b"):
+                child[source_key]["period"] = period
+                child[source_key]["period_range"] = None
+            child["period_execution"] = None
+            month_result = await run_data_compare(child, user, db, instruction=instruction)
+            month_status = "success" if month_result["status"] == "consistent" else "partial_diff"
+            summary = month_result["summary"]
+            if spec.compare_type == CompareType.AMOUNT:
+                month_amounts = (summary.get("total_amount_a"), summary.get("total_amount_b"), summary.get("amount_diff"))
+                if any(value is None for value in month_amounts):
+                    amount_totals_available = False
+                elif amount_totals_available:
+                    for key in ("total_amount_a", "total_amount_b", "amount_diff"):
+                        total_summary[key] = (total_summary[key] or 0.0) + summary[key]
+            for key in ("total_compared", "matched_count", "diff_count", "only_in_a_count", "only_in_b_count"):
+                value = summary.get(key)
+                if value is not None:
+                    total_summary[key] += value
+            for row in month_result.get("details", []):
+                if len(details) < spec.output.max_detail:
+                    details.append({"period": period, **row})
+                else:
+                    detail_truncated = True
+            period_results.append({
+                "period": period, "status": month_status,
+                "diff_count": summary.get("diff_count", 0),
+                "duration_ms": month_result.get("duration_ms"), "summary": summary,
+            })
+        except Exception as exc:
+            period_results.append({
+                "period": period, "status": "failed", "diff_count": 0,
+                "error_message": str(exc)[:500],
+                "duration_ms": int((time.time() - month_started) * 1000),
+            })
+
+    statuses = {item["status"] for item in period_results}
+    completed = [item for item in period_results if item["status"] in {"success", "partial_diff"}]
+    if not completed:
+        status = "data_incomplete" if "data_incomplete" in statuses and "failed" not in statuses else "failed"
+    elif statuses.intersection({"data_incomplete", "failed"}):
+        status = "partial_success"
+    elif "partial_diff" in statuses:
+        status = "partial_diff"
+    else:
+        status = "success"
+
+    counts = {
+        "success_period_count": sum(item["status"] == "success" for item in period_results),
+        "diff_period_count": sum(item["status"] == "partial_diff" for item in period_results),
+        "data_incomplete_period_count": sum(item["status"] == "data_incomplete" for item in period_results),
+        "failed_period_count": sum(item["status"] == "failed" for item in period_results),
+    }
+    if spec.compare_type == CompareType.AMOUNT and (
+        not amount_totals_available or statuses.intersection({"data_incomplete", "failed"})
+    ):
+        total_summary["total_amount_a"] = None
+        total_summary["total_amount_b"] = None
+        total_summary["amount_diff"] = None
+    total_summary.update(counts)
+    conclusion = (
+        f"已完成 {len(completed)}/{len(period_results)} 个月份的逐月对比；"
+        f"差异月份 {counts['diff_period_count']}，数据未完成月份 {counts['data_incomplete_period_count']}。"
+    )
+    return {
+        "compare_type": spec.compare_type.value,
+        "table_a": meta_a.table_label,
+        "table_b": meta_b.table_label,
+        "period_a": None, "period_b": None, "status": status,
+        "summary": total_summary, "details": details, "conclusion": conclusion,
+        "duration_ms": int((time.time() - started) * 1000), "display": spec.display.model_dump(mode="json"),
+        "period_resolution": resolution.model_dump(mode="json"), "period_results": period_results,
+        "detail_truncated": detail_truncated,
+    }
+
+
 async def run_data_compare(
     spec: CompareSpec | dict,
     user,
@@ -128,6 +271,7 @@ async def run_data_compare(
     model_call: callable | None = None,
     instruction: str | None = None,
     return_execution_metadata: bool = False,
+    max_periods: int | None = None,
 ) -> dict | tuple[dict, dict[str, bool]]:
     """完整的对比执行流程：Scope → 校验 → 编译 → 执行 → 格式化。
 
@@ -148,6 +292,11 @@ async def run_data_compare(
     # parsing drift, e.g. period in join_keys or YYYY.MM periods.
     spec = await normalize_compare_spec(spec, loader, instruction=instruction)
     await validate_compare_spec(spec, loader)
+
+    if spec.source_a.period_range or spec.source_b.period_range:
+        return await _run_multi_period_compare(
+            spec, user, db, instruction=instruction, max_periods=max_periods,
+        )
 
     # 3. 构建行级权限 scope（P0 fix: scope built BEFORE compilation）
     # Alias matches the engine's subquery aliases: t_a/t_b for roster/field, v for amount

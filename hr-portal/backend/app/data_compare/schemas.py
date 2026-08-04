@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ──────────────────────────────────────────────
@@ -76,12 +76,34 @@ class Prefilter(BaseModel):
     value: Any | None = None
 
 
+class PeriodRange(BaseModel):
+    """连续月度范围。current_month 在运行时按业务时区解析。"""
+
+    type: Literal["range"] = "range"
+    start: str = Field(..., pattern=r"^20\d{2}(0[1-9]|1[0-2])$")
+    end: str = Field(..., pattern=r"^(20\d{2}(0[1-9]|1[0-2])|current_month)$")
+
+
+class PeriodExecution(BaseModel):
+    """多月执行策略。首期仅支持按同月逐月对比。"""
+
+    mode: Literal["per_period"] = "per_period"
+    alignment: Literal["same_period"] = "same_period"
+
+
 class DataSource(BaseModel):
     """对比数据源定义"""
 
     table: str = Field(..., description="表名（必须存在于 registered_tables）")
-    period: str | None = Field(None, description="月度表的期间 YYYYMM，非月度表为 null")
+    period: str | None = Field(None, description="月度表的单月期间 YYYYMM，非月度表为 null")
+    period_range: PeriodRange | None = Field(None, description="月度表连续期间范围")
     prefilter: list[Prefilter] = Field(default_factory=list, description="对比前的行筛选条件")
+
+    @model_validator(mode="after")
+    def period_and_range_are_mutually_exclusive(self):
+        if self.period and self.period_range:
+            raise ValueError("period 与 period_range 不能同时设置")
+        return self
 
 
 class OutputConfig(BaseModel):
@@ -192,6 +214,7 @@ class CompareSpec(BaseModel):
     join_keys: list[str] = Field(..., min_length=1, description="关联键（支持多字段复合键）")
     output: OutputConfig = Field(default_factory=OutputConfig)
     display: DisplayConfig = Field(default_factory=DisplayConfig)
+    period_execution: PeriodExecution | None = None
 
     # 以下三个互斥 —— 根据 compare_type 选填一个
     roster: RosterSpec | None = None
@@ -288,6 +311,27 @@ class CompareResultSummary(BaseModel):
     amount_diff: float | None = None
 
 
+class PeriodResult(BaseModel):
+    """多月任务中单个月份的执行结果。"""
+
+    period: str
+    status: str
+    diff_count: int = 0
+    duration_ms: int | None = None
+    missing_sources: list[Literal["source_a", "source_b"]] = Field(default_factory=list)
+    error_message: str | None = None
+    summary: CompareResultSummary | None = None
+
+
+class PeriodResolution(BaseModel):
+    """逻辑期间范围在本次运行中的解析快照。"""
+
+    requested: PeriodRange
+    resolved_at: datetime
+    timezone: str
+    resolved_periods: list[str]
+
+
 class CompareResult(BaseModel):
     """对比完整结果"""
 
@@ -302,6 +346,9 @@ class CompareResult(BaseModel):
     conclusion: str = ""
     duration_ms: int | None = None
     display: DisplayConfig = Field(default_factory=DisplayConfig)
+    period_resolution: PeriodResolution | None = None
+    period_results: list[PeriodResult] = Field(default_factory=list)
+    detail_truncated: bool = False
 
 
 class SkillInvokeResponse(BaseModel):

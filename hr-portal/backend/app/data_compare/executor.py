@@ -122,6 +122,34 @@ async def build_scope_for_compare(
     return scope_a, scope_b
 
 
+async def source_has_data(
+    *,
+    table_name: str,
+    period: str,
+    prefilters: list,
+    loader: MetadataLoader,
+    scope_clause: str,
+    table_alias: str,
+    db: AsyncSession,
+) -> bool:
+    """Check source readiness using the same period, prefilter and scope semantics."""
+    from app.data_compare.engine import _compile_prefilter_clause, _format_scope_clause
+
+    meta = await loader.validate_table(table_name)
+    if not meta.is_period:
+        raise ValueError(f"表 '{table_name}' 不是月度表，不能执行多月数据就绪检查")
+    period_col = meta.period_col or "period_ym"
+    prefilter_sql, params = _compile_prefilter_clause(prefilters, table_alias, "ready", meta)
+    params["period"] = period
+    scope_sql = _format_scope_clause(scope_clause)
+    sql = (
+        f'SELECT 1 FROM "{meta.table_name}" {table_alias} WHERE 1=1 '
+        f'AND "{table_alias}"."{period_col}" = :period{prefilter_sql}{scope_sql} LIMIT 1'
+    )
+    await db.execute(text("SET LOCAL statement_timeout = '30000'"))
+    return (await db.execute(text(sql), params)).first() is not None
+
+
 async def execute_compare(
     compiled: CompiledQuery,
     loader: MetadataLoader,

@@ -77,6 +77,21 @@ def _register_default_triggers() -> None:
             name="报表定时运行失败",
             description="报表定时运行失败时触发",
         ),
+        TriggerMeta(
+            trigger_type="scheduled_data_compare_success",
+            name="定时数据对比完成",
+            description="定时数据对比完成且所有月份数据就绪时触发",
+        ),
+        TriggerMeta(
+            trigger_type="scheduled_data_compare_warning",
+            name="定时数据对比预警",
+            description="定时数据对比存在数据未完成或部分执行失败月份时触发",
+        ),
+        TriggerMeta(
+            trigger_type="scheduled_data_compare_failed",
+            name="定时数据对比失败",
+            description="定时数据对比未产生可用结果时触发",
+        ),
         # ===== Z01 ODS→DWD 自动化事件 =====
         TriggerMeta(
             trigger_type="datasource_sync_completed",

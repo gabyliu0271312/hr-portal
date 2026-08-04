@@ -43,11 +43,22 @@ async def validate_compare_spec(spec: CompareSpec, loader: MetadataLoader) -> No
     if meta_a is None or meta_b is None:
         raise SchemaValidationError(errors)
 
-    # ── 3. 月度表 period 必填校验 ──
-    if meta_a.is_period and not spec.source_a.period:
-        errors.append(f"表 '{spec.source_a.table}' 是月度表，source_a.period 必填")
-    if meta_b.is_period and not spec.source_b.period:
-        errors.append(f"表 '{spec.source_b.table}' 是月度表，source_b.period 必填")
+    # ── 3. 月度表期间校验 ──
+    range_a = spec.source_a.period_range
+    range_b = spec.source_b.period_range
+    if meta_a.is_period and not (spec.source_a.period or range_a):
+        errors.append(f"表 '{spec.source_a.table}' 是月度表，source_a.period 或 period_range 必填")
+    if meta_b.is_period and not (spec.source_b.period or range_b):
+        errors.append(f"表 '{spec.source_b.table}' 是月度表，source_b.period 或 period_range 必填")
+    if range_a or range_b:
+        if range_a is None or range_b is None:
+            errors.append("多月对比时 source_a 与 source_b 都必须设置 period_range")
+        elif range_a != range_b:
+            errors.append("首期多月对比要求 source_a 与 source_b 使用相同 period_range")
+        if not meta_a.is_period or not meta_b.is_period:
+            errors.append("多月对比仅支持两个来源均为月度表")
+        if spec.period_execution is None:
+            errors.append("多月对比必须提供 period_execution")
 
     # ── 4. join_keys 存在性校验 ──
     for jk in spec.join_keys:
