@@ -51,6 +51,29 @@ const previewLoading = ref(false)
 const previewTotal = ref(0)
 const previewPage = ref(1)
 const PREVIEW_PAGE_SIZE = 20
+const previewTableRef = ref<any>(null)
+
+function getColumnWidth(col: ColumnInfo): number {
+  // 基于 header + 当前页数据内容计算列宽（自适应）
+  const headerText = col.label || col.code
+  let maxPx = measureTextPx(headerText, 30)
+  for (const row of previewRows.value) {
+    const val = row[col.code]
+    if (val != null && val !== '') {
+      maxPx = Math.max(maxPx, measureTextPx(String(val), 50))
+    }
+  }
+  return Math.min(360, Math.max(100, maxPx + 40))
+}
+
+function measureTextPx(text: string, maxChars: number): number {
+  let w = 0
+  for (const ch of text.slice(0, maxChars)) {
+    w += ch.charCodeAt(0) > 127 ? 16 : 9
+  }
+  return w
+}
+
 async function loadPreview(resetPage = false) {
   if (resetPage) previewPage.value = 1
   previewLoading.value = true
@@ -65,6 +88,11 @@ async function loadPreview(resetPage = false) {
     ElMessage.error(e?.response?.data?.detail || '预览数据加载失败')
   } finally {
     previewLoading.value = false
+    await nextTick()
+    // 延迟等浏览器布局完成，强制同步 header/body 两套 table 列宽
+    setTimeout(() => {
+      previewTableRef.value?.doLayout?.()
+    }, 100)
   }
 }
 
@@ -889,14 +917,13 @@ onMounted(() => {
               </div>
               <template v-else>
                 <span style="color: #909399; font-size: 12px; line-height: 1; display: block; margin-bottom: 6px">共 {{ previewTotal }} 条</span>
-                <div class="preview-table-scroll">
-                  <el-table :data="previewRows" border stripe size="small" empty-text="暂无数据" class="preview-table">
+                  <el-table :data="previewRows" border stripe size="small" max-height="calc(100vh - 320px)" empty-text="暂无数据" class="preview-table">
                     <el-table-column
                       v-for="col in previewColumns"
                       :key="col.code"
                       :prop="col.code"
                       :label="col.label || col.code"
-                      min-width="120"
+                      :width="getColumnWidth(col)"
                       show-overflow-tooltip
                     >
                       <template #default="{ row }">
@@ -904,7 +931,6 @@ onMounted(() => {
                       </template>
                     </el-table-column>
                   </el-table>
-                </div>
               </template>
             </div>
           </el-tab-pane>
@@ -1127,23 +1153,9 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
 }
-/* 数据预览表格：外层容器滚动 + sticky 表头，避免 header/body 独立 table 导致分割线不对齐 */
-.preview-table-scroll {
-  max-height: calc(100vh - 320px);
-  overflow: auto;
-}
-.preview-table-scroll :deep(.el-table__header-wrapper) {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-.preview-table-scroll :deep(.el-table__body-wrapper) {
-  overflow: visible;
-}
-/* 统一列布局：header/body 两套 table 共用 table-layout: fixed 保证对齐 */
-.preview-table-scroll :deep(.el-table__header-wrapper table),
-.preview-table-scroll :deep(.el-table__body-wrapper table) {
+/* 数据预览表格：统一 header/body 两套 table 布局，消除分割线不对齐 */
+.preview-table :deep(.el-table__header-wrapper table),
+.preview-table :deep(.el-table__body-wrapper table) {
   table-layout: fixed !important;
-  width: 100% !important;
 }
 </style>
