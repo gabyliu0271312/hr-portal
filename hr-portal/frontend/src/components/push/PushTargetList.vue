@@ -48,10 +48,6 @@ async function load() {
 }
 
 async function runNow(target: PushTargetOut) {
-  if (target.push_type === 'db_realtime') {
-    ElMessage.info('实时数据库视图会在查询时读取当前数据，无需手动推送')
-    return
-  }
   running.value = target.id
   try {
     const res = await pushTargetsApi.run(target.id)
@@ -155,11 +151,7 @@ onMounted(load)
         </el-table-column>
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <PermissionButton v-if="row.push_type === 'db_snapshot' || !['api_expose', 'db_realtime'].includes(row.push_type)" :menu="permissionMenu" op="C" size="small" type="primary"
-              :loading="running === row.id" @click="runNow(row)">
-              <el-icon><VideoPlay /></el-icon>{{ row.push_type === 'db_snapshot' ? '立即同步' : '立即推送' }}
-            </PermissionButton>
-            <el-button size="small" style="margin-left: 8px"
+            <el-button size="small"
               @click="historyTarget = row">历史</el-button>
             <PermissionButton :menu="permissionMenu" op="U" size="small" style="margin-left: 8px"
               @click="dialogRef?.open(row)">
@@ -168,6 +160,10 @@ onMounted(load)
             <PermissionButton :menu="permissionMenu" op="D" size="small" type="danger" style="margin-left: 8px"
               @click="remove(row)">
               <el-icon><Delete /></el-icon>
+            </PermissionButton>
+            <PermissionButton v-if="row.push_type !== 'api_expose'" :menu="permissionMenu" op="C" size="small" type="primary" style="margin-left: 8px"
+              :loading="running === row.id" @click="runNow(row)">
+              <el-icon><VideoPlay /></el-icon>{{ row.push_type === 'db_realtime' ? '推送' : row.push_type === 'db_snapshot' ? '立即同步' : '立即推送' }}
             </PermissionButton>
           </template>
         </el-table-column>

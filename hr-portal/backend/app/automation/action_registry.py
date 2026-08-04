@@ -269,7 +269,7 @@ async def _execute_dwd_update(
 
             rows = exec_result.get("rows_inserted") or exec_result.get("total_rows", 0)
             await _update_config_execution_status(config, "success", rows, None, db)
-            await _publish_dwd_refreshed(table_name, db)
+            await _publish_dwd_refreshed(table_name, db, config.target_dwd_table_name)
             return {
                 "status": "success", "mode": "cleaning_rule", "table_name": table_name, "rows": rows,
                 "ods_sync_semantics": config.ods_sync_semantics,
@@ -290,7 +290,7 @@ async def _execute_dwd_update(
                 return {"status": "failed", "reason": "passthrough_failed", "table_name": table_name, "detail": str(e)[:500]}
 
             await _update_config_execution_status(config, "success", rows, None, db)
-            await _publish_dwd_refreshed(table_name, db)
+            await _publish_dwd_refreshed(table_name, db, dwd_table)
             return {"status": "success", "mode": "passthrough", "table_name": table_name, "rows": rows, "dwd_table": dwd_table}
 
         return {"status": "skipped", "reason": f"unknown_update_mode:{config.update_mode}", "table_name": table_name}
@@ -461,20 +461,23 @@ async def _update_config_execution_status(
     config.last_execution_error = error
 
 
-async def _publish_dwd_refreshed(table_name: str, db: AsyncSession) -> None:
-    """发布 dwd_data_refreshed 事件，触发 L4 级联检查。"""
+async def _publish_dwd_refreshed(table_name: str, db: AsyncSession, target_table: str | None = None) -> None:
+    """发布 dwd_data_refreshed 事件，触发 L4 级联检查和 db_realtime 视图自动重建。"""
     try:
         from app.automation.events import AutomationEvent, publish_event
         from app.core.db import get_session_factory
+        payload = {
+            "trigger_type": "dwd_data_refreshed",
+            "table_name": table_name,
+        }
+        if target_table:
+            payload["target_table"] = target_table
         async with get_session_factory()() as new_db:
             await publish_event(AutomationEvent(
                 trigger_type="dwd_data_refreshed",
                 biz_type="ods_table",
                 biz_id=table_name,
-                payload={
-                    "trigger_type": "dwd_data_refreshed",
-                    "table_name": table_name,
-                },
+                payload=payload,
             ), new_db)
     except Exception:
         pass
@@ -506,12 +509,85 @@ async def _action_l4_cascade_execute(
     return await engine.process_event(event_payload)
 
 
+# ===== auto_rebuild_db_realtime_views Action (Z0304) =====
+
+async def _action_auto_rebuild_db_realtime_views(
+    action_config: dict[str, Any],
+    event_payload: dict[str, Any],
+    db: AsyncSession,
+    execution_id: int | None = None,
+) -> dict[str, Any]:
+    """DWD 数据刷新后，自动重建关联的 db_realtime 视图。
+
+    事件驱动的零人工干预方案：
+    - 监听 dwd_data_refreshed 事件
+    - 找到 source_table 匹配的 db_realtime PushTarget
+    - 调用 execute_push 触发字段指纹检测 + 必要时重建 View
+    """
+    from app.push.models import PushTarget
+    from app.push.push_service import execute_push
+
+    ods_table = event_payload.get("table_name", "")
+    dwd_table = event_payload.get("target_table", "") or ods_table
+
+    if not dwd_table:
+        return {"status": "skipped", "reason": "no_target_table_in_payload"}
+
+    # 同时按 ODS 和 DWD 表名查找 PushTarget
+    candidate_tables = {dwd_table, ods_table}
+    targets = (
+        await db.execute(
+            select(PushTarget).where(
+                PushTarget.source_table.in_(candidate_tables),
+                PushTarget.push_type == "db_realtime",
+                PushTarget.is_active.is_(True),
+            )
+        )
+    ).scalars().all()
+
+    if not targets:
+        return {"status": "skipped", "reason": "no_db_realtime_targets", "dwd_table": dwd_table}
+
+    results = []
+    for target in targets:
+        try:
+            rows, message = await execute_push(target.id, db)
+            results.append({
+                "pt_id": target.id,
+                "name": target.name,
+                "rows": rows,
+                "message": message,
+            })
+            logger.info(
+                "[automation] db_realtime view auto-rebuilt: pt_id=%d name=%s rows=%d",
+                target.id, target.name, rows,
+            )
+        except Exception as e:
+            logger.exception(
+                "[automation] db_realtime auto-rebuild failed: pt_id=%d name=%s",
+                target.id, target.name,
+            )
+            results.append({
+                "pt_id": target.id,
+                "name": target.name,
+                "error": f"{type(e).__name__}: {e}"[:500],
+            })
+
+    return {
+        "status": "success",
+        "dwd_table": dwd_table,
+        "ods_table": ods_table,
+        "targets": results,
+    }
+
+
 # ===== 注册表 =====
 
 ACTION_REGISTRY: dict[str, ActionFn] = {
     "feishu_send_message": _action_feishu_send_message,
     "trigger_dwd_standardization": _action_trigger_dwd_standardization,
     "l4_cascade_execute": _action_l4_cascade_execute,
+    "auto_rebuild_db_realtime_views": _action_auto_rebuild_db_realtime_views,
 }
 
 

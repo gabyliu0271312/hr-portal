@@ -827,6 +827,12 @@ async def push_api_expose(
     return len(rows), f"API 暴露就绪：{len(rows)} 行可供拉取"
 
 
+def _column_fingerprint(cols: list) -> str:
+    """根据字段列表生成稳定指纹，用于检测 schema 变化。"""
+    parts = sorted(f"{col.column_code}:{col.column_label or ''}" for col in cols)
+    return hashlib.md5("|".join(parts).encode()).hexdigest()
+
+
 async def push_db_realtime(
     source_table: str,
     settings: dict,
@@ -834,7 +840,11 @@ async def push_db_realtime(
     field_mappings: list[dict],
     db: AsyncSession,
 ) -> tuple[int, str]:
-    """为实体表创建隔离的实时只读 PostgreSQL View。"""
+    """为实体表创建隔离的实时只读 PostgreSQL View。
+    
+    通过字段指纹对比，仅在源表 schema 变化时重建 View，
+    避免每次推送都 DROP/CREATE。
+    """
     import secrets as py_secrets
     import string
     from sqlalchemy import select as sa_select
@@ -867,6 +877,7 @@ async def push_db_realtime(
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
         password = "".join(py_secrets.choice(alphabet) for _ in range(20))
 
+    current_fingerprint = ""
     if not is_report:
         cols = (
             await db.execute(
@@ -879,6 +890,7 @@ async def push_db_realtime(
             raise RuntimeError(f"table_columns 中找不到表 {source_table} 的可见字段定义")
         for col in cols:
             _entity_column(Model, source_table, col.column_code)
+        current_fingerprint = _column_fingerprint(cols)
         labels = _dedupe_labels(cols)
         source_table_q = quote_ident(source_table, kind="table")
         projection = ", ".join(
@@ -896,10 +908,26 @@ async def push_db_realtime(
         view_sql = f"SELECT {projection} FROM public.{source_table_q}{where_sql}"
     else:
         view_sql = source_sql
+
     schema_q = _quote_pg_identifier(schema_name)
     view_q = _quote_pg_identifier(view_name)
     user_q = _quote_pg_identifier(readonly_user)
     db_q = _quote_pg_identifier(app_settings.DB_NAME)
+
+    # 指纹对比：字段无变化且 View 已存在时跳过重建
+    from app.push.models import PushTarget
+    target = await db.get(PushTarget, int(pt_id))
+    stored_fingerprint = (target.settings or {}).get("_column_fingerprint", "") if target else ""
+
+    view_exists = (await db.execute(text(
+        "SELECT EXISTS (SELECT FROM pg_catalog.pg_views "
+        "WHERE schemaname = :schema AND viewname = :view)"
+    ), {"schema": schema_name, "view": view_name})).scalar_one()
+
+    if not is_report and current_fingerprint and view_exists and current_fingerprint == stored_fingerprint:
+        rows = (await db.execute(text(f"SELECT COUNT(*) FROM {schema_q}.{view_q}"))).scalar_one()
+        return rows, f"视图字段无变化，无需重建（{schema_name}.{view_name}）"
+
     await db.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_q}"))
     await db.execute(text(f"DROP VIEW IF EXISTS {schema_q}.{view_q}"))
     await db.execute(text(
@@ -930,10 +958,8 @@ async def push_db_realtime(
     await db.execute(text(f"ALTER ROLE {user_q} SET statement_timeout TO '{app_settings.DB_READONLY_STATEMENT_TIMEOUT_SECONDS}s'"))
     await db.execute(text(f"ALTER ROLE {user_q} SET idle_in_transaction_session_timeout TO '{app_settings.DB_READONLY_IDLE_TRANSACTION_TIMEOUT_SECONDS}s'"))
 
-    from app.push.models import PushTarget
     from app.core.secret_box import encrypt
     from sqlalchemy.orm.attributes import flag_modified
-    target = await db.get(PushTarget, int(pt_id))
     if target:
         conn_host = app_settings.DB_PUBLIC_HOST or app_settings.DB_HOST
         conn_url = (
@@ -949,6 +975,8 @@ async def push_db_realtime(
             "schema": schema_name, "view": view_name, "conn_url": conn_url,
             "jdbc_url": f"jdbc:postgresql://{conn_host}:{app_settings.DB_PUBLIC_PORT}/{app_settings.DB_NAME}?currentSchema={_quote_conn_part(schema_name)}",
         }
+        if not is_report:
+            target.settings["_column_fingerprint"] = current_fingerprint
         flag_modified(target, "schema_history")
         flag_modified(target, "secrets_encrypted")
         flag_modified(target, "settings")

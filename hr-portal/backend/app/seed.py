@@ -20,6 +20,7 @@ from app.datasets.single_table import ensure_single_table_dataset
 from app.tools.document_templates import DEFAULT_TEMPLATES
 from app.tools.models import DocumentTemplate, DocumentTemplateBlock, DocumentTemplateVariable
 from app.users.models import Menu, Role, RoleMenu, User, UserRole
+from app.performance.seed import seed_performance_authorization_defaults
 
 logger = logging.getLogger("seed")
 
@@ -327,6 +328,7 @@ async def run_seed(session_factory) -> None:
         menus = await _ensure_menus(db)
         super_role = await _ensure_super_role(db, menus)
         await _ensure_admin_user(db, super_role)
+        await seed_performance_authorization_defaults(db)
         await _ensure_datasources(db)
         await _ensure_datasource_jobs(db)
         await _ensure_ai_controlled_action_retention_job(db)
@@ -340,6 +342,7 @@ async def run_seed(session_factory) -> None:
         await _ensure_lifecycle_pipeline_triggers(db)
         await _ensure_ods_dwd_automation_rules(db)
         await _ensure_l4_cascade_rules(db)
+        await _ensure_db_realtime_auto_rebuild_rules(db)
         logger.info("[seed] done")
 
 
@@ -924,3 +927,57 @@ async def _ensure_l4_cascade_rules(db: AsyncSession) -> None:
         logger.info("[seed] l4 cascade rule added: %s", tt)
 
     await db.commit()
+
+
+async def _ensure_db_realtime_auto_rebuild_rules(db: AsyncSession) -> None:
+    """确保 DWD 刷新后自动重建 db_realtime 视图的系统级自动化规则存在。
+    
+    通过 _rule_version 跟踪规则配置版本，种子升级时自动更新旧版规则。
+    """
+    from app.automation.models import AutomationRule
+
+    trigger_type = "dwd_data_refreshed"
+    rule_name = "DWD刷新后自动重建实时数据库视图"
+    RULE_VERSION = 1
+
+    existing = (
+        await db.execute(
+            select(AutomationRule).where(
+                AutomationRule.trigger_type == trigger_type,
+                AutomationRule.name == rule_name,
+                AutomationRule.source == "system",
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing is not None:
+        stored_version = (existing.trigger_config or {}).get("_rule_version", 0)
+        if stored_version >= RULE_VERSION:
+            return
+        # 规则版本过旧，更新配置
+        existing.trigger_config = {**(existing.trigger_config or {}), "_rule_version": RULE_VERSION}
+        existing.description = (
+            "系统自动创建：DWD 数据刷新后，自动检测并重建关联的 db_realtime 视图，"
+            "使 FineBI 无需手动操作即可获取新增字段"
+        )
+        existing.actions_config = [{"type": "auto_rebuild_db_realtime_views", "config": {}}]
+        logger.info(
+            "[seed] db_realtime auto-rebuild rule updated: %s v%d → v%d",
+            trigger_type, stored_version, RULE_VERSION,
+        )
+        return
+
+    rule = AutomationRule(
+        name=rule_name,
+        description="系统自动创建：DWD 数据刷新后，自动检测并重建关联的 db_realtime 视图，使 FineBI 无需手动操作即可获取新增字段",
+        trigger_type=trigger_type,
+        trigger_config={"_rule_version": RULE_VERSION},
+        condition_config=[],
+        actions_config=[{"type": "auto_rebuild_db_realtime_views", "config": {}}],
+        enabled=True,
+        source="system",
+    )
+    db.add(rule)
+    logger.info("[seed] db_realtime auto-rebuild rule added: %s v%d", trigger_type, RULE_VERSION)
+    # NOTE: 不在 seed 函数内部 commit，由 seed 调用方统一管理事务边界。
+    # 如果此处提前 commit 而后续 seed 步骤失败回滚，会出现部分提交。
