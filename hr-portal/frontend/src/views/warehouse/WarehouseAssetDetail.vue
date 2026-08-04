@@ -768,6 +768,7 @@ onMounted(() => {
                   <PushTargetList
                     :source-table="tableName"
                     compact
+                    hide-history
                   />
                 </template>
               </el-card>

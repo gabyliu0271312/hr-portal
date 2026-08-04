@@ -865,6 +865,17 @@ async def run_push_target(
     await _ensure_report_push_editable(pt.source_table, user, db)
     await _ensure_system_op_for_non_report(pt.source_table, user, db, "C")
     rows, message = await execute_push(pt_id, db, period_ym=payload.period_ym)
+    # 写入 JobRun 记录，使"同步历史"tab 和"历史"抽屉均有数据可查
+    from app.scheduler.models import JobRun
+    jr = JobRun(
+        kind="push_target",
+        business_id=pt_id,
+        status="success",
+        rows=rows,
+        message=message,
+        triggered_by=f"user:{user.id}",
+    )
+    db.add(jr)
     await db.commit()
     return {"ok": True, "rows": rows, "message": message}
 

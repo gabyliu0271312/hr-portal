@@ -14,6 +14,7 @@ const props = withDefaults(defineProps<{
   sourceColumns?: any[]
   compact?: boolean
   hideHeader?: boolean
+  hideHistory?: boolean
   permissionMenu?: string
 }>(), {
   compact: false,
@@ -151,7 +152,7 @@ onMounted(load)
         </el-table-column>
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <el-button size="small"
+            <el-button v-if="!props.hideHistory" size="small"
               @click="historyTarget = row">历史</el-button>
             <PermissionButton :menu="permissionMenu" op="U" size="small" style="margin-left: 8px"
               @click="dialogRef?.open(row)">
