@@ -20,7 +20,10 @@ from app.datasets.single_table import ensure_single_table_dataset
 from app.tools.document_templates import DEFAULT_TEMPLATES
 from app.tools.models import DocumentTemplate, DocumentTemplateBlock, DocumentTemplateVariable
 from app.users.models import Menu, Role, RoleMenu, User, UserRole
-from app.performance.seed import seed_performance_authorization_defaults
+try:
+    from app.performance.seed import seed_performance_authorization_defaults
+except ImportError:
+    seed_performance_authorization_defaults = None  # type: ignore
 
 logger = logging.getLogger("seed")
 
@@ -328,7 +331,8 @@ async def run_seed(session_factory) -> None:
         menus = await _ensure_menus(db)
         super_role = await _ensure_super_role(db, menus)
         await _ensure_admin_user(db, super_role)
-        await seed_performance_authorization_defaults(db)
+        if seed_performance_authorization_defaults is not None:
+            await seed_performance_authorization_defaults(db)
         await _ensure_datasources(db)
         await _ensure_datasource_jobs(db)
         await _ensure_ai_controlled_action_retention_job(db)
