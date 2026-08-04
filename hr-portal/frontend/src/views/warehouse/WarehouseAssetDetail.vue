@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Link, Edit, List, DataAnalysis, Connection, Refresh } from '@element-plus/icons-vue'
@@ -51,7 +51,6 @@ const previewLoading = ref(false)
 const previewTotal = ref(0)
 const previewPage = ref(1)
 const PREVIEW_PAGE_SIZE = 20
-const previewTableRef = ref<any>(null)
 
 function getColumnWidth(col: ColumnInfo): number {
   // 基于 header + 当前页数据内容计算列宽（自适应）
@@ -88,46 +87,6 @@ async function loadPreview(resetPage = false) {
     ElMessage.error(e?.response?.data?.detail || '预览数据加载失败')
   } finally {
     previewLoading.value = false
-    await nextTick()
-    setTimeout(() => {
-      previewTableRef.value?.doLayout?.()
-      forceSyncColumnWidths()
-    }, 100)
-  }
-}
-
-// 强制同步 header/body 两套 table 的 colgroup 列宽（根因：el-table 内部会对 body 列宽二次分配）
-let _previewSyncCleanup: (() => void) | null = null
-function forceSyncColumnWidths() {
-  const tableEl = previewTableRef.value?.$el as HTMLElement | undefined
-  if (!tableEl) return
-  const hCols = tableEl.querySelectorAll('.el-table__header-wrapper colgroup col')
-  const bCols = tableEl.querySelectorAll('.el-table__body-wrapper colgroup col')
-  if (hCols.length !== bCols.length) {
-    previewTableRef.value?.doLayout?.()
-    return
-  }
-  hCols.forEach((hCol, i) => {
-    const bCol = bCols[i] as HTMLElement
-    const w = (hCol as HTMLElement).getAttribute('width')
-    if (w && bCol.getAttribute('width') !== w) {
-      bCol.setAttribute('width', w)
-      ;(bCol as HTMLElement).style.width = w + 'px'
-    }
-  })
-}
-function setupPreviewScrollSync() {
-  _previewSyncCleanup?.()
-  const table = previewTableRef.value as any
-  if (!table?.$el) return
-  const bodyWrapper = table.$el.querySelector('.el-table__body-wrapper') as HTMLElement | null
-  if (!bodyWrapper) return
-  const sync = () => { forceSyncColumnWidths() }
-  bodyWrapper.addEventListener('scroll', sync, { passive: true })
-  window.addEventListener('resize', sync)
-  _previewSyncCleanup = () => {
-    bodyWrapper.removeEventListener('scroll', sync)
-    window.removeEventListener('resize', sync)
   }
 }
 
@@ -616,9 +575,6 @@ onMounted(() => {
   if (route.query.tab === 'preview') { activeTab.value = 'preview'; loadPreview() }
 })
 
-onBeforeUnmount(() => {
-  _previewSyncCleanup?.()
-})
 </script>
 
 <template>
@@ -956,20 +912,24 @@ onBeforeUnmount(() => {
               </div>
               <template v-else>
                 <span style="color: #909399; font-size: 12px; line-height: 1; display: block; margin-bottom: 6px">共 {{ previewTotal }} 条</span>
-                  <el-table ref="previewTableRef" :data="previewRows" border stripe size="small" max-height="calc(100vh - 320px)" empty-text="暂无数据" class="preview-table">
-                    <el-table-column
-                      v-for="col in previewColumns"
-                      :key="col.code"
-                      :prop="col.code"
-                      :label="col.label || col.code"
-                      :width="getColumnWidth(col)"
-                      show-overflow-tooltip
-                    >
-                      <template #default="{ row }">
-                        <span>{{ row[col.code] ?? '—' }}</span>
-                      </template>
-                    </el-table-column>
-                  </el-table>
+                <div class="preview-table-wrap">
+                  <table class="preview-data-table">
+                    <thead>
+                      <tr>
+                        <th v-for="col in previewColumns" :key="col.code" :style="{ width: getColumnWidth(col) + 'px', minWidth: getColumnWidth(col) + 'px' }">
+                          {{ col.label || col.code }}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(row, ri) in previewRows" :key="ri">
+                        <td v-for="col in previewColumns" :key="col.code" :title="row[col.code] ?? ''" :style="{ width: getColumnWidth(col) + 'px', minWidth: getColumnWidth(col) + 'px' }">
+                          {{ row[col.code] ?? '—' }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </template>
             </div>
           </el-tab-pane>
@@ -1191,5 +1151,57 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* ===== 数据预览原生 table（替换 el-table，彻底解决 header/body 分拆导致的对齐问题）===== */
+.preview-table-wrap {
+  height: calc(100vh - 330px);
+  overflow: auto;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+}
+.preview-data-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.preview-data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.preview-data-table th {
+  background: #f5f7fa;
+  color: #606266;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 2px solid #e4e7ed;
+  border-right: 1px solid #e4e7ed;
+  white-space: nowrap;
+  text-align: left;
+  position: sticky;
+  top: 0;
+}
+.preview-data-table th:last-child {
+  border-right: none;
+}
+.preview-data-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid #ebeef5;
+  border-right: 1px solid #ebeef5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 360px;
+}
+.preview-data-table td:last-child {
+  border-right: none;
+}
+.preview-data-table tbody tr:nth-child(even) td {
+  background: #fafafa;
+}
+.preview-data-table tbody tr:hover td {
+  background: #ecf5ff;
 }
 </style>
