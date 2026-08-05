@@ -46,4 +46,31 @@ describe('CompareResultCard', () => {
     expect(wrapper.text()).toContain('***')
     expect(wrapper.find('th.highlighted').text()).toBe('员工姓名')
   })
+
+  it('按来源表名正确识别仅 A/仅 B 差异', () => {
+    const wrapper = mount(CompareResultCard, {
+      props: {
+        result: {
+          ...base,
+          table_a: '员工月度成本分摊表',
+          table_b: '员工月度工资表',
+          status: 'partial_diff',
+          summary: { ...base.summary, diff_count: 2, only_in_a_count: 1, only_in_b_count: 1 },
+          details: [
+            { employee_no: 'A1', diff_type: '仅存在于员工月度成本分摊表' },
+            { employee_no: 'B1', diff_type: '仅存在于员工月度工资表' },
+          ],
+          display: {
+            template: 'roster', columns: ['employee_no', 'diff_type'], highlight_columns: [],
+            hidden_columns: [], show_context: true, show_explanation: true, sort_order: 'desc',
+          },
+        },
+      },
+    })
+
+    const tags = wrapper.findAll('tbody .status-tag')
+    expect(tags[0].text()).toContain('仅 A 有')
+    expect(tags[1].text()).toContain('仅 B 有')
+  })
+
 })

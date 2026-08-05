@@ -329,14 +329,27 @@ function formatDiffType(value: unknown): string {
   return text
 }
 
+function diffSide(row: Record<string, any>): 'a' | 'b' | null {
+  const value = String(row.diff_type || row.status || '')
+  if (value.includes('only_in_a')) return 'a'
+  if (value.includes('only_in_b')) return 'b'
+  if (!value.includes('仅存在于')) return null
+
+  const tableA = String(props.result.table_a || '')
+  const tableB = String(props.result.table_b || '')
+  if (tableA && value.includes(tableA)) return 'a'
+  if (tableB && value.includes(tableB)) return 'b'
+  if (value.includes('B表')) return 'b'
+  if (value.includes('A表')) return 'a'
+  return null
+}
+
 function isOnlyA(row: Record<string, any>) {
-  const v = row.diff_type || row.status || ''
-  return (v.includes('仅存在于') && !v.includes('B表')) || v.includes('only_in_a')
+  return diffSide(row) === 'a'
 }
 
 function isOnlyB(row: Record<string, any>) {
-  const v = row.diff_type || row.status || ''
-  return (v.includes('仅存在于') && v.includes('B表')) || v.includes('only_in_b')
+  return diffSide(row) === 'b'
 }
 
 function isDiff(row: Record<string, any>) {
