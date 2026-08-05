@@ -421,16 +421,15 @@ async def _ensure_system_op_for_non_report(
             detail=f"无权限执行 {op} 操作 (warehouse.service)",
         )
 
-@router.get("/query-parameter-metadata")
+@router.get("/query-parameter-metadata",
+            dependencies=[Depends(require_any_op(("warehouse.service", "V"), ("warehouse.service", "C"), ("warehouse.service", "U")))])
 async def query_parameter_metadata(
     source_table: str = Query(...),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     await _ensure_report_push_editable(source_table, user, db)
-    if not _is_report_source(source_table):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="当前来源不是报表，不能配置受控查询参数")
-    return await _report_filter_metadata(source_table, db)
+    return await _query_parameter_metadata(source_table, db)
 
 
 @router.get("/source-capabilities",

@@ -33,7 +33,7 @@ function update(value: QueryParameterInput[]) {
 function addParameter() {
   const filter = filters.value.find((item) => !selectedColumns.value.has(item.column))
   if (!filter) {
-    ElMessage.warning('没有可新增的报表筛选字段')
+    ElMessage.warning('没有可新增的筛选字段')
     return
   }
   update([...props.modelValue, { column: filter.column, required: false }])
@@ -51,7 +51,7 @@ function optionsFor(currentColumn: string) {
 <template>
   <div class="section-title">受控查询参数</div>
   <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
-    选择允许对方传入的报表筛选字段。接口参数名称、格式和调用示例将自动生成在对接文档中。
+    选择允许对方传入的筛选字段。接口参数名称、格式和调用示例将自动生成在对接文档中。
   </el-alert>
   <div v-for="(item, index) in modelValue" :key="item.column" class="parameter-row">
     <el-select v-model="item.column" placeholder="选择筛选字段" style="width: 100%">
