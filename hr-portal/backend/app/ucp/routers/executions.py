@@ -46,7 +46,6 @@ def _hide_cost_allocation_orphan():
     )
     return and_(
         UcpPipelineExecution.pipeline_code == COST_ALLOCATION_PIPELINE_CODE,
-        UcpPipelineExecution.trigger_type == "EVENT",
         ~exists(canonical_event),
     )
 
