@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Link, Edit, List, DataAnalysis, Connection, Refresh } from '@element-plus/icons-vue'
 import ResourcePicker from '@/components/warehouse/ResourcePicker.vue'
 import {
@@ -42,6 +42,7 @@ const error = ref<string | null>(null)
 const endpoints = ref<AssetEndpoints | null>(null)
 const endpointsLoading = ref(false)
 const syncingEndpointIds = ref<Set<number>>(new Set())
+const deletingEndpointIds = ref<Set<number>>(new Set())
 const periodFieldReady = ref(false)
 
 // 数据预览
@@ -430,6 +431,32 @@ async function dsSync(ep: ConnectionEndpointSummary) {
   }
 }
 
+async function dsDelete(ep: ConnectionEndpointSummary) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除入仓来源「${ep.name}」？删除后该接口配置和同步历史将被清除。`,
+      '确认删除',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return  // 用户取消
+  }
+  deletingEndpointIds.value = new Set(deletingEndpointIds.value).add(ep.endpoint_id)
+  try {
+    await datasourcesApi.remove(ep.endpoint_id)
+    ElMessage.success('已删除')
+    endpoints.value = null
+    syncHistory.value = []
+    await Promise.all([load(), loadEndpoints(), loadSyncHistory()])
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
+  } finally {
+    const next = new Set(deletingEndpointIds.value)
+    next.delete(ep.endpoint_id)
+    deletingEndpointIds.value = next
+  }
+}
+
 async function loadInjectTables() {
   try {
     const tables = await adminTablesApi.list()
@@ -749,6 +776,7 @@ onMounted(() => {
                       <el-button text size="small" :loading="syncingEndpointIds.has(ep.endpoint_id)" :disabled="syncingEndpointIds.has(ep.endpoint_id) || (asset?.is_period && asset.period_source === 'field' && !periodFieldReady)" @click="dsSync(ep)">
                         {{ syncingEndpointIds.has(ep.endpoint_id) ? '同步中' : (asset?.is_period && asset.period_source === 'field' && !periodFieldReady ? '先配置期间字段' : '同步') }}
                       </el-button>
+                      <el-button text size="small" type="danger" :loading="deletingEndpointIds.has(ep.endpoint_id)" :disabled="deletingEndpointIds.has(ep.endpoint_id)" @click="dsDelete(ep)">删除</el-button>
                     </div>
                   </div>
                 </div>
@@ -858,49 +886,63 @@ onMounted(() => {
               <div v-if="syncHistory.length === 0 && !syncHistoryLoading" style="text-align: center; padding: 24px 0; color: #909399">
                 暂无同步/推送记录
               </div>
-              <el-table v-else :data="syncHistory" border stripe size="small" empty-text="暂无记录">
-                <el-table-column label="来源" width="100">
-                  <template #default="{ row }">
-                    <el-tag size="small" :type="row.source_type === 'datasource' ? 'primary' : 'success'" effect="plain">
-                      {{ row.source_type === 'datasource' ? 'DataSource' : 'PushTarget' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="source_name" label="名称" min-width="120" show-overflow-tooltip />
-                <el-table-column prop="status" label="状态" width="80" align="center">
-                  <template #default="{ row }">
-                    <el-tag size="small" :type="RUN_STATUS_TAG[row.status] || 'info'">
-                      {{ RUN_STATUS_LABEL[row.status] || row.status }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="开始时间" width="160">
-                  <template #default="{ row }">{{ row.started_at ? formatDateTime(row.started_at) : '—' }}</template>
-                </el-table-column>
-                <el-table-column label="耗时" width="100">
-                  <template #default="{ row }">
-                    <span v-if="row.started_at && row.finished_at">
-                      {{ Math.round((new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()) / 1000) }}s
-                    </span>
-                    <span v-else>—</span>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="rows" label="行数" width="80" align="center">
-                  <template #default="{ row }">{{ row.rows ?? '—' }}</template>
-                </el-table-column>
-                <el-table-column prop="triggered_by" label="触发" width="80" align="center">
-                  <template #default="{ row }">
-                    <el-tag v-if="row.triggered_by === 'cron'" size="small" effect="plain">定时</el-tag>
-                    <span v-else>{{ row.triggered_by || '—' }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="message" label="消息" min-width="160" show-overflow-tooltip>
-                  <template #default="{ row }">
-                    <span v-if="row.status === 'failed'" style="color: var(--color-danger)">{{ row.message }}</span>
-                    <span v-else>{{ row.message || '—' }}</span>
-                  </template>
-                </el-table-column>
-              </el-table>
+              <div v-else class="sync-table-wrap">
+                <table class="sync-data-table">
+                  <colgroup>
+                    <col style="width: 100px">
+                    <col style="min-width: 120px">
+                    <col style="width: 80px">
+                    <col style="width: 160px">
+                    <col style="width: 100px">
+                    <col style="width: 80px">
+                    <col style="width: 80px">
+                    <col style="min-width: 160px">
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>来源</th>
+                      <th>名称</th>
+                      <th class="text-center">状态</th>
+                      <th>开始时间</th>
+                      <th>耗时</th>
+                      <th class="text-center">行数</th>
+                      <th class="text-center">触发</th>
+                      <th>消息</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in syncHistory" :key="row.run_id">
+                      <td>
+                        <el-tag size="small" :type="row.source_type === 'datasource' ? 'primary' : 'success'" effect="plain">
+                          {{ row.source_type === 'datasource' ? 'DataSource' : 'PushTarget' }}
+                        </el-tag>
+                      </td>
+                      <td :title="row.source_name">{{ row.source_name }}</td>
+                      <td class="text-center">
+                        <el-tag size="small" :type="RUN_STATUS_TAG[row.status] || 'info'">
+                          {{ RUN_STATUS_LABEL[row.status] || row.status }}
+                        </el-tag>
+                      </td>
+                      <td>{{ row.started_at ? formatDateTime(row.started_at) : '—' }}</td>
+                      <td>
+                        <span v-if="row.started_at && row.finished_at">
+                          {{ Math.round((new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()) / 1000) }}s
+                        </span>
+                        <span v-else>—</span>
+                      </td>
+                      <td class="text-center">{{ row.rows ?? '—' }}</td>
+                      <td class="text-center">
+                        <el-tag v-if="row.triggered_by === 'cron'" size="small" effect="plain">定时</el-tag>
+                        <span v-else>{{ row.triggered_by || '—' }}</span>
+                      </td>
+                      <td :title="row.message || ''">
+                        <span v-if="row.status === 'failed'" style="color: var(--color-danger)">{{ row.message }}</span>
+                        <span v-else>{{ row.message || '—' }}</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </el-tab-pane>
 
@@ -1202,6 +1244,62 @@ onMounted(() => {
   background: #fafafa;
 }
 .preview-data-table tbody tr:hover td {
+  background: #ecf5ff;
+}
+
+/* ===== 同步历史原生 table（同数据预览方案，单一 <table> 共享 <colgroup>，无 header/body 列宽分叉）===== */
+.sync-table-wrap {
+  height: calc(100vh - 330px);
+  overflow: auto;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+}
+.sync-data-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.sync-data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.sync-data-table th {
+  background: #f5f7fa;
+  color: #606266;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 2px solid #e4e7ed;
+  border-right: 1px solid #e4e7ed;
+  white-space: nowrap;
+  text-align: left;
+  position: sticky;
+  top: 0;
+}
+.sync-data-table th.text-center,
+.sync-data-table td.text-center {
+  text-align: center;
+}
+.sync-data-table th:last-child {
+  border-right: none;
+}
+.sync-data-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid #ebeef5;
+  border-right: 1px solid #ebeef5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 360px;
+}
+.sync-data-table td:last-child {
+  border-right: none;
+}
+.sync-data-table tbody tr:nth-child(even) td {
+  background: #fafafa;
+}
+.sync-data-table tbody tr:hover td {
   background: #ecf5ff;
 }
 </style>

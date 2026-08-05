@@ -3,6 +3,7 @@
 - GET    /datasources             列出所有数据源（带最近同步状态）
 - GET    /datasources/{id}        详情（不返回密文）
 - PUT    /datasources/{id}        更新配置（settings + secrets，secrets 加密）
+- DELETE /datasources/{id}        删除数据源（级联清理 SyncRun + 调度任务）
 - POST   /datasources/{id}/test   测试连接（不存库，仅调 token）
 - POST   /datasources/{id}/sync   触发拉取，落库到对应业务表
 - GET    /datasources/{id}/runs   同步历史
@@ -344,6 +345,50 @@ async def update_datasource(
         pass
 
     return _to_out(ds)
+
+
+@router.delete(
+    "/{ds_id}",
+    dependencies=[Depends(require_op("datasource.endpoints", "D"))],
+)
+async def delete_datasource(
+    ds_id: int,
+    db: AsyncSession = Depends(get_session),
+) -> dict[str, bool]:
+    """删除数据源配置。
+
+    - 级联清理 SyncRun（数据库 ondelete=CASCADE）
+    - 清理关联的 ScheduledJob（kind=datasource_sync, business_id=ds_id）
+    - 从 APScheduler 移除运行中的 cron job
+    """
+    from app.scheduler.engine import get_engine
+    from app.scheduler.models import ScheduledJob
+    from app.scheduler.service import get_job_by_business
+
+    ds = await db.get(DataSource, ds_id)
+    if ds is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="数据源不存在")
+
+    # 1. 清理调度任务
+    job = await get_job_by_business(db, "datasource_sync", ds_id)
+    if job:
+        # 从 APScheduler 移除
+        try:
+            engine = get_engine()
+            if engine._scheduler is not None:
+                existing = engine._scheduler.get_job(engine._job_key(job.id))
+                if existing:
+                    existing.remove()
+        except RuntimeError:
+            pass  # scheduler 未启动，忽略
+        # 删除 DB 记录
+        await db.delete(job)
+
+    # 2. 删除 DataSource（SyncRun 通过 ondelete=CASCADE 自动清理）
+    await db.delete(ds)
+    await db.commit()
+
+    return {"ok": True}
 
 
 @router.post(
