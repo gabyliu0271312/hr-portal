@@ -41,6 +41,9 @@ class FakeResult:
     def scalar_one_or_none(self):
         return self.value
 
+    def one_or_none(self):
+        return self.value
+
     def scalars(self):
         if self.rows is not None:
             return FakeScalarResult(self.rows)
@@ -553,6 +556,28 @@ async def test_minimal_query_parameter_configuration_is_normalized(monkeypatch):
     }]
 
 
+async def test_normalize_query_parameters_replaces_stale_format_contract(monkeypatch):
+    settings = {"query_parameters": [{"column": "cost_period", "required": False}]}
+    existing = [{
+        "name": "cost_period", "label": "\u6210\u672c\u5f52\u5c5e\u5e74\u6708", "column": "cost_period", "op": "eq",
+        "pattern": None, "format_hint": "\u4e0d\u9650", "example": "\u793a\u4f8b\u503c", "required": True,
+    }]
+
+    async def metadata(source_table, db):
+        return [{
+            "column": "cost_period", "label": "\u6210\u672c\u5f52\u5c5e\u5e74\u6708", "data_type": "string",
+            "format_spec": {"format_code": "YYYYMM", "pattern": r"^\d{6}$", "example": "202606"},
+            "visible": True, "locked": False,
+        }]
+
+    monkeypatch.setattr("app.push.router._query_parameter_metadata", metadata)
+    await _normalize_query_parameters("dwd_any_asset", settings, FakeSession(), existing)
+    assert settings["query_parameters"][0]["format_hint"] == "YYYYMM"
+    assert settings["query_parameters"][0]["example"] == "202606"
+    assert settings["query_parameters"][0]["pattern"] == r"^\d{6}$"
+    assert settings["query_parameters"][0]["required"] is False
+
+
 async def test_normalize_query_parameters_preserves_existing_contract(monkeypatch):
     settings = {"query_parameters": [{"column": "salary.pay_month", "required": False}]}
     existing = [{
@@ -602,6 +627,30 @@ async def test_normalize_query_parameters_preserves_existing_contract(monkeypatc
     with pytest.raises(HTTPException) as unknown:
         await _runtime_filters_from_request(pt, SimpleNamespace(query_params={"period_ym": "202606", "all": "true"}), FakeSession())
     assert unknown.value.status_code == 400
+
+
+async def test_period_asset_metadata_uses_registered_period_column():
+    from app.push.router import _query_parameter_metadata
+
+    metadata = await _query_parameter_metadata(
+        "ads_cost_summary",
+        FakeSession(results=[
+            SimpleNamespace(is_period=True, period_col="cost_period"),
+            FakeResult(rows=[
+                SimpleNamespace(
+                    column_code="cost_period", column_label="cost period", data_type="string",
+                ),
+                SimpleNamespace(
+                    column_code="employee_no", column_label="employee no", data_type="string",
+                ),
+            ]),
+        ]),
+    )
+
+    assert metadata[0]["format_spec"] == {
+        "format_code": "YYYYMM", "pattern": r"^\d{6}$", "example": "202606",
+    }
+    assert metadata[1]["format_spec"] is None
 
 
 async def test_asset_query_parameters_are_normalized_and_accepted(monkeypatch):
@@ -669,6 +718,38 @@ async def test_integration_documentation_contains_ten_api_sections_without_crede
     assert "由HRPortal管理员单独提供的AppID" in content
     assert "period_ym" in content
     assert "发薪月" in content
+
+
+async def test_integration_documentation_replaces_stale_asset_format(monkeypatch):
+    pt = PushTarget(
+        id=19,
+        source_table="dws_cost_summary",
+        name="asset API",
+        push_type="api_expose",
+        settings={"query_parameters": [{
+            "name": "cost_period", "label": "cost period", "column": "cost_period",
+            "required": False, "format_hint": "unlimited", "example": "example",
+        }]},
+    )
+
+    async def source_meta(source_table, db):
+        return ["cost_period"], {"cost_period": "cost period"}, {"cost_period": "string"}
+
+    async def parameter_meta(source_table, db):
+        return [{
+            "column": "cost_period", "label": "cost period", "data_type": "string",
+            "format_spec": {"format_code": "YYYYMM", "pattern": r"^\d{6}$", "example": "202606"},
+            "visible": True, "locked": False,
+        }]
+
+    monkeypatch.setattr("app.push.push_service._load_source_columns_meta", source_meta)
+    monkeypatch.setattr("app.push.router._query_parameter_metadata", parameter_meta)
+    monkeypatch.setattr("app.core.config.settings.PUBLIC_BASE_URL", "http://portal.example.test")
+    content = await _build_integration_documentation(pt, FakeSession())
+
+    assert "\u683c\u5f0f\uff1aYYYYMM" in content
+    assert "\u793a\u4f8b\uff1a202606" in content
+    assert "\u683c\u5f0f\uff1aunlimited" not in content
 
 
 @pytest.mark.asyncio

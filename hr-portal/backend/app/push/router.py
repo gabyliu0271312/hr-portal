@@ -265,8 +265,15 @@ async def _query_parameter_metadata(source_table: str, db: AsyncSession) -> list
     if _is_report_source(source_table):
         return await _report_filter_metadata(source_table, db)
 
-    from app.data.models import TableColumn
-    from app.datasources.sync_service import YEARMONTH_COLUMNS
+    from app.data.models import RegisteredTable, TableColumn
+
+    table_meta = (
+        await db.execute(
+            select(RegisteredTable.is_period, RegisteredTable.period_col)
+            .where(RegisteredTable.table_name == source_table)
+        )
+    ).one_or_none()
+    period_col = str(table_meta.period_col or "").strip() if table_meta and table_meta.is_period else ""
 
     rows = (
         await db.execute(
@@ -288,7 +295,7 @@ async def _query_parameter_metadata(source_table: str, db: AsyncSession) -> list
             "locked": False,
             "format_spec": (
                 {"format_code": "YYYYMM", "pattern": r"^\d{6}$", "example": "202606"}
-                if item.column_code in YEARMONTH_COLUMNS.get(source_table, set())
+                if period_col and item.column_code == period_col
                 else None
             ),
         }
@@ -368,7 +375,9 @@ async def _normalize_query_parameters(
             column, filters[column]["label"], filters[column]["data_type"], used_names, filters[column].get("format_spec")
         )
         if old and _QUERY_PARAMETER_NAME_RE.fullmatch(str(old.get("name") or "")):
-            rule.update({key: old[key] for key in ("name", "label", "pattern", "format_hint", "example") if key in old})
+            rule.update({key: old[key] for key in ("name", "label") if key in old})
+            if not filters[column].get("format_spec"):
+                rule.update({key: old[key] for key in ("pattern", "format_hint", "example") if key in old})
             used_names.add(rule["name"])
         rule["required"] = bool(item.get("required"))
         normalized.append(rule)
@@ -1033,11 +1042,12 @@ async def _build_integration_documentation(pt: PushTarget, db: AsyncSession) -> 
                 set(),
                 meta.get("format_spec"),
             )
+            has_format_spec = bool(meta.get("format_spec"))
             normalized_parameters.append({
                 **item,
-                "pattern": item.get("pattern") or inferred.get("pattern"),
-                "format_hint": item.get("format_hint") or inferred.get("format_hint"),
-                "example": item.get("example") or inferred.get("example"),
+                "pattern": inferred.get("pattern") if has_format_spec else (item.get("pattern") or inferred.get("pattern")),
+                "format_hint": inferred.get("format_hint") if has_format_spec else (item.get("format_hint") or inferred.get("format_hint")),
+                "example": inferred.get("example") if has_format_spec else (item.get("example") or inferred.get("example")),
             })
         parameters = normalized_parameters
         query = "&".join(
