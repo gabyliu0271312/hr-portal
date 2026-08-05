@@ -55,6 +55,11 @@ BEGIN
         RAISE EXCEPTION
             'Canonical COST_ALLOCATION_LOCKED_TRIGGER delivery/run is missing or invalid';
     END IF;
+    IF keep_run_id <> 'run_20260805_035600_c8507536' OR keep_delivery_id <> 2 THEN
+        RAISE EXCEPTION
+            'Unexpected canonical run/delivery: run=% delivery=%',
+            keep_run_id, keep_delivery_id;
+    END IF;
 END $$;
 
 -- Keep the event and warehouse batch audit, but repoint both to the retained run.
