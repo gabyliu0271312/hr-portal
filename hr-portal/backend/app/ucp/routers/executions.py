@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, desc
+from sqlalchemy import and_, desc, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import current_user, require_op
@@ -34,27 +34,42 @@ from app.ucp.pipeline_engine import (
 logger = logging.getLogger("ucp.routers.executions")
 router = APIRouter()
 
+COST_ALLOCATION_PIPELINE_CODE = "COST_ALLOCATION_LOCKED_INGEST"
+COST_ALLOCATION_EVENT_TYPE = "allocation_period.locked"
+
+
+def _hide_cost_allocation_orphan():
+    """Hide historical duplicate runs while retaining their audit rows."""
+    canonical_event = select(UcpEvent.id).where(
+        UcpEvent.pipeline_run_id == UcpPipelineExecution.pipeline_run_id,
+        UcpEvent.event_type == COST_ALLOCATION_EVENT_TYPE,
+    )
+    return and_(
+        UcpPipelineExecution.pipeline_code == COST_ALLOCATION_PIPELINE_CODE,
+        UcpPipelineExecution.trigger_type == "EVENT",
+        ~exists(canonical_event),
+    )
 
 @router.get("/executions")
 async def route_list_executions(
     pipeline_code: str | None = Query(None),
     status: str | None = Query(None),
+    trigger_type: str | None = Query(None),
     limit: int = Query(20, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_session),
     _user: User = Depends(require_op("ucp.executions", "V")),
 ):
-    stmt = select(UcpPipelineExecution).order_by(desc(UcpPipelineExecution.created_at))
+    filters = [~_hide_cost_allocation_orphan()]
     if pipeline_code:
-        stmt = stmt.where(UcpPipelineExecution.pipeline_code == pipeline_code)
+        filters.append(UcpPipelineExecution.pipeline_code == pipeline_code)
     if status:
-        stmt = stmt.where(UcpPipelineExecution.status == status)
+        filters.append(UcpPipelineExecution.status == status)
+    if trigger_type:
+        filters.append(UcpPipelineExecution.trigger_type == trigger_type)
 
-    count_stmt = select(UcpPipelineExecution)
-    if pipeline_code:
-        count_stmt = count_stmt.where(UcpPipelineExecution.pipeline_code == pipeline_code)
-    if status:
-        count_stmt = count_stmt.where(UcpPipelineExecution.status == status)
+    stmt = select(UcpPipelineExecution).where(*filters).order_by(desc(UcpPipelineExecution.created_at))
+    count_stmt = select(UcpPipelineExecution).where(*filters)
     total = (await db.execute(count_stmt)).scalars().all()
     total_count = len(total)
 

@@ -264,6 +264,14 @@ function timelineColor(status: string): string {
 
 const totalDuration = computed(() => detail.value?.duration_ms ?? 0)
 
+async function backToList() {
+  const target = router.resolve({ name: 'UcpRuns' })
+  const failure = await router.replace(target)
+  if (failure || router.currentRoute.value.name !== 'UcpRuns') {
+    window.location.assign(target.href)
+  }
+}
+
 onMounted(loadDetail)
 </script>
 
@@ -273,7 +281,7 @@ onMounted(loadDetail)
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">
           <div style="display: flex; align-items: center; gap: 12px">
-            <el-button :icon="ArrowLeft" size="small" @click="router.push('/ucp/runs')">返回列表</el-button>
+            <el-button :icon="ArrowLeft" size="small" @click="backToList">返回列表</el-button>
             <span style="font-size: 16px; font-weight: 600">
               Pipeline 执行详情 #{{ runId }}
             </span>
