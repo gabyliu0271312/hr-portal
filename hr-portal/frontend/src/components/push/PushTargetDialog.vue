@@ -462,7 +462,7 @@ defineExpose({ open })
           <el-input v-model="form.ip_whitelist" type="textarea" :rows="3" placeholder="192.168.1.100, 10.0.0.1" />
         </el-form-item>
         <ApiExposeQueryParameters
-          v-if="(isMultiSource ? sourceRef.source_type === 'report' : props.sourceTable.startsWith('report:'))"
+          v-if="isMultiSource ? Boolean(sourceRef.source_id) : Boolean(props.sourceTable)"
           v-model="form.query_parameters"
           :source-table="isMultiSource ? legacySourceTable(sourceRef) : props.sourceTable"
         />

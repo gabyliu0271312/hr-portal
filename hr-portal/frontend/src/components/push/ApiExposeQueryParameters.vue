@@ -10,7 +10,7 @@ const filters = ref<ReportFilterMetadata[]>([])
 const loading = ref(false)
 
 watch(() => props.sourceTable, async (sourceTable) => {
-  if (!sourceTable.startsWith('report:')) {
+  if (!sourceTable) {
     filters.value = []
     return
   }

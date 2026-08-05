@@ -254,6 +254,34 @@ async def _report_filter_metadata(source_table: str, db: AsyncSession) -> list[d
     ]
 
 
+async def _query_parameter_metadata(source_table: str, db: AsyncSession) -> list[dict[str, Any]]:
+    if _is_report_source(source_table):
+        return await _report_filter_metadata(source_table, db)
+
+    from app.data.models import TableColumn
+
+    rows = (
+        await db.execute(
+            select(TableColumn)
+            .where(
+                TableColumn.table_name == source_table,
+                TableColumn.is_visible.is_(True),
+                TableColumn.is_sensitive.is_(False),
+            )
+            .order_by(TableColumn.display_order)
+        )
+    ).scalars().all()
+    return [
+        {
+            "column": item.column_code,
+            "label": item.column_label or item.column_code,
+            "data_type": item.data_type or "string",
+            "visible": True,
+            "locked": False,
+        }
+        for item in rows
+    ]
+
 def _parameter_rule(column: str, label: str, data_type: str, used_names: set[str]) -> dict[str, Any]:
     tail = column.rsplit(".", 1)[-1]
     normalized = re.sub(r"[^A-Za-z0-9_]+", "_", tail).strip("_").lower()
@@ -295,9 +323,9 @@ async def _normalize_query_parameters(
     if not parameters:
         settings["query_parameters"] = []
         return
-    if not _is_report_source(source_table) or not isinstance(parameters, list):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="受控查询参数仅支持报表来源的只读 API")
-    filters = {item["column"]: item for item in await _report_filter_metadata(source_table, db)}
+    if not isinstance(parameters, list):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="query_parameters must be a list")
+    filters = {item["column"]: item for item in await _query_parameter_metadata(source_table, db)}
     old_by_column = {str(item.get("column")): item for item in (existing or []) if isinstance(item, dict)}
     normalized: list[dict] = []
     seen_columns: set[str] = set()
@@ -323,11 +351,9 @@ async def _validate_query_parameters(source_table: str, settings: dict, db: Asyn
     parameters = settings.get("query_parameters") or []
     if not parameters:
         return
-    if not _is_report_source(source_table):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="受控查询参数仅支持报表来源的只读 API")
     if not isinstance(parameters, list):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="query_parameters 必须为数组")
-    filters = await _report_filter_metadata(source_table, db)
+    filters = await _query_parameter_metadata(source_table, db)
     allowed_columns = {item["column"] for item in filters}
     names: set[str] = set()
     for item in parameters:
@@ -353,10 +379,6 @@ async def _runtime_filters_from_request(pt: PushTarget, request: Request, db: As
     parameters = settings.get("query_parameters") or []
     query_params = getattr(request, "query_params", {})
     supplied = set(query_params.keys())
-    if not _is_report_source(pt.source_table):
-        if supplied:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="当前只读 API 不接受查询参数")
-        return []
     await _validate_query_parameters(pt.source_table, settings, db)
     parameter_names = {str(item["name"]) for item in parameters}
     unknown = supplied - parameter_names
@@ -915,7 +937,8 @@ async def list_push_runs(
     ]
 
 
-@router.get("/{pt_id}/query-parameters")
+@router.get("/{pt_id}/query-parameters",
+            dependencies=[Depends(require_any_op(("warehouse.service", "V")))])
 async def get_query_parameter_metadata(
     pt_id: int,
     user: User = Depends(current_user),
@@ -925,9 +948,7 @@ async def get_query_parameter_metadata(
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
     await _ensure_report_push_editable(pt.source_table, user, db)
-    if not _is_report_source(pt.source_table):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="当前来源不是报表，不能配置受控查询参数")
-    return await _report_filter_metadata(pt.source_table, db)
+    return await _query_parameter_metadata(pt.source_table, db)
 
 
 def _documentation_sample_value(data_type: str) -> Any:
@@ -1175,7 +1196,7 @@ async def expose_data(
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
         rows, _ = await collect_report_push_rows(report, db, runtime_filters=runtime_filters)
     else:
-        rows = await _load_source_rows(effective_source, db, s.get("period_ym", ""))
+        rows = await _load_source_rows(effective_source, db, s.get("period_ym", ""), runtime_filters=runtime_filters)
     return [
         json_ready_row(apply_field_mappings(r, pt.field_mappings or []))
         for r in rows

@@ -290,6 +290,7 @@ async def _load_source_rows(
     source_table: str,
     db: AsyncSession,
     period_ym: str = "",
+    runtime_filters: list[dict[str, Any]] | None = None,
 ) -> list[dict]:
     """从本地表/报表读取要推送的行，月度表按 period_ym 过滤"""
     if is_report_source(source_table):
@@ -317,6 +318,12 @@ async def _load_source_rows(
     if period_cfg and period_ym:
         period_col = period_cfg["period_col"]
         stmt = stmt.where(_entity_column(Model, source_table, period_col) == period_ym)
+
+    for runtime_filter in runtime_filters or []:
+        if runtime_filter.get("op") != "eq":
+            raise RuntimeError("Unsupported runtime filter operation")
+        column = str(runtime_filter.get("column") or "")
+        stmt = stmt.where(_entity_column(Model, source_table, column) == runtime_filter.get("value"))
 
     rows = (await db.execute(stmt)).scalars().all()
     return [
