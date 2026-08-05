@@ -10,8 +10,11 @@ import { PASSWORD_POLICY_HINT, generateStrongPassword } from '@/utils/passwordPo
 import PushFieldMapper from './PushFieldMapper.vue'
 import ApiExposeQueryParameters from './ApiExposeQueryParameters.vue'
 import ServiceSourcePicker from '@/components/warehouse/ServiceSourcePicker.vue'
+import PermissionButton from '@/components/PermissionButton.vue'
 
-const props = defineProps<{ sourceTable: string; sourceColumns?: ColumnInfo[] }>()
+const props = withDefaults(defineProps<{ sourceTable: string; sourceColumns?: ColumnInfo[]; permissionMenu?: string }>(), {
+  permissionMenu: 'warehouse.service',
+})
 const isMultiSource = !props.sourceTable
 const emit = defineEmits<{ 'done': [target: PushTargetOut] }>()
 
@@ -572,7 +575,7 @@ defineExpose({ open })
     </el-form>
 
     <template #footer>
-      <el-button v-if="currentTarget" @click="downloadDocumentation">下载对接文档</el-button>
+      <PermissionButton v-if="currentTarget" :menu="props.permissionMenu" op="E" @click="downloadDocumentation">下载对接文档</PermissionButton>
       <el-button @click="visible = false">取消</el-button>
       <el-button type="primary" :loading="saving" @click="confirm">保存</el-button>
     </template>

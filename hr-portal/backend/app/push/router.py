@@ -411,7 +411,8 @@ async def query_parameter_metadata(
     return await _report_filter_metadata(source_table, db)
 
 
-@router.get("/source-capabilities")
+@router.get("/source-capabilities",
+            dependencies=[Depends(require_any_op(("warehouse.service", "V")))])
 async def source_capabilities(
     source_type: str = Query("table"),
     source_id: str = Query(...),
@@ -451,7 +452,8 @@ async def source_capabilities(
 
 # ===== CRUD =====
 
-@router.get("", response_model=list[PushTargetOut])
+@router.get("", response_model=list[PushTargetOut],
+            dependencies=[Depends(require_any_op(("warehouse.service", "V")))])
 async def list_push_targets(
     source_table: str | None = Query(None),
     source_type: str | None = Query(None),
@@ -622,7 +624,8 @@ async def schema_orphans(
     return await list_orphan_schemas(db)
 
 
-@router.get("/{pt_id}", response_model=PushTargetOut)
+@router.get("/{pt_id}", response_model=PushTargetOut,
+            dependencies=[Depends(require_any_op(("warehouse.service", "V")))])
 async def get_push_target(
     pt_id: int,
     user: User = Depends(current_user),
@@ -882,7 +885,8 @@ async def run_push_target(
 
 # ===== 推送历史 =====
 
-@router.get("/{pt_id}/runs")
+@router.get("/{pt_id}/runs",
+            dependencies=[Depends(require_any_op(("warehouse.service", "V")))])
 async def list_push_runs(
     pt_id: int,
     _: User = Depends(current_user),
@@ -1093,7 +1097,7 @@ async def download_integration_documentation(
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
     await _ensure_report_push_editable(pt.source_table, user, db)
-    await _ensure_system_op_for_non_report(pt.source_table, user, db, "R")
+    await _ensure_system_op_for_non_report(pt.source_table, user, db, "E")
     content = (await _build_integration_documentation(pt, db)).encode("utf-8")
     filename = f"push-target-{pt.id}-integration.txt"
     return StreamingResponse(
