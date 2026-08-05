@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Link, Edit, List, DataAnalysis, Connection, Refresh } from '@element-plus/icons-vue'
+import { ArrowLeft, Link, Edit, Delete, List, DataAnalysis, Connection, Refresh } from '@element-plus/icons-vue'
 import ResourcePicker from '@/components/warehouse/ResourcePicker.vue'
 import {
   getAsset, updateAsset, updatePeriodConfig, listAssetColumns, getAssetEndpoints, getAssetSyncHistory,
@@ -772,11 +772,9 @@ onMounted(() => {
                       </span>
                       <span class="ep-meta" v-if="ep.last_rows != null">{{ ep.last_rows }} 行</span>
                       <span class="ep-meta">{{ ep.last_run_at ? formatDateTime(ep.last_run_at) : '—' }}</span>
-                      <el-button text size="small" @click="openEditDS(ep)">编辑</el-button>
-                      <el-button text size="small" :loading="syncingEndpointIds.has(ep.endpoint_id)" :disabled="syncingEndpointIds.has(ep.endpoint_id) || (asset?.is_period && asset.period_source === 'field' && !periodFieldReady)" @click="dsSync(ep)">
-                        {{ syncingEndpointIds.has(ep.endpoint_id) ? '同步中' : (asset?.is_period && asset.period_source === 'field' && !periodFieldReady ? '先配置期间字段' : '同步') }}
-                      </el-button>
-                      <el-button text size="small" type="danger" :loading="deletingEndpointIds.has(ep.endpoint_id)" :disabled="deletingEndpointIds.has(ep.endpoint_id)" @click="dsDelete(ep)">删除</el-button>
+                      <PermissionButton menu="datasource.endpoints" op="U" size="small" style="margin-left: 8px" @click="openEditDS(ep)"><el-icon><Edit /></el-icon></PermissionButton>
+                      <PermissionButton menu="datasource.endpoints" op="D" size="small" type="danger" style="margin-left: 8px" :loading="deletingEndpointIds.has(ep.endpoint_id)" :disabled="deletingEndpointIds.has(ep.endpoint_id)" @click="dsDelete(ep)"><el-icon><Delete /></el-icon></PermissionButton>
+                      <PermissionButton menu="datasource.endpoints" op="U" size="small" type="primary" style="margin-left: 8px" :loading="syncingEndpointIds.has(ep.endpoint_id)" :disabled="syncingEndpointIds.has(ep.endpoint_id) || (asset?.is_period && asset.period_source === 'field' && !periodFieldReady)" @click="dsSync(ep)">{{ syncingEndpointIds.has(ep.endpoint_id) ? '同步中' : (asset?.is_period && asset.period_source === 'field' && !periodFieldReady ? '先配置期间字段' : '同步') }}</PermissionButton>
                     </div>
                   </div>
                 </div>
