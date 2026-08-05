@@ -90,6 +90,20 @@ async def create_delivery_record(
     attempt: int = 1,
 ) -> UcpEventDelivery:
     """创建派发尝试记录。"""
+    existing = None if trigger_source == "REPLAY" else (await db.execute(
+        select(UcpEventDelivery)
+        .where(
+            UcpEventDelivery.event_id == event.id,
+            UcpEventDelivery.trigger_id == trigger.id,
+            UcpEventDelivery.event_uuid == event.event_id,
+            UcpEventDelivery.status.notin_([DELIVERY_STATUS_SKIPPED]),
+        )
+        .order_by(UcpEventDelivery.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
     rec = UcpEventDelivery(
         event_id=event.id,
         event_uuid=event.event_id,

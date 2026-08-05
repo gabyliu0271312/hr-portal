@@ -397,6 +397,27 @@ async def dispatch_event(
     if pl.status != 1:
         raise EventBusError("PIPELINE_INACTIVE", f"pipeline '{trigger.pipeline_code}' 未发布或已停用")
 
+    existing_delivery = (await db.execute(
+        select(UcpEventDelivery)
+        .where(
+            UcpEventDelivery.event_id == event.id,
+            UcpEventDelivery.trigger_id == trigger.id,
+            UcpEventDelivery.event_uuid == event.event_id,
+            UcpEventDelivery.trigger_source == "AUTO",
+            UcpEventDelivery.status.notin_(["SKIPPED"]),
+        )
+        .order_by(UcpEventDelivery.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if existing_delivery is not None and existing_delivery.pipeline_run_id:
+        event.matched_trigger_id = trigger.id
+        event.matched_trigger_code = trigger.trigger_code
+        event.pipeline_run_id = existing_delivery.pipeline_run_id
+        event.status = EVENT_STATUS_DISPATCHED
+        event.dispatched_at = datetime.now(timezone.utc)
+        await db.flush()
+        return existing_delivery.pipeline_run_id
+
     # 派发（只持久化，调用者在事务提交成功后再启动后台任务）
     run_id = f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     event.matched_trigger_id = trigger.id
