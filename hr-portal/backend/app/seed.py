@@ -9,7 +9,7 @@
 """
 import logging
 
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.password import hash_password
@@ -809,9 +809,9 @@ async def _ensure_cost_allocation_ingest(db: AsyncSession) -> None:
     pipeline = await db.scalar(select(UcpPipelineConfig).where(UcpPipelineConfig.pipeline_code == "COST_ALLOCATION_LOCKED_INGEST"))
     if pipeline is None:
         await upsert_pipeline(db, "COST_ALLOCATION_LOCKED_INGEST", "成本分摊锁定数据入仓", steps, trigger_type="EVENT", trigger_config={"event_type": "allocation_period.locked"}, description="待绑定凭证并验证后启用", created_by="seed")
-    trigger = await db.scalar(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == "COST_ALLOCATION_LOCKED_INGEST"))
+    trigger = await db.scalar(select(UcpEventTrigger).where(UcpEventTrigger.trigger_code == "COST_ALLOCATION_LOCKED_TRIGGER"))
     if trigger is None:
-        trigger = UcpEventTrigger(trigger_code="COST_ALLOCATION_LOCKED_INGEST", trigger_name="成本分摊锁定入仓", event_source="WEBHOOK", event_types="allocation_period.locked", pipeline_code="COST_ALLOCATION_LOCKED_INGEST", source_resource_id=resource.id, source_resource_object_id=event_object.id, trigger_type="WEBHOOK", schedule_config={}, input_schema={}, filter_rule={}, failure_policy="RETRY", is_active=1, migration_status="ACTIVE", created_by="seed")
+        trigger = UcpEventTrigger(trigger_code="COST_ALLOCATION_LOCKED_TRIGGER", trigger_name="成本分摊锁定入仓", event_source="WEBHOOK", event_types="allocation_period.locked", pipeline_code="COST_ALLOCATION_LOCKED_INGEST", source_resource_id=resource.id, source_resource_object_id=event_object.id, trigger_type="WEBHOOK", schedule_config={}, input_schema={}, filter_rule={}, failure_policy="RETRY", is_active=1, migration_status="ACTIVE", created_by="seed")
         db.add(trigger)
     else:
         trigger.trigger_name = "成本分摊锁定入仓"
@@ -824,7 +824,7 @@ async def _ensure_cost_allocation_ingest(db: AsyncSession) -> None:
         trigger.failure_policy = "RETRY"
         trigger.is_active = 1
         trigger.migration_status = "ACTIVE"
-    await db.execute(delete(UcpEventTrigger).where(UcpEventTrigger.trigger_code == "COST_ALLOCATION_LOCKED_TRIGGER"))
+    await db.execute(update(UcpEventTrigger).where(UcpEventTrigger.trigger_code == "COST_ALLOCATION_LOCKED_INGEST").values(is_active=0, migration_status="DISABLED"))
     logger.info("[seed] cost allocation webhook contract ready; bind credential and verify before enabling")
 
 
