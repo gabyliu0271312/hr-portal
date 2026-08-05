@@ -146,7 +146,7 @@ onMounted(() => {
       <template #header>
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="font-weight: 600">L4 全自动级联运行摘要（最近 24h）</span>
-          <el-link :underline="false" @click="router.push('/warehouse/automation')">查看全部 →</el-link>
+          <el-link underline="never" @click="router.push('/warehouse/automation')">查看全部 →</el-link>
         </div>
       </template>
       <el-row :gutter="16">

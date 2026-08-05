@@ -877,8 +877,8 @@ function openAdvanced(tab: AdvancedTab) {
                 <div class="rule-item">
                   <span class="option-label">出数类型</span>
                   <el-radio-group :model-value="aggregate" size="small" @change="setOutputMode">
-                    <el-radio-button :label="false">明细表</el-radio-button>
-                    <el-radio-button :label="true">汇总表</el-radio-button>
+                    <el-radio-button :value="false">明细表</el-radio-button>
+                    <el-radio-button :value="true">汇总表</el-radio-button>
                   </el-radio-group>
                   <p>明细表保留原始行；汇总表会按维度字段分组并统计指标。</p>
                 </div>

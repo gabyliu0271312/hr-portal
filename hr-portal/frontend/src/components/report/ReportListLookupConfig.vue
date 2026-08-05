@@ -229,7 +229,7 @@ function returnFieldHint(source: ListLookupSource) {
             size="small"
             @update:model-value="(v: string | number | boolean) => patch({ operator: v as ListLookupConfig['operator'] })"
           >
-            <el-radio-button v-for="item in operatorOptions" :key="item.value" :label="item.value">
+            <el-radio-button v-for="item in operatorOptions" :key="item.value" :value="item.value">
               {{ item.symbol }}
             </el-radio-button>
           </el-radio-group>

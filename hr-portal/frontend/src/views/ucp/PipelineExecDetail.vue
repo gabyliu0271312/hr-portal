@@ -273,7 +273,7 @@ onMounted(loadDetail)
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">
           <div style="display: flex; align-items: center; gap: 12px">
-            <el-button :icon="ArrowLeft" size="small" @click="router.push({ name: 'UcpExecList' })">返回列表</el-button>
+            <el-button :icon="ArrowLeft" size="small" @click="router.push('/ucp/runs')">返回列表</el-button>
             <span style="font-size: 16px; font-weight: 600">
               Pipeline 执行详情 #{{ runId }}
             </span>
@@ -353,8 +353,8 @@ onMounted(loadDetail)
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
           <h3 style="margin: 0; font-size: 14px; font-weight: 600">步骤执行明细</h3>
           <el-radio-group v-model="viewMode" size="small">
-            <el-radio-button label="table">表格</el-radio-button>
-            <el-radio-button label="timeline">时间线</el-radio-button>
+            <el-radio-button value="table">表格</el-radio-button>
+            <el-radio-button value="timeline">时间线</el-radio-button>
           </el-radio-group>
         </div>
 

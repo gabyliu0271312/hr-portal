@@ -243,8 +243,8 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
         :model-value="logicMode"
         @update:model-value="(v: string | number) => setLogicMode(v as 'and' | 'custom')"
       >
-        <el-radio-button label="and">全部 AND</el-radio-button>
-        <el-radio-button label="custom">自定义</el-radio-button>
+        <el-radio-button value="and">全部 AND</el-radio-button>
+        <el-radio-button value="custom">自定义</el-radio-button>
       </el-radio-group>
       <el-input
         v-if="logicMode === 'custom'"

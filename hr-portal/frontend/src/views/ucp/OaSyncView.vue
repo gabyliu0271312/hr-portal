@@ -112,12 +112,12 @@
         <h3 class="section-title">差异记录</h3>
         <div class="filter-row">
           <el-radio-group v-model="recordFilter" @change="loadRecords">
-            <el-radio-button label="">全部</el-radio-button>
-            <el-radio-button label="CREATED">新增</el-radio-button>
-            <el-radio-button label="UPDATED">更新</el-radio-button>
-            <el-radio-button label="MOVED">移动</el-radio-button>
-            <el-radio-button label="DELETED">删除</el-radio-button>
-            <el-radio-button label="UNCHANGED">无变化</el-radio-button>
+            <el-radio-button value="">全部</el-radio-button>
+            <el-radio-button value="CREATED">新增</el-radio-button>
+            <el-radio-button value="UPDATED">更新</el-radio-button>
+            <el-radio-button value="MOVED">移动</el-radio-button>
+            <el-radio-button value="DELETED">删除</el-radio-button>
+            <el-radio-button value="UNCHANGED">无变化</el-radio-button>
           </el-radio-group>
         </div>
         <el-table :data="records" v-loading="recordsLoading" stripe size="small" border>
@@ -142,7 +142,7 @@
               <el-link
                 v-if="row.approval_id"
                 type="warning"
-                :underline="false"
+                underline="never"
                 style="margin-left: 4px"
                 @click="goApproval(row.approval_id)"
               >

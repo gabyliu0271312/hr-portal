@@ -397,8 +397,8 @@ interface ResultRow {
           </el-form-item>
           <el-form-item label="方案">
             <el-radio-group v-model="plan">
-              <el-radio-button label="N+1" />
-              <el-radio-button label="N" />
+              <el-radio-button value="N+1" />
+              <el-radio-button value="N" />
             </el-radio-group>
           </el-form-item>
         </div>

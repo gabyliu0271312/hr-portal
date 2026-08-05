@@ -321,7 +321,7 @@ function riskTagType(risk: string) { return risk === 'high' ? 'danger' : risk ==
         </div>
 
         <div v-else-if="l4FeatureEnabled && !l4Approval" class="l4-section" style="padding:10px 16px;font-size:12px;color:#909399">
-          <span>L4 全自动未开通 — 前往 <el-link type="primary" :underline="false" href="/warehouse/automation" @click.prevent style="font-size:12px">自动化配置 → L4 全自动试点</el-link> 申请审批</span>
+          <span>L4 全自动未开通 — 前往 <el-link type="primary" underline="never" href="/warehouse/automation" @click.prevent style="font-size:12px">自动化配置 → L4 全自动试点</el-link> 申请审批</span>
         </div>
 
         <!-- 步骤条 -->

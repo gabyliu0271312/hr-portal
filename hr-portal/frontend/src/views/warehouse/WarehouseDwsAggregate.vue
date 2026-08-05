@@ -21,6 +21,16 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 
+// 表单状态必须先于依赖它的 computed/watch 初始化，避免生产压缩后触发 TDZ
+const form = ref({
+  label: '', name: '', metric_ids: [] as number[], source_dataset_id: undefined as number | undefined,
+  group_by: [] as string[], filter: null as Record<string, any> | null,
+  time_grain: undefined as string | undefined,
+  time_field: undefined as string | undefined,
+  measure_semantics: undefined as string | undefined,
+  business_definition: '',
+})
+
 async function load() {
   loading.value = true
   try {
@@ -145,14 +155,6 @@ async function onMetricChange(metricIds: number[]) {
 const dialogVisible = ref(false)
 const dialogMode = ref<'create' | 'edit'>('create')
 const editId = ref<number | null>(null)
-const form = ref({
-  label: '', name: '', metric_ids: [] as number[], source_dataset_id: undefined as number | undefined,
-  group_by: [] as string[], filter: null as Record<string, any> | null,
-  time_grain: undefined as string | undefined,
-  time_field: undefined as string | undefined,
-  measure_semantics: undefined as string | undefined,
-  business_definition: '',
-})
 const saving = ref(false)
 
 function openCreate() {
