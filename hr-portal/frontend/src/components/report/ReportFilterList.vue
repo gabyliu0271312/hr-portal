@@ -5,14 +5,17 @@ import type { FilterCond, FilterLogic } from '@/api/reports'
 import type { ColumnInfo } from '@/api/data'
 import { dataApi } from '@/api/data'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   filters: FilterCond[]
   filterLogic?: FilterLogic | null
   allColumns: ColumnInfo[]
   currentDatasetTables?: { table_name: string; alias: string; table_label?: string | null }[]
   showViewControls?: boolean
   compact?: boolean
-}>()
+}>(), {
+  // 主报表筛选默认显示“查看页显示/锁定”；指标筛选等场景可显式传 false
+  showViewControls: true,
+})
 
 const emit = defineEmits<{
   'update:filters': [v: FilterCond[]]
