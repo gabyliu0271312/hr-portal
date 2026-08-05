@@ -234,17 +234,18 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
           </el-button>
         </el-tooltip>
         <el-tooltip :content="f.locked ? '已锁定' : '未锁定'" placement="top">
-          <el-checkbox
+          <el-button
+            link
             class="lock-toggle"
-            :model-value="f.locked ?? false"
+            :type="f.locked ? 'primary' : 'info'"
             :disabled="f.visible === false"
             :aria-label="f.locked ? '已锁定' : '未锁定'"
-            @update:model-value="(value: string | number | boolean) => onFilterLockedChange(i, !!value)"
+            @click="onFilterLockedChange(i, !(f.locked ?? false))"
           >
             <el-icon :class="{ 'is-locked': f.locked }">
               <component :is="f.locked ? Lock : Unlock" />
             </el-icon>
-          </el-checkbox>
+          </el-button>
         </el-tooltip>
       </template>
     </div>
@@ -293,12 +294,9 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
   justify-content: center;
 }
 .lock-toggle {
+  min-width: 24px;
   margin-left: 2px;
-}
-.lock-toggle :deep(.el-checkbox__label) {
-  display: inline-flex;
-  align-items: center;
-  padding-left: 0;
+  padding: 0 4px;
 }
 .lock-toggle .el-icon {
   color: var(--color-text-secondary);
