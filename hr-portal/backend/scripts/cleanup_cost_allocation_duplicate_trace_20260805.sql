@@ -116,7 +116,7 @@ WHERE notification.pipeline_run_id = target.pipeline_run_id
 
 DELETE FROM ucp_alert_log alert
 USING cleanup_target_runs target
-WHERE alert.pipeline_run_id = target.pipeline_run_id
+WHERE alert.ref_id = target.pipeline_run_id
   AND target.pipeline_run_id <> target.keep_run_id;
 
 DELETE FROM ucp_event_delivery delivery
