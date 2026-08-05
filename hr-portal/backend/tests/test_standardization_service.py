@@ -122,12 +122,12 @@ def test_to_table_column_data_type_maps_physical_types():
     assert _to_table_column_data_type("BOOLEAN") == "bool"
     assert _to_table_column_data_type("TEXT") == "string"
 
-def test_dwd_create_column_definitions_marks_source_id_as_primary_key():
+def test_dwd_create_column_definitions_makes_id_target_owned():
     columns = ["id", "full_name"]
     column_types = {"id": "BIGINT", "full_name": "TEXT"}
 
     assert _dwd_create_column_definitions(columns, column_types) == [
-        '"id" BIGINT PRIMARY KEY',
+        '"id" BIGSERIAL PRIMARY KEY',
         '"full_name" TEXT',
     ]
 
