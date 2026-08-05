@@ -29,6 +29,8 @@ from app.ucp.models import UcpEvent, UcpEventDelivery, UcpEventTrigger, UcpPipel
 logger = logging.getLogger("ucp.event_bus")
 
 _PENDING_BACKGROUND_RUNS = "ucp_pending_background_runs"
+COST_ALLOCATION_LOCKED_EVENT_TYPE = "allocation_period.locked"
+COST_ALLOCATION_CANONICAL_TRIGGER_CODE = "COST_ALLOCATION_LOCKED_TRIGGER"
 
 
 def _enqueue_background_pipeline(db: AsyncSession, **kwargs: Any) -> None:
@@ -325,6 +327,37 @@ async def match_triggers(
             continue
         matched.append(trig)
     return matched
+
+
+def _restrict_cost_allocation_triggers(
+    event: UcpEvent,
+    triggers: list[UcpEventTrigger],
+) -> list[UcpEventTrigger]:
+    """Keep the cost-allocation webhook on its single canonical trigger."""
+    if getattr(event, "event_type", None) != COST_ALLOCATION_LOCKED_EVENT_TYPE:
+        return triggers
+
+    canonical = [
+        trigger
+        for trigger in triggers
+        if trigger.trigger_code == COST_ALLOCATION_CANONICAL_TRIGGER_CODE
+    ]
+    if canonical:
+        if len(triggers) > 1:
+            logger.warning(
+                "suppressed duplicate cost-allocation triggers: event_id=%s triggers=%s",
+                getattr(event, "event_id", None),
+                [trigger.trigger_code for trigger in triggers],
+            )
+        return canonical
+
+    if triggers:
+        logger.error(
+            "cost-allocation event has no active canonical trigger: event_id=%s triggers=%s",
+            getattr(event, "event_id", None),
+            [trigger.trigger_code for trigger in triggers],
+        )
+    return []
 
 
 def _match_filter(payload: dict, rule: dict) -> bool:
@@ -748,7 +781,7 @@ async def process_event_pipeline(
     顶层入口：receive_event 后调用此函数即可走完事件 → pipeline 的全链路。
     无匹配触发器时，状态置为 NO_MATCH（不视为失败）。
     """
-    triggers = await match_triggers(db, event)
+    triggers = _restrict_cost_allocation_triggers(event, await match_triggers(db, event))
     if not triggers:
         event.status = EVENT_STATUS_NO_MATCH
         event.dispatched_at = datetime.now(timezone.utc)

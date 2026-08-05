@@ -96,3 +96,17 @@ def test_lifecycle_direct_dispatch_flag_defaults_to_compatible_mode(monkeypatch)
     assert _lifecycle_direct_dispatch_enabled() is True
     monkeypatch.setenv("UCP_LIFECYCLE_DIRECT_DISPATCH_ENABLED", "false")
     assert _lifecycle_direct_dispatch_enabled() is False
+
+
+def test_cost_allocation_event_uses_only_canonical_trigger():
+    from app.ucp.event_bus import _restrict_cost_allocation_triggers
+
+    event = SimpleNamespace(
+        event_id="webhook:4:ca-202607-period-3-v1",
+        event_type="allocation_period.locked",
+    )
+    canonical = SimpleNamespace(trigger_code="COST_ALLOCATION_LOCKED_TRIGGER")
+    duplicate = SimpleNamespace(trigger_code="COST_ALLOCATION_LOCKED_INGEST")
+
+    assert _restrict_cost_allocation_triggers(event, [duplicate, canonical]) == [canonical]
+    assert _restrict_cost_allocation_triggers(event, [duplicate]) == []
