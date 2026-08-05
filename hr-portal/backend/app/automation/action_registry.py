@@ -20,6 +20,19 @@ from app.warehouse.service.standardization import get_standardization_rule_servi
 logger = logging.getLogger("automation.action_registry")
 
 
+_TARGET_OWNED_COLUMNS = {"id"}
+
+
+def _dwd_row_values(row: dict[str, Any]) -> dict[str, Any]:
+    """Remove target-owned technical columns before writing an ODS row to DWD."""
+    return {
+        key: value
+        for key, value in row.items()
+        if key not in _TARGET_OWNED_COLUMNS
+    }
+
+
+
 ActionFn = Callable[
     [dict[str, Any], dict[str, Any], AsyncSession, int | None],
     Awaitable[dict[str, Any]],
@@ -366,10 +379,19 @@ async def _passthrough_sync(
 
     if strategy == "full_refresh":
         await db.execute(sa_text(f'DELETE FROM "{dwd_table}"'))
-        await db.execute(sa_text(f'INSERT INTO "{dwd_table}" SELECT * FROM "{ods_table}"'))
+        source_columns = ["pk_hash", "synced_at"] + [
+            col.column_code
+            for col in ods_cols
+            if col.column_code not in {"id", "pk_hash", "synced_at"}
+        ]
+        if source_columns:
+            columns = ", ".join(f'"{column}"' for column in source_columns)
+            await db.execute(sa_text(
+                f'INSERT INTO "{dwd_table}" ({columns}) '
+                f'SELECT {columns} FROM "{ods_table}"'
+            ))
         await db.commit()
         return (await db.execute(sa_text(f'SELECT COUNT(*) FROM "{dwd_table}"'))).scalar() or 0
-
     # 获取 ODS 行（在所有检查之前）
     ods_rows = (await db.execute(sa_text(f'SELECT * FROM "{ods_table}"'))).mappings().all()
 
@@ -389,9 +411,10 @@ async def _passthrough_sync(
         inserted = 0
         for row in ods_rows:
             if row['pk_hash'] not in dwd_pks:
-                cols = ', '.join(f'"{c}"' for c in row.keys())
-                vals = ', '.join(f':{c}' for c in row.keys())
-                await db.execute(sa_text(f'INSERT INTO "{dwd_table}" ({cols}) VALUES ({vals})'), dict(row))
+                values = _dwd_row_values(dict(row))
+                cols = ', '.join(f'"{c}"' for c in values.keys())
+                vals = ', '.join(f':{c}' for c in values.keys())
+                await db.execute(sa_text(f'INSERT INTO "{dwd_table}" ({cols}) VALUES ({vals})'), values)
                 inserted += 1
         await db.commit()
         return inserted
@@ -400,19 +423,20 @@ async def _passthrough_sync(
     dwd_rows = {r['pk_hash']: r for r in (await db.execute(sa_text(f'SELECT * FROM "{dwd_table}"'))).mappings().all()}
     inserted, updated = 0, 0
     for row in ods_rows:
+        values = _dwd_row_values(dict(row))
         if row['pk_hash'] in dwd_rows:
             # UPDATE
-            set_clause = ', '.join(f'"{c}" = :{c}' for c in row.keys() if c != 'pk_hash')
+            set_clause = ', '.join(f'"{c}" = :{c}' for c in values.keys() if c != 'pk_hash')
             await db.execute(
                 sa_text(f'UPDATE "{dwd_table}" SET {set_clause} WHERE pk_hash = :pk_hash'),
-                dict(row),
+                values,
             )
             updated += 1
         else:
             # INSERT
-            cols = ', '.join(f'"{c}"' for c in row.keys())
-            vals = ', '.join(f':{c}' for c in row.keys())
-            await db.execute(sa_text(f'INSERT INTO "{dwd_table}" ({cols}) VALUES ({vals})'), dict(row))
+            cols = ', '.join(f'"{c}"' for c in values.keys())
+            vals = ', '.join(f':{c}' for c in values.keys())
+            await db.execute(sa_text(f'INSERT INTO "{dwd_table}" ({cols}) VALUES ({vals})'), values)
             inserted += 1
 
     # full_snapshot: 按配置处理 ODS 中不存在的 DWD 行
