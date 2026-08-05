@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Plus, Delete, View, Hide } from '@element-plus/icons-vue'
+import { Plus, Delete, View, Hide, Lock, Unlock } from '@element-plus/icons-vue'
 import type { FilterCond, FilterLogic } from '@/api/reports'
 import type { ColumnInfo } from '@/api/data'
 import { dataApi } from '@/api/data'
@@ -233,11 +233,19 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
             </el-icon>
           </el-button>
         </el-tooltip>
-        <el-checkbox
-          :model-value="f.locked ?? false"
-          :disabled="f.visible === false"
-          @update:model-value="(value: string | number | boolean) => onFilterLockedChange(i, !!value)"
-        >锁定</el-checkbox>
+        <el-tooltip :content="f.locked ? '已锁定' : '未锁定'" placement="top">
+          <el-checkbox
+            class="lock-toggle"
+            :model-value="f.locked ?? false"
+            :disabled="f.visible === false"
+            :aria-label="f.locked ? '已锁定' : '未锁定'"
+            @update:model-value="(value: string | number | boolean) => onFilterLockedChange(i, !!value)"
+          >
+            <el-icon :class="{ 'is-locked': f.locked }">
+              <component :is="f.locked ? Lock : Unlock" />
+            </el-icon>
+          </el-checkbox>
+        </el-tooltip>
       </template>
     </div>
     <div v-if="filters.length > 1" class="logic-row">
@@ -283,6 +291,21 @@ defineExpose({ clearCache: () => { distinctCache.value = new Map() } })
 .rule-label {
   width: 34px;
   justify-content: center;
+}
+.lock-toggle {
+  margin-left: 2px;
+}
+.lock-toggle :deep(.el-checkbox__label) {
+  display: inline-flex;
+  align-items: center;
+  padding-left: 0;
+}
+.lock-toggle .el-icon {
+  color: var(--color-text-secondary);
+  font-size: 16px;
+}
+.lock-toggle .el-icon.is-locked {
+  color: var(--color-primary);
 }
 .is-compact .rule-row {
   align-items: flex-start;
