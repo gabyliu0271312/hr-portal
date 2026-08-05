@@ -212,6 +212,12 @@ def _report_source_id(source_table: str) -> int:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表推送源格式不正确") from exc
 
 
+def _format_spec_from_default_value(value: Any) -> dict[str, str] | None:
+    if isinstance(value, str) and re.fullmatch(r"\d{6}", value):
+        return {"format_code": "YYYYMM", "pattern": r"^\d{6}$", "example": value}
+    return None
+
+
 async def _report_filter_metadata(source_table: str, db: AsyncSession) -> list[dict[str, Any]]:
     from app.datasets.models import DatasetOutputField
     from app.reports.config import ReportConfig
@@ -246,6 +252,7 @@ async def _report_filter_metadata(source_table: str, db: AsyncSession) -> list[d
             "label": field_meta(item.column)[0],
             "data_type": field_meta(item.column)[1],
             "default_value": item.value,
+            "format_spec": _format_spec_from_default_value(item.value),
             "visible": item.visible,
             "locked": item.locked,
         }
@@ -259,6 +266,7 @@ async def _query_parameter_metadata(source_table: str, db: AsyncSession) -> list
         return await _report_filter_metadata(source_table, db)
 
     from app.data.models import TableColumn
+    from app.datasources.sync_service import YEARMONTH_COLUMNS
 
     rows = (
         await db.execute(
@@ -278,32 +286,50 @@ async def _query_parameter_metadata(source_table: str, db: AsyncSession) -> list
             "data_type": item.data_type or "string",
             "visible": True,
             "locked": False,
+            "format_spec": (
+                {"format_code": "YYYYMM", "pattern": r"^\d{6}$", "example": "202606"}
+                if item.column_code in YEARMONTH_COLUMNS.get(source_table, set())
+                else None
+            ),
         }
         for item in rows
     ]
 
-def _parameter_rule(column: str, label: str, data_type: str, used_names: set[str]) -> dict[str, Any]:
+def _parameter_rule(
+    column: str,
+    label: str,
+    data_type: str,
+    used_names: set[str],
+    format_spec: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     tail = column.rsplit(".", 1)[-1]
     normalized = re.sub(r"[^A-Za-z0-9_]+", "_", tail).strip("_").lower()
     if tail in {"pay_month", "month"} or normalized in {"pay_month", "month"}:
-        name, pattern, hint, example = "period_ym", r"^\d{6}$", "YYYYMM", "202606"
+        name = "period_ym"
     else:
         name = normalized or f"p_{hashlib.sha1(column.encode()).hexdigest()[:8]}"
         if name[0].isdigit():
             name = f"p_{name}"
+
+    if format_spec:
+        pattern = format_spec.get("pattern")
+        hint = format_spec.get("format_code") or format_spec.get("format_hint")
+        example = format_spec.get("example")
+    else:
         kind = str(data_type or "string").lower()
         if kind == "date":
             pattern, hint, example = r"^\d{4}-\d{2}-\d{2}$", "YYYY-MM-DD", "2026-01-01"
         elif kind in {"datetime", "timestamp"}:
             pattern, hint, example = r"^\d{4}-\d{2}-\d{2}T.+$", "ISO 8601", "2026-01-01T00:00:00+00:00"
         elif kind in {"integer", "int"}:
-            pattern, hint, example = r"^-?\d+$", "整数", "1"
-        elif kind in {"number", "decimal", "numeric", "float", "double"}:
-            pattern, hint, example = r"^-?\d+(\.\d+)?$", "数值", "1234.56"
+            pattern, hint, example = r"^-?\d+$", "integer", "1"
+        elif kind in {"number", "decimal", "float", "double", "numeric"}:
+            pattern, hint, example = r"^-?\d+(\.\d+)?$", "number", "1234.56"
         elif kind in {"boolean", "bool"}:
-            pattern, hint, example = r"^(true|false)$", "true 或 false", "true"
+            pattern, hint, example = r"^(true|false)$", "true/false", "true"
         else:
-            pattern, hint, example = None, None, "示例值"
+            pattern, hint, example = None, None, "example"
+
     base_name = name
     suffix = 2
     while name in used_names:
@@ -338,7 +364,9 @@ async def _normalize_query_parameters(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="查询参数必须绑定唯一且可覆盖的报表筛选字段")
         seen_columns.add(column)
         old = old_by_column.get(column)
-        rule = _parameter_rule(column, filters[column]["label"], filters[column]["data_type"], used_names)
+        rule = _parameter_rule(
+            column, filters[column]["label"], filters[column]["data_type"], used_names, filters[column].get("format_spec")
+        )
         if old and _QUERY_PARAMETER_NAME_RE.fullmatch(str(old.get("name") or "")):
             rule.update({key: old[key] for key in ("name", "label", "pattern", "format_hint", "example") if key in old})
             used_names.add(rule["name"])
@@ -994,6 +1022,24 @@ async def _build_integration_documentation(pt: PushTarget, db: AsyncSession) -> 
         if not base_url.startswith(("https://", "http://")):
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="请由 HR Portal 管理员配置 PUBLIC_BASE_URL 为对外访问地址")
         parameters = settings.get("query_parameters") or []
+        metadata = {item["column"]: item for item in await _query_parameter_metadata(pt.source_table, db)}
+        normalized_parameters = []
+        for item in parameters:
+            meta = metadata.get(item.get("column"), {})
+            inferred = _parameter_rule(
+                str(item.get("column") or ""),
+                str(meta.get("label") or item.get("label") or item.get("column") or ""),
+                str(meta.get("data_type") or "string"),
+                set(),
+                meta.get("format_spec"),
+            )
+            normalized_parameters.append({
+                **item,
+                "pattern": item.get("pattern") or inferred.get("pattern"),
+                "format_hint": item.get("format_hint") or inferred.get("format_hint"),
+                "example": item.get("example") or inferred.get("example"),
+            })
+        parameters = normalized_parameters
         query = "&".join(
             f"{item.get('name')}={item.get('example')}"
             for item in parameters if item.get("name") and item.get("example")

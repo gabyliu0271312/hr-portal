@@ -541,6 +541,7 @@ async def test_minimal_query_parameter_configuration_is_normalized(monkeypatch):
     async def metadata(source_table, db):
         return [{
             "column": "salary.pay_month", "label": "发薪月", "data_type": "string",
+            "format_spec": {"format_code": "YYYYMM", "pattern": r"^\d{6}$", "example": "202606"},
             "visible": True, "locked": False,
         }]
 
@@ -562,6 +563,7 @@ async def test_normalize_query_parameters_preserves_existing_contract(monkeypatc
     async def metadata(source_table, db):
         return [{
             "column": "salary.pay_month", "label": "发薪月", "data_type": "string",
+            "format_spec": {"format_code": "YYYYMM", "pattern": r"^\d{6}$", "example": "202606"},
             "visible": True, "locked": False,
         }]
 
@@ -606,14 +608,16 @@ async def test_asset_query_parameters_are_normalized_and_accepted(monkeypatch):
     async def metadata(source_table, db):
         assert source_table == "dwd_employee_cost"
         return [{
-            "column": "cost_center", "label": "Cost center", "data_type": "string",
+            "column": "cost_period", "label": "Cost period", "data_type": "string",
+            "format_spec": {"format_code": "YYYYMM", "pattern": r"^\d{6}$", "example": "202606"},
             "visible": True, "locked": False,
         }]
 
     monkeypatch.setattr("app.push.router._query_parameter_metadata", metadata)
-    settings = {"query_parameters": [{"column": "cost_center", "required": True}]}
+    settings = {"query_parameters": [{"column": "cost_period", "required": True}]}
     await _normalize_query_parameters("dwd_employee_cost", settings, FakeSession())
-    assert settings["query_parameters"][0]["name"] == "cost_center"
+    assert settings["query_parameters"][0]["name"] == "cost_period"
+    assert settings["query_parameters"][0]["pattern"] == r"^\d{6}$"
 
     pt = PushTarget(
         id=18,
@@ -623,12 +627,12 @@ async def test_asset_query_parameters_are_normalized_and_accepted(monkeypatch):
         settings=settings,
     )
     filters = await _runtime_filters_from_request(
-        pt, SimpleNamespace(query_params={"cost_center": "CC-001"}), FakeSession()
+        pt, SimpleNamespace(query_params={"cost_period": "202606"}), FakeSession()
     )
-    assert filters == [{"column": "cost_center", "op": "eq", "value": "CC-001"}]
+    assert filters == [{"column": "cost_period", "op": "eq", "value": "202606"}]
     with pytest.raises(HTTPException) as unknown:
         await _runtime_filters_from_request(
-            pt, SimpleNamespace(query_params={"cost_center": "CC-001", "raw_sql": "1=1"}), FakeSession()
+            pt, SimpleNamespace(query_params={"cost_period": "202606", "raw_sql": "1=1"}), FakeSession()
         )
     assert unknown.value.status_code == 400
 
