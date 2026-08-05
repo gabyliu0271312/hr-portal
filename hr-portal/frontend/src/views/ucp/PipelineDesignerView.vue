@@ -8,7 +8,6 @@
       </div>
       <div class="toolbar-right">
         <el-button :disabled="!form.nodes.length" @click="autoLayout">智能布局</el-button>
-        <el-button @click="loadPendingHireTemplate">使用待入职补全模板</el-button>
         <el-button @click="viewVersions(currentTpl!)" :disabled="!currentTpl">版本历史</el-button>
         <el-button type="success" @click="dryRun">试运行</el-button>
         <el-button type="primary" :loading="saving" @click="saveTemplate">保存</el-button>
@@ -976,6 +975,7 @@ function centerCanvas(): void {
 async function loadTemplateTriggers(templateCode: string): Promise<void> { triggerLoading.value = true; try { templateTriggers.value = (await ucpApi.pipelineTriggers({ pipeline_template_code: templateCode })).items || []; syncStartTriggerModeFromTemplate() } catch { templateTriggers.value = []; syncStartTriggerModeFromTemplate() } finally { triggerLoading.value = false } }
 async function openDesigner(tpl: PipelineTemplate): Promise<void> { currentTpl.value = tpl; form.template_code = tpl.template_code; form.name = tpl.name; form.description = tpl.description || ''; form.version = /^\d+\.\d+$/.test(tpl.version) ? `${tpl.version}.0` : tpl.version; form.change_note = ''; form.nodes = JSON.parse(JSON.stringify(tpl.nodes)); form.edges = JSON.parse(JSON.stringify(tpl.edges)); selectedNodeId.value = null; await Promise.all([loadSystemsAndResources(), loadTemplateTriggers(tpl.template_code)]); if (hasCanvasOverlap()) autoLayout(false); const sinkNode = form.nodes.find(node => (node.type as string) === 'WAREHOUSE_ASSET_SINK'); const targetAsset = String(sinkNode?.config?.target_asset || ''); if (targetAsset) await loadTargetAssetColumns(targetAsset); else targetAssetColumns.value = []; void nextTick(fitCanvas) }
 
+/*
 async function loadPendingHireTemplate(): Promise<void> {
   try {
     const existing = await pipelineTemplateApi.get('PENDING_HIRE_OFFER_ENRICHMENT')
@@ -1005,6 +1005,7 @@ async function loadPendingHireTemplate(): Promise<void> {
   selectedNodeId.value = null
   ElMessage.success('已加载待入职人员补全模板，请依次选择来源、业务能力和目标资产')
 }
+*/
 
 const saving = ref(false)
 function normalizeWarehouseSinkConfigs(): void {

@@ -140,7 +140,7 @@ const loadList = async () => {
       source_type: 'template',
       recent_run_status: null,
     }))
-    let data = [...pipelineItems, ...templateItems]
+    let data = [...pipelineItems, ...templateItems].filter((item) => item.pipeline_code !== 'COST_ALLOCATION_LOCKED_INGEST')
     if (filterStatus.value !== '') {
       data = data.filter(item => item.source_type === 'pipeline' && item.status === Number(filterStatus.value))
     }
