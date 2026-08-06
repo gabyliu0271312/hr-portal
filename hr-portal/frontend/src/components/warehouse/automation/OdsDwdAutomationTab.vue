@@ -61,7 +61,11 @@ async function doTrigger(config: any) {
 
 function goRecipe(tableName: string) { router.push({ path: '/warehouse/data-recipe', query: { table: tableName } }) }
 function modeLabel(mode: string) { const map: Record<string, string> = { cleaning_rule: '清洗规则', passthrough: '直通更新' }; return map[mode] || mode }
-function syncLabel(s: string) { const map: Record<string, string> = { full_snapshot: '全量快照', incremental_append: '增量追加', incremental_upsert: '增量更新' }; return map[s] || s }
+function syncLabel(config: any) {
+  if (config.effective_ingestion_mode === 'period_full_snapshot') return '按期间全量快照'
+  const map: Record<string, string> = { full_snapshot: '全量快照', incremental_append: '增量追加', incremental_upsert: '增量更新' }
+  return map[config.ods_sync_semantics] || config.ods_sync_semantics
+}
 function statusIcon(s: string | null) { if (s === 'success') return CircleCheck; if (s === 'failed') return CircleClose; return Clock }
 
 onMounted(load)
@@ -95,7 +99,7 @@ onMounted(load)
         <template #default="{ row }"><el-tag size="small" :type="row.update_mode === 'cleaning_rule' ? 'success' : 'warning'">{{ modeLabel(row.update_mode) }}</el-tag></template>
       </el-table-column>
       <el-table-column label="ODS语义" width="100">
-        <template #default="{ row }">{{ syncLabel(row.ods_sync_semantics) }}</template>
+        <template #default="{ row }">{{ syncLabel(row) }}</template>
       </el-table-column>
       <el-table-column label="最近状态" width="90">
         <template #default="{ row }">
