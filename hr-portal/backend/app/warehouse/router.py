@@ -2899,6 +2899,10 @@ async def list_all_ods_dwd_automation_executions(
 # ==================== 手动触发 ODS→DWD 同步 ====================
 
 
+class OdsDwdManualTriggerIn(BaseModel):
+    period_value: str | None = None
+
+
 @router.post(
     "/ods-dwd-automation-configs/{ods_table_name}/trigger",
     summary="手动触发 ODS→DWD 同步",
@@ -2906,6 +2910,7 @@ async def list_all_ods_dwd_automation_executions(
 )
 async def trigger_ods_dwd_sync(
     ods_table_name: str,
+    payload: OdsDwdManualTriggerIn | None = None,
     db: AsyncSession = Depends(get_session),
 ):
     """立即触发一次 ODS→DWD 同步，与自动触发逻辑一致：有清洗规则→清洗，无→直通。"""
@@ -2917,7 +2922,12 @@ async def trigger_ods_dwd_sync(
     if existing is None:
         raise HTTPException(status_code=404, detail=f"ODS 表 {ods_table_name} 尚未配置自动化")
     detected = await _detect_ods_config(ods_table_name, db)
-    if list(existing.business_key_fields or []) != list(detected.get("business_key_fields") or []):
+    period_value = (payload.period_value if payload else None)
+    if detected.get("effective_ingestion_mode") == "period_full_snapshot":
+        period_value = str(period_value or "").strip().replace("-", "")
+        if len(period_value) != 6 or not period_value.isdigit() or not 1 <= int(period_value[4:]) <= 12:
+            raise HTTPException(status_code=422, detail="按期间快照的手动触发必须提供有效期间，格式为 YYYYMM 或 YYYY-MM")
+
         raise HTTPException(status_code=422, detail="当前自动化配置与 ODS 主键漂移，请先修正配置后触发")
     if detected.get("effective_ingestion_mode") == "period_full_snapshot" and existing.missing_row_strategy != "hard_delete":
         raise HTTPException(status_code=422, detail="按期间快照配置未启用 hard_delete，禁止触发")
@@ -2931,6 +2941,7 @@ async def trigger_ods_dwd_sync(
                 payload={
                     "trigger_type": "ods_table_data_changed",
                     "table_name": ods_table_name,
+                    "period_value": period_value,
                     "source": "manual_trigger",
                     "change_type": "manual_trigger",
                     "affected_row_count": 0,

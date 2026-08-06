@@ -43,7 +43,12 @@ const triggering = ref<string | null>(null)
 async function doTrigger(config: any) {
   triggering.value = config.ods_table_name
   try {
-    const r = await triggerOdsDwdSync(config.ods_table_name)
+    let period: string | undefined
+    if (config.effective_ingestion_mode === 'period_full_snapshot') {
+      period = window.prompt('请输入要处理的成本归属年月（YYYYMM，例如 202607）', '') || undefined
+      if (!period) return
+    }
+    const r = await triggerOdsDwdSync(config.ods_table_name, period)
     ElMessage.success(r.message || '已触发同步')
     await load()
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '触发失败') }

@@ -748,8 +748,8 @@ export function deleteOdsDwdAutomationConfig(odsTableName: string): Promise<void
   return api.delete(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}`)
 }
 
-export function triggerOdsDwdSync(odsTableName: string): Promise<{ ok: boolean; message: string }> {
-  return api.post(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}/trigger`).then(r => r.data)
+export function triggerOdsDwdSync(odsTableName: string, periodValue?: string): Promise<{ ok: boolean; message: string }> {
+  return api.post(`/warehouse/ods-dwd-automation-configs/${encodeURIComponent(odsTableName)}/trigger`, periodValue ? { period_value: periodValue } : undefined).then(r => r.data)
 }
 
 export function listOdsDwdAutomationExecutions(odsTableName: string, pageSize?: number): Promise<OdsDwdAutomationExecution[]> {
