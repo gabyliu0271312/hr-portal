@@ -44,7 +44,11 @@ async function doTrigger(config: any) {
   triggering.value = config.ods_table_name
   try {
     let period: string | undefined
-    if (config.effective_ingestion_mode === 'period_full_snapshot') {
+    if (config.effective_ingestion_mode === 'period_full_snapshot' || (
+      config.ods_sync_semantics === 'full_snapshot' &&
+      config.missing_row_strategy === 'hard_delete' &&
+      (config.business_key_fields || []).includes('cost_period')
+    )) {
       period = window.prompt('请输入要处理的成本归属年月（YYYYMM，例如 202607）', '') || undefined
       if (!period) return
     }
