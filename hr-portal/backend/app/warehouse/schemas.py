@@ -1267,6 +1267,12 @@ class OdsDwdAutomationConfigOut(BaseModel):
     created_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    effective_ingestion_mode: Optional[str] = None
+    period_field: Optional[str] = None
+    detected_business_key_fields: Optional[list[str]] = None
+    effective_business_key_fields: Optional[list[str]] = None
+    configuration_drift: bool = False
+    drift_reasons: list[str] = Field(default_factory=list)
 
 
 # ==================== X05 指标自动化数仓开发 ====================

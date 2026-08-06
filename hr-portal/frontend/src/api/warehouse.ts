@@ -679,6 +679,15 @@ export interface OdsDwdAutomationConfig {
   risk_decision: string | null
   trace_id: string | null
   source_system: string
+  effective_ingestion_mode?: string | null
+  period_field?: string | null
+  detected_business_key_fields?: string[] | null
+  effective_business_key_fields?: string[] | null
+  configuration_drift?: boolean
+  drift_reasons?: string[]
+  effective_rule_ids?: number[] | null
+  last_execution_deleted_rows?: number | null
+  last_execution_period?: string | null
 }
 
 export interface OdsDwdAutomationConfigCreate {

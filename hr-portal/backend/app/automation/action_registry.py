@@ -275,6 +275,7 @@ async def _execute_dwd_update(
             exec_result = await svc.execute_full(
                 asset_code=table_name,
                 target_table=config.target_dwd_table_name or None,
+                rule_ids=list(config.standardization_rule_ids or []),
             )
             if "error" in exec_result:
                 await _update_config_execution_status(config, "failed", 0, exec_result.get("detail", ""), db)
@@ -297,7 +298,13 @@ async def _execute_dwd_update(
 
             # 直通：按 DWD 写入策略同步 ODS → DWD
             try:
-                rows = await _passthrough_sync(table_name, dwd_table, config, work_db)
+                rows = await _passthrough_sync(
+                    table_name,
+                    dwd_table,
+                    config,
+                    work_db,
+                    period_value=event_payload.get("period_value") or event_payload.get("period"),
+                )
             except Exception as e:
                 await _update_config_execution_status(config, "failed", 0, str(e)[:500], db)
                 return {"status": "failed", "reason": "passthrough_failed", "table_name": table_name, "detail": str(e)[:500]}
@@ -311,6 +318,7 @@ async def _execute_dwd_update(
 
 async def _passthrough_sync(
     ods_table: str, dwd_table: str, config, db: AsyncSession,
+    *, period_value: str | None = None,
 ) -> int:
     """直通同步：按 DWD 写入策略把 ODS 数据写入 DWD。"""
     from sqlalchemy import text as sa_text
@@ -377,6 +385,23 @@ async def _passthrough_sync(
 
     strategy = config.dwd_write_strategy
 
+    # 月度完整快照只处理事件指定期间；不能用全表 hash 删除历史期间。
+    period_mode = getattr(config, "effective_ingestion_mode", None) == "period_full_snapshot" or (
+        config.ods_sync_semantics == "full_snapshot"
+        and getattr(config, "missing_row_strategy", None) == "hard_delete"
+        and any(col.column_code == "cost_period" and col.is_pk_part for col in ods_cols)
+    )
+    snapshot_period = period_value
+    if period_mode:
+        if not snapshot_period:
+            raise RuntimeError("按期间全量快照必须提供期间值")
+        snapshot_period = str(snapshot_period).strip().replace("-", "")
+        if len(snapshot_period) != 6 or not snapshot_period.isdigit():
+            raise RuntimeError("期间值必须是 YYYYMM 或 YYYY-MM")
+
+    if strategy == "full_refresh" and period_mode:
+        raise RuntimeError("按期间全量快照不允许使用全表 full_refresh")
+
     if strategy == "full_refresh":
         await db.execute(sa_text(f'DELETE FROM "{dwd_table}"'))
         source_columns = ["pk_hash", "synced_at"] + [
@@ -394,10 +419,15 @@ async def _passthrough_sync(
         return (await db.execute(sa_text(f'SELECT COUNT(*) FROM "{dwd_table}"'))).scalar() or 0
     # 获取 ODS 行（在所有检查之前）
     ods_rows = (await db.execute(sa_text(f'SELECT * FROM "{ods_table}"'))).mappings().all()
+    if period_mode:
+        period_column = next((col.column_code for col in ods_cols if col.column_code == "cost_period"), "cost_period")
+        ods_rows = [row for row in ods_rows if str(row.get(period_column, "")).replace("-", "") == snapshot_period]
 
     # 确认 ODS 表有 pk_hash 字段
     has_pk_hash = 'pk_hash' in (ods_rows[0] if ods_rows else {})
-    pk_cols = config.business_key_fields or []
+    pk_cols = [col.column_code for col in sorted(ods_cols, key=lambda col: col.display_order) if col.is_pk_part]
+    if not pk_cols:
+        pk_cols = config.business_key_fields or []
 
     # 无可靠主键或业务主键：拒绝伪增量
     if not has_pk_hash:
@@ -443,10 +473,17 @@ async def _passthrough_sync(
     if config.ods_sync_semantics == "full_snapshot" and ods_rows:
         ods_pks = {r['pk_hash'] for r in ods_rows}
         stale = [pk for pk in dwd_rows if pk not in ods_pks]
+        if period_mode:
+            period_column = "cost_period"
+            dwd_period_rows = (await db.execute(
+                sa_text(f'SELECT pk_hash FROM "{dwd_table}" WHERE "{period_column}" = :period'),
+                {"period": snapshot_period},
+            )).mappings().all()
+            stale = [row["pk_hash"] for row in dwd_period_rows if row["pk_hash"] not in ods_pks]
         if stale and config.missing_row_strategy == "hard_delete":
             placeholders = ', '.join(f':pk_{i}' for i in range(len(stale)))
             params = {f'pk_{i}': pk for i, pk in enumerate(stale)}
-            await db.execute(sa_text(f'DELETE FROM "{dwd_table}" WHERE pk_hash IN ({placeholders})'), params)
+            await db.execute(sa_text(f'DELETE FROM "{dwd_table}" WHERE ' + (f'"cost_period" = :period AND ' if period_mode else '') + f'pk_hash IN ({placeholders})'), {**params, **({"period": snapshot_period} if period_mode else {})})
         elif stale and config.missing_row_strategy == "mark_inactive":
             sample = dwd_rows[list(dwd_rows.keys())[0]] if dwd_rows else {}
             if 'is_active' in sample:

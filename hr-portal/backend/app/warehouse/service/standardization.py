@@ -635,7 +635,13 @@ class StandardizationRuleService:
                 + "; ".join(issues[:20])
             )
 
-    async def execute_full(self, *, asset_code: str, target_table: str | None = None) -> dict:
+    async def execute_full(
+        self,
+        *,
+        asset_code: str,
+        target_table: str | None = None,
+        rule_ids: list[int] | None = None,
+    ) -> dict:
         """全量执行 ODS→DWD 标准化并写入目标物理表。"""
         from app.warehouse.models import StandardizationRule
         from app.warehouse.standardization_engine import execute_rules
@@ -651,8 +657,15 @@ class StandardizationRuleService:
         if not target_table:
             target_table = self._derive_dwd_name(asset_code)
 
-        q = select(StandardizationRule).where(StandardizationRule.asset_code == asset_code, StandardizationRule.enabled == True).order_by(StandardizationRule.display_order)
+        q = select(StandardizationRule).where(StandardizationRule.asset_code == asset_code, StandardizationRule.enabled == True)
+        if rule_ids is not None:
+            if not rule_ids:
+                return {"error": "no_rules_configured", "detail": "自动化清洗未绑定任何规则"}
+            q = q.where(StandardizationRule.id.in_(rule_ids))
+        q = q.order_by(StandardizationRule.display_order, StandardizationRule.id)
         rules = (await self.session.execute(q)).scalars().all()
+        if rule_ids is not None and len(rules) != len(set(rule_ids)):
+            return {"error": "invalid_rule_binding", "detail": "绑定规则不存在、未启用或不属于当前 ODS 表"}
         if not rules: return {"error": "no_rules", "detail": f"表 {asset_code} 没有启用的标准化规则"}
         try:
             result = await self.session.execute(sa_text(f'SELECT * FROM "{asset_code}"'))

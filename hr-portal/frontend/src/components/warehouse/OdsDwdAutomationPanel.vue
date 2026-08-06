@@ -35,12 +35,7 @@ async function loadConfig() {
   loading.value = true
   try {
     config.value = await getOdsDwdAutomationConfig(props.odsTableName)
-    detectedSemantics.value = {
-      ods_sync_semantics: config.value.ods_sync_semantics,
-      dwd_write_strategy: config.value.dwd_write_strategy,
-      missing_row_strategy: config.value.missing_row_strategy,
-      business_key_fields: config.value.business_key_fields || [],
-    }
+    hasRules.value = config.value.update_mode === 'cleaning_rule'
     await loadExecutions()
     await refreshDetectedMode()
   } catch {
@@ -74,15 +69,10 @@ async function toggle() {
   finally { toggling.value = false }
 }
 
-// 实时检测：有清洗规则→清洗规则，无→直通
 const hasRules = ref(false)
 const detectedMode = ref('')
 async function refreshDetectedMode() {
   if (!props.odsTableName) return
-  try {
-    const rules = await listStandardizationRules({ asset_code: props.odsTableName, page_size: 1 })
-    hasRules.value = (rules.items || []).some((r: any) => r.enabled)
-  } catch { hasRules.value = false }
   try {
     const d = await detectOdsSyncSemantics(props.odsTableName)
     const sem: Record<string, string> = { incremental_upsert: '增量更新', full_snapshot: '全量快照', incremental_append: '增量追加' }
@@ -116,12 +106,14 @@ defineExpose({ refreshDetectedMode })
           <el-tag v-if="config?.enabled !== false" size="small" type="success" effect="dark">运行中</el-tag>
           <el-tag v-else-if="config" size="small" type="warning">已暂停</el-tag>
           <el-tag v-if="config?.auto_created" size="small" type="info" effect="plain" style="margin-left:4px">自动生成</el-tag>
+          <el-tag v-if="config?.configuration_drift" size="small" type="danger">配置漂移</el-tag>
+          <el-tag v-if="config?.effective_ingestion_mode === 'period_full_snapshot'" size="small" type="info">按期间快照</el-tag>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <el-button v-if="config?.enabled !== false" size="small" type="warning" plain @click.stop="toggle" :loading="toggling">
             <el-icon><VideoPause /></el-icon>暂停
           </el-button>
-          <el-button v-else size="small" type="success" plain @click.stop="toggle" :loading="toggling">
+          <el-button v-else-if="config && !config.configuration_drift" size="small" type="success" plain @click.stop="toggle" :loading="toggling">
             <el-icon><VideoPlay /></el-icon>启用
           </el-button>
           <el-icon class="expand-icon" :class="{ rotated: expanded }"><ArrowRight /></el-icon>
@@ -142,6 +134,14 @@ defineExpose({ refreshDetectedMode })
           <span class="status-label">ODS 语义 → DWD 策略</span>
           <span style="font-size:13px;color:#606266">{{ detectedMode || '自动检测中...' }}</span>
         </div>
+        <div v-if="config?.effective_business_key_fields?.length" class="status-row">
+          <span class="status-label">有效业务主键</span>
+          <span style="font-size:13px;color:#606266">{{ config.effective_business_key_fields.join(' + ') }}</span>
+        </div>
+        <el-alert v-if="config?.configuration_drift" type="warning" :closable="false" show-icon style="margin-bottom:10px">
+          <template #title>当前配置与 ODS 元数据不一致</template>
+          {{ (config.drift_reasons || []).join('；') }}
+        </el-alert>
         <div v-if="config?.last_execution_at" class="status-row">
           <span class="status-label">上次同步</span>
           <span style="font-size:13px;color:#606266">{{ formatDateTime(config.last_execution_at) }}, {{ config.last_execution_rows ?? '-' }} 行</span>

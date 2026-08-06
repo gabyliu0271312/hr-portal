@@ -2439,10 +2439,7 @@ async def execute_standardization(
 
 
 async def _detect_ods_config(ods_table_name: str, db: AsyncSession) -> dict:
-    """自动识别 ODS 表的同步语义、写入策略、业务主键。
-
-    返回 ods_sync_semantics, dwd_write_strategy, missing_row_strategy, business_key_fields
-    """
+    """自动识别 ODS 表的同步语义、写入策略、业务主键。"""
     from app.datasources.sync_service import PERIOD_TABLES
     from app.data.models import TableColumn
 
@@ -2456,23 +2453,39 @@ async def _detect_ods_config(ods_table_name: str, db: AsyncSession) -> dict:
     ).all()
     business_key_fields = [r[0] for r in pk_rows]
 
-    # 2) 同步语义
-    # 当前状态类表（全量快照）：HR名单、组织、成本中心、月度表
-    FULL_SNAPSHOT_TABLES = {"emp_realtime_roster", "org_unit"}
+    from app.datasources.models import DataSource
+    from app.data.models import RegisteredTable
+    source = await db.scalar(select(DataSource).where(DataSource.table_name == ods_table_name))
+    asset = await db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == ods_table_name))
+    ingestion_mode = getattr(source, "ingestion_mode", None) if source else None
+    period_field = getattr(asset, "period_col", None) if asset and getattr(asset, "is_period", False) else None
 
-    if ods_table_name in PERIOD_TABLES:
-        cfg = PERIOD_TABLES[ods_table_name]
-        if cfg.get("period_source") == "inject":
-            return {"ods_sync_semantics": "full_snapshot", "dwd_write_strategy": "full_refresh",
-                    "missing_row_strategy": "mark_inactive", "business_key_fields": business_key_fields}
+    if ingestion_mode == "period_full_snapshot" or (asset and asset.is_period and period_field):
+        return {
+            "ingestion_mode": "period_full_snapshot",
+            "effective_ingestion_mode": "period_full_snapshot",
+            "period_field": period_field,
+            "ods_sync_semantics": "full_snapshot",
+            "dwd_write_strategy": "incremental_upsert",
+            "missing_row_strategy": "hard_delete",
+            "business_key_fields": business_key_fields,
+        }
 
-    if ods_table_name in FULL_SNAPSHOT_TABLES:
-        return {"ods_sync_semantics": "full_snapshot", "dwd_write_strategy": "incremental_upsert",
-                "missing_row_strategy": "mark_inactive", "business_key_fields": business_key_fields}
+    if ingestion_mode in {"current_snapshot", "incremental_upsert", "append"}:
+        semantics = {"current_snapshot": "full_snapshot", "incremental_upsert": "incremental_upsert", "append": "incremental_append"}[ingestion_mode]
+        strategy = {"current_snapshot": "incremental_upsert", "incremental_upsert": "incremental_upsert", "append": "append"}[ingestion_mode]
+        missing = "mark_inactive" if ingestion_mode == "current_snapshot" else "keep_history"
+        return {"ingestion_mode": ingestion_mode, "effective_ingestion_mode": ingestion_mode, "period_field": period_field, "ods_sync_semantics": semantics, "dwd_write_strategy": strategy, "missing_row_strategy": missing, "business_key_fields": business_key_fields}
 
-    # 默认：增量 upsert
-    return {"ods_sync_semantics": "incremental_upsert", "dwd_write_strategy": "incremental_upsert",
-            "missing_row_strategy": "keep_history", "business_key_fields": business_key_fields}
+    return {
+        "ingestion_mode": "incremental_upsert",
+        "effective_ingestion_mode": "incremental_upsert",
+        "period_field": period_field,
+        "ods_sync_semantics": "incremental_upsert",
+        "dwd_write_strategy": "incremental_upsert",
+        "missing_row_strategy": "keep_history",
+        "business_key_fields": business_key_fields,
+    }
 
 
 @router.get(
@@ -2508,6 +2521,21 @@ async def get_ods_dwd_automation_config(
     config = result.scalar_one_or_none()
     if config is None:
         raise HTTPException(status_code=404, detail=f"ODS 表 {ods_table_name} 尚未配置自动化")
+    detected = await _detect_ods_config(ods_table_name, db)
+    configured_keys = list(config.business_key_fields or [])
+    detected_keys = list(detected.get("business_key_fields") or [])
+    drift_reasons = []
+    if configured_keys and configured_keys != detected_keys:
+        drift_reasons.append("自动化配置业务主键与 ODS 元数据不一致")
+    if config.update_mode == "cleaning_rule" and not config.standardization_rule_ids:
+        drift_reasons.append("清洗规则模式未绑定规则")
+    if detected.get("effective_ingestion_mode") == "period_full_snapshot" and config.missing_row_strategy != "hard_delete":
+        drift_reasons.append("按期间快照必须使用当前期间硬删除")
+    config.effective_business_key_fields = detected_keys
+    config.effective_ingestion_mode = detected.get("effective_ingestion_mode")
+    config.period_field = detected.get("period_field")
+    config.configuration_drift = bool(drift_reasons)
+    config.drift_reasons = drift_reasons
     return config
 
 
@@ -2691,6 +2719,13 @@ async def update_ods_dwd_automation_config(
     missing_merged = update_data.get("missing_row_strategy", config.missing_row_strategy)
     if merged_sync == "full_snapshot" and not missing_merged:
         raise HTTPException(status_code=422, detail="full_snapshot 同步语义必须配置缺失行处理策略")
+
+    if update_data.get("enabled") is True:
+        detected_keys = list(detected.get("business_key_fields") or [])
+        if list(merged_biz_keys or []) != detected_keys:
+            raise HTTPException(status_code=422, detail="配置业务主键与 ODS 元数据不一致，请按 ODS 主键修正后再启用")
+        if detected.get("effective_ingestion_mode") == "period_full_snapshot" and missing_merged != "hard_delete":
+            raise HTTPException(status_code=422, detail="按期间全量快照必须使用 hard_delete")
 
     for key, value in update_data.items():
         setattr(config, key, value)
@@ -2876,6 +2911,16 @@ async def trigger_ods_dwd_sync(
     """立即触发一次 ODS→DWD 同步，与自动触发逻辑一致：有清洗规则→清洗，无→直通。"""
     from app.automation.events import AutomationEvent, publish_event
     from app.core.db import get_session_factory
+
+    from app.warehouse.models import OdsDwdAutomationConfig
+    existing = await db.scalar(select(OdsDwdAutomationConfig).where(OdsDwdAutomationConfig.ods_table_name == ods_table_name))
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"ODS 表 {ods_table_name} 尚未配置自动化")
+    detected = await _detect_ods_config(ods_table_name, db)
+    if list(existing.business_key_fields or []) != list(detected.get("business_key_fields") or []):
+        raise HTTPException(status_code=422, detail="当前自动化配置与 ODS 主键漂移，请先修正配置后触发")
+    if detected.get("effective_ingestion_mode") == "period_full_snapshot" and existing.missing_row_strategy != "hard_delete":
+        raise HTTPException(status_code=422, detail="按期间快照配置未启用 hard_delete，禁止触发")
 
     async with get_session_factory()() as new_db:
         await publish_event(
