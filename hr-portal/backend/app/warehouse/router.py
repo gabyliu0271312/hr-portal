@@ -2521,8 +2521,8 @@ async def _apply_effective_automation_policy(config, ods_table_name: str, db: As
     config.drift_reasons = drift_reasons
     config.effective_strategy = f"{config.effective_ingestion_mode}+{config.dwd_write_strategy}"
 
-
-
+@router.get(
+    "/ods-dwd-automation-configs/{ods_table_name}",
     summary="获取 ODS 表的自动化配置",
     response_model=OdsDwdAutomationConfigOut,
     dependencies=[Depends(require_op("warehouse.assets", "V"))],
