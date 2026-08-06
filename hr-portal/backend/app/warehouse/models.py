@@ -517,6 +517,8 @@ class OdsDwdAutomationConfig(Base):
     trace_id = Column(String(64), nullable=True, comment="审计追踪 ID")
     source_system = Column(String(32), nullable=False, default="manual", comment="配置来源: manual/system")
 
+    created_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     effective_ingestion_mode = None
     period_field = None
