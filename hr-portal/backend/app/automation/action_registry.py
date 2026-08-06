@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -429,9 +430,14 @@ async def _passthrough_sync(
     if not pk_cols:
         pk_cols = config.business_key_fields or []
 
-    # 无可靠主键或业务主键：拒绝伪增量
+    # 计算 ODS 当前主键 hash；旧 ODS 可能没有历史 pk_hash 技术列。
     if not has_pk_hash:
-        raise RuntimeError("ODS 表无 pk_hash 字段，不支持增量更新，请在配置中改用 full_refresh 策略")
+        from app.warehouse.asset_sink import _business_key_hash
+        for row in ods_rows:
+            row["pk_hash"] = _business_key_hash(row, pk_cols)
+        has_pk_hash = True
+
+    # 无可靠主键或业务主键：拒绝伪增量
     if not pk_cols:
         raise RuntimeError("未配置业务主键，不支持增量更新，请在配置中设置 business_key_fields 或改用 full_refresh")
 
