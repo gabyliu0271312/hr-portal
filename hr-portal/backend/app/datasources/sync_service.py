@@ -520,6 +520,7 @@ async def _get_manual_columns(table_name: str, db: AsyncSession) -> list[dict]:
                 TableColumn.copy_from_last_month,
                 TableColumn.data_type,
                 TableColumn.enum_options,
+                TableColumn.enum_default,
             ).where(
                 TableColumn.table_name == table_name,
                 TableColumn.auto_discovered.is_(False),
@@ -527,10 +528,13 @@ async def _get_manual_columns(table_name: str, db: AsyncSession) -> list[dict]:
         )
     ).all()
     out = []
-    for code, cp, dtype, opts in rows:
+    for code, cp, dtype, opts, configured_default in rows:
         default = None
-        if dtype == "enum" and isinstance(opts, list) and opts:
-            default = opts[0]
+        if dtype == "enum":
+            if configured_default is not None:
+                default = configured_default
+            elif isinstance(opts, list) and opts:
+                default = opts[0]
         out.append({"code": code, "copy": bool(cp), "default": default})
     return out
 

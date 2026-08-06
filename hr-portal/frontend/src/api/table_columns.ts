@@ -15,6 +15,7 @@ export interface TableColumn {
   scope_role: string | null
   copy_from_last_month: boolean
   enum_options: string[] | null
+  enum_default: string | null
   agg_role: string
   is_computed: boolean
   formula_expr: string | null
@@ -39,6 +40,7 @@ export interface ColumnUpdatePayload {
   scope_role?: string | null
   copy_from_last_month?: boolean
   enum_options?: string[] | null
+  enum_default?: string | null
   agg_role?: string
   is_computed?: boolean
   formula_expr?: string | null

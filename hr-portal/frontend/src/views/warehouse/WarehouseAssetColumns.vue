@@ -33,6 +33,7 @@ const editForm = ref({
   is_pk_part: false, is_sensitive: false, is_visible: true, copy_from_last_month: false,
   scope_role: '', display_order: 0, description: '',
   enum_options: [] as string[],
+  enum_default: '' as string,
   formula_expr: '' as string,
   data_type: 'string',
 })
@@ -115,7 +116,7 @@ function openCreate() {
     is_pk_part: false, is_sensitive: false, is_visible: true, copy_from_last_month: false,
     scope_role: '',
     display_order: (columns.value[columns.value.length - 1]?.display_order ?? 0) + 10,
-    description: '', enum_options: [], formula_expr: '',
+    description: '', enum_options: [], enum_default: '', formula_expr: '',
     data_type: 'string',
   }
   editMode.value = true; drawerVisible.value = true
@@ -131,6 +132,7 @@ function enterEdit(col: AssetColumn) {
     copy_from_last_month: col.copy_from_last_month,
     scope_role: col.scope_role || '', display_order: col.display_order, description: col.description || '',
     enum_options: Array.isArray(col.enum_options) ? [...col.enum_options] : [],
+    enum_default: col.enum_default || '',
     formula_expr: col.formula_expr || '',
     data_type: col.data_type || 'string',
   }
@@ -147,7 +149,8 @@ function buildPayload(): ColumnUpdatePayload {
     is_visible: f.is_visible, display_order: f.display_order,
     description: f.description || null, scope_role: f.scope_role || null,
     copy_from_last_month: f.copy_from_last_month, agg_role: f.agg_role,
-    enum_options: null,
+    enum_options: f.data_type === 'enum' ? f.enum_options.map((value) => value.trim()).filter(Boolean) : null,
+    enum_default: f.data_type === 'enum' && f.enum_default ? f.enum_default : null,
   }
   return p as ColumnUpdatePayload
 }
@@ -313,6 +316,17 @@ onMounted(load)
             <el-radio-group v-model="editForm.agg_role">
               <el-radio-button v-for="r in AGG_ROLES" :key="r.value" :value="r.value">{{ r.label }}</el-radio-button>
             </el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="editForm.data_type === 'enum'" label="值列表">
+            <el-select v-model="editForm.enum_options" multiple filterable allow-create default-first-option style="width: 100%" placeholder="输入值后回车">
+              <el-option v-for="option in editForm.enum_options" :key="option" :label="option" :value="option" />
+            </el-select>
+            <div style="font-size: 12px; color: #909399; margin-top: 4px">输入枚举值后按回车确认，默认值只能从列表中选择。</div>
+          </el-form-item>
+          <el-form-item v-if="editForm.data_type === 'enum'" label="默认值">
+            <el-select v-model="editForm.enum_default" clearable style="width: 100%" placeholder="选择新增行默认值">
+              <el-option v-for="option in editForm.enum_options" :key="option" :label="option" :value="option" />
+            </el-select>
           </el-form-item>
           <el-form-item label="字段属性">
             <el-checkbox v-model="editForm.is_pk_part">参与业务主键</el-checkbox>

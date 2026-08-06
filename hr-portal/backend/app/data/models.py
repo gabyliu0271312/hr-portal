@@ -74,6 +74,7 @@ class TableColumn(Base):
 
     # 「值列表」类型（data_type='enum'）的可选项，JSON 字符串数组；其它类型为 None
     enum_options: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    enum_default: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # 报表聚合角色：'dimension'（维度，GROUP BY）/ 'measure'（度量，可聚合）
     agg_role: Mapped[str] = mapped_column(String(16), nullable=False, default="dimension")

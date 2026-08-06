@@ -417,6 +417,7 @@ class ColumnIn(BaseModel):
     scope_role: str | None = None
     copy_from_last_month: bool = False
     enum_options: list[str] | None = None
+    enum_default: str | None = None
     agg_role: str = "dimension"
     is_computed: bool = False
     formula_expr: str | None = None
@@ -438,6 +439,7 @@ class ColumnOut(BaseModel):
     scope_role: str | None
     copy_from_last_month: bool
     enum_options: list[str] | None
+    enum_default: str | None
     agg_role: str
     is_computed: bool
     formula_expr: str | None
@@ -471,6 +473,7 @@ def _to_out(c: TableColumn) -> ColumnOut:
         scope_role=c.scope_role,
         copy_from_last_month=c.copy_from_last_month,
         enum_options=c.enum_options,
+        enum_default=c.enum_default,
         agg_role=c.agg_role,
         is_computed=c.is_computed,
         formula_expr=c.formula_expr,
@@ -520,6 +523,8 @@ async def create_column(
     db: AsyncSession = Depends(get_session),
 ) -> ColumnOut:
     table = _ensure_known_table(table)
+    if payload.enum_default is not None and payload.enum_default not in (payload.enum_options or []):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="默认值必须存在于枚举值列表中")
     column_code = _validate_payload_column_code(payload.column_code)
     # 防重
     exists = (
@@ -554,6 +559,7 @@ async def create_column(
         scope_role=payload.scope_role,
         copy_from_last_month=payload.copy_from_last_month,
         enum_options=payload.enum_options,
+        enum_default=payload.enum_default if payload.data_type == "enum" else None,
         agg_role=payload.agg_role,
         is_computed=payload.is_computed,
         formula_expr=payload.formula_expr if payload.is_computed else None,
@@ -632,6 +638,7 @@ async def bulk_update(
             "scope_role",
             "copy_from_last_month",
             "enum_options",
+            "enum_default",
             "agg_role",
             "is_computed",
             "formula_expr",
@@ -640,6 +647,10 @@ async def bulk_update(
                 setattr(col, k, item[k])
         if not col.is_computed:
             col.formula_expr = None
+        if col.data_type != "enum":
+            col.enum_default = None
+        elif col.enum_default is not None and col.enum_default not in (col.enum_options or []):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="默认值必须存在于枚举值列表中")
         updated += 1
 
     if ddl_changed:
@@ -697,6 +708,8 @@ async def update_column(
     db: AsyncSession = Depends(get_session),
 ) -> ColumnOut:
     table = _ensure_known_table(table)
+    if payload.enum_default is not None and payload.enum_default not in (payload.enum_options or []):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="默认值必须存在于枚举值列表中")
     col = await db.get(TableColumn, column_id)
     if col is None or col.table_name != table:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="字段不存在")
@@ -742,6 +755,7 @@ async def update_column(
     col.scope_role = payload.scope_role
     col.copy_from_last_month = payload.copy_from_last_month
     col.enum_options = payload.enum_options
+    col.enum_default = payload.enum_default if payload.data_type == "enum" else None
     col.agg_role = payload.agg_role
     col.is_computed = payload.is_computed
     col.formula_expr = payload.formula_expr if payload.is_computed else None
