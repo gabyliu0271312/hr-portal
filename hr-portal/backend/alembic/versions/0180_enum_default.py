@@ -1,5 +1,7 @@
 """Add enum default metadata for table columns."""
 
+import json
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -16,12 +18,12 @@ def upgrade() -> None:
         sa.text(
             """
             UPDATE table_columns
-            SET enum_options = :options, enum_default = :default_value
+            SET enum_options = CAST(:options AS json), enum_default = :default_value
             WHERE table_name = 'cost_center_monthly'
               AND column_code = 'status'
               AND data_type = 'enum'
             """
-        ).bindparams(options=["启用", "停用"], default_value="启用")
+        ).bindparams(options=json.dumps(["\u542f\u7528", "\u505c\u7528"], ensure_ascii=False), default_value="\u542f\u7528")
     )
 
 
