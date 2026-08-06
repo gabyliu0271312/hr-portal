@@ -62,7 +62,11 @@ async function doTrigger(config: any) {
 function goRecipe(tableName: string) { router.push({ path: '/warehouse/data-recipe', query: { table: tableName } }) }
 function modeLabel(mode: string) { const map: Record<string, string> = { cleaning_rule: '清洗规则', passthrough: '直通更新' }; return map[mode] || mode }
 function syncLabel(config: any) {
-  if (config.effective_ingestion_mode === 'period_full_snapshot') return '按期间全量快照'
+  const mode = config.effective_ingestion_mode
+  if (mode === 'period_full_snapshot') return '按期间全量快照'
+  if (mode === 'current_snapshot') return '当前状态全量快照'
+  if (mode === 'incremental_upsert') return '增量更新'
+  if (mode === 'append') return '增量追加'
   const map: Record<string, string> = { full_snapshot: '全量快照', incremental_append: '增量追加', incremental_upsert: '增量更新' }
   return map[config.ods_sync_semantics] || config.ods_sync_semantics
 }

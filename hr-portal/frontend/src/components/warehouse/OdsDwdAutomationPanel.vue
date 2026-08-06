@@ -79,22 +79,18 @@ function businessKeys(value: OdsDwdAutomationConfig | null) {
 }
 
 function strategyLabel(value: any) {
-  const sem: Record<string, string> = { incremental_upsert: '增量更新', full_snapshot: '全量快照', incremental_append: '增量追加' }
-  const dwd: Record<string, string> = { incremental_upsert: '增量 upsert', full_refresh: '全量刷新', append: '追加' }
-  if (value?.effective_ingestion_mode === 'period_full_snapshot') return '按期间全量快照 → 当前期间同步'
-  return `${sem[value?.ods_sync_semantics] || value?.ods_sync_semantics} → ${dwd[value?.dwd_write_strategy] || value?.dwd_write_strategy}`
+  const mode = value?.effective_ingestion_mode
+  if (mode === 'period_full_snapshot') return '按期间全量快照 → 当前期间同步'
+  if (mode === 'current_snapshot') return '当前状态全量快照 → 当前状态同步'
+  if (mode === 'incremental_upsert') return '增量更新 → 增量更新'
+  if (mode === 'append') return '增量追加 → 追加'
+  return `${value?.ods_sync_semantics || '-'} → ${value?.dwd_write_strategy || '-'}`
 }
 async function refreshDetectedMode() {
   if (!props.odsTableName) return
   try {
     const d = await detectOdsSyncSemantics(props.odsTableName)
-    const sem: Record<string, string> = { incremental_upsert: '增量更新', full_snapshot: '全量快照', incremental_append: '增量追加' }
-    const dwd: Record<string, string> = { incremental_upsert: '增量 upsert', full_refresh: '全量刷新', append: '追加' }
-    if (d.effective_ingestion_mode === 'period_full_snapshot') {
-      detectedMode.value = '按期间全量快照 → 当前期间同步'
-    } else {
-      detectedMode.value = `${sem[d.ods_sync_semantics] || d.ods_sync_semantics} → ${dwd[d.dwd_write_strategy] || d.dwd_write_strategy}`
-    }
+    detectedMode.value = strategyLabel(d)
   } catch { detectedMode.value = '自动检测' }
 }
 
@@ -139,7 +135,8 @@ defineExpose({ refreshDetectedMode })
 
       <div class="panel-body" v-show="expanded">
         <div v-if="config?.auto_created" style="margin-bottom:10px;font-size:12px;color:#909399">
-          <el-icon><InfoFilled /></el-icon> {{ config.effective_ingestion_mode === 'period_full_snapshot' ? '按期间快照策略' : '当前生效策略' }}: {{ config.effective_ingestion_mode || config.default_strategy }} · 风险: {{ config.risk_decision || '需复核' }}
+          <el-icon><InfoFilled /></el-icon> 当前生效策略：{{ strategyLabel(config) }}
+          <span v-if="config.risk_decision === 'warn'"> · 历史生成提示：需复核</span>
         </div>
         <div class="status-row">
           <span class="status-label">更新方式</span>
@@ -155,17 +152,18 @@ defineExpose({ refreshDetectedMode })
           <span class="status-label">业务主键</span>
           <span style="font-size:13px;color:#606266">{{ businessKeys(config).join(' + ') }}</span>
         </div>
-        <template v-if="config?.effective_ingestion_mode === 'period_full_snapshot'">
-          <div class="status-row">
-            <span class="status-label">期间字段</span>
-            <span style="font-size:13px;color:#606266">{{ config.period_field || '未登记' }}</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">当前期间同步</span>
-            <span style="font-size:13px;color:#606266">新增、更新并删除当前期间孤儿；历史期间不受影响</span>
-          </div>
-        </template>
-        <el-alert v-if="config?.configuration_drift" type="warning" :closable="false" show-icon style="margin-bottom:10px">
+        <div v-if="config?.effective_ingestion_mode === 'current_snapshot'" class="status-row">
+          <span class="status-label">当前状态同步</span>
+          <span style="font-size:13px;color:#606266">新增、更新并处理当前快照中消失的记录</span>
+        </div>
+        <div v-if="config?.effective_ingestion_mode === 'period_full_snapshot'" class="status-row">
+          <span class="status-label">期间字段</span>
+          <span style="font-size:13px;color:#606266">{{ config.period_field || '未登记' }}</span>
+        </div>
+        <div v-if="config?.effective_ingestion_mode === 'period_full_snapshot'" class="status-row">
+          <span class="status-label">当前期间同步</span>
+          <span style="font-size:13px;color:#606266">新增、更新并删除当前期间孤儿；历史期间不受影响</span>
+        </div>
           <template #title>当前配置与 ODS 元数据不一致</template>
           {{ (config.drift_reasons || []).join('；') }}
         </el-alert>
