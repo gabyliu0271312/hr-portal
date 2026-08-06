@@ -76,8 +76,12 @@ async function refreshDetectedMode() {
   try {
     const d = await detectOdsSyncSemantics(props.odsTableName)
     const sem: Record<string, string> = { incremental_upsert: '增量更新', full_snapshot: '全量快照', incremental_append: '增量追加' }
-    const dwd: Record<string, string> = { incremental_upsert: '增量 upsert', full_refresh: '全量刷新', append: '追加' }
-    detectedMode.value = `${sem[d.ods_sync_semantics] || d.ods_sync_semantics} → ${dwd[d.dwd_write_strategy] || d.dwd_write_strategy}`
+    const dwd: Record<string, string> = { incremental_upsert: '按期间增量 upsert', full_refresh: '全量刷新', append: '追加' }
+    if (d.effective_ingestion_mode === 'period_full_snapshot') {
+      detectedMode.value = `按期间全量快照 → ${dwd[d.dwd_write_strategy] || d.dwd_write_strategy}`
+    } else {
+      detectedMode.value = `${sem[d.ods_sync_semantics] || d.ods_sync_semantics} → ${dwd[d.dwd_write_strategy] || d.dwd_write_strategy}`
+    }
   } catch { detectedMode.value = '自动检测' }
 }
 
@@ -122,7 +126,7 @@ defineExpose({ refreshDetectedMode })
 
       <div class="panel-body" v-show="expanded">
         <div v-if="config?.auto_created" style="margin-bottom:10px;font-size:12px;color:#909399">
-          <el-icon><InfoFilled /></el-icon> 系统已自动生成并启用配置 · 策略: {{ config.default_strategy }} · 风险: {{ config.risk_decision }}
+          <el-icon><InfoFilled /></el-icon> {{ config.effective_ingestion_mode === 'period_full_snapshot' ? '按期间快照策略' : '当前生效策略' }}: {{ config.effective_ingestion_mode || config.default_strategy }} · 风险: {{ config.risk_decision || '需复核' }}
         </div>
         <div class="status-row">
           <span class="status-label">更新方式</span>

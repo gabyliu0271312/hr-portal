@@ -2503,8 +2503,26 @@ async def detect_ods_sync_semantics(
     return result
 
 
-@router.get(
-    "/ods-dwd-automation-configs/{ods_table_name}",
+async def _apply_effective_automation_policy(config, ods_table_name: str, db: AsyncSession) -> None:
+    detected = await _detect_ods_config(ods_table_name, db)
+    configured_keys = list(config.business_key_fields or [])
+    detected_keys = list(detected.get("business_key_fields") or [])
+    drift_reasons = []
+    if configured_keys and configured_keys != detected_keys:
+        drift_reasons.append("自动化配置业务主键与 ODS 元数据不一致")
+    if config.update_mode == "cleaning_rule" and not config.standardization_rule_ids:
+        drift_reasons.append("清洗规则模式未绑定规则")
+    if detected.get("effective_ingestion_mode") == "period_full_snapshot" and config.missing_row_strategy != "hard_delete":
+        drift_reasons.append("按期间快照必须使用当前期间硬删除")
+    config.effective_business_key_fields = detected_keys
+    config.effective_ingestion_mode = detected.get("effective_ingestion_mode")
+    config.period_field = detected.get("period_field")
+    config.configuration_drift = bool(drift_reasons)
+    config.drift_reasons = drift_reasons
+    config.effective_strategy = f"{config.effective_ingestion_mode}+{config.dwd_write_strategy}"
+
+
+
     summary="获取 ODS 表的自动化配置",
     response_model=OdsDwdAutomationConfigOut,
     dependencies=[Depends(require_op("warehouse.assets", "V"))],
@@ -2521,21 +2539,7 @@ async def get_ods_dwd_automation_config(
     config = result.scalar_one_or_none()
     if config is None:
         raise HTTPException(status_code=404, detail=f"ODS 表 {ods_table_name} 尚未配置自动化")
-    detected = await _detect_ods_config(ods_table_name, db)
-    configured_keys = list(config.business_key_fields or [])
-    detected_keys = list(detected.get("business_key_fields") or [])
-    drift_reasons = []
-    if configured_keys and configured_keys != detected_keys:
-        drift_reasons.append("自动化配置业务主键与 ODS 元数据不一致")
-    if config.update_mode == "cleaning_rule" and not config.standardization_rule_ids:
-        drift_reasons.append("清洗规则模式未绑定规则")
-    if detected.get("effective_ingestion_mode") == "period_full_snapshot" and config.missing_row_strategy != "hard_delete":
-        drift_reasons.append("按期间快照必须使用当前期间硬删除")
-    config.effective_business_key_fields = detected_keys
-    config.effective_ingestion_mode = detected.get("effective_ingestion_mode")
-    config.period_field = detected.get("period_field")
-    config.configuration_drift = bool(drift_reasons)
-    config.drift_reasons = drift_reasons
+    await _apply_effective_automation_policy(config, ods_table_name, db)
     return config
 
 
@@ -2569,7 +2573,10 @@ async def list_ods_dwd_automation_configs(
 
     out = []
     for c in configs:
+        await _apply_effective_automation_policy(c, c.ods_table_name, db)
         d = OdsDwdAutomationConfigOut.model_validate(c).model_dump()
+        if c.effective_ingestion_mode:
+            d["default_strategy"] = f"{c.effective_ingestion_mode}+{c.dwd_write_strategy}"
         d["ods_table_label"] = label_map.get(c.ods_table_name, c.ods_table_name)
         d["dwd_table_label"] = label_map.get(c.target_dwd_table_name, c.target_dwd_table_name or "-")
         out.append(d)
