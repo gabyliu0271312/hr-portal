@@ -164,6 +164,7 @@ defineExpose({ refreshDetectedMode })
           <span class="status-label">当前期间同步</span>
           <span style="font-size:13px;color:#606266">新增、更新并删除当前期间孤儿；历史期间不受影响</span>
         </div>
+        <el-alert v-if="config?.configuration_drift" type="warning" :closable="false" show-icon style="margin-bottom:10px">
           <template #title>当前配置与 ODS 元数据不一致</template>
           {{ (config.drift_reasons || []).join('；') }}
         </el-alert>
