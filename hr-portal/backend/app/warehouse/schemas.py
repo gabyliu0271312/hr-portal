@@ -466,13 +466,13 @@ class LineageGraphOut(BaseModel):
 
 QUALITY_RULE_TYPES = (
     "not_null", "unique", "enum", "date_format",
-    "referential_integrity", "custom_sql",
+    "referential_integrity", "relation_cardinality", "custom_sql",
 )
 QUALITY_SEVERITIES = ("info", "warn", "error")
 QUALITY_RUN_STATUSES = ("pass", "warn", "fail", "error")
 
 # 二期可执行的规则类型（Q0309: referential_integrity/custom_sql 暂不支持）
-EXECUTABLE_RULE_TYPES = ("not_null", "unique", "enum", "date_format")
+EXECUTABLE_RULE_TYPES = ("not_null", "unique", "enum", "date_format", "relation_cardinality")
 
 
 class WarehouseQualityRuleIn(BaseModel):
@@ -518,12 +518,34 @@ class WarehouseQualityRunOut(BaseModel):
     status: str
     checked_count: int = 0
     failed_count: int = 0
-    sample_rows: Optional[list] = None
     message: Optional[str] = None
+    period: Optional[str] = None
+    source_sync_batch_id: Optional[str] = None
+    asset_type: Optional[str] = None
+    asset_id: Optional[int] = None
+    severity: Optional[str] = None
+    duplicate_key_count: int = 0
+    missing_key_count: int = 0
+    sample_key_hashes: Optional[list] = None
+    triggered_by: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class WarehouseQualityRunListOut(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: list[WarehouseQualityRunOut]
+
+
+class QualityRunTriggerIn(BaseModel):
+    """质量规则运行请求；关系基数检查必须指定 YYYYMM 期间。"""
+    period: Optional[str] = Field(None, pattern=r"^\d{6}$", description="检查期间，格式 YYYYMM")
+    source_sync_batch_id: Optional[str] = Field(None, max_length=128, description="可选的来源同步批次")
+    force: bool = Field(False, description="是否强制重新执行，不绕过期间校验")
 
 
 class QualityRunTriggerOut(BaseModel):
