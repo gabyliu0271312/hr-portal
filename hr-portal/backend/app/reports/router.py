@@ -23,7 +23,6 @@ from app.reports.validation import ensure_valid_report_config as _shared_ensure_
 from app.reports.validation import ensure_valid_report_field_references as _shared_ensure_valid_report_field_references
 from app.reports.validation import iter_report_source_references as _shared_iter_report_source_references
 from app.reports.runtime import apply_runtime_overrides as _apply_runtime_overrides, normalize_runtime_filters as _normalize_runtime_filters, validate_runtime_filters as _ensure_valid_runtime_filters
-from app.reports.quality_gate import validate_report_quality_period_field
 from app.users.models import Role, User, UserRole
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -649,11 +648,6 @@ async def create_report(
         await _validate_acl_principals(payload.dataset_id, acl_items, db)
     _ensure_valid_report_config(payload.config)
     await _ensure_valid_report_field_references(payload.config, payload.dataset_id, user, db)
-    await validate_report_quality_period_field(
-        db,
-        dataset_id=payload.dataset_id,
-        config=payload.config,
-    )
 
 
     report = Report(
@@ -731,11 +725,6 @@ async def update_report(
         await _validate_acl_principals(payload.dataset_id, acl_items, db)
     _ensure_valid_report_config(payload.config)
     await _ensure_valid_report_field_references(payload.config, payload.dataset_id, user, db)
-    await validate_report_quality_period_field(
-        db,
-        dataset_id=payload.dataset_id,
-        config=payload.config,
-    )
 
     report.name = payload.name
     report.description = payload.description
@@ -815,13 +804,6 @@ async def run_report(
     ))
     await _ensure_valid_report_field_references(
         cfg, report.dataset_id, user, db, overrides.filters if overrides else None
-    )
-    await enforce_report_quality(
-        db,
-        report_id=report.id,
-        dataset_id=report.dataset_id,
-        config=cfg,
-        filters=cfg.filters,
     )
     _log_list_lookup_filters("report.run", report, cfg.list_lookup)
 
@@ -1061,13 +1043,6 @@ async def _collect_export_rows(
     cfg = _ensure_valid_report_config(_apply_runtime_overrides(cfg, runtime_filters))
     await _ensure_valid_report_field_references(cfg, report.dataset_id, user, db, runtime_filters)
 
-    await enforce_report_quality(
-        db,
-        report_id=report.id,
-        dataset_id=report.dataset_id,
-        config=cfg,
-        filters=cfg.filters,
-    )
     from app.reports.sql_builder import run_dataset_query
 
     columns_meta, items, _ = await run_dataset_query(
