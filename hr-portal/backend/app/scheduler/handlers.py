@@ -45,17 +45,33 @@ async def _handler_datasource_sync(
     from datetime import datetime, UTC
 
     from app.core.secret_box import decrypt
-    from app.datasources.models import DataSource
+    from app.datasources.models import DataSource, SyncRun
     from app.datasources.sync_service import sync_to_table
 
     ds = await db.get(DataSource, job.business_id)
     if ds is None:
         raise RuntimeError(f"DataSource {job.business_id} not found")
 
+    sync_run = SyncRun(datasource_id=ds.id, status="running", triggered_by=triggered_by)
+    db.add(sync_run)
+    await db.flush()
+    batch_id = f"sync_run:{sync_run.id}"
     secrets = {k: decrypt(v) for k, v in (ds.secrets_encrypted or {}).items()}
-    rows, message = await sync_to_table(
-        ds.table_name, ds.source_type, ds.settings or {}, secrets, db
-    )
+    try:
+        rows, message = await sync_to_table(
+            ds.table_name, ds.source_type, ds.settings or {}, secrets, db,
+            source_sync_batch_id=batch_id,
+        )
+    except Exception as exc:
+        sync_run.status = "failed"
+        sync_run.finished_at = datetime.now(UTC)
+        sync_run.rows = 0
+        sync_run.message = str(exc)[:1000]
+        raise
+    sync_run.status = "success"
+    sync_run.finished_at = datetime.now(UTC)
+    sync_run.rows = rows
+    sync_run.message = message
 
     # 鍥炲啓 datasources.last_* 瀛楁锛堝吋瀹?Endpoints 椤靛睍绀猴級
     now = datetime.now(UTC)
@@ -92,7 +108,7 @@ async def _handler_report_run(
       2. 澶嶇敤鎶ヨ〃鎵嬪姩杩愯鐨勬墽琛岄€昏緫锛坮eport_service.run_report锛?      3. 鍐欏叆 job_runs锛堢敱 engine 缁熶竴澶勭悊锛?      4. 鍙戝竷 scheduled_report_success / scheduled_report_failed 浜嬩欢锛堢敱姝?handler 鍙戝竷锛?         姣旈€氱敤 scheduled_job_* 鏇翠笟鍔″寲锛屾惡甯︽姤琛ㄤ笂涓嬫枃锛?
     娉ㄦ剰锛歨andler 涓嶇洿鎺ュ彂椋炰功娑堟伅锛屽彧鍙戝竷浜嬩欢銆?    """
     from datetime import datetime, UTC
-    from sqlalchemy import select
+    from sqlalchemy import select, update
     from app.reports.models import Report
     from app.automation.events import AutomationEvent, publish_event
 
@@ -103,7 +119,7 @@ async def _handler_report_run(
     # 灏濊瘯澶嶇敤鎶ヨ〃鎵ц鏈嶅姟
     try:
         from app.reports.report_service import run_report_query
-        rows, run_url = await run_report_query(report, db, triggered_by=triggered_by)
+        rows, run_url = await run_report_query(report, db, triggered_by=triggered_by, period=(job.payload or {}).get("period"))
         status = "success"
         error_message = ""
     except Exception as e:
@@ -210,13 +226,130 @@ async def _handler_metric_compute(job: ScheduledJob, db: AsyncSession, triggered
 
 async def _handler_quality_run(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
     """质量检查 handler"""
-    from app.warehouse.quality_engine import execute_quality_rule
-    rule_id = (job.payload or {}).get("rule_id")
+    from app.warehouse.models import WarehouseQualityRule
+    from app.warehouse.quality_service import run_quality_rule
+    payload = job.payload or {}
+    import re
+    rule_id = payload.get("rule_id") or job.business_id
     if not rule_id:
         raise ValueError("payload.rule_id is required")
-    await execute_quality_rule(rule_id, db)
-    return 0, f"quality_run: rule_id={rule_id}"
+    rule = await db.get(WarehouseQualityRule, int(rule_id))
+    if rule is None:
+        raise LookupError(f"quality rule not found: {rule_id}")
+    period = payload.get("period")
+    if rule.rule_type == "relation_cardinality" and (not isinstance(period, str) or not re.fullmatch(r"\d{6}", period)):
+        raise ValueError("quality_run relation_cardinality requires payload.period in YYYYMM format")
+    run, result = await run_quality_rule(
+        db, int(rule_id), period=period,
+        source_sync_batch_id=payload.get("source_sync_batch_id"),
+        force=bool(payload.get("force", False)), triggered_by=triggered_by,
+    )
+    return result.get("checked_count", 0), f"quality_run: rule_id={rule_id}, run_id={run.id}, status={result.get('status')}"
 
+
+async def _handler_quality_queue(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
+    """消费持久化质量任务，支持多 worker 单飞和失败重试。"""
+    from datetime import datetime, timedelta
+    from sqlalchemy import select, update
+    from app.datasources.models import SyncQualityDispatch
+    from app.datasources.sync_service import schedule_quality_checks_after_sync
+    from app.warehouse.models import WarehouseQualityTask
+    from app.warehouse.quality_service import run_quality_rule
+
+    now = datetime.utcnow()
+    stale_before = now - timedelta(minutes=15)
+    await db.execute(
+        update(WarehouseQualityTask)
+        .where(
+            WarehouseQualityTask.status == "running",
+            WarehouseQualityTask.locked_at < stale_before,
+        )
+        .values(status="retry", available_at=now, locked_at=None)
+    )
+    dispatch_stale_before = now - timedelta(minutes=15)
+    await db.execute(
+        update(SyncQualityDispatch)
+        .where(
+            SyncQualityDispatch.status == "running",
+            SyncQualityDispatch.locked_at < dispatch_stale_before,
+        )
+        .values(status="retry", available_at=now, locked_at=None)
+    )
+    dispatches = (await db.execute(
+        select(SyncQualityDispatch)
+        .where(
+            SyncQualityDispatch.status.in_(["pending", "retry"]),
+            SyncQualityDispatch.available_at <= now,
+        )
+        .order_by(SyncQualityDispatch.created_at)
+        .with_for_update(skip_locked=True)
+        .limit(10)
+    )).scalars().all()
+    for dispatch in dispatches:
+        dispatch.status = "running"
+        dispatch.attempts = (dispatch.attempts or 0) + 1
+        dispatch.locked_at = now
+        await db.flush()
+        try:
+            await schedule_quality_checks_after_sync(
+                dispatch.table_name,
+                dispatch.settings or {},
+                db,
+                periods=set(dispatch.periods or []),
+                source_sync_batch_id=dispatch.source_sync_batch_id,
+            )
+            dispatch.status = "done"
+            dispatch.finished_at = datetime.utcnow()
+            dispatch.last_error = None
+        except Exception as exc:
+            await db.rollback()
+            dispatch = await db.get(SyncQualityDispatch, dispatch.id)
+            if dispatch is None:
+                continue
+            dispatch.last_error = str(exc)[:1000]
+            if dispatch.attempts >= 3:
+                dispatch.status = "failed"
+                dispatch.finished_at = datetime.utcnow()
+            else:
+                dispatch.status = "retry"
+                dispatch.available_at = datetime.utcnow() + timedelta(minutes=2 ** dispatch.attempts)
+            await db.flush()
+
+    tasks = (await db.execute(
+        select(WarehouseQualityTask)
+        .where(
+            WarehouseQualityTask.status.in_(["pending", "retry"]),
+            WarehouseQualityTask.available_at <= now,
+        )
+        .order_by(WarehouseQualityTask.created_at)
+        .with_for_update(skip_locked=True)
+        .limit(20)
+    )).scalars().all()
+    completed = 0
+    for task in tasks:
+        task.status = "running"
+        task.attempts = (task.attempts or 0) + 1
+        task.locked_at = now
+        await db.flush()
+        try:
+            run, result = await run_quality_rule(
+                db, task.rule_id, period=task.period,
+                source_sync_batch_id=task.source_sync_batch_id,
+                triggered_by="sync_queue",
+            )
+            task.status = "done" if result.get("status") != "error" else "failed"
+            task.finished_at = datetime.utcnow()
+            task.last_error = result.get("message") if task.status == "failed" else None
+            completed += 1
+        except Exception as exc:
+            task.last_error = str(exc)[:1000]
+            if task.attempts >= 3:
+                task.status = "failed"
+                task.finished_at = datetime.utcnow()
+            else:
+                task.status = "retry"
+                task.available_at = datetime.utcnow() + timedelta(minutes=2 ** task.attempts)
+    return completed, f"quality_queue: picked={len(tasks)}, completed={completed}"
 
 async def _handler_scd_run(job: ScheduledJob, db: AsyncSession, triggered_by: str) -> tuple[int, str]:
     """SCD 拉链 handler"""
@@ -284,6 +417,17 @@ async def _handler_ucp_event_maintenance(
     return recovered + len(retried) + dispatched, f"ucp event maintenance: recovered={recovered}, retried={len(retried)}, dispatched={dispatched}"
 
 
+
+async def _handler_performance_cycle_lifecycle(
+    job: ScheduledJob,
+    db: AsyncSession,
+    triggered_by: str,
+) -> tuple[int, str]:
+    from app.performance.cycle_service import PerformanceCycleService
+
+    locked = await PerformanceCycleService(db).process_due_locks()
+    return locked, f"performance cycle lifecycle: locked={locked}"
+
 JOB_HANDLERS: dict[str, HandlerFn] = {
     "datasource_sync": _handler_datasource_sync,
     "push_target": _handler_push_target,
@@ -293,6 +437,8 @@ JOB_HANDLERS: dict[str, HandlerFn] = {
     "snapshot_run": _handler_snapshot_run,
     "metric_compute": _handler_metric_compute,
     "quality_run": _handler_quality_run,
+    "quality_queue": _handler_quality_queue,
+    "performance_cycle_lifecycle": _handler_performance_cycle_lifecycle,
     "scd_run": _handler_scd_run,
     "ai_controlled_action_retention": _handler_ai_controlled_action_retention,
     "ucp_pipeline_trigger": _handler_ucp_pipeline_trigger,

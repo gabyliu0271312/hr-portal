@@ -1128,7 +1128,12 @@ async def _publish_ods_data_changed_event(
 
 
 async def _publish_sync_completed_event(
-    table_name: str, sync_status: str, sync_rows: int, sync_message: str, error_message: str,
+    table_name: str,
+    sync_status: str,
+    sync_rows: int,
+    sync_message: str,
+    error_message: str | None = None,
+    source_sync_batch_id: str | None = None,
 ) -> None:
     """发布 datasource_sync_completed 事件（独立 session）。"""
     try:
@@ -1144,6 +1149,7 @@ async def _publish_sync_completed_event(
                 "sync_rows": sync_rows,
                 "sync_message": sync_message,
                 "error_message": error_message,
+                "source_sync_batch_id": source_sync_batch_id,
                 "synced_at": dt.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
             }
             await publish_event(
@@ -1194,30 +1200,103 @@ async def sync_to_table(
     settings: dict,
     secrets: dict,
     db: AsyncSession,
+    source_sync_batch_id: str | None = None,
 ) -> tuple[int, str]:
-    """同步入口。失败时回滚并按物理表真实结构重建内存模型。
-
-    _ensure_columns 在新增列时会立即把模型反射进 DATA_TABLES，但 DDL 随事务
-    回滚后，内存模型可能残留本次未提交的列，导致后续数据视图查询引用不存在的列
-    （UndefinedColumnError）。这里在失败路径上重新反射，保证内存模型与库一致。
-    """
+    """执行主同步；主数据提交后，质量投递和事件发布均不反向改变同步结果。"""
     try:
-        inserted, msg = await _sync_to_table_impl(table_name, source_type, settings, secrets, db)
-        # 发布 datasource_sync_completed + 派生统一 ods_table_data_changed
-        await _publish_sync_completed_event(table_name, "success", inserted, msg, "")
-        await _publish_ods_data_changed_event(table_name, "bulk_replaced", inserted)
-        return inserted, msg
-    except Exception as e:
-        error_msg = str(e)[:500]
+        periods: set[str] = set()
+        inserted, msg = await _sync_to_table_impl(
+            table_name, source_type, settings, secrets, db, period_sink=periods,
+        )
+    except Exception as exc:
+        error_msg = str(exc)[:500]
         try:
             await db.rollback()
             if table_name in DATA_TABLES:
                 await register_source_table_model(db, table_name, force=True)
         except Exception:
             logger.exception("[sync] 失败回滚后重建模型失败 table=%s", table_name)
-        # 发布失败事件（独立 session）
-        await _publish_sync_completed_event(table_name, "failed", 0, "", error_msg)
+        await _publish_sync_completed_event(
+            table_name=table_name,
+            sync_status="failed",
+            sync_rows=0,
+            sync_message="",
+            error_message=error_msg,
+            source_sync_batch_id=source_sync_batch_id,
+        )
         raise
+
+    batch_id = source_sync_batch_id or f"direct:{table_name}:{uuid4().hex}"
+    post_commit_warnings: list[str] = []
+
+    try:
+        await _publish_sync_completed_event(
+            table_name=table_name,
+            sync_status="success",
+            sync_rows=inserted,
+            sync_message=msg,
+            source_sync_batch_id=batch_id,
+        )
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("[sync] success event publish failed after commit table=%s", table_name)
+        post_commit_warnings.append(f"同步成功事件发布失败: {str(exc)[:200]}")
+
+    try:
+        await schedule_quality_checks_after_sync(
+            table_name,
+            settings,
+            db,
+            periods=periods,
+            source_sync_batch_id=batch_id,
+        )
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("[sync] quality dispatch failed after commit table=%s batch=%s", table_name, batch_id)
+        await _record_quality_dispatch_failure(
+            table_name, settings, batch_id, periods, str(exc)[:1000],
+        )
+        post_commit_warnings.append("质量检查任务待补偿投递")
+
+    try:
+        await _publish_ods_data_changed_event(table_name, "bulk_replaced", inserted)
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("[sync] data changed event publish failed after commit table=%s", table_name)
+        post_commit_warnings.append(f"数据变更事件发布失败: {str(exc)[:200]}")
+
+    if post_commit_warnings:
+        return inserted, f"{msg}；" + "；".join(post_commit_warnings)
+    return inserted, msg
+
+
+async def _record_quality_dispatch_failure(
+    table_name: str,
+    settings: dict,
+    source_sync_batch_id: str,
+    periods: set[str],
+    error: str,
+) -> None:
+    """在主同步已提交后，用独立事务记录质量投递补偿任务。"""
+    from datetime import datetime
+    from app.core.db import get_session_factory
+    from app.datasources.models import SyncQualityDispatch
+
+    try:
+        async with get_session_factory()() as dispatch_db:
+            dispatch_db.add(SyncQualityDispatch(
+                table_name=table_name,
+                settings=settings or {},
+                source_sync_batch_id=source_sync_batch_id,
+                periods=sorted(periods),
+                status="pending",
+                attempts=0,
+                available_at=datetime.utcnow(),
+                last_error=error,
+            ))
+            await dispatch_db.commit()
+    except Exception:
+        logger.exception("[sync] failed to persist quality dispatch compensation table=%s batch=%s", table_name, source_sync_batch_id)
 
 
 async def _sync_to_table_impl(
@@ -1226,6 +1305,7 @@ async def _sync_to_table_impl(
     settings: dict,
     secrets: dict,
     db: AsyncSession,
+    period_sink: set[str] | None = None,
 ) -> tuple[int, str]:
     if table_name not in DATA_TABLES:
         raise RuntimeError(f"暂不支持的业务表: {table_name}")
@@ -1273,6 +1353,7 @@ async def _sync_to_table_impl(
 
     # 月度表：inject 类型自动注入期间实体列；field 类型接口自带，直接读第一行值
     period_cfg = PERIOD_TABLES.get(table_name)
+    actual_periods: set[str] = set()
     cur_ym = ""
     if period_cfg:
         period_col = period_cfg["period_col"]
@@ -1283,6 +1364,7 @@ async def _sync_to_table_impl(
                 rows = [
                     {**r, period_col: cur_ym} for r in rows if isinstance(r, dict)
                 ]
+            actual_periods.add(cur_ym)
         else:
             # field 模式：从第一行数据里读月份值（用于孤儿删除范围）
             if rows:
@@ -1321,11 +1403,15 @@ async def _sync_to_table_impl(
         for _ym, _grp in sorted(_groups.items()):
             inserted += await _dynamic_upsert(table_name, _grp, db, period_ym=_ym)
         if _groups:
+            actual_periods.update(_groups)
             cur_ym = max(_groups)
     else:
         inserted = await _dynamic_upsert(table_name, rows or [], db, period_ym=cur_ym)
 
     # 派发到树构建：成本中心 → cc_tree；组织单元 → org_tree
+    if period_sink is not None:
+        period_sink.update(actual_periods)
+
     if table_name == "cost_center_monthly":
         # 用落库后的当月数据建树（含本地手工「启用状态」+ 复制上月 + 新增默认启用），
         # 保证树的 is_active 与数据表一致
@@ -1374,3 +1460,76 @@ async def _sync_to_table_impl(
         logger.warning("[sync] finebi 自动刷新失败 table=%s: %s", table_name, e)
 
     return inserted, f"成功同步 {inserted} 行"
+
+async def schedule_quality_checks_after_sync(
+    table_name: str,
+    settings: dict,
+    db: AsyncSession,
+    *,
+    periods: set[str],
+    source_sync_batch_id: str | None = None,
+) -> None:
+    """同步提交成功后写入持久化质量任务队列。"""
+    from datetime import datetime
+    from uuid import uuid4
+    from app.reports.models import Report
+    from app.warehouse.models import WarehouseQualityRule, WarehouseQualityTask
+    from app.warehouse.quality_service import affected_relation_rule_ids, affected_table_rule_ids, upsert_quality_status
+
+    actual_periods = sorted({str(period).strip() for period in periods if str(period).strip()})
+    if not actual_periods:
+        logger.info("[sync] skip period quality dispatch without actual periods table=%s", table_name)
+        return
+
+    batch_id = source_sync_batch_id or f"manual:{table_name}:{uuid4().hex}"
+    relation_rule_ids = await affected_relation_rule_ids(db, table_name)
+    table_rule_ids = await affected_table_rule_ids(db, table_name)
+    now = datetime.utcnow()
+    rule_ids = list(dict.fromkeys([*relation_rule_ids, *table_rule_ids]))
+
+    for period in actual_periods:
+        await upsert_quality_status(
+            db, asset_type="table", asset_code=table_name, period=period,
+            status="pending", severity="info", source_sync_batch_id=batch_id,
+            message="同步完成，等待表级及关联质量检查",
+        )
+        if not table_rule_ids:
+            await upsert_quality_status(
+                db, asset_type="table", asset_code=table_name, period=period,
+                status="passed", severity="info", source_sync_batch_id=batch_id, checked_at=now,
+                message="未配置启用的表级质量规则",
+            )
+        for rule_id in rule_ids:
+            rule = await db.get(WarehouseQualityRule, rule_id)
+            if not rule:
+                continue
+            config = rule.rule_config or {}
+            relation_id = config.get("relation_id")
+            await upsert_quality_status(
+                db, asset_type="relation", asset_id=relation_id, period=period,
+                status="pending", severity="block" if rule.severity == "error" else "warn",
+                source_sync_batch_id=batch_id, message="同步完成，等待质量检查",
+            )
+            dataset_id = config.get("dataset_id")
+            if dataset_id:
+                await upsert_quality_status(
+                    db, asset_type="dataset", asset_id=int(dataset_id), period=period,
+                    status="pending", severity="info", source_sync_batch_id=batch_id,
+                    message="依赖表已更新，等待关系质量检查",
+                )
+                reports = (await db.execute(select(Report).where(Report.dataset_id == int(dataset_id)))).scalars().all()
+                for report in reports:
+                    await upsert_quality_status(
+                        db, asset_type="report", asset_id=report.id, period=period,
+                        status="pending", severity="info", source_sync_batch_id=batch_id,
+                        message="依赖表已更新，等待关系质量检查",
+                    )
+            dedupe_key = f"{rule_id}:{period}:{batch_id}"
+            await db.execute(
+                pg_insert(WarehouseQualityTask).values(
+                    rule_id=rule_id, period=period, source_sync_batch_id=batch_id,
+                    dedupe_key=dedupe_key, status="pending", attempts=0,
+                    available_at=now, created_at=now, updated_at=now,
+                ).on_conflict_do_nothing(index_elements=["dedupe_key"])
+            )
+    await db.commit()

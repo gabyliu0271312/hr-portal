@@ -87,3 +87,27 @@ class SyncRun(Base):
     rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     triggered_by: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+
+
+class SyncQualityDispatch(Base):
+    """同步已提交后的质量投递补偿记录。"""
+
+    __tablename__ = "sync_quality_dispatches"
+    __table_args__ = (
+        UniqueConstraint("source_sync_batch_id", name="uq_sync_quality_dispatch_batch"),
+        __import__("sqlalchemy").Index("ix_sync_quality_dispatch_pick", "status", "available_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    table_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    settings: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    source_sync_batch_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    periods: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=__import__("sqlalchemy").sql.func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=__import__("sqlalchemy").sql.func.now(), onupdate=__import__("sqlalchemy").sql.func.now(), nullable=False)
