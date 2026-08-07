@@ -429,34 +429,7 @@ onMounted(() => {
       <el-button type="primary" :icon="Plus" @click="openCreate">新建规则</el-button>
     </div>
 
-    <el-card shadow="never" class="status-card" v-loading="statusLoading">
-      <div class="status-toolbar">
-        <div class="status-title">质量状态</div>
-        <el-input v-model="qualityPeriod" placeholder="YYYYMM" maxlength="6" style="width: 130px" @keyup.enter="loadQualityStatuses" />
-        <el-button :icon="Refresh" @click="loadQualityStatuses">刷新状态</el-button>
-        <el-button :loading="rebuildingIndex" @click="handleRebuildIndex">重建索引</el-button>
-        <el-tag v-if="statusStale" type="warning">已过期</el-tag>
-      </div>
-      <el-alert v-if="statusError === 'forbidden'" title="无权限查看质量状态" type="warning" show-icon :closable="false" />
-      <el-alert v-else-if="statusError" :title="statusError" type="error" show-icon :closable="false" />
-      <el-empty v-else-if="!statusLoading && !qualityStatuses.length" description="当前期间暂无质量状态" />
-      <template v-else>
-        <el-row :gutter="12" class="status-summary">
-          <el-col v-for="key in ['pending', 'passed', 'warning', 'failed']" :key="key" :span="6">
-            <div class="status-summary-item" :class="`status-summary-item status-${key}`"><strong>{{ statusSummary[key] || 0 }}</strong><span>{{ qualityStatusLabel(key) }}</span></div>
-          </el-col>
-        </el-row>
-        <el-table :data="qualityStatuses" size="small" stripe max-height="330">
-          <el-table-column label="资产" min-width="180"><template #default="{ row }"><el-tag size="small" type="info">{{ row.asset_type }}</el-tag> {{ row.asset_code || ('#' + row.asset_id) }}</template></el-table-column>
-          <el-table-column prop="period" label="期间" width="90" />
-          <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="qualityStatusTagType(row.status)">{{ qualityStatusLabel(row.status) }}</el-tag></template></el-table-column>
-          <el-table-column prop="severity" label="严重级别" width="90" />
-          <el-table-column prop="duplicate_key_count" label="重复键" width="80" />
-          <el-table-column prop="missing_key_count" label="缺失键" width="80" />
-          <el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="showQualityImpact(row)">诊断详情</el-button></template></el-table-column>
-        </el-table>
-      </template>
-    </el-card>
+
 
     <!-- 告警摘要卡片 (Q0314) -->
     <el-row v-if="alerts" :gutter="16" style="margin-bottom: 12px">
@@ -574,6 +547,36 @@ onMounted(() => {
         style="margin-top: 12px; justify-content: flex-end"
         @change="load"
       />
+    </el-card>
+
+    <!-- 按期间质量状态 -->
+    <el-card shadow="never" class="status-card" v-loading="statusLoading">
+      <div class="status-toolbar">
+        <div class="status-title">质量状态</div>
+        <el-input v-model="qualityPeriod" placeholder="YYYYMM" maxlength="6" style="width: 130px" @keyup.enter="loadQualityStatuses" />
+        <el-button :icon="Refresh" @click="loadQualityStatuses">刷新状态</el-button>
+        <el-button :loading="rebuildingIndex" @click="handleRebuildIndex">重建索引</el-button>
+        <el-tag v-if="statusStale" type="warning">已过期</el-tag>
+      </div>
+      <el-alert v-if="statusError === 'forbidden'" title="无权限查看质量状态" type="warning" show-icon :closable="false" />
+      <el-alert v-else-if="statusError" :title="statusError" type="error" show-icon :closable="false" />
+      <el-empty v-else-if="!statusLoading && !qualityStatuses.length" description="当前期间暂无质量状态" />
+      <template v-else>
+        <el-row :gutter="12" class="status-summary">
+          <el-col v-for="key in ['pending', 'passed', 'warning', 'failed']" :key="key" :span="6">
+            <div class="status-summary-item" :class="`status-summary-item status-${key}`"><strong>{{ statusSummary[key] || 0 }}</strong><span>{{ qualityStatusLabel(key) }}</span></div>
+          </el-col>
+        </el-row>
+        <el-table :data="qualityStatuses" size="small" stripe max-height="330">
+          <el-table-column label="资产" min-width="180"><template #default="{ row }"><el-tag size="small" type="info">{{ row.asset_type }}</el-tag> {{ row.asset_code || ('#' + row.asset_id) }}</template></el-table-column>
+          <el-table-column prop="period" label="期间" width="90" />
+          <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="qualityStatusTagType(row.status)">{{ qualityStatusLabel(row.status) }}</el-tag></template></el-table-column>
+          <el-table-column prop="severity" label="严重级别" width="90" />
+          <el-table-column prop="duplicate_key_count" label="重复键" width="80" />
+          <el-table-column prop="missing_key_count" label="缺失键" width="80" />
+          <el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="showQualityImpact(row)">诊断详情</el-button></template></el-table-column>
+        </el-table>
+      </template>
     </el-card>
 
     <!-- ==================== 创建/编辑对话框 ==================== -->
