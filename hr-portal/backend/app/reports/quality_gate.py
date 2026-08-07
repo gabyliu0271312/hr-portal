@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -30,11 +30,27 @@ def _filter_value(filters: Iterable[Any], field: str) -> str | None:
 
 
 async def _governed_period_fields(db: AsyncSession, dataset_id: int) -> tuple[bool, set[str]]:
+    table_rows = (await db.execute(
+        select(DataSetTable.table_name, DataSetTable.alias).where(DataSetTable.dataset_id == dataset_id)
+    )).all()
+    table_names = {row.table_name for row in table_rows}
+    aliases = {row.alias for row in table_rows}
     rules = (await db.execute(select(WarehouseQualityRule).where(
         WarehouseQualityRule.enabled.is_(True),
-        WarehouseQualityRule.rule_type == "relation_cardinality",
     ))).scalars().all()
-    governed = any(int((rule.rule_config or {}).get("dataset_id") or 0) == dataset_id for rule in rules)
+    governed = any(
+        (
+            rule.asset_type == "relation"
+            and int((rule.rule_config or {}).get("dataset_id") or 0) == dataset_id
+        )
+        or (rule.asset_type == "table" and rule.asset_code in table_names)
+        or (
+            rule.asset_type == "field"
+            and (rule.asset_code.rsplit(".", 1)[0] if "." in rule.asset_code else "") in (table_names | aliases)
+        )
+        or (rule.asset_type == "dataset" and str(rule.asset_code) == str(dataset_id))
+        for rule in rules
+    )
     if not governed:
         return False, set()
 
@@ -105,6 +121,20 @@ async def validate_report_quality_period_field(
         )
 
 
+def evaluate_quality_gate(item: WarehouseQualityStatus | None, *, action: Literal["run", "export"]) -> str | None:
+    """Apply the default report quality policy and return an optional risk notice."""
+    if item is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="当前期间尚无数据质量结果，已阻止报表运行")
+    if item.status == "pending" and action == "export":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="当前期间正在进行数据质量校验，暂不允许导出")
+    if item.status == "failed" and item.severity == "block":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="当前期间数据质量检查未通过，暂不允许运行或导出")
+    if item.status == "failed" and item.severity == "warn":
+        return "当前期间存在数据质量风险，允许继续运行"
+    if item.status == "warning":
+        return "当前期间存在数据质量警告，允许继续运行"
+    return None
+
 async def enforce_report_quality(
     db: AsyncSession,
     *,
@@ -113,7 +143,8 @@ async def enforce_report_quality(
     config: Any,
     filters: Iterable[Any],
     explicit_period: str | None = None,
-) -> None:
+    action: Literal["run", "export"] = "run",
+) -> str | None:
     """Fail closed for governed reports when quality period/state is unavailable."""
     try:
         governed, period = await resolve_report_quality_period(
@@ -138,9 +169,4 @@ async def enforce_report_quality(
             detail="数据质量状态暂不可用，已阻止报表运行",
         ) from exc
 
-    if item is None:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="当前期间尚无数据质量结果，已阻止报表运行")
-    if item.status == "pending":
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="当前期间正在进行数据质量校验，已阻止报表运行")
-    if item.status == "failed" and item.severity == "block":
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="当前期间数据质量检查未通过，暂不允许运行或导出")
+    return evaluate_quality_gate(item, action=action)

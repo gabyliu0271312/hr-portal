@@ -13,6 +13,10 @@ import {
   runQualityRule,
   getQualityAlerts,
   listQualityRuns,
+  getQualityRelationMetadata,
+  listQualityStatus,
+  getQualityStatusImpact,
+  rebuildQualityStatusIndex,
   QUALITY_RULE_TYPE_LABELS,
   QUALITY_SEVERITY_LABELS,
 } from '@/api/warehouse'
@@ -22,6 +26,10 @@ import type {
   QualityRunTriggerResult,
   QualityRun,
   QualityAlertSummary,
+  QualityRelationMetadataDataset,
+  QualityRelationMetadataRelation,
+  QualityStatus,
+  QualityStatusImpact,
 } from '@/api/warehouse'
 import ScheduleConfigDialog from '@/components/common/ScheduleConfigDialog.vue'
 
@@ -43,6 +51,9 @@ const dialogVisible = ref(false)
 const dialogTitle = ref('新建质量规则')
 const editingId = ref<number | null>(null)
 const formRef = ref<any>(null)
+const qualityMetadata = ref<QualityRelationMetadataDataset[]>([])
+const qualityMetadataLoading = ref(false)
+
 const form = reactive<QualityRuleCreatePayload>({
   asset_type: 'table',
   asset_code: '',
@@ -59,6 +70,75 @@ const runLoading = ref(false)
 
 // 告警摘要
 const alerts = ref<QualityAlertSummary | null>(null)
+
+const statusLoading = ref(false)
+const statusError = ref('')
+const statusStale = ref(false)
+const qualityPeriod = ref(new Date().toISOString().slice(0, 7).replace('-', ''))
+const qualityStatuses = ref<QualityStatus[]>([])
+const impactVisible = ref(false)
+const impactLoading = ref(false)
+const impactError = ref('')
+const selectedStatus = ref<QualityStatus | null>(null)
+const selectedImpact = ref<QualityStatusImpact | null>(null)
+const rebuildingIndex = ref(false)
+
+const statusSummary = computed(() => qualityStatuses.value.reduce((summary, item) => {
+  summary[item.status] = (summary[item.status] || 0) + 1
+  return summary
+}, { pending: 0, passed: 0, warning: 0, failed: 0 } as Record<string, number>))
+
+function qualityStatusLabel(status: string) {
+  return ({ pending: '待检查', passed: '通过', warning: '警告', failed: '失败' } as Record<string, string>)[status] || status
+}
+function qualityStatusTagType(status: string) {
+  return ({ pending: 'info', passed: 'success', warning: 'warning', failed: 'danger' } as Record<string, string>)[status] || 'info'
+}
+function isStatusStale(item: QualityStatus) {
+  if (!item.checked_at) return true
+  return Date.now() - new Date(item.checked_at).getTime() > 24 * 60 * 60 * 1000
+}
+async function loadQualityStatuses() {
+  statusLoading.value = true
+  statusError.value = ''
+  try {
+    const response = await listQualityStatus({ period: qualityPeriod.value })
+    qualityStatuses.value = response.items as QualityStatus[]
+    statusStale.value = qualityStatuses.value.some(isStatusStale)
+  } catch (error: any) {
+    qualityStatuses.value = []
+    statusError.value = error?.response?.status === 403 ? 'forbidden' : (error?.response?.data?.detail || '质量状态暂时不可用')
+  } finally {
+    statusLoading.value = false
+  }
+}
+async function showQualityImpact(item: QualityStatus) {
+  selectedStatus.value = item
+  selectedImpact.value = null
+  impactError.value = ''
+  impactVisible.value = true
+  impactLoading.value = true
+  try {
+    selectedImpact.value = await getQualityStatusImpact({ asset_type: item.asset_type, asset_id: item.asset_id, asset_code: item.asset_code, period: item.period })
+  } catch (error: any) {
+    impactError.value = error?.response?.status === 403 ? '无权限查看质量影响范围' : (error?.response?.data?.detail || '加载质量影响范围失败')
+  } finally {
+    impactLoading.value = false
+  }
+}
+async function handleRebuildIndex() {
+  if (rebuildingIndex.value) return
+  rebuildingIndex.value = true
+  try {
+    const result = await rebuildQualityStatusIndex()
+    ElMessage.success(`索引已刷新，共 ${result.rebuilt_count} 条状态`)
+    await loadQualityStatuses()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '重建索引失败')
+  } finally {
+    rebuildingIndex.value = false
+  }
+}
 
 // 运行历史 + 重跑
 const runsVisible = ref(false)
@@ -77,7 +157,7 @@ async function showRuns(ruleId: number) {
   runsVisible.value = true
 }
 
-async function retryQualityRun(ruleId: number) {
+async function retryQualityRun(ruleId: number, period?: string) {
   retrying.value.add(ruleId)
   try {
     await runQualityRule(ruleId)
@@ -104,6 +184,42 @@ function openSchedule(rule: QualityRule) {
 }
 
 // ==================== 计算 ====================
+
+const relationDatasets = computed(() => qualityMetadata.value)
+const selectedQualityDataset = computed(() => relationDatasets.value.find(d => d.id === Number(form.rule_config?.dataset_id)))
+const relationOptions = computed(() => selectedQualityDataset.value?.relations || [])
+const selectedQualityRelation = computed<QualityRelationMetadataRelation | undefined>(() =>
+  relationOptions.value.find(r => r.id === Number(form.rule_config?.relation_id))
+)
+
+async function loadQualityMetadata() {
+  qualityMetadataLoading.value = true
+  try {
+    qualityMetadata.value = (await getQualityRelationMetadata()).datasets
+  } catch {
+    qualityMetadata.value = []
+    ElMessage.error('加载关系元数据失败，无法配置关系质量规则')
+  } finally {
+    qualityMetadataLoading.value = false
+  }
+}
+
+function onQualityDatasetChange() {
+  form.rule_config.relation_id = null
+  form.rule_config.left_period_column = ''
+  form.rule_config.right_period_column = ''
+  form.asset_type = 'relation'
+}
+
+function onQualityRelationChange() {
+  const relation = selectedQualityRelation.value
+  if (!relation) return
+  form.asset_type = 'relation'
+  form.asset_code = String(relation.id)
+  form.rule_config.expected_cardinality = relation.cardinality
+  form.rule_config.left_period_column = relation.left_period_column || ''
+  form.rule_config.right_period_column = relation.right_period_column || ''
+}
 
 const ruleTypeOptions = computed(() =>
   Object.entries(QUALITY_RULE_TYPE_LABELS).map(([value, label]) => ({ value, label }))
@@ -169,6 +285,7 @@ function openEdit(rule: QualityRule) {
 }
 
 function onRuleTypeChange() {
+  if (form.rule_type === 'relation_cardinality') form.asset_type = 'relation'
   // 根据 rule_type 重置 rule_config 默认值
   if (editingId.value) return // 编辑时不重置
   const defaults: Record<string, any> = {
@@ -178,6 +295,7 @@ function onRuleTypeChange() {
     date_format: { column: '', format: '%Y-%m-%d' },
     referential_integrity: { column: '', ref_table: '', ref_column: '' },
     custom_sql: { sql: '' },
+    relation_cardinality: { dataset_id: null, relation_id: null, expected_cardinality: 'N:1', period_column: '', left_period_column: '', right_period_column: '', missing_key_severity: 'warn' },
   }
   form.rule_config = defaults[form.rule_type] || {}
 }
@@ -236,11 +354,30 @@ async function handleDelete(rule: QualityRule) {
 }
 
 async function handleRun(rule: QualityRule) {
+  let period: string | undefined
+  if (rule.rule_type === 'relation_cardinality') {
+    try {
+      const result = await ElMessageBox.prompt(
+        '关系基数检查必须指定期间（YYYYMM）',
+        '选择检查期间',
+        {
+          inputValue: String(rule.rule_config?.period || ''),
+          inputPattern: /^\d{6}$/,
+          inputErrorMessage: '请输入 6 位期间，例如 202607',
+          confirmButtonText: '执行检查',
+          cancelButtonText: '取消',
+        },
+      )
+      period = result.value.trim()
+    } catch {
+      return
+    }
+  }
   runLoading.value = true
   runResult.value = null
   runDialogVisible.value = true
   try {
-    runResult.value = await runQualityRule(rule.id)
+    runResult.value = await runQualityRule(rule.id, period ? { period } : {})
     await load()
     await loadAlerts()
   } catch (e: any) {
@@ -280,6 +417,8 @@ function runStatusLabel(status: string | null) {
 onMounted(() => {
   load()
   loadAlerts()
+  loadQualityMetadata()
+  loadQualityStatuses()
 })
 </script>
 
@@ -289,6 +428,35 @@ onMounted(() => {
       <h2>数据质量</h2>
       <el-button type="primary" :icon="Plus" @click="openCreate">新建规则</el-button>
     </div>
+
+    <el-card shadow="never" class="status-card" v-loading="statusLoading">
+      <div class="status-toolbar">
+        <div class="status-title">质量状态</div>
+        <el-input v-model="qualityPeriod" placeholder="YYYYMM" maxlength="6" style="width: 130px" @keyup.enter="loadQualityStatuses" />
+        <el-button :icon="Refresh" @click="loadQualityStatuses">刷新状态</el-button>
+        <el-button :loading="rebuildingIndex" @click="handleRebuildIndex">重建索引</el-button>
+        <el-tag v-if="statusStale" type="warning">已过期</el-tag>
+      </div>
+      <el-alert v-if="statusError === 'forbidden'" title="无权限查看质量状态" type="warning" show-icon :closable="false" />
+      <el-alert v-else-if="statusError" :title="statusError" type="error" show-icon :closable="false" />
+      <el-empty v-else-if="!statusLoading && !qualityStatuses.length" description="当前期间暂无质量状态" />
+      <template v-else>
+        <el-row :gutter="12" class="status-summary">
+          <el-col v-for="key in ['pending', 'passed', 'warning', 'failed']" :key="key" :span="6">
+            <div class="status-summary-item" :class="`status-summary-item status-${key}`"><strong>{{ statusSummary[key] || 0 }}</strong><span>{{ qualityStatusLabel(key) }}</span></div>
+          </el-col>
+        </el-row>
+        <el-table :data="qualityStatuses" size="small" stripe max-height="330">
+          <el-table-column label="资产" min-width="180"><template #default="{ row }"><el-tag size="small" type="info">{{ row.asset_type }}</el-tag> {{ row.asset_code || ('#' + row.asset_id) }}</template></el-table-column>
+          <el-table-column prop="period" label="期间" width="90" />
+          <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="qualityStatusTagType(row.status)">{{ qualityStatusLabel(row.status) }}</el-tag></template></el-table-column>
+          <el-table-column prop="severity" label="严重级别" width="90" />
+          <el-table-column prop="duplicate_key_count" label="重复键" width="80" />
+          <el-table-column prop="missing_key_count" label="缺失键" width="80" />
+          <el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="showQualityImpact(row)">诊断详情</el-button></template></el-table-column>
+        </el-table>
+      </template>
+    </el-card>
 
     <!-- 告警摘要卡片 (Q0314) -->
     <el-row v-if="alerts" :gutter="16" style="margin-bottom: 12px">
@@ -416,6 +584,7 @@ onMounted(() => {
             <el-option label="数据表 (table)" value="table" />
             <el-option label="数据集 (dataset)" value="dataset" />
             <el-option label="字段 (field)" value="field" />
+            <el-option label="关联关系 (relation)" value="relation" />
           </el-select>
         </el-form-item>
         <el-form-item label="资产编码" required>
@@ -455,6 +624,33 @@ onMounted(() => {
               <el-option label="%Y-%m-%d %H:%i:%s (日期时间)" value="%Y-%m-%d %H:%i:%s" />
             </el-select>
           </el-form-item>
+        </template>
+        <template v-else-if="form.rule_type === 'relation_cardinality'">
+          <el-alert title="关系元数据由数据集配置提供，期间字段和关联键不可手工输入。" type="info" show-icon :closable="false" style="margin-bottom: 12px" />
+          <el-form-item label="数据集" required>
+            <el-select v-model="form.rule_config.dataset_id" filterable :loading="qualityMetadataLoading" style="width: 100%" @change="onQualityDatasetChange">
+              <el-option v-for="dataset in relationDatasets" :key="dataset.id" :label="dataset.label || dataset.name" :value="dataset.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="关系" required>
+            <el-select v-model="form.rule_config.relation_id" filterable :disabled="!form.rule_config.dataset_id" style="width: 100%" @change="onQualityRelationChange">
+              <el-option v-for="relation in relationOptions" :key="relation.id" :label="'#' + relation.id + ' ' + relation.left_alias + ' → ' + relation.right_alias + ' (' + relation.cardinality + ')'" :value="relation.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="声明基数" required>
+            <el-input :model-value="selectedQualityRelation?.cardinality || ''" disabled />
+          </el-form-item>
+          <el-form-item label="左期间字段" required>
+            <el-select v-model="form.rule_config.left_period_column" style="width: 100%" :disabled="!selectedQualityRelation">
+              <el-option v-if="selectedQualityRelation?.left_period_column" :label="selectedQualityRelation.left_period_column" :value="selectedQualityRelation.left_period_column" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="右期间字段" required>
+            <el-select v-model="form.rule_config.right_period_column" style="width: 100%" :disabled="!selectedQualityRelation">
+              <el-option v-if="selectedQualityRelation?.right_period_column" :label="selectedQualityRelation.right_period_column" :value="selectedQualityRelation.right_period_column" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="缺失策略"><el-select v-model="form.rule_config.missing_key_severity" style="width: 100%"><el-option label="警告" value="warn" /><el-option label="阻断" value="error" /></el-select></el-form-item>
         </template>
         <template v-else-if="form.rule_type === 'referential_integrity'">
           <el-alert title="引用完整性检查暂不支持执行，仅可保存配置。将在后续版本中支持。" type="info" show-icon :closable="false"
@@ -521,7 +717,7 @@ onMounted(() => {
               v-if="row.status === 'fail' || row.status === 'error'"
               text size="small" type="warning" :icon="RefreshRight"
               :loading="retrying.has(row.rule_id)"
-              @click="retryQualityRun(row.rule_id)"
+              @click="retryQualityRun(row.rule_id, row.period || undefined)"
             >重跑</el-button>
           </template>
         </el-table-column>
@@ -529,12 +725,38 @@ onMounted(() => {
     </el-dialog>
 
     <!-- 定时配置弹窗 -->
+    <el-drawer v-model="impactVisible" title="质量诊断与影响范围" size="520px">
+      <div v-loading="impactLoading">
+        <el-alert v-if="impactError" :title="impactError" type="error" show-icon :closable="false" />
+        <template v-else-if="selectedStatus">
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="资产">{{ selectedStatus.asset_type }} / {{ selectedStatus.asset_code || selectedStatus.asset_id }}</el-descriptions-item>
+            <el-descriptions-item label="期间">{{ selectedStatus.period || '未指定' }}</el-descriptions-item>
+            <el-descriptions-item label="状态"><el-tag :type="qualityStatusTagType(selectedStatus.status)">{{ qualityStatusLabel(selectedStatus.status) }}</el-tag></el-descriptions-item>
+            <el-descriptions-item label="检查数">{{ selectedStatus.checked_count }}</el-descriptions-item>
+            <el-descriptions-item label="失败数">{{ selectedStatus.failed_count }}</el-descriptions-item>
+            <el-descriptions-item label="重复键数">{{ selectedStatus.duplicate_key_count }}</el-descriptions-item>
+            <el-descriptions-item label="缺失键数">{{ selectedStatus.missing_key_count }}</el-descriptions-item>
+            <el-descriptions-item label="影响数据集">{{ selectedImpact?.dataset_count ?? '-' }}</el-descriptions-item>
+            <el-descriptions-item label="影响报表">{{ selectedImpact?.report_count ?? '-' }}</el-descriptions-item>
+          </el-descriptions>
+          <el-divider content-position="left">哈希样例</el-divider>
+          <el-tag v-for="(sample, index) in (selectedStatus.sample_key_hashes || [])" :key="index" type="info" class="hash-tag">{{ sample.key_hash || sample.hash || JSON.stringify(sample) }}</el-tag>
+          <el-empty v-if="!(selectedStatus.sample_key_hashes || []).length" description="暂无哈希样例" />
+          <el-divider content-position="left">影响范围</el-divider>
+          <el-tag v-for="dataset in (selectedImpact?.datasets || [])" :key="'d-' + dataset.id" class="scope-tag">数据集：{{ dataset.label || dataset.name }}</el-tag>
+          <el-tag v-for="report in (selectedImpact?.reports || [])" :key="'r-' + report.id" class="scope-tag" type="success">报表：{{ report.name }}</el-tag>
+        </template>
+      </div>
+    </el-drawer>
+
     <ScheduleConfigDialog
       v-model:visible="scheduleVisible"
       kind="quality_run"
       :business-id="scheduleBizId"
       :business-name="scheduleBizName"
       :payload="{ rule_id: scheduleBizId }"
+      :period-required="rules.find(r => r.id === scheduleBizId)?.rule_type === 'relation_cardinality'"
     />
 
     <!-- ==================== 运行结果对话框 ==================== -->
@@ -568,6 +790,19 @@ onMounted(() => {
 .page-header h2 { margin: 0; font-size: 20px; }
 
 .filter-card { margin-bottom: 12px; }
+
+.status-card { margin-bottom: 12px; }
+.status-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.status-title { font-size: 16px; font-weight: 600; margin-right: auto; }
+.status-summary { margin-bottom: 12px; }
+.status-summary-item { border-left: 3px solid #909399; padding: 10px 14px; background: #f5f7fa; }
+.status-summary-item strong { display: block; font-size: 22px; }
+.status-summary-item span { color: #606266; font-size: 12px; }
+.status-passed { border-color: #67c23a; }
+.status-warning { border-color: #e6a23c; }
+.status-failed { border-color: #f56c6c; }
+.status-pending { border-color: #909399; }
+.hash-tag, .scope-tag { margin: 0 6px 6px 0; }
 
 .alert-card { text-align: center; }
 .alert-num { font-size: 28px; font-weight: 600; color: #303133; }
