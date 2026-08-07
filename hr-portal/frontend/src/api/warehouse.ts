@@ -919,6 +919,27 @@ export interface QualityRule {
 }
 
 /** 质量规则创建入参 */
+export interface QualityRelationMetadataColumn { code: string; label: string }
+export interface QualityRelationMetadataRelation {
+  id: number
+  left_alias: string
+  right_alias: string
+  left_table: string
+  right_table: string
+  cardinality: string
+  keys: { left: string; right: string }[]
+  left_columns: QualityRelationMetadataColumn[]
+  right_columns: QualityRelationMetadataColumn[]
+  left_period_column: string | null
+  right_period_column: string | null
+}
+export interface QualityRelationMetadataDataset {
+  id: number
+  name: string
+  label: string | null
+  relations: QualityRelationMetadataRelation[]
+}
+
 export interface QualityRuleCreatePayload {
   asset_type: string
   asset_code: string
@@ -942,7 +963,6 @@ export interface QualityRun {
   status: string
   checked_count: number
   failed_count: number
-  sample_rows: Record<string, any>[] | null
   message: string | null
   started_at: string | null
   finished_at: string | null
@@ -970,6 +990,7 @@ export const QUALITY_RULE_TYPE_LABELS: Record<string, string> = {
   enum: '枚举检查',
   date_format: '日期格式检查',
   referential_integrity: '引用完整性',
+  relation_cardinality: '关系基数检查',
   custom_sql: '自定义 SQL',
 }
 
@@ -995,6 +1016,11 @@ export function listQualityRules(params: {
 /** 质量规则详情 */
 export function getQualityRule(id: number): Promise<QualityRule> {
   return api.get(`/warehouse/quality-rules/${id}`).then(r => r.data)
+}
+
+/** 关系质量规则元数据 */
+export function getQualityRelationMetadata(): Promise<{ datasets: QualityRelationMetadataDataset[] }> {
+  return api.get('/warehouse/quality-rules/relation-metadata').then(r => r.data)
 }
 
 /** 创建质量规则 */
@@ -1023,8 +1049,14 @@ export function deleteQualityRule(id: number): Promise<void> {
 }
 
 /** 手动执行质量规则 */
-export function runQualityRule(id: number): Promise<QualityRunTriggerResult> {
-  return api.post(`/warehouse/quality-rules/${id}/run`).then(r => r.data)
+export interface QualityRunRequest {
+  period?: string
+  source_sync_batch_id?: string
+  force?: boolean
+}
+
+export function runQualityRule(id: number, payload: QualityRunRequest = {}): Promise<QualityRunTriggerResult> {
+  return api.post(`/warehouse/quality-rules/${id}/run`, payload).then(r => r.data)
 }
 
 /** 质量运行历史列表 */
@@ -1046,6 +1078,59 @@ export function getQualityRun(id: number): Promise<QualityRun> {
 /** 质量告警摘要 */
 export function getQualityAlerts(): Promise<QualityAlertSummary> {
   return api.get('/warehouse/quality-alerts').then(r => r.data)
+}
+
+/** 按资产期间查询质量状态 */
+export function listQualityStatus(params: { asset_type?: string; asset_id?: number; period?: string }): Promise<{ items: any[] }> {
+  return api.get('/warehouse/quality-status', { params }).then(r => r.data)
+}
+
+export interface QualityStatus {
+  id: number
+  asset_type: string
+  asset_id: number | null
+  asset_code: string | null
+  period: string
+  status: 'pending' | 'passed' | 'warning' | 'failed'
+  severity: 'info' | 'warn' | 'block'
+  source_sync_batch_id: string | null
+  checked_at: string | null
+  checked_count: number
+  failed_count: number
+  duplicate_key_count: number
+  missing_key_count: number
+  sample_key_hashes: Array<Record<string, string>>
+  message: string | null
+}
+
+export interface QualityStatusImpact {
+  asset_type: string
+  asset_id: number | null
+  asset_code: string | null
+  period: string | null
+  status: QualityStatus | null
+  dataset_count: number
+  report_count: number
+  datasets: Array<{ id: number; name: string; label: string | null }>
+  reports: Array<{ id: number; name: string; dataset_id: number }>
+  diagnostic: {
+    run_id: number
+    status: string
+    checked_count: number
+    failed_count: number
+    duplicate_key_count: number
+    missing_key_count: number
+    sample_key_hashes: Array<Record<string, string>>
+    message: string | null
+  } | null
+}
+
+export function getQualityStatusImpact(params: { asset_type: string; asset_id?: number | null; asset_code?: string | null; period?: string | null }): Promise<QualityStatusImpact> {
+  return api.get('/warehouse/quality-status/impact', { params }).then(r => r.data)
+}
+
+export function rebuildQualityStatusIndex(): Promise<{ status: string; rebuilt_count: number; message: string }> {
+  return api.post('/warehouse/quality-status/rebuild-index').then(r => r.data)
 }
 
 // ==================== UCP 薄代理 API (Q04) ====================
