@@ -5,7 +5,7 @@ import sqlalchemy as sa
 
 
 revision = "0192_sync_quality_dispatch_periods"
-down_revision = "0191_performance_project_shell"
+down_revision = "0190_merge_quality_dispatch_heads"
 branch_labels = None
 depends_on = None
 
