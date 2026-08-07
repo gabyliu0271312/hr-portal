@@ -2,7 +2,8 @@
 import { computed, ref } from 'vue'
 import { ArrowDown, ArrowRight, Close, Delete, Edit, Filter, Hide, Plus, Rank, Search, View } from '@element-plus/icons-vue'
 import type { ColumnInfo } from '@/api/data'
-import type { AggregationFunc, ColumnSetting, DefaultSplitRule, FilterCond, FilterLogic, SortCond } from '@/api/reports'
+import type { AggregationFunc, ColumnSetting, DefaultSplitRule, DisplayFormat, DisplayFormatType, DisplayRoundingRule, DisplayUnit, FilterCond, FilterLogic, SortCond } from '@/api/reports'
+import { DISPLAY_UNIT_LABELS, formatReportValue, resolveDisplayFormat } from '@/utils/reportNumberFormat'
 import { REPORT_AGG_FUNCS, reportAggLabel } from '@/constants/reportAggregation'
 import ReportFilterList from './ReportFilterList.vue'
 
@@ -120,6 +121,15 @@ const metricFilterOpen = ref(false)
 const metricFilterCol = ref<ColumnInfo | null>(null)
 const metricFilterDraft = ref<FilterCond[]>([])
 const metricFilterLogicDraft = ref<FilterLogic | null>(null)
+const displayFormatOpen = ref(false)
+const displayFormatCol = ref<ColumnInfo | null>(null)
+const displayFormatDraft = ref<DisplayFormat>({ type: 'default' })
+const DISPLAY_UNIT_OPTIONS = Object.entries(DISPLAY_UNIT_LABELS).map(([value, label]) => ({ value: value as DisplayUnit, label }))
+const ROUNDING_OPTIONS = [
+  { value: 'half_up' as DisplayRoundingRule, label: '四舍五入' },
+  { value: 'ceil' as DisplayRoundingRule, label: '向上取整' },
+  { value: 'floor' as DisplayRoundingRule, label: '向下取整' },
+]
 const advancedMeta = computed(() => {
   const map = {
     rules: {
@@ -353,6 +363,36 @@ function confirmMetricFilterDialog() {
 
 function resetDisplayName(code: string) {
   updateSetting(code, { display_name: '' })
+}
+
+function defaultFormatDraft(type: DisplayFormatType): DisplayFormat {
+  if (type === 'default') return { type }
+  if (type === 'percent') return { type, precision: 2, rounding_rule: 'half_up' }
+  return { type, precision: 2, unit: 'none', thousands_separator: true, rounding_rule: 'half_up' }
+}
+
+function openDisplayFormatDialog(col: ColumnInfo & { key?: string }) {
+  displayFormatCol.value = col
+  const saved = colSetting(col.key || col.code).display_format
+  displayFormatDraft.value = saved ? { ...saved } : defaultFormatDraft('default')
+  displayFormatOpen.value = true
+}
+
+function setDisplayFormatType(type: DisplayFormatType) {
+  displayFormatDraft.value = defaultFormatDraft(type)
+}
+
+const displayFormatPreview = computed(() => formatReportValue('1234567.891234', displayFormatDraft.value))
+const displayFormatSummary = computed(() => {
+  const value = resolveDisplayFormat(displayFormatDraft.value)
+  if (value.type === 'default') return '四舍五入，保留 2 位小数，使用千分位分隔符'
+  return value.type === 'percent' ? `保留 ${value.precision} 位小数，${ROUNDING_OPTIONS.find((item) => item.value === value.rounding_rule)?.label}` : `保留 ${value.precision} 位小数，${DISPLAY_UNIT_LABELS[value.unit]}，${value.thousands_separator ? '千分位' : '不使用千分位'}`
+})
+
+function confirmDisplayFormatDialog() {
+  if (!displayFormatCol.value) return
+  updateSetting((displayFormatCol.value as ColumnInfo & { key?: string }).key || displayFormatCol.value.code, { display_format: { ...displayFormatDraft.value } })
+  displayFormatOpen.value = false
 }
 
 function toggleHidden(code: string) {
@@ -733,6 +773,12 @@ function openAdvanced(tab: AdvancedTab) {
                         <div class="menu-note">只影响当前指标，不过滤整张报表。</div>
                       </div>
 
+                      <div v-if="isMeasureLike(col)" class="menu-block">
+                        <button class="menu-command" @click="openDisplayFormatDialog(col)">
+                          显示格式...
+                        </button>
+                      </div>
+
                       <div class="menu-block">
                         <div class="menu-title">设置显示名</div>
                         <div class="menu-row">
@@ -810,6 +856,57 @@ function openAdvanced(tab: AdvancedTab) {
         <slot name="filters" />
       </section>
     </main>
+
+    <el-dialog
+      v-model="displayFormatOpen"
+      :title="`${displayFormatCol ? displayLabel(displayFormatCol) : '指标'} · 显示格式`"
+      width="560px"
+      destroy-on-close
+    >
+      <div class="display-format-dialog">
+        <el-radio-group :model-value="displayFormatDraft.type" @update:model-value="setDisplayFormatType">
+          <el-radio value="default">默认格式</el-radio>
+          <el-radio value="number">数值</el-radio>
+          <el-radio value="percent">百分比</el-radio>
+        </el-radio-group>
+
+        <div v-if="displayFormatDraft.type === 'default'" class="display-format-default">
+          四舍五入，保留 2 位小数，使用千分位分隔符
+        </div>
+
+        <el-form v-else label-width="92px" class="display-format-form">
+          <el-form-item label="取整规则">
+            <el-select v-model="displayFormatDraft.rounding_rule" style="width: 180px">
+              <el-option v-for="item in ROUNDING_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="保留小数">
+            <el-input-number v-model="displayFormatDraft.precision" :min="0" :max="6" :step="1" controls-position="right" />
+            <span class="format-unit-text">位</span>
+          </el-form-item>
+          <template v-if="displayFormatDraft.type === 'number'">
+            <el-form-item label="数据单位">
+              <el-select v-model="displayFormatDraft.unit" style="width: 180px">
+                <el-option v-for="item in DISPLAY_UNIT_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="显示方式">
+              <el-checkbox v-model="displayFormatDraft.thousands_separator">使用千分位分隔符</el-checkbox>
+            </el-form-item>
+          </template>
+        </el-form>
+
+        <div class="display-format-preview">
+          <span>示例值 1,234,567.891234</span>
+          <strong>{{ displayFormatPreview }}</strong>
+          <small>{{ displayFormatSummary }}</small>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="displayFormatOpen = false">取消</el-button>
+        <el-button type="primary" @click="confirmDisplayFormatDialog">确定</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="metricFilterOpen"
@@ -1441,6 +1538,35 @@ function openAdvanced(tab: AdvancedTab) {
   color: #fff;
   font-size: 11px;
   font-weight: 800;
+}
+.display-format-dialog {
+  display: grid;
+  gap: 18px;
+}
+.display-format-default,
+.display-format-preview {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 8px;
+  background: var(--color-bg-soft);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.display-format-preview strong {
+  color: var(--color-text-primary);
+  font-size: 20px;
+}
+.display-format-preview small {
+  color: var(--color-text-placeholder);
+}
+.display-format-form :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+.format-unit-text {
+  margin-left: 8px;
+  color: var(--color-text-secondary);
 }
 .metric-filter-dialog :deep(.el-dialog__body) {
   padding-top: 8px;

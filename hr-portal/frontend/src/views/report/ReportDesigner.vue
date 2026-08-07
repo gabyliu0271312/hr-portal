@@ -54,6 +54,7 @@ const form = reactive({
   default_split_rule: { enabled: false, factors: [] } as DefaultSplitRule,
   rounding_group_by: [] as string[],
   filters: [] as any[],
+  quality_period_field: '',
   filter_logic: null as FilterLogic | null,
   sorts: [] as any[],
   value_rules: [] as { target: string; factors: string[] }[],
@@ -255,6 +256,7 @@ async function loadReport() {
       factors: r.config.default_split_rule?.factors ?? (r.config.default_split_rule?.factor ? [r.config.default_split_rule.factor] : []),
     }
     form.filters = (r.config.filters ?? []).map((f) => ({ ...f }))
+    form.quality_period_field = r.config.quality_period_field || ''
     form.filter_logic = r.config.filter_logic ?? null
     form.sorts = (r.config.sorts ?? []).map((s) => ({ ...s }))
     // 拆分规则只由 column_settings + default_split_rule 派生（见 buildPayload），
@@ -338,6 +340,7 @@ function resetForm() {
   form.default_split_rule = { enabled: false, factors: [] }
   form.rounding_group_by = []
   form.filters = []
+  form.quality_period_field = ''
   form.filter_logic = null
   form.sorts = []
   form.value_rules = []
@@ -473,6 +476,7 @@ function buildPayload() {
       column_settings: normalizeColumnSettings(),
       default_split_rule: form.default_split_rule,
       filters: normalizeFilters(form.filters, true),
+      quality_period_field: form.quality_period_field || null,
       filter_logic: filterLogic,
       sorts: form.sorts.filter((s) => s.column),
       value_rules: valueRules,
@@ -899,6 +903,7 @@ watch(
             :page="previewPage"
             :page-size="previewPageSize"
             :loading="previewing"
+            :column-settings="form.column_settings"
             @update:page="previewPage = $event"
             @update:page-size="previewPageSize = $event"
             @page-change="preview"
@@ -926,6 +931,12 @@ watch(
           :current-dataset="currentDataset"
           @dataset-change="onDatasetChange"
         />
+        <el-form-item label="质量检查期间字段">
+          <el-select v-model="form.quality_period_field" clearable filterable placeholder="仅受治理报表需要配置" style="width: 100%">
+            <el-option v-for="column in allColumns" :key="column.code" :label="column.label || column.code" :value="column.code" />
+          </el-select>
+          <div style="font-size: 12px; color: #909399; margin-top: 4px">字段必须是数据集内已登记的期间字段；多个期间字段时必须显式选择。</div>
+        </el-form-item>
       </el-form>
     </el-drawer>
 

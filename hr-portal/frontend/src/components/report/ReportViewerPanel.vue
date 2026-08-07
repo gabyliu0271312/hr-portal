@@ -245,6 +245,7 @@ defineExpose({ run })
       :page="page"
       :page-size="pageSize"
       :loading="loading"
+      :column-settings="report.config.column_settings || {}"
       fill-viewport
       :page-sizes="[20, 50, 100]"
       @update:page="page = $event"

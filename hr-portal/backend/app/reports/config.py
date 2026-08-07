@@ -77,6 +77,7 @@ def _columns_to_instance_ids(columns: list) -> list[str]:
 class ReportConfig(BaseModel):
     columns: list[str | ColumnInstance] = Field(default_factory=list)
     filters: list[FilterCond] = Field(default_factory=list)
+    quality_period_field: str | None = None
     sorts: list[SortCond] = Field(default_factory=list)
     value_rules: list[dict] = Field(default_factory=list)
     column_settings: dict[str, dict] = Field(default_factory=dict)
@@ -88,6 +89,38 @@ class ReportConfig(BaseModel):
     rounding_corrections: list[dict] = Field(default_factory=list)
     filter_logic: dict | None = None
     list_lookup: dict = Field(default_factory=dict)
+
+    @field_validator("column_settings")
+    @classmethod
+    def validate_display_formats(cls, settings: dict[str, dict]) -> dict[str, dict]:
+        valid_types = {"default", "number", "percent"}
+        valid_rules = {"half_up", "ceil", "floor"}
+        valid_units = {"none", "thousand", "ten_thousand", "million", "ten_million", "hundred_million", "K", "M"}
+        for instance_id, setting in settings.items():
+            if not isinstance(setting, dict):
+                raise ValueError(f"列设置必须是对象: {instance_id}")
+            display_format = setting.get("display_format")
+            if display_format is None:
+                continue
+            if not isinstance(display_format, dict):
+                raise ValueError(f"显示格式必须是对象: {instance_id}")
+            kind = display_format.get("type", "default")
+            if kind not in valid_types:
+                raise ValueError(f"显示格式类型非法: {instance_id}")
+            if kind == "default":
+                if any(key in display_format for key in ("precision", "unit", "thousands_separator", "rounding_rule")):
+                    raise ValueError(f"默认显示格式不允许自定义参数: {instance_id}")
+                continue
+            precision = display_format.get("precision", 2)
+            if not isinstance(precision, int) or isinstance(precision, bool) or not 0 <= precision <= 6:
+                raise ValueError(f"显示格式小数位数必须为 0 到 6: {instance_id}")
+            if display_format.get("rounding_rule", "half_up") not in valid_rules:
+                raise ValueError(f"显示格式取整规则非法: {instance_id}")
+            if kind == "number" and display_format.get("unit", "none") not in valid_units:
+                raise ValueError(f"显示格式单位非法: {instance_id}")
+            if kind == "percent" and any(key in display_format for key in ("unit", "thousands_separator")):
+                raise ValueError(f"百分比格式不支持数据单位或千分位: {instance_id}")
+        return settings
 
     @field_validator("columns")
     @classmethod

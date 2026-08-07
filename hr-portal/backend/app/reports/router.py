@@ -23,6 +23,7 @@ from app.reports.validation import ensure_valid_report_config as _shared_ensure_
 from app.reports.validation import ensure_valid_report_field_references as _shared_ensure_valid_report_field_references
 from app.reports.validation import iter_report_source_references as _shared_iter_report_source_references
 from app.reports.runtime import apply_runtime_overrides as _apply_runtime_overrides, normalize_runtime_filters as _normalize_runtime_filters, validate_runtime_filters as _ensure_valid_runtime_filters
+from app.reports.quality_gate import validate_report_quality_period_field
 from app.users.models import Role, User, UserRole
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -648,6 +649,11 @@ async def create_report(
         await _validate_acl_principals(payload.dataset_id, acl_items, db)
     _ensure_valid_report_config(payload.config)
     await _ensure_valid_report_field_references(payload.config, payload.dataset_id, user, db)
+    await validate_report_quality_period_field(
+        db,
+        dataset_id=payload.dataset_id,
+        config=payload.config,
+    )
 
 
     report = Report(
@@ -725,7 +731,11 @@ async def update_report(
         await _validate_acl_principals(payload.dataset_id, acl_items, db)
     _ensure_valid_report_config(payload.config)
     await _ensure_valid_report_field_references(payload.config, payload.dataset_id, user, db)
-
+    await validate_report_quality_period_field(
+        db,
+        dataset_id=payload.dataset_id,
+        config=payload.config,
+    )
 
     report.name = payload.name
     report.description = payload.description
@@ -805,6 +815,13 @@ async def run_report(
     ))
     await _ensure_valid_report_field_references(
         cfg, report.dataset_id, user, db, overrides.filters if overrides else None
+    )
+    await enforce_report_quality(
+        db,
+        report_id=report.id,
+        dataset_id=report.dataset_id,
+        config=cfg,
+        filters=cfg.filters,
     )
     _log_list_lookup_filters("report.run", report, cfg.list_lookup)
 
@@ -899,7 +916,7 @@ async def run_report(
 # ---- 数字格式化工具（供 CSV / XLSX 导出共用） ----
 
 import decimal
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
 
 _NUMERIC_TYPES = {"integer", "number", "decimal", "float", "double", "numeric"}
 _DECIMAL_SIX = Decimal("0.000001")  # 6 位小数精度
@@ -924,6 +941,63 @@ def _to_decimal(value) -> Decimal | None:
         return Decimal(str(value))
     except (decimal.InvalidOperation, ValueError, TypeError):
         return None
+
+
+def _display_format(setting: dict | None) -> dict:
+    raw = (setting or {}).get("display_format") or {}
+    kind = raw.get("type", "default")
+    if kind == "default":
+        return {"type": "default", "precision": 2, "thousands_separator": True, "rounding_rule": "half_up", "unit": "none"}
+    return {
+        "type": kind,
+        "precision": raw.get("precision", 2),
+        "thousands_separator": raw.get("thousands_separator", True),
+        "rounding_rule": raw.get("rounding_rule", "half_up"),
+        "unit": raw.get("unit", "none"),
+    }
+
+
+def _format_display_number(value, setting: dict | None) -> str:
+    d = _to_decimal(value)
+    if d is None:
+        return "0" if value is None or value == "" else str(value)
+    fmt = _display_format(setting)
+    unit_divisors = {"none": 1, "thousand": 1000, "ten_thousand": 10000, "million": 1000000, "ten_million": 10000000, "hundred_million": 100000000, "K": 1000, "M": 1000000}
+    if fmt["type"] == "percent":
+        d *= Decimal("100")
+    elif fmt["type"] == "number":
+        d /= Decimal(unit_divisors[fmt["unit"]])
+    rounding = {"half_up": ROUND_HALF_UP, "ceil": ROUND_CEILING, "floor": ROUND_FLOOR}[fmt["rounding_rule"]]
+    precision = fmt["precision"]
+    d = d.quantize(Decimal(1).scaleb(-precision), rounding=rounding)
+    grouped = "," if fmt["thousands_separator"] else ""
+    result = format(d, f"{grouped}.{precision}f")
+    if fmt["type"] == "percent":
+        return f"{result}%"
+    suffix = {"none": "", "thousand": " 千", "ten_thousand": " 万", "million": " 百万", "ten_million": " 千万", "hundred_million": " 亿", "K": "K", "M": "M"}[fmt["unit"]]
+    return f"{result}{suffix}"
+
+
+def _xlsx_display_value(value, setting: dict | None) -> tuple[object, str]:
+    d = _to_decimal(value)
+    if d is None:
+        return (0 if value is None or value == "" else value), ""
+    fmt = _display_format(setting)
+    unit_divisors = {"none": 1, "thousand": 1000, "ten_thousand": 10000, "million": 1000000, "ten_million": 10000000, "hundred_million": 100000000, "K": 1000, "M": 1000000}
+    if fmt["type"] == "percent":
+        d *= Decimal("100")
+        number_format = "0" + ("." + "0" * fmt["precision"] if fmt["precision"] else "") + "%"
+    else:
+        if fmt["type"] == "number":
+            d /= Decimal(unit_divisors[fmt["unit"]])
+        base = "#,##0" if fmt["thousands_separator"] else "0"
+        decimals = "." + "0" * fmt["precision"] if fmt["precision"] else ""
+        suffix = {"none": "", "thousand": ' "千"', "ten_thousand": ' "万"', "million": ' "百万"', "ten_million": ' "千万"', "hundred_million": ' "亿"', "K": '"K"', "M": '"M"'}[fmt["unit"]]
+        number_format = base + decimals + suffix
+    d = d.quantize(_DECIMAL_SIX, rounding=ROUND_HALF_UP)
+    if len(d.as_tuple().digits) > _XLSX_MAX_SIG_DIGITS:
+        return _format_display_number(value, setting), ""
+    return (int(d) if d == d.to_integral_value() else float(d)), number_format
 
 
 def _format_number_for_csv(value) -> str:
@@ -987,6 +1061,13 @@ async def _collect_export_rows(
     cfg = _ensure_valid_report_config(_apply_runtime_overrides(cfg, runtime_filters))
     await _ensure_valid_report_field_references(cfg, report.dataset_id, user, db, runtime_filters)
 
+    await enforce_report_quality(
+        db,
+        report_id=report.id,
+        dataset_id=report.dataset_id,
+        config=cfg,
+        filters=cfg.filters,
+    )
     from app.reports.sql_builder import run_dataset_query
 
     columns_meta, items, _ = await run_dataset_query(
@@ -1171,7 +1252,7 @@ async def export_report_csv(
     writer.writerow(labels)
     for row in rows:
         formatted = [
-            _format_number_for_csv(row[j]) if code in numeric_codes else row[j]
+            _format_display_number(row[j], (report.config or {}).get("column_settings", {}).get(code)) if code in numeric_codes else row[j]
             for j, code in enumerate(codes)
         ]
         writer.writerow(formatted)
@@ -1222,13 +1303,10 @@ async def export_report_xlsx(
         for j, code in enumerate(codes):
             v = row[j]
             if code in numeric_codes:
-                num_val = _to_numeric_value(v)
-                if num_val is None:
-                    excel_row.append("" if v is None else v)
-                else:
-                    if isinstance(num_val, str):
-                        text_fallback_count += 1
-                    excel_row.append(num_val)
+                num_val, _number_format = _xlsx_display_value(v, (report.config or {}).get("column_settings", {}).get(code))
+                if isinstance(num_val, str):
+                    text_fallback_count += 1
+                excel_row.append(num_val)
             else:
                 excel_row.append("" if v is None else v)
         worksheet.append(excel_row)
@@ -1241,7 +1319,7 @@ async def export_report_xlsx(
                 cell = worksheet.cell(row=row_idx, column=col_idx)
                 # 文本降级（str 类型）→ 跳过 number_format
                 if isinstance(cell.value, (int, float)):
-                    fmt = _numeric_format_for_xlsx(cell.value)
+                    _num_val, fmt = _xlsx_display_value(rows[row_idx - 2][j], (report.config or {}).get("column_settings", {}).get(code))
                     if fmt:
                         cell.number_format = fmt
 

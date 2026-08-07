@@ -34,10 +34,23 @@ export type AggregationFunc = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'count_d
 export type SplitMode = 'default' | 'none' | 'custom'
 export type ReshapeConflictStrategy = AggregationFunc | 'first' | 'last' | 'join' | 'keep_all'
 
+export type DisplayFormatType = 'default' | 'number' | 'percent'
+export type DisplayRoundingRule = 'half_up' | 'ceil' | 'floor'
+export type DisplayUnit = 'none' | 'thousand' | 'ten_thousand' | 'million' | 'ten_million' | 'hundred_million' | 'K' | 'M'
+
+export interface DisplayFormat {
+  type: DisplayFormatType
+  precision?: number
+  unit?: DisplayUnit
+  thousands_separator?: boolean
+  rounding_rule?: DisplayRoundingRule
+}
+
 export interface ColumnSetting {
   display_name?: string
   hidden?: boolean
   aggregation?: AggregationFunc
+  display_format?: DisplayFormat
   metric_filters?: FilterCond[]
   metric_filter_logic?: FilterLogic | null
   split_mode?: SplitMode
@@ -165,6 +178,7 @@ export interface ColumnInstance {
 export interface ReportConfig {
   columns: (string | ColumnInstance)[]
   filters: FilterCond[]
+  quality_period_field?: string | null
   sorts: SortCond[]
   value_rules?: ValueRule[]
   column_settings?: Record<string, ColumnSetting>

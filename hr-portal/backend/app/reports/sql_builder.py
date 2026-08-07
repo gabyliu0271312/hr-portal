@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
 from typing import Any
 
@@ -413,18 +413,25 @@ async def _table_scope_strategy_map(
     return {name: strategy or DEFAULT_SCOPE_STRATEGY for name, strategy in rows}
 
 
-def _num(v: Any) -> float:
-    """转 float，容忍千分位逗号/首尾空白（如 "1,274.21"）；失败抛 ValueError/TypeError"""
+_INTERNAL_DECIMAL = Decimal("0.000001")
+
+
+def _num(v: Any) -> Decimal:
+    """转 Decimal，容忍千分位逗号/首尾空白；失败抛 ValueError/TypeError。"""
     if isinstance(v, str):
         v = v.replace(",", "").strip()
-    return float(v)
+    return Decimal(str(v))
+
+
+def _round_internal(value: Decimal) -> Decimal:
+    return value.quantize(_INTERNAL_DECIMAL, rounding=ROUND_HALF_UP)
 
 
 def _mul_round2(a: Any, b: Any) -> Any:
-    """round(num(a) × num(b), 2)；任一非数值/空 → 空字符串"""
+    """兼容旧调用：乘积按系统内部 6 位精度保留。"""
     try:
-        return round(_num(a) * _num(b), 2)
-    except (TypeError, ValueError):
+        return _round_internal(_num(a) * _num(b))
+    except (InvalidOperation, TypeError, ValueError):
         return ""
 
 
@@ -432,37 +439,37 @@ COUNT_AGG_FUNCS = {"count", "count_distinct"}
 
 
 def _aggregate(values: list, func: str, row_count: int) -> Any:
-    """对一组值做聚合：sum/avg/min/max/count/count_distinct；非数值跳过，无数值 → 空"""
+    """对一组值做聚合；数值结果按系统内部 6 位精度保留。"""
     if func == "count":
         return len([v for v in values if v not in (None, "")])
     if func == "count_distinct":
         return len({v for v in values if v not in (None, "")})
-    nums: list[float] = []
+    nums: list[Decimal] = []
     for v in values:
         try:
             nums.append(_num(v))
-        except (TypeError, ValueError):
+        except (InvalidOperation, TypeError, ValueError):
             pass
     if not nums:
         return ""
     if func == "avg":
-        r = sum(nums) / len(nums)
+        result = sum(nums) / len(nums)
     elif func == "min":
-        r = min(nums)
+        result = min(nums)
     elif func == "max":
-        r = max(nums)
-    else:  # sum
-        r = sum(nums)
-    return round(r, 2)
+        result = max(nums)
+    else:
+        result = sum(nums)
+    return _round_internal(result)
 
 
-def _to_num(v: Any) -> float | None:
-    """转数值；非数值/空 → None"""
+def _to_num(v: Any) -> Decimal | None:
+    """转数值；非数值/空 → None。"""
     if v is None or v == "":
         return None
     try:
         return _num(v)
-    except (TypeError, ValueError):
+    except (InvalidOperation, TypeError, ValueError):
         return None
 
 
@@ -934,8 +941,8 @@ def _apply_python_sorts(items: list[dict[str, Any]], sorts: list[dict[str, Any]]
         def _k(it, _cq=cq):
             v = it.get(_cq)
             try:
-                return (0, float(v))
-            except (TypeError, ValueError):
+                return (0, _num(v))
+            except (InvalidOperation, TypeError, ValueError):
                 return (1, str(v) if v is not None else "")
 
         items.sort(key=_k, reverse=is_desc)
@@ -946,7 +953,9 @@ def _project_output_items(
     columns_meta: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     output_codes = [str(col.get("code")) for col in columns_meta if col.get("code")]
-    return [{code: row.get(code) for code in output_codes} for row in items]
+    def output_value(value: Any) -> Any:
+        return float(value) if isinstance(value, Decimal) else value
+    return [{code: output_value(row.get(code)) for code in output_codes} for row in items]
 
 
 def _qualified_column_expr(
@@ -1886,7 +1895,7 @@ async def run_dataset_query(
                     })
 
     # ===== 行数据 =====
-    # 数值拆分规则：target 列出值 = round(num(target) × ∏ num(factor_i), 2)，非数值/空 → 空
+    # 数值拆分规则：target 列出值 = target × ∏ factor，内部最多保留 6 位小数。
     rules_by_target: dict[str, list[str]] = {}
     for vr in (value_rules or []):
         t = (vr or {}).get("target")
@@ -1951,8 +1960,8 @@ async def run_dataset_query(
                                 fa, _, fc = fq.partition(".")
                                 raw_prod = raw_prod * _num(d.get(_select_label(fa, fc)))
                             item[f"__rawprod__{qual}"] = raw_prod
-                            v = round(raw_prod, 2)
-                        except (TypeError, ValueError):
+                            v = _round_internal(raw_prod)
+                        except (InvalidOperation, TypeError, ValueError):
                             v = ""
                 item[qual] = v
         for alias, code in selected:
@@ -1991,8 +2000,8 @@ async def run_dataset_query(
                         factor_value = formula_item.get(factor_qual, formula_item.get(factor_source))
                         raw_prod = raw_prod * _num(factor_value)
                     item[f"__rawprod__{target_qual}"] = raw_prod
-                    item[target_qual] = round(raw_prod, 2)
-                except (TypeError, ValueError):
+                    item[target_qual] = _round_internal(raw_prod)
+                except (InvalidOperation, TypeError, ValueError):
                     item[target_qual] = ""
                 continue
             if not (target_qual.startswith("calc.") or any(fq.startswith("calc.") for fq in factor_quals)):
@@ -2010,8 +2019,8 @@ async def run_dataset_query(
                         factor_val = item.get(fq)
                     raw_prod = raw_prod * _num(factor_val)
                 item[f"__rawprod__{target_qual}"] = raw_prod
-                item[target_qual] = round(raw_prod, 2)
-            except (TypeError, ValueError):
+                item[target_qual] = _round_internal(raw_prod)
+            except (InvalidOperation, TypeError, ValueError):
                 item[target_qual] = ""
         if calc_filter_on and not _row_matches_filters(formula_item, filters, filter_logic):
             continue
@@ -2116,8 +2125,8 @@ async def run_dataset_query(
                 rc_groups[gk] = []
                 rc_order.append(gk)
             rc_groups[gk].append(row)
-        # 期望合计 = sum(未取整乘积) 再 round(2)
-        expected_sums: dict[tuple, dict[str, float]] = {}
+        # 期望合计与实际合计均按内部 6 位精度比对。
+        expected_sums: dict[tuple, dict[str, Decimal]] = {}
         for raw_row in full_items:
             gk = tuple(raw_row.get(col) for col in group_cols)
             if gk not in expected_sums:
@@ -2129,7 +2138,7 @@ async def run_dataset_query(
                     rp = _to_num(raw_row.get(tc))
                 if rp is None:
                     continue
-                expected_sums[gk][tc] = expected_sums[gk].get(tc, 0.0) + rp
+                expected_sums[gk][tc] = expected_sums[gk].get(tc, Decimal("0")) + rp
         # 对每组补差：余差落在该列「非空且 ≠0」的最后一行；整组该列无数则不补
         for gk in rc_order:
             rows_in_group = rc_groups[gk]
@@ -2137,9 +2146,9 @@ async def run_dataset_query(
                 raw_sum = expected_sums.get(gk, {}).get(tc)
                 if raw_sum is None:
                     continue
-                expected = round(raw_sum, 2)
-                actual_sum = round(sum(_to_num(row.get(tc)) or 0.0 for row in rows_in_group), 2)
-                diff = round(expected - actual_sum, 2)
+                expected = _round_internal(raw_sum)
+                actual_sum = _round_internal(sum((_to_num(row.get(tc)) or Decimal("0")) for row in rows_in_group))
+                diff = _round_internal(expected - actual_sum)
                 if diff == 0:
                     continue
                 # 倒序找该列最后一个有数（非空且 ≠0）的行
@@ -2151,8 +2160,8 @@ async def run_dataset_query(
                         break
                 if target_row is None:
                     continue
-                cur = _to_num(target_row.get(tc)) or 0.0
-                target_row[tc] = round(cur + diff, 2)
+                cur = _to_num(target_row.get(tc)) or Decimal("0")
+                target_row[tc] = _round_internal(cur + diff)
 
     # Python 端排序（聚合结果上）
     for s in reversed(sorts or []):
@@ -2164,8 +2173,8 @@ async def run_dataset_query(
         def _k(it, _cq=cq):
             v = it.get(_cq)
             try:
-                return (0, float(v))
-            except (TypeError, ValueError):
+                return (0, _num(v))
+            except (InvalidOperation, TypeError, ValueError):
                 return (1, str(v) if v is not None else "")
 
         result.sort(key=_k, reverse=is_desc)
