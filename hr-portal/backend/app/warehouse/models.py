@@ -56,6 +56,24 @@ class WarehouseQualityRule(Base):
     runs = relationship("WarehouseQualityRun", back_populates="rule", lazy="selectin")
 
 
+class WarehouseQualityRuleDependency(Base):
+    """Materialized relation-rule dependency index for sync dispatch."""
+
+    __tablename__ = "warehouse_quality_rule_dependencies"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "table_name", name="uq_quality_rule_dependency_rule_table"),
+        Index("ix_quality_rule_dependency_table", "table_name"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    rule_id = Column(BigInteger, ForeignKey("warehouse_quality_rules.id", ondelete="CASCADE"), nullable=False)
+    table_name = Column(String(64), nullable=False)
+    dataset_id = Column(BigInteger, nullable=False)
+    relation_id = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ==================== warehouse_quality_runs (Q0302) ====================
 
 class WarehouseQualityRun(Base):
@@ -78,12 +96,75 @@ class WarehouseQualityRun(Base):
     failed_count = Column(Integer, nullable=False, default=0, comment="失败行数")
     sample_rows = Column(JSON, nullable=True, comment="失败样例数据")
     message = Column(Text, nullable=True, comment="运行消息/错误摘要")
+    period = Column(String(16), nullable=True, comment="质量检查期间，如 YYYYMM")
+    source_sync_batch_id = Column(String(128), nullable=True, comment="来源同步批次")
+    asset_type = Column(String(16), nullable=True, comment="本次检查资产类型")
+    asset_id = Column(BigInteger, nullable=True, comment="本次检查资产 ID")
+    severity = Column(String(16), nullable=True, comment="info/warn/block")
+    duplicate_key_count = Column(Integer, nullable=False, default=0, comment="重复关联键数量")
+    missing_key_count = Column(Integer, nullable=False, default=0, comment="缺失关联键数量")
+    sample_key_hashes = Column(JSON, nullable=True, comment="脱敏关联键样例")
+    triggered_by = Column(String(64), nullable=True, comment="manual/cron/sync")
+    dedupe_key = Column(String(256), nullable=True, comment="幂等执行键")
     started_at = Column(DateTime, nullable=True, comment="开始时间")
     finished_at = Column(DateTime, nullable=True, comment="结束时间")
 
     rule = relationship("WarehouseQualityRule", back_populates="runs", lazy="selectin")
 
 
+class WarehouseQualityStatus(Base):
+    """按资产与期间缓存的质量状态。"""
+
+    __tablename__ = "warehouse_quality_status"
+    __table_args__ = (
+        UniqueConstraint("asset_type", "asset_key", "period", name="uq_warehouse_quality_status_asset_period"),
+        Index("ix_warehouse_quality_status_report_period", "asset_type", "asset_id", "period"),
+        Index("ix_warehouse_quality_status_batch", "source_sync_batch_id"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    asset_type = Column(String(16), nullable=False, comment="table/relation/dataset/report")
+    asset_key = Column(String(256), nullable=False, comment="稳定资产键：id:<id> 或 code:<code>")
+    asset_id = Column(BigInteger, nullable=True, comment="关系/数据集/报表 ID")
+    asset_code = Column(String(256), nullable=True, comment="表名等资产编码")
+    period = Column(String(16), nullable=False, default="", server_default="", comment="期间，空串表示非期间资产")
+    status = Column(String(16), nullable=False, default="pending", server_default="pending", comment="pending/passed/warning/failed")
+    severity = Column(String(16), nullable=False, default="info", server_default="info", comment="info/warn/block")
+    source_sync_batch_id = Column(String(128), nullable=True)
+    source_sync_sequence = Column(Integer, nullable=True)
+    checked_at = Column(DateTime, nullable=True)
+    checked_count = Column(Integer, nullable=False, default=0, server_default="0")
+    failed_count = Column(Integer, nullable=False, default=0, server_default="0")
+    duplicate_key_count = Column(Integer, nullable=False, default=0, server_default="0")
+    missing_key_count = Column(Integer, nullable=False, default=0, server_default="0")
+    sample_key_hashes = Column(JSON, nullable=False, default=list, server_default="[]")
+    message = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WarehouseQualityTask(Base):
+    """持久化质量任务队列，避免同步后质量检查因进程重启丢失。"""
+
+    __tablename__ = "warehouse_quality_tasks"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_warehouse_quality_task_dedupe"),
+        Index("ix_warehouse_quality_task_pick", "status", "available_at", "created_at"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    rule_id = Column(BigInteger, ForeignKey("warehouse_quality_rules.id", ondelete="CASCADE"), nullable=False)
+    period = Column(String(16), nullable=True)
+    source_sync_batch_id = Column(String(128), nullable=True)
+    dedupe_key = Column(String(256), nullable=False)
+    status = Column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    available_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    locked_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 # ==================== warehouse_alert_rules (Q0605) ====================
 
 class WarehouseAlertRule(Base):

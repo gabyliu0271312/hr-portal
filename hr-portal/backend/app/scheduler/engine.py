@@ -15,6 +15,7 @@ from datetime import datetime, UTC
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.scheduler.handlers import get_handler
@@ -37,6 +38,7 @@ class SchedulerEngine:
             return
         self._scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
         self._scheduler.start()
+        await self._ensure_internal_jobs()
         await self.reload_all_jobs()
         logger.info("[scheduler] started")
 
@@ -52,6 +54,15 @@ class SchedulerEngine:
     def _job_key(self, job_id: int) -> str:
         return f"job-{job_id}"
 
+    async def _ensure_internal_jobs(self) -> None:
+        """确保系统级质量队列有持久化轮询任务。"""
+        async with self._session_factory() as db:
+            statement = pg_insert(ScheduledJob).values(
+                kind="quality_queue", business_id=0, cron="* * * * *",
+                payload={}, enabled=True,
+            ).on_conflict_do_nothing(index_elements=["kind", "business_id"])
+            await db.execute(statement)
+            await db.commit()
     async def reload_all_jobs(self) -> int:
         """从 DB 重新加载所有 enabled jobs 到 APScheduler。
 

@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
+from app.datasets.models import DataSet, DataSetRelation, DataSetTable
+from app.reports.models import Report
 from app.users.models import User
 from app.warehouse.schemas import (
     WAREHOUSE_LAYERS,
@@ -39,7 +41,9 @@ from app.warehouse.schemas import (
     WarehouseQualityRuleIn,
     WarehouseQualityRuleUpdateIn,
     WarehouseQualityRuleOut,
+    WarehouseQualityRunListOut,
     WarehouseQualityRunOut,
+    QualityRunTriggerIn,
     QualityRunTriggerOut,
     QualityAlertSummaryOut,
     UcpSystemOut,
@@ -62,9 +66,9 @@ from app.warehouse.lineage import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
 )
-from app.warehouse.models import WarehouseQualityRule, WarehouseQualityRun, WarehouseAlertRule, WarehouseModelVersion, StandardizationRule, StandardizationTemplate
+from app.warehouse.models import WarehouseQualityRule, WarehouseQualityRun, WarehouseQualityStatus, WarehouseAlertRule, WarehouseModelVersion, StandardizationRule, StandardizationTemplate
 from app.warehouse.models import MetricResult, MetricRun, Dimension, DwsAggregateDefinition, MetricComponent, AutomationAuditEvent
-from app.warehouse.quality_engine import execute_quality_rule, _safe_ident
+from app.warehouse.quality_engine import _safe_ident
 from app.warehouse.schemas import (
     STANDARDIZATION_RULE_TYPES,
     StandardizationRuleIn,
@@ -1186,6 +1190,79 @@ def _validate_severity(value: str) -> None:
         raise HTTPException(400, detail=f"无效的 severity: {value}，允许值: {', '.join(QUALITY_SEVERITIES)}")
 
 VALID_ALERT_TYPES = {"quality_fail", "sync_fail", "build_fail", "metric_fail"}
+async def _validate_quality_rule_metadata(
+    db: AsyncSession,
+    *,
+    asset_type: str,
+    asset_code: str,
+    rule_type: str,
+    rule_config: dict,
+) -> dict:
+    """Validate and normalize rule references against persisted warehouse metadata."""
+    from app.data.models import RegisteredTable, TableColumn
+    from app.datasets.models import DataSet, DataSetRelation, DataSetTable
+
+    config = dict(rule_config or {})
+    if rule_type == "relation_cardinality":
+        if asset_type != "relation":
+            raise HTTPException(422, detail="relation_cardinality 规则的 asset_type 必须为 relation")
+        try:
+            dataset_id = int(config.get("dataset_id"))
+            relation_id = int(config.get("relation_id"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(422, detail="关系规则必须选择有效的数据集和关系") from exc
+        dataset = await db.get(DataSet, dataset_id)
+        relation = await db.get(DataSetRelation, relation_id)
+        if dataset is None or relation is None or relation.dataset_id != dataset_id:
+            raise HTTPException(422, detail="关系不存在或不属于所选数据集")
+        if relation.cardinality not in ("1:1", "N:1"):
+            raise HTTPException(422, detail="当前关系基数暂不支持质量校验")
+        expected = config.get("expected_cardinality") or relation.cardinality
+        if expected != relation.cardinality:
+            raise HTTPException(422, detail="声明基数必须与数据集关系定义一致")
+        tables = (await db.execute(select(DataSetTable).where(DataSetTable.dataset_id == dataset_id))).scalars().all()
+        alias_to_table = {table.alias: table.table_name for table in tables}
+        left_table = alias_to_table.get(relation.left_alias)
+        right_table = alias_to_table.get(relation.right_alias)
+        keys = relation.keys or []
+        if not left_table or not right_table or not keys or any(not item.get("left") or not item.get("right") for item in keys):
+            raise HTTPException(422, detail="关系键定义不完整或关联表不存在")
+        key_rows = (await db.execute(select(TableColumn).where(TableColumn.table_name.in_([left_table, right_table])))).scalars().all()
+        columns_by_table = {}
+        for row in key_rows:
+            columns_by_table.setdefault(row.table_name, set()).add(row.column_code)
+        if any(item["left"] not in columns_by_table.get(left_table, set()) or item["right"] not in columns_by_table.get(right_table, set()) for item in keys):
+            raise HTTPException(422, detail="关系键字段不存在于关联表元数据")
+        registered = (await db.execute(select(RegisteredTable).where(RegisteredTable.table_name.in_([left_table, right_table])))).scalars().all()
+        registered_by_table = {row.table_name: row for row in registered}
+        left_period = config.get("left_period_column") or config.get("period_column") or (registered_by_table.get(left_table).period_col if registered_by_table.get(left_table) and registered_by_table.get(left_table).is_period else None)
+        right_period = config.get("right_period_column") or config.get("period_column") or (registered_by_table.get(right_table).period_col if registered_by_table.get(right_table) and registered_by_table.get(right_table).is_period else None)
+        if not left_period or not right_period:
+            raise HTTPException(422, detail="关系规则必须配置真实存在的左右期间字段")
+        if left_period not in columns_by_table.get(left_table, set()) or right_period not in columns_by_table.get(right_table, set()):
+            raise HTTPException(422, detail="关系规则期间字段不存在于关联表元数据")
+        config.update({"dataset_id": dataset_id, "relation_id": relation_id, "expected_cardinality": expected, "left_period_column": left_period, "right_period_column": right_period})
+        return config
+
+    if asset_type == "table":
+        table = (await db.execute(select(RegisteredTable).where(RegisteredTable.table_name == asset_code))).scalar_one_or_none()
+        if table is None:
+            raise HTTPException(422, detail="质量规则目标表未登记")
+        column = config.get("column")
+        if rule_type in {"not_null", "unique", "enum", "date_format"} and column:
+            exists = (await db.execute(select(TableColumn).where(TableColumn.table_name == asset_code, TableColumn.column_code == column))).scalar_one_or_none()
+            if exists is None:
+                raise HTTPException(422, detail="质量规则字段不存在于目标表元数据")
+    elif asset_type == "field":
+        table_name, _, column = asset_code.partition(".")
+        if not table_name or not column:
+            raise HTTPException(422, detail="字段资产编码必须为 table.column")
+        exists = (await db.execute(select(TableColumn).where(TableColumn.table_name == table_name, TableColumn.column_code == column))).scalar_one_or_none()
+        if exists is None:
+            raise HTTPException(422, detail="字段资产不存在于表元数据")
+    return config
+
+
 VALID_ALERT_SEVERITIES = {"info", "warn", "error"}
 
 def _validate_alert_type(value: str) -> None:
@@ -1247,6 +1324,45 @@ async def list_quality_rules(
 # --- Q0304: 质量规则详情 ---
 
 @router.get(
+    "/quality-rules/relation-metadata",
+    summary="关系质量规则元数据选项",
+    dependencies=[Depends(require_op("warehouse.governance", "V"))],
+)
+async def quality_relation_metadata(db: AsyncSession = Depends(get_session)):
+    from app.data.models import RegisteredTable, TableColumn
+    from app.datasets.models import DataSet, DataSetRelation, DataSetTable
+    datasets = (await db.execute(select(DataSet).where(DataSet.is_active.is_(True)).order_by(DataSet.id))).scalars().all()
+    output = []
+    for dataset in datasets:
+        tables = (await db.execute(select(DataSetTable).where(DataSetTable.dataset_id == dataset.id))).scalars().all()
+        alias_to_table = {table.alias: table.table_name for table in tables}
+        table_names = list(alias_to_table.values())
+        columns = (await db.execute(select(TableColumn).where(TableColumn.table_name.in_(table_names)))).scalars().all() if table_names else []
+        columns_by_table = {}
+        for column in columns:
+            columns_by_table.setdefault(column.table_name, []).append({"code": column.column_code, "label": column.column_label})
+        registered = (await db.execute(select(RegisteredTable).where(RegisteredTable.table_name.in_(table_names)))).scalars().all() if table_names else []
+        registered_by_table = {row.table_name: row for row in registered}
+        relations = (await db.execute(select(DataSetRelation).where(DataSetRelation.dataset_id == dataset.id).order_by(DataSetRelation.id))).scalars().all()
+        relation_items = []
+        for relation in relations:
+            left_table = alias_to_table.get(relation.left_alias)
+            right_table = alias_to_table.get(relation.right_alias)
+            if not left_table or not right_table:
+                continue
+            relation_items.append({
+                "id": relation.id, "left_alias": relation.left_alias, "right_alias": relation.right_alias,
+                "left_table": left_table, "right_table": right_table, "cardinality": relation.cardinality,
+                "keys": relation.keys or [],
+                "left_columns": columns_by_table.get(left_table, []), "right_columns": columns_by_table.get(right_table, []),
+                "left_period_column": registered_by_table[left_table].period_col if registered_by_table.get(left_table) and registered_by_table[left_table].is_period else None,
+                "right_period_column": registered_by_table[right_table].period_col if registered_by_table.get(right_table) and registered_by_table[right_table].is_period else None,
+            })
+        output.append({"id": dataset.id, "name": dataset.name, "label": dataset.label, "relations": relation_items})
+    return {"datasets": output}
+
+
+@router.get(
     "/quality-rules/{rule_id}",
     summary="质量规则详情",
     response_model=WarehouseQualityRuleOut,
@@ -1274,8 +1390,16 @@ async def create_quality_rule(
 ):
     _validate_rule_type(payload.rule_type)
     _validate_severity(payload.severity)
-    rule = WarehouseQualityRule(**payload.model_dump())
+    data = payload.model_dump()
+    data["rule_config"] = await _validate_quality_rule_metadata(
+        db, asset_type=data["asset_type"], asset_code=data["asset_code"],
+        rule_type=data["rule_type"], rule_config=data["rule_config"],
+    )
+    rule = WarehouseQualityRule(**data)
     db.add(rule)
+    await db.flush()
+    from app.warehouse.quality_service import rebuild_quality_rule_dependency_index
+    await rebuild_quality_rule_dependency_index(db)
     await db.commit()
     await db.refresh(rule)
     return rule
@@ -1300,8 +1424,18 @@ async def update_quality_rule(
     data = payload.model_dump(exclude_unset=True)
     if "severity" in data:
         _validate_severity(data["severity"])
+    if "rule_config" in data:
+        merged_config = dict(rule.rule_config or {})
+        merged_config.update(data["rule_config"] or {})
+        data["rule_config"] = await _validate_quality_rule_metadata(
+            db, asset_type=rule.asset_type, asset_code=rule.asset_code,
+            rule_type=rule.rule_type, rule_config=merged_config,
+        )
     for k, v in data.items():
         setattr(rule, k, v)
+    await db.flush()
+    from app.warehouse.quality_service import rebuild_quality_rule_dependency_index
+    await rebuild_quality_rule_dependency_index(db)
     await db.commit()
     await db.refresh(rule)
     return rule
@@ -1320,6 +1454,8 @@ async def enable_quality_rule(rule_id: int, db: AsyncSession = Depends(get_sessi
     if rule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"质量规则不存在: {rule_id}")
     rule.enabled = True
+    from app.warehouse.quality_service import rebuild_quality_rule_dependency_index
+    await rebuild_quality_rule_dependency_index(db)
     await db.commit()
     await db.refresh(rule)
     return rule
@@ -1336,6 +1472,8 @@ async def disable_quality_rule(rule_id: int, db: AsyncSession = Depends(get_sess
     if rule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"质量规则不存在: {rule_id}")
     rule.enabled = False
+    from app.warehouse.quality_service import rebuild_quality_rule_dependency_index
+    await rebuild_quality_rule_dependency_index(db)
     await db.commit()
     await db.refresh(rule)
     return rule
@@ -1355,6 +1493,9 @@ async def delete_quality_rule(rule_id: int, db: AsyncSession = Depends(get_sessi
     if rule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"质量规则不存在: {rule_id}")
     await db.delete(rule)
+    await db.flush()
+    from app.warehouse.quality_service import rebuild_quality_rule_dependency_index
+    await rebuild_quality_rule_dependency_index(db)
     await db.commit()
     return None
 
@@ -1367,57 +1508,159 @@ async def delete_quality_rule(rule_id: int, db: AsyncSession = Depends(get_sessi
     response_model=QualityRunTriggerOut,
     dependencies=[Depends(require_op("warehouse.governance", "U"))],
 )
-async def run_quality_rule(rule_id: int, db: AsyncSession = Depends(get_session), user: User = Depends(current_user)):
-    """手动触发单条质量规则执行，同步返回结果。
+async def run_quality_rule(
+    rule_id: int,
+    payload: QualityRunTriggerIn | None = None,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """手动执行质量规则；关系基数检查必须显式指定期间。"""
+    from app.warehouse.quality_service import run_quality_rule as execute_rule
 
-    Q0309: referential_integrity/custom_sql 规则执行时返回"暂不支持"。
-    权限要求：warehouse.governance:U
-    """
     rule = await db.get(WarehouseQualityRule, rule_id)
     if rule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"质量规则不存在: {rule_id}")
-
-    from datetime import datetime as dt
-    started = dt.utcnow()
-    result = await execute_quality_rule(
-        db, rule.id, rule.asset_type, rule.asset_code,
-        rule.rule_type, rule.rule_config or {},
-        user=user,
-    )
-    finished = dt.utcnow()
-
-    # 持久化运行记录
-    run = WarehouseQualityRun(
-        rule_id=rule.id,
-        status=result["status"],
-        checked_count=result["checked_count"],
-        failed_count=result["failed_count"],
-        sample_rows=result.get("sample_rows"),
-        message=result.get("message"),
-        started_at=started,
-        finished_at=finished,
-    )
-    db.add(run)
-
-    # 回写规则最近运行状态
-    rule.last_run_status = result["status"]
-    rule.last_run_at = finished
-
+    request = payload or QualityRunTriggerIn()
+    if rule.rule_type == "relation_cardinality" and not request.period:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="relation_cardinality 手动检查必须指定 period（YYYYMM）")
+    try:
+        run, result = await execute_rule(
+            db,
+            rule_id,
+            period=request.period,
+            source_sync_batch_id=request.source_sync_batch_id,
+            force=request.force,
+            triggered_by=f"manual:{user.id}",
+            user=user,
+        )
+    except LookupError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(run)
+    return QualityRunTriggerOut(run_id=run.id, status=result["status"], message=result.get("message", ""))
 
-    return QualityRunTriggerOut(
-        run_id=run.id,
-        status=result["status"],
-        message=result.get("message", ""),
-    )
 
+@router.get(
+    "/quality-status",
+    summary="查询按资产期间质量状态",
+    dependencies=[Depends(require_op("warehouse.governance", "V"))],
+)
+async def list_quality_status(
+    asset_type: str | None = Query(None),
+    asset_id: int | None = Query(None),
+    period: str | None = Query(None),
+    db: AsyncSession = Depends(get_session),
+):
+    query = select(WarehouseQualityStatus).order_by(WarehouseQualityStatus.updated_at.desc())
+    if asset_type:
+        query = query.where(WarehouseQualityStatus.asset_type == asset_type)
+    if asset_id is not None:
+        query = query.where(WarehouseQualityStatus.asset_id == asset_id)
+    if period is not None:
+        query = query.where(WarehouseQualityStatus.period == period)
+    items = (await db.execute(query.limit(200))).scalars().all()
+    return {"items": items}
+
+@router.get(
+    "/quality-status/impact",
+    summary="Quality status impact and diagnostics",
+    dependencies=[Depends(require_op("warehouse.governance", "V"))],
+)
+async def get_quality_status_impact(
+    asset_type: str = Query(...),
+    asset_id: int | None = Query(None),
+    asset_code: str | None = Query(None),
+    period: str | None = Query(None),
+    db: AsyncSession = Depends(get_session),
+):
+    if asset_id is None and not asset_code:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="asset_id or asset_code is required")
+    dataset_ids: set[int] = set()
+    if asset_type == "dataset" and asset_id is not None:
+        dataset_ids.add(asset_id)
+    elif asset_type == "report" and asset_id is not None:
+        report = await db.get(Report, asset_id)
+        if report:
+            dataset_ids.add(report.dataset_id)
+    elif asset_type == "relation" and asset_id is not None:
+        relation = await db.get(DataSetRelation, asset_id)
+        if relation:
+            dataset_ids.add(relation.dataset_id)
+    elif asset_type in {"table", "field"} and asset_code:
+        table_name = asset_code.rsplit(".", 1)[0] if asset_type == "field" and "." in asset_code else asset_code
+        dataset_ids.update((await db.execute(select(DataSetTable.dataset_id).where(
+            (DataSetTable.table_name == table_name) | (DataSetTable.alias == table_name)
+        ))).scalars().all())
+
+    datasets = (await db.execute(select(DataSet).where(DataSet.id.in_(dataset_ids or [-1])))).scalars().all()
+    reports = (await db.execute(select(Report).where(Report.dataset_id.in_(dataset_ids or [-1])))).scalars().all()
+    status_query = select(WarehouseQualityStatus).where(WarehouseQualityStatus.asset_type == asset_type)
+    if asset_id is not None:
+        status_query = status_query.where(WarehouseQualityStatus.asset_id == asset_id)
+    if asset_code:
+        status_query = status_query.where(WarehouseQualityStatus.asset_code == asset_code)
+    if period is not None:
+        status_query = status_query.where(WarehouseQualityStatus.period == period)
+    status_item = (await db.execute(status_query.order_by(WarehouseQualityStatus.updated_at.desc()).limit(1))).scalar_one_or_none()
+    diagnostic = None
+    if asset_type in {"relation", "table", "field"} and status_item is not None:
+        run_query = select(WarehouseQualityRun).where(
+            WarehouseQualityRun.period == status_item.period,
+        ).order_by(WarehouseQualityRun.finished_at.desc())
+        if asset_type == "relation" and asset_id is not None:
+            run_query = run_query.where(WarehouseQualityRun.asset_id == asset_id)
+        run = (await db.execute(run_query.limit(1))).scalar_one_or_none()
+        if run:
+            diagnostic = {
+                "run_id": run.id,
+                "status": run.status,
+                "checked_count": run.checked_count,
+                "failed_count": run.failed_count,
+                "duplicate_key_count": run.duplicate_key_count,
+                "missing_key_count": run.missing_key_count,
+                "sample_key_hashes": run.sample_key_hashes or [],
+                "message": run.message,
+            }
+    return {
+        "asset_type": asset_type,
+        "asset_id": asset_id,
+        "asset_code": asset_code,
+        "period": period or (status_item.period if status_item else None),
+        "status": status_item,
+        "dataset_count": len(datasets),
+        "report_count": len(reports),
+        "datasets": [{"id": item.id, "name": item.name, "label": item.label} for item in datasets],
+        "reports": [{"id": item.id, "name": item.name, "dataset_id": item.dataset_id} for item in reports],
+        "diagnostic": diagnostic,
+    }
+
+
+@router.post(
+    "/quality-status/rebuild-index",
+    summary="Rebuild quality status index",
+    dependencies=[Depends(require_op("warehouse.governance", "E"))],
+)
+async def rebuild_quality_status_index(db: AsyncSession = Depends(get_session)):
+    from app.warehouse.quality_service import rebuild_quality_rule_dependency_index
+
+    dependency_count = await rebuild_quality_rule_dependency_index(db)
+    status_count = (await db.execute(select(func.count(WarehouseQualityStatus.id)))).scalar_one()
+    await db.commit()
+    return {
+        "status": "completed",
+        "rebuilt_count": int(dependency_count),
+        "status_count": int(status_count or 0),
+        "message": "quality dependency index rebuilt",
+    }
 
 # --- Q0310: 质量运行历史 ---
 
 @router.get(
     "/quality-runs",
     summary="质量运行历史",
+    response_model=WarehouseQualityRunListOut,
     dependencies=[Depends(require_op("warehouse.governance", "V"))],
 )
 async def list_quality_runs(

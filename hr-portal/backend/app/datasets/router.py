@@ -346,6 +346,9 @@ async def create_dataset(
     # 自动填充输出字段（每张表独立调用）
     for t in payload.tables:
         await _populate_output_fields(ds.id, t.table_name, t.alias, db)
+    await db.flush()
+    from app.warehouse.quality_service import rebuild_quality_rule_dependency_index
+    await rebuild_quality_rule_dependency_index(db)
     await db.commit()
     await db.refresh(ds)
     # 给关联键建索引，加速后续报表 JOIN
@@ -519,6 +522,9 @@ async def update_dataset(
         )
     for a in payload.acl:
         db.add(DataSetAcl(dataset_id=ds_id, role_id=a.role_id, user_id=a.user_id))
+    await db.flush()
+    from app.warehouse.quality_service import rebuild_quality_rule_dependency_index
+    await rebuild_quality_rule_dependency_index(db)
     await db.commit()
     await db.refresh(ds)
     try:
@@ -565,6 +571,9 @@ async def delete_dataset(
         )
 
     await db.delete(ds)
+    await db.flush()
+    from app.warehouse.quality_service import rebuild_quality_rule_dependency_index
+    await rebuild_quality_rule_dependency_index(db)
     await db.commit()
     return {"ok": True}
 
