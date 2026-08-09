@@ -10,24 +10,25 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "warehouse_quality_tasks",
-        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
-        sa.Column("rule_id", sa.BigInteger(), sa.ForeignKey("warehouse_quality_rules.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("period", sa.String(length=16), nullable=True),
-        sa.Column("source_sync_batch_id", sa.String(length=128), nullable=True),
-        sa.Column("dedupe_key", sa.String(length=256), nullable=False),
-        sa.Column("status", sa.String(length=16), nullable=False, server_default="pending"),
-        sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("available_at", sa.DateTime(), nullable=False),
-        sa.Column("locked_at", sa.DateTime(), nullable=True),
-        sa.Column("finished_at", sa.DateTime(), nullable=True),
-        sa.Column("last_error", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.UniqueConstraint("dedupe_key", name="uq_warehouse_quality_task_dedupe"),
-    )
-    op.create_index("ix_warehouse_quality_task_pick", "warehouse_quality_tasks", ["status", "available_at", "created_at"])
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS warehouse_quality_tasks (
+            id BIGSERIAL PRIMARY KEY,
+            rule_id BIGINT NOT NULL REFERENCES warehouse_quality_rules(id) ON DELETE CASCADE,
+            period VARCHAR(16),
+            source_sync_batch_id VARCHAR(128),
+            dedupe_key VARCHAR(256) NOT NULL,
+            status VARCHAR(16) NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            available_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+            locked_at TIMESTAMP WITHOUT TIME ZONE,
+            finished_at TIMESTAMP WITHOUT TIME ZONE,
+            last_error TEXT,
+            created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+            updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+            CONSTRAINT uq_warehouse_quality_task_dedupe UNIQUE (dedupe_key)
+        )
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_warehouse_quality_task_pick ON warehouse_quality_tasks (status, available_at, created_at)")
 
 
 def downgrade() -> None:
