@@ -11,7 +11,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("warehouse_quality_runs", sa.Column("period", sa.String(length=16), nullable=True))
+    op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS period VARCHAR(16)")
     op.add_column("warehouse_quality_runs", sa.Column("source_sync_batch_id", sa.String(length=128), nullable=True))
     op.add_column("warehouse_quality_runs", sa.Column("asset_type", sa.String(length=16), nullable=True))
     op.add_column("warehouse_quality_runs", sa.Column("asset_id", sa.BigInteger(), nullable=True))
