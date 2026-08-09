@@ -5,7 +5,7 @@
 """
 
 revision = "0197_mapping_metadata"
-down_revision = "0196_merge_all_heads"
+down_revision = "0195_quality_rule_dependency_index"
 branch_labels = None
 depends_on = None
 
