@@ -589,11 +589,10 @@ async def build_lookup_maps(table_name: str, db: AsyncSession) -> list[tuple[dic
             raise RuntimeError(f"lookup 表 {cfg['lookup_table']} 缺少实体列: {missing}")
 
         rows = (await db.execute(select(LM))).scalars().all()
-        reference_rows: list[dict] = []
-        m = ReferenceLookupMap(reference_rows=reference_rows)
+        m = ReferenceLookupMap()
         for row in rows:
             values = _row_to_dict(row, lookup_columns)
-            reference_rows.append(dict(values))
+            m.reference_rows.append(dict(values))
             key = (
                 str(values.get(cfg["type_col"], "")),
                 str(values.get(cfg["value_col"], "")),
