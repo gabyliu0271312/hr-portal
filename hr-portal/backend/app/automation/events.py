@@ -49,19 +49,16 @@ class AutomationEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
-async def publish_event(event: AutomationEvent, db: AsyncSession) -> None:
+async def publish_event(event: AutomationEvent, db: AsyncSession) -> bool:
     """发布事件，触发自动化规则引擎同步执行匹配的规则。
 
-    调用方不需要关心规则匹配和动作执行细节。
-    失败不影响调用方的主流程（异常会被捕获并记录日志）。
-
-    事务边界由本函数管理：内部 commit 执行记录，异常时 rollback。
-    调用方应传入独立 session（如 async with session_factory() as db:）。
+    返回是否完成发布；调用方需要根据 False 安排自身的业务重试。
     """
     try:
         from app.automation.engine import process_event
         await process_event(event, db)
         await db.commit()
+        return True
     except Exception:
         logger.exception(
             "[automation] publish_event 异常 event_id=%s trigger=%s",
@@ -71,3 +68,4 @@ async def publish_event(event: AutomationEvent, db: AsyncSession) -> None:
             await db.rollback()
         except Exception:
             pass
+        return False

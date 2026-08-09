@@ -28,7 +28,7 @@
 
 ---
 
-## 2. rule_type 枚举定义（8 类）
+## 2. rule_type 枚举定义（10 类）
 
 | # | rule_type | 中文 | 作用 | rule_config 示例 | 优先级 |
 |---|-----------|------|------|------------------|--------|
@@ -39,7 +39,9 @@
 | 5 | `split_merge` | 拆分/合并 | 单字段拆分或多字段合并 | `{"action": "split", "delimiter": ",", "target_fields": ["姓","名"]}` 或 `{"action": "merge", "sources": ["first_name","last_name"], "delimiter": ""}` | 第五 |
 | 6 | `deduplicate` | 去重 | 按业务主键/字段组合去重 | `{"by": ["emp_id", "period"], "keep": "first"}` | 第六 |
 | 7 | `null_handling` | 空值处理 | 填默认值/标记/取上游值 | `{"strategy": "fill_default", "default": "未知"}` | 第七 |
-| 8 | `format_standardize` | 格式标准化 | 日期/编码/大小写/空格/长度 | `{"format": "date", "from_format": "yyyyMMdd", "to_format": "yyyy-MM-dd"}` | 最后执行 |
+| 8 | `format_standardize` | 格式标准化 | 日期/编码/大小写/空格/长度 | `{"format": "date", "from_format": "yyyyMMdd", "to_format": "yyyy-MM-dd"}` | 第八 |
+| 9 | `reference_lookup` | 参考数据查找 | 按优先级和受控条件查找参考数据 | `{"reference_asset":"emp_monthly_cost_class","rules":[],"unmatched_behavior":{}}` | 按 `display_order` |
+| 10 | `identity_with_overrides` | 默认自映射和例外 | 默认保留源值，只保存例外覆盖 | `{"default_behavior":"keep_source","overrides":{"CC003":"CC100"}}` | 按 `display_order` |
 
 ### 执行顺序规则
 
@@ -59,7 +61,7 @@ R0102 的 ORM 必须基于以下字段定义：
 | `id` | BIGINT PK | autoincrement | 规则 ID |
 | `asset_type` | VARCHAR(16) | NOT NULL | `table` / `dataset` |
 | `asset_code` | VARCHAR(256) | NOT NULL | ODS 表名或 DataSet ID |
-| `rule_type` | VARCHAR(32) | NOT NULL | 8 类枚举之一 |
+| `rule_type` | VARCHAR(32) | NOT NULL | 10 类枚举之一 |
 | `source_field` | VARCHAR(128) | NOT NULL | ODS 源字段名 |
 | `target_field` | VARCHAR(128) | NOT NULL | DWD 目标字段名 |
 | `rule_config` | JSON | NOT NULL, DEFAULT '{}' | 规则参数（类型相关） |
@@ -91,9 +93,29 @@ R0102 的 ORM 必须基于以下字段定义：
 | 后续任务 | 必须引用 | 说明 |
 |----------|----------|------|
 | R0102 | 本文档 §3 表结构 | ORM/migration 按此字段建模 |
-| R0103 | 本文档 §2 枚举 | 8 类 `rule_type` 校验 |
-| R0104 | 本文档 §2 前 5 类 | 结构转换引擎 |
-| R0105 | 本文档 §2 后 3 类 | 清洗引擎 |
+| R0103 | 本文档 §2 枚举 | 10 类 `rule_type` 校验 |
+| R0104 | 本文档 §2 结构转换与映射类型 | 结构转换和公共映射 adapter |
+| R0105 | 本文档 §2 数仓专属清洗类型 | 去重、空值、格式等清洗 |
 | R0106 | 本文档 §3 表名 | 模板加载到 standardization_rules |
-| R0107 | 本文档 §2 全部 | 预览覆盖所有 8 类规则 |
-| R0108 | 本文档 §2 全部 | DWD 视图基于全部 8 类规则生成 |
+| R0107 | 本文档 §2 全部 | 预览覆盖所有 10 类规则 |
+| R0108 | 本文档 §2 全部 | DWD 视图基于全部 10 类规则生成 |
+
+---
+
+## 6. 与 017 统一数据映射组件的关系
+
+017 首期完整交付七类公共规则：`field`、`value_map`、`reference_lookup`、`identity_with_overrides`、`type_convert`、`format`、`split_merge`。七类是公共 `MappingWorkspace` 插件集合，不替代本文件规定的 ODS→DWD 规则事实源。
+
+ODS→DWD 规则正文仍只存 `standardization_rules`；不得另建平行 `mapping_rules` 规则正文表。公共 DTO 通过 warehouse adapter 转换为本文件的规则结构，版本、依赖、审计和重算元数据不得复制规则正文。
+
+| 017 公共规则 | 本文件权威表达 | 说明 |
+|---|---|---|
+| `field` | `rename` / 字段投影 | adapter 兼容别名 |
+| `value_map` | `value_map` | 兼容旧对象/数组格式 |
+| `reference_lookup` | `reference_lookup` | 新增受控 Lookup 类型 |
+| `identity_with_overrides` | `identity_with_overrides` | 新增稀疏例外类型 |
+| `type_convert` | `type_convert` | 直接兼容 |
+| `format` | `format_standardize` / `unit_convert` | 按受控子类型转换 |
+| `split_merge` | `split_merge` | 直接兼容 |
+
+因此权威枚举由 8 类扩展为 10 类：原 8 类全部保留，新增 `reference_lookup`、`identity_with_overrides`。`deduplicate`、`null_handling`、`unit_convert` 仍是数仓专属清洗能力。R0102-R0108 后续实现、测试和文档必须同步采用 10 类口径。

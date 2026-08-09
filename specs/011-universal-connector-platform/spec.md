@@ -329,6 +329,8 @@ Offer 同步结果至少应记录以下统计：
 
 ### 6.4 执行上下文 Context
 
+> 统一数据映射协同：017 的 `MappingWorkspace` 通过 `ucp_transform_v1` adapter 接入既有 `TRANSFORM version=1`；UCP 仍负责 Pipeline 上下文、顺序、条件、重试和执行记录。无法由 v1 无损表达的新规则必须显式版本演进，不得静默改变 v1 含义。
+
 流水线执行时维护上下文对象，用于步骤间传递数据。
 
 要求：
@@ -456,7 +458,7 @@ Phase 1A 的 Offer 同步中，`item_key` 固定为 `application_id`。
 | adapter_code | 适配器编码 |
 | protocol | 协议配置 |
 | credential_id | 凭证引用 |
-| mapping_config | 映射配置 |
+| mapping_config | 映射配置；017 统一 `MappingWorkspace` 通过 adapter 读写，保留旧 JSON 兼容 |
 | scheduling | 调度配置 |
 | notification_config | 通知配置 |
 | retry_config | 重试配置 |

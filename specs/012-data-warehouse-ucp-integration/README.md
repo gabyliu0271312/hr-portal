@@ -25,6 +25,7 @@
 - UI 开发必须同时执行 `atomic-tasks.md` 的 N 章节对应任务。
 - 数据仓库 UI 不得重复建设 UCP 的凭证、Pipeline、事件触发配置能力。
 - `DataSource` 在一期不直接替换为 UCP；它是数据仓库落表配置，UCP 是长期统一数据连接平台。
+- 涉及统一数据映射时，必须阅读 017 的 `code-status-review-and-revision-decision.md` 和 `spec.md`；本目录 `r0101-rule-scope-decision.md` 仍是 ODS→DWD 规则表和枚举权威。
 
 
 

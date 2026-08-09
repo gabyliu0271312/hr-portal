@@ -2565,6 +2565,8 @@ async def preview_standardization(
     for rid in payload.rule_ids:
         r = await svc.get_rule(rid)
         if r:
+            if r.asset_code != payload.asset_code:
+                raise HTTPException(status_code=400, detail="预览规则不属于当前来源表")
             rules.append({
                 "rule_type": r.rule_type,
                 "source_field": r.source_field,
@@ -2645,6 +2647,9 @@ class ExecuteFullRequest(BaseModel):
     model_config = {"extra": "forbid"}
     asset_code: str = Field(..., description="ODS 来源表名")
     target_table: str | None = Field(None, description="DWD 目标表名（可选，默认自动推导）")
+    wage_mode: str | None = Field(None, description="本次执行覆盖模式；不传时读取持久化 rollout")
+    wage_component_percent: int | None = Field(None, ge=0, le=100, description="本次执行覆盖的 Component 灰度比例")
+    cost_center_period: str | None = Field(None, pattern=r"^\d{6}$", description="成本中心映射期间 YYYYMM")
 
 
 @router.post(
@@ -2667,14 +2672,22 @@ async def execute_standardization(
     权限要求：warehouse.modeling:U
     """
     svc = get_standardization_rule_service(db)
+    if payload.wage_mode is not None and payload.wage_mode not in {"shadow", "gray", "rollback"}:
+        raise HTTPException(status_code=422, detail="wage_mode 仅支持 shadow/gray/rollback")
     result = await svc.execute_full(
         asset_code=payload.asset_code,
         target_table=payload.target_table,
+        wage_mode=payload.wage_mode,
+        wage_component_percent=payload.wage_component_percent,
+        cost_center_period=payload.cost_center_period,
     )
     if "error" in result:
-        code_map = {"no_rules": 400, "empty": 200, "read_failed": 500, "transform_failed": 500, "invalid_source": 400, "invalid_target": 400, "write_failed": 500}
+        code_map = {"no_rules": 400, "empty": 200, "read_failed": 500, "transform_failed": 500, "transform_blocked": 422, "review_required": 409, "invalid_source": 400, "invalid_target": 400, "write_failed": 500}
         status = code_map.get(result["error"], 500)
-        raise HTTPException(status_code=status, detail=result.get("detail", str(result)))
+        detail = result.get("detail", str(result))
+        if result.get("block_code"):
+            detail = {"message": detail, "code": result["block_code"]}
+        raise HTTPException(status_code=status, detail=detail)
     return result
 
 
@@ -3150,6 +3163,8 @@ async def list_all_ods_dwd_automation_executions(
 
 
 class OdsDwdManualTriggerIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
     period_value: str | None = None
 
 

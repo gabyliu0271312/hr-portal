@@ -34,6 +34,10 @@ from app.data.models import (
 )
 from app.datasources.beisen_client import make_client
 from app.data.formula import eval_formula
+from app.mapping.wage_dual_run import (
+    ReferenceLookupMap,
+    run_wage_dual_run,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +80,11 @@ YEARMONTH_COLUMNS: dict[str, set[str]] = {
 # 跨表查找填值（lookup/enrichment）：同步/重算时按规则从另一张表查出值填进 target。
 # 只填空（target 为空才填）、保留手改；rules 按顺序优先级，命中即停。
 # default：所有规则都未命中时填入的兜底值（可选）。
+# 这些映射只允许在 DWD 标准化阶段执行；ODS 同步不得生成派生值。
+DWD_ONLY_DERIVED_FIELDS: dict[str, set[str]] = {
+    "emp_monthly_salary": {"expense_type"},
+}
+
 LOOKUP_FIELDS: dict[str, list[dict]] = {
     "emp_monthly_salary": [
         {
@@ -528,7 +537,13 @@ async def _get_manual_columns(table_name: str, db: AsyncSession) -> list[dict]:
         )
     ).all()
     out = []
-    for code, cp, dtype, opts, configured_default in rows:
+    for row in rows:
+        # 兼容旧测试/旧查询 fixture 的四列返回值（没有 enum_default）。
+        if len(row) == 4:
+            code, cp, dtype, opts = row
+            configured_default = None
+        else:
+            code, cp, dtype, opts, configured_default = row
         default = None
         if dtype == "enum":
             if configured_default is not None:
@@ -574,13 +589,17 @@ async def build_lookup_maps(table_name: str, db: AsyncSession) -> list[tuple[dic
             raise RuntimeError(f"lookup 表 {cfg['lookup_table']} 缺少实体列: {missing}")
 
         rows = (await db.execute(select(LM))).scalars().all()
-        m: dict[tuple[str, str], object] = {}
+        reference_rows: list[dict] = []
+        m = ReferenceLookupMap(reference_rows=reference_rows)
         for row in rows:
             values = _row_to_dict(row, lookup_columns)
+            reference_rows.append(dict(values))
             key = (
                 str(values.get(cfg["type_col"], "")),
                 str(values.get(cfg["value_col"], "")),
             )
+            # 保持 Legacy dict 的最后一行覆盖语义；新双跑路径会在独立
+            # snapshot 构建阶段识别重复同结果 warning/异结果 conflict。
             m[key] = values.get(cfg["result_col"])
         out.append((cfg, m))
     return out
@@ -619,6 +638,15 @@ async def _dynamic_upsert(
     # 空批次：源端可能异常，不做任何删除，直接返回
     if not rows:
         return 0
+
+    # 派生字段属于 DWD 合同：从源端 payload 进入 ODS 前即丢弃，避免
+    # 自动发现字段、插入字段或保留旧派生值。
+    ods_derived_fields = DWD_ONLY_DERIVED_FIELDS.get(table_name, set())
+    if ods_derived_fields:
+        for row in rows:
+            if isinstance(row, dict):
+                for field_code in ods_derived_fields:
+                    row.pop(field_code, None)
 
     # 内部归档调用可通过 period_ym 显式给月度表补期间列。
     cfg = PERIOD_TABLES.get(table_name)
@@ -758,12 +786,30 @@ async def _dynamic_upsert(
                 key = tuple(str(values.get(k, "")) for k in entity_keys)
                 prev_map[key] = values
 
-    # 6) 组装 payload（合并手工值）
-    computed = await _get_computed_columns(table_name, db)
+    # 6) 组装 ODS payload（合并手工值）。派生字段只在 DWD 标准化阶段生成，
+    # 即使表元数据或源端已经带有该字段，也必须在 ODS 写入前移除。
+    computed = [
+        item for item in await _get_computed_columns(table_name, db)
+        if item["code"] not in DWD_ONLY_DERIVED_FIELDS.get(table_name, set())
+    ]
     lookup_maps = await build_lookup_maps(table_name, db)
-    payload = []
+    ods_derived_fields = DWD_ONLY_DERIVED_FIELDS.get(table_name, set())
+    if ods_derived_fields:
+        lookup_maps = [
+            (cfg_lk, lookup_map)
+            for cfg_lk, lookup_map in lookup_maps
+            if cfg_lk.get("target") not in ods_derived_fields
+        ]
+        columns_by_code = {
+            code: column
+            for code, column in columns_by_code.items()
+            if code not in ods_derived_fields
+        }
+    prepared_rows: list[tuple[str, dict]] = []
     for h, r in deduped:
         merged = dict(r)
+        for derived_field in ods_derived_fields:
+            merged.pop(derived_field, None)
         # 本地维护字段不接收源端值：无论是既有行还是新行，都由本地数据决定。
         # 主键字段不允许切换为本地维护，因此这里不会影响 pk_hash 的计算。
         for code in manual_codes:
@@ -787,11 +833,26 @@ async def _dynamic_upsert(
             for code, dv in defaults.items():
                 if merged.get(code) in (None, ""):
                     merged[code] = dv
-        # 跨表查找填值：强制重算（不保留旧值），确保映射表更新后能同步
-        # 先清空 lookup target 字段，再重新查找填值
+        # 跨表查找字段只在 DWD 标准化阶段生成；ODS 同步不再执行工资派生映射。
         for cfg_lk, _ in lookup_maps:
             merged.pop(cfg_lk["target"], None)
-        apply_lookups_to_row(merged, lookup_maps)
+        prepared_rows.append((h, merged))
+
+    # ODS 同步阶段不再执行 LOOKUP_FIELDS；工资 expense_type 由 DWD
+    # standardization 的公共 MappingExecutor 生成。
+    wage_dual_outcome = None
+    if table_name == "emp_monthly_salary":
+        mapped_rows = [merged for _, merged in prepared_rows]
+    elif lookup_maps:
+        mapped_rows = []
+        for _, merged in prepared_rows:
+            apply_lookups_to_row(merged, lookup_maps)
+            mapped_rows.append(merged)
+    else:
+        mapped_rows = [merged for _, merged in prepared_rows]
+
+    payload = []
+    for (h, _), merged in zip(prepared_rows, mapped_rows, strict=True):
         # 计算字段：用已组装好的行值算出结果写回（覆盖任何残留旧值）
         for comp in computed:
             merged[comp["code"]] = eval_formula(comp["formula"], merged)
@@ -821,6 +882,14 @@ async def _dynamic_upsert(
                 set_=update_set,
             )
             await db.execute(stmt)
+
+    # 工资 expense_type 是严格的 DWD 派生字段。旧版本写入的 ODS 值不能因
+    # 新 payload 省略该列而永久残留；同步工资表时清理整个 ODS 层，确保不会
+    # 被下游误读为业务源字段。
+    if table_name == "emp_monthly_salary" and "expense_type" in Model.__table__.c:
+        await db.execute(
+            Model.__table__.update().values(expense_type=None)
+        )
 
     # 提前提取 period 列的 data_type（expire_all 后不可再访问 ORM 属性）
     cfg_period = PERIOD_TABLES.get(table_name)

@@ -64,6 +64,27 @@ def next_patch_version(version: str) -> str:
 # ===== 节点 / 连线校验 =====
 
 
+def _mapping_storage_mode(config: dict, idx: int) -> str:
+    storage_mode = config.get("storageMode")
+    if storage_mode is None:
+        storage_mode = "component_v1" if isinstance(config.get("mapping_component"), dict) else "legacy_v1"
+    if storage_mode not in {"legacy_v1", "component_v1"}:
+        raise PipelineTemplateError(f"node[{idx}] 的 storageMode 不受支持")
+    return storage_mode
+
+
+def _validate_component_document(config: dict, idx: int) -> Any:
+    from app.mapping.dto import MappingDocumentV1
+
+    raw_document = config.get("mapping_component")
+    if not isinstance(raw_document, dict):
+        raise PipelineTemplateError(f"node[{idx}] 的 component_v1 必须配置 mapping_component")
+    try:
+        return MappingDocumentV1.from_dict(raw_document)
+    except (TypeError, ValueError) as error:
+        raise PipelineTemplateError(f"node[{idx}] 的 mapping_component 无效：{error}") from error
+
+
 def _validate_warehouse_sink_config(config: dict, idx: int) -> None:
     write_mode = config.get("write_mode", "upsert")
     if write_mode not in {"append", "upsert", "replace", "period_full_snapshot"}:
@@ -72,9 +93,14 @@ def _validate_warehouse_sink_config(config: dict, idx: int) -> None:
         raise PipelineTemplateError(f"node[{idx}] 的按期间全量快照业务主键由资产元数据控制，不能在流水线中配置")
     if write_mode == "period_full_snapshot" and not isinstance(config.get("period_field"), str):
         raise PipelineTemplateError(f"node[{idx}] 的按期间全量快照必须配置 period_field")
-    for key in ("mapping", "validations"):
-        if key in config and not isinstance(config[key], list):
-            raise PipelineTemplateError(f"node[{idx}] 的 {key} 必须是数组")
+    if "validations" in config and not isinstance(config["validations"], list):
+        raise PipelineTemplateError(f"node[{idx}] 的 validations 必须是数组")
+    storage_mode = _mapping_storage_mode(config, idx)
+    if storage_mode == "legacy_v1":
+        if "mapping" in config and not isinstance(config["mapping"], list):
+            raise PipelineTemplateError(f"node[{idx}] 的 legacy_v1 mapping 必须是数组")
+    else:
+        _validate_component_document(config, idx)
 
 
 def _validate_node(node: Any, idx: int) -> dict:
@@ -110,15 +136,21 @@ def _validate_node(node: Any, idx: int) -> dict:
         except ActionContractError as error:
             raise PipelineTemplateError(f"node[{idx}] 的结构化条件无效：{error}") from error
     if node_type == "TRANSFORM":
-        if any(key in config for key in ("field_mappings", "input_keys", "output_key")) or config.get("mapping") is None:
+        if any(key in config for key in ("field_mappings", "input_keys", "output_key")):
             raise PipelineTemplateError(f"node[{idx}] 的字段映射必须使用版本化 mapping DTO")
-        try:
-            validate_mapping(
-                dict(config["mapping"]), source_catalog=list(config.get("mapping_source_catalog") or []),
-                target_catalog=list(config.get("mapping_target_catalog") or []),
-            )
-        except ActionContractError as error:
-            raise PipelineTemplateError(f"node[{idx}] 的字段映射无效：{error}") from error
+        storage_mode = _mapping_storage_mode(config, idx)
+        if storage_mode == "legacy_v1":
+            if config.get("mapping") is None:
+                raise PipelineTemplateError(f"node[{idx}] 的 legacy_v1 必须配置 mapping")
+            try:
+                validate_mapping(
+                    dict(config["mapping"]), source_catalog=list(config.get("mapping_source_catalog") or []),
+                    target_catalog=list(config.get("mapping_target_catalog") or []),
+                )
+            except ActionContractError as error:
+                raise PipelineTemplateError(f"node[{idx}] 的字段映射无效：{error}") from error
+        else:
+            _validate_component_document(config, idx)
     if node_type == "WAREHOUSE_ASSET_SINK":
         _validate_warehouse_sink_config(config, idx)
     return {
@@ -149,22 +181,41 @@ async def _validate_warehouse_sink_assets(db: AsyncSession, nodes: list[dict]) -
         whitelist = config.get("field_whitelist") or []
         if not isinstance(whitelist, list) or not whitelist or len(whitelist) != len(set(whitelist)) or not set(whitelist).issubset(allowed):
             raise PipelineTemplateError(f"node[{node['id']}] 的字段白名单无效")
-        mapping = config.get("mapping")
-        if not isinstance(mapping, list) or not mapping:
-            raise PipelineTemplateError(f"node[{node['id']}] 的字段映射不能为空")
-        targets = [rule.get("target") for rule in mapping if isinstance(rule, dict)]
-        if len(targets) != len(mapping) or any(not isinstance(target, str) or target not in allowed for target in targets) or len(targets) != len(set(targets)):
-            raise PipelineTemplateError(f"node[{node['id']}] 的字段映射目标无效或重复")
-        if any(target not in whitelist for target in targets):
-            raise PipelineTemplateError(f"node[{node['id']}] 的字段映射目标必须包含在白名单中")
-        for rule in mapping:
-            minimum, maximum = rule.get("minimum"), rule.get("maximum")
-            if minimum is not None and maximum is not None:
-                try:
-                    if float(minimum) > float(maximum):
-                        raise PipelineTemplateError(f"node[{node['id']}] 的字段映射最小值不能大于最大值")
-                except (TypeError, ValueError) as exc:
-                    raise PipelineTemplateError(f"node[{node['id']}] 的字段映射范围无效") from exc
+        storage_mode = _mapping_storage_mode(config, node["id"])
+        if storage_mode == "legacy_v1":
+            mapping = config.get("mapping")
+            if not isinstance(mapping, list) or not mapping:
+                raise PipelineTemplateError(f"node[{node['id']}] 的字段映射不能为空")
+            targets = [rule.get("target") for rule in mapping if isinstance(rule, dict)]
+            if len(targets) != len(mapping) or any(not isinstance(target, str) or target not in allowed for target in targets) or len(targets) != len(set(targets)):
+                raise PipelineTemplateError(f"node[{node['id']}] 的字段映射目标无效或重复")
+            if any(target not in whitelist for target in targets):
+                raise PipelineTemplateError(f"node[{node['id']}] 的字段映射目标必须包含在白名单中")
+            for rule in mapping:
+                minimum, maximum = rule.get("minimum"), rule.get("maximum")
+                if minimum is not None and maximum is not None:
+                    try:
+                        if float(minimum) > float(maximum):
+                            raise PipelineTemplateError(f"node[{node['id']}] 的字段映射最小值不能大于最大值")
+                    except (TypeError, ValueError) as exc:
+                        raise PipelineTemplateError(f"node[{node['id']}] 的字段映射范围无效") from exc
+        else:
+            document = _validate_component_document(config, node["id"])
+            if document.ruleSet.targetAsset != target_asset:
+                raise PipelineTemplateError(
+                    f"node[{node['id']}] 的 component_v1 targetAsset 必须与目标资产一致"
+                )
+            targets = [
+                target
+                for rule in document.ruleSet.rules
+                for target in rule.targetFields
+            ]
+            if not targets:
+                raise PipelineTemplateError(f"node[{node['id']}] 的字段映射不能为空")
+            if any(target not in allowed for target in targets) or len(targets) != len(set(targets)):
+                raise PipelineTemplateError(f"node[{node['id']}] 的字段映射目标无效或重复")
+            if any(target not in whitelist for target in targets):
+                raise PipelineTemplateError(f"node[{node['id']}] 的字段映射目标必须包含在白名单中")
         if config.get("write_mode") == "period_full_snapshot":
             pk_columns = {column.column_code for column in columns if column.is_pk_part}
             if not asset.is_period or config.get("period_field") != asset.period_col:

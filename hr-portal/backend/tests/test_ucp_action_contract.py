@@ -11,6 +11,14 @@ from app.ucp.action_contract import (
     validate_mapping,
     validate_schema,
 )
+from app.mapping.dto import (
+    FieldRule,
+    FieldRuleConfig,
+    MappingDocumentV1,
+    MappingRuleSetV1,
+    ValueMapRule,
+    ValueMapRuleConfig,
+)
 from app.ucp.pipeline_engine import PipelineContext, _execute_transform_step, _is_dry_run_side_effect
 from app.ucp.routers.capabilities import _safe_path
 
@@ -103,6 +111,89 @@ async def test_transform_executes_only_versioned_mapping_dto():
     assert result["data"] == [{"employee_name": "张三"}]
     with pytest.raises(RuntimeError, match="version=1"):
         await _execute_transform_step({"mapping": {"rules": []}, "_incoming_edges": [{"from": "source"}]}, context, None)
+
+
+@pytest.mark.asyncio
+async def test_transform_component_v1_executes_component_only_and_keeps_legacy_snapshot_read_only():
+    context = PipelineContext("trace", "run")
+    context.set("source", {"data": [{"status": "A", "legacy_source": "must-not-run"}]})
+    component = MappingDocumentV1(
+        ruleSet=MappingRuleSetV1(
+            code="component-transform",
+            name="Component Transform",
+            rules=[
+                ValueMapRule(
+                    id="map-status",
+                    sourceFields=["status"],
+                    targetFields=["status_label"],
+                    config=ValueMapRuleConfig(mappings={"A": "active"}),
+                )
+            ],
+        )
+    )
+
+    result = await _execute_transform_step(
+        {
+            "storageMode": "component_v1",
+            "mapping_component": component.to_dict(),
+            "mapping": {
+                "version": 1,
+                "rules": [
+                    {
+                        "source_field_id": "legacy_source",
+                        "target_field_id": "legacy_target",
+                        "source_kind": "upstream_field",
+                    }
+                ],
+            },
+            "legacy_mapping_snapshot": {"version": 1, "rules": []},
+            "_incoming_edges": [{"from": "source"}],
+        },
+        context,
+        None,
+    )
+
+    assert result["data"] == [{"status": "A", "legacy_source": "must-not-run", "status_label": "active"}]
+    assert "legacy_target" not in result["data"][0]
+    assert result["mapping_stats"] == {"input": 1, "output": 1, "matched": 1, "unmatched": 0, "errors": 0}
+
+
+@pytest.mark.asyncio
+async def test_transform_legacy_v1_does_not_execute_mapping_component():
+    context = PipelineContext("trace", "run")
+    context.set("source", {"data": [{"name": "张三", "status": "A"}]})
+    component = MappingDocumentV1(
+        ruleSet=MappingRuleSetV1(
+            code="ignored-component",
+            name="Ignored Component",
+            rules=[
+                FieldRule(
+                    id="ignored-rule",
+                    sourceFields=["status"],
+                    targetFields=["component_status"],
+                    config=FieldRuleConfig(mode="rename"),
+                )
+            ],
+        )
+    )
+
+    result = await _execute_transform_step(
+        {
+            "storageMode": "legacy_v1",
+            "mapping": {
+                "version": 1,
+                "mode": "strict",
+                "rules": [{"source_field_id": "name", "target_field_id": "employee_name"}],
+            },
+            "mapping_component": component.to_dict(),
+            "_incoming_edges": [{"from": "source"}],
+        },
+        context,
+        None,
+    )
+
+    assert result["data"] == [{"employee_name": "张三"}]
+    assert "component_status" not in result["data"][0]
 
 
 @pytest.mark.parametrize("node_type", ["NOTIFY", "APPROVAL", "WAIT", "WAREHOUSE_ASSET_SINK"])

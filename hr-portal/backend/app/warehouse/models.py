@@ -215,8 +215,8 @@ class WarehouseModelVersion(Base):
 class StandardizationRule(Base):
     """ODS→DWD 字段标准化规则
 
-    R0101 统一决策：全部字段级转换只用一张表承载，rule_type 8 类枚举。
-    规则执行顺序：rename → type_convert → value_map → unit_convert → split_merge → deduplicate → null_handling → format_standardize
+    R0101 统一决策：全部字段级转换只用一张表承载，rule_type 10 类枚举。
+    规则执行顺序：rename → type_convert → value_map → unit_convert → split_merge → deduplicate → null_handling → format_standardize；reference_lookup 与 identity_with_overrides 沿用对应公共 Mapping 规则执行。
     """
 
     __tablename__ = "standardization_rules"
@@ -226,7 +226,7 @@ class StandardizationRule(Base):
     asset_code = Column(String(256), nullable=False, comment="ODS 表名或 DataSet ID")
     rule_type = Column(
         String(32), nullable=False,
-        comment="rename/type_convert/value_map/unit_convert/split_merge/deduplicate/null_handling/format_standardize",
+        comment="rename/type_convert/value_map/unit_convert/split_merge/deduplicate/null_handling/format_standardize/reference_lookup/identity_with_overrides",
     )
     source_field = Column(String(128), nullable=False, comment="ODS 源字段名")
     target_field = Column(String(128), nullable=False, comment="DWD 目标字段名")

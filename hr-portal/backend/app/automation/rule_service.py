@@ -82,7 +82,7 @@ async def validate_rule(data: AutomationRuleCreate) -> list[str]:
             errors.append(f"action[{i}] type={action.type!r} is not registered")
             continue
 
-        if action.type == "feishu_send_message":
+        if action.type in {"feishu_send_message", "cost_center_feishu_send_message"}:
             config = action.config or {}
             recvs = config.get("receivers", [])
             if not recvs:

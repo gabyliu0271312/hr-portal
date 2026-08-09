@@ -9,6 +9,8 @@ R0105: deduplicate / null_handling / format_standardize 三类清洗
 import re
 from typing import Any, Optional
 
+from app.mapping.regex_safety import validate_safe_pattern
+
 
 # ==================== 规则优先级 ====================
 
@@ -21,7 +23,11 @@ RULE_ORDER = {
     "deduplicate": 5,        # R0105
     "null_handling": 6,      # R0105
     "format_standardize": 7, # R0105
+    "reference_lookup": 8,
+    "identity_with_overrides": 9,
 }
+
+SUPPORTED_RULE_TYPES = frozenset(RULE_ORDER)
 
 
 def _rule_order_key(rule) -> int:
@@ -99,6 +105,12 @@ def _apply_value_map(row: dict, rule, source: str, target: str) -> dict:
     """
     config = rule.rule_config or {}
     mappings = config.get("mappings", {})
+    if isinstance(mappings, list):
+        mappings = {
+            item.get("from", ""): item.get("to", "")
+            for item in mappings
+            if isinstance(item, dict)
+        }
     unmapped = config.get("unmapped", "keep")
 
     value = row.get(source)
@@ -117,6 +129,71 @@ def _apply_value_map(row: dict, rule, source: str, target: str) -> dict:
     else:
         row[target] = None
 
+    return row
+
+
+def _reference_key(rule_match, value: Any) -> tuple:
+    conditions = rule_match.get("conditions") or {}
+    return tuple([str(v) for v in conditions.values()] + [str(value)])
+
+
+def _lookup_reference(dataset: Any, match_rule: dict, value: Any) -> Any:
+    """在调用方提供的内存快照中查找，不触发任何数据库访问。"""
+    reference_field = match_rule.get("reference_field", "value")
+    conditions = match_rule.get("conditions") or {}
+    if isinstance(dataset, dict):
+        return dataset.get(_reference_key(match_rule, value))
+    if isinstance(dataset, list):
+        for item in dataset:
+            if not isinstance(item, dict) or str(item.get(reference_field)) != str(value):
+                continue
+            if all(item.get(key) == expected for key, expected in conditions.items()):
+                return item
+    return None
+
+
+def _apply_reference_lookup(row: dict, rule, source: str, target: str, reference_data: dict | None) -> dict:
+    """使用调用方一次性传入的内存参考快照执行 lookup。"""
+    config = rule.rule_config or {}
+    dataset = (reference_data or {}).get(config.get("lookup_table", ""), {})
+    value = row.get(source)
+    matched = None
+    for match_rule in sorted(config.get("rules", []), key=lambda item: item.get("priority", 0)):
+        if value is None:
+            continue
+        matched = _lookup_reference(dataset, match_rule, value)
+        if matched is not None:
+            break
+    if matched is not None:
+        result_field = config.get("result_col", "cost_classification")
+        row[target] = matched.get(result_field) if isinstance(matched, dict) else matched
+    else:
+        unmatched = config.get("unmatched", "set_default")
+        if unmatched == "set_default":
+            row[target] = config.get("default")
+        elif unmatched == "set_null":
+            row[target] = None
+        elif unmatched == "flag":
+            row[target] = value
+            row[f"{target}_unmapped"] = True
+        elif unmatched == "reject":
+            raise ValueError(f"reference_lookup 未命中: {value}")
+        else:
+            row[target] = value
+    return row
+
+
+def _apply_identity_with_overrides(row: dict, rule, source: str, target: str) -> dict:
+    """默认保留源值，仅按 overrides 覆盖。"""
+    config = rule.rule_config or {}
+    value = row.get(source)
+    key = str(value) if value is not None else None
+    if key is not None and key in (config.get("overrides") or {}):
+        row[target] = config["overrides"][key]
+    elif value is None:
+        row[target] = None
+    else:
+        row[target] = value
     return row
 
 
@@ -278,7 +355,7 @@ def _apply_format_standardize(row: dict, rule, source: str, target: str) -> dict
         pattern = config.get("pattern", "")
         replacement = config.get("replacement", "")
         if pattern:
-            str_value = re.sub(pattern, replacement, str_value)
+            str_value = re.sub(validate_safe_pattern(pattern), replacement, str_value)
 
     row[field] = str_value
     if field != target and target:
@@ -360,13 +437,28 @@ RULE_EXECUTORS = {
     "deduplicate": _apply_deduplicate,
     "null_handling": _apply_null_handling,
     "format_standardize": _apply_format_standardize,
+    "reference_lookup": _apply_reference_lookup,
+    "identity_with_overrides": _apply_identity_with_overrides,
 }
+
+
+def validate_rule_types(rules: list) -> None:
+    """拒绝未知规则类型，避免配置错误被静默忽略。"""
+    unknown = sorted({getattr(rule, "rule_type", None) for rule in rules} - SUPPORTED_RULE_TYPES)
+    if unknown:
+        raise ValueError(f"未知标准化规则类型: {', '.join(str(item) for item in unknown)}")
 
 
 # ==================== 批量执行入口 ====================
 
 
-def execute_rules(rules: list, rows: list[dict]) -> list[dict]:
+def execute_rules(
+    rules: list,
+    rows: list[dict],
+    reference_data: dict | None = None,
+    *,
+    reference_snapshot: dict | None = None,
+) -> list[dict]:
     """对 ODS 数据行按顺序应用标准化规则，返回 DWD 结果行。
 
     - 浅拷贝输入 rows，不修改原始数据（ODS 保护）
@@ -382,6 +474,9 @@ def execute_rules(rules: list, rows: list[dict]) -> list[dict]:
         DWD 转换后数据行列表
     """
     result = [dict(r) for r in rows]
+    if reference_data is None:
+        reference_data = reference_snapshot
+    validate_rule_types(rules)
     if not rules:
         return result
 
@@ -403,6 +498,9 @@ def execute_rules(rules: list, rows: list[dict]) -> list[dict]:
         if rule.rule_type in SET_LEVEL_RULES:
             # 集合级规则：一次性处理整个行集
             result = executor(result, rule, src, tgt)
+        elif rule.rule_type == "reference_lookup":
+            for row in result:
+                executor(row, rule, src, tgt, reference_data)
         elif rule.rule_type == "null_handling" and \
                 (rule.rule_config or {}).get("strategy") == "drop_row":
             # 空值丢弃策略
@@ -424,7 +522,11 @@ def execute_single_rule(rule, row: dict) -> dict:
     不会修改传入的 row。
     """
     r = dict(row)
+    validate_rule_types([rule])
     executor = RULE_EXECUTORS.get(rule.rule_type)
     if executor and rule.enabled:
-        executor(r, rule, rule.source_field, rule.target_field)
+        if rule.rule_type == "reference_lookup":
+            executor(r, rule, rule.source_field, rule.target_field, None)
+        else:
+            executor(r, rule, rule.source_field, rule.target_field)
     return r

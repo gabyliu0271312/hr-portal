@@ -691,3 +691,35 @@ def test_full_pipeline_with_cleaning():
     assert result[0]["name"] == "Alice"
     assert result[0]["status_cn"] == "在职"
     assert result[1]["status_cn"] == "未知"  # null → 默认值
+
+
+def test_reference_lookup_and_identity_with_overrides_use_memory_snapshot():
+    rules = [
+        FakeRule(
+            "reference_lookup", "dept_code", "dept_name",
+            {
+                "lookup_table": "departments",
+                "rules": [{"priority": 1, "reference_field": "code", "conditions": {"tenant": "acme"}}],
+                "result_col": "name",
+                "unmatched": "set_null",
+            },
+        ),
+        FakeRule(
+            "identity_with_overrides", "cost_center", "normalized_cost_center",
+            {"overrides": {"legacy": "current"}},
+        ),
+    ]
+    result = execute_rules(
+        rules,
+        [{"dept_code": "D1", "cost_center": "legacy"}, {"dept_code": "D9", "cost_center": "C2"}],
+        reference_data={"departments": [{"code": "D1", "tenant": "acme", "name": "Finance"}]},
+    )
+    assert result[0]["dept_name"] == "Finance"
+    assert result[0]["normalized_cost_center"] == "current"
+    assert result[1]["dept_name"] is None
+    assert result[1]["normalized_cost_center"] == "C2"
+
+
+def test_unknown_rule_type_is_rejected_in_execute():
+    with pytest.raises(ValueError, match="未知标准化规则类型"):
+        execute_rules([FakeRule("future_rule", "a", "b")], [{"a": 1}])

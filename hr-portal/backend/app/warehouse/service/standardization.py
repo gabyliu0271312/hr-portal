@@ -6,10 +6,13 @@ from datetime import UTC, date, datetime, time
 from copy import deepcopy
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
+import logging
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 # ==================== 标准化规则 (R01) ====================
 
@@ -30,7 +33,11 @@ async def _publish_std_rule_changed(asset_code: str) -> None:
         pass
 
 
-STANDARDIZATION_RULE_TYPES = ("rename", "type_convert", "value_map", "unit_convert", "split_merge", "deduplicate", "null_handling", "format_standardize")
+STANDARDIZATION_RULE_TYPES = (
+    "rename", "type_convert", "value_map", "unit_convert",
+    "split_merge", "deduplicate", "null_handling", "format_standardize",
+    "reference_lookup", "identity_with_overrides",
+)
 
 # PostgreSQL/asyncpg rejects a single prepared statement with more than 32767
 # bind parameters. Standardization writes one INSERT statement per batch where
@@ -185,6 +192,27 @@ def _normalize_standardization_rules(
 
 def _is_system_technical_column(column_code: str) -> bool:
     return column_code in SYSTEM_TECHNICAL_COLUMNS
+
+
+def _resolve_wage_rollout(
+    *,
+    persisted: dict[str, Any],
+    requested_mode: Literal["shadow", "gray", "rollback"] | None,
+    requested_component_percent: int | None,
+) -> tuple[Literal["shadow", "gray", "rollback"], int]:
+    """Resolve persisted wage rollout unless this execution explicitly overrides it."""
+    if requested_mode is None and requested_component_percent is None:
+        mode = str(persisted.get("mode") or "shadow")
+        percent = int(persisted.get("component_percent") or 0)
+    else:
+        mode = requested_mode or "shadow"
+        percent = requested_component_percent or 0
+
+    if mode not in {"shadow", "gray", "rollback"}:
+        raise ValueError("wage_mode 仅支持 shadow/gray/rollback")
+    if not 0 <= percent <= 100:
+        raise ValueError("wage_component_percent 必须在 0 到 100 之间")
+    return mode, percent
 
 
 def _safe_insert_batch_size(column_count: int, *, max_rows: int = DEFAULT_INSERT_BATCH_ROWS) -> int:
@@ -641,8 +669,16 @@ class StandardizationRuleService:
         asset_code: str,
         target_table: str | None = None,
         rule_ids: list[int] | None = None,
+        wage_mode: Literal["shadow", "gray", "rollback"] | None = None,
+        wage_component_percent: int | None = None,
+        cost_center_period: str | None = None,
     ) -> dict:
-        """全量执行 ODS→DWD 标准化并写入目标物理表。"""
+        """全量执行 ODS→DWD 标准化并写入目标物理表。
+
+        工资表在兼容期先执行 Legacy + 公共 MappingExecutor 双跑；两项
+        rollout 参数均未传时读取持久化控制，显式 ``shadow/0`` 则覆盖
+        持久化配置并继续选择 Legacy。
+        """
         from app.warehouse.models import StandardizationRule
         from app.warehouse.standardization_engine import execute_rules
         from app.data.models import RegisteredTable, TableColumn
@@ -652,6 +688,25 @@ class StandardizationRuleService:
         source_layer = await self._get_layer(asset_code)
         if source_layer not in ("ODS", "DWD"):
             return {"error": "invalid_source", "detail": f"数据清洗仅支持 ODS/DWD 来源表，当前表层级为 {source_layer or '未注册'}"}
+
+        # 成本中心规则必须先完成周期发布和差异确认；门禁位于任何 DWD DDL/DML 之前。
+        # 期间是该门禁的一部分，禁止调用方通过省略期间绕过发布状态检查。
+        if asset_code == "cost_center_monthly":
+            if not cost_center_period:
+                return {
+                    "error": "review_required",
+                    "status": "review_required",
+                    "reason": "cost_center_period_required",
+                    "detail": "成本中心 DWD 执行必须提供已发布的 YYYYMM 期间",
+                    "total": 0,
+                    "success": 0,
+                    "failed": 0,
+                    "errors": [],
+                }
+            from app.mapping.cost_center_service import CostCenterMappingService
+            gate = await CostCenterMappingService(self.session).ensure_dwd_allowed(period=cost_center_period)
+            if gate["status"] != "allowed":
+                return {"error": "review_required", **gate, "total": 0, "success": 0, "failed": 0, "errors": []}
 
         # 推导目标表名
         if not target_table:
@@ -666,11 +721,19 @@ class StandardizationRuleService:
         rules = (await self.session.execute(q)).scalars().all()
         if rule_ids is not None and len(rules) != len(set(rule_ids)):
             return {"error": "invalid_rule_binding", "detail": "绑定规则不存在、未启用或不属于当前 ODS 表"}
-        if not rules: return {"error": "no_rules", "detail": f"表 {asset_code} 没有启用的标准化规则"}
+        if not rules and asset_code != "cost_center_monthly":
+            return {"error": "no_rules", "detail": f"表 {asset_code} 没有启用的标准化规则"}
         try:
-            result = await self.session.execute(sa_text(f'SELECT * FROM "{asset_code}"'))
+            query = f'SELECT * FROM "{asset_code}"'
+            params = {}
+            if asset_code == "cost_center_monthly":
+                period_column = "month"
+                query += f' WHERE {_quote_ident(period_column)} = :cost_center_period'
+                params["cost_center_period"] = cost_center_period
+            result = await self.session.execute(sa_text(query), params)
             rows_raw = result.fetchall()
-            if not rows_raw: return {"error": "empty", "detail": "ODS 表无数据", "total": 0, "success": 0, "failed": 0, "errors": [], "target_table": target_table}
+            if not rows_raw:
+                return {"error": "empty", "detail": "ODS 表无当前期间数据", "total": 0, "success": 0, "failed": 0, "errors": [], "target_table": target_table}
             cols = list(result.keys())
             rows = [dict(zip(cols, row)) for row in rows_raw]
         except Exception as e: return {"error": "read_failed", "detail": str(e)}
@@ -687,8 +750,125 @@ class StandardizationRuleService:
             source_label_by_code={c.column_code: c.column_label for c in source_columns_meta_for_rules},
         )
         total = len(rows)
-        try: transformed = execute_rules(rules, rows)
-        except Exception as e: return {"error": "transform_failed", "detail": str(e), "total": total, "success": 0, "failed": total, "errors": []}
+        wage_dual_outcome = None
+        wage_rollout_control = None
+        wage_rebuild_run = None
+        cost_center_context = None
+        try:
+            if asset_code == "cost_center_monthly":
+                from app.mapping.cost_center_service import CostCenterMappingService
+                from app.mapping.dto import MappingDocumentV1
+                from app.mapping.executor import MappingExecutor
+                from app.mapping.policy import build_policy
+
+                cost_center_context = await CostCenterMappingService(self.session).get_published_execution_context(
+                    period=cost_center_period,
+                )
+                if cost_center_context.get("status") != "allowed":
+                    return {"error": "review_required", **cost_center_context, "total": total, "success": 0, "failed": total, "errors": []}
+                required_fields = {"code", "name"}
+                missing_fields = sorted(required_fields - set(cols))
+                if missing_fields:
+                    raise RuntimeError(
+                        "成本中心 ODS 物理字段契约不完整，缺少: " + ", ".join(missing_fields)
+                    )
+                reference_rows = cost_center_context["reference_datasets"].get("cost_center_tree", [])
+                reference_snapshot = {
+                    "cost_center_tree": {
+                        (str(item.get("code")),): item for item in reference_rows
+                    }
+                }
+                document = MappingDocumentV1.from_dict(cost_center_context["rule_document"])
+                policy = build_policy(
+                    "warehouse",
+                    source_asset_id=asset_code,
+                    source_field_ids=list(cols),
+                    target_asset_id=target_table,
+                    target_field_ids=list(cols),
+                    allowed_reference_datasets=["cost_center_tree"],
+                    allowed_reference_fields=["code", "name"],
+                )
+                mapping_result = await MappingExecutor().execute(
+                    document, rows, reference_snapshot=reference_snapshot, policy=policy,
+                )
+                if mapping_result.errors:
+                    raise RuntimeError(mapping_result.errors[0].message)
+                transformed = mapping_result.outputRows
+            elif asset_code == "emp_monthly_salary":
+                from app.datasources.sync_service import (
+                    apply_lookups_to_row,
+                    build_lookup_maps,
+                )
+                from app.mapping.wage_dual_run import (
+                    WAGE_REFERENCE_DATASET,
+                    build_wage_mapping_document,
+                    run_wage_dual_run,
+                )
+
+                lookup_maps = await build_lookup_maps(asset_code, self.session)
+                from app.mapping.service import MappingService
+                mapping_service = MappingService(self.session)
+                wage_rollout_control = await mapping_service.get_wage_rollout(asset_id=asset_code)
+                wage_mode, wage_component_percent = _resolve_wage_rollout(
+                    persisted=wage_rollout_control,
+                    requested_mode=wage_mode,
+                    requested_component_percent=wage_component_percent,
+                )
+                wage_rule = next(
+                    (
+                        rule for rule in rules
+                        if rule.rule_type == "reference_lookup"
+                        and (rule.rule_config or {}).get("lookup_table") == WAGE_REFERENCE_DATASET
+                        and (rule.rule_config or {}).get("target", rule.target_field) == "expense_type"
+                    ),
+                    None,
+                )
+                if wage_rule is not None and lookup_maps:
+                    # 其他 ODS→DWD 规则仍由 standardization_rules 引擎执行；
+                    # 工资 expense_type 只替换为公共双跑结果，避免跳过既有清洗规则。
+                    non_wage_rules = [rule for rule in rules if rule is not wage_rule]
+                    base_rows = execute_rules(non_wage_rules, rows)
+                    wage_document = build_wage_mapping_document(
+                        wage_rule.rule_config,
+                        source_asset=asset_code,
+                        target_asset=target_table,
+                        source_fields=("employee_no", "client"),
+                        target_field=wage_rule.target_field or "expense_type",
+                    )
+                    wage_key_fields = [
+                        column.column_code
+                        for column in source_columns_meta_for_rules
+                        if bool(column.is_pk_part)
+                    ] or ["employee_no", "pay_month"]
+                    wage_dual_outcome = await run_wage_dual_run(
+                        base_rows,
+                        lookup_maps,
+                        business_key_fields=wage_key_fields,
+                        legacy_evaluator=apply_lookups_to_row,
+                        mode=wage_mode,
+                        component_percent=wage_component_percent,
+                        component_document=wage_document,
+                    )
+                    transformed = wage_dual_outcome.selectedRows
+                    logger.info(
+                        "[wage_mapping] dwd %s",
+                        wage_dual_outcome.report.to_log_dict(),
+                    )
+                else:
+                    transformed = execute_rules(rules, rows)
+            else:
+                transformed = execute_rules(rules, rows)
+        except Exception as e:
+            block_code = getattr(e, "code", None)
+            return {
+                "error": "transform_blocked" if block_code else "transform_failed",
+                "detail": str(e),
+                "block_code": block_code.value if hasattr(block_code, "value") else block_code,
+                "total": total,
+                "success": 0,
+                "failed": total,
+                "errors": [],
+            }
         success = len(transformed); failed = total - success
         target = target_table.strip().replace('"', "")
         # P0: 校验目标层级 — 目标表若已注册，必须是 DWD 层
@@ -704,13 +884,15 @@ class StandardizationRuleService:
                 await validate_ddl_operation(self.session, target, DDL_REPLACE)
             else:
                 await validate_ddl_operation(self.session, target, DDL_CREATE, target_layer="DWD")
+            bcols = [col for col in (_ordered_output_columns(transformed) if transformed else cols) if col != "id"]
+            await self._validate_dataset_relation_keys_for_target(target_table=target, output_columns=bcols)
+            column_types = _infer_column_types(transformed) if transformed else {column: "TEXT" for column in bcols}
+            col_defs = _dwd_create_column_definitions(bcols, column_types)
+            # 即使转换后没有行，也保留空 DWD 物理表及其元数据契约。
+            # DDL 和元数据仍处于同一事务，异常会整体回滚而不会留下“有元数据无表”。
             await self.session.execute(sa_text(f'DROP TABLE IF EXISTS "{target}"'))
+            await self.session.execute(sa_text(f'CREATE TABLE {_quote_ident(target)} ({", ".join(col_defs)})'))
             if transformed:
-                bcols = [col for col in _ordered_output_columns(transformed) if col != "id"]
-                await self._validate_dataset_relation_keys_for_target(target_table=target, output_columns=bcols)
-                column_types = _infer_column_types(transformed)
-                col_defs = _dwd_create_column_definitions(bcols, column_types)
-                await self.session.execute(sa_text(f'CREATE TABLE {_quote_ident(target)} ({", ".join(col_defs)})'))
                 batch_size = _safe_insert_batch_size(len(bcols))
                 for bs in range(0, len(transformed), batch_size):
                     batch = transformed[bs:bs + batch_size]
@@ -783,12 +965,39 @@ class StandardizationRuleService:
             sync_result = await self._sync_dwd_dataset_fields(asset_code=asset_code, target_table=target, output_columns=(bcols if transformed else cols), commit=False)
             if sync_result and sync_result.get("error"):
                 raise RuntimeError(sync_result.get("detail") or "DWD 数据集字段同步失败")
+            if wage_dual_outcome is not None and wage_rollout_control and wage_rollout_control.get("binding_id"):
+                wage_rebuild_run = await MappingService(self.session).record_rebuild_success(
+                    binding_id=wage_rollout_control["binding_id"],
+                    target_id=target,
+                    row_count=success,
+                    audit_id=wage_rollout_control.get("audit_id"),
+                    event_id=wage_rollout_control.get("event_id"),
+                    mapping_version=int(wage_rollout_control.get("expected_version") or 0),
+                )
+            if asset_code == "cost_center_monthly" and cost_center_period:
+                from app.mapping.cost_center_service import CostCenterMappingService
+                await CostCenterMappingService(self.session).mark_rebuild_result(
+                    period=cost_center_period,
+                    success=True,
+                )
             await self.session.commit()
         except Exception as e:
             await self.session.rollback()
             return {"error": "write_failed", "detail": str(e)[:500], "total": total, "success": 0, "failed": total, "target_table": target, "errors": []}
         # P0-3: 空结果警告
         result = {"total": total, "success": success, "failed": failed, "errors": [], "target_table": target}
+        if wage_dual_outcome is not None:
+            result["wage_rollout"] = {
+                "mode": wage_dual_outcome.report.mode,
+                "selected_evaluator": wage_dual_outcome.report.selectedEvaluator,
+                "component_percent": wage_dual_outcome.report.componentPercent,
+                "same": wage_dual_outcome.report.same,
+                "different": wage_dual_outcome.report.different,
+                "publish_blocked": wage_dual_outcome.report.publishBlocked,
+                "block_code": wage_dual_outcome.report.blockCode,
+                "binding_id": (wage_rollout_control or {}).get("binding_id"),
+                "rebuild_run_id": getattr(wage_rebuild_run, "id", None),
+            }
         if success == 0:
             result["warning"] = "标准化结果为空（0 行），请检查源数据和规则配置"
         return result
@@ -859,13 +1068,24 @@ class StandardizationTemplateService:
         if t is None: return None
         if not t.template_rules: return {"loaded": 0, "skipped": 0, "template_id": template_id}
         existing = (await self.session.execute(select(StandardizationRule).where(StandardizationRule.asset_code == asset_code))).scalars().all()
-        existing_keys = {(r.source_field, r.rule_type) for r in existing}
+        existing_by_key = {(r.source_field, r.rule_type): r for r in existing}
         loaded = 0; skipped = 0
         max_order = max((r.display_order for r in existing), default=0)
         for i, rule_data in enumerate(t.template_rules):
             key = (rule_data.get("source_field", ""), rule_data.get("rule_type", ""))
-            if key in existing_keys:
-                if on_conflict == "skip": skipped += 1; continue
+            conflict = existing_by_key.get(key)
+            if conflict is not None:
+                if on_conflict == "skip":
+                    skipped += 1
+                    continue
+                if on_conflict != "overwrite":
+                    raise ValueError("on_conflict must be skip or overwrite")
+                conflict.target_field = rule_data.get("target_field", "")
+                conflict.rule_config = rule_data.get("rule_config", {})
+                conflict.enabled = True
+                conflict.display_order = max_order + (i + 1) * 10
+                loaded += 1
+                continue
             rule = StandardizationRule(asset_type=asset_type, asset_code=asset_code, rule_type=rule_data["rule_type"], source_field=rule_data.get("source_field", ""), target_field=rule_data.get("target_field", ""), rule_config=rule_data.get("rule_config", {}), enabled=True, display_order=max_order + (i + 1) * 10)
             self.session.add(rule); loaded += 1
         await self.session.commit()

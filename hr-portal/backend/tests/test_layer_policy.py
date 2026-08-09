@@ -184,6 +184,22 @@ def test_execute_full_request_forbid_extra():
     assert ExecuteFullRequest.model_config.get("extra") == "forbid"
 
 
+def test_execute_full_request_distinguishes_persisted_and_explicit_shadow_rollout():
+    from app.warehouse.router import ExecuteFullRequest
+
+    persisted = ExecuteFullRequest(asset_code="emp_monthly_salary")
+    explicit_shadow = ExecuteFullRequest(
+        asset_code="emp_monthly_salary",
+        wage_mode="shadow",
+        wage_component_percent=0,
+    )
+
+    assert persisted.wage_mode is None
+    assert persisted.wage_component_percent is None
+    assert explicit_shadow.wage_mode == "shadow"
+    assert explicit_shadow.wage_component_percent == 0
+
+
 def test_ddl_whitelist_rejects_truncate_variants():
     """TRUNCATE 在破坏性集合中，CREATE 不在"""
     from app.warehouse.layer_policy import DESTRUCTIVE_DDL, DDL_CREATE, DDL_TRUNCATE

@@ -25,16 +25,20 @@
    - `ui-implementation-guardrails.md`
 5. 如果涉及 UCP / 数据接入 / DataSource 兼容 / PushTarget 推送 / 接口配置归并，阅读：
    - `ucp-coordination.md`
-6. 如果涉及 AI 接入 / AI-ready / 权限传播 / ODS-DWD-DWS-ADS 派生权限 / 数据上下文，阅读：
+6. 如果涉及统一数据映射、字段转换、Lookup 或 `MappingWorkspace`，必须阅读：
+   - `../017-mapping-component-reference-governance/code-status-review-and-revision-decision.md`。
+   - `../017-mapping-component-reference-governance/spec.md`。
+   - 本目录 `r0101-rule-scope-decision.md` 仍是 `standardization_rules` 和 ODS→DWD 规则枚举权威。
+7. 如果涉及 AI 接入 / AI-ready / 权限传播 / ODS-DWD-DWS-ADS 派生权限 / 数据上下文，阅读：
    - `spec.md` 第 20 节。
    - `atomic-tasks.md` Y 章和 U26。
    - `specs/004-ai-native-workbench` 相关能力注册与 Policy Guard 文档。
    - `specs/005-unified-permission-model` 相关权限模型文档。
-7. 如果涉及测试或验收，阅读：
+8. 如果涉及测试或验收，阅读：
    - `testing-acceptance.md`
-8. 查看 `atomic-tasks.md` 已勾选状态，确认前置任务是否已完成。
-9. 检查本次任务是否已内嵌 UI/测试/验收要求；如没有，先按 `atomic-tasks.md` 的 A03/A05 模板补齐。涉及 UI 的原子任务必须补 `UI 示意图`，引用 U00-U26；涉及测试的任务必须写明单测/API/组件/E2E/build 或不适用原因。
-10. 查看 git 当前状态，避免覆盖用户或其他模型未提交变更。`r`n`r`n---
+9. 查看 `atomic-tasks.md` 已勾选状态，确认前置任务是否已完成。
+10. 检查本次任务是否已内嵌 UI/测试/验收要求；如没有，先按 `atomic-tasks.md` 的 A03/A05 模板补齐。涉及 UI 的原子任务必须补 `UI 示意图`，引用 U00-U26；涉及测试的任务必须写明单测/API/组件/E2E/build 或不适用原因。
+11. 查看 git 当前状态，避免覆盖用户或其他模型未提交变更。`r`n`r`n---
 
 ## 2. 每次开工前必须在回复中声明
 

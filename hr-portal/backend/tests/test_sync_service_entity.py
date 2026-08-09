@@ -112,6 +112,14 @@ def make_column(**overrides):
     return TableColumn(**data)
 
 
+async def _async_none():
+    return None
+
+
+async def _async_value(value):
+    return value
+
+
 def make_entity_model(table_name: str):
     table = Table(
         table_name,
@@ -187,6 +195,52 @@ async def test_ensure_columns_keeps_identifier_code_as_string(monkeypatch):
     assert rename_map == {"编码": "factor_code"}
     assert add_calls == [("sync_entity_table", "factor_code", "string")]
     assert db.added_all[0].data_type == "string"
+
+
+async def test_wage_ods_sync_contract_excludes_dwd_only_expense_type(monkeypatch):
+    assert sync_service.DWD_ONLY_DERIVED_FIELDS["emp_monthly_salary"] == {"expense_type"}
+
+    rows = [{
+        "month": "202608",
+        "employee_no": "E001",
+        "amount": "100",
+        "expense_type": "源端错误派生值",
+    }]
+    model = make_entity_model("emp_monthly_salary_contract")
+    old_model = sync_service.DATA_TABLES.get("emp_monthly_salary")
+    sync_service.DATA_TABLES["emp_monthly_salary"] = model
+    captured = {}
+
+    async def fake_ensure_columns(*args, **kwargs):
+        captured["ensure_sample"] = dict(args[1])
+        return {}
+
+    async def fake_columns(*args, **kwargs):
+        return [
+            make_column(table_name="emp_monthly_salary", column_code="month", is_pk_part=True),
+            make_column(table_name="emp_monthly_salary", column_code="employee_no", is_pk_part=True),
+            make_column(table_name="emp_monthly_salary", column_code="amount"),
+        ]
+
+    monkeypatch.setattr(sync_service, "_ensure_columns", fake_ensure_columns)
+    monkeypatch.setattr(sync_service, "_ensure_period_meta", lambda *args, **kwargs: _async_none())
+    monkeypatch.setattr(sync_service, "_source_columns", fake_columns)
+    monkeypatch.setattr(sync_service, "_get_pk_columns", lambda *args, **kwargs: _async_value(["month", "employee_no"]))
+    monkeypatch.setattr(sync_service, "_get_manual_columns", lambda *args, **kwargs: _async_value([]))
+    monkeypatch.setattr(sync_service, "_get_computed_columns", lambda *args, **kwargs: _async_value([]))
+    monkeypatch.setattr(sync_service, "build_lookup_maps", lambda *args, **kwargs: _async_value([]))
+    monkeypatch.setattr(sync_service, "pg_insert", lambda model_arg: FakeInsert(model_arg))
+
+    try:
+        await sync_service._dynamic_upsert("emp_monthly_salary", rows, FakeSession(results=[]))
+    finally:
+        if old_model is None:
+            sync_service.DATA_TABLES.pop("emp_monthly_salary", None)
+        else:
+            sync_service.DATA_TABLES["emp_monthly_salary"] = old_model
+
+    assert "expense_type" not in captured["ensure_sample"]
+    assert "expense_type" not in rows[0]
 
 
 async def test_dynamic_upsert_writes_entity_payload_without_raw(monkeypatch):

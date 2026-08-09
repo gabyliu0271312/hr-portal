@@ -541,6 +541,143 @@ def _resource_mapping_rules(field_mapping: Any) -> list[dict]:
     ]
 
 
+def _mapping_storage_mode(config: dict) -> str:
+    """Resolve one and only one mapping storage domain for this execution."""
+    storage_mode = config.get("storageMode")
+    if storage_mode is None:
+        # Backward compatibility: old pipelines have only mapping; early component
+        # drafts may have mapping_component without an explicit storageMode.
+        storage_mode = "component_v1" if isinstance(config.get("mapping_component"), dict) else "legacy_v1"
+    if storage_mode not in {"legacy_v1", "component_v1"}:
+        raise RuntimeError(f"Unsupported mapping storageMode: {storage_mode}")
+    return storage_mode
+
+
+def _catalog_field_ids(catalog: Any) -> list[str]:
+    if not isinstance(catalog, list):
+        return []
+    return [
+        str(item["field_id"])
+        for item in catalog
+        if isinstance(item, dict) and isinstance(item.get("field_id"), str) and item["field_id"]
+    ]
+
+
+def _resolve_mapping_reference_snapshot(config: dict, ctx: "PipelineContext") -> dict | None:
+    """Return a caller-preloaded reference snapshot without doing database I/O."""
+    snapshot = config.get("reference_snapshot")
+    if isinstance(snapshot, str):
+        snapshot = ctx.resolve_ref(snapshot)
+    if snapshot is None and isinstance(config.get("reference_snapshot_key"), str):
+        snapshot = ctx.resolve_ref(config["reference_snapshot_key"])
+    if snapshot is None:
+        return None
+    if not isinstance(snapshot, dict):
+        raise RuntimeError("mapping reference_snapshot must resolve to an object")
+    return snapshot
+
+
+async def _execute_mapping_component(
+    config: dict,
+    rows: list[dict],
+    ctx: "PipelineContext",
+    *,
+    caller: str,
+) -> dict:
+    """Validate and execute MappingDocumentV1 while keeping caller side effects out."""
+    from app.mapping.dto import MappingDocumentV1
+    from app.mapping.executor import MappingExecutor
+    from app.mapping.policy import build_policy
+    from app.mapping.validator import MappingValidator
+
+    raw_document = config.get("mapping_component")
+    if not isinstance(raw_document, dict):
+        raise RuntimeError("component_v1 requires mapping_component")
+    try:
+        document = MappingDocumentV1.from_dict(raw_document)
+    except (TypeError, ValueError) as error:
+        raise RuntimeError(f"mapping_component is invalid: {error}") from error
+
+    runtime_source_asset = config.get("source_asset") or config.get("source_table")
+    runtime_target_asset = config.get("target_asset") or config.get("sink_target_asset")
+    if runtime_source_asset and document.ruleSet.sourceAsset != runtime_source_asset:
+        raise RuntimeError("mapping_component sourceAsset must match the configured runtime source asset")
+    if runtime_target_asset and document.ruleSet.targetAsset != runtime_target_asset:
+        raise RuntimeError("mapping_component targetAsset must match the configured runtime sink asset")
+
+    policy_config = config.get("mapping_policy") if isinstance(config.get("mapping_policy"), dict) else {}
+    reference_policy = policy_config.get("referenceLookup") if isinstance(policy_config.get("referenceLookup"), dict) else {}
+    effects = policy_config.get("effects") if isinstance(policy_config.get("effects"), dict) else {}
+    allowed_rule_types = policy_config.get("allowedRuleTypes")
+    if not isinstance(allowed_rule_types, list):
+        allowed_rule_types = None
+    allowed_reference_datasets = reference_policy.get("allowedDatasetIds")
+    if not isinstance(allowed_reference_datasets, list):
+        allowed_reference_datasets = policy_config.get("allowedReferenceDatasetIds")
+    if not isinstance(allowed_reference_datasets, list):
+        allowed_reference_datasets = None
+
+    policy = build_policy(
+        caller=caller,
+        source_asset_id=document.ruleSet.sourceAsset,
+        source_schema_hash=document.ruleSet.sourceSchemaHash,
+        source_field_ids=_catalog_field_ids(config.get("mapping_source_catalog")),
+        target_asset_id=document.ruleSet.targetAsset,
+        target_schema_hash=document.ruleSet.targetSchemaHash,
+        target_field_ids=_catalog_field_ids(config.get("mapping_target_catalog")) or list(config.get("field_whitelist") or []),
+        target_readonly=list(policy_config.get("targetReadonlyFieldIds") or []),
+        target_protected_keys=list(policy_config.get("targetProtectedKeyFieldIds") or []),
+        allowed_rule_types=tuple(allowed_rule_types) if allowed_rule_types else None,
+        allowed_reference_datasets=allowed_reference_datasets,
+        allowed_reference_fields=list(reference_policy.get("allowedFieldIds") or []),
+        max_lookup_rules=int(reference_policy.get("maxRules") or policy_config.get("maxReferenceRules") or 20),
+        allow_execute=effects.get("allowExecute", True) is not False,
+    )
+    if not policy.effects.allowExecute:
+        raise RuntimeError("MAPPING_EFFECT_FORBIDDEN: caller policy forbids execute")
+    if caller == "workflow":
+        # Workflow component_v1 的运行时也经过 adapter，保证设计器读写和执行
+        # 使用同一兼容边界；adapter 只转换配置，不复制执行逻辑。
+        from app.mapping.adapters.workflow import WorkflowMappingAdapter
+        opened = WorkflowMappingAdapter().read(
+            {"type": "DATA_MAPPING", "config": {"mapping_component": raw_document, "storageMode": "component_v1"}},
+            policy=policy,
+        )
+        document = opened.document
+    MappingValidator().validate(document, policy)
+    result = await MappingExecutor().execute(
+        document,
+        rows,
+        _resolve_mapping_reference_snapshot(config, ctx),
+        policy,
+    )
+    if result.errors:
+        detail = "; ".join(f"{error.code}: {error.message}" for error in result.errors[:5])
+        raise RuntimeError(detail)
+    return {
+        "data": result.outputRows,
+        "row_count": result.stats.output,
+        "success_count": result.stats.output,
+        "failed_count": result.stats.input - result.stats.output,
+        "mapping_stats": {
+            "input": result.stats.input,
+            "output": result.stats.output,
+            "matched": result.stats.matched,
+            "unmatched": result.stats.unmatched,
+            "errors": result.stats.errors,
+        },
+        "mapping_trace": [
+            {
+                "row_index": entry.rowIndex,
+                "rule_id": entry.ruleId,
+                "outcome": entry.outcome,
+                "error_code": entry.errorCode,
+            }
+            for entry in result.trace
+        ],
+    }
+
+
 # ===== Pipeline 执行 =====
 
 async def execute_pipeline(
@@ -1075,8 +1212,56 @@ async def _execute_warehouse_asset_sink_step(
             for row in rows
             if isinstance(row, dict)
         ]
-    mapping = config.get("mapping") or []
-    mapped_rows = [_apply_mapping_rules(row, mapping) for row in rows if isinstance(row, dict)]
+    storage_mode = _mapping_storage_mode(config)
+    input_rows = [row for row in rows if isinstance(row, dict)]
+    if storage_mode == "component_v1":
+        from app.data.models import RegisteredTable, TableColumn
+
+        target_asset = config.get("target_asset")
+        if not isinstance(target_asset, str) or not target_asset:
+            raise RuntimeError("warehouse asset sink requires target_asset")
+        registered = await db.scalar(
+            select(RegisteredTable).where(RegisteredTable.table_name == target_asset)
+        )
+        if registered is None or registered.asset_status != "published":
+            raise RuntimeError("warehouse asset sink target asset is unavailable")
+        target_columns = list((await db.execute(
+            select(TableColumn).where(TableColumn.table_name == target_asset)
+        )).scalars())
+        target_fields = [column.column_code for column in target_columns]
+        target_whitelist = list(config.get("field_whitelist") or [])
+        if not target_whitelist or not set(target_whitelist).issubset(set(target_fields)):
+            raise RuntimeError("warehouse asset sink field whitelist is not approved by target asset")
+        source_asset = config.get("source_asset") or config.get("source_table")
+        if not isinstance(source_asset, str) or not source_asset:
+            raise RuntimeError("warehouse asset sink component mapping requires source_asset")
+        source_registered = await db.scalar(
+            select(RegisteredTable).where(RegisteredTable.table_name == source_asset)
+        )
+        if source_registered is None or source_registered.asset_status != "published":
+            raise RuntimeError("warehouse asset sink source asset is unavailable")
+        source_columns = list((await db.execute(
+            select(TableColumn).where(TableColumn.table_name == source_asset)
+        )).scalars())
+        source_fields = {column.column_code for column in source_columns}
+        if not source_fields:
+            raise RuntimeError("warehouse asset sink source asset has no approved fields")
+        config["mapping_source_catalog"] = [{"field_id": field} for field in sorted(source_fields)]
+        config["mapping_target_catalog"] = [{"field_id": field} for field in target_whitelist]
+        config["source_asset"] = source_asset
+        config["target_asset"] = target_asset
+        mapping_result = await _execute_mapping_component(
+            config,
+            input_rows,
+            ctx,
+            caller="warehouse_sink",
+        )
+        mapped_rows = mapping_result["data"]
+    else:
+        mapping = config.get("mapping") or []
+        if not isinstance(mapping, list):
+            raise RuntimeError("legacy_v1 Warehouse Asset Sink mapping must be a list")
+        mapped_rows = [_apply_mapping_rules(row, mapping) for row in input_rows]
     _validate_sink_rows(mapped_rows, config.get("validations") or [])
     from app.warehouse.asset_sink import WarehouseAssetSink
     result = await WarehouseAssetSink(db).write(
@@ -1364,14 +1549,7 @@ async def _execute_transform_step(
     ctx: PipelineContext,
     db: AsyncSession,
 ) -> dict:
-    """Map the first active upstream result through the versioned Mapping DTO."""
-    mapping = step_config.get("mapping") or {}
-    rules = mapping.get("rules") if isinstance(mapping, dict) else None
-    mode = mapping.get("mode", "strict") if isinstance(mapping, dict) else "strict"
-    if mapping.get("version") != 1 or not isinstance(rules, list):
-        raise RuntimeError("TRANSFORM requires a version=1 mapping DTO")
-    if mode not in {"strict", "mapped_plus_same_name"}:
-        raise RuntimeError("TRANSFORM mapping mode is unsupported")
+    """Map the first active upstream result through exactly one storage mode."""
     incoming = list(step_config.get("_incoming_edges") or [])
     if not incoming:
         raise RuntimeError("TRANSFORM requires an upstream graph node")
@@ -1383,6 +1561,24 @@ async def _execute_transform_step(
         rows = [row for row in source_data if isinstance(row, dict)]
     else:
         rows = []
+
+    storage_mode = _mapping_storage_mode(step_config)
+    if storage_mode == "component_v1":
+        component_result = await _execute_mapping_component(
+            step_config,
+            rows,
+            ctx,
+            caller="workflow" if step_config.get("mapping_caller") == "workflow" else "ucp_transform",
+        )
+        return {"status": "success", **component_result}
+
+    mapping = step_config.get("mapping") or {}
+    rules = mapping.get("rules") if isinstance(mapping, dict) else None
+    mode = mapping.get("mode", "strict") if isinstance(mapping, dict) else "strict"
+    if not isinstance(mapping, dict) or mapping.get("version") != 1 or not isinstance(rules, list):
+        raise RuntimeError("TRANSFORM requires a version=1 mapping DTO")
+    if mode not in {"strict", "mapped_plus_same_name"}:
+        raise RuntimeError("TRANSFORM mapping mode is unsupported")
 
     target_catalog = mapping.get("target_field_catalog") or []
     target_fields = [

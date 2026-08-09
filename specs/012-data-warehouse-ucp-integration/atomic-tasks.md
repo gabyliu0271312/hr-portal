@@ -4043,7 +4043,7 @@ ADS → DM/METRIC：作为消费域组织和指标语义对象绑定，不新增
 > 拆分修订说明：原文档 R0101（`transform_rules`，覆盖派生/枚举映射/格式标准化/空值处理）与原 R0105（`standardization_rules`，覆盖重命名/类型转换/枚举映射/单位转换/拆分合并）是两套并行、字段重叠的规则表设计，原 R0102-R0104（去重/空值/格式标准化）又各自独立成任务，四者对同一类"字段级转换规则"给出了不一致的建模方式。本组任务统一为**一张规则表、一个 rule_type 枚举**，不再建两套平行规则模型。
 
 - [x] R0101 标准化规则范围澄清与统一 rule_type 枚举
-  - 任务：确认 ODS→DWD 全部字段级转换只用一张 `standardization_rules` 表承载，`rule_type` 枚举统一为：`rename`/`type_convert`/`value_map`/`unit_convert`/`split_merge`/`deduplicate`/`null_handling`/`format_standardize` 共 8 类，不再单独建 `transform_rules` 表。
+  - 任务：确认 ODS→DWD 全部字段级转换只用一张 `standardization_rules` 表承载，`rule_type` 枚举统一为：`rename`/`type_convert`/`value_map`/`unit_convert`/`split_merge`/`deduplicate`/`null_handling`/`format_standardize`/`reference_lookup`/`identity_with_overrides` 共 10 类，不再单独建 `transform_rules` 表。
   - 交付物：本任务作为 R0102-R0107 的唯一权威依据；决策记录写入本任务。
   - UI 要求：不涉及 UI。
   - UCP / 数据仓库边界要求：仅处理已入仓数据，不调用外部接口。
@@ -4052,11 +4052,11 @@ ADS → DM/METRIC：作为消费域组织和指标语义对象绑定，不新增
   - 完成定义：本任务确认后，后续任务按此统一模型执行，不得再各自发明表名。
 
 - [x] R0102 `standardization_rules` ORM/migration
-  - 任务：实现 R0101 确定的规则表，字段至少包含：`id`、`asset_type`(table/dataset)、`asset_code`、`rule_type`(8 类枚举)、`source_field`、`target_field`、`rule_config`(json)、`enabled`、`created_at`、`updated_at`；输入层=ODS/已入仓明细，输出层=DWD，且需声明该约束的校验位置。
+  - 任务：实现 R0101 确定的规则表，字段至少包含：`id`、`asset_type`(table/dataset)、`asset_code`、`rule_type`(10 类枚举)、`source_field`、`target_field`、`rule_config`(json)、`enabled`、`created_at`、`updated_at`；输入层=ODS/已入仓明细，输出层=DWD，且需声明该约束的校验位置。
   - 交付物：`app/warehouse/models.py` 中的 ORM 类、alembic migration。
   - UI 要求：不涉及 UI。
   - UCP / 数据仓库边界要求：只处理已入仓 `RegisteredTable`/`DataSet`；UCP 只提供来源摘要，不承载标准化规则。
-  - 测试要求：migration 测试、ORM 导入测试、`rule_type` 枚举校验测试（8 类合法值、非法值报错）。
+  - 测试要求：migration 测试、ORM 导入测试、`rule_type` 枚举校验测试（10 类合法值、非法值报错）。
   - 验收标准：8 类规则均可持久化，且规则只能声明 ODS→DWD 方向，不可配置为覆盖 ODS 原始表。
   - 完成定义：开发、边界、测试、验收全部满足；在最终回复中列出修改文件、验证命令和风险后，才可勾选。
 
@@ -4121,7 +4121,7 @@ ADS → DM/METRIC：作为消费域组织和指标语义对象绑定，不新增
 
 - [x] R0109 规则列表页面（数据加工配方构建器）
   - 前置任务：R0102、R0103。
-  - 功能范围：标准化规则的前端页面——顶部操作工具栏（8 类规则操作按钮 + 从模板加载）、左下方数据预览（明细/结构双视图）、右下方步骤流（已添加的规则步骤卡片列表）。页面顶部选表下拉加载已入仓表、目标表名输入框。选表后自动加载已有规则到步骤流。
+  - 功能范围：标准化规则的前端页面——顶部操作工具栏（10 类按钮 + 从模板加载）、左下方数据预览（明细/结构双视图）、右下方步骤流（已添加的规则步骤卡片列表）。页面顶部选表下拉加载已入仓表、目标表名输入框。选表后自动加载已有规则到步骤流。
   - 交付物：`WarehouseDataRecipe.vue`。
   - UI 要求：顶部工具栏单行排列 8 类按钮，右侧"从模板加载"下拉；下方左右分栏——预览自适应、步骤流固定 360px；表结构视图通过 `listAssetColumns` API 加载字段信息。
   - UI 示意图：见本文件 `U22 字段标准化与清洗规则线框图`（本页面为其实施）。
@@ -6714,7 +6714,7 @@ UCP 不可用时：显示降级说明，DataSource 继续可用
 - 选表后数据预览自动刷新（取前 20 行）
 
 **2. 工具栏操作**
-- 8 个按钮对应 `standardization_rules` 的 8 种 `rule_type`
+- 10 类按钮对应 `standardization_rules` 的 10 种 `rule_type`
 - 点击任意按钮 → 步骤流末尾追加一个新步骤，同时弹出该步骤的配置面板（浮层或展开）
 
 **3. 步骤卡片**

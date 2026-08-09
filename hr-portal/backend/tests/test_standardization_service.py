@@ -16,10 +16,42 @@ from app.warehouse.service.standardization import (
     _is_system_technical_column,
     _ordered_output_columns,
     _quote_ident,
+    _resolve_wage_rollout,
     _safe_insert_batch_size,
     _to_table_column_data_type,
     _normalize_standardization_rules,
 )
+
+
+def test_wage_standardization_uses_persisted_rollout_by_default():
+    """工资 DWD 路径不传执行级覆盖时应读取持久化 rollout。"""
+    import inspect
+    from app.warehouse.service.standardization import StandardizationRuleService
+
+    signature = inspect.signature(StandardizationRuleService.execute_full)
+    assert signature.parameters["wage_mode"].default is None
+    assert signature.parameters["wage_component_percent"].default is None
+    assert _resolve_wage_rollout(
+        persisted={"mode": "gray", "component_percent": 25},
+        requested_mode=None,
+        requested_component_percent=None,
+    ) == ("gray", 25)
+
+
+def test_wage_standardization_explicit_shadow_overrides_persisted_gray():
+    assert _resolve_wage_rollout(
+        persisted={"mode": "gray", "component_percent": 25},
+        requested_mode="shadow",
+        requested_component_percent=0,
+    ) == ("shadow", 0)
+
+
+def test_wage_standardization_partial_override_does_not_inherit_stale_percent():
+    assert _resolve_wage_rollout(
+        persisted={"mode": "gray", "component_percent": 80},
+        requested_mode="rollback",
+        requested_component_percent=None,
+    ) == ("rollback", 0)
 
 
 def test_safe_insert_batch_size_keeps_default_for_narrow_tables():

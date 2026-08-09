@@ -58,6 +58,21 @@ def _register_default_triggers() -> None:
             description="门户定时任务执行完成时触发（无论成功失败）",
         ),
         TriggerMeta(
+            trigger_type="mapping_rule_set_published",
+            name="映射规则集发布",
+            description="映射规则集绑定发布后触发依赖重算和通知",
+        ),
+        TriggerMeta(
+            trigger_type="cost_center_mapping_published",
+            name="成本中心映射发布",
+            description="成本中心映射周期发布后触发 DWD 重算",
+        ),
+        TriggerMeta(
+            trigger_type="cost_center_mapping_notification_due",
+            name="成本中心映射通知待发送",
+            description="成本中心映射发布通知首次发送或重试到期时触发",
+        ),
+        TriggerMeta(
             trigger_type="report_run_success",
             name="报表运行成功",
             description="报表手动运行成功时触发",

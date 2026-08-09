@@ -267,7 +267,38 @@ async def _execute_dwd_update(
     """执行 DWD 数据更新：严格按用户配置的 update_mode 执行。"""
     from app.core.db import get_session_factory
 
+    period_value = event_payload.get("period_value") or event_payload.get("period")
+    if table_name == "cost_center_monthly" and not period_value:
+        return {
+            "status": "review_required",
+            "reason": "cost_center_period_required",
+            "table_name": table_name,
+            "detail": "成本中心 DWD 自动化必须提供已发布的 YYYYMM 期间",
+        }
+
     async with get_session_factory()() as work_db:
+        if table_name == "cost_center_monthly":
+            from app.mapping.cost_center_service import CostCenterMappingService
+            from app.mapping.errors import MappingException
+            try:
+                gate = await CostCenterMappingService(work_db).ensure_dwd_allowed(
+                    period=str(period_value).replace("-", ""),
+                )
+            except MappingException as exc:
+                return {
+                    "status": "review_required",
+                    "reason": "cost_center_mapping_not_ready",
+                    "table_name": table_name,
+                    "detail": str(exc)[:500],
+                }
+            if gate["status"] != "allowed":
+                return {
+                    "status": "review_required",
+                    "reason": gate.get("reason", "cost_center_mapping_not_published"),
+                    "table_name": table_name,
+                    **gate,
+                }
+
         if config.update_mode == "cleaning_rule":
             if not config.standardization_rule_set_id and not config.standardization_rule_ids:
                 return {"status": "failed", "reason": "no_rules_configured", "table_name": table_name, "detail": "cleaning_rule 模式但未配置规则"}
@@ -277,10 +308,21 @@ async def _execute_dwd_update(
                 asset_code=table_name,
                 target_table=config.target_dwd_table_name or None,
                 rule_ids=list(config.standardization_rule_ids or []),
+                cost_center_period=(
+                    str(period_value).replace("-", "")
+                    if table_name == "cost_center_monthly"
+                    else None
+                ),
             )
             if "error" in exec_result:
-                await _update_config_execution_status(config, "failed", 0, exec_result.get("detail", ""), db)
-                return {"status": "failed", "reason": exec_result.get("error"), "table_name": table_name, "detail": exec_result.get("detail", str(exec_result))}
+                execution_status = "review_required" if exec_result.get("error") == "review_required" else "failed"
+                await _update_config_execution_status(config, execution_status, 0, exec_result.get("detail", ""), db)
+                return {
+                    "status": execution_status,
+                    "reason": exec_result.get("error"),
+                    "table_name": table_name,
+                    "detail": exec_result.get("detail", str(exec_result)),
+                }
 
             rows = exec_result.get("rows_inserted") or exec_result.get("total_rows", 0)
             await _update_config_execution_status(config, "success", rows, None, db)
@@ -304,7 +346,7 @@ async def _execute_dwd_update(
                     dwd_table,
                     config,
                     work_db,
-                    period_value=event_payload.get("period_value") or event_payload.get("period"),
+                    period_value=period_value,
                 )
             except Exception as e:
                 await _update_config_execution_status(config, "failed", 0, str(e)[:500], db)
@@ -648,10 +690,58 @@ async def _action_auto_rebuild_db_realtime_views(
     }
 
 
+# ===== 成本中心通知 Action =====
+
+async def _action_cost_center_feishu_send_message(
+    action_config: dict[str, Any],
+    event_payload: dict[str, Any],
+    db: AsyncSession,
+    execution_id: int | None = None,
+) -> dict[str, Any]:
+    """复用通用飞书发送边界，并把发送结果回写成本中心通知状态。"""
+    from app.mapping.cost_center_service import CostCenterMappingService
+    from app.mapping.cost_center_models import CostCenterMappingNotification
+
+    period = str(event_payload.get("period") or "")
+    notification_id = int(event_payload.get("notification_id") or 0)
+    if not period or not notification_id:
+        raise RuntimeError("成本中心通知事件缺少 period 或 notification_id")
+    item = await db.get(CostCenterMappingNotification, notification_id)
+    if item is None:
+        return {"status": "skipped", "reason": "notification_not_found"}
+    if item.status in {"sent", "exhausted"}:
+        return {"status": "skipped", "reason": f"notification_{item.status}"}
+
+    result = await _action_feishu_send_message(
+        action_config, event_payload, db, execution_id
+    )
+    status = result.get("status")
+    service = CostCenterMappingService(db)
+    if status == "success":
+        return {
+            **result,
+            "notification": await service.mark_notification_sent(
+                period=period, notification_id=notification_id
+            ),
+        }
+    if status in {"failed", "partial_success"}:
+        error = "; ".join(str(item) for item in (result.get("errors") or []))
+        return {
+            **result,
+            "notification": await service.mark_notification_failed(
+                period=period,
+                notification_id=notification_id,
+                error=error or status,
+            ),
+        }
+    return {**result, "status": "skipped"}
+
+
 # ===== 注册表 =====
 
 ACTION_REGISTRY: dict[str, ActionFn] = {
     "feishu_send_message": _action_feishu_send_message,
+    "cost_center_feishu_send_message": _action_cost_center_feishu_send_message,
     "trigger_dwd_standardization": _action_trigger_dwd_standardization,
     "l4_cascade_execute": _action_l4_cascade_execute,
     "auto_rebuild_db_realtime_views": _action_auto_rebuild_db_realtime_views,

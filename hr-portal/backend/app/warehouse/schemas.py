@@ -543,6 +543,8 @@ class WarehouseQualityRunListOut(BaseModel):
 
 class QualityRunTriggerIn(BaseModel):
     """质量规则运行请求；关系基数检查必须指定 YYYYMM 期间。"""
+    model_config = {"extra": "forbid"}
+
     period: Optional[str] = Field(None, pattern=r"^\d{6}$", description="检查期间，格式 YYYYMM")
     source_sync_batch_id: Optional[str] = Field(None, max_length=128, description="可选的来源同步批次")
     force: bool = Field(False, description="是否强制重新执行，不绕过期间校验")
@@ -675,6 +677,7 @@ class WarehouseAlertRuleOut(BaseModel):
 STANDARDIZATION_RULE_TYPES = (
     "rename", "type_convert", "value_map", "unit_convert",
     "split_merge", "deduplicate", "null_handling", "format_standardize",
+    "reference_lookup", "identity_with_overrides",
 )
 
 
@@ -683,7 +686,7 @@ class StandardizationRuleIn(BaseModel):
     """标准化规则创建/更新入参"""
     asset_type: str = Field(..., max_length=16, description="table/dataset")
     asset_code: str = Field(..., max_length=256, description="ODS 表名或 DataSet ID")
-    rule_type: str = Field(..., max_length=32, description="8 类枚举之一")
+    rule_type: str = Field(..., max_length=32, description="10 类枚举之一")
     source_field: str = Field(..., max_length=128, description="ODS 源字段名")
     target_field: str = Field(..., max_length=128, description="DWD 目标字段名")
     rule_config: dict = Field(default_factory=dict, description="规则参数 JSON")

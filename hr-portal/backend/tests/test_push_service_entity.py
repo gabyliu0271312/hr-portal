@@ -227,6 +227,35 @@ async def test_load_source_rows_reads_entity_columns_and_keeps_native_values():
     assert "month" in compiled
 
 
+async def test_execute_push_mapping_keeps_empty_mapping_as_same_rows():
+    rows = [{"employee_no": "E001", "amount": Decimal("12.50")}]
+
+    mapped = await push_service.execute_push_mapping(rows, [])
+
+    assert mapped is rows
+    assert mapped == [{"employee_no": "E001", "amount": Decimal("12.50")}]
+
+
+async def test_execute_push_mapping_matches_legacy_payload_shape():
+    rows = [{"employee_no": "E001", "amount": Decimal("12.50"), "untouched": "keep"}]
+    mappings = [{"source": "amount", "target": "pay_amount"}]
+
+    mapped = await push_service.execute_push_mapping(rows, mappings)
+
+    assert mapped == [{"employee_no": "E001", "pay_amount": Decimal("12.50"), "untouched": "keep"}]
+    assert mapped == [push_service.apply_field_mappings(rows[0], mappings)]
+
+
+async def test_execute_push_mapping_blocks_lossy_legacy_shape_before_send():
+    with pytest.raises(Exception) as exc_info:
+        await push_service.execute_push_mapping(
+            [{"employee_no": "E001"}],
+            ["unsupported-legacy-shape"],
+        )
+
+    assert getattr(exc_info.value, "code", None).value == "MAPPING_LOSSY_WRITE_BLOCKED"
+
+
 async def test_load_source_rows_rejects_legacy_raw_model():
     table_name = "push_legacy_raw"
     old_model, old_period = register_table(
@@ -480,7 +509,8 @@ async def test_push_target_out_normalizes_legacy_report_source_table():
     assert out.source_label == "员工成本报表"
 
 
-async def test_push_db_snapshot_uses_entity_columns_and_postgres_types():
+async def test_push_db_snapshot_uses_entity_columns_and_postgres_types(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.DB_PUBLIC_HOST", "localhost")
     table_name = "push_db_entity"
     model = make_entity_model(table_name)
     old_model, old_period = register_table(table_name, model, period=True)

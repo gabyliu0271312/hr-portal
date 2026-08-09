@@ -3,6 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.mapping.dto import (
+    MappingDocumentV1,
+    MappingRuleSetV1,
+    TypeConvertRule,
+    TypeConvertRuleConfig,
+)
 from app.ucp.pipeline_engine import (
     PipelineContext,
     _execute_capability_lookup_step,
@@ -89,7 +95,127 @@ async def test_asset_sink_receives_pipeline_batch_id(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_capability_lookup_keeps_duplicate_keys_traceable_and_no_offer_non_retryable(monkeypatch):
+async def test_asset_sink_component_mapping_executes_before_original_sink_contract(monkeypatch):
+    context = PipelineContext("trace-1", "run-component")
+    context.set("merged", {"data": [{"employee_number": "107581", "salary_amount_text": "12000"}]})
+    received = {}
+
+    class Sink:
+        def __init__(self, _db):
+            pass
+
+        async def write(self, **kwargs):
+            received.update(kwargs)
+            return {"written_count": len(kwargs["rows"]), **kwargs}
+
+    monkeypatch.setattr("app.warehouse.asset_sink.WarehouseAssetSink", Sink)
+    component = MappingDocumentV1(
+        ruleSet=MappingRuleSetV1(
+            code="pending-hires-sink",
+            name="Pending Hires Sink",
+            sourceAsset="pending_hires_staging",
+            targetAsset="pending_hires",
+            rules=[
+                TypeConvertRule(
+                    id="salary-to-number",
+                    sourceFields=["salary_amount_text"],
+                    targetFields=["salary_amount"],
+                    config=TypeConvertRuleConfig(targetType="number", onError="reject"),
+                )
+            ],
+        )
+    )
+
+    asset = SimpleNamespace(asset_status="published")
+    target_columns = [
+        SimpleNamespace(column_code="employee_number"),
+        SimpleNamespace(column_code="salary_amount"),
+    ]
+    source_columns = [
+        SimpleNamespace(column_code="employee_number"),
+        SimpleNamespace(column_code="salary_amount_text"),
+    ]
+    db = AsyncMock()
+    db.scalar.side_effect = [asset, asset]
+    db.execute.side_effect = [
+        SimpleNamespace(scalars=lambda: iter(target_columns)),
+        SimpleNamespace(scalars=lambda: iter(source_columns)),
+    ]
+    result = await _execute_warehouse_asset_sink_step(
+        {
+            "storageMode": "component_v1",
+            "mapping_component": component.to_dict(),
+            "mapping": [{"source": "employee_number", "target": "legacy_employee_number"}],
+            "input_key": "${merged.data}",
+            "source_asset": "pending_hires_staging",
+            "target_asset": "pending_hires",
+            "write_mode": "upsert",
+            "primary_key": "employee_number",
+            "field_whitelist": ["employee_number", "salary_amount"],
+        },
+        context,
+        db,
+        "run-component",
+    )
+
+    assert result["success_count"] == 1
+    assert received["rows"] == [{"employee_number": "107581", "salary_amount_text": "12000", "salary_amount": 12000.0}]
+    assert "legacy_employee_number" not in received["rows"][0]
+    assert received["target_asset"] == "pending_hires"
+    assert received["primary_key"] == "employee_number"
+    assert received["field_whitelist"] == ["employee_number", "salary_amount"]
+    assert received["batch_id"] == "run-component"
+
+
+@pytest.mark.asyncio
+async def test_asset_sink_component_mapping_requires_published_source_asset(monkeypatch):
+    context = PipelineContext("trace-1", "run-component")
+    context.set("merged", {"data": [{"employee_number": "107581", "salary_amount_text": "12000"}]})
+
+    class Sink:
+        def __init__(self, _db):
+            raise AssertionError("source asset validation must run before WarehouseAssetSink.write")
+
+    monkeypatch.setattr("app.warehouse.asset_sink.WarehouseAssetSink", Sink)
+    component = MappingDocumentV1(
+        ruleSet=MappingRuleSetV1(
+            code="pending-hires-sink",
+            name="Pending Hires Sink",
+            sourceAsset="pending_hires_staging",
+            targetAsset="pending_hires",
+            rules=[
+                TypeConvertRule(
+                    id="salary-to-number",
+                    sourceFields=["salary_amount_text"],
+                    targetFields=["salary_amount"],
+                    config=TypeConvertRuleConfig(targetType="number", onError="reject"),
+                )
+            ],
+        )
+    )
+    db = AsyncMock()
+    db.scalar.side_effect = [SimpleNamespace(asset_status="published"), None]
+    db.execute.return_value = SimpleNamespace(
+        scalars=lambda: iter([SimpleNamespace(column_code="employee_number"), SimpleNamespace(column_code="salary_amount")])
+    )
+
+    with pytest.raises(RuntimeError, match="source asset is unavailable"):
+        await _execute_warehouse_asset_sink_step(
+            {
+                "storageMode": "component_v1",
+                "mapping_component": component.to_dict(),
+                "input_key": "${merged.data}",
+                "source_asset": "pending_hires_staging",
+                "target_asset": "pending_hires",
+                "write_mode": "upsert",
+                "primary_key": "employee_number",
+                "field_whitelist": ["employee_number", "salary_amount"],
+            },
+            context,
+            db,
+            "run-component",
+        )
+
     context = PipelineContext("trace-1", "run-1")
     context.set("read_pending", {"result": {"data": [{"application_id": "same"}, {"application_id": "same"}, {"application_id": "missing"}]}})
     db = SimpleNamespace(added=[], flush=AsyncMock())

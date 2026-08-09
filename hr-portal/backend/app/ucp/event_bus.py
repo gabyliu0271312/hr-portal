@@ -210,16 +210,21 @@ async def receive_event(
     Raises:
         DuplicateEventError: is_dedup=True 且 event_id 已存在
     """
-    # 去重检查
-    if is_dedup:
-        existing = (
-            await db.execute(select(UcpEvent).where(UcpEvent.event_id == event_id))
-        ).scalar_one_or_none()
-        if existing is not None:
+    existing = (
+        await db.execute(select(UcpEvent).where(UcpEvent.event_id == event_id))
+    ).scalar_one_or_none()
+    if existing is not None:
+        if is_dedup:
             raise DuplicateEventError(
                 "EVENT_DUPLICATE",
                 f"事件 {event_id} 已存在（db id={existing.id}）",
             )
+        if existing.event_type != event_type or dict(existing.payload or {}) != dict(payload or {}):
+            raise EventBusError(
+                "EVENT_ID_CONFLICT",
+                f"事件 {event_id} 已绑定到不同的事件内容",
+            )
+        return existing
 
     event = UcpEvent(
         event_id=event_id,

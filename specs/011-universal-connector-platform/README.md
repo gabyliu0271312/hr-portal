@@ -1,6 +1,6 @@
 # 011-universal-connector-platform 文档索引
 
-本目录为 UCP（Universal Connector Platform，通用连接器平台）的统一规格目录。
+本目录为 UCP（Universal Connector Platform，通用连接器平台）的统一规格目录。涉及统一数据映射时，必须同时阅读 `../017-mapping-component-reference-governance/spec.md` 和 `code-status-review-and-revision-decision.md`；017 通过 adapter 接入 UCP，不改变 UCP 的资源、凭证、Pipeline 和执行边界。
 
 ## 文档清单
 
@@ -17,6 +17,7 @@
 4. 流水线画布是 Phase 1 核心配置能力，不后置。
 5. 每个开发任务完成后，需要在 `implementation-plan.md` 的任务表中标记状态，并满足对应验收标准。
 6. 通用 API 配置化、iPaaS 治理、外部主数据治理已作为 Phase 5/6/7 远期阶段保留。
+7. 统一数据映射通过 017 adapter 接入；必须保持 UCP `TRANSFORM version=1`、Pipeline、资源、凭证和执行边界。
 
 ## 蓝图参考
 

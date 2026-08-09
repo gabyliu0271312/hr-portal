@@ -21,22 +21,19 @@ from app.warehouse.service import StandardizationRuleService
 
 # ==================== STANDARDIZATION_RULE_TYPES ====================
 
-def test_rule_types_has_8():
-    assert len(STANDARDIZATION_RULE_TYPES) == 8
-    assert "rename" in STANDARDIZATION_RULE_TYPES
-    assert "type_convert" in STANDARDIZATION_RULE_TYPES
-    assert "value_map" in STANDARDIZATION_RULE_TYPES
-    assert "unit_convert" in STANDARDIZATION_RULE_TYPES
-    assert "split_merge" in STANDARDIZATION_RULE_TYPES
-    assert "deduplicate" in STANDARDIZATION_RULE_TYPES
-    assert "null_handling" in STANDARDIZATION_RULE_TYPES
-    assert "format_standardize" in STANDARDIZATION_RULE_TYPES
+def test_rule_types_has_10():
+    assert len(STANDARDIZATION_RULE_TYPES) == 10
+    assert STANDARDIZATION_RULE_TYPES == (
+        "rename", "type_convert", "value_map", "unit_convert",
+        "split_merge", "deduplicate", "null_handling", "format_standardize",
+        "reference_lookup", "identity_with_overrides",
+    )
 
 
 # ==================== StandardizationRuleIn ====================
 
-def test_rule_in_all_8_types_validate():
-    """8 类合法 rule_type 均可通过校验"""
+def test_rule_in_all_10_types_validate():
+    """10 类合法 rule_type 均可通过校验"""
     for rt in STANDARDIZATION_RULE_TYPES:
         r = StandardizationRuleIn(
             asset_type="table",
@@ -179,8 +176,8 @@ def test_rule_constraint_ods_to_dwd_only():
 
 # ==================== R0103: _validate_std_rule_type ====================
 
-def test_validate_all_8_types_pass():
-    """8 类合法 rule_type 全部通过校验"""
+def test_validate_all_10_types_pass():
+    """10 类合法 rule_type 全部通过校验"""
     for rt in STANDARDIZATION_RULE_TYPES:
         _validate_std_rule_type(rt)  # 不应抛出异常
 

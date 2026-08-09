@@ -37,6 +37,14 @@
 - 输出：写入/跳过/失败数量、目标资产、批次键与字段白名单摘要。
 - 写入必须经 `app.warehouse.asset_sink.WarehouseAssetSink`，不得由 Pipeline 直接拼接目标业务表 SQL。
 
+## 与 017 统一数据映射组件的关系
+
+- Sink 的映射配置 UI 嵌入统一 `MappingWorkspace`，不建设长期独立的 Sink 映射编辑器。
+- adapter 只负责公共 Mapping DTO 与现有映射配置之间的转换，不接管资产写入。
+- `target_asset`、`write_mode`、`primary_key`、`field_whitelist`、`batch_key`、期间、复合主键、批次幂等和事务继续由本合同约束。
+- 映射规则不得绕过已发布资产、字段白名单或主键保护；写入仍必须经 `WarehouseAssetSink`。
+- 旧配置必须双读、可回显；无法无损回写时必须阻断保存，禁止静默丢字段。
+
 ## API 与 UI
 
 - 现有 Pipeline 保存 API 保持兼容；新增节点配置由现有 `steps` 透传 JSON 承载。
