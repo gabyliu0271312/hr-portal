@@ -12,15 +12,15 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS period VARCHAR(16)")
-    op.add_column("warehouse_quality_runs", sa.Column("source_sync_batch_id", sa.String(length=128), nullable=True))
-    op.add_column("warehouse_quality_runs", sa.Column("asset_type", sa.String(length=16), nullable=True))
-    op.add_column("warehouse_quality_runs", sa.Column("asset_id", sa.BigInteger(), nullable=True))
-    op.add_column("warehouse_quality_runs", sa.Column("severity", sa.String(length=16), nullable=True))
-    op.add_column("warehouse_quality_runs", sa.Column("duplicate_key_count", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("warehouse_quality_runs", sa.Column("missing_key_count", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("warehouse_quality_runs", sa.Column("sample_key_hashes", sa.JSON(), nullable=True))
-    op.add_column("warehouse_quality_runs", sa.Column("triggered_by", sa.String(length=64), nullable=True))
-    op.add_column("warehouse_quality_runs", sa.Column("dedupe_key", sa.String(length=256), nullable=True))
+    op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS source_sync_batch_id VARCHAR(128)")
+    op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS asset_type VARCHAR(16)")
+    op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS asset_id BIGINT")
+    op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS severity VARCHAR(16)")
+    op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS duplicate_key_count INTEGER NOT NULL DEFAULT 0")
+    op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS missing_key_count INTEGER NOT NULL DEFAULT 0")
+    op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS sample_key_hashes JSON")
+    op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS triggered_by VARCHAR(64)")
+    op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(256)")
     op.create_table(
         "warehouse_quality_status",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
