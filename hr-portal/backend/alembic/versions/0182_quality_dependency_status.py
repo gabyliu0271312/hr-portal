@@ -21,30 +21,31 @@ def upgrade() -> None:
     op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS sample_key_hashes JSON")
     op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS triggered_by VARCHAR(64)")
     op.execute("ALTER TABLE warehouse_quality_runs ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(256)")
-    op.create_table(
-        "warehouse_quality_status",
-        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
-        sa.Column("asset_type", sa.String(length=16), nullable=False),
-        sa.Column("asset_key", sa.String(length=256), nullable=False),
-        sa.Column("asset_id", sa.BigInteger(), nullable=True),
-        sa.Column("asset_code", sa.String(length=256), nullable=True),
-        sa.Column("period", sa.String(length=16), nullable=False, server_default=""),
-        sa.Column("status", sa.String(length=16), nullable=False, server_default="pending"),
-        sa.Column("severity", sa.String(length=16), nullable=False, server_default="info"),
-        sa.Column("source_sync_batch_id", sa.String(length=128), nullable=True),
-        sa.Column("checked_at", sa.DateTime(), nullable=True),
-        sa.Column("checked_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("failed_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("duplicate_key_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("missing_key_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("sample_key_hashes", sa.JSON(), nullable=False, server_default="[]"),
-        sa.Column("message", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.UniqueConstraint("asset_type", "asset_key", "period", name="uq_warehouse_quality_status_asset_period"),
-    )
-    op.create_index("ix_warehouse_quality_status_report_period", "warehouse_quality_status", ["asset_type", "asset_id", "period"])
-    op.create_index("ix_warehouse_quality_status_batch", "warehouse_quality_status", ["source_sync_batch_id"])
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS warehouse_quality_status (
+            id BIGSERIAL PRIMARY KEY,
+            asset_type VARCHAR(16) NOT NULL,
+            asset_key VARCHAR(256) NOT NULL,
+            asset_id BIGINT,
+            asset_code VARCHAR(256),
+            period VARCHAR(16) NOT NULL DEFAULT '',
+            status VARCHAR(16) NOT NULL DEFAULT 'pending',
+            severity VARCHAR(16) NOT NULL DEFAULT 'info',
+            source_sync_batch_id VARCHAR(128),
+            checked_at TIMESTAMP WITHOUT TIME ZONE,
+            checked_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            duplicate_key_count INTEGER NOT NULL DEFAULT 0,
+            missing_key_count INTEGER NOT NULL DEFAULT 0,
+            sample_key_hashes JSON NOT NULL DEFAULT '[]',
+            message TEXT,
+            created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+            updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+            CONSTRAINT uq_warehouse_quality_status_asset_period UNIQUE (asset_type, asset_key, period)
+        )
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_warehouse_quality_status_report_period ON warehouse_quality_status (asset_type, asset_id, period)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_warehouse_quality_status_batch ON warehouse_quality_status (source_sync_batch_id)")
 
 
 def downgrade() -> None:
