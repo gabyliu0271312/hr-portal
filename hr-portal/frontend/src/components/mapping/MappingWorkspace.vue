@@ -458,13 +458,14 @@ async function doPreview() {
   }
 }
 
-async function focusRule(ruleId: string) {
+async function focusRule(ruleId: string): Promise<boolean> {
   const index = rules.value.findIndex((rule) => rule.id === ruleId)
-  if (index < 0 || !canEdit.value) return
+  if (index < 0 || !canEdit.value) return false
   workspaceRoot.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   editingIndex.value = index
   await focusRuleEditor(ruleId)
   toggleRefs.value[ruleId]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  return true
 }
 
 // 暴露方法给父组件

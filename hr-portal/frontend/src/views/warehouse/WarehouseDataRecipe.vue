@@ -39,7 +39,7 @@ const derivedTargetTable = computed(() => {
   return 'dwd_' + name
 })
 const tableFields = ref<{ column_code: string; column_label: string; data_type: string }[]>([])
-const mappingWorkspaceRef = ref<{ resetDirty: () => void; focusRule: (ruleId: string) => Promise<void> } | null>(null)
+const mappingWorkspaceRef = ref<{ resetDirty: () => void; focusRule: (ruleId: string) => Promise<boolean> } | null>(null)
 const mappingDirty = ref(false)
 const legacyDirty = ref(false)
 
@@ -240,10 +240,14 @@ function syncMappingToSteps(document: MappingDocument) {
 }
 
 function isLegacyRule(ruleType: string) { return LEGACY_RULE_TYPES.includes(ruleType as any) }
-function focusPublicRule(index: number) {
+async function focusPublicRule(index: number) {
   const step = steps.value[index]
-  const publicRule = mappingDocument.value.ruleSet.rules.find((rule) => rule.id === `standard_${step.id}`)
-  if (publicRule) mappingWorkspaceRef.value?.focusRule(publicRule.id)
+  const rule = standardStepToMappingRule(step)
+  const publicRule = rule && mappingDocument.value.ruleSet.rules.find((item) => item.id === rule.id)
+  const focused = publicRule && mappingWorkspaceRef.value
+    ? await mappingWorkspaceRef.value.focusRule(publicRule.id)
+    : false
+  if (!focused) ElMessage.warning('未能定位该规则的统一编辑器，请刷新后重试')
 }
 
 function handleStepClick(index: number) {

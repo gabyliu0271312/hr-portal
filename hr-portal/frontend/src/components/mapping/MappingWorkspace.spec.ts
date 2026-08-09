@@ -130,6 +130,22 @@ describe('MappingWorkspace effects contract', () => {
     wrapper.unmount()
   })
 
+  it('reports whether an exposed rule focus succeeds', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() })
+    const wrapper = mount(MappingWorkspace, {
+      props: { modelValue: document(), policy: policy() },
+      global: { stubs },
+    })
+    expect(await (wrapper.vm as any).focusRule('r1')).toBe(true)
+    expect(await (wrapper.vm as any).focusRule('missing')).toBe(false)
+
+    const readonlyWrapper = mount(MappingWorkspace, {
+      props: { modelValue: document(), policy: policy({ effects: { allowSave: false } }) },
+      global: { stubs },
+    })
+    expect(await (readonlyWrapper.vm as any).focusRule('r1')).toBe(false)
+  })
+
   it('exposes publish, execute and rebuild capability values to footer slot', async () => {
     const wrapper = mount(MappingWorkspace, {
       props: { modelValue: document(), policy: policy({ effects: { allowSave: false, allowPublish: true, allowExecute: true, allowRebuild: false } }) },
