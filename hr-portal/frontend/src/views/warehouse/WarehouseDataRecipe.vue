@@ -13,6 +13,15 @@ import {
   type Asset,
 } from '@/api/warehouse'
 import OdsDwdAutomationPanel from '@/components/warehouse/OdsDwdAutomationPanel.vue'
+import MappingWorkspace from '@/components/mapping/MappingWorkspace.vue'
+import {
+  RULE_TYPES,
+  createEmptyDocument,
+  type MappingDocument,
+  type MappingRule,
+  type MappingRuleType,
+  type MappingCallerPolicy,
+} from '@/api/mapping'
 
 const userStore = useUserStore()
 const automationPanelRef = ref<InstanceType<typeof OdsDwdAutomationPanel> | null>(null)
@@ -30,6 +39,212 @@ const derivedTargetTable = computed(() => {
   return 'dwd_' + name
 })
 const tableFields = ref<{ column_code: string; column_label: string; data_type: string }[]>([])
+const mappingWorkspaceRef = ref<{ resetDirty: () => void } | null>(null)
+const mappingDirty = ref(false)
+const legacyDirty = ref(false)
+
+const PUBLIC_RULE_TYPES = RULE_TYPES
+const LEGACY_RULE_TYPES = STANDARDIZATION_RULE_TYPES.filter((rt) => !['rename', 'type_convert', 'value_map', 'split_merge', 'format_standardize', 'reference_lookup', 'identity_with_overrides'].includes(rt))
+const mappingRuleTypeByStandard: Record<string, MappingRuleType> = {
+  rename: 'field',
+  type_convert: 'type_convert',
+  value_map: 'value_map',
+  split_merge: 'split_merge',
+  format_standardize: 'format',
+  reference_lookup: 'reference_lookup',
+  identity_with_overrides: 'identity_with_overrides',
+}
+const standardRuleTypeByMapping: Record<string, string> = {
+  field: 'rename',
+  type_convert: 'type_convert',
+  value_map: 'value_map',
+  split_merge: 'split_merge',
+  format: 'format_standardize',
+  reference_lookup: 'reference_lookup',
+  identity_with_overrides: 'identity_with_overrides',
+}
+
+function schemaHash(fields: typeof tableFields.value): string {
+  let hash = 2166136261
+  for (const char of JSON.stringify(fields.map((field) => [field.column_code, field.data_type]))) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(16)
+}
+
+function toMappings(value: any): Record<string, string> {
+  if (Array.isArray(value)) return Object.fromEntries(value.map((item) => [String(item.from ?? ''), String(item.to ?? '')]))
+  return value && typeof value === 'object' ? { ...value } : {}
+}
+
+function standardStepToMappingRule(step: Step): MappingRule | null {
+  const type = mappingRuleTypeByStandard[step.rule_type]
+  if (!type) return null
+  const config = { ...step.rule_config }
+  if (type === 'field') config.mode = config.mode || 'rename'
+  if (type === 'value_map') config.mappings = toMappings(config.mappings)
+  if (type === 'reference_lookup') {
+    config.referenceDatasetId = config.referenceDatasetId || config.lookup_table || ''
+    config.outputMap = config.outputMap || (config.target || config.result_col ? { [config.target || step.target_field || '']: config.result_col || '' } : {})
+    config.matchRules = config.matchRules || (config.rules || []).map((matchRule: any, index: number) => ({
+      id: matchRule.id || `match_${index}`,
+      priority: matchRule.priority ?? index,
+      sourceField: matchRule.sourceField || matchRule.source_field || '',
+      referenceField: matchRule.referenceField || matchRule.reference_field || '',
+      conditions: matchRule.conditions || {},
+      onMatch: matchRule.onMatch || matchRule.on_match || 'use_and_stop',
+    }))
+    config.unmatched = config.unmatched || 'keep'
+  }
+  if (type === 'identity_with_overrides') {
+    config.defaultBehavior = config.defaultBehavior || config.default_behavior || 'keep_source'
+    config.unmatched = config.unmatched || 'keep'
+    config.overrides = config.overrides || {}
+  }
+  if (type === 'type_convert') config.targetType = config.targetType || config.target_type || config.to_type || 'string'
+  if (type === 'format') {
+    config.formatType = config.formatType || config.format || config.format_type || 'trim'
+    config.options = config.options || Object.fromEntries(Object.entries(config).filter(([key]) => !['format', 'format_type', 'on_error', 'output_enabled', 'output_label', 'output_description'].includes(key)))
+    config.onError = config.onError || config.on_error || 'reject'
+  }
+  if (type === 'split_merge') {
+    config.action = config.action || 'merge'
+    config.delimiter = config.delimiter ?? config.separator ?? ''
+    config.nullBehavior = config.nullBehavior || config.null_behavior || 'keep_null'
+  }
+  return {
+    id: step.id ? `standard_${step.id}` : `draft_${step.display_order}_${step.rule_type}`,
+    type,
+    enabled: step.enabled,
+    displayOrder: Math.max(0, step.display_order - 1),
+    sourceFields: step.rule_config.source_fields || step.rule_config.sources || (step.source_field ? [step.source_field] : []),
+    targetFields: step.rule_config.target_fields || (step.target_field ? [step.target_field] : []),
+    config,
+  } as MappingRule
+}
+
+function mappingRuleToStandardStep(rule: MappingRule): Step {
+  const config = { ...(rule.config as Record<string, any>) }
+  if (rule.type === 'value_map') config.mappings = toMappings(config.mappings)
+  if (rule.type === 'reference_lookup') {
+    config.lookup_table = config.referenceDatasetId
+    config.target = Object.keys(config.outputMap || {})[0] || rule.targetFields[0] || ''
+    config.result_col = Object.values(config.outputMap || {})[0] || ''
+    config.rules = (config.matchRules || []).map((matchRule: any) => ({
+      id: matchRule.id,
+      priority: matchRule.priority,
+      source_field: matchRule.sourceField,
+      reference_field: matchRule.referenceField,
+      conditions: matchRule.conditions || {},
+      on_match: matchRule.onMatch,
+    }))
+    delete config.referenceDatasetId; delete config.outputMap; delete config.matchRules
+  }
+  if (rule.type === 'identity_with_overrides') {
+    config.default_behavior = config.defaultBehavior || 'keep_source'
+    delete config.defaultBehavior
+  }
+  if (rule.type === 'type_convert') { config.target_type = config.targetType; delete config.targetType }
+  if (rule.type === 'format') {
+    if (config.formatType === 'unit_convert') {
+      config.multiplier = config.options?.multiplier ?? 1
+      config.decimal_places = config.options?.decimal_places ?? 2
+    } else {
+      config.format = config.formatType
+      Object.assign(config, config.options || {})
+    }
+    delete config.formatType; delete config.options; delete config.onError
+  }
+  if (rule.type === 'split_merge') {
+    if (config.action === 'merge') {
+      config.sources = rule.sourceFields
+      config.delimiter = config.delimiter || ''
+    } else {
+      config.separator = config.delimiter
+      config.target_fields = rule.targetFields
+      delete config.delimiter
+    }
+    delete config.nullBehavior
+  }
+  const id = rule.id.startsWith('standard_') ? Number(rule.id.slice('standard_'.length)) : undefined
+  const ruleType = standardRuleTypeByMapping[rule.type]
+  if (!ruleType) throw new Error(`不支持的公共规则类型: ${rule.type}`)
+  return {
+    id: Number.isFinite(id) ? id : undefined,
+    rule_type: ruleType,
+    source_field: rule.sourceFields[0] || '',
+    target_field: rule.targetFields[0] || '',
+    rule_config: config,
+    enabled: rule.enabled,
+    display_order: rule.displayOrder + 1,
+    dirty: true,
+  }
+}
+
+function buildMappingDocument(): MappingDocument {
+  const document = createEmptyDocument(selectedTable.value, `${selectedTable.value} ODS→DWD 映射`)
+  const hash = schemaHash(tableFields.value)
+  document.ruleSet.sourceAsset = selectedTable.value
+  document.ruleSet.targetAsset = targetTableName.value.trim() || derivedTargetTable.value
+  document.ruleSet.sourceSchemaHash = hash
+  document.ruleSet.targetSchemaHash = hash
+  document.ruleSet.rules = steps.value.map(standardStepToMappingRule).filter((rule): rule is MappingRule => !!rule)
+  return document
+}
+
+const mappingDocument = ref<MappingDocument>(createEmptyDocument())
+const mappingTargetFields = computed(() => {
+  const fields = tableFields.value.map((field) => ({ code: field.column_code, label: field.column_label || field.column_code, type: field.data_type }))
+  const known = new Set(fields.map((field) => field.code))
+  for (const step of steps.value) {
+    for (const code of [step.target_field, ...(step.rule_config.target_fields || [])]) {
+      if (code && !known.has(code)) { fields.push({ code, label: code, type: '' }); known.add(code) }
+    }
+  }
+  return fields
+})
+const mappingPolicy = computed<MappingCallerPolicy>(() => {
+  const sourceFieldIds = tableFields.value.map((field) => field.column_code)
+  const targetFieldIds = mappingTargetFields.value.map((field) => field.code)
+  const hash = schemaHash(tableFields.value)
+  return {
+    caller: 'warehouse',
+    allowedRuleTypes: PUBLIC_RULE_TYPES,
+    source: { assetId: selectedTable.value || null, schemaHash: hash, allowedFieldIds: sourceFieldIds },
+    target: { assetId: targetTableName.value.trim() || derivedTargetTable.value || null, schemaHash: hash, allowedFieldIds: targetFieldIds, readonlyFieldIds: [], protectedKeyFieldIds: [] },
+    referenceLookup: { allowedDatasetIds: [], allowedFieldIds: sourceFieldIds, maxRules: 20 },
+    effects: { allowPreview: true, allowSave: true, allowPublish: false, allowExecute: true, allowRebuild: false },
+    legacy: { sourceFormat: 'standardization_rules', allowLegacyRead: true, allowLegacyWrite: true, allowMigration: true },
+    metadata: { policyVersion: 1, permissionScope: 'warehouse.modeling', issuedAt: new Date().toISOString() },
+  }
+})
+const mappingFields = computed(() => tableFields.value.map((field) => ({ code: field.column_code, label: field.column_label || field.column_code, type: field.data_type })))
+
+function refreshMappingDocument() { mappingDocument.value = buildMappingDocument() }
+
+function syncMappingToSteps(document: MappingDocument) {
+  const publicSteps = document.ruleSet.rules
+  const publicIndexes = steps.value.map((step, index) => mappingRuleTypeByStandard[step.rule_type] ? index : -1).filter((index) => index >= 0)
+  const replacements = publicSteps.map(mappingRuleToStandardStep)
+  const result = [...steps.value]
+  publicIndexes.forEach((index, slot) => { result[index] = replacements[slot] })
+  if (replacements.length > publicIndexes.length) result.push(...replacements.slice(publicIndexes.length))
+  if (replacements.length < publicIndexes.length) {
+    const remove = new Set(publicIndexes.slice(replacements.length))
+    steps.value = result.filter((_step, index) => !remove.has(index))
+  } else {
+    steps.value = result
+  }
+  steps.value.forEach((step, index) => { step.display_order = index + 1; step.dirty = true })
+}
+
+function isLegacyRule(ruleType: string) { return LEGACY_RULE_TYPES.includes(ruleType as any) }
+function onMappingDirty(value: boolean) {
+  mappingDirty.value = value
+  if (value) syncMappingToSteps(mappingDocument.value)
+  dirty.value = mappingDirty.value || legacyDirty.value
+}
 
 async function loadTables() {
   try { const res = await listAssets({ warehouse_layer: 'ODS', page_size: 200 }); tables.value = res.items } catch { tables.value = [] }
@@ -57,19 +272,30 @@ async function loadRules() {
   try {
     const res = await listStandardizationRules({ asset_code: selectedTable.value, page_size: 200 })
     steps.value = res.items.map(r => ({ id: r.id, rule_type: r.rule_type, source_field: r.source_field, target_field: r.target_field, rule_config: r.rule_config || {}, enabled: r.enabled, display_order: r.display_order })).sort((a, b) => a.display_order - b.display_order)
+    legacyDirty.value = false
+    mappingDirty.value = false
     dirty.value = false
+    refreshMappingDocument()
+    mappingWorkspaceRef.value?.resetDirty()
   } catch { steps.value = [] }
 }
 
 const showAddMenu = ref(false)
 function addStep(ruleType: string) {
   steps.value.push({ rule_type: ruleType, source_field: '', target_field: '', rule_config: { output_enabled: true }, enabled: true, display_order: steps.value.length + 1, dirty: true })
-  expandStep(steps.value.length - 1)
+  if (isLegacyRule(ruleType)) expandStep(steps.value.length - 1)
+  else refreshMappingDocument()
+  legacyDirty.value = isLegacyRule(ruleType) || legacyDirty.value
+  mappingDirty.value = !isLegacyRule(ruleType) || mappingDirty.value
+  dirty.value = true
   showAddMenu.value = false
 }
 function removeStep(index: number) {
+  const removedPublicRule = !!mappingRuleTypeByStandard[steps.value[index].rule_type]
   steps.value.splice(index, 1)
   steps.value.forEach((s, i) => { s.display_order = i + 1; s.dirty = true })
+  if (removedPublicRule) { mappingDirty.value = true; refreshMappingDocument() }
+  else legacyDirty.value = true
   dirty.value = true
 }
 function moveStep(index: number, dir: -1 | 1) {
@@ -77,6 +303,9 @@ function moveStep(index: number, dir: -1 | 1) {
   if (target < 0 || target >= steps.value.length) return
   const tmp = steps.value[target]; steps.value[target] = steps.value[index]; steps.value[index] = tmp
   steps.value.forEach((s, i) => { s.display_order = i + 1; s.dirty = true })
+  if (mappingRuleTypeByStandard[steps.value[index].rule_type] || mappingRuleTypeByStandard[steps.value[target].rule_type]) {
+    mappingDirty.value = true; refreshMappingDocument()
+  } else legacyDirty.value = true
   dirty.value = true
 }
 
@@ -86,6 +315,7 @@ function collapseStep() { editingIndex.value = -1 }
 const editingStep = computed(() => editingIndex.value >= 0 ? steps.value[editingIndex.value] : null)
 
 function onStepFieldChange() {
+  legacyDirty.value = true
   dirty.value = true
   if (editingIndex.value >= 0) steps.value[editingIndex.value].dirty = true
 }
@@ -108,11 +338,10 @@ function removeSplitField(idx: number) {
 const saving = ref(false)
 async function doSave() {
   if (!selectedTable.value) { ElMessage.warning('请先选择来源表'); return }
+  if (mappingDirty.value) syncMappingToSteps(mappingDocument.value)
   saving.value = true
   try {
-    const currentIds = new Set(steps.value.filter(s => s.id).map(s => s.id!))
     const existing = await listStandardizationRules({ asset_code: selectedTable.value, page_size: 200 })
-    for (const r of existing.items) { if (!currentIds.has(r.id)) await deleteStandardizationRule(r.id) }
     for (const step of steps.value) {
       if (step.id) {
         await updateStandardizationRule(step.id, { rule_config: step.rule_config, enabled: step.enabled, display_order: step.display_order } as any)
@@ -121,7 +350,10 @@ async function doSave() {
         step.id = created.id
       }
     }
-    dirty.value = false; steps.value.forEach(s => s.dirty = false)
+    const currentIds = new Set(steps.value.filter(s => s.id).map(s => s.id!))
+    for (const rule of existing.items) { if (!currentIds.has(rule.id)) await deleteStandardizationRule(rule.id) }
+    dirty.value = false; legacyDirty.value = false; mappingDirty.value = false; steps.value.forEach(s => s.dirty = false)
+    mappingWorkspaceRef.value?.resetDirty()
     ElMessage.success('规则已保存'); await loadRules()
     automationPanelRef.value?.refreshDetectedMode()
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') } finally { saving.value = false }
@@ -186,7 +418,7 @@ function stepSummary(s: Step): string {
     case 'value_map': return `${from}: ${cfg.mappings?.length || 0} 条映射`
     case 'unit_convert': return `${from}: ${cfg.from_unit || '?'}→${cfg.to_unit || '?'}`
     case 'split_merge': return `${from} → ${cfg.target_fields?.length || 0} 字段`
-    case 'deduplicate': return `${cfg.keys?.join(',') || from}`
+    case 'deduplicate': return `${cfg.by?.join(',') || from}`
     case 'null_handling': return `${to || from}: ${cfg.strategy || '?'}`
     case 'format_standardize': return `${from}: ${cfg.format_type || '?'}`
     default: return `${from} → ${to}`
@@ -195,6 +427,9 @@ function stepSummary(s: Step): string {
 const ruleTypeIcon: Record<string, string> = { rename: 'Aa', type_convert: '#', value_map: '{ }', unit_convert: '≍', split_merge: '⤨', deduplicate: '⊚', null_handling: '∅', format_standardize: '✦' }
 
 watch(dirty, (v) => { if (v) window.addEventListener('beforeunload', warnUnsaved); else window.removeEventListener('beforeunload', warnUnsaved) })
+watch([targetTableName, derivedTargetTable], () => {
+  mappingDocument.value.ruleSet.targetAsset = targetTableName.value.trim() || derivedTargetTable.value
+})
 function warnUnsaved(e: BeforeUnloadEvent) { e.preventDefault(); e.returnValue = '' }
 const route = useRoute()
 onMounted(async () => {
@@ -247,7 +482,7 @@ onMounted(async () => {
         </div>
       </div>
       <div class="toolbar">
-        <button v-for="rt in STANDARDIZATION_RULE_TYPES" :key="rt" class="tool-btn" :disabled="!selectedTable" @click="addStep(rt)">
+        <button v-for="rt in LEGACY_RULE_TYPES" :key="rt" class="tool-btn" :disabled="!selectedTable" @click="addStep(rt)">
           <span class="tool-btn-icon">{{ ruleTypeIcon[rt] }}</span>
           <span class="tool-btn-label">{{ STANDARDIZATION_RULE_LABELS[rt] }}</span>
         </button>
@@ -310,7 +545,17 @@ onMounted(async () => {
 
       <!-- Zone 3: 右侧流程步骤流 -->
       <aside class="flow-zone">
-        <h3 class="flow-title">加工流程</h3>
+        <MappingWorkspace
+          ref="mappingWorkspaceRef"
+          v-model="mappingDocument"
+          :policy="mappingPolicy"
+          :source-fields="mappingFields"
+          :target-fields="mappingTargetFields"
+          @dirty="onMappingDirty"
+        />
+
+        <div class="legacy-rule-heading">数仓专属规则</div>
+        <h3 class="flow-title">完整加工流程</h3>
 
         <!-- 来源表节点（流程图顶部） -->
         <div class="flow-source-node">
@@ -331,7 +576,7 @@ onMounted(async () => {
           </div>
 
           <!-- 步骤节点 -->
-          <div class="flow-node" :class="{ expanded: editingIndex === i, dirty: step.dirty }" @click="editingIndex === i ? collapseStep() : expandStep(i)">
+          <div class="flow-node" :class="{ expanded: editingIndex === i, dirty: step.dirty }" @click="isLegacyRule(step.rule_type) && (editingIndex === i ? collapseStep() : expandStep(i))">
             <div class="node-dot" :class="step.enabled ? 'active' : 'disabled'">{{ i + 1 }}</div>
             <div class="node-card">
               <div class="node-header">
@@ -341,7 +586,7 @@ onMounted(async () => {
               </div>
               <div class="node-summary">{{ stepSummary(step) }}</div>
               <!-- 操作按钮（展开时） -->
-              <div v-if="editingIndex === i" class="node-actions" @click.stop>
+              <div v-if="editingIndex === i && isLegacyRule(step.rule_type)" class="node-actions" @click.stop>
                 <button :disabled="i === 0" @click="moveStep(i, -1)" title="上移"><Top /></button>
                 <button :disabled="i === steps.length - 1" @click="moveStep(i, 1)" title="下移"><Bottom /></button>
                 <button class="danger" @click="removeStep(i)" title="删除"><Delete /></button>
@@ -350,7 +595,7 @@ onMounted(async () => {
           </div>
 
           <!-- 配置面板（展开在节点下方） -->
-          <div v-if="editingIndex === i" class="config-panel" @click.stop>
+          <div v-if="editingIndex === i && isLegacyRule(step.rule_type)" class="config-panel" @click.stop>
             <!-- 通用字段 -->
             <div class="config-row">
               <div class="config-field">
@@ -397,7 +642,7 @@ onMounted(async () => {
             <div v-if="step.rule_type === 'unit_convert'" class="config-row">
               <div class="config-field"><label>原单位</label><el-input v-model="step.rule_config.from_unit" size="small" placeholder="如：元" @change="onStepFieldChange" /></div>
               <div class="config-field"><label>目标单位</label><el-input v-model="step.rule_config.to_unit" size="small" placeholder="如：万元" @change="onStepFieldChange" /></div>
-              <div class="config-field"><label>系数</label><el-input-number v-model="step.rule_config.factor" size="small" :min="0.0001" :step="1" @change="onStepFieldChange" /></div>
+              <div class="config-field"><label>系数</label><el-input-number v-model="step.rule_config.multiplier" size="small" :min="0.0001" :step="1" @change="onStepFieldChange" /></div>
             </div>
 
             <!-- 拆分合并 -->
@@ -415,11 +660,11 @@ onMounted(async () => {
             <!-- 去重 -->
             <div v-if="step.rule_type === 'deduplicate'" class="config-section">
               <label>去重依据</label>
-              <el-select v-model="step.rule_config.keys" multiple filterable placeholder="选择去重字段" size="small" @change="onStepFieldChange">
+              <el-select v-model="step.rule_config.by" multiple filterable placeholder="选择去重字段" size="small" @change="onStepFieldChange">
                 <el-option v-for="f in tableFields" :key="f.column_code" :label="f.column_label || f.column_code" :value="f.column_code" />
               </el-select>
               <label style="margin-top:8px">保留策略</label>
-              <el-select v-model="step.rule_config.strategy" size="small" @change="onStepFieldChange">
+              <el-select v-model="step.rule_config.keep" size="small" @change="onStepFieldChange">
                 <el-option label="保留第一条" value="first" /><el-option label="保留最后一条" value="last" />
               </el-select>
             </div>
@@ -432,7 +677,7 @@ onMounted(async () => {
                 <el-option label="跳过（保留空值）" value="skip" /><el-option label="使用上游值" value="use_upstream" />
               </el-select>
               <div v-if="step.rule_config.strategy === 'fill_default'" class="config-field" style="margin-top:8px">
-                <label>默认值</label><el-input v-model="step.rule_config.default_value" size="small" placeholder="默认值" @change="onStepFieldChange" />
+                <label>默认值</label><el-input v-model="step.rule_config.default" size="small" placeholder="默认值" @change="onStepFieldChange" />
               </div>
             </div>
 
@@ -497,7 +742,7 @@ onMounted(async () => {
               <button class="add-step-btn" :disabled="!selectedTable"><Plus /> 添加步骤</button>
             </template>
             <div class="add-step-menu">
-              <button v-for="rt in STANDARDIZATION_RULE_TYPES" :key="rt" class="add-step-item" @click="addStep(rt)">
+              <button v-for="rt in LEGACY_RULE_TYPES" :key="rt" class="add-step-item" @click="addStep(rt)">
                 <span class="add-step-icon">{{ ruleTypeIcon[rt] }}</span>
                 {{ STANDARDIZATION_RULE_LABELS[rt] }}
               </button>
@@ -758,6 +1003,12 @@ onMounted(async () => {
   flex-direction: column;
   overflow-y: auto;
   padding: 0 4px;
+}
+.legacy-rule-heading {
+  margin: 14px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
 }
 .flow-title {
   font-size: 14px;

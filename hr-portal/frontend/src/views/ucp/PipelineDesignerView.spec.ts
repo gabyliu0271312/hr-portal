@@ -1,6 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import PipelineDesignerView from './PipelineDesignerView.vue'
 
 const mocks = vi.hoisted(() => ({
   nodeTypes: vi.fn(), getTemplate: vi.fn(), systems: vi.fn(), resources: vi.fn(), capabilityCatalog: vi.fn(), resourceDataObjects: vi.fn(),
@@ -15,8 +14,11 @@ vi.mock('@/api/ucp', () => ({
   },
 }))
 vi.mock('@/api/warehouse', () => ({ listAssets: mocks.listAssets, listAssetColumns: mocks.listAssetColumns }))
+vi.mock('@/components/mapping/MappingWorkspace.vue', () => ({ default: { name: 'MappingWorkspace', props: ['modelValue', 'policy', 'compatibility', 'sourceFields', 'targetFields'], emits: ['update:modelValue'], template: '<div class="mapping-workspace-stub" :data-caller="policy.caller" :data-source-format="compatibility?.sourceFormat || \'\'">MappingWorkspace</div>' } }))
 vi.mock('element-plus', () => ({ ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() }, ElMessageBox: { confirm: vi.fn() } }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ query: { code: 'PIPELINE_DEMO' } }), useRouter: () => ({ push: vi.fn() }) }))
+
+const { default: PipelineDesignerView } = await import('./PipelineDesignerView.vue')
 
 const stubs = {
   'el-button': { props: ['disabled', 'loading'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
@@ -70,6 +72,94 @@ describe('PipelineDesignerView canvas interaction', () => {
     expect(wrapper.text()).toContain('数据变更')
     expect(wrapper.find('.node-card.start-trigger').text()).toContain('平台事件')
     expect(wrapper.get('.canvas-controls').findAll('button')).toHaveLength(3)
+  })
+
+  it('mounts MappingWorkspace for TRANSFORM and rehydrates legacy v1 without changing the canvas', async () => {
+    mocks.getTemplate.mockResolvedValue({
+      template_code: 'PIPELINE_TRANSFORM_LEGACY', name: 'Legacy transform', description: '', version: '1.0.0',
+      nodes: [
+        { id: 'start', type: 'START_TRIGGER', x: 48, y: 96, label: '流程起点', config: {} },
+        { id: 'source', type: 'CONNECTOR', x: 328, y: 96, label: '来源', config: { output_field_catalog: [{ field_id: 'employee_no', label: '工号', type: 'string' }] } },
+        { id: 'transform', type: 'TRANSFORM', x: 608, y: 96, label: '转换', config: { mapping: { version: 1, mode: 'strict', source_schema_hash: 'source', target_schema_hash: 'target', target_field_catalog: [{ field_id: 'staff_code', label: '员工编码', type: 'string' }], rules: [{ source_field_id: 'employee_no', target_field_id: 'staff_code', source_kind: 'upstream_field' }] }, retry: { max_attempts: 3 }, input_key: '${source.data}' } },
+      ],
+      edges: [{ from: 'start', to: 'source' }, { from: 'source', to: 'transform' }],
+    })
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.findAll('.node-card')[2].trigger('click'); await flushPromises()
+    const workspace = wrapper.get('.mapping-workspace-stub')
+    expect(workspace.attributes('data-caller')).toBe('ucp_transform')
+    expect(workspace.attributes('data-source-format')).toBe('ucp_transform_legacy_v1')
+    expect(wrapper.text()).toContain('Legacy v1')
+    const node = (wrapper.vm as any).form.nodes.find((item: any) => item.id === 'transform')
+    expect(node.config.retry).toEqual({ max_attempts: 3 })
+    expect(node.config.input_key).toBe('${source.data}')
+  })
+
+  it('keeps lossless field rules in legacy_v1 and preserves legacy rule extensions', async () => {
+    mocks.getTemplate.mockResolvedValue({
+      template_code: 'PIPELINE_TRANSFORM_FIELD', name: 'Legacy field transform', description: '', version: '1.0.0',
+      nodes: [
+        { id: 'start', type: 'START_TRIGGER', x: 48, y: 96, label: '流程起点', config: {} },
+        { id: 'source', type: 'CONNECTOR', x: 328, y: 96, label: '来源', config: { output_field_catalog: [{ field_id: 'employee_no', label: '工号', type: 'string' }] } },
+        { id: 'transform', type: 'TRANSFORM', x: 608, y: 96, label: '转换', config: { mapping: { version: 1, mode: 'strict', extension: { owner: 'hr' }, rules: [{ source_field_id: 'employee_no', target_field_id: 'staff_code', source_kind: 'upstream_field', audit_tag: 'keep-me' }] }, retry: { max_attempts: 2 } } },
+      ],
+      edges: [{ from: 'start', to: 'source' }, { from: 'source', to: 'transform' }],
+    })
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.findAll('.node-card')[2].trigger('click'); await flushPromises()
+    const workspace = wrapper.getComponent({ name: 'MappingWorkspace' })
+    const document = JSON.parse(JSON.stringify(workspace.props('modelValue'))) as any
+    document.ruleSet.rules[0].targetFields = ['employee_code']
+    await workspace.vm.$emit('update:modelValue', document); await flushPromises()
+    const node = (wrapper.vm as any).form.nodes.find((item: any) => item.id === 'transform')
+    expect(node.config.storageMode).toBe('legacy_v1')
+    expect(node.config.mapping_component).toBeUndefined()
+    expect(node.config.legacy_mapping_snapshot).toBeUndefined()
+    expect(node.config.mapping.extension).toEqual({ owner: 'hr' })
+    expect(node.config.mapping.rules[0]).toMatchObject({ target_field_id: 'employee_code', audit_tag: 'keep-me' })
+    expect(node.config.retry).toEqual({ max_attempts: 2 })
+  })
+
+  it('writes component_v1 and preserves legacy snapshot when a non-field rule is selected', async () => {
+    mocks.getTemplate.mockResolvedValue({
+      template_code: 'PIPELINE_TRANSFORM_COMPONENT', name: 'Component transform', description: '', version: '1.0.0',
+      nodes: [
+        { id: 'start', type: 'START_TRIGGER', x: 48, y: 96, label: '流程起点', config: {} },
+        { id: 'source', type: 'CONNECTOR', x: 328, y: 96, label: '来源', config: { output_field_catalog: [{ field_id: 'status', label: '状态', type: 'string' }] } },
+        { id: 'transform', type: 'TRANSFORM', x: 608, y: 96, label: '转换', config: { mapping: { version: 1, rules: [{ source_field_id: 'status', target_field_id: 'status', source_kind: 'upstream_field' }] }, failure_policy: 'RETRY' } },
+      ],
+      edges: [{ from: 'start', to: 'source' }, { from: 'source', to: 'transform' }],
+    })
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.findAll('.node-card')[2].trigger('click'); await flushPromises()
+    const workspace = wrapper.getComponent({ name: 'MappingWorkspace' })
+    const document = workspace.props('modelValue') as any
+    document.ruleSet.rules[0] = { ...document.ruleSet.rules[0], type: 'value_map', config: { mappings: { active: '在职' }, unmatched: 'keep' } }
+    await workspace.vm.$emit('update:modelValue', document); await flushPromises()
+    const node = (wrapper.vm as any).form.nodes.find((item: any) => item.id === 'transform')
+    expect(node.config.storageMode).toBe('component_v1')
+    expect(node.config.mapping_component).toEqual(document)
+    expect(node.config.legacy_mapping_snapshot).toBeTruthy()
+    expect(node.config.mapping.rules).toHaveLength(1)
+    expect(node.config.failure_policy).toBe('RETRY')
+  })
+
+  it('treats an empty TRANSFORM as a writable component_v1 document', async () => {
+    mocks.getTemplate.mockResolvedValue({
+      template_code: 'PIPELINE_TRANSFORM_EMPTY', name: 'Empty transform', description: '', version: '1.0.0',
+      nodes: [
+        { id: 'start', type: 'START_TRIGGER', x: 48, y: 96, label: '流程起点', config: {} },
+        { id: 'transform', type: 'TRANSFORM', x: 328, y: 96, label: '转换', config: { retry: { max_attempts: 1 } } },
+      ],
+      edges: [{ from: 'start', to: 'transform' }],
+    })
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.findAll('.node-card')[1].trigger('click'); await flushPromises()
+    const workspace = wrapper.get('.mapping-workspace-stub')
+    expect(workspace.attributes('data-source-format')).toBe('ucp_transform_component_v1')
+    expect(wrapper.text()).not.toContain('保存已阻断')
+    const node = (wrapper.vm as any).form.nodes.find((item: any) => item.id === 'transform')
+    expect(node.config.retry).toEqual({ max_attempts: 1 })
   })
 
   it('loads enabled unverified capabilities for lookup configuration', async () => {

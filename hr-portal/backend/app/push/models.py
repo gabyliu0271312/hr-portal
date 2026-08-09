@@ -39,6 +39,9 @@ class PushTarget(Base):
     # 字段映射：[{"source": "成本归属年月", "target": "cost_period"}, ...]
     # 空列表 = 按源字段名原样推送
     field_mappings: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # 017 component_v1 公共映射正文；为空时继续使用 legacy field_mappings。
+    mapping_storage_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="legacy_v1")
+    mapping_component: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 

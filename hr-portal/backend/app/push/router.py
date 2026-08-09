@@ -44,6 +44,8 @@ class PushTargetIn(BaseModel):
     settings: dict = {}
     secrets: dict = {}           # 明文传入，后端加密存储
     field_mappings: list[dict] = []
+    mapping_storage_mode: str = "legacy_v1"
+    mapping_component: dict | None = None
     is_active: bool = True
     schedule: str = "手动触发"
     # P2：统一来源协议
@@ -60,6 +62,8 @@ class PushTargetOut(BaseModel):
     push_type: str
     settings: dict
     field_mappings: list
+    mapping_storage_mode: str = "legacy_v1"
+    mapping_component: dict | None = None
     is_active: bool
     last_push_at: str | None
     last_status: str
@@ -168,6 +172,8 @@ async def _to_out(pt: PushTarget, db: AsyncSession) -> PushTargetOut:
         push_type=pt.push_type,
         settings=pt.settings or {},
         field_mappings=pt.field_mappings or [],
+        mapping_storage_mode=pt.mapping_storage_mode or "legacy_v1",
+        mapping_component=pt.mapping_component,
         is_active=pt.is_active,
         last_push_at=pt.last_push_at.isoformat() if pt.last_push_at else None,
         last_status=pt.last_status,
@@ -635,6 +641,8 @@ async def create_push_target(
         settings=payload.settings,
         secrets_encrypted=secrets_enc,
         field_mappings=payload.field_mappings,
+        mapping_storage_mode=payload.mapping_storage_mode,
+        mapping_component=payload.mapping_component,
         is_active=payload.is_active,
         created_by=user.id,
     )
@@ -775,6 +783,8 @@ async def update_push_target(
     pt.push_type = payload.push_type
     pt.settings = payload.settings
     pt.field_mappings = payload.field_mappings
+    pt.mapping_storage_mode = payload.mapping_storage_mode
+    pt.mapping_component = payload.mapping_component
     pt.is_active = payload.is_active
 
     if payload.schedule and payload.schedule != "手动触发" and payload.push_type not in ("api_expose", "db_realtime"):
@@ -1211,7 +1221,7 @@ async def expose_data(
     db: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     from app.core.secret_box import decrypt
-    from app.push.push_service import _load_source_rows, apply_field_mappings, json_ready_row
+    from app.push.push_service import _load_source_rows, execute_push_mapping, json_ready_row
 
     pt = await db.get(PushTarget, pt_id)
     if pt is None or pt.push_type != "api_expose" or not pt.is_active:
@@ -1252,7 +1262,19 @@ async def expose_data(
         rows, _ = await collect_report_push_rows(report, db, runtime_filters=runtime_filters)
     else:
         rows = await _load_source_rows(effective_source, db, s.get("period_ym", ""), runtime_filters=runtime_filters)
+    from app.push.push_service import _resolve_push_mapping_policy
+    policy = await _resolve_push_mapping_policy(
+        effective_source,
+        pt.field_mappings or [],
+        db,
+        source_field_ids=sorted({key for row in rows for key in row}),
+    )
     return [
-        json_ready_row(apply_field_mappings(r, pt.field_mappings or []))
-        for r in rows
+        json_ready_row(row)
+        for row in await execute_push_mapping(
+            rows,
+            pt.field_mappings or [],
+            policy=policy,
+            mapping_component=pt.mapping_component if pt.mapping_storage_mode == "component_v1" else None,
+        )
     ]

@@ -32,6 +32,60 @@ from app.datasources.sync_service import PERIOD_TABLES
 logger = logging.getLogger("push_service")
 
 
+async def _resolve_push_mapping_policy(
+    source_table: str,
+    field_mappings: list[Any],
+    db: AsyncSession,
+    source_field_ids: list[str] | None = None,
+):
+    """Issue a server-side policy from the registered source schema."""
+    from app.mapping.policy import build_policy
+
+    columns = (
+        await db.execute(select(TableColumn).where(TableColumn.table_name == source_table))
+    ).scalars().all()
+    source_fields = source_field_ids or [column.column_code for column in columns]
+    if source_table.startswith("report:"):
+        # 报表字段优先由报表定义签发，其次才接受已返回行的 schema。
+        report_fields: list[str] = []
+        from app.reports.models import Report
+        from app.reports.router import get_report_push_columns
+
+        report = await db.get(Report, parse_report_source_id(source_table))
+        if report is not None:
+            report_columns = await get_report_push_columns(report, db)
+            report_fields = [str(column.get("code")) for column in report_columns if column.get("code")]
+        mapping_fields = [
+            str(mapping.get("source"))
+            for mapping in field_mappings
+            if isinstance(mapping, dict) and mapping.get("source")
+        ]
+        source_fields = mapping_fields or report_fields or source_fields
+    if not source_fields:
+        # 空结果仍需构造合法策略；没有行时不会实际写入目标。
+        if source_table.startswith("report:"):
+            return build_policy(
+                caller="push_target",
+                source_asset_id=source_table,
+                source_field_ids=[],
+                target_field_ids=sorted({str(m.get("target")) for m in field_mappings if isinstance(m, dict) and m.get("target")}),
+            )
+        raise RuntimeError("PushTarget 来源资产没有可信字段目录")
+    target_fields = [
+        str(mapping.get("target"))
+        for mapping in field_mappings
+        if isinstance(mapping, dict) and mapping.get("target")
+    ]
+    return build_policy(
+        caller="push_target",
+        source_asset_id=source_table,
+        source_field_ids=source_fields,
+        target_field_ids=sorted(set(source_fields) | set(target_fields)),
+        target_protected_keys=[column.column_code for column in columns if column.is_pk_part],
+        target_readonly=[column.column_code for column in columns if column.is_computed],
+    )
+
+
 def _is_managed_schema(value: str) -> bool:
     return bool(re.fullmatch(r"finebi_[a-z0-9_]+", value or ""))
 
@@ -99,11 +153,80 @@ async def list_orphan_schemas(db: AsyncSession) -> list[dict]:
 # ===== 字段映射 =====
 
 def apply_field_mappings(row: dict, mappings: list[dict]) -> dict:
-    """按 field_mappings 配置重命名字段；空映射则原样返回"""
+    """Legacy-compatible single-row helper; outbound runtimes use execute_push_mapping."""
     if not mappings:
         return row
     mapping_dict = {m["source"]: m["target"] for m in mappings if m.get("source") and m.get("target")}
     return {mapping_dict.get(k, k): v for k, v in row.items()}
+
+
+async def execute_push_mapping(
+    rows: list[dict],
+    field_mappings: list[Any],
+    *,
+    policy=None,
+    mapping_component: dict | None = None,
+) -> list[dict]:
+    """Execute PushTarget legacy mappings through the shared adapter and executor.
+
+    A non-empty mapping must run under a caller policy resolved from the persisted
+    PushTarget and server-side field catalogs. A bare default policy would turn an
+    unknown target schema into an allow-all path.
+    """
+    if not field_mappings and not mapping_component:
+        return rows
+
+    from app.mapping.adapters.push_target_legacy import PushTargetLegacyAdapter
+    from app.mapping.errors import MappingErrorCode, MappingException
+    from app.mapping.executor import MappingExecutor
+    from app.mapping.policy import build_policy
+    from app.mapping.validator import MappingValidator
+
+    # 兼容纯服务调用与历史调度入口：调用方尚未注入持久化目标 schema
+    # 时只能从当前数据和已持久化的 legacy mapping 构造最小字段集合；新的
+    # router/执行入口应显式传入服务端签发 policy。
+    if policy is None:
+        source_fields = sorted({str(key) for row in rows for key in row})
+        target_fields = sorted(set(source_fields) | {
+            str(mapping.get("target"))
+            for mapping in field_mappings
+            if isinstance(mapping, dict) and mapping.get("target")
+        })
+        policy = build_policy(
+            caller="push_target",
+            source_field_ids=source_fields,
+            target_field_ids=target_fields,
+        )
+    if mapping_component:
+        from app.mapping.dto import MappingDocumentV1
+        document = MappingDocumentV1.from_dict(mapping_component)
+        MappingValidator().validate(document, policy)
+        result = await MappingExecutor().execute(document, rows, None, policy)
+        if result.errors:
+            detail = "; ".join(f"{error.code}: {error.message}" for error in result.errors[:5])
+            raise RuntimeError(detail)
+        return result.outputRows
+
+    opened = PushTargetLegacyAdapter().read(
+        {"field_mappings": field_mappings},
+        policy=policy,
+    )
+    if not opened.compatibility.writable:
+        raise MappingException(
+            MappingErrorCode.MAPPING_LOSSY_WRITE_BLOCKED,
+            "PushTarget field_mappings 包含无法无损执行的旧字段",
+            http_status=422,
+            details={
+                "lossyFields": opened.compatibility.lossyFields,
+                "unknownFields": opened.compatibility.unknownFields,
+            },
+        )
+    MappingValidator().validate(opened.document, policy)
+    result = await MappingExecutor().execute(opened.document, rows, None, policy)
+    if result.errors:
+        detail = "; ".join(f"{error.code}: {error.message}" for error in result.errors[:5])
+        raise RuntimeError(detail)
+    return result.outputRows
 
 
 def _ensure_entity_model(Model, table_name: str) -> None:
@@ -370,7 +493,8 @@ async def push_external_db(
         return 0, "源表无数据，推送跳过"
 
     # 字段映射
-    mapped_rows = [apply_field_mappings(r, field_mappings) for r in rows]
+    policy = await _resolve_push_mapping_policy(source_table, field_mappings, db)
+    mapped_rows = await execute_push_mapping(rows, field_mappings, policy=policy)
 
     # 空字符串 → None，避免 MySQL 严格模式 DECIMAL/数值列报错
     def _clean(row: dict) -> dict:
@@ -534,10 +658,10 @@ async def push_http(
     period_ym = settings.get("period_ym", "")
 
     rows = await _load_source_rows(source_table, db, period_ym)
-    mapped_rows = [
-        json_ready_row(apply_field_mappings(r, field_mappings))
-        for r in rows
-    ]
+    policy = await _resolve_push_mapping_policy(
+        source_table, field_mappings, db, source_field_ids=sorted({key for row in rows for key in row})
+    )
+    mapped_rows = [json_ready_row(row) for row in await execute_push_mapping(rows, field_mappings, policy=policy)]
 
     total = 0
     async with httpx.AsyncClient(timeout=60) as client:
@@ -762,7 +886,10 @@ async def push_feishu_sheet(
     sheet_id = await _ensure_feishu_sheet_id(base_url, tenant_token, spreadsheet_token, sheet_id)
 
     rows = await _load_source_rows(source_table, db, period_ym)
-    mapped_rows = [json_ready_row(apply_field_mappings(r, field_mappings)) for r in rows]
+    policy = await _resolve_push_mapping_policy(
+        source_table, field_mappings, db, source_field_ids=sorted({key for row in rows for key in row})
+    )
+    mapped_rows = [json_ready_row(row) for row in await execute_push_mapping(rows, field_mappings, policy=policy)]
 
     source_col_codes, label_by_code, _type_by_code = await _load_source_columns_meta(source_table, db)
     mapping_pairs = [

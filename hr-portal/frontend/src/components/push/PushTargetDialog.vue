@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Hide, Refresh, View } from '@element-plus/icons-vue'
 import type { PushTargetIn, PushTargetOut, QueryParameterInput } from '@/api/push_targets'
+import type { MappingDocument } from '@/api/mapping'
 import { pushTargetsApi } from '@/api/push_targets'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import { SCHEDULE_OPTIONS } from '@/config/dataSources'
@@ -24,6 +25,7 @@ const currentTarget = ref<PushTargetOut | null>(null)
 const sourceColumns = ref<ColumnInfo[]>([])
 const revealedSecrets = ref<Record<string, string>>({})
 const revealing = ref(false)
+const fieldMapper = ref<InstanceType<typeof PushFieldMapper> | null>(null)
 
 async function revealSecret(key: string) {
   if (!currentTarget.value) return
@@ -80,6 +82,7 @@ const form = reactive<{
   is_active: boolean
   schedule: string
   field_mappings: { source: string; target: string }[]
+  mapping_component: MappingDocument | null
   period_ym: string
   dialect: string
   host: string
@@ -107,7 +110,7 @@ const form = reactive<{
   feishu_batch_size: string
 }>({
   name: '', description: '', push_type: 'external_db',
-  is_active: true, schedule: '手动触发', field_mappings: [], period_ym: '',
+  is_active: true, schedule: '手动触发', field_mappings: [], mapping_component: null, period_ym: '',
   dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
   url: '', method: 'POST', bearer_token: '', batch_size: '500',
   app_id: '', app_secret: '', readonly_password: '', ip_whitelist: '', query_parameters: [],
@@ -137,6 +140,7 @@ async function open(target?: PushTargetOut | null) {
     form.push_type = target.push_type
     form.is_active = target.is_active
     form.field_mappings = (target.field_mappings || []).map((m: any) => ({ ...m }))
+    form.mapping_component = target.mapping_component ? JSON.parse(JSON.stringify(target.mapping_component)) : null
     form.schedule = s.schedule ?? '手动触发'
     form.period_ym = s.period_ym ?? ''
     form.ip_whitelist = (s.ip_whitelist || []).join(', ')
@@ -171,7 +175,7 @@ async function open(target?: PushTargetOut | null) {
     }
     Object.assign(form, {
       name: '', description: '', push_type: 'external_db', is_active: true,
-      schedule: '手动触发', field_mappings: [], period_ym: '', ip_whitelist: '', query_parameters: [],
+      schedule: '手动触发', field_mappings: [], mapping_component: null, period_ym: '', ip_whitelist: '', query_parameters: [],
       dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
       url: '', method: 'POST', bearer_token: '', batch_size: '500',
       app_id: '', app_secret: '', readonly_password: '',
@@ -218,6 +222,8 @@ function legacySourceTable(ref: { source_type: string; source_id: string }) {
 
 function buildPayload(): PushTargetIn {
   const st = isMultiSource ? legacySourceTable(sourceRef.value) : props.sourceTable
+  const mapping = fieldMapper.value?.serialize()
+  if (mapping && !mapping.ok) throw new Error(mapping.reason)
   const base: PushTargetIn = {
     source_table: st,
     source_type: isMultiSource ? sourceRef.value.source_type : 'table',
@@ -230,7 +236,13 @@ function buildPayload(): PushTargetIn {
     secrets: {},
     field_mappings: isExposeType(form.push_type)
       ? []
-      : form.field_mappings.filter((m) => m.source && m.target),
+      : mapping?.ok && mapping.storageMode === 'legacy_v1'
+        ? mapping.mappings
+        : form.field_mappings.filter((m) => m.source && m.target),
+    mapping_storage_mode: mapping?.ok ? mapping.storageMode : 'legacy_v1',
+    mapping_component: mapping?.ok && mapping.storageMode === 'component_v1'
+      ? mapping.document
+      : null,
     is_active: form.is_active,
     schedule: isExposeType(form.push_type) ? '手动触发' : form.schedule,
   }
@@ -283,7 +295,7 @@ async function confirm() {
     visible.value = false
     emit('done', result)
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    ElMessage.error(e?.response?.data?.detail || e?.message || '保存失败')
   } finally {
     saving.value = false
   }
@@ -567,8 +579,11 @@ defineExpose({ open })
       <template v-if="!isExposeType(form.push_type)">
         <div class="section-title">字段映射（源字段 → 目标字段）</div>
         <PushFieldMapper
+          ref="fieldMapper"
           :mappings="form.field_mappings"
+          :mapping-component="form.mapping_component"
           :source-columns="sourceColumns"
+          :source-asset="isMultiSource ? sourceRef.source_id : props.sourceTable"
           @update:mappings="form.field_mappings = $event"
         />
       </template>

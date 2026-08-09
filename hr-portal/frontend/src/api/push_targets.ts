@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { MappingDocument } from './mapping'
 
 export type PushType = 'external_db' | 'http_push' | 'api_expose' | 'db_realtime' | 'db_snapshot' | 'feishu_sheet'
 
@@ -50,6 +51,8 @@ export interface PushTargetIn {
   settings: PushTargetSettings
   secrets: Record<string, string>
   field_mappings: { source: string; target: string }[]
+  mapping_storage_mode?: 'legacy_v1' | 'component_v1'
+  mapping_component?: MappingDocument | null
   is_active?: boolean
   schedule?: string
   source_type?: string
@@ -65,6 +68,8 @@ export interface PushTargetOut {
   push_type: PushType
   settings: PushTargetSettings
   field_mappings: { source: string; target: string }[]
+  mapping_storage_mode?: 'legacy_v1' | 'component_v1'
+  mapping_component?: MappingDocument | null
   is_active: boolean
   last_push_at: string | null
   last_status: string

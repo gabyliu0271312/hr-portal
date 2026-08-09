@@ -172,39 +172,16 @@
               </el-form-item>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'TRANSFORM'">
-              <el-form-item label="字段处理模式">
-                <el-radio-group v-model="transformMode">
-                  <el-radio value="strict">严格映射</el-radio>
-                  <el-radio value="mapped_plus_same_name">别名映射 + 同名自动透传</el-radio>
-                </el-radio-group>
-              </el-form-item>
-              <div v-if="transformMode === 'mapped_plus_same_name'" class="text-muted transform-hint">显式映射优先；目标资产已登记且与上游同名的字段会自动透传。</div>
-              <el-form-item label="字段映射">
-                <div class="field-mappings">
-                  <div v-for="(m, i) in transformMappings" :key="i" class="mapping-row">
-                    <el-select v-model="m.from" filterable allow-create placeholder="源字段" style="width:130px" size="small">
-                      <el-option v-for="f in upstreamFields" :key="f.name" :label="f.name" :value="f.name"><span>{{ f.name }} <small style="color:#909399">{{ f.type }}</small></span></el-option>
-                    </el-select>
-                    <span class="mapping-arrow">→</span>
-                    <el-input v-model="m.to" placeholder="目标字段" size="small" style="width:130px" />
-                    <el-button link size="small" type="danger" @click="removeTransformMapping(i)"><el-icon><Delete /></el-icon></el-button>
-                  </div>
-                  <el-button size="small" @click="addTransformMapping">+ 添加映射</el-button>
-                </div>
-              </el-form-item>
-              <div v-if="transformMode === 'mapped_plus_same_name' && targetAssetColumns.length" class="upstream-ref">
-                <div class="upstream-title">可自动透传字段（目标资产已登记）</div>
-                <div class="upstream-field" v-for="f in targetAssetColumns.filter((column) => upstreamFields.some((source) => source.name === column.column_code))" :key="f.column_code">
-                  <span>{{ f.column_label }}</span><small style="color:#909399">{{ f.column_code }}</small>
-                </div>
-              </div>
-              <div v-if="upstreamFields.length" class="upstream-ref">
-                <div class="upstream-title">上游字段参考 {{ upstreamSourceName }}</div>
-                <div class="upstream-field" v-for="f in upstreamFields" :key="f.name" @click="addMappingFromField(f.name)">
-                  <span>{{ f.name }}</span><el-tag size="small" type="info">{{ f.type }}</el-tag>
-                </div>
-              </div>
-              <div v-else class="upstream-ref empty">连接上游资源节点后自动解析可用字段</div>
+              <MappingWorkspace
+                :model-value="transformMappingDocument"
+                :policy="transformMappingPolicy"
+                :compatibility="transformMappingCompatibility"
+                :source-fields="transformSourceFields"
+                :target-fields="transformTargetFields"
+                @update:model-value="onTransformMappingChange"
+              />
+              <div v-if="transformMappingMigrationHint" class="mapping-migration-hint">{{ transformMappingMigrationHint }}</div>
+              <div v-if="transformMappingLossyBlocked" class="mapping-lossy-blocked">当前映射包含无法无损回写 Legacy v1 的规则或字段，保存已阻断；请保留原配置或确认迁移为 component_v1。</div>
             </template>
             <template v-else><el-form-item v-for="(schema, key) in (getNodeSchema(selectedNode.type) || {})" :key="key" :label="key"><el-input :model-value="stringifyConfig(selectedNode.config?.[key])" @update:model-value="(v: string) => updateNodeConfig(key, v)" :placeholder="schema" type="textarea" :rows="2" /></el-form-item></template>
           </el-form>
@@ -247,7 +224,17 @@ import { Plus, Connection, MagicStick, Share, Refresh, Delete, Aim, Box, Documen
 import { pipelineTemplateApi, ucpApi, type PipelineTemplate, type PipelineNode, type PipelineEdge, type NodeTypeMeta } from '@/api/ucp'
 import { listAssets, listAssetColumns, type Asset, type AssetColumn } from '@/api/warehouse'
 import ScheduleSelector from '@/components/common/ScheduleSelector.vue'
+import MappingWorkspace from '@/components/mapping/MappingWorkspace.vue'
 import WarehouseAssetSinkConfig from '@/components/ucp/WarehouseAssetSinkConfig.vue'
+import {
+  createEmptyDocument,
+  type MappingCaller,
+  type MappingCompatibility,
+  type MappingDocument,
+  type MappingRule,
+  type MappingRuleType,
+  type MappingCallerPolicy,
+} from '@/api/mapping'
 
 interface SystemItem { id: number; system_code: string; system_name: string }
 interface ResourceItem { id: number; resource_code: string; resource_name: string; system_id: number; adapter_code?: string | null }
@@ -587,6 +574,12 @@ function getNodeLabel(type: string): string { return getNodeMetadata(type)?.labe
 type CanvasNodeStatus = { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }
 function nodeSummaryLines(node: PipelineNode): string[] {
   const config = (node.config || {}) as Record<string, any>
+  if (node.type === 'TRANSFORM') {
+    const document = config.mapping_component as MappingDocument | undefined
+    const legacy = config.mapping as Record<string, any> | undefined
+    const rules = document?.ruleSet?.rules || legacy?.rules || []
+    return [`${Array.isArray(rules) ? rules.length : 0} 条映射规则`, config.storageMode === 'component_v1' || document ? 'component_v1' : 'legacy_v1']
+  }
   if (node.type === 'START_TRIGGER') {
     if (startTriggerMode.value === 'SCHEDULE') return ['定时执行', scheduledPlanSchedule.value ? schedulePlanLabel(scheduledPlanSchedule.value) : '尚未配置计划']
     if (startTriggerMode.value === 'PLATFORM_EVENT') {
@@ -625,6 +618,13 @@ async function loadBitableTablesForNode(resourceId: number | null | undefined) {
 function nodeHasError(node: PipelineNode): boolean {
   const type = node.type as string
   if (type === 'CAPABILITY') return !node.config?.capability_id
+  if (type === 'TRANSFORM') {
+    const config = (node.config || {}) as Record<string, any>
+    const document = config.mapping_component as MappingDocument | undefined
+    const legacy = config.mapping as Record<string, any> | undefined
+    const rules = document?.ruleSet?.rules || legacy?.rules
+    return !Array.isArray(rules) || (config.storageMode !== 'component_v1' && config.mapping_component && !config.mapping)
+  }
   if (type === 'BRANCH') {
     const outgoing = form.edges.filter((edge) => edge.from === node.id)
     const expected = new Set([branchRouteExpression(node.id, 'TRUE'), branchRouteExpression(node.id, 'FALSE')])
@@ -639,7 +639,6 @@ function nodeHasError(node: PipelineNode): boolean {
 
 
 // ===== TRANSFORM 字段映射 =====
-interface FieldMapping { from: string; to: string }
 const bitableTableOptions = ref<any[]>([])
 const resourceDataObjects = ref<ResourceDataObject[]>([])
 async function loadResourceDataObjects(resourceId: number | null | undefined): Promise<void> {
@@ -647,23 +646,134 @@ async function loadResourceDataObjects(resourceId: number | null | undefined): P
   try { resourceDataObjects.value = ((await ucpApi.resourceDataObjects(resourceId)).items || []).filter((item: ResourceDataObject) => item.is_active) }
   catch { resourceDataObjects.value = [] }
 }
-const transformMappings = ref<FieldMapping[]>([])
-const transformMode = computed<string>({
-  get: () => String((selectedNode.value?.config as any)?.mapping?.mode || 'strict'),
-  set: (value) => {
-    if (!selectedNode.value) return
-    const cfg = { ...(selectedNode.value.config || {}) } as Record<string, any>
-    cfg.mapping = {
-      ...(cfg.mapping || {}),
-      version: 1,
-      mode: value,
-      target_field_catalog: targetAssetColumns.value.map((column, ordinal) => ({ field_id: column.column_code, label: column.column_label, type: column.data_type || 'string', sensitive: Boolean(column.is_sensitive), parent_field_id: null, ordinal })),
-    }
-    selectedNode.value.config = cfg
-  },
-})
 const upstreamFields = ref<{ name: string; type: string }[]>([])
 const upstreamSourceName = ref('')
+const transformMappingDocument = ref<MappingDocument>(createEmptyDocument('ucp_transform', 'UCP Transform'))
+const transformMappingCompatibility = ref<MappingCompatibility | null>(null)
+const transformMappingStorageMode = ref<'legacy_v1' | 'component_v1'>('component_v1')
+const transformLegacyMappingSnapshot = ref<Record<string, any> | null>(null)
+const transformLegacyMode = ref<'strict' | 'mapped_plus_same_name'>('strict')
+
+function mappingCatalogField(field: any): { code: string; label: string; type: string } | null {
+  const code = String(field?.code ?? field?.field_id ?? field?.name ?? '')
+  if (!code) return null
+  return { code, label: String(field?.label ?? field?.column_label ?? code), type: String(field?.type ?? field?.data_type ?? 'string') }
+}
+function catalogFields(value: unknown): Array<{ code: string; label: string; type?: string }> {
+  if (!Array.isArray(value)) return []
+  return value.map((field) => mappingCatalogField(field)).filter(Boolean) as Array<{ code: string; label: string; type?: string }>
+}
+function mappingRuleFromLegacy(rawRule: any, index: number): MappingRule | null {
+  if (!rawRule || (rawRule.source_kind !== undefined && rawRule.source_kind !== 'upstream_field')) return null
+  if (typeof rawRule.source_field_id !== 'string' || typeof rawRule.target_field_id !== 'string') return null
+  return {
+    id: `legacy_${index}`,
+    type: 'field',
+    enabled: true,
+    displayOrder: index,
+    sourceFields: [rawRule.source_field_id],
+    targetFields: [rawRule.target_field_id],
+    config: { mode: 'rename' },
+  }
+}
+function documentFromTransformConfig(config: Record<string, any>): { document: MappingDocument; compatibility: MappingCompatibility; storageMode: 'legacy_v1' | 'component_v1'; snapshot: Record<string, any> | null } {
+  const component = config.mapping_component
+  if (component && typeof component === 'object') {
+    const document = JSON.parse(JSON.stringify(component)) as MappingDocument
+    const legacySnapshot = config.legacy_mapping_snapshot && typeof config.legacy_mapping_snapshot === 'object'
+      ? config.legacy_mapping_snapshot
+      : config.mapping
+    const snapshot = legacySnapshot && typeof legacySnapshot === 'object' ? JSON.parse(JSON.stringify(legacySnapshot)) : null
+    return {
+      document,
+      storageMode: 'component_v1',
+      snapshot,
+      compatibility: { sourceFormat: 'ucp_transform_component_v1', readable: true, writable: true, requiresMigration: false, lossyFields: [], unknownFields: snapshot ? { legacy_mapping_snapshot: snapshot } : {} },
+    }
+  }
+  const legacy = config.mapping
+  if (!legacy || typeof legacy !== 'object') {
+    return {
+      document: createEmptyDocument('ucp_transform', 'UCP Transform'),
+      storageMode: 'component_v1',
+      snapshot: null,
+      compatibility: { sourceFormat: 'ucp_transform_component_v1', readable: true, writable: true, requiresMigration: false, lossyFields: [], unknownFields: {} },
+    }
+  }
+  const rawRules = Array.isArray(legacy.rules) ? legacy.rules : []
+  const rules = rawRules.map(mappingRuleFromLegacy).filter(Boolean) as MappingRule[]
+  const lossyFields = [
+    ...(legacy.version !== 1 ? ['mapping.version'] : []),
+    ...(!['strict', 'mapped_plus_same_name'].includes(legacy.mode ?? 'strict') ? ['mapping.mode'] : []),
+    ...(!Array.isArray(legacy.rules) ? ['mapping.rules'] : []),
+    ...rawRules.flatMap((rule: any, index: number) => mappingRuleFromLegacy(rule, index) ? [] : [`rules[${index}]`]),
+  ]
+  const unknownFields: Record<string, any> = {}
+  for (const key of Object.keys(legacy)) {
+    if (!['version', 'mode', 'source_operation_id', 'source_schema_hash', 'target_operation_id', 'target_schema_hash', 'target_field_catalog', 'rules'].includes(key)) unknownFields[`mapping.${key}`] = legacy[key]
+  }
+  rawRules.forEach((rule: any, index: number) => {
+    if (!rule || typeof rule !== 'object') return
+    for (const key of Object.keys(rule)) {
+      if (!['source_field_id', 'target_field_id', 'source_kind'].includes(key)) unknownFields[`rules[${index}].${key}`] = rule[key]
+    }
+  })
+  const sourceAsset = legacy.source_operation_id == null ? null : String(legacy.source_operation_id)
+  const targetAsset = legacy.target_operation_id == null ? null : String(legacy.target_operation_id)
+  const document: MappingDocument = {
+    mappingSchemaVersion: 1,
+    ruleSet: {
+      code: sourceAsset || 'ucp_transform', name: targetAsset || 'UCP Transform', sourceAsset, targetAsset,
+      sourceSchemaHash: String(legacy.source_schema_hash || ''), targetSchemaHash: String(legacy.target_schema_hash || ''), rules,
+    },
+  }
+  const snapshot = JSON.parse(JSON.stringify(legacy))
+  unknownFields.legacy_mapping_snapshot = snapshot
+  unknownFields.__legacy_mapping_mode__ = legacy.mode || 'strict'
+  return {
+    document,
+    storageMode: 'legacy_v1',
+    snapshot,
+    compatibility: { sourceFormat: 'ucp_transform_legacy_v1', readable: true, writable: lossyFields.length === 0, requiresMigration: lossyFields.length > 0, lossyFields, unknownFields },
+  }
+}
+function selectedTransformConfig(): Record<string, any> | null {
+  return selectedNode.value?.type === 'TRANSFORM' ? (selectedNode.value.config || {}) as Record<string, any> : null
+}
+function transformTargetCatalog(): Array<{ code: string; label: string; type?: string }> {
+  const config = selectedTransformConfig()
+  const downstream = selectedNode.value && form.edges.filter((edge) => edge.from === selectedNode.value?.id).map((edge) => form.nodes.find((node) => node.id === edge.to)).find(Boolean)
+  const downstreamCatalog = catalogFields(downstream?.config?.input_field_catalog || downstream?.config?.target_field_catalog || downstream?.config?.field_catalog)
+  const fromAsset = targetAssetColumns.value.map((column) => ({ code: column.column_code, label: column.column_label, type: column.data_type }))
+  if (downstreamCatalog.length) return downstreamCatalog
+  if (fromAsset.length) return fromAsset
+  return catalogFields(config?.target_field_catalog || config?.mapping?.target_field_catalog || transformMappingDocument.value.ruleSet.rules.flatMap((rule) => rule.targetFields.map((code) => ({ code }))))
+}
+const transformSourceFields = computed(() => upstreamFields.value.map((field) => ({ code: field.name, label: field.name, type: field.type })))
+const transformTargetFields = computed(() => transformTargetCatalog())
+const transformMappingCaller = computed<MappingCaller>(() => selectedTransformConfig()?.mapping_caller === 'workflow' ? 'workflow' : 'ucp_transform')
+const transformMappingPolicy = computed<MappingCallerPolicy>(() => {
+  const config = selectedTransformConfig() || {}
+  const source = transformSourceFields.value
+  const target = transformTargetFields.value
+  const policy = config.mapping_policy && typeof config.mapping_policy === 'object' ? config.mapping_policy : {}
+  return {
+    caller: transformMappingCaller.value,
+    allowedRuleTypes: (Array.isArray(policy.allowedRuleTypes) ? policy.allowedRuleTypes : ['field', 'value_map', 'reference_lookup', 'identity_with_overrides', 'type_convert', 'format', 'split_merge']) as MappingRuleType[],
+    source: { assetId: transformMappingDocument.value.ruleSet.sourceAsset || null, schemaHash: transformMappingDocument.value.ruleSet.sourceSchemaHash || 'runtime', allowedFieldIds: source.map((field) => field.code) },
+    target: { assetId: transformMappingDocument.value.ruleSet.targetAsset || null, schemaHash: transformMappingDocument.value.ruleSet.targetSchemaHash || 'runtime', allowedFieldIds: target.map((field) => field.code), readonlyFieldIds: [], protectedKeyFieldIds: [] },
+    referenceLookup: { allowedDatasetIds: Array.isArray(policy.allowedReferenceDatasetIds) ? policy.allowedReferenceDatasetIds : [], allowedFieldIds: Array.isArray(policy.allowedReferenceFieldIds) ? policy.allowedReferenceFieldIds : [], maxRules: Number(policy.maxReferenceRules || 20) },
+    effects: { allowPreview: true, allowSave: true, allowPublish: false, allowExecute: true, allowRebuild: false },
+    legacy: { sourceFormat: transformMappingCompatibility.value?.sourceFormat || null, allowLegacyRead: true, allowLegacyWrite: transformMappingStorageMode.value === 'legacy_v1', allowMigration: true },
+    metadata: { policyVersion: 1, permissionScope: 'ucp.pipelines', issuedAt: new Date().toISOString() },
+  }
+})
+const transformMappingLossyBlocked = computed(() => transformMappingStorageMode.value === 'legacy_v1' && transformMappingCompatibility.value?.writable === false)
+const transformMappingMigrationHint = computed(() => {
+  if (transformMappingStorageMode.value === 'component_v1') return transformLegacyMappingSnapshot.value ? '已迁移到 component_v1：运行时只执行 mapping_component，legacy_mapping_snapshot 仅用于回滚/兼容。' : '当前使用 component_v1 公共映射文档。'
+  if (transformMappingCompatibility.value?.requiresMigration) return '当前为 Legacy v1 只读回显，存在无法无损表达的旧字段；请迁移到 component_v1 后再保存。'
+  return '当前为 Legacy v1 兼容回显；仅 field 规则且无损时可继续保存旧结构。'
+})
 
 // 从 edges 中找到流入当前节点的上游节点
 function findUpstreamNode(nodeId: string): PipelineNode | null {
@@ -677,46 +787,84 @@ async function loadUpstreamFields(nodeId: string) {
   upstreamFields.value = []
   upstreamSourceName.value = ''
   const upstream = findUpstreamNode(nodeId)
-  if (!upstream || (upstream.type as string) !== 'CONNECTOR') return
+  if (!upstream) return
+  const upstreamCatalog = catalogFields(upstream.config?.output_field_catalog || upstream.config?.field_catalog || upstream.config?.mapping_source_catalog)
+  if (upstreamCatalog.length) {
+    upstreamFields.value = upstreamCatalog.map((field) => ({ name: field.code, type: field.type || 'string' }))
+    upstreamSourceName.value = `(${upstream.label || upstream.id})`
+    return
+  }
+  if ((upstream.type as string) !== 'CONNECTOR') return
   const adapterCode = upstream.config?.adapter_code
   if (!adapterCode) return
   upstreamSourceName.value = `(${upstream.config?.resource_name || adapterCode})`
   try {
     const schema = await (ucpApi as any).adapterSchema?.(adapterCode)
-    if (schema?.categories) {
-      upstreamFields.value = schema.categories.flatMap((c: any) =>
-        (c.fields || []).map((f: any) => ({ name: f.name, type: f.type || 'string' }))
-      )
-    }
+    if (schema?.categories) upstreamFields.value = schema.categories.flatMap((c: any) => (c.fields || []).map((f: any) => ({ name: f.name, type: f.type || 'string' })))
   } catch { /* 上游 schema 未就绪 */ }
 }
 
-// 从版本化 Mapping DTO 初始化映射列表
-function syncMappingsFromConfig() {
-  const cfg = selectedNode.value?.config as Record<string, any> | undefined
-  const rules = cfg?.mapping?.rules
-  transformMappings.value = Array.isArray(rules) ? rules.map((rule: any) => ({ from: rule.source_field_id || '', to: rule.target_field_id || '' })) : []
+function syncTransformMappingContext(): void {
+  const config = selectedTransformConfig()
+  if (!config) return
+  const result = documentFromTransformConfig(config)
+  transformMappingDocument.value = result.document
+  transformMappingCompatibility.value = result.compatibility
+  transformMappingStorageMode.value = config.storageMode === 'component_v1' || config.mapping_component ? 'component_v1' : result.storageMode
+  transformLegacyMappingSnapshot.value = result.snapshot
+  transformLegacyMode.value = result.snapshot?.mode === 'mapped_plus_same_name' ? 'mapped_plus_same_name' : 'strict'
 }
-
-function writeMappingsToConfig() {
-  if (!selectedNode.value) return
-  const mappings = transformMappings.value.filter(m => m.from || m.to)
-  const cfg = { ...(selectedNode.value.config || {}) } as Record<string, any>
-  const sourceCatalog = upstreamFields.value.map((field, ordinal) => ({ field_id: field.name, label: field.name, type: field.type || 'string', sensitive: false, parent_field_id: null, ordinal }))
-  const targetCatalog = mappings.map((mapping, ordinal) => ({ field_id: mapping.to, label: mapping.to, type: sourceCatalog.find(field => field.field_id === mapping.from)?.type || 'string', sensitive: false, parent_field_id: null, ordinal }))
-  cfg.mapping = { version: 1, mode: cfg.mapping?.mode || 'strict', source_operation_id: 0, source_schema_hash: 'runtime', target_operation_id: 0, target_schema_hash: 'runtime', target_field_catalog: targetAssetColumns.value.map((column, ordinal) => ({ field_id: column.column_code, label: column.column_label, type: column.data_type || 'string', sensitive: Boolean(column.is_sensitive), parent_field_id: null, ordinal })), rules: mappings.map(mapping => ({ target_field_id: mapping.to, source_kind: 'upstream_field', source_field_id: mapping.from })) }
-  cfg.mapping_source_catalog = sourceCatalog
-  cfg.mapping_target_catalog = targetCatalog
-  selectedNode.value.config = cfg
+function isLegacyWritableDocument(document: MappingDocument): boolean {
+  return document.ruleSet.rules.every((rule) => rule.type === 'field' && rule.sourceFields.length === 1 && rule.targetFields.length === 1 && (rule.config as any)?.mode === 'rename')
 }
-
-function addTransformMapping() {
-  transformMappings.value.push({ from: '', to: '' })
-  writeMappingsToConfig()
+function legacyRulesFromDocument(document: MappingDocument, snapshot: Record<string, any> | null): Record<string, any>[] {
+  const snapshotRules = Array.isArray(snapshot?.rules) ? snapshot.rules : []
+  return document.ruleSet.rules.map((rule, index) => ({
+    ...(snapshotRules[index] && typeof snapshotRules[index] === 'object' ? JSON.parse(JSON.stringify(snapshotRules[index])) : {}),
+    source_field_id: rule.sourceFields[0],
+    target_field_id: rule.targetFields[0],
+    source_kind: 'upstream_field',
+  }))
 }
-function removeTransformMapping(i: number) {
-  transformMappings.value.splice(i, 1)
-  writeMappingsToConfig()
+function writeTransformMappingConfig(document: MappingDocument): void {
+  if (!selectedNode.value || selectedNode.value.type !== 'TRANSFORM') return
+  const config = { ...(selectedNode.value.config || {}) } as Record<string, any>
+  const compatibility = transformMappingCompatibility.value
+  const canUseLegacy = transformMappingStorageMode.value === 'legacy_v1' && isLegacyWritableDocument(document) && compatibility?.writable !== false
+  const sourceCatalog = transformSourceFields.value.map((field, ordinal) => ({ field_id: field.code, label: field.label, type: field.type || 'string', sensitive: false, parent_field_id: null, ordinal }))
+  const targetCatalog = transformTargetFields.value.map((field, ordinal) => ({ field_id: field.code, label: field.label, type: field.type || 'string', sensitive: false, parent_field_id: null, ordinal }))
+  if (canUseLegacy) {
+    const legacy = transformLegacyMappingSnapshot.value ? JSON.parse(JSON.stringify(transformLegacyMappingSnapshot.value)) : {}
+    legacy.version = 1
+    legacy.mode = transformLegacyMode.value
+    legacy.source_schema_hash = document.ruleSet.sourceSchemaHash
+    legacy.target_schema_hash = document.ruleSet.targetSchemaHash
+    if (!Array.isArray(legacy.target_field_catalog)) legacy.target_field_catalog = targetCatalog
+    legacy.rules = legacyRulesFromDocument(document, transformLegacyMappingSnapshot.value)
+    config.mapping = legacy
+    delete config.mapping_component
+    delete config.legacy_mapping_snapshot
+    config.storageMode = 'legacy_v1'
+  } else {
+    config.mapping_component = JSON.parse(JSON.stringify(document))
+    config.storageMode = 'component_v1'
+    if (transformLegacyMappingSnapshot.value) {
+      config.mapping = JSON.parse(JSON.stringify(transformLegacyMappingSnapshot.value))
+      config.legacy_mapping_snapshot = JSON.parse(JSON.stringify(transformLegacyMappingSnapshot.value))
+    }
+  }
+  config.mapping_source_catalog = sourceCatalog
+  config.mapping_target_catalog = targetCatalog
+  selectedNode.value.config = config
+  transformMappingStorageMode.value = canUseLegacy ? 'legacy_v1' : 'component_v1'
+  transformMappingDocument.value = document
+}
+function onTransformMappingChange(document: MappingDocument): void {
+  document = JSON.parse(JSON.stringify(document)) as MappingDocument
+  const hasNonFieldRule = document.ruleSet.rules.some((rule) => rule.type !== 'field')
+  if (hasNonFieldRule) transformMappingStorageMode.value = 'component_v1'
+  if (transformMappingCompatibility.value?.writable === false && !selectedTransformConfig()?.mapping_component && !hasNonFieldRule) return
+  writeTransformMappingConfig(document)
 }
 // ===== NOTIFY 通知模板 =====
 const notifyTemplates = ref<Array<{ id: number; template_name: string; template_code: string }>>([])
@@ -732,16 +880,11 @@ const branchConditionAst = computed<any>(() => {
 function addBranchRule() { branchConditionAst.value.rules.push({ left_field_id: '', operator: 'EQ', right: '' }) }
 function removeBranchRule(index: number) { branchConditionAst.value.rules.splice(index, 1) }
 
-function addMappingFromField(fieldName: string) {
-  transformMappings.value.push({ from: fieldName, to: fieldName })
-  writeMappingsToConfig()
-}
-
 // 监听节点选中，同步映射
 watch(selectedNodeId, async (newId) => {
-  if (!newId) { transformMappings.value = []; upstreamFields.value = []; return }
-  syncMappingsFromConfig()
+  if (!newId) { upstreamFields.value = []; upstreamSourceName.value = ''; transformMappingCompatibility.value = null; transformLegacyMappingSnapshot.value = null; return }
   await loadUpstreamFields(newId)
+  if (selectedNode.value?.type === 'TRANSFORM') syncTransformMappingContext()
   const node = selectedNode.value
   if ((node?.type as string) === 'START_TRIGGER') resetStartTriggerSelection()
   if ((node?.type as string) === 'RECORD_MERGE') {
@@ -1008,6 +1151,24 @@ async function loadPendingHireTemplate(): Promise<void> {
 */
 
 const saving = ref(false)
+function normalizeTransformStorageModes(): void {
+  for (const node of form.nodes.filter((item) => item.type === 'TRANSFORM')) {
+    const config = { ...(node.config || {}) } as Record<string, any>
+    if (config.mapping_component && typeof config.mapping_component === 'object') {
+      config.storageMode = 'component_v1'
+      if (!config.legacy_mapping_snapshot && config.mapping && typeof config.mapping === 'object') {
+        config.legacy_mapping_snapshot = JSON.parse(JSON.stringify(config.mapping))
+      }
+    } else if (config.mapping && typeof config.mapping === 'object') {
+      config.storageMode = 'legacy_v1'
+      delete config.legacy_mapping_snapshot
+    } else {
+      config.storageMode = 'component_v1'
+      config.mapping_component = createEmptyDocument('ucp_transform', 'UCP Transform')
+    }
+    node.config = config
+  }
+}
 function normalizeWarehouseSinkConfigs(): void {
   for (const node of form.nodes.filter((item) => (item.type as string) === 'WAREHOUSE_ASSET_SINK')) {
     const config = node.config as Record<string, any>
@@ -1027,7 +1188,7 @@ function normalizeWarehouseSinkConfigs(): void {
     }
   }
 }
-async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { normalizeWarehouseSinkConfigs(); const dangerous = form.nodes.filter((node) => (node.type as string) === 'WAREHOUSE_ASSET_SINK' && ['replace', 'period_full_snapshot'].includes(String(node.config?.write_mode))); if (dangerous.length) await ElMessageBox.confirm(`以下节点将执行破坏性写入：${dangerous.map((node) => `${node.id} → ${node.config?.target_asset || '未选择资产'}`).join('；')}。确认保存？`, '危险写入确认', { type: 'warning' }); if (currentTpl.value) { const saved = await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, change_note: form.change_note || undefined }); currentTpl.value = { ...saved, nodes: form.nodes, edges: form.edges }; form.version = saved.version; ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail; ElMessage.error(`保存失败: ${typeof detail === 'string' ? detail : e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
+async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { const blockedTransform = form.nodes.find((node) => { if (node.type !== 'TRANSFORM') return false; const result = documentFromTransformConfig((node.config || {}) as Record<string, any>); return result.compatibility.writable === false && !node.config?.mapping_component }); if (blockedTransform) throw new Error(`TRANSFORM 节点 ${blockedTransform.id} 存在有损字段，已阻断保存`); normalizeTransformStorageModes(); normalizeWarehouseSinkConfigs(); const dangerous = form.nodes.filter((node) => (node.type as string) === 'WAREHOUSE_ASSET_SINK' && ['replace', 'period_full_snapshot'].includes(String(node.config?.write_mode))); if (dangerous.length) await ElMessageBox.confirm(`以下节点将执行破坏性写入：${dangerous.map((node) => `${node.id} → ${node.config?.target_asset || '未选择资产'}`).join('；')}。确认保存？`, '危险写入确认', { type: 'warning' }); if (currentTpl.value) { const saved = await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, change_note: form.change_note || undefined }); currentTpl.value = { ...saved, nodes: form.nodes, edges: form.edges }; form.version = saved.version; ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail; ElMessage.error(`保存失败: ${typeof detail === 'string' ? detail : e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
 
 const dryRunVisible = ref(false)
 const dryRunResult = ref<Awaited<ReturnType<typeof ucpApi.runPipeline>> | null>(null)
@@ -1082,5 +1243,8 @@ onBeforeUnmount(() => {
 .upstream-title { font-size: 12px; color: #909399; margin-bottom: 6px }
 .upstream-field { display: flex; justify-content: space-between; align-items: center; padding: 3px 6px; cursor: pointer; border-radius: 3px; font-size: 12px }
 .upstream-field:hover { background: #ecf5ff } .upstream-field small { color: #909399 }
+.mapping-migration-hint, .mapping-lossy-blocked { margin-top: 8px; padding: 8px 10px; border-radius: 4px; font-size: 12px; line-height: 1.5 }
+.mapping-migration-hint { color: #7c5c00; background: #fdf6ec; border: 1px solid #faecd8 }
+.mapping-lossy-blocked { color: #b42318; background: #fef3f2; border: 1px solid #fecdca }
 .condition-hints { background: #f5f7fa; border-radius: 4px; padding: 8px; margin-top: 4px } .hint-title { font-size: 12px; color: #909399; margin-bottom: 4px }
 </style>
