@@ -601,6 +601,9 @@ onMounted(async () => {
                 <span v-if="!step.enabled" class="node-disabled-tag">禁用</span>
               </div>
               <div class="node-summary">{{ stepSummary(step) }}</div>
+              <div v-if="!isLegacyRule(step.rule_type)" class="node-actions" @click.stop>
+                <button @click="focusPublicRule(i)">在统一编辑器中编辑</button>
+              </div>
               <!-- 操作按钮（展开时） -->
               <div v-if="editingIndex === i && isLegacyRule(step.rule_type)" class="node-actions" @click.stop>
                 <button :disabled="i === 0" @click="moveStep(i, -1)" title="上移"><Top /></button>

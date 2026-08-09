@@ -1,5 +1,5 @@
 <template>
-  <div class="mapping-workspace">
+  <div ref="workspaceRoot" class="mapping-workspace">
     <!-- Header -->
     <div class="workspace-header">
       <div class="header-left">
@@ -219,6 +219,7 @@ const editingIndex = ref(-1)
 const validating = ref(false)
 const previewing = ref(false)
 const previewResult = ref<MappingResult | null>(null)
+const workspaceRoot = ref<HTMLElement | null>(null)
 const toggleRefs = ref<Record<string, HTMLButtonElement | null>>({})
 const panelRefs = ref<Record<string, HTMLElement | null>>({})
 const addRuleRef = ref<{ $el?: HTMLElement } | HTMLElement | null>(null)
@@ -460,8 +461,10 @@ async function doPreview() {
 async function focusRule(ruleId: string) {
   const index = rules.value.findIndex((rule) => rule.id === ruleId)
   if (index < 0 || !canEdit.value) return
+  workspaceRoot.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   editingIndex.value = index
   await focusRuleEditor(ruleId)
+  toggleRefs.value[ruleId]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 // 暴露方法给父组件
