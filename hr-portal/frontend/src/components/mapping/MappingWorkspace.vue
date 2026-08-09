@@ -464,7 +464,7 @@ async function focusRule(ruleId: string): Promise<boolean> {
   workspaceRoot.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   editingIndex.value = index
   await focusRuleEditor(ruleId)
-  toggleRefs.value[ruleId]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  panelRefs.value[ruleId]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   return true
 }
 

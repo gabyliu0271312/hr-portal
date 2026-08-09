@@ -1125,7 +1125,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px; height: 28px;
+  min-width: 28px; height: 28px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   background: #fff;
