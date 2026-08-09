@@ -457,9 +457,17 @@ async function doPreview() {
   }
 }
 
+async function focusRule(ruleId: string) {
+  const index = rules.value.findIndex((rule) => rule.id === ruleId)
+  if (index < 0 || !canEdit.value) return
+  editingIndex.value = index
+  await focusRuleEditor(ruleId)
+}
+
 // 暴露方法给父组件
 defineExpose({
   markDirty,
+  focusRule,
   doValidate,
   doPreview,
   canEdit,

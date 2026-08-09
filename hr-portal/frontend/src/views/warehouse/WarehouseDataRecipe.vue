@@ -39,7 +39,7 @@ const derivedTargetTable = computed(() => {
   return 'dwd_' + name
 })
 const tableFields = ref<{ column_code: string; column_label: string; data_type: string }[]>([])
-const mappingWorkspaceRef = ref<{ resetDirty: () => void } | null>(null)
+const mappingWorkspaceRef = ref<{ resetDirty: () => void; focusRule: (ruleId: string) => Promise<void> } | null>(null)
 const mappingDirty = ref(false)
 const legacyDirty = ref(false)
 
@@ -240,6 +240,21 @@ function syncMappingToSteps(document: MappingDocument) {
 }
 
 function isLegacyRule(ruleType: string) { return LEGACY_RULE_TYPES.includes(ruleType as any) }
+function focusPublicRule(index: number) {
+  const step = steps.value[index]
+  const publicRule = mappingDocument.value.ruleSet.rules.find((rule) => rule.id === `standard_${step.id}`)
+  if (publicRule) mappingWorkspaceRef.value?.focusRule(publicRule.id)
+}
+
+function handleStepClick(index: number) {
+  const step = steps.value[index]
+  if (isLegacyRule(step.rule_type)) {
+    editingIndex.value === index ? collapseStep() : expandStep(index)
+  } else {
+    focusPublicRule(index)
+  }
+}
+
 function onMappingDirty(value: boolean) {
   mappingDirty.value = value
   if (value) syncMappingToSteps(mappingDocument.value)
@@ -545,6 +560,7 @@ onMounted(async () => {
 
       <!-- Zone 3: 右侧流程步骤流 -->
       <aside class="flow-zone">
+        <p class="rule-group-hint">公共映射规则（字段、值映射、参考 Lookup、默认映射、类型、格式、拆分合并）在上方统一映射工作台中配置；下方仅保留数仓专属规则。</p>
         <MappingWorkspace
           ref="mappingWorkspaceRef"
           v-model="mappingDocument"
@@ -576,7 +592,7 @@ onMounted(async () => {
           </div>
 
           <!-- 步骤节点 -->
-          <div class="flow-node" :class="{ expanded: editingIndex === i, dirty: step.dirty }" @click="isLegacyRule(step.rule_type) && (editingIndex === i ? collapseStep() : expandStep(i))">
+          <div class="flow-node" :class="{ expanded: editingIndex === i, dirty: step.dirty, public: !isLegacyRule(step.rule_type) }" @click="handleStepClick(i)">
             <div class="node-dot" :class="step.enabled ? 'active' : 'disabled'">{{ i + 1 }}</div>
             <div class="node-card">
               <div class="node-header">
