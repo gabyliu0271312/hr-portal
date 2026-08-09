@@ -487,6 +487,7 @@ defineExpose({
 
 <style scoped>
 .mapping-workspace {
+  flex-shrink: 0;
   border: 1px solid var(--el-border-color-light);
   border-radius: 8px;
   background: var(--el-bg-color);
