@@ -61,10 +61,10 @@
     </div>
     <div class="rule-list">
       <div
-        v-for="(rule, index) in document.ruleSet.rules"
+        v-for="(rule, index) in rules"
         :key="rule.id"
         class="rule-item"
-        :class="{ disabled: !rule.enabled, editing: editingIndex === index }"
+        :class="{ disabled: !rule.enabled, editing: editingRuleId === rule.id }"
       >
         <div class="rule-header">
           <div class="rule-left">
@@ -78,11 +78,11 @@
             <button
               type="button"
               class="rule-toggle"
-              :aria-expanded="editingIndex === index"
+              :aria-expanded="editingRuleId === rule.id"
               :aria-controls="`mapping-rule-panel-${rule.id}`"
-              :aria-label="`${index + 1} ${ruleLabel(rule.type)} 规则，${editingIndex === index ? '收起' : '展开'}`"
+              :aria-label="`${index + 1} ${ruleLabel(rule.type)} 规则，${editingRuleId === rule.id ? '收起' : '展开'}`"
               :ref="(element) => setToggleRef(rule.id, element as HTMLButtonElement | null)"
-              @click="toggleEdit(index)"
+              @click="toggleEdit(rule.id)"
             >
               <span class="rule-type-badge" :class="`type-${rule.type}`">
                 {{ ruleLabel(rule.type) }}
@@ -91,16 +91,16 @@
             </button>
           </div>
           <div class="rule-actions" @click.stop>
-            <el-button link size="small" @click="moveUp(index)" :disabled="!canEdit || index === 0">↑</el-button>
-            <el-button link size="small" @click="moveDown(index)" :disabled="!canEdit || index === rules.length - 1">↓</el-button>
-            <el-button link size="small" @click="duplicateRule(index)" :disabled="!canEdit">复制</el-button>
-            <el-button link type="danger" size="small" @click="removeRule(index)" :disabled="!canEdit">删除</el-button>
+            <el-button link size="small" @click="moveUp(rule.id)" :disabled="!canEdit || index === 0">↑</el-button>
+            <el-button link size="small" @click="moveDown(rule.id)" :disabled="!canEdit || index === rules.length - 1">↓</el-button>
+            <el-button link size="small" @click="duplicateRule(rule.id)" :disabled="!canEdit">复制</el-button>
+            <el-button link type="danger" size="small" @click="removeRule(rule.id)" :disabled="!canEdit">删除</el-button>
           </div>
         </div>
 
         <!-- 规则编辑面板 -->
         <div
-          v-if="editingIndex === index"
+          v-if="editingRuleId === rule.id"
           :id="`mapping-rule-panel-${rule.id}`"
           class="rule-editor-panel"
           role="region"
@@ -199,6 +199,7 @@ const props = defineProps<{
   targetFields?: Array<{ code: string; label: string; type?: string }>
   previewRows?: Record<string, any>[]
   referenceSnapshot?: Record<string, any>
+  visibleRuleTypes?: MappingRuleType[]
 }>()
 
 const emit = defineEmits<{
@@ -212,10 +213,14 @@ const document = computed({
   set: (v) => emit('update:modelValue', v),
 })
 
-const rules = computed(() => document.value.ruleSet.rules)
+const allRules = computed(() => document.value.ruleSet.rules)
+const rules = computed(() => {
+  if (!props.visibleRuleTypes) return allRules.value
+  return allRules.value.filter((rule) => props.visibleRuleTypes!.includes(rule.type))
+})
 
 const dirty = ref(false)
-const editingIndex = ref(-1)
+const editingRuleId = ref<string | null>(null)
 const validating = ref(false)
 const previewing = ref(false)
 const previewResult = ref<MappingResult | null>(null)
@@ -243,7 +248,10 @@ const callerLabels: Record<string, string> = {
 const callerLabel = computed(() => callerLabels[props.policy.caller] || props.policy.caller)
 
 const allowedRuleTypes = computed(() => {
-  return RULE_TYPES.filter((rt) => props.policy.allowedRuleTypes.includes(rt))
+  return RULE_TYPES.filter((rt) => (
+    props.policy.allowedRuleTypes.includes(rt)
+    && (!props.visibleRuleTypes || props.visibleRuleTypes.includes(rt))
+  ))
 })
 
 const canEdit = computed(() => (
@@ -342,65 +350,72 @@ function focusAddRule() {
 async function addRule(type: MappingRuleType) {
   if (!canEdit.value) return
   const rule = createEmptyRule(type)
-  rule.displayOrder = rules.value.length
+  rule.displayOrder = allRules.value.length
   document.value.ruleSet.rules.push(rule)
-  editingIndex.value = rules.value.length - 1
+  editingRuleId.value = rule.id
   markDirty()
   await focusRuleEditor(rule.id)
 }
 
-async function removeRule(index: number) {
+async function removeRule(ruleId: string) {
   if (!canEdit.value) return
-  const removed = rules.value[index]
-  const wasEditing = editingIndex.value === index
+  const index = allRules.value.findIndex((rule) => rule.id === ruleId)
+  if (index < 0) return
+  const wasEditing = editingRuleId.value === ruleId
   document.value.ruleSet.rules.splice(index, 1)
-  if (editingIndex.value === index) editingIndex.value = -1
-  else if (editingIndex.value > index) editingIndex.value--
+  document.value.ruleSet.rules.forEach((rule, ruleIndex) => (rule.displayOrder = ruleIndex))
+  if (wasEditing) editingRuleId.value = null
   markDirty()
   if (!wasEditing) return
   await nextTick()
-  const successor = rules.value[index] || rules.value[index - 1]
+  const successor = rules.value[0]
   if (successor) toggleRefs.value[successor.id]?.focus()
   else focusAddRule()
 }
 
-async function duplicateRule(index: number) {
+async function duplicateRule(ruleId: string) {
   if (!canEdit.value) return
-  const original = rules.value[index]
+  const original = allRules.value.find((rule) => rule.id === ruleId)
+  if (!original) return
   const copy = JSON.parse(JSON.stringify(original))
   copy.id = `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  copy.displayOrder = rules.value.length
+  copy.displayOrder = allRules.value.length
   document.value.ruleSet.rules.push(copy)
-  editingIndex.value = rules.value.length - 1
+  editingRuleId.value = copy.id
   markDirty()
   await focusRuleEditor(copy.id)
 }
 
-function moveUp(index: number) {
-  if (!canEdit.value || index === 0) return
-  const r = rules.value
-  const tmp = r[index]
-  r[index] = r[index - 1]
-  r[index - 1] = tmp
-  r.forEach((rule, i) => (rule.displayOrder = i))
+function moveUp(ruleId: string) {
+  const index = rules.value.findIndex((rule) => rule.id === ruleId)
+  if (!canEdit.value || index <= 0) return
+  swapRules(ruleId, rules.value[index - 1].id)
   markDirty()
 }
 
-function moveDown(index: number) {
-  if (!canEdit.value || index === rules.value.length - 1) return
-  const r = rules.value
-  const tmp = r[index]
-  r[index] = r[index + 1]
-  r[index + 1] = tmp
-  r.forEach((rule, i) => (rule.displayOrder = i))
+function moveDown(ruleId: string) {
+  const index = rules.value.findIndex((rule) => rule.id === ruleId)
+  if (!canEdit.value || index < 0 || index === rules.value.length - 1) return
+  swapRules(ruleId, rules.value[index + 1].id)
   markDirty()
 }
 
-async function toggleEdit(index: number) {
+function swapRules(firstRuleId: string, secondRuleId: string) {
+  const firstIndex = allRules.value.findIndex((rule) => rule.id === firstRuleId)
+  const secondIndex = allRules.value.findIndex((rule) => rule.id === secondRuleId)
+  if (firstIndex < 0 || secondIndex < 0) return
+  const firstRule = document.value.ruleSet.rules[firstIndex]
+  document.value.ruleSet.rules[firstIndex] = document.value.ruleSet.rules[secondIndex]
+  document.value.ruleSet.rules[secondIndex] = firstRule
+  document.value.ruleSet.rules.forEach((rule, ruleIndex) => (rule.displayOrder = ruleIndex))
+}
+
+async function toggleEdit(ruleId: string) {
   if (!canEdit.value) return
-  const rule = rules.value[index]
-  const closing = editingIndex.value === index
-  editingIndex.value = closing ? -1 : index
+  const rule = rules.value.find((item) => item.id === ruleId)
+  if (!rule) return
+  const closing = editingRuleId.value === ruleId
+  editingRuleId.value = closing ? null : ruleId
   if (closing) {
     await nextTick()
     toggleRefs.value[rule.id]?.focus()
@@ -459,10 +474,9 @@ async function doPreview() {
 }
 
 async function focusRule(ruleId: string): Promise<boolean> {
-  const index = rules.value.findIndex((rule) => rule.id === ruleId)
-  if (index < 0 || !canEdit.value) return false
+  if (!rules.value.some((rule) => rule.id === ruleId) || !canEdit.value) return false
   workspaceRoot.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  editingIndex.value = index
+  editingRuleId.value = ruleId
   await focusRuleEditor(ruleId)
   panelRefs.value[ruleId]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   return true

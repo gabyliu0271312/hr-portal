@@ -50,12 +50,25 @@ export interface MatchRule {
   onMatch: 'use_and_stop' | 'continue' | 'only_fill_empty'
 }
 
-export interface ReferenceLookupRuleConfig {
+export interface LookupConfig {
+  id: string
+  priority: number
   referenceDatasetId: string
-  outputMap: Record<string, string>
-  matchRules: MatchRule[]
+  sourceField: string
+  referenceMatchField: string
+  referenceReturnField: string
+  targetField: string
+  conditions: Record<string, any>
+}
+
+export interface ReferenceLookupRuleConfig {
+  lookupConfigs?: LookupConfig[]
   unmatched: 'keep' | 'set_default' | 'set_null' | 'flag' | 'reject'
   defaultValue?: string | null
+  // Legacy read compatibility only.
+  referenceDatasetId?: string
+  outputMap?: Record<string, string>
+  matchRules?: MatchRule[]
 }
 
 export interface IdentityWithOverridesRuleConfig {
@@ -134,6 +147,8 @@ export interface MappingCallerPolicy {
   referenceLookup: {
     allowedDatasetIds: string[]
     allowedFieldIds: string[]
+    datasetFields?: Record<string, string[]>
+    datasetLabels?: Record<string, string>
     maxRules: number
   }
   effects: {
@@ -394,9 +409,7 @@ export function createEmptyRule(type: MappingRuleType): MappingRule {
     field: { mode: 'rename' },
     value_map: { mappings: {}, unmatched: 'keep' },
     reference_lookup: {
-      referenceDatasetId: '',
-      outputMap: {},
-      matchRules: [],
+      lookupConfigs: [],
       unmatched: 'keep',
     },
     identity_with_overrides: {
