@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.automation.action_registry import _ensure_default_config
+from app.automation.action_registry import _ensure_default_config, _reconcile_cleaning_mode
 from app.data.models import RegisteredTable
 
 
@@ -23,6 +23,9 @@ class FakeResult:
     def all(self):
         return list(self.rows)
 
+    def scalars(self):
+        return self
+
 
 class FakeSession:
     def __init__(self, results):
@@ -41,6 +44,9 @@ class FakeSession:
 
     async def commit(self):
         self.committed = True
+
+    async def flush(self):
+        pass
 
 
 async def test_default_config_without_business_key_downgrades_to_full_refresh(monkeypatch):
@@ -74,3 +80,39 @@ async def test_default_config_without_business_key_downgrades_to_full_refresh(mo
     assert config.default_strategy == "full_snapshot+full_refresh"
     assert config.risk_decision == "warn"
     assert db.committed is True
+
+
+async def test_reconcile_uses_enabled_cleaning_rules_without_overwriting_write_strategy():
+    config = SimpleNamespace(
+        update_mode="passthrough",
+        standardization_rule_ids=None,
+        standardization_rule_set_id=99,
+        dwd_write_strategy="incremental_upsert",
+    )
+    db = FakeSession([FakeResult(rows=[6, 9])])
+
+    rule_ids = await _reconcile_cleaning_mode(config, "emp_monthly_salary", db)
+
+    assert rule_ids == [6, 9]
+    assert config.update_mode == "cleaning_rule"
+    assert config.standardization_rule_ids == [6, 9]
+    assert config.standardization_rule_set_id is None
+    assert config.dwd_write_strategy == "incremental_upsert"
+
+
+async def test_reconcile_falls_back_to_passthrough_when_no_enabled_rules_remain():
+    config = SimpleNamespace(
+        update_mode="cleaning_rule",
+        standardization_rule_ids=[6],
+        standardization_rule_set_id=99,
+        dwd_write_strategy="append",
+    )
+    db = FakeSession([FakeResult(rows=[])])
+
+    rule_ids = await _reconcile_cleaning_mode(config, "emp_monthly_salary", db)
+
+    assert rule_ids == []
+    assert config.update_mode == "passthrough"
+    assert config.standardization_rule_ids is None
+    assert config.standardization_rule_set_id is None
+    assert config.dwd_write_strategy == "append"

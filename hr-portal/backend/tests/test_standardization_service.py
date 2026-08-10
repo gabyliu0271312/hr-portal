@@ -197,6 +197,15 @@ def test_dwd_source_field_map_keeps_unchanged_columns_and_maps_renames():
     }
 
 
+def test_dwd_source_field_map_keeps_lookup_target_metadata_independent():
+    rules = [_Rule("reference_lookup", "employee_no", "expense_type")]
+
+    assert _dwd_source_field_map(["employee_no", "expense_type"], rules) == {
+        "employee_no": "employee_no",
+        "expense_type": "expense_type",
+    }
+
+
 def test_rule_output_labels_uses_rule_config_for_overrides():
     rules = [
         _Rule("rename", "employee_no", "emp_no", {"output_label": "\u5458\u5de5\u7f16\u53f7"}),

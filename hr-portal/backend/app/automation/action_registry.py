@@ -261,12 +261,38 @@ async def _ensure_default_config(table_name: str, db: AsyncSession):
     return config
 
 
+async def _reconcile_cleaning_mode(config, table_name: str, db: AsyncSession) -> list[int]:
+    """Keep automation mode aligned with the table's enabled cleaning rules.
+
+    Transformation mode is derived from active rules; the configured DWD write
+    strategy remains untouched and continues to govern persistence semantics.
+    """
+    from app.warehouse.models import StandardizationRule
+
+    rule_ids = list((await db.execute(
+        select(StandardizationRule.id)
+        .where(
+            StandardizationRule.asset_code == table_name,
+            StandardizationRule.enabled == True,
+        )
+        .order_by(StandardizationRule.display_order, StandardizationRule.id)
+    )).scalars().all())
+    expected_mode = "cleaning_rule" if rule_ids else "passthrough"
+    if config.update_mode != expected_mode or list(config.standardization_rule_ids or []) != rule_ids:
+        config.update_mode = expected_mode
+        config.standardization_rule_ids = rule_ids or None
+        config.standardization_rule_set_id = None
+        await db.flush()
+    return rule_ids
+
+
 async def _execute_dwd_update(
     config, table_name: str, db: AsyncSession, event_payload: dict[str, Any],
 ) -> dict[str, Any]:
     """执行 DWD 数据更新：严格按用户配置的 update_mode 执行。"""
     from app.core.db import get_session_factory
 
+    await _reconcile_cleaning_mode(config, table_name, db)
     period_value = event_payload.get("period_value") or event_payload.get("period")
     if table_name == "cost_center_monthly" and not period_value:
         return {
@@ -308,6 +334,10 @@ async def _execute_dwd_update(
                 asset_code=table_name,
                 target_table=config.target_dwd_table_name or None,
                 rule_ids=list(config.standardization_rule_ids or []),
+                dwd_write_strategy=config.dwd_write_strategy,
+                business_key_fields=list(config.business_key_fields or []),
+                ods_sync_semantics=config.ods_sync_semantics,
+                missing_row_strategy=config.missing_row_strategy,
                 cost_center_period=(
                     str(period_value).replace("-", "")
                     if table_name == "cost_center_monthly"

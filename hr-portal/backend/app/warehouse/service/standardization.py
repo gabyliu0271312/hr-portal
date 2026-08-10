@@ -337,7 +337,7 @@ def _dwd_source_field_map(source_columns: list[str], rules: list) -> dict[str, s
         elif rule.rule_type == "split_merge" and cfg.get("action") == "split":
             for field in cfg.get("target_fields") or []:
                 mapping[field] = source
-        elif target and target != source:
+        elif target and target != source and rule.rule_type not in {"reference_lookup", "identity_with_overrides"}:
             mapping[target] = source
     return mapping
 
@@ -663,6 +663,135 @@ class StandardizationRuleService:
                 + "; ".join(issues[:20])
             )
 
+    async def _write_transformed_rows(
+        self,
+        *,
+        target_table: str,
+        rows: list[dict],
+        columns: list[str],
+        column_types: dict[str, str],
+        write_strategy: str,
+        business_key_fields: list[str] | None,
+        ods_sync_semantics: str,
+        missing_row_strategy: str,
+    ) -> int:
+        """Persist already-standardized rows without replacing the DWD table."""
+        from sqlalchemy import text as sa_text
+
+        if write_strategy == "passthrough_view":
+            raise RuntimeError("清洗规则不能使用 passthrough_view；请改用全量重建、增量更新或追加写入")
+        if write_strategy not in {"incremental_upsert", "append"}:
+            raise RuntimeError(f"不支持的清洗写入策略: {write_strategy}")
+
+        from app.warehouse.asset_sink import _business_key_hash
+
+        requires_hash = "pk_hash" not in columns or any(row.get("pk_hash") is None for row in rows)
+        if requires_hash and not business_key_fields:
+            raise RuntimeError("清洗后的增量写入需要 pk_hash 或业务主键")
+        if "pk_hash" not in columns:
+            columns = [*columns, "pk_hash"]
+            column_types = {**column_types, "pk_hash": "TEXT"}
+        if requires_hash:
+            for row in rows:
+                if row.get("pk_hash") is None:
+                    row["pk_hash"] = _business_key_hash(row, business_key_fields or [])
+
+        current_columns = set((await self.session.execute(sa_text(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = :table_name"
+        ), {"table_name": target_table})).scalars().all())
+        for definition in _dwd_create_column_definitions(columns, column_types):
+            column_name = definition.split('"', 2)[1]
+            if column_name not in current_columns:
+                await self.session.execute(sa_text(f'ALTER TABLE {_quote_ident(target_table)} ADD COLUMN {definition}'))
+
+        existing_records = (await self.session.execute(
+            sa_text(f'SELECT * FROM {_quote_ident(target_table)}')
+        )).mappings().all()
+        if business_key_fields:
+            for existing in existing_records:
+                if existing.get("pk_hash") is None:
+                    pk_hash = _business_key_hash(dict(existing), business_key_fields)
+                    await self.session.execute(
+                        sa_text(f'UPDATE {_quote_ident(target_table)} SET "pk_hash" = :pk_hash WHERE "id" = :id'),
+                        {"pk_hash": pk_hash, "id": existing["id"]},
+                    )
+        existing_rows = {
+            row["pk_hash"] or _business_key_hash(dict(row), business_key_fields or []): row
+            for row in existing_records
+            if row.get("pk_hash") is not None or business_key_fields
+        }
+        inserted = 0
+        updated = 0
+        incoming_keys = set()
+        for row in rows:
+            values = {
+                column: _coerce_insert_value(row.get(column), column_types.get(column, "TEXT"))
+                for column in columns
+            }
+            pk_hash = values.get("pk_hash")
+            if pk_hash is None:
+                raise RuntimeError("清洗后的增量写入缺少 pk_hash")
+            incoming_keys.add(pk_hash)
+            if pk_hash in existing_rows:
+                if write_strategy == "append":
+                    continue
+                set_clause = ", ".join(
+                    f'{_quote_ident(column)} = :{column}'
+                    for column in values
+                    if column != "pk_hash"
+                )
+                await self.session.execute(
+                    sa_text(f'UPDATE {_quote_ident(target_table)} SET {set_clause} WHERE pk_hash = :pk_hash'),
+                    values,
+                )
+                updated += 1
+            else:
+                names = ", ".join(_quote_ident(column) for column in values)
+                placeholders = ", ".join(f':{column}' for column in values)
+                await self.session.execute(
+                    sa_text(f'INSERT INTO {_quote_ident(target_table)} ({names}) VALUES ({placeholders})'),
+                    values,
+                )
+                inserted += 1
+
+        if write_strategy == "incremental_upsert" and ods_sync_semantics == "full_snapshot":
+            stale_keys = [key for key in existing_rows if key not in incoming_keys]
+            if stale_keys and missing_row_strategy == "hard_delete":
+                placeholders = ", ".join(f':stale_{index}' for index in range(len(stale_keys)))
+                await self.session.execute(
+                    sa_text(f'DELETE FROM {_quote_ident(target_table)} WHERE pk_hash IN ({placeholders})'),
+                    {f"stale_{index}": key for index, key in enumerate(stale_keys)},
+                )
+            elif stale_keys and missing_row_strategy == "mark_inactive":
+                current_columns = set((await self.session.execute(sa_text(
+                    "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = :table_name"
+                ), {"table_name": target_table})).scalars().all())
+                placeholders = ", ".join(f':stale_{index}' for index in range(len(stale_keys)))
+                params = {f"stale_{index}": key for index, key in enumerate(stale_keys)}
+                if "is_active" in current_columns:
+                    await self.session.execute(
+                        sa_text(f'UPDATE {_quote_ident(target_table)} SET is_active = FALSE WHERE pk_hash IN ({placeholders})'),
+                        params,
+                    )
+                elif "is_deleted" in current_columns:
+                    await self.session.execute(
+                        sa_text(f'UPDATE {_quote_ident(target_table)} SET is_deleted = TRUE WHERE pk_hash IN ({placeholders})'),
+                        params,
+                    )
+                elif "valid_to" in current_columns:
+                    await self.session.execute(
+                        sa_text(f'UPDATE {_quote_ident(target_table)} SET valid_to = :now WHERE pk_hash IN ({placeholders})'),
+                        {**params, "now": datetime.now(UTC)},
+                    )
+                else:
+                    raise RuntimeError(
+                        f"full_snapshot 表 {target_table} 缺少软失效字段(is_active/is_deleted/valid_to)，"
+                        "无法标记 ODS 已删除的行。请在 DWD 表中添加 is_active 字段或改用全量重建策略。"
+                    )
+
+        return inserted + updated
+
+
     async def execute_full(
         self,
         *,
@@ -672,6 +801,10 @@ class StandardizationRuleService:
         wage_mode: Literal["shadow", "gray", "rollback"] | None = None,
         wage_component_percent: int | None = None,
         cost_center_period: str | None = None,
+        dwd_write_strategy: Literal["full_refresh", "incremental_upsert", "append", "passthrough_view"] = "full_refresh",
+        business_key_fields: list[str] | None = None,
+        ods_sync_semantics: Literal["full_snapshot", "incremental_append", "incremental_upsert"] = "full_snapshot",
+        missing_row_strategy: Literal["mark_inactive", "keep_history", "hard_delete"] = "mark_inactive",
     ) -> dict:
         """全量执行 ODS→DWD 标准化并写入目标物理表。
 
@@ -875,38 +1008,66 @@ class StandardizationRuleService:
         target_layer = await self._get_layer(target)
         if target_layer and target_layer != "DWD":
             return {"error": "invalid_target", "detail": f"目标表 {target} 已注册为 {target_layer} 层，数据清洗目标必须是 DWD"}
+        if dwd_write_strategy not in {"full_refresh", "incremental_upsert", "append", "passthrough_view"}:
+            return {"error": "invalid_write_strategy", "detail": f"不支持的 DWD 写入策略: {dwd_write_strategy}"}
+        if dwd_write_strategy == "passthrough_view":
+            return {
+                "error": "incompatible_write_strategy",
+                "detail": "已启用清洗规则时不能使用直通视图写入；请改用全量重建、增量更新或追加写入",
+                "target_table": target,
+            }
         try:
-            # P0-1: DDL 安全校验 — DROP+CREATE = REPLACE 语义
-            from app.warehouse.layer_policy import validate_ddl_operation, validate_layer_transition, DDL_REPLACE, DDL_CREATE
+            # P0-1: 仅全量重建允许 DROP + CREATE；增量和追加保留既有 DWD 表。
+            from app.warehouse.layer_policy import validate_ddl_operation, validate_layer_transition, DDL_REPLACE, DDL_CREATE, DDL_ALTER
             validate_layer_transition("ODS", "DWD", "standardize")
-            existing = await self._get_layer(target)
-            if existing is not None:
-                await validate_ddl_operation(self.session, target, DDL_REPLACE)
-            else:
-                await validate_ddl_operation(self.session, target, DDL_CREATE, target_layer="DWD")
             bcols = [col for col in (_ordered_output_columns(transformed) if transformed else cols) if col != "id"]
-            await self._validate_dataset_relation_keys_for_target(target_table=target, output_columns=bcols)
             column_types = _infer_column_types(transformed) if transformed else {column: "TEXT" for column in bcols}
-            col_defs = _dwd_create_column_definitions(bcols, column_types)
-            # 即使转换后没有行，也保留空 DWD 物理表及其元数据契约。
-            # DDL 和元数据仍处于同一事务，异常会整体回滚而不会留下“有元数据无表”。
-            await self.session.execute(sa_text(f'DROP TABLE IF EXISTS "{target}"'))
-            await self.session.execute(sa_text(f'CREATE TABLE {_quote_ident(target)} ({", ".join(col_defs)})'))
-            if transformed:
-                batch_size = _safe_insert_batch_size(len(bcols))
-                for bs in range(0, len(transformed), batch_size):
-                    batch = transformed[bs:bs + batch_size]
-                    # Use generated bind names instead of raw column names so columns
-                    # containing spaces, punctuation, or non-ASCII characters remain safe.
-                    placeholders = ", ".join([
-                        f"({', '.join([f':p_{i}_{j}' for j, _c in enumerate(bcols)])})"
-                        for i in range(len(batch))
-                    ])
-                    params = {}
-                    for i, row in enumerate(batch):
-                        for j, c in enumerate(bcols):
-                            params[f"p_{i}_{j}"] = _coerce_insert_value(row.get(c), column_types.get(c, "TEXT"))
-                    await self.session.execute(sa_text(f'INSERT INTO {_quote_ident(target)} ({", ".join([_quote_ident(c) for c in bcols])}) VALUES {placeholders}'), params)
+            target_exists = bool(await self.session.scalar(sa_text(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = current_schema() AND table_name = :table_name)"
+            ), {"table_name": target}))
+            replace_target = dwd_write_strategy == "full_refresh" or not target_exists
+            if replace_target:
+                existing = await self._get_layer(target)
+                if existing is not None:
+                    await validate_ddl_operation(self.session, target, DDL_REPLACE)
+                else:
+                    await validate_ddl_operation(self.session, target, DDL_CREATE, target_layer="DWD")
+                await self._validate_dataset_relation_keys_for_target(target_table=target, output_columns=bcols)
+                col_defs = _dwd_create_column_definitions(bcols, column_types)
+                # 即使转换后没有行，也保留空 DWD 物理表及其元数据契约。
+                # DDL 和元数据仍处于同一事务，异常会整体回滚而不会留下“有元数据无表”。
+                await self.session.execute(sa_text(f'DROP TABLE IF EXISTS {_quote_ident(target)}'))
+                await self.session.execute(sa_text(f'CREATE TABLE {_quote_ident(target)} ({", ".join(col_defs)})'))
+                rows_written = 0
+                if transformed:
+                    batch_size = _safe_insert_batch_size(len(bcols))
+                    for bs in range(0, len(transformed), batch_size):
+                        batch = transformed[bs:bs + batch_size]
+                        # Use generated bind names instead of raw column names so columns
+                        # containing spaces, punctuation, or non-ASCII characters remain safe.
+                        placeholders = ", ".join([
+                            f"({', '.join([f':p_{i}_{j}' for j, _c in enumerate(bcols)])})"
+                            for i in range(len(batch))
+                        ])
+                        params = {}
+                        for i, row in enumerate(batch):
+                            for j, c in enumerate(bcols):
+                                params[f"p_{i}_{j}"] = _coerce_insert_value(row.get(c), column_types.get(c, "TEXT"))
+                        await self.session.execute(sa_text(f'INSERT INTO {_quote_ident(target)} ({", ".join([_quote_ident(c) for c in bcols])}) VALUES {placeholders}'), params)
+                    rows_written = len(transformed)
+            else:
+                await validate_ddl_operation(self.session, target, DDL_ALTER)
+                rows_written = await self._write_transformed_rows(
+                    target_table=target,
+                    rows=transformed,
+                    columns=bcols,
+                    column_types=column_types,
+                    write_strategy=dwd_write_strategy,
+                    business_key_fields=business_key_fields,
+                    ods_sync_semantics=ods_sync_semantics,
+                    missing_row_strategy=missing_row_strategy,
+                )
             # P0-1: 注册 DWD 目标表 — 在同一事务内，失败则回滚全部
             existing_rt = (await self.session.execute(
                 select(RegisteredTable).where(RegisteredTable.table_name == target)
@@ -985,7 +1146,15 @@ class StandardizationRuleService:
             await self.session.rollback()
             return {"error": "write_failed", "detail": str(e)[:500], "total": total, "success": 0, "failed": total, "target_table": target, "errors": []}
         # P0-3: 空结果警告
-        result = {"total": total, "success": success, "failed": failed, "errors": [], "target_table": target}
+        result = {
+            "total": total,
+            "success": success,
+            "failed": failed,
+            "errors": [],
+            "target_table": target,
+            "rows_inserted": rows_written,
+            "write_strategy": dwd_write_strategy,
+        }
         if wage_dual_outcome is not None:
             result["wage_rollout"] = {
                 "mode": wage_dual_outcome.report.mode,
@@ -1094,5 +1263,3 @@ class StandardizationTemplateService:
 
 def get_standardization_template_service(session: AsyncSession) -> StandardizationTemplateService:
     return StandardizationTemplateService(session)
-
-
