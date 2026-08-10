@@ -939,6 +939,22 @@ def _display_format(setting: dict | None) -> dict:
     }
 
 
+def _xlsx_display_decimal(value, setting: dict | None, *, quantize: bool = True) -> Decimal | None:
+    d = _to_decimal(value)
+    if d is None:
+        return None
+    fmt = _display_format(setting)
+    unit_divisors = {"none": 1, "thousand": 1000, "ten_thousand": 10000, "million": 1000000, "ten_million": 10000000, "hundred_million": 100000000, "K": 1000, "M": 1000000}
+    if fmt["type"] == "percent":
+        d *= Decimal("100")
+    elif fmt["type"] == "number":
+        d /= Decimal(unit_divisors[fmt["unit"]])
+    if not quantize:
+        return d
+    rounding = {"half_up": ROUND_HALF_UP, "ceil": ROUND_CEILING, "floor": ROUND_FLOOR}[fmt["rounding_rule"]]
+    return d.quantize(Decimal(1).scaleb(-fmt["precision"]), rounding=rounding)
+
+
 def _format_display_number(value, setting: dict | None) -> str:
     d = _to_decimal(value)
     if d is None:
@@ -961,25 +977,56 @@ def _format_display_number(value, setting: dict | None) -> str:
 
 
 def _xlsx_display_value(value, setting: dict | None) -> tuple[object, str]:
-    d = _to_decimal(value)
+    d = _xlsx_display_decimal(value, setting)
     if d is None:
         return (0 if value is None or value == "" else value), ""
     fmt = _display_format(setting)
-    unit_divisors = {"none": 1, "thousand": 1000, "ten_thousand": 10000, "million": 1000000, "ten_million": 10000000, "hundred_million": 100000000, "K": 1000, "M": 1000000}
     if fmt["type"] == "percent":
-        d *= Decimal("100")
         number_format = "0" + ("." + "0" * fmt["precision"] if fmt["precision"] else "") + "%"
     else:
-        if fmt["type"] == "number":
-            d /= Decimal(unit_divisors[fmt["unit"]])
         base = "#,##0" if fmt["thousands_separator"] else "0"
         decimals = "." + "0" * fmt["precision"] if fmt["precision"] else ""
         suffix = {"none": "", "thousand": ' "千"', "ten_thousand": ' "万"', "million": ' "百万"', "ten_million": ' "千万"', "hundred_million": ' "亿"', "K": '"K"', "M": '"M"'}[fmt["unit"]]
         number_format = base + decimals + suffix
-    d = d.quantize(_DECIMAL_SIX, rounding=ROUND_HALF_UP)
     if len(d.as_tuple().digits) > _XLSX_MAX_SIG_DIGITS:
         return _format_display_number(value, setting), ""
-    return (int(d) if d == d.to_integral_value() else float(d)), number_format
+    cell_value = d / Decimal("100") if fmt["type"] == "percent" else d
+    return (int(cell_value) if cell_value == cell_value.to_integral_value() else float(cell_value)), number_format
+
+def _prepare_xlsx_export_rows(rows: list[list[Any]], codes: list[str], numeric_codes: set[str], config: dict[str, Any]) -> list[list[Any]]:
+    settings = config.get("column_settings", {})
+    prepared = [list(row) for row in rows]
+    positions = {code: index for index, code in enumerate(codes)}
+    for row in prepared:
+        for index, code in enumerate(codes):
+            if code in numeric_codes:
+                rounded = _xlsx_display_decimal(row[index], settings.get(code))
+                if rounded is not None:
+                    row[index] = rounded
+    for correction in config.get("rounding_corrections", []):
+        group_by = correction.get("group_by")
+        group_codes = group_by if isinstance(group_by, list) else [group_by] if group_by else []
+        if not group_codes or any(code not in positions for code in group_codes):
+            continue
+        groups = {}
+        group_positions = [positions[code] for code in group_codes]
+        for row_index, row in enumerate(rows):
+            groups.setdefault(tuple(row[position] for position in group_positions), []).append(row_index)
+        for target_code in correction.get("target_cols") or []:
+            target_position = positions.get(target_code)
+            if target_position is None or target_code not in numeric_codes:
+                continue
+            setting = settings.get(target_code)
+            for indexes in groups.values():
+                raw_sum = sum((_xlsx_display_decimal(rows[index][target_position], setting, quantize=False) or Decimal("0")) for index in indexes)
+                expected = _xlsx_display_decimal(raw_sum, setting) or Decimal("0")
+                actual = sum((_to_decimal(prepared[index][target_position]) or Decimal("0")) for index in indexes)
+                diff = expected - actual
+                candidates = [index for index in indexes if (_to_decimal(prepared[index][target_position]) or Decimal("0")) != 0]
+                if diff and candidates:
+                    target_index = max(candidates, key=lambda index: tuple("" if value is None else str(value) for value in rows[index]))
+                    prepared[target_index][target_position] = (_to_decimal(prepared[target_index][target_position]) or Decimal("0")) + diff
+    return prepared
 
 
 def _format_number_for_csv(value) -> str:
@@ -1216,10 +1263,25 @@ async def export_report_csv(
     if not await _can_access(user, report, db):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
 
+    export_filters = _parse_runtime_filters(runtime_filters)
+    export_cfg = _ensure_valid_report_config(
+        _apply_runtime_overrides(ReportConfig(**(report.config or {})), export_filters)
+    )
+    from app.reports.quality_gate import enforce_report_quality
+    await enforce_report_quality(
+        db,
+        report_id=report.id,
+        dataset_id=report.dataset_id,
+        config=export_cfg,
+        filters=export_cfg.filters,
+        action="export",
+    )
     labels, rows, codes, columns_meta = await _collect_export_rows(
-        report, user, db, _parse_runtime_filters(runtime_filters)
+        report, user, db, export_filters
     )
     numeric_codes = {col["code"] for col in columns_meta if _is_numeric_column(col)}
+
+    column_settings = export_cfg.model_dump().get("column_settings", {})
 
     buf = io.StringIO()
     buf.write("\ufeff")
@@ -1227,7 +1289,7 @@ async def export_report_csv(
     writer.writerow(labels)
     for row in rows:
         formatted = [
-            _format_display_number(row[j], (report.config or {}).get("column_settings", {}).get(code)) if code in numeric_codes else row[j]
+            _format_display_number(row[j], column_settings.get(code)) if code in numeric_codes else row[j]
             for j, code in enumerate(codes)
         ]
         writer.writerow(formatted)
@@ -1262,10 +1324,26 @@ async def export_report_xlsx(
     if not await _can_access(user, report, db):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
 
+    export_filters = _parse_runtime_filters(runtime_filters)
+    export_cfg = _ensure_valid_report_config(
+        _apply_runtime_overrides(ReportConfig(**(report.config or {})), export_filters)
+    )
+    from app.reports.quality_gate import enforce_report_quality
+    await enforce_report_quality(
+        db,
+        report_id=report.id,
+        dataset_id=report.dataset_id,
+        config=export_cfg,
+        filters=export_cfg.filters,
+        action="export",
+    )
     labels, rows, codes, columns_meta = await _collect_export_rows(
-        report, user, db, _parse_runtime_filters(runtime_filters)
+        report, user, db, export_filters
     )
     numeric_codes = {col["code"] for col in columns_meta if _is_numeric_column(col)}
+    export_config = export_cfg.model_dump()
+    rows = _prepare_xlsx_export_rows(rows, codes, numeric_codes, export_config)
+    column_settings = export_config.get("column_settings", {})
 
     workbook = Workbook()
     worksheet = workbook.active
@@ -1278,7 +1356,7 @@ async def export_report_xlsx(
         for j, code in enumerate(codes):
             v = row[j]
             if code in numeric_codes:
-                num_val, _number_format = _xlsx_display_value(v, (report.config or {}).get("column_settings", {}).get(code))
+                num_val, _number_format = _xlsx_display_value(v, column_settings.get(code))
                 if isinstance(num_val, str):
                     text_fallback_count += 1
                 excel_row.append(num_val)
@@ -1294,7 +1372,7 @@ async def export_report_xlsx(
                 cell = worksheet.cell(row=row_idx, column=col_idx)
                 # 文本降级（str 类型）→ 跳过 number_format
                 if isinstance(cell.value, (int, float)):
-                    _num_val, fmt = _xlsx_display_value(rows[row_idx - 2][j], (report.config or {}).get("column_settings", {}).get(code))
+                    _num_val, fmt = _xlsx_display_value(rows[row_idx - 2][j], column_settings.get(code))
                     if fmt:
                         cell.number_format = fmt
 

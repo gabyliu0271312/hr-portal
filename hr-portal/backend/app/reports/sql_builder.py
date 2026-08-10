@@ -427,6 +427,10 @@ def _round_internal(value: Decimal) -> Decimal:
     return value.quantize(_INTERNAL_DECIMAL, rounding=ROUND_HALF_UP)
 
 
+def _rounding_target_sort_key(row: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    return tuple((str(key), "" if value is None else str(value)) for key, value in sorted(row.items()))
+
+
 def _mul_round2(a: Any, b: Any) -> Any:
     """兼容旧调用：乘积按系统内部 6 位精度保留。"""
     try:
@@ -2152,14 +2156,10 @@ async def run_dataset_query(
                 if diff == 0:
                     continue
                 # 倒序找该列最后一个有数（非空且 ≠0）的行
-                target_row = None
-                for row in reversed(rows_in_group):
-                    n = _to_num(row.get(tc))
-                    if n is not None and n != 0:
-                        target_row = row
-                        break
-                if target_row is None:
+                candidates = [row for row in rows_in_group if (_to_num(row.get(tc)) if row.get(tc) is not None else None) not in (None, Decimal("0"))]
+                if not candidates:
                     continue
+                target_row = max(candidates, key=_rounding_target_sort_key)
                 cur = _to_num(target_row.get(tc)) or Decimal("0")
                 target_row[tc] = _round_internal(cur + diff)
 
