@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -15,6 +15,7 @@ import {
 import OdsDwdAutomationPanel from '@/components/warehouse/OdsDwdAutomationPanel.vue'
 import MappingWorkspace from '@/components/mapping/MappingWorkspace.vue'
 import {
+  RULE_LABELS,
   RULE_TYPES,
   createEmptyDocument,
   type MappingDocument,
@@ -28,6 +29,7 @@ const automationPanelRef = ref<InstanceType<typeof OdsDwdAutomationPanel> | null
 
 // ===== 选表 =====
 const tables = ref<Asset[]>([])
+const referenceDwdAssets = ref<Asset[]>([])
 const selectedTable = ref('')
 const targetTableName = ref('')
 const derivedTargetTable = computed(() => {
@@ -40,10 +42,16 @@ const derivedTargetTable = computed(() => {
 })
 const tableFields = ref<{ column_code: string; column_label: string; data_type: string }[]>([])
 const mappingWorkspaceRef = ref<{ resetDirty: () => void; focusRule: (ruleId: string) => Promise<boolean> } | null>(null)
+const transformationWorkspaceRef = ref<{ resetDirty: () => void; focusRule: (ruleId: string) => Promise<boolean> } | null>(null)
+const mappingDialogVisible = ref(false)
+const transformationDialogVisible = ref(false)
 const mappingDirty = ref(false)
 const legacyDirty = ref(false)
 
 const PUBLIC_RULE_TYPES = RULE_TYPES
+const MAPPING_RULE_TYPES: MappingRuleType[] = ['field', 'value_map', 'reference_lookup', 'identity_with_overrides']
+const TRANSFORMATION_RULE_TYPES: MappingRuleType[] = RULE_TYPES.filter((ruleType) => !MAPPING_RULE_TYPES.includes(ruleType))
+const TOP_TRANSFORMATION_RULE_TYPES: MappingRuleType[] = ['type_convert', 'format', 'split_merge']
 const LEGACY_RULE_TYPES = STANDARDIZATION_RULE_TYPES.filter((rt) => !['rename', 'type_convert', 'value_map', 'split_merge', 'format_standardize', 'reference_lookup', 'identity_with_overrides'].includes(rt))
 const mappingRuleTypeByStandard: Record<string, MappingRuleType> = {
   rename: 'field',
@@ -85,15 +93,11 @@ function standardStepToMappingRule(step: Step): MappingRule | null {
   if (type === 'field') config.mode = config.mode || 'rename'
   if (type === 'value_map') config.mappings = toMappings(config.mappings)
   if (type === 'reference_lookup') {
-    config.referenceDatasetId = config.referenceDatasetId || config.lookup_table || ''
-    config.outputMap = config.outputMap || (config.target || config.result_col ? { [config.target || step.target_field || '']: config.result_col || '' } : {})
-    config.matchRules = config.matchRules || (config.rules || []).map((matchRule: any, index: number) => ({
-      id: matchRule.id || `match_${index}`,
-      priority: matchRule.priority ?? index,
-      sourceField: matchRule.sourceField || matchRule.source_field || '',
-      referenceField: matchRule.referenceField || matchRule.reference_field || '',
-      conditions: matchRule.conditions || {},
-      onMatch: matchRule.onMatch || matchRule.on_match || 'use_and_stop',
+    const legacyRules = config.rules || []
+    config.lookupConfigs = config.lookupConfigs || config.lookup_configs?.map((item: any, index: number) => ({
+      id: item.id || `lookup_${index}`, priority: item.priority ?? (index + 1) * 10, referenceDatasetId: item.referenceDatasetId || item.reference_dataset_id || '', sourceField: item.sourceField || item.source_field || '', referenceMatchField: item.referenceMatchField || item.reference_match_field || '', referenceReturnField: item.referenceReturnField || item.reference_return_field || '', targetField: item.targetField || item.target_field || step.target_field || '', conditions: item.conditions || {},
+    })) || legacyRules.map((item: any, index: number) => ({
+      id: item.id || `lookup_${index}`, priority: item.priority ?? (index + 1) * 10, referenceDatasetId: config.lookup_table || '', sourceField: item.sourceField || item.source_field || item.src_field || '', referenceMatchField: item.referenceField || item.reference_field || config.value_col || 'value', referenceReturnField: config.result_col || '', targetField: config.target || step.target_field || '', conditions: item.conditions || (item.match_type ? { [config.type_col || 'field_type']: item.match_type } : {}),
     }))
     config.unmatched = config.unmatched || 'keep'
   }
@@ -114,7 +118,7 @@ function standardStepToMappingRule(step: Step): MappingRule | null {
     config.nullBehavior = config.nullBehavior || config.null_behavior || 'keep_null'
   }
   return {
-    id: step.id ? `standard_${step.id}` : `draft_${step.display_order}_${step.rule_type}`,
+    id: step.id ? `standard_${step.id}` : config.__mappingRuleId || `draft_${step.display_order}_${step.rule_type}`,
     type,
     enabled: step.enabled,
     displayOrder: Math.max(0, step.display_order - 1),
@@ -126,20 +130,14 @@ function standardStepToMappingRule(step: Step): MappingRule | null {
 
 function mappingRuleToStandardStep(rule: MappingRule): Step {
   const config = { ...(rule.config as Record<string, any>) }
+  if (!rule.id.startsWith('standard_')) config.__mappingRuleId = rule.id
   if (rule.type === 'value_map') config.mappings = toMappings(config.mappings)
   if (rule.type === 'reference_lookup') {
-    config.lookup_table = config.referenceDatasetId
-    config.target = Object.keys(config.outputMap || {})[0] || rule.targetFields[0] || ''
-    config.result_col = Object.values(config.outputMap || {})[0] || ''
-    config.rules = (config.matchRules || []).map((matchRule: any) => ({
-      id: matchRule.id,
-      priority: matchRule.priority,
-      source_field: matchRule.sourceField,
-      reference_field: matchRule.referenceField,
-      conditions: matchRule.conditions || {},
-      on_match: matchRule.onMatch,
-    }))
-    delete config.referenceDatasetId; delete config.outputMap; delete config.matchRules
+    const lookupConfigs = config.lookupConfigs || []
+    config.lookup_configs = lookupConfigs.map((item: any) => ({ id: item.id, priority: item.priority, reference_dataset_id: item.referenceDatasetId, source_field: item.sourceField, reference_match_field: item.referenceMatchField, reference_return_field: item.referenceReturnField, target_field: item.targetField, conditions: item.conditions || {} }))
+    const first = lookupConfigs[0]
+    if (first && lookupConfigs.every((item: any) => item.referenceDatasetId === first.referenceDatasetId && item.referenceReturnField === first.referenceReturnField)) { config.lookup_table = first.referenceDatasetId; config.target = first.targetField; config.result_col = first.referenceReturnField; config.rules = lookupConfigs.map((item: any) => ({ id: item.id, priority: item.priority, source_field: item.sourceField, reference_field: item.referenceMatchField, conditions: item.conditions || {} })) }
+    delete config.lookupConfigs; delete config.referenceDatasetId; delete config.outputMap; delete config.matchRules
   }
   if (rule.type === 'identity_with_overrides') {
     config.default_behavior = config.defaultBehavior || 'keep_source'
@@ -213,12 +211,23 @@ const mappingPolicy = computed<MappingCallerPolicy>(() => {
     allowedRuleTypes: PUBLIC_RULE_TYPES,
     source: { assetId: selectedTable.value || null, schemaHash: hash, allowedFieldIds: sourceFieldIds },
     target: { assetId: targetTableName.value.trim() || derivedTargetTable.value || null, schemaHash: hash, allowedFieldIds: targetFieldIds, readonlyFieldIds: [], protectedKeyFieldIds: [] },
-    referenceLookup: { allowedDatasetIds: [], allowedFieldIds: sourceFieldIds, maxRules: 20 },
+    referenceLookup: {
+      allowedDatasetIds: referenceDwdAssets.value.map((asset) => asset.table_name).filter((tableName) => tableName !== (targetTableName.value.trim() || derivedTargetTable.value)),
+      allowedFieldIds: [], datasetLabels: Object.fromEntries(referenceDwdAssets.value.map((asset) => [asset.table_name, asset.table_label || asset.table_name])), maxRules: 20,
+    },
     effects: { allowPreview: true, allowSave: true, allowPublish: false, allowExecute: true, allowRebuild: false },
     legacy: { sourceFormat: 'standardization_rules', allowLegacyRead: true, allowLegacyWrite: true, allowMigration: true },
     metadata: { policyVersion: 1, permissionScope: 'warehouse.modeling', issuedAt: new Date().toISOString() },
   }
 })
+const mappingOnlyPolicy = computed<MappingCallerPolicy>(() => ({
+  ...mappingPolicy.value,
+  allowedRuleTypes: MAPPING_RULE_TYPES,
+}))
+const transformationPolicy = computed<MappingCallerPolicy>(() => ({
+  ...mappingPolicy.value,
+  allowedRuleTypes: TRANSFORMATION_RULE_TYPES,
+}))
 const mappingFields = computed(() => tableFields.value.map((field) => ({ code: field.column_code, label: field.column_label || field.column_code, type: field.data_type })))
 
 function refreshMappingDocument() { mappingDocument.value = buildMappingDocument() }
@@ -241,12 +250,17 @@ function syncMappingToSteps(document: MappingDocument) {
 
 function isLegacyRule(ruleType: string) { return LEGACY_RULE_TYPES.includes(ruleType as any) }
 async function focusPublicRule(index: number) {
+  activePublicStepIndex.value = index
   const step = steps.value[index]
   const rule = standardStepToMappingRule(step)
   const publicRule = rule && mappingDocument.value.ruleSet.rules.find((item) => item.id === rule.id)
-  const focused = publicRule && mappingWorkspaceRef.value
-    ? await mappingWorkspaceRef.value.focusRule(publicRule.id)
-    : false
+  if (!publicRule) { ElMessage.warning('未能定位该规则的统一编辑器，请刷新后重试'); return }
+  const isMappingRule = MAPPING_RULE_TYPES.includes(publicRule.type)
+  if (isMappingRule) mappingDialogVisible.value = true
+  else transformationDialogVisible.value = true
+  await nextTick()
+  const workspace = isMappingRule ? mappingWorkspaceRef.value : transformationWorkspaceRef.value
+  const focused = await workspace?.focusRule(publicRule.id)
   if (!focused) ElMessage.warning('未能定位该规则的统一编辑器，请刷新后重试')
 }
 
@@ -267,6 +281,7 @@ function onMappingDirty(value: boolean) {
 
 async function loadTables() {
   try { const res = await listAssets({ warehouse_layer: 'ODS', page_size: 200 }); tables.value = res.items } catch { tables.value = [] }
+  try { const res = await listAssets({ warehouse_layer: 'DWD', page_size: 200 }); referenceDwdAssets.value = res.items } catch { referenceDwdAssets.value = [] }
 }
 
 async function onTableChange(tableName: string) {
@@ -285,6 +300,53 @@ interface Step {
 }
 const steps = ref<Step[]>([])
 const dirty = ref(false)
+const activePublicStepIndex = ref<number | null>(null)
+const DEFAULT_PUBLIC_STEP_NAMES: Record<MappingRuleType, string> = {
+  field: '\u5b57\u6bb5\u6620\u5c04',
+  value_map: '\u679a\u4e3e/\u503c\u6620\u5c04',
+  reference_lookup: '\u53c2\u8003 Lookup',
+  identity_with_overrides: '\u9ed8\u8ba4\u81ea\u6620\u5c04+\u4f8b\u5916',
+  type_convert: '\u7c7b\u578b\u8f6c\u6362',
+  format: '\u683c\u5f0f\u8f6c\u6362',
+  split_merge: '\u62c6\u5206/\u5408\u5e76',
+}
+const NODE_NAME_LABEL = '\u8282\u70b9\u540d\u79f0'
+const NODE_NAME_PLACEHOLDER = '\u8bf7\u8f93\u5165\u6d41\u7a0b\u8282\u70b9\u540d\u79f0'
+
+function defaultStepName(step: Step): string {
+  const mappingRuleType = mappingRuleTypeByStandard[step.rule_type]
+  return (mappingRuleType && DEFAULT_PUBLIC_STEP_NAMES[mappingRuleType]) || STANDARDIZATION_RULE_LABELS[step.rule_type] || step.rule_type
+}
+
+const activePublicStepName = computed({
+  get: () => {
+    const index = activePublicStepIndex.value
+    const step = index === null ? null : steps.value[index]
+    return step?.rule_config.display_name || (step ? defaultStepName(step) : '')
+  },
+  set: (value: string) => {
+    const index = activePublicStepIndex.value
+    const step = index === null ? null : steps.value[index]
+    if (!step) return
+
+    const displayName = value.trim()
+    if (displayName) step.rule_config.display_name = displayName
+    else delete step.rule_config.display_name
+
+    const rule = standardStepToMappingRule(step)
+    const documentRule = rule && mappingDocument.value.ruleSet.rules.find((item) => item.id === rule.id)
+    if (documentRule) {
+      const documentConfig = { ...documentRule.config } as Record<string, unknown>
+      if (displayName) documentConfig.display_name = displayName
+      else delete documentConfig.display_name
+      documentRule.config = documentConfig as typeof documentRule.config
+    }
+
+    step.dirty = true
+    mappingDirty.value = true
+    dirty.value = true
+  },
+})
 
 async function loadRules() {
   if (!selectedTable.value) return
@@ -294,16 +356,28 @@ async function loadRules() {
     legacyDirty.value = false
     mappingDirty.value = false
     dirty.value = false
+    activePublicStepIndex.value = null
     refreshMappingDocument()
     mappingWorkspaceRef.value?.resetDirty()
+    transformationWorkspaceRef.value?.resetDirty()
   } catch { steps.value = [] }
 }
 
 const showAddMenu = ref(false)
+function openMappingDialog() {
+  if (!selectedTable.value) return
+  activePublicStepIndex.value = null
+  mappingDialogVisible.value = true
+  showAddMenu.value = false
+}
 function addStep(ruleType: string) {
   steps.value.push({ rule_type: ruleType, source_field: '', target_field: '', rule_config: { output_enabled: true }, enabled: true, display_order: steps.value.length + 1, dirty: true })
-  if (isLegacyRule(ruleType)) expandStep(steps.value.length - 1)
-  else refreshMappingDocument()
+  const index = steps.value.length - 1
+  if (isLegacyRule(ruleType)) expandStep(index)
+  else {
+    refreshMappingDocument()
+    void focusPublicRule(index)
+  }
   legacyDirty.value = isLegacyRule(ruleType) || legacyDirty.value
   mappingDirty.value = !isLegacyRule(ruleType) || mappingDirty.value
   dirty.value = true
@@ -373,6 +447,7 @@ async function doSave() {
     for (const rule of existing.items) { if (!currentIds.has(rule.id)) await deleteStandardizationRule(rule.id) }
     dirty.value = false; legacyDirty.value = false; mappingDirty.value = false; steps.value.forEach(s => s.dirty = false)
     mappingWorkspaceRef.value?.resetDirty()
+    transformationWorkspaceRef.value?.resetDirty()
     ElMessage.success('规则已保存'); await loadRules()
     automationPanelRef.value?.refreshDetectedMode()
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') } finally { saving.value = false }
@@ -501,10 +576,29 @@ onMounted(async () => {
         </div>
       </div>
       <div class="toolbar">
-        <button v-for="rt in LEGACY_RULE_TYPES" :key="rt" class="tool-btn" :disabled="!selectedTable" @click="addStep(rt)">
-          <span class="tool-btn-icon">{{ ruleTypeIcon[rt] }}</span>
-          <span class="tool-btn-label">{{ STANDARDIZATION_RULE_LABELS[rt] }}</span>
-        </button>
+        <div class="toolbar-group toolbar-group-primary">
+          <button class="tool-btn" :disabled="!selectedTable" @click="openMappingDialog">
+            <span class="tool-btn-icon">⇄</span>
+            <span class="tool-btn-label">映射</span>
+          </button>
+          <button
+            v-for="rt in TOP_TRANSFORMATION_RULE_TYPES"
+            :key="rt"
+            class="tool-btn"
+            :disabled="!selectedTable"
+            @click="addStep(standardRuleTypeByMapping[rt])"
+          >
+            <span class="tool-btn-icon">{{ ruleTypeIcon[standardRuleTypeByMapping[rt]] }}</span>
+            <span class="tool-btn-label">{{ RULE_LABELS[rt] }}</span>
+          </button>
+        </div>
+        <span class="toolbar-divider" aria-hidden="true"></span>
+        <div class="toolbar-group">
+          <button v-for="rt in LEGACY_RULE_TYPES" :key="rt" class="tool-btn" :disabled="!selectedTable" @click="addStep(rt)">
+            <span class="tool-btn-icon">{{ ruleTypeIcon[rt] }}</span>
+            <span class="tool-btn-label">{{ STANDARDIZATION_RULE_LABELS[rt] }}</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -564,16 +658,6 @@ onMounted(async () => {
 
       <!-- Zone 3: 右侧流程步骤流 -->
       <aside class="flow-zone">
-        <p class="rule-group-hint">公共映射规则（字段、值映射、参考 Lookup、默认映射、类型、格式、拆分合并）在上方统一映射工作台中配置；下方仅保留数仓专属规则。</p>
-        <MappingWorkspace
-          ref="mappingWorkspaceRef"
-          v-model="mappingDocument"
-          :policy="mappingPolicy"
-          :source-fields="mappingFields"
-          :target-fields="mappingTargetFields"
-          @dirty="onMappingDirty"
-        />
-
         <div class="legacy-rule-heading">数仓专属规则</div>
         <h3 class="flow-title">完整加工流程</h3>
 
@@ -601,12 +685,8 @@ onMounted(async () => {
             <div class="node-card">
               <div class="node-header">
                 <span class="node-type-icon">{{ ruleTypeIcon[step.rule_type] }}</span>
-                <span class="node-type-label">{{ STANDARDIZATION_RULE_LABELS[step.rule_type] }}</span>
+                <span class="node-type-label">{{ step.rule_config.display_name || defaultStepName(step) }}</span>
                 <span v-if="!step.enabled" class="node-disabled-tag">禁用</span>
-              </div>
-              <div class="node-summary">{{ stepSummary(step) }}</div>
-              <div v-if="!isLegacyRule(step.rule_type)" class="node-actions" @click.stop>
-                <button @click="focusPublicRule(i)">在统一编辑器中编辑</button>
               </div>
               <!-- 操作按钮（展开时） -->
               <div v-if="editingIndex === i && isLegacyRule(step.rule_type)" class="node-actions" @click.stop>
@@ -765,6 +845,15 @@ onMounted(async () => {
               <button class="add-step-btn" :disabled="!selectedTable"><Plus /> 添加步骤</button>
             </template>
             <div class="add-step-menu">
+              <button class="add-step-item" @click="openMappingDialog">
+                <span class="add-step-icon">⇄</span>
+                映射
+              </button>
+              <button v-for="rt in TRANSFORMATION_RULE_TYPES" :key="rt" class="add-step-item" @click="addStep(standardRuleTypeByMapping[rt])">
+                <span class="add-step-icon">{{ ruleTypeIcon[standardRuleTypeByMapping[rt]] }}</span>
+                {{ RULE_LABELS[rt] }}
+              </button>
+              <div class="add-step-divider"></div>
               <button v-for="rt in LEGACY_RULE_TYPES" :key="rt" class="add-step-item" @click="addStep(rt)">
                 <span class="add-step-icon">{{ ruleTypeIcon[rt] }}</span>
                 {{ STANDARDIZATION_RULE_LABELS[rt] }}
@@ -792,6 +881,38 @@ onMounted(async () => {
 
     <!-- 模板弹窗 -->
     <!-- 保存为模板弹窗 -->
+    <el-dialog v-model="mappingDialogVisible" title="维护映射" width="92%" align-center :close-on-click-modal="false" class="mapping-dialog">
+      <div v-if="activePublicStepIndex !== null" class="mapping-node-name">
+        <label>{{ NODE_NAME_LABEL }}</label>
+        <el-input v-model="activePublicStepName" maxlength="64" show-word-limit :placeholder="NODE_NAME_PLACEHOLDER" />
+      </div>
+      <MappingWorkspace
+        ref="mappingWorkspaceRef"
+        v-model="mappingDocument"
+        :policy="mappingOnlyPolicy"
+        :visible-rule-types="MAPPING_RULE_TYPES"
+        :source-fields="mappingFields"
+        :target-fields="mappingTargetFields"
+        @dirty="onMappingDirty"
+      />
+    </el-dialog>
+
+    <el-dialog v-model="transformationDialogVisible" title="维护转换规则" width="92%" align-center :close-on-click-modal="false" class="mapping-dialog">
+      <div v-if="activePublicStepIndex !== null" class="mapping-node-name">
+        <label>{{ NODE_NAME_LABEL }}</label>
+        <el-input v-model="activePublicStepName" maxlength="64" show-word-limit :placeholder="NODE_NAME_PLACEHOLDER" />
+      </div>
+      <MappingWorkspace
+        ref="transformationWorkspaceRef"
+        v-model="mappingDocument"
+        :policy="transformationPolicy"
+        :visible-rule-types="TRANSFORMATION_RULE_TYPES"
+        :source-fields="mappingFields"
+        :target-fields="mappingTargetFields"
+        @dirty="onMappingDirty"
+      />
+    </el-dialog>
+
     <el-dialog v-model="saveTplVisible" title="保存为模板" width="440px">
       <el-form label-width="80px" size="small">
         <el-form-item label="模板名称" required><el-input v-model="saveTplForm.name" placeholder="如：员工月薪标准化模板" maxlength="128" /></el-form-item>
@@ -1026,6 +1147,51 @@ onMounted(async () => {
   flex-direction: column;
   overflow-y: auto;
   padding: 0 4px;
+}
+.toolbar-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 4px;
+  background: #e5e7eb;
+}
+.add-step-divider {
+  height: 1px;
+  margin: 6px 0;
+  background: #ebeef5;
+}
+.mapping-dialog :deep(.el-dialog) {
+  max-width: 1440px;
+  margin: 0 auto;
+}
+.mapping-dialog :deep(.el-dialog__body) {
+  max-height: calc(100vh - 156px);
+  overflow-y: auto;
+  padding-top: 8px;
+}
+.mapping-node-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 12px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+.mapping-node-name label {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+.mapping-node-name :deep(.el-input) { flex: 1; }
+.mapping-dialog :deep(.rule-list) {
+  max-height: calc(100vh - 300px);
 }
 .legacy-rule-heading {
   margin: 14px 0 8px;
