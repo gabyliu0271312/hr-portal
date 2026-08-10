@@ -364,6 +364,65 @@ def _infer_column_types(rows: list[dict]) -> dict[str, str]:
     return inferred
 
 
+def _rule_target_sql_types(rules: list) -> dict[str, str]:
+    """Return explicit physical types declared by type conversion rules."""
+    target_type_map = {
+        "int": "BIGINT",
+        "integer": "BIGINT",
+        "float": "DOUBLE PRECISION",
+        "double": "DOUBLE PRECISION",
+        "number": "NUMERIC",
+        "decimal": "NUMERIC",
+        "numeric": "NUMERIC",
+        "string": "TEXT",
+        "text": "TEXT",
+        "bool": "BOOLEAN",
+        "boolean": "BOOLEAN",
+        "date": "DATE",
+        "datetime": "TIMESTAMPTZ",
+    }
+    resolved: dict[str, str] = {}
+    for rule in rules:
+        if rule.rule_type != "type_convert":
+            continue
+        target = rule.target_field or rule.source_field
+        target_type = str((rule.rule_config or {}).get("target_type") or "").strip().lower()
+        if target and target_type in target_type_map:
+            resolved[target] = target_type_map[target_type]
+    return resolved
+
+
+def _resolve_dwd_column_types(
+    *,
+    output_columns: list[str],
+    transformed_rows: list[dict],
+    source_field_map: dict[str, str],
+    source_data_types: dict[str, str],
+    rules: list,
+) -> dict[str, str]:
+    """Resolve DWD types from governed field contracts before runtime values.
+
+    Runtime inference is only a fallback for genuinely new derived fields. This
+    keeps an all-null numeric ODS column numeric after a DWD rebuild.
+    """
+    from app.data.ddl import postgres_type
+
+    inferred = _infer_column_types(transformed_rows)
+    explicit = _rule_target_sql_types(rules)
+    resolved: dict[str, str] = {}
+    for column in output_columns:
+        if column in explicit:
+            resolved[column] = explicit[column]
+            continue
+        source_field = source_field_map.get(column)
+        source_data_type = source_data_types.get(source_field or "")
+        if source_data_type:
+            resolved[column] = postgres_type(source_data_type)
+            continue
+        resolved[column] = inferred.get(column, "TEXT")
+    return resolved
+
+
 def _coerce_insert_value(value: Any, sql_type: str) -> Any:
     """Normalize values for asyncpg text() inserts into the inferred SQL type."""
     if value is None:
@@ -1021,7 +1080,18 @@ class StandardizationRuleService:
             from app.warehouse.layer_policy import validate_ddl_operation, validate_layer_transition, DDL_REPLACE, DDL_CREATE, DDL_ALTER
             validate_layer_transition("ODS", "DWD", "standardize")
             bcols = [col for col in (_ordered_output_columns(transformed) if transformed else cols) if col != "id"]
-            column_types = _infer_column_types(transformed) if transformed else {column: "TEXT" for column in bcols}
+            source_field_map = _dwd_source_field_map(cols, rules)
+            source_data_types = {
+                column.column_code: column.data_type
+                for column in source_columns_meta_for_rules
+            }
+            column_types = _resolve_dwd_column_types(
+                output_columns=bcols,
+                transformed_rows=transformed,
+                source_field_map=source_field_map,
+                source_data_types=source_data_types,
+                rules=rules,
+            )
             target_exists = bool(await self.session.scalar(sa_text(
                 "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
                 "WHERE table_schema = current_schema() AND table_name = :table_name)"
@@ -1080,15 +1150,7 @@ class StandardizationRuleService:
             from app.data.dynamic_loader import register_source_table_model
             await register_source_table_model(self.session, target, force=True)
             await self.session.execute(sa_delete(TableColumn).where(TableColumn.table_name == target))
-            source_columns_meta = (
-                await self.session.execute(
-                    select(TableColumn)
-                    .where(TableColumn.table_name == asset_code)
-                    .order_by(TableColumn.display_order, TableColumn.id)
-                )
-            ).scalars().all()
-            source_by_code = {c.column_code: c for c in source_columns_meta}
-            source_field_map = _dwd_source_field_map(cols, rules)
+            source_by_code = {c.column_code: c for c in source_columns_meta_for_rules}
             output_labels = _rule_output_labels(rules)
             display_index = 0
             for i, tgt in enumerate(bcols if transformed else cols):

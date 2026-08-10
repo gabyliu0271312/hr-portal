@@ -660,9 +660,11 @@ async def create_push_target(
 
     # db_snapshot：先建只读账号再 commit，失败时 PushTarget 不残留
     if pt.push_type in ("db_snapshot", "db_realtime"):
-        from app.push.push_service import execute_push
+        from app.push.push_service import SnapshotViewContractError, execute_push
         try:
             await execute_push(pt.id, db)
+        except SnapshotViewContractError as e:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=str(e)) from e
         except RuntimeError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -795,9 +797,11 @@ async def update_push_target(
             job.enabled = False
     # db_snapshot：先建只读账号再 commit，失败时 PushTarget 不残留
     if pt.push_type in ("db_snapshot", "db_realtime"):
-        from app.push.push_service import execute_push
+        from app.push.push_service import SnapshotViewContractError, execute_push
         try:
             await execute_push(pt.id, db)
+        except SnapshotViewContractError as e:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=str(e)) from e
         except RuntimeError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -928,14 +932,17 @@ async def run_push_target(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    from app.push.push_service import execute_push
+    from app.push.push_service import SnapshotViewContractError, execute_push
 
     pt = await db.get(PushTarget, pt_id)
     if pt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="推送目标不存在")
     await _ensure_report_push_editable(pt.source_table, user, db)
     await _ensure_system_op_for_non_report(pt.source_table, user, db, "C")
-    rows, message = await execute_push(pt_id, db, period_ym=payload.period_ym)
+    try:
+        rows, message = await execute_push(pt_id, db, period_ym=payload.period_ym)
+    except SnapshotViewContractError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(e)) from e
     # 写入 JobRun 记录，使"同步历史"tab 和"历史"抽屉均有数据可查
     from app.scheduler.models import JobRun
     jr = JobRun(

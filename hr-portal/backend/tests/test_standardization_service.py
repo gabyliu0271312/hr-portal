@@ -16,6 +16,7 @@ from app.warehouse.service.standardization import (
     _is_system_technical_column,
     _ordered_output_columns,
     _quote_ident,
+    _resolve_dwd_column_types,
     _resolve_wage_rollout,
     _safe_insert_batch_size,
     _to_table_column_data_type,
@@ -104,6 +105,48 @@ def test_infer_column_types_promotes_mixed_non_compatible_values_to_text():
     ]
 
     assert _infer_column_types(rows)["flag_or_text"] == "TEXT"
+
+
+def test_dwd_column_types_keep_all_null_numeric_source_contract():
+    rules = [_Rule("reference_lookup", "employee_no", "expense_type")]
+
+    resolved = _resolve_dwd_column_types(
+        output_columns=["employee_no", "position_salary", "expense_type"],
+        transformed_rows=[
+            {"employee_no": "E001", "position_salary": None, "expense_type": "工资"},
+            {"employee_no": "E002", "position_salary": None, "expense_type": "工资"},
+        ],
+        source_field_map={
+            "employee_no": "employee_no",
+            "position_salary": "position_salary",
+            "expense_type": "expense_type",
+        },
+        source_data_types={
+            "employee_no": "string",
+            "position_salary": "number",
+        },
+        rules=rules,
+    )
+
+    assert resolved == {
+        "employee_no": "TEXT",
+        "position_salary": "NUMERIC",
+        "expense_type": "TEXT",
+    }
+
+
+def test_dwd_column_types_honor_explicit_type_conversion_over_source_contract():
+    rules = [_Rule("type_convert", "position_salary", "position_salary", {"target_type": "string"})]
+
+    resolved = _resolve_dwd_column_types(
+        output_columns=["position_salary"],
+        transformed_rows=[{"position_salary": None}],
+        source_field_map={"position_salary": "position_salary"},
+        source_data_types={"position_salary": "number"},
+        rules=rules,
+    )
+
+    assert resolved == {"position_salary": "TEXT"}
 
 
 def test_ordered_output_columns_includes_columns_added_by_later_rows():

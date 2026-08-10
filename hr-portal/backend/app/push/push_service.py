@@ -32,6 +32,39 @@ from app.datasources.sync_service import PERIOD_TABLES
 logger = logging.getLogger("push_service")
 
 
+class SnapshotViewContractError(RuntimeError):
+    """Raised when a snapshot would change an existing public view's column type."""
+
+
+def _normalized_snapshot_pg_type(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "bigint": "bigint",
+        "integer": "integer",
+        "numeric": "numeric",
+        "double precision": "double precision",
+        "text": "text",
+        "character varying": "text",
+        "date": "date",
+        "timestamp with time zone": "timestamptz",
+        "timestamp without time zone": "timestamp",
+        "boolean": "boolean",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _snapshot_view_type_conflicts(
+    expected_types: dict[str, str], existing_types: dict[str, str],
+) -> list[tuple[str, str, str]]:
+    """Return incompatible existing-view columns without exposing data values."""
+    conflicts: list[tuple[str, str, str]] = []
+    for column, expected_type in expected_types.items():
+        existing_type = existing_types.get(column)
+        if existing_type and _normalized_snapshot_pg_type(existing_type) != _normalized_snapshot_pg_type(expected_type):
+            conflicts.append((column, existing_type, expected_type))
+    return conflicts
+
+
 async def _resolve_push_mapping_policy(
     source_table: str,
     field_mappings: list[Any],
@@ -1165,6 +1198,14 @@ async def push_db_snapshot(
         codes, label_by_code, type_by_code = await _load_source_columns_meta(source_table, db)
         if not codes:
             raise RuntimeError(f"报表 {source_table} 无推送字段定义")
+        snapshot_view_types = {
+            "id": "BIGINT",
+            "synced_at": "TIMESTAMPTZ",
+            **{
+                label_by_code[c]: postgres_type(type_by_code.get(c))
+                for c in codes
+            },
+        }
         cols_def = ", ".join(
             f"{_quote_pg_identifier(label_by_code[c])} {postgres_type(type_by_code.get(c))}"
             for c in codes
@@ -1183,6 +1224,14 @@ async def push_db_snapshot(
         for col in cols:
             _entity_column(Model, source_table, col.column_code)
         label_by_code = _dedupe_labels(cols)
+        snapshot_view_types = {
+            "id": "BIGINT",
+            "synced_at": "TIMESTAMPTZ",
+            **{
+                label_by_code[c.column_code]: postgres_type(c.data_type)
+                for c in cols
+            },
+        }
         cols_def = ", ".join(
             f"{_quote_pg_identifier(label_by_code[c.column_code])} {postgres_type(c.data_type)}"
             for c in cols
@@ -1234,6 +1283,26 @@ async def push_db_snapshot(
             f"(id, synced_at, {insert_cols}) "
             f"SELECT id, synced_at, {cols_sel} FROM public.{source_table_q}{where_sql}"
         ), params)
+
+    existing_view_columns = (await db.execute(text(
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_schema = :schema_name AND table_name = :view_name "
+        "ORDER BY ordinal_position"
+    ), {"schema_name": schema_name, "view_name": view_name})).all()
+    existing_view_types = {
+        str(column_name): str(data_type)
+        for column_name, data_type in existing_view_columns
+    }
+    conflicts = _snapshot_view_type_conflicts(snapshot_view_types, existing_view_types)
+    if conflicts:
+        detail = "；".join(
+            f"{column}（现有 {existing_type}，新快照 {expected_type.lower()}）"
+            for column, existing_type, expected_type in conflicts[:10]
+        )
+        raise SnapshotViewContractError(
+            "对外数据库快照字段类型与现有视图不兼容：" + detail
+            + "。请先完成字段类型契约迁移后再推送。"
+        )
 
     # 固定 View 在同一事务内切换到已完整写入的暂存表，读者始终查询同一对象。
     await db.execute(text(

@@ -144,6 +144,15 @@ def make_entity_model(table_name: str):
     return _make_model_from_table(table_name, table)
 
 
+async def test_snapshot_view_type_conflicts_report_only_incompatible_columns():
+    conflicts = push_service._snapshot_view_type_conflicts(
+        {"岗位工资": "NUMERIC", "工号": "TEXT"},
+        {"岗位工资": "text", "工号": "character varying"},
+    )
+
+    assert conflicts == [("岗位工资", "text", "NUMERIC")]
+
+
 def make_row(model, **overrides):
     data = {
         "id": 1,
