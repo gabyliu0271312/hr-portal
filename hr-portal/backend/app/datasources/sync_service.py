@@ -12,7 +12,7 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime, UTC, date
+from datetime import datetime, UTC, date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import delete, select
@@ -254,6 +254,14 @@ def _coerce_db_value(value, data_type: str):
     if key == "date":
         if isinstance(value, date) and not isinstance(value, datetime):
             return value
+
+        try:
+            serial = Decimal(str(value).replace(",", "").strip())
+            if serial == serial.to_integral_value() and serial > 0:
+                return date(1899, 12, 30) + timedelta(days=int(serial))
+        except (InvalidOperation, ValueError):
+            pass
+
         text = str(value).strip().replace("/", "-")
         try:
             return date.fromisoformat(text[:10])
