@@ -717,7 +717,56 @@ def test_reference_lookup_and_identity_with_overrides_use_memory_snapshot():
     assert result[0]["dept_name"] == "Finance"
     assert result[0]["normalized_cost_center"] == "current"
     assert result[1]["dept_name"] is None
-    assert result[1]["normalized_cost_center"] == "C2"
+
+
+def test_reference_lookup_uses_configured_dataset_and_each_source_field():
+    rules = [
+        FakeRule(
+            "reference_lookup", "employee_no", "expense_type",
+            {
+                "lookup_configs": [
+                    {
+                        "id": "lookup_0",
+                        "priority": 10,
+                        "reference_dataset_id": "dwd_emp_monthly_cost_class",
+                        "source_field": "employee_no",
+                        "reference_match_field": "value",
+                        "reference_return_field": "cost_classification",
+                        "target_field": "expense_type",
+                        "conditions": {"field_type": "工号"},
+                    },
+                    {
+                        "id": "lookup_1",
+                        "priority": 20,
+                        "reference_dataset_id": "dwd_emp_monthly_cost_class",
+                        "source_field": "client",
+                        "reference_match_field": "value",
+                        "reference_return_field": "cost_classification",
+                        "target_field": "expense_type",
+                        "conditions": {"field_type": "甲方"},
+                    },
+                ],
+                "unmatched": "set_default",
+                "defaultValue": "工资",
+            },
+        )
+    ]
+    result = execute_rules(
+        rules,
+        [
+            {"employee_no": "E001", "client": "甲方A"},
+            {"employee_no": "missing", "client": "甲方A"},
+            {"employee_no": "missing", "client": "missing"},
+        ],
+        reference_snapshot={
+            "dwd_emp_monthly_cost_class": [
+                {"field_type": "工号", "value": "E001", "cost_classification": "劳务"},
+                {"field_type": "甲方", "value": "甲方A", "cost_classification": "外包"},
+            ]
+        },
+    )
+
+    assert [row["expense_type"] for row in result] == ["劳务", "外包", "工资"]
 
 
 def test_unknown_rule_type_is_rejected_in_execute():

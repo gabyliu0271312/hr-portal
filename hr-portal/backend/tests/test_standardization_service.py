@@ -16,6 +16,7 @@ from app.warehouse.service.standardization import (
     _is_system_technical_column,
     _ordered_output_columns,
     _quote_ident,
+    _reference_dataset_ids,
     _resolve_dwd_column_types,
     _resolve_wage_rollout,
     _safe_insert_batch_size,
@@ -216,6 +217,31 @@ def test_dwd_create_column_definitions_adds_synthetic_primary_key_when_missing()
         '"full_name" TEXT',
         '"synced_at" TIMESTAMPTZ',
     ]
+
+def test_reference_dataset_ids_use_enabled_lookup_configuration():
+    rules = [
+        _Rule(
+            "reference_lookup",
+            "employee_no",
+            "expense_type",
+            {
+                "lookup_configs": [
+                    {"reference_dataset_id": "dwd_emp_monthly_cost_class"},
+                    {"referenceDatasetId": "dwd_client_cost_class"},
+                    {"reference_dataset_id": "dwd_emp_monthly_cost_class"},
+                ]
+            },
+        ),
+        _Rule("reference_lookup", "dept", "dept_name", {"lookup_table": "departments"}),
+        _Rule("value_map", "status", "status_label"),
+    ]
+
+    assert _reference_dataset_ids(rules) == [
+        "dwd_emp_monthly_cost_class",
+        "dwd_client_cost_class",
+        "departments",
+    ]
+
 
 class _Rule:
     def __init__(self, rule_type, source_field, target_field, rule_config=None):

@@ -155,31 +155,62 @@ def _lookup_reference(dataset: Any, match_rule: dict, value: Any) -> Any:
 def _apply_reference_lookup(row: dict, rule, source: str, target: str, reference_data: dict | None) -> dict:
     """使用调用方一次性传入的内存参考快照执行 lookup。"""
     config = rule.rule_config or {}
-    dataset = (reference_data or {}).get(config.get("lookup_table", ""), {})
+    lookup_configs = config.get("lookup_configs") or []
+    if lookup_configs:
+        matches = [
+            {
+                "priority": item.get("priority", index),
+                "dataset": item.get("reference_dataset_id", item.get("referenceDatasetId", "")),
+                "source_field": item.get("source_field", item.get("sourceField", source)),
+                "reference_field": item.get("reference_match_field", item.get("referenceMatchField", "value")),
+                "result_field": item.get("reference_return_field", item.get("referenceReturnField", "cost_classification")),
+                "target_field": item.get("target_field", item.get("targetField", target)),
+                "conditions": item.get("conditions") or {},
+            }
+            for index, item in enumerate(lookup_configs)
+        ]
+    else:
+        matches = [
+            {
+                "priority": item.get("priority", index),
+                "dataset": config.get("lookup_table", ""),
+                "source_field": item.get("source_field", item.get("src_field", source)),
+                "reference_field": item.get("reference_field", config.get("value_col", "value")),
+                "result_field": config.get("result_col", "cost_classification"),
+                "target_field": config.get("target", target),
+                "conditions": item.get("conditions") or (
+                    {config.get("type_col", "field_type"): item["match_type"]}
+                    if item.get("match_type") else {}
+                ),
+            }
+            for index, item in enumerate(config.get("rules", []))
+        ]
+
     value = row.get(source)
-    matched = None
-    for match_rule in sorted(config.get("rules", []), key=lambda item: item.get("priority", 0)):
-        if value is None:
+    for match_rule in sorted(matches, key=lambda item: item["priority"]):
+        value = row.get(match_rule["source_field"])
+        if value is None or str(value).strip() == "":
             continue
+        dataset = (reference_data or {}).get(match_rule["dataset"], {})
         matched = _lookup_reference(dataset, match_rule, value)
         if matched is not None:
-            break
-    if matched is not None:
-        result_field = config.get("result_col", "cost_classification")
-        row[target] = matched.get(result_field) if isinstance(matched, dict) else matched
+            output_field = match_rule["target_field"]
+            row[output_field] = matched.get(match_rule["result_field"]) if isinstance(matched, dict) else matched
+            return row
+
+    unmatched = config.get("unmatched", "set_default")
+    output_field = matches[0]["target_field"] if matches else target
+    if unmatched == "set_default":
+        row[output_field] = config.get("default", config.get("defaultValue"))
+    elif unmatched == "set_null":
+        row[output_field] = None
+    elif unmatched == "flag":
+        row[output_field] = value
+        row[f"{output_field}_unmapped"] = True
+    elif unmatched == "reject":
+        raise ValueError(f"reference_lookup 未命中: {value}")
     else:
-        unmatched = config.get("unmatched", "set_default")
-        if unmatched == "set_default":
-            row[target] = config.get("default")
-        elif unmatched == "set_null":
-            row[target] = None
-        elif unmatched == "flag":
-            row[target] = value
-            row[f"{target}_unmapped"] = True
-        elif unmatched == "reject":
-            raise ValueError(f"reference_lookup 未命中: {value}")
-        else:
-            row[target] = value
+        row[output_field] = value
     return row
 
 
