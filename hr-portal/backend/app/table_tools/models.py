@@ -12,8 +12,10 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
@@ -43,6 +45,9 @@ class MergeTemplate(Base):
     std_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     # 聚合口径:sum / first / conflict
     aggregate: Mapped[str] = mapped_column(String(16), nullable=False, default="sum")
+    # 结果保存方式: none / input_period / field_period
+    result_save_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="input_period")
+    result_period_field: Mapped[str | None] = mapped_column(String(128), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -53,6 +58,12 @@ class MergeTemplate(Base):
     )
 
     mappings: Mapped[list["MergeSourceMapping"]] = relationship(
+        back_populates="template", cascade="all, delete-orphan"
+    )
+    key_mappings: Mapped[list["MergeKeyMapping"]] = relationship(
+        back_populates="template", cascade="all, delete-orphan"
+    )
+    dwd_relations: Mapped[list["MergeDwdRelation"]] = relationship(
         back_populates="template", cascade="all, delete-orphan"
     )
 
@@ -97,6 +108,63 @@ class MergeSourceMapping(Base):
     template: Mapped["MergeTemplate"] = relationship(back_populates="mappings")
 
 
+class MergeKeyMapping(Base):
+    """模板级精确源主键到归集统一键的映射。"""
+
+    __tablename__ = "merge_key_mappings"
+    __table_args__ = (
+        Index("ix_merge_key_mapping_template", "template_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    template_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("merge_templates.id", ondelete="CASCADE"), nullable=False
+    )
+    source_key: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    canonical_merge_key: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    template: Mapped["MergeTemplate"] = relationship(back_populates="key_mappings")
+
+
+class MergeDwdRelation(Base):
+    """模板独立的 DWD 数据集关联配置。"""
+
+    __tablename__ = "merge_dwd_relations"
+    __table_args__ = (
+        UniqueConstraint("template_id", "name", name="uq_merge_dwd_relation_name"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    template_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("merge_templates.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    report_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("reports.id", ondelete="RESTRICT"), nullable=False)
+    left_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    right_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    select_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    missing_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="anomaly")
+    multiple_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="anomaly")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    template: Mapped["MergeTemplate"] = relationship(back_populates="dwd_relations")
+
+
 class MergeJob(Base):
     """一次合并批次记录。"""
 
@@ -112,3 +180,68 @@ class MergeJob(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class MergePreviewRun(Base):
+    """短期保存一次完整预览，供保存月度结果时复用。"""
+
+    __tablename__ = "merge_preview_runs"
+    __table_args__ = (Index("ix_merge_preview_run_owner", "created_by", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    template_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("merge_templates.id", ondelete="CASCADE"), nullable=False)
+    template_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    merge_keys_snapshot: Mapped[list] = mapped_column(JSON, nullable=False)
+    columns_snapshot: Mapped[list] = mapped_column(JSON, nullable=False)
+    rows: Mapped[list] = mapped_column(JSON, nullable=False)
+    stats: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    recognize_log: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    anomalies: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    dwd_anomalies: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MergeResultBatch(Base):
+    """模板某业务月份的结果快照。"""
+
+    __tablename__ = "merge_result_batches"
+    __table_args__ = (
+        UniqueConstraint("template_id", "period", name="uq_merge_result_batch_template_period"),
+        Index("ix_merge_result_batch_template", "template_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    template_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("merge_templates.id", ondelete="CASCADE"), nullable=False)
+    period: Mapped[str] = mapped_column(String(6), nullable=False)
+    template_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    merge_keys_snapshot: Mapped[list] = mapped_column(JSON, nullable=False)
+    columns_snapshot: Mapped[list] = mapped_column(JSON, nullable=False)
+    stats: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    anomalies: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    dwd_anomalies: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    updated_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class MergeResultRow(Base):
+    """月度结果的完整行快照。"""
+
+    __tablename__ = "merge_result_rows"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "merge_key_hash", name="uq_merge_result_row_key"),
+        Index("ix_merge_result_row_batch", "batch_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    batch_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("merge_result_batches.id", ondelete="CASCADE"), nullable=False)
+    merge_key: Mapped[dict] = mapped_column(JSON, nullable=False)
+    merge_key_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    values: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

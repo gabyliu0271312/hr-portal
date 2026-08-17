@@ -13,12 +13,16 @@ export interface SourceMappingIn {
   skip_tokens: string[]
 }
 
+export type ResultSaveMode = 'none' | 'input_period' | 'field_period'
+
 export interface TemplateIn {
   name: string
   description?: string | null
   merge_keys: string[]
   std_fields: string[]
   aggregate: string
+  result_save_mode: ResultSaveMode
+  result_period_field?: string | null
   mappings: SourceMappingIn[]
 }
 
@@ -29,6 +33,8 @@ export interface TemplateOut {
   merge_keys: string[]
   std_fields: string[]
   aggregate: string
+  result_save_mode: ResultSaveMode
+  result_period_field: string | null
   version: number
   mapping_count: number
   created_by: number | null
@@ -38,8 +44,51 @@ export interface SourceMappingOut extends SourceMappingIn {
   id: number
 }
 
+export interface KeyMapping {
+  id: number
+  template_id: number
+  source_key: Record<string, any>
+  canonical_merge_key: Record<string, any>
+  enabled: boolean
+}
+
+export interface KeyMappingIn {
+  source_key: Record<string, any>
+  canonical_merge_key: Record<string, any>
+  enabled?: boolean
+}
+
+export interface DwdRelation {
+  id: number
+  template_id: number
+  name: string
+  report_id: number
+  left_fields: string[]
+  right_fields: string[]
+  select_fields: string[]
+  missing_policy: string
+  multiple_policy: string
+  enabled: boolean
+}
+
+export interface DwdField {
+  code: string
+  label: string
+  data_type: string
+  is_sensitive: boolean
+}
+
+export interface DwdRelationSource {
+  report_id: number
+  report_name: string
+  dataset_id: number
+  dataset_name: string
+  dataset_label: string | null
+}
+
 export interface TemplateDetail extends TemplateOut {
   mappings: SourceMappingOut[]
+  key_mappings?: KeyMapping[]
 }
 
 export interface MappingDraft {
@@ -50,13 +99,40 @@ export interface MappingDraft {
   warnings: string[]
 }
 
+
 export interface MergeResult {
+  preview_token?: string
   columns: string[]
   rows: Record<string, any>[]
   total_rows: number
   recognize_log: { sheet: string; file: string; mapping: string; score: number }[]
   anomalies: { type: string; key: any; detail: string; file?: string }[]
   stats: { files: number; records: number; persons: number; anomalies: number }
+  key_mapping_stats?: { configured: number; matched: number; unmatched: number }
+  raw_key_traces?: Record<string, any>[]
+  dwd_anomalies?: Record<string, any>[]
+}
+
+export interface MergeResultBatch {
+  id: number
+  period: string
+  template_version: number
+  row_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SaveMergeResultResponse extends MergeResultBatch {
+  inserted_count: number
+  replaced_count: number
+  total_count: number
+}
+
+export interface MergeResultBatchRows {
+  batch: MergeResultBatch
+  columns: string[]
+  rows: Record<string, any>[]
+  total_rows: number
 }
 
 export interface AiDraftMeta {
@@ -108,6 +184,34 @@ export const tableToolsApi = {
 
   deleteMapping: (templateId: number, mappingId: number): Promise<void> =>
     api.delete(`/table-tools/templates/${templateId}/mappings/${mappingId}`).then(() => undefined),
+
+  listKeyMappings: (templateId: number): Promise<KeyMapping[]> =>
+    api.get(`/table-tools/templates/${templateId}/key-mappings`).then((r) => r.data),
+  createKeyMapping: (templateId: number, payload: KeyMappingIn): Promise<KeyMapping> =>
+    api.post(`/table-tools/templates/${templateId}/key-mappings`, payload).then((r) => r.data),
+  updateKeyMapping: (templateId: number, mappingId: number, payload: KeyMappingIn): Promise<KeyMapping> =>
+    api.put(`/table-tools/templates/${templateId}/key-mappings/${mappingId}`, payload).then((r) => r.data),
+  deleteKeyMapping: (templateId: number, mappingId: number): Promise<void> =>
+    api.delete(`/table-tools/templates/${templateId}/key-mappings/${mappingId}`).then(() => undefined),
+
+  listDwdSources: (): Promise<DwdRelationSource[]> =>
+    api.get('/table-tools/dwd-relation-sources').then((r) => r.data),
+  listDwdFields: (reportId: number): Promise<DwdField[]> =>
+    api.get(`/table-tools/reports/${reportId}/dwd-fields`).then((r) => r.data),
+  listDwdRelations: (templateId: number): Promise<DwdRelation[]> =>
+    api.get(`/table-tools/templates/${templateId}/dwd-relations`).then((r) => r.data),
+  createDwdRelation: (templateId: number, payload: Omit<DwdRelation, 'id' | 'template_id'>): Promise<DwdRelation> =>
+    api.post(`/table-tools/templates/${templateId}/dwd-relations`, payload).then((r) => r.data),
+  updateDwdRelation: (templateId: number, relationId: number, payload: Omit<DwdRelation, 'id' | 'template_id'>): Promise<DwdRelation> =>
+    api.put(`/table-tools/templates/${templateId}/dwd-relations/${relationId}`, payload).then((r) => r.data),
+  deleteDwdRelation: (templateId: number, relationId: number): Promise<void> =>
+    api.delete(`/table-tools/templates/${templateId}/dwd-relations/${relationId}`).then(() => undefined),
+  applyDwdRelation: (templateId: number, relationId: number, files: File[]): Promise<MergeResult & { dwd_anomalies: Record<string, any>[] }> => {
+    const fd = new FormData()
+    files.forEach((file) => fd.append('files', file))
+    return api.post(`/table-tools/templates/${templateId}/dwd-relations/${relationId}/apply`, fd, { timeout: 300000 }).then((r) => r.data)
+  },
+
   runMerge: (templateId: number, files: File[]): Promise<MergeResult> => {
     const fd = new FormData()
     files.forEach((f) => fd.append('files', f))
@@ -127,6 +231,22 @@ export const tableToolsApi = {
     const a = document.createElement('a')
     a.href = url
     a.download = 'merged_result.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+
+  saveResultBatch: (templateId: number, previewToken: string, period?: string): Promise<SaveMergeResultResponse> =>
+    api.post(`/table-tools/templates/${templateId}/result-batches/save`, { preview_token: previewToken, ...(period ? { period } : {}) }).then((r) => r.data),
+  listResultBatches: (templateId: number): Promise<MergeResultBatch[]> =>
+    api.get(`/table-tools/templates/${templateId}/result-batches`).then((r) => r.data),
+  getResultBatchRows: (templateId: number, batchId: number, page = 1): Promise<MergeResultBatchRows> =>
+    api.get(`/table-tools/templates/${templateId}/result-batches/${batchId}/rows`, { params: { page, page_size: 100 } }).then((r) => r.data),
+  downloadResultBatch: async (templateId: number, batch: MergeResultBatch): Promise<void> => {
+    const resp = await api.get(`/table-tools/templates/${templateId}/result-batches/${batch.id}/download`, { responseType: 'blob' })
+    const url = URL.createObjectURL(resp.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `merged_result_${batch.period}.xlsx`
     a.click()
     URL.revokeObjectURL(url)
   },

@@ -9,7 +9,11 @@
 """
 from __future__ import annotations
 
+import hashlib
 import io
+import json
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import openpyxl
@@ -30,7 +34,22 @@ from app.core.deps import current_user, require_op
 from app.permissions.scope_filter import _is_super_admin
 from app.table_tools import engine
 from app.table_tools import ai_builder
-from app.table_tools.models import MergeSourceMapping, MergeTemplate
+from app.table_tools.dwd_relation_service import (
+    apply_dwd_relation,
+    list_dwd_fields,
+    list_dwd_sources,
+    load_dwd_context,
+    validate_relation_payload,
+)
+from app.table_tools.models import (
+    MergeDwdRelation,
+    MergeKeyMapping,
+    MergePreviewRun,
+    MergeResultBatch,
+    MergeResultRow,
+    MergeSourceMapping,
+    MergeTemplate,
+)
 from app.users.models import User
 
 router = APIRouter(prefix="/table-tools", tags=["table-tools"])
@@ -60,6 +79,8 @@ class TemplateIn(BaseModel):
     merge_keys: list[str] = Field(min_length=1)
     std_fields: list[str] = Field(min_length=1)
     aggregate: str = "sum"
+    result_save_mode: str = "input_period"
+    result_period_field: str | None = None
     mappings: list[SourceMappingIn] = []
 
 
@@ -70,6 +91,8 @@ class TemplateOut(BaseModel):
     merge_keys: list[str]
     std_fields: list[str]
     aggregate: str
+    result_save_mode: str
+    result_period_field: str | None
     version: int
     mapping_count: int
     created_by: int | None
@@ -105,9 +128,32 @@ class SourceMappingBatchIn(BaseModel):
     mappings: list[SourceMappingIn] = Field(min_length=1)
 
 
+class KeyMappingIn(BaseModel):
+    source_key: dict[str, Any] = Field(min_length=1)
+    canonical_merge_key: dict[str, Any] = Field(min_length=1)
+    enabled: bool = True
+
+
+class DwdRelationIn(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    report_id: int
+    left_fields: list[str] = Field(min_length=1)
+    right_fields: list[str] = Field(min_length=1)
+    select_fields: list[str] = []
+    missing_policy: str = "anomaly"
+    multiple_policy: str = "anomaly"
+    enabled: bool = True
+
+
+class SaveResultBatchIn(BaseModel):
+    preview_token: str = Field(min_length=1, max_length=64)
+    period: str | None = Field(default=None, min_length=6, max_length=6)
+
+
 # ── 序列化 ─────────────────────────────────────────────────
 def _mapping_to_engine(m: MergeSourceMapping) -> dict:
     return {
+        "id": m.id,
         "name": m.name,
         "match": m.match_signature,
         "sheet_kw": m.sheet_kw,
@@ -124,7 +170,8 @@ def _template_out(t: MergeTemplate) -> TemplateOut:
     return TemplateOut(
         id=t.id, name=t.name, description=t.description,
         merge_keys=t.merge_keys, std_fields=t.std_fields,
-        aggregate=t.aggregate, version=t.version,
+        aggregate=t.aggregate, result_save_mode=t.result_save_mode,
+        result_period_field=t.result_period_field, version=t.version,
         mapping_count=len(t.mappings), created_by=t.created_by,
     )
 
@@ -183,10 +230,37 @@ def _apply_source_mapping(mapping: MergeSourceMapping, values: dict) -> None:
     for key, value in values.items():
         setattr(mapping, key, value)
 
+
+def _key_mapping_out(item: MergeKeyMapping) -> dict:
+    return {
+        "id": item.id,
+        "template_id": item.template_id,
+        "source_key": item.source_key,
+        "canonical_merge_key": item.canonical_merge_key,
+        "enabled": item.enabled,
+    }
+
+
+def _validate_key_mapping(template: MergeTemplate, payload: KeyMappingIn) -> dict:
+    if set(payload.source_key) != set(template.merge_keys):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="源主键字段必须完整匹配模板归集主键")
+    if set(payload.canonical_merge_key) != set(template.merge_keys):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="统一键字段必须完整匹配模板归集主键")
+    return {
+        "source_key": {field: payload.source_key[field] for field in template.merge_keys},
+        "canonical_merge_key": {field: payload.canonical_merge_key[field] for field in template.merge_keys},
+        "enabled": payload.enabled,
+    }
+
+
 async def _load_template(db: AsyncSession, tid: int) -> MergeTemplate:
     row = (await db.execute(
         select(MergeTemplate).where(MergeTemplate.id == tid)
-        .options(selectinload(MergeTemplate.mappings))
+        .options(
+            selectinload(MergeTemplate.mappings),
+            selectinload(MergeTemplate.key_mappings),
+            selectinload(MergeTemplate.dwd_relations),
+        )
     )).scalar_one_or_none()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在")
@@ -242,6 +316,22 @@ async def get_template(
             }
             for m in t.mappings
         ],
+        "key_mappings": [_key_mapping_out(item) for item in t.key_mappings],
+        "dwd_relations": [
+            {
+                "id": item.id,
+                "template_id": item.template_id,
+                "name": item.name,
+                "report_id": item.report_id,
+                "left_fields": item.left_fields,
+                "right_fields": item.right_fields,
+                "select_fields": item.select_fields,
+                "missing_policy": item.missing_policy,
+                "multiple_policy": item.multiple_policy,
+                "enabled": item.enabled,
+            }
+            for item in t.dwd_relations
+        ],
     }
 
 
@@ -253,10 +343,12 @@ async def create_template(
 ) -> TemplateOut:
     if (await db.execute(select(MergeTemplate).where(MergeTemplate.name == payload.name))).scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, detail="模板名已存在")
+    mode, period_field = _validate_save_config(payload.result_save_mode, payload.result_period_field, payload.std_fields)
     t = MergeTemplate(
         name=payload.name, description=payload.description,
         merge_keys=payload.merge_keys, std_fields=payload.std_fields,
-        aggregate=payload.aggregate, created_by=user.id,
+        aggregate=payload.aggregate, result_save_mode=mode,
+        result_period_field=period_field, created_by=user.id,
     )
     mapping_names: set[str] = set()
     for ms in payload.mappings:
@@ -285,6 +377,9 @@ async def update_template(
     t.merge_keys = payload.merge_keys
     t.std_fields = payload.std_fields
     t.aggregate = payload.aggregate
+    mode, period_field = _validate_save_config(payload.result_save_mode, payload.result_period_field, payload.std_fields)
+    t.result_save_mode = mode
+    t.result_period_field = period_field
     existing_mappings = {mapping.id: mapping for mapping in t.mappings}
     names: set[str] = set()
     mapping_ids: set[int] = set()
@@ -388,7 +483,86 @@ async def delete_source_mapping(tid: int, mid: int, db: AsyncSession = Depends(g
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@router.delete("/templates/{tid}", status_code=status.HTTP_204_NO_CONTENT)
+# ── 主键值映射维护 ────────────────────────────────────────────
+@router.get("/templates/{tid}/key-mappings")
+async def list_key_mappings(
+    tid: int,
+    db: AsyncSession = Depends(get_session),
+    _: User = Depends(require_op(MENU, "V")),
+) -> list[dict]:
+    template = await _load_template(db, tid)
+    return [_key_mapping_out(item) for item in template.key_mappings]
+
+
+@router.post("/templates/{tid}/key-mappings", status_code=status.HTTP_201_CREATED)
+async def create_key_mapping(
+    tid: int,
+    payload: KeyMappingIn,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "U")),
+) -> dict:
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    values = _validate_key_mapping(template, payload)
+    if any(
+        item.source_key == values["source_key"]
+        for item in template.key_mappings
+    ):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="源主键映射已存在")
+    item = MergeKeyMapping(template_id=tid, created_by=user.id, **values)
+    template.key_mappings.append(item)
+    template.version += 1
+    await db.commit()
+    await db.refresh(item)
+    return _key_mapping_out(item)
+
+
+@router.put("/templates/{tid}/key-mappings/{mid}")
+async def update_key_mapping(
+    tid: int,
+    mid: int,
+    payload: KeyMappingIn,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "U")),
+) -> dict:
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    item = next((value for value in template.key_mappings if value.id == mid), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="主键映射不存在")
+    values = _validate_key_mapping(template, payload)
+    if any(
+        value.id != mid
+        and value.source_key == values["source_key"]
+        for value in template.key_mappings
+    ):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="源主键映射已存在")
+    for key, value in values.items():
+        setattr(item, key, value)
+    template.version += 1
+    await db.commit()
+    await db.refresh(item)
+    return _key_mapping_out(item)
+
+
+@router.delete("/templates/{tid}/key-mappings/{mid}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_key_mapping(
+    tid: int,
+    mid: int,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "D")),
+) -> Response:
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    item = next((value for value in template.key_mappings if value.id == mid), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="主键映射不存在")
+    await db.delete(item)
+    template.version += 1
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 async def delete_template(
     tid: int,
     db: AsyncSession = Depends(get_session),
@@ -401,7 +575,169 @@ async def delete_template(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# ── 执行合并 ───────────────────────────────────────────────
+# ── DWD 来源与独立关联配置 ────────────────────────────────────
+@router.get("/dwd-relation-sources")
+async def dwd_relation_sources(
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "V")),
+) -> list[dict]:
+    return await list_dwd_sources(user, db)
+
+
+@router.get("/reports/{report_id}/dwd-fields")
+async def dwd_fields(
+    report_id: int,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "V")),
+) -> list[dict]:
+    return await list_dwd_fields(report_id, user, db)
+
+
+@router.get("/templates/{tid}/dwd-relations")
+async def list_dwd_relations(
+    tid: int,
+    db: AsyncSession = Depends(get_session),
+    _: User = Depends(require_op(MENU, "V")),
+) -> list[dict]:
+    template = await _load_template(db, tid)
+    return [{
+        "id": item.id,
+        "template_id": item.template_id,
+        "name": item.name,
+        "report_id": item.report_id,
+        "left_fields": item.left_fields,
+        "right_fields": item.right_fields,
+        "select_fields": item.select_fields,
+        "missing_policy": item.missing_policy,
+        "multiple_policy": item.multiple_policy,
+        "enabled": item.enabled,
+    } for item in template.dwd_relations]
+
+
+@router.post("/templates/{tid}/dwd-relations", status_code=status.HTTP_201_CREATED)
+async def create_dwd_relation(
+    tid: int,
+    payload: DwdRelationIn,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "U")),
+) -> dict:
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    values = validate_relation_payload(
+        payload.model_dump(), template.merge_keys + template.std_fields,
+        [item["code"] for item in await list_dwd_fields(payload.report_id, user, db)],
+    )
+    await load_dwd_context(values["report_id"], user, db)
+    if any(item.name == values["name"] for item in template.dwd_relations):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="DWD 关联名称已存在")
+    item = MergeDwdRelation(template_id=tid, created_by=user.id, **values)
+    template.dwd_relations.append(item)
+    template.version += 1
+    await db.commit()
+    await db.refresh(item)
+    return {"id": item.id, "template_id": tid, **values}
+
+
+@router.put("/templates/{tid}/dwd-relations/{rid}")
+async def update_dwd_relation(
+    tid: int,
+    rid: int,
+    payload: DwdRelationIn,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "U")),
+) -> dict:
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    item = next((value for value in template.dwd_relations if value.id == rid), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="DWD 关联不存在")
+    values = validate_relation_payload(
+        payload.model_dump(), template.merge_keys + template.std_fields,
+        [item["code"] for item in await list_dwd_fields(payload.report_id, user, db)],
+    )
+    await load_dwd_context(values["report_id"], user, db)
+    if any(value.id != rid and value.name == values["name"] for value in template.dwd_relations):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="DWD 关联名称已存在")
+    for key, value in values.items():
+        setattr(item, key, value)
+    template.version += 1
+    await db.commit()
+    await db.refresh(item)
+    return {"id": item.id, "template_id": tid, **values}
+
+
+@router.delete("/templates/{tid}/dwd-relations/{rid}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_dwd_relation(
+    tid: int,
+    rid: int,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "D")),
+) -> Response:
+    template = await _load_template(db, tid)
+    await _ensure_can_modify(db, template, user)
+    item = next((value for value in template.dwd_relations if value.id == rid), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="DWD 关联不存在")
+    await db.delete(item)
+    template.version += 1
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _run_template_merge(
+    template: MergeTemplate,
+    blobs: list[tuple[str, bytes]],
+    user: User,
+    db: AsyncSession,
+    relations: list[MergeDwdRelation] | None = None,
+) -> dict:
+    template_config = {
+        "merge_keys": template.merge_keys,
+        "std_fields": template.std_fields,
+        "aggregate": template.aggregate,
+    }
+    mappings = [_mapping_to_engine(item) for item in template.mappings]
+    key_mappings = [
+        {
+            "source_key": item.source_key,
+            "canonical_merge_key": item.canonical_merge_key,
+        }
+        for item in template.key_mappings if item.enabled
+    ]
+    result = engine.run_merge(
+        blobs, template_config, mappings, await executable_functions(db), key_mappings
+    )
+    dwd_anomalies: list[dict[str, Any]] = []
+    rows = result["rows"]
+    columns = list(result["columns"])
+    for relation in relations if relations is not None else template.dwd_relations:
+        if not relation.enabled:
+            continue
+        rows, anomalies = await apply_dwd_relation(rows, relation, user, db)
+        dwd_anomalies.extend(anomalies)
+        for field in relation.select_fields:
+            if field not in columns:
+                columns.append(field)
+    return {**result, "rows": rows, "columns": columns, "dwd_anomalies": dwd_anomalies}
+
+
+@router.post("/templates/{tid}/dwd-relations/{rid}/apply")
+async def apply_dwd_relation_api(
+    tid: int,
+    rid: int,
+    files: list[UploadFile] = File(...),
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "V")),
+) -> dict:
+    template = await _load_template(db, tid)
+    relation = next((value for value in template.dwd_relations if value.id == rid), None)
+    if relation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="DWD 关联不存在")
+    blobs = await _read_files(files)
+    result = await _run_template_merge(template, blobs, user, db, relations=[relation])
+    return {**result, "rows": result["rows"][:100], "total_rows": len(result["rows"])}
+
+
 async def _read_files(files: list[UploadFile]) -> list[tuple[str, bytes]]:
     out: list[tuple[str, bytes]] = []
     for f in files:
@@ -416,29 +752,224 @@ async def _read_files(files: list[UploadFile]) -> list[tuple[str, bytes]]:
     return out
 
 
+def _validate_period(period: str) -> str:
+    if len(period) != 6 or not period.isdigit() or not 1 <= int(period[4:]) <= 12:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="业务月份必须为有效的 YYYYMM 格式")
+    return period
+
+
+def _validate_save_config(mode: str, period_field: str | None, std_fields: list[str]) -> tuple[str, str | None]:
+    if mode not in {"none", "input_period", "field_period"}:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="结果保存方式无效")
+    if mode == "field_period":
+        if not period_field or period_field not in std_fields:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="从结果字段读取期间时，期间字段必须属于标准字段")
+        return mode, period_field
+    if period_field:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="当前保存方式不能设置业务期间字段")
+    return mode, None
+
+
+def _row_key(row: dict[str, Any], merge_keys: list[str]) -> tuple[dict[str, str], str]:
+    values = {field: str(row.get(field, "") or "").strip() for field in merge_keys}
+    if any(not value for value in values.values()):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="预览结果存在不完整的归集主键，不能保存")
+    encoded = json.dumps(values, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return values, hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _batch_out(batch: MergeResultBatch) -> dict[str, Any]:
+    return {
+        "id": batch.id,
+        "period": batch.period,
+        "template_version": batch.template_version,
+        "row_count": batch.row_count,
+        "created_at": batch.created_at,
+        "updated_at": batch.updated_at,
+    }
+
+
 @router.post("/templates/{tid}/merge")
 async def run_merge_api(
     tid: int,
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_session),
-    _: User = Depends(require_op(MENU, "V")),
+    user: User = Depends(require_op(MENU, "V")),
 ) -> dict:
-    """用模板跑合并,返回预览(行/识别日志/异常/统计)。下载另走 /download。"""
-    t = await _load_template(db, tid)
-    blobs = await _read_files(files)
-    template = {"merge_keys": t.merge_keys, "std_fields": t.std_fields, "aggregate": t.aggregate}
-    mappings = [_mapping_to_engine(m) for m in t.mappings]
-    custom_functions = await executable_functions(db)
-    result = engine.run_merge(blobs, template, mappings, custom_functions)
-    # 预览只回前 100 行,完整结果走下载
+    """用模板跑合并并持久化完整预览，响应只返回前 100 行。"""
+    template = await _load_template(db, tid)
+    result = await _run_template_merge(template, await _read_files(files), user=user, db=db)
+    preview = MergePreviewRun(
+        token=secrets.token_urlsafe(32),
+        template_id=template.id,
+        template_version=template.version,
+        merge_keys_snapshot=list(template.merge_keys),
+        columns_snapshot=list(result["columns"]),
+        rows=result["rows"],
+        stats=result["stats"],
+        recognize_log=result["recognize_log"],
+        anomalies=result["anomalies"],
+        dwd_anomalies=result["dwd_anomalies"],
+        created_by=user.id,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=2),
+    )
+    db.add(preview)
+    await db.commit()
     return {
+        "preview_token": preview.token,
         "columns": result["columns"],
         "rows": result["rows"][:100],
         "total_rows": len(result["rows"]),
         "recognize_log": result["recognize_log"],
         "anomalies": result["anomalies"],
+        "dwd_anomalies": result["dwd_anomalies"],
         "stats": result["stats"],
+        "key_mapping_stats": result["key_mapping_stats"],
+        "raw_key_traces": result["raw_key_traces"],
     }
+
+
+@router.post("/templates/{tid}/result-batches/save")
+async def save_result_batch(
+    tid: int,
+    payload: SaveResultBatchIn,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "V")),
+) -> dict:
+    template = await _load_template(db, tid)
+    mode, period_field = _validate_save_config(template.result_save_mode, template.result_period_field, template.std_fields)
+    preview = (await db.execute(
+        select(MergePreviewRun).where(
+            MergePreviewRun.token == payload.preview_token,
+            MergePreviewRun.template_id == tid,
+            MergePreviewRun.created_by == user.id,
+        )
+    )).scalar_one_or_none()
+    if preview is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="预览结果不存在或无权保存")
+    if preview.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="预览结果已过期，请重新运行预览")
+
+    if mode == "none":
+        period = "CURRENT"
+    elif mode == "input_period":
+        if payload.period is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="请输入业务月份 YYYYMM")
+        period = _validate_period(payload.period)
+    else:
+        if payload.period is not None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="当前模板的业务月份必须从结果字段读取")
+        if period_field not in preview.columns_snapshot:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="预览结果不包含配置的业务月份字段")
+        if not preview.rows:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="没有可保存的结果，无法识别业务月份")
+        periods = set()
+        for row in preview.rows:
+            value = str(row.get(period_field or "", "") or "").strip()
+            if not value:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="结果中存在缺失的业务月份")
+            periods.add(_validate_period(value))
+        if len(periods) != 1:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="结果中必须包含唯一的有效业务月份")
+        period = periods.pop()
+
+    keyed_rows: list[tuple[dict[str, str], str, dict[str, Any]]] = []
+    hashes: set[str] = set()
+    for row in preview.rows:
+        key, key_hash = _row_key(row, preview.merge_keys_snapshot)
+        if key_hash in hashes:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="预览结果存在重复的归集联合主键，不能保存")
+        hashes.add(key_hash)
+        keyed_rows.append((key, key_hash, row))
+
+    batch = (await db.execute(
+        select(MergeResultBatch).where(
+            MergeResultBatch.template_id == tid, MergeResultBatch.period == period
+        ).with_for_update()
+    )).scalar_one_or_none()
+    if batch is None:
+        batch = MergeResultBatch(
+            template_id=tid, period=period, template_version=preview.template_version,
+            merge_keys_snapshot=preview.merge_keys_snapshot, columns_snapshot=preview.columns_snapshot,
+            stats=preview.stats, anomalies=preview.anomalies, dwd_anomalies=preview.dwd_anomalies,
+            created_by=user.id, updated_by=user.id,
+        )
+        db.add(batch)
+        await db.flush()
+        existing: dict[str, MergeResultRow] = {}
+    else:
+        existing_rows = (await db.execute(
+            select(MergeResultRow).where(MergeResultRow.batch_id == batch.id)
+        )).scalars().all()
+        existing = {item.merge_key_hash: item for item in existing_rows}
+        batch.template_version = preview.template_version
+        batch.merge_keys_snapshot = preview.merge_keys_snapshot
+        batch.columns_snapshot = preview.columns_snapshot
+        batch.stats = preview.stats
+        batch.anomalies = preview.anomalies
+        batch.dwd_anomalies = preview.dwd_anomalies
+        batch.updated_by = user.id
+
+    inserted_count = 0
+    replaced_count = 0
+    for key, key_hash, values in keyed_rows:
+        current = existing.get(key_hash)
+        if current is None:
+            db.add(MergeResultRow(batch_id=batch.id, merge_key=key, merge_key_hash=key_hash, values=values))
+            inserted_count += 1
+        else:
+            if current.merge_key != key:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="归集主键校验冲突，不能保存")
+            current.values = values
+            replaced_count += 1
+    await db.flush()
+    batch.row_count = len(existing) + inserted_count
+    await db.commit()
+    return {**_batch_out(batch), "inserted_count": inserted_count, "replaced_count": replaced_count, "total_count": batch.row_count}
+
+
+@router.get("/templates/{tid}/result-batches")
+async def list_result_batches(
+    tid: int,
+    db: AsyncSession = Depends(get_session),
+    _: User = Depends(require_op(MENU, "V")),
+) -> list[dict]:
+    await _load_template(db, tid)
+    batches = (await db.execute(
+        select(MergeResultBatch).where(MergeResultBatch.template_id == tid).order_by(MergeResultBatch.period.desc())
+    )).scalars().all()
+    return [_batch_out(batch) for batch in batches]
+
+
+@router.get("/templates/{tid}/result-batches/{bid}/rows")
+async def list_result_batch_rows(
+    tid: int, bid: int, page: int = 1, page_size: int = 100,
+    db: AsyncSession = Depends(get_session),
+    _: User = Depends(require_op(MENU, "V")),
+) -> dict:
+    if page < 1 or not 1 <= page_size <= 500:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="分页参数无效")
+    batch = (await db.execute(select(MergeResultBatch).where(MergeResultBatch.id == bid, MergeResultBatch.template_id == tid))).scalar_one_or_none()
+    if batch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="历史结果不存在")
+    rows = (await db.execute(
+        select(MergeResultRow).where(MergeResultRow.batch_id == bid).order_by(MergeResultRow.id).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+    return {"batch": _batch_out(batch), "columns": batch.columns_snapshot, "rows": [row.values for row in rows], "total_rows": batch.row_count}
+
+
+@router.get("/templates/{tid}/result-batches/{bid}/download")
+async def download_result_batch(
+    tid: int, bid: int,
+    db: AsyncSession = Depends(get_session),
+    _: User = Depends(require_op(MENU, "E")),
+) -> Response:
+    batch = (await db.execute(select(MergeResultBatch).where(MergeResultBatch.id == bid, MergeResultBatch.template_id == tid))).scalar_one_or_none()
+    if batch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="历史结果不存在")
+    rows = (await db.execute(select(MergeResultRow).where(MergeResultRow.batch_id == bid).order_by(MergeResultRow.id))).scalars().all()
+    xlsx = engine.rows_to_xlsx(batch.columns_snapshot, [row.values for row in rows])
+    return Response(content=xlsx, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="merged_result_{batch.period}.xlsx"'})
 
 
 @router.post("/templates/{tid}/download")
@@ -451,10 +982,7 @@ async def download_merge(
     """跑合并并直接下载 xlsx(导出口径 E)。"""
     t = await _load_template(db, tid)
     blobs = await _read_files(files)
-    template = {"merge_keys": t.merge_keys, "std_fields": t.std_fields, "aggregate": t.aggregate}
-    mappings = [_mapping_to_engine(m) for m in t.mappings]
-    custom_functions = await executable_functions(db)
-    result = engine.run_merge(blobs, template, mappings, custom_functions)
+    result = await _run_template_merge(t, blobs, user=_, db=db)
     xlsx = engine.rows_to_xlsx(result["columns"], result["rows"])
     return Response(
         content=xlsx,

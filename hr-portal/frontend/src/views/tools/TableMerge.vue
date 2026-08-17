@@ -6,7 +6,20 @@ import {
   CircleCheck, Warning, Document, Grid
 } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
-import { tableToolsApi, type TemplateOut, type TemplateDetail, type MergeResult, type AiDraft } from '@/api/tableTools'
+import {
+  tableToolsApi,
+  type TemplateOut,
+  type TemplateDetail,
+  type MergeResult,
+  type MergeResultBatch,
+  type MergeResultBatchRows,
+  type AiDraft,
+  type KeyMapping,
+  type DwdRelation,
+  type DwdField,
+  type DwdRelationSource,
+  type ResultSaveMode,
+} from '@/api/tableTools'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
@@ -34,6 +47,154 @@ onMounted(loadTemplates)
 // ── 建/编辑模板（build 模式） ─────────────────────────────────────────────────
 const editingId = ref<number | null>(null)
 const buildStep = ref<'upload' | 'ai' | 'form'>('upload')
+const activeConfigTab = ref<'base' | 'key' | 'dwd'>('base')
+
+const keyMappings = ref<KeyMapping[]>([])
+const keyMappingDraft = ref<KeyMapping | null>(null)
+const keyMappingSaving = ref(false)
+const dwdRelations = ref<DwdRelation[]>([])
+const dwdSources = ref<DwdRelationSource[]>([])
+const dwdFields = ref<DwdField[]>([])
+const dwdFieldsLoading = ref(false)
+const dwdRelationDraft = ref<Partial<DwdRelation> | null>(null)
+const dwdRelationSaving = ref(false)
+
+function emptyKeyMapping(): KeyMapping {
+  return {
+    id: 0, template_id: editingId.value || 0,
+    source_key: Object.fromEntries(form.value.merge_keys.map((field) => [field, ''])),
+    canonical_merge_key: Object.fromEntries(form.value.merge_keys.map((field) => [field, ''])),
+    enabled: true,
+  }
+}
+
+function emptyDwdRelation(): Partial<DwdRelation> {
+  return {
+    name: '', report_id: undefined, left_fields: [], right_fields: [], select_fields: [],
+    missing_policy: 'anomaly', multiple_policy: 'anomaly', enabled: true,
+  }
+}
+
+async function loadAdvancedConfig(id: number) {
+  try {
+    const [keys, relations, sources] = await Promise.all([
+      tableToolsApi.listKeyMappings(id),
+      tableToolsApi.listDwdRelations(id),
+      tableToolsApi.listDwdSources(),
+    ])
+    keyMappings.value = keys
+    dwdRelations.value = relations
+    dwdSources.value = sources
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '加载高级配置失败')
+  }
+}
+
+async function loadDwdFields(reportId: number | undefined) {
+  dwdFields.value = []
+  if (!reportId) return
+  dwdFieldsLoading.value = true
+  try { dwdFields.value = await tableToolsApi.listDwdFields(reportId) }
+  catch (e: any) { ElMessage.error(e?.response?.data?.detail || '加载 DWD 字段失败') }
+  finally { dwdFieldsLoading.value = false }
+}
+
+function startKeyMapping(item?: KeyMapping) {
+  keyMappingDraft.value = item ? JSON.parse(JSON.stringify(item)) : emptyKeyMapping()
+}
+function cancelKeyMapping() { keyMappingDraft.value = null }
+
+async function saveKeyMapping() {
+  if (!editingId.value || !keyMappingDraft.value) return
+  const item = keyMappingDraft.value
+  if (form.value.merge_keys.some((field) => !String(item.source_key[field] ?? '').trim() || !String(item.canonical_merge_key[field] ?? '').trim())) {
+    ElMessage.warning('请完整填写源主键值和归集统一键')
+    return
+  }
+  keyMappingSaving.value = true
+  try {
+    const payload = { source_key: item.source_key, canonical_merge_key: item.canonical_merge_key, enabled: item.enabled }
+    const saved = item.id
+      ? await tableToolsApi.updateKeyMapping(editingId.value, item.id, payload)
+      : await tableToolsApi.createKeyMapping(editingId.value, payload)
+    keyMappings.value = keyMappings.value.some((value) => value.id === saved.id)
+      ? keyMappings.value.map((value) => value.id === saved.id ? saved : value)
+      : [...keyMappings.value, saved]
+    keyMappingDraft.value = null
+    ElMessage.success('主键值映射已保存')
+  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '主键值映射保存失败') }
+  finally { keyMappingSaving.value = false }
+}
+
+async function removeKeyMapping(item: KeyMapping) {
+  if (!editingId.value) return
+  try {
+    await ElMessageBox.confirm('确认删除该主键值映射？', '确认删除', { type: 'warning' })
+    await tableToolsApi.deleteKeyMapping(editingId.value, item.id)
+    keyMappings.value = keyMappings.value.filter((value) => value.id !== item.id)
+  } catch (e: any) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.response?.data?.detail || '删除主键值映射失败')
+  }
+}
+
+function startDwdRelation(item?: DwdRelation) {
+  const draft = item ? JSON.parse(JSON.stringify(item)) : emptyDwdRelation()
+  dwdRelationDraft.value = draft
+  void loadDwdFields(draft.report_id)
+}
+function cancelDwdRelation() { dwdRelationDraft.value = null; dwdFields.value = [] }
+function addDwdPair() {
+  if (!dwdRelationDraft.value) return
+  dwdRelationDraft.value.left_fields = [...(dwdRelationDraft.value.left_fields || []), '']
+  dwdRelationDraft.value.right_fields = [...(dwdRelationDraft.value.right_fields || []), '']
+}
+function removeDwdPair(index: number) {
+  if (!dwdRelationDraft.value) return
+  dwdRelationDraft.value.left_fields = (dwdRelationDraft.value.left_fields || []).filter((_, i) => i !== index)
+  dwdRelationDraft.value.right_fields = (dwdRelationDraft.value.right_fields || []).filter((_, i) => i !== index)
+}
+
+async function saveDwdRelation() {
+  if (!editingId.value || !dwdRelationDraft.value) return
+  const item = dwdRelationDraft.value
+  if (!item.name?.trim() || !item.report_id || !item.left_fields?.length || !item.right_fields?.length) {
+    ElMessage.warning('请填写名称、DWD 来源和关联字段')
+    return
+  }
+  if (item.left_fields.length !== item.right_fields.length) {
+    ElMessage.warning('左右关联字段数量必须一致')
+    return
+  }
+  dwdRelationSaving.value = true
+  try {
+    const payload = {
+      name: item.name, report_id: item.report_id, left_fields: item.left_fields,
+      right_fields: item.right_fields, select_fields: item.select_fields || [],
+      missing_policy: item.missing_policy || 'anomaly', multiple_policy: item.multiple_policy || 'anomaly',
+      enabled: item.enabled !== false,
+    }
+    const saved = item.id
+      ? await tableToolsApi.updateDwdRelation(editingId.value, item.id, payload)
+      : await tableToolsApi.createDwdRelation(editingId.value, payload)
+    dwdRelations.value = dwdRelations.value.some((value) => value.id === saved.id)
+      ? dwdRelations.value.map((value) => value.id === saved.id ? saved : value)
+      : [...dwdRelations.value, saved]
+    dwdRelationDraft.value = null
+    ElMessage.success('DWD 关联已保存')
+  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || 'DWD 关联保存失败') }
+  finally { dwdRelationSaving.value = false }
+}
+
+async function removeDwdRelation(item: DwdRelation) {
+  if (!editingId.value) return
+  try {
+    await ElMessageBox.confirm('确认删除该 DWD 关联？', '确认删除', { type: 'warning' })
+    await tableToolsApi.deleteDwdRelation(editingId.value, item.id)
+    dwdRelations.value = dwdRelations.value.filter((value) => value.id !== item.id)
+  } catch (e: any) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.response?.data?.detail || '删除 DWD 关联失败')
+  }
+}
 
 // 文件 + AI
 const tplFiles = ref<File[]>([])
@@ -48,6 +209,8 @@ const form = ref({
   merge_keys: ['姓名', '证件号码'] as string[],
   std_fields: [] as string[],
   aggregate: 'sum',
+  result_save_mode: 'input_period' as ResultSaveMode,
+  result_period_field: null as string | null,
   mappings: [] as any[],
 })
 const stdFieldInput = ref('')
@@ -66,6 +229,12 @@ function openNew() {
   draft.value = null
   expandedMapping.value = null
   editingMapping.value = null
+  keyMappings.value = []
+  dwdRelations.value = []
+  dwdSources.value = []
+  keyMappingDraft.value = null
+  dwdRelationDraft.value = null
+  activeConfigTab.value = 'base'
   resetForm()
   buildStep.value = 'upload'
   mode.value = 'build'
@@ -81,10 +250,14 @@ async function openEdit(id: number): Promise<boolean> {
       merge_keys: [...detail.merge_keys],
       std_fields: [...detail.std_fields],
       aggregate: detail.aggregate,
+      result_save_mode: detail.result_save_mode,
+      result_period_field: detail.result_period_field || null,
       mappings: detail.mappings.map((m: any) => ({ ...m })),
     }
     expandedMapping.value = null
     editingMapping.value = null
+    activeConfigTab.value = 'base'
+    void loadAdvancedConfig(id)
     buildStep.value = 'form'
     mode.value = 'build'
     return true
@@ -203,7 +376,7 @@ async function saveMappingDrafts() {
 }
 
 function resetForm() {
-  form.value = { name: '', description: '', merge_keys: ['姓名', '证件号码'], std_fields: [], aggregate: 'sum', mappings: [] }
+  form.value = { name: '', description: '', merge_keys: ['姓名', '证件号码'], std_fields: [], aggregate: 'sum', result_save_mode: 'input_period', result_period_field: null, mappings: [] }
 }
 
 // 文件选择（去重）
@@ -227,6 +400,8 @@ async function runAiDraft() {
       merge_keys: [...draft.value.merge_keys],
       std_fields: [...draft.value.std_fields],
       aggregate: draft.value.aggregate,
+      result_save_mode: 'input_period' as ResultSaveMode,
+      result_period_field: null,
       mappings: draft.value.mappings.map((m: any) => ({ ...m })),
     }
     buildStep.value = 'form'
@@ -398,6 +573,8 @@ async function saveTemplate() {
       merge_keys: form.value.merge_keys,
       std_fields: form.value.std_fields,
       aggregate: form.value.aggregate,
+      result_save_mode: form.value.result_save_mode,
+      result_period_field: form.value.result_save_mode === 'field_period' ? form.value.result_period_field : null,
       mappings: form.value.mappings.map((m) => ({
         id: m.id || null,
         name: m.name,
@@ -447,12 +624,38 @@ const mergeFiles = ref<File[]>([])
 const merging = ref(false)
 const downloading = ref(false)
 const mergeResult = ref<MergeResult | null>(null)
+const resultPeriod = ref('')
+const savingResult = ref(false)
+const resultBatches = ref<MergeResultBatch[]>([])
+const historyResult = ref<MergeResultBatchRows | null>(null)
+const historyLoading = ref(false)
+
+function resultLoadError(e: any, fallback: string) {
+  const status = e?.response?.status
+  const detail = e?.response?.data?.detail || fallback
+  if (status === 401) return `${detail}，请重新登录后再试`
+  if (status) return `${detail}（HTTP ${status}）`
+  return detail
+}
+
+async function loadResultBatches(showError = false) {
+  if (!mergeTemplate.value) return
+  try { resultBatches.value = await tableToolsApi.listResultBatches(mergeTemplate.value.id) }
+  catch (e: any) {
+    resultBatches.value = []
+    if (showError) ElMessage.error(resultLoadError(e, '加载历史结果失败'))
+  }
+}
 
 function openMerge(t: TemplateOut) {
   mergeTemplate.value = t
   mergeFiles.value = []
   mergeResult.value = null
+  resultPeriod.value = ''
+  resultBatches.value = []
+  historyResult.value = null
   mode.value = 'merge'
+  void loadResultBatches()
 }
 
 function handleMergeFileChange(uploadFile: any) {
@@ -488,8 +691,70 @@ async function downloadResult() {
   }
 }
 
+async function saveCurrentResult() {
+  if (!mergeTemplate.value || !mergeResult.value?.preview_token) return
+  const mode = mergeTemplate.value.result_save_mode || 'input_period'
+  let period: string | undefined
+  if (mode === 'input_period') {
+    const input = await ElMessageBox.prompt('请输入业务月份（YYYYMM）', '保存结果', {
+      inputValue: resultPeriod.value,
+      inputPlaceholder: '例如 202606',
+      inputPattern: /^\d{6}$/,
+      inputErrorMessage: '请输入有效的业务月份 YYYYMM',
+      confirmButtonText: '继续',
+      cancelButtonText: '取消',
+    }).catch(() => null)
+    if (!input) return
+    period = input.value
+    resultPeriod.value = period
+  } else if (mode === 'field_period') {
+    const field = mergeTemplate.value.result_period_field
+    const periods = [...new Set((mergeResult.value.rows || []).map((row) => String(row[field || ''] || '').trim()).filter(Boolean))]
+    if (periods.length === 0) {
+      ElMessage.error(`结果中未识别到业务月份字段“${field || ''}”，保存时将由服务端校验完整结果`)
+    } else if (periods.length !== 1 || !/^\d{6}$/.test(periods[0]) || Number(periods[0].slice(4)) < 1 || Number(periods[0].slice(4)) > 12) {
+      ElMessage.error('结果中必须包含唯一的有效业务月份')
+      return
+    } else {
+      period = periods[0]
+    }
+  }
+  const label = mode === 'none' ? '当前结果快照' : `${period} 的结果`
+  try {
+    await ElMessageBox.confirm(
+      `将保存${label}的完整预览结果（共 ${mergeResult.value.total_rows} 行）。相同归集联合主键将整行覆盖，新主键将新增；本次未出现的既有数据不会删除，DWD 字段一并固化。`,
+      '确认保存结果', { type: 'warning', confirmButtonText: '确认保存' },
+    )
+  } catch { return }
+  savingResult.value = true
+  try {
+    const saved = await tableToolsApi.saveResultBatch(mergeTemplate.value.id, mergeResult.value.preview_token, period)
+    ElMessage.success(`保存完成：新增 ${saved.inserted_count} 行，覆盖 ${saved.replaced_count} 行，当前共 ${saved.total_count} 行`)
+    await loadResultBatches(true)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存结果失败')
+  } finally {
+    savingResult.value = false
+  }
+}
+
+async function viewResultBatch(batch: MergeResultBatch) {
+  if (!mergeTemplate.value) return
+  historyLoading.value = true
+  try { historyResult.value = await tableToolsApi.getResultBatchRows(mergeTemplate.value.id, batch.id) }
+  catch (e: any) { ElMessage.error(resultLoadError(e, '加载历史结果失败')) }
+  finally { historyLoading.value = false }
+}
+
+async function downloadResultBatch(batch: MergeResultBatch) {
+  if (!mergeTemplate.value) return
+  try { await tableToolsApi.downloadResultBatch(mergeTemplate.value.id, batch) }
+  catch (e: any) { ElMessage.error(e?.response?.data?.detail || '下载历史结果失败') }
+}
+
 // ── 计算属性 ─────────────────────────────────────────────────────────────────
 const mergeResultCols = computed(() => mergeResult.value?.columns || [])
+const historyResultCols = computed(() => historyResult.value?.columns || [])
 
 // key_map / column_map entries（用于 v-model 绑定）
 const editingKeyMapEntries = computed({
@@ -503,7 +768,7 @@ const editingColMapEntries = computed({
 </script>
 
 <template>
-  <div class="tt-root">
+  <div class="tt-root" :class="{ 'editor-fullscreen': mode === 'build' && editingId }">
 
     <!-- ═══════════════════════════════════════════════════════
          模板列表页
@@ -636,6 +901,15 @@ const editingColMapEntries = computed({
 
       <!-- 步骤 3：表单（左右分栏） -->
       <template v-else>
+        <div v-if="editingId" class="config-tabs-wrap">
+          <el-tabs v-model="activeConfigTab">
+            <el-tab-pane label="基础模板" name="base" />
+            <el-tab-pane label="主键值映射" name="key" />
+            <el-tab-pane label="DWD 关联" name="dwd" />
+          </el-tabs>
+        </div>
+
+        <template v-if="activeConfigTab === 'base' || !editingId">
         <!-- 低置信度提示 -->
         <div v-if="draft?._meta?.low_confidence?.length" class="confidence-alert">
           <el-icon><Warning /></el-icon>
@@ -660,10 +934,6 @@ const editingColMapEntries = computed({
                 <label class="field-label">说明</label>
                 <el-input v-model="form.description" placeholder="可选" />
               </div>
-            </section>
-
-            <section class="form-section">
-              <h3 class="section-title">合并主键</h3>
               <p class="section-desc">用于识别「同一个人」的唯一标识字段，建议 2 个以内</p>
               <el-select v-model="form.merge_keys" multiple allow-create filterable
                 placeholder="输入后回车" style="width:100%">
@@ -688,6 +958,19 @@ const editingColMapEntries = computed({
                   size="small" @keyup.enter="addStdField" />
                 <el-button size="small" @click="addStdField">添加</el-button>
               </div>
+            </section>
+
+            <section class="form-section">
+              <h3 class="section-title">结果保存方式</h3>
+              <el-radio-group v-model="form.result_save_mode" @change="form.result_period_field = form.result_save_mode === 'field_period' ? form.result_period_field : null">
+                <el-radio label="none">不区分期间</el-radio>
+                <el-radio label="input_period">保存时输入业务月份</el-radio>
+                <el-radio label="field_period">从结果字段读取业务月份</el-radio>
+              </el-radio-group>
+              <el-select v-if="form.result_save_mode === 'field_period'" v-model="form.result_period_field" placeholder="选择业务月份字段" style="width:100%;margin-top:10px">
+                <el-option v-for="field in form.std_fields" :key="field" :label="field" :value="field" />
+              </el-select>
+              <p class="section-desc">从结果字段读取时，所有结果行必须存在同一个有效的 YYYYMM。</p>
             </section>
           </div>
 
@@ -867,8 +1150,85 @@ const editingColMapEntries = computed({
             </div>
           </div>
         </div>
+        </template>
+
+        <section v-if="editingId && activeConfigTab === 'key'" class="advanced-config-panel">
+          <div class="config-panel-head">
+            <div>
+              <h3 class="section-title">主键值映射</h3>
+              <p class="section-desc">仅对当前模板生效；每条记录是一组完整联合主键，源主键值经过精确匹配后，整体统一归集到目标主键值。</p>
+            </div>
+            <PermissionButton menu="table_tools" op="U" type="primary" size="small" :icon="Plus" @click="startKeyMapping()">新增映射</PermissionButton>
+          </div>
+          <div v-if="keyMappingDraft" class="config-editor key-mapping-editor">
+            <div class="key-mapping-editor-title">完整联合主键映射组</div>
+            <p class="key-mapping-editor-tip">两侧字段必须完整填写，并作为一组同时精确匹配；不能按单个字段拆分维护。</p>
+            <div class="key-map-groups">
+              <div class="key-map-group">
+                <div class="key-map-group-head"><strong>源主键组合</strong><span>匹配条件</span></div>
+                <div v-for="field in form.merge_keys" :key="field" class="key-map-field">
+                  <label>{{ field }}</label>
+                  <el-input v-model="keyMappingDraft.source_key[field]" placeholder="原始值" />
+                </div>
+              </div>
+              <div class="key-map-arrow" aria-hidden="true">整组映射 →</div>
+              <div class="key-map-group">
+                <div class="key-map-group-head"><strong>归集统一主键组合</strong><span>归集结果</span></div>
+                <div v-for="field in form.merge_keys" :key="field" class="key-map-field">
+                  <label>{{ field }}</label>
+                  <el-input v-model="keyMappingDraft.canonical_merge_key[field]" placeholder="统一值" />
+                </div>
+              </div>
+            </div>
+            <el-checkbox v-model="keyMappingDraft.enabled">启用该映射组</el-checkbox>
+            <div class="config-editor-actions">
+              <el-button size="small" @click="cancelKeyMapping">取消</el-button>
+              <PermissionButton menu="table_tools" op="U" type="primary" size="small" :loading="keyMappingSaving" @click="saveKeyMapping">保存映射组</PermissionButton>
+            </div>
+          </div>
+          <el-empty v-if="!keyMappings.length && !keyMappingDraft" description="暂无主键值映射" />
+          <div v-for="item in keyMappings" :key="item.id" class="config-list-row key-mapping-list-row">
+            <div class="key-mapping-summary">
+              <div class="key-mapping-block">
+                <span class="key-mapping-block-label">源主键组合</span>
+                <span v-for="field in form.merge_keys" :key="field" class="key-pair">{{ field }}＝{{ item.source_key[field] }}</span>
+              </div>
+              <span class="key-mapping-summary-arrow" aria-hidden="true">整组映射 →</span>
+              <div class="key-mapping-block">
+                <span class="key-mapping-block-label">归集统一主键组合</span>
+                <span v-for="field in form.merge_keys" :key="field" class="key-pair">{{ field }}＝{{ item.canonical_merge_key[field] }}</span>
+              </div>
+            </div>
+            <el-tag size="small" :type="item.enabled ? 'success' : 'info'">{{ item.enabled ? '启用' : '停用' }}</el-tag>
+            <el-button link size="small" @click="startKeyMapping(item)">编辑</el-button>
+            <PermissionButton menu="table_tools" op="D" link type="danger" size="small" @click="removeKeyMapping(item)">删除</PermissionButton>
+          </div>
+        </section>
+
+        <section v-if="editingId && activeConfigTab === 'dwd'" class="advanced-config-panel">
+          <div class="config-panel-head">
+            <div>
+              <h3 class="section-title">DWD 关联</h3>
+              <p class="section-desc">报表仅作为 DWD 数据集发现入口，实际关联会按当前用户权限查询真实 DWD 数据集。</p>
+            </div>
+            <PermissionButton menu="table_tools" op="U" type="primary" size="small" :icon="Plus" @click="startDwdRelation()">新增关联</PermissionButton>
+          </div>
+          <div v-if="dwdRelationDraft" class="config-editor">
+            <div class="editor-row">
+              <div class="editor-field"><label class="editor-label">关联名称</label><el-input v-model="dwdRelationDraft.name" /></div>
+              <div class="editor-field"><label class="editor-label">DWD 来源</label><el-select v-model="dwdRelationDraft.report_id" filterable :loading="dwdFieldsLoading" placeholder="选择可访问的 DWD 报表" style="width:100%" @change="loadDwdFields(dwdRelationDraft?.report_id)"><el-option v-for="source in dwdSources" :key="source.report_id" :value="source.report_id" :label="`${source.report_name} / ${source.dataset_name}`" /></el-select><p v-if="!dwdSources.length" class="config-muted">暂无可选来源。请确认已创建可访问的报表，且其数据集为已启用、已发布的 DWD 数据集。</p></div>
+            </div>
+            <div class="field-group"><label class="field-label">关联字段</label><div v-for="(_, index) in (dwdRelationDraft.left_fields || [])" :key="index" class="dwd-pair-row"><el-select v-model="dwdRelationDraft.left_fields![index]" placeholder="归集字段"><el-option v-for="field in [...form.merge_keys, ...form.std_fields]" :key="field" :value="field" :label="field" /></el-select><span>＝</span><el-select v-model="dwdRelationDraft.right_fields![index]" placeholder="DWD 字段"><el-option v-for="field in dwdFields" :key="field.code" :value="field.code" :label="`${field.label}（${field.code}）`" /></el-select><el-button link type="danger" @click="removeDwdPair(index)">删除</el-button></div><el-button size="small" @click="addDwdPair">新增字段对</el-button></div>
+            <div class="field-group"><label class="field-label">补充字段</label><el-select v-model="dwdRelationDraft.select_fields" multiple filterable :loading="dwdFieldsLoading" placeholder="选择要补充到结果的 DWD 字段" style="width:100%"><el-option v-for="field in dwdFields" :key="field.code" :value="field.code" :label="`${field.label}（${field.code}）`" /></el-select></div>
+            <div class="editor-row"><div class="editor-field"><label class="editor-label">未命中策略</label><el-select v-model="dwdRelationDraft.missing_policy"><el-option label="记录异常" value="anomaly" /><el-option label="跳过异常" value="skip" /></el-select></div><div class="editor-field"><label class="editor-label">多命中策略</label><el-select v-model="dwdRelationDraft.multiple_policy"><el-option label="记录异常" value="anomaly" /><el-option label="取第一条" value="first" /></el-select></div></div>
+            <el-checkbox v-model="dwdRelationDraft.enabled">启用</el-checkbox>
+            <div class="config-editor-actions"><el-button size="small" @click="cancelDwdRelation">取消</el-button><PermissionButton menu="table_tools" op="U" type="primary" size="small" :loading="dwdRelationSaving" @click="saveDwdRelation">保存</PermissionButton></div>
+          </div>
+          <el-empty v-if="!dwdRelations.length && !dwdRelationDraft" description="暂无 DWD 关联" />
+          <div v-for="item in dwdRelations" :key="item.id" class="config-list-row"><div><strong>{{ item.name }}</strong><span class="config-muted">{{ dwdSources.find((source) => source.report_id === item.report_id)?.dataset_name || `报表 #${item.report_id}` }}</span></div><el-tag size="small" :type="item.enabled ? 'success' : 'info'">{{ item.enabled ? '启用' : '停用' }}</el-tag><el-button link size="small" @click="startDwdRelation(item)">编辑</el-button><PermissionButton menu="table_tools" op="D" link type="danger" size="small" @click="removeDwdRelation(item)">删除</PermissionButton></div>
+        </section>
+        </template>
       </template>
-    </template>
 
     <!-- ═══════════════════════════════════════════════════════
          月度合并页（全页面，无抽屉）
@@ -989,6 +1349,10 @@ const editingColMapEntries = computed({
             :disabled="!mergeFiles.length" @click="runMerge">
             运行预览
           </el-button>
+          <PermissionButton menu="table_tools" op="V" type="success" :loading="savingResult"
+            :disabled="!mergeResult?.preview_token" @click="saveCurrentResult">
+            保存结果
+          </PermissionButton>
         </div>
       </div>
 
@@ -1032,9 +1396,19 @@ const editingColMapEntries = computed({
               <span class="anomaly-detail">{{ a.detail }}</span>
             </div>
           </div>
+          <div v-if="mergeResult?.dwd_anomalies?.length" class="anomaly-panel">
+            <h4 class="log-title danger">DWD 关联异常 <span class="log-count">{{ mergeResult.dwd_anomalies.length }} 条</span></h4>
+            <div class="anomaly-row" v-for="(a, i) in mergeResult.dwd_anomalies" :key="i">
+              <el-tag type="warning" size="small">{{ a.type }}</el-tag>
+              <span class="anomaly-detail">{{ a.detail }}</span>
+            </div>
+          </div>
+          <details v-if="mergeResult?.raw_key_traces?.length" class="trace-panel">
+            <summary>原始主键追踪（{{ mergeResult.raw_key_traces.length }} 条）</summary>
+            <pre>{{ JSON.stringify(mergeResult.raw_key_traces, null, 2) }}</pre>
+          </details>
         </div>
 
-        <!-- 右侧：结果 -->
         <div class="merge-right">
           <!-- 统计卡片 -->
           <div v-if="mergeResult" class="stat-cards">
@@ -1054,6 +1428,10 @@ const editingColMapEntries = computed({
               <div class="stat-val">{{ mergeResult.stats.anomalies }}</div>
               <div class="stat-label">异常</div>
             </div>
+            <div v-if="mergeResult.key_mapping_stats" class="stat-card">
+              <div class="stat-val">{{ mergeResult.key_mapping_stats.matched }}/{{ mergeResult.key_mapping_stats.configured }}</div>
+              <div class="stat-label">主键映射命中</div>
+            </div>
           </div>
 
           <!-- 预览表格 -->
@@ -1067,6 +1445,26 @@ const editingColMapEntries = computed({
                 v-for="col in mergeResultCols" :key="col"
                 :prop="col" :label="col" min-width="110" show-overflow-tooltip />
             </el-table>
+          </div>
+
+          <div v-if="historyResult" class="preview-wrap" v-loading="historyLoading">
+            <div class="preview-header">
+              <span>{{ historyResult.batch.period === 'CURRENT' ? '当前快照' : `历史结果 · ${historyResult.batch.period}` }} · 共 {{ historyResult.total_rows }} 行</span>
+              <PermissionButton menu="table_tools" op="E" size="small" @click="downloadResultBatch(historyResult.batch)">下载结果</PermissionButton>
+            </div>
+            <el-table :data="historyResult.rows" size="small" border max-height="500" style="font-size:12px; width:100%">
+              <el-table-column v-for="col in historyResultCols" :key="col" :prop="col" :label="col" min-width="110" show-overflow-tooltip />
+            </el-table>
+          </div>
+          <div v-if="resultBatches.length" class="history-panel">
+            <div class="preview-header"><strong>结果快照</strong><span>使用保存时的结果快照</span></div>
+            <div v-for="batch in resultBatches" :key="batch.id" class="history-row">
+              <span>{{ batch.period === 'CURRENT' ? '当前快照' : batch.period }} · {{ batch.row_count }} 行</span>
+              <span>
+                <el-button text size="small" @click="viewResultBatch(batch)">查看</el-button>
+                <el-button text size="small" @click="downloadResultBatch(batch)">下载</el-button>
+              </span>
+            </div>
           </div>
 
           <div v-else-if="!merging" class="merge-empty">
@@ -1086,7 +1484,75 @@ const editingColMapEntries = computed({
 </template>
 
 <style scoped>
-/* ── 根容器 ─────────────────────────────────────────────── */
+  .config-tabs-wrap {
+    margin-bottom: 20px;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 0 16px;
+  }
+  .advanced-config-panel {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+  }
+  .config-panel-head, .config-list-row, .config-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .config-panel-head { justify-content: space-between; margin-bottom: 20px; }
+  .config-editor { padding: 16px; margin-bottom: 16px; background: var(--color-bg-page); border-radius: var(--radius-md); }
+  .key-mapping-editor-title { font-size: 15px; font-weight: 600; }
+  .key-mapping-editor-tip { margin: 6px 0 16px; color: var(--color-text-secondary); font-size: 13px; }
+  .key-map-groups { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 16px; align-items: center; margin: 16px 0; }
+  .key-map-group { padding: 16px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-card); }
+  .key-map-group-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; color: var(--color-text-secondary); font-size: 12px; }
+  .key-map-group-head strong { color: var(--color-text-primary); font-size: 14px; }
+  .key-map-field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; align-items: center; }
+  .key-map-field + .key-map-field { margin-top: 10px; }
+  .key-map-field label { color: var(--color-text-secondary); font-size: 13px; }
+  .key-map-arrow, .key-mapping-summary-arrow { color: var(--color-primary); font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .key-mapping-summary { display: flex; flex: 1; gap: 14px; align-items: center; }
+  .key-mapping-block { display: flex; flex: 1; flex-wrap: wrap; gap: 6px 12px; }
+  .key-mapping-block-label { width: 100%; color: var(--color-text-secondary); font-size: 12px; }
+  .key-pair { font-size: 13px; }
+  .key-mapping-list-row { align-items: flex-start; }
+  @media (max-width: 900px) {
+    .key-map-groups { grid-template-columns: 1fr; }
+    .key-map-arrow { justify-self: center; }
+    .key-mapping-summary { flex-direction: column; align-items: stretch; }
+    .key-mapping-summary-arrow { align-self: center; }
+  }
+  .config-muted { display: block; margin-top: 4px; color: var(--color-text-secondary); font-size: 12px; }
+  .dwd-pair-row { display: grid; grid-template-columns: 1fr 24px 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .trace-panel { margin-top: 16px; border-top: 1px solid var(--color-border); padding-top: 12px; color: var(--color-text-secondary); font-size: 12px; }
+  .trace-panel summary { cursor: pointer; }
+  .trace-panel pre { max-height: 220px; overflow: auto; margin-top: 8px; white-space: pre-wrap; }
+
+.editor-fullscreen {
+  position: fixed;
+  z-index: 2000;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  overflow-y: auto;
+  padding: 24px 32px;
+  background: var(--color-bg-page);
+}
+
+.editor-fullscreen .build-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -24px -32px 24px;
+  padding: 16px 32px;
+  background: var(--color-bg-page);
+  border-bottom: 1px solid var(--color-border);
+}
+
 .tt-root {
   min-height: calc(100vh - var(--layout-topbar-height));
   background: var(--color-bg-page);
@@ -1530,11 +1996,34 @@ const editingColMapEntries = computed({
   overflow: hidden;
 }
 .preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px 14px;
   font-size: 12px; color: var(--color-text-secondary);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-subtle);
 }
+
+.history-panel {
+  margin-top: 16px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--color-text-regular);
+  border-bottom: 1px solid var(--color-border-lighter);
+}
+.history-row:last-child { border-bottom: none; }
 
 .merge-empty {
   display: flex; flex-direction: column; align-items: center;

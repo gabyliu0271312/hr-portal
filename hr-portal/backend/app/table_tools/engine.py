@@ -200,6 +200,55 @@ def extract_records(
     return records, anomalies
 
 
+def _normalize_key_value(value: Any) -> str:
+    if isinstance(value, float) and value == int(value):
+        return str(int(value))
+    return str(value if value is not None else "").strip()
+
+
+def _mapping_key(record: dict, fields: list[str]) -> tuple[str, ...]:
+    return tuple(_normalize_key_value(record.get(field, "")) for field in fields)
+
+
+def apply_key_mappings(
+    records_with_src: list[tuple[dict, str]],
+    merge_keys: list[str],
+    key_mappings: list[dict] | None = None,
+) -> tuple[list[tuple[dict, str]], dict, list[dict], list[dict]]:
+    """应用模板级精确主键映射；未命中时保持原始主键。"""
+    entries: dict[tuple[str, ...], dict] = {}
+    for item in key_mappings or []:
+        source_key = item.get("source_key") or {}
+        canonical = item.get("canonical_merge_key") or {}
+        if set(source_key) != set(merge_keys) or set(canonical) != set(merge_keys):
+            continue
+        key = tuple(_normalize_key_value(source_key[field]) for field in merge_keys)
+        if key in entries and entries[key] != item:
+            raise ValueError("主键映射冲突")
+        entries[key] = item
+
+    stats = {"configured": len(entries), "matched": 0, "unmatched": 0}
+    anomalies: list[dict] = []
+    traces: list[dict] = []
+    mapped: list[tuple[dict, str]] = []
+    for rec, src in records_with_src:
+        source_key = {field: rec.get(field, "") for field in merge_keys}
+        item = entries.get(_mapping_key(rec, merge_keys))
+        if item is None:
+            if entries:
+                stats["unmatched"] += 1
+                anomalies.append({"type": "主键映射未命中", "key": source_key, "detail": src})
+            mapped.append((rec, src))
+            continue
+        stats["matched"] += 1
+        canonical = item["canonical_merge_key"]
+        for field in merge_keys:
+            rec[field] = _normalize_key_value(canonical[field])
+        traces.append({"source_key": source_key, "canonical_merge_key": canonical, "source": src})
+        mapped.append((rec, src))
+    return mapped, stats, anomalies, traces
+
+
 # ── 按主键归集 + 聚合 ───────────────────────────────────────
 def aggregate_records(
     records_with_src: list[tuple[dict, str]],
@@ -260,6 +309,7 @@ def run_merge(
     template: dict,
     mappings: list[dict],
     custom_functions: dict[str, Callable[..., Any]] | None = None,
+    key_mappings: list[dict] | None = None,
 ) -> dict:
     """执行一次合并。
 
@@ -339,7 +389,11 @@ def run_merge(
                 records_with_src.append((rec, m["name"]))
         wb.close()
 
-    rows, agg_anomalies = aggregate_records(records_with_src, merge_keys, std_fields, agg)
+    records, key_mapping_stats, mapping_anomalies, raw_key_traces = apply_key_mappings(
+        records_with_src, merge_keys, key_mappings
+    )
+    rows, agg_anomalies = aggregate_records(records, merge_keys, std_fields, agg)
+    anomalies.extend(mapping_anomalies)
     anomalies.extend(agg_anomalies)
 
     columns = merge_keys + std_fields + ["来源"]
@@ -350,6 +404,8 @@ def run_merge(
         "anomalies": anomalies,
         "stats": {"files": len(files), "records": record_count, "persons": len(rows),
                   "anomalies": len(anomalies)},
+        "key_mapping_stats": key_mapping_stats,
+        "raw_key_traces": raw_key_traces,
     }
 
 
