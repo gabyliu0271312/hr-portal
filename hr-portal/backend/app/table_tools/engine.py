@@ -237,7 +237,6 @@ def apply_key_mappings(
         if item is None:
             if entries:
                 stats["unmatched"] += 1
-                anomalies.append({"type": "主键映射未命中", "key": source_key, "detail": src})
             mapped.append((rec, src))
             continue
         stats["matched"] += 1
