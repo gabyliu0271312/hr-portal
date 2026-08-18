@@ -1,4 +1,4 @@
-"""受控 DWD 关联：只通过报表指向的真实数据集查询。"""
+"""受控 DWD 关联：优先使用数据集权限，兼容历史报表来源。"""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -23,46 +23,57 @@ _ALLOWED_MISSING = {"anomaly", "skip"}
 _ALLOWED_MULTIPLE = {"anomaly", "first"}
 
 
+async def load_dataset_dwd_context(
+    dataset_id: int, user: User, db: AsyncSession
+) -> DataSet:
+    dataset = await db.get(DataSet, dataset_id)
+    if dataset is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="DWD 数据集不存在或无权访问")
+    if not await dataset_can_access(user, dataset, db):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="DWD 数据集不存在或无权访问")
+    if dataset.warehouse_layer != "DWD":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="关联来源必须是 DWD 数据集")
+    if not dataset.is_active or dataset.status != "published":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="DWD 数据集未启用或未发布")
+    return dataset
+
+
 async def load_dwd_context(
     report_id: int, user: User, db: AsyncSession
 ) -> tuple[Report, DataSet]:
     report = await db.get(Report, report_id)
     if report is None or not await report_can_access(user, report, db):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在或无权访问")
-    dataset = await db.get(DataSet, report.dataset_id)
-    if dataset is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="报表关联的数据集不存在")
-    if not await dataset_can_access(user, dataset, db):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问报表背后的数据集")
-    if dataset.warehouse_layer != "DWD":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="关联来源必须是 DWD 数据集")
-    if not dataset.is_active or dataset.status != "published":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="DWD 数据集未启用或未发布")
+    dataset = await load_dataset_dwd_context(report.dataset_id, user, db)
     return report, dataset
 
 
 async def list_dwd_sources(user: User, db: AsyncSession) -> list[dict[str, Any]]:
-    # 报表可见性由 report_can_access 统一判断，不能再用历史 is_published 预过滤，
-    # 否则 scoped 或用户本人可访问的 private 报表无法作为 DWD 来源。
-    reports = (await db.execute(select(Report))).scalars().all()
+    datasets = (await db.execute(select(DataSet))).scalars().all()
     result: list[dict[str, Any]] = []
-    for report in reports:
+    seen: set[int] = set()
+    for dataset in datasets:
         try:
-            _, dataset = await load_dwd_context(report.id, user, db)
+            dataset = await load_dataset_dwd_context(dataset.id, user, db)
         except HTTPException:
             continue
+        if dataset.id in seen:
+            continue
+        seen.add(dataset.id)
         result.append({
-            "report_id": report.id,
-            "report_name": report.name,
             "dataset_id": dataset.id,
             "dataset_name": dataset.name,
             "dataset_label": dataset.label,
+            "report_id": None,
+            "report_name": None,
         })
     return result
 
 
-async def list_dwd_fields(report_id: int, user: User, db: AsyncSession) -> list[dict[str, Any]]:
-    _, dataset = await load_dwd_context(report_id, user, db)
+async def list_dwd_fields_by_dataset(
+    dataset_id: int, user: User, db: AsyncSession
+) -> list[dict[str, Any]]:
+    dataset = await load_dataset_dwd_context(dataset_id, user, db)
     from app.data.models import TableColumn
     from app.datasets.models import DataSetTable
 
@@ -81,6 +92,11 @@ async def list_dwd_fields(report_id: int, user: User, db: AsyncSession) -> list[
                 "is_sensitive": bool(column.is_sensitive),
             })
     return result
+
+
+async def list_dwd_fields(report_id: int, user: User, db: AsyncSession) -> list[dict[str, Any]]:
+    _, dataset = await load_dwd_context(report_id, user, db)
+    return await list_dwd_fields_by_dataset(dataset.id, user, db)
 
 
 def validate_relation_payload(
@@ -104,9 +120,14 @@ def validate_relation_payload(
     name = str(payload.get("name", "")).strip()
     if not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="DWD 关联名称不能为空")
+    dataset_id = payload.get("dataset_id")
+    report_id = payload.get("report_id")
+    if dataset_id is None and report_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="必须指定 DWD 数据集")
     return {
         "name": name,
-        "report_id": payload["report_id"],
+        "report_id": report_id,
+        "dataset_id": dataset_id,
         "left_fields": left,
         "right_fields": right,
         "select_fields": select_fields,
@@ -121,7 +142,12 @@ async def apply_dwd_relation(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not relation.enabled or not rows:
         return rows, []
-    _, dataset = await load_dwd_context(relation.report_id, user, db)
+    if relation.dataset_id is not None:
+        dataset = await load_dataset_dwd_context(relation.dataset_id, user, db)
+    elif relation.report_id is not None:
+        _, dataset = await load_dwd_context(relation.report_id, user, db)
+    else:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="DWD 关联缺少来源")
     fields = list(dict.fromkeys([*relation.right_fields, *relation.select_fields]))
     await ensure_valid_report_field_references(
         {"columns": fields, "filters": [], "sorts": []}, dataset.id, user, db

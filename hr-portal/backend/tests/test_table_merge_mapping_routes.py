@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 from fastapi import FastAPI, HTTPException, status
@@ -6,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from app.core.db import get_session
 from app.table_tools import router as table_routes
-from app.table_tools.models import MergeSourceMapping, MergeTemplate
+from app.table_tools import dwd_relation_service
+from app.table_tools.models import MergeDwdRelation, MergeSourceMapping, MergeTemplate
 
 
 class FakeDb:
@@ -19,7 +21,7 @@ class FakeDb:
         self.commits += 1
 
     async def refresh(self, item: object, *_attrs: object) -> None:
-        if isinstance(item, MergeSourceMapping) and item.id is None:
+        if isinstance(item, (MergeSourceMapping, MergeDwdRelation)) and item.id is None:
             item.id = self.next_mapping_id
             self.next_mapping_id += 1
 
@@ -72,6 +74,19 @@ def _payload(name: str = "new-source") -> dict:
         "column_map": {"amount": "amount"},
         "derived_fields": [],
         "skip_tokens": ["total"],
+    }
+
+
+def _dwd_payload(name: str = "employee-dwd", **source: int) -> dict:
+    return {
+        "name": name,
+        **source,
+        "left_fields": ["employee_id"],
+        "right_fields": ["dwd.employee_id"],
+        "select_fields": ["dwd.department"],
+        "missing_policy": "anomaly",
+        "multiple_policy": "anomaly",
+        "enabled": True,
     }
 
 
@@ -212,6 +227,7 @@ def test_mapping_draft_response_model_is_serialized_and_documented():
     assert response_schema == {"$ref": "#/components/schemas/MappingDraftOut"}
     assert "_confidence" in schema["components"]["schemas"]["MappingDraftMappingOut"]["properties"]
 
+
 def test_batch_create_mappings_is_atomic_and_returns_created_mappings(monkeypatch):
     db = FakeDb()
     template = _template(_mapping())
@@ -253,3 +269,97 @@ def test_batch_mapping_draft_route_is_documented():
         if getattr(route, "path", None) == "/api/v1/table-tools/templates/{tid}/mapping-drafts"
     )
     assert route.response_model is table_routes.MappingDraftsOut
+
+
+def test_dwd_relation_routes_support_dataset_and_legacy_report_sources(monkeypatch):
+    db = FakeDb()
+    template = _template()
+    legacy = MergeDwdRelation(
+        id=10,
+        template_id=1,
+        name="legacy-report",
+        report_id=9,
+        dataset_id=None,
+        left_fields=["employee_id"],
+        right_fields=["dwd.employee_id"],
+        select_fields=["dwd.department"],
+    )
+    template.dwd_relations.append(legacy)
+    _install_template(monkeypatch, template)
+
+    fields = [{"code": "dwd.employee_id"}, {"code": "dwd.department"}]
+
+    async def dataset_fields(dataset_id: int, _user: object, _db: FakeDb) -> list[dict]:
+        assert dataset_id == 8
+        return fields
+
+    async def report_fields(report_id: int, _user: object, _db: FakeDb) -> list[dict]:
+        assert report_id == 9
+        return fields
+
+    async def dataset_context(dataset_id: int, _user: object, _db: FakeDb) -> object:
+        assert dataset_id == 8
+        return object()
+
+    async def report_context(report_id: int, _user: object, _db: FakeDb) -> tuple[object, object]:
+        assert report_id == 9
+        return object(), object()
+
+    monkeypatch.setattr(table_routes, "list_dwd_fields_by_dataset", dataset_fields)
+    monkeypatch.setattr(table_routes, "list_dwd_fields", report_fields)
+    monkeypatch.setattr(table_routes, "load_dataset_dwd_context", dataset_context)
+    monkeypatch.setattr(table_routes, "load_dwd_context", report_context)
+    client = _client(db)
+
+    listed = client.get("/api/v1/table-tools/templates/1/dwd-relations")
+    assert listed.status_code == status.HTTP_200_OK
+    assert listed.json()[0]["dataset_id"] is None
+    assert listed.json()[0]["report_id"] == 9
+
+    missing = client.post("/api/v1/table-tools/templates/1/dwd-relations", json=_dwd_payload())
+    assert missing.status_code == status.HTTP_400_BAD_REQUEST
+
+    created = client.post(
+        "/api/v1/table-tools/templates/1/dwd-relations",
+        json=_dwd_payload("dataset-source", dataset_id=8),
+    )
+    assert created.status_code == status.HTTP_201_CREATED
+    assert created.json()["dataset_id"] == 8
+    assert created.json()["report_id"] is None
+
+    updated = client.put(
+        "/api/v1/table-tools/templates/1/dwd-relations/10",
+        json=_dwd_payload("legacy-report", report_id=9),
+    )
+    assert updated.status_code == status.HTTP_200_OK
+    assert updated.json()["dataset_id"] is None
+    assert updated.json()["report_id"] == 9
+
+
+def test_list_dwd_sources_uses_dataset_permissions_and_filters_ineligible(monkeypatch):
+    eligible = SimpleNamespace(id=8, name="employee", label="员工", warehouse_layer="DWD", is_active=True, status="published")
+    non_dwd = SimpleNamespace(id=9, name="ods", label=None, warehouse_layer="ODS", is_active=True, status="published")
+    inactive = SimpleNamespace(id=10, name="inactive", label=None, warehouse_layer="DWD", is_active=False, status="published")
+
+    class Result:
+        def scalars(self): return self
+        def all(self): return [eligible, non_dwd, inactive]
+
+    class SourceDb:
+        async def execute(self, _query): return Result()
+        async def get(self, _model, dataset_id):
+            return {8: eligible, 9: non_dwd, 10: inactive}.get(dataset_id)
+
+    async def can_access(_user, dataset, _db):
+        return dataset.id == 8
+
+    monkeypatch.setattr(dwd_relation_service, "dataset_can_access", can_access)
+    result = asyncio.run(dwd_relation_service.list_dwd_sources(SimpleNamespace(), SourceDb()))
+
+    assert result == [{
+        "dataset_id": 8,
+        "dataset_name": "employee",
+        "dataset_label": "员工",
+        "report_id": None,
+        "report_name": None,
+    }]

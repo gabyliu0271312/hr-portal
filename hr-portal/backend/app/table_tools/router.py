@@ -37,7 +37,9 @@ from app.table_tools import ai_builder
 from app.table_tools.dwd_relation_service import (
     apply_dwd_relation,
     list_dwd_fields,
+    list_dwd_fields_by_dataset,
     list_dwd_sources,
+    load_dataset_dwd_context,
     load_dwd_context,
     validate_relation_payload,
 )
@@ -136,7 +138,8 @@ class KeyMappingIn(BaseModel):
 
 class DwdRelationIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    report_id: int
+    dataset_id: int | None = None
+    report_id: int | None = None
     left_fields: list[str] = Field(min_length=1)
     right_fields: list[str] = Field(min_length=1)
     select_fields: list[str] = []
@@ -323,6 +326,7 @@ async def get_template(
                 "template_id": item.template_id,
                 "name": item.name,
                 "report_id": item.report_id,
+                "dataset_id": item.dataset_id,
                 "left_fields": item.left_fields,
                 "right_fields": item.right_fields,
                 "select_fields": item.select_fields,
@@ -584,6 +588,15 @@ async def dwd_relation_sources(
     return await list_dwd_sources(user, db)
 
 
+@router.get("/datasets/{dataset_id}/dwd-fields")
+async def dwd_dataset_fields(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_op(MENU, "V")),
+) -> list[dict]:
+    return await list_dwd_fields_by_dataset(dataset_id, user, db)
+
+
 @router.get("/reports/{report_id}/dwd-fields")
 async def dwd_fields(
     report_id: int,
@@ -605,6 +618,7 @@ async def list_dwd_relations(
         "template_id": item.template_id,
         "name": item.name,
         "report_id": item.report_id,
+        "dataset_id": item.dataset_id,
         "left_fields": item.left_fields,
         "right_fields": item.right_fields,
         "select_fields": item.select_fields,
@@ -623,11 +637,24 @@ async def create_dwd_relation(
 ) -> dict:
     template = await _load_template(db, tid)
     await _ensure_can_modify(db, template, user)
+    if payload.dataset_id is None and payload.report_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="必须指定 DWD 数据集")
     values = validate_relation_payload(
         payload.model_dump(), template.merge_keys + template.std_fields,
-        [item["code"] for item in await list_dwd_fields(payload.report_id, user, db)],
+        [
+            item["code"]
+            for item in await (
+                list_dwd_fields_by_dataset(payload.dataset_id, user, db)
+                if payload.dataset_id is not None
+                else list_dwd_fields(payload.report_id, user, db)
+            )
+        ],
     )
-    await load_dwd_context(values["report_id"], user, db)
+    if values["dataset_id"] is not None:
+        await load_dataset_dwd_context(values["dataset_id"], user, db)
+        values["report_id"] = None
+    else:
+        await load_dwd_context(values["report_id"], user, db)
     if any(item.name == values["name"] for item in template.dwd_relations):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="DWD 关联名称已存在")
     item = MergeDwdRelation(template_id=tid, created_by=user.id, **values)
@@ -651,11 +678,24 @@ async def update_dwd_relation(
     item = next((value for value in template.dwd_relations if value.id == rid), None)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="DWD 关联不存在")
+    if payload.dataset_id is None and payload.report_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="必须指定 DWD 数据集")
     values = validate_relation_payload(
         payload.model_dump(), template.merge_keys + template.std_fields,
-        [item["code"] for item in await list_dwd_fields(payload.report_id, user, db)],
+        [
+            item["code"]
+            for item in await (
+                list_dwd_fields_by_dataset(payload.dataset_id, user, db)
+                if payload.dataset_id is not None
+                else list_dwd_fields(payload.report_id, user, db)
+            )
+        ],
     )
-    await load_dwd_context(values["report_id"], user, db)
+    if values["dataset_id"] is not None:
+        await load_dataset_dwd_context(values["dataset_id"], user, db)
+        values["report_id"] = None
+    else:
+        await load_dwd_context(values["report_id"], user, db)
     if any(value.id != rid and value.name == values["name"] for value in template.dwd_relations):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="DWD 关联名称已存在")
     for key, value in values.items():

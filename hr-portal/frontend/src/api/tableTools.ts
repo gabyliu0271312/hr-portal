@@ -62,7 +62,8 @@ export interface DwdRelation {
   id: number
   template_id: number
   name: string
-  report_id: number
+  dataset_id: number | null
+  report_id?: number | null
   left_fields: string[]
   right_fields: string[]
   select_fields: string[]
@@ -79,11 +80,11 @@ export interface DwdField {
 }
 
 export interface DwdRelationSource {
-  report_id: number
-  report_name: string
   dataset_id: number
   dataset_name: string
   dataset_label: string | null
+  report_id?: number | null
+  report_name?: string | null
 }
 
 export interface TemplateDetail extends TemplateOut {
@@ -196,7 +197,9 @@ export const tableToolsApi = {
 
   listDwdSources: (): Promise<DwdRelationSource[]> =>
     api.get('/table-tools/dwd-relation-sources').then((r) => r.data),
-  listDwdFields: (reportId: number): Promise<DwdField[]> =>
+  listDwdFields: (datasetId: number): Promise<DwdField[]> =>
+    api.get(`/table-tools/datasets/${datasetId}/dwd-fields`).then((r) => r.data),
+  listDwdFieldsByReport: (reportId: number): Promise<DwdField[]> =>
     api.get(`/table-tools/reports/${reportId}/dwd-fields`).then((r) => r.data),
   listDwdRelations: (templateId: number): Promise<DwdRelation[]> =>
     api.get(`/table-tools/templates/${templateId}/dwd-relations`).then((r) => r.data),

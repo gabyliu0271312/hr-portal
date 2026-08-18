@@ -70,7 +70,7 @@ function emptyKeyMapping(): KeyMapping {
 
 function emptyDwdRelation(): Partial<DwdRelation> {
   return {
-    name: '', report_id: undefined, left_fields: [], right_fields: [], select_fields: [],
+    name: '', dataset_id: undefined, report_id: undefined, left_fields: [], right_fields: [], select_fields: [],
     missing_policy: 'anomaly', multiple_policy: 'anomaly', enabled: true,
   }
 }
@@ -90,13 +90,23 @@ async function loadAdvancedConfig(id: number) {
   }
 }
 
-async function loadDwdFields(reportId: number | undefined) {
+async function loadDwdFields(datasetId?: number, reportId?: number) {
   dwdFields.value = []
-  if (!reportId) return
+  if (!datasetId && !reportId) return
   dwdFieldsLoading.value = true
-  try { dwdFields.value = await tableToolsApi.listDwdFields(reportId) }
-  catch (e: any) { ElMessage.error(e?.response?.data?.detail || '加载 DWD 字段失败') }
+  try {
+    dwdFields.value = datasetId
+      ? await tableToolsApi.listDwdFields(datasetId)
+      : await tableToolsApi.listDwdFieldsByReport(reportId!)
+  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '加载 DWD 字段失败') }
   finally { dwdFieldsLoading.value = false }
+}
+
+function selectDwdDataset(datasetId?: number) {
+  if (!dwdRelationDraft.value) return
+  dwdRelationDraft.value.dataset_id = datasetId
+  dwdRelationDraft.value.report_id = undefined
+  void loadDwdFields(datasetId)
 }
 
 function startKeyMapping(item?: KeyMapping) {
@@ -140,7 +150,7 @@ async function removeKeyMapping(item: KeyMapping) {
 function startDwdRelation(item?: DwdRelation) {
   const draft = item ? JSON.parse(JSON.stringify(item)) : emptyDwdRelation()
   dwdRelationDraft.value = draft
-  void loadDwdFields(draft.report_id)
+  void loadDwdFields(draft.dataset_id ?? undefined, draft.report_id ?? undefined)
 }
 function cancelDwdRelation() { dwdRelationDraft.value = null; dwdFields.value = [] }
 function addDwdPair() {
@@ -157,7 +167,7 @@ function removeDwdPair(index: number) {
 async function saveDwdRelation() {
   if (!editingId.value || !dwdRelationDraft.value) return
   const item = dwdRelationDraft.value
-  if (!item.name?.trim() || !item.report_id || !item.left_fields?.length || !item.right_fields?.length) {
+  if (!item.name?.trim() || (!item.dataset_id && !item.report_id) || !item.left_fields?.length || !item.right_fields?.length) {
     ElMessage.warning('请填写名称、DWD 来源和关联字段')
     return
   }
@@ -168,8 +178,8 @@ async function saveDwdRelation() {
   dwdRelationSaving.value = true
   try {
     const payload = {
-      name: item.name, report_id: item.report_id, left_fields: item.left_fields,
-      right_fields: item.right_fields, select_fields: item.select_fields || [],
+      name: item.name, dataset_id: item.dataset_id ?? null, report_id: item.dataset_id ? null : item.report_id ?? null,
+      left_fields: item.left_fields, right_fields: item.right_fields, select_fields: item.select_fields || [],
       missing_policy: item.missing_policy || 'anomaly', multiple_policy: item.multiple_policy || 'anomaly',
       enabled: item.enabled !== false,
     }
@@ -1209,14 +1219,14 @@ const editingColMapEntries = computed({
           <div class="config-panel-head">
             <div>
               <h3 class="section-title">DWD 关联</h3>
-              <p class="section-desc">报表仅作为 DWD 数据集发现入口，实际关联会按当前用户权限查询真实 DWD 数据集。</p>
+              <p class="section-desc">选择当前用户可访问的 DWD 数据集，实际关联会按该数据集查询。</p>
             </div>
             <PermissionButton menu="table_tools" op="U" type="primary" size="small" :icon="Plus" @click="startDwdRelation()">新增关联</PermissionButton>
           </div>
           <div v-if="dwdRelationDraft" class="config-editor">
             <div class="editor-row">
               <div class="editor-field"><label class="editor-label">关联名称</label><el-input v-model="dwdRelationDraft.name" /></div>
-              <div class="editor-field"><label class="editor-label">DWD 来源</label><el-select v-model="dwdRelationDraft.report_id" filterable :loading="dwdFieldsLoading" placeholder="选择可访问的 DWD 报表" style="width:100%" @change="loadDwdFields(dwdRelationDraft?.report_id)"><el-option v-for="source in dwdSources" :key="source.report_id" :value="source.report_id" :label="`${source.report_name} / ${source.dataset_name}`" /></el-select><p v-if="!dwdSources.length" class="config-muted">暂无可选来源。请确认已创建可访问的报表，且其数据集为已启用、已发布的 DWD 数据集。</p></div>
+              <div class="editor-field"><label class="editor-label">DWD 数据集</label><el-select v-model="dwdRelationDraft.dataset_id" filterable :loading="dwdFieldsLoading" placeholder="选择当前用户可访问的 DWD 数据集" style="width:100%" @change="selectDwdDataset"><el-option v-for="source in dwdSources" :key="source.dataset_id" :value="source.dataset_id" :label="source.dataset_label || source.dataset_name" /></el-select><p v-if="dwdRelationDraft.report_id && !dwdRelationDraft.dataset_id" class="config-muted">当前为历史报表来源，选择数据集后会迁移为数据集关联。</p><p v-if="!dwdSources.length" class="config-muted">暂无可选来源。请确认当前用户已获得数据集授权，且数据集为已启用、已发布的 DWD 数据集。</p></div>
             </div>
             <div class="field-group"><label class="field-label">关联字段</label><div v-for="(_, index) in (dwdRelationDraft.left_fields || [])" :key="index" class="dwd-pair-row"><el-select v-model="dwdRelationDraft.left_fields![index]" placeholder="归集字段"><el-option v-for="field in [...form.merge_keys, ...form.std_fields]" :key="field" :value="field" :label="field" /></el-select><span>＝</span><el-select v-model="dwdRelationDraft.right_fields![index]" placeholder="DWD 字段"><el-option v-for="field in dwdFields" :key="field.code" :value="field.code" :label="`${field.label}（${field.code}）`" /></el-select><el-button link type="danger" @click="removeDwdPair(index)">删除</el-button></div><el-button size="small" @click="addDwdPair">新增字段对</el-button></div>
             <div class="field-group"><label class="field-label">补充字段</label><el-select v-model="dwdRelationDraft.select_fields" multiple filterable :loading="dwdFieldsLoading" placeholder="选择要补充到结果的 DWD 字段" style="width:100%"><el-option v-for="field in dwdFields" :key="field.code" :value="field.code" :label="`${field.label}（${field.code}）`" /></el-select></div>
@@ -1225,7 +1235,7 @@ const editingColMapEntries = computed({
             <div class="config-editor-actions"><el-button size="small" @click="cancelDwdRelation">取消</el-button><PermissionButton menu="table_tools" op="U" type="primary" size="small" :loading="dwdRelationSaving" @click="saveDwdRelation">保存</PermissionButton></div>
           </div>
           <el-empty v-if="!dwdRelations.length && !dwdRelationDraft" description="暂无 DWD 关联" />
-          <div v-for="item in dwdRelations" :key="item.id" class="config-list-row"><div><strong>{{ item.name }}</strong><span class="config-muted">{{ dwdSources.find((source) => source.report_id === item.report_id)?.dataset_name || `报表 #${item.report_id}` }}</span></div><el-tag size="small" :type="item.enabled ? 'success' : 'info'">{{ item.enabled ? '启用' : '停用' }}</el-tag><el-button link size="small" @click="startDwdRelation(item)">编辑</el-button><PermissionButton menu="table_tools" op="D" link type="danger" size="small" @click="removeDwdRelation(item)">删除</PermissionButton></div>
+          <div v-for="item in dwdRelations" :key="item.id" class="config-list-row"><div><strong>{{ item.name }}</strong><span class="config-muted">{{ dwdSources.find((source) => source.dataset_id === item.dataset_id)?.dataset_name || (item.report_id ? `历史报表 #${item.report_id}` : `数据集 #${item.dataset_id}`) }}</span></div><el-tag size="small" :type="item.enabled ? 'success' : 'info'">{{ item.enabled ? '启用' : '停用' }}</el-tag><el-button link size="small" @click="startDwdRelation(item)">编辑</el-button><PermissionButton menu="table_tools" op="D" link type="danger" size="small" @click="removeDwdRelation(item)">删除</PermissionButton></div>
         </section>
         </template>
       </template>

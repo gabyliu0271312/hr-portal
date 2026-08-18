@@ -147,7 +147,12 @@ class MergeDwdRelation(Base):
         BigInteger, ForeignKey("merge_templates.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    report_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("reports.id", ondelete="RESTRICT"), nullable=False)
+    report_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("reports.id", ondelete="RESTRICT"), nullable=True
+    )
+    dataset_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("datasets.id", ondelete="RESTRICT"), nullable=True
+    )
     left_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     right_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     select_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
