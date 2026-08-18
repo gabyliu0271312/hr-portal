@@ -2212,6 +2212,8 @@ def _filter_clause(expr, data_type: str, op: str, val: Any) -> ColumnElement | N
         return and_(*clauses) if clauses else None
     if op == "in" and isinstance(val, (list, tuple)) and val:
         return expr.in_([_coerce_filter_value(x, data_type) for x in val])
+    if op == "in_text" and isinstance(val, (list, tuple)) and val:
+        return cast(expr, SAString).in_([str(x) for x in val])
     if op == "is_null":
         return or_(expr.is_(None), cast(expr, SAString) == "")
     if op == "is_not_null":

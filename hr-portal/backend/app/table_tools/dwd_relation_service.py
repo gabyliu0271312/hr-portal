@@ -163,7 +163,7 @@ async def apply_dwd_relation(
     unique_keys = list(dict.fromkeys(keys))
     # 逐列 IN 只产生联合键候选集，不能单独作为关联判定；最终命中必须由完整 tuple 再校验。
     filters = [
-        {"column": field, "op": "in", "value": [key[index] for key in unique_keys]}
+        {"column": field, "op": "in_text", "value": [key[index] for key in unique_keys]}
         for index, field in enumerate(relation.right_fields)
     ]
     dwd_rows: list[dict[str, Any]] = []

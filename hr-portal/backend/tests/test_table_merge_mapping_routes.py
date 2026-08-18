@@ -365,6 +365,48 @@ def test_list_dwd_sources_uses_dataset_permissions_and_filters_ineligible(monkey
     }]
 
 
+def test_apply_dwd_relation_uses_text_filters_for_identifier_keys(monkeypatch):
+    relation = SimpleNamespace(
+        enabled=True,
+        dataset_id=8,
+        report_id=None,
+        left_fields=["employee_id"],
+        right_fields=["dwd.employee_id"],
+        select_fields=["dwd.department"],
+        missing_policy="anomaly",
+        multiple_policy="anomaly",
+        name="employee-dwd",
+    )
+    calls: list[list[dict]] = []
+
+    async def dataset_context(_dataset_id: int, _user: object, _db: object) -> object:
+        return SimpleNamespace(id=8)
+
+    async def validate(*_args: object) -> None:
+        return None
+
+    async def query(_dataset_id: int, **kwargs: object) -> tuple[None, list[dict[str, str]], int]:
+        calls.append(kwargs["filters"])
+        if len(calls) == 1:
+            assert calls[0][0]["op"] == "in_text"
+            return None, [{"dwd.employee_id": "13092319880520641X", "dwd.department": "人事部"}], 1
+        raise AssertionError("unexpected second query")
+
+    monkeypatch.setattr(dwd_relation_service, "load_dataset_dwd_context", dataset_context)
+    monkeypatch.setattr(dwd_relation_service, "ensure_valid_report_field_references", validate)
+    monkeypatch.setattr(dwd_relation_service, "run_dataset_query", query)
+
+    result, anomalies = asyncio.run(
+        dwd_relation_service.apply_dwd_relation(
+            [{"employee_id": "13092319880520641X"}], relation, SimpleNamespace(), SimpleNamespace()
+        )
+    )
+
+    assert result == [{"employee_id": "13092319880520641X", "dwd.department": "人事部"}]
+    assert anomalies == []
+    assert calls[0]
+
+
 def test_apply_dwd_relation_validates_dataset_fields_with_report_config(monkeypatch):
     relation = SimpleNamespace(
         enabled=True,
