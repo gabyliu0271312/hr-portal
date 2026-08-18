@@ -20,35 +20,25 @@ def _dependent_views(bind, table_name: str) -> list[tuple[int, str, str, str]]:
     rows = bind.execute(
         sa.text(
             """
-            WITH RECURSIVE dependent_views AS (
-                SELECT c.oid, n.nspname AS schema_name, c.relname AS view_name, 1 AS depth
-                FROM pg_class base
-                JOIN pg_namespace base_ns ON base_ns.oid = base.relnamespace
-                JOIN pg_depend dep ON dep.refobjid = base.oid
-                JOIN pg_rewrite rw ON rw.oid = dep.objid
-                JOIN pg_class c ON c.oid = rw.ev_class
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE base_ns.nspname = 'public'
-                  AND base.relname = :table_name
-                  AND c.relkind = 'v'
-                UNION
-                SELECT c.oid, n.nspname, c.relname, dv.depth + 1
-                FROM dependent_views dv
-                JOIN pg_depend dep ON dep.refobjid = dv.oid
-                JOIN pg_rewrite rw ON rw.oid = dep.objid
-                JOIN pg_class c ON c.oid = rw.ev_class
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relkind = 'v'
-            )
-            SELECT DISTINCT ON (oid)
-                depth, schema_name, view_name, pg_get_viewdef(oid, true) AS definition
-            FROM dependent_views
-            ORDER BY oid, depth DESC
+            SELECT DISTINCT
+                1 AS depth,
+                n.nspname AS schema_name,
+                c.relname AS view_name,
+                pg_get_viewdef(c.oid, true) AS definition
+            FROM pg_class base
+            JOIN pg_namespace base_ns ON base_ns.oid = base.relnamespace
+            JOIN pg_depend dep ON dep.refobjid = base.oid
+            JOIN pg_rewrite rw ON rw.oid = dep.objid
+            JOIN pg_class c ON c.oid = rw.ev_class
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE base_ns.nspname = 'public'
+              AND base.relname = :table_name
+              AND c.relkind = 'v'
             """
         ),
         {"table_name": table_name},
     ).mappings().all()
-    return [(int(row["depth"]), row["schema_name"], row["view_name"], row["definition"]) for row in rows]
+    return [(1, row["schema_name"], row["view_name"], row["definition"]) for row in rows]
 
 
 def _alter_identity_column(bind, table_name: str) -> None:
