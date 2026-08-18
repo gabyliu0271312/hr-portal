@@ -175,8 +175,9 @@ async def apply_dwd_relation(
                 dataset.id, columns=fields, filters=filters, page=page,
                 page_size=page_size, user=user, db=db,
             )
+            batch = batch or []
             dwd_rows.extend(batch)
-            if not batch or len(dwd_rows) >= total:
+            if not batch or len(dwd_rows) >= (total or 0):
                 break
             page += 1
     except Exception as exc:
