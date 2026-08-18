@@ -958,7 +958,12 @@ def _project_output_items(
 ) -> list[dict[str, Any]]:
     output_codes = [str(col.get("code")) for col in columns_meta if col.get("code")]
     def output_value(value: Any) -> Any:
-        return float(value) if isinstance(value, Decimal) else value
+        if isinstance(value, Decimal):
+            # 大整数标识字段不能转 float，否则 18 位证件号码会变成科学计数法并丢精度。
+            if value == value.to_integral_value() and len(str(abs(value).to_integral_value())) >= 15:
+                return format(value, "f")
+            return float(value)
+        return value
     return [{code: output_value(row.get(code)) for code in output_codes} for row in items]
 
 
