@@ -749,16 +749,33 @@ async def _run_template_merge(
     )
     dwd_anomalies: list[dict[str, Any]] = []
     rows = result["rows"]
-    columns = list(result["columns"])
+    base_columns = [column for column in result["columns"] if column != "来源"]
+    dwd_columns: list[str] = []
+    column_labels: dict[str, str] = {}
     for relation in relations if relations is not None else template.dwd_relations:
         if not relation.enabled:
             continue
         rows, anomalies = await apply_dwd_relation(rows, relation, user, db)
         dwd_anomalies.extend(anomalies)
+        fields = await (
+            list_dwd_fields_by_dataset(relation.dataset_id, user, db)
+            if relation.dataset_id is not None
+            else list_dwd_fields(relation.report_id, user, db)
+        )
+        field_labels = {field["code"]: field["label"] for field in fields}
         for field in relation.select_fields:
-            if field not in columns:
-                columns.append(field)
-    return {**result, "rows": rows, "columns": columns, "dwd_anomalies": dwd_anomalies}
+            if field not in dwd_columns:
+                dwd_columns.append(field)
+            if field in field_labels:
+                column_labels[field] = field_labels[field]
+    columns = base_columns + dwd_columns + (["来源"] if "来源" in result["columns"] else [])
+    return {
+        **result,
+        "rows": rows,
+        "columns": columns,
+        "column_labels": column_labels,
+        "dwd_anomalies": dwd_anomalies,
+    }
 
 
 @router.post("/templates/{tid}/dwd-relations/{rid}/apply")
@@ -858,6 +875,7 @@ async def run_merge_api(
     return {
         "preview_token": preview.token,
         "columns": result["columns"],
+        "column_labels": result["column_labels"],
         "rows": result["rows"][:100],
         "total_rows": len(result["rows"]),
         "recognize_log": result["recognize_log"],

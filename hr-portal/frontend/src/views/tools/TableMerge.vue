@@ -765,6 +765,9 @@ async function downloadResultBatch(batch: MergeResultBatch) {
 // ── 计算属性 ─────────────────────────────────────────────────────────────────
 const mergeResultCols = computed(() => mergeResult.value?.columns || [])
 const historyResultCols = computed(() => historyResult.value?.columns || [])
+function mergeColumnLabel(column: string) {
+  return mergeResult.value?.column_labels?.[column] || column
+}
 
 // key_map / column_map entries（用于 v-model 绑定）
 const editingKeyMapEntries = computed({
@@ -1453,7 +1456,7 @@ const editingColMapEntries = computed({
               max-height="600" style="font-size:12px; width:100%">
               <el-table-column
                 v-for="col in mergeResultCols" :key="col"
-                :prop="col" :label="col" min-width="110" show-overflow-tooltip />
+                :prop="col" :label="mergeColumnLabel(col)" min-width="110" show-overflow-tooltip />
             </el-table>
           </div>
 

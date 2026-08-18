@@ -104,6 +104,7 @@ export interface MappingDraft {
 export interface MergeResult {
   preview_token?: string
   columns: string[]
+  column_labels?: Record<string, string>
   rows: Record<string, any>[]
   total_rows: number
   recognize_log: { sheet: string; file: string; mapping: string; score: number }[]
