@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.datasets.models import DataSet
 from app.datasets.router import _can_access as dataset_can_access
 from app.permissions.masker import get_hidden_columns
+from app.reports.config import ReportConfig
 from app.reports.models import Report
 from app.reports.router import _can_access as report_can_access
 from app.reports.sql_builder import run_dataset_query
@@ -150,7 +151,7 @@ async def apply_dwd_relation(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="DWD 关联缺少来源")
     fields = list(dict.fromkeys([*relation.right_fields, *relation.select_fields]))
     await ensure_valid_report_field_references(
-        {"columns": fields, "filters": [], "sorts": []}, dataset.id, user, db
+        ReportConfig(columns=fields), dataset.id, user, db
     )
     keys: list[tuple[str, ...]] = []
     for row in rows:
