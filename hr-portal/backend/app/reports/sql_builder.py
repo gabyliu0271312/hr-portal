@@ -1734,7 +1734,7 @@ async def run_dataset_query(
 
     # 排序
     sql_sort_applied = False
-    for s in sorts:
+    for s in sorts or []:
         col_qual = s.get("column", "")
         if _has_duplicates:
             col_qual = _instance_id_to_source.get(col_qual, col_qual)
