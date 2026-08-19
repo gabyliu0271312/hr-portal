@@ -229,7 +229,7 @@ def _normalize_db_value(value):
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, Decimal):
-        return str(value)
+        return format(value, "f")
     return value
 
 

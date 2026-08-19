@@ -124,7 +124,7 @@ def _normalize_value(value: Any) -> Any:
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, Decimal):
-        return str(value)
+        return format(value, "f")
     return value
 
 

@@ -1,9 +1,15 @@
 from datetime import date
 
-from app.datasources.sync_service import _coerce_db_value
+from decimal import Decimal
+
+from app.datasources.sync_service import _coerce_db_value, _normalize_db_value
 
 
-def test_coerce_excel_date_serial_to_date():
+def test_normalize_decimal_without_scientific_notation():
+    assert _normalize_db_value(Decimal("2E+4")) == "20000"
+    assert _normalize_db_value(Decimal("20000.50")) == "20000.50"
+
+
     assert _coerce_db_value(44081, "date") == date(2020, 9, 7)
     assert _coerce_db_value("44228", "date") == date(2021, 2, 1)
 
