@@ -57,11 +57,15 @@ class SchedulerEngine:
     async def _ensure_internal_jobs(self) -> None:
         """确保系统级质量队列有持久化轮询任务。"""
         async with self._session_factory() as db:
-            statement = pg_insert(ScheduledJob).values(
-                kind="quality_queue", business_id=0, cron="* * * * *",
-                payload={}, enabled=True,
-            ).on_conflict_do_nothing(index_elements=["kind", "business_id"])
-            await db.execute(statement)
+            for kind, payload in (
+                ("quality_queue", {}),
+                ("cost_center_notification_queue", {"batch_size": 20}),
+            ):
+                statement = pg_insert(ScheduledJob).values(
+                    kind=kind, business_id=0, cron="* * * * *",
+                    payload=payload, enabled=True,
+                ).on_conflict_do_nothing(index_elements=["kind", "business_id"])
+                await db.execute(statement)
             await db.commit()
     async def reload_all_jobs(self) -> int:
         """从 DB 重新加载所有 enabled jobs 到 APScheduler。

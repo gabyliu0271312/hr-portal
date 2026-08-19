@@ -28,6 +28,7 @@ async def run_report_query(
     db: AsyncSession,
     triggered_by: str = "cron",
     runtime_filters: list[dict[str, Any]] | None = None,
+    period: str | None = None,
 ) -> tuple[int, str]:
     """执行报表查询，返回 (total_rows, run_url)。
 
@@ -54,6 +55,30 @@ async def run_report_query(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     validate_runtime_filters(config_model, runtime_filters)
     config_model = ensure_valid_report_config(apply_runtime_overrides(config_model, runtime_filters))
+    if period:
+        period_filters = [item for item in config_model.filters if item.column in {"period", "month", "pay_month"}]
+        if len(period_filters) != 1:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="定时报表指定 period 时必须配置唯一的 period/month/pay_month 筛选条件",
+            )
+        period_filter = period_filters[0]
+        if period_filter.locked:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="定时报表期间筛选不可锁定")
+        config_model = ensure_valid_report_config(apply_runtime_overrides(
+            config_model,
+            [{"column": period_filter.column, "op": "eq", "value": period}],
+        ))
+    from app.reports.quality_gate import enforce_report_quality
+    await enforce_report_quality(
+        db,
+        report_id=report.id,
+        dataset_id=report.dataset_id,
+        config=config_model,
+        filters=config_model.filters,
+        explicit_period=period,
+        action="run",
+    )
     await ensure_valid_report_field_references(config_model, report.dataset_id, owner, db, runtime_filters)
     config = config_model.model_dump()
     columns = config.get("columns", [])

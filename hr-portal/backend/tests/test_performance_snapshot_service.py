@@ -96,7 +96,43 @@ def test_draft_changes_replace_relationships_before_lock():
     assert changed_employee.direct_manager_employee_no == "100"
 
 
-def test_locked_snapshot_rejects_structural_sync():
+def test_build_snapshot_people_keeps_ambiguous_name_references_unresolved():
+    people = build_snapshot_people(
+        (
+            RosterAuthorizationInput(employee_no="100", display_name="同名"),
+            RosterAuthorizationInput(employee_no="200", display_name="同名"),
+            RosterAuthorizationInput(
+                employee_no="300",
+                display_name="员工甲",
+                direct_manager_source_value="同名",
+                hrbp_source_value="不存在",
+            ),
+        )
+    )
+
+    employee = next(person for person in people if person.employee_no == "300")
+    assert employee.direct_manager_employee_no is None
+    assert employee.hrbp_employee_no is None
+
+
+def test_build_snapshot_people_prefers_employee_number_to_name():
+    people = build_snapshot_people(
+        (
+            RosterAuthorizationInput(employee_no="100", display_name="200"),
+            RosterAuthorizationInput(employee_no="200", display_name="经理"),
+            RosterAuthorizationInput(
+                employee_no="300",
+                display_name="员工甲",
+                direct_manager_source_value=" 200 ",
+            ),
+        )
+    )
+
+    employee = next(person for person in people if person.employee_no == "300")
+    assert employee.direct_manager_employee_no == "200"
+
+
+
     with pytest.raises(SnapshotLockedError):
         assert_snapshot_mutable(AUTHORIZATION_SNAPSHOT_STATUS_LOCKED)
 

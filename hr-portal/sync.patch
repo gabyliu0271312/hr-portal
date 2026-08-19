@@ -1,0 +1,27 @@
+*** Begin Patch
+*** Update File: backend/app/datasources/sync_service.py
+@@
+         await schedule_quality_checks_after_sync(
+-            table_name, settings, db, source_sync_batch_id=batch_id,
++            table_name,
++            settings,
++            db,
++            periods=sorted(periods),
++            source_sync_batch_id=batch_id,
+         )
+@@
+         await _record_quality_dispatch_failure(
+-            table_name, settings, batch_id, str(exc)[:1000],
++            table_name,
++            {**settings, "__quality_periods": sorted(periods)},
++            batch_id,
++            str(exc)[:1000],
+         )
+@@
+ async def schedule_quality_checks_after_sync(
+@@
+     *,
++    periods: list[str] | None = None,
+     source_sync_batch_id: str | None = None,
+ ) -> None:
+*** End Patch

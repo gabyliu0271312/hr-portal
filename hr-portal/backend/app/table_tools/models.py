@@ -83,6 +83,8 @@ class MergeSourceMapping(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     # 自动识别:表头特征列名(子集命中)
     match_signature: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # 样表解析出的完整源字段目录
+    source_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     # sheet 选择关键词(None=第一个)
     sheet_kw: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # 表头行区间 [start, end](1-based)

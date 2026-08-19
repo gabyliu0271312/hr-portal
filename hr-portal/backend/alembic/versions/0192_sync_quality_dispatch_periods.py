@@ -70,9 +70,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_sync_quality_dispatch_pick", table_name="sync_quality_dispatches")
     op.drop_table("sync_quality_dispatches")
-    op.drop_index("uq_warehouse_quality_run_dedupe", table_name="warehouse_quality_runs")
-    op.drop_index("ix_warehouse_quality_status_batch", table_name="warehouse_quality_status")
-    op.drop_index("ix_warehouse_quality_status_report_period", table_name="warehouse_quality_status")
-    op.drop_table("warehouse_quality_status")
-    for name in ("dedupe_key", "triggered_by", "sample_key_hashes", "missing_key_count", "duplicate_key_count", "severity", "asset_id", "asset_type", "source_sync_batch_id", "period"):
-        op.drop_column("warehouse_quality_runs", name)
+    # warehouse_quality_* 对象由 0182/0187 分支拥有；0192 只为从历史
+    # production head 直升的兼容分支提供 IF NOT EXISTS 基线，不能在该分支
+    # rollback 时删除仍由有效祖先链拥有的对象。

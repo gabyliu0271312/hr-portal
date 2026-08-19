@@ -292,7 +292,6 @@ async def _execute_dwd_update(
     """执行 DWD 数据更新：严格按用户配置的 update_mode 执行。"""
     from app.core.db import get_session_factory
 
-    await _reconcile_cleaning_mode(config, table_name, db)
     period_value = event_payload.get("period_value") or event_payload.get("period")
     if table_name == "cost_center_monthly" and not period_value:
         return {
@@ -301,6 +300,8 @@ async def _execute_dwd_update(
             "table_name": table_name,
             "detail": "成本中心 DWD 自动化必须提供已发布的 YYYYMM 期间",
         }
+
+    await _reconcile_cleaning_mode(config, table_name, db)
 
     async with get_session_factory()() as work_db:
         if table_name == "cost_center_monthly":

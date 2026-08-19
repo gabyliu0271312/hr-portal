@@ -289,6 +289,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '数据建模', menuCode: 'warehouse.modeling' },
       },
       {
+        path: 'warehouse/cost-center-mapping',
+        name: 'WarehouseCostCenterMapping',
+        component: () => import('@/views/warehouse/CostCenterMappingWorkspace.vue'),
+        meta: { label: '成本中心映射', menuCode: 'warehouse.modeling', hideAside: true },
+      },
+      {
         path: 'warehouse/modeling/quick',
         redirect: '/warehouse/modeling/visual',
         meta: { label: '快速关联', menuCode: 'warehouse.modeling' },
@@ -418,8 +424,37 @@ const routes: RouteRecordRaw[] = [
       {
         path: '',
         name: 'PerformanceSettings',
-        component: () => import('@/views/performance/Settings.vue'),
+        redirect: { name: 'PerformanceCycles' },
         meta: { label: '绩效后台设置' },
+      },
+      {
+        path: 'cycles',
+        name: 'PerformanceCycles',
+        component: () => import('@/views/performance/CycleManagement.vue'),
+        meta: { label: '周期与项目' },
+      },
+      {
+        path: 'templates',
+        name: 'PerformanceTemplates',
+        component: () => import('@/views/performance/PerformanceTemplateManagement.vue'),
+      },
+      {
+        path: 'templates/create',
+        name: 'PerformanceTemplateCreate',
+        component: () => import('@/views/performance/PerformanceTemplateCreate.vue'),
+        meta: { label: '绩效模板' },
+      },
+      {
+        path: 'cycles/new',
+        name: 'PerformanceCycleCreate',
+        component: () => import('@/views/performance/CycleManagement.vue'),
+        meta: { label: '新建周期' },
+      },
+      {
+        path: 'cycles/:id/edit',
+        name: 'PerformanceCycleEdit',
+        component: () => import('@/views/performance/CycleManagement.vue'),
+        meta: { label: '编辑周期' },
       },
     ],
   },

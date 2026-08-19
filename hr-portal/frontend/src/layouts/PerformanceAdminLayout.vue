@@ -29,7 +29,7 @@
             :class="{ active: activeSection === item.key }"
             :aria-current="activeSection === item.key ? 'page' : undefined"
             type="button"
-            @click="activeSection = item.key"
+            @click="navigateSection(item.key)"
           >
             <el-icon><component :is="item.icon" /></el-icon>
             <span class="menu-label">{{ item.label }}</span>
@@ -45,8 +45,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import {
   DEFAULT_PERFORMANCE_ADMIN_SECTION,
@@ -55,10 +55,22 @@ import {
 } from '@/utils/performanceAdminNavigation'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 const menuItems = PERFORMANCE_ADMIN_MENU_ITEMS
 const activeSection = ref<PerformanceAdminSection>(DEFAULT_PERFORMANCE_ADMIN_SECTION)
 const userInitial = computed(() => userStore.user?.display_name?.trim().slice(0, 1) || '我')
+
+watch(() => route.name, (name) => {
+  if (name === 'PerformanceCycles' || name === 'PerformanceCycleCreate' || name === 'PerformanceCycleEdit') activeSection.value = 'cycles-projects'
+  if (name === 'PerformanceTemplates') activeSection.value = 'templates'
+})
+
+function navigateSection(section: PerformanceAdminSection) {
+  activeSection.value = section
+  if (section === 'cycles-projects') void router.push({ name: 'PerformanceCycles' })
+  if (section === 'templates') void router.push({ name: 'PerformanceTemplates' })
+}
 
 async function handleUserCommand(command: 'logout') {
   await userStore.logout()
@@ -67,14 +79,14 @@ async function handleUserCommand(command: 'logout') {
 </script>
 
 <style scoped>
-.performance-admin-app { min-height: 100vh; background: #f5f6f8; }
-.performance-admin-header { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 20px 0 16px; background: #334a7d; color: #fff; }
-.brand { display: inline-flex; align-items: center; gap: 12px; font-size: 18px; font-weight: 600; }
-.brand-mark { display: inline-flex; align-items: end; gap: 3px; width: 34px; height: 28px; }
-.brand-mark i { display: block; width: 7px; border-radius: 4px 4px 2px 2px; background: #fff; }
+.performance-admin-app { min-height: 100vh; min-width: 1000px; background: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; color: #1f2329; }
+.performance-admin-header { display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 8px; background: #3c4a73; color: rgba(255, 255, 255, .9); box-shadow: 0 2px 4px -4px rgba(31, 35, 41, .02), 0 4px 8px rgba(31, 35, 41, .02), 0 4px 16px 4px rgba(31, 35, 41, .03); }
+.brand { display: inline-flex; align-items: center; padding: 14px 16px; gap: 0; font-size: 20px; font-weight: 600; line-height: 28px; }
+.brand-mark { display: inline-flex; align-items: end; gap: 3px; width: 28px; height: 28px; }
+.brand-mark i { display: block; width: 6px; border-radius: 50% 50% 2px 2px; background: #fff; }
 .brand-mark i:nth-child(1) { height: 16px; }.brand-mark i:nth-child(2) { height: 25px; }.brand-mark i:nth-child(3) { height: 20px; }
-.brand-divider { width: 1px; height: 22px; background: rgba(255, 255, 255, .42); }.brand-name { white-space: nowrap; }
-.user-trigger { display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }.user-trigger:focus-visible, .admin-menu-item:focus-visible { outline: 2px solid #3d6df2; outline-offset: 2px; }
-.performance-admin-body { display: flex; min-height: calc(100vh - 48px); }.performance-admin-aside { width: 230px; flex: 0 0 230px; padding-top: 18px; background: #fff; box-shadow: 1px 0 0 #edf0f4; }.aside-title { padding: 0 16px 12px; color: #5f718d; font-size: 14px; }.admin-menu { padding: 0 8px; }.admin-menu-item { display: flex; align-items: center; gap: 12px; width: 100%; height: 40px; margin: 1px 0; padding: 0 11px; border: 0; border-radius: 2px; background: transparent; color: #222c3c; cursor: pointer; font: inherit; font-size: 15px; text-align: left; }.admin-menu-item:hover { background: #f3f6fb; color: #3d6df2; }.admin-menu-item.active { background: #dce7ff; color: #3d6df2; }.performance-admin-main { flex: 1; min-width: 0; padding: 22px 20px; }
-@media (max-width: 960px) { .performance-admin-aside { width: 64px; flex-basis: 64px; }.aside-title, .menu-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }.admin-menu-item { justify-content: center; padding: 0; } }
+.brand-divider { width: 1px; height: 18px; margin: 0 12px; background: #bbbfc4; }.brand-name { white-space: nowrap; }
+.user-trigger { display: grid; place-items: center; width: 24px; height: 24px; margin: 0 16px 0 8px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }.user-trigger:focus-visible, .admin-menu-item:focus-visible { outline: 2px solid #3370ff; outline-offset: 2px; }
+.performance-admin-body { display: flex; min-height: calc(100vh - 56px); }.performance-admin-aside { width: 240px; flex: 0 0 240px; padding-top: 16px; background: #fff; box-shadow: 1px 0 0 #edf0f4; }.aside-title { margin-bottom: 8px; padding: 0 20px; color: #8f959e; font-size: 14px; line-height: 22px; }.admin-menu { padding: 0; }.admin-menu-item { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-height: 41px; margin: 0; padding: 10px 12px 10px 16px; border: 0; border-radius: 0; background: transparent; color: #1f2329; cursor: pointer; font: inherit; font-size: 14px; line-height: 21px; text-align: left; }.admin-menu-item :deep(.el-icon) { width: 18px; height: 18px; margin-top: 2px; color: #646a73; }.admin-menu-item:hover { background: rgba(31, 35, 41, .08); color: #3370ff; }.admin-menu-item.active { background: #e1eaff; color: #3370ff; }.admin-menu-item.active :deep(.el-icon) { color: #3370ff; }.performance-admin-main { flex: 1; min-width: 0; min-height: calc(100vh - 56px); padding: 20px; overflow: auto; }
+@media (max-width: 960px) { .performance-admin-app { min-width: 0; }.performance-admin-aside { width: 240px; flex-basis: 240px; }.admin-menu-item { justify-content: flex-start; padding-left: 16px; } }
 </style>

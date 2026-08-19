@@ -23,12 +23,8 @@
         </el-form>
         <div class="period-actions">
           <el-button type="primary" :loading="loading" @click="initializePeriod">初始化期间</el-button>
-          <el-button :loading="loading" :disabled="!periodState" @click="copyPrevious">复制最近已发布周期</el-button>
         </div>
       </div>
-      <el-alert v-if="periodState?.copiedFromPeriod" type="info" :closable="false" show-icon>
-        已复制 {{ periodState.copiedFromPeriod }} 的稀疏例外；当前期间仍为草稿，发布前需要确认差异。
-      </el-alert>
     </el-card>
 
     <el-alert v-if="errorMessage" class="page-alert" type="error" :title="errorMessage" :closable="false" />
@@ -59,7 +55,7 @@
           <div class="section-heading">
             <div>
               <strong>规则工作区</strong>
-              <span>默认自映射不展开保存，例外通过周期服务持久化</span>
+              <span>默认自映射不展开保存，仅持久化例外</span>
             </div>
             <el-button type="primary" :disabled="periodState.status === 'published'" :loading="saving" @click="saveException">
               保存例外
@@ -158,7 +154,7 @@ function createFallbackPolicy(): MappingCallerPolicy {
     allowedRuleTypes: ['identity_with_overrides', 'reference_lookup', 'field', 'value_map', 'type_convert', 'format', 'split_merge'],
     source: { assetId: 'cost_center_monthly', schemaHash: '', allowedFieldIds: sourceFields.value.map((item) => item.code) },
     target: { assetId: 'dwd_cost_center_monthly', schemaHash: '', allowedFieldIds: targetFields.value.map((item) => item.code), readonlyFieldIds: [], protectedKeyFieldIds: ['code'] },
-    referenceLookup: { allowedDatasetIds: ['cost_center_tree'], allowedFieldIds: ['code', 'name'], maxRules: 20 },
+    referenceLookup: { allowedDatasetIds: [], allowedFieldIds: [], maxRules: 20 },
     effects: { allowPreview: false, allowSave: false, allowPublish: false, allowExecute: false, allowRebuild: false },
     legacy: { sourceFormat: 'standardization_rules', allowLegacyRead: true, allowLegacyWrite: false, allowMigration: false },
     metadata: { policyVersion: 1, permissionScope: 'warehouse.modeling', issuedAt: '' },
@@ -174,7 +170,6 @@ function createCostCenterDocument(): MappingDocument {
   document.ruleSet.targetAsset = 'dwd_cost_center_monthly'
   document.ruleSet.rules = [
     { id: 'cost-center-identity', type: 'identity_with_overrides', enabled: true, displayOrder: 0, sourceFields: ['code'], targetFields: ['code'], config: { defaultBehavior: 'keep_source', overrides: {}, unmatched: 'keep' } },
-    { id: 'cost-center-attributes', type: 'reference_lookup', enabled: true, displayOrder: 1, sourceFields: ['code'], targetFields: ['name'], config: { referenceDatasetId: 'cost_center_tree', outputMap: { name: 'name' }, matchRules: [{ id: 'cost-center-code', priority: 1, sourceField: 'code', referenceField: 'code', conditions: {}, onMatch: 'use_and_stop' }], unmatched: 'keep' } },
   ]
   return document
 }
@@ -231,20 +226,6 @@ async function initializePeriod() {
     ElMessage.success(`已初始化 ${period.value}`)
   } catch (error: any) {
     errorMessage.value = error?.response?.data?.detail || error?.message || '初始化失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function copyPrevious() {
-  if (!periodState.value) return
-  try {
-    loading.value = true
-    periodState.value = await costCenterMappingApi.copyPrevious(period.value, { expected_version: periodState.value.expectedVersion, source_snapshot: {} })
-    dwdGate.value = { status: 'review_required', reason: 'cost_center_mapping_not_published' }
-    ElMessage.success('已复制最近已发布周期')
-  } catch (error: any) {
-    errorMessage.value = error?.response?.data?.detail || error?.message || '复制失败'
   } finally {
     loading.value = false
   }

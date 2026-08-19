@@ -10,6 +10,7 @@ from app.mapping.dto import (
     MappingDocumentV1,
     MappingRuleSetV1,
     MatchRule,
+    LookupConfig,
     ReferenceLookupRule,
     ReferenceLookupRuleConfig,
     SplitMergeRule,
@@ -339,3 +340,29 @@ async def test_executor_reject_error_is_reported_and_row_is_dropped():
     assert result.errors[0].field == "value"
     assert result.trace[0].outcome == "error"
     assert result.trace[0].errorCode == MappingErrorCode.MAPPING_TYPE_CONVERSION_FAILED.value
+
+
+@pytest.mark.asyncio
+async def test_lookup_configs_use_priority_per_dataset_and_default_value():
+    rule = ReferenceLookupRule(
+        id="generic-lookup",
+        sourceFields=["employee_no", "client"],
+        targetFields=["expense_type"],
+        config=ReferenceLookupRuleConfig(
+            lookupConfigs=[
+                LookupConfig("employee", 10, "dwd_employee_reference", "employee_no", "employee_id", "expense", "expense_type", {"field_type": "employee"}),
+                LookupConfig("client", 20, "dwd_client_reference", "client", "client_code", "expense", "expense_type", {}),
+            ],
+            unmatched="set_default",
+            defaultValue="wage",
+        ),
+    )
+    result = await MappingExecutor().execute(
+        document(rule),
+        [{"employee_no": "E1", "client": "C1"}, {"employee_no": "E2", "client": "C1"}, {"employee_no": "E3", "client": "C2"}],
+        reference_snapshot={
+            "dwd_employee_reference": [{"employee_id": "E1", "field_type": "employee", "expense": "salary"}],
+            "dwd_client_reference": [{"client_code": "C1", "expense": "contract"}],
+        },
+    )
+    assert [row["expense_type"] for row in result.outputRows] == ["salary", "contract", "wage"]

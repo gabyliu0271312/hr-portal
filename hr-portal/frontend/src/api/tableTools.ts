@@ -3,6 +3,7 @@ import { api } from './client'
 export interface SourceMappingIn {
   name: string
   match_signature: string[]
+  source_fields: string[]
   sheet_kw?: string | null
   header_start: number
   header_end: number

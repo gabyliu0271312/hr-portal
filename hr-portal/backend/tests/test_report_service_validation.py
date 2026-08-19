@@ -45,6 +45,7 @@ async def test_scheduled_report_uses_owner_for_query(monkeypatch):
     query = AsyncMock(return_value=([], [], 3))
     monkeypatch.setattr('app.reports.sql_builder.run_dataset_query', query)
     monkeypatch.setattr(report_service, 'ensure_valid_report_field_references', AsyncMock())
+    monkeypatch.setattr('app.reports.quality_gate.enforce_report_quality', AsyncMock())
     report = SimpleNamespace(
         id=3,
         name='scheduled',

@@ -179,6 +179,94 @@ async def _handler_data_compare(
     return diffs, message
 
 
+# ===== 成本中心通知队列 handler =====
+
+async def _handler_cost_center_notification_queue(
+    job: ScheduledJob,
+    db: AsyncSession,
+    triggered_by: str,
+) -> tuple[int, str]:
+    """为到期成本中心通知发布 AutomationEvent，不直接发送飞书。"""
+    from datetime import datetime
+    from sqlalchemy import select
+    from app.automation.events import AutomationEvent, publish_event
+    from app.core.db import get_session_factory
+    from app.mapping.cost_center_models import (
+        CostCenterMappingNotification,
+        CostCenterMappingPeriod,
+    )
+
+    from app.mapping.cost_center_service import CostCenterMappingService
+
+    now = datetime.utcnow()
+    recovered = await CostCenterMappingService(db).recover_stale_notifications()
+    batch_size = int((job.payload or {}).get("batch_size", 20) or 20)
+    # 明确的 OR 条件保证 pending 与到期 retrying 均可消费。
+    from sqlalchemy import or_
+    notifications = await db.execute(
+        select(CostCenterMappingNotification, CostCenterMappingPeriod)
+        .join(
+            CostCenterMappingPeriod,
+            CostCenterMappingPeriod.id == CostCenterMappingNotification.period_id,
+        )
+        .where(
+            or_(
+                CostCenterMappingNotification.status == "pending",
+                (
+                    (CostCenterMappingNotification.status == "retrying")
+                    & (
+                        CostCenterMappingNotification.next_retry_at.is_(None)
+                        | (CostCenterMappingNotification.next_retry_at <= now)
+                    )
+                ),
+            )
+        )
+        .order_by(CostCenterMappingNotification.created_at)
+        .with_for_update(skip_locked=True)
+        .limit(batch_size)
+    )
+    rows = notifications.all()
+    # 先提交领取结果并释放 period/notification 行锁。Automation action 会在独立
+    # session 回写同一通知；持锁同步调用会形成互相等待。
+    pending_events = []
+    for notification, period in rows:
+        notification.status = "dispatching"
+        notification.dispatch_started_at = now
+        pending_events.append((notification.id, notification.notification_key, notification.event_id, period.id, period.period))
+    await db.commit()
+
+    dispatched = 0
+    for notification_id, notification_key, notification_event_id, period_id, period_value in pending_events:
+        event = AutomationEvent(
+            trigger_type="cost_center_mapping_notification_due",
+            biz_type="cost_center_mapping_notification",
+            biz_id=str(notification_id),
+            payload={
+                "biz_type": "cost_center_mapping_notification",
+                "biz_id": str(notification_id),
+                "notification_id": notification_id,
+                "notification_key": notification_key,
+                "period_id": period_id,
+                "period": period_value,
+                "event_id": notification_event_id,
+                "triggered_by": triggered_by,
+            },
+        )
+        async with get_session_factory()() as new_db:
+            published = await publish_event(event, new_db)
+        if published:
+            dispatched += 1
+            continue
+        async with get_session_factory()() as recovery_db:
+            await CostCenterMappingService(recovery_db).mark_notification_failed(
+                period=period_value,
+                notification_id=notification_id,
+                error="automation_event_publish_failed",
+            )
+            await recovery_db.commit()
+    return dispatched + recovered, f"cost_center_notification_queue: dispatched={dispatched}, recovered={recovered}"
+
+
 # ===== 注册表 =====
 
 # ===== R0501: 仓内任务 handler =====
@@ -438,6 +526,7 @@ JOB_HANDLERS: dict[str, HandlerFn] = {
     "metric_compute": _handler_metric_compute,
     "quality_run": _handler_quality_run,
     "quality_queue": _handler_quality_queue,
+    "cost_center_notification_queue": _handler_cost_center_notification_queue,
     "performance_cycle_lifecycle": _handler_performance_cycle_lifecycle,
     "scd_run": _handler_scd_run,
     "ai_controlled_action_retention": _handler_ai_controlled_action_retention,

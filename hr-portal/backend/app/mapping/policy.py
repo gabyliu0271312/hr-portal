@@ -77,6 +77,7 @@ class CallerPolicyTarget:
 class CallerPolicyReferenceLookup:
     allowedDatasetIds: list[str] = field(default_factory=list)
     allowedFieldIds: list[str] = field(default_factory=list)
+    datasetFields: dict[str, list[str]] = field(default_factory=dict)
     maxRules: int = 20
 
 
@@ -144,6 +145,10 @@ class MappingCallerPolicyV1:
             "referenceLookup": {
                 "allowedDatasetIds": list(self.referenceLookup.allowedDatasetIds),
                 "allowedFieldIds": list(self.referenceLookup.allowedFieldIds),
+                "datasetFields": {
+                    dataset_id: list(field_ids)
+                    for dataset_id, field_ids in self.referenceLookup.datasetFields.items()
+                },
                 "maxRules": self.referenceLookup.maxRules,
             },
             "effects": {
@@ -183,6 +188,7 @@ def build_policy(
     allowed_rule_types: Optional[tuple[str, ...]] = None,
     allowed_reference_datasets: Optional[list[str]] = None,
     allowed_reference_fields: Optional[list[str]] = None,
+    reference_dataset_fields: Optional[dict[str, list[str]]] = None,
     max_lookup_rules: int = 20,
     allow_preview: bool = True,
     allow_save: bool = True,
@@ -221,6 +227,7 @@ def build_policy(
         referenceLookup=CallerPolicyReferenceLookup(
             allowedDatasetIds=allowed_reference_datasets or [],
             allowedFieldIds=allowed_reference_fields or [],
+            datasetFields=reference_dataset_fields or {},
             maxRules=max_lookup_rules,
         ),
         effects=CallerPolicyEffects(

@@ -1,9 +1,9 @@
 """Persistence models for performance authorization foundations."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Index, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Identity, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -35,7 +35,7 @@ class PerformanceSystemAccount(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(64), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -48,7 +48,6 @@ class PerformanceSystemAccount(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
-
 
 class PerformanceRole(Base):
     __tablename__ = "performance_roles"
@@ -224,6 +223,8 @@ class PerformanceAuthorizationSnapshotPerson(Base):
     hrbp_employee_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
     hrbp_source_value: Mapped[str | None] = mapped_column(String(256), nullable=True)
     employment_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    departure_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_manually_maintained: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -438,3 +439,108 @@ class PerformanceAuditEvent(Base):
     event_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+CYCLE_LOCK_RULE_IMMEDIATE = "IMMEDIATE"
+CYCLE_LOCK_RULE_SCHEDULED = "SCHEDULED"
+CYCLE_PRE_LOCK_SYNC_MANUAL = "MANUAL"
+CYCLE_PRE_LOCK_SYNC_AUTO_DAILY = "AUTO_DAILY"
+CYCLE_LEAVER_MODE_CREATE_TASK = "CREATE_TASK"
+CYCLE_LEAVER_MODE_REPORT_ONLY = "REPORT_ONLY"
+CYCLE_STATUS_DRAFT = "DRAFT"
+CYCLE_STATUS_LOCKED = "LOCKED"
+PROJECT_STATUS_DRAFT = "DRAFT"
+PROJECT_STATUS_STARTED = "STARTED"
+
+
+class PerformanceProject(Base):
+    __tablename__ = "performance_projects"
+    __table_args__ = (
+        CheckConstraint("status IN ('DRAFT', 'STARTED', 'ARCHIVED')", name="ck_performance_project_status"),
+        Index("ix_performance_projects_cycle_ref", "cycle_ref"),
+        Index("ix_performance_projects_cycle_status", "cycle_ref", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    project_ref: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    cycle_ref: Mapped[str] = mapped_column(String(64), ForeignKey("performance_cycles.cycle_ref", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=PROJECT_STATUS_DRAFT)
+    administrators: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    evaluated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class PerformanceCycle(Base):
+    __tablename__ = "performance_cycles"
+    __table_args__ = (
+        CheckConstraint("lock_rule IN ('IMMEDIATE', 'SCHEDULED')", name="ck_performance_cycle_lock_rule"),
+        CheckConstraint("pre_lock_sync_mode IN ('MANUAL', 'AUTO_DAILY')", name="ck_performance_cycle_pre_lock_sync_mode"),
+        CheckConstraint("leaver_participation_mode IN ('CREATE_TASK', 'REPORT_ONLY')", name="ck_performance_cycle_leaver_mode"),
+        CheckConstraint("status IN ('DRAFT', 'LOCKED')", name="ck_performance_cycle_status"),
+        CheckConstraint("end_at > start_at", name="ck_performance_cycle_end_after_start"),
+        CheckConstraint("lock_rule = 'IMMEDIATE' OR lock_at IS NOT NULL", name="ck_performance_cycle_scheduled_lock_at"),
+        Index("ix_performance_cycles_start_at", "start_at"),
+        Index("ix_performance_cycles_lock_at", "lock_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    cycle_ref: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    language: Mapped[str] = mapped_column(String(16), nullable=False, default="zh-CN")
+    period_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    period_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    period_subtype: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lock_rule: Mapped[str] = mapped_column(String(16), nullable=False)
+    lock_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pre_lock_sync_mode: Mapped[str] = mapped_column(String(16), nullable=False, default=CYCLE_PRE_LOCK_SYNC_MANUAL)
+    leaver_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    leaver_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    leaver_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    leaver_participation_mode: Mapped[str] = mapped_column(String(16), nullable=False, default=CYCLE_LEAVER_MODE_CREATE_TASK)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=CYCLE_STATUS_DRAFT)
+    created_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class PerformanceTemplateWorkflow(Base):
+    """Node-level workflow draft persisted independently from cycle snapshots."""
+
+    __tablename__ = "performance_template_workflows"
+
+    template_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    nodes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    cycle_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    project_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    updated_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class PerformanceTemplate(Base):
+    """Template metadata created before entering the workflow step."""
+
+    __tablename__ = "performance_templates"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    language: Mapped[str] = mapped_column(String(16), nullable=False, default="zh-CN")
+    english_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    calculation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    selected_rules: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

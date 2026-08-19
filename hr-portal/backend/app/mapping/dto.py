@@ -142,8 +142,24 @@ class MatchRule:
 
 
 @dataclass
-class ReferenceLookupRuleConfig:
+class LookupConfig:
+    """One ordered branch of a generic reference lookup."""
+
+    id: str
+    priority: int
     referenceDatasetId: str
+    sourceField: str
+    referenceMatchField: str
+    referenceReturnField: str
+    targetField: str
+    conditions: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ReferenceLookupRuleConfig:
+    # lookupConfigs is canonical; legacy fields remain read-compatible.
+    lookupConfigs: list[LookupConfig] = field(default_factory=list)
+    referenceDatasetId: str = ""
     outputMap: dict[str, str] = field(default_factory=dict)
     matchRules: list[MatchRule] = field(default_factory=list)
     unmatched: str = UNMATCHED_KEEP
@@ -352,6 +368,19 @@ def _rule_to_dict(rule: MappingRuleV1) -> dict[str, Any]:
         }
     elif isinstance(rule, ReferenceLookupRule):
         d["config"] = {
+            "lookupConfigs": [
+                {
+                    "id": item.id,
+                    "priority": item.priority,
+                    "referenceDatasetId": item.referenceDatasetId,
+                    "sourceField": item.sourceField,
+                    "referenceMatchField": item.referenceMatchField,
+                    "referenceReturnField": item.referenceReturnField,
+                    "targetField": item.targetField,
+                    "conditions": dict(item.conditions),
+                }
+                for item in rule.config.lookupConfigs
+            ],
             "referenceDatasetId": rule.config.referenceDatasetId,
             "outputMap": dict(rule.config.outputMap),
             "matchRules": [
@@ -448,6 +477,19 @@ def _rule_from_dict(rd: dict[str, Any]) -> MappingRuleV1:
             ),
         )
     elif rtype == RULE_TYPE_REFERENCE_LOOKUP:
+        lookup_configs = [
+            LookupConfig(
+                id=item.get("id", f"lookup_{index}"),
+                priority=int(item.get("priority", index)),
+                referenceDatasetId=item.get("referenceDatasetId", ""),
+                sourceField=item.get("sourceField", ""),
+                referenceMatchField=item.get("referenceMatchField", ""),
+                referenceReturnField=item.get("referenceReturnField", ""),
+                targetField=item.get("targetField", ""),
+                conditions=dict(item.get("conditions") or {}),
+            )
+            for index, item in enumerate(cfg.get("lookupConfigs") or [])
+        ]
         match_rules = [
             MatchRule(
                 id=mr.get("id", ""),
@@ -462,6 +504,7 @@ def _rule_from_dict(rd: dict[str, Any]) -> MappingRuleV1:
         return ReferenceLookupRule(
             **base,
             config=ReferenceLookupRuleConfig(
+                lookupConfigs=lookup_configs,
                 referenceDatasetId=cfg.get("referenceDatasetId", ""),
                 outputMap=cfg.get("outputMap", {}),
                 matchRules=match_rules,

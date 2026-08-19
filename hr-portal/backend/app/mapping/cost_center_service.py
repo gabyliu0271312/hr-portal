@@ -36,7 +36,7 @@ def build_cost_center_rule_document(
     period: str,
     source_asset: str = "cost_center_monthly",
     target_asset: str = "dwd_cost_center_monthly",
-    reference_dataset: str = "cost_center_tree",
+    reference_dataset: str | None = None,
     overrides: dict[str, str] | None = None,
     code_field: str = "code",
     name_field: str = "name",
@@ -70,29 +70,7 @@ def build_cost_center_rule_document(
                         "unmatched": "keep",
                     },
                 },
-                {
-                    "id": "cost-center-attributes",
-                    "type": "reference_lookup",
-                    "enabled": True,
-                    "displayOrder": 1,
-                    "sourceFields": [code_field],
-                    "targetFields": [name_field],
-                    "config": {
-                        "referenceDatasetId": reference_dataset,
-                        "matchRules": [
-                            {
-                                "id": "cost-center-code",
-                                "priority": 1,
-                                "sourceField": code_field,
-                                "referenceField": "code",
-                                "conditions": {},
-                                "onMatch": "use_and_stop",
-                            }
-                        ],
-                        "outputMap": {name_field: "name"},
-                        "unmatched": "keep",
-                    },
-                },
+
             ],
         },
     }
@@ -384,20 +362,6 @@ class CostCenterMappingService:
             )
         ).scalars().all()
         overrides = {item.source_code: item.target_code for item in exceptions}
-        from app.data.models import CostCenterNode
-
-        nodes = (
-            await self.db.execute(
-                select(CostCenterNode).where(CostCenterNode.is_active.is_(True)).order_by(CostCenterNode.code)
-            )
-        ).scalars().all()
-        reference_rows = [
-            {
-                "code": node.code,
-                "name": node.name,
-            }
-            for node in nodes
-        ]
         return {
             **gate,
             "rule_document": build_cost_center_rule_document(
@@ -405,7 +369,7 @@ class CostCenterMappingService:
                 overrides=overrides,
             ),
             "overrides": overrides,
-            "reference_datasets": {"cost_center_tree": reference_rows},
+            "reference_datasets": {},
         }
 
     async def mark_rebuild_result(

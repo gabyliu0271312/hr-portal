@@ -1,5 +1,4 @@
 /// <reference types="../../../node_modules/.vue-global-types/vue_3.5_0_0_0.d.ts" />
-import { formatDateTime } from '@/utils/datetime'
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
@@ -9,6 +8,8 @@ import BulkActionBar from '@/components/BulkActionBar.vue';
 import { dataApi } from '@/api/data';
 import { datasourcesApi } from '@/api/datasources';
 import { adminTablesApi } from '@/api/admin_tables';
+import { tableColumnsApi } from '@/api/table_columns';
+import { formatDateTime, formatDateOnly } from '@/utils/datetime';
 import { useDataExport } from '@/composables/useDataExport';
 import { pushTargetsApi } from '@/api/push_targets';
 const route = useRoute();
@@ -78,7 +79,7 @@ const enumFilterColumns = computed(() => columns.value.filter((c) => c.data_type
 // ===== 行勾选 + 批量启用/停用 =====
 const tableRef = ref();
 const selectedRows = ref([]);
-const statusCol = computed(() => columns.value.find((c) => c.code === '启用状态' && c.data_type === 'enum'));
+const statusCol = computed(() => columns.value.find((c) => c.data_type === 'enum' && (c.code === 'status' || c.label === '启用状态')));
 function onSelectionChange(rows) {
     selectedRows.value = rows;
 }
@@ -118,7 +119,15 @@ async function loadColumns() {
     if (!meta.value)
         return;
     try {
-        columns.value = await dataApi.columns(meta.value.code);
+        const [dataColumns, managedColumns] = await Promise.all([
+            dataApi.columns(meta.value.code),
+            tableColumnsApi.list(meta.value.code).catch(() => []),
+        ]);
+        const labelByCode = new Map(managedColumns.map((col) => [col.column_code, col.column_label]));
+        columns.value = dataColumns.map((col) => ({
+            ...col,
+            label: labelByCode.get(col.code) || col.label || col.code,
+        }));
     }
     catch {
         columns.value = [];
@@ -189,12 +198,7 @@ function formatCell(row, col) {
         return '—';
     if (col.data_type === 'datetime' || col.data_type === 'date') {
         if (typeof v === 'string') {
-            try {
-                return formatDateTime(v);
-            }
-            catch {
-                return v;
-            }
+            return col.data_type === 'date' ? formatDateOnly(v, v) : formatDateTime(v, v);
         }
     }
     return String(v);
@@ -276,9 +280,9 @@ async function submitCreate() {
 }
 // 默认筛选：成本中心「启用状态」默认只看「启用」（可手动清空看全部）
 function applyDefaultFilters() {
-    const statusCol = columns.value.find((c) => c.code === '启用状态' && c.data_type === 'enum');
-    if (statusCol && filters['启用状态'] === undefined) {
-        filters['启用状态'] = '启用';
+    const sc = columns.value.find((c) => c.data_type === 'enum' && (c.code === 'status' || c.label === '启用状态'));
+    if (sc && filters[sc.code] === undefined) {
+        filters[sc.code] = '启用';
     }
 }
 watch(meta, async () => {
@@ -304,8 +308,8 @@ const __VLS_ctx = {};
 let __VLS_components;
 let __VLS_directives;
 /** @type {__VLS_StyleScopedClasses['editable-cell']} */ ;
-// CSS variable injection
-// CSS variable injection end
+// CSS variable injection 
+// CSS variable injection end 
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ style: {} },
 });
@@ -835,12 +839,7 @@ if (__VLS_ctx.meta) {
         {
             const { default: __VLS_thisSlot } = __VLS_151.slots;
             const [{ row }] = __VLS_getSlotParams(__VLS_thisSlot);
-            if (col.is_sensitive) {
-                __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
-                    ...{ style: {} },
-                });
-            }
-            else if (__VLS_ctx.isEditable(col)) {
+            if (__VLS_ctx.isEditable(col)) {
                 if (col.data_type === 'enum') {
                     const __VLS_164 = {}.ElSelect;
                     /** @type {[typeof __VLS_components.ElSelect, typeof __VLS_components.elSelect, typeof __VLS_components.ElSelect, typeof __VLS_components.elSelect, ]} */ ;
@@ -909,8 +908,6 @@ if (__VLS_ctx.meta) {
                             onBlur: (...[$event]) => {
                                 if (!(__VLS_ctx.meta))
                                     return;
-                                if (!!(col.is_sensitive))
-                                    return;
                                 if (!(__VLS_ctx.isEditable(col)))
                                     return;
                                 if (!!(col.data_type === 'enum'))
@@ -923,8 +920,6 @@ if (__VLS_ctx.meta) {
                         const __VLS_184 = {
                             onKeyup: (...[$event]) => {
                                 if (!(__VLS_ctx.meta))
-                                    return;
-                                if (!!(col.is_sensitive))
                                     return;
                                 if (!(__VLS_ctx.isEditable(col)))
                                     return;
@@ -941,8 +936,6 @@ if (__VLS_ctx.meta) {
                         __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
                             ...{ onClick: (...[$event]) => {
                                     if (!(__VLS_ctx.meta))
-                                        return;
-                                    if (!!(col.is_sensitive))
                                         return;
                                     if (!(__VLS_ctx.isEditable(col)))
                                         return;

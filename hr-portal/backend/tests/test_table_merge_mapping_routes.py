@@ -40,6 +40,7 @@ def _mapping(
         template_id=1,
         name=name,
         match_signature=["employee_id", "employee_name", "amount"],
+        source_fields=["employee_id", "employee_name", "amount"],
         header_start=1,
         header_end=1,
         key_map={"employee_id": "employee_id"},
@@ -68,6 +69,7 @@ def _payload(name: str = "new-source") -> dict:
     return {
         "name": name,
         "match_signature": ["employee_id", "employee_name", "amount"],
+        "source_fields": ["employee_id", "employee_name", "amount"],
         "header_start": 1,
         "header_end": 1,
         "key_map": {"employee_id": "employee_id"},
@@ -125,6 +127,7 @@ def test_mapping_crud_routes_cover_success_and_validation_statuses(monkeypatch):
     created = client.post("/api/v1/table-tools/templates/1/mappings", json=_payload())
     assert created.status_code == status.HTTP_201_CREATED
     assert created.json()["id"] == 100
+    assert created.json()["source_fields"] == ["employee_id", "employee_name", "amount"]
 
     invalid = client.post(
         "/api/v1/table-tools/templates/1/mappings",
@@ -157,7 +160,47 @@ def test_mapping_crud_routes_cover_success_and_validation_statuses(monkeypatch):
     assert delete_missing.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_mapping_crud_routes_return_forbidden_when_owner_check_fails(monkeypatch):
+def test_mapping_validation_rejects_unparsed_source_fields(monkeypatch):
+    db = FakeDb()
+    template = _template(_mapping())
+    _install_template(monkeypatch, template)
+    client = _client(db)
+
+    missing_fields = client.post(
+        "/api/v1/table-tools/templates/1/mappings",
+        json={**_payload("missing-fields"), "source_fields": []},
+    )
+    assert missing_fields.status_code == status.HTTP_400_BAD_REQUEST
+    assert "请先上传样表解析源字段" in missing_fields.json()["detail"]
+
+    unknown_source = client.post(
+        "/api/v1/table-tools/templates/1/mappings",
+        json={**_payload("unknown-source"), "key_map": {"unknown": "employee_id"}},
+    )
+    assert unknown_source.status_code == status.HTTP_400_BAD_REQUEST
+    assert "映射源字段必须属于样表解析字段" in unknown_source.json()["detail"]
+
+
+def test_batch_mapping_validation_is_atomic_for_unknown_source_field(monkeypatch):
+    db = FakeDb()
+    template = _template(_mapping())
+    _install_template(monkeypatch, template)
+    client = _client(db)
+
+    response = client.post(
+        "/api/v1/table-tools/templates/1/mappings/batch",
+        json={
+            "mappings": [
+                _payload("source-a"),
+                {**_payload("source-b"), "column_map": {"unknown": "amount"}},
+            ]
+        },
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert [item.name for item in template.mappings] == ["existing-source"]
+    assert db.commits == 0
+
     db = FakeDb()
     template = _template(_mapping())
     _install_template(monkeypatch, template)
@@ -215,6 +258,7 @@ def test_mapping_draft_response_model_is_serialized_and_documented():
         }
     )
     assert response.mapping.confidence == 0.6
+    assert response.mapping.source_fields == ["employee_id", "employee_name", "amount"]
     assert response.model_dump(by_alias=True)["mapping"]["_confidence"] == 0.6
 
     app = FastAPI()

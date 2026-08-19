@@ -113,16 +113,30 @@ class MappingValidator:
 
     def _actual_target_fields(self, rule: MappingRuleV1) -> list[str]:
         if rule.type == RULE_TYPE_REFERENCE_LOOKUP:
+            lookup_configs = rule.config.lookupConfigs
+            if lookup_configs:
+                targets = [item.targetField for item in lookup_configs]
+                if not all(targets) or len(set(targets)) != 1:
+                    raise policy_error(
+                        MappingErrorCode.MAPPING_FIELD_FORBIDDEN,
+                        "A Lookup rule must configure one shared target field",
+                    )
+                if rule.targetFields != [targets[0]]:
+                    raise policy_error(
+                        MappingErrorCode.MAPPING_FIELD_FORBIDDEN,
+                        "reference_lookup.targetFields must equal its shared lookup target",
+                    )
+                return targets[:1]
             output_fields = list(rule.config.outputMap)
             if not output_fields:
                 raise policy_error(
                     MappingErrorCode.MAPPING_VALUE_UNMAPPED,
-                    "reference_lookup.outputMap 不能为空",
+                    "reference_lookup requires lookupConfigs or outputMap",
                 )
             if set(output_fields) != set(rule.targetFields) or len(output_fields) != len(rule.targetFields):
                 raise policy_error(
                     MappingErrorCode.MAPPING_FIELD_FORBIDDEN,
-                    "reference_lookup.targetFields 必须与 outputMap 输出字段完全一致",
+                    "reference_lookup.targetFields must exactly match outputMap output fields",
                 )
             return output_fields
         return list(rule.targetFields)
@@ -240,64 +254,58 @@ class MappingValidator:
 
         elif rtype == RULE_TYPE_REFERENCE_LOOKUP:
             cfg = rule.config
-            # 参考数据集白名单必须 fail closed：配置了 lookup 却没有服务端目录
-            # 时直接拒绝，不能将空列表解释为允许任意 dataset。
+            if cfg.lookupConfigs:
+                if len(cfg.lookupConfigs) > policy.referenceLookup.maxRules:
+                    raise policy_error(
+                        MappingErrorCode.MAPPING_REFERENCE_DATASET_FORBIDDEN,
+                        f"lookupConfigs count {len(cfg.lookupConfigs)} exceeds {policy.referenceLookup.maxRules}",
+                    )
+                priorities: set[int] = set()
+                allowed_datasets = set(policy.referenceLookup.allowedDatasetIds)
+                allowed_source_fields = set(policy.source.allowedFieldIds)
+                target_fields = set(policy.target.allowedFieldIds)
+                for item in cfg.lookupConfigs:
+                    if item.priority in priorities:
+                        raise policy_error(MappingErrorCode.MAPPING_VALUE_UNMAPPED, "Lookup priorities must be unique")
+                    priorities.add(item.priority)
+                    if not all((item.referenceDatasetId, item.sourceField, item.referenceMatchField, item.referenceReturnField, item.targetField)):
+                        raise policy_error(MappingErrorCode.MAPPING_VALUE_UNMAPPED, "Each Lookup configuration requires reference dataset, source, match, return and target fields")
+                    if item.referenceDatasetId not in allowed_datasets:
+                        raise policy_error(MappingErrorCode.MAPPING_REFERENCE_DATASET_FORBIDDEN, f"Reference dataset '{item.referenceDatasetId}' is not allowed")
+                    if item.sourceField not in allowed_source_fields:
+                        raise policy_error(MappingErrorCode.MAPPING_FIELD_FORBIDDEN, f"Lookup source field '{item.sourceField}' is not allowed", field=item.sourceField)
+                    if item.targetField not in target_fields:
+                        raise policy_error(MappingErrorCode.MAPPING_FIELD_FORBIDDEN, f"Lookup target field '{item.targetField}' is not allowed", field=item.targetField)
+                    reference_fields = set(policy.referenceLookup.datasetFields.get(item.referenceDatasetId, policy.referenceLookup.allowedFieldIds))
+                    for field_id in (item.referenceMatchField, item.referenceReturnField, *item.conditions.keys()):
+                        if reference_fields and field_id not in reference_fields:
+                            raise policy_error(MappingErrorCode.MAPPING_FIELD_FORBIDDEN, f"Lookup reference field '{field_id}' is not allowed for '{item.referenceDatasetId}'", field=field_id)
+                if cfg.unmatched not in ALL_UNMATCHED_BEHAVIORS:
+                    raise policy_error(MappingErrorCode.MAPPING_VALUE_UNMAPPED, f"Invalid unmatched behavior: {cfg.unmatched}")
+                if cfg.unmatched == UNMATCHED_SET_DEFAULT and cfg.defaultValue is None:
+                    raise policy_error(MappingErrorCode.MAPPING_VALUE_UNMAPPED, "unmatched=set_default requires defaultValue")
+                return
+
             allowed_datasets = set(policy.referenceLookup.allowedDatasetIds)
             if cfg.referenceDatasetId and cfg.referenceDatasetId not in allowed_datasets:
-                raise policy_error(
-                    MappingErrorCode.MAPPING_REFERENCE_DATASET_FORBIDDEN,
-                    f"参考数据集 '{cfg.referenceDatasetId}' 不在白名单中",
-                )
-            # matchRules 数量
+                raise policy_error(MappingErrorCode.MAPPING_REFERENCE_DATASET_FORBIDDEN, f"Reference dataset '{cfg.referenceDatasetId}' is not allowed")
             if len(cfg.matchRules) > policy.referenceLookup.maxRules:
-                raise policy_error(
-                    MappingErrorCode.MAPPING_REFERENCE_DATASET_FORBIDDEN,
-                    f"matchRules 数量 {len(cfg.matchRules)} 超过上限 {policy.referenceLookup.maxRules}",
-                )
-            # reference_lookup 内部引用也必须经过对应白名单校验。
+                raise policy_error(MappingErrorCode.MAPPING_REFERENCE_DATASET_FORBIDDEN, f"matchRules count {len(cfg.matchRules)} exceeds {policy.referenceLookup.maxRules}")
             allowed_source_fields = set(policy.source.allowedFieldIds)
             allowed_reference_fields = set(policy.referenceLookup.allowedFieldIds)
             for mr in cfg.matchRules:
                 if mr.sourceField and mr.sourceField not in allowed_source_fields:
-                    raise policy_error(
-                        MappingErrorCode.MAPPING_FIELD_FORBIDDEN,
-                        f"Lookup 来源字段 '{mr.sourceField}' 不在白名单中",
-                        field=mr.sourceField,
-                    )
-                if mr.referenceField and mr.referenceField not in allowed_reference_fields:
-                    raise policy_error(
-                        MappingErrorCode.MAPPING_FIELD_FORBIDDEN,
-                        f"Lookup 参考字段 '{mr.referenceField}' 不在白名单中",
-                        field=mr.referenceField,
-                    )
-                for condition_field in mr.conditions:
-                    if condition_field and condition_field not in allowed_reference_fields:
-                        raise policy_error(
-                            MappingErrorCode.MAPPING_FIELD_FORBIDDEN,
-                            f"Lookup 条件字段 '{condition_field}' 不在白名单中",
-                            field=condition_field,
-                        )
+                    raise policy_error(MappingErrorCode.MAPPING_FIELD_FORBIDDEN, f"Lookup source field '{mr.sourceField}' is not allowed", field=mr.sourceField)
+                for field_id in (mr.referenceField, *mr.conditions.keys()):
+                    if field_id and field_id not in allowed_reference_fields:
+                        raise policy_error(MappingErrorCode.MAPPING_FIELD_FORBIDDEN, f"Lookup reference field '{field_id}' is not allowed", field=field_id)
                 if mr.onMatch not in ALL_ON_MATCH_ACTIONS:
-                    raise policy_error(
-                        MappingErrorCode.MAPPING_VALUE_UNMAPPED,
-                        f"onMatch 必须为 {ALL_ON_MATCH_ACTIONS}, got {mr.onMatch}",
-                    )
+                    raise policy_error(MappingErrorCode.MAPPING_VALUE_UNMAPPED, f"Invalid onMatch: {mr.onMatch}")
             for output_field, reference_field in cfg.outputMap.items():
                 if output_field and output_field not in set(policy.target.allowedFieldIds):
-                    raise policy_error(
-                        MappingErrorCode.MAPPING_FIELD_FORBIDDEN,
-                        f"Lookup 输出字段 '{output_field}' 不在目标白名单中",
-                        field=output_field,
-                    )
+                    raise policy_error(MappingErrorCode.MAPPING_FIELD_FORBIDDEN, f"Lookup output field '{output_field}' is not allowed", field=output_field)
                 if reference_field and reference_field not in allowed_reference_fields:
-                    raise policy_error(
-                        MappingErrorCode.MAPPING_FIELD_FORBIDDEN,
-                        f"Lookup 输出参考字段 '{reference_field}' 不在白名单中",
-                        field=reference_field,
-                    )
-            # 重复参考键检测 (同结果 warning, 异结果阻断)
-            # 这里只做静态校验, 运行时在 executor 预加载时检查
-
+                    raise policy_error(MappingErrorCode.MAPPING_FIELD_FORBIDDEN, f"Lookup output reference field '{reference_field}' is not allowed", field=reference_field)
         elif rtype == RULE_TYPE_IDENTITY_WITH_OVERRIDES:
             cfg = rule.config
             if cfg.defaultBehavior != "keep_source":

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +63,7 @@ class RosterAuthorizationInput:
     direct_manager_source_value: str | None = None
     hrbp_source_value: str | None = None
     employment_status: str | None = None
+    departure_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ class SnapshotPersonState:
     hrbp_employee_no: str | None = None
     hrbp_source_value: str | None = None
     employment_status: str | None = None
+    departure_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -174,22 +176,30 @@ def build_snapshot_people(
     """Resolve roster text references to immutable employee-number relationships."""
     rows = tuple(roster_inputs)
     by_employee_no: dict[str, RosterAuthorizationInput] = {}
-    references: dict[str, str] = {}
+    employee_references: dict[str, str] = {}
+    name_references: dict[str, list[str]] = {}
     for row in rows:
         employee_no = _normalized_reference(row.employee_no)
         display_name = _normalized_reference(row.display_name)
         if employee_no is None or display_name is None:
             raise ValueError("员工快照必须包含 employee_no 和 display_name")
-        if employee_no in by_employee_no:
+        employee_key = _reference_key(employee_no)
+        if employee_key in employee_references:
             raise ValueError(f"员工编号重复：{employee_no}")
         by_employee_no[employee_no] = row
-        for value in (employee_no, display_name):
-            key = _reference_key(value)
-            existing = references.get(key) if key else None
-            if key and existing not in (None, employee_no):
-                raise ValueError(f"人员引用不唯一：{value}")
-            if key:
-                references[key] = employee_no
+        employee_references[employee_key] = employee_no
+        name_key = _reference_key(display_name)
+        if name_key:
+            name_references.setdefault(name_key, []).append(employee_no)
+
+    def resolve_reference(value: str | None) -> str | None:
+        key = _reference_key(value)
+        if key is None:
+            return None
+        if key in employee_references:
+            return employee_references[key]
+        candidates = name_references.get(key, [])
+        return candidates[0] if len(candidates) == 1 else None
 
     people = []
     for employee_no, row in by_employee_no.items():
@@ -199,15 +209,14 @@ def build_snapshot_people(
                 display_name=_normalized_reference(row.display_name) or "",
                 source_roster_id=row.source_roster_id,
                 organization_ref=_normalized_reference(row.organization_ref),
-                direct_manager_employee_no=references.get(
-                    _reference_key(row.direct_manager_source_value)
-                ),
+                direct_manager_employee_no=resolve_reference(row.direct_manager_source_value),
                 direct_manager_source_value=_normalized_reference(
                     row.direct_manager_source_value
                 ),
-                hrbp_employee_no=references.get(_reference_key(row.hrbp_source_value)),
+                hrbp_employee_no=resolve_reference(row.hrbp_source_value),
                 hrbp_source_value=_normalized_reference(row.hrbp_source_value),
                 employment_status=_normalized_reference(row.employment_status),
+                departure_date=row.departure_date,
             )
         )
     return tuple(sorted(people, key=lambda person: person.employee_no))
@@ -307,6 +316,8 @@ class PerformanceAuthorizationSnapshotService:
         *,
         actor_type: str,
         actor_ref: str,
+        allow_locked_update: bool = False,
+        commit: bool = True,
     ) -> PerformanceAuthorizationSnapshot:
         cycle_ref = _normalized_reference(cycle_ref)
         if cycle_ref is None:
@@ -322,7 +333,8 @@ class PerformanceAuthorizationSnapshotService:
             snapshot = PerformanceAuthorizationSnapshot(cycle_ref=cycle_ref)
             self.db.add(snapshot)
             await self.db.flush()
-        assert_snapshot_mutable(snapshot.status)
+        if snapshot.status == AUTHORIZATION_SNAPSHOT_STATUS_LOCKED and not allow_locked_update:
+            assert_snapshot_mutable(snapshot.status)
 
         linked_portal_users = {
             link.employee_no: link.portal_user_id
@@ -359,6 +371,10 @@ class PerformanceAuthorizationSnapshotService:
                     display_name=person.display_name,
                 )
                 self.db.add(record)
+            if record.is_manually_maintained:
+                record.employment_status = person.employment_status
+                record.departure_date = person.departure_date
+                continue
             record.source_roster_id = person.source_roster_id
             record.portal_user_id = person.portal_user_id
             record.display_name = person.display_name
@@ -368,8 +384,9 @@ class PerformanceAuthorizationSnapshotService:
             record.hrbp_employee_no = person.hrbp_employee_no
             record.hrbp_source_value = person.hrbp_source_value
             record.employment_status = person.employment_status
+            record.departure_date = person.departure_date
         for employee_no, record in existing_people.items():
-            if employee_no not in incoming_employee_nos:
+            if employee_no not in incoming_employee_nos and not record.is_manually_maintained:
                 await self.db.delete(record)
 
         snapshot.last_synced_at = datetime.now(UTC)
@@ -380,8 +397,9 @@ class PerformanceAuthorizationSnapshotService:
             cycle_ref=cycle_ref,
             after_state={"person_count": len(people), "status": snapshot.status},
         )
-        await self.db.commit()
-        await self.db.refresh(snapshot)
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(snapshot)
         return snapshot
 
     async def replace_dynamic_assignments(
@@ -393,7 +411,8 @@ class PerformanceAuthorizationSnapshotService:
         actor_ref: str,
     ) -> None:
         snapshot = await self._get_snapshot(cycle_ref, for_update=True)
-        assert_snapshot_mutable(snapshot.status)
+        if snapshot.status == AUTHORIZATION_SNAPSHOT_STATUS_LOCKED:
+            assert_snapshot_mutable(snapshot.status)
         actor_type = _require_audit_actor_type(actor_type)
         actor_ref = _require_audit_actor_ref(actor_ref)
         normalized_assignments = tuple(
@@ -508,6 +527,7 @@ class PerformanceAuthorizationSnapshotService:
         *,
         actor_type: str,
         actor_ref: str,
+        commit: bool = True,
     ) -> PerformanceAuthorizationSnapshot:
         snapshot = await self._get_snapshot(cycle_ref, for_update=True)
         if snapshot.status == AUTHORIZATION_SNAPSHOT_STATUS_DRAFT:
@@ -520,8 +540,9 @@ class PerformanceAuthorizationSnapshotService:
                 cycle_ref=cycle_ref,
                 after_state={"status": snapshot.status},
             )
-            await self.db.commit()
-            await self.db.refresh(snapshot)
+            if commit:
+                await self.db.commit()
+                await self.db.refresh(snapshot)
         return snapshot
 
     async def sync_employment_statuses(

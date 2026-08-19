@@ -246,6 +246,7 @@ async def _step2_map_sheet(
     return {
         "name": f"{sheet_info['file']} / {sheet_info['sheet']}",
         "match_signature": sheet_info["columns"][:5],  # 取前5列作为识别签名
+        "source_fields": sheet_info["columns"],
         "sheet_kw": sheet_info["sheet"],
         "header_start": sheet_info.get("header_start", 1),
         "header_end": sheet_info["header_end"],
@@ -309,6 +310,7 @@ async def build_draft(
             mappings.append({
                 "name": f"{h['file']} / {h['sheet']}",
                 "match_signature": h["columns"][:5],
+                "source_fields": h["columns"],
                 "sheet_kw": h["sheet"],
                 "header_start": h.get("header_start", 1),
                 "header_end": h["header_end"],
@@ -376,6 +378,7 @@ async def build_mapping_drafts(
             mappings.append({
                 "name": f"{header['file']} / {header['sheet']}",
                 "match_signature": header["columns"][:5],
+                "source_fields": header["columns"],
                 "sheet_kw": header["sheet"],
                 "header_start": header.get("header_start", 1),
                 "header_end": header["header_end"],

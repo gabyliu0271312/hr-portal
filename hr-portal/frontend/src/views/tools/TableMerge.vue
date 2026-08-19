@@ -370,6 +370,7 @@ async function saveMappingDrafts() {
       mappingWizardDrafts.value.map((mapping) => ({
         name: mapping.name,
         match_signature: mapping.match_signature || [],
+        source_fields: mapping.source_fields || [],
         sheet_kw: mapping.sheet_kw || null,
         header_start: mapping.header_start || 1,
         header_end: mapping.header_end || 1,
@@ -506,7 +507,11 @@ async function handleMappingSample(uploadFile: any) {
     mappingDraftSheet.value = result.mapping.sheet_kw || ""
     mappingDraftWarnings.value = result.warnings
     mappingDraftLowConfidence.value = result.low_confidence[0] || null
-    editingMapping.value = { ...editingMapping.value, ...result.mapping }
+    editingMapping.value = {
+      ...editingMapping.value,
+      ...result.mapping,
+      source_fields: result.mapping.source_fields || result.effective_headers,
+    }
     ElMessage.success('已根据样表表头回填映射草稿，请确认后保存')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '样表解析失败')
@@ -532,17 +537,21 @@ async function removeMapping(idx: number) {
 
 // key_map / column_map 编辑辅助
 function addKeyMapEntry() {
-  if (!editingMapping.value) return
+  if (!editingMapping.value?.source_fields?.length) {
+    ElMessage.warning('请先上传样表解析源字段')
+    return
+  }
   if (!editingMapping.value.key_map) editingMapping.value.key_map = {}
-  editingMapping.value.key_map[''] = ''
-  editingMapping.value._keyMapEntries = objToEntries(editingMapping.value.key_map)
+  editingMapping.value._keyMapEntries = [...objToEntries(editingMapping.value.key_map), { key: '', val: '' }]
 }
 
 function addColumnMapEntry() {
-  if (!editingMapping.value) return
+  if (!editingMapping.value?.source_fields?.length) {
+    ElMessage.warning('请先上传样表解析源字段')
+    return
+  }
   if (!editingMapping.value.column_map) editingMapping.value.column_map = {}
-  editingMapping.value.column_map[''] = ''
-  editingMapping.value._colMapEntries = objToEntries(editingMapping.value.column_map)
+  editingMapping.value._colMapEntries = [...objToEntries(editingMapping.value.column_map), { key: '', val: '' }]
 }
 
 function objToEntries(obj: Record<string, string>) {
@@ -567,10 +576,14 @@ function removeDerivedField(idx: number) {
 
 // 把 key_map/column_map 对象同步到 editingMapping
 function syncKeyMap(entries: { key: string; val: string }[]) {
-  if (editingMapping.value) editingMapping.value.key_map = entriesToObj(entries)
+  if (!editingMapping.value) return
+  editingMapping.value._keyMapEntries = entries
+  editingMapping.value.key_map = entriesToObj(entries)
 }
 function syncColumnMap(entries: { key: string; val: string }[]) {
-  if (editingMapping.value) editingMapping.value.column_map = entriesToObj(entries)
+  if (!editingMapping.value) return
+  editingMapping.value._colMapEntries = entries
+  editingMapping.value.column_map = entriesToObj(entries)
 }
 
 // 标准字段
@@ -617,6 +630,7 @@ async function saveTemplate() {
         id: m.id || null,
         name: m.name,
         match_signature: m.match_signature || [],
+        source_fields: m.source_fields || [],
         sheet_kw: m.sheet_kw || null,
         header_start: m.header_start || 1,
         header_end: m.header_end || 1,
@@ -799,11 +813,11 @@ function mergeColumnLabel(column: string) {
 
 // key_map / column_map entries（用于 v-model 绑定）
 const editingKeyMapEntries = computed({
-  get: () => editingMapping.value ? objToEntries(editingMapping.value.key_map || {}) : [],
+  get: () => editingMapping.value ? (editingMapping.value._keyMapEntries || objToEntries(editingMapping.value.key_map || {})) : [],
   set: (v) => syncKeyMap(v),
 })
 const editingColMapEntries = computed({
-  get: () => editingMapping.value ? objToEntries(editingMapping.value.column_map || {}) : [],
+  get: () => editingMapping.value ? (editingMapping.value._colMapEntries || objToEntries(editingMapping.value.column_map || {})) : [],
   set: (v) => syncColumnMap(v),
 })
 </script>
@@ -1109,17 +1123,20 @@ const editingColMapEntries = computed({
                   <div class="editor-section">
                     <div class="editor-section-header">
                       <span>主键映射</span>
-                      <button class="add-row-btn" @click="addKeyMapEntry">+ 新增</button>
+                      <button class="add-row-btn" :disabled="!editingMapping.source_fields?.length" @click="addKeyMapEntry">+ 新增</button>
                     </div>
+                    <div v-if="!editingMapping.source_fields?.length" class="derived-empty">请先上传样表解析源字段后再维护映射</div>
                     <div class="map-table">
                       <div class="map-row map-row-head">
                         <span>源列名</span><span>→</span><span>标准主键</span><span></span>
                       </div>
                       <div class="map-row" v-for="(entry, ei) in editingKeyMapEntries" :key="ei">
-                        <el-input v-model="entry.key" size="small" placeholder="源列名"
-                          @change="syncKeyMap(editingKeyMapEntries)" />
+                        <el-select v-model="entry.key" size="small" filterable
+                          placeholder="选择源列名" @change="syncKeyMap(editingKeyMapEntries)">
+                          <el-option v-for="field in editingMapping.source_fields || []" :key="field" :label="field" :value="field" />
+                        </el-select>
                         <span class="map-arrow">→</span>
-                        <el-select v-model="entry.val" size="small" allow-create filterable
+                        <el-select v-model="entry.val" size="small" filterable
                           @change="syncKeyMap(editingKeyMapEntries)">
                           <el-option v-for="k in form.merge_keys" :key="k" :label="k" :value="k" />
                         </el-select>
@@ -1132,17 +1149,20 @@ const editingColMapEntries = computed({
                   <div class="editor-section">
                     <div class="editor-section-header">
                       <span>字段映射</span>
-                      <button class="add-row-btn" @click="addColumnMapEntry">+ 新增</button>
+                      <button class="add-row-btn" :disabled="!editingMapping.source_fields?.length" @click="addColumnMapEntry">+ 新增</button>
                     </div>
+                    <div v-if="!editingMapping.source_fields?.length" class="derived-empty">请先上传样表解析源字段后再维护映射</div>
                     <div class="map-table">
                       <div class="map-row map-row-head">
                         <span>源列名</span><span>→</span><span>标准字段</span><span></span>
                       </div>
                       <div class="map-row" v-for="(entry, ei) in editingColMapEntries" :key="ei">
-                        <el-input v-model="entry.key" size="small" placeholder="源列名"
-                          @change="syncColumnMap(editingColMapEntries)" />
+                        <el-select v-model="entry.key" size="small" filterable
+                          placeholder="选择源列名" @change="syncColumnMap(editingColMapEntries)">
+                          <el-option v-for="field in editingMapping.source_fields || []" :key="field" :label="field" :value="field" />
+                        </el-select>
                         <span class="map-arrow">→</span>
-                        <el-select v-model="entry.val" size="small" allow-create filterable
+                        <el-select v-model="entry.val" size="small" filterable
                           @change="syncColumnMap(editingColMapEntries)">
                           <el-option v-for="f in form.std_fields" :key="f" :label="f" :value="f" />
                         </el-select>
@@ -1161,7 +1181,7 @@ const editingColMapEntries = computed({
                       无派生字段（如需要可添加计算公式）
                     </div>
                     <div class="derived-row" v-for="(df, di) in editingMapping.derived_fields" :key="di">
-                      <el-select v-model="df.target" size="small" allow-create filterable
+                      <el-select v-model="df.target" size="small" filterable
                         placeholder="目标标准字段" style="width:140px">
                         <el-option v-for="f in form.std_fields" :key="f" :label="f" :value="f" />
                       </el-select>

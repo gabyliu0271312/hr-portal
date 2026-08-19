@@ -82,7 +82,29 @@ def _check_db_current(head):
     return False, f"数据库 schema 落后于最新迁移（当前 {current}，最新 {head}）", current
 
 
-def _run_schema_check():
+def pytest_addoption(parser):
+    parser.addoption(
+        "--postgres-acceptance",
+        action="store_true",
+        default=False,
+        help="要求 PostgreSQL 可达且已迁移至唯一 head；不可用时直接失败。",
+    )
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "postgres_acceptance: requires migrated PostgreSQL")
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--postgres-acceptance"):
+        return
+    skip = pytest.mark.skip(reason="requires --postgres-acceptance with migrated PostgreSQL")
+    for item in items:
+        if item.get_closest_marker("postgres_acceptance"):
+            item.add_marker(skip)
+
+
+def _run_schema_check(*, require_database: bool = False):
     """纯函数：返回 (decision, message)。
 
     decision:
@@ -112,12 +134,16 @@ def _run_schema_check():
             msg + "\n  请先执行迁移： alembic upgrade head"
             "\n  （发布顺序：先迁移数据库，再部署/测试应用）",
         )
+    if require_database:
+        return "fail", msg + "\n  PostgreSQL 验收不允许跳过数据库检查。"
     return "warn", f"{msg}（跳过 schema 版本检查）"
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _enforce_schema_is_current():
-    decision, msg = _run_schema_check()
+def _enforce_schema_is_current(request):
+    decision, msg = _run_schema_check(
+        require_database=request.config.getoption("--postgres-acceptance")
+    )
     if decision == "fail":
         pytest.exit("[schema-check] " + msg, returncode=2)
     tag = "OK：" if decision == "ok" else "警告："

@@ -165,7 +165,7 @@ def test_source_mapping_validation_rejects_short_signature():
 
     template = MergeTemplate(name="test", merge_keys=["姓名"], std_fields=["金额"], aggregate="sum")
     payload = SourceMappingIn(
-        name="新增映射", match_signature=["姓名", "金额"],
+        name="新增映射", match_signature=["姓名", "金额"], source_fields=["姓名", "金额"],
         key_map={"姓名": "姓名"}, column_map={"金额": "金额"},
     )
     with pytest.raises(Exception, match="表头特征至少需要 3 项"):
@@ -223,6 +223,7 @@ def test_source_mapping_schema_keeps_existing_id():
 
     payload = SourceMappingIn(
         id=42, name="映射", match_signature=["姓名", "证件号", "金额"],
+        source_fields=["姓名", "证件号", "金额"],
         key_map={"姓名": "姓名"}, column_map={"金额": "金额"},
     )
     assert payload.id == 42
@@ -234,7 +235,7 @@ def test_source_mapping_validation_rejects_blank_name():
 
     template = MergeTemplate(name="test", merge_keys=["姓名"], std_fields=["金额"], aggregate="sum")
     payload = SourceMappingIn(
-        name="   ", match_signature=["姓名", "证件号", "金额"],
+        name="   ", match_signature=["姓名", "证件号", "金额"], source_fields=["姓名", "证件号", "金额"],
         key_map={"姓名": "姓名"}, column_map={"金额": "金额"},
     )
     with pytest.raises(Exception, match="映射名称不能为空"):

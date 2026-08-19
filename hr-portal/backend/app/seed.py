@@ -251,10 +251,42 @@ async def _ensure_menus(db: AsyncSession) -> dict[str, Menu]:
                 m.parent_id = ucp.id
                 logger.info("[seed] ucp nav: reparent %s → ucp", m.code)
 
+    # 为已有 HR 小工具权限的角色补充表格归集查看权限，避免新增菜单后入口对旧角色不可见。
+    hr_menu = by_code.get("tools.hr")
+    table_tools_menu = by_code.get("table_tools")
+    if hr_menu and table_tools_menu:
+        hr_role_ids = (
+            await db.execute(
+                select(RoleMenu.role_id).where(
+                    RoleMenu.menu_id == hr_menu.id,
+                    RoleMenu.can_view.is_(True),
+                )
+            )
+        ).scalars().all()
+        existing_table_tools_roles = set(
+            (
+                await db.execute(
+                    select(RoleMenu.role_id).where(RoleMenu.menu_id == table_tools_menu.id)
+                )
+            ).scalars().all()
+        )
+        for role_id in hr_role_ids:
+            if role_id not in existing_table_tools_roles:
+                db.add(
+                    RoleMenu(
+                        role_id=role_id,
+                        menu_id=table_tools_menu.id,
+                        scope_dimension="none",
+                        can_view=True,
+                        can_create=False,
+                        can_update=False,
+                        can_delete=False,
+                        can_export=False,
+                    )
+                )
+
     await db.commit()
     return by_code
-
-
 async def _ensure_super_role(db: AsyncSession, menus: dict[str, Menu]) -> Role:
     """超级管理员角色，全菜单全操作"""
     role = (

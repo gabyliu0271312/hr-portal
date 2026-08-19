@@ -12,6 +12,7 @@ const props = defineProps<{
   businessId: number
   businessName?: string
   payload?: Record<string, any>
+  periodRequired?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,6 +26,7 @@ const saving = ref(false)
 const job = ref<ScheduledJobItem | null>(null)
 const cron = ref('手动触发')
 const enabled = ref(true)
+const period = ref('')
 
 async function load() {
   loading.value = true
@@ -34,9 +36,11 @@ async function load() {
     if (job.value) {
       cron.value = job.value.cron
       enabled.value = job.value.enabled
+      period.value = String(job.value.payload?.period || '')
     } else {
       cron.value = '手动触发'
       enabled.value = true
+      period.value = ''
     }
   } catch {
     job.value = null
@@ -50,12 +54,18 @@ watch(() => props.visible, (v) => {
 })
 
 async function save() {
+  if (props.periodRequired && !/^\d{6}$/.test(period.value.trim())) {
+    ElMessage.error('关系质量定时检查必须填写 YYYYMM 期间')
+    return
+  }
   saving.value = true
   try {
+    const payload = { ...(job.value?.payload || {}), ...(props.payload || {}) }
+    if (period.value.trim()) payload.period = period.value.trim()
     if (job.value) {
       await schedulerApi.updateJob(job.value.id, {
         cron: cron.value,
-        payload: props.payload || job.value.payload,
+        payload,
         enabled: enabled.value,
       })
       ElMessage.success('定时配置已更新')
@@ -64,7 +74,7 @@ async function save() {
         kind: props.kind,
         business_id: props.businessId,
         cron: cron.value,
-        payload: props.payload || {},
+        payload,
         enabled: enabled.value,
       })
       ElMessage.success('定时配置已创建')
@@ -116,6 +126,9 @@ const kindLabels: Record<string, string> = {
       <el-form label-width="80px" size="small">
         <el-form-item label="调度计划">
           <ScheduleSelector v-model:schedule="cron" />
+        </el-form-item>
+        <el-form-item v-if="periodRequired" label="检查期间" required>
+          <el-input v-model="period" maxlength="6" placeholder="YYYYMM，例如 202607" />
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="enabled" active-text="启用" inactive-text="停用" />

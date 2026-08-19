@@ -55,8 +55,14 @@ async def test_internal_quality_queue_creation_is_atomic_upsert():
     await engine._ensure_internal_jobs()
 
     assert db.commits == 1
-    sql = str(db.statements[0].compile(dialect=postgresql.dialect()))
-    assert "ON CONFLICT (kind, business_id) DO NOTHING" in sql
+    assert len(db.statements) == 2
+    sql = "\n".join(
+        str(statement.compile(dialect=postgresql.dialect()))
+        for statement in db.statements
+    )
+    assert sql.count("ON CONFLICT (kind, business_id) DO NOTHING") == 2
+    assert db.statements[0].compile().params["kind"] == "quality_queue"
+    assert db.statements[1].compile().params["kind"] == "cost_center_notification_queue"
 
 
 @pytest.mark.asyncio

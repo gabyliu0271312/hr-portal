@@ -1,0 +1,65 @@
+*** Begin Patch
+*** Update File: hr-portal/backend/app/ucp/event_bus.py
+@@
+-from app.ucp.models import UcpEventTrigger, UcpPipelineConfig, UcpEvent
++from app.ucp.models import (
++    UcpEvent,
++    UcpEventTrigger,
++    UcpPipelineConfig,
++    UcpPipelineStepExecution,
++    UcpWarehouseIngestBatch,
++)
+@@
+             execution = await execute_pipeline(
+                 pipeline_code=pipeline_code,
+                 db=bg_db,
+                 trigger_type="event",
+                 trigger_payload=trigger_payload,
+                 pipeline_run_id=run_id,
+                 trace_id=trace_id,
+             )
++            batch = (
++                await bg_db.execute(
++                    select(UcpWarehouseIngestBatch).where(
++                        UcpWarehouseIngestBatch.event_id == event_id
++                    )
++                )
++            ).scalar_one_or_none()
++            if batch is not None:
++                sink_steps = list(
++                    (
++                        await bg_db.execute(
++                            select(UcpPipelineStepExecution).where(
++                                UcpPipelineStepExecution.pipeline_run_id == run_id,
++                                UcpPipelineStepExecution.step_type == "WAREHOUSE_ASSET_SINK",
++                            )
++                        )
++                    ).scalars()
++                )
++                batch.status = "SUCCEEDED" if execution.status in {"SUCCESS", "PARTIAL_SUCCESS"} else "FAILED"
++                batch.pipeline_run_id = run_id
++                batch.trace_id = trace_id or batch.trace_id
++                batch.written_rows = sum(int(item.success_items or 0) for item in sink_steps)
++                batch.error_summary = None if batch.status == "SUCCEEDED" else str(execution.error_message or f"Pipeline run {run_id} ended with {execution.status}")[:1000]
++                batch.processed_at = datetime.now(timezone.utc)
+@@
+                 event = await recovery_db.get(UcpEvent, event_db_id)
+                 if event is not None:
+                     event.status = EVENT_STATUS_FAILED
+                     event.error_code = "PIPELINE_EXECUTION_EXCEPTION"
+                     event.error_message = str(exc)[:1000]
++                batch = (
++                    await recovery_db.execute(
++                        select(UcpWarehouseIngestBatch).where(
++                            UcpWarehouseIngestBatch.event_id == event_id
++                        )
++                    )
++                ).scalar_one_or_none()
++                if batch is not None:
++                    batch.status = "FAILED"
++                    batch.pipeline_run_id = run_id
++                    batch.trace_id = trace_id or batch.trace_id
++                    batch.error_summary = str(exc)[:1000]
++                    batch.processed_at = datetime.now(timezone.utc)
+                 await recovery_db.commit()
+*** End Patch

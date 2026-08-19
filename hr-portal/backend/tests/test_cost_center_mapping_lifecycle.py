@@ -46,51 +46,44 @@ def test_cost_center_default_identity_is_sparse_and_uses_public_rule_types():
     }
     assert "rows" not in identity["config"]
     assert len(identity["config"]["overrides"]) == 0
-    assert any(rule["type"] == "reference_lookup" for rule in rules)
 
 
 @pytest.mark.asyncio
-async def test_cost_center_document_uses_real_code_name_contract_and_enriches_after_override():
+async def test_cost_center_document_uses_generic_identity_with_overrides():
     document_dict = build_cost_center_rule_document(
         period="202608",
         overrides={"CC003": "CC100"},
     )
     rules = document_dict["ruleSet"]["rules"]
-    identity, lookup = rules
-
+    assert len(rules) == 1
+    identity = rules[0]
+    assert identity["type"] == "identity_with_overrides"
     assert identity["sourceFields"] == ["code"]
     assert identity["targetFields"] == ["code"]
-    assert lookup["sourceFields"] == ["code"]
-    assert lookup["targetFields"] == ["name"]
-    assert lookup["config"]["outputMap"] == {"name": "name"}
-    assert lookup["config"]["matchRules"][0]["sourceField"] == "code"
-    assert "cost_center_code" not in str(document_dict)
+    assert identity["config"]["overrides"] == {"CC003": "CC100"}
+    assert "cost_center_tree" not in str(document_dict)
     assert "org_node_code" not in str(document_dict)
 
     result = await MappingExecutor().execute(
         MappingDocumentV1.from_dict(document_dict),
-        [{"code": "CC003", "name": "旧成本中心", "status": "启用"}],
-        reference_snapshot={
-            "cost_center_tree": {
-                ("CC100",): {"code": "CC100", "name": "新成本中心"},
-            }
-        },
+        [{"code": "CC003", "status": "启用"}, {"code": "CC004", "status": "启用"}],
+        reference_snapshot={},
         policy=build_policy(
             "warehouse",
             source_asset_id="cost_center_monthly",
-            source_field_ids=["code", "name", "status"],
+            source_field_ids=["code", "status"],
             target_asset_id="dwd_cost_center_monthly",
-            target_field_ids=["code", "name", "status"],
-            allowed_reference_datasets=["cost_center_tree"],
-            allowed_reference_fields=["code", "name"],
+            target_field_ids=["code", "status"],
+            allowed_reference_datasets=[],
+            allowed_reference_fields=[],
         ),
     )
 
     assert result.errors == []
     assert result.outputRows == [
-        {"code": "CC100", "name": "新成本中心", "status": "启用"}
+        {"code": "CC100", "status": "启用"},
+        {"code": "CC004", "status": "启用"},
     ]
-
 
 def test_cost_center_diff_ignores_unchanged_default_codes_and_classifies_changes():
     previous = {

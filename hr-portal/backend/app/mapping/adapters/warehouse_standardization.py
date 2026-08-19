@@ -21,6 +21,7 @@ from app.mapping.dto import (
     ValueMapRuleConfig,
     ReferenceLookupRule,
     ReferenceLookupRuleConfig,
+    LookupConfig,
     MatchRule,
     IdentityWithOverridesRule,
     IdentityWithOverridesRuleConfig,
@@ -298,24 +299,46 @@ class WarehouseStandardizationAdapter:
             )
 
         elif public_type == RULE_TYPE_REFERENCE_LOOKUP:
-            match_rules = [
-                MatchRule(
-                    id=mr.get("id", str(i)),
-                    priority=mr.get("priority", i * 10),
-                    sourceField=mr.get("source_field", ""),
-                    referenceField=mr.get("reference_field", "value"),
-                    conditions=mr.get("conditions", {}),
-                    onMatch=mr.get("on_match", ON_MATCH_USE_AND_STOP),
-                )
-                for i, mr in enumerate(rc.get("rules", []))
-            ]
+            raw_lookup_configs = rc.get("lookup_configs") or []
+            if raw_lookup_configs:
+                lookup_configs = [
+                    LookupConfig(
+                        id=item.get("id", f"lookup_{index}"),
+                        priority=int(item.get("priority", index)),
+                        referenceDatasetId=item.get("reference_dataset_id", item.get("referenceDatasetId", "")),
+                        sourceField=item.get("source_field", item.get("sourceField", "")),
+                        referenceMatchField=item.get("reference_match_field", item.get("referenceMatchField", "")),
+                        referenceReturnField=item.get("reference_return_field", item.get("referenceReturnField", "")),
+                        targetField=item.get("target_field", item.get("targetField", base["targetFields"][0] if base["targetFields"] else "")),
+                        conditions=dict(item.get("conditions") or {}),
+                    )
+                    for index, item in enumerate(raw_lookup_configs)
+                ]
+            else:
+                target = rc.get("target", base["targetFields"][0] if base["targetFields"] else "expense_type")
+                result_col = rc.get("result_col", "cost_classification")
+                lookup_table = rc.get("lookup_table", "")
+                lookup_configs = [
+                    LookupConfig(
+                        id=mr.get("id", f"lookup_{index}"),
+                        priority=int(mr.get("priority", index)),
+                        referenceDatasetId=lookup_table,
+                        sourceField=mr.get("source_field", mr.get("src_field", "")),
+                        referenceMatchField=mr.get("reference_field", rc.get("value_col", "value")),
+                        referenceReturnField=result_col,
+                        targetField=target,
+                        conditions=dict(mr.get("conditions") or ({rc.get("type_col", "field_type"): mr["match_type"]} if mr.get("match_type") else {})),
+                    )
+                    for index, mr in enumerate(rc.get("rules", []))
+                ]
             return ReferenceLookupRule(
                 **base,
+                targetFields=[lookup_configs[0].targetField] if lookup_configs else base["targetFields"],
                 type=RULE_TYPE_REFERENCE_LOOKUP,
                 config=ReferenceLookupRuleConfig(
+                    lookupConfigs=lookup_configs,
                     referenceDatasetId=rc.get("lookup_table", ""),
                     outputMap={rc.get("target", "expense_type"): rc.get("result_col", "cost_classification")},
-                    matchRules=match_rules,
                     unmatched=self._map_unmatched_wh_to_public(rc.get("unmatched", "set_default")),
                     defaultValue=rc.get("default"),
                 ),
@@ -428,24 +451,64 @@ class WarehouseStandardizationAdapter:
 
         elif isinstance(rule, ReferenceLookupRule):
             cfg = rule.config
+            lookup_configs = [
+                {
+                    "id": item.id,
+                    "priority": item.priority,
+                    "reference_dataset_id": item.referenceDatasetId,
+                    "source_field": item.sourceField,
+                    "reference_match_field": item.referenceMatchField,
+                    "reference_return_field": item.referenceReturnField,
+                    "target_field": item.targetField,
+                    "conditions": dict(item.conditions),
+                }
+                for item in cfg.lookupConfigs
+            ]
             result["rule_config"] = {
-                "lookup_table": cfg.referenceDatasetId,
-                "target": list(cfg.outputMap.keys())[0] if cfg.outputMap else "expense_type",
-                "result_col": list(cfg.outputMap.values())[0] if cfg.outputMap else "cost_classification",
-                "rules": [
-                    {
-                        "id": mr.id,
-                        "priority": mr.priority,
-                        "source_field": mr.sourceField,
-                        "reference_field": mr.referenceField,
-                        "conditions": dict(mr.conditions),
-                        "on_match": mr.onMatch,
-                    }
-                    for mr in cfg.matchRules
-                ],
+                "lookup_configs": lookup_configs,
                 "unmatched": self._map_unmatched_public_to_wh(cfg.unmatched),
                 "default": cfg.defaultValue,
             }
+            if lookup_configs:
+                first = lookup_configs[0]
+                homogeneous = all(
+                    item["reference_dataset_id"] == first["reference_dataset_id"]
+                    and item["reference_return_field"] == first["reference_return_field"]
+                    for item in lookup_configs
+                )
+                if homogeneous:
+                    result["rule_config"].update({
+                        "lookup_table": first["reference_dataset_id"],
+                        "target": first["target_field"],
+                        "result_col": first["reference_return_field"],
+                        "rules": [
+                            {
+                                "id": item["id"],
+                                "priority": item["priority"],
+                                "source_field": item["source_field"],
+                                "reference_field": item["reference_match_field"],
+                                "conditions": item["conditions"],
+                            }
+                            for item in lookup_configs
+                        ],
+                    })
+            else:
+                result["rule_config"].update({
+                    "lookup_table": cfg.referenceDatasetId,
+                    "target": list(cfg.outputMap.keys())[0] if cfg.outputMap else "expense_type",
+                    "result_col": list(cfg.outputMap.values())[0] if cfg.outputMap else "cost_classification",
+                    "rules": [
+                        {
+                            "id": mr.id,
+                            "priority": mr.priority,
+                            "source_field": mr.sourceField,
+                            "reference_field": mr.referenceField,
+                            "conditions": dict(mr.conditions),
+                            "on_match": mr.onMatch,
+                        }
+                        for mr in cfg.matchRules
+                    ],
+                })
 
         elif isinstance(rule, IdentityWithOverridesRule):
             result["rule_config"] = {

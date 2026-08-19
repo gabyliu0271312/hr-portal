@@ -82,10 +82,47 @@ class ValueMapPlugin(_Plugin):
 
 class ReferenceLookupPlugin(_Plugin):
     rule_type = RULE_TYPE_REFERENCE_LOOKUP
-    label = "参考查找"
+    label = "Reference Lookup"
+
+    @staticmethod
+    def _match_config(reference_data, item, source_value):
+        conditions = item.conditions or {}
+        if isinstance(reference_data, list):
+            for candidate in reference_data:
+                if str(candidate.get(item.referenceMatchField, "")) != str(source_value):
+                    continue
+                if all(candidate.get(field) == value for field, value in conditions.items()):
+                    return candidate
+            return None
+        key = tuple([str(value) for value in conditions.values()] + [str(source_value)])
+        return (reference_data or {}).get(key)
 
     def apply(self, rule, row, row_idx, reference_snapshot, trace, sensitive_fields):
         cfg = rule.config
+        if cfg.lookupConfigs:
+            target_field = cfg.lookupConfigs[0].targetField
+            for item in sorted(cfg.lookupConfigs, key=lambda value: value.priority):
+                source_value = row.get(item.sourceField)
+                if source_value is None or str(source_value).strip() == "":
+                    continue
+                result = self._match_config((reference_snapshot or {}).get(item.referenceDatasetId, {}), item, source_value)
+                if result is None:
+                    continue
+                row[target_field] = result.get(item.referenceReturnField) if isinstance(result, dict) else result
+                sensitive = item.sourceField in sensitive_fields
+                _trace(trace, rule, row_idx, "matched", before=mask_value(source_value) if sensitive else source_value, reference_key=mask_value(source_value) if sensitive else (item.referenceDatasetId, item.referenceMatchField, source_value))
+                return "matched"
+            if cfg.unmatched == UNMATCHED_SET_DEFAULT:
+                row[target_field] = cfg.defaultValue
+            elif cfg.unmatched == UNMATCHED_SET_NULL:
+                row[target_field] = None
+            elif cfg.unmatched == UNMATCHED_FLAG:
+                row[f"_unmapped_{target_field}"] = True
+            elif cfg.unmatched == UNMATCHED_REJECT:
+                raise MappingException(MappingErrorCode.MAPPING_LOOKUP_NO_MATCH, "Reference Lookup did not match and is configured to reject")
+            _trace(trace, rule, row_idx, "unmatched")
+            return "unmatched"
+
         ref_data = (reference_snapshot or {}).get(cfg.referenceDatasetId, {})
         for match_rule in sorted(cfg.matchRules, key=lambda item: item.priority):
             source_value = row.get(match_rule.sourceField)
@@ -103,8 +140,6 @@ class ReferenceLookupPlugin(_Plugin):
             _trace(trace, rule, row_idx, "matched", before=mask_value(source_value) if sensitive else source_value, reference_key=mask_value(reference_key) if sensitive else reference_key)
             if match_rule.onMatch == ON_MATCH_USE_AND_STOP:
                 return "matched"
-            if match_rule.onMatch in {ON_MATCH_CONTINUE, ON_MATCH_ONLY_FILL_EMPTY}:
-                continue
         if cfg.unmatched == UNMATCHED_SET_DEFAULT:
             for output_field in cfg.outputMap:
                 row.setdefault(output_field, cfg.defaultValue)
@@ -115,7 +150,7 @@ class ReferenceLookupPlugin(_Plugin):
             for output_field in cfg.outputMap:
                 row[f"_unmapped_{output_field}"] = True
         elif cfg.unmatched == UNMATCHED_REJECT:
-            raise MappingException(MappingErrorCode.MAPPING_LOOKUP_NO_MATCH, "参考 Lookup 未命中且策略为 reject")
+            raise MappingException(MappingErrorCode.MAPPING_LOOKUP_NO_MATCH, "Reference Lookup did not match and is configured to reject")
         _trace(trace, rule, row_idx, "unmatched")
         return "unmatched"
 

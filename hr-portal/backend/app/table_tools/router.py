@@ -67,6 +67,7 @@ class SourceMappingIn(BaseModel):
     id: int | None = None
     name: str = Field(min_length=1, max_length=128)
     match_signature: list[str] = []
+    source_fields: list[str] = []
     sheet_kw: str | None = None
     header_start: int = 1
     header_end: int = 1
@@ -186,6 +187,7 @@ def _mapping_out(m: MergeSourceMapping) -> dict:
         "id": m.id,
         "name": m.name,
         "match_signature": m.match_signature,
+        "source_fields": m.source_fields,
         "sheet_kw": m.sheet_kw,
         "header_start": m.header_start,
         "header_end": m.header_end,
@@ -202,8 +204,13 @@ def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) 
     if not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="映射名称不能为空")
     signature = list(dict.fromkeys(item.strip() for item in payload.match_signature if item.strip()))
+    source_fields = list(dict.fromkeys(str(item).strip() for item in payload.source_fields if str(item).strip()))
+    if not source_fields:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="请先上传样表解析源字段")
     if len(signature) < 3:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="表头特征至少需要 3 项")
+    if any(field not in source_fields for field in signature):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="表头特征必须属于样表解析字段")
     if not 1 <= payload.header_start <= payload.header_end <= 10:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="表头行范围必须在 1 到 10 行之间")
     key_map = {key.strip(): value for key, value in payload.key_map.items() if key.strip()}
@@ -212,6 +219,8 @@ def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) 
     if any(value not in template.merge_keys for value in key_map.values()):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="主键映射目标必须属于模板归集主键")
     column_map = {key.strip(): value for key, value in payload.column_map.items() if key.strip()}
+    if any(key not in source_fields for key in (*key_map.keys(), *column_map.keys())):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="映射源字段必须属于样表解析字段")
     if any(value not in template.std_fields for value in column_map.values()):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="字段映射目标必须属于模板标准字段")
     derived_fields = payload.derived_fields or []
@@ -254,6 +263,7 @@ def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) 
     return {
         "name": name,
         "match_signature": signature,
+        "source_fields": source_fields,
         "sheet_kw": payload.sheet_kw.strip() if payload.sheet_kw else None,
         "header_start": payload.header_start,
         "header_end": payload.header_end,
@@ -344,6 +354,7 @@ async def get_template(
                 "id": m.id,
                 "name": m.name,
                 "match_signature": m.match_signature,
+                "source_fields": m.source_fields,
                 "sheet_kw": m.sheet_kw,
                 "header_start": m.header_start,
                 "header_end": m.header_end,
@@ -1118,6 +1129,13 @@ async def mapping_drafts(
         mappings = await ai_builder.build_mapping_drafts(
             blobs, template.std_fields, template.merge_keys, business_context, db,
         )
+        for mapping in mappings:
+            source_fields = list(dict.fromkeys(
+                str(field).strip() for field in (mapping.get("source_fields") or []) if str(field).strip()
+            ))
+            if not source_fields:
+                raise ValueError("未从样表解析到源字段")
+            mapping["source_fields"] = source_fields
         enforce_output_deny_patterns(capability, _draft_scan_text({"std_fields": [], "mappings": mappings}))
     except Exception as exc:
         status_text = "error"
@@ -1184,6 +1202,7 @@ async def mapping_draft(
             "name": f"{filename.rsplit('.', 1)[0]}-映射", "match_signature": headers[:3],
             "sheet_kw": worksheet.title, "header_start": header_start, "header_end": header_end,
             "key_map": {}, "column_map": {}, "derived_fields": [], "derive_check": None,
+            "source_fields": headers,
             "skip_tokens": ["合计", "小计", "总计"], "_confidence": 0.0,
             "_notes": "AI 不可用，已生成表头草稿，请手工配置映射。",
         }
@@ -1204,6 +1223,7 @@ async def mapping_draft(
                      "header_start": header_start, "header_end": header_end},
                     template.std_fields, template.merge_keys, business_context, db,
                 )
+                mapping["source_fields"] = headers
                 enforce_output_deny_patterns(capability, _draft_scan_text({"std_fields": [], "mappings": [mapping]}))
                 status_text = "ok"
             except Exception as exc:

@@ -7,7 +7,11 @@ import PerformanceAdminLayout from './PerformanceAdminLayout.vue'
 function mountLayout() {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }],
+    routes: [
+      { path: '/', component: { template: '<div />' } },
+      { path: '/performance/settings/cycles', name: 'PerformanceCycles', component: { template: '<div />' } },
+      { path: '/performance/settings/templates', name: 'PerformanceTemplates', component: { template: '<div />' } },
+    ],
   })
 
   return mount(PerformanceAdminLayout, {
@@ -37,6 +41,32 @@ describe('PerformanceAdminLayout', () => {
     await templates?.trigger('click')
 
     expect(wrapper.get('[aria-current="page"]').text()).toContain('绩效模板')
-    expect(wrapper.get('[data-section="templates"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-section="templates"]')).toHaveLength(1)
+  })
+
+  it('navigates the template menu to its canonical route', async () => {
+    const wrapper = mountLayout()
+    const router = wrapper.vm.$router
+    await router.isReady()
+
+    const templates = wrapper.findAll('button').find((button) => button.text().includes('绩效模板'))
+    await templates?.trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('PerformanceTemplates')
+  })
+
+  it('navigates the cycle menu to its canonical route', async () => {
+    const wrapper = mountLayout()
+    const router = wrapper.vm.$router
+    await router.isReady()
+
+    const cycles = wrapper.findAll('button').find((button) => button.text().includes('周期与项目'))
+    await cycles?.trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('PerformanceCycles')
   })
 })

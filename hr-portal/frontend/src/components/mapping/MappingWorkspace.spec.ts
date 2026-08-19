@@ -155,4 +155,19 @@ describe('MappingWorkspace effects contract', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('save=false;publish=false;execute=true;rebuild=false')
   })
+  it('shows only the requested visible rule types', () => {
+    const model: any = document()
+    model.ruleSet.rules.push({
+      id: 'r2', type: 'reference_lookup' as const, enabled: true, displayOrder: 1,
+      sourceFields: ['employee_no'], targetFields: ['employee_no'], config: {},
+    })
+    const wrapper = mount(MappingWorkspace, {
+      props: { modelValue: model, policy: policy(), visibleRuleTypes: ['field'] },
+      global: { stubs },
+    })
+
+    expect(wrapper.find('.type-field').exists()).toBe(true)
+    expect(wrapper.find('.type-reference_lookup').exists()).toBe(false)
+    expect(wrapper.findAll('.rule-item')).toHaveLength(1)
+  })
 })

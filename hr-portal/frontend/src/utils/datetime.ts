@@ -31,6 +31,25 @@ export function formatDateOnly(v: string | number | Date | null | undefined, fal
   return isNaN(d.getTime()) ? fallback : d.toLocaleDateString('zh-CN', { timeZone: TZ })
 }
 
+// 北京时间 datetime-local 值 → UTC ISO 字符串。datetime-local 没有时区，必须按业务时区解释。
+export function shanghaiLocalToUtcIso(v: string | null | undefined): string | null {
+  if (!v) return null
+  const normalized = v.length === 16 ? `${v}:00` : v
+  const d = new Date(`${normalized}+08:00`)
+  return isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+// UTC 时间 → datetime-local 所需的北京时间墙上时间。
+export function utcToShanghaiLocal(v: string | null | undefined): string | null {
+  const d = toDate(v)
+  if (!d) return null
+  const values = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(d).reduce<Record<string, string>>((result, part) => ({ ...result, [part.type]: part.value }), {})
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`
+}
+
 // ── 日期选择器提交 / 回填的时区闭环 ───────────────────────
 // 后端存储与接口约定为 UTC 朴素串（YYYY-MM-DDTHH:mm:ss，无时区）。
 // 但 el-date-picker 的 value-format 朴素串按【浏览器本地】解释，

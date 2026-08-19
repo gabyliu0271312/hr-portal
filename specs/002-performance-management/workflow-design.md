@@ -34,28 +34,34 @@
 第一期建议支持以下节点类型：
 
 ```text
+project_start
+evaluation
+result_view
+result_reconsideration
 work_summary
-self_review
-manager_review
-project_review
-org_calibration
-company_calibration
-result_adjustment
-result_publish
-appeal
+reviewer_360_invite
+reviewer_360_confirm
+calibration
+result_communication
+project_end
 ```
+
+PM-T004 起，新建/编辑模板只写入上述节点枚举。旧版 `self_review`、`manager_review`、`project_review`、`org_calibration`、`company_calibration`、`result_adjustment`、`result_publish`、`appeal` 仅用于历史数据读取兼容，由后端 DTO 层统一映射；前端不得写入旧枚举。
+
+已被周期使用的模板锁定评估流程和数据写入配置，只允许编辑参考内容与提示内容；保存后同步至使用该模板的用户。
 
 对应业务含义：
 
-- 工作内容总结
-- 员工自评
-- 上级评价
-- 项目评价
-- 部门/组织校准
-- 公司级校准
-- 结果修正/复核，可选
-- 结果发布
-- 申诉处理
+- 项目启动（系统节点）
+- 评估型环节
+- 绩效结果查看环节
+- 结果复议处理
+- 工作总结环节
+- 360°邀请环节
+- 360°确认环节
+- 校准环节
+- 结果沟通环节
+- 项目结束（系统节点）
 
 ## 4. 节点配置项
 

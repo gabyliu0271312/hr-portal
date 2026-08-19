@@ -20,7 +20,7 @@ const trustedPolicy = () => ({
   allowedRuleTypes: ['identity_with_overrides', 'reference_lookup', 'field', 'value_map', 'type_convert', 'format', 'split_merge'],
   source: { assetId: 'cost_center_monthly', schemaHash: 'source-hash', allowedFieldIds: ['code', 'name', 'status'] },
   target: { assetId: 'dwd_cost_center_monthly', schemaHash: 'target-hash', allowedFieldIds: ['code', 'name', 'status'], readonlyFieldIds: [], protectedKeyFieldIds: ['code'] },
-  referenceLookup: { allowedDatasetIds: ['cost_center_tree'], allowedFieldIds: ['code', 'name'], maxRules: 20 },
+  referenceLookup: { allowedDatasetIds: [], allowedFieldIds: [], maxRules: 20 },
   effects: { allowPreview: true, allowSave: true, allowPublish: true, allowExecute: true, allowRebuild: true },
   legacy: { sourceFormat: 'standardization_rules', allowLegacyRead: true, allowLegacyWrite: false, allowMigration: false },
   metadata: { policyVersion: 1, permissionScope: 'warehouse.modeling', issuedAt: '2026-08-08T00:00:00Z' },
@@ -84,7 +84,6 @@ describe('CostCenterMappingWorkspace', () => {
       targetSchemaHash: 'target-hash',
       rules: [
         expect.objectContaining({ sourceFields: ['code'], targetFields: ['code'] }),
-        expect.objectContaining({ sourceFields: ['code'], targetFields: ['name'] }),
       ],
     })
     expect(wrapper.find('[data-testid="mapping-workspace"]').exists()).toBe(true)

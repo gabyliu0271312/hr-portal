@@ -17,6 +17,7 @@ from app.mapping.dto import (
     MatchRule,
     ReferenceLookupRule,
     ReferenceLookupRuleConfig,
+    LookupConfig,
     UNMATCHED_SET_DEFAULT,
 )
 from app.mapping.errors import MappingErrorCode, MappingException
@@ -180,6 +181,19 @@ def build_wage_mapping_document(
                     sourceFields=list(source_fields),
                     targetFields=[output_target],
                     config=ReferenceLookupRuleConfig(
+                        lookupConfigs=[
+                            LookupConfig(
+                                id=match_rule.id,
+                                priority=match_rule.priority,
+                                referenceDatasetId=config.get("lookup_table", WAGE_REFERENCE_DATASET),
+                                sourceField=match_rule.sourceField,
+                                referenceMatchField=match_rule.referenceField,
+                                referenceReturnField=result_field,
+                                targetField=output_target,
+                                conditions=dict(match_rule.conditions),
+                            )
+                            for match_rule in match_rules
+                        ],
                         referenceDatasetId=config.get("lookup_table", WAGE_REFERENCE_DATASET),
                         outputMap={output_target: result_field},
                         matchRules=match_rules,

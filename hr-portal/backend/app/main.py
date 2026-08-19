@@ -16,6 +16,8 @@ from app.codegen.router import router as codegen_router
 from app.core.config import settings
 from app.core.db import AsyncSessionLocal, Base, engine
 from app.performance.router import router as performance_auth_router
+from app.performance.cycles_router import router as performance_cycles_router
+from app.performance.templates_router import router as performance_templates_router
 from app.performance.seed import PerformanceBootstrapConfigurationError
 from app.data.columns_router import router as columns_router
 from app.ai.employee_profile_fields_router import router as employee_profile_fields_router
@@ -50,6 +52,8 @@ from app.tools.router import router as tools_router
 from app.table_tools.router import router as table_tools_router
 from app.users.router import router as users_router
 from app.ucp.router import router as ucp_router
+from app.mapping.router import router as mapping_router
+from app.mapping.cost_center_router import router as cost_center_mapping_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger("hr-portal")
@@ -205,6 +209,8 @@ async def root() -> dict:
 # ===== 路由挂载 =====
 app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(performance_auth_router, prefix=settings.API_PREFIX)
+app.include_router(performance_cycles_router, prefix=settings.API_PREFIX)
+app.include_router(performance_templates_router, prefix=settings.API_PREFIX)
 app.include_router(ai_router, prefix=settings.API_PREFIX)
 app.include_router(codegen_router, prefix=settings.API_PREFIX)
 app.include_router(users_router, prefix=settings.API_PREFIX)
@@ -234,6 +240,8 @@ app.include_router(automation_router, prefix=settings.API_PREFIX)
 app.include_router(data_compare_router, prefix=settings.API_PREFIX)
 app.include_router(ucp_router, prefix=settings.API_PREFIX)
 app.include_router(warehouse_router, prefix=settings.API_PREFIX)
+app.include_router(mapping_router, prefix=settings.API_PREFIX)
+app.include_router(cost_center_mapping_router, prefix=settings.API_PREFIX)
 app.include_router(api_service_router, prefix=settings.API_PREFIX)
 app.include_router(subscription_router, prefix=settings.API_PREFIX)
 app.include_router(service_monitor_router, prefix=settings.API_PREFIX)

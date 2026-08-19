@@ -1,0 +1,1 @@
+import{a as i}from"./report-designer-CxxKCPxQ.js";const o=13e4,n={chat:t=>i.post("/ai/chat",t,{timeout:o}).then(a=>a.data),consumeControlledAction:(t,a)=>i.post(`/ai/conversations/${t}/actions`,a,{timeout:o}).then(e=>e.data),registry:()=>i.get("/ai/capabilities/registry").then(t=>t.data)};export{n as a};

@@ -1,0 +1,38 @@
+*** Begin Patch
+*** Update File: frontend/src/views/performance/CycleManagement.spec.ts
+@@
+   it('renders form validation relationships and the paged year panel', async () => {
+     const wrapper = await mountView('/performance/settings/cycles/new')
+     expect(wrapper.get('#cycle-name').attributes('maxlength')).toBe('128')
++    expect(wrapper.get('#cycle-year').text()).toContain('请选择年份')
++    expect(wrapper.get('#cycle-year').text()).not.toContain('2026')
+     await wrapper.get('#cycle-year').trigger('click')
+     expect(wrapper.get('[aria-label="年份选择器"]').findAll('.year-options button')).toHaveLength(20)
+@@
+     expect(wrapper.get('#cycle-end').attributes('aria-invalid')).toBe('true')
+   })
++
++  it('closes year and period pickers when clicking outside', async () => {
++    const wrapper = await mountView('/performance/settings/cycles/new')
++
++    await wrapper.get('#cycle-year').trigger('click')
++    expect(wrapper.find('[aria-label="年份选择器"]').exists()).toBe(true)
++    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
++    await wrapper.vm.$nextTick()
++    expect(wrapper.find('[aria-label="年份选择器"]').exists()).toBe(false)
++
++    await wrapper.get('#cycle-type').trigger('click')
++    expect(wrapper.find('[aria-label="周期类型选择器"]').exists()).toBe(true)
++    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
++    await wrapper.vm.$nextTick()
++    expect(wrapper.find('[aria-label="周期类型选择器"]').exists()).toBe(false)
++  })
++
++  it('keeps picker open when clicking inside it', async () => {
++    const wrapper = await mountView('/performance/settings/cycles/new')
++
++    await wrapper.get('#cycle-type').trigger('click')
++    await wrapper.get('[aria-label="周期类型选择器"] .period-group-label').trigger('pointerdown')
++    expect(wrapper.find('[aria-label="周期类型选择器"]').exists()).toBe(true)
++  })
+*** End Patch
