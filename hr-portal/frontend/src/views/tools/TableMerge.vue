@@ -360,6 +360,11 @@ async function saveMappingDrafts() {
   }
   mappingWizardSaving.value = true
   try {
+    const invalidMapping = mappingWizardDrafts.value.find((mapping) => validateDerivedFields(mapping))
+    if (invalidMapping) {
+      ElMessage.warning(validateDerivedFields(invalidMapping) || '派生字段配置无效')
+      return
+    }
     await tableToolsApi.createMappings(
       mappingWizardTemplate.value.id,
       mappingWizardDrafts.value.map((mapping) => ({
@@ -440,8 +445,31 @@ function cancelEditMapping() {
 }
 
 
+function validateDerivedFields(mapping: any): string | null {
+  const stdFields = new Set(form.value.std_fields.map((field: string) => field.trim()))
+  const directTargets = new Set(Object.values(mapping.column_map || {}).map((field: any) => String(field).trim()))
+  const targets = new Set<string>()
+  for (const field of mapping.derived_fields || []) {
+    const target = String(field.target || '').trim()
+    const expr = String(field.expr || '').trim()
+    const refs = Array.from(expr.matchAll(/\{([^{}]+)\}/g), (match) => match[1].trim())
+    if (!stdFields.has(target)) return '派生字段目标必须属于模板标准字段'
+    if (!expr) return '派生字段公式不能为空'
+    if (targets.has(target)) return '同一映射不能重复配置派生字段目标'
+    if (directTargets.has(target)) return '派生字段目标不能同时配置直接映射'
+    if (!refs.length || refs.some((ref) => !stdFields.has(ref))) return '派生公式只能引用模板标准字段'
+    targets.add(target)
+  }
+  return null
+}
+
 async function saveEditMapping() {
   if (expandedMapping.value === null || !editingMapping.value) return
+  const validationError = validateDerivedFields(editingMapping.value)
+  if (validationError) {
+    ElMessage.warning(validationError)
+    return
+  }
   const index = expandedMapping.value
   const payload = { ...editingMapping.value }
   try {
@@ -1138,7 +1166,7 @@ const editingColMapEntries = computed({
                         <el-option v-for="f in form.std_fields" :key="f" :label="f" :value="f" />
                       </el-select>
                       <span class="map-arrow">=</span>
-                      <el-input v-model="df.expr" size="small" placeholder="{列名A}+{列名B}" style="flex:1" />
+                      <el-input v-model="df.expr" size="small" placeholder="{标准字段A}+{标准字段B}" style="flex:1" />
                       <el-input-number v-model="df.round" :min="0" :max="6" size="small"
                         style="width:80px" :controls="false" placeholder="小数位" />
                       <button class="del-row-btn" @click="removeDerivedField(di)">×</button>

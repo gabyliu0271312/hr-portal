@@ -80,17 +80,19 @@ def eval_derived(
     expr: str,
     getval: Callable[[str], Any],
     custom_functions: dict[str, Callable[..., Any]] | None = None,
+    *,
+    missing_as_zero: bool = False,
 ) -> Any:
-    """派生字段求值:{列名} 占位 → 公共公式引擎(支持 IF/ROUND/MIN/MAX/自定义函数)。
-
-    任一引用列在本行无值(该 sheet 无此字段)时返回 None,由调用方决定跳过。
-    """
+    """派生字段求值:{列名} 占位 → 公共公式引擎。"""
     converted, refs = _to_field_calls(expr)
-    if any(getval(name) in (None, "") for name in refs):
+    if not missing_as_zero and any(getval(name) in (None, "") for name in refs):
         return None
+    resolver = getval
+    if missing_as_zero:
+        resolver = lambda name: getval(name) if getval(name) not in (None, "") else 0
     return evaluate_formula(
         converted,
-        field_resolver=getval,
+        field_resolver=resolver,
         custom_functions=custom_functions,
     )
 
@@ -174,28 +176,8 @@ def extract_records(
             except (ValueError, TypeError):
                 pass
             rec[stdname] = val
-        # 派生(公共公式引擎:支持 IF/ROUND/MIN/MAX/CALC_TAX 等)
-        derived: dict[str, Any] = {}
-        for d in mapping.get("derived_fields", []):
-            v = eval_derived(d["expr"], getcol, custom_functions)
-            if v is None or v == "":
-                # 引用列在该 sheet 无值时静默跳过,不计入异常
-                continue
-            if isinstance(v, (int, float)) and "round" in d:
-                v = round(v, d.get("round", 2))
-            derived[d["target"]] = v
-            rec[d["target"]] = v
-        # 拆分校验
-        chk = mapping.get("derive_check")
-        if chk and all(t in derived for t in chk["sum_of"]):
-            total = getcol(chk["equals_col"])
-            try:
-                total = float(total)
-                s = sum(float(derived[t]) for t in chk["sum_of"])
-                if abs(s - total) > chk.get("tol", 0.05):
-                    anomalies.append({"type": "拆分校验不符", "key": rec, "detail": f"和{s} vs 合计{total}"})
-            except (ValueError, TypeError):
-                pass
+        # 派生字段统一在按主键聚合后,使用标准字段计算
+        # 拆分校验也在聚合后执行
         records.append(rec)
     return records, anomalies
 
@@ -254,13 +236,10 @@ def aggregate_records(
     merge_keys: list[str],
     std_fields: list[str],
     agg: str = "sum",
+    derived_fields: list[dict] | None = None,
+    custom_functions: dict[str, Callable[..., Any]] | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """把多源记录按 merge_keys 归集成一行一人。
-
-    agg="sum": 数值累加;非数值取首个非空。
-    agg="conflict": 不一致则报异常(保留首值)。
-    返回 (rows, anomalies)
-    """
+    """按主键归集标准字段,再基于归集结果计算派生字段。"""
     person: dict[tuple, dict] = {}
     person_src: dict[tuple, list[str]] = defaultdict(list)
     anomalies: list[dict] = []
@@ -297,9 +276,63 @@ def aggregate_records(
     rows: list[dict] = []
     for pk in sorted(person):
         row = dict(person[pk])
+        for field in std_fields:
+            row.setdefault(field, 0)
         row["来源"] = " + ".join(sorted(set(person_src[pk])))
         rows.append(row)
+
+    # 派生公式统一引用聚合后的标准字段,缺失字段按 0。
+    for row in rows:
+        for d in derived_fields or []:
+            value = eval_derived(
+                d["expr"], row.get, custom_functions, missing_as_zero=True
+            )
+            if value == "":
+                continue
+            if isinstance(value, (int, float)) and "round" in d:
+                value = round(value, d.get("round", 2))
+            row[d["target"]] = value
     return rows, anomalies
+
+
+def _merge_derived_fields(mappings: list[dict]) -> list[dict]:
+    """合并各来源的模板级派生配置；同一目标必须使用同一口径。"""
+    merged: dict[str, dict] = {}
+    for mapping in mappings:
+        for field in mapping.get("derived_fields", []):
+            target = field["target"]
+            current = {key: field.get(key) for key in ("target", "expr", "round")}
+            if target in merged and merged[target] != current:
+                raise ValueError(f"派生字段 {target} 在多个来源映射中的公式不一致")
+            merged[target] = current
+    return list(merged.values())
+
+
+def _merge_derive_checks(mappings: list[dict]) -> list[dict]:
+    """合并各来源的模板级拆分校验；同一校验仅保留一份。"""
+    checks: list[dict] = []
+    for mapping in mappings:
+        check = mapping.get("derive_check")
+        if check and check not in checks:
+            checks.append(check)
+    return checks
+
+
+def _apply_derive_checks(rows: list[dict], merge_keys: list[str], checks: list[dict], anomalies: list[dict]) -> None:
+    """基于归集后的标准字段执行拆分校验。"""
+    for row in rows:
+        for check in checks:
+            try:
+                total = float(row.get(check["equals_col"], 0) or 0)
+                subtotal = sum(float(row.get(field, 0) or 0) for field in check["sum_of"])
+            except (TypeError, ValueError):
+                continue
+            if abs(subtotal - total) > check.get("tol", 0.05):
+                anomalies.append({
+                    "type": "拆分校验不符",
+                    "key": {field: row.get(field, "") for field in merge_keys},
+                    "detail": f"和{subtotal} vs 合计{total}",
+                })
 
 
 # ── 顶层:跑一个合并任务 ────────────────────────────────────
@@ -323,6 +356,8 @@ def run_merge(
     merge_keys = template["merge_keys"]
     std_fields = template["std_fields"]
     agg = template.get("aggregate", "sum")
+    derived_fields = _merge_derived_fields(mappings)
+    derive_checks = _merge_derive_checks(mappings)
     header_candidates = {tuple(m["header"]) for m in mappings}
 
     records_with_src: list[tuple[dict, str]] = []
@@ -391,7 +426,10 @@ def run_merge(
     records, key_mapping_stats, mapping_anomalies, raw_key_traces = apply_key_mappings(
         records_with_src, merge_keys, key_mappings
     )
-    rows, agg_anomalies = aggregate_records(records, merge_keys, std_fields, agg)
+    rows, agg_anomalies = aggregate_records(
+        records, merge_keys, std_fields, agg, derived_fields, custom_functions
+    )
+    _apply_derive_checks(rows, merge_keys, derive_checks, agg_anomalies)
     anomalies.extend(mapping_anomalies)
     anomalies.extend(agg_anomalies)
 

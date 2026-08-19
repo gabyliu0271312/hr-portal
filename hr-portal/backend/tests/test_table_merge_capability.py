@@ -110,9 +110,52 @@ def test_derived_uses_engine_functions():
 
 
 def test_derived_missing_column_returns_none():
-    """引用列在本行无值 → 返回 None,由调用方跳过(该 sheet 无此字段)。"""
+    """默认模式保留源行解析的缺失值语义。"""
     row = {"基数": 10000}
     assert eval_derived("{不存在}*2", row.get) is None
+
+
+def test_derived_missing_fields_are_zero_in_aggregate_mode():
+    row = {"B": 100}
+    assert eval_derived("{B}+{C}", row.get, missing_as_zero=True) == 100
+    assert eval_derived("{B}+{C}", {}.get, missing_as_zero=True) == 0
+
+
+def test_merge_aggregates_standard_fields_before_derived_formula():
+    import io
+    import openpyxl
+    from app.table_tools.engine import run_merge
+
+    def workbook(headers, values):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "明细"
+        ws.append(headers)
+        ws.append(values)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    mapping = {
+        "name": "来源",
+        "sheet_kw": None,
+        "header": [1, 1],
+        "match": ["员工", "B", "C"],
+        "key_map": {"员工": "员工"},
+        "column_map": {"B": "B", "C": "C"},
+        "derived_fields": [{"target": "A", "expr": "{B}+{C}", "round": 2}],
+        "derive_check": None,
+        "skip_tokens": [],
+    }
+    result = run_merge(
+        [
+            ("B来源.xlsx", workbook(["员工", "B", "C"], ["张三", 100, None])),
+            ("C来源.xlsx", workbook(["员工", "B", "C"], ["张三", None, 200])),
+        ],
+        {"merge_keys": ["员工"], "std_fields": ["B", "C", "A"], "aggregate": "sum"},
+        [mapping],
+    )
+    assert result["rows"] == [{"员工": "张三", "B": 100.0, "C": 200.0, "A": 300.0, "来源": "来源"}]
 
 
 # ── 源映射维护 ──────────────────────────────────────────────
@@ -222,3 +265,31 @@ async def test_single_mapping_ai_builder_keeps_parent_template_contract(monkeypa
     assert captured["std_fields"] == ["公积金个人"]
     assert captured["merge_keys"] == ["姓名"]
     assert captured["sheet_info"]["columns"] == ["员工姓名", "个人缴存"]
+
+
+def test_merge_runs_derive_check_after_aggregation():
+    from app.table_tools.engine import aggregate_records, _apply_derive_checks
+
+    rows, anomalies = aggregate_records(
+        [
+            ({"员工": "张三", "B": 100}, "B来源"),
+            ({"员工": "张三", "C": 200, "总额": 300}, "C来源"),
+        ],
+        ["员工"], ["B", "C", "总额"],
+    )
+    _apply_derive_checks(
+        rows, ["员工"],
+        [{"sum_of": ["B", "C"], "equals_col": "总额", "tol": 0.05}],
+        anomalies,
+    )
+    assert anomalies == []
+
+
+def test_merge_rejects_inconsistent_derived_formula():
+    from app.table_tools.engine import _merge_derived_fields
+
+    with pytest.raises(ValueError, match="派生字段 A 在多个来源映射中的公式不一致"):
+        _merge_derived_fields([
+            {"derived_fields": [{"target": "A", "expr": "{B}+{C}", "round": 2}]},
+            {"derived_fields": [{"target": "A", "expr": "{B}-{C}", "round": 2}]},
+        ])

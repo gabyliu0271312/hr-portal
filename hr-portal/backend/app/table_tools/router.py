@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -29,6 +30,7 @@ from app.ai.audit import AiAuditTimer, record_ai_log
 from app.ai.capabilities import get_capability
 from app.ai.policy_guard import enforce_output_deny_patterns, validate_capability_policy
 from app.ai_formula.custom_functions import executable_functions
+from app.ai_formula.formula_evaluator import formula_syntax_issues
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.permissions.scope_filter import _is_super_admin
@@ -213,8 +215,42 @@ def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) 
     if any(value not in template.std_fields for value in column_map.values()):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="字段映射目标必须属于模板标准字段")
     derived_fields = payload.derived_fields or []
-    if any(field.get("target") not in template.std_fields for field in derived_fields):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生字段目标必须属于模板标准字段")
+    targets: set[str] = set()
+    for field in derived_fields:
+        target = str(field.get("target") or "").strip()
+        expr = str(field.get("expr") or "").strip()
+        if target not in template.std_fields:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生字段目标必须属于模板标准字段")
+        if not expr:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生字段公式不能为空")
+        if target in targets:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="同一映射不能重复配置派生字段目标")
+        if target in column_map.values():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生字段目标不能同时配置直接映射")
+        refs = [item.strip() for item in re.findall(r"\{([^{}]+)\}", expr)]
+        if not refs or any(ref not in template.std_fields for ref in refs):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生公式只能引用模板标准字段")
+        converted = re.sub(
+            r"\{([^{}]+)\}", lambda match: f'FIELD({match.group(1).strip()!r})', expr
+        )
+        if formula_syntax_issues(converted):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生字段公式语法不合法")
+        targets.add(target)
+    derive_check = payload.derive_check
+    if derive_check:
+        sum_of = derive_check.get("sum_of") or []
+        equals_col = str(derive_check.get("equals_col") or "").strip()
+        if not sum_of or not equals_col or any(field not in template.std_fields for field in sum_of) or equals_col not in template.std_fields:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="拆分校验只能引用模板标准字段")
+        derive_check = {
+            **derive_check,
+            "sum_of": list(dict.fromkeys(sum_of)),
+            "equals_col": equals_col,
+        }
+    derived_fields = [
+        {**field, "target": str(field["target"]).strip(), "expr": str(field["expr"]).strip()}
+        for field in derived_fields
+    ]
     return {
         "name": name,
         "match_signature": signature,
@@ -224,7 +260,7 @@ def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) 
         "key_map": key_map,
         "column_map": column_map,
         "derived_fields": derived_fields,
-        "derive_check": payload.derive_check,
+        "derive_check": derive_check,
         "skip_tokens": list(dict.fromkeys(item.strip() for item in (payload.skip_tokens or []) if item.strip())) or ["合计", "小计", "总计"],
     }
 
@@ -744,9 +780,12 @@ async def _run_template_merge(
         }
         for item in template.key_mappings if item.enabled
     ]
-    result = engine.run_merge(
-        blobs, template_config, mappings, await executable_functions(db), key_mappings
-    )
+    try:
+        result = engine.run_merge(
+            blobs, template_config, mappings, await executable_functions(db), key_mappings
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     dwd_anomalies: list[dict[str, Any]] = []
     rows = result["rows"]
     base_columns = [column for column in result["columns"] if column != "来源"]

@@ -192,9 +192,9 @@ _STEP2_SYSTEM = """\
   "key_map": {"源列名": "标准主键名", ...},
   "column_map": {"源列名": "标准字段名", ...},
   "derived_fields": [
-    {"target": "标准字段名", "expr": "{源列A}*{源列B}", "round": 2}
+    {"target": "标准字段名", "expr": "{标准字段A}*{标准字段B}", "round": 2}
   ],
-  "derive_check": null 或 {"sum_of": ["字段A","字段B"], "equals_col": "原始合计列名", "tol": 0.05},
+  "derive_check": null 或 {"sum_of": ["标准字段A","标准字段B"], "equals_col": "标准字段C", "tol": 0.05},
   "skip_tokens": ["合计", "小计", "总计"],
   "confidence": 0.95,
   "notes": "简短说明，列出置信度低/有歧义的映射"
@@ -202,7 +202,8 @@ _STEP2_SYSTEM = """\
 
 规则：
 - key_map 只映射 merge_keys 里的主键列；column_map 只映射可以直接对应标准字段的列。
-- 如果一列需要计算才能得到标准字段,用 derived_fields,表达式用 {列名} 占位符引用源列。
+- 如果一个标准字段需要由多个标准字段计算得到，将它配置到 derived_fields。表达式只能引用给定 std_fields 中的字段。
+  先通过 column_map 将源列映射到这些标准字段；系统会在按人员聚合标准字段后再计算派生字段。
   派生表达式支持四则运算与公式函数:IF / AND / OR / ROUND / MIN / MAX / SUM / ABS / CONCAT 等。
   例:
     基数×比例:        {"target":"公积金个人","expr":"{缴存基数}*{个人缴存比例}","round":2}
