@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.automation.action_registry import _ensure_default_config, _reconcile_cleaning_mode
+from app.warehouse.router import _has_business_key_drift
 from app.data.models import RegisteredTable
 
 
@@ -47,6 +48,26 @@ class FakeSession:
 
     async def flush(self):
         pass
+
+
+async def test_full_refresh_does_not_require_business_key_match():
+    config = SimpleNamespace(
+        dwd_write_strategy="full_refresh",
+        business_key_fields=None,
+    )
+    detected = {"business_key_fields": ["employee_id"]}
+
+    assert _has_business_key_drift(config, detected) is False
+
+
+async def test_incremental_upsert_requires_business_key_match():
+    config = SimpleNamespace(
+        dwd_write_strategy="incremental_upsert",
+        business_key_fields=None,
+    )
+    detected = {"business_key_fields": ["employee_id"]}
+
+    assert _has_business_key_drift(config, detected) is True
 
 
 async def test_default_config_without_business_key_downgrades_to_full_refresh(monkeypatch):

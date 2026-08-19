@@ -2759,12 +2759,18 @@ async def detect_ods_sync_semantics(
     return result
 
 
+def _has_business_key_drift(config, detected: dict) -> bool:
+    if config.dwd_write_strategy != "incremental_upsert":
+        return False
+    normalize_keys = lambda values: [str(value).strip() for value in (values or [])]
+    return normalize_keys(config.business_key_fields) != normalize_keys(detected.get("business_key_fields"))
+
+
 async def _apply_effective_automation_policy(config, ods_table_name: str, db: AsyncSession) -> None:
     detected = await _detect_ods_config(ods_table_name, db)
-    configured_keys = list(config.business_key_fields or [])
     detected_keys = list(detected.get("business_key_fields") or [])
     drift_reasons = []
-    if configured_keys and configured_keys != detected_keys:
+    if _has_business_key_drift(config, detected):
         drift_reasons.append("自动化配置业务主键与 ODS 元数据不一致")
     if config.update_mode == "cleaning_rule" and not config.standardization_rule_ids:
         drift_reasons.append("清洗规则模式未绑定规则")
@@ -3187,8 +3193,7 @@ async def trigger_ods_dwd_sync(
     if existing is None:
         raise HTTPException(status_code=404, detail=f"ODS 表 {ods_table_name} 尚未配置自动化")
     detected = await _detect_ods_config(ods_table_name, db)
-    normalize_keys = lambda values: [str(value).strip() for value in (values or [])]
-    if normalize_keys(existing.business_key_fields) != normalize_keys(detected.get("business_key_fields")):
+    if _has_business_key_drift(existing, detected):
         raise HTTPException(status_code=422, detail="当前自动化配置与 ODS 主键漂移，请先修正配置后触发")
     period_value = (payload.period_value if payload else None)
     if detected.get("effective_ingestion_mode") == "period_full_snapshot":
