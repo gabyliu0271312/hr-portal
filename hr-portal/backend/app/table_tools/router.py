@@ -73,6 +73,7 @@ class SourceMappingIn(BaseModel):
     header_end: int = 1
     key_map: dict[str, str] = {}
     column_map: dict[str, str] = {}
+    new_std_fields: list[str] = []
     derived_fields: list[dict] = []
     derive_check: dict | None = None
     skip_tokens: list[str] = ["合计", "小计", "总计"]
@@ -221,15 +222,17 @@ def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) 
     column_map = {key.strip(): value.strip() for key, value in payload.column_map.items() if key.strip()}
     if any(key not in source_fields for key in (*key_map.keys(), *column_map.keys())):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="映射源字段必须属于样表解析字段")
-    if any(value not in template.std_fields for value in column_map.values()):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="字段映射目标必须属于模板标准字段")
+    new_std_fields = list(dict.fromkeys(str(field).strip() for field in (payload.new_std_fields or []) if str(field).strip()))
+    allowed_std_fields = set(template.std_fields) | set(new_std_fields)
+    if any(value not in allowed_std_fields for value in column_map.values()):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="字段映射目标必须属于模板标准字段或本次新增标准字段")
     derived_fields = payload.derived_fields or []
     targets: set[str] = set()
     for field in derived_fields:
         target = str(field.get("target") or "").strip()
         expr = str(field.get("expr") or "").strip()
-        if target not in template.std_fields:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生字段目标必须属于模板标准字段")
+        if target not in allowed_std_fields:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生字段目标必须属于模板标准字段或本次新增标准字段")
         if not expr:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生字段公式不能为空")
         if target in targets:
@@ -237,8 +240,8 @@ def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) 
         if target in column_map.values():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生字段目标不能同时配置直接映射")
         refs = [item.strip() for item in re.findall(r"\{([^{}]+)\}", expr)]
-        if not refs or any(ref not in template.std_fields for ref in refs):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生公式只能引用模板标准字段")
+        if not refs or any(ref not in allowed_std_fields for ref in refs):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="派生公式只能引用模板标准字段或本次新增标准字段")
         converted = re.sub(
             r"\{([^{}]+)\}", lambda match: f'FIELD({match.group(1).strip()!r})', expr
         )
@@ -249,8 +252,8 @@ def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) 
     if derive_check:
         sum_of = derive_check.get("sum_of") or []
         equals_col = str(derive_check.get("equals_col") or "").strip()
-        if not sum_of or not equals_col or any(field not in template.std_fields for field in sum_of) or equals_col not in template.std_fields:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="拆分校验只能引用模板标准字段")
+        if not sum_of or not equals_col or any(field not in allowed_std_fields for field in sum_of) or equals_col not in allowed_std_fields:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="拆分校验只能引用模板标准字段或本次新增标准字段")
         derive_check = {
             **derive_check,
             "sum_of": list(dict.fromkeys(sum_of)),
@@ -269,6 +272,7 @@ def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) 
         "header_end": payload.header_end,
         "key_map": key_map,
         "column_map": column_map,
+        "new_std_fields": new_std_fields,
         "derived_fields": derived_fields,
         "derive_check": derive_check,
         "skip_tokens": list(dict.fromkeys(item.strip() for item in (payload.skip_tokens or []) if item.strip())) or ["合计", "小计", "总计"],
@@ -404,6 +408,8 @@ async def create_template(
     mapping_names: set[str] = set()
     for ms in payload.mappings:
         values = _validate_source_mapping(t, ms)
+        new_fields = values.pop("new_std_fields", [])
+        t.std_fields = list(dict.fromkeys([*t.std_fields, *new_fields]))
         if values["name"] in mapping_names:
             raise HTTPException(status.HTTP_409_CONFLICT, detail="映射名称已存在")
         mapping_names.add(values["name"])
@@ -476,6 +482,8 @@ async def create_source_mappings_batch(
     prepared: list[dict] = []
     for mapping in payload.mappings:
         values = _validate_source_mapping(template, mapping)
+        new_fields = values.pop("new_std_fields", [])
+        template.std_fields = list(dict.fromkeys([*template.std_fields, *new_fields]))
         if values["name"] in names:
             raise HTTPException(status.HTTP_409_CONFLICT, detail=f"映射名称已存在: {values['name']}")
         names.add(values["name"])
@@ -495,6 +503,8 @@ async def create_source_mapping(tid: int, payload: SourceMappingIn, db: AsyncSes
     template = await _load_template(db, tid)
     await _ensure_can_modify(db, template, user)
     values = _validate_source_mapping(template, payload)
+    new_fields = values.pop("new_std_fields", [])
+    template.std_fields = list(dict.fromkeys([*template.std_fields, *new_fields]))
     if any(item.name == values["name"] for item in template.mappings):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="映射名称已存在")
     mapping = MergeSourceMapping(**values)

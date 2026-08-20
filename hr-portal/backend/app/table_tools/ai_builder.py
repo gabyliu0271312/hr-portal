@@ -191,6 +191,7 @@ _STEP2_SYSTEM = """\
 {
   "key_map": {"源列名": "标准主键名", ...},
   "column_map": {"源列名": "标准字段名", ...},
+  "new_std_fields": ["本次新增且确实是业务字段的标准字段名", ...],
   "derived_fields": [
     {"target": "标准字段名", "expr": "{标准字段A}*{标准字段B}", "round": 2}
   ],
@@ -210,7 +211,10 @@ _STEP2_SYSTEM = """\
     封顶取小:          {"target":"医疗公司","expr":"MIN({医疗基数}*0.08, 5000)","round":2}
     条件取值:          {"target":"补贴","expr":"IF({工龄}>=10, 1000, 500)"}
 - 无法识别的列不要强行映射，confidence 相应降低。
-- column_map / derived_fields 的目标只能用给定 std_fields 里的字段，不要自创新标准字段。
+- 优先复用给定 std_fields；无法识别的列不要强行映射，confidence 相应降低。
+- 只有在明确允许新增字段时，源列确实是独立业务字段、且无法合理映射到已有标准字段，才放入 new_std_fields，并在 column_map 中使用该字段。
+- 序号、备注、说明、辅助计算列、合计列等明显非业务字段不要放入 new_std_fields，也不要强行映射。
+- new_std_fields 只允许新增本次样表确实缺失的业务字段，字段名要简洁、稳定、可用于结果输出。
 - 若提供了用户业务背景，映射口径须与其一致。
 - 禁止 markdown/解释文字，只返回 JSON。
 """
@@ -252,6 +256,7 @@ async def _step2_map_sheet(
         "header_end": sheet_info["header_end"],
         "key_map": result.get("key_map") or {},
         "column_map": result.get("column_map") or {},
+        "new_std_fields": result.get("new_std_fields") or [],
         "derived_fields": result.get("derived_fields") or [],
         "derive_check": None,  # 禁用 AI 生成的拆分校验，社保文件四舍五入差异会产生大量误报
         "skip_tokens": result.get("skip_tokens") or ["合计", "小计", "总计"],

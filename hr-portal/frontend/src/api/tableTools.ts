@@ -9,6 +9,7 @@ export interface SourceMappingIn {
   header_end: number
   key_map: Record<string, string>
   column_map: Record<string, string>
+  new_std_fields?: string[]
   derived_fields: { target: string; expr: string; round?: number }[]
   derive_check?: { sum_of: string[]; equals_col: string; tol: number } | null
   skip_tokens: string[]

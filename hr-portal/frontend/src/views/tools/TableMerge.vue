@@ -376,6 +376,7 @@ async function saveMappingDrafts() {
         header_end: mapping.header_end || 1,
         key_map: mapping.key_map || {},
         column_map: mapping.column_map || {},
+        new_std_fields: mapping.new_std_fields || [],
         derived_fields: mapping.derived_fields || [],
         derive_check: mapping.derive_check || null,
         skip_tokens: mapping.skip_tokens || ['合计', '小计', '总计'],
@@ -447,11 +448,14 @@ function cancelEditMapping() {
 
 
 function validateDerivedFields(mapping: any): string | null {
-  const stdFields = new Set(form.value.std_fields.map((field: string) => field.trim()))
+  const stdFields = new Set([
+    ...form.value.std_fields,
+    ...(mapping.new_std_fields || []),
+  ].map((field: string) => field.trim()))
   for (const [source, target] of Object.entries(mapping.column_map || {})) {
     const normalizedTarget = String(target || '').trim()
     if (!normalizedTarget || !stdFields.has(normalizedTarget)) {
-      return `映射「${mapping.name || '未命名映射'}」的源字段「${source}」目标必须属于模板标准字段`
+      return `映射「${mapping.name || '未命名映射'}」的源字段「${source}」目标必须属于模板标准字段或本次新增标准字段`
     }
   }
   const directTargets = new Set(Object.values(mapping.column_map || {}).map((field: any) => String(field).trim()))
@@ -647,6 +651,7 @@ async function saveTemplate() {
         header_end: m.header_end || 1,
         key_map: m.key_map || {},
         column_map: m.column_map || {},
+        new_std_fields: m.new_std_fields || [],
         derived_fields: m.derived_fields || [],
         derive_check: m.derive_check || null,
         skip_tokens: m.skip_tokens || ['合计', '小计', '总计'],
@@ -1366,7 +1371,7 @@ const editingColMapEntries = computed({
           <div class="mapping-confirm-intro">
             <div>
               <h3>确认本次新增映射</h3>
-              <p>模板的归集主键和标准字段保持不变；复杂字段、公式可在保存后从模板主界面继续编辑。</p>
+              <p>AI 会优先复用已有标准字段；识别到新的业务字段时会自动加入当前模板，序号、备注、说明等辅助字段会自动忽略。</p>
             </div>
             <el-button @click="mappingWizardStep = 'upload'">重新上传样表</el-button>
           </div>
@@ -1392,6 +1397,7 @@ const editingColMapEntries = computed({
                 </div>
               </div>
               <div class="mapping-confirm-meta">
+                <span v-if="mapping.new_std_fields?.length">新增标准字段：{{ mapping.new_std_fields.join('、') }}</span>
                 <span>表头行：{{ mapping.header_start }} 至 {{ mapping.header_end }}</span>
                 <span>主键映射 {{ Object.keys(mapping.key_map || {}).length }} 项</span>
                 <span>字段映射 {{ Object.keys(mapping.column_map || {}).length }} 项</span>
