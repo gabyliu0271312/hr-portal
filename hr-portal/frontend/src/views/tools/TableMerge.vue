@@ -448,6 +448,12 @@ function cancelEditMapping() {
 
 function validateDerivedFields(mapping: any): string | null {
   const stdFields = new Set(form.value.std_fields.map((field: string) => field.trim()))
+  for (const [source, target] of Object.entries(mapping.column_map || {})) {
+    const normalizedTarget = String(target || '').trim()
+    if (!normalizedTarget || !stdFields.has(normalizedTarget)) {
+      return `映射「${mapping.name || '未命名映射'}」的源字段「${source}」目标必须属于模板标准字段`
+    }
+  }
   const directTargets = new Set(Object.values(mapping.column_map || {}).map((field: any) => String(field).trim()))
   const targets = new Set<string>()
   for (const field of mapping.derived_fields || []) {
@@ -616,6 +622,11 @@ function aiLowConfidence(mappingName: string) {
 async function saveTemplate() {
   if (!form.value.name.trim()) { ElMessage.warning('请填写模板名称'); return }
   if (!form.value.std_fields.length) { ElMessage.warning('标准字段不能为空'); return }
+  const invalidMapping = form.value.mappings.find((mapping) => validateDerivedFields(mapping))
+  if (invalidMapping) {
+    ElMessage.warning(validateDerivedFields(invalidMapping) || '源映射配置无效')
+    return
+  }
   savingTpl.value = true
   try {
     const payload = {

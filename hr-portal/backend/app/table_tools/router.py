@@ -218,7 +218,7 @@ def _validate_source_mapping(template: MergeTemplate, payload: SourceMappingIn) 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="至少配置一项主键映射")
     if any(value not in template.merge_keys for value in key_map.values()):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="主键映射目标必须属于模板归集主键")
-    column_map = {key.strip(): value for key, value in payload.column_map.items() if key.strip()}
+    column_map = {key.strip(): value.strip() for key, value in payload.column_map.items() if key.strip()}
     if any(key not in source_fields for key in (*key_map.keys(), *column_map.keys())):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="映射源字段必须属于样表解析字段")
     if any(value not in template.std_fields for value in column_map.values()):
