@@ -190,6 +190,35 @@ async def apply_dwd_relation(
         key = tuple(str(dwd_row.get(field, "") or "").strip() for field in relation.right_fields)
         if key in requested_keys and all(key):
             index[key].append(dwd_row)
+
+    inaccessible_keys: set[tuple[str, ...]] = set()
+    unmatched_keys = requested_keys - set(index)
+    if unmatched_keys:
+        # 当前用户范围内未命中的人员，需用仅含关联键的无范围查询判断：
+        # 是 DWD 根本没有该人员，还是人员存在但被数据范围权限过滤。
+        unrestricted_filters = [
+            {"column": field, "op": "in_text", "value": [key[position] for key in unmatched_keys]}
+            for position, field in enumerate(relation.right_fields)
+        ]
+        unrestricted_rows: list[dict[str, Any]] = []
+        unrestricted_page = 1
+        try:
+            while True:
+                _, batch, total = await run_dataset_query(
+                    dataset.id, columns=relation.right_fields, filters=unrestricted_filters,
+                    page=unrestricted_page, page_size=1000, user=None, db=db,
+                )
+                batch = batch or []
+                unrestricted_rows.extend(batch)
+                if not batch or len(unrestricted_rows) >= (total or 0):
+                    break
+                unrestricted_page += 1
+        except Exception as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"DWD 权限诊断查询失败: {exc}") from exc
+        inaccessible_keys = {
+            tuple(str(item.get(field, "") or "").strip() for field in relation.right_fields)
+            for item in unrestricted_rows
+        } & unmatched_keys
     anomalies: list[dict[str, Any]] = []
     output: list[dict[str, Any]] = []
     for row in rows:
@@ -197,7 +226,11 @@ async def apply_dwd_relation(
         matches = index.get(key, [])
         if not matches:
             if relation.missing_policy == "anomaly":
-                anomalies.append({"type": "DWD 未命中", "key": dict(zip(relation.left_fields, key)), "detail": relation.name})
+                anomalies.append({
+                    "type": "DWD 无访问权限" if key in inaccessible_keys else "DWD 无人员记录",
+                    "key": dict(zip(relation.left_fields, key)),
+                    "detail": relation.name,
+                })
             output.append(row)
             continue
         matches = sorted(
@@ -220,6 +253,13 @@ async def apply_dwd_relation(
                 output.append(row)
                 continue
         enriched = dict(row)
+        empty_fields = [field for field in relation.select_fields if matches[0].get(field) in (None, "")]
+        if empty_fields and relation.missing_policy == "anomaly":
+            anomalies.append({
+                "type": "DWD 人员字段为空",
+                "key": dict(zip(relation.left_fields, key)),
+                "detail": f"{relation.name}：{', '.join(empty_fields)}",
+            })
         for field in relation.select_fields:
             enriched[field] = matches[0].get(field)
         output.append(enriched)
