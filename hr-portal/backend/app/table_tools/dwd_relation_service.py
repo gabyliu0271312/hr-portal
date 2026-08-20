@@ -13,7 +13,6 @@ from app.datasets.router import _can_access as dataset_can_access
 from app.permissions.masker import get_hidden_columns
 from app.reports.config import ReportConfig
 from app.reports.models import Report
-from app.reports.router import _can_access as report_can_access
 from app.reports.sql_builder import run_dataset_query
 from app.reports.validation import ensure_valid_report_field_references
 from app.table_tools.models import MergeDwdRelation
@@ -43,8 +42,10 @@ async def load_dwd_context(
     report_id: int, user: User, db: AsyncSession
 ) -> tuple[Report, DataSet]:
     report = await db.get(Report, report_id)
-    if report is None or not await report_can_access(user, report, db):
+    if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在或无权访问")
+    # 历史关联保存的是 report_id，但字段读取和实际查询都依赖其 DWD 数据集。
+    # 数据集授权是当前有效权限边界，不能因报表本身没有单独授权而阻断已有 DWD 权限。
     dataset = await load_dataset_dwd_context(report.dataset_id, user, db)
     return report, dataset
 
