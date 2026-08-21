@@ -87,6 +87,7 @@ class TemplateIn(BaseModel):
     aggregate: str = "sum"
     result_save_mode: str = "input_period"
     result_period_field: str | None = None
+    output_fields: list[str] = []
     mappings: list[SourceMappingIn] = []
 
 
@@ -96,6 +97,7 @@ class TemplateOut(BaseModel):
     description: str | None
     merge_keys: list[str]
     std_fields: list[str]
+    output_fields: list[str]
     aggregate: str
     result_save_mode: str
     result_period_field: str | None
@@ -176,7 +178,7 @@ def _mapping_to_engine(m: MergeSourceMapping) -> dict:
 def _template_out(t: MergeTemplate) -> TemplateOut:
     return TemplateOut(
         id=t.id, name=t.name, description=t.description,
-        merge_keys=t.merge_keys, std_fields=t.std_fields,
+        merge_keys=t.merge_keys, std_fields=t.std_fields, output_fields=t.output_fields,
         aggregate=t.aggregate, result_save_mode=t.result_save_mode,
         result_period_field=t.result_period_field, version=t.version,
         mapping_count=len(t.mappings), created_by=t.created_by,
@@ -398,10 +400,11 @@ async def create_template(
 ) -> TemplateOut:
     if (await db.execute(select(MergeTemplate).where(MergeTemplate.name == payload.name))).scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, detail="模板名已存在")
-    mode, period_field = _validate_save_config(payload.result_save_mode, payload.result_period_field, payload.std_fields)
+    mode, period_field = _validate_save_config(payload.result_save_mode, payload.result_period_field, payload.std_fields, payload.output_fields)
     t = MergeTemplate(
         name=payload.name, description=payload.description,
         merge_keys=payload.merge_keys, std_fields=payload.std_fields,
+        output_fields=payload.output_fields,
         aggregate=payload.aggregate, result_save_mode=mode,
         result_period_field=period_field, created_by=user.id,
     )
@@ -433,8 +436,9 @@ async def update_template(
     t.description = payload.description
     t.merge_keys = payload.merge_keys
     t.std_fields = payload.std_fields
+    t.output_fields = payload.output_fields
     t.aggregate = payload.aggregate
-    mode, period_field = _validate_save_config(payload.result_save_mode, payload.result_period_field, payload.std_fields)
+    mode, period_field = _validate_save_config(payload.result_save_mode, payload.result_period_field, payload.std_fields, payload.output_fields)
     t.result_save_mode = mode
     t.result_period_field = period_field
     existing_mappings = {mapping.id: mapping for mapping in t.mappings}
@@ -828,7 +832,15 @@ async def _run_template_merge(
                 dwd_columns.append(field)
             if field in field_labels:
                 column_labels[field] = field_labels[field]
-    columns = base_columns + dwd_columns + (["来源"] if "来源" in result["columns"] else [])
+    has_source = "来源" in result["columns"]
+    if template.output_fields:
+        available = set(base_columns) | set(dwd_columns)
+        columns = [field for field in template.output_fields if field in available]
+        if not columns:
+            columns = base_columns + dwd_columns
+    else:
+        columns = base_columns + dwd_columns
+    columns = columns + (["来源"] if has_source else [])
     return {
         **result,
         "rows": rows,
@@ -875,12 +887,14 @@ def _validate_period(period: str) -> str:
     return period
 
 
-def _validate_save_config(mode: str, period_field: str | None, std_fields: list[str]) -> tuple[str, str | None]:
+def _validate_save_config(mode: str, period_field: str | None, std_fields: list[str], output_fields: list[str] | None = None) -> tuple[str, str | None]:
     if mode not in {"none", "input_period", "field_period"}:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="结果保存方式无效")
     if mode == "field_period":
         if not period_field or period_field not in std_fields:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="从结果字段读取期间时，期间字段必须属于标准字段")
+        if output_fields and period_field not in output_fields:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="业务期间字段必须包含在输出字段清单中")
         return mode, period_field
     if period_field:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="当前保存方式不能设置业务期间字段")

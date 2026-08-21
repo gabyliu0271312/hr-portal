@@ -43,6 +43,8 @@ class MergeTemplate(Base):
     merge_keys: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     # 标准字段清单(目标列),如 ["养老个人","养老公司",...]
     std_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # 输出字段清单(有序):空=全量输出,非空=严格按清单导出(主键/标准字段/DWD字段可混排)
+    output_fields: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     # 聚合口径:sum / first / conflict
     aggregate: Mapped[str] = mapped_column(String(16), nullable=False, default="sum")
     # 结果保存方式: none / input_period / field_period

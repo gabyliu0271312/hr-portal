@@ -34,3 +34,5 @@ metadata:
 **节奏纪律**(用户要求):先文档→后 demo→demo 跑通再落工程。当前:文档已成(spec.md),进入 Demo 阶段。
 
 文档:`specs/006-excel-table-tools/spec.md`
+
+**输出字段清单 output_fields(2026-08-21)**:`merge_templates` 新增 JSON 列,表达最终导出字段及顺序。语义:空=全量输出(存量模板兼容、零迁移),非空=严格按清单导出(可混排主键/标准字段/DWD select_fields)。派生/归集链路不感知此列——被移出清单的字段仍参与计算、仅不导出(引用链不断)。新增标准字段默认 append 进清单(默认导出、手动隐藏)。`field_period` 模式的业务月份字段不能被隐藏。未来对接外部系统走 UCP(PUSH connector),table_tools 只提供可被 UCP 引用的字段清单,不预埋端点/鉴权/映射。

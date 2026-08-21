@@ -25,6 +25,7 @@ export interface TemplateIn {
   aggregate: string
   result_save_mode: ResultSaveMode
   result_period_field?: string | null
+  output_fields?: string[]
   mappings: SourceMappingIn[]
 }
 
@@ -34,6 +35,7 @@ export interface TemplateOut {
   description: string | null
   merge_keys: string[]
   std_fields: string[]
+  output_fields: string[]
   aggregate: string
   result_save_mode: ResultSaveMode
   result_period_field: string | null

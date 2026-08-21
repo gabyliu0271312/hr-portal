@@ -6,6 +6,7 @@ import {
   CircleCheck, Warning, Document, Grid
 } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
+import OutputFieldsEditor from '@/components/tools/OutputFieldsEditor.vue'
 import {
   tableToolsApi,
   type TemplateOut,
@@ -47,7 +48,7 @@ onMounted(loadTemplates)
 // ── 建/编辑模板（build 模式） ─────────────────────────────────────────────────
 const editingId = ref<number | null>(null)
 const buildStep = ref<'upload' | 'ai' | 'form'>('upload')
-const activeConfigTab = ref<'base' | 'key' | 'dwd'>('base')
+const activeConfigTab = ref<'base' | 'key' | 'dwd' | 'output'>('base')
 
 const keyMappings = ref<KeyMapping[]>([])
 const keyMappingDraft = ref<KeyMapping | null>(null)
@@ -221,10 +222,17 @@ const form = ref({
   aggregate: 'sum',
   result_save_mode: 'input_period' as ResultSaveMode,
   result_period_field: null as string | null,
+  output_fields: [] as string[],
   mappings: [] as any[],
 })
 const stdFieldInput = ref('')
 const draggingStdField = ref('')
+const outputFieldCandidates = computed(() => {
+  const dwdSelects = dwdRelations.value
+    .filter((r) => r.enabled)
+    .flatMap((r) => r.select_fields || [])
+  return [...new Set([...form.value.merge_keys, ...form.value.std_fields, ...dwdSelects])]
+})
 const savingTpl = ref(false)
 
 // 当前展开的 mapping 索引
@@ -262,6 +270,7 @@ async function openEdit(id: number): Promise<boolean> {
       aggregate: detail.aggregate,
       result_save_mode: detail.result_save_mode,
       result_period_field: detail.result_period_field || null,
+      output_fields: [...(detail.output_fields || [])],
       mappings: detail.mappings.map((m: any) => ({ ...m })),
     }
     expandedMapping.value = null
@@ -419,6 +428,7 @@ async function runAiDraft() {
       aggregate: draft.value.aggregate,
       result_save_mode: 'input_period' as ResultSaveMode,
       result_period_field: null,
+      output_fields: [],
       mappings: draft.value.mappings.map((m: any) => ({ ...m })),
     }
     buildStep.value = 'form'
@@ -599,11 +609,14 @@ function syncColumnMap(entries: { key: string; val: string }[]) {
 // 标准字段
 function addStdField() {
   const v = stdFieldInput.value.trim()
-  if (v && !form.value.std_fields.includes(v)) form.value.std_fields.push(v)
+  if (!v || form.value.std_fields.includes(v)) { stdFieldInput.value = ''; return }
+  form.value.std_fields.push(v)
+  if (form.value.output_fields.length && !form.value.output_fields.includes(v)) form.value.output_fields.push(v)
   stdFieldInput.value = ''
 }
 function removeStdField(f: string) {
   form.value.std_fields = form.value.std_fields.filter((x) => x !== f)
+  form.value.output_fields = form.value.output_fields.filter((x) => x !== f)
 }
 // 拖拽排序：决定归集输出表的列顺序
 function reorderStdField(code: string, targetCode: string) {
@@ -638,6 +651,7 @@ async function saveTemplate() {
       description: form.value.description || null,
       merge_keys: form.value.merge_keys,
       std_fields: form.value.std_fields,
+      output_fields: form.value.output_fields,
       aggregate: form.value.aggregate,
       result_save_mode: form.value.result_save_mode,
       result_period_field: form.value.result_save_mode === 'field_period' ? form.value.result_period_field : null,
@@ -977,6 +991,7 @@ const editingColMapEntries = computed({
             <el-tab-pane label="基础模板" name="base" />
             <el-tab-pane label="主键值映射" name="key" />
             <el-tab-pane label="DWD 关联" name="dwd" />
+            <el-tab-pane label="信息输出" name="output" />
           </el-tabs>
         </div>
 
@@ -1303,6 +1318,16 @@ const editingColMapEntries = computed({
           </div>
           <el-empty v-if="!dwdRelations.length && !dwdRelationDraft" description="暂无 DWD 关联" />
           <div v-for="item in dwdRelations" :key="item.id" class="config-list-row"><div><strong>{{ item.name }}</strong><span class="config-muted">{{ dwdSources.find((source) => source.dataset_id === item.dataset_id)?.dataset_name || (item.report_id ? `历史报表 #${item.report_id}` : `数据集 #${item.dataset_id}`) }}</span></div><el-tag size="small" :type="item.enabled ? 'success' : 'info'">{{ item.enabled ? '启用' : '停用' }}</el-tag><el-button link size="small" @click="startDwdRelation(item)">编辑</el-button><PermissionButton menu="table_tools" op="D" link type="danger" size="small" @click="removeDwdRelation(item)">删除</PermissionButton></div>
+        </section>
+
+        <section v-if="editingId && activeConfigTab === 'output'" class="advanced-config-panel">
+          <div class="config-panel-head">
+            <div>
+              <h3 class="section-title">信息输出</h3>
+              <p class="section-desc">决定归集结果的导出字段与列顺序；空清单 = 全部输出。</p>
+            </div>
+          </div>
+          <OutputFieldsEditor v-model="form.output_fields" :candidates="outputFieldCandidates" />
         </section>
         </template>
       </template>
