@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -139,6 +140,19 @@ def validate_relation_payload(
     }
 
 
+def _norm_key_value(value: Any) -> str:
+    """归一化关联键值：float 整数转 int、Decimal 去尾零，避免科学计数法与 .00 后缀。"""
+    if isinstance(value, float) and value == int(value):
+        return str(int(value))
+    if isinstance(value, Decimal):
+        return format(value.normalize(), "f")
+    return str(value if value is not None else "").strip()
+
+
+def _key_desc(relation: MergeDwdRelation, key: tuple[str, ...]) -> str:
+    return "、".join(f"{f}={v}" for f, v in zip(relation.left_fields, key))
+
+
 async def apply_dwd_relation(
     rows: list[dict[str, Any]], relation: MergeDwdRelation, user: User, db: AsyncSession
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -156,7 +170,7 @@ async def apply_dwd_relation(
     )
     keys: list[tuple[str, ...]] = []
     for row in rows:
-        key = tuple(str(row.get(field, "") or "").strip() for field in relation.left_fields)
+        key = tuple(_norm_key_value(row.get(field, "")) for field in relation.left_fields)
         if any(key):
             keys.append(key)
     if not keys:
@@ -187,7 +201,7 @@ async def apply_dwd_relation(
     requested_keys = set(unique_keys)
     index: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
     for dwd_row in dwd_rows:
-        key = tuple(str(dwd_row.get(field, "") or "").strip() for field in relation.right_fields)
+        key = tuple(_norm_key_value(dwd_row.get(field, "")) for field in relation.right_fields)
         if key in requested_keys and all(key):
             index[key].append(dwd_row)
 
@@ -216,40 +230,41 @@ async def apply_dwd_relation(
         except Exception as exc:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"DWD 权限诊断查询失败: {exc}") from exc
         inaccessible_keys = {
-            tuple(str(item.get(field, "") or "").strip() for field in relation.right_fields)
+            tuple(_norm_key_value(item.get(field, "")) for field in relation.right_fields)
             for item in unrestricted_rows
         } & unmatched_keys
     anomalies: list[dict[str, Any]] = []
     output: list[dict[str, Any]] = []
     for row in rows:
-        key = tuple(str(row.get(field, "") or "").strip() for field in relation.left_fields)
+        key = tuple(_norm_key_value(row.get(field, "")) for field in relation.left_fields)
         matches = index.get(key, [])
         if not matches:
             if relation.missing_policy == "anomaly":
                 anomalies.append({
                     "type": "DWD 无访问权限" if key in inaccessible_keys else "DWD 无人员记录",
                     "key": dict(zip(relation.left_fields, key)),
-                    "detail": relation.name,
+                    "detail": f"{relation.name}：{_key_desc(relation, key)} "
+                    + ("存在记录但无数据访问权限" if key in inaccessible_keys else "未在 DWD 中匹配到人员记录"),
                 })
             output.append(row)
             continue
         matches = sorted(
             matches,
-            key=lambda item: tuple(str(item.get(field, "") or "") for field in fields),
+            key=lambda item: tuple(_norm_key_value(item.get(field, "")) for field in fields),
         )
         if len(matches) > 1:
             selected_values = {
-                tuple(str(item.get(field, "") or "") for field in relation.select_fields)
+                tuple(_norm_key_value(item.get(field, "")) for field in relation.select_fields)
                 for item in matches
             }
             if len(selected_values) > 1:
                 anomalies.append({
                     "type": "DWD 字段冲突",
                     "key": dict(zip(relation.left_fields, key)),
-                    "detail": relation.name,
+                    "detail": f"{relation.name}：{_key_desc(relation, key)} 命中多条记录且补充字段值不一致",
                 })
             if relation.multiple_policy == "anomaly":
-                anomalies.append({"type": "DWD 多命中", "key": dict(zip(relation.left_fields, key)), "detail": relation.name})
+                anomalies.append({"type": "DWD 多命中", "key": dict(zip(relation.left_fields, key)), "detail": f"{relation.name}：{_key_desc(relation, key)} 命中多条记录"})
                 output.append(row)
                 continue
         enriched = dict(row)
@@ -258,7 +273,7 @@ async def apply_dwd_relation(
             anomalies.append({
                 "type": "DWD 人员字段为空",
                 "key": dict(zip(relation.left_fields, key)),
-                "detail": f"{relation.name}：{', '.join(empty_fields)}",
+                "detail": f"{relation.name}：{_key_desc(relation, key)} 补充字段为空：{', '.join(empty_fields)}",
             })
         for field in relation.select_fields:
             enriched[field] = matches[0].get(field)
