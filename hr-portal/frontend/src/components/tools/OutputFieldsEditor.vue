@@ -10,11 +10,15 @@ const emit = defineEmits<{ (e: 'update:modelValue', value: string[]): void }>()
 const dragging = ref('')
 const picked = ref('')
 
-// 已选 = 清单中仍在候选池内的字段（自动过滤已删除字段）
-const selected = computed(() => props.modelValue.filter((f) => props.candidates.includes(f)))
-// 可选 = 候选池中未选中的
+// 空清单 = 全部输出：展示全部候选；非空 = 严格按清单（过滤已删除字段）
+const selected = computed(() => {
+  return props.modelValue.length === 0
+    ? [...props.candidates]
+    : props.modelValue.filter((f) => props.candidates.includes(f))
+})
+// 可选 = 候选池中未在当前清单中的
 const available = computed(() => props.candidates.filter((f) => !selected.value.includes(f)))
-const custom = computed(() => selected.value.length > 0)
+const isAll = computed(() => props.modelValue.length === 0)
 
 function addField() {
   const v = picked.value
@@ -23,7 +27,12 @@ function addField() {
   picked.value = ''
 }
 function removeField(f: string) {
-  emit('update:modelValue', selected.value.filter((x) => x !== f))
+  if (props.modelValue.length === 0) {
+    // 首次移除：从「全部输出」固化为「自定义清单」，写入去掉该字段后的全量
+    emit('update:modelValue', props.candidates.filter((x) => x !== f))
+  } else {
+    emit('update:modelValue', selected.value.filter((x) => x !== f))
+  }
 }
 function reorder(code: string, target: string) {
   if (!code || !target || code === target) return
@@ -40,8 +49,8 @@ function reorder(code: string, target: string) {
 <template>
   <div class="output-fields">
     <p class="of-hint">
-      <template v-if="custom">输出列严格按下方清单顺序导出；不在清单内的字段仅参与归集与计算、不导出。</template>
-      <template v-else>当前为「全部输出」：主键 + 标准字段 + DWD 补充字段按默认顺序全部导出。添加字段后即切换为自定义清单。</template>
+      <template v-if="isAll">当前输出全部字段；点掉标签即可隐藏不需要的字段，拖拽可调整列序。</template>
+      <template v-else>按下方清单顺序导出；点掉标签隐藏字段，拖拽调整顺序，可从下拉重新加入。</template>
     </p>
     <div class="of-tags">
       <el-tag
