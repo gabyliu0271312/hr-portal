@@ -942,7 +942,7 @@ _CC_LEVEL_NAME_FIELDS = {
 
 
 async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
-    """全量重建成本中心树。
+    """成本中心树：按 code 稳定 upsert（节点 id 跨同步不漂移）。
 
     源端 `cost_center_monthly` 字段语义（北森导出）：
     - `编码` 唯一标识
@@ -953,18 +953,12 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
     - `启用状态` "启用" / "停用"
 
     同 (level, name) 在源端可能多条（编码不同），按 code 分别建节点；父子靠"父级层级 + 父级名字"匹配。
+    同一 code 的节点复用旧 id（scope 等引用不因同步失效），源端消失的 code 删孤儿。
     """
-    await db.execute(delete(CostCenterNode))
-    await db.flush()
+    now = datetime.now(UTC)
 
-    if not rows:
-        return
-
-    # 第一遍：插节点
-    nodes_by_code: dict[str, CostCenterNode] = {}
-    # (level, name) -> [CostCenterNode]，用于父匹配
-    by_level_name: dict[tuple[int, str], list[CostCenterNode]] = {}
-
+    # 收集有效节点
+    parsed: list[dict] = []
     for r in rows:
         code = _first(r, "编码", "Code", "code", "cc_code")
         name = _first(r, "名称", "Name", "name", "cc_name")
@@ -977,39 +971,61 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
         # is_active 由本地手工「启用状态」决定：== "启用" 才算启用；
         # 空 / 未维护 / 停用 一律按停用（新增成本中心落库时已默认写为"启用"）
         is_active = (str(_first(r, "status", "启用状态", default="") or "").strip() == "启用")
+        parsed.append({
+            "code": str(code),
+            "name": str(name),
+            "level": level,
+            "is_active": is_active,
+            "raw": r,
+        })
 
-        node = CostCenterNode(
-            code=str(code),
-            name=str(name),
-            parent_id=None,
-            level=level,
-            is_leaf=False,  # 第二遍根据 children 数推算
-            is_active=is_active,
-            synced_at=datetime.now(UTC),
-        )
-        db.add(node)
-        nodes_by_code[str(code)] = node
-        by_level_name.setdefault((level, str(name)), []).append(node)
+    existing = (await db.execute(select(CostCenterNode))).scalars().all()
+    existing_by_code = {n.code: n for n in existing}
+
+    # upsert 节点（复用旧 id）
+    nodes_by_code: dict[str, CostCenterNode] = {}
+    # (level, name) -> [CostCenterNode]，用于父匹配
+    by_level_name: dict[tuple[int, str], list[CostCenterNode]] = {}
+
+    for p in parsed:
+        node = existing_by_code.get(p["code"])
+        if node is None:
+            node = CostCenterNode(
+                code=p["code"],
+                name=p["name"],
+                parent_id=None,
+                level=p["level"],
+                is_leaf=False,  # 第二遍根据 children 数推算
+                is_active=p["is_active"],
+                synced_at=now,
+            )
+            db.add(node)
+        else:
+            node.name = p["name"]
+            node.level = p["level"]
+            node.is_active = p["is_active"]
+            node.synced_at = now
+        nodes_by_code[p["code"]] = node
+        by_level_name.setdefault((p["level"], p["name"]), []).append(node)
     await db.flush()  # 拿 id
 
-    # 第二遍：连父
-    for r in rows:
-        code = _first(r, "编码", "Code", "code")
-        if not code or str(code) not in nodes_by_code:
-            continue
-        node = nodes_by_code[str(code)]
+    # 连父
+    for p in parsed:
+        node = nodes_by_code[p["code"]]
         if node.level <= 1:
+            node.parent_id = None
             continue  # 根节点无父
         parent_level = node.level - 1
         parent_name_field = _CC_LEVEL_NAME_FIELDS.get(parent_level)
         if not parent_name_field:
+            node.parent_id = None
             continue
-        parent_name = _first(r, parent_name_field)
+        parent_name = _first(p["raw"], parent_name_field)
         if not parent_name:
+            node.parent_id = None
             continue
         candidates = by_level_name.get((parent_level, str(parent_name)), [])
-        if candidates:
-            node.parent_id = candidates[0].id
+        node.parent_id = candidates[0].id if candidates else None
 
     # 标记 is_leaf：没有 child 的节点
     parents_with_children: set[int] = set()
@@ -1018,6 +1034,12 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
             parents_with_children.add(n.parent_id)
     for n in nodes_by_code.values():
         n.is_leaf = n.id not in parents_with_children
+
+    # 删孤儿：code 不在源端的节点
+    valid_codes = {p["code"] for p in parsed}
+    for n in existing:
+        if n.code not in valid_codes:
+            await db.delete(n)
 
     await db.flush()
     await _recompute_tree_paths(CostCenterNode, db)
@@ -1030,7 +1052,7 @@ _ORG_ROOT_CODE = "RootOrg"
 
 
 async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
-    """全量重建组织架构树。
+    """组织架构树：按 code 稳定 upsert（节点 id 跨同步不漂移）。
 
     数据源：`org_unit`（落库后的实体行），按源端真实编码显式建父子。
 
@@ -1039,10 +1061,8 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
       level 按 parent_org_code 链路从 RootOrg 向下推算，is_active=(org_status 为启用态)。
     - parent_org_code == 'RootOrg' 或为空 → 父为虚拟根；否则连到对应编码节点。
     - 异常数据（org_code 空、parent 找不到、成环）跳过并 warning，不静默造错树。
+    - 同一 code 的节点复用旧 id（scope 等引用不因同步失效），源端消失的 code 删孤儿。
     """
-    await db.execute(delete(OrgNode))
-    await db.flush()
-
     if rows is None:
         rows = []
 
@@ -1078,46 +1098,66 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
             guard += 1
         return depth
 
-    # 虚拟根
-    root = OrgNode(
-        code=_ORG_ROOT_CODE,
-        name=root_name,
-        parent_id=None,
-        level=1,
-        is_leaf=False,
-        is_active=True,
-        synced_at=datetime.now(UTC),
-    )
-    db.add(root)
+    now = datetime.now(UTC)
 
-    # 第一遍：插所有单元节点
+    # 读现有节点，按 code 复用（保持 id 稳定，避免 scope 引用断裂）
+    existing = (await db.execute(select(OrgNode))).scalars().all()
+    existing_by_code = {n.code: n for n in existing}
+
+    # 虚拟根（稳定复用）
+    root = existing_by_code.get(_ORG_ROOT_CODE)
+    if root is None:
+        root = OrgNode(
+            code=_ORG_ROOT_CODE,
+            name=root_name,
+            parent_id=None,
+            level=1,
+            is_leaf=False,
+            is_active=True,
+            synced_at=now,
+        )
+        db.add(root)
+    else:
+        root.name = root_name
+        root.is_active = True
+        root.synced_at = now
+
+    # upsert 所有单元节点
     code_to_node: dict[str, OrgNode] = {}
     for code, meta in units.items():
-        node = OrgNode(
-            code=code,
-            name=meta["name"],
-            parent_id=None,
-            level=_level_of(code),
-            is_leaf=False,
-            is_active=meta["is_active"],
-            synced_at=datetime.now(UTC),
-        )
-        db.add(node)
+        node = existing_by_code.get(code)
+        if node is None:
+            node = OrgNode(
+                code=code,
+                name=meta["name"],
+                parent_id=None,
+                level=_level_of(code),
+                is_leaf=False,
+                is_active=meta["is_active"],
+                synced_at=now,
+            )
+            db.add(node)
+        else:
+            node.name = meta["name"]
+            node.level = _level_of(code)
+            node.is_active = meta["is_active"]
+            node.synced_at = now
         code_to_node[code] = node
     await db.flush()  # 拿 id
 
-    # 第二遍：连父
+    # 连父
     for code, meta in units.items():
+        node = code_to_node[code]
         pcode = meta["parent_code"]
         if not pcode or pcode == _ORG_ROOT_CODE:
-            code_to_node[code].parent_id = root.id
+            node.parent_id = root.id
         elif pcode in code_to_node:
-            code_to_node[code].parent_id = code_to_node[pcode].id
+            node.parent_id = code_to_node[pcode].id
         else:
             logger.warning(
                 "[org_tree] 组织单元 %s 的行政上级 %s 不存在，挂到虚拟根", code, pcode
             )
-            code_to_node[code].parent_id = root.id
+            node.parent_id = root.id
 
     # is_leaf：没有 child 的节点
     parents_with_children: set[int] = set()
@@ -1127,6 +1167,12 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
     for n in code_to_node.values():
         n.is_leaf = n.id not in parents_with_children
     root.is_leaf = root.id not in parents_with_children
+
+    # 删孤儿：code 不在源端的节点
+    valid_codes = set(units) | {_ORG_ROOT_CODE}
+    for n in existing:
+        if n.code not in valid_codes:
+            await db.delete(n)
 
     await db.flush()
     await _recompute_tree_paths(OrgNode, db)
