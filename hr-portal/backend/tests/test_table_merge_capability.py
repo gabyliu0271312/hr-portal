@@ -294,3 +294,108 @@ def test_merge_rejects_inconsistent_derived_formula():
             {"derived_fields": [{"target": "A", "expr": "{B}+{C}", "round": 2}]},
             {"derived_fields": [{"target": "A", "expr": "{B}-{C}", "round": 2}]},
         ])
+
+
+def test_derived_field_does_not_override_direct_mapping_from_other_source():
+    """表1 派生 c=a*b,表2 直接映射字段3→c,两人不同:表2 的 c 应保留直接映射值。"""
+    import io
+    import openpyxl
+    from app.table_tools.engine import run_merge
+
+    def workbook(headers, rows):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "明细"
+        ws.append(headers)
+        for row in rows:
+            ws.append(row)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    mapping1 = {
+        "name": "表1",
+        "sheet_kw": None,
+        "header": [1, 1],
+        "match": ["员工", "字段1", "字段2"],
+        "key_map": {"员工": "员工"},
+        "column_map": {"字段1": "a", "字段2": "b"},
+        "derived_fields": [{"target": "c", "expr": "{a}*{b}", "round": 2}],
+        "derive_check": None,
+        "skip_tokens": [],
+    }
+    mapping2 = {
+        "name": "表2",
+        "sheet_kw": None,
+        "header": [1, 1],
+        "match": ["员工", "字段3", "备注"],
+        "key_map": {"员工": "员工"},
+        "column_map": {"字段3": "c"},
+        "derived_fields": [],
+        "derive_check": None,
+        "skip_tokens": [],
+    }
+    result = run_merge(
+        [
+            ("表1.xlsx", workbook(["员工", "字段1", "字段2"], [["张三", 10, 20]])),
+            ("表2.xlsx", workbook(["员工", "字段3", "备注"], [["李四", 999, "无"]])),
+        ],
+        {"merge_keys": ["员工"], "std_fields": ["a", "b", "c"], "aggregate": "sum"},
+        [mapping1, mapping2],
+    )
+    assert result["rows"] == [
+        {"员工": "张三", "a": 10.0, "b": 20.0, "c": 200.0, "来源": "表1"},
+        {"员工": "李四", "a": 0, "b": 0, "c": 999.0, "来源": "表2"},
+    ]
+
+
+def test_derived_field_overrides_direct_mapping_when_inputs_present():
+    """同人同时出现在表1(派生 a*b)与表2(直接映射 c):派生优先,覆盖直接映射值。"""
+    import io
+    import openpyxl
+    from app.table_tools.engine import run_merge
+
+    def workbook(headers, rows):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "明细"
+        ws.append(headers)
+        for row in rows:
+            ws.append(row)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    mapping1 = {
+        "name": "表1",
+        "sheet_kw": None,
+        "header": [1, 1],
+        "match": ["员工", "字段1", "字段2"],
+        "key_map": {"员工": "员工"},
+        "column_map": {"字段1": "a", "字段2": "b"},
+        "derived_fields": [{"target": "c", "expr": "{a}*{b}", "round": 2}],
+        "derive_check": None,
+        "skip_tokens": [],
+    }
+    mapping2 = {
+        "name": "表2",
+        "sheet_kw": None,
+        "header": [1, 1],
+        "match": ["员工", "字段3", "备注"],
+        "key_map": {"员工": "员工"},
+        "column_map": {"字段3": "c"},
+        "derived_fields": [],
+        "derive_check": None,
+        "skip_tokens": [],
+    }
+    result = run_merge(
+        [
+            ("表1.xlsx", workbook(["员工", "字段1", "字段2"], [["张三", 10, 20]])),
+            ("表2.xlsx", workbook(["员工", "字段3", "备注"], [["张三", 999, "无"]])),
+        ],
+        {"merge_keys": ["员工"], "std_fields": ["a", "b", "c"], "aggregate": "sum"},
+        [mapping1, mapping2],
+    )
+    assert result["rows"] == [
+        {"员工": "张三", "a": 10.0, "b": 20.0, "c": 200.0, "来源": "表1 + 表2"},
+    ]

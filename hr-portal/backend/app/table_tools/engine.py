@@ -276,22 +276,22 @@ def aggregate_records(
     rows: list[dict] = []
     for pk in sorted(person):
         row = dict(person[pk])
-        for field in std_fields:
-            row.setdefault(field, 0)
         row["来源"] = " + ".join(sorted(set(person_src[pk])))
-        rows.append(row)
-
-    # 派生公式统一引用聚合后的标准字段,缺失字段按 0。
-    for row in rows:
+        # 派生字段:仅当公式引用的标准字段都真实存在时才计算,
+        # 否则跳过、保留该字段已有的直接映射值(如来源表直接提供)。
         for d in derived_fields or []:
             value = eval_derived(
-                d["expr"], row.get, custom_functions, missing_as_zero=True
+                d["expr"], row.get, custom_functions, missing_as_zero=False
             )
-            if value == "":
+            if value is None or value == "":
                 continue
             if isinstance(value, (int, float)) and "round" in d:
                 value = round(value, d.get("round", 2))
             row[d["target"]] = value
+        # 缺失字段填 0(输出口径),须在派生之后执行以免抹掉"缺失"信号。
+        for field in std_fields:
+            row.setdefault(field, 0)
+        rows.append(row)
     return rows, anomalies
 
 
