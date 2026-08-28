@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, func, select
@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.deps import current_user, require_any_op, require_op
 from app.permissions.strategy import ensure_scope_strategy
+from app.reports.audit import record_report_audit, report_snapshot
 from app.reports.models import Report, ReportAcl
 from app.reports.config import ColumnInstance, FilterCond, ReportConfig, SortCond, _columns_to_instance_ids, _normalize_columns
 from app.reports.validation import ensure_valid_report_config as _shared_ensure_valid_report_config
@@ -621,6 +622,7 @@ async def create_report(
     payload: ReportIn,
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
+    request: Request = None,
 ) -> ReportOut:
     from app.datasets.models import DataSet
 
@@ -667,7 +669,11 @@ async def create_report(
     await _replace_report_acl(db, report.id, acl_items)
     await db.commit()
     await db.refresh(report)
-    return await _to_out(report, db, user)
+    result = await _to_out(report, db, user)
+    await record_report_audit(
+        action="create", status="success", user=user, report=report, request=request
+    )
+    return result
 
 
 @router.get(
@@ -698,6 +704,7 @@ async def update_report(
     payload: ReportIn,
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
+    request: Request = None,
 ) -> ReportOut:
     from app.datasets.models import DataSet
 
@@ -705,6 +712,14 @@ async def update_report(
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
     if not await _can_edit(user, report, db):
+        await record_report_audit(
+            action="access_denied",
+            status="denied",
+            user=user,
+            report=report,
+            request=request,
+            error="仅报表创建者可修改",
+        )
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="仅报表创建者可修改")
     dataset = await db.get(DataSet, payload.dataset_id)
     if dataset is None:
@@ -741,7 +756,11 @@ async def update_report(
     await _replace_report_acl(db, report.id, acl_items)
     await db.commit()
     await db.refresh(report)
-    return await _to_out(report, db, user)
+    result = await _to_out(report, db, user)
+    await record_report_audit(
+        action="update", status="success", user=user, report=report, request=request
+    )
+    return result
 
 
 @router.delete(
@@ -752,14 +771,31 @@ async def delete_report(
     report_id: int,
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
+    request: Request = None,
 ) -> dict[str, bool]:
     report = await db.get(Report, report_id)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
     if not await _can_edit(user, report, db):
+        await record_report_audit(
+            action="access_denied",
+            status="denied",
+            user=user,
+            report=report,
+            request=request,
+            error="仅报表创建者可删除",
+        )
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="仅报表创建者可删除")
+    deleted_snapshot = report_snapshot(report)
     await db.delete(report)
     await db.commit()
+    await record_report_audit(
+        action="delete",
+        status="success",
+        user=user,
+        report_data=deleted_snapshot,
+        request=request,
+    )
     return {"ok": True}
 
 
@@ -787,11 +823,21 @@ async def run_report(
     page_size: int = Query(50, ge=1, le=100),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
+    request: Request = None,
 ) -> RunResult:
     report = await db.get(Report, report_id)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
     if not await _can_access(user, report, db):
+        await record_report_audit(
+            action="access_denied",
+            status="denied",
+            user=user,
+            report=report,
+            request=request,
+            runtime_filters=overrides.filters if overrides else None,
+            error="无权访问该报表",
+        )
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
     if report.dataset_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
@@ -812,7 +858,6 @@ async def run_report(
     from app.reports.sql_builder import run_dataset_query
 
     warnings: list[str] = []
-    status = "success"
     error_message = ""
     try:
         columns_meta, items, total = await run_dataset_query(
@@ -836,9 +881,19 @@ async def run_report(
             warnings_sink=warnings,
         )
     except Exception as e:
-        status = "failed"
         error_message = str(e)[:500]
         logger.exception("[report_run] report_id=%d 运行失败: %s", report_id, error_message)
+        await record_report_audit(
+            action="view_data",
+            status="failed",
+            user=user,
+            report=report,
+            request=request,
+            runtime_filters=overrides.filters if overrides else None,
+            page=page,
+            page_size=page_size,
+            error=error_message,
+        )
         # 发布报表运行失败事件（使用独立session，避免事务边界问题）
         try:
             async with get_session_factory()() as new_db:
@@ -889,6 +944,18 @@ async def run_report(
         logger.warning("[report_run] 发布成功事件异常 report_id=%d", report.id)
 
     out_cols, out_items = _project_report_output(columns_meta, items, cfg)
+    await record_report_audit(
+        action="view_data",
+        status="success",
+        user=user,
+        report=report,
+        request=request,
+        columns=out_cols,
+        runtime_filters=overrides.filters if overrides else None,
+        row_count=total,
+        page=page,
+        page_size=page_size,
+    )
     return RunResult(
         columns=out_cols, items=out_items, total=total,
         page=page, page_size=page_size, warnings=warnings,
@@ -1207,6 +1274,7 @@ async def push_report(
     report_id: int,
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
+    request: Request = None,
 ) -> list[ReportPushResult]:
     from app.push.models import PushTarget
     from app.push.push_service import execute_push
@@ -1215,6 +1283,14 @@ async def push_report(
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
     if not await _can_edit(user, report, db):
+        await record_report_audit(
+            action="access_denied",
+            status="denied",
+            user=user,
+            report=report,
+            request=request,
+            error="仅报表创建人可推送",
+        )
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="仅报表创建人可推送")
     cfg = _ensure_valid_report_config(ReportConfig(**(report.config or {})))
     push_owner = await db.get(User, report.owner_id) if report.owner_id else None
@@ -1244,6 +1320,26 @@ async def push_report(
                 target_id=target.id, target_name=target.name, ok=False, rows=0, message=str(exc)
             ))
     await db.commit()
+    failed_count = sum(1 for result in results if not result.ok)
+    await record_report_audit(
+        action="push",
+        status="failed" if failed_count else "success",
+        user=user,
+        report=report,
+        request=request,
+        row_count=sum(result.rows for result in results),
+        target_count=len(results),
+        targets=[
+            {
+                "id": result.target_id,
+                "name": result.target_name,
+                "ok": result.ok,
+                "rows": result.rows,
+            }
+            for result in results
+        ],
+        error=f"{failed_count} 个推送目标失败" if failed_count else None,
+    )
     return results
 
 
@@ -1256,29 +1352,51 @@ async def export_report_csv(
     runtime_filters: str | None = Query(None),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
+    request: Request = None,
 ) -> StreamingResponse:
     report = await db.get(Report, report_id)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
     if not await _can_access(user, report, db):
+        await record_report_audit(
+            action="access_denied",
+            status="denied",
+            user=user,
+            report=report,
+            request=request,
+            error="无权导出该报表",
+        )
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
 
     export_filters = _parse_runtime_filters(runtime_filters)
-    export_cfg = _ensure_valid_report_config(
-        _apply_runtime_overrides(ReportConfig(**(report.config or {})), export_filters)
-    )
-    from app.reports.quality_gate import enforce_report_quality
-    await enforce_report_quality(
-        db,
-        report_id=report.id,
-        dataset_id=report.dataset_id,
-        config=export_cfg,
-        filters=export_cfg.filters,
-        action="export",
-    )
-    labels, rows, codes, columns_meta = await _collect_export_rows(
-        report, user, db, export_filters
-    )
+    try:
+        export_cfg = _ensure_valid_report_config(
+            _apply_runtime_overrides(ReportConfig(**(report.config or {})), export_filters)
+        )
+        from app.reports.quality_gate import enforce_report_quality
+        await enforce_report_quality(
+            db,
+            report_id=report.id,
+            dataset_id=report.dataset_id,
+            config=export_cfg,
+            filters=export_cfg.filters,
+            action="export",
+        )
+        labels, rows, codes, columns_meta = await _collect_export_rows(
+            report, user, db, export_filters
+        )
+    except Exception as exc:
+        await record_report_audit(
+            action="export_csv",
+            status="failed",
+            user=user,
+            report=report,
+            request=request,
+            runtime_filters=export_filters,
+            export_format="csv",
+            error=str(exc),
+        )
+        raise
     numeric_codes = {col["code"] for col in columns_meta if _is_numeric_column(col)}
 
     column_settings = export_cfg.model_dump().get("column_settings", {})
@@ -1299,6 +1417,17 @@ async def export_report_csv(
 
     safe_name = report.name.replace("/", "_").replace("\\", "_")
     filename_encoded = quote(f"{safe_name}.csv")
+    await record_report_audit(
+        action="export_csv",
+        status="success",
+        user=user,
+        report=report,
+        request=request,
+        columns=columns_meta,
+        runtime_filters=export_filters,
+        row_count=len(rows),
+        export_format="csv",
+    )
     return StreamingResponse(
         iter([buf.getvalue().encode("utf-8")]),
         media_type="text/csv; charset=utf-8",
@@ -1315,6 +1444,7 @@ async def export_report_xlsx(
     runtime_filters: str | None = Query(None),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
+    request: Request = None,
 ) -> StreamingResponse:
     from openpyxl import Workbook
 
@@ -1322,24 +1452,45 @@ async def export_report_xlsx(
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
     if not await _can_access(user, report, db):
+        await record_report_audit(
+            action="access_denied",
+            status="denied",
+            user=user,
+            report=report,
+            request=request,
+            error="无权导出该报表",
+        )
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
 
     export_filters = _parse_runtime_filters(runtime_filters)
-    export_cfg = _ensure_valid_report_config(
-        _apply_runtime_overrides(ReportConfig(**(report.config or {})), export_filters)
-    )
-    from app.reports.quality_gate import enforce_report_quality
-    await enforce_report_quality(
-        db,
-        report_id=report.id,
-        dataset_id=report.dataset_id,
-        config=export_cfg,
-        filters=export_cfg.filters,
-        action="export",
-    )
-    labels, rows, codes, columns_meta = await _collect_export_rows(
-        report, user, db, export_filters
-    )
+    try:
+        export_cfg = _ensure_valid_report_config(
+            _apply_runtime_overrides(ReportConfig(**(report.config or {})), export_filters)
+        )
+        from app.reports.quality_gate import enforce_report_quality
+        await enforce_report_quality(
+            db,
+            report_id=report.id,
+            dataset_id=report.dataset_id,
+            config=export_cfg,
+            filters=export_cfg.filters,
+            action="export",
+        )
+        labels, rows, codes, columns_meta = await _collect_export_rows(
+            report, user, db, export_filters
+        )
+    except Exception as exc:
+        await record_report_audit(
+            action="export_xlsx",
+            status="failed",
+            user=user,
+            report=report,
+            request=request,
+            runtime_filters=export_filters,
+            export_format="xlsx",
+            error=str(exc),
+        )
+        raise
     numeric_codes = {col["code"] for col in columns_meta if _is_numeric_column(col)}
     export_config = export_cfg.model_dump()
     rows = _prepare_xlsx_export_rows(rows, codes, numeric_codes, export_config)
@@ -1392,6 +1543,17 @@ async def export_report_xlsx(
             "部分数值超过Excel支持的15位有效数字，已导出为文本格式（千分位字符串），共 "
             + str(text_fallback_count) + " 个单元格"
         )
+    await record_report_audit(
+        action="export_xlsx",
+        status="success",
+        user=user,
+        report=report,
+        request=request,
+        columns=columns_meta,
+        runtime_filters=export_filters,
+        row_count=len(rows),
+        export_format="xlsx",
+    )
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

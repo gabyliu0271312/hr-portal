@@ -45,6 +45,7 @@ const stubs = {
     template: '<label><input class="name-input" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" /><slot name="prefix" /></label>',
   },
   ElButton: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
+  ElTooltip: { template: '<span><slot /></span>' },
   ElTable: { template: '<div><slot /><slot name="empty" /></div>' },
   ElTableColumn: true,
   ElTag: true,
@@ -76,6 +77,9 @@ describe('ReportList', () => {
     expect(mocks.list).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).not.toContain('查询')
     expect(wrapper.text()).not.toContain('重置')
+    expect(wrapper.html()).not.toContain('label="运行次数"')
+    expect(wrapper.html()).not.toContain('label="上次运行"')
+    expect(wrapper.html()).not.toContain('label="更新时间"')
 
     await wrapper.get('.name-input').setValue('薪酬')
     await vi.advanceTimersByTimeAsync(299)

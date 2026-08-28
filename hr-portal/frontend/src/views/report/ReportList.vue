@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CopyDocument, Delete, Document, Edit, MoreFilled, Plus, Position, Search } from '@element-plus/icons-vue'
+import { CopyDocument, Delete, Document, Edit, InfoFilled, MoreFilled, Plus, Position, Search } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { useUserStore } from '@/stores/user'
 import { formatDateTime } from '@/utils/datetime'
@@ -251,6 +251,9 @@ onBeforeUnmount(() => window.clearTimeout(searchTimer))
                   <el-tag :type="visibilityTagType(row.visibility)" size="small" effect="plain">
                     {{ REPORT_VISIBILITY_LABELS[(row.visibility as ReportVisibility)] }}
                   </el-tag>
+                  <el-tooltip :content="`更新时间：${formatDateTime(row.updated_at)}`" placement="top">
+                    <el-icon class="report-info-icon" aria-label="查看报表信息"><InfoFilled /></el-icon>
+                  </el-tooltip>
                 </div>
                 <span v-if="row.description" class="report-description">{{ row.description }}</span>
               </div>
@@ -261,13 +264,6 @@ onBeforeUnmount(() => window.clearTimeout(searchTimer))
           </el-table-column>
           <el-table-column label="所有者" width="120">
             <template #default="{ row }">{{ row.owner_name || '—' }}</template>
-          </el-table-column>
-          <el-table-column prop="run_count" label="运行次数" width="100" align="center" />
-          <el-table-column label="上次运行" min-width="170">
-            <template #default="{ row }">{{ row.last_run_at ? formatDateTime(row.last_run_at) : '—' }}</template>
-          </el-table-column>
-          <el-table-column label="更新时间" min-width="170">
-            <template #default="{ row }">{{ formatDateTime(row.updated_at) }}</template>
           </el-table-column>
           <el-table-column label="操作" width="150" fixed="right" align="center">
             <template #default="{ row }">
@@ -376,6 +372,8 @@ onBeforeUnmount(() => window.clearTimeout(searchTimer))
 }
 .report-name-link:hover { text-decoration: underline; }
 .report-name-link:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.report-info-icon { flex: none; color: var(--color-text-placeholder); cursor: help; }
+.report-info-icon:hover { color: var(--color-primary); }
 .report-description {
   overflow: hidden;
   color: var(--color-text-secondary);
