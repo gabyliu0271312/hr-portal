@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Delete, Edit, InfoFilled, Plus, Refresh } from '@element-plus/icons-vue'
+import { Delete, Edit, Plus, Refresh } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import type { KeyMapping } from '@/api/tableTools'
 
@@ -15,12 +15,14 @@ const props = withDefaults(defineProps<{
   saveError?: string
   saving?: boolean
   togglingIds?: number[]
+  canUpdate?: boolean
 }>(), {
   loading: false,
   error: '',
   saveError: '',
   saving: false,
   togglingIds: () => [],
+  canUpdate: true,
 })
 
 const emit = defineEmits<{
@@ -98,25 +100,7 @@ function displayValue(item: KeyMapping, side: 'source_key' | 'canonical_merge_ke
 </script>
 
 <template>
-  <section class="key-mapping-panel" aria-labelledby="key-mapping-title">
-    <header class="panel-header">
-      <div class="panel-title-row">
-        <h3 id="key-mapping-title">主键值映射</h3>
-        <el-tooltip
-          content="仅对当前模板生效；每条记录是一组完整联合主键，源主键值经过精确匹配后，整体统一归集到目标主键值。"
-          placement="top"
-          :show-after="200"
-        >
-          <button class="info-trigger" type="button" aria-label="查看主键值映射说明">
-            <el-icon><InfoFilled /></el-icon>
-          </button>
-        </el-tooltip>
-      </div>
-      <PermissionButton menu="table_tools" op="U" type="primary" size="small" @click="emit('create')">
-        <el-icon><Plus /></el-icon>
-        新增映射
-      </PermissionButton>
-    </header>
+  <section class="key-mapping-panel" aria-label="主键映射配置">
 
     <div v-if="draft" class="mapping-editor">
       <div class="editor-heading">
@@ -126,6 +110,7 @@ function displayValue(item: KeyMapping, side: 'source_key' | 'canonical_merge_ke
         </div>
         <el-switch
           :model-value="draft.enabled"
+          :width="52"
           inline-prompt
           active-text="启用"
           inactive-text="停用"
@@ -187,7 +172,10 @@ function displayValue(item: KeyMapping, side: 'source_key' | 'canonical_merge_ke
           <el-option label="已停用" value="disabled" />
         </el-select>
       </div>
-      <span class="result-count">共 {{ filteredMappings.length }} 条</span>
+      <PermissionButton menu="table_tools" op="U" type="primary" @click="emit('create')">
+        <el-icon><Plus /></el-icon>
+        新增映射
+      </PermissionButton>
     </div>
 
     <div v-if="loading" class="panel-state" aria-live="polite">
@@ -240,43 +228,46 @@ function displayValue(item: KeyMapping, side: 'source_key' | 'canonical_merge_ke
               </div>
             </td>
             <td class="status-column">
-              <el-tag size="small" :type="item.enabled ? 'success' : 'info'">
-                {{ item.enabled ? '已启用' : '已停用' }}
-              </el-tag>
-              <PermissionButton
-                menu="table_tools"
-                op="U"
-                link
-                size="small"
-                :loading="togglingIds.includes(item.id)"
-                @click="emit('toggle', item, !item.enabled)"
-              >
-                {{ item.enabled ? '停用' : '启用' }}
-              </PermissionButton>
+              <div class="status-cell">
+                <el-switch
+                  class="status-switch"
+                  :model-value="item.enabled"
+                  :width="52"
+                  :disabled="!canUpdate || togglingIds.includes(item.id)"
+                  :loading="togglingIds.includes(item.id)"
+                  inline-prompt
+                  active-text="启用"
+                  inactive-text="停用"
+                  :title="canUpdate ? undefined : '无权限'"
+                  @update:model-value="emit('toggle', item, $event)"
+                />
+              </div>
             </td>
             <td class="operation-column">
-              <el-tooltip content="编辑" placement="top">
-                <PermissionButton menu="table_tools" op="U" link size="small" @click="emit('edit', item)">
-                  <el-icon><Edit /></el-icon>
-                  <span class="sr-only">编辑</span>
-                </PermissionButton>
-              </el-tooltip>
-              <el-tooltip content="删除" placement="top">
-                <PermissionButton menu="table_tools" op="D" link type="danger" size="small" @click="emit('delete', item)">
-                  <el-icon><Delete /></el-icon>
-                  <span class="sr-only">删除</span>
-                </PermissionButton>
-              </el-tooltip>
+              <div class="operation-cell">
+                <el-tooltip content="编辑" placement="top">
+                  <PermissionButton menu="table_tools" op="U" link size="small" @click="emit('edit', item)">
+                    <el-icon><Edit /></el-icon>
+                    <span class="sr-only">编辑</span>
+                  </PermissionButton>
+                </el-tooltip>
+                <el-tooltip content="删除" placement="top">
+                  <PermissionButton menu="table_tools" op="D" link type="danger" size="small" @click="emit('delete', item)">
+                    <el-icon><Delete /></el-icon>
+                    <span class="sr-only">删除</span>
+                  </PermissionButton>
+                </el-tooltip>
+              </div>
             </td>
           </tr>
         </tbody>
       </table>
 
-      <div v-if="filteredMappings.length > PAGE_SIZE" class="pagination-row">
+      <div class="pagination-row">
         <el-pagination
           v-model:current-page="currentPage"
           background
-          layout="prev, pager, next"
+          layout="total, prev, pager, next"
           :page-size="PAGE_SIZE"
           :total="filteredMappings.length"
         />
@@ -287,26 +278,10 @@ function displayValue(item: KeyMapping, side: 'source_key' | 'canonical_merge_ke
 
 <style scoped>
 .key-mapping-panel { min-width: 0; }
-.panel-header, .panel-title-row, .editor-heading, .list-toolbar, .filters, .editor-actions, .status-column, .operation-column {
+.editor-heading, .list-toolbar, .filters, .editor-actions, .status-cell, .operation-cell {
   display: flex;
   align-items: center;
 }
-.panel-header { justify-content: space-between; gap: 16px; margin-bottom: 20px; }
-.panel-title-row { gap: 6px; }
-.panel-title-row h3 { margin: 0; font-size: 16px; letter-spacing: 0; }
-.info-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  color: var(--color-text-secondary);
-  border: 0;
-  background: transparent;
-  cursor: help;
-}
-.info-trigger:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .mapping-editor { margin-bottom: 20px; padding: 20px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-page); }
 .editor-heading { justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .editor-heading p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: 13px; }
@@ -321,7 +296,6 @@ function displayValue(item: KeyMapping, side: 'source_key' | 'canonical_merge_ke
 .filters { flex: 1; gap: 10px; }
 .keyword-input { width: min(320px, 55%); }
 .status-select { width: 132px; }
-.result-count { flex: none; color: var(--color-text-secondary); font-size: 13px; }
 .panel-state { min-height: 220px; display: flex; flex-direction: column; justify-content: center; }
 .error-state { align-items: center; gap: 12px; color: var(--el-color-danger); }
 .error-state p { margin: 0; }
@@ -332,8 +306,10 @@ function displayValue(item: KeyMapping, side: 'source_key' | 'canonical_merge_ke
 .mapping-table tbody tr.disabled { color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-bg-page) 55%, transparent); }
 .key-values { display: grid; gap: 5px; min-width: 0; }
 .key-value { display: block; overflow: hidden; color: inherit; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.status-column { width: 150px; gap: 4px; }
-.operation-column { width: 92px; justify-content: flex-end; text-align: right !important; white-space: nowrap; }
+.status-column { width: 110px; text-align: center !important; }
+.operation-column { width: 92px; text-align: right !important; white-space: nowrap; }
+.status-cell { justify-content: center; min-height: 32px; }
+.operation-cell { justify-content: flex-end; gap: 2px; min-height: 32px; }
 .pagination-row { display: flex; justify-content: flex-end; padding-top: 16px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
@@ -343,6 +319,5 @@ function displayValue(item: KeyMapping, side: 'source_key' | 'canonical_merge_ke
   .list-toolbar { flex-direction: column; }
   .keyword-input { width: 100%; }
   .mapping-table { min-width: 720px; }
-  .result-count { align-self: flex-end; }
 }
 </style>

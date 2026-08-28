@@ -189,6 +189,7 @@ async function saveKeyMapping(showSuccess = true) {
 async function toggleKeyMapping(item: KeyMapping, enabled: boolean) {
   if (!editingId.value || keyMappingTogglingIds.value.includes(item.id)) return
   keyMappingTogglingIds.value = [...keyMappingTogglingIds.value, item.id]
+  keyMappings.value = keyMappings.value.map((value) => value.id === item.id ? { ...value, enabled } : value)
   try {
     const saved = await tableToolsApi.updateKeyMapping(editingId.value, item.id, {
       source_key: item.source_key,
@@ -198,6 +199,7 @@ async function toggleKeyMapping(item: KeyMapping, enabled: boolean) {
     keyMappings.value = keyMappings.value.map((value) => value.id === saved.id ? saved : value)
     markSaved()
   } catch (e: any) {
+    keyMappings.value = keyMappings.value.map((value) => value.id === item.id ? item : value)
     ElMessage.error(e?.response?.data?.detail || `${enabled ? '启用' : '停用'}主键值映射失败`)
   } finally {
     keyMappingTogglingIds.value = keyMappingTogglingIds.value.filter((id) => id !== item.id)
@@ -1404,6 +1406,7 @@ const editingColMapEntries = computed({
             :save-error="keyMappingSaveError"
             :saving="keyMappingSaving"
             :toggling-ids="keyMappingTogglingIds"
+            :can-update="userStore.hasOp('table_tools', 'U')"
             @update:draft="keyMappingDraft = $event"
             @create="startKeyMapping()"
             @edit="startKeyMapping"

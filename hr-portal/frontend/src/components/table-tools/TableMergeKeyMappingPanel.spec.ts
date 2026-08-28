@@ -34,7 +34,7 @@ const ElPaginationStub = defineComponent({
   name: 'ElPagination',
   props: ['currentPage', 'total'],
   emits: ['update:currentPage'],
-  template: '<button class="next-page" @click="$emit(\'update:currentPage\', 2)">下一页</button>',
+  template: '<div class="pagination"><span>共 {{ total }} 条</span><button class="next-page" @click="$emit(\'update:currentPage\', 2)">下一页</button></div>',
 })
 
 const ElSwitchStub = defineComponent({
@@ -86,10 +86,11 @@ function buttonByText(wrapper: ReturnType<typeof mountPanel>, text: string) {
 }
 
 describe('TableMergeKeyMappingPanel', () => {
-  it('renders the info trigger and the flattened table headers without mapping arrows', () => {
+  it('renders a compact toolbar and the aligned table headers without repeated title', () => {
     const wrapper = mountPanel()
 
-    expect(wrapper.find('[aria-label="查看主键值映射说明"]').exists()).toBe(true)
+    expect(wrapper.find('.panel-header').exists()).toBe(false)
+    expect(wrapper.find('.list-toolbar').text()).toContain('新增映射')
     expect(wrapper.findAll('th').map((header) => header.text())).toEqual(['原始主键', '归集主键', '状态', '操作'])
     expect(wrapper.text()).not.toContain('整组映射')
     expect(wrapper.text()).not.toContain('源主键组合')
@@ -102,7 +103,7 @@ describe('TableMergeKeyMappingPanel', () => {
 
     expect(rows[0].text().indexOf('姓名：原始姓名1')).toBeLessThan(rows[0].text().indexOf('证件号：S1'))
     expect(rows[1].classes()).toContain('disabled')
-    expect(rows[1].text()).toContain('已停用')
+    expect(rows[1].text()).toContain('停用')
   })
 
   it('filters by keyword and status and distinguishes filtered empty state', async () => {
@@ -121,6 +122,7 @@ describe('TableMergeKeyMappingPanel', () => {
 
     expect(wrapper.findAll('tbody tr')).toHaveLength(20)
     expect(wrapper.text()).not.toContain('原始姓名21')
+    expect(wrapper.find('.pagination').text()).toContain('共 21 条')
     await wrapper.find('.next-page').trigger('click')
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     expect(wrapper.text()).toContain('原始姓名21')
@@ -168,7 +170,7 @@ describe('TableMergeKeyMappingPanel', () => {
     const operationButtons = plainWrapper.findAll('.operation-column button')
     await operationButtons[0].trigger('click')
     await operationButtons[1].trigger('click')
-    await buttonByText(plainWrapper, '停用')?.trigger('click')
+    await buttonByText(plainWrapper, '启用')?.trigger('click')
     expect(plainWrapper.emitted('edit')?.[0]?.[0]).toMatchObject({ id: 1 })
     expect(plainWrapper.emitted('delete')?.[0]?.[0]).toMatchObject({ id: 1 })
     expect(plainWrapper.emitted('toggle')?.[0]).toEqual([expect.objectContaining({ id: 1 }), false])
