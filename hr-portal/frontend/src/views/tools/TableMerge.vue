@@ -1740,7 +1740,7 @@ const editingColMapEntries = computed({
   height: 100vh;
   min-height: 100vh;
   overflow-y: auto;
-  padding: 24px 32px;
+  padding: 0 32px 24px;
   background: var(--color-bg-page);
 }
 
@@ -1748,7 +1748,7 @@ const editingColMapEntries = computed({
   position: sticky;
   top: 0;
   z-index: 20;
-  margin: -24px -32px 24px;
+  margin: 0 -32px 24px;
   padding: 16px 32px;
   background: var(--color-bg-page);
   border-bottom: 1px solid var(--color-border);
@@ -1849,6 +1849,9 @@ const editingColMapEntries = computed({
   border-bottom: 1px solid var(--color-border);
 }
 .workflow-steps {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   min-width: 0;
@@ -2269,10 +2272,10 @@ const editingColMapEntries = computed({
   .stat-cards { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 640px) {
-  .editor-fullscreen { padding: 16px; }
-  .editor-fullscreen .build-topbar { margin: -16px -16px 16px; padding: 12px 16px; flex-wrap: wrap; }
+  .editor-fullscreen { padding: 0 16px 16px; }
+  .editor-fullscreen .build-topbar { margin: 0 -16px 16px; padding: 12px 16px; flex-wrap: wrap; }
   .build-title { min-width: 0; }
-  .workflow-steps { order: 3; flex-basis: 100%; justify-content: flex-start; }
+  .workflow-steps { position: static; transform: none; order: 3; flex-basis: 100%; justify-content: flex-start; }
   .build-topbar-actions { margin-left: auto; }
 }
 </style>
