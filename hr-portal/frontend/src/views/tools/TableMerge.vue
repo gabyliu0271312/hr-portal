@@ -555,6 +555,7 @@ async function runAiDraft() {
 }
 
 async function handleBuildBack() {
+  if (savingTpl.value) return
   if (!hasUnsavedChanges.value) { mode.value = 'list'; return }
   try {
     await ElMessageBox.confirm('当前页面有未保存的修改，是否保存后返回？', '确认返回', {
@@ -568,7 +569,11 @@ async function handleBuildBack() {
 
 async function goToConfigStep(target: string) {
   const step = workflowSteps.find((item) => item.key === target)
-  if (!step || step.key === activeConfigTab.value || buildStep.value !== 'form') return
+  if (!step || step.key === activeConfigTab.value || buildStep.value !== 'form' || savingTpl.value) return
+  if (!hasUnsavedChanges.value) {
+    activeConfigTab.value = step.key
+    return
+  }
   if (await saveTemplate(false, false)) activeConfigTab.value = step.key
 }
 
@@ -578,10 +583,19 @@ async function goToPreviousStep() {
 }
 
 async function goToNextStep() {
+  if (savingTpl.value) return
   const index = workflowStepIndex.value
   if (index < 0) return
-  if (isLastWorkflowStep.value) await saveTemplate(true)
-  else await goToConfigStep(workflowSteps[index + 1].key)
+  if (!isLastWorkflowStep.value) {
+    await goToConfigStep(workflowSteps[index + 1].key)
+    return
+  }
+  if (hasUnsavedChanges.value) {
+    await saveTemplate(true)
+  } else {
+    await loadTemplates()
+    mode.value = 'list'
+  }
 }
 
 function skipToManual() {
@@ -1080,13 +1094,12 @@ const editingColMapEntries = computed({
       :title="editingId ? '编辑模板' : '新建归集模板'"
       :steps="buildStep === 'form' ? workflowSteps : []"
       :active-step="activeConfigTab"
-      :busy="savingTpl"
       @back="handleBuildBack"
       @step-change="goToConfigStep"
     >
       <template #actions>
-          <el-button v-if="buildStep === 'form'" :disabled="workflowStepIndex <= 0 || savingTpl" @click="goToPreviousStep">上一步</el-button>
-          <el-button v-if="buildStep === 'form'" type="primary" :loading="savingTpl" @click="goToNextStep">
+          <el-button v-if="buildStep === 'form'" class="workflow-action" :disabled="workflowStepIndex <= 0" @click="goToPreviousStep">上一步</el-button>
+          <el-button v-if="buildStep === 'form'" class="workflow-action" type="primary" @click="goToNextStep">
             {{ isLastWorkflowStep ? '完成' : '下一步' }}
           </el-button>
       </template>
@@ -1722,6 +1735,7 @@ const editingColMapEntries = computed({
   .trace-panel { margin-top: 16px; border-top: 1px solid var(--color-border); padding-top: 12px; color: var(--color-text-secondary); font-size: 12px; }
   .trace-panel summary { cursor: pointer; }
   .trace-panel pre { max-height: 220px; overflow: auto; margin-top: 8px; white-space: pre-wrap; }
+  .workflow-action { width: 88px; }
 
 .tt-root {
   min-height: calc(100vh - var(--layout-topbar-height));

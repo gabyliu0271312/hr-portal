@@ -102,6 +102,7 @@ describe('TableMergeKeyMappingPanel', () => {
     const rows = wrapper.findAll('tbody tr')
 
     expect(rows[0].text().indexOf('姓名：原始姓名1')).toBeLessThan(rows[0].text().indexOf('证件号：S1'))
+    expect(rows[0].findAll('.key-values .tooltip')).toHaveLength(0)
     expect(rows[1].classes()).toContain('disabled')
     expect(rows[1].text()).toContain('停用')
   })

@@ -205,26 +205,16 @@ function displayValue(item: KeyMapping, side: 'source_key' | 'canonical_merge_ke
           <tr v-for="item in pagedMappings" :key="item.id" :class="{ disabled: !item.enabled }">
             <td>
               <div class="key-values">
-                <el-tooltip
-                  v-for="field in mergeKeys"
-                  :key="field"
-                  :content="displayValue(item, 'source_key', field)"
-                  placement="top"
-                >
-                  <span class="key-value">{{ displayValue(item, 'source_key', field) }}</span>
-                </el-tooltip>
+                <span v-for="field in mergeKeys" :key="field" class="key-value">
+                  {{ displayValue(item, 'source_key', field) }}
+                </span>
               </div>
             </td>
             <td>
               <div class="key-values">
-                <el-tooltip
-                  v-for="field in mergeKeys"
-                  :key="field"
-                  :content="displayValue(item, 'canonical_merge_key', field)"
-                  placement="top"
-                >
-                  <span class="key-value">{{ displayValue(item, 'canonical_merge_key', field) }}</span>
-                </el-tooltip>
+                <span v-for="field in mergeKeys" :key="field" class="key-value">
+                  {{ displayValue(item, 'canonical_merge_key', field) }}
+                </span>
               </div>
             </td>
             <td class="status-column">

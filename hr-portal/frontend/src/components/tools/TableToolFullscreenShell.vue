@@ -81,6 +81,7 @@ const emit = defineEmits<{
   width: 100vw;
   height: 100vh;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   background: var(--color-bg-page);
 }
 .table-tool-header {
@@ -157,9 +158,12 @@ const emit = defineEmits<{
   transform: translateX(-50%);
 }
 .table-tool-step {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  width: 112px;
+  min-height: 36px;
   padding: 6px 4px;
   border: 0;
   background: transparent;
@@ -169,9 +173,19 @@ const emit = defineEmits<{
   white-space: nowrap;
 }
 .table-tool-step:hover:not(:disabled), .table-tool-step.active { color: var(--color-primary); }
-.table-tool-step.active { font-weight: 600; }
+.table-tool-step.active::after {
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  width: 24px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  content: '';
+  transform: translateX(-50%);
+}
 .table-tool-step:disabled { cursor: default; opacity: 0.65; }
-.table-tool-step-arrow { color: var(--color-text-placeholder); font-size: 22px; line-height: 1; }
+.table-tool-step-arrow { position: absolute; right: 0; color: var(--color-text-placeholder); font-size: 22px; line-height: 1; }
 .table-tool-actions {
   display: flex;
   align-items: center;
