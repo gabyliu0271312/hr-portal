@@ -997,7 +997,7 @@ const editingColMapEntries = computed({
          建/编辑模板页（全页面，无弹窗）
     ════════════════════════════════════════════════════════ -->
     <Teleport v-else-if="mode === 'build'" to="body">
-      <div class="tt-root editor-fullscreen">
+      <div class="editor-fullscreen">
       <!-- 顶部导航栏 -->
       <div class="build-topbar">
         <button class="back-btn" @click="handleBuildBack">
