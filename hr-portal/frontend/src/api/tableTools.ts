@@ -137,6 +137,7 @@ export interface SaveMergeResultResponse extends MergeResultBatch {
 export interface MergeResultBatchRows {
   batch: MergeResultBatch
   columns: string[]
+  column_labels?: Record<string, string>
   rows: Record<string, any>[]
   total_rows: number
 }

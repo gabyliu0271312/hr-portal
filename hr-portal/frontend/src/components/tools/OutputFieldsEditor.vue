@@ -4,6 +4,7 @@ import { ref, computed } from 'vue'
 const props = defineProps<{
   modelValue: string[]
   candidates: string[]
+  labels?: Record<string, string>
 }>()
 const emit = defineEmits<{ (e: 'update:modelValue', value: string[]): void }>()
 
@@ -19,6 +20,9 @@ const hiddenFields = computed(() => {
   if (isAll.value) return []
   return props.candidates.filter((f) => !outputFields.value.includes(f))
 })
+function fieldLabel(field: string) {
+  return props.labels?.[field] || field
+}
 
 function hideField(f: string) {
   if (isAll.value) {
@@ -67,14 +71,14 @@ function reorder(code: string, target: string) {
         @dragend="dragging = ''"
         @dragover.prevent
         @drop.prevent="reorder(dragging, f); dragging = ''"
-      >{{ f }}</el-tag>
+      >{{ fieldLabel(f) }}</el-tag>
       <el-tag
         v-for="f in hiddenFields"
         :key="'hidden-' + f"
         class="of-tag-hidden"
         title="点击恢复输出"
         @click="restoreField(f)"
-      >{{ f }}</el-tag>
+      >{{ fieldLabel(f) }}</el-tag>
     </div>
     <p v-if="hiddenFields.length" class="of-hidden-hint">置灰字段不导出，点击可恢复。</p>
   </div>

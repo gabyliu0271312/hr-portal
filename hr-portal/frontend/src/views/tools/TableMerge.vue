@@ -86,6 +86,10 @@ async function loadAdvancedConfig(id: number) {
     keyMappings.value = keys
     dwdRelations.value = relations
     dwdSources.value = sources
+    const fieldLists = await Promise.all(relations.filter((r) => r.enabled).map((r) =>
+      r.dataset_id ? tableToolsApi.listDwdFields(r.dataset_id) : r.report_id ? tableToolsApi.listDwdFieldsByReport(r.report_id) : Promise.resolve([]),
+    ))
+    dwdFields.value = [...new Map(fieldLists.flat().map((field) => [field.code, field])).values()]
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载高级配置失败')
   }
@@ -233,6 +237,7 @@ const outputFieldCandidates = computed(() => {
     .flatMap((r) => r.select_fields || [])
   return [...new Set([...form.value.merge_keys, ...form.value.std_fields, ...dwdSelects])]
 })
+const outputFieldLabels = computed(() => Object.fromEntries(dwdFields.value.map((field) => [field.code, field.label])))
 const savingTpl = ref(false)
 
 // 当前展开的 mapping 索引
@@ -1330,7 +1335,7 @@ const editingColMapEntries = computed({
               <p class="section-desc">决定归集结果的导出字段与列顺序；空清单 = 全部输出。</p>
             </div>
           </div>
-          <OutputFieldsEditor v-model="form.output_fields" :candidates="outputFieldCandidates" />
+          <OutputFieldsEditor v-model="form.output_fields" :candidates="outputFieldCandidates" :labels="outputFieldLabels" />
         </section>
         </template>
       </template>
