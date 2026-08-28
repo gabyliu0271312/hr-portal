@@ -1603,12 +1603,7 @@ const editingColMapEntries = computed({
     padding: 0 16px;
   }
   .editor-fullscreen .config-tabs-wrap {
-    position: sticky;
-    top: 73px;
-    z-index: 19;
-    margin-top: -24px;
     border-radius: 0;
-    box-shadow: 0 2px 8px rgb(15 23 42 / 8%);
   }
   .advanced-config-panel {
     background: var(--color-bg-card);
