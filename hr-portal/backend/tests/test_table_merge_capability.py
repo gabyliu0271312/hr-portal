@@ -453,6 +453,62 @@ def test_derived_formula_does_not_run_for_direct_mapping_with_partial_inputs():
     assert result["rows"][0]["单位住房公积金"] == 500.0
 
 
+def test_derived_formula_uses_standard_fields_aggregated_across_mappings():
+    """派生目标无直接值时，公式可使用不同来源映射贡献的标准字段。"""
+    import io
+    import openpyxl
+    from app.table_tools.engine import run_merge
+
+    def workbook(headers, values):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "明细"
+        ws.append(headers)
+        ws.append(values)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    medical_mapping = {
+        "name": "个人医疗表", "sheet_kw": None, "header": [1, 1],
+        "match": ["员工", "个人医疗", "备注"], "key_map": {"员工": "员工"},
+        "column_map": {"个人医疗": "个人医疗-辅助列"},
+        "derived_fields": [{
+            "target": "个人基本医疗保险",
+            "expr": "{个人医疗-辅助列}+{个人大病-辅助列}",
+            "round": 2,
+        }],
+        "derive_check": None, "skip_tokens": [],
+    }
+    critical_illness_mapping = {
+        "name": "个人大病表", "sheet_kw": None, "header": [1, 1],
+        "match": ["员工", "个人大病", "备注"], "key_map": {"员工": "员工"},
+        "column_map": {"个人大病": "个人大病-辅助列"},
+        "derived_fields": [], "derive_check": None, "skip_tokens": [],
+    }
+
+    result = run_merge(
+        [
+            ("个人医疗.xlsx", workbook(["员工", "个人医疗", "备注"], ["张三", 100, "-"])),
+            ("个人大病.xlsx", workbook(["员工", "个人大病", "备注"], ["张三", 20, "-"])),
+        ],
+        {
+            "merge_keys": ["员工"],
+            "std_fields": ["个人医疗-辅助列", "个人大病-辅助列", "个人基本医疗保险"],
+            "aggregate": "sum",
+        },
+        [medical_mapping, critical_illness_mapping],
+    )
+
+    assert result["rows"] == [{
+        "员工": "张三",
+        "个人医疗-辅助列": 100.0,
+        "个人大病-辅助列": 20.0,
+        "个人基本医疗保险": 120.0,
+        "来源": "个人医疗表 + 个人大病表",
+    }]
+
+
 def test_derived_field_treats_configured_blank_dependency_as_zero():
     from app.table_tools.engine import aggregate_records
 

@@ -312,11 +312,22 @@ def _aggregate_mapping_results(
     mappings: list[dict],
     custom_functions: dict[str, Callable[..., Any]] | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """先在来源映射内派生，再跨映射汇总，避免公式覆盖其他映射的直接值。"""
+    """来源内派生后再汇总，并用全局标准字段补齐未直接映射的派生目标。"""
     mapping_by_name = {mapping["name"]: mapping for mapping in mappings}
     records_by_mapping: dict[str, list[tuple[dict, str]]] = defaultdict(list)
+    direct_target_keys: set[tuple[tuple[str, ...], str]] = set()
+    globally_available_fields = set(merge_keys)
+    derived_fields = _merge_derived_fields(mappings)
     for record, source in records_with_src:
         records_by_mapping[source].append((record, source))
+    for mapping in mappings:
+        direct_targets = set((mapping.get("column_map") or {}).values())
+        globally_available_fields.update(direct_targets)
+        for record, _ in records_by_mapping.get(mapping["name"], []):
+            key = _mapping_key(record, merge_keys)
+            for target in direct_targets:
+                if record.get(target) not in (None, ""):
+                    direct_target_keys.add((key, target))
 
     mapping_rows: list[tuple[dict, str]] = []
     anomalies: list[dict] = []
@@ -342,8 +353,27 @@ def _aggregate_mapping_results(
         mapping_rows.extend((row, source) for row in rows)
 
     rows, aggregate_anomalies = aggregate_records(
-        mapping_rows, merge_keys, std_fields, agg
+        mapping_rows, merge_keys, std_fields, agg, fill_missing_fields=False
     )
+    for row in rows:
+        key = _mapping_key(row, merge_keys)
+        for field in derived_fields:
+            target = field["target"]
+            if (key, target) in direct_target_keys:
+                continue
+            _, refs = _to_field_calls(field["expr"])
+            if any(ref not in globally_available_fields for ref in refs):
+                continue
+            value = eval_derived(
+                field["expr"], row.get, custom_functions, missing_as_zero=True
+            )
+            if value in (None, ""):
+                continue
+            if isinstance(value, (int, float)) and "round" in field:
+                value = round(value, field.get("round", 2))
+            row[target] = value
+        for field in std_fields:
+            row.setdefault(field, 0)
     anomalies.extend(aggregate_anomalies)
     return rows, anomalies
 
