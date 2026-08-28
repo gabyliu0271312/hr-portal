@@ -2,11 +2,12 @@
 import { onMounted, ref, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Plus, Delete, Upload, Download, MagicStick, Edit, ArrowLeft,
+  Plus, Delete, Upload, Download, MagicStick, Edit,
   CircleCheck, Warning, Document, Grid
 } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import OutputFieldsEditor from '@/components/tools/OutputFieldsEditor.vue'
+import TableToolFullscreenShell from '@/components/tools/TableToolFullscreenShell.vue'
 import {
   tableToolsApi,
   type TemplateOut,
@@ -323,6 +324,11 @@ async function openEdit(id: number): Promise<boolean> {
 
 const mappingWizardTemplate = ref<TemplateDetail | null>(null)
 const mappingWizardStep = ref<'upload' | 'ai' | 'confirm'>('upload')
+const mappingWorkflowSteps = [
+  { key: 'upload', label: '上传样表' },
+  { key: 'confirm', label: '确认映射' },
+]
+const mappingWorkflowStep = computed(() => mappingWizardStep.value === 'confirm' ? 'confirm' : 'upload')
 const mappingWizardFiles = ref<File[]>([])
 const mappingWizardContext = ref('')
 const mappingWizardDrafts = ref<any[]>([])
@@ -333,6 +339,24 @@ function resetMappingWizard() {
   mappingWizardFiles.value = []
   mappingWizardContext.value = ''
   mappingWizardDrafts.value = []
+}
+
+async function handleMappingBack() {
+  const hasDraft = mappingWizardFiles.value.length > 0 || Boolean(mappingWizardContext.value.trim()) || mappingWizardDrafts.value.length > 0
+  if (!hasDraft) { mode.value = 'list'; return }
+  try {
+    await ElMessageBox.confirm('返回后，本次上传和未保存的映射草稿将丢失。', '确认返回', {
+      type: 'warning', confirmButtonText: '返回', cancelButtonText: '继续编辑',
+    })
+    mode.value = 'list'
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error('返回操作失败')
+  }
+}
+
+function goToMappingStep(step: string) {
+  if (mappingWizardStep.value === 'ai' || step === mappingWorkflowStep.value) return
+  if (step === 'upload') mappingWizardStep.value = 'upload'
 }
 
 async function openAddMapping(id: number) {
@@ -486,9 +510,10 @@ async function handleBuildBack() {
   }
 }
 
-async function goToConfigStep(target: typeof activeConfigTab.value) {
-  if (target === activeConfigTab.value || buildStep.value !== 'form') return
-  if (await saveTemplate(false)) activeConfigTab.value = target
+async function goToConfigStep(target: string) {
+  const step = workflowSteps.find((item) => item.key === target)
+  if (!step || step.key === activeConfigTab.value || buildStep.value !== 'form') return
+  if (await saveTemplate(false)) activeConfigTab.value = step.key
 }
 
 async function goToPreviousStep() {
@@ -820,6 +845,18 @@ function openMerge(t: TemplateOut) {
   void loadResultBatches()
 }
 
+async function handleMergeBack() {
+  if (!mergeFiles.value.length && !mergeResult.value) { mode.value = 'list'; return }
+  try {
+    await ElMessageBox.confirm('返回后，本次上传文件和未保存的预览结果将被清除。', '确认返回', {
+      type: 'warning', confirmButtonText: '返回', cancelButtonText: '继续操作',
+    })
+    mode.value = 'list'
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error('返回操作失败')
+  }
+}
+
 function handleMergeFileChange(uploadFile: any) {
   const file: File = uploadFile.raw
   if (!mergeFiles.value.find((f) => f.name === file.name && f.size === file.size)) {
@@ -996,34 +1033,21 @@ const editingColMapEntries = computed({
     <!-- ═══════════════════════════════════════════════════════
          建/编辑模板页（全页面，无弹窗）
     ════════════════════════════════════════════════════════ -->
-    <Teleport v-else-if="mode === 'build'" to="body">
-      <div class="editor-fullscreen">
-      <!-- 顶部导航栏 -->
-      <div class="build-topbar">
-        <button class="back-btn" @click="handleBuildBack">
-          <el-icon><ArrowLeft /></el-icon>
-          <span>返回</span>
-        </button>
-        <h2 class="build-title">{{ editingId ? '编辑模板' : '新建归集模板' }}</h2>
-        <nav v-if="buildStep === 'form'" class="workflow-steps" aria-label="配置流程">
-          <button
-            v-for="(step, index) in workflowSteps"
-            :key="step.key"
-            class="workflow-step"
-            :class="{ active: activeConfigTab === step.key }"
-            :aria-current="activeConfigTab === step.key ? 'step' : undefined"
-            @click="goToConfigStep(step.key)">
-            <span class="workflow-step-label">{{ step.label }}</span>
-            <span v-if="index < workflowSteps.length - 1" class="workflow-step-arrow" aria-hidden="true">›</span>
-          </button>
-        </nav>
-        <div class="build-topbar-actions">
+    <TableToolFullscreenShell
+      v-else-if="mode === 'build'"
+      :title="editingId ? '编辑模板' : '新建归集模板'"
+      :steps="buildStep === 'form' ? workflowSteps : []"
+      :active-step="activeConfigTab"
+      :busy="savingTpl"
+      @back="handleBuildBack"
+      @step-change="goToConfigStep"
+    >
+      <template #actions>
           <el-button v-if="buildStep === 'form'" :disabled="workflowStepIndex <= 0 || savingTpl" @click="goToPreviousStep">上一步</el-button>
           <el-button v-if="buildStep === 'form'" type="primary" :loading="savingTpl" @click="goToNextStep">
             {{ isLastWorkflowStep ? '完成' : '下一步' }}
           </el-button>
-        </div>
-      </div>
+      </template>
 
       <!-- 步骤 1：上传 -->
       <template v-if="buildStep === 'upload'">
@@ -1081,15 +1105,6 @@ const editingColMapEntries = computed({
 
       <!-- 步骤 3：表单（左右分栏） -->
       <template v-else>
-        <div v-if="editingId" class="config-tabs-wrap">
-          <el-tabs v-model="activeConfigTab">
-            <el-tab-pane label="基础模板" name="base" />
-            <el-tab-pane label="主键值映射" name="key" />
-            <el-tab-pane label="DWD 关联" name="dwd" />
-            <el-tab-pane label="信息输出" name="output" />
-          </el-tabs>
-        </div>
-
         <template v-if="activeConfigTab === 'base' || !editingId">
         <!-- 低置信度提示 -->
         <div v-if="draft?._meta?.low_confidence?.length" class="confidence-alert">
@@ -1425,26 +1440,29 @@ const editingColMapEntries = computed({
           <OutputFieldsEditor v-model="form.output_fields" :candidates="outputFieldCandidates" :labels="outputFieldLabels" />
         </section>
         </template>
-      </div>
-    </Teleport>
+    </TableToolFullscreenShell>
 
     <!-- ═══════════════════════════════════════════════════════
          月度合并页（全页面，无抽屉）
     ════════════════════════════════════════════════════════ -->
-    <template v-else-if="mode === 'mapping'">
-      <div class="build-topbar">
-        <button class="back-btn" @click="mode = 'list'">
-          <el-icon><ArrowLeft /></el-icon>
-          <span>返回模板列表</span>
-        </button>
-        <h2 class="build-title">为「{{ mappingWizardTemplate?.name }}」新增源映射</h2>
-        <div class="build-topbar-actions">
-          <el-button @click="mode = 'list'">取消</el-button>
+    <TableToolFullscreenShell
+      v-else-if="mode === 'mapping'"
+      :title="`为「${mappingWizardTemplate?.name || ''}」新增源映射`"
+      :steps="mappingWorkflowSteps"
+      :active-step="mappingWorkflowStep"
+      :busy="mappingWizardStep === 'ai' || mappingWizardSaving"
+      @back="handleMappingBack"
+      @step-change="goToMappingStep"
+    >
+      <template #actions>
+          <el-button v-if="mappingWizardStep === 'upload'" type="primary" :icon="MagicStick"
+            :disabled="!mappingWizardFiles.length" @click="runMappingDrafts">
+            AI 识别 {{ mappingWizardFiles.length }} 个样表
+          </el-button>
           <el-button v-if="mappingWizardStep === 'confirm'" type="primary" :loading="mappingWizardSaving" @click="saveMappingDrafts">
             保存 {{ mappingWizardDrafts.length }} 条映射
           </el-button>
-        </div>
-      </div>
+      </template>
 
       <template v-if="mappingWizardStep === 'upload'">
         <div class="build-upload-wrap">
@@ -1468,12 +1486,6 @@ const editingColMapEntries = computed({
               <label class="context-label">业务背景（可选）</label>
               <el-input v-model="mappingWizardContext" type="textarea" :rows="3"
                 placeholder="例如：本批样表为各城市社保、公积金明细；请优先识别员工标识与缴费字段。" />
-            </div>
-            <div class="upload-actions">
-              <el-button @click="mode = 'list'">取消</el-button>
-              <el-button type="primary" :icon="MagicStick" :disabled="!mappingWizardFiles.length" @click="runMappingDrafts">
-                AI 识别 {{ mappingWizardFiles.length }} 个样表
-              </el-button>
             </div>
           </div>
         </div>
@@ -1531,15 +1543,14 @@ const editingColMapEntries = computed({
           </div>
         </div>
       </template>
-    </template>
-    <template v-else-if="mode === 'merge'">
-      <div class="build-topbar">
-        <button class="back-btn" @click="mode = 'list'">
-          <el-icon><ArrowLeft /></el-icon>
-          <span>返回模板列表</span>
-        </button>
-        <h2 class="build-title">合并 · {{ mergeTemplate?.name }}</h2>
-        <div class="build-topbar-actions">
+    </TableToolFullscreenShell>
+    <TableToolFullscreenShell
+      v-else-if="mode === 'merge'"
+      :title="`合并 · ${mergeTemplate?.name || ''}`"
+      :busy="merging || downloading || savingResult"
+      @back="handleMergeBack"
+    >
+      <template #actions>
           <PermissionButton menu="table_tools" op="E" :icon="Download" :loading="downloading"
             :disabled="!mergeFiles.length" @click="downloadResult">
             下载完整结果
@@ -1552,8 +1563,7 @@ const editingColMapEntries = computed({
             :disabled="!mergeResult?.preview_token" @click="saveCurrentResult">
             保存结果
           </PermissionButton>
-        </div>
-      </div>
+      </template>
 
       <div class="merge-layout">
         <!-- 左侧：上传区 -->
@@ -1677,23 +1687,12 @@ const editingColMapEntries = computed({
           </div>
         </div>
       </div>
-    </template>
+    </TableToolFullscreenShell>
 
   </div>
 </template>
 
 <style scoped>
-  .config-tabs-wrap {
-    margin-bottom: 20px;
-    background: var(--color-bg-card);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    padding: 0 16px;
-  }
-  .editor-fullscreen .config-tabs-wrap {
-    display: none;
-    border-radius: 0;
-  }
   .advanced-config-panel {
     background: var(--color-bg-card);
     border: 1px solid var(--color-border);
@@ -1733,29 +1732,6 @@ const editingColMapEntries = computed({
   .trace-panel { margin-top: 16px; border-top: 1px solid var(--color-border); padding-top: 12px; color: var(--color-text-secondary); font-size: 12px; }
   .trace-panel summary { cursor: pointer; }
   .trace-panel pre { max-height: 220px; overflow: auto; margin-top: 8px; white-space: pre-wrap; }
-
-.editor-fullscreen {
-  position: fixed;
-  z-index: 2000;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  min-height: 100vh;
-  overflow-y: auto;
-  padding: 0 32px 24px;
-  background: var(--color-bg-page);
-}
-
-.editor-fullscreen .build-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  margin: 0 -32px 24px;
-  padding: 16px 32px;
-  background: var(--color-bg-page);
-  border-bottom: 1px solid var(--color-border);
-  box-shadow: 0 2px 8px rgb(15 23 42 / 6%);
-}
 
 .tt-root {
   min-height: calc(100vh - var(--layout-topbar-height));
@@ -1842,50 +1818,6 @@ const editingColMapEntries = computed({
 .tpl-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* ── 共用：顶部导航栏 ───────────────────────────────────── */
-.build-topbar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--color-border);
-}
-.workflow-steps {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  flex: 1;
-  justify-content: center;
-  gap: 4px;
-}
-.workflow-step {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  border: 0;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  padding: 6px 4px;
-  font-size: 14px;
-  white-space: nowrap;
-}
-.workflow-step.active { color: var(--color-primary); font-weight: 600; }
-.workflow-step:hover { color: var(--color-primary); }
-.workflow-step-arrow { color: var(--color-text-placeholder); font-size: 22px; line-height: 1; }
-.back-btn {
-  display: flex; align-items: center; gap: 4px;
-  font-size: 13px; color: var(--color-text-secondary);
-  background: none; border: none; cursor: pointer; padding: 4px 0;
-  transition: color var(--duration-fast);
-}
-.back-btn:hover { color: var(--color-primary); }
-.build-title { flex: 1; font-size: 17px; font-weight: 600; color: var(--color-text-primary); margin: 0; }
-.build-topbar-actions { display: flex; gap: 8px; }
-
 /* ── 上传步骤 ───────────────────────────────────────────── */
 .build-upload-wrap {
   display: flex; justify-content: center; padding: 40px 0;
@@ -2267,17 +2199,8 @@ const editingColMapEntries = computed({
 }
 
 @media (max-width: 900px) {
-  .build-topbar { gap: 10px; }
-  .workflow-steps { justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
   .build-layout, .merge-layout { grid-template-columns: 1fr; }
   .merge-left { position: static; }
   .stat-cards { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 640px) {
-  .editor-fullscreen { padding: 0 16px 16px; }
-  .editor-fullscreen .build-topbar { margin: 0 -16px 16px; padding: 12px 16px; flex-wrap: wrap; }
-  .build-title { min-width: 0; }
-  .workflow-steps { position: static; transform: none; order: 3; flex-basis: 100%; justify-content: flex-start; }
-  .build-topbar-actions { margin-left: auto; }
 }
 </style>
