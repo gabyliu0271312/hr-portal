@@ -234,6 +234,30 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '表格归集', menuCode: 'table_tools' },
       },
       {
+        path: 'tools/table-merge/new',
+        name: 'TableMergeNew',
+        component: () => import('@/views/tools/TableMerge.vue'),
+        meta: { label: '新建归集模板', menuCode: 'table_tools', hideInMenu: true, hideAside: true },
+      },
+      {
+        path: 'tools/table-merge/:id/edit',
+        name: 'TableMergeEdit',
+        component: () => import('@/views/tools/TableMerge.vue'),
+        meta: { label: '编辑归集模板', menuCode: 'table_tools', hideInMenu: true, hideAside: true },
+      },
+      {
+        path: 'tools/table-merge/:id/mapping',
+        name: 'TableMergeMapping',
+        component: () => import('@/views/tools/TableMerge.vue'),
+        meta: { label: '新增源映射', menuCode: 'table_tools', hideInMenu: true, hideAside: true },
+      },
+      {
+        path: 'tools/table-merge/:id/merge',
+        name: 'TableMergeRun',
+        component: () => import('@/views/tools/TableMerge.vue'),
+        meta: { label: '执行表格归集', menuCode: 'table_tools', hideInMenu: true, hideAside: true },
+      },
+      {
         path: 'tools/compensation-calc',
         name: 'CompensationCalc',
         component: () => import('@/views/tools/CompensationCalc.vue'),

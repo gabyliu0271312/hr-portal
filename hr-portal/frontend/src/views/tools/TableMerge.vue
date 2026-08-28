@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, Delete, Upload, Download, MagicStick,
@@ -28,6 +28,7 @@ import {
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
+const route = useRoute()
 const router = useRouter()
 /** 改/删门禁:仅模板创建者本人或超级管理员(与后端一致) */
 function canModify(t: TemplateOut): boolean {
@@ -41,17 +42,37 @@ const mode = ref<'list' | 'build' | 'mapping' | 'merge'>('list')
 // ── 模板列表 ─────────────────────────────────────────────────────────────────
 const templates = ref<TemplateOut[]>([])
 const listLoading = ref(false)
+const listError = ref('')
 
 async function loadTemplates() {
   listLoading.value = true
+  listError.value = ''
   try { templates.value = await tableToolsApi.listTemplates() }
-  catch { ElMessage.error('加载模板列表失败') }
+  catch (e: any) {
+    templates.value = []
+    listError.value = e?.response?.data?.detail || '加载模板列表失败'
+  }
   finally { listLoading.value = false }
 }
-onMounted(loadTemplates)
 
-function handleListBack() {
-  void router.push('/tools/center')
+function openNewRoute() {
+  void router.push({ name: 'TableMergeNew' })
+}
+
+function openEditRoute(item: TemplateOut) {
+  void router.push({ name: 'TableMergeEdit', params: { id: item.id } })
+}
+
+function openMappingRoute(item: TemplateOut) {
+  void router.push({ name: 'TableMergeMapping', params: { id: item.id } })
+}
+
+function openMergeRoute(item: TemplateOut) {
+  void router.push({ name: 'TableMergeRun', params: { id: item.id } })
+}
+
+function returnToTemplateList() {
+  void router.push({ name: 'TableMerge' })
 }
 
 // ── 建/编辑模板（build 模式） ─────────────────────────────────────────────────
@@ -398,16 +419,7 @@ function resetMappingWizard() {
 }
 
 async function handleMappingBack() {
-  const hasDraft = mappingWizardFiles.value.length > 0 || Boolean(mappingWizardContext.value.trim()) || mappingWizardDrafts.value.length > 0
-  if (!hasDraft) { mode.value = 'list'; return }
-  try {
-    await ElMessageBox.confirm('返回后，本次上传和未保存的映射草稿将丢失。', '确认返回', {
-      type: 'warning', confirmButtonText: '返回', cancelButtonText: '继续编辑',
-    })
-    mode.value = 'list'
-  } catch (e) {
-    if (e !== 'cancel' && e !== 'close') ElMessage.error('返回操作失败')
-  }
+  returnToTemplateList()
 }
 
 function goToMappingStep(step: string) {
@@ -415,13 +427,15 @@ function goToMappingStep(step: string) {
   if (step === 'upload') mappingWizardStep.value = 'upload'
 }
 
-async function openAddMapping(id: number) {
+async function openAddMapping(id: number): Promise<boolean> {
   try {
     mappingWizardTemplate.value = await tableToolsApi.getTemplate(id)
     resetMappingWizard()
     mode.value = 'mapping'
+    return true
   } catch {
     ElMessage.error('加载模板详情失败')
+    return false
   }
 }
 
@@ -506,9 +520,10 @@ async function saveMappingDrafts() {
         skip_tokens: mapping.skip_tokens || ['合计', '小计', '总计'],
       })),
     )
-    await loadTemplates()
-    mode.value = 'list'
-    ElMessage.success(`已新增 ${mappingWizardDrafts.value.length} 条源映射`)
+    const savedCount = mappingWizardDrafts.value.length
+    resetMappingWizard()
+    ElMessage.success(`已新增 ${savedCount} 条源映射`)
+    await router.push({ name: 'TableMerge' })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '批量保存映射失败')
   } finally {
@@ -555,16 +570,7 @@ async function runAiDraft() {
 }
 
 async function handleBuildBack() {
-  if (savingTpl.value) return
-  if (!hasUnsavedChanges.value) { mode.value = 'list'; return }
-  try {
-    await ElMessageBox.confirm('当前页面有未保存的修改，是否保存后返回？', '确认返回', {
-      type: 'warning', confirmButtonText: '保存后返回', cancelButtonText: '取消', distinguishCancelAndClose: true,
-    })
-    await saveTemplate(true)
-  } catch (e) {
-    if (e !== 'cancel' && e !== 'close') ElMessage.error('返回操作失败')
-  }
+  if (!savingTpl.value) returnToTemplateList()
 }
 
 async function goToConfigStep(target: string) {
@@ -593,8 +599,7 @@ async function goToNextStep() {
   if (hasUnsavedChanges.value) {
     await saveTemplate(true)
   } else {
-    await loadTemplates()
-    mode.value = 'list'
+    await router.push({ name: 'TableMerge' })
   }
 }
 
@@ -851,9 +856,18 @@ async function saveTemplate(returnToList = true, showSuccess = true): Promise<bo
       editingId.value = created.id
       if (showSuccess) ElMessage.success('模板已保存')
     }
-    if (returnToList) await loadTemplates()
     markSaved()
-    if (returnToList) mode.value = 'list'
+    if (returnToList) {
+      await router.push({ name: 'TableMerge' })
+    } else if (route.name === 'TableMergeNew' && editingId.value) {
+      suppressNextRouteSync = true
+      try {
+        await router.replace({ name: 'TableMergeEdit', params: { id: editingId.value } })
+      } catch (error) {
+        suppressNextRouteSync = false
+        throw error
+      }
+    }
     return true
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '保存失败')
@@ -916,15 +930,7 @@ function openMerge(t: TemplateOut) {
 }
 
 async function handleMergeBack() {
-  if (!mergeFiles.value.length && !mergeResult.value) { mode.value = 'list'; return }
-  try {
-    await ElMessageBox.confirm('返回后，本次上传文件和未保存的预览结果将被清除。', '确认返回', {
-      type: 'warning', confirmButtonText: '返回', cancelButtonText: '继续操作',
-    })
-    mode.value = 'list'
-  } catch (e) {
-    if (e !== 'cancel' && e !== 'close') ElMessage.error('返回操作失败')
-  }
+  returnToTemplateList()
 }
 
 function handleMergeFileChange(uploadFile: any) {
@@ -1040,6 +1046,120 @@ const editingColMapEntries = computed({
   get: () => editingMapping.value ? (editingMapping.value._colMapEntries || objToEntries(editingMapping.value.column_map || {})) : [],
   set: (v) => syncColumnMap(v),
 })
+
+let syncingRoute = false
+let suppressNextRouteSync = false
+
+function routeTemplateId(): number | null {
+  const id = Number(route.params.id)
+  return Number.isInteger(id) && id > 0 ? id : null
+}
+
+async function syncRouteState() {
+  syncingRoute = true
+  try {
+    if (route.name === 'TableMerge') {
+      mode.value = 'list'
+      await loadTemplates()
+      return
+    }
+    if (route.name === 'TableMergeNew') {
+      mode.value = 'build'
+      openNew()
+      return
+    }
+
+    const id = routeTemplateId()
+    if (!id) {
+      ElMessage.error('模板参数无效')
+      await router.replace({ name: 'TableMerge' })
+      return
+    }
+    if (route.name === 'TableMergeEdit') {
+      mode.value = 'build'
+      if (!await openEdit(id)) await router.replace({ name: 'TableMerge' })
+      return
+    }
+    if (route.name === 'TableMergeMapping') {
+      mode.value = 'mapping'
+      if (!await openAddMapping(id)) await router.replace({ name: 'TableMerge' })
+      return
+    }
+    if (route.name === 'TableMergeRun') {
+      mode.value = 'merge'
+      try {
+        openMerge(await tableToolsApi.getTemplate(id))
+      } catch {
+        ElMessage.error('加载模板详情失败')
+        await router.replace({ name: 'TableMerge' })
+      }
+    }
+  } finally {
+    syncingRoute = false
+  }
+}
+
+async function confirmRouteNavigation(): Promise<boolean> {
+  if (syncingRoute || mode.value === 'list') return true
+  if (mode.value === 'build') {
+    if (savingTpl.value) return false
+    if (!hasUnsavedChanges.value) return true
+    try {
+      if (buildStep.value !== 'form') {
+        await ElMessageBox.confirm('返回后，当前步骤尚未保存的内容将丢失。', '确认返回', {
+          type: 'warning', confirmButtonText: '返回', cancelButtonText: '继续编辑',
+        })
+        return true
+      }
+      await ElMessageBox.confirm('当前页面有未保存的修改，是否保存后返回？', '确认返回', {
+        type: 'warning', confirmButtonText: '保存后返回', cancelButtonText: '取消', distinguishCancelAndClose: true,
+      })
+      return await saveTemplate(false) === true
+    } catch (e) {
+      if (e !== 'cancel' && e !== 'close') ElMessage.error('返回操作失败')
+      return false
+    }
+  }
+  if (mode.value === 'mapping') {
+    const hasDraft = mappingWizardFiles.value.length > 0
+      || Boolean(mappingWizardContext.value.trim())
+      || mappingWizardDrafts.value.length > 0
+    if (!hasDraft) return true
+    try {
+      await ElMessageBox.confirm('返回后，本次上传和未保存的映射草稿将丢失。', '确认返回', {
+        type: 'warning', confirmButtonText: '返回', cancelButtonText: '继续编辑',
+      })
+      return true
+    } catch (e) {
+      if (e !== 'cancel' && e !== 'close') ElMessage.error('返回操作失败')
+      return false
+    }
+  }
+  if (!mergeFiles.value.length && !mergeResult.value) return true
+  try {
+    await ElMessageBox.confirm('返回后，本次上传文件和未保存的预览结果将被清除。', '确认返回', {
+      type: 'warning', confirmButtonText: '返回', cancelButtonText: '继续操作',
+    })
+    return true
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error('返回操作失败')
+    return false
+  }
+}
+
+onBeforeRouteLeave(confirmRouteNavigation)
+onBeforeRouteUpdate(confirmRouteNavigation)
+watch(
+  () => `${String(route.name)}:${String(route.params.id || '')}`,
+  () => {
+    if (suppressNextRouteSync) {
+      suppressNextRouteSync = false
+      return
+    }
+    void syncRouteState()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -1048,43 +1168,52 @@ const editingColMapEntries = computed({
     <!-- ═══════════════════════════════════════════════════════
          模板列表页
     ════════════════════════════════════════════════════════ -->
-    <TableToolFullscreenShell
-      v-if="mode === 'list'"
-      title="表格归集"
-      description="配置归集模板，定期上传多源文件一键合并为标准表格"
-      @back="handleListBack"
-    >
-      <template #actions>
-        <PermissionButton menu="table_tools" op="C" type="primary" :icon="Plus" @click="openNew">
-          新建模板
-        </PermissionButton>
-      </template>
+    <section v-if="mode === 'list'" class="template-list-page">
+      <el-card class="template-list-surface">
+        <template #header>
+          <div class="template-list-header">
+            <div class="template-list-heading">
+              <h1>表格归集</h1>
+              <p>配置归集模板，定期上传多源文件一键合并为标准表格。</p>
+            </div>
+            <PermissionButton menu="table_tools" op="C" type="primary" :icon="Plus" @click="openNewRoute">
+              新建模板
+            </PermissionButton>
+          </div>
+        </template>
 
-      <div v-if="listLoading" class="list-loading">
-        <div class="skeleton" v-for="i in 3" :key="i" />
-      </div>
+        <div v-if="listLoading" class="list-loading" aria-label="正在加载归集模板">
+          <div class="skeleton" v-for="i in 3" :key="i" />
+        </div>
 
-      <div v-else-if="!templates.length" class="empty-state">
-        <el-icon class="empty-icon"><Grid /></el-icon>
-        <p>暂无归集模板</p>
-        <PermissionButton menu="table_tools" op="C" type="primary" :icon="Plus" @click="openNew">
-          创建第一个模板
-        </PermissionButton>
-      </div>
+        <div v-else-if="listError" class="empty-state" role="alert">
+          <el-icon class="empty-icon"><Warning /></el-icon>
+          <p>{{ listError }}</p>
+          <el-button type="primary" @click="loadTemplates">重新加载</el-button>
+        </div>
 
-      <div v-else class="tpl-grid">
-        <TableMergeTemplateCard
-          v-for="t in templates"
-          :key="t.id"
-          :template="t"
-          :can-modify="canModify(t)"
-          @merge="openMerge"
-          @add="openAddMapping($event.id)"
-          @edit="openEdit($event.id)"
-          @delete="deleteTemplate"
-        />
-      </div>
-    </TableToolFullscreenShell>
+        <div v-else-if="!templates.length" class="empty-state">
+          <el-icon class="empty-icon"><Grid /></el-icon>
+          <p>暂无归集模板</p>
+          <PermissionButton menu="table_tools" op="C" type="primary" :icon="Plus" @click="openNewRoute">
+            创建第一个模板
+          </PermissionButton>
+        </div>
+
+        <div v-else class="tpl-grid">
+          <TableMergeTemplateCard
+            v-for="t in templates"
+            :key="t.id"
+            :template="t"
+            :can-modify="canModify(t)"
+            @merge="openMergeRoute"
+            @add="openMappingRoute"
+            @edit="openEditRoute"
+            @delete="deleteTemplate"
+          />
+        </div>
+      </el-card>
+    </section>
 
     <!-- ═══════════════════════════════════════════════════════
          建/编辑模板页（全页面，无弹窗）
@@ -1744,6 +1873,29 @@ const editingColMapEntries = computed({
 }
 
 /* ── 列表页 ─────────────────────────────────────────────── */
+.template-list-page { min-width: 0; }
+.template-list-surface { min-height: calc(100vh - var(--layout-topbar-height) - 48px); }
+.template-list-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.template-list-heading { min-width: 0; }
+.template-list-heading h1 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 24px;
+}
+.template-list-heading p {
+  margin: 4px 0 0;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+  line-height: 20px;
+}
 .list-loading { display: flex; flex-direction: column; gap: 12px; }
 .skeleton {
   height: 88px;
@@ -1768,6 +1920,11 @@ const editingColMapEntries = computed({
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .template-list-header { align-items: stretch; flex-direction: column; gap: 12px; }
+  .template-list-header :deep(.el-button) { align-self: flex-start; }
 }
 
 /* ── 共用：顶部导航栏 ───────────────────────────────────── */
