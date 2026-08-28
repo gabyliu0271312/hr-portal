@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import router from './index'
+import router from '@/router'
 
 describe('table merge routes', () => {
   it('keeps the list in the regular layout and hides the aside for focused workspaces', () => {
