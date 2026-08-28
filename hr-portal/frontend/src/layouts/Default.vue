@@ -80,6 +80,7 @@ import { authApi } from '@/api/auth'
 import { MENU_ROUTE_MAP } from '@/constants/menuRoutes'
 import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue'
 import { PASSWORD_POLICY_HINT, validatePasswordPolicy } from '@/utils/passwordPolicy'
+import { shouldHideAppAside } from '@/utils/layoutVisibility'
 
 const router = useRouter()
 const route = useRoute()
@@ -149,7 +150,7 @@ const activeTabId = computed(() => {
   return tabGroups.value[0]?.id ?? null
 })
 
-const hideAside = computed(() => route.meta.hideAside === true)
+const hideAside = computed(() => shouldHideAppAside(route.meta))
 
 /** 当前 tab 下的左侧菜单（二级分组 + 三级叶子）*/
 const leftMenu = computed<GroupMenu[]>(() => {
