@@ -402,7 +402,7 @@ async function saveMappingDrafts() {
 }
 
 function resetForm() {
-  form.value = { name: '', description: '', merge_keys: ['姓名', '证件号码'], std_fields: [], aggregate: 'sum', result_save_mode: 'input_period', result_period_field: null, mappings: [] }
+  form.value = { name: '', description: '', merge_keys: ['姓名', '证件号码'], std_fields: [], aggregate: 'sum', result_save_mode: 'input_period', result_period_field: null, output_fields: [], mappings: [] }
 }
 
 // 文件选择（去重）
@@ -839,6 +839,9 @@ const mergeResultCols = computed(() => mergeResult.value?.columns || [])
 const historyResultCols = computed(() => historyResult.value?.columns || [])
 function mergeColumnLabel(column: string) {
   return mergeResult.value?.column_labels?.[column] || column
+}
+function historyColumnLabel(column: string) {
+  return historyResult.value?.column_labels?.[column] || column
 }
 
 // key_map / column_map entries（用于 v-model 绑定）
@@ -1556,7 +1559,7 @@ const editingColMapEntries = computed({
               <PermissionButton menu="table_tools" op="E" size="small" @click="downloadResultBatch(historyResult.batch)">下载结果</PermissionButton>
             </div>
             <el-table :data="historyResult.rows" size="small" border max-height="500" style="font-size:12px; width:100%">
-              <el-table-column v-for="col in historyResultCols" :key="col" :prop="col" :label="col" min-width="110" show-overflow-tooltip />
+              <el-table-column v-for="col in historyResultCols" :key="col" :prop="col" :label="historyColumnLabel(col)" min-width="110" show-overflow-tooltip />
             </el-table>
           </div>
           <div v-if="resultBatches.length" class="history-panel">

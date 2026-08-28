@@ -936,6 +936,7 @@ async def run_merge_api(
         template_version=template.version,
         merge_keys_snapshot=list(template.merge_keys),
         columns_snapshot=list(result["columns"]),
+        column_labels_snapshot=result["column_labels"],
         rows=result["rows"],
         stats=result["stats"],
         recognize_log=result["recognize_log"],
@@ -1023,6 +1024,7 @@ async def save_result_batch(
         batch = MergeResultBatch(
             template_id=tid, period=period, template_version=preview.template_version,
             merge_keys_snapshot=preview.merge_keys_snapshot, columns_snapshot=preview.columns_snapshot,
+            column_labels_snapshot=preview.column_labels_snapshot,
             stats=preview.stats, anomalies=preview.anomalies, dwd_anomalies=preview.dwd_anomalies,
             created_by=user.id, updated_by=user.id,
         )
@@ -1037,6 +1039,7 @@ async def save_result_batch(
         batch.template_version = preview.template_version
         batch.merge_keys_snapshot = preview.merge_keys_snapshot
         batch.columns_snapshot = preview.columns_snapshot
+        batch.column_labels_snapshot = preview.column_labels_snapshot
         batch.stats = preview.stats
         batch.anomalies = preview.anomalies
         batch.dwd_anomalies = preview.dwd_anomalies
@@ -1087,7 +1090,7 @@ async def list_result_batch_rows(
     rows = (await db.execute(
         select(MergeResultRow).where(MergeResultRow.batch_id == bid).order_by(MergeResultRow.id).offset((page - 1) * page_size).limit(page_size)
     )).scalars().all()
-    return {"batch": _batch_out(batch), "columns": batch.columns_snapshot, "rows": [row.values for row in rows], "total_rows": batch.row_count}
+    return {"batch": _batch_out(batch), "columns": batch.columns_snapshot, "column_labels": batch.column_labels_snapshot or {}, "rows": [row.values for row in rows], "total_rows": batch.row_count}
 
 
 @router.get("/templates/{tid}/result-batches/{bid}/download")
@@ -1100,7 +1103,9 @@ async def download_result_batch(
     if batch is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="历史结果不存在")
     rows = (await db.execute(select(MergeResultRow).where(MergeResultRow.batch_id == bid).order_by(MergeResultRow.id))).scalars().all()
-    xlsx = engine.rows_to_xlsx(batch.columns_snapshot, [row.values for row in rows])
+    labels = batch.column_labels_snapshot or {}
+    output_columns = [labels.get(column, column) for column in batch.columns_snapshot]
+    xlsx = engine.rows_to_xlsx(output_columns, [row.values for row in rows])
     return Response(content=xlsx, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="merged_result_{batch.period}.xlsx"'})
 
 
@@ -1115,7 +1120,8 @@ async def download_merge(
     t = await _load_template(db, tid)
     blobs = await _read_files(files)
     result = await _run_template_merge(t, blobs, user=_, db=db)
-    xlsx = engine.rows_to_xlsx(result["columns"], result["rows"])
+    output_columns = [result["column_labels"].get(column, column) for column in result["columns"]]
+    xlsx = engine.rows_to_xlsx(output_columns, result["rows"])
     return Response(
         content=xlsx,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
