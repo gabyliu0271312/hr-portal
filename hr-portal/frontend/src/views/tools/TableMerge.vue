@@ -128,7 +128,7 @@ function startKeyMapping(item?: KeyMapping) {
 }
 function cancelKeyMapping() { keyMappingDraft.value = null }
 
-async function saveKeyMapping() {
+async function saveKeyMapping(showSuccess = true) {
   if (!editingId.value || !keyMappingDraft.value) return
   const item = keyMappingDraft.value
   if (form.value.merge_keys.some((field) => !String(item.source_key[field] ?? '').trim() || !String(item.canonical_merge_key[field] ?? '').trim())) {
@@ -146,7 +146,7 @@ async function saveKeyMapping() {
       : [...keyMappings.value, saved]
     keyMappingDraft.value = null
     markSaved()
-    ElMessage.success('主键值映射已保存')
+    if (showSuccess) ElMessage.success('主键值映射已保存')
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '主键值映射保存失败') }
   finally { keyMappingSaving.value = false }
 }
@@ -179,7 +179,7 @@ function removeDwdPair(index: number) {
   dwdRelationDraft.value.right_fields = (dwdRelationDraft.value.right_fields || []).filter((_, i) => i !== index)
 }
 
-async function saveDwdRelation() {
+async function saveDwdRelation(showSuccess = true) {
   if (!editingId.value || !dwdRelationDraft.value) return
   const item = dwdRelationDraft.value
   if (!item.name?.trim() || (!item.dataset_id && !item.report_id) || !item.left_fields?.length || !item.right_fields?.length) {
@@ -206,7 +206,7 @@ async function saveDwdRelation() {
       : [...dwdRelations.value, saved]
     dwdRelationDraft.value = null
     markSaved()
-    ElMessage.success('DWD 关联已保存')
+    if (showSuccess) ElMessage.success('DWD 关联已保存')
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || 'DWD 关联保存失败') }
   finally { dwdRelationSaving.value = false }
 }
@@ -513,7 +513,7 @@ async function handleBuildBack() {
 async function goToConfigStep(target: string) {
   const step = workflowSteps.find((item) => item.key === target)
   if (!step || step.key === activeConfigTab.value || buildStep.value !== 'form') return
-  if (await saveTemplate(false)) activeConfigTab.value = step.key
+  if (await saveTemplate(false, false)) activeConfigTab.value = step.key
 }
 
 async function goToPreviousStep() {
@@ -573,7 +573,7 @@ function validateDerivedFields(mapping: any): string | null {
   return null
 }
 
-async function saveEditMapping() {
+async function saveEditMapping(showSuccess = true) {
   if (expandedMapping.value === null || !editingMapping.value) return
   const validationError = validateDerivedFields(editingMapping.value)
   if (validationError) {
@@ -594,7 +594,7 @@ async function saveEditMapping() {
     expandedMapping.value = null
     editingMapping.value = null
     markSaved()
-    ElMessage.success('源映射已保存')
+    if (showSuccess) ElMessage.success('源映射已保存')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '源映射保存失败')
   }
@@ -726,17 +726,17 @@ function aiLowConfidence(mappingName: string) {
 }
 
 // 保存模板
-async function saveTemplate(returnToList = true): Promise<boolean | undefined> {
+async function saveTemplate(returnToList = true, showSuccess = true): Promise<boolean | undefined> {
   if (editingMapping.value) {
-    await saveEditMapping()
+    await saveEditMapping(showSuccess)
     if (editingMapping.value) return false
   }
   if (keyMappingDraft.value) {
-    await saveKeyMapping()
+    await saveKeyMapping(showSuccess)
     if (keyMappingDraft.value) return false
   }
   if (dwdRelationDraft.value) {
-    await saveDwdRelation()
+    await saveDwdRelation(showSuccess)
     if (dwdRelationDraft.value) return false
   }
   if (!form.value.name.trim()) { ElMessage.warning('请填写模板名称'); return }
@@ -775,11 +775,11 @@ async function saveTemplate(returnToList = true): Promise<boolean | undefined> {
     }
     if (editingId.value) {
       await tableToolsApi.updateTemplate(editingId.value, payload)
-      ElMessage.success('模板已更新')
+      if (showSuccess) ElMessage.success('模板已更新')
     } else {
       const created = await tableToolsApi.createTemplate(payload)
       editingId.value = created.id
-      ElMessage.success('模板已保存')
+      if (showSuccess) ElMessage.success('模板已保存')
     }
     if (returnToList) await loadTemplates()
     markSaved()
@@ -1338,7 +1338,7 @@ const editingColMapEntries = computed({
                   <div class="editor-actions">
                     <PermissionButton menu="table_tools" op="D" size="small" type="danger" @click="removeMapping(idx)">删除映射</PermissionButton>
                     <el-button size="small" @click="cancelEditMapping">取消</el-button>
-                    <el-button size="small" type="primary" :icon="CircleCheck" @click="saveEditMapping">
+                    <el-button size="small" type="primary" :icon="CircleCheck" @click="saveEditMapping()">
                       确认修改
                     </el-button>
                   </div>
@@ -1385,7 +1385,7 @@ const editingColMapEntries = computed({
             <el-checkbox v-model="keyMappingDraft.enabled">启用该映射组</el-checkbox>
             <div class="config-editor-actions">
               <el-button size="small" @click="cancelKeyMapping">取消</el-button>
-              <PermissionButton menu="table_tools" op="U" type="primary" size="small" :loading="keyMappingSaving" @click="saveKeyMapping">保存映射组</PermissionButton>
+              <PermissionButton menu="table_tools" op="U" type="primary" size="small" :loading="keyMappingSaving" @click="saveKeyMapping()">保存映射组</PermissionButton>
             </div>
           </div>
           <el-empty v-if="!keyMappings.length && !keyMappingDraft" description="暂无主键值映射" />
@@ -1424,7 +1424,7 @@ const editingColMapEntries = computed({
             <div class="field-group"><label class="field-label">补充字段</label><el-select v-model="dwdRelationDraft.select_fields" multiple filterable :loading="dwdFieldsLoading" placeholder="选择要补充到结果的 DWD 字段" style="width:100%"><el-option v-for="field in dwdFields" :key="field.code" :value="field.code" :label="`${field.label}（${field.code}）`" /></el-select></div>
             <div class="editor-row"><div class="editor-field"><label class="editor-label">未命中策略</label><el-select v-model="dwdRelationDraft.missing_policy"><el-option label="记录异常" value="anomaly" /><el-option label="跳过异常" value="skip" /></el-select></div><div class="editor-field"><label class="editor-label">多命中策略</label><el-select v-model="dwdRelationDraft.multiple_policy"><el-option label="记录异常" value="anomaly" /><el-option label="取第一条" value="first" /></el-select></div></div>
             <el-checkbox v-model="dwdRelationDraft.enabled">启用</el-checkbox>
-            <div class="config-editor-actions"><el-button size="small" @click="cancelDwdRelation">取消</el-button><PermissionButton menu="table_tools" op="U" type="primary" size="small" :loading="dwdRelationSaving" @click="saveDwdRelation">保存</PermissionButton></div>
+            <div class="config-editor-actions"><el-button size="small" @click="cancelDwdRelation">取消</el-button><PermissionButton menu="table_tools" op="U" type="primary" size="small" :loading="dwdRelationSaving" @click="saveDwdRelation()">保存</PermissionButton></div>
           </div>
           <el-empty v-if="!dwdRelations.length && !dwdRelationDraft" description="暂无 DWD 关联" />
           <div v-for="item in dwdRelations" :key="item.id" class="config-list-row"><div><strong>{{ item.name }}</strong><span class="config-muted">{{ dwdSources.find((source) => source.dataset_id === item.dataset_id)?.dataset_name || (item.report_id ? `历史报表 #${item.report_id}` : `数据集 #${item.dataset_id}`) }}</span></div><el-tag size="small" :type="item.enabled ? 'success' : 'info'">{{ item.enabled ? '启用' : '停用' }}</el-tag><el-button link size="small" @click="startDwdRelation(item)">编辑</el-button><PermissionButton menu="table_tools" op="D" link type="danger" size="small" @click="removeDwdRelation(item)">删除</PermissionButton></div>

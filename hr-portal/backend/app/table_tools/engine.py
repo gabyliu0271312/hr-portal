@@ -456,13 +456,17 @@ def run_merge(
     }
 
 
-def rows_to_xlsx(columns: list[str], rows: list[dict]) -> bytes:
+def rows_to_xlsx(
+    columns: list[str],
+    rows: list[dict],
+    column_headers: list[str] | None = None,
+) -> bytes:
     """归集结果导出为 xlsx bytes。"""
     import io
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "归集结果"
-    ws.append(columns)
+    ws.append(column_headers or columns)
     for row in rows:
         ws.append([row.get(c) for c in columns])
     buf = io.BytesIO()

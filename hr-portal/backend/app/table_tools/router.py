@@ -1105,7 +1105,11 @@ async def download_result_batch(
     rows = (await db.execute(select(MergeResultRow).where(MergeResultRow.batch_id == bid).order_by(MergeResultRow.id))).scalars().all()
     labels = batch.column_labels_snapshot or {}
     output_columns = [labels.get(column, column) for column in batch.columns_snapshot]
-    xlsx = engine.rows_to_xlsx(output_columns, [row.values for row in rows])
+    xlsx = engine.rows_to_xlsx(
+        batch.columns_snapshot,
+        [row.values for row in rows],
+        column_headers=output_columns,
+    )
     return Response(content=xlsx, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="merged_result_{batch.period}.xlsx"'})
 
 
@@ -1121,7 +1125,11 @@ async def download_merge(
     blobs = await _read_files(files)
     result = await _run_template_merge(t, blobs, user=_, db=db)
     output_columns = [result["column_labels"].get(column, column) for column in result["columns"]]
-    xlsx = engine.rows_to_xlsx(output_columns, result["rows"])
+    xlsx = engine.rows_to_xlsx(
+        result["columns"],
+        result["rows"],
+        column_headers=output_columns,
+    )
     return Response(
         content=xlsx,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

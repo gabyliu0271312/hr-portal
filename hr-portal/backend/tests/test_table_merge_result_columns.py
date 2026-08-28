@@ -1,5 +1,9 @@
 import asyncio
+import io
 
+import openpyxl
+
+from app.table_tools import engine
 from app.table_tools import router as table_routes
 from app.table_tools.models import MergeDwdRelation, MergeTemplate
 
@@ -54,3 +58,19 @@ def test_run_template_merge_places_dwd_columns_before_source_and_returns_labels(
 
     assert result["columns"] == ["证件号码", "金额", "dwd_current.corporate_email", "来源"]
     assert result["column_labels"] == {"dwd_current.corporate_email": "企业邮箱"}
+
+
+def test_rows_to_xlsx_uses_codes_for_values_and_labels_for_headers():
+    content = engine.rows_to_xlsx(
+        ["dwd_current.corporate_email", "dwd_current.personal_email"],
+        [{
+            "dwd_current.corporate_email": "work@example.com",
+            "dwd_current.personal_email": "personal@example.com",
+        }],
+        column_headers=["企业邮箱", "个人邮箱"],
+    )
+
+    sheet = openpyxl.load_workbook(io.BytesIO(content)).active
+
+    assert [cell.value for cell in sheet[1]] == ["企业邮箱", "个人邮箱"]
+    assert [cell.value for cell in sheet[2]] == ["work@example.com", "personal@example.com"]
