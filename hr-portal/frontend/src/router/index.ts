@@ -195,7 +195,7 @@ const routes: RouteRecordRaw[] = [
         path: 'report/list',
         name: 'ReportList',
         component: () => import('@/views/report/ReportList.vue'),
-        meta: { label: '报表管理', menuCode: 'report.list' },
+        meta: { label: '报表管理', menuCode: 'report.list', hideAside: true },
       },
       {
         path: 'report/designer/:id',
@@ -207,7 +207,7 @@ const routes: RouteRecordRaw[] = [
         path: 'report/run/:id',
         name: 'ReportRun',
         component: () => import('@/views/report/ReportRun.vue'),
-        meta: { label: '查看报表', menuCode: 'report.list' },
+        meta: { label: '查看报表', menuCode: 'report.list', hideAside: true },
       },
       {
         path: 'tools/allocation-designer/:id',

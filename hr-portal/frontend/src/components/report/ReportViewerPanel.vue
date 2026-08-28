@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Download, Edit, InfoFilled, Refresh } from '@element-plus/icons-vue'
+import { Download, Edit, InfoFilled, Refresh } from '@element-plus/icons-vue'
+import FullscreenWorkspaceShell from '@/components/layout/FullscreenWorkspaceShell.vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { formatDateTime } from '@/utils/datetime'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
@@ -17,6 +18,11 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+const route = useRoute()
+const reportListTarget = computed(() => {
+  const target = route.query.returnTo
+  return typeof target === 'string' && target.startsWith('/report/list') ? target : '/report/list'
+})
 
 const report = ref<ReportItem | null>(null)
 const visibilityTagType = computed<'info' | 'warning' | 'success'>(() => {
@@ -30,6 +36,8 @@ const runWarnings = ref<string[]>([])
 const page = ref(1)
 const pageSize = ref(50)
 const loading = ref(false)
+const loadingReport = ref(false)
+const reportLoadError = ref('')
 const integrity = ref<{ ok: boolean; issues: string[] } | null>(null)
 const runtimeFilters = ref<FilterCond[]>([])
 const runtimeFilterRef = ref<InstanceType<typeof ReportRuntimeFilters> | null>(null)
@@ -41,6 +49,8 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
 }
 
 async function loadReport() {
+  loadingReport.value = true
+  reportLoadError.value = ''
   try {
     report.value = await reportsApi.get(props.reportId)
     try {
@@ -50,8 +60,15 @@ async function loadReport() {
     }
     await loadDatasetColumnLabels(report.value.dataset_id)
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '加载报表失败')
+    reportLoadError.value = e?.response?.data?.detail || '加载报表失败'
+  } finally {
+    loadingReport.value = false
   }
+}
+
+async function retryLoadReport() {
+  await loadReport()
+  if (report.value) await run()
 }
 
 async function loadDatasetColumnLabels(datasetId: number) {
@@ -144,70 +161,66 @@ function applyRuntimeFilters(filters: FilterCond[]) {
 
 onMounted(async () => {
   await loadReport()
-  await run()
+  if (report.value) await run()
 })
 
 defineExpose({ run })
 </script>
 
 <template>
-  <el-card v-if="report" class="report-view-card">
-    <template #header>
-      <div class="viewer-head">
-        <div class="viewer-title-area">
-          <el-button link @click="router.push('/report/list')">
-            <el-icon><ArrowLeft /></el-icon>返回列表
-          </el-button>
-          <span class="viewer-title">{{ report.name }}</span>
-          <el-tooltip placement="bottom-start" :width="320">
-            <template #content>
-              <div class="report-info-tip">
-                <div><span>数据来源</span><strong>{{ sourceSummary }}</strong></div>
-                <div><span>所有者</span><strong>{{ report.owner_name || '—' }}</strong></div>
-                <div><span>字段数</span><strong>{{ fieldCount }}</strong></div>
-                <div><span>运行次数</span><strong>{{ report.run_count }}</strong></div>
-                <div>
-                  <span>上次运行</span>
-                  <strong>{{ formatDateTime(report.last_run_at) }}</strong>
-                </div>
-                <div v-if="report.description" class="tip-desc">
-                  <span>描述</span>
-                  <strong>{{ report.description }}</strong>
-                </div>
-              </div>
-            </template>
-            <el-icon class="info-icon"><InfoFilled /></el-icon>
-          </el-tooltip>
-          <el-tag :type="visibilityTagType" size="small" effect="plain">
-            {{ REPORT_VISIBILITY_LABELS[report.visibility] }}
-          </el-tag>
-        </div>
-        <div class="viewer-actions">
-          <slot name="toolbar-extra" />
-          <el-button :loading="loading" @click="run">
-            <el-icon style="margin-right: 4px"><Refresh /></el-icon>刷新
-          </el-button>
-          <PermissionButton menu="report.list" op="U" @click="router.push(`/report/designer/${report.id}`)">
-            <el-icon style="margin-right: 4px"><Edit /></el-icon>编辑
-          </PermissionButton>
-          <PermissionButton menu="report.list" op="E" @click="doExport('csv')">
-            <el-icon style="margin-right: 4px"><Download /></el-icon>CSV
-          </PermissionButton>
-          <PermissionButton menu="report.list" op="E" type="primary" @click="doExport('xlsx')">
-            <el-icon style="margin-right: 4px"><Download /></el-icon>Excel
-          </PermissionButton>
-        </div>
-      </div>
+  <FullscreenWorkspaceShell
+    :title="report?.name || '查看报表'"
+    :subtitle="report ? sourceSummary : ''"
+    @back="router.push(reportListTarget)"
+  >
+    <template v-if="report" #title-extra>
+      <el-tooltip placement="bottom-start" :width="320">
+        <template #content>
+          <div class="report-info-tip">
+            <div><span>数据来源</span><strong>{{ sourceSummary }}</strong></div>
+            <div><span>所有者</span><strong>{{ report.owner_name || '—' }}</strong></div>
+            <div><span>字段数</span><strong>{{ fieldCount }}</strong></div>
+            <div><span>运行次数</span><strong>{{ report.run_count }}</strong></div>
+            <div><span>上次运行</span><strong>{{ formatDateTime(report.last_run_at) }}</strong></div>
+            <div v-if="report.description" class="tip-desc"><span>描述</span><strong>{{ report.description }}</strong></div>
+          </div>
+        </template>
+        <el-icon class="info-icon"><InfoFilled /></el-icon>
+      </el-tooltip>
+      <el-tag :type="visibilityTagType" size="small" effect="plain">
+        {{ REPORT_VISIBILITY_LABELS[report.visibility] }}
+      </el-tag>
     </template>
 
-    <ReportRuntimeFilters
-      ref="runtimeFilterRef"
-      :filters="report.config.filters || []"
-      :filter-logic="report.config.filter_logic"
-      :column-labels="columnLabels"
-      :current-dataset-tables="datasetTables"
-      @apply="applyRuntimeFilters"
-    />
+    <template v-if="report" #actions>
+      <slot name="toolbar-extra" />
+      <el-button :loading="loading" @click="run">
+        <el-icon style="margin-right: 4px"><Refresh /></el-icon>刷新
+      </el-button>
+      <PermissionButton
+        menu="report.list"
+        op="U"
+        @click="router.push({ path: `/report/designer/${report.id}`, query: { returnTo: reportListTarget } })"
+      >
+        <el-icon style="margin-right: 4px"><Edit /></el-icon>编辑
+      </PermissionButton>
+      <PermissionButton menu="report.list" op="E" @click="doExport('csv')">
+        <el-icon style="margin-right: 4px"><Download /></el-icon>CSV
+      </PermissionButton>
+      <PermissionButton menu="report.list" op="E" type="primary" @click="doExport('xlsx')">
+        <el-icon style="margin-right: 4px"><Download /></el-icon>Excel
+      </PermissionButton>
+    </template>
+
+    <div v-if="report" class="report-view-content">
+      <ReportRuntimeFilters
+        ref="runtimeFilterRef"
+        :filters="report.config.filters || []"
+        :filter-logic="report.config.filter_logic"
+        :column-labels="columnLabels"
+        :current-dataset-tables="datasetTables"
+        @apply="applyRuntimeFilters"
+      />
 
     <el-alert
       v-if="integrity && !integrity.ok"
@@ -253,52 +266,22 @@ defineExpose({ run })
       @page-change="run"
     />
 
-    <slot name="below-table" />
-  </el-card>
+      <slot name="below-table" />
+    </div>
 
-  <el-card v-else>
-    <el-empty description="加载报表中..." />
-  </el-card>
+    <el-empty v-else-if="reportLoadError" :description="reportLoadError">
+      <el-button type="primary" @click="retryLoadReport">重新加载</el-button>
+    </el-empty>
+    <el-empty v-else description="加载报表中..." />
+  </FullscreenWorkspaceShell>
 </template>
 
 <style scoped>
-.report-view-card {
+.report-view-content {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-}
-.report-view-card :deep(.el-card__header) {
-  flex: 0 0 auto;
-  padding: 12px 16px;
-}
-.report-view-card :deep(.el-card__body) {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-  padding: 0;
-}
-.viewer-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.viewer-title-area,
-.viewer-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.viewer-title {
-  overflow: hidden;
-  color: var(--color-text-primary);
-  font-size: 16px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .info-icon {
   flex: none;
@@ -325,28 +308,19 @@ defineExpose({ run })
 .tip-desc strong {
   line-height: 1.5;
 }
-.report-view-card :deep(.runtime-filter-bar) {
+.report-view-content :deep(.runtime-filter-bar) {
   flex: 0 0 auto;
 }
-.report-view-card :deep(.el-alert) {
+.report-view-content :deep(.el-alert) {
   flex: 0 0 auto;
   margin-left: 16px;
   margin-right: 16px;
 }
-.report-view-card :deep(.report-preview-table) {
+.report-view-content :deep(.report-preview-table) {
   margin-left: 16px;
   margin-right: 16px;
 }
-.report-view-card :deep(.report-table-pagination) {
+.report-view-content :deep(.report-table-pagination) {
   padding-bottom: 16px;
-}
-@media (max-width: 900px) {
-  .viewer-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .viewer-actions {
-    flex-wrap: wrap;
-  }
 }
 </style>

@@ -30,20 +30,20 @@ describe('TableToolFullscreenShell', () => {
       },
     })
 
-    const shell = document.body.querySelector('.table-tool-fullscreen')
+    const shell = document.body.querySelector('.fullscreen-workspace')
     expect(shell).not.toBeNull()
     expect(shell?.textContent).toContain('编辑模板')
     expect(shell?.querySelector('.save-action')).not.toBeNull()
     expect(shell?.querySelector('.page-content')).not.toBeNull()
     expect(shell?.querySelector('[aria-label="查看编辑模板说明"]')).not.toBeNull()
 
-    const buttons = shell?.querySelectorAll<HTMLButtonElement>('.table-tool-step')
-    expect(buttons?.[0].querySelector('.table-tool-step-label')?.textContent).toBe('基础模板')
+    const buttons = shell?.querySelectorAll<HTMLButtonElement>('.workspace-step')
+    expect(buttons?.[0].querySelector('.workspace-step-label')?.textContent).toBe('基础模板')
     buttons?.[1].click()
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted('stepChange')).toEqual([['output']])
 
-    shell?.querySelector<HTMLButtonElement>('.table-tool-back')?.click()
+    shell?.querySelector<HTMLButtonElement>('.workspace-back')?.click()
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted('back')).toHaveLength(1)
 

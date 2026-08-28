@@ -2,7 +2,8 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, View, Check, MagicStick, Position } from '@element-plus/icons-vue'
+import { View, Check, MagicStick, Position } from '@element-plus/icons-vue'
+import FullscreenWorkspaceShell from '@/components/layout/FullscreenWorkspaceShell.vue'
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
 import ReportBasicInfo from '@/components/report/ReportBasicInfo.vue'
 import ReportFieldWorkbench from '@/components/report/ReportFieldWorkbench.vue'
@@ -26,6 +27,10 @@ const { tables: TABLES } = useTableOptions()
 
 const route = useRoute()
 const router = useRouter()
+const reportListTarget = computed(() => {
+  const target = route.query.returnTo
+  return typeof target === 'string' && target.startsWith('/report/list') ? target : '/report/list'
+})
 
 const reportId = computed(() => {
   const id = route.params.id as string
@@ -595,7 +600,7 @@ async function save() {
     if (saveCreatesReport.value) {
       const r = await reportsApi.create(payload)
       ElMessage.success(isCopyMode.value ? '已另存为你的报表' : '已创建')
-      router.replace(`/report/designer/${r.id}`)
+      router.replace({ path: `/report/designer/${r.id}`, query: route.query })
     } else {
       await reportsApi.update(reportId.value!, payload)
       ElMessage.success('已保存')
@@ -782,35 +787,26 @@ watch(
 </script>
 
 <template>
-  <div class="designer-page">
-    <el-card class="designer-card">
-      <template #header>
-        <div class="designer-header">
-          <div class="designer-title-wrap">
-            <el-button link class="back-button" @click="router.push('/report/list')">
-              <el-icon><ArrowLeft /></el-icon>返回列表
-            </el-button>
-            <div class="designer-title-block">
-              <span class="designer-title">{{ pageTitle }}</span>
-              <span class="designer-subtitle">{{ currentDatasetName }} · {{ publishStatusLabel }} · {{ form.selected_codes.length }} 个字段 · {{ filterSummary }}</span>
-            </div>
-          </div>
-          <div class="designer-actions">
-            <el-button plain @click="basicSettingsOpen = true">基础设置</el-button>
-            <el-button :loading="explaining" @click="explainConfig">
-              <el-icon style="margin-right: 4px"><MagicStick /></el-icon>AI 解释
-            </el-button>
-            <el-button :loading="previewing" :disabled="saveCreatesReport" @click="preview">
-              <el-icon style="margin-right: 4px"><View /></el-icon>预览
-            </el-button>
-            <el-button type="primary" :loading="saving" @click="save">
-              <el-icon style="margin-right: 4px"><Check /></el-icon>保存
-            </el-button>
-          </div>
-        </div>
-      </template>
+  <FullscreenWorkspaceShell
+    :title="pageTitle"
+    :subtitle="`${currentDatasetName} · ${publishStatusLabel} · ${form.selected_codes.length} 个字段 · ${filterSummary}`"
+    :busy="saving"
+    @back="router.push(reportListTarget)"
+  >
+    <template #actions>
+      <el-button plain @click="basicSettingsOpen = true">基础设置</el-button>
+      <el-button :loading="explaining" @click="explainConfig">
+        <el-icon style="margin-right: 4px"><MagicStick /></el-icon>AI 解释
+      </el-button>
+      <el-button :loading="previewing" :disabled="saveCreatesReport" @click="preview">
+        <el-icon style="margin-right: 4px"><View /></el-icon>预览
+      </el-button>
+      <el-button type="primary" :loading="saving" @click="save">
+        <el-icon style="margin-right: 4px"><Check /></el-icon>保存
+      </el-button>
+    </template>
 
-      <el-form label-position="top" class="designer-form">
+    <el-form label-position="top" class="designer-form">
         <div class="section-title compact-section-title">
           字段编排（{{ form.selected_codes.length }} 个字段）
         </div>
@@ -909,8 +905,8 @@ watch(
             @page-change="preview"
           />
         </template>
-      </el-form>
-    </el-card>
+    </el-form>
+  </FullscreenWorkspaceShell>
 
     <el-drawer
       v-model="basicSettingsOpen"
@@ -1054,7 +1050,6 @@ watch(
         </template>
       </div>
     </el-drawer>
-  </div>
 </template>
 
 <style scoped>
@@ -1068,10 +1063,6 @@ watch(
   padding-bottom: 6px;
   border-bottom: 1px solid var(--color-border-light);
 }
-.designer-page {
-  padding: 16px;
-}
-
 .section-title-row {
   display: flex;
   align-items: center;
@@ -1085,61 +1076,6 @@ watch(
 }
 
 
-.designer-card :deep(.el-card__header) {
-  position: sticky;
-  top: 0;
-  z-index: 6;
-  padding: 10px 16px;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(10px);
-}
-.designer-card :deep(.el-card__body) {
-  padding: 12px 16px 16px;
-}
-.designer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-width: 0;
-}
-.designer-title-wrap {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 10px;
-}
-.back-button {
-  flex: 0 0 auto;
-}
-.designer-title-block {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-.designer-title {
-  overflow: hidden;
-  color: var(--color-text-primary);
-  font-size: 16px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.designer-subtitle {
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.designer-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-}
 .designer-form {
   display: grid;
   gap: 12px;
@@ -1147,17 +1083,6 @@ watch(
 .compact-section-title {
   margin: 0 0 2px;
 }
-@media (max-width: 900px) {
-  .designer-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .designer-actions {
-    width: 100%;
-    justify-content: flex-start;
-  }
-}
-
 .report-settings-drawer :deep(.el-drawer__body) {
   padding: 16px;
   background: var(--color-bg-page);
