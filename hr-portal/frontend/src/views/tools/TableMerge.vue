@@ -49,6 +49,14 @@ onMounted(loadTemplates)
 const editingId = ref<number | null>(null)
 const buildStep = ref<'upload' | 'ai' | 'form'>('upload')
 const activeConfigTab = ref<'base' | 'key' | 'dwd' | 'output'>('base')
+const workflowSteps = [
+  { key: 'base' as const, label: '基础模板' },
+  { key: 'key' as const, label: '主键映射' },
+  { key: 'dwd' as const, label: '数据关联' },
+  { key: 'output' as const, label: '信息输出' },
+]
+const workflowStepIndex = computed(() => workflowSteps.findIndex((step) => step.key === activeConfigTab.value))
+const isLastWorkflowStep = computed(() => workflowStepIndex.value === workflowSteps.length - 1)
 
 const keyMappings = ref<KeyMapping[]>([])
 const keyMappingDraft = ref<KeyMapping | null>(null)
@@ -136,6 +144,7 @@ async function saveKeyMapping() {
       ? keyMappings.value.map((value) => value.id === saved.id ? saved : value)
       : [...keyMappings.value, saved]
     keyMappingDraft.value = null
+    markSaved()
     ElMessage.success('主键值映射已保存')
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '主键值映射保存失败') }
   finally { keyMappingSaving.value = false }
@@ -195,6 +204,7 @@ async function saveDwdRelation() {
       ? dwdRelations.value.map((value) => value.id === saved.id ? saved : value)
       : [...dwdRelations.value, saved]
     dwdRelationDraft.value = null
+    markSaved()
     ElMessage.success('DWD 关联已保存')
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || 'DWD 关联保存失败') }
   finally { dwdRelationSaving.value = false }
@@ -239,6 +249,24 @@ const outputFieldCandidates = computed(() => {
 })
 const outputFieldLabels = computed(() => Object.fromEntries(dwdFields.value.map((field) => [field.code, field.label])))
 const savingTpl = ref(false)
+const savedSnapshot = ref('')
+
+function currentSnapshot() {
+  return JSON.stringify({
+    form: form.value,
+    keyMappings: keyMappings.value,
+    dwdRelations: dwdRelations.value,
+    keyMappingDraft: keyMappingDraft.value,
+    dwdRelationDraft: dwdRelationDraft.value,
+    editingMapping: editingMapping.value,
+    tplFiles: tplFiles.value.map((file) => ({ name: file.name, size: file.size, lastModified: file.lastModified })),
+    aiContext: aiContext.value,
+    draft: draft.value,
+  })
+}
+
+function markSaved() { savedSnapshot.value = currentSnapshot() }
+const hasUnsavedChanges = computed(() => savedSnapshot.value !== currentSnapshot())
 
 // 当前展开的 mapping 索引
 const expandedMapping = ref<number | null>(null)
@@ -261,6 +289,7 @@ function openNew() {
   resetForm()
   buildStep.value = 'upload'
   mode.value = 'build'
+  markSaved()
 }
 
 async function openEdit(id: number): Promise<boolean> {
@@ -281,9 +310,10 @@ async function openEdit(id: number): Promise<boolean> {
     expandedMapping.value = null
     editingMapping.value = null
     activeConfigTab.value = 'base'
-    void loadAdvancedConfig(id)
+    await loadAdvancedConfig(id)
     buildStep.value = 'form'
     mode.value = 'build'
+    markSaved()
     return true
   } catch {
     ElMessage.error('加载模板详情失败')
@@ -444,6 +474,35 @@ async function runAiDraft() {
   }
 }
 
+async function handleBuildBack() {
+  if (!hasUnsavedChanges.value) { mode.value = 'list'; return }
+  try {
+    await ElMessageBox.confirm('当前页面有未保存的修改，是否保存后返回？', '确认返回', {
+      type: 'warning', confirmButtonText: '保存后返回', cancelButtonText: '取消', distinguishCancelAndClose: true,
+    })
+    await saveTemplate(true)
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error('返回操作失败')
+  }
+}
+
+async function goToConfigStep(target: typeof activeConfigTab.value) {
+  if (target === activeConfigTab.value || buildStep.value !== 'form') return
+  if (await saveTemplate(false)) activeConfigTab.value = target
+}
+
+async function goToPreviousStep() {
+  const index = workflowStepIndex.value
+  if (index > 0) await goToConfigStep(workflowSteps[index - 1].key)
+}
+
+async function goToNextStep() {
+  const index = workflowStepIndex.value
+  if (index < 0) return
+  if (isLastWorkflowStep.value) await saveTemplate(true)
+  else await goToConfigStep(workflowSteps[index + 1].key)
+}
+
 function skipToManual() {
   draft.value = null
   resetForm()
@@ -509,6 +568,7 @@ async function saveEditMapping() {
     }
     expandedMapping.value = null
     editingMapping.value = null
+    markSaved()
     ElMessage.success('源映射已保存')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '源映射保存失败')
@@ -641,7 +701,19 @@ function aiLowConfidence(mappingName: string) {
 }
 
 // 保存模板
-async function saveTemplate() {
+async function saveTemplate(returnToList = true): Promise<boolean | undefined> {
+  if (editingMapping.value) {
+    await saveEditMapping()
+    if (editingMapping.value) return false
+  }
+  if (keyMappingDraft.value) {
+    await saveKeyMapping()
+    if (keyMappingDraft.value) return false
+  }
+  if (dwdRelationDraft.value) {
+    await saveDwdRelation()
+    if (dwdRelationDraft.value) return false
+  }
   if (!form.value.name.trim()) { ElMessage.warning('请填写模板名称'); return }
   if (!form.value.std_fields.length) { ElMessage.warning('标准字段不能为空'); return }
   const invalidMapping = form.value.mappings.find((mapping) => validateDerivedFields(mapping))
@@ -680,11 +752,14 @@ async function saveTemplate() {
       await tableToolsApi.updateTemplate(editingId.value, payload)
       ElMessage.success('模板已更新')
     } else {
-      await tableToolsApi.createTemplate(payload)
+      const created = await tableToolsApi.createTemplate(payload)
+      editingId.value = created.id
       ElMessage.success('模板已保存')
     }
-    await loadTemplates()
-    mode.value = 'list'
+    if (returnToList) await loadTemplates()
+    markSaved()
+    if (returnToList) mode.value = 'list'
+    return true
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '保存失败')
   } finally {
@@ -861,7 +936,7 @@ const editingColMapEntries = computed({
 </script>
 
 <template>
-  <div class="tt-root" :class="{ 'editor-fullscreen': mode === 'build' && editingId }">
+  <div class="tt-root" :class="{ 'editor-fullscreen': mode === 'build' }">
 
     <!-- ═══════════════════════════════════════════════════════
          模板列表页
@@ -924,16 +999,27 @@ const editingColMapEntries = computed({
     <template v-else-if="mode === 'build'">
       <!-- 顶部导航栏 -->
       <div class="build-topbar">
-        <button class="back-btn" @click="mode = 'list'">
+        <button class="back-btn" @click="handleBuildBack">
           <el-icon><ArrowLeft /></el-icon>
-          <span>返回模板列表</span>
+          <span>返回</span>
         </button>
         <h2 class="build-title">{{ editingId ? '编辑模板' : '新建归集模板' }}</h2>
+        <nav v-if="buildStep === 'form'" class="workflow-steps" aria-label="配置流程">
+          <button
+            v-for="(step, index) in workflowSteps"
+            :key="step.key"
+            class="workflow-step"
+            :class="{ active: activeConfigTab === step.key }"
+            :aria-current="activeConfigTab === step.key ? 'step' : undefined"
+            @click="goToConfigStep(step.key)">
+            <span class="workflow-step-label">{{ step.label }}</span>
+            <span v-if="index < workflowSteps.length - 1" class="workflow-step-arrow" aria-hidden="true">›</span>
+          </button>
+        </nav>
         <div class="build-topbar-actions">
-          <el-button @click="mode = 'list'">取消</el-button>
-          <el-button type="primary" :loading="savingTpl"
-            :disabled="buildStep !== 'form'" @click="saveTemplate">
-            保存模板
+          <el-button v-if="buildStep === 'form'" :disabled="workflowStepIndex <= 0 || savingTpl" @click="goToPreviousStep">上一步</el-button>
+          <el-button v-if="buildStep === 'form'" type="primary" :loading="savingTpl" @click="goToNextStep">
+            {{ isLastWorkflowStep ? '完成' : '下一步' }}
           </el-button>
         </div>
       </div>
@@ -1603,6 +1689,7 @@ const editingColMapEntries = computed({
     padding: 0 16px;
   }
   .editor-fullscreen .config-tabs-wrap {
+    display: none;
     border-radius: 0;
   }
   .advanced-config-panel {
@@ -1761,6 +1848,29 @@ const editingColMapEntries = computed({
   padding-bottom: 16px;
   border-bottom: 1px solid var(--color-border);
 }
+.workflow-steps {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  justify-content: center;
+  gap: 4px;
+}
+.workflow-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 6px 4px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.workflow-step.active { color: var(--color-primary); font-weight: 600; }
+.workflow-step:hover { color: var(--color-primary); }
+.workflow-step-arrow { color: var(--color-text-placeholder); font-size: 22px; line-height: 1; }
 .back-btn {
   display: flex; align-items: center; gap: 4px;
   font-size: 13px; color: var(--color-text-secondary);
@@ -2152,8 +2262,17 @@ const editingColMapEntries = computed({
 }
 
 @media (max-width: 900px) {
+  .build-topbar { gap: 10px; }
+  .workflow-steps { justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
   .build-layout, .merge-layout { grid-template-columns: 1fr; }
   .merge-left { position: static; }
   .stat-cards { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .editor-fullscreen { padding: 16px; }
+  .editor-fullscreen .build-topbar { margin: -16px -16px 16px; padding: 12px 16px; flex-wrap: wrap; }
+  .build-title { min-width: 0; }
+  .workflow-steps { order: 3; flex-basis: 100%; justify-content: flex-start; }
+  .build-topbar-actions { margin-left: auto; }
 }
 </style>
