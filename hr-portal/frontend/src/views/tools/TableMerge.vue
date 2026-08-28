@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Plus, Delete, Upload, Download, MagicStick, Edit,
+  Plus, Delete, Upload, Download, MagicStick,
   CircleCheck, Warning, Document, Grid
 } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import OutputFieldsEditor from '@/components/tools/OutputFieldsEditor.vue'
+import TableMergeKeyMappingPanel from '@/components/table-tools/TableMergeKeyMappingPanel.vue'
+import TableMergeTemplateCard from '@/components/table-tools/TableMergeTemplateCard.vue'
 import TableToolFullscreenShell from '@/components/tools/TableToolFullscreenShell.vue'
 import {
   tableToolsApi,
@@ -25,6 +28,7 @@ import {
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
+const router = useRouter()
 /** 改/删门禁:仅模板创建者本人或超级管理员(与后端一致) */
 function canModify(t: TemplateOut): boolean {
   return userStore.isSuperAdmin || t.created_by === userStore.user?.id
@@ -46,6 +50,10 @@ async function loadTemplates() {
 }
 onMounted(loadTemplates)
 
+function handleListBack() {
+  void router.push('/tools/center')
+}
+
 // ── 建/编辑模板（build 模式） ─────────────────────────────────────────────────
 const editingId = ref<number | null>(null)
 const buildStep = ref<'upload' | 'ai' | 'form'>('upload')
@@ -62,6 +70,10 @@ const isLastWorkflowStep = computed(() => workflowStepIndex.value === workflowSt
 const keyMappings = ref<KeyMapping[]>([])
 const keyMappingDraft = ref<KeyMapping | null>(null)
 const keyMappingSaving = ref(false)
+const keyMappingsLoading = ref(false)
+const keyMappingsError = ref('')
+const keyMappingSaveError = ref('')
+const keyMappingTogglingIds = ref<number[]>([])
 const dwdRelations = ref<DwdRelation[]>([])
 const dwdSources = ref<DwdRelationSource[]>([])
 const dwdFields = ref<DwdField[]>([])
@@ -85,23 +97,39 @@ function emptyDwdRelation(): Partial<DwdRelation> {
   }
 }
 
-async function loadAdvancedConfig(id: number) {
+async function loadKeyMappings(id = editingId.value) {
+  if (!id) return
+  keyMappingsLoading.value = true
+  keyMappingsError.value = ''
   try {
-    const [keys, relations, sources] = await Promise.all([
-      tableToolsApi.listKeyMappings(id),
-      tableToolsApi.listDwdRelations(id),
-      tableToolsApi.listDwdSources(),
-    ])
-    keyMappings.value = keys
-    dwdRelations.value = relations
-    dwdSources.value = sources
-    const fieldLists = await Promise.all(relations.filter((r) => r.enabled).map((r) =>
-      r.dataset_id ? tableToolsApi.listDwdFields(r.dataset_id) : r.report_id ? tableToolsApi.listDwdFieldsByReport(r.report_id) : Promise.resolve([]),
-    ))
-    dwdFields.value = [...new Map(fieldLists.flat().map((field) => [field.code, field])).values()]
+    keyMappings.value = await tableToolsApi.listKeyMappings(id)
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '加载高级配置失败')
+    keyMappingsError.value = e?.response?.data?.detail || '主键值映射加载失败'
+  } finally {
+    keyMappingsLoading.value = false
   }
+}
+
+async function loadAdvancedConfig(id: number) {
+  await Promise.all([
+    loadKeyMappings(id),
+    (async () => {
+      try {
+        const [relations, sources] = await Promise.all([
+          tableToolsApi.listDwdRelations(id),
+          tableToolsApi.listDwdSources(),
+        ])
+        dwdRelations.value = relations
+        dwdSources.value = sources
+        const fieldLists = await Promise.all(relations.filter((r) => r.enabled).map((r) =>
+          r.dataset_id ? tableToolsApi.listDwdFields(r.dataset_id) : r.report_id ? tableToolsApi.listDwdFieldsByReport(r.report_id) : Promise.resolve([]),
+        ))
+        dwdFields.value = [...new Map(fieldLists.flat().map((field) => [field.code, field])).values()]
+      } catch (e: any) {
+        ElMessage.error(e?.response?.data?.detail || '加载 DWD 关联配置失败')
+      }
+    })(),
+  ])
 }
 
 async function loadDwdFields(datasetId?: number, reportId?: number) {
@@ -124,9 +152,13 @@ function selectDwdDataset(datasetId?: number) {
 }
 
 function startKeyMapping(item?: KeyMapping) {
+  keyMappingSaveError.value = ''
   keyMappingDraft.value = item ? JSON.parse(JSON.stringify(item)) : emptyKeyMapping()
 }
-function cancelKeyMapping() { keyMappingDraft.value = null }
+function cancelKeyMapping() {
+  keyMappingDraft.value = null
+  keyMappingSaveError.value = ''
+}
 
 async function saveKeyMapping(showSuccess = true) {
   if (!editingId.value || !keyMappingDraft.value) return
@@ -136,6 +168,7 @@ async function saveKeyMapping(showSuccess = true) {
     return
   }
   keyMappingSaving.value = true
+  keyMappingSaveError.value = ''
   try {
     const payload = { source_key: item.source_key, canonical_merge_key: item.canonical_merge_key, enabled: item.enabled }
     const saved = item.id
@@ -147,8 +180,28 @@ async function saveKeyMapping(showSuccess = true) {
     keyMappingDraft.value = null
     markSaved()
     if (showSuccess) ElMessage.success('主键值映射已保存')
-  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '主键值映射保存失败') }
+  } catch (e: any) {
+    keyMappingSaveError.value = e?.response?.data?.detail || '主键值映射保存失败'
+  }
   finally { keyMappingSaving.value = false }
+}
+
+async function toggleKeyMapping(item: KeyMapping, enabled: boolean) {
+  if (!editingId.value || keyMappingTogglingIds.value.includes(item.id)) return
+  keyMappingTogglingIds.value = [...keyMappingTogglingIds.value, item.id]
+  try {
+    const saved = await tableToolsApi.updateKeyMapping(editingId.value, item.id, {
+      source_key: item.source_key,
+      canonical_merge_key: item.canonical_merge_key,
+      enabled,
+    })
+    keyMappings.value = keyMappings.value.map((value) => value.id === saved.id ? saved : value)
+    markSaved()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || `${enabled ? '启用' : '停用'}主键值映射失败`)
+  } finally {
+    keyMappingTogglingIds.value = keyMappingTogglingIds.value.filter((id) => id !== item.id)
+  }
 }
 
 async function removeKeyMapping(item: KeyMapping) {
@@ -157,6 +210,7 @@ async function removeKeyMapping(item: KeyMapping) {
     await ElMessageBox.confirm('确认删除该主键值映射？', '确认删除', { type: 'warning' })
     await tableToolsApi.deleteKeyMapping(editingId.value, item.id)
     keyMappings.value = keyMappings.value.filter((value) => value.id !== item.id)
+    markSaved()
   } catch (e: any) {
     if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.response?.data?.detail || '删除主键值映射失败')
   }
@@ -978,16 +1032,17 @@ const editingColMapEntries = computed({
     <!-- ═══════════════════════════════════════════════════════
          模板列表页
     ════════════════════════════════════════════════════════ -->
-    <template v-if="mode === 'list'">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">表格归集</h1>
-          <p class="page-desc">配置归集模板，定期上传多源文件一键合并为标准表格</p>
-        </div>
+    <TableToolFullscreenShell
+      v-if="mode === 'list'"
+      title="表格归集"
+      description="配置归集模板，定期上传多源文件一键合并为标准表格"
+      @back="handleListBack"
+    >
+      <template #actions>
         <PermissionButton menu="table_tools" op="C" type="primary" :icon="Plus" @click="openNew">
           新建模板
         </PermissionButton>
-      </div>
+      </template>
 
       <div v-if="listLoading" class="list-loading">
         <div class="skeleton" v-for="i in 3" :key="i" />
@@ -1002,33 +1057,18 @@ const editingColMapEntries = computed({
       </div>
 
       <div v-else class="tpl-grid">
-        <div class="tpl-card" v-for="t in templates" :key="t.id">
-          <div class="tpl-card-body">
-            <div class="tpl-card-icon"><el-icon><Document /></el-icon></div>
-            <div class="tpl-card-info">
-              <div class="tpl-name">{{ t.name }}</div>
-              <div class="tpl-desc" v-if="t.description">{{ t.description }}</div>
-              <div class="tpl-meta">
-                <span class="meta-tag" v-for="k in t.merge_keys" :key="k">{{ k }}</span>
-                <span class="meta-dot">·</span>
-                <span class="meta-count">{{ t.mapping_count }} 个数据源</span>
-              </div>
-            </div>
-          </div>
-          <div class="tpl-card-actions">
-            <el-button type="primary" size="small" :icon="Upload" @click="openMerge(t)">合并</el-button>
-            <PermissionButton v-if="canModify(t)" menu="table_tools" op="U" size="small" :icon="Plus" @click="openAddMapping(t.id)">
-              新增映射表
-            </PermissionButton>
-            <PermissionButton v-if="canModify(t)" menu="table_tools" op="U" size="small" :icon="Edit" @click="openEdit(t.id)">
-              编辑
-            </PermissionButton>
-            <PermissionButton v-if="canModify(t)" menu="table_tools" op="D" size="small" type="danger" :icon="Delete"
-              @click="deleteTemplate(t)" />
-          </div>
-        </div>
+        <TableMergeTemplateCard
+          v-for="t in templates"
+          :key="t.id"
+          :template="t"
+          :can-modify="canModify(t)"
+          @merge="openMerge"
+          @add="openAddMapping($event.id)"
+          @edit="openEdit($event.id)"
+          @delete="deleteTemplate"
+        />
       </div>
-    </template>
+    </TableToolFullscreenShell>
 
     <!-- ═══════════════════════════════════════════════════════
          建/编辑模板页（全页面，无弹窗）
@@ -1355,56 +1395,24 @@ const editingColMapEntries = computed({
         </template>
 
         <section v-if="editingId && activeConfigTab === 'key'" class="advanced-config-panel">
-          <div class="config-panel-head">
-            <div>
-              <h3 class="section-title">主键值映射</h3>
-              <p class="section-desc">仅对当前模板生效；每条记录是一组完整联合主键，源主键值经过精确匹配后，整体统一归集到目标主键值。</p>
-            </div>
-            <PermissionButton menu="table_tools" op="U" type="primary" size="small" :icon="Plus" @click="startKeyMapping()">新增映射</PermissionButton>
-          </div>
-          <div v-if="keyMappingDraft" class="config-editor key-mapping-editor">
-            <div class="key-mapping-editor-title">完整联合主键映射组</div>
-            <p class="key-mapping-editor-tip">两侧字段必须完整填写，并作为一组同时精确匹配；不能按单个字段拆分维护。</p>
-            <div class="key-map-groups">
-              <div class="key-map-group">
-                <div class="key-map-group-head"><strong>源主键组合</strong><span>匹配条件</span></div>
-                <div v-for="field in form.merge_keys" :key="field" class="key-map-field">
-                  <label>{{ field }}</label>
-                  <el-input v-model="keyMappingDraft.source_key[field]" placeholder="原始值" />
-                </div>
-              </div>
-              <div class="key-map-arrow" aria-hidden="true">整组映射 →</div>
-              <div class="key-map-group">
-                <div class="key-map-group-head"><strong>归集统一主键组合</strong><span>归集结果</span></div>
-                <div v-for="field in form.merge_keys" :key="field" class="key-map-field">
-                  <label>{{ field }}</label>
-                  <el-input v-model="keyMappingDraft.canonical_merge_key[field]" placeholder="统一值" />
-                </div>
-              </div>
-            </div>
-            <el-checkbox v-model="keyMappingDraft.enabled">启用该映射组</el-checkbox>
-            <div class="config-editor-actions">
-              <el-button size="small" @click="cancelKeyMapping">取消</el-button>
-              <PermissionButton menu="table_tools" op="U" type="primary" size="small" :loading="keyMappingSaving" @click="saveKeyMapping()">保存映射组</PermissionButton>
-            </div>
-          </div>
-          <el-empty v-if="!keyMappings.length && !keyMappingDraft" description="暂无主键值映射" />
-          <div v-for="item in keyMappings" :key="item.id" class="config-list-row key-mapping-list-row">
-            <div class="key-mapping-summary">
-              <div class="key-mapping-block">
-                <span class="key-mapping-block-label">源主键组合</span>
-                <span v-for="field in form.merge_keys" :key="field" class="key-pair">{{ field }}＝{{ item.source_key[field] }}</span>
-              </div>
-              <span class="key-mapping-summary-arrow" aria-hidden="true">整组映射 →</span>
-              <div class="key-mapping-block">
-                <span class="key-mapping-block-label">归集统一主键组合</span>
-                <span v-for="field in form.merge_keys" :key="field" class="key-pair">{{ field }}＝{{ item.canonical_merge_key[field] }}</span>
-              </div>
-            </div>
-            <el-tag size="small" :type="item.enabled ? 'success' : 'info'">{{ item.enabled ? '启用' : '停用' }}</el-tag>
-            <el-button link size="small" @click="startKeyMapping(item)">编辑</el-button>
-            <PermissionButton menu="table_tools" op="D" link type="danger" size="small" @click="removeKeyMapping(item)">删除</PermissionButton>
-          </div>
+          <TableMergeKeyMappingPanel
+            :merge-keys="form.merge_keys"
+            :mappings="keyMappings"
+            :draft="keyMappingDraft"
+            :loading="keyMappingsLoading"
+            :error="keyMappingsError"
+            :save-error="keyMappingSaveError"
+            :saving="keyMappingSaving"
+            :toggling-ids="keyMappingTogglingIds"
+            @update:draft="keyMappingDraft = $event"
+            @create="startKeyMapping()"
+            @edit="startKeyMapping"
+            @cancel="cancelKeyMapping"
+            @save="saveKeyMapping()"
+            @delete="removeKeyMapping"
+            @toggle="toggleKeyMapping"
+            @retry="loadKeyMappings()"
+          />
         </section>
 
         <section v-if="editingId && activeConfigTab === 'dwd'" class="advanced-config-panel">
@@ -1706,27 +1714,6 @@ const editingColMapEntries = computed({
   }
   .config-panel-head { justify-content: space-between; margin-bottom: 20px; }
   .config-editor { padding: 16px; margin-bottom: 16px; background: var(--color-bg-page); border-radius: var(--radius-md); }
-  .key-mapping-editor-title { font-size: 15px; font-weight: 600; }
-  .key-mapping-editor-tip { margin: 6px 0 16px; color: var(--color-text-secondary); font-size: 13px; }
-  .key-map-groups { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 16px; align-items: center; margin: 16px 0; }
-  .key-map-group { padding: 16px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-card); }
-  .key-map-group-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; color: var(--color-text-secondary); font-size: 12px; }
-  .key-map-group-head strong { color: var(--color-text-primary); font-size: 14px; }
-  .key-map-field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; align-items: center; }
-  .key-map-field + .key-map-field { margin-top: 10px; }
-  .key-map-field label { color: var(--color-text-secondary); font-size: 13px; }
-  .key-map-arrow, .key-mapping-summary-arrow { color: var(--color-primary); font-size: 13px; font-weight: 600; white-space: nowrap; }
-  .key-mapping-summary { display: flex; flex: 1; gap: 14px; align-items: center; }
-  .key-mapping-block { display: flex; flex: 1; flex-wrap: wrap; gap: 6px 12px; }
-  .key-mapping-block-label { width: 100%; color: var(--color-text-secondary); font-size: 12px; }
-  .key-pair { font-size: 13px; }
-  .key-mapping-list-row { align-items: flex-start; }
-  @media (max-width: 900px) {
-    .key-map-groups { grid-template-columns: 1fr; }
-    .key-map-arrow { justify-self: center; }
-    .key-mapping-summary { flex-direction: column; align-items: stretch; }
-    .key-mapping-summary-arrow { align-self: center; }
-  }
   .config-muted { display: block; margin-top: 4px; color: var(--color-text-secondary); font-size: 12px; }
   .dwd-pair-row { display: grid; grid-template-columns: 1fr 24px 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
   .trace-panel { margin-top: 16px; border-top: 1px solid var(--color-border); padding-top: 12px; color: var(--color-text-secondary); font-size: 12px; }
@@ -1740,24 +1727,6 @@ const editingColMapEntries = computed({
 }
 
 /* ── 列表页 ─────────────────────────────────────────────── */
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 24px;
-}
-.page-title {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 0 0 4px;
-}
-.page-desc {
-  font-size: 13px;
-  color: var(--color-text-placeholder);
-  margin: 0;
-}
-
 .list-loading { display: flex; flex-direction: column; gap: 12px; }
 .skeleton {
   height: 88px;
@@ -1780,42 +1749,9 @@ const editingColMapEntries = computed({
 
 .tpl-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
 }
-.tpl-card {
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
-}
-.tpl-card:hover {
-  border-color: var(--color-primary);
-  box-shadow: var(--shadow-card);
-}
-.tpl-card-body { display: flex; gap: 12px; margin-bottom: 14px; }
-.tpl-card-icon {
-  width: 40px; height: 40px; flex-shrink: 0;
-  border-radius: var(--radius-md);
-  background: var(--color-primary-light);
-  color: var(--color-primary);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 20px;
-}
-.tpl-name { font-size: 15px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 3px; }
-.tpl-desc { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 6px; }
-.tpl-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.meta-tag {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--color-primary-light);
-  color: var(--color-primary);
-}
-.meta-dot { color: var(--color-text-placeholder); }
-.meta-count { font-size: 12px; color: var(--color-text-secondary); }
-.tpl-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* ── 共用：顶部导航栏 ───────────────────────────────────── */
 /* ── 上传步骤 ───────────────────────────────────────────── */

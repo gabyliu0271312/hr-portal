@@ -11,6 +11,7 @@ describe('TableToolFullscreenShell', () => {
     const wrapper = mount(TableToolFullscreenShell, {
       props: {
         title: '编辑模板',
+        description: '模板编辑说明',
         steps: [
           { key: 'base', label: '基础模板' },
           { key: 'output', label: '信息输出' },
@@ -22,7 +23,10 @@ describe('TableToolFullscreenShell', () => {
         default: '<section class="page-content">页面内容</section>',
       },
       global: {
-        stubs: { ElIcon: true },
+        stubs: {
+          ElIcon: true,
+          ElTooltip: { template: '<span><slot /></span>' },
+        },
       },
     })
 
@@ -31,6 +35,7 @@ describe('TableToolFullscreenShell', () => {
     expect(shell?.textContent).toContain('编辑模板')
     expect(shell?.querySelector('.save-action')).not.toBeNull()
     expect(shell?.querySelector('.page-content')).not.toBeNull()
+    expect(shell?.querySelector('[aria-label="查看编辑模板说明"]')).not.toBeNull()
 
     const buttons = shell?.querySelectorAll<HTMLButtonElement>('.table-tool-step')
     buttons?.[1].click()

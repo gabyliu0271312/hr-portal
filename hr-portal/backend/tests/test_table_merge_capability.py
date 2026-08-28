@@ -349,8 +349,8 @@ def test_derived_field_does_not_override_direct_mapping_from_other_source():
     ]
 
 
-def test_derived_field_overrides_direct_mapping_when_inputs_present():
-    """同人同时出现在表1(派生 a*b)与表2(直接映射 c):派生优先,覆盖直接映射值。"""
+def test_derived_and_direct_values_from_different_mappings_are_aggregated():
+    """同人同时出现在派生和直接映射来源时，两类来源各自贡献目标字段。"""
     import io
     import openpyxl
     from app.table_tools.engine import run_merge
@@ -397,8 +397,60 @@ def test_derived_field_overrides_direct_mapping_when_inputs_present():
         [mapping1, mapping2],
     )
     assert result["rows"] == [
-        {"员工": "张三", "a": 10.0, "b": 20.0, "c": 200.0, "来源": "表1 + 表2"},
+        {"员工": "张三", "a": 10.0, "b": 20.0, "c": 1199.0, "来源": "表1 + 表2"},
     ]
+
+
+def test_derived_formula_does_not_run_for_direct_mapping_with_partial_inputs():
+    """其他映射声明的派生公式不能用直接映射来源的部分入参覆盖目标值。"""
+    import io
+    import openpyxl
+    from app.table_tools.engine import run_merge
+
+    def workbook(headers, values):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "明细"
+        ws.append(headers)
+        ws.append(values)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    derived_mapping = {
+        "name": "派生表", "sheet_kw": None, "header": [1, 1],
+        "match": ["员工", "基数", "比例"], "key_map": {"员工": "员工"},
+        "column_map": {"基数": "公积金缴存基数", "比例": "公积金个人比例"},
+        "derived_fields": [{
+            "target": "单位住房公积金",
+            "expr": "{公积金缴存基数}*{公积金个人比例}",
+            "round": 2,
+        }],
+        "derive_check": None, "skip_tokens": [],
+    }
+    direct_mapping = {
+        "name": "直接映射表", "sheet_kw": None, "header": [1, 1],
+        "match": ["员工", "单位公积金", "基数"], "key_map": {"员工": "员工"},
+        "column_map": {
+            "单位公积金": "单位住房公积金",
+            "基数": "公积金缴存基数",
+        },
+        "derived_fields": [], "derive_check": None, "skip_tokens": [],
+    }
+
+    result = run_merge(
+        [("直接映射.xlsx", workbook(
+            ["员工", "单位公积金", "基数"], ["张三", 500, 10000]
+        ))],
+        {
+            "merge_keys": ["员工"],
+            "std_fields": ["公积金缴存基数", "公积金个人比例", "单位住房公积金"],
+            "aggregate": "sum",
+        },
+        [derived_mapping, direct_mapping],
+    )
+
+    assert result["rows"][0]["单位住房公积金"] == 500.0
 
 
 def test_derived_field_treats_configured_blank_dependency_as_zero():

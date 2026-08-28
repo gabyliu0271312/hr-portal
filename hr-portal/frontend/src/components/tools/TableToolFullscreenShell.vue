@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, InfoFilled } from '@element-plus/icons-vue'
 
 export interface WorkflowStep {
   key: string
@@ -9,6 +9,7 @@ export interface WorkflowStep {
 
 withDefaults(defineProps<{
   title: string
+  description?: string
   steps?: WorkflowStep[]
   activeStep?: string
   busy?: boolean
@@ -33,7 +34,14 @@ const emit = defineEmits<{
             <el-icon><ArrowLeft /></el-icon>
             <span>返回</span>
           </button>
-          <h2 class="table-tool-title">{{ title }}</h2>
+          <div class="table-tool-title-wrap">
+            <h2 class="table-tool-title">{{ title }}</h2>
+            <el-tooltip v-if="description" :content="description" placement="bottom" :show-after="200">
+              <button class="table-tool-info" type="button" :aria-label="`查看${title}说明`">
+                <el-icon><InfoFilled /></el-icon>
+              </button>
+            </el-tooltip>
+          </div>
         </div>
 
         <nav v-if="steps.length" class="table-tool-steps" aria-label="流程步骤">
@@ -119,6 +127,27 @@ const emit = defineEmits<{
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.table-tool-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.table-tool-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: help;
+}
+.table-tool-info:hover { color: var(--color-primary); }
+.table-tool-info:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .table-tool-steps {
   position: absolute;
   left: 50%;
