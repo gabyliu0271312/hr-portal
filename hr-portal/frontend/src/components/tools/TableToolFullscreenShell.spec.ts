@@ -38,6 +38,7 @@ describe('TableToolFullscreenShell', () => {
     expect(shell?.querySelector('[aria-label="查看编辑模板说明"]')).not.toBeNull()
 
     const buttons = shell?.querySelectorAll<HTMLButtonElement>('.table-tool-step')
+    expect(buttons?.[0].querySelector('.table-tool-step-label')?.textContent).toBe('基础模板')
     buttons?.[1].click()
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted('stepChange')).toEqual([['output']])

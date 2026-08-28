@@ -55,7 +55,7 @@ const emit = defineEmits<{
             :aria-current="activeStep === step.key ? 'step' : undefined"
             @click="emit('stepChange', step.key)"
           >
-            <span>{{ step.label }}</span>
+            <span class="table-tool-step-label">{{ step.label }}</span>
             <span v-if="index < steps.length - 1" class="table-tool-step-arrow" aria-hidden="true">›</span>
           </button>
         </nav>
@@ -173,17 +173,8 @@ const emit = defineEmits<{
   white-space: nowrap;
 }
 .table-tool-step:hover:not(:disabled), .table-tool-step.active { color: var(--color-primary); }
-.table-tool-step.active::after {
-  position: absolute;
-  bottom: 1px;
-  left: 50%;
-  width: 24px;
-  height: 2px;
-  border-radius: 1px;
-  background: currentColor;
-  content: '';
-  transform: translateX(-50%);
-}
+.table-tool-step-label { padding-bottom: 4px; border-bottom: 2px solid transparent; }
+.table-tool-step.active .table-tool-step-label { border-bottom-color: currentColor; }
 .table-tool-step:disabled { cursor: default; opacity: 0.65; }
 .table-tool-step-arrow { position: absolute; right: 0; color: var(--color-text-placeholder); font-size: 22px; line-height: 1; }
 .table-tool-actions {
