@@ -238,6 +238,7 @@ def aggregate_records(
     agg: str = "sum",
     derived_fields: list[dict] | None = None,
     custom_functions: dict[str, Callable[..., Any]] | None = None,
+    derived_available_fields: set[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """按主键归集标准字段,再基于归集结果计算派生字段。"""
     person: dict[tuple, dict] = {}
@@ -280,9 +281,15 @@ def aggregate_records(
         # 派生字段:仅当公式引用的标准字段都真实存在时才计算,
         # 否则跳过、保留该字段已有的直接映射值(如来源表直接提供)。
         for d in derived_fields or []:
-            value = eval_derived(
-                d["expr"], row.get, custom_functions, missing_as_zero=False
-            )
+            _, refs = _to_field_calls(d["expr"])
+            available = derived_available_fields if derived_available_fields is not None else set(row)
+            if any(ref not in available for ref in refs):
+                continue
+            # If this row has none of the dependencies, preserve an existing
+            # direct-mapped target from another source instead of overwriting it.
+            if refs and not any(row.get(ref) not in (None, "") for ref in refs) and d["target"] in row:
+                continue
+            value = eval_derived(d["expr"], row.get, custom_functions, missing_as_zero=True)
             if value is None or value == "":
                 continue
             if isinstance(value, (int, float)) and "round" in d:
@@ -357,6 +364,9 @@ def run_merge(
     std_fields = template["std_fields"]
     agg = template.get("aggregate", "sum")
     derived_fields = _merge_derived_fields(mappings)
+    derived_available_fields = set(merge_keys)
+    for mapping in mappings:
+        derived_available_fields.update((mapping.get("column_map") or {}).values())
     derive_checks = _merge_derive_checks(mappings)
     header_candidates = {tuple(m["header"]) for m in mappings}
 
@@ -427,7 +437,7 @@ def run_merge(
         records_with_src, merge_keys, key_mappings
     )
     rows, agg_anomalies = aggregate_records(
-        records, merge_keys, std_fields, agg, derived_fields, custom_functions
+        records, merge_keys, std_fields, agg, derived_fields, custom_functions, derived_available_fields
     )
     _apply_derive_checks(rows, merge_keys, derive_checks, agg_anomalies)
     anomalies.extend(mapping_anomalies)

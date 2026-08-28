@@ -399,3 +399,17 @@ def test_derived_field_overrides_direct_mapping_when_inputs_present():
     assert result["rows"] == [
         {"员工": "张三", "a": 10.0, "b": 20.0, "c": 200.0, "来源": "表1 + 表2"},
     ]
+
+
+def test_derived_field_treats_configured_blank_dependency_as_zero():
+    from app.table_tools.engine import aggregate_records
+
+    rows, anomalies = aggregate_records(
+        [({"员工": "张三", "a": 100}, "表A")],
+        ["员工"],
+        ["a", "b", "c"],
+        derived_fields=[{"target": "c", "expr": "{a}+{b}"}],
+        derived_available_fields={"员工", "a", "b", "c"},
+    )
+    assert anomalies == []
+    assert rows[0]["c"] == 100.0
