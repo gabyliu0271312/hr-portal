@@ -1602,6 +1602,14 @@ const editingColMapEntries = computed({
     border-radius: var(--radius-lg);
     padding: 0 16px;
   }
+  .editor-fullscreen .config-tabs-wrap {
+    position: sticky;
+    top: 73px;
+    z-index: 19;
+    margin-top: -24px;
+    border-radius: 0;
+    box-shadow: 0 2px 8px rgb(15 23 42 / 8%);
+  }
   .advanced-config-panel {
     background: var(--color-bg-card);
     border: 1px solid var(--color-border);
@@ -1657,11 +1665,12 @@ const editingColMapEntries = computed({
 .editor-fullscreen .build-topbar {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 20;
   margin: -24px -32px 24px;
   padding: 16px 32px;
   background: var(--color-bg-page);
   border-bottom: 1px solid var(--color-border);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 6%);
 }
 
 .tt-root {
