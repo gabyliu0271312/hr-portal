@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import defaultdict
 from typing import Any, Callable
 
@@ -97,6 +98,48 @@ def eval_derived(
     )
 
 
+# ── 数值标准化 ────────────────────────────────────────────────
+_NUMERIC_TEXT_RE = re.compile(
+    r"^[+-]?(?:(?:\d{1,3}(?:[,\s]\d{3})+)|\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?$"
+)
+_CURRENCY_PREFIX_RE = re.compile(r"^(?:HK\$|RMB|CNY|USD|HKD)\s*", re.IGNORECASE)
+
+
+def _coerce_numeric_value(value: Any) -> Any:
+    """将明确的文本数字转为 float，无法确认时保留原值。"""
+    if isinstance(value, (int, float)) or value is None or isinstance(value, bool):
+        return value
+    if not isinstance(value, str):
+        return value
+
+    text = unicodedata.normalize("NFKC", value).replace("−", "-").strip()
+    if not text:
+        return value
+
+    is_percent = text.endswith("%")
+    if is_percent:
+        text = text[:-1].strip()
+
+    text = _CURRENCY_PREFIX_RE.sub("", text)
+    if text[:1] in {"¥", "￥", "$", "€", "£"}:
+        text = text[1:].strip()
+
+    is_parenthesized = text.startswith("(") and text.endswith(")")
+    if is_parenthesized:
+        text = text[1:-1].strip()
+
+    if not _NUMERIC_TEXT_RE.fullmatch(text):
+        return value
+
+    try:
+        number = float(re.sub(r"[,\s]", "", text))
+    except (TypeError, ValueError):
+        return value
+    if is_parenthesized:
+        number = -number
+    return number / 100 if is_percent else number
+
+
 # ── 行级工具 ────────────────────────────────────────────────
 def is_skip_row(rowvals: list[Any], key_idx: list[int], skip_tokens: list[str]) -> bool:
     """跳过合计/空行:主键列全空,或含合计字样。"""
@@ -171,11 +214,7 @@ def extract_records(
             val = rowvals[i]
             if val is None or str(val).strip() == "":
                 continue
-            try:
-                val = float(val)
-            except (ValueError, TypeError):
-                pass
-            rec[stdname] = val
+            rec[stdname] = _coerce_numeric_value(val)
         # 派生字段统一在按主键聚合后,使用标准字段计算
         # 拆分校验也在聚合后执行
         records.append(rec)
@@ -258,10 +297,10 @@ def aggregate_records(
         for f in std_fields:
             if f not in rec:
                 continue
-            val = rec[f]
+            val = _coerce_numeric_value(rec[f])
             if val is None or val == "":
                 continue
-            prev = cur.get(f)
+            prev = _coerce_numeric_value(cur.get(f))
             if isinstance(val, (int, float)):
                 if isinstance(prev, (int, float)):
                     if agg == "conflict" and abs(prev - val) > 0.01:
@@ -396,8 +435,16 @@ def _apply_derive_checks(rows: list[dict], merge_keys: list[str], checks: list[d
     for row in rows:
         for check in checks:
             try:
-                total = float(row.get(check["equals_col"], 0) or 0)
-                subtotal = sum(float(row.get(field, 0) or 0) for field in check["sum_of"])
+                total = _coerce_numeric_value(row.get(check["equals_col"], 0) or 0)
+                subtotal_values = [
+                    _coerce_numeric_value(row.get(field, 0) or 0)
+                    for field in check["sum_of"]
+                ]
+                if not isinstance(total, (int, float)) or not all(
+                    isinstance(value, (int, float)) for value in subtotal_values
+                ):
+                    continue
+                subtotal = sum(subtotal_values)
             except (TypeError, ValueError):
                 continue
             if abs(subtotal - total) > check.get("tol", 0.05):

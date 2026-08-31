@@ -521,3 +521,82 @@ def test_derived_field_treats_configured_blank_dependency_as_zero():
     )
     assert anomalies == []
     assert rows[0]["c"] == 100.0
+
+
+def test_merge_coerces_formatted_text_numbers_before_aggregation():
+    import io
+    import openpyxl
+    from app.table_tools.engine import run_merge
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["员工", "金额", "备注"])
+    for value in ["100", "1,200.50", "¥300", " 400 "]:
+        ws.append(["张三", value, "-"])
+    buffer = io.BytesIO()
+    wb.save(buffer)
+
+    mapping = {
+        "name": "金额表",
+        "sheet_kw": None,
+        "header": [1, 1],
+        "match": ["员工", "金额", "备注"],
+        "key_map": {"员工": "员工"},
+        "column_map": {"金额": "金额"},
+        "derived_fields": [],
+        "derive_check": None,
+        "skip_tokens": [],
+    }
+    result = run_merge(
+        [("金额表.xlsx", buffer.getvalue())],
+        {"merge_keys": ["员工"], "std_fields": ["金额"], "aggregate": "sum"},
+        [mapping],
+    )
+
+    assert result["rows"] == [{"员工": "张三", "金额": 2000.5, "来源": "金额表"}]
+
+
+def test_merge_coerces_text_numbers_for_derived_product():
+    import io
+    import openpyxl
+    from app.table_tools.engine import run_merge
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["员工", "缴存基数", "个人缴存比例"])
+    ws.append(["张三", "10,000", "5%"])
+    buffer = io.BytesIO()
+    wb.save(buffer)
+
+    mapping = {
+        "name": "公积金表",
+        "sheet_kw": None,
+        "header": [1, 1],
+        "match": ["员工", "缴存基数", "个人缴存比例"],
+        "key_map": {"员工": "员工"},
+        "column_map": {"缴存基数": "缴存基数", "个人缴存比例": "个人缴存比例"},
+        "derived_fields": [{
+            "target": "个人缴存额",
+            "expr": "{缴存基数}*{个人缴存比例}",
+            "round": 2,
+        }],
+        "derive_check": None,
+        "skip_tokens": [],
+    }
+    result = run_merge(
+        [("公积金表.xlsx", buffer.getvalue())],
+        {
+            "merge_keys": ["员工"],
+            "std_fields": ["缴存基数", "个人缴存比例", "个人缴存额"],
+            "aggregate": "sum",
+        },
+        [mapping],
+    )
+
+    assert result["rows"] == [{
+        "员工": "张三",
+        "缴存基数": 10000.0,
+        "个人缴存比例": 0.05,
+        "个人缴存额": 500.0,
+        "来源": "公积金表",
+    }]
