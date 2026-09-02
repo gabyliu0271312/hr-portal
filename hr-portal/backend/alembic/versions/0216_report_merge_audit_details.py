@@ -6,7 +6,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision = "0216_report_merge_audit_details"
-down_revision = "0215_performance_sub_question_parent_optional"
+down_revision = "0212_merge_result_column_labels"
 branch_labels = None
 depends_on = None
 
