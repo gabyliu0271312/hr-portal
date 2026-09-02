@@ -1312,6 +1312,7 @@ async def run_dataset_query(
     rounding_corrections: list[dict[str, Any]] | None = None,
     filter_logic: dict[str, Any] | None = None,
     list_lookup: dict[str, Any] | None = None,
+    dimension_merge_rules: list[dict[str, Any]] | None = None,
     scope_strategy: str | None = None,
     warnings_sink: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
@@ -1349,6 +1350,16 @@ async def run_dataset_query(
             _instance_label[ci.instance_id] = f"{base} ({idx})"
     # instance_id 输出顺序列表（用于 columns_meta / 输出构建）
     _output_instance_ids = [ci.instance_id for ci in _col_instances]
+
+    merge_rules = dimension_merge_rules or []
+    merge_signature = list(merge_rules[0].get("dimension_signature") or []) if merge_rules else []
+    merge_source_codes = {_instance_id_to_source.get(item, item) for item in merge_signature}
+    raw_filters = list(filters or [])
+    merge_filter_on = bool(merge_rules) and any(
+        str((item or {}).get("column") or "") in merge_source_codes for item in raw_filters
+    )
+    query_filters = [] if merge_filter_on else raw_filters
+    merge_post_filters = raw_filters if merge_filter_on else []
 
     ds, ds_tables, ds_rels = await _get_dataset_meta(dataset_id, db)
     if not ds_tables:
@@ -1475,7 +1486,7 @@ async def run_dataset_query(
                     selected.append(pair)
         selected_calc_fields = [f for f in calc_fields if f.code not in dangling_calc_codes]
 
-    calc_filter_on = any(str((f or {}).get("column") or "").startswith("calc.") for f in filters or [])
+    calc_filter_on = any(str((f or {}).get("column") or "").startswith("calc.") for f in query_filters)
     calc_sort_on = any(str((s or {}).get("column") or "").startswith("calc.") for s in sorts or [])
     calc_rule_quals: set[str] = set()
     for vr in value_rules or []:
@@ -1492,7 +1503,7 @@ async def run_dataset_query(
 
     for qual in set(selected_calc_quals) | calc_rule_quals:
         _maybe_add_internal_calc(calc_by_qual.get(qual))
-    for f in filters or []:
+    for f in raw_filters:
         _maybe_add_internal_calc(calc_by_qual.get(str((f or {}).get("column") or "")))
     for s in sorts or []:
         _maybe_add_internal_calc(calc_by_qual.get(str((s or {}).get("column") or "")))
@@ -1504,7 +1515,7 @@ async def run_dataset_query(
             if isinstance(dep, str) and "." in dep:
                 _reject_hidden_ref(dep, "计算字段依赖")
                 selected.append(_split_qualified(dep))
-    for f in filters or []:
+    for f in raw_filters:
         raw = str((f or {}).get("column") or "")
         if raw and not raw.startswith("calc.") and "." in raw:
             _reject_hidden_ref(raw, "筛选字段")
@@ -1717,7 +1728,7 @@ async def run_dataset_query(
 
     try:
         user_clause = None if calc_filter_on else build_filter_clause(
-            filters,
+            query_filters,
             _dataset_filter_clause,
             filter_logic,
         )
@@ -1815,7 +1826,7 @@ async def run_dataset_query(
     structural_reshape_on = column_to_row_on or row_to_column_on
 
     # 取数：聚合/转置要增删行，须取全量后 Python 分页；明细模式 SQL 分页
-    need_all = agg_on or transpose_on or structural_reshape_on or calc_filter_on or calc_sort_on
+    need_all = agg_on or transpose_on or structural_reshape_on or calc_filter_on or calc_sort_on or bool(merge_rules)
     total = 0
     if need_all:
         rows = (await db.execute(stmt)).all()
@@ -2031,7 +2042,7 @@ async def run_dataset_query(
                 item[target_qual] = _round_internal(raw_prod)
             except (InvalidOperation, TypeError, ValueError):
                 item[target_qual] = ""
-        if calc_filter_on and not _row_matches_filters(formula_item, filters, filter_logic):
+        if calc_filter_on and not _row_matches_filters(formula_item, query_filters, filter_logic):
             continue
         full_items.append(item)
 
@@ -2049,6 +2060,37 @@ async def run_dataset_query(
         if dropped:
             columns_meta = [cm for cm in columns_meta if cm["code"] not in dropped]
             mea_quals = [m for m in mea_quals if m not in dropped]
+
+    if merge_rules:
+        if merge_signature != dim_quals:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "DIMENSION_MERGE_SIGNATURE_MISMATCH",
+                    "message": "归并规则维度结构与当前报表维度不一致，请重新配置",
+                },
+            )
+        if column_to_row_on or row_to_column_on:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "DIMENSION_MERGE_STRUCTURAL_RESHAPE_CONFLICT",
+                    "message": "维度归并不能与列转行或行转列同时启用",
+                },
+            )
+        from app.reports.dimension_merge import apply_dimension_merge, validate_dimension_merge_target_types
+
+        data_types = {item["code"]: item.get("data_type", "string") for item in columns_meta}
+        try:
+            validate_dimension_merge_target_types(merge_rules, data_types)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        full_items = apply_dimension_merge(full_items, merge_rules, data_types)
+        if merge_post_filters:
+            full_items = [
+                item for item in full_items
+                if _row_matches_filters(item, merge_post_filters, filter_logic)
+            ]
 
     if column_to_row_on:
         selected_quals = [cm["code"] for cm in columns_meta]

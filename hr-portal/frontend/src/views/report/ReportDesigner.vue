@@ -7,13 +7,14 @@ import FullscreenWorkspaceShell from '@/components/layout/FullscreenWorkspaceShe
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
 import ReportBasicInfo from '@/components/report/ReportBasicInfo.vue'
 import ReportFieldWorkbench from '@/components/report/ReportFieldWorkbench.vue'
+import ReportDimensionMergeConfig from '@/components/report/ReportDimensionMergeConfig.vue'
 import ReportFilterList from '@/components/report/ReportFilterList.vue'
 import ReportListLookupConfig from '@/components/report/ReportListLookupConfig.vue'
 import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import PushTargetList from '@/components/push/PushTargetList.vue'
 import type { PushTargetOut } from '@/api/push_targets'
-import { reportsApi, deriveValueRules, REPORT_VISIBILITY_LABELS, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type FilterLogic, type ListLookupConfig, type ReportVisibility, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
+import { reportsApi, deriveValueRules, REPORT_VISIBILITY_LABELS, type AggregationFunc, type ColumnSetting, type DefaultSplitRule, type DimensionMergeRule, type FilterLogic, type ListLookupConfig, type ReportConfig, type ReportVisibility, type ReshapeConflictStrategy, type RunResult } from '@/api/reports'
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 import { useTableOptions } from '@/composables/useTableOptions'
@@ -66,6 +67,7 @@ const form = reactive({
   aggregate: false,
   default_aggregation: 'sum' as AggregationFunc,
   aggregations: {} as Record<string, string>,
+  dimension_merge_rules: [] as DimensionMergeRule[],
   transpose: {
     enabled: false,
     drop_zero_measures: true,
@@ -148,6 +150,7 @@ const previewItems = ref<RunResult['items']>([])
 const previewTotal = ref(0)
 const previewPage = ref(1)
 const previewPageSize = ref(20)
+const dimensionMergeErrors = ref<Array<{ code?: string; message?: string; rule_id?: string; field?: string; path?: string }>>([])
 const reportPushSourceTable = computed(() => reportId.value ? `report:${reportId.value}` : '')
 const reportPushColumns = computed(() => selectedColsDetail.value.map((c) => ({
   code: instanceIdOf(c),
@@ -170,6 +173,7 @@ const scopeStrategyLabel = computed(() => SCOPE_STRATEGY_OPTIONS.find((item) => 
 const filterSummary = computed(() => form.filters.length ? `${form.filters.length} 条筛选` : '未设置筛选')
 const pushSummary = computed(() => reportPushTargets.value.length ? `${reportPushTargets.value.length} 个推送配置` : '未配置推送')
 
+const fieldWorkbenchRef = ref<InstanceType<typeof ReportFieldWorkbench> | null>(null)
 const transposeRef = ref<InstanceType<typeof ReportTransposeConfig> | null>(null)
 const filterRef = ref<InstanceType<typeof ReportFilterList> | null>(null)
 
@@ -224,6 +228,16 @@ const selectedDimensions = computed(() =>
 const selectedMeasures = computed(() =>
   selectedColsDetail.value.filter((c) => isMeasureLike(c))
 )
+const structuralReshapeEnabled = computed(() =>
+  !!form.transpose.column_to_row?.enabled || !!form.transpose.row_to_column?.enabled
+)
+const currentDimensionSignature = computed(() => selectedDimensions.value.map(instanceIdOf))
+const dimensionMergePending = computed(() => form.dimension_merge_rules.length > 0 && (
+  !form.aggregate
+  || structuralReshapeEnabled.value
+  || form.dimension_merge_rules.some((rule) => rule.dimension_signature.join('|') !== currentDimensionSignature.value.join('|'))
+))
+const dimensionMergeReportConfig = computed(() => buildPayload().config as ReportConfig)
 const isDataset = computed(() => true)
 
 async function loadDatasets() {
@@ -270,6 +284,12 @@ async function loadReport() {
     form.aggregate = r.config.aggregate ?? false
     form.default_aggregation = (r.config.default_aggregation || 'sum') as AggregationFunc
     form.aggregations = { ...(r.config.aggregations ?? {}) }
+    form.dimension_merge_rules = (r.config.dimension_merge_rules ?? []).map((rule) => ({
+      ...rule,
+      dimension_signature: [...rule.dimension_signature],
+      sources: rule.sources.map((source) => ({ values: { ...source.values } })),
+      target: { values: { ...rule.target.values }, modes: { ...rule.target.modes } },
+    }))
     for (const [code, aggregation] of Object.entries(form.aggregations)) {
       if (aggregation && !form.column_settings[code]?.aggregation) {
         form.column_settings[code] = {
@@ -501,6 +521,12 @@ function buildPayload() {
             }),
           )
         : {},
+      dimension_merge_rules: form.dimension_merge_rules.map((rule) => ({
+        ...rule,
+        dimension_signature: [...rule.dimension_signature],
+        sources: rule.sources.map((source) => ({ values: { ...source.values } })),
+        target: { values: { ...rule.target.values }, modes: { ...rule.target.modes } },
+      })),
       transpose: {
         enabled: form.transpose.enabled,
         drop_zero_measures: form.transpose.drop_zero_measures,
@@ -589,11 +615,30 @@ function buildPayload() {
   }
 }
 
+function reportErrorDetail(error: any): any {
+  const detail = error?.response?.data?.detail
+  if (typeof detail !== 'string') return detail
+  try { return JSON.parse(detail) } catch { return detail }
+}
+
+function reportErrorMessage(error: any, fallback: string) {
+  const detail = reportErrorDetail(error)
+  if (typeof detail === 'string') return detail
+  return detail?.errors?.[0]?.message || detail?.message || fallback
+}
+
 async function save() {
   if (!form.name.trim()) { ElMessage.warning('请填写报表名'); return }
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段'); return }
   if (!form.dataset_id) { ElMessage.warning('请选择数据集'); return }
+  if (dimensionMergePending.value) {
+    dimensionMergeErrors.value = [{ message: '归并规则与当前出数类型、维度结构或数据重塑配置冲突' }]
+    fieldWorkbenchRef.value?.openAdvanced('merge')
+    ElMessage.error('维度归并规则与当前出数类型、维度结构或数据重塑配置冲突，请先处理')
+    return
+  }
   saving.value = true
+  dimensionMergeErrors.value = []
   try {
     if (form.transpose.enabled && form.transpose.rules?.length) await transposeRef.value?.ensureCcMaster()
     const payload = buildPayload()
@@ -606,7 +651,13 @@ async function save() {
       ElMessage.success('已保存')
     }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    const detail = reportErrorDetail(e)
+    const message = reportErrorMessage(e, '保存失败')
+    if (JSON.stringify(detail || '').includes('DIMENSION_MERGE')) {
+      dimensionMergeErrors.value = Array.isArray(detail?.errors) ? detail.errors : [detail]
+      fieldWorkbenchRef.value?.openAdvanced('merge')
+    }
+    ElMessage.error(message)
   } finally {
     saving.value = false
   }
@@ -624,7 +675,12 @@ async function preview() {
     previewItems.value = res.items
     previewTotal.value = res.total
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '预览失败')
+    const detail = reportErrorDetail(e)
+    if (JSON.stringify(detail || '').includes('DIMENSION_MERGE')) {
+      dimensionMergeErrors.value = Array.isArray(detail?.errors) ? detail.errors : [detail]
+      fieldWorkbenchRef.value?.openAdvanced('merge')
+    }
+    ElMessage.error(reportErrorMessage(e, '预览失败'))
   } finally {
     previewing.value = false
   }
@@ -820,6 +876,7 @@ watch(
         >
           <template #default="{ columns, loading, sourceGroups, canCreateField, createField, editField }">
             <ReportFieldWorkbench
+              ref="fieldWorkbenchRef"
               v-model:selected-codes="form.selected_codes"
               v-model:column-settings="form.column_settings"
               v-model:default-split-rule="form.default_split_rule"
@@ -835,6 +892,8 @@ watch(
               :lookup-enabled="form.list_lookup.enabled"
               :push-enabled="reportPushEnabled"
               :push-target-count="reportPushTargets.length"
+              :dimension-merge-rule-count="form.dimension_merge_rules.length"
+              :dimension-merge-pending="dimensionMergePending"
               :is-dataset="isDataset"
               :can-create-field="canCreateField"
               @create-field="createField"
@@ -847,6 +906,22 @@ watch(
                   v-model:filter-logic="form.filter_logic"
                   :all-columns="allColumns"
                   :current-dataset-tables="currentDataset?.tables"
+                />
+              </template>
+
+              <template #merge="{ openTab }">
+                <ReportDimensionMergeConfig
+                  v-model="form.dimension_merge_rules"
+                  :dimensions="selectedDimensions"
+                  :dataset-id="form.dataset_id || 0"
+                  :scope-strategy="form.scope_strategy"
+                  :report-id="reportId"
+                  :report-config="dimensionMergeReportConfig"
+                  :aggregate="form.aggregate"
+                  :structural-reshape="structuralReshapeEnabled"
+                  :errors="dimensionMergeErrors"
+                  @open-rules="openTab('rules')"
+                  @open-reshape="openTab('reshape')"
                 />
               </template>
 

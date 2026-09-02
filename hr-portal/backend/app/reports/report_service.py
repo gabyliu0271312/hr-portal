@@ -92,6 +92,7 @@ async def run_report_query(
     transpose = config.get("transpose", {})
     rounding_corrections = config.get("rounding_corrections", [])
     list_lookup = config.get("list_lookup", {})
+    dimension_merge_rules = config.get("dimension_merge_rules", [])
 
     # 定时任务下使用 page_size=1 只获取 total，避免大量数据占内存
     warnings: list[str] = []
@@ -108,6 +109,7 @@ async def run_report_query(
         transpose=transpose if isinstance(transpose, dict) else {},
         rounding_corrections=rounding_corrections if isinstance(rounding_corrections, list) else [],
         list_lookup=list_lookup if isinstance(list_lookup, dict) else {},
+        dimension_merge_rules=dimension_merge_rules if isinstance(dimension_merge_rules, list) else [],
         page=1,
         page_size=1,
         user=owner,

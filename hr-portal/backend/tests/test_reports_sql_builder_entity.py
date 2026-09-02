@@ -394,6 +394,69 @@ async def test_report_aggregate_keeps_database_numeric_values():
     assert_no_raw_sql(db)
 
 
+async def test_report_dimension_merge_runs_before_filter_and_aggregation():
+    table_name = "report_entity_dimension_merge"
+    model = make_entity_model(
+        table_name,
+        [Column("department", String), Column("amount", Numeric)],
+    )
+    old = register_table(table_name, model)
+    ds = DataSet(id=303, name="dimension merge")
+    table = DataSetTable(dataset_id=303, table_name=table_name, alias="r")
+    columns = [
+        make_column(table_name, "department", column_label="部门", agg_role="dimension"),
+        make_column(table_name, "amount", column_label="金额", data_type="number", agg_role="measure"),
+    ]
+    db = FakeSession(
+        get_map={(DataSet, 303): ds},
+        results=[
+            *dataset_rows(303, [table]),
+            FakeResult(rows=columns),
+            FakeResult(rows=[]),
+            FakeResult(rows=[
+                FakeRow(__r__id=1, __r__department="研发", __r__amount=Decimal("10")),
+                FakeRow(__r__id=2, __r__department="销售", __r__amount=Decimal("20")),
+                FakeRow(__r__id=3, __r__department="研发", __r__amount=Decimal("5")),
+            ]),
+        ],
+    )
+    rules = [{
+        "id": "sales-to-rd",
+        "name": "销售归研发",
+        "dimension_signature": ["r.department"],
+        "sources": [{"values": {"r.department": "销售"}}],
+        "target": {
+            "values": {"r.department": "研发"},
+            "modes": {"r.department": "custom"},
+        },
+    }]
+
+    try:
+        _cols, items, total = await sql_builder.run_dataset_query(
+            dataset_id=303,
+            columns=["r.department", "r.amount"],
+            filters=[{"column": "r.department", "op": "eq", "value": "研发"}],
+            filter_logic=None,
+            sorts=[],
+            value_rules=[],
+            aggregate=True,
+            aggregations={"r.amount": "sum"},
+            transpose={},
+            rounding_corrections=[],
+            dimension_merge_rules=rules,
+            page=1,
+            page_size=50,
+            user=None,
+            db=db,
+        )
+    finally:
+        restore_table(table_name, old)
+
+    assert total == 1
+    assert items == [{"r.department": "研发", "r.amount": 35.0}]
+    assert_no_raw_sql(db)
+
+
 async def test_report_duplicate_instances_project_and_aggregate_independently():
     table_name = "report_entity_duplicate_instances"
     model = make_entity_model(

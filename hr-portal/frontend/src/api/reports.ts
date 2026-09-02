@@ -140,6 +140,57 @@ export interface TransposeConfig {
   row_to_column?: RowToColumnConfig
 }
 
+export type DimensionMergeValue = string | number | boolean | null
+export type DimensionMergeTargetMode = 'auto' | 'source' | 'custom'
+
+export interface DimensionMergeTuple {
+  values: Record<string, DimensionMergeValue>
+}
+
+export interface DimensionMergeTarget extends DimensionMergeTuple {
+  modes: Record<string, DimensionMergeTargetMode>
+}
+
+export interface DimensionMergeRule {
+  id: string
+  name: string
+  dimension_signature: string[]
+  sources: DimensionMergeTuple[]
+  target: DimensionMergeTarget
+}
+
+export interface DimensionCombinationItem {
+  values: Record<string, DimensionMergeValue>
+  display_values: Record<string, DimensionMergeValue>
+  occupied_by?: string | null
+}
+
+export interface DimensionCombinationPage {
+  items: DimensionCombinationItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface DimensionMergePreview {
+  source_count: number
+  matched_combination_count: number
+  target_values?: Record<string, DimensionMergeValue> | null
+  collides_with_existing: boolean
+}
+
+export interface DimensionCombinationSearchPayload {
+  report_id?: number | null
+  dataset_id: number
+  scope_strategy?: ScopeStrategy | null
+  config: ReportConfig
+  dimension_signature: string[]
+  dimension_filters?: Record<string, DimensionMergeValue>
+  page?: number
+  page_size?: number
+  rule_id?: string | null
+}
+
 export type ListLookupOperator = 'union' | 'intersect' | 'except'
 export type ListLookupSourceType = 'field_values' | 'filtered_rows'
 
@@ -190,6 +241,7 @@ export interface ReportConfig {
   rounding_corrections?: { group_by: string | string[]; target_cols?: string[] }[]
   filter_logic?: FilterLogic | null
   list_lookup?: ListLookupConfig
+  dimension_merge_rules?: DimensionMergeRule[]
 }
 
 export interface ReportAclItem {
@@ -318,6 +370,12 @@ export const reportsApi = {
       .then((r) => r.data),
 
   get: (id: number) => api.get<ReportItem>(`/reports/${id}`).then((r) => r.data),
+
+  searchDimensionCombinations: (body: DimensionCombinationSearchPayload) =>
+    api.post<DimensionCombinationPage>('/reports/_dimension-merge/combinations/search', body).then((r) => r.data),
+
+  previewDimensionMerge: (body: DimensionCombinationSearchPayload) =>
+    api.post<DimensionMergePreview>('/reports/_dimension-merge/preview', body).then((r) => r.data),
 
   create: (body: ReportPayload) =>
     api.post<ReportItem>('/reports', body).then((r) => r.data),

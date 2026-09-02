@@ -3,12 +3,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import String, cast, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import current_user, get_user_menus
-from app.system.models import SystemLog
+from app.system.models import SystemLog, SystemLogDetail
 from app.users.models import User
 
 
@@ -44,6 +44,21 @@ class SystemLogOut(BaseModel):
 
 class SystemLogPage(BaseModel):
     items: list[SystemLogOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class SystemLogDetailOut(BaseModel):
+    id: int
+    detail_type: str
+    sequence: int
+    payload_json: dict[str, Any]
+    created_at: datetime
+
+
+class SystemLogDetailPage(BaseModel):
+    items: list[SystemLogDetailOut]
     total: int
     page: int
     page_size: int
@@ -130,3 +145,50 @@ async def list_system_logs(
     if paged:
         return SystemLogPage(items=items, total=total, page=page, page_size=page_size)
     return items
+
+
+@router.get("/{log_id}/details", response_model=SystemLogDetailPage)
+async def list_system_log_details(
+    log_id: int,
+    detail_type: str | None = Query(None, max_length=64),
+    keyword: str | None = Query(None, max_length=128),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> SystemLogDetailPage:
+    parent = await db.get(SystemLog, log_id)
+    if parent is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="操作日志不存在")
+    menu_code = _CATEGORY_MENU.get(parent.category)
+    if menu_code is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="未知日志分类")
+    menus = await get_user_menus(user, db)
+    if not any(item["code"] == menu_code for item in menus):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权限查看该日志")
+
+    stmt = select(SystemLogDetail).where(SystemLogDetail.system_log_id == log_id)
+    if detail_type:
+        stmt = stmt.where(SystemLogDetail.detail_type == detail_type)
+    if keyword:
+        stmt = stmt.where(cast(SystemLogDetail.payload_json, String).ilike(f"%{keyword.strip()}%"))
+    total = int((await db.scalar(select(func.count()).select_from(stmt.subquery()))) or 0)
+    rows = (
+        await db.execute(
+            stmt.order_by(SystemLogDetail.sequence, SystemLogDetail.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).scalars().all()
+    return SystemLogDetailPage(
+        items=[SystemLogDetailOut(
+            id=item.id,
+            detail_type=item.detail_type,
+            sequence=item.sequence,
+            payload_json=item.payload_json or {},
+            created_at=item.created_at,
+        ) for item in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )

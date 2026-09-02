@@ -145,6 +145,35 @@ class RunOverrides(BaseModel):
     filters: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class DimensionCombinationSearchIn(BaseModel):
+    report_id: int | None = None
+    dataset_id: int
+    scope_strategy: str | None = None
+    config: ReportConfig
+    dimension_signature: list[str] = Field(min_length=1)
+    dimension_filters: dict[str, Any] = Field(default_factory=dict)
+    page: int = Field(1, ge=1)
+    page_size: int = Field(50, ge=1, le=100)
+
+
+class DimensionMergePreviewIn(DimensionCombinationSearchIn):
+    rule_id: str | None = None
+
+
+class DimensionCombinationPage(BaseModel):
+    items: list[dict[str, Any]]
+    total: int
+    page: int
+    page_size: int
+
+
+class DimensionMergePreviewOut(BaseModel):
+    source_count: int
+    matched_combination_count: int
+    target_values: dict[str, Any] | None = None
+    collides_with_existing: bool = False
+
+
 _TABLE_LABELS = {
     "emp_realtime_roster": "员工实时花名册",
     "emp_monthly_roster": "员工月度花名册",
@@ -613,6 +642,281 @@ async def report_acl_options(
     )
 
 
+async def _dimension_combination_items(
+    payload: DimensionCombinationSearchIn,
+    user: User,
+    db: AsyncSession,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    from app.datasets.models import DataSet
+    from app.datasets.router import _can_access as dataset_can_access
+    from app.reports.dimension_merge import combination_key
+    from app.reports.sql_builder import run_dataset_query
+
+    dataset = await db.get(DataSet, payload.dataset_id)
+    if dataset is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="数据集不存在")
+    if not await dataset_can_access(user, dataset, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该数据集")
+    report_scope_strategy: str | None = payload.scope_strategy
+    if payload.report_id is not None:
+        report = await db.get(Report, payload.report_id)
+        if report is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
+        if report.dataset_id != payload.dataset_id or not await _can_access(user, report, db):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
+        if report_scope_strategy is None:
+            report_scope_strategy = report.scope_strategy
+
+    instance_to_source = {item.instance_id: item.source_code for item in payload.config.columns}
+    active_instances = set(instance_to_source)
+    if set(payload.dimension_signature) - active_instances:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "DIMENSION_MERGE_SIGNATURE_MISMATCH", "message": "归并维度不属于当前报表字段"},
+        )
+    if not payload.config.aggregate:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "DIMENSION_MERGE_REQUIRES_AGGREGATE", "message": "维度归并仅适用于汇总表"},
+        )
+    transpose = payload.config.transpose or {}
+    if bool((transpose.get("column_to_row") or {}).get("enabled")) or bool((transpose.get("row_to_column") or {}).get("enabled")):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "DIMENSION_MERGE_STRUCTURAL_RESHAPE_CONFLICT", "message": "请先关闭列转行或行转列"},
+        )
+
+    dimension_sources = {instance_to_source[item] for item in payload.dimension_signature}
+    base_filters = [
+        item.model_dump()
+        for item in payload.config.filters
+        if item.column not in dimension_sources
+    ]
+    columns_meta, rows, _ = await run_dataset_query(
+        dataset_id=payload.dataset_id,
+        columns=payload.config.columns,
+        filters=base_filters,
+        filter_logic=None,
+        sorts=[],
+        value_rules=payload.config.value_rules,
+        aggregate=True,
+        aggregations=payload.config.aggregations,
+        column_settings=payload.config.column_settings,
+        transpose=payload.config.transpose,
+        rounding_corrections=[],
+        list_lookup=payload.config.list_lookup,
+        dimension_merge_rules=[],
+        page=1,
+        page_size=0,
+        user=user,
+        db=db,
+        scope_strategy=report_scope_strategy,
+    )
+    meta_by_code = {item["code"]: item for item in columns_meta}
+    data_types = {key: str(meta_by_code.get(key, {}).get("data_type") or "string") for key in payload.dimension_signature}
+    occupied: dict[tuple[tuple[str, str], ...], str] = {}
+    for rule in payload.config.dimension_merge_rules:
+        for source in rule.sources:
+            occupied[combination_key(source.values, payload.dimension_signature, data_types)] = rule.name
+
+    deduped: dict[tuple[tuple[str, str], ...], dict[str, Any]] = {}
+    for row in rows:
+        values = {key: row.get(key) for key in payload.dimension_signature}
+        if any(
+            str(expected).casefold() not in str(values.get(key, "")).casefold()
+            for key, expected in payload.dimension_filters.items()
+            if expected not in (None, "")
+        ):
+            continue
+        key = combination_key(values, payload.dimension_signature, data_types)
+        deduped.setdefault(key, {
+            "values": values,
+            "display_values": {field: values.get(field) for field in payload.dimension_signature},
+            "occupied_by": occupied.get(key),
+        })
+    return list(deduped.values()), data_types
+
+
+async def _validate_dimension_merge_save(
+    config: ReportConfig,
+    *,
+    dataset_id: int,
+    report_id: int | None,
+    previous_config: dict[str, Any] | None,
+    scope_strategy: str | None,
+    user: User,
+    db: AsyncSession,
+) -> None:
+    if not config.dimension_merge_rules:
+        return
+    from app.reports.dimension_merge import (
+        apply_dimension_merge,
+        combination_key,
+        normalize_typed_value,
+        validate_dimension_merge_target_types,
+    )
+
+    signature = list(config.dimension_merge_rules[0].dimension_signature)
+    from app.data.models import TableColumn
+    from app.datasets.calculated_fields import active_calculated_fields
+    from app.datasets.models import DataSetTable
+
+    dataset_tables = (
+        await db.execute(select(DataSetTable).where(DataSetTable.dataset_id == dataset_id))
+    ).scalars().all()
+    table_by_alias = {item.alias: item.table_name for item in dataset_tables}
+    table_names = list(set(table_by_alias.values()))
+    columns = (
+        await db.execute(select(TableColumn).where(TableColumn.table_name.in_(table_names)))
+    ).scalars().all() if table_names else []
+    role_by_source = {
+        f"{alias}.{column.column_code}": column.agg_role or "dimension"
+        for alias, table_name in table_by_alias.items()
+        for column in columns
+        if column.table_name == table_name
+    }
+    for field in await active_calculated_fields(dataset_id, db):
+        role_by_source[f"calc.{field.code}"] = getattr(field, "agg_role", "dimension") or "dimension"
+    count_aggregations = {"count", "count_distinct"}
+    expected_dimensions = [
+        item.instance_id
+        for item in config.columns
+        if role_by_source.get(item.source_code, "dimension") != "measure"
+        and config.aggregations.get(item.instance_id) not in count_aggregations
+    ]
+    if signature != expected_dimensions:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "DIMENSION_MERGE_SIGNATURE_MISMATCH", "message": "归并规则必须包含当前报表全部维度，请重新配置"},
+        )
+    search_payload = DimensionCombinationSearchIn(
+        report_id=report_id,
+        dataset_id=dataset_id,
+        scope_strategy=scope_strategy,
+        config=config,
+        dimension_signature=signature,
+        page=1,
+        page_size=100,
+    )
+    items, data_types = await _dimension_combination_items(search_payload, user, db)
+    try:
+        validate_dimension_merge_target_types(config.dimension_merge_rules, data_types)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    available = {combination_key(item["values"], signature, data_types) for item in items}
+    previous_rules = list((previous_config or {}).get("dimension_merge_rules") or [])
+    previous_sources: set[tuple[tuple[str, str], ...]] = set()
+    for rule in previous_rules:
+        previous_signature = list((rule or {}).get("dimension_signature") or signature)
+        for source in (rule or {}).get("sources") or []:
+            previous_sources.add(combination_key((source or {}).get("values") or {}, previous_signature, data_types))
+    missing: list[dict[str, Any]] = []
+    for rule in config.dimension_merge_rules:
+        for source in rule.sources:
+            key = combination_key(source.values, signature, data_types)
+            if key not in available and key not in previous_sources:
+                missing.append({"rule_id": rule.id, "source": source.values})
+    if missing:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "DIMENSION_MERGE_SOURCE_NOT_AVAILABLE",
+                "message": "新增来源组合不在当前报表数据范围或当前用户权限内",
+                "errors": missing,
+            },
+        )
+
+    final_rows = apply_dimension_merge(
+        [{**item["values"]} for item in items],
+        config.dimension_merge_rules,
+        data_types,
+    )
+    instance_to_source = {item.instance_id: item.source_code for item in config.columns}
+    source_to_instance = {instance_to_source[item]: item for item in signature}
+    final_values = {
+        field: {normalize_typed_value(row.get(field), data_types.get(field)) for row in final_rows}
+        for field in signature
+    }
+    invalid_filters: list[dict[str, Any]] = []
+    for item in config.filters:
+        field = source_to_instance.get(item.column)
+        if field is None or item.op not in {"eq", "in"}:
+            continue
+        values = item.value if isinstance(item.value, list) else [item.value]
+        missing_values = [
+            value for value in values
+            if normalize_typed_value(value, data_types.get(field)) not in final_values[field]
+        ]
+        if missing_values:
+            invalid_filters.append({"field": item.column, "values": missing_values})
+    if invalid_filters:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "DIMENSION_MERGE_FILTER_INVALID",
+                "message": "归并后的维度值使已有筛选条件失效，请先调整筛选条件",
+                "errors": invalid_filters,
+            },
+        )
+
+
+@router.post(
+    "/_dimension-merge/combinations/search",
+    response_model=DimensionCombinationPage,
+    dependencies=[Depends(require_op("report.list", "V"))],
+)
+async def search_dimension_combinations(
+    payload: DimensionCombinationSearchIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> DimensionCombinationPage:
+    items, _ = await _dimension_combination_items(payload, user, db)
+    total = len(items)
+    start = (payload.page - 1) * payload.page_size
+    return DimensionCombinationPage(
+        items=items[start:start + payload.page_size],
+        total=total,
+        page=payload.page,
+        page_size=payload.page_size,
+    )
+
+
+@router.post(
+    "/_dimension-merge/preview",
+    response_model=DimensionMergePreviewOut,
+    dependencies=[Depends(require_op("report.list", "V"))],
+)
+async def preview_dimension_merge(
+    payload: DimensionMergePreviewIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> DimensionMergePreviewOut:
+    from app.reports.dimension_merge import combination_key
+
+    items, data_types = await _dimension_combination_items(payload, user, db)
+    selected = next(
+        (rule for rule in payload.config.dimension_merge_rules if rule.id == payload.rule_id),
+        None,
+    )
+    if selected is None:
+        return DimensionMergePreviewOut(source_count=0, matched_combination_count=0)
+    available = {
+        combination_key(item["values"], payload.dimension_signature, data_types)
+        for item in items
+    }
+    source_keys = {
+        combination_key(source.values, payload.dimension_signature, data_types)
+        for source in selected.sources
+    }
+    target_key = combination_key(selected.target.values, payload.dimension_signature, data_types)
+    return DimensionMergePreviewOut(
+        source_count=len(selected.sources),
+        matched_combination_count=len(source_keys & available),
+        target_values=selected.target.values,
+        collides_with_existing=target_key in available,
+    )
+
+
 @router.post(
     "",
     response_model=ReportOut,
@@ -650,6 +954,15 @@ async def create_report(
         await _validate_acl_principals(payload.dataset_id, acl_items, db)
     _ensure_valid_report_config(payload.config)
     await _ensure_valid_report_field_references(payload.config, payload.dataset_id, user, db)
+    await _validate_dimension_merge_save(
+        payload.config,
+        dataset_id=payload.dataset_id,
+        report_id=None,
+        previous_config=None,
+        scope_strategy=scope_strategy,
+        user=user,
+        db=db,
+    )
 
 
     report = Report(
@@ -738,8 +1051,18 @@ async def update_report(
     acl_items = payload.acl if visibility == "scoped" else []
     if acl_items:
         await _validate_acl_principals(payload.dataset_id, acl_items, db)
+    previous_config = json.loads(json.dumps(report.config or {}, ensure_ascii=False, default=str))
     _ensure_valid_report_config(payload.config)
     await _ensure_valid_report_field_references(payload.config, payload.dataset_id, user, db)
+    await _validate_dimension_merge_save(
+        payload.config,
+        dataset_id=payload.dataset_id,
+        report_id=report_id,
+        previous_config=previous_config,
+        scope_strategy=payload.scope_strategy,
+        user=user,
+        db=db,
+    )
 
     report.name = payload.name
     report.description = payload.description
@@ -758,7 +1081,8 @@ async def update_report(
     await db.refresh(report)
     result = await _to_out(report, db, user)
     await record_report_audit(
-        action="update", status="success", user=user, report=report, request=request
+        action="update", status="success", user=user, report=report, request=request,
+        previous_config=previous_config,
     )
     return result
 
@@ -873,6 +1197,7 @@ async def run_report(
             transpose=cfg.transpose,
             rounding_corrections=cfg.rounding_corrections,
             list_lookup=cfg.list_lookup,
+            dimension_merge_rules=[rule.model_dump() for rule in cfg.dimension_merge_rules],
             page=page,
             page_size=page_size,
             user=user,
@@ -1172,6 +1497,7 @@ async def _collect_export_rows(
         transpose=cfg.transpose,
         rounding_corrections=cfg.rounding_corrections,
         list_lookup=cfg.list_lookup,
+        dimension_merge_rules=[rule.model_dump() for rule in cfg.dimension_merge_rules],
         page=1,
         page_size=0,
         user=user,
@@ -1238,6 +1564,7 @@ async def get_report_push_columns(report: Report, db: AsyncSession) -> list[dict
         transpose=cfg.transpose,
         rounding_corrections=cfg.rounding_corrections,
         list_lookup=cfg.list_lookup,
+        dimension_merge_rules=[rule.model_dump() for rule in cfg.dimension_merge_rules],
         page=1,
         page_size=1,
         user=owner,

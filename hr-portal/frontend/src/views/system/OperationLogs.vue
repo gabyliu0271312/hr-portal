@@ -55,6 +55,17 @@ interface SystemLog {
       targets?: Array<{ id?: number; name?: string; ok?: boolean; rows?: number }>
     }
     client?: { ip?: string | null; user_agent?: string }
+    change_module?: string
+    dimension_merge_diff?: {
+      rules_added?: number
+      rules_removed?: number
+      rules_modified?: number
+      sources_added?: number
+      sources_removed?: number
+      detail_count?: number
+      before_hash?: string
+      after_hash?: string
+    }
     rule_name?: string
     trigger_type?: string
     biz_type?: string
@@ -74,10 +85,25 @@ interface SystemLogPage {
   page_size: number
 }
 
+interface SystemLogDetail {
+  id: number
+  detail_type: string
+  sequence: number
+  payload_json: Record<string, any>
+  created_at: string
+}
+
+interface SystemLogDetailPage {
+  items: SystemLogDetail[]
+  total: number
+  page: number
+  page_size: number
+}
+
 const LOG_TYPES = [
   { value: 'compensation_calc', label: '补偿金计算' },
   { value: 'automation_notification', label: '自动通知' },
-  { value: 'report_access', label: '报表访问' },
+  { value: 'report_access', label: '报表操作' },
 ]
 
 const REPORT_ACTIONS = [
@@ -105,6 +131,11 @@ const operator = ref('')
 const keyword = ref('')
 const dateRange = ref<Date[]>([])
 const selectedLog = ref<SystemLog | null>(null)
+const mergeDetails = ref<SystemLogDetail[]>([])
+const mergeDetailTotal = ref(0)
+const mergeDetailPage = ref(1)
+const mergeDetailLoading = ref(false)
+const mergeDetailError = ref('')
 let debounceTimer: number | undefined
 let requestSequence = 0
 
@@ -132,6 +163,52 @@ function statusType(value: string): 'success' | 'danger' | 'warning' | 'info' {
 
 function statusLabel(value: string) {
   return value === 'success' ? '成功' : value === 'failed' ? '失败' : value === 'denied' ? '拒绝' : value
+}
+
+function auditValueLabel(value: any) {
+  if (value && typeof value === 'object' && value.value_hmac) return `${value.display || '******'}（${shortHash(value.value_hmac)}）`
+  if (value === null) return '（NULL）'
+  if (value === '') return '（空字符串）'
+  return String(value ?? '—')
+}
+
+function detailChangeLabel(value: string) {
+  return ({
+    rule_added: '新增规则',
+    rule_removed: '删除规则',
+    source_added: '新增来源',
+    source_removed: '移除来源',
+    target_changed: '修改结果',
+    rule_renamed: '规则重命名',
+  } as Record<string, string>)[value] || value
+}
+
+async function loadMergeDetails() {
+  const log = selectedLog.value
+  if (!log?.metadata_json?.dimension_merge_diff?.detail_count) {
+    mergeDetails.value = []
+    mergeDetailTotal.value = 0
+    return
+  }
+  mergeDetailLoading.value = true
+  mergeDetailError.value = ''
+  try {
+    const result = await api.get<SystemLogDetailPage>(`/system-logs/${log.id}/details`, {
+      params: {
+        detail_type: 'report_dimension_merge_diff',
+        page: mergeDetailPage.value,
+        page_size: 50,
+      },
+    }).then((response) => response.data)
+    mergeDetails.value = result.items
+    mergeDetailTotal.value = result.total
+  } catch (error: any) {
+    mergeDetails.value = []
+    mergeDetailTotal.value = 0
+    mergeDetailError.value = error?.response?.data?.detail || '加载归并规则差异失败'
+  } finally {
+    mergeDetailLoading.value = false
+  }
 }
 
 function shortHash(value?: string | null) {
@@ -196,6 +273,11 @@ function changeLogType() {
 
 watch([operator, keyword], scheduleLoad)
 watch(page, () => void load())
+watch(selectedLog, () => {
+  mergeDetailPage.value = 1
+  void loadMergeDetails()
+})
+watch(mergeDetailPage, () => void loadMergeDetails())
 
 onMounted(load)
 onBeforeUnmount(() => window.clearTimeout(debounceTimer))
@@ -390,6 +472,54 @@ onBeforeUnmount(() => window.clearTimeout(debounceTimer))
           </el-table>
         </section>
 
+        <section v-if="selectedLog.metadata_json?.dimension_merge_diff" class="detail-section">
+          <h3>维度归并变更</h3>
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="新增规则">{{ selectedLog.metadata_json.dimension_merge_diff.rules_added || 0 }}</el-descriptions-item>
+            <el-descriptions-item label="删除规则">{{ selectedLog.metadata_json.dimension_merge_diff.rules_removed || 0 }}</el-descriptions-item>
+            <el-descriptions-item label="修改规则">{{ selectedLog.metadata_json.dimension_merge_diff.rules_modified || 0 }}</el-descriptions-item>
+            <el-descriptions-item label="差异明细">{{ selectedLog.metadata_json.dimension_merge_diff.detail_count || 0 }}</el-descriptions-item>
+          </el-descriptions>
+          <div v-if="mergeDetailError" class="detail-load-error" role="alert">
+            {{ mergeDetailError }}
+            <el-button link type="primary" @click="loadMergeDetails">重试</el-button>
+          </div>
+          <div v-else style="overflow-x: auto; margin-top: 12px">
+            <el-table v-loading="mergeDetailLoading" :data="mergeDetails" stripe style="width: 100%" max-height="600">
+              <el-table-column label="变化" width="110">
+                <template #default="{ row }">{{ detailChangeLabel(row.payload_json.change_type) }}</template>
+              </el-table-column>
+              <el-table-column label="规则" min-width="150">
+                <template #default="{ row }">{{ row.payload_json.rule_name || row.payload_json.after_name || row.payload_json.rule_id }}</template>
+              </el-table-column>
+              <el-table-column label="来源组合" min-width="240">
+                <template #default="{ row }">
+                  <div v-for="(value, field) in (row.payload_json.source || {})" :key="field" class="diff-value">
+                    <span>{{ field }}</span><strong>{{ auditValueLabel(value) }}</strong>
+                  </div>
+                  <span v-if="!row.payload_json.source">—</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="结果变化" min-width="260">
+                <template #default="{ row }">
+                  <div v-for="(value, field) in (row.payload_json.after_target || row.payload_json.target || {})" :key="field" class="diff-value">
+                    <span>{{ field }}</span><strong>{{ auditValueLabel(value) }}</strong>
+                  </div>
+                  <span v-if="!row.payload_json.after_target && !row.payload_json.target">—</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+          <el-pagination
+            v-if="mergeDetailTotal > 50"
+            v-model:current-page="mergeDetailPage"
+            :page-size="50"
+            :total="mergeDetailTotal"
+            layout="prev, pager, next"
+            style="justify-content: flex-end; margin-top: 12px"
+          />
+        </section>
+
         <section class="detail-section">
           <h3>追踪信息</h3>
           <el-descriptions :column="1" border>
@@ -429,6 +559,10 @@ onBeforeUnmount(() => window.clearTimeout(debounceTimer))
 .detail-section + .detail-section { margin-top: 24px; }
 .detail-section h3 { margin: 0 0 12px; font-size: 14px; letter-spacing: 0; }
 .privacy-note { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 12px; }
+.detail-load-error { margin-top: 12px; color: var(--color-danger); }
+.diff-value { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr); gap: 8px; font-size: 12px; }
+.diff-value span { color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.diff-value strong { font-weight: 500; overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .operation-log-page { padding: 16px; }
   .date-filter { width: min(100%, 340px); }

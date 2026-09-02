@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 class FilterCond(BaseModel):
@@ -74,6 +74,24 @@ def _columns_to_instance_ids(columns: list) -> list[str]:
             for c in columns]
 
 
+class DimensionTuple(BaseModel):
+    model_config = {"extra": "forbid"}
+    values: dict[str, Any]
+
+
+class DimensionTargetTuple(DimensionTuple):
+    modes: dict[str, Literal["auto", "source", "custom"]]
+
+
+class DimensionMergeRule(BaseModel):
+    model_config = {"extra": "forbid"}
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=128)
+    dimension_signature: list[str] = Field(min_length=1)
+    sources: list[DimensionTuple] = Field(min_length=1)
+    target: DimensionTargetTuple
+
+
 class ReportConfig(BaseModel):
     columns: list[str | ColumnInstance] = Field(default_factory=list)
     filters: list[FilterCond] = Field(default_factory=list)
@@ -89,6 +107,7 @@ class ReportConfig(BaseModel):
     rounding_corrections: list[dict] = Field(default_factory=list)
     filter_logic: dict | None = None
     list_lookup: dict = Field(default_factory=dict)
+    dimension_merge_rules: list[DimensionMergeRule] = Field(default_factory=list)
 
     @field_validator("column_settings")
     @classmethod

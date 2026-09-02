@@ -235,7 +235,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
           <el-tooltip placement="right" :width="420">
             <template #content>
               <div class="tip-block">
-                <p><strong>重映射：</strong>把某个度量搬到新的维度组合下，适合内推费用改挂成本中心等业务规则。</p>
+                <p><strong>度量重映射：</strong>把某个度量搬到新的维度组合下，适合内推费用改挂成本中心等业务规则。</p>
                 <p><strong>列转行：</strong>把多个字段名变成“项目”，字段值变成“值”。转行后未参与转行的字段可能被重复带出，汇总前要确认口径。</p>
                 <p><strong>行转列：</strong>把某个字段的取值变成列头。若同一分组和列头下有多条记录，需要用取第一条、取最后一条或统计类型处理冲突。</p>
               </div>
@@ -258,7 +258,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
         <el-tab-pane name="remap">
           <template #label>
             <span class="tab-label">
-              重映射
+              度量重映射
               <el-tooltip placement="top" :width="360">
                 <template #content>
                   <div class="tip-block">
@@ -371,7 +371,7 @@ defineExpose({ ensureCcMaster, ccNameOptions })
             </div>
           </div>
           <el-button link type="primary" @click="addRule">
-            <el-icon style="margin-right: 4px"><Plus /></el-icon>添加重映射规则
+            <el-icon style="margin-right: 4px"><Plus /></el-icon>添加度量重映射规则
           </el-button>
         </el-tab-pane>
 

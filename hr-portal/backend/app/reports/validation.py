@@ -94,6 +94,17 @@ def validate_report_config_references(config: Any) -> Any:
         for filter_index, filter_item in enumerate(source.get('filters') or []):
             if isinstance(filter_item, dict):
                 require_source(filter_item.get('column'), f'list_lookup.sources[{index}].filters[{filter_index}].column')
+    for index, rule in enumerate(config.dimension_merge_rules):
+        require_instances(rule.dimension_signature, f'dimension_merge_rules[{index}].dimension_signature')
+        for source_index, source in enumerate(rule.sources):
+            for key in source.values:
+                require_instance(key, f'dimension_merge_rules[{index}].sources[{source_index}].values')
+        for key in rule.target.values:
+            require_instance(key, f'dimension_merge_rules[{index}].target.values')
+        for key in rule.target.modes:
+            require_instance(key, f'dimension_merge_rules[{index}].target.modes')
+    from app.reports.dimension_merge import validate_dimension_merge_structure
+    validate_dimension_merge_structure(config)
     return config
 
 

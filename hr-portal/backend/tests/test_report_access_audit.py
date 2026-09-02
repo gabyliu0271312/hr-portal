@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException, Request
 
-from app.reports.audit import build_report_audit_event
+from app.reports.audit import build_dimension_merge_diff, build_report_audit_event, protect_dimension_merge_details
 from app.reports.models import Report
 from app.system.models import SystemLog
 from app.system import router as system_router
@@ -192,3 +192,51 @@ async def test_report_access_category_requires_operation_log_permission(monkeypa
             db=_FakeDb(),
         )
     assert exc.value.status_code == 403
+
+
+def test_dimension_merge_audit_records_only_changed_sources() -> None:
+    before = {
+        "dimension_merge_rules": [{
+            "id": "r1",
+            "name": "规则一",
+            "dimension_signature": ["t.a", "t.b"],
+            "sources": [{"values": {"t.a": 1, "t.b": "x"}}],
+            "target": {"values": {"t.a": 9, "t.b": "z"}, "modes": {"t.a": "custom", "t.b": "custom"}},
+        }]
+    }
+    after = {
+        "dimension_merge_rules": [{
+            "id": "r1",
+            "name": "规则一",
+            "dimension_signature": ["t.a", "t.b"],
+            "sources": [
+                {"values": {"t.a": 1, "t.b": "x"}},
+                {"values": {"t.a": 2, "t.b": "y"}},
+            ],
+            "target": {"values": {"t.a": 9, "t.b": "z"}, "modes": {"t.a": "custom", "t.b": "custom"}},
+        }]
+    }
+
+    summary, details = build_dimension_merge_diff(before, after)
+
+    assert summary["rules_modified"] == 1
+    assert summary["sources_added"] == 1
+    assert summary["detail_count"] == 1
+    assert details[0]["change_type"] == "source_added"
+    assert details[0]["source"] == {"t.a": 2, "t.b": "y"}
+
+
+def test_dimension_merge_audit_masks_sensitive_values() -> None:
+    details = [{
+        "change_type": "source_added",
+        "source": {"t.employee": "张三", "t.region": "华东"},
+        "target": {"t.employee": "李四", "t.region": "华东"},
+    }]
+
+    protected = protect_dimension_merge_details(details, {"t.employee": True})
+    serialized = json.dumps(protected, ensure_ascii=False)
+
+    assert "张三" not in serialized
+    assert "李四" not in serialized
+    assert "华东" in serialized
+    assert protected[0]["source"]["t.employee"]["value_hmac"]

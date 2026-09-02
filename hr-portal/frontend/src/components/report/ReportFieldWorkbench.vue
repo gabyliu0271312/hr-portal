@@ -21,6 +21,8 @@ const props = defineProps<{
   lookupEnabled?: boolean
   pushEnabled?: boolean
   pushTargetCount?: number
+  dimensionMergeRuleCount?: number
+  dimensionMergePending?: boolean
   isDataset?: boolean
   loading?: boolean
   canCreateField?: boolean
@@ -113,7 +115,7 @@ const numericSelectedCols = computed(() =>
 )
 const draggingCode = ref('')
 const fieldSearch = ref('')
-type AdvancedTab = 'rules' | 'reshape' | 'lookup' | 'push'
+type AdvancedTab = 'rules' | 'merge' | 'reshape' | 'lookup' | 'push'
 const collapsedSourceKeys = ref<Set<string>>(new Set())
 const advancedOpen = ref(false)
 const advancedTab = ref<AdvancedTab>('rules')
@@ -135,6 +137,10 @@ const advancedMeta = computed(() => {
     rules: {
       title: '统计规则',
       desc: '控制明细/汇总口径、默认统计方式、拆分规则和余差收口。',
+    },
+    merge: {
+      title: '维度归并',
+      desc: '将完整维度组合重映射后，按当前报表的统计规则统一汇总。',
     },
     reshape: {
       title: '数据重塑',
@@ -489,6 +495,8 @@ function openAdvanced(tab: AdvancedTab) {
   advancedTab.value = tab
   advancedOpen.value = true
 }
+
+defineExpose({ openAdvanced })
 </script>
 
 <template>
@@ -574,6 +582,24 @@ function openAdvanced(tab: AdvancedTab) {
           <span class="section-actions">
             <el-tag size="small" effect="plain">{{ aggregate ? '汇总表' : '明细表' }}</el-tag>
             <el-button size="small" plain @click="openAdvanced('rules')">统计规则</el-button>
+            <el-tooltip
+              v-if="$slots.merge"
+              :disabled="aggregate || !!dimensionMergeRuleCount"
+              content="维度归并仅适用于汇总表"
+              placement="top"
+            >
+              <span>
+                <el-button
+                  size="small"
+                  :type="dimensionMergePending ? 'danger' : dimensionMergeRuleCount ? 'primary' : 'default'"
+                  :plain="!dimensionMergeRuleCount"
+                  :disabled="!aggregate && !dimensionMergeRuleCount"
+                  @click="openAdvanced('merge')"
+                >
+                  维度归并<span v-if="dimensionMergeRuleCount"> {{ dimensionMergeRuleCount }}</span><span v-if="dimensionMergePending"> · 待处理</span>
+                </el-button>
+              </span>
+            </el-tooltip>
             <el-button v-if="$slots.reshape" size="small" plain @click="openAdvanced('reshape')">数据重塑</el-button>
             <el-button
               v-if="$slots.lookup"
@@ -952,6 +978,7 @@ function openAdvanced(tab: AdvancedTab) {
         <div class="advanced-topbar">
           <div class="advanced-tab-buttons">
             <button class="advanced-tab-btn" :class="{ active: advancedTab === 'rules' }" @click="advancedTab = 'rules'">统计规则</button>
+            <button v-if="$slots.merge" class="advanced-tab-btn" :class="{ active: advancedTab === 'merge' }" @click="advancedTab = 'merge'">维度归并</button>
             <button class="advanced-tab-btn" :class="{ active: advancedTab === 'reshape' }" @click="advancedTab = 'reshape'">数据重塑</button>
             <button v-if="$slots.lookup" class="advanced-tab-btn" :class="{ active: advancedTab === 'lookup' }" @click="advancedTab = 'lookup'">名单回查</button>
             <button v-if="$slots.push" class="advanced-tab-btn" :class="{ active: advancedTab === 'push' }" @click="advancedTab = 'push'">推送配置</button>
@@ -1053,6 +1080,9 @@ function openAdvanced(tab: AdvancedTab) {
                 </div>
               </div>
             </div>
+          </el-tab-pane>
+          <el-tab-pane v-if="$slots.merge" label="维度归并" name="merge">
+            <slot name="merge" :open-tab="(tab: AdvancedTab) => advancedTab = tab" />
           </el-tab-pane>
           <el-tab-pane v-if="$slots.reshape" label="数据重塑" name="reshape">
             <slot name="reshape" />

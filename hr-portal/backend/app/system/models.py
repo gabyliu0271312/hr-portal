@@ -34,3 +34,21 @@ class SystemLog(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+
+class SystemLogDetail(Base):
+    __tablename__ = "system_log_details"
+    __table_args__ = (
+        Index("ix_system_log_details_log_id", "system_log_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    system_log_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("system_logs.id", ondelete="CASCADE"), nullable=False
+    )
+    detail_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
