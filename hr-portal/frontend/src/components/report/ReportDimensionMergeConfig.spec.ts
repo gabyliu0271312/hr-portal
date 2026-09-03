@@ -45,6 +45,10 @@ const stubs = {
   ElForm: { template: '<form><slot /></form>' },
   ElFormItem: { template: '<div><slot /></div>' },
   ElInput: true,
+  ElRadioGroup: { template: '<div><slot /></div>' },
+  ElRadioButton: { template: '<button><slot /></button>' },
+  ElSelect: { template: '<div><slot /></div>' },
+  ElOption: { template: '<span><slot /></span>' },
   ReportDimensionMergeRuleList: {
     props: ['rules', 'selectedId', 'errorRuleIds'],
     emits: ['add', 'select', 'remove'],

@@ -20,6 +20,7 @@ const props = defineProps<{
   config: ReportConfig
   dimensions: DimensionColumn[]
   modelValue: DimensionMergeTuple[]
+  expandBy?: string[]
   currentRuleName?: string
 }>()
 
@@ -41,14 +42,17 @@ function idOf(column: DimensionColumn) {
 }
 
 const signature = computed(() => props.dimensions.map(idOf))
+const matchSignature = computed(() => signature.value.filter((field) => !props.expandBy?.includes(field)))
 
 function valueKey(value: DimensionMergeValue) {
   return `${value === null ? 'null' : typeof value}:${String(value)}`
 }
 
 function tupleKey(values: Record<string, DimensionMergeValue>) {
-  return signature.value.map((field) => `${field}=${valueKey(values[field] ?? null)}`).join('|')
+  return matchSignature.value.map((field) => `${field}=${valueKey(values[field] ?? null)}`).join('|')
 }
+
+const visibleDimensions = computed(() => props.dimensions.filter((column) => !props.expandBy?.includes(idOf(column))))
 
 const selectedKeys = computed(() => new Set(props.modelValue.map((item) => tupleKey(item.values))))
 
@@ -72,6 +76,7 @@ async function load() {
       scope_strategy: props.scopeStrategy,
       config: props.config,
       dimension_signature: signature.value,
+      expand_by: props.expandBy || [],
       dimension_filters: Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '')),
       page: page.value,
       page_size: pageSize.value,
@@ -104,7 +109,7 @@ function reset() {
   void load()
 }
 
-watch(() => [props.datasetId, signature.value.join('|')], () => {
+watch(() => [props.datasetId, signature.value.join('|'), (props.expandBy || []).join('|')], () => {
   page.value = 1
   void load()
 })
@@ -117,15 +122,18 @@ defineExpose({ reload: load })
   <section class="combination-picker">
     <div class="picker-head">
       <div>
-        <strong>来源完整组合</strong>
+        <strong>{{ expandBy?.length ? '来源匹配组合' : '来源完整组合' }}</strong>
         <span>已选择 {{ modelValue.length }} 个</span>
       </div>
       <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
     </div>
 
+    <div v-if="expandBy?.length" class="expand-note">
+      按 {{ expandBy.map((field) => dimensions.find((column) => idOf(column) === field)?.label || field).join('、') }} 分别应用；展开维度将随来源组合原值保留。
+    </div>
     <div class="filter-bar">
       <el-input
-        v-for="column in dimensions"
+        v-for="column in visibleDimensions"
         :key="idOf(column)"
         v-model="filters[idOf(column)]"
         clearable
@@ -144,7 +152,7 @@ defineExpose({ reload: load })
     <div style="overflow-x: auto">
       <el-table v-loading="loading" :data="items" stripe style="width: 100%" max-height="600">
         <el-table-column
-          v-for="column in dimensions"
+          v-for="column in visibleDimensions"
           :key="idOf(column)"
           :label="column.label || column.code"
           min-width="140"
@@ -192,6 +200,7 @@ defineExpose({ reload: load })
 .picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .picker-head > div { display: flex; align-items: baseline; gap: 10px; }
 .picker-head span { color: var(--color-text-secondary); font-size: 12px; }
+.expand-note { margin-bottom: 10px; padding: 8px 10px; border-radius: 4px; color: var(--color-text-secondary); background: var(--color-bg-page); font-size: 12px; }
 .filter-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 12px; }
 .el-pagination { justify-content: flex-end; margin-top: 12px; }
 </style>

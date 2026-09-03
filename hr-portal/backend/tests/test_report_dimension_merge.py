@@ -124,7 +124,60 @@ def test_apply_dimension_merge_scales_to_ten_thousand_sources() -> None:
     assert result[-1]["t.a"] == 19_999
 
 
-def test_combination_key_uses_signature_order() -> None:
+def test_expand_rule_reuses_party_cost_mapping_per_month() -> None:
+    rules = [{
+        "id": "monthly-party-cost",
+        "name": "按月归并甲方成本中心",
+        "mode": "expand",
+        "expand_by": ["t.month"],
+        "dimension_signature": ["t.month", "t.party", "t.cost_center"],
+        "sources": [
+            {"values": {"t.party": "甲方1", "t.cost_center": "成本中心1"}},
+            {"values": {"t.party": "甲方2", "t.cost_center": "成本中心2"}},
+        ],
+        "target": {
+            "values": {"t.party": "甲方1", "t.cost_center": "成本中心1"},
+            "modes": {"t.month": "preserve", "t.party": "source", "t.cost_center": "source"},
+        },
+    }]
+    rows = [
+        {"t.month": "2026-01", "t.party": "甲方1", "t.cost_center": "成本中心1", "t.amount": 10},
+        {"t.month": "2026-01", "t.party": "甲方2", "t.cost_center": "成本中心2", "t.amount": 20},
+        {"t.month": "2026-02", "t.party": "甲方1", "t.cost_center": "成本中心1", "t.amount": 30},
+        {"t.month": "2026-02", "t.party": "甲方2", "t.cost_center": "成本中心2", "t.amount": 40},
+        {"t.month": "2026-01", "t.party": "甲方3", "t.cost_center": "成本中心3", "t.amount": 50},
+    ]
+
+    result = apply_dimension_merge(rows, rules)
+
+    assert [row["t.month"] for row in result[:4]] == ["2026-01", "2026-01", "2026-02", "2026-02"]
+    assert all(row["t.party"] == "甲方1" and row["t.cost_center"] == "成本中心1" for row in result[:4])
+    assert result[4]["t.party"] == "甲方3"
+
+
+def test_expand_rule_requires_preserved_expand_dimension() -> None:
+    config = ReportConfig(
+        columns=["t.month", "t.party", "t.cost_center", "t.amount"],
+        aggregate=True,
+        aggregations={"t.amount": "sum"},
+        dimension_merge_rules=[{
+            "id": "monthly-party-cost",
+            "name": "按月归并甲方成本中心",
+            "mode": "expand",
+            "expand_by": ["t.month"],
+            "dimension_signature": ["t.month", "t.party", "t.cost_center"],
+            "sources": [
+                {"values": {"t.party": "甲方1", "t.cost_center": "成本中心1"}},
+                {"values": {"t.party": "甲方2", "t.cost_center": "成本中心2"}},
+            ],
+            "target": {
+                "values": {"t.party": "甲方1", "t.cost_center": "成本中心1"},
+                "modes": {"t.month": "preserve", "t.party": "source", "t.cost_center": "source"},
+            },
+        }],
+    )
+
+    validate_dimension_merge_structure(config)
     left = combination_key({"a": 1, "b": "x"}, ["a", "b"], {"a": "number"})
     right = combination_key({"b": "x", "a": "1.0"}, ["a", "b"], {"a": "number"})
     assert left == right

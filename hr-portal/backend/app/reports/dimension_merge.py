@@ -63,19 +63,51 @@ def combination_key(
     return tuple(normalize_typed_value(values.get(field), types.get(field)) for field in signature)
 
 
+def _expand_fields(rule: DimensionMergeRule, signature: Iterable[str]) -> list[str]:
+    return [field for field in signature if field in set(rule.expand_by)]
+
+
+def _match_fields(rule: DimensionMergeRule, signature: Iterable[str]) -> list[str]:
+    expanded = set(rule.expand_by)
+    return [field for field in signature if field not in expanded]
+
+
+def _target_for_row(rule: DimensionMergeRule, row: dict[str, Any], signature: list[str]) -> dict[str, Any]:
+    target = dict(rule.target.values)
+    for field in _expand_fields(rule, signature):
+        target[field] = row.get(field)
+    return target
+
+
+def _pattern_key(
+    values: dict[str, Any],
+    signature: list[str],
+    match_fields: Iterable[str],
+    data_types: dict[str, str] | None = None,
+) -> tuple[tuple[str, str], ...]:
+    return combination_key(values, list(match_fields), data_types)
+
+
 def compile_dimension_merge_map(
     rules: Iterable[DimensionMergeRule | dict[str, Any]],
     data_types: dict[str, str] | None = None,
-) -> tuple[list[str], dict[tuple[tuple[str, str], ...], dict[str, Any]]]:
+) -> tuple[list[str], dict[tuple[tuple[str, str], ...], dict[str, Any]], dict[tuple[str, ...], dict[tuple[tuple[str, str], ...], DimensionMergeRule]]]:
     parsed = [rule if isinstance(rule, DimensionMergeRule) else DimensionMergeRule(**rule) for rule in rules]
     if not parsed:
-        return [], {}
+        return [], {}, {}
     signature = list(parsed[0].dimension_signature)
-    mapping: dict[tuple[tuple[str, str], ...], dict[str, Any]] = {}
+    exact_mapping: dict[tuple[tuple[str, str], ...], dict[str, Any]] = {}
+    expanded_rules: dict[tuple[str, ...], dict[tuple[tuple[str, str], ...], DimensionMergeRule]] = {}
     for rule in parsed:
-        for source in rule.sources:
-            mapping[combination_key(source.values, signature, data_types)] = dict(rule.target.values)
-    return signature, mapping
+        match_fields = _match_fields(rule, signature)
+        if rule.mode == "expand" or rule.expand_by:
+            rule_map = expanded_rules.setdefault(tuple(match_fields), {})
+            for source in rule.sources:
+                rule_map[_pattern_key(source.values, signature, match_fields, data_types)] = rule
+        else:
+            for source in rule.sources:
+                exact_mapping[combination_key(source.values, signature, data_types)] = dict(rule.target.values)
+    return signature, exact_mapping, expanded_rules
 
 
 def apply_dimension_merge(
@@ -83,12 +115,18 @@ def apply_dimension_merge(
     rules: Iterable[DimensionMergeRule | dict[str, Any]],
     data_types: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    signature, mapping = compile_dimension_merge_map(rules, data_types)
-    if not mapping:
+    signature, exact_mapping, expanded_rules = compile_dimension_merge_map(rules, data_types)
+    if not exact_mapping and not expanded_rules:
         return rows
     result: list[dict[str, Any]] = []
     for row in rows:
-        target = mapping.get(combination_key(row, signature, data_types))
+        target = exact_mapping.get(combination_key(row, signature, data_types))
+        if target is None:
+            for match_fields, rule_map in expanded_rules.items():
+                rule = rule_map.get(_pattern_key(row, signature, match_fields, data_types))
+                if rule is not None:
+                    target = _target_for_row(rule, row, signature)
+                    break
         if target is None:
             result.append(row)
             continue
@@ -117,13 +155,16 @@ def validate_dimension_merge_target_types(
     errors: list[dict[str, Any]] = []
     parsed = [rule if isinstance(rule, DimensionMergeRule) else DimensionMergeRule(**rule) for rule in rules]
     for rule in parsed:
+        expanded = set(_expand_fields(rule, rule.dimension_signature))
         for field in rule.dimension_signature:
             value = rule.target.values.get(field)
             mode = rule.target.modes.get(field)
             source_values = [source.values.get(field) for source in rule.sources]
             kind = (data_types.get(field) or "string").lower()
             valid = True
-            if mode == "custom":
+            if field in expanded:
+                valid = mode == "preserve"
+            elif mode == "custom":
                 if value is None or (isinstance(value, str) and not value.strip()):
                     valid = False
                 elif kind in NUMERIC_TYPES:
@@ -145,14 +186,14 @@ def validate_dimension_merge_target_types(
                     valid = isinstance(value, bool)
                 elif not isinstance(value, str):
                     valid = False
+            elif mode == "auto":
+                normalized = {normalize_typed_value(item, kind) for item in source_values}
+                valid = len(normalized) == 1 and normalize_typed_value(value, kind) in normalized
             elif mode == "source":
                 valid = any(
                     normalize_typed_value(value, kind) == normalize_typed_value(item, kind)
                     for item in source_values
                 )
-            elif mode == "auto":
-                normalized = {normalize_typed_value(item, kind) for item in source_values}
-                valid = len(normalized) == 1 and normalize_typed_value(value, kind) in normalized
             if not valid:
                 errors.append({
                     "code": "DIMENSION_MERGE_TARGET_TYPE_INVALID",
@@ -179,9 +220,9 @@ def validate_dimension_merge_structure(config: ReportConfig) -> None:
         })
 
     names: dict[str, str] = {}
-    source_owner: dict[tuple[tuple[str, str], ...], str] = {}
-    rule_sources: dict[str, set[tuple[tuple[str, str], ...]]] = {}
-    rule_targets: dict[str, tuple[tuple[str, str], ...]] = {}
+    source_owner: dict[tuple[tuple[str, ...], tuple[tuple[str, str], ...]], str] = {}
+    rule_sources: dict[str, set[tuple[tuple[str, ...], tuple[tuple[str, str], ...]]]] = {}
+    rule_targets: dict[str, tuple[tuple[str, ...], tuple[tuple[str, str], ...]]] = {}
     common_signature = list(rules[0].dimension_signature)
 
     for rule in rules:
@@ -201,32 +242,49 @@ def validate_dimension_merge_structure(config: ReportConfig) -> None:
                 "message": "归并规则维度签名不一致或包含重复维度",
             })
         expected = set(signature)
-        if set(rule.target.values) != expected or set(rule.target.modes) != expected:
+        expanded = set(rule.expand_by)
+        if expanded - expected or (expanded and rule.mode != "expand") or (rule.mode == "expand" and (not expanded or not expected - expanded)):
+            errors.append({
+                "code": "DIMENSION_MERGE_EXPANSION_INVALID",
+                "rule_id": rule.id,
+                "message": "按维度展开规则必须指定当前报表中的展开维度",
+            })
+        match_expected = expected - expanded
+        match_fields = [field for field in signature if field in match_expected]
+        if set(rule.target.values) != match_expected or set(rule.target.modes) != expected:
             errors.append({
                 "code": "DIMENSION_MERGE_SIGNATURE_MISMATCH",
                 "rule_id": rule.id,
-                "message": "归并结果必须包含全部维度",
+                "message": "归并结果必须包含全部未展开维度，并为展开维度指定保留模式",
             })
         for field, mode in rule.target.modes.items():
             value = rule.target.values.get(field)
-            if mode == "custom" and (value is None or (isinstance(value, str) and not value.strip())):
+            if field in expanded:
+                if mode != "preserve":
+                    errors.append({
+                        "code": "DIMENSION_MERGE_TARGET_MODE_INVALID",
+                        "rule_id": rule.id,
+                        "field": field,
+                        "message": "展开维度必须保留来源值",
+                    })
+            elif mode == "preserve" or (mode == "custom" and (value is None or (isinstance(value, str) and not value.strip()))):
                 errors.append({
                     "code": "DIMENSION_MERGE_TARGET_TYPE_INVALID",
                     "rule_id": rule.id,
                     "field": field,
                     "message": "自定义归并结果不能为空",
                 })
-        sources: set[tuple[tuple[str, str], ...]] = set()
+        sources: set[tuple[tuple[str, ...], tuple[tuple[str, str], ...]]] = set()
         for index, source in enumerate(rule.sources):
-            if set(source.values) != expected:
+            if set(source.values) != match_expected:
                 errors.append({
                     "code": "DIMENSION_MERGE_SIGNATURE_MISMATCH",
                     "rule_id": rule.id,
                     "path": f"sources[{index}]",
-                    "message": "来源组合必须包含全部维度",
+                    "message": "来源组合必须包含全部未展开维度",
                 })
                 continue
-            key = combination_key(source.values, signature)
+            key = (tuple(match_fields), _pattern_key(source.values, signature, match_fields))
             if key in sources or (key in source_owner and source_owner[key] != rule.id):
                 errors.append({
                     "code": "DIMENSION_MERGE_SOURCE_DUPLICATE",
@@ -235,7 +293,7 @@ def validate_dimension_merge_structure(config: ReportConfig) -> None:
                 })
             sources.add(key)
             source_owner[key] = rule.id
-        target_key = combination_key(rule.target.values, signature)
+        target_key = (tuple(match_fields), _pattern_key(rule.target.values, signature, match_fields))
         if len(sources) == 1 and target_key in sources:
             errors.append({
                 "code": "DIMENSION_MERGE_NOOP",

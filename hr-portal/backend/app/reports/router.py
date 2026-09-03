@@ -151,6 +151,7 @@ class DimensionCombinationSearchIn(BaseModel):
     scope_strategy: str | None = None
     config: ReportConfig
     dimension_signature: list[str] = Field(min_length=1)
+    expand_by: list[str] = Field(default_factory=list)
     dimension_filters: dict[str, Any] = Field(default_factory=dict)
     page: int = Field(1, ge=1)
     page_size: int = Field(50, ge=1, le=100)
@@ -674,6 +675,11 @@ async def _dimension_combination_items(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "DIMENSION_MERGE_SIGNATURE_MISMATCH", "message": "归并维度不属于当前报表字段"},
         )
+    if set(payload.expand_by) - set(payload.dimension_signature) or set(payload.expand_by) == set(payload.dimension_signature):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "DIMENSION_MERGE_EXPANSION_INVALID", "message": "展开维度必须保留至少一个归并匹配维度"},
+        )
     if not payload.config.aggregate:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -714,25 +720,29 @@ async def _dimension_combination_items(
     )
     meta_by_code = {item["code"]: item for item in columns_meta}
     data_types = {key: str(meta_by_code.get(key, {}).get("data_type") or "string") for key in payload.dimension_signature}
-    occupied: dict[tuple[tuple[str, str], ...], str] = {}
+    occupied: dict[tuple[tuple[str, ...], tuple[tuple[str, str], ...]], str] = {}
     for rule in payload.config.dimension_merge_rules:
+        rule_expand = set(rule.expand_by)
+        rule_fields = tuple(field for field in payload.dimension_signature if field not in rule_expand)
         for source in rule.sources:
-            occupied[combination_key(source.values, payload.dimension_signature, data_types)] = rule.name
+            occupied[(rule_fields, combination_key(source.values, rule_fields, data_types))] = rule.name
 
+    visible_signature = [field for field in payload.dimension_signature if field not in set(payload.expand_by)]
     deduped: dict[tuple[tuple[str, str], ...], dict[str, Any]] = {}
     for row in rows:
-        values = {key: row.get(key) for key in payload.dimension_signature}
+        values = {key: row.get(key) for key in visible_signature}
         if any(
             str(expected).casefold() not in str(values.get(key, "")).casefold()
             for key, expected in payload.dimension_filters.items()
             if expected not in (None, "")
         ):
             continue
-        key = combination_key(values, payload.dimension_signature, data_types)
+        key = combination_key(values, visible_signature, data_types)
         deduped.setdefault(key, {
             "values": values,
-            "display_values": {field: values.get(field) for field in payload.dimension_signature},
-            "occupied_by": occupied.get(key),
+            "display_values": {field: values.get(field) for field in visible_signature},
+            "expanded_by": list(payload.expand_by),
+            "occupied_by": occupied.get((tuple(visible_signature), key)),
         })
     return list(deduped.values()), data_types
 
@@ -795,6 +805,7 @@ async def _validate_dimension_merge_save(
         scope_strategy=scope_strategy,
         config=config,
         dimension_signature=signature,
+        expand_by=[],
         page=1,
         page_size=100,
     )
@@ -805,16 +816,38 @@ async def _validate_dimension_merge_save(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     available = {combination_key(item["values"], signature, data_types) for item in items}
     previous_rules = list((previous_config or {}).get("dimension_merge_rules") or [])
-    previous_sources: set[tuple[tuple[str, str], ...]] = set()
-    for rule in previous_rules:
-        previous_signature = list((rule or {}).get("dimension_signature") or signature)
-        for source in (rule or {}).get("sources") or []:
-            previous_sources.add(combination_key((source or {}).get("values") or {}, previous_signature, data_types))
+    previous_sources: dict[tuple[str, ...], set[tuple[tuple[str, str], ...]]] = {}
+    available_by_expand: dict[tuple[str, ...], set[tuple[tuple[str, str], ...]]] = {(): available}
+    for old_rule in previous_rules:
+        old_expand = tuple(old_rule.get("expand_by") or [])
+        old_fields = [field for field in signature if field not in set(old_expand)]
+        old_set = previous_sources.setdefault(old_expand, set())
+        for source in old_rule.get("sources") or []:
+            old_set.add(combination_key((source or {}).get("values") or {}, old_fields, data_types))
     missing: list[dict[str, Any]] = []
     for rule in config.dimension_merge_rules:
+        expanded = tuple(rule.expand_by or [])
+        match_fields = [field for field in signature if field not in set(expanded)]
+        if expanded not in available_by_expand:
+            candidate_payload = DimensionCombinationSearchIn(
+                report_id=report_id,
+                dataset_id=dataset_id,
+                scope_strategy=scope_strategy,
+                config=config,
+                dimension_signature=signature,
+                expand_by=list(expanded),
+                page=1,
+                page_size=100,
+            )
+            candidate_items, _ = await _dimension_combination_items(candidate_payload, user, db)
+            available_by_expand[expanded] = {
+                combination_key(item["values"], match_fields, data_types)
+                for item in candidate_items
+            }
+        previous_for_shape = previous_sources.get(expanded, set())
         for source in rule.sources:
-            key = combination_key(source.values, signature, data_types)
-            if key not in available and key not in previous_sources:
+            key = combination_key(source.values, match_fields, data_types)
+            if key not in available_by_expand[expanded] and key not in previous_for_shape:
                 missing.append({"rule_id": rule.id, "source": source.values})
     if missing:
         raise HTTPException(
@@ -900,15 +933,16 @@ async def preview_dimension_merge(
     )
     if selected is None:
         return DimensionMergePreviewOut(source_count=0, matched_combination_count=0)
+    match_fields = [field for field in payload.dimension_signature if field not in set(payload.expand_by)]
     available = {
-        combination_key(item["values"], payload.dimension_signature, data_types)
+        combination_key(item["values"], match_fields, data_types)
         for item in items
     }
     source_keys = {
-        combination_key(source.values, payload.dimension_signature, data_types)
+        combination_key(source.values, match_fields, data_types)
         for source in selected.sources
     }
-    target_key = combination_key(selected.target.values, payload.dimension_signature, data_types)
+    target_key = combination_key(selected.target.values, match_fields, data_types)
     return DimensionMergePreviewOut(
         source_count=len(selected.sources),
         matched_combination_count=len(source_keys & available),

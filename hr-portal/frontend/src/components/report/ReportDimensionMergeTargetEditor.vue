@@ -14,6 +14,7 @@ const props = defineProps<{
   modelValue: DimensionMergeTarget
   dimensions: DimensionColumn[]
   sources: DimensionMergeTuple[]
+  expandBy?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -52,6 +53,10 @@ function patch(field: string, changes: { mode?: DimensionMergeTargetMode; value?
 }
 
 function changeMode(field: string, mode: DimensionMergeTargetMode) {
+  if (props.expandBy?.includes(field)) {
+    patch(field, { mode: 'preserve' })
+    return
+  }
   const values = sourceValues(field)
   if (mode === 'auto' && values.length === 1) patch(field, { mode, value: values[0] })
   else if (mode === 'source') patch(field, { mode, value: values[0] ?? null })
@@ -65,6 +70,7 @@ const invalidFields = computed(() => props.dimensions
     const value = props.modelValue.values[field]
     if (mode === 'auto') return sourceValues(field).length !== 1
     if (mode === 'source') return !sourceValues(field).some((item) => valueKey(item) === valueKey(value))
+    if (mode === 'preserve') return false
     return value === null || (typeof value === 'string' && !value.trim())
   }))
 
@@ -80,6 +86,14 @@ watch(
       const field = idOf(column)
       const values = sourceValues(field)
       const currentValue = next.values[field]
+      if (props.expandBy?.includes(field)) {
+        if (next.modes[field] !== 'preserve') {
+          next.modes[field] = 'preserve'
+          delete next.values[field]
+          changed = true
+        }
+        continue
+      }
       const emptyCustom = next.modes[field] === 'custom'
         && (currentValue === null || (typeof currentValue === 'string' && !currentValue.trim()))
       if ((!next.modes[field] || emptyCustom) && values.length === 1) {
@@ -112,13 +126,17 @@ defineExpose({ invalidFields })
         style="width: 150px"
         @update:model-value="changeMode(idOf(column), $event)"
       >
-        <el-option label="自动带出" value="auto" :disabled="sourceValues(idOf(column)).length !== 1" />
-        <el-option label="选择来源值" value="source" />
-        <el-option label="自定义值" value="custom" />
+        <el-option v-if="expandBy?.includes(idOf(column))" label="保留每月值" value="preserve" />
+        <template v-else>
+          <el-option label="自动带出" value="auto" :disabled="sourceValues(idOf(column)).length !== 1" />
+          <el-option label="选择来源值" value="source" />
+          <el-option label="自定义值" value="custom" />
+        </template>
       </el-select>
 
+      <span v-if="modelValue.modes[idOf(column)] === 'preserve'" class="preserve-value">按来源值保留</span>
       <el-select
-        v-if="modelValue.modes[idOf(column)] !== 'custom'"
+        v-else-if="modelValue.modes[idOf(column)] !== 'custom'"
         :model-value="valueKey(modelValue.values[idOf(column)] ?? null)"
         :disabled="modelValue.modes[idOf(column)] === 'auto'"
         style="min-width: 220px; flex: 1"
@@ -173,5 +191,6 @@ defineExpose({ invalidFields })
 .target-row { display: flex; align-items: center; gap: 10px; min-width: 720px; margin-bottom: 10px; }
 .dimension-label { width: 150px; display: grid; gap: 2px; }
 .field-error { color: var(--color-danger); font-size: 12px; white-space: nowrap; }
+.preserve-value { min-width: 220px; flex: 1; color: var(--color-text-secondary); font-size: 13px; }
 @media (max-width: 900px) { .target-editor { overflow-x: auto; } }
 </style>

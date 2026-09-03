@@ -80,13 +80,15 @@ class DimensionTuple(BaseModel):
 
 
 class DimensionTargetTuple(DimensionTuple):
-    modes: dict[str, Literal["auto", "source", "custom"]]
+    modes: dict[str, Literal["auto", "source", "custom", "preserve"]]
 
 
 class DimensionMergeRule(BaseModel):
     model_config = {"extra": "forbid"}
     id: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=128)
+    mode: Literal["exact", "expand"] = "exact"
+    expand_by: list[str] = Field(default_factory=list)
     dimension_signature: list[str] = Field(min_length=1)
     sources: list[DimensionTuple] = Field(min_length=1)
     target: DimensionTargetTuple

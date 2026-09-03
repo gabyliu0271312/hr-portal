@@ -141,7 +141,8 @@ export interface TransposeConfig {
 }
 
 export type DimensionMergeValue = string | number | boolean | null
-export type DimensionMergeTargetMode = 'auto' | 'source' | 'custom'
+export type DimensionMergeTargetMode = 'auto' | 'source' | 'custom' | 'preserve'
+export type DimensionMergeMode = 'exact' | 'expand'
 
 export interface DimensionMergeTuple {
   values: Record<string, DimensionMergeValue>
@@ -154,6 +155,8 @@ export interface DimensionMergeTarget extends DimensionMergeTuple {
 export interface DimensionMergeRule {
   id: string
   name: string
+  mode?: DimensionMergeMode
+  expand_by?: string[]
   dimension_signature: string[]
   sources: DimensionMergeTuple[]
   target: DimensionMergeTarget

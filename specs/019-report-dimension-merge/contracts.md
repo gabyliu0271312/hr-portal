@@ -2,22 +2,27 @@
 
 ## 配置
 
-`ReportConfig.dimension_merge_rules` 为规则数组；缺失等价于空数组，不设置独立启停开关。
+`ReportConfig.dimension_merge_rules` 为规则数组；缺失等价于空数组，不设置独立启停开关。每条规则支持两种模式：`exact` 精确组合和 `expand` 按维度展开。`expand_by` 指定按值分别应用的维度，例如选择“月份”后，甲方/成本中心关系会在每个月内独立匹配，月份原样保留。
 
 ```json
 {
   "id": "rule-uuid",
-  "name": "华东渠道归并",
-  "dimension_signature": ["employee.department", "employee.type"],
+  "name": "按月归并甲方成本中心",
+  "mode": "expand",
+  "expand_by": ["employee.month"],
+  "dimension_signature": ["employee.month", "employee.party", "employee.cost_center"],
   "sources": [
-    {"values": {"employee.department": "财务部", "employee.type": "派遣"}}
+    {"values": {"employee.party": "甲方1", "employee.cost_center": "成本中心1"}},
+    {"values": {"employee.party": "甲方2", "employee.cost_center": "成本中心2"}}
   ],
   "target": {
-    "values": {"employee.department": "财务部", "employee.type": "正式"},
-    "modes": {"employee.department": "auto", "employee.type": "source"}
+    "values": {"employee.party": "甲方1", "employee.cost_center": "成本中心1"},
+    "modes": {"employee.month": "preserve", "employee.party": "source", "employee.cost_center": "source"}
   }
 }
 ```
+
+`exact` 模式的来源和目标必须包含全部维度；`expand` 模式的来源和目标值只配置未展开维度，展开维度的目标 mode 必须为 `preserve`，且至少保留一个未展开匹配维度。展开规则不使用通配符，不跨展开维度值匹配。
 
 值保留 JSON 类型。`null`、`""`、`0`、`"0"`、`false` 不等价。数字按十进制规范化；日期和日期时间按字段类型规范化；文本不做隐式 trim 或大小写转换。
 
@@ -40,6 +45,7 @@
 | `DIMENSION_MERGE_STRUCTURAL_RESHAPE_CONFLICT` | 与列转行或行转列同时启用 |
 | `DIMENSION_MERGE_TARGET_MODE_INVALID` | 目标模式非法或不完整 |
 | `DIMENSION_MERGE_TARGET_TYPE_INVALID` | 自定义目标不符合字段类型 |
+| `DIMENSION_MERGE_EXPANSION_INVALID` | 展开维度非法、为空或占用了全部匹配维度 |
 | `DIMENSION_MERGE_SOURCE_NOT_AVAILABLE` | 新增来源不在当前授权数据范围 |
 | `DIMENSION_MERGE_FILTER_INVALID` | 归并后筛选值全部或部分失效 |
 
@@ -49,7 +55,7 @@
 
 ### POST `/api/v1/reports/_dimension-merge/combinations/search`
 
-请求包含 `report_id?`、`dataset_id`、当前 `config`、`page`、`page_size`（1—100）和逐维度筛选。返回当前用户授权范围内、归并前的完整维度组合分页；不返回原始明细。
+请求包含 `report_id?`、`dataset_id`、当前 `config`、`dimension_signature`、`expand_by`、`page`、`page_size`（1—100）和逐维度筛选。精确模式返回当前用户授权范围内、归并前的完整维度组合分页；按维度展开模式返回去掉 `expand_by` 后的来源匹配组合分页，并在响应中标明展开维度；两者均不返回原始明细。
 
 ### POST `/api/v1/reports/_dimension-merge/preview`
 

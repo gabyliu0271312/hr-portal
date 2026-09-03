@@ -6,6 +6,7 @@ import type { ColumnInfo } from '@/api/data'
 import {
   reportsApi,
   type DimensionMergePreview,
+  type DimensionMergeMode,
   type DimensionMergeRule,
   type DimensionMergeTarget,
   type ReportConfig,
@@ -76,6 +77,31 @@ function replaceRule(nextRule: DimensionMergeRule) {
   preview.value = null
 }
 
+function setRuleMode(mode: DimensionMergeMode) {
+  const rule = selectedRule.value
+  if (!rule) return
+  const expandBy = mode === 'expand' ? rule.expand_by : []
+  const expanded = new Set(expandBy)
+  const sources = rule.sources.map((source) => ({
+    values: Object.fromEntries(Object.entries(source.values).filter(([field]) => !expanded.has(field))),
+  }))
+  const values = Object.fromEntries(Object.entries(rule.target.values).filter(([field]) => !expanded.has(field)))
+  const modes = Object.fromEntries(signature.value.map((field) => [field, expanded.has(field) ? 'preserve' : (rule.target.modes[field] === 'preserve' ? 'custom' : rule.target.modes[field] || 'custom')])) as DimensionMergeRule['target']['modes']
+  replaceRule({ ...rule, mode, expand_by: expandBy, sources, target: { values, modes } })
+}
+
+function setExpandBy(expandBy: string[]) {
+  const rule = selectedRule.value
+  if (!rule) return
+  const expanded = new Set(expandBy)
+  const sources = rule.sources.map((source) => ({
+    values: Object.fromEntries(Object.entries(source.values).filter(([field]) => !expanded.has(field))),
+  }))
+  const values = Object.fromEntries(Object.entries(rule.target.values).filter(([field]) => !expanded.has(field)))
+  const modes = Object.fromEntries(signature.value.map((field) => [field, expanded.has(field) ? 'preserve' : (rule.target.modes[field] === 'preserve' ? 'custom' : rule.target.modes[field] || 'custom')])) as DimensionMergeRule['target']['modes']
+  replaceRule({ ...rule, mode: 'expand', expand_by: expandBy, sources, target: { values, modes } })
+}
+
 function createRule() {
   if (!signature.value.length) {
     ElMessage.warning('请先在字段编排中添加至少一个维度字段')
@@ -86,6 +112,8 @@ function createRule() {
   const rule: DimensionMergeRule = {
     id: globalThis.crypto?.randomUUID?.() || `merge-${Date.now()}`,
     name: `归并规则 ${props.modelValue.length + 1}`,
+    mode: 'exact',
+    expand_by: [],
     dimension_signature: [...signature.value],
     sources: [],
     target: { values, modes },
@@ -115,6 +143,7 @@ async function loadPreview() {
       scope_strategy: props.scopeStrategy,
       config: searchConfig.value,
       dimension_signature: signature.value,
+      expand_by: rule.expand_by || [],
       rule_id: rule.id,
       page: 1,
       page_size: 100,
@@ -175,6 +204,27 @@ watch(
         </div>
 
         <el-form label-position="top">
+          <el-form-item label="归并方式">
+            <el-radio-group :model-value="selectedRule.mode || 'exact'" @update:model-value="setRuleMode($event as DimensionMergeMode)">
+              <el-radio-button value="exact">精确组合</el-radio-button>
+              <el-radio-button value="expand">按维度展开</el-radio-button>
+            </el-radio-group>
+            <div class="form-hint">精确组合逐个匹配完整维度；按维度展开会在每个展开维度值内重复应用同一套归并关系。</div>
+          </el-form-item>
+          <el-form-item v-if="(selectedRule.mode || 'exact') === 'expand'" label="展开维度">
+            <el-select
+              :model-value="selectedRule.expand_by || []"
+              multiple
+              filterable
+              clearable
+              placeholder="选择需要分别应用的维度，例如月份"
+              style="width: min(520px, 100%)"
+              @update:model-value="setExpandBy($event)"
+            >
+              <el-option v-for="column in dimensions" :key="idOf(column)" :label="column.label || column.code" :value="idOf(column)" />
+            </el-select>
+            <div class="form-hint">展开维度不参与来源匹配，结果中按每条基础记录保留原值；例如每个月分别执行同一归并关系。</div>
+          </el-form-item>
           <el-form-item label="规则名称" :error="!selectedRule.name.trim() ? '请输入规则名称' : ''">
             <el-input
               :model-value="selectedRule.name"
@@ -192,6 +242,7 @@ watch(
           :config="searchConfig"
           :dimensions="dimensions"
           :model-value="selectedRule.sources"
+          :expand-by="selectedRule.expand_by || []"
           :current-rule-name="selectedRule.name"
           @update:model-value="replaceRule({ ...selectedRule, sources: $event })"
         />
@@ -200,6 +251,7 @@ watch(
           :model-value="selectedRule.target"
           :dimensions="dimensions"
           :sources="selectedRule.sources"
+          :expand-by="selectedRule.expand_by || []"
           @update:model-value="replaceRule({ ...selectedRule, target: $event as DimensionMergeTarget })"
         />
 
@@ -224,6 +276,7 @@ watch(
 .editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .editor-head > div { display: grid; gap: 4px; }
 .editor-head span { color: var(--color-text-secondary); font-size: 13px; }
+.form-hint { margin-top: 6px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
 .workspace-empty { flex: 1; }
 .error-list { margin: 8px 0 0; padding-left: 20px; }
 .error-list li + li { margin-top: 4px; }
