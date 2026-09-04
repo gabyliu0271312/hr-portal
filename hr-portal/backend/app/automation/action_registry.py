@@ -306,7 +306,7 @@ async def _execute_dwd_update(
     await _reconcile_cleaning_mode(config, table_name, db)
 
     async with get_session_factory()() as work_db:
-        if table_name == "cost_center_monthly":
+        if table_name == "cost_center_monthly" and config.update_mode == "cleaning_rule":
             from app.mapping.cost_center_service import CostCenterMappingService
             from app.mapping.errors import MappingException
             try:

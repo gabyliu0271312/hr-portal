@@ -4,6 +4,7 @@
 差异分类和请求输入边界，避免公共执行器承担业务生命周期。
 """
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import inspect
@@ -332,6 +333,43 @@ async def test_automation_engine_keeps_review_required_as_execution_status(monke
 
     execution = next(item for item in db.items if isinstance(item, AutomationExecution))
     assert execution.status == "review_required"
+
+
+@pytest.mark.asyncio
+async def test_cost_center_passthrough_skips_mapping_gate(monkeypatch):
+    from app.automation import action_registry
+
+    class WorkSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    passthrough = AsyncMock(return_value=3)
+    monkeypatch.setattr("app.core.db.get_session_factory", lambda: lambda: WorkSession())
+    monkeypatch.setattr(action_registry, "_reconcile_cleaning_mode", AsyncMock())
+    monkeypatch.setattr(action_registry, "_passthrough_sync", passthrough)
+    monkeypatch.setattr(action_registry, "_publish_dwd_refreshed", AsyncMock())
+
+    config = SimpleNamespace(
+        update_mode="passthrough",
+        target_dwd_table_name="dwd_cost_center_monthly",
+        dwd_write_strategy="incremental_upsert",
+        business_key_fields=[],
+        ods_sync_semantics="full_snapshot",
+        missing_row_strategy="mark_inactive",
+    )
+    result = await action_registry._execute_dwd_update(
+        config,
+        "cost_center_monthly",
+        object(),
+        {"period_value": "202609"},
+    )
+
+    assert result["status"] == "success"
+    assert result["rows"] == 3
+    passthrough.assert_awaited_once()
 
 
 @pytest.mark.asyncio
