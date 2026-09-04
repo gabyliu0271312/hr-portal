@@ -95,7 +95,9 @@ async function refreshDetectedMode() {
 }
 
 function statusIcon(status: string) { if (status === 'success') return CircleCheck; if (status === 'failed') return CircleClose; if (status === 'running') return Loading; return Clock }
-function statusColor(status: string) { if (status === 'success') return '#67C23A'; if (status === 'failed') return '#F56C6C'; if (status === 'running') return '#409EFF'; return '#909399' }
+function statusLabel(status: string | null) { return ({ success: '成功', failed: '失败', review_required: '待确认', approval_required: '待审批', skipped: '已跳过', blocked: '已阻断' } as Record<string, string>)[status || ''] || status || '-' }
+function statusTagType(status: string | null) { return status === 'success' ? 'success' : status === 'failed' ? 'danger' : 'warning' }
+function statusColor(status: string) { if (status === 'success') return '#67C23A'; if (status === 'failed') return '#F56C6C'; if (status === 'running') return '#409EFF'; return '#E6A23C' }
 
 // 展开面板时重新检测
 watch(expanded, (val) => { if (val) refreshDetectedMode() })
@@ -171,8 +173,8 @@ defineExpose({ refreshDetectedMode })
         <div v-if="config?.last_execution_at" class="status-row">
           <span class="status-label">上次同步</span>
           <span style="font-size:13px;color:#606266">{{ formatDateTime(config.last_execution_at) }}, {{ config.last_execution_rows ?? '-' }} 行</span>
-          <el-tag v-if="config.last_execution_status" size="small" :type="config.last_execution_status === 'success' ? 'success' : 'danger'">
-            {{ config.last_execution_status }}
+          <el-tag v-if="config.last_execution_status" size="small" :type="statusTagType(config.last_execution_status)">
+            {{ statusLabel(config.last_execution_status) }}
           </el-tag>
         </div>
       </div>
@@ -185,10 +187,10 @@ defineExpose({ refreshDetectedMode })
           <div v-for="e in executions" :key="e.id" class="exec-item">
             <component :is="statusIcon(e.status)" :style="{ color: statusColor(e.status), fontSize: '16px' }" />
             <span class="exec-time">{{ formatDateTime(e.started_at) || '-' }}</span>
-            <el-tag :type="e.status === 'success' ? 'success' : 'danger'" size="small">{{ e.status }}</el-tag>
+            <el-tag :type="statusTagType(e.status)" size="small">{{ statusLabel(e.status) }}</el-tag>
             <span class="exec-mode">{{ e.mode ? e.mode : e.trigger_label }}</span>
             <span v-if="e.rows" class="exec-rows">{{ e.rows }} 行</span>
-            <el-tooltip v-if="e.status === 'failed' && (e.error_message || e.actions?.[0]?.output?.detail || e.actions?.[0]?.error)" :content="e.error_message || e.actions?.[0]?.output?.detail || e.actions?.[0]?.error" placement="top" :show-after="300">
+            <el-tooltip v-if="e.status !== 'success' && (e.error_message || e.actions?.[0]?.output?.detail || e.actions?.[0]?.error)" :content="e.error_message || e.actions?.[0]?.output?.detail || e.actions?.[0]?.error" placement="top" :show-after="300">
               <el-icon class="exec-error"><InfoFilled /></el-icon>
             </el-tooltip>
           </div>

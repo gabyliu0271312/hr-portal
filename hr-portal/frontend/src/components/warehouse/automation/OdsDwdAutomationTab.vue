@@ -71,6 +71,11 @@ function syncLabel(config: any) {
   return map[config.ods_sync_semantics] || config.ods_sync_semantics
 }
 function statusIcon(s: string | null) { if (s === 'success') return CircleCheck; if (s === 'failed') return CircleClose; return Clock }
+function statusLabel(s: string | null) {
+  return ({ success: '成功', failed: '失败', review_required: '待确认', approval_required: '待审批', skipped: '已跳过', blocked: '已阻断' } as Record<string, string>)[s || ''] || s || '-'
+}
+function statusColor(s: string | null) { return s === 'success' ? '#67C23A' : s === 'failed' ? '#F56C6C' : '#E6A23C' }
+function statusTagType(s: string | null) { return s === 'success' ? 'success' : s === 'failed' ? 'danger' : 'warning' }
 
 onMounted(load)
 </script>
@@ -107,15 +112,15 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="最近状态" width="90">
         <template #default="{ row }">
-          <el-tooltip v-if="row.last_execution_status === 'failed' && row.last_execution_error" :content="row.last_execution_error" placement="top" :show-after="300">
-            <span :style="{ color: '#F56C6C', cursor: 'help' }">
+          <el-tooltip v-if="row.last_execution_status !== 'success' && row.last_execution_error" :content="row.last_execution_error" placement="top" :show-after="300">
+            <span :style="{ color: statusColor(row.last_execution_status), cursor: 'help' }">
               <component :is="statusIcon(row.last_execution_status)" style="font-size:14px;vertical-align:middle" />
-              失败
+              {{ statusLabel(row.last_execution_status) }}
             </span>
           </el-tooltip>
-          <span v-else-if="row.last_execution_status" :style="{ color: row.last_execution_status === 'success' ? '#67C23A' : '#F56C6C' }">
+          <span v-else-if="row.last_execution_status" :style="{ color: statusColor(row.last_execution_status) }">
             <component :is="statusIcon(row.last_execution_status)" style="font-size:14px;vertical-align:middle" />
-            {{ row.last_execution_status === 'success' ? '成功' : '失败' }}
+            {{ statusLabel(row.last_execution_status) }}
           </span>
           <span v-else style="color:#909399">-</span>
         </template>

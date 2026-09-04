@@ -80,6 +80,8 @@ async def _execute_rule(
     actions = rule.actions_config or []
     all_success = True
     any_success = False
+    deferred_status: str | None = None
+    hard_failure = False
 
     for idx, action_def in enumerate(actions):
         if not action_def.get("enabled", True):
@@ -110,6 +112,10 @@ async def _execute_rule(
                 action_exec.status = output_status
                 action_exec.error_message = output.get("reason", "") or output.get("detail", "")
                 all_success = False
+                if output_status in ("failed", "partial_failed", "partial_success"):
+                    hard_failure = True
+                elif deferred_status is None:
+                    deferred_status = output_status
             else:
                 action_exec.status = "success"
                 any_success = True
@@ -121,6 +127,7 @@ async def _execute_rule(
             action_exec.status = "failed"
             action_exec.error_message = str(e)[:1000]
             all_success = False
+            hard_failure = True
             # run_on_error 为 true 时继续执行后续动作
             if not action_def.get("run_on_error", False):
                 break
@@ -132,6 +139,8 @@ async def _execute_rule(
         exec_record.status = "success"
     elif any_success:
         exec_record.status = "partial_success"
+    elif deferred_status is not None and not hard_failure:
+        exec_record.status = deferred_status
     else:
         exec_record.status = "failed"
     exec_record.finished_at = datetime.now(UTC)

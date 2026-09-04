@@ -288,7 +288,50 @@ async def test_cost_center_automation_requires_period_before_opening_work_sessio
 
     assert result["status"] == "review_required"
     assert result["reason"] == "cost_center_period_required"
+    assert config.last_execution_status == "review_required"
+    assert config.last_execution_error == "成本中心 DWD 自动化必须提供已发布的 YYYYMM 期间"
     assert opened_sessions == 0
+
+
+@pytest.mark.asyncio
+async def test_automation_engine_keeps_review_required_as_execution_status(monkeypatch):
+    from app.automation import engine
+    from app.automation.models import AutomationExecution
+
+    class Session:
+        def __init__(self):
+            self.items = []
+
+        def add(self, item):
+            self.items.append(item)
+
+        async def flush(self):
+            for item in self.items:
+                if getattr(item, "id", None) is None:
+                    item.id = 1
+
+    async def review_action(*args, **kwargs):
+        return {"status": "review_required", "reason": "cost_center_period_required"}
+
+    monkeypatch.setattr(engine, "get_action", lambda _action_type: review_action)
+    db = Session()
+    rule = SimpleNamespace(
+        id=1,
+        name="cost_center_monthly automation",
+        actions_config=[{"type": "trigger_dwd_standardization", "config": {}}],
+    )
+    event = SimpleNamespace(
+        event_id="event-1",
+        trigger_type="ods_table_data_changed",
+        biz_type="ods_table",
+        biz_id="cost_center_monthly",
+        payload={"table_name": "cost_center_monthly"},
+    )
+
+    await engine._execute_rule(rule, event, db)
+
+    execution = next(item for item in db.items if isinstance(item, AutomationExecution))
+    assert execution.status == "review_required"
 
 
 @pytest.mark.asyncio

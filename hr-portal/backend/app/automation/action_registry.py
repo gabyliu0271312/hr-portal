@@ -294,11 +294,13 @@ async def _execute_dwd_update(
 
     period_value = event_payload.get("period_value") or event_payload.get("period")
     if table_name == "cost_center_monthly" and not period_value:
+        detail = "成本中心 DWD 自动化必须提供已发布的 YYYYMM 期间"
+        await _update_config_execution_status(config, "review_required", 0, detail, db)
         return {
             "status": "review_required",
             "reason": "cost_center_period_required",
             "table_name": table_name,
-            "detail": "成本中心 DWD 自动化必须提供已发布的 YYYYMM 期间",
+            "detail": detail,
         }
 
     await _reconcile_cleaning_mode(config, table_name, db)
@@ -312,13 +314,17 @@ async def _execute_dwd_update(
                     period=str(period_value).replace("-", ""),
                 )
             except MappingException as exc:
+                detail = str(exc)[:500]
+                await _update_config_execution_status(config, "review_required", 0, detail, db)
                 return {
                     "status": "review_required",
                     "reason": "cost_center_mapping_not_ready",
                     "table_name": table_name,
-                    "detail": str(exc)[:500],
+                    "detail": detail,
                 }
             if gate["status"] != "allowed":
+                detail = gate.get("detail") or gate.get("reason", "cost_center_mapping_not_published")
+                await _update_config_execution_status(config, "review_required", 0, detail, db)
                 return {
                     "status": "review_required",
                     "reason": gate.get("reason", "cost_center_mapping_not_published"),
