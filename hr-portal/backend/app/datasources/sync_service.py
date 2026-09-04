@@ -1381,7 +1381,16 @@ async def sync_to_table(
         post_commit_warnings.append("质量检查任务待补偿投递")
 
     try:
-        await _publish_ods_data_changed_event(table_name, "bulk_replaced", inserted)
+        if table_name == "cost_center_monthly" and periods:
+            for period in sorted(periods):
+                await _publish_ods_data_changed_event(
+                    table_name,
+                    "bulk_replaced",
+                    inserted,
+                    extra_payload={"period_value": period},
+                )
+        else:
+            await _publish_ods_data_changed_event(table_name, "bulk_replaced", inserted)
     except Exception as exc:
         await db.rollback()
         logger.exception("[sync] data changed event publish failed after commit table=%s", table_name)

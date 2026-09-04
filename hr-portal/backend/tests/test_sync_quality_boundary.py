@@ -33,6 +33,30 @@ async def test_sync_passes_actual_periods_to_quality_dispatch(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_cost_center_sync_publishes_one_data_event_per_actual_period(monkeypatch):
+    db = FakeDb()
+
+    async def sync_impl(*args, period_sink, **kwargs):
+        period_sink.update({"202606", "202607"})
+        return 2, "同步完成"
+
+    data_event = AsyncMock()
+    monkeypatch.setattr(sync_service, "_sync_to_table_impl", sync_impl)
+    monkeypatch.setattr(sync_service, "_publish_sync_completed_event", AsyncMock())
+    monkeypatch.setattr(sync_service, "schedule_quality_checks_after_sync", AsyncMock())
+    monkeypatch.setattr(sync_service, "_publish_ods_data_changed_event", data_event)
+
+    await sync_service.sync_to_table(
+        "cost_center_monthly", "test", {}, {}, db, source_sync_batch_id="sync_run:cost-center"
+    )
+
+    assert [call.kwargs["extra_payload"] for call in data_event.await_args_list] == [
+        {"period_value": "202606"},
+        {"period_value": "202607"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_quality_dispatch_failure_keeps_actual_periods(monkeypatch):
     captured = []
 
