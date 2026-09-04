@@ -624,7 +624,10 @@ function reportErrorDetail(error: any): any {
 function reportErrorMessage(error: any, fallback: string) {
   const detail = reportErrorDetail(error)
   if (typeof detail === 'string') return detail
-  return detail?.errors?.[0]?.message || detail?.message || fallback
+  const nestedError = Array.isArray(detail?.errors)
+    ? detail.errors.find((item: any) => item?.message || item?.code)
+    : null
+  return nestedError?.message || nestedError?.code || detail?.message || detail?.code || fallback
 }
 
 async function save() {

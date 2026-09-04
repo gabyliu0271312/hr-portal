@@ -188,6 +188,7 @@ export interface DimensionCombinationSearchPayload {
   scope_strategy?: ScopeStrategy | null
   config: ReportConfig
   dimension_signature: string[]
+  expand_by?: string[]
   dimension_filters?: Record<string, DimensionMergeValue>
   page?: number
   page_size?: number
