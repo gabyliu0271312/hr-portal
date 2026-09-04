@@ -596,7 +596,7 @@ defineExpose({ openAdvanced })
                   :disabled="!aggregate && !dimensionMergeRuleCount"
                   @click="openAdvanced('merge')"
                 >
-                  维度归并<span v-if="dimensionMergeRuleCount"> {{ dimensionMergeRuleCount }}</span><span v-if="dimensionMergePending"> · 待处理</span>
+                  维度归并
                 </el-button>
               </span>
             </el-tooltip>
