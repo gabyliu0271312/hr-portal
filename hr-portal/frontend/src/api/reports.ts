@@ -364,6 +364,8 @@ export interface ReportConfigExplainResult {
   trace_id?: string | null
 }
 
+const REPORT_SAVE_TIMEOUT_MS = 60_000
+
 export const reportsApi = {
   list: (params: { dataset_id?: number; keyword?: string } = {}) =>
     api.get<ReportItem[]>('/reports', { params }).then((r) => r.data),
@@ -382,10 +384,10 @@ export const reportsApi = {
     api.post<DimensionMergePreview>('/reports/_dimension-merge/preview', body).then((r) => r.data),
 
   create: (body: ReportPayload) =>
-    api.post<ReportItem>('/reports', body).then((r) => r.data),
+    api.post<ReportItem>('/reports', body, { timeout: REPORT_SAVE_TIMEOUT_MS }).then((r) => r.data),
 
   update: (id: number, body: ReportPayload) =>
-    api.put<ReportItem>(`/reports/${id}`, body).then((r) => r.data),
+    api.put<ReportItem>(`/reports/${id}`, body, { timeout: REPORT_SAVE_TIMEOUT_MS }).then((r) => r.data),
 
   remove: (id: number) =>
     api.delete<{ ok: boolean }>(`/reports/${id}`).then((r) => r.data),

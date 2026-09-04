@@ -622,6 +622,9 @@ function reportErrorDetail(error: any): any {
 }
 
 function reportErrorMessage(error: any, fallback: string) {
+  if (error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT') {
+    return '保存校验耗时较长，请稍后重试；如仍失败请缩小数据范围或联系管理员'
+  }
   const detail = reportErrorDetail(error)
   if (typeof detail === 'string') return detail
   const nestedError = Array.isArray(detail?.errors)
