@@ -309,6 +309,28 @@ async def _execute_dwd_update(
     from app.warehouse.router import _detect_ods_config
     if hasattr(db, "execute"):
         effective_policy = await _detect_ods_config(table_name, db)
+        if (
+            effective_policy["ods_sync_semantics"] == "full_snapshot"
+            and effective_policy["missing_row_strategy"] == "mark_inactive"
+        ):
+            from sqlalchemy import text as sa_text
+
+            dwd_table = config.target_dwd_table_name or (
+                f"dwd_{table_name.replace('ods_', '').replace('raw_', '').replace('src_', '')}"
+            )
+            state_columns = (
+                await db.execute(
+                    sa_text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = current_schema() "
+                        "AND table_name = :table_name "
+                        "AND column_name IN ('is_active', 'is_deleted', 'valid_to')"
+                    ),
+                    {"table_name": dwd_table},
+                )
+            ).all()
+            if not state_columns:
+                effective_policy["missing_row_strategy"] = "hard_delete"
     else:
         effective_policy = {
             "ods_sync_semantics": config.ods_sync_semantics,
