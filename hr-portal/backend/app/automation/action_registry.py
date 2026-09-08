@@ -305,6 +305,24 @@ async def _execute_dwd_update(
 
     await _reconcile_cleaning_mode(config, table_name, db)
 
+    # ODS 数据源策略是 ODS 与 DWD 的共同执行契约；修正旧的独立配置漂移。
+    from app.warehouse.router import _detect_ods_config
+    if hasattr(db, "execute"):
+        effective_policy = await _detect_ods_config(table_name, db)
+    else:
+        effective_policy = {
+            "ods_sync_semantics": config.ods_sync_semantics,
+            "dwd_write_strategy": config.dwd_write_strategy,
+            "missing_row_strategy": config.missing_row_strategy,
+            "business_key_fields": list(config.business_key_fields or []),
+        }
+    config.ods_sync_semantics = effective_policy["ods_sync_semantics"]
+    config.dwd_write_strategy = effective_policy["dwd_write_strategy"]
+    config.missing_row_strategy = effective_policy["missing_row_strategy"]
+    config.business_key_fields = list(effective_policy.get("business_key_fields") or [])
+    if hasattr(db, "flush"):
+        await db.flush()
+
     async with get_session_factory()() as work_db:
         if table_name == "cost_center_monthly" and config.update_mode == "cleaning_rule":
             from app.mapping.cost_center_service import CostCenterMappingService

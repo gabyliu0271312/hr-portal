@@ -28,18 +28,14 @@ from app.users.models import User
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 
-_SYNC_SEMANTICS = {"full_snapshot", "incremental_append", "incremental_upsert"}
-_WRITE_STRATEGIES = {"full_refresh", "incremental_upsert", "append"}
-_MISSING_ROW_STRATEGIES = {"hard_delete", "mark_inactive", "keep_history"}
-
-
-_INGESTION_MODES = {"current_snapshot", "incremental_upsert", "append", "period_full_snapshot"}
-_MODE_POLICIES = {
-    "current_snapshot": ("full_snapshot", "incremental_upsert", "mark_inactive"),
-    "incremental_upsert": ("incremental_upsert", "incremental_upsert", "keep_history"),
-    "append": ("incremental_append", "append", "keep_history"),
-    "period_full_snapshot": ("full_snapshot", "incremental_upsert", "hard_delete"),
-}
+from app.datasources.policy import (
+    INGESTION_MODES as _INGESTION_MODES,
+    MISSING_ROW_STRATEGIES as _MISSING_ROW_STRATEGIES,
+    SYNC_SEMANTICS as _SYNC_SEMANTICS,
+    WRITE_STRATEGIES as _WRITE_STRATEGIES,
+    policy_tuple,
+    resolve_policy,
+)
 
 
 def _validate_write_policy(
@@ -58,23 +54,28 @@ def _validate_write_policy(
 async def _resolve_ingestion_policy(
     db: AsyncSession, table_name: str, ingestion_mode: str | None
 ) -> tuple[str | None, str | None, str | None, list[str]]:
-    if ingestion_mode is None:
-        return None, None, None, []
-    if ingestion_mode not in _INGESTION_MODES:
-        raise HTTPException(422, "入仓方式无效")
     asset = await db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == table_name))
     if asset is None:
         raise HTTPException(422, "目标数据资产不存在")
-    if ingestion_mode == "period_full_snapshot" and not asset.is_period:
-        raise HTTPException(422, "按期间覆盖仅适用于已登记期间字段的月度资产")
     keys = list((await db.execute(
         select(TableColumn.column_code)
         .where(TableColumn.table_name == table_name, TableColumn.is_pk_part.is_(True))
         .order_by(TableColumn.display_order)
     )).scalars())
-    if ingestion_mode in {"current_snapshot", "incremental_upsert", "period_full_snapshot"} and not keys:
+    try:
+        policy = resolve_policy(
+            ingestion_mode=ingestion_mode,
+            sync_semantics=None,
+            write_strategy=None,
+            missing_row_strategy=None,
+            business_key_fields=keys,
+            is_period=bool(asset.is_period),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if policy.mode in {"current_snapshot", "incremental_upsert", "period_full_snapshot"} and not keys:
         raise HTTPException(422, "请先在字段管理中标记业务主键")
-    return (*_MODE_POLICIES[ingestion_mode], keys)
+    return policy_tuple(policy)
 
 # ===== 哪些字段是敏感字段（需加密）=====
 SECRET_KEYS = {

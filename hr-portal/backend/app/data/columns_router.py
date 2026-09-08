@@ -34,6 +34,7 @@ from app.data.ddl import (
 )
 from app.data.dynamic_loader import register_source_table_model
 from app.data.models import DATA_TABLES, TableColumn
+from app.datasources.business_key_migration import BusinessKeyMigrationConflict, migrate_business_key
 from app.datasets.metadata import table_options
 from app.users.models import User
 from app.warehouse.impact import get_impact_analyzer
@@ -84,6 +85,34 @@ def _ensure_known_table(table: str) -> str:
     if table_name not in DATA_TABLES:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="未知数据表")
     return table_name
+
+
+async def _business_key_fields(table: str, db: AsyncSession) -> list[str]:
+    return list((await db.execute(
+        select(TableColumn.column_code)
+        .where(TableColumn.table_name == table, TableColumn.is_pk_part.is_(True))
+        .order_by(TableColumn.display_order, TableColumn.id)
+    )).scalars().all())
+
+
+async def _migrate_business_key_if_changed(
+    table: str,
+    old_keys: list[str],
+    db: AsyncSession,
+) -> dict[str, Any] | None:
+    new_keys = await _business_key_fields(table, db)
+    if old_keys == new_keys:
+        return None
+    try:
+        return await migrate_business_key(
+            db,
+            table_name=table,
+            old_key_fields=old_keys,
+            new_key_fields=new_keys,
+        )
+    except BusinessKeyMigrationConflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
 
 
 def _validate_payload_column_code(column_code: str) -> str:
@@ -585,6 +614,7 @@ async def bulk_update(
 ) -> dict[str, int]:
     """批量更新（用于拖拽排序后一次性保存）"""
     table = _ensure_known_table(table)
+    old_key_fields = await _business_key_fields(table, db)
 
     updated = 0
     ddl_changed = False
@@ -656,6 +686,7 @@ async def bulk_update(
     if ddl_changed:
         await db.flush()
         await register_source_table_model(db, table, force=True)
+    await _migrate_business_key_if_changed(table, old_key_fields, db)
     await db.commit()
     await _publish_ods_metadata_changed(table, "columns_updated")
     return {"updated": updated}
@@ -708,6 +739,7 @@ async def update_column(
     db: AsyncSession = Depends(get_session),
 ) -> ColumnOut:
     table = _ensure_known_table(table)
+    old_key_fields = await _business_key_fields(table, db)
     if payload.enum_default is not None and payload.enum_default not in (payload.enum_options or []):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="默认值必须存在于枚举值列表中")
     col = await db.get(TableColumn, column_id)
@@ -763,6 +795,7 @@ async def update_column(
     if ddl_changed:
         await db.flush()
         await register_source_table_model(db, table, force=True)
+    await _migrate_business_key_if_changed(table, old_key_fields, db)
     await db.commit()
     await db.refresh(col)
     await _publish_ods_metadata_changed(table, "column_updated")

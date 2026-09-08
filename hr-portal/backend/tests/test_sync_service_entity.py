@@ -83,8 +83,16 @@ class FakeInsert:
 
     def on_conflict_do_update(self, *, index_elements, set_):
         self.conflict = {
+            "action": "update",
             "index_elements": index_elements,
             "set": set_,
+        }
+        return self
+
+    def on_conflict_do_nothing(self, *, index_elements):
+        self.conflict = {
+            "action": "nothing",
+            "index_elements": index_elements,
         }
         return self
 
@@ -543,3 +551,49 @@ async def test_dynamic_upsert_uses_allocation_business_key_and_preserves_leading
             DATA_TABLES["emp_monthly_cost_class"] = old_model
 
     assert maps[0][1][("工号", "E001")] == "研发成本"
+
+async def test_dynamic_upsert_append_only_skips_updates_and_deletes(monkeypatch):
+    table_name = "sync_entity_append"
+    model = make_entity_model(table_name)
+    old_model = DATA_TABLES.get(table_name)
+    DATA_TABLES[table_name] = model
+    insert_holder = {}
+
+    def fake_pg_insert(model_arg):
+        insert_holder["insert"] = FakeInsert(model_arg)
+        return insert_holder["insert"]
+
+    monkeypatch.setattr(sync_service, "pg_insert", fake_pg_insert)
+    columns = [
+        make_column(table_name=table_name, column_code="employee_no", is_pk_part=True),
+        make_column(table_name=table_name, column_code="amount", data_type="number"),
+    ]
+    db = FakeSession(
+        results=[
+            FakeResult(rows=columns),
+            FakeResult(value=20),
+            FakeResult(rows=columns),
+            FakeResult(rows=[("employee_no",)]),
+            FakeResult(rows=[]),
+            FakeResult(rows=[]),
+        ]
+    )
+
+    try:
+        await sync_service._dynamic_upsert(
+            table_name,
+            [{"employee_no": "E001", "amount": "10"}],
+            db,
+            ingestion_mode="append",
+        )
+    finally:
+        if old_model is None:
+            DATA_TABLES.pop(table_name, None)
+        else:
+            DATA_TABLES[table_name] = old_model
+
+    assert insert_holder["insert"].conflict == {
+        "action": "nothing",
+        "index_elements": ["pk_hash"],
+    }
+    assert not any("DELETE FROM" in str(statement) for statement, _ in db.executed)

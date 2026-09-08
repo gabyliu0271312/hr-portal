@@ -85,6 +85,11 @@ async def datasource_bridge_adapter(
             ds.settings or {},
             ds_secrets,
             db,
+            ingestion_mode=ds.ingestion_mode,
+            sync_semantics=ds.sync_semantics,
+            write_strategy=ds.write_strategy,
+            missing_row_strategy=ds.missing_row_strategy,
+            business_key_fields=list(ds.business_key_fields or []),
         )
     except Exception as e:
         logger.exception(

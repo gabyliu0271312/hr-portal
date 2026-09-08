@@ -2695,11 +2695,11 @@ async def execute_standardization(
 
 
 async def _detect_ods_config(ods_table_name: str, db: AsyncSession) -> dict:
-    """自动识别 ODS 表的同步语义、写入策略、业务主键。"""
-    from app.datasources.sync_service import PERIOD_TABLES
-    from app.data.models import TableColumn
+    """根据数据源唯一策略解析ODS→DWD有效更新契约。"""
+    from app.data.models import TableColumn, RegisteredTable
+    from app.datasources.models import DataSource
+    from app.datasources.policy import resolve_policy
 
-    # 1) 业务主键 — 从 table_columns 读取 is_pk_part=true 的字段
     pk_rows = (
         await db.execute(
             select(TableColumn.column_code)
@@ -2707,40 +2707,30 @@ async def _detect_ods_config(ods_table_name: str, db: AsyncSession) -> dict:
             .order_by(TableColumn.display_order)
         )
     ).all()
-    business_key_fields = [r[0] for r in pk_rows]
-
-    from app.datasources.models import DataSource
-    from app.data.models import RegisteredTable
+    metadata_keys = [r[0] for r in pk_rows]
     source = await db.scalar(select(DataSource).where(DataSource.table_name == ods_table_name))
     asset = await db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == ods_table_name))
-    ingestion_mode = getattr(source, "ingestion_mode", None) if source else None
-    period_field = getattr(asset, "period_col", None) if asset and getattr(asset, "is_period", False) else None
-
-    if ingestion_mode == "period_full_snapshot" or (asset and asset.is_period and period_field):
-        return {
-            "ingestion_mode": "period_full_snapshot",
-            "effective_ingestion_mode": "period_full_snapshot",
-            "period_field": period_field,
-            "ods_sync_semantics": "full_snapshot",
-            "dwd_write_strategy": "incremental_upsert",
-            "missing_row_strategy": "hard_delete",
-            "business_key_fields": business_key_fields,
-        }
-
-    if ingestion_mode in {"current_snapshot", "incremental_upsert", "append"}:
-        semantics = {"current_snapshot": "full_snapshot", "incremental_upsert": "incremental_upsert", "append": "incremental_append"}[ingestion_mode]
-        strategy = {"current_snapshot": "incremental_upsert", "incremental_upsert": "incremental_upsert", "append": "append"}[ingestion_mode]
-        missing = "mark_inactive" if ingestion_mode == "current_snapshot" else "keep_history"
-        return {"ingestion_mode": ingestion_mode, "effective_ingestion_mode": ingestion_mode, "period_field": period_field, "ods_sync_semantics": semantics, "dwd_write_strategy": strategy, "missing_row_strategy": missing, "business_key_fields": business_key_fields}
+    is_period = bool(asset and asset.is_period)
+    try:
+        policy = resolve_policy(
+            ingestion_mode=getattr(source, "ingestion_mode", None) if source else None,
+            sync_semantics=getattr(source, "sync_semantics", None) if source else None,
+            write_strategy=getattr(source, "write_strategy", None) if source else None,
+            missing_row_strategy=getattr(source, "missing_row_strategy", None) if source else None,
+            business_key_fields=metadata_keys or (getattr(source, "business_key_fields", None) if source else None),
+            is_period=is_period,
+        )
+    except ValueError as exc:
+        raise ValueError(f"ODS入仓策略无效: {exc}") from exc
 
     return {
-        "ingestion_mode": "incremental_upsert",
-        "effective_ingestion_mode": "incremental_upsert",
-        "period_field": period_field,
-        "ods_sync_semantics": "incremental_upsert",
-        "dwd_write_strategy": "incremental_upsert",
-        "missing_row_strategy": "keep_history",
-        "business_key_fields": business_key_fields,
+        "ingestion_mode": policy.mode,
+        "effective_ingestion_mode": policy.mode,
+        "period_field": asset.period_col if is_period else None,
+        "ods_sync_semantics": policy.sync_semantics,
+        "dwd_write_strategy": policy.write_strategy,
+        "missing_row_strategy": policy.missing_row_strategy,
+        "business_key_fields": list(policy.business_key_fields or metadata_keys),
     }
 
 

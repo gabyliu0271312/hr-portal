@@ -61,6 +61,11 @@ async def _handler_datasource_sync(
         rows, message = await sync_to_table(
             ds.table_name, ds.source_type, ds.settings or {}, secrets, db,
             source_sync_batch_id=batch_id,
+            ingestion_mode=ds.ingestion_mode,
+            sync_semantics=ds.sync_semantics,
+            write_strategy=ds.write_strategy,
+            missing_row_strategy=ds.missing_row_strategy,
+            business_key_fields=list(ds.business_key_fields or []),
         )
     except Exception as exc:
         sync_run.status = "failed"

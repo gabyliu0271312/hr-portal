@@ -633,9 +633,12 @@ def apply_lookups_to_row(merged: dict, lookup_maps: list[tuple[dict, dict]]) -> 
 
 
 async def _dynamic_upsert(
-    table_name: str, rows: list[dict], db: AsyncSession,
+    table_name: str,
+    rows: list[dict],
+    db: AsyncSession,
     period_ym: str = "",
     column_labels: dict[str, str] | None = None,
+    ingestion_mode: str = "current_snapshot",
 ) -> int:
     Model = DATA_TABLES.get(table_name)
     if Model is None:
@@ -879,15 +882,18 @@ async def _dynamic_upsert(
         for i in range(0, len(payload), chunk_size):
             chunk = payload[i : i + chunk_size]
             stmt = pg_insert(Model).values(chunk)
-            update_set = {
-                code: getattr(stmt.excluded, code)
-                for code in columns_by_code
-            }
-            update_set["synced_at"] = stmt.excluded.synced_at
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["pk_hash"],
-                set_=update_set,
-            )
+            if ingestion_mode == "append":
+                stmt = stmt.on_conflict_do_nothing(index_elements=["pk_hash"])
+            else:
+                update_set = {
+                    code: getattr(stmt.excluded, code)
+                    for code in columns_by_code
+                }
+                update_set["synced_at"] = stmt.excluded.synced_at
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["pk_hash"],
+                    set_=update_set,
+                )
             await db.execute(stmt)
 
     # 工资 expense_type 是严格的 DWD 派生字段。旧版本写入的 ODS 值不能因
@@ -908,10 +914,11 @@ async def _dynamic_upsert(
 
     db.expire_all()
 
-    # 7) 删孤儿：本次批次中不存在的行视为已失效，直接删除
-    #    月度表：只删当月（保留历史月份）；其他表（含实时花名册）：全表范围
+    # 7) 仅当前快照策略删除本批次不存在的记录。
+    #    月度表只删除当月/当前期间；其他表按全表范围处理。
     current_hashes = [h for h, _ in deduped]
-    if cfg_period and deduped:
+    should_remove_stale = ingestion_mode in {"current_snapshot", "period_full_snapshot"}
+    if should_remove_stale and cfg_period and deduped:
         period_col = cfg_period["period_col"]
         cur_ym = str(deduped[0][1].get(period_col, ""))
         if cur_ym:
@@ -922,7 +929,7 @@ async def _dynamic_upsert(
                     Model.pk_hash.not_in(current_hashes),
                 )
             )
-    else:
+    elif should_remove_stale:
         await db.execute(
             delete(Model).where(Model.pk_hash.not_in(current_hashes))
         )
@@ -1323,12 +1330,27 @@ async def sync_to_table(
     secrets: dict,
     db: AsyncSession,
     source_sync_batch_id: str | None = None,
+    ingestion_mode: str | None = None,
+    sync_semantics: str | None = None,
+    write_strategy: str | None = None,
+    missing_row_strategy: str | None = None,
+    business_key_fields: list[str] | None = None,
 ) -> tuple[int, str]:
     """执行主同步；主数据提交后，质量投递和事件发布均不反向改变同步结果。"""
     try:
         periods: set[str] = set()
         inserted, msg = await _sync_to_table_impl(
-            table_name, source_type, settings, secrets, db, period_sink=periods,
+            table_name,
+            source_type,
+            settings,
+            secrets,
+            db,
+            period_sink=periods,
+            ingestion_mode=ingestion_mode,
+            sync_semantics=sync_semantics,
+            write_strategy=write_strategy,
+            missing_row_strategy=missing_row_strategy,
+            business_key_fields=business_key_fields,
         )
     except Exception as exc:
         error_msg = str(exc)[:500]
@@ -1437,9 +1459,25 @@ async def _sync_to_table_impl(
     secrets: dict,
     db: AsyncSession,
     period_sink: set[str] | None = None,
+    ingestion_mode: str | None = None,
+    sync_semantics: str | None = None,
+    write_strategy: str | None = None,
+    missing_row_strategy: str | None = None,
+    business_key_fields: list[str] | None = None,
 ) -> tuple[int, str]:
     if table_name not in DATA_TABLES:
         raise RuntimeError(f"暂不支持的业务表: {table_name}")
+
+    from app.datasources.policy import resolve_policy
+    policy = resolve_policy(
+        ingestion_mode=ingestion_mode,
+        sync_semantics=sync_semantics,
+        write_strategy=write_strategy,
+        missing_row_strategy=missing_row_strategy,
+        business_key_fields=business_key_fields,
+        is_period=table_name in PERIOD_TABLES,
+    )
+    ingestion_mode = policy.mode
 
     if source_type == "upload":
         return 0, "内部上传类型暂不支持「立即拉取」，请使用 Excel 上传接口"
@@ -1532,12 +1570,24 @@ async def _sync_to_table_impl(
                 _groups.setdefault(_rv, []).append(_r)
         inserted = 0
         for _ym, _grp in sorted(_groups.items()):
-            inserted += await _dynamic_upsert(table_name, _grp, db, period_ym=_ym)
+            inserted += await _dynamic_upsert(
+                table_name,
+                _grp,
+                db,
+                period_ym=_ym,
+                ingestion_mode=ingestion_mode,
+            )
         if _groups:
             actual_periods.update(_groups)
             cur_ym = max(_groups)
     else:
-        inserted = await _dynamic_upsert(table_name, rows or [], db, period_ym=cur_ym)
+        inserted = await _dynamic_upsert(
+            table_name,
+            rows or [],
+            db,
+            period_ym=cur_ym,
+            ingestion_mode=ingestion_mode,
+        )
 
     # 派发到树构建：成本中心 → cc_tree；组织单元 → org_tree
     if period_sink is not None:
