@@ -4,7 +4,7 @@ import sqlalchemy as sa
 
 
 revision = "0225_repair_dwd_id_identity"
-down_revision = "0224_performance_self_summary_answers"
+down_revision = "0216_report_merge_audit_details"
 branch_labels = None
 depends_on = None
 
