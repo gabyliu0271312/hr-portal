@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "waivers": [
+    {
+      "id": "PM-T009-T05-rich-text-cursor-20260917",
+      "task_id": "PM-T009-T05",
+      "approved_by": "user",
+      "approved_at": "2026-09-17",
+      "reason": "用户明确授权仅为自我总结富文本编辑区鼠标样式修复豁免 PM-T009 历史像素采集契约缺口和未被检查器识别的 T05 前置条件；目标页面计算样式已确认外壳 cursor=default、实际 contenteditable 编辑区及后代 cursor=text。本豁免不改变整体 completion_status 或 pixel_restore_status，不允许修改其他视觉结构。",
+      "active": false,
+      "scope": [
+        "hr-portal/frontend/src/components/performance/PerformanceRichTextBox.vue",
+        "hr-portal/frontend/src/views/performance/SelfSummaryTask.spec.js",
+        "specs/002-performance-management/features/PM-T009-self-summary-completion"
+      ],
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "task_prerequisites_unspecified:PM-T009-T05",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation"
+      ]
+    },
+    {
+      "id": "PM-T009-T05-submitted-summary-20260917",
+      "task_id": "PM-T009-T05",
+      "approved_by": "user",
+      "approved_at": "2026-09-17",
+      "reason": "用户明确授权仅为工作总结提交后的任务身份稳定、完成状态、答案重读和概览只读展示修复豁免 PM-T009 历史像素采集契约缺口及未被检查器识别的 T05 前置条件；数据库实证已确认提交数据持久化，问题源于管理员概览无序切换到同节点其他员工任务以及概览未读取完成状态。本豁免不改变整体 completion_status 或 pixel_restore_status，不扩展到其他绩效环节。",
+      "active": true,
+      "scope": [
+        "hr-portal/backend/app/performance/projects_router.py",
+        "hr-portal/backend/tests/test_performance_projects.py",
+        "hr-portal/frontend/src/api/performance.ts",
+        "hr-portal/frontend/src/api/performance.js",
+        "hr-portal/frontend/src/views/performance/Review.vue",
+        "hr-portal/frontend/src/views/performance/Review.spec.ts",
+        "hr-portal/frontend/src/views/performance/Review.spec.js",
+        "hr-portal/frontend/src/components/performance/PerformanceReviewContent.vue",
+        "hr-portal/frontend/src/components/performance/PerformanceReviewCategorySidebar.vue",
+        "hr-portal/frontend/src/components/performance/PerformanceSelfSummaryReadOnly.vue",
+        "specs/002-performance-management/features/PM-T009-self-summary-completion"
+      ],
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "task_prerequisites_unspecified:PM-T009-T05",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "waivers": [
+    {
+      "id": "PM-T005-T04-sub-rating-overflow-20260831",
+      "task_id": "PM-T005-T04",
+      "approved_by": "user",
+      "approved_at": "2026-08-31",
+      "reason": "用户明确授权仅为子评估题评级档位只读溢出修复豁免既有未勾选前置任务和无关 textarea resize 历史证据；普通评估题、textarea 与其他规则变体不在修改范围。",
+      "active": true,
+      "scope": [
+        "hr-portal/frontend/src/components/performance/PerformanceOptionNavigator.vue",
+        "hr-portal/frontend/src/components/performance/ReviewRuleConfigRenderer.vue",
+        "hr-portal/frontend/src/components/performance/ReviewQuestionEntryVariants.spec.ts",
+        "specs/002-performance-management/features/PM-T005-review-question"
+      ],
+      "allowed_errors": [
+        "unchecked_prerequisite:PM-T005-T00",
+        "unchecked_prerequisite:PM-T005-T03"
+      ]
+    }
+  ]
+}

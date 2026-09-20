@@ -87,10 +87,38 @@ def _dedupe_strings(values: list[str]) -> list[str]:
     return list(dict.fromkeys(value.strip() for value in values if value and value.strip()))
 
 
+def _content_id(content: dict) -> str:
+    return str(content.get("content_id") or content.get("id") or f"{content.get('type', 'custom')}-{content.get('name', '')}")
+
+
+def normalize_content_library(contents: list[dict]) -> list[dict]:
+    normalized: list[dict] = []
+    seen_ids: set[str] = set()
+    for index, raw in enumerate(contents):
+        content = deepcopy(raw)
+        base_id = _content_id(content)
+        content_id = base_id
+        suffix = index + 1
+        while content_id in seen_ids:
+            content_id = f"{base_id}-{suffix}"
+            suffix += 1
+        seen_ids.add(content_id)
+        content["content_id"] = content_id
+        content.pop("content_slot", None)
+        normalized.append(content)
+    return normalized
+
+
+def _merge_content_library(library: list[dict], contents: list[dict]) -> list[dict]:
+    merged = {content["content_id"]: content for content in normalize_content_library(library)}
+    for content in normalize_content_library(contents):
+        merged[content["content_id"]] = content
+    return list(merged.values())
+
+
 def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
     if not nodes:
         raise TemplateWorkflowValidationError("流程至少需要一个评估型环节")
-
     normalized: list[dict] = []
     seen_ids: set[str] = set()
     for index, raw in enumerate(nodes):
@@ -129,7 +157,8 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
             raise TemplateWorkflowValidationError("复议填写说明最多 1000 个字符", node_id=node_id)
         executor_types = _dedupe_strings(list(node.get("executor_types") or []))
         executor_label = str(node.get("executor_label") or "")
-        if node_type == "calibration":
+        if node_type == "evaluation" and executor_label == "被评估人":
+            executor_types = ["SUBJECT"]
             executor_types = [CALIBRATION_EXECUTOR_TYPE]
             executor_label = CALIBRATION_EXECUTOR_LABEL
         elif node_type in SHARED_MANAGER_EXECUTOR_NODE_TYPES:
@@ -172,8 +201,11 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
                     else ""
                 ),
                 "executor_config": None,
+                "content_bindings": deepcopy(node.get("content_bindings") or {}),
             }
         )
+        if node.get("content") is not None:
+            normalized[-1]["content"] = deepcopy(node["content"])
 
         if node_type == "result_reconsideration":
             try:
@@ -234,6 +266,14 @@ class PerformanceTemplateWorkflowService:
             )
         ).scalar_one_or_none()
 
+    async def get_content_library(self, template_id: int) -> list[dict]:
+        record = await self.get_record(template_id)
+        if record is None:
+            return []
+        library = normalize_content_library(getattr(record, "content_library", None) or [])
+        legacy_contents = [content for node in (record.nodes or []) for content in (node.get("content") or [])]
+        return _merge_content_library(library, legacy_contents)
+
     async def get_nodes(self, template_id: int) -> tuple[list[dict], int, int]:
         record = await self.get_record(template_id)
         if record is None:
@@ -245,17 +285,32 @@ class PerformanceTemplateWorkflowService:
         template_id: int,
         nodes: list[dict],
         *,
+        content_library: list[dict] | None = None,
         actor_type: str,
         actor_ref: str,
     ) -> PerformanceTemplateWorkflow:
         normalized = normalize_workflow_nodes(nodes)
         record = await self.get_record(template_id)
+        existing_library = getattr(record, "content_library", None) if record is not None else []
+        library = normalize_content_library(content_library or [])
+        for node in normalized:
+            library = _merge_content_library(library, node.get("content") or [])
+            bindings = deepcopy(node.get("content_bindings") or {})
+            if not bindings:
+                grouped: dict[str, list[str]] = {}
+                for content in node.get("content") or []:
+                    slot = str(content.get("content_slot") or "fill")
+                    grouped.setdefault(slot, []).append(_content_id(content))
+                bindings = grouped
+            node["content_bindings"] = bindings
+        library = _merge_content_library(existing_library or [], library)
         before = deepcopy(record.nodes) if record is not None else []
         if record is None:
-            record = PerformanceTemplateWorkflow(template_id=template_id, nodes=normalized)
+            record = PerformanceTemplateWorkflow(template_id=template_id, nodes=normalized, content_library=library)
             self.db.add(record)
         else:
             record.nodes = normalized
+            record.content_library = library
         record.updated_by_type = actor_type
         record.updated_by_ref = actor_ref
         PerformanceAuditService(self.db).append_event(

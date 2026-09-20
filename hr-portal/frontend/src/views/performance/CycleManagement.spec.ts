@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   refreshPeople: vi.fn(),
   updatePerson: vi.fn(),
   remove: vi.fn(),
+  projectRemove: vi.fn(),
 }))
 
 vi.mock('@/api/performance', () => ({
@@ -26,6 +27,9 @@ vi.mock('@/api/performance', () => ({
     refreshPeople: mocks.refreshPeople,
     updatePerson: mocks.updatePerson,
     remove: mocks.remove,
+  },
+  performanceProjectApi: {
+    remove: mocks.projectRemove,
   },
 }))
 
@@ -52,6 +56,16 @@ const cycle = {
   projects: [],
 }
 
+const project = {
+  id: 11,
+  project_ref: 'project:11',
+  name: 'dee',
+  description: '111',
+  administrators: [] as string[],
+  status: 'DRAFT',
+  evaluated_count: 3,
+}
+
 async function mountView(path = '/performance/settings/cycles') {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -63,7 +77,12 @@ async function mountView(path = '/performance/settings/cycles') {
   })
   await router.push(path)
   await router.isReady()
-  const wrapper = mount({ template: '<router-view />' }, { global: { plugins: [router] } })
+  const wrapper = mount({ template: '<router-view />' }, {
+    global: {
+      plugins: [router],
+      stubs: { PermissionButton: { template: '<button><slot /></button>' } },
+    },
+  })
   await flushPromises()
   return wrapper.getComponent(CycleManagement)
 }
@@ -75,6 +94,87 @@ describe('CycleManagement', () => {
     mocks.list.mockResolvedValue({ items: [cycle], total: 1, page: 1, page_size: 20 })
     mocks.get.mockResolvedValue(cycle)
     mocks.listPeople.mockResolvedValue([])
+  })
+
+  it('confirms project deletion through the shared dialog and refreshes the cycle', async () => {
+    mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [project] }], total: 1, page: 1, page_size: 20 })
+    mocks.get.mockResolvedValue({ ...cycle, projects: [project] })
+    mocks.projectRemove.mockResolvedValue(undefined)
+    const wrapper = await mountView()
+
+    await wrapper.findAll('button').find(button => button.text() === '···')!.trigger('click')
+    await document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    const removeItems = [...document.body.querySelectorAll('.el-dropdown-menu__item')].filter(item => item.textContent === '删除')
+    expect(removeItems).toHaveLength(1)
+    removeItems[0].dispatchEvent(new Event('click', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+
+    const dialog = document.body.querySelector('.performance-confirm-dialog')
+    expect(dialog).not.toBeNull()
+    expect(dialog!.textContent).toContain('确定要删除“dee”吗？')
+    expect(dialog!.textContent).toContain('删除后将无法恢复')
+    const danger = [...dialog!.querySelectorAll('button')].find(button => button.textContent === '删除')!
+    expect(danger).toBeDefined()
+    danger.click()
+    await flushPromises()
+
+    expect(mocks.projectRemove).toHaveBeenCalledWith(11)
+    expect(mocks.get).toHaveBeenCalled()
+  })
+
+  it('keeps project remove behind the confirm dialog until confirmed', async () => {
+    mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [project] }], total: 1, page: 1, page_size: 20 })
+    mocks.get.mockResolvedValue({ ...cycle, projects: [project] })
+    const wrapper = await mountView()
+
+    await wrapper.findAll('button').find(button => button.text() === '···')!.trigger('click')
+    const removeItems = [...document.body.querySelectorAll('.el-dropdown-menu__item')].filter(item => item.textContent === '删除')
+    removeItems[0].dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    const dialog = document.body.querySelector('.performance-confirm-dialog')
+    expect(dialog).not.toBeNull()
+    const keep = [...dialog!.querySelectorAll('button')].find(button => button.textContent === '保留')!
+    keep.click()
+    await flushPromises()
+    expect(mocks.projectRemove).not.toHaveBeenCalled()
+    expect(document.body.querySelector('.performance-confirm-dialog')).toBeNull()
+  })
+
+  it('requires typing 确认删除 before removing a started project', async () => {
+    const started = { ...project, status: 'STARTED' as const }
+    mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [started] }], total: 1, page: 1, page_size: 20 })
+    mocks.get.mockResolvedValue({ ...cycle, projects: [started] })
+    mocks.projectRemove.mockResolvedValue(undefined)
+    const wrapper = await mountView()
+
+    await wrapper.findAll('button').find(button => button.text() === '···')!.trigger('click')
+    const removeItems = [...document.body.querySelectorAll('.el-dropdown-menu__item')].filter(item => item.textContent === '删除')
+    expect(removeItems.length).toBeGreaterThanOrEqual(1)
+    removeItems[removeItems.length - 1].dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    const dialogs = [...document.body.querySelectorAll('.performance-confirm-dialog')]
+    const dialog = dialogs[dialogs.length - 1]!
+    expect(dialog.textContent).toContain('项目已启动，删除后，项目中的评估数据将全部被删除且不可恢复')
+    const danger = [...dialog.querySelectorAll('button')].find(button => button.textContent === '删除')! as HTMLButtonElement
+    expect(danger.disabled).toBe(true)
+
+    const input = dialog.querySelector('.performance-confirm-dialog__confirm-input') as HTMLInputElement
+    input.value = '确认删'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    expect(danger.disabled).toBe(true)
+
+    input.value = '确认删除'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    expect(danger.disabled).toBe(false)
+    danger.click()
+    await flushPromises()
+    expect(mocks.projectRemove).toHaveBeenCalledWith(11)
   })
 
   it('keeps the desktop cycle workspace proportions and renders the detail structure', async () => {

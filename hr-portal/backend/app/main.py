@@ -17,7 +17,10 @@ from app.core.config import settings
 from app.core.db import AsyncSessionLocal, Base, engine
 from app.performance.router import router as performance_auth_router
 from app.performance.cycles_router import router as performance_cycles_router
+from app.performance.projects_router import router as performance_projects_router
 from app.performance.templates_router import router as performance_templates_router
+from app.performance.review_router import router as performance_review_router
+from app.performance.tag_fill_questions_router import router as performance_tag_fill_questions_router
 from app.performance.seed import PerformanceBootstrapConfigurationError
 from app.data.columns_router import router as columns_router
 from app.ai.employee_profile_fields_router import router as employee_profile_fields_router
@@ -210,7 +213,10 @@ async def root() -> dict:
 app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(performance_auth_router, prefix=settings.API_PREFIX)
 app.include_router(performance_cycles_router, prefix=settings.API_PREFIX)
+app.include_router(performance_projects_router, prefix=settings.API_PREFIX)
 app.include_router(performance_templates_router, prefix=settings.API_PREFIX)
+app.include_router(performance_review_router, prefix=settings.API_PREFIX)
+app.include_router(performance_tag_fill_questions_router, prefix=settings.API_PREFIX)
 app.include_router(ai_router, prefix=settings.API_PREFIX)
 app.include_router(codegen_router, prefix=settings.API_PREFIX)
 app.include_router(users_router, prefix=settings.API_PREFIX)

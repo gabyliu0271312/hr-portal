@@ -1,0 +1,30 @@
+{
+  "audit": "pm-t003-h-scrollbar",
+  "source_state_id": "manual:audit-h-scrollbars:1920",
+  "url": "https://idreamsky.feishu.cn/perf/admin/semester-activities?s=7686686507675012296",
+  "viewport": { "width": 1920, "height": 594, "dpr": 1 },
+  "timestamp": "2026-09-18T02:57:49.795Z",
+  "active_h_scroll": [],
+  "table": {
+    "width": 1352,
+    "overflow": "visible",
+    "container": "ud__table-content",
+    "container_width": 1352,
+    "columns": [
+      { "index": 0, "text": "项目名称", "col_attr": "250px", "width": 348.1 },
+      { "index": 1, "text": "描述", "col_attr": "251px", "width": 349.5 },
+      { "index": 2, "text": "项目管理员", "col_attr": "120px", "width": 167.1 },
+      { "index": 3, "text": "状态", "col_attr": "110px", "width": 153.2 },
+      { "index": 4, "text": "评估人数", "col_attr": "148px", "width": 206.1 },
+      { "index": 5, "text": "操作", "col_attr": "92px", "width": 128.1 },
+      { "index": "sum", "width": 1352.1 }
+    ]
+  },
+  "stretch_check": {
+    "ratio": 1.39238043244,
+    "expected": [348.1, 349.5, 167.1, 153.2, 206.1, 128.1],
+    "computed_from_971_baseline": [348.1, 349.5, 167.1, 153.2, 206.1, 128.1],
+    "match": "all columns equal baseline 250/251/120/110/148/92 scaled by container/971; table-layout fixed distribution"
+  },
+  "conclusion": "1920 容器 1352px ≥ 最小表宽 971px，无横向滚动条；列宽按固定像素基准（971 合计）比例拉伸"
+}

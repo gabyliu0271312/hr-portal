@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { describe, expect, it } from 'vitest';
 import PerformanceAdminLayout from './PerformanceAdminLayout.vue';
+import performanceAdminLayoutSource from './PerformanceAdminLayout.vue?raw';
 function mountLayout() {
     const router = createRouter({
         history: createMemoryHistory(),
@@ -26,6 +27,13 @@ function mountLayout() {
     });
 }
 describe('PerformanceAdminLayout', () => {
+    it('reclaims the stable root scrollbar gutter for the full-viewport admin shell', () => {
+        expect(performanceAdminLayoutSource).toContain(':global(html:has(.performance-admin-app)) { scrollbar-gutter: auto; }');
+    });
+    it('keeps the evaluation parent expanded without a second active background', () => {
+        expect(performanceAdminLayoutSource).toContain("if (section === 'evaluation-questions') evaluationExpanded.value = !evaluationExpanded.value");
+        expect(performanceAdminLayoutSource).not.toContain("if (!['ReviewQuestionManagement', 'TaggedFillQuestionManagement'].includes(String(route.name)))");
+    });
     it('renders the confirmed standalone shell and switches placeholder sections', async () => {
         const wrapper = mountLayout();
         expect(wrapper.text()).toContain('创梦绩效设置');

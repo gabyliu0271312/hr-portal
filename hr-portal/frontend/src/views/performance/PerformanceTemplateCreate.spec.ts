@@ -1,10 +1,11 @@
-﻿import { mount } from '@vue/test-utils'
+﻿import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { performanceTemplateApi } from '@/api/performance'
 import PerformanceTemplateCreate from './PerformanceTemplateCreate.vue'
 
 const push = vi.fn()
-vi.mock('vue-router', () => ({ useRouter: () => ({ push, currentRoute: { value: { query: {} } } }) }))
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, string> }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push, currentRoute: { get value() { return { query: routeState.query } } } }) }))
 
 function mountView() {
   return mount(PerformanceTemplateCreate, {
@@ -13,9 +14,17 @@ function mountView() {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks()
   push.mockReset()
+  routeState.query = {}
   localStorage.clear()
   vi.spyOn(performanceTemplateApi, 'create').mockResolvedValue({ template_id: 901, name: '新的模板' })
+  vi.spyOn(performanceTemplateApi, 'getWorkflow').mockResolvedValue({
+    template_id: 901,
+    usage_summary: { cycle_count: 0, project_count: 0 },
+    editable_scope: { workflow: true, data_write_settings: true, reference_and_prompt_content: true },
+    nodes: [],
+  })
 })
 
 describe('PerformanceTemplateCreate', () => {
@@ -56,6 +65,91 @@ describe('PerformanceTemplateCreate', () => {
     expect(performanceTemplateApi.create).toHaveBeenCalledWith(expect.objectContaining({ name: '新的模板' }))
     expect(localStorage.getItem('performance-template-draft')).toContain('"templateId":901')
   })
+
+  it('loads and updates an existing template without creating a duplicate', async () => {
+    routeState.query = { template_id: '42' }
+    vi.spyOn(performanceTemplateApi, 'get').mockResolvedValue({
+      template_id: 42,
+      name: '已有模板',
+      description: '已有描述',
+      language: 'zh-CN',
+      english_enabled: true,
+      calculation_enabled: false,
+      selected_rules: [],
+      status: 'DRAFT',
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    })
+    const update = vi.spyOn(performanceTemplateApi, 'update').mockResolvedValue({
+      template_id: 42,
+      name: '修改后的模板',
+      description: '已有描述',
+      language: 'zh-CN',
+      english_enabled: true,
+      calculation_enabled: false,
+      selected_rules: [],
+      status: 'DRAFT',
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-31T00:00:00Z',
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.full-screen-modal-header-title').text()).toBe('编辑绩效模板')
+    expect((wrapper.get('[aria-label="模板名称"]').element as HTMLInputElement).value).toBe('已有模板')
+    expect((wrapper.get('[aria-label="模板描述"]').element as HTMLTextAreaElement).value).toBe('已有描述')
+
+    await wrapper.get('[aria-label="模板名称"]').setValue('修改后的模板')
+    await wrapper.get('.next-button').trigger('click')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith(42, expect.objectContaining({ name: '修改后的模板' }))
+    expect(performanceTemplateApi.create).not.toHaveBeenCalled()
+    expect(wrapper.find('.full-screen-modal-header-title').text()).toBe('编辑绩效模板')
+    expect(wrapper.find('.basic-info-panel').exists()).toBe(false)
+  })
+
+  it('changes the final header action to save and persists the template through the real update API', async () => {
+    routeState.query = { template_id: '42', step: 'content' }
+    vi.spyOn(performanceTemplateApi, 'get').mockResolvedValue({
+      template_id: 42,
+      name: '已有模板',
+      description: '已有描述',
+      language: 'zh-CN',
+      english_enabled: false,
+      calculation_enabled: false,
+      selected_rules: [],
+      status: 'DRAFT',
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    })
+    const update = vi.spyOn(performanceTemplateApi, 'update').mockResolvedValue({
+      template_id: 42,
+      name: '已有模板',
+      description: '已有描述',
+      language: 'zh-CN',
+      english_enabled: false,
+      calculation_enabled: false,
+      selected_rules: [],
+      status: 'DRAFT',
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-09-02T00:00:00Z',
+    })
+    vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockResolvedValue({ nodes: [] } as any)
+
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('.next-button').text()).toBe('下一步')
+    await wrapper.get('.next-button').trigger('click')
+    expect(wrapper.get('.next-button').text()).toBe('保存')
+    await wrapper.get('.next-button').trigger('click')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith(42, expect.objectContaining({ name: '已有模板' }))
+    expect(push).toHaveBeenCalledWith({ name: 'PerformanceTemplates' })
+  })
+
 
   it('validates required and duplicate names', async () => {
     const wrapper = mountView()

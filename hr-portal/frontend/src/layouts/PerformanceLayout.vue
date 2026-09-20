@@ -2,9 +2,8 @@
   <el-container class="performance-app">
     <div class="performance-header">
       <div class="header-left">
-        <button class="portal-link" type="button" @click="router.push('/home')">HR Portal</button>
-        <span class="divider"></span>
-        <span class="app-name">绩效管理</span>
+        <button class="launcher" type="button" aria-label="应用启动器" @click="router.push('/home')"><i v-for="index in 9" :key="index"></i></button>
+        <PerformanceBrand label="创梦绩效" />
         <nav class="performance-tabs">
           <button
             v-for="tab in visibleTabs"
@@ -36,7 +35,7 @@
     </div>
 
     <el-container class="performance-body">
-      <el-aside width="220px" class="performance-aside">
+      <el-aside v-if="!isWorkbench && !isReview && !isProjectManagement" width="220px" class="performance-aside">
         <div class="aside-title">{{ activeTab?.label || '绩效管理' }}</div>
         <div
           v-for="item in activeMenu"
@@ -49,7 +48,7 @@
         </div>
       </el-aside>
 
-      <el-main class="performance-main">
+      <el-main :class="['performance-main', { 'review-main': isReview || isProjectManagement }]">
         <router-view />
       </el-main>
     </el-container>
@@ -66,6 +65,7 @@ import { performanceApi, type PerformanceAccessContext } from '@/api/performance
 import { canManagePerformanceSettings } from '@/utils/performanceSettingsAccess'
 import { openPerformanceSettingsInNewTab } from '@/utils/performanceSettingsNavigation'
 import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue'
+import PerformanceBrand from '@/components/performance/PerformanceBrand.vue'
 
 interface PerformanceMenuItem {
   key: string
@@ -89,6 +89,9 @@ const canAdmin = computed(() =>
   canManagePerformanceSettings(userStore.menus.map((menu) => menu.code), performanceContext.value),
 )
 const userInitial = computed(() => userStore.user?.display_name?.trim().slice(0, 1) || '我')
+const isWorkbench = computed(() => route.path === '/performance/workbench')
+const isReview = computed(() => route.path === '/performance/review')
+const isProjectManagement = computed(() => route.path === '/performance/project-management')
 
 const tabs = computed<PerformanceTab[]>(() => [
   {
@@ -117,14 +120,8 @@ const tabs = computed<PerformanceTab[]>(() => [
   },
   {
     label: '项目管理',
-    path: '/performance/projects',
-    menu: [
-      { key: 'list', label: '项目列表', path: '/performance/projects' },
-      { key: 'members', label: '项目成员', path: '/performance/projects' },
-      { key: 'weights', label: '项目权重', path: '/performance/projects' },
-      { key: 'reviews', label: '项目评价', path: '/performance/projects' },
-      { key: 'progress', label: '项目进度', path: '/performance/projects' },
-    ],
+    path: '/performance/project-management',
+    menu: [],
   },
 ])
 
@@ -164,20 +161,33 @@ onMounted(async () => {
   background: var(--color-bg-page);
 }
 .performance-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
   display: flex;
   align-items: center;
   justify-content: space-between;
   height: 56px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 0 16px;
+  box-sizing: border-box;
+  border-bottom: 0;
   background: var(--color-bg-card);
+  color: rgba(0, 0, 0, 0.65);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 21px;
+  box-shadow: rgba(31, 35, 41, 0.02) 0 2px 4px -4px, rgba(31, 35, 41, 0.02) 0 4px 8px 0, rgba(31, 35, 41, 0.03) 0 4px 16px 4px;
 }
 .header-left,
 .header-right {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 0;
 }
+.launcher { display: grid; width: 32px; height: 32px; grid-template-columns: repeat(3, 4px); grid-template-rows: repeat(3, 4px); place-content: center; gap: 4px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #646a73; cursor: pointer; }
+.launcher i { display: block; width: 4px; height: 4px; border-radius: 1px; background: currentColor; }
+.launcher:hover { background: #f1f2f4; color: var(--color-primary); }
 .portal-link {
   padding: 0;
   border: 0;
@@ -194,42 +204,43 @@ onMounted(async () => {
   height: 18px;
   background: var(--color-border);
 }
-.app-name {
-  color: var(--color-text-primary);
-  font-size: 16px;
-  font-weight: 700;
-  white-space: nowrap;
-}
 .performance-tabs {
   display: flex;
-  gap: 4px;
-  margin-left: 12px;
+  gap: 0;
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 0 16px;
 }
 .tab-button {
   position: relative;
   height: 56px;
-  padding: 0 14px;
+  padding: 0 16px;
   border: 0;
   background: transparent;
   color: var(--color-text-regular);
   cursor: pointer;
-  font-size: 14px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 56px;
+  white-space: nowrap;
 }
 .tab-button:hover,
 .tab-button.active {
   color: var(--color-primary);
 }
 .tab-button.active {
-  font-weight: 700;
+  font-weight: 500;
 }
 .tab-button.active::after {
   content: '';
   position: absolute;
-  right: 14px;
-  bottom: 0;
-  left: 14px;
-  height: 2px;
-  border-radius: 1px;
+  top: 53px;
+  right: 16px;
+  left: 16px;
+  width: auto;
+  height: 3px;
+  border-radius: 0;
   background: var(--color-primary);
 }
 .user-name {
@@ -280,9 +291,19 @@ onMounted(async () => {
   font-weight: 700;
 }
 .performance-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   padding: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   background: var(--color-bg-page);
+}
+.review-main {
+  min-height: 0;
+  overflow: hidden;
+  scrollbar-gutter: auto;
 }
 @media (max-width: 900px) {
   .performance-header {

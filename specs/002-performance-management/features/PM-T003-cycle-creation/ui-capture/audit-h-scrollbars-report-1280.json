@@ -1,0 +1,35 @@
+{
+  "audit": "pm-t003-h-scrollbar",
+  "source_state_id": "manual:audit-h-scrollbars:1280",
+  "url": "https://idreamsky.feishu.cn/perf/admin/semester-activities?s=7686686507675012296",
+  "viewport": { "width": 1280, "height": 314, "dpr": 1.5 },
+  "timestamp": "2026-09-18T02:57:11.150Z",
+  "active_h_scroll": [
+    {
+      "selector": "div.ud__table-wrapper > div.ud__loading-nested-loading > div.ud__loading__container > div.ud__table.ud__table-md > div.ud__table-container > div.ud__table-content",
+      "bbox": { "x": 528, "y": 380, "width": 704, "height": 104 },
+      "overflow_x": "auto",
+      "overflow_y": "hidden",
+      "scroll_width": 971,
+      "client_width": 704,
+      "h_overflow_px": 267,
+      "in_table_region": true
+    }
+  ],
+  "dormant_scroll_owners_count": 6,
+  "table": {
+    "width": 971,
+    "overflow": "visible",
+    "container": "ud__table-content",
+    "columns": [
+      { "index": 0, "text": "项目名称", "col_attr": "250px", "width": 250 },
+      { "index": 1, "text": "描述", "col_attr": "251px", "width": 251 },
+      { "index": 2, "text": "项目管理员", "col_attr": "120px", "width": 120 },
+      { "index": 3, "text": "状态", "col_attr": "110px", "width": 110 },
+      { "index": 4, "text": "评估人数", "col_attr": "148px", "width": 148 },
+      { "index": 5, "text": "操作", "col_attr": "92px", "width": 92 },
+      { "index": "sum", "width": 971 }
+    ]
+  },
+  "conclusion": "唯一激活横向滚动容器为 ud__table-content；table 本身 overflow visible、宽度 971px 不收缩；所有祖先容器 dormant，滚动不向外传播"
+}

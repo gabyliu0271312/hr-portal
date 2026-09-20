@@ -4,6 +4,7 @@ import WorkflowNodeBasicFields from './WorkflowNodeBasicFields.vue';
 const node = {
     node_id: 'evaluation-1', node_type: 'evaluation', name: '评估型环节', description: '', order: 1,
     executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: 'SINGLE', include_final_result: false, system: false,
+    allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false,
 };
 describe('WorkflowNodeBasicFields', () => {
     it('shares the required name and description field structure', async () => {

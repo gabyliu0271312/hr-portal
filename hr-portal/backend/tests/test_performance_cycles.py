@@ -308,7 +308,7 @@ def test_snapshot_allows_duplicate_display_names_with_distinct_employee_numbers(
         Path(__file__).resolve().parents[1]
         / "alembic"
         / "versions"
-        / "0191_performance_project_shell.py"
+        / "0220_performance_projects.py"
     ).read_text(encoding="utf-8")
 
     assert "sa.dialects.postgresql.JSONB()" in migration

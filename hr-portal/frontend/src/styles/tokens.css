@@ -6,6 +6,92 @@
  * ============================================================ */
 
 :root {
+  /* Semantic surface and control aliases */
+  --color-surface-page: var(--color-bg-page);
+  --color-surface-card: var(--color-bg-card);
+  --color-surface-disabled: #eff0f1;
+  --color-line-control: #d0d3d6;
+  --color-line-divider: rgba(31, 35, 41, 0.15);
+  --color-text-danger-strong: #f54a45;
+  --color-text-warning-strong: #ff8800;
+  --color-action-primary: var(--color-primary);
+  --color-action-primary-hover: var(--color-primary-hover);
+
+  /* Performance shared component tokens */
+  --performance-content-surface-padding: var(--spacing-5);
+  --performance-content-surface-radius: var(--radius-lg);
+  --performance-content-surface-background: var(--color-surface-card);
+  --performance-content-surface-shadow: 0 1px 4px rgba(31, 35, 41, 0.05);
+  --performance-review-surface-inset: var(--spacing-5);
+  --performance-review-page-bg: #f7f8fa;
+  --performance-review-content-max-width: 984px;
+  --performance-review-completion-bg: #e4fae1;
+  --performance-review-completion-icon: #32a645;
+  --performance-review-readonly-surface: #f5f6f7;
+  --performance-form-surface-width: 800px;
+  --performance-form-surface-page-gap: var(--spacing-5);
+  --performance-control-height: 32px;
+  --performance-admin-sidebar-width: 240px;
+  --performance-admin-content-inset: var(--spacing-5);
+  --performance-control-height-compact: 30px;
+  --performance-control-radius: var(--radius-md);
+  --performance-control-border: var(--color-line-control);
+  --performance-control-focus-border: var(--color-primary-hover);
+  --performance-control-focus-ring: var(--shadow-focus);
+  --performance-input-height: 31px;
+  --performance-input-compact-height: 30px;
+  --performance-input-padding-x: 11px;
+  --performance-input-padding-y: 4px;
+  --performance-input-line-height: 22px;
+  --performance-input-textarea-padding-bottom: 22px;
+  --performance-input-label-gap: 6px;
+  --performance-input-field-gap: 18px;
+  --performance-required-mark-gap: 2px;
+  --performance-required-mark-width: 8px;
+  --performance-header-back-width: 68px;
+  --performance-header-inner-height: 28px;
+  --performance-header-icon-size: 20px;
+  --performance-header-divider-height: 16px;
+  --performance-header-title-size: var(--font-size-lg);
+  --performance-header-title-weight: 600;
+  --performance-header-title-line-height: 24px;
+  --performance-header-action-gap: var(--spacing-3);
+  --performance-icon-button-size: 24px;
+  --performance-icon-size: 16px;
+  --performance-line-tabs-ink: #1456f0;
+  --performance-line-tabs-text: #1f2329;
+  --performance-line-tabs-divider: rgba(31, 35, 41, 0.15);
+  --performance-line-tabs-surface: #f2f3f5;
+  --performance-page-title-size: 18px;
+  --performance-page-title-weight: 600;
+  --performance-page-title-line-height: 32px;
+  --performance-page-title-color: #1f2329;
+  --performance-page-title-gap: 16px;
+  --performance-switch-width: 28px;
+  --performance-switch-height: 16px;
+  --performance-switch-handler-size: 12px;
+  --performance-switch-off: #dee0e3;
+  --performance-checkbox-size: 16px;
+  --performance-checkbox-checked: #0442d2;
+  --performance-checkbox-disabled: var(--color-border);
+  --performance-field-label-gap: 8px;
+  --performance-textarea-min-height: 49.3333px;
+  --performance-count-badge-height: 16px;
+  --performance-count-badge-bg: #eff0f1;
+  --performance-count-badge-text: #646a73;
+  --performance-dialog-width: 420px;
+  --performance-dialog-radius: var(--radius-lg);
+  --performance-dialog-padding: var(--spacing-6);
+  --performance-dialog-footer-height: 56px;
+  --performance-dialog-button-width: 80px;
+  --performance-dialog-shadow: 0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12);
+  --performance-dialog-danger-bg: #fbbfbc;
+  --performance-dialog-cancel-hover: #dee0e3;
+  --performance-dialog-focus-ring: rgba(51, 112, 255, 0.45);
+  --performance-confirm-z-index: 2200;
+  --performance-drawer-z-index: 2200;
+  --performance-overlay: rgba(0, 0, 0, 0.45);
+
   /* Font */
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
@@ -23,17 +109,18 @@
 
   /* Brand */
   --color-primary: #3370ff;
-  --color-primary-hover: #2855cc;
-  --color-primary-active: #1f4fb8;
+  --color-primary-hover: #1456f0;
+  --color-primary-active: #245bdb;
   --color-primary-light: #eef2ff;
   --color-primary-subtle: #f5f7ff;
 
   /* Text */
-  --color-text-primary: #1a2233;
+  --color-text-primary: #1f2329;
   --color-text-regular: #374151;
   --color-text-secondary: #5c6b82;
-  --color-text-placeholder: #9aa5b4;
+  --color-text-placeholder: #8f959e;
   --color-text-disabled: #c4cad4;
+  --color-link: #1890ff;
 
   /* Background */
   --color-bg-page: #f4f6f9;
@@ -43,7 +130,7 @@
   --color-bg-hover: #f0f5ff;
 
   /* Border */
-  --color-border: #e4e9f0;
+  --color-border: #bbbfc4;
   --color-border-light: #eef1f6;
   --color-border-lighter: #f3f6fb;
   --color-border-strong: #d0d7e2;
@@ -55,7 +142,7 @@
   --color-warning: #f5920a;
   --color-warning-light: #fff7e8;
   --color-warning-border: #ffd99a;
-  --color-danger: #f04438;
+  --color-danger: #d83931;
   --color-danger-light: #fdecec;
   --color-danger-border: #f5c2c2;
   --color-info: #667085;
@@ -65,6 +152,7 @@
   /* Spacing */
   --spacing-1: 4px;
   --spacing-2: 8px;
+  --spacing-25: 10px;
   --spacing-3: 12px;
   --spacing-4: 16px;
   --spacing-5: 20px;
@@ -78,11 +166,13 @@
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-pill: 999px;
+  --radius-2xl: 32px;
 
   /* Elevation */
   --shadow-none: none;
   --shadow-card: 0 1px 2px rgba(31, 35, 41, 0.06);
   --shadow-popover: 0 8px 20px rgba(31, 35, 41, 0.10);
+  --shadow-dialog: 0 4px 16px 4px rgba(31, 35, 41, 0.03), 0 4px 8px 0 rgba(31, 35, 41, 0.02), 0 2px 4px -4px rgba(31, 35, 41, 0.02);
   --shadow-focus: 0 0 0 3px rgba(51, 112, 255, 0.16);
 
   /* Motion */

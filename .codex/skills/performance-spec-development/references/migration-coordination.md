@@ -1,8 +1,8 @@
-# Migration Coordination
+# 迁移协调
 
-- Create new migrations only; never edit an existing migration.
-- State `revision` and `down_revision` and use a domain-purpose filename.
-- One shared migration chain is owned by one task at a time; do not create parallel migrations for the same model.
-- If multiple Alembic heads or unclear dependencies exist, stop and report the blocker; do not merge heads independently.
-- Verify empty database, existing data, persistent database, upgrade, downgrade, and failure rollback.
-- Record migration commands and real output in the task handoff.
+- 只创建新迁移；绝不编辑已有迁移。
+- 声明 `revision` 和 `down_revision`，使用领域用途的文件名。
+- 同一共享迁移链同一时间由一个任务持有；不得为同一模型创建并行迁移。
+- 若存在多个 Alembic head 或不明确依赖，停止并报告阻塞；不得自行合并 head。
+- 验证空数据库、已有数据、持久数据库、升级、降级和失败回滚。
+- 在任务交接中记录迁移命令和真实输出。

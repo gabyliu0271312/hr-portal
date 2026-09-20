@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "waivers": [{
+    "id": "PM-T010-T06-mock-preview-only",
+    "task_id": "PM-T010-T06",
+    "approved_by": "用户（本会话明确选择：授权本次定向豁免（推荐））",
+    "approved_at": "2026-09-20",
+    "reason": "仅允许统计报表框架的模拟数据预览。已将用户采集参数、组件边界、正反向断言整理入 ui-interaction.md 和 extracted-ui-contract.json；完整采集包/截图、独立像素文档及正式像素 readiness 仍缺失。保留 incomplete/blocked，不修改全局门禁或其他任务，不代表真实API/像素验收通过。",
+    "active": true,
+    "scope": [
+      "hr-portal/frontend/src/views/performance/ProjectManagement.vue",
+      "hr-portal/frontend/src/views/performance/ProjectManagement.spec.ts",
+      "hr-portal/frontend/src/components/performance/PerformanceSurfaceCard.vue",
+      "hr-portal/frontend/src/components/performance/PerformanceIconButton.vue",
+      "hr-portal/frontend/src/components/performance/performanceColorOptions.ts",
+      "hr-portal/frontend/src/components/performance/ReviewRuleConfigRenderer.vue",
+      "hr-portal/frontend/src/components/performance/PerformanceRatingTag.vue",
+      "hr-portal/frontend/src/components/performance/PerformanceRatingTag.spec.ts",
+      "hr-portal/frontend/src/components/performance/PerformanceSortHeader.vue",
+      "hr-portal/frontend/src/components/performance/PerformanceSortHeader.spec.ts",
+      "hr-portal/frontend/docs/design-system.md",
+      "hr-portal/frontend/src/components/performance/ProjectStatisticsReportPanel.vue",
+      "hr-portal/frontend/src/components/performance/ProjectReportNavigation.vue",
+      "hr-portal/frontend/src/components/performance/ProjectReportDistribution.vue",
+      "hr-portal/frontend/src/components/performance/ProjectReportMatrix.vue",
+      "hr-portal/frontend/src/components/performance/projectStatisticsReport.ts",
+      "hr-portal/frontend/src/components/performance/useProjectReportNavigation.ts",
+      "hr-portal/frontend/src/components/performance/ProjectStatisticsReportPanel.spec.ts",
+      "hr-portal/frontend/src/components/performance/ProjectReportNavigation.spec.ts",
+      "hr-portal/frontend/src/components/performance/ProjectReportDistribution.spec.ts",
+      "hr-portal/frontend/src/components/performance/ProjectReportMatrix.spec.ts",
+      "hr-portal/frontend/src/components/performance/projectStatisticsReport.spec.ts",
+      "hr-portal/frontend/src/components/performance/useProjectReportNavigation.spec.ts",
+      "specs/002-performance-management/features/PM-T010-project-management/"
+    ],
+    "allowed_errors": [
+      "missing_required_file:capture-manifest.md",
+      "missing_required_file:capture-completion-checklist.md",
+      "missing_required_file:component-model.md",
+      "missing_required_file:pixel-contract.md",
+      "missing_required_file:acceptance-contract.md",
+      "invalid_extracted_ui_contract:variant_contracts[0].source_state_ids:must_reference_states",
+      "invalid_extracted_ui_contract:variant_contracts[1].source_state_ids:must_reference_states",
+      "phase_requires_implementation_ready:implementation",
+      "extraction_unresolved:unmapped_source_states",
+      "extraction_unresolved:unmapped_visual_properties"
+    ]
+  }, {
+    "id": "PM-T010-T07-matrix-limited-development",
+    "task_id": "PM-T010-T07",
+    "approved_by": "用户（本会话明确授权：仅对矩阵分析进行限定开发）",
+    "approved_at": "2026-09-20",
+    "reason": "根据用户提供的矩阵分析 SnapSpec 参数和已确认的最终绩效评级口径实现业务可用与结构还原；矩阵完整截图、状态包、hover/resize 证据未提供，因此不宣称像素级验收通过。",
+    "active": true,
+    "scope": [
+      "hr-portal/backend/app/performance/projects_router.py",
+      "hr-portal/backend/tests/test_performance_projects.py",
+      "hr-portal/frontend/src/api/performance.ts",
+      "hr-portal/frontend/src/views/performance/ProjectManagement.vue",
+      "hr-portal/frontend/src/views/performance/ProjectManagement.spec.ts",
+      "hr-portal/frontend/src/components/performance/ProjectPerformanceMatrix.vue",
+      "hr-portal/frontend/src/components/performance/ProjectPerformanceMatrix.spec.ts",
+      "specs/002-performance-management/features/PM-T010-project-management/"
+    ],
+    "allowed_errors": [
+      "missing_required_file:capture-manifest.md",
+      "missing_required_file:capture-completion-checklist.md",
+      "missing_required_file:component-model.md",
+      "missing_required_file:pixel-contract.md",
+      "missing_required_file:acceptance-contract.md",
+      "invalid_extracted_ui_contract:variant_contracts[0].source_state_ids:must_reference_states",
+      "invalid_extracted_ui_contract:variant_contracts[1].source_state_ids:must_reference_states",
+      "phase_requires_implementation_ready:implementation",
+      "extraction_unresolved:unmapped_source_states",
+      "extraction_unresolved:unmapped_visual_properties"
+    ]
+  }]
+}

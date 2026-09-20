@@ -1,31 +1,20 @@
 ﻿<template>
-  <div class="template-page">
-    <div class="template-title">绩效模板</div>
-
-    <section class="template-content" aria-label="绩效模板列表">
-      <div class="template-toolbar">
-        <div class="toolbar-left">
+  <PerformanceListPage title="绩效模板">
+      <PerformanceListToolbar v-model:keyword="keyword" @filter="showComingSoon('筛选')">
+        <template #left>
           <el-button class="create-button" type="primary" @click="openCreatePage">
             <el-icon><Plus /></el-icon>
             <span>新建</span>
           </el-button>
-        </div>
-        <div class="toolbar-right">
-          <el-input v-model="keyword" class="template-search" clearable placeholder="通过名称、备注搜索" aria-label="通过名称、备注搜索">
-            <template #prefix><el-icon><Search /></el-icon></template>
-          </el-input>
-          <el-button class="filter-button" aria-label="筛选模板" @click="showComingSoon('筛选')">
-            <el-icon><Filter /></el-icon>
-          </el-button>
-        </div>
-      </div>
+        </template>
+      </PerformanceListToolbar>
 
       <div v-if="loading" class="template-loading" role="status">正在加载绩效模板...</div>
       <div v-else-if="filteredTemplates.length === 0" class="template-empty">
         <el-empty :description="keyword ? '没有找到匹配的绩效模板' : '暂无绩效模板'" />
       </div>
       <div v-else class="template-table-wrap">
-        <el-table :data="filteredTemplates" stripe style="width: 100%" max-height="600" row-key="name">
+        <el-table :data="filteredTemplates" stripe style="width: 100%" max-height="600" :row-key="templateRowKey">
           <el-table-column prop="name" label="名称" min-width="220" />
           <el-table-column prop="description" label="描述" min-width="300" show-overflow-tooltip />
           <el-table-column label="状态" min-width="130">
@@ -39,9 +28,9 @@
           <el-table-column label="操作" width="190" fixed="right">
             <template #default="{ row }">
               <div class="row-actions">
-                <el-button link type="primary" @click="showComingSoon(`编辑模板：${row.name}`)">编辑</el-button>
-                <el-button link type="primary" :disabled="row.status === 'inactive'" @click="showComingSoon('启用')">{{ row.status === 'active' ? '停用' : '启用' }}</el-button>
-                <el-dropdown trigger="click" @command="(action: string) => showComingSoon(`${action}模板：${row.name}`)">
+                <el-button link type="primary" @click="openEditPage(row)">编辑</el-button>
+                <el-button link type="primary" @click="handleTemplateAction(row.status === 'active' ? '停用' : '启用', row)">{{ row.status === 'active' ? '停用' : '启用' }}</el-button>
+                <el-dropdown trigger="click" @command="(action: string) => handleTemplateAction(action, row)">
                   <el-button class="more-button" link aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
                   <template #dropdown>
                     <el-dropdown-menu class="template-action-menu">
@@ -63,21 +52,24 @@
         <el-button link disabled aria-label="下一页"><el-icon><ArrowRightBold /></el-icon></el-button>
         <span class="page-size">10 条/页 <el-icon><ArrowDown /></el-icon></span>
       </div>
-    </section>
-
     <el-alert v-if="notice" class="template-notice" :title="notice" type="info" show-icon closable @close="notice = ''" />
-  </div>
+    <PerformanceConfirmDialog v-model="deleteDialogVisible" :loading="deleting" @confirm="confirmDelete" />
+  </PerformanceListPage>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { performanceTemplateApi } from '@/api/performance'
-import { ArrowDown, ArrowLeftBold, ArrowRightBold, Filter, MoreFilled, Plus, Search } from '@element-plus/icons-vue'
+import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
+import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
+import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
+import { ArrowDown, ArrowLeftBold, ArrowRightBold, MoreFilled, Plus } from '@element-plus/icons-vue'
 
-type TemplateStatus = 'active' | 'inactive'
+type TemplateStatus = 'active' | 'inactive' | 'DRAFT'
 
 interface PerformanceTemplate {
+  templateId?: number
   name: string
   description: string
   status: TemplateStatus
@@ -87,6 +79,9 @@ interface PerformanceTemplate {
 const keyword = ref('')
 const loading = ref(false)
 const notice = ref('')
+const deleteDialogVisible = ref(false)
+const deleting = ref(false)
+const pendingDeleteTemplate = ref<PerformanceTemplate | null>(null)
 const router = useRouter()
 
 const seedTemplates: PerformanceTemplate[] = [
@@ -105,44 +100,89 @@ const filteredTemplates = computed(() => {
   return templates.value.filter((template) => !normalizedKeyword || `${template.name} ${template.description}`.toLowerCase().includes(normalizedKeyword))
 })
 
+function templateRowKey(template: PerformanceTemplate) {
+  return template.templateId || template.name
+}
+
 function openCreatePage() {
   void router.push({ name: 'PerformanceTemplateCreate' })
+}
+
+function openEditPage(template: PerformanceTemplate) {
+  if (!template.templateId) {
+    notice.value = '该行是接口不可用时的参考数据，无法编辑。'
+    return
+  }
+  void router.push({
+    name: 'PerformanceTemplateCreate',
+    query: { template_id: String(template.templateId) },
+  })
+}
+
+async function handleTemplateAction(action: string, template: PerformanceTemplate) {
+  if (action === '启用' || action === '停用') {
+    if (!template.templateId) { notice.value = '该模板缺少真实 ID，无法更新状态。'; return }
+    try {
+      const updated = await performanceTemplateApi.updateStatus(template.templateId, action === '启用' ? 'active' : 'inactive')
+      template.status = updated.status
+      notice.value = action === '启用' ? '模板已启用' : '模板已停用'
+    } catch (error: any) {
+      notice.value = error?.response?.data?.detail || '模板状态更新失败，请稍后重试'
+    }
+    return
+  }
+  if (action !== '删除') { showComingSoon(`${action}模板：${template.name}`); return }
+  if (!template.templateId) { notice.value = '该行是接口不可用时的参考数据，无法删除。'; return }
+  pendingDeleteTemplate.value = template
+  deleteDialogVisible.value = true
+}
+
+async function confirmDelete() {
+  const template = pendingDeleteTemplate.value
+  if (!template?.templateId || deleting.value) return
+  deleting.value = true
+  try {
+    await performanceTemplateApi.remove(template.templateId)
+    templates.value = templates.value.filter(item => item.templateId !== template.templateId)
+    deleteDialogVisible.value = false
+    pendingDeleteTemplate.value = null
+    await loadTemplates()
+    notice.value = '模板已删除'
+  } catch (error: any) {
+    notice.value = error?.response?.data?.detail || '模板删除失败，请稍后重试'
+  } finally {
+    deleting.value = false
+  }
 }
 
 function showComingSoon(action: string) {
   notice.value = `${action}功能将在后续模板配置阶段开放，当前仅展示列表原型。`
 }
 
-onMounted(async () => {
+async function loadTemplates() {
   try {
     const persisted = await performanceTemplateApi.list()
     const persistedRows = persisted.map((template) => ({
+      templateId: template.template_id,
       name: template.name,
       description: template.description || '--',
-      status: 'inactive' as TemplateStatus,
+      status: template.status as TemplateStatus,
       createdAt: template.created_at ? new Date(template.created_at).toLocaleString('zh-CN', { hour12: false }).replaceAll('/', '-') : '--',
     }))
-    const names = new Set(persistedRows.map((template) => template.name))
-    templates.value = [...persistedRows, ...seedTemplates.filter((template) => !names.has(template.name))]
+    templates.value = persistedRows
   } catch {
     // Keep the reference rows visible when the list API is temporarily unavailable.
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadTemplates)
 </script>
 
 <style scoped>
-.template-page { min-height: calc(100vh - 56px); padding: 20px; box-sizing: border-box; color: #1f2329; }
-.template-title { margin-bottom: 16px; font-size: 18px; font-weight: 600; line-height: 26px; }
-.template-content { min-height: calc(100vh - 138px); padding: 20px; box-sizing: border-box; border-radius: 8px; background: #fff; box-shadow: 0 1px 4px rgba(31, 35, 41, .05); }
-.template-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 32px; margin-bottom: 16px; }
-.toolbar-left, .toolbar-right, .row-actions { display: flex; align-items: center; }
-.toolbar-right { gap: 12px; }
+.row-actions { display: flex; align-items: center; }
 .create-button { min-width: 80px; height: 32px; padding: 4px 11px; border-radius: 6px; }
-.template-search { width: 210px; }
-.template-search :deep(.el-input__wrapper) { min-height: 32px; padding: 4px 8px 4px 11px; border: 1px solid #d0d3d6; border-radius: 6px; box-shadow: none; }
-.filter-button { width: 40px; height: 32px; padding: 4px 11px; border-color: #d0d3d6; border-radius: 6px; }
 .template-table-wrap { overflow-x: auto; }
 .status-badge { display: inline-flex; align-items: center; gap: 6px; color: #646a73; white-space: nowrap; }
 .status-badge i { width: 6px; height: 6px; border-radius: 50%; background: #f5920a; }
@@ -155,6 +195,6 @@ onMounted(async () => {
 .template-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 40px; margin-top: 16px; color: #646a73; font-size: 14px; }
 .template-pagination :deep(.el-button) { width: 28px; height: 28px; padding: 0; }.page-current { width: 28px; height: 28px; border: 1px solid #3370ff; border-radius: 4px; background: #fff; color: #3370ff; }.page-size { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
 .template-notice { position: fixed; right: 24px; bottom: 24px; z-index: 10; width: min(440px, calc(100vw - 48px)); }
-@media (max-width: 640px) { .template-toolbar { align-items: stretch; flex-direction: column; gap: 12px; }.toolbar-right { justify-content: flex-end; }.template-search { flex: 1; width: auto; } }
+@media (max-width: 640px) { }
 </style>
 

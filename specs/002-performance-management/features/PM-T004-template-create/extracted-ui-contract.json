@@ -1,0 +1,647 @@
+{
+  "schema_version": 3,
+  "feature": "PM-T004-template-create",
+  "source_of_truth": "capture_evidence",
+  "completion_status": "incomplete",
+  "pixel_restore_status": "blocked",
+  "implementation_readiness": "design_incomplete",
+  "uncovered_reasons": [
+    "工作总结“更多”入口已采到但菜单内容未展开，不能推断菜单项。",
+    "设置分组中的评估内容选择器选项弹层未稳定打开，选项清单与弹层几何缺失。",
+    "自定义文本/标签已回填抽屉，但最终确定后的中栏卡片 root/item、hover 和右栏联动未取得 after 状态。",
+    "新增分支的 focus/active/disabled、textarea resize、键盘和响应式证据未完整采集。",
+    "四按钮 hover 以人工可信事件为权威，透明 mask 自动重放不作为像素证据。",
+    "没有保存、删除、提交目标模板；本文件不授权业务代码或真实模板写入。"
+  ],
+  "source": {
+    "manifest": "C:/Users/gaby.liu/ClonedSites/realtime_sessions/manifests/PM-T004-content-settings-20260901-50f0f4d0.json",
+    "primary_url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+    "supplemental_url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+    "collection_scope": "PM-T004 content settings; nine-stage matrix, drawer/group dialog, configured card root/item and custom content capture",
+    "capture_summary": {
+      "session_count": 10,
+      "completed_action_count": 120,
+      "blocked_action_count": 17,
+      "recorded_event_count": 594,
+      "missing_session_count": 0
+    }
+  },
+  "rule_registry": {
+    "component": "ContentSettingsStageRenderer",
+    "selector": "stage_type + executor_type + content_slot + content_type + selected_owner",
+    "entries": {
+      "work_summary": {"visible_slots": ["fill"], "root_settings_variant": "work-summary-root", "item_settings_variant": "work-summary-item"},
+      "reviewer_360_invite": {"visible_slots": ["fill", "reference"], "root_settings_variant": "generic-root", "item_settings_variant": "generic-item"},
+      "reviewer_360_confirm": {"visible_slots": ["fill", "reference"], "root_settings_variant": "generic-root", "item_settings_variant": "generic-item"},
+      "evaluation": {"visible_slots_by_executor": {"REVIEWER_360": ["fill", "reference"], "DIRECT_MANAGER": ["fill", "reference"]}},
+      "calibration": {"visible_slots": ["adjustment", "reference"]},
+      "result_communication": {"visible_slots": ["fill", "reference"]},
+      "result_view": {"visible_slots": ["view"]},
+      "result_reconsideration": {"visible_slots": ["fill", "reference"], "root_settings_variant": "appeal-root", "item_settings_variant": "generic-item"}
+    },
+    "new_stage_rule_policy": "add_rule_and_fixture; do_not_duplicate_page_or_card_components"
+  },
+  "preview_contract": {
+    "shared_renderer": "ContentPreviewRenderer",
+    "content_type_renderers": ["work_summary", "rating", "custom_text", "custom_tag"],
+    "contexts": {
+      "editor": {"owner": "EditorPreviewPane", "data": "draft", "interactive": false, "card_toolbar": false},
+      "configured-card": {"owner": "CardPreviewArea", "data": "configured-session-content", "interactive": false, "card_toolbar": "owned-by-ConfiguredContentCardRoot"},
+      "drawer-summary": {"owner": "AssessmentContentDrawer", "data": "selected-content-summary", "interactive": "checkbox-selection-only", "card_toolbar": false}
+    },
+    "reuse_rule": "share content model, field order and type renderer; keep context-specific outer DOM and interaction ownership separate"
+  },
+  "reuse_contract": {
+    "existing_component_policy": "reuse_existing_performance_primitives_before_new_markup",
+    "component_map": {
+      "single_line_input": "hr-portal/frontend/src/components/performance/PerformanceTextField.vue",
+      "multi_line_textarea": "hr-portal/frontend/src/components/performance/PerformanceTextField.vue",
+      "counted_textarea": "hr-portal/frontend/src/components/performance/PerformanceCountedTextarea.vue",
+      "rich_text": ["hr-portal/frontend/src/components/performance/PerformanceRichTextBox.vue", "hr-portal/frontend/src/components/performance/PerformanceRichTextToolbar.vue"],
+      "checkbox_radio_switch": ["hr-portal/frontend/src/components/performance/PerformanceCheckbox.vue", "hr-portal/frontend/src/components/performance/PerformanceRadioGroup.vue", "hr-portal/frontend/src/components/performance/PerformanceSwitch.vue"],
+      "modal": ["hr-portal/frontend/src/components/performance/PerformanceAssessmentEditorModal.vue", "hr-portal/frontend/src/components/performance/FullScreenModal.vue"],
+      "drag_sort": ["hr-portal/frontend/src/components/performance/PerformanceDragHandle.vue", "hr-portal/frontend/src/components/performance/PerformanceSortableList.vue"],
+      "icon_button": "hr-portal/frontend/src/components/performance/PerformanceIconButton.vue",
+      "content_preview": "hr-portal/frontend/src/components/performance/PerformanceContentRenderer.vue"
+    },
+    "local_duplicate_migration_targets": ["FormField", "RichTextBox", "ToggleSwitch", "OptionSelect", "EditorIcon", "CreateMenu"],
+    "migration_policy": "preserve_public_props_emits_and_existing_behavior; replace local duplicates incrementally; no_full_feature_rewrite",
+    "rewrite_exception": "only when captured anatomy or interaction ownership cannot be expressed by the shared component; requires updated contract and focused regression evidence"
+  },
+  "capture_readiness": {
+    "capture_integrity": "passed",
+    "capture_completeness": "incomplete",
+    "implementation_readiness": "ready",
+    "readiness_scope": "variant",
+    "target_variant_keys": [
+      "content-nine-stage-matrix",
+      "assessment-content-drawer",
+      "assessment-group-dialog",
+      "configured-content-card-root-item",
+      "configured-card-action-toolbar",
+      "custom-content-editor"
+    ],
+    "blockers": [
+      "content-work-summary-more-menu",
+      "assessment-group-content-select-options",
+      "custom-content-middle-panel-root-item",
+      "new-branch-focus-active-disabled",
+      "textarea-resize-and-responsive-evidence"
+    ],
+    "evidence": "C:/Users/gaby.liu/ClonedSites/realtime_sessions/manifests/PM-T004-content-settings-20260901-50f0f4d0.json"
+  },
+  "coverage": {
+    "unmapped_source_states": [],
+    "unmapped_components": [],
+    "unmapped_fields": [],
+    "unmapped_visual_properties": [],
+    "unmapped_interactions": [],
+    "unmapped_spatial_constraints": [],
+    "cross_document_conflicts": []
+  },
+  "layout_relations": [
+    {
+      "id": "content-columns-fixed-edge",
+      "source_state_ids": ["base", "ALL9-360-INVITE-FILL"],
+      "left": "StagesPanel.right",
+      "right": "ContentSettingsCenter.left",
+      "property": "edge_alignment",
+      "operator": "equal",
+      "expected": {"left": 320, "right": 320},
+      "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/layout.json"
+    },
+    {
+      "id": "content-aside-fixed-width",
+      "source_state_ids": ["base", "ALL9-RESULT-VIEW"],
+      "left": "ContentSettingsAside.width",
+      "right": "ContentSettingsAside.width",
+      "property": "width",
+      "operator": "equal",
+      "expected": {"left": 320, "right": 320},
+      "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/layout.json"
+    },
+    {
+      "id": "drawer-fixed-width",
+      "source_state_ids": ["C10-DRAWER-OPEN", "C10-VISIBILITY-SWITCH-ON", "CUSTOM-TEXT-CONFIRM-RESUMED", "CUSTOM-TAG-CONFIRM"],
+      "left": "AssessmentContentDrawer.width",
+      "right": "AssessmentContentDrawer.width",
+      "property": "width",
+      "operator": "equal",
+      "expected": {"left": 680, "right": 680},
+      "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/layout.json"
+    }
+  ],
+  "container_constraints": [
+    {
+      "id": "template-builder-layout-base",
+      "source_state_id": "base",
+      "component_id": "TemplateBuilderLayout",
+      "container": {"selector": "[data-ui-flow-id=TemplateBuilderLayout]", "bbox": {"x": 0, "y": 56, "width": 1280, "height": 617.33}},
+      "first_visible_child": {"selector": "[data-ui-flow-id=StagesPanelContent]", "bbox": {"x": 0, "y": 46.67, "width": 320, "height": 617.33}},
+      "terminal_visible_child": {"selector": "[data-ui-flow-id=ContentSettingsAside]", "bbox": {"x": 960, "y": 46.67, "width": 320, "height": 617.33}},
+      "edge_insets": {"top": 0, "right": 0, "bottom": 0, "left": 0},
+      "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/layout.json",
+      "ownership": "page",
+      "tolerance": 1
+    },
+    {
+      "id": "assessment-drawer-root",
+      "source_state_id": "C10-DRAWER-OPEN",
+      "component_id": "AssessmentContentDrawer",
+      "container": {"selector": ".ud__drawer__content__wrapper", "bbox": {"x": 600, "y": 0, "width": 680, "height": 673.33}},
+      "first_visible_child": {"selector": ".ud__drawer__header", "bbox": {"x": 600, "y": 0, "width": 680, "height": 58}},
+      "terminal_visible_child": {"selector": ".ud__drawer__footer", "bbox": {"x": 600, "y": 617, "width": 680, "height": 56}},
+      "edge_insets": {"top": 0, "right": 0, "bottom": 0, "left": 0},
+      "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/layout.json",
+      "ownership": "page/overlay",
+      "tolerance": 1
+    },
+    {
+      "id": "group-settings-dialog-root",
+      "source_state_id": "C10-GROUP-DIALOG-OPEN",
+      "component_id": "AssessmentGroupSettingsDialog",
+      "container": {"selector": "[role=dialog]", "bbox": {"x": 510, "y": 106, "width": 1260, "height": 798}},
+      "first_visible_child": {"selector": "[role=dialog] header", "bbox": {"x": 534, "y": 130, "width": 1212, "height": 48}},
+      "terminal_visible_child": {"selector": "[role=dialog] footer", "bbox": {"x": 534, "y": 824, "width": 1212, "height": 56}},
+      "edge_insets": {"top": 24, "right": 24, "bottom": 24, "left": 24},
+      "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/layout.json",
+      "ownership": "overlay",
+      "tolerance": 1
+    }
+  ],
+  "variant_invariants": [],
+  "spatial_constraint_coverage": {"candidate_containers": 3, "containers_with_terminal": 3, "states_with_constraints": ["base", "C10-DRAWER-OPEN", "C10-GROUP-DIALOG-OPEN"], "missing_terminal_anchors": [], "uncompared_variant_groups": [], "unmapped_containers": []},
+  "interaction_contracts": [],
+  "compound_controls": [],
+  "components": [
+    {
+      "component_id": "ContentSettingsStageVariant",
+      "source_state_ids": ["ALL9-360-INVITE-FILL", "ALL9-CALIBRATION-ADJUSTMENT", "ALL9-RESULT-VIEW", "ALL9-RECONSIDERATION-REFERENCE"],
+      "props": {"stageType": "string", "executorType": "string", "activeTab": "string"},
+      "events": ["update:activeTab"],
+      "state_matrix": {"default": "ALL9-360-INVITE-FILL", "reference": "ALL9-360-INVITE-REFERENCE", "adjustment": "ALL9-CALIBRATION-ADJUSTMENT", "view": "ALL9-RESULT-VIEW"},
+      "geometry": {"bbox_role": "component_root", "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}},
+      "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"},
+      "svg": []
+    },
+    {
+      "component_id": "ConfiguredContentCardRoot",
+      "source_state_ids": ["C20-CARD-ROOT-SELECTED-CLEAN", "C20-CARD-HEADER-HOVER", "TYPE-WORK-SUMMARY-ROOT-TOP-CLICK"],
+      "props": {"contentId": "string", "contentType": "rating|work_summary|custom", "expanded": "boolean"},
+      "events": ["select-root", "toggle-expanded", "move", "edit", "delete"],
+      "state_matrix": {"default": "C20-CARD-ROOT-SELECTED-CLEAN", "header-hover": "C20-CARD-HEADER-HOVER", "selected": "C20-CARD-ROOT-SELECTED-CLEAN", "collapsed": "BLOCKED"},
+      "geometry": {"bbox_role": "component_root", "bbox": {"x": 340, "y": 195.67, "width": 592, "height": 164}},
+      "styles": {"display": "block", "position": "relative", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "1px solid rgb(51, 112, 255)", "borderRadius": "8px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"},
+      "svg": []
+    },
+    {
+      "component_id": "ConfiguredContentItem",
+      "source_state_ids": ["C20-CONTENT-BODY-SELECTED-DIAGNOSTIC", "TYPE-WORK-SUMMARY-ITEM-TRUSTED-POINT"],
+      "props": {"contentId": "string", "itemId": "string", "selected": "boolean"},
+      "events": ["select-item", "update-settings"],
+      "state_matrix": {"default": "C20-CARD-ROOT-SELECTED-CLEAN", "body-selected": "C20-CONTENT-BODY-SELECTED-DIAGNOSTIC"},
+      "geometry": {"bbox_role": "component_root", "bbox": {"x": 340, "y": 195.67, "width": 592, "height": 92}},
+      "styles": {"display": "block", "position": "relative", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "1px solid rgb(51, 112, 255)", "borderRadius": "6px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"},
+      "svg": []
+    },
+    {
+      "component_id": "ConfiguredCardActionToolbar",
+      "source_state_ids": ["C20-CARD-HEADER-HOVER", "C20-TOOLBAR-MOVE-UP-HOVER", "C20-TOOLBAR-MOVE-DOWN-HOVER", "C20-TOOLBAR-EDIT-HOVER", "C20-TOOLBAR-DELETE-HOVER"],
+      "props": {"first": "boolean", "last": "boolean", "visible": "boolean"},
+      "events": ["move-up", "move-down", "edit", "delete"],
+      "state_matrix": {"default": "C20-CARD-ROOT-SELECTED-CLEAN", "toolbar-visible": "C20-CARD-HEADER-HOVER", "button-hover": "C20-TOOLBAR-EDIT-HOVER", "disabled": "C20-TOOLBAR-MOVE-UP-HOVER"},
+      "geometry": {"bbox_role": "component_root", "bbox": {"x": 820, "y": 320.33, "width": 112, "height": 32}},
+      "styles": {"display": "flex", "position": "absolute", "boxSizing": "border-box", "backgroundColor": "rgba(31, 35, 41, 0.9)", "color": "rgb(255, 255, 255)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "4px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "10"},
+      "svg": []
+    },
+    {
+      "component_id": "AssessmentContentDrawer",
+      "source_state_ids": ["C10-DRAWER-OPEN", "C10-VISIBILITY-SWITCH-ON", "CUSTOM-TEXT-CONFIRM-RESUMED", "CUSTOM-TAG-CONFIRM"],
+      "props": {"open": "boolean", "visibility": "boolean", "contents": "array"},
+      "events": ["update:open", "created", "confirm", "cancel"],
+      "state_matrix": {"open": "C10-DRAWER-OPEN", "visibility-on": "C10-VISIBILITY-SWITCH-ON", "populated": "CUSTOM-TEXT-CONFIRM-RESUMED"},
+      "geometry": {"bbox_role": "component_root", "bbox": {"x": 600, "y": 0, "width": 680, "height": 673.33}},
+      "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1000"},
+      "svg": []
+    },
+    {
+      "component_id": "AssessmentGroupSettingsDialog",
+      "source_state_ids": ["C10-GROUP-DIALOG-OPEN", "C10-THIRD-GROUP-ADDED", "C10-GROUP-DIALOG-CANCEL"],
+      "props": {"open": "boolean", "groups": "array"},
+      "events": ["add-group", "cancel", "confirm"],
+      "state_matrix": {"initial": "C10-GROUP-DIALOG-OPEN", "third-group": "C10-THIRD-GROUP-ADDED", "cancel": "C10-GROUP-DIALOG-CANCEL"},
+      "geometry": {"bbox_role": "component_root", "bbox": {"x": 510, "y": 106, "width": 1260, "height": 798}},
+      "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "8px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1050"},
+      "svg": []
+    },
+    {
+      "component_id": "AssessmentCustomEditor",
+      "source_state_ids": ["CUSTOM-TEXT-MODAL-OPEN", "CUSTOM-TAG-MODAL", "CUSTOM-TEXT-CONFIRM-RESUMED", "CUSTOM-TAG-CONFIRM"],
+      "props": {"mode": "create|edit", "type": "text|tag", "draft": "object"},
+      "events": ["confirm", "cancel", "close"],
+      "state_matrix": {"text": "CUSTOM-TEXT-MODAL-OPEN", "tag": "CUSTOM-TAG-MODAL", "valid": "CUSTOM-TEXT-CONFIRM-RESUMED", "resize": "BLOCKED"},
+      "geometry": {"bbox_role": "component_root", "bbox": {"x": 180, "y": 32, "width": 920, "height": 609.33}},
+      "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "8px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1050"},
+      "svg": []
+    },
+    {
+      "component_id": "ContentSettingsStageRenderer",
+      "source_state_ids": ["ALL9-360-INVITE-FILL", "ALL9-CALIBRATION-ADJUSTMENT", "ALL9-RESULT-VIEW"],
+      "props": {"stageType": "string", "executorType": "string", "contentSlot": "string", "contentType": "string", "selectedOwner": "root|item|none"},
+      "events": ["render", "select-root", "select-item"],
+      "state_matrix": {"fill-reference": "ALL9-360-INVITE-FILL", "adjustment-reference": "ALL9-CALIBRATION-ADJUSTMENT", "view-only": "ALL9-RESULT-VIEW"},
+      "geometry": {"bbox_role": "component_root", "bbox": {"x": 340, "y": 56, "width": 600, "height": 617.33}},
+      "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "auto", "zIndex": "auto"},
+      "svg": []
+    }
+  ],
+  "states": [
+    {
+      "source_state_id": "base",
+      "session": "realtime-c410fb70178f",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/after.png"},
+      "components": ["TemplateBuilderLayout", "StagesPanel", "ContentSettingsCenter", "ContentSettingsAside"], "fields": [], "visual_elements": [{"id": "base-root", "role": "container", "anchor": "[data-ui-flow-id=TemplateBuilderLayout]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 0, "y": 56, "width": 1280, "height": 617.33}, "styles": {"display": "flex", "width": "1280px", "height": "617.33px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "stretch"}, "state": "base", "source_state_ids": ["base"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_00/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 0, "y": 56, "width": 1280, "height": 617.33}},
+      "styles": {"display": "flex", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "auto", "zIndex": "auto"},
+      "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-360-INVITE-FILL",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_01/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_01/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_01/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_01/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_01/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_01/after/after.png"},
+      "components": ["ContentSettingsStageVariant"], "fields": [], "visual_elements": [{"id": "ALL9-360-INVITE-FILL-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 126, "width": 800, "height": 124}, "styles": {"display": "block", "width": "800px", "height": "124px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "fill", "source_state_ids": ["ALL9-360-INVITE-FILL"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_01/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 126, "width": 800, "height": 124}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-360-INVITE-REFERENCE",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_04/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_04/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_04/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_04/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_04/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_04/after/after.png"},
+      "components": ["ContentReferencePanel"], "fields": [], "visual_elements": [{"id": "ALL9-360-INVITE-REFERENCE-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "reference", "source_state_ids": ["ALL9-360-INVITE-REFERENCE"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_04/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-360-CONFIRM-FILL",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_07/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_07/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_07/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_07/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_07/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_07/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_07/after/after.png"},
+      "components": ["ContentSettingsStageVariant"], "fields": [], "visual_elements": [{"id": "ALL9-360-CONFIRM-FILL-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 126, "width": 800, "height": 124}, "styles": {"display": "block", "width": "800px", "height": "124px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "fill", "source_state_ids": ["ALL9-360-CONFIRM-FILL"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_07/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 126, "width": 800, "height": 124}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-360-CONFIRM-REFERENCE",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_10/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_10/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_10/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_10/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_10/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_10/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_10/after/after.png"},
+      "components": ["ContentReferencePanel"], "fields": [], "visual_elements": [{"id": "ALL9-360-CONFIRM-REFERENCE-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "reference", "source_state_ids": ["ALL9-360-CONFIRM-REFERENCE"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_10/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-EVAL-360-FILL",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_13/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_13/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_13/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_13/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_13/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_13/after/after.png"},
+      "components": ["ContentSettingsStageVariant"], "fields": [], "visual_elements": [{"id": "ALL9-EVAL-360-FILL-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "fill", "source_state_ids": ["ALL9-EVAL-360-FILL"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_13/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-EVAL-360-REFERENCE",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_16/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_16/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_16/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_16/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_16/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_16/after/after.png"},
+      "components": ["ContentReferencePanel"], "fields": [], "visual_elements": [{"id": "ALL9-EVAL-360-REFERENCE-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "reference", "source_state_ids": ["ALL9-EVAL-360-REFERENCE"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_16/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-CALIBRATION-ADJUSTMENT",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_19/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_19/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_19/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_19/after/after.png", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_19/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_19/after/after.png"},
+      "components": ["ContentSettingsStageVariant"], "fields": [], "visual_elements": [{"id": "ALL9-CALIBRATION-ADJUSTMENT-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "adjustment", "source_state_ids": ["ALL9-CALIBRATION-ADJUSTMENT"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_19/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-CALIBRATION-REFERENCE",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_22/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_22/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_22/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_22/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_22/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_22/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_22/after/after.png"},
+      "components": ["ContentReferencePanel"], "fields": [], "visual_elements": [{"id": "ALL9-CALIBRATION-REFERENCE-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "reference", "source_state_ids": ["ALL9-CALIBRATION-REFERENCE"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_22/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-RESULT-COMMUNICATION-FILL",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_25/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_25/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_25/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_25/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_25/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_25/after/after.png"},
+      "components": ["ContentSettingsStageVariant"], "fields": [], "visual_elements": [{"id": "ALL9-RESULT-COMMUNICATION-FILL-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "fill", "source_state_ids": ["ALL9-RESULT-COMMUNICATION-FILL"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_25/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "source": "target_contract"}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-RESULT-COMMUNICATION-REFERENCE",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_28/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_28/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_28/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_28/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_28/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_28/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_28/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_28/after/after.png"},
+      "components": ["ContentReferencePanel"], "fields": [], "visual_elements": [{"id": "ALL9-RESULT-COMMUNICATION-REFERENCE-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "reference", "source_state_ids": ["ALL9-RESULT-COMMUNICATION-REFERENCE"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_28/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-EVAL-MANAGER-FILL",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_31/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_31/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_31/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_31/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_31/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_31/after/after.png"},
+      "components": ["ContentSettingsStageVariant"], "fields": [], "visual_elements": [{"id": "ALL9-EVAL-MANAGER-FILL-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "fill", "source_state_ids": ["ALL9-EVAL-MANAGER-FILL"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_31/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-EVAL-MANAGER-REFERENCE",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_34/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_34/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_34/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_34/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_34/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_34/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_34/after/after.png"},
+      "components": ["ContentReferencePanel"], "fields": [], "visual_elements": [{"id": "ALL9-EVAL-MANAGER-REFERENCE-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "reference", "source_state_ids": ["ALL9-EVAL-MANAGER-REFERENCE"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_34/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-RESULT-VIEW",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_37/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_37/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_37/after/computed.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_37/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_37/after/after.png", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_37/after/target_contract.json", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_37/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_37/after/computed.json"},
+      "components": ["ContentSettingsStageVariant"], "fields": [], "visual_elements": [{"id": "ALL9-RESULT-VIEW-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 126, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "view", "source_state_ids": ["ALL9-RESULT-VIEW"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_37/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 126, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-RECONSIDERATION-FILL",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_40/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_40/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_40/after/computed.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_40/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_40/after/after.png", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_40/after/target_contract.json", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_40/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_40/after/computed.json"},
+      "components": ["ContentSettingsStageVariant"], "fields": [], "visual_elements": [{"id": "ALL9-RECONSIDERATION-FILL-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "fill", "source_state_ids": ["ALL9-RECONSIDERATION-FILL"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_40/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-RECONSIDERATION-REFERENCE",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_43/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_43/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_43/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_43/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_43/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_43/after/after.png"},
+      "components": ["ContentReferencePanel"], "fields": [], "visual_elements": [{"id": "ALL9-RECONSIDERATION-REFERENCE-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "reference", "source_state_ids": ["ALL9-RECONSIDERATION-REFERENCE"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_43/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "ALL9-WORK-SUMMARY-MORE",
+      "session": "realtime-de9d5a00c734",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7675561220111403992/3",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_46/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_46/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_46/after/computed.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_46/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_46/after/interaction_evidence.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_46/after/target_contract.json", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_46/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_46/after/computed.json"},
+      "components": ["ContentSettingsStageVariant"], "fields": [], "visual_elements": [{"id": "ALL9-WORK-SUMMARY-MORE-root", "role": "container", "anchor": "[data-ui-flow-id=StageContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 560, "y": 80, "width": 800, "height": 140}, "styles": {"display": "block", "width": "800px", "height": "140px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "more-menu-attempted", "source_state_ids": ["ALL9-WORK-SUMMARY-MORE"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_183638_272038/captures/hybrid_steps/step_46/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 560, "y": 80, "width": 800, "height": 140}}, "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C10-DRAWER-OPEN",
+      "session": "realtime-c4d2d08187cf",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/after.png"},
+      "components": ["AssessmentContentDrawer", "AssessmentVisibilitySwitch", "AssessmentContentList"], "fields": [{"id": "visibility-switch", "label": "评估内容分人群可见", "control": "switch", "placeholder": "not_applicable", "required": false, "order": 1}], "visual_elements": [{"id": "drawer-root", "role": "container", "anchor": ".ud__drawer__content__wrapper", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 600, "y": 0, "width": 680, "height": 673.33}, "styles": {"display": "flex", "width": "680px", "height": "673.33px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "stretch"}, "state": "open", "source_state_ids": ["C10-DRAWER-OPEN"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 600, "y": 0, "width": 680, "height": 673.33}},
+      "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1000"},
+      "interactions": [{"kind": "toggle", "target": "AssessmentVisibilitySwitch", "phases": ["before", "action", "after"], "before": {"source_state_id": "C10-DRAWER-OPEN"}, "after": {"source_state_id": "C10-VISIBILITY-SWITCH-ON"}}], "svg": []
+    },
+    {
+      "source_state_id": "C10-VISIBILITY-SWITCH-ON",
+      "session": "realtime-c4d2d08187cf",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_04/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_04/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_04/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_04/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_04/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_04/after/after.png"},
+      "components": ["AssessmentContentDrawer", "AssessmentVisibilitySwitch"], "fields": [{"id": "visibility-switch", "label": "评估内容分人群可见", "control": "switch", "placeholder": "not_applicable", "required": false, "order": 1}], "visual_elements": [{"id": "C10-VISIBILITY-SWITCH-ON-root", "role": "container", "anchor": ".ud__drawer__content__wrapper", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 600, "y": 57.67, "width": 680, "height": 615.67}, "styles": {"display": "flex", "width": "680px", "height": "615.67px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "stretch"}, "state": "visibility-on", "source_state_ids": ["C10-VISIBILITY-SWITCH-ON"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_04/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 600, "y": 57.67, "width": 680, "height": 615.67}}, "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1000"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C10-GROUP-DIALOG-OPEN",
+      "session": "realtime-c4d2d08187cf",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/initial/before.png"},
+      "components": ["AssessmentGroupSettingsDialog"], "fields": [{"id": "group-1-name", "label": "分组 1", "control": "input", "placeholder": "请输入分组名称", "required": true, "order": 1}, {"id": "group-1-content", "label": "评估内容", "control": "selector", "placeholder": "请选择评估内容", "required": true, "order": 2}, {"id": "group-2-name", "label": "分组 2", "control": "input", "placeholder": "请输入分组名称", "required": true, "order": 3}, {"id": "group-2-content", "label": "评估内容", "control": "selector", "placeholder": "请选择评估内容", "required": true, "order": 4}], "visual_elements": [{"id": "C10-GROUP-DIALOG-OPEN-root", "role": "dialog", "anchor": "[role=dialog]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 510, "y": 106, "width": 1260, "height": 798}, "styles": {"display": "flex", "width": "1260px", "height": "798px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "stretch"}, "state": "open", "source_state_ids": ["C10-GROUP-DIALOG-OPEN"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_03/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 510, "y": 106, "width": 1260, "height": 798}}, "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "8px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1050"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C10-THIRD-GROUP-ADDED",
+      "session": "realtime-c4d2d08187cf",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_06/after/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_06/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_06/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_06/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_06/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_06/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_06/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_06/after/after.png"},
+      "components": ["AssessmentGroupSettingsDialog"], "fields": [{"id": "group-3-name", "label": "分组 3", "control": "input", "placeholder": "请输入分组名称", "required": true, "order": 5}, {"id": "group-3-content", "label": "评估内容", "control": "selector", "placeholder": "请选择评估内容", "required": true, "order": 6}], "visual_elements": [{"id": "C10-THIRD-GROUP-ADDED-root", "role": "dialog", "anchor": "[role=dialog]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 510, "y": 106, "width": 1260, "height": 798}, "styles": {"display": "flex", "width": "1260px", "height": "798px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "stretch"}, "state": "third-group", "source_state_ids": ["C10-THIRD-GROUP-ADDED"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_06/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 510, "y": 106, "width": 1260, "height": 798}}, "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "8px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1050"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C10-GROUP-DIALOG-CANCEL",
+      "session": "realtime-c4d2d08187cf",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_07/after/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_07/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_07/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_07/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_07/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_07/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_07/after/after.png"},
+      "components": ["AssessmentContentDrawer"], "fields": [], "visual_elements": [{"id": "C10-GROUP-DIALOG-CANCEL-root", "role": "container", "anchor": ".ud__drawer__content__wrapper", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 600, "y": 0, "width": 680, "height": 673.33}, "styles": {"display": "flex", "width": "680px", "height": "673.33px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "stretch"}, "state": "cancelled", "source_state_ids": ["C10-GROUP-DIALOG-CANCEL"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_172610_844202/captures/hybrid_steps/step_07/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 600, "y": 0, "width": 680, "height": 673.33}}, "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1000"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C20-CARD-ROOT-SELECTED-CLEAN",
+      "session": "realtime-9cd771692659",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_01/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_01/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_01/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_01/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_01/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_01/after/after.png", "interaction": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_01/after/interaction.json"},
+      "components": ["ConfiguredContentCardRoot"], "fields": [], "visual_elements": [{"id": "C20-CARD-ROOT-SELECTED-CLEAN-root", "role": "container", "anchor": "[data-ui-flow-id=ReviewContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 340, "y": 195.67, "width": 592, "height": 164}, "styles": {"display": "block", "width": "592px", "height": "164px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "root-selected", "source_state_ids": ["C20-CARD-ROOT-SELECTED-CLEAN"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_01/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 340, "y": 195.67, "width": 592, "height": 164}}, "styles": {"display": "block", "position": "relative", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "1px solid rgb(51, 112, 255)", "borderRadius": "8px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C20-CONTENT-BODY-SELECTED-DIAGNOSTIC",
+      "session": "realtime-578577864f34",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/initial/before.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_01/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_01/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_01/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_01/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_01/after/after.png"},
+      "components": ["ConfiguredContentItem"], "fields": [], "visual_elements": [{"id": "C20-CONTENT-BODY-SELECTED-DIAGNOSTIC-root", "role": "container", "anchor": "[data-ui-flow-id=ReviewContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 340, "y": 195.67, "width": 592, "height": 92}, "styles": {"display": "block", "width": "592px", "height": "92px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "body-selected", "source_state_ids": ["C20-CONTENT-BODY-SELECTED-DIAGNOSTIC"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_154507_753944/captures/hybrid_steps/step_01/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 340, "y": 195.67, "width": 592, "height": 92}}, "styles": {"display": "block", "position": "relative", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "1px solid rgb(51, 112, 255)", "borderRadius": "6px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C20-CARD-HEADER-HOVER",
+      "session": "realtime-61c12d88a1fa",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_03/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_03/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_03/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_03/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_03/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_03/after/after.png"},
+      "components": ["ConfiguredCardActionToolbar"], "fields": [], "visual_elements": [{"id": "C20-CARD-HEADER-HOVER-root", "role": "container", "anchor": "[data-ui-flow-id=ReviewContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 820, "y": 320.33, "width": 112, "height": 32}, "styles": {"display": "flex", "width": "112px", "height": "32px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "center"}, "state": "toolbar-visible", "source_state_ids": ["C20-CARD-HEADER-HOVER"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_03/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 820, "y": 320.33, "width": 112, "height": 32}}, "styles": {"display": "flex", "position": "absolute", "boxSizing": "border-box", "backgroundColor": "rgba(31, 35, 41, 0.9)", "color": "rgb(255, 255, 255)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "4px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "10"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C20-TOOLBAR-MOVE-UP-HOVER",
+      "session": "realtime-61c12d88a1fa",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_05/after/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_05/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_05/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_05/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_05/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_05/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_05/after/after.png"},
+      "components": ["ConfiguredCardActionToolbar"], "fields": [], "visual_elements": [{"id": "C20-TOOLBAR-MOVE-UP-HOVER-root", "role": "control", "anchor": "[data-icon=SpaceUpOutlined]", "parent_structure": {"parent_id": "ConfiguredCardActionToolbar", "relation": "nested"}, "bbox": {"x": 820, "y": 320.33, "width": 24, "height": 24}, "styles": {"display": "block", "width": "24px", "height": "24px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "center"}, "state": "button-hover", "source_state_ids": ["C20-TOOLBAR-MOVE-UP-HOVER"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_05/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 820, "y": 320.33, "width": 24, "height": 24}}, "styles": {"display": "block", "position": "absolute", "boxSizing": "border-box", "backgroundColor": "rgba(31, 35, 41, 0.9)", "color": "rgb(255, 255, 255)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "4px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "10"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C20-TOOLBAR-MOVE-DOWN-HOVER",
+      "session": "realtime-61c12d88a1fa",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_07/after/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_07/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_07/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_07/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_07/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_07/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_07/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_07/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_07/after/after.png"},
+      "components": ["ConfiguredCardActionToolbar"], "fields": [], "visual_elements": [{"id": "C20-TOOLBAR-MOVE-DOWN-HOVER-root", "role": "control", "anchor": "[data-icon=SpaceDownOutlined]", "parent_structure": {"parent_id": "ConfiguredCardActionToolbar", "relation": "nested"}, "bbox": {"x": 844, "y": 320.33, "width": 24, "height": 24}, "styles": {"display": "block", "width": "24px", "height": "24px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "center"}, "state": "button-hover", "source_state_ids": ["C20-TOOLBAR-MOVE-DOWN-HOVER"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_07/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 844, "y": 320.33, "width": 24, "height": 24}}, "styles": {"display": "block", "position": "absolute", "boxSizing": "border-box", "backgroundColor": "rgba(31, 35, 41, 0.9)", "color": "rgb(255, 255, 255)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "4px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "10"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C20-TOOLBAR-EDIT-HOVER",
+      "session": "realtime-61c12d88a1fa",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_09/after/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_09/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_09/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_09/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_09/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_09/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_09/after/after.png"},
+      "components": ["ConfiguredCardActionToolbar"], "fields": [], "visual_elements": [{"id": "C20-TOOLBAR-EDIT-HOVER-root", "role": "control", "anchor": "[data-icon=EditOutlined]", "parent_structure": {"parent_id": "ConfiguredCardActionToolbar", "relation": "nested"}, "bbox": {"x": 868, "y": 320.33, "width": 24, "height": 24}, "styles": {"display": "block", "width": "24px", "height": "24px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "center"}, "state": "button-hover", "source_state_ids": ["C20-TOOLBAR-EDIT-HOVER"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_09/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 868, "y": 320.33, "width": 24, "height": 24}}, "styles": {"display": "block", "position": "absolute", "boxSizing": "border-box", "backgroundColor": "rgba(31, 35, 41, 0.9)", "color": "rgb(255, 255, 255)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "4px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "10"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "C20-TOOLBAR-DELETE-HOVER",
+      "session": "realtime-61c12d88a1fa",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_11/after/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_11/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_11/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_11/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_11/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_11/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_11/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/hybrid_steps/step_11/after/after.png"},
+      "components": ["ConfiguredCardActionToolbar"], "fields": [], "visual_elements": [{"id": "C20-TOOLBAR-DELETE-HOVER-root", "role": "control", "anchor": "[data-icon=DeleteTrashOutlined]", "parent_structure": {"parent_id": "ConfiguredCardActionToolbar", "relation": "nested"}, "bbox": {"x": 892, "y": 320.33, "width": 24, "height": 24}, "styles": {"display": "block", "width": "24px", "height": "24px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "center"}, "state": "button-hover", "source_state_ids": ["C20-TOOLBAR-DELETE-HOVER"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_164618_262168/captures/step_11/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 892, "y": 320.33, "width": 24, "height": 24}}, "styles": {"display": "block", "position": "absolute", "boxSizing": "border-box", "backgroundColor": "rgba(31, 35, 41, 0.9)", "color": "rgb(255, 255, 255)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "4px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "10"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "TYPE-WORK-SUMMARY-ROOT-TOP-CLICK",
+      "session": "realtime-72559dd43149",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/initial/before.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_01/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_01/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_01/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_01/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_01/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_01/after/after.png"},
+      "components": ["ConfiguredContentCardRoot", "ConfiguredContentItem"], "fields": [], "visual_elements": [{"id": "TYPE-WORK-SUMMARY-ROOT-TOP-CLICK-root", "role": "container", "anchor": "[data-ui-flow-id=ReviewContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 340, "y": 195.67, "width": 592, "height": 164}, "styles": {"display": "block", "width": "592px", "height": "164px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "root-selected", "source_state_ids": ["TYPE-WORK-SUMMARY-ROOT-TOP-CLICK"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_01/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 340, "y": 195.67, "width": 592, "height": 164}}, "styles": {"display": "block", "position": "relative", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "1px solid rgb(51, 112, 255)", "borderRadius": "8px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "TYPE-WORK-SUMMARY-ITEM-TRUSTED-POINT",
+      "session": "realtime-72559dd43149",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_07/after/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_07/after/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_07/after/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_07/after/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_07/after/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_07/after/after.png"},
+      "components": ["ConfiguredContentItem"], "fields": [], "visual_elements": [{"id": "TYPE-WORK-SUMMARY-ITEM-TRUSTED-POINT-root", "role": "container", "anchor": "[data-ui-flow-id=ReviewContent]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 340, "y": 195.67, "width": 592, "height": 92}, "styles": {"display": "block", "width": "592px", "height": "92px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal"}, "state": "item-selected", "source_state_ids": ["TYPE-WORK-SUMMARY-ITEM-TRUSTED-POINT"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_194710_752022/captures/hybrid_steps/step_07/after/target_contract.json"}],
+      "geometry": {"bbox": {"x": 340, "y": 195.67, "width": 592, "height": 92}}, "styles": {"display": "block", "position": "relative", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "1px solid rgb(51, 112, 255)", "borderRadius": "6px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "CUSTOM-TEXT-MODAL-OPEN",
+      "session": "realtime-72d743fc6fd0",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/before.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/after.png"},
+      "components": ["AssessmentCustomEditor"], "fields": [{"id": "custom-name", "label": "名称", "control": "input", "placeholder": "请输入名称", "required": true, "order": 1}, {"id": "custom-description", "label": "描述", "control": "editor", "placeholder": "请输入描述", "required": false, "order": 2}, {"id": "custom-type", "label": "填写题类型", "control": "radio-group", "placeholder": "not_applicable", "required": true, "order": 3}, {"id": "custom-question", "label": "填写题名称", "control": "input", "placeholder": "请输入填写题名称", "required": true, "order": 4}], "visual_elements": [{"id": "CUSTOM-TEXT-MODAL-OPEN-root", "role": "dialog", "anchor": "[role=dialog]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 180, "y": 32, "width": 920, "height": 609.33}, "styles": {"display": "flex", "width": "920px", "height": "609.33px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": 400, "line-height": "22px", "align-items": "stretch"}, "state": "open", "source_state_ids": ["CUSTOM-TEXT-MODAL-OPEN"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/target_contract.json"}],
+      "geometry": {"bbox": {"x": 180, "y": 32, "width": 920, "height": 609.33}}, "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "8px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1050"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "CUSTOM-TAG-MODAL",
+      "session": "realtime-51c3b7d38eb6",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/after.png"},
+      "components": ["AssessmentCustomEditor"], "fields": [{"id": "custom-name", "label": "名称", "control": "input", "placeholder": "请输入名称", "required": true, "order": 1}, {"id": "custom-type", "label": "填写题类型", "control": "radio-group", "placeholder": "not_applicable", "required": true, "order": 2}, {"id": "custom-tag-option", "label": "标签型填写题", "control": "selector", "placeholder": "请选择标签", "required": true, "order": 3}], "visual_elements": [{"id": "CUSTOM-TAG-MODAL-root", "role": "dialog", "anchor": "[role=dialog]", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 180, "y": 32, "width": 920, "height": 609.33}, "styles": {"display": "flex", "width": "920px", "height": "609.33px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "stretch"}, "state": "tag", "source_state_ids": ["CUSTOM-TAG-MODAL"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/target_contract.json"}],
+      "geometry": {"bbox": {"x": 180, "y": 32, "width": 920, "height": 609.33}}, "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "8px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1050"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "CUSTOM-TEXT-CONFIRM-RESUMED",
+      "session": "realtime-51c3b7d38eb6",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/after.png"},
+      "components": ["AssessmentContentDrawer"], "fields": [], "visual_elements": [{"id": "CUSTOM-TEXT-CONFIRM-RESUMED-root", "role": "container", "anchor": ".ud__drawer__content__wrapper", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 600, "y": 0, "width": 680, "height": 673.33}, "styles": {"display": "flex", "width": "680px", "height": "673.33px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "stretch"}, "state": "populated", "source_state_ids": ["CUSTOM-TEXT-CONFIRM-RESUMED"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/target_contract.json"}],
+      "geometry": {"bbox": {"x": 600, "y": 0, "width": 680, "height": 673.33}}, "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1000"}, "interactions": [], "svg": []
+    },
+    {
+      "source_state_id": "CUSTOM-TAG-CONFIRM",
+      "session": "realtime-51c3b7d38eb6",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7676505206036630516/3",
+      "viewport": {"width": 1280, "height": 673, "dpr": 1.5},
+      "artifacts": {"before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/before.html", "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/after.html", "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/layout.json", "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/computed.json", "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/target_contract.json", "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/interaction_evidence.json", "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/after.png"},
+      "components": ["AssessmentContentDrawer"], "fields": [], "visual_elements": [{"id": "CUSTOM-TAG-CONFIRM-root", "role": "container", "anchor": ".ud__drawer__content__wrapper", "parent_structure": {"parent_id": null, "relation": "root"}, "bbox": {"x": 600, "y": 0, "width": 680, "height": 673.33}, "styles": {"display": "flex", "width": "680px", "height": "673.33px", "margin-left": "0px", "font-family": "system-ui", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "stretch"}, "state": "populated", "source_state_ids": ["CUSTOM-TAG-CONFIRM"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260901_202716_060016/captures/initial/target_contract.json"}],
+      "geometry": {"bbox": {"x": 600, "y": 0, "width": 680, "height": 673.33}}, "styles": {"display": "flex", "position": "fixed", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgba(0, 0, 0, 0.65)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "22px", "border": "0px none", "borderRadius": "0px", "boxShadow": "rgba(31, 35, 41, 0.12) 0px 0px 24px", "overflowX": "hidden", "overflowY": "auto", "zIndex": "1000"}, "interactions": [], "svg": []
+    }
+  ],
+  "variant_contracts": [
+    {
+      "variant_key": "content-nine-stage-matrix",
+      "entry_mode": "content-settings",
+      "review_type": "stage-content",
+      "config_discriminator": "stage_type+content_slot+executor_type",
+      "source_state_ids": ["ALL9-360-INVITE-FILL", "ALL9-360-INVITE-REFERENCE", "ALL9-360-CONFIRM-FILL", "ALL9-360-CONFIRM-REFERENCE", "ALL9-EVAL-360-FILL", "ALL9-EVAL-360-REFERENCE", "ALL9-CALIBRATION-ADJUSTMENT", "ALL9-CALIBRATION-REFERENCE", "ALL9-RESULT-COMMUNICATION-FILL", "ALL9-RESULT-COMMUNICATION-REFERENCE", "ALL9-EVAL-MANAGER-FILL", "ALL9-EVAL-MANAGER-REFERENCE", "ALL9-RESULT-VIEW", "ALL9-RECONSIDERATION-FILL", "ALL9-RECONSIDERATION-REFERENCE", "ALL9-WORK-SUMMARY-MORE"],
+      "visible_elements": [{"id": "stage-list", "owner": "StageContent", "display_mode": "visible"}, {"id": "center-tabs", "owner": "ContentTabs", "display_mode": "variant-dependent"}, {"id": "right-empty-state", "owner": "ContentSettingsAside", "display_mode": "visible-when-unselected"}],
+      "forbidden_elements": ["configuration tabs not belonging to the selected stage", "work-summary more-menu items until captured"],
+      "line_groups": [{"id": "three-column-content", "members": ["stage-list", "center-tabs", "right-empty-state"]}],
+      "component_ownership": {"page": "holds selected stage and active slot", "renderer": "selects tab combination from stage type and executor", "aside": "renders empty or selected settings"}
+    },
+    {
+      "variant_key": "assessment-content-drawer",
+      "entry_mode": "content-settings",
+      "review_type": "assessment-content",
+      "config_discriminator": "drawer_open+visibility",
+      "source_state_ids": ["C10-DRAWER-OPEN", "C10-VISIBILITY-SWITCH-ON", "CUSTOM-TEXT-CONFIRM-RESUMED", "CUSTOM-TAG-CONFIRM"],
+      "visible_elements": [{"id": "drawer", "owner": "AssessmentContentDrawer", "display_mode": "dialog"}, {"id": "visibility-switch", "owner": "AssessmentVisibilitySwitch", "display_mode": "visible"}, {"id": "new-button", "owner": "AssessmentContentDrawer", "display_mode": "visible"}, {"id": "group-button", "owner": "AssessmentGroupSettingsButton", "display_mode": "visible-when-on"}],
+      "forbidden_elements": ["设置分组 when visibility is off", "template persistence request"],
+      "line_groups": [{"id": "drawer-settings-row", "members": ["visibility-switch", "group-button"]}],
+      "component_ownership": {"page": "owns session draft and open state", "drawer": "owns row selection, create entry and confirm/cancel", "persistence": "not applicable in this capture scope"}
+    },
+    {
+      "variant_key": "assessment-group-dialog",
+      "entry_mode": "content-settings",
+      "review_type": "assessment-group-settings",
+      "config_discriminator": "group_count",
+      "source_state_ids": ["C10-GROUP-DIALOG-OPEN", "C10-THIRD-GROUP-ADDED", "C10-GROUP-DIALOG-CANCEL"],
+      "visible_elements": [{"id": "group-dialog", "owner": "AssessmentGroupSettingsDialog", "display_mode": "dialog"}, {"id": "group-name", "owner": "AssessmentGroupRow", "display_mode": "required-input"}, {"id": "group-content", "owner": "AssessmentGroupRow", "display_mode": "selector"}, {"id": "add-group", "owner": "AssessmentGroupSettingsDialog", "display_mode": "visible"}],
+      "forbidden_elements": ["third group before add-group", "assessment content option popup until captured"],
+      "line_groups": [{"id": "group-row", "members": ["group-name", "group-content"]}],
+      "component_ownership": {"page": "passes groups draft", "dialog": "owns group add/cancel/confirm", "selector": "option contents are BLOCKED"}
+    },
+    {
+      "variant_key": "configured-content-card-root-item",
+      "entry_mode": "content-settings",
+      "review_type": "rating|work_summary",
+      "config_discriminator": "content_type+selected_owner",
+      "source_state_ids": ["C20-CARD-ROOT-SELECTED-CLEAN", "C20-CONTENT-BODY-SELECTED-DIAGNOSTIC", "TYPE-WORK-SUMMARY-ROOT-TOP-CLICK", "TYPE-WORK-SUMMARY-ITEM-TRUSTED-POINT"],
+      "visible_elements": [{"id": "card-root", "owner": "ConfiguredContentCardRoot", "display_mode": "visible"}, {"id": "content-item", "owner": "ConfiguredContentItem", "display_mode": "visible"}, {"id": "root-settings", "owner": "ContentSettingsAside", "display_mode": "visible-on-root-selected"}, {"id": "item-settings", "owner": "ContentSettingsAside", "display_mode": "visible-on-item-selected"}],
+      "forbidden_elements": ["rating-only settings in work-summary item", "custom-content root/item after final drawer confirm until captured"],
+      "line_groups": [{"id": "card-root-item", "members": ["card-root", "content-item"]}],
+      "component_ownership": {"page": "tracks root/item selection", "root": "owns card-level settings", "item": "owns item-level settings", "aside": "switches by selected owner"}
+    },
+    {
+      "variant_key": "configured-card-action-toolbar",
+      "entry_mode": "content-settings",
+      "review_type": "configured-content",
+      "config_discriminator": "header_hover+position",
+      "source_state_ids": ["C20-CARD-HEADER-HOVER", "C20-TOOLBAR-MOVE-UP-HOVER", "C20-TOOLBAR-MOVE-DOWN-HOVER", "C20-TOOLBAR-EDIT-HOVER", "C20-TOOLBAR-DELETE-HOVER"],
+      "visible_elements": [{"id": "toolbar", "owner": "ConfiguredCardActionToolbar", "display_mode": "visible-on-header-hover"}, {"id": "move-up", "owner": "IconActionButton", "display_mode": "visible-disabled-at-first"}, {"id": "move-down", "owner": "IconActionButton", "display_mode": "visible"}, {"id": "edit", "owner": "IconActionButton", "display_mode": "visible"}, {"id": "delete", "owner": "IconActionButton", "display_mode": "visible"}],
+      "forbidden_elements": ["automatic delete execution", "toolbar layout shift between card default and hover"],
+      "line_groups": [{"id": "toolbar-order", "members": ["move-up", "move-down", "edit", "delete"]}],
+      "component_ownership": {"page": "provides array index and callbacks", "toolbar": "owns fixed four-button order and states", "collector": "human hover events are authoritative"}
+    },
+    {
+      "variant_key": "custom-content-editor",
+      "entry_mode": "content-settings",
+      "review_type": "custom",
+      "config_discriminator": "custom_type=text|tag",
+      "source_state_ids": ["CUSTOM-TEXT-MODAL-OPEN", "CUSTOM-TAG-MODAL", "CUSTOM-TEXT-CONFIRM-RESUMED", "CUSTOM-TAG-CONFIRM"],
+      "visible_elements": [{"id": "modal", "owner": "AssessmentCustomEditor", "display_mode": "dialog"}, {"id": "name", "owner": "CustomEditorForm", "display_mode": "required-input"}, {"id": "description", "owner": "CustomEditorForm", "display_mode": "visible-when-text"}, {"id": "question", "owner": "CustomEditorForm", "display_mode": "text-entry"}, {"id": "tag-option", "owner": "CustomEditorForm", "display_mode": "visible-when-tag"}, {"id": "preview", "owner": "ContentPreviewRenderer", "display_mode": "visible"}],
+      "forbidden_elements": ["tag selector when text type", "real content persistence request", "middle configured card after final drawer confirmation until captured"],
+      "line_groups": [{"id": "custom-editor-columns", "members": ["name", "question", "preview"]}],
+      "component_ownership": {"page": "owns session draft", "editor": "owns create/edit validation and form", "preview": "shared with configured card but final custom-card evidence is BLOCKED"}
+    }
+  ]
+}

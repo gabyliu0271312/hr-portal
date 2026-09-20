@@ -1,24 +1,25 @@
-# Automatic triage reference
+# 自动分流参考
 
-## Minimal user input
+## 最小用户输入
 
-Accept a short request such as “我想做绩效周期创建” or “修复员工自评提交后无法重新打开”. Infer the intent, search the existing Spec, then create or update only the smallest necessary artifact.
+接受简短请求，如"我想做绩效周期创建"或"修复员工自评提交后无法重新打开"。推断意图，搜索现有 Spec，然后只创建或更新最小的必要产物。
 
-## Safety default
+## 安全默认
 
-- Discussion and specification requests never modify business code.
-- Implementation requests require a confirmed atomic task and must follow the development-start confirmation.
-- Blueprint-required UI work stops after the blueprint and confirmation record until the user explicitly confirms the blueprint.
-- Ambiguous requests become discussion work, not guessed implementation.
+- 讨论和规格请求绝不修改业务代码。
+- 实现请求需要已确认的原子任务，并遵循开发启动确认。
+- 需要蓝图的 UI 工作在蓝图和确认记录后停下，直到用户显式确认蓝图。
+- 含糊的请求成为讨论工作，而非猜测式实现。
 
-## Artifact choice
+## 产物选择
 
-| Situation | Artifact |
+| 情况 | 产物 |
 |---|---|
-| New independent business capability | `features/PM-xxx-name/` |
-| Small or cross-feature adjustment | `changes/CR-xxx-name/` |
-| Long-term architectural choice | `decisions/ADR-xxx-name.md` |
-| Small bug under a known feature | Update the related feature task/change record |
-## Clarification gate
+| 新的独立业务能力 | `features/PM-xxx-name/` |
+| 小范围或跨功能调整 | `changes/CR-xxx-name/` |
+| 长期架构选择 | `decisions/ADR-xxx-name.md` |
+| 已知功能下的小缺陷 | 更新相关功能任务/变更记录 |
 
-For a new feature with unresolved roles, data scope, state behavior, source-of-truth, or UI workflow decisions, ask focused questions before creating formal specification files. Do not turn assumptions into requirements. A user can explicitly authorize documented assumptions when fast progress is preferable.
+## 澄清门槛
+
+对于角色、数据范围、状态行为、真源或 UI 工作流决策未决的新功能，创建正式规格文件前先问聚焦问题。不要把假设变成需求。当快速推进更可取时，用户可以显式授权已记录的假设。

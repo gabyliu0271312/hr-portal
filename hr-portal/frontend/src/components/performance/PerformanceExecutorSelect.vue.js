@@ -41,11 +41,9 @@ let __VLS_directives;
 /** @type {__VLS_StyleScopedClasses['executor-option']} */ ;
 /** @type {__VLS_StyleScopedClasses['executor-option']} */ ;
 /** @type {__VLS_StyleScopedClasses['executor-option']} */ ;
+/** @type {__VLS_StyleScopedClasses['executor-option']} */ ;
 /** @type {__VLS_StyleScopedClasses['executor-options']} */ ;
 /** @type {__VLS_StyleScopedClasses['executor-option']} */ ;
-/** @type {__VLS_StyleScopedClasses['is-hovered']} */ ;
-/** @type {__VLS_StyleScopedClasses['executor-option']} */ ;
-/** @type {__VLS_StyleScopedClasses['is-hovered']} */ ;
 /** @type {__VLS_StyleScopedClasses['executor-option__check']} */ ;
 // CSS variable injection 
 // CSS variable injection end 
@@ -113,7 +111,13 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.path)({
 });
 if (__VLS_ctx.open) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+        ...{ onMouseleave: (...[$event]) => {
+                if (!(__VLS_ctx.open))
+                    return;
+                __VLS_ctx.hoveredOption = null;
+            } },
         ...{ class: "executor-options" },
+        ...{ class: ({ 'has-hovered': __VLS_ctx.hoveredOption !== null }) },
         role: "listbox",
     });
     for (const [option] of __VLS_getVForSourceType((__VLS_ctx.filteredOptions))) {
@@ -123,10 +127,10 @@ if (__VLS_ctx.open) {
                         return;
                     __VLS_ctx.hoveredOption = option.type;
                 } },
-            ...{ onMouseleave: (...[$event]) => {
+            ...{ onMousemove: (...[$event]) => {
                     if (!(__VLS_ctx.open))
                         return;
-                    __VLS_ctx.hoveredOption = null;
+                    __VLS_ctx.hoveredOption = option.type;
                 } },
             ...{ onClick: (...[$event]) => {
                     if (!(__VLS_ctx.open))
@@ -135,7 +139,7 @@ if (__VLS_ctx.open) {
                 } },
             key: (option.type),
             ...{ class: "executor-option" },
-            ...{ class: ({ 'is-hovered': __VLS_ctx.hoveredOption === option.type }) },
+            ...{ class: ({ 'is-hovered': __VLS_ctx.hoveredOption === option.type, 'is-selected-visible': option.label === __VLS_ctx.modelValue && __VLS_ctx.hoveredOption === null }) },
             type: "button",
             role: "option",
             'aria-selected': (option.label === __VLS_ctx.modelValue),

@@ -38,7 +38,54 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 
 [src/styles/element-overrides.css](../src/styles/element-overrides.css) 只消费 `tokens.css` 中的 `--color-* / --font-* / --spacing-* / --radius-* / --shadow-*` 变量覆盖 Element Plus。
 
-禁止重新引入以下旧变量族：
+### Token 分层
+
+`tokens.css` 按三层维护，新增值先判断应落在哪一层：
+
+1. **基础 Token**：颜色、字号、行高、间距、圆角、阴影、布局和层级等客观值。
+2. **语义 Token**：按用途命名的页面、表面、边框、操作和状态别名，例如 `--color-surface-page`、`--color-line-control`、`--color-action-primary`。
+3. **组件 Token**：只服务于稳定共享组件的尺寸和状态，例如 `--performance-switch-width`、`--performance-control-height`、`--performance-dialog-width`。
+
+提炼规则：
+
+- 同一视觉规则在多个页面或共享组件中重复时，才升级为 Token；
+- 组件专属尺寸放在组件 Token，不升级为全局布局标准；
+- 页面一次性测量值（例如流程画布、右侧面板和特定弹层宽度）保留在页面或 UI contract；
+- 新增 Token 必须优先复用现有语义值，禁止为同一语义创建第二个命名族；
+- 视觉证据缺失的值不得伪装成已确认的全局标准。
+
+### 绩效共享组件
+
+绩效页面优先复用 `src/components/performance/` 中已经提炼的共享组件。基础组件负责通用视觉和交互，绩效业务组件负责领域规则，页面只负责状态持有和组装。
+
+| 组件 | 职责 | 适用范围 |
+|---|---|---|
+| `PerformanceSwitch.vue` | 开关、禁用态、`v-model` | 绩效配置和表单开关 |
+| `PerformanceCheckbox.vue` | 复选框、勾选/禁用态、`v-model` | 绩效配置选项 |
+| `PerformanceIconButton.vue` | 统一图标按钮和状态属性 | 编辑、删除、展开、关闭等操作 |
+| `PerformanceRatingTag.vue` | 展示型评级胶囊，`label` + 模板配置 `color`，24px高 | 统计表头等只读评级展示；不承担评级选择 |
+| `PerformanceSortHeader.vue` | `label`/默认插槽 + `order`，发出 `click`；10px上下三角 | 原生表/Element Plus表头；宿主负责排序循环与数据 |
+| `PerformanceTextField.vue` | 输入框/文本域和错误、禁用、字数状态 | 绩效表单 |
+| `PerformanceCountedTextarea.vue` | 带标签和计数器的多行文本框 | 长文本配置 |
+| `PerformanceFormField.vue` | 标签、输入控件和错误提示组合 | 简单绩效表单 |
+| `PerformanceRequiredLabel.vue` | 统一必填标记，可切换必填态 | 表单标签 |
+| `PerformanceConfirmDialog.vue` | 危险操作确认、Escape、焦点归还 | 删除等不可逆操作 |
+| `PageHeader.vue` / `FullScreenModal.vue` | 全屏业务页 Header、内容滚动和 Footer 壳 | 新建/编辑向导 |
+| `PerformanceExecutorSelect.vue` / `WorkflowExecutorField.vue` | 执行人选择和节点执行人变体 | 流程模板配置 |
+| `PerformanceContentRenderer.vue` | 内容预览和已配置内容渲染 | 模板内容设置、预览 |
+| `PerformanceTemplateRenderer.vue` | 模板任务的 section/field 渲染入口，支持 edit/readonly | 工作总结及后续模板驱动任务 |
+| `PerformanceTemplateSection.vue` / `PerformanceTemplateFieldRenderer.vue` | 内容块、重复实例和 rich text/rating/tag 字段变体 | 模板任务填写与提交后展示 |
+| `PerformanceReviewCompletionNotice.vue` | 完成提示与编辑入口 | 所有可编辑的已完成绩效任务 |
+
+组件使用规则：
+
+- 页面不得重新实现已有的按钮、开关、复选框、输入框、确认弹窗或内容预览；
+- 出现第二个相同业务结构时，先评估抽取共享组件，再复制页面标记；
+- 共享组件暴露稳定的 props/emits，表单状态优先使用 `v-model`；
+- 组件只承载稳定的通用行为，绩效节点、模板锁定、角色权限和计算规则留在业务层；
+- 页面专属布局和像素变体通过显式 class、prop 或局部 Token 声明，不修改共享组件默认值。
+- 绩效评估运行页统一消费 `--performance-review-surface-inset`、`--performance-review-content-max-width`、`--performance-review-page-bg`、`--performance-review-completion-bg`、`--performance-review-completion-icon` 与 `--performance-review-readonly-surface`；新节点不得在页面内复制相同 surface 值。
+
 
 ```text
 --brand-*
@@ -49,24 +96,32 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 --success-* / --danger-* / --warning-* 旧命名
 ```
 
+### 评级底色与排序表头
+
+- `performanceColorOptions.ts` 是模板评级色板真源。保存值 `level.color` 对应色板 `value`；`performanceLevelBackground(value)` 复用模板原有规则，映射成 `trigger` 展示底色，支持空白/大小写归一化，未知自定义色原样保留，缺失返回透明。
+- `ReviewRuleConfigRenderer` 与 `PerformanceRatingTag` 共用此函数。报表 API/适配器应提供对应模板或周期快照颜色；禁止按“1星/2星”等名称或排序位置硬编码颜色。当前模拟数据不是实时模板读取。
+- 示例：`<PerformanceRatingTag :label="rating.label" :color="rating.color" />`。标签只展示、非按钮，文字溢出省略并保留 title。模板配置页原有22px胶囊布局不在本次迁移，只有底色转换共用，避免改变已确认模板布局。
+- `PerformanceSortHeader` 的 `order` 为 `'ascending' | 'descending' | null`，默认插槽可放评级标签；只发出 `click`，不排序、不发请求。宿主维护 `aria-sort` 和排序状态，禁止按钮嵌套。部门统计使用已有Element Plus排序/树展开能力，不复制表格引擎。
+- 评级标签颜色表示模板配置；统计矩阵热力色阶表示数据展示等级，二者不能共用字段。色阶阈值未确认时由mock/provider显式提供，不能从少数样本反推。
+
 ### 颜色
 
 | 用途 | 变量 | 值 |
 |---|---|---|
 | 主色 | `--color-primary` | `#3370ff` |
-| 主色 hover | `--color-primary-hover` | `#2855cc` |
+| 主色 hover | `--color-primary-hover` | `#1456f0` |
 | 主色浅 | `--color-primary-light` | `#eef2ff` |
-| 标题文字 | `--color-text-primary` | `#1a2233` |
+| 标题文字 | `--color-text-primary` | `#1f2329` |
 | 正文文字 | `--color-text-regular` | `#374151` |
 | 次要文字 | `--color-text-secondary` | `#5c6b82` |
-| 占位文字 | `--color-text-placeholder` | `#9aa5b4` |
+| 占位文字 | `--color-text-placeholder` | `#8f959e` |
 | 页面背景 | `--color-bg-page` | `#f4f6f9` |
 | 卡片背景 | `--color-bg-card` | `#ffffff` |
 | hover 背景 | `--color-bg-hover` | `#f0f5ff` |
-| 边框 | `--color-border` | `#e4e9f0` |
+| 边框 | `--color-border` | `#bbbfc4` |
 | 成功 | `--color-success` | `#12b76a` |
 | 警告 | `--color-warning` | `#f5920a` |
-| 危险 | `--color-danger` | `#f04438` |
+| 危险 | `--color-danger` | `#d83931` |
 
 状态色需要浅底或边框时，使用 `--color-success-light`、`--color-success-border`、`--color-danger-light`、`--color-danger-border` 等配套 token。
 
@@ -187,6 +242,33 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 - 无权限时默认隐藏；`mode="disable"` 改为置灰
 - 接受 Element Plus button props
 - 图标用 slot 内的 `<el-icon>`，不使用 `:icon`
+
+### 全屏业务壳
+
+绩效新建/编辑类全屏页面统一复用 `src/components/performance/PageHeader.vue` 和 `FullScreenModal.vue`。共享组件只管理跨页面稳定结构，业务页面管理自己的内容宽度与卡片。
+
+#### 共享职责
+
+- `PageHeader`：56px header、返回控件、分隔线、title、subtitle/actions插槽。
+- `FullScreenModal`：fixed viewport shell、header/content/footer分区、滚动和事件分发。
+- 默认按当前viewport布局：`min-width:0`；禁止在共享组件内写入某一业务页面的1200/1300px最小宽度。
+- 业务表单宽度、卡片数量、卡片高度和字段栅格归页面/业务表单组件；例如800px表单容器由业务内容层居中，不属于全屏壳。
+
+#### 页面专属变体
+
+页面确有宽屏下限、步骤条或专属header actions时，通过显式prop、variant class或CSS变量声明。禁止把页面专属尺寸写成共享默认值，再让其它页面覆盖。
+
+#### Footer间距
+
+- 操作栏高度、定位和事件属于共享壳；按钮业务状态属于调用方。
+- 按钮间距必须只有一个来源。使用容器`gap`时清除Element Plus相邻按钮margin；使用按钮margin时容器不得再设置同值gap。
+- 对采集还原页面，以目标证据的间距机制为权威，不得同时叠加两套规则。
+
+#### 验收边界
+
+- 壳任务只验收header、content scroll、footer和路由。
+- 业务表单任务验收卡片、字段和内容高度。
+- 占位卡不得作为目标业务卡片的像素证据。
 
 ## 已废弃
 

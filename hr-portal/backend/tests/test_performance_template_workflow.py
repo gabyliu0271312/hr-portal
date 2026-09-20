@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ from app.performance.template_workflow_service import (
     normalize_workflow_nodes,
 )
 from app.performance.executor_config import normalize_executor_config, project_legacy_executor_fields
+from app.performance.models import PerformanceTemplate, PerformanceTemplateWorkflow
 from app.performance import templates_router
 from app.performance.templates_router import WorkflowNode, WorkflowUpdate
 
@@ -58,6 +60,40 @@ def test_workflow_contract_defaults_new_invitation_fields():
     assert payload.subject_confirm_required is False
     assert result_view.subject_confirm_required is False
     assert WorkflowUpdate(nodes=[payload]).nodes[0].node_id == "evaluation-1"
+
+
+def test_content_library_preserves_same_name_and_repairs_id_collision():
+    from app.performance.template_workflow_service import normalize_content_library
+
+    contents = [
+        {"content_id": "duplicate", "type": "work_summary", "name": "同名", "description": "", "items": []},
+        {"content_id": "duplicate", "type": "work_summary", "name": "同名", "description": "", "items": []},
+    ]
+
+    normalized = normalize_content_library(contents)
+
+    assert len(normalized) == 2
+    assert len({content["content_id"] for content in normalized}) == 2
+    assert [content["name"] for content in normalized] == ["同名", "同名"]
+
+
+
+def test_workflow_content_survives_canonical_normalization():
+    content = {
+        "id": "work-summary-1",
+        "type": "work_summary",
+        "name": "工作总结",
+        "description": "本周产出",
+        "items": [{"id": "item-1", "label": "填写题名称", "hint": "提示", "richText": ""}],
+    }
+    node = _evaluation("evaluation-1", "实线上级")
+    node["content"] = [content]
+
+    normalized = normalize_workflow_nodes([node])
+
+    assert normalized[0]["content"] == [content]
+    assert WorkflowNode.model_validate(normalized[0]).content == [content]
+
 
 
 def test_normalization_deduplicates_candidates_and_removes_stale_roles():
@@ -368,6 +404,204 @@ def test_workflow_api_rejects_caller_without_configuration_permission():
     assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
+class _NoDuplicateResult:
+    def scalar_one_or_none(self):
+        return None
+
+
+class _TemplateMetadataDb:
+    def __init__(self, template, workflow=None):
+        self.template = template
+        self.workflow = workflow
+        self.added = []
+        self.deleted = []
+        self.commits = 0
+
+    async def get(self, model, template_id):
+        if model is PerformanceTemplate:
+            return self.template if self.template.id == template_id else None
+        if model is PerformanceTemplateWorkflow:
+            return self.workflow if self.workflow is not None and self.workflow.template_id == template_id else None
+        return None
+
+    async def execute(self, _statement):
+        return _NoDuplicateResult()
+
+    def add(self, value):
+        self.added.append(value)
+
+    async def delete(self, value):
+        self.deleted.append(value)
+
+    async def commit(self):
+        self.commits += 1
+
+    async def refresh(self, _value):
+        return None
+
+
+def _template_metadata():
+    now = datetime(2026, 8, 31, tzinfo=timezone.utc)
+    return SimpleNamespace(
+        id=42,
+        name="已有模板",
+        description="已有描述",
+        language="zh-CN",
+        english_enabled=False,
+        calculation_enabled=False,
+        selected_rules=[],
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _template_admin_context():
+    return PerformanceAccessContext(
+        subject_type="SYSTEM_ACCOUNT",
+        subject_id=7,
+        display_name="template-admin",
+        account_type="PERFORMANCE_ADMIN",
+        portal_entry_permissions=(),
+        role_grants=(),
+        permission_codes=("performance.configuration.manage",),
+    )
+
+
+@pytest.mark.asyncio
+async def test_template_metadata_get_and_update_round_trip_without_creating_a_new_template():
+    db = _TemplateMetadataDb(_template_metadata())
+    before = await templates_router.get_template(42, _template_admin_context(), db)
+
+    updated = await templates_router.update_template(
+        42,
+        templates_router.TemplateCreateRequest(
+            name="修改后的模板",
+            description="修改后的描述",
+            language="zh-CN",
+            english_enabled=True,
+            calculation_enabled=True,
+            selected_rules=["content"],
+        ),
+        _template_admin_context(),
+        db,
+    )
+
+    assert before.name == "已有模板"
+    assert updated.template_id == 42
+    assert updated.name == "修改后的模板"
+    assert updated.description == "修改后的描述"
+    assert updated.english_enabled is True
+    assert updated.calculation_enabled is True
+    assert updated.selected_rules == ["content"]
+    assert db.commits == 1
+    assert len(db.added) == 1
+    assert db.added[0].event_type == "PERFORMANCE_TEMPLATE_UPDATED"
+    assert db.added[0].before_state["name"] == "已有模板"
+    assert db.added[0].after_state["name"] == "修改后的模板"
+
+
+@pytest.mark.asyncio
+async def test_template_metadata_get_returns_not_found_for_unknown_template():
+    db = _TemplateMetadataDb(_template_metadata())
+
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.get_template(99, _template_admin_context(), db)
+
+    assert exc.value.status_code == status.HTTP_404_NOT_FOUND
+    assert exc.value.detail["code"] == "TEMPLATE_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_template_delete_removes_metadata_and_workflow_and_writes_audit():
+    template = _template_metadata()
+    workflow = SimpleNamespace(template_id=42, cycle_count=2, project_count=3)
+    db = _TemplateMetadataDb(template, workflow)
+
+    await templates_router.delete_template(42, _template_admin_context(), db)
+
+    assert db.deleted == [workflow, template]
+    assert db.commits == 1
+    assert len(db.added) == 1
+    audit = db.added[0]
+    assert audit.event_type == "PERFORMANCE_TEMPLATE_DELETED"
+    assert audit.subject_ref == "42"
+    assert audit.before_state["name"] == "已有模板"
+    assert audit.before_state["usage_summary"] == {"cycle_count": 2, "project_count": 3}
+    assert audit.after_state == {"deleted": True}
+
+
+@pytest.mark.asyncio
+async def test_template_delete_returns_not_found_without_side_effects():
+    db = _TemplateMetadataDb(_template_metadata())
+
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.delete_template(99, _template_admin_context(), db)
+
+    assert exc.value.status_code == status.HTTP_404_NOT_FOUND
+    assert exc.value.detail["code"] == "TEMPLATE_NOT_FOUND"
+    assert db.deleted == []
+    assert db.added == []
+    assert db.commits == 0
+
+
+def _template_metadata_api_client(*, allowed: bool) -> TestClient:
+    app = FastAPI()
+    app.include_router(templates_router.router, prefix="/api/v1")
+    app.dependency_overrides[get_session] = lambda: _TemplateMetadataDb(_template_metadata())
+    routes = [
+        route
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        and route.path == "/api/v1/performance/templates/{template_id}"
+    ]
+    for route in routes:
+        permission_dependency = next(
+            dependency.call
+            for dependency in route.dependant.dependencies
+            if dependency.call is not get_session
+        )
+        if allowed:
+            app.dependency_overrides[permission_dependency] = _template_admin_context
+        else:
+            async def deny():
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="missing permission")
+
+            app.dependency_overrides[permission_dependency] = deny
+    return TestClient(app)
+
+
+def test_template_metadata_api_requires_configuration_permission():
+    allowed = _template_metadata_api_client(allowed=True).get(
+        "/api/v1/performance/templates/42"
+    )
+    denied_get = _template_metadata_api_client(allowed=False).get(
+        "/api/v1/performance/templates/42"
+    )
+    denied_patch = _template_metadata_api_client(allowed=False).patch(
+        "/api/v1/performance/templates/42",
+        json={
+            "name": "修改后的模板",
+            "description": "",
+            "language": "zh-CN",
+            "english_enabled": False,
+            "calculation_enabled": False,
+            "selected_rules": [],
+        },
+    )
+    allowed_delete = _template_metadata_api_client(allowed=True).delete(
+        "/api/v1/performance/templates/42"
+    )
+    denied_delete = _template_metadata_api_client(allowed=False).delete(
+        "/api/v1/performance/templates/42"
+    )
+
+    assert allowed.status_code == status.HTTP_200_OK
+    assert denied_get.status_code == status.HTTP_403_FORBIDDEN
+    assert denied_patch.status_code == status.HTTP_403_FORBIDDEN
+    assert allowed_delete.status_code == status.HTTP_204_NO_CONTENT
+    assert denied_delete.status_code == status.HTTP_403_FORBIDDEN
+
+
 def test_result_reconsideration_executor_config_defaults_to_hrbp_and_projects_legacy_fields():
     config = normalize_executor_config(None)
 
@@ -467,3 +701,13 @@ def test_result_reconsideration_executor_config_normalizes_people_and_levels():
 def test_result_reconsideration_executor_config_requires_valid_selection(config):
     with pytest.raises(ValueError):
         normalize_executor_config(config)
+
+
+def test_workflow_accepts_more_than_nine_nodes():
+    normalized = normalize_workflow_nodes([
+        _evaluation(f"evaluation-{index}", "实线上级")
+        for index in range(10)
+    ])
+
+    assert len(normalized) == 10
+    assert [node["order"] for node in normalized] == list(range(1, 11))

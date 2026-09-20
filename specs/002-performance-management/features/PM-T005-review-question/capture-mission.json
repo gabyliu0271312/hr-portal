@@ -1,0 +1,54 @@
+{
+  "version": "1",
+  "mode": "guided",
+  "objective": "将正式环境真实菜单入口、虚拟下拉滚动和规则选择后模块状态整理为 PM-T005 像素级开发契约。",
+  "priorities": [
+    "从评估题列表真实点击新建评估题和新建子评估题，分别记录 route、query、title 和 entry_mode",
+    "打开规则下拉采集首屏，并通过 ArrowDown 驱动 virtual list 滚动，记录滚动位置、首末可见项、目标 option 和 rule_id",
+    "普通评估题选择评级、评分上线限、评分固定分值、评分映射等级型四类规则",
+    "新建子评估题选择评级、评分上线限、评分固定分值三类规则",
+    "为每个目标规则保存入口、首屏、滚动后、选择后四类证据；选择后模块以 entry_mode + rule_id 作为差异联合键"
+  ],
+  "exclude": [
+    "新建、编辑、保存、提交、发布或删除评估规则",
+    "保存或提交评估题",
+    "本次不实现普通题/子题下拉筛选算法",
+    "规则版本号和评估题配置快照",
+    "Cookie、Authorization、Token、完整请求头和其他敏感凭证"
+  ],
+  "completion": {
+    "required_artifacts": [
+      "before_html",
+      "after_html",
+      "layout",
+      "computed",
+      "target_contract",
+      "screenshot",
+      "interaction_evidence"
+    ],
+    "require_pixel_evidence": true,
+    "require_scroll_after_state": true,
+    "require_entry_mode_context": true,
+    "fail_if_missing": true
+  },
+  "limits": {
+    "viewport": "1920x1080",
+    "same_origin_only": true,
+    "no_credentials": true,
+    "normalize_json": true,
+    "max_scroll_steps_per_dropdown": 16
+  },
+  "graph": {
+    "roots": ["review-question-list"],
+    "nodes": [
+      { "id": "review-question-list", "label": "评估题列表", "relation": "root" },
+      { "id": "create-menu", "label": "新建菜单展开", "parent": "review-question-list", "relation": "sequence" },
+      { "id": "regular-question", "label": "新建评估题", "parent": "create-menu", "relation": "parallel" },
+      { "id": "regular-rule-list", "label": "普通题规则下拉首屏与滚动后", "parent": "regular-question", "relation": "sequence" },
+      { "id": "regular-rule-variants", "label": "普通题四类规则选择后模块", "parent": "regular-rule-list", "relation": "sequence" },
+      { "id": "sub-question", "label": "新建子评估题", "parent": "create-menu", "relation": "parallel" },
+      { "id": "sub-rule-list", "label": "子题规则下拉首屏与滚动后", "parent": "sub-question", "relation": "sequence" },
+      { "id": "sub-rule-variants", "label": "子题三类规则选择后模块", "parent": "sub-rule-list", "relation": "sequence" }
+    ]
+  }
+}

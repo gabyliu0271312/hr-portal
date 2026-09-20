@@ -1,0 +1,459 @@
+{
+  "schema_version": 3,
+  "feature_id": "PM-T003-cycle-creation",
+  "contract_id": "PM-T003-cycle-project-home-pixel-contract",
+  "completion_status": "incomplete",
+  "pixel_restore_status": "blocked",
+  "uncovered_reasons": [
+    "capture_model implementation_brief is design_incomplete and has no confirmed variant_contracts",
+    "initial mission did not observe nav-hover, toolbar-hover, or project-filter as one unified state graph",
+    "supplemental hybrid sessions are separate sessions and cannot be merged by the realtime-session manifest tool",
+    "the source page is data-backed; this contract intentionally excludes source capture data, while project business actions are implemented by the application",
+    "375px state was captured as a viewport snapshot, not as a resize transition from the desktop state"
+  ],
+  "source": {
+    "url": "https://idreamsky.feishu.cn/perf/admin/semester-activities?s=7671122266779814873",
+    "normalized_capture_url": "https://idreamsky.feishu.cn/perf/admin/semester-activities?s",
+    "title": "周期与项目",
+    "raw_capture_dir": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures",
+    "source_of_truth": "captured_evidence",
+    "authority_rule": "截图、after.html、layout.json、computed.json 和 interaction evidence 优先于相邻页面或人工推断"
+  },
+  "capture_readiness": {
+    "capture_integrity": "passed",
+    "capture_completeness": "incomplete",
+    "implementation_readiness": "ready",
+    "readiness_scope": "variant",
+    "target_variant_keys": ["cycle-project-home-default"],
+    "blockers": [
+      "optional_more_menu_evidence_out_of_scope_for_static_home_variant",
+      "optional_scroll_transition_evidence_out_of_scope_for_static_home_variant",
+      "optional_resize_transition_evidence_out_of_scope_for_static_home_variant",
+      "optional_more_outlined_path_normalization_out_of_scope_for_static_home_variant"
+    ],
+    "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/capture_model.json#/implementation_brief"
+  },
+  "coverage": {
+    "unmapped_components": [],
+    "unmapped_states": [],
+    "conflicting_values": [],
+    "missing_required_artifacts": [],
+    "projection_status": "draft_blocked",
+    "note": "核心页面结构和关键控件已映射；未将采集器的所有 12 个 hover 状态冒充为已确认的业务变体。"
+  },
+  "layout_relations": [
+    { "id": "sidebar-content-boundary", "source_state_ids": ["clone:base"], "left": "settings-sidebar.right", "right": "settings-content.left", "property": "edge-adjacency", "operator": "eq", "evidence": "capture_model.json#/base_layout[20,6]", "expected": { "left": 240, "right": 240 } },
+    { "id": "content-card-inset", "source_state_ids": ["clone:base"], "left": "outer-card.left", "right": "content-frame.left", "property": "left-inset", "operator": "eq", "evidence": "capture_model.json#/base_layout[7,8]", "expected": { "left": 260, "right": 260 } },
+    { "id": "split-detail-start", "source_state_ids": ["clone:base"], "left": "split-wrapper.left", "right": "detail-pane.left", "property": "ordered-x", "operator": "lt", "evidence": "capture_model.json#/base_layout[9,10]", "expected": { "left": 280, "right": 528 } },
+    { "id": "project-toolbar-table-gap", "source_state_ids": ["clone:base"], "left": "project-toolbar.bottom", "right": "project-table.top", "property": "vertical-gap", "operator": "eq", "evidence": "capture_model.json#/base_layout[13,15]", "expected": { "left": 424, "right": 440 } },
+    { "id": "operation-column-sticky", "source_state_ids": ["clone:base"], "left": "operation-column.position", "right": "table-content.overflow-x", "property": "sticky-over-scroll", "operator": "eq", "evidence": "capture_model.json#/base_layout[21,23]", "expected": { "left": 2, "right": 1 } },
+    { "id": "single-h-scroll-owner", "source_state_ids": ["manual:audit-h-scrollbars:1280", "manual:audit-h-scrollbars:1920"], "left": "page.active_h_scroll_count", "right": "ud__table-content", "property": "scroll-owner-count", "operator": "equal", "evidence": "ui-capture/audit-h-scrollbars-report-1280.json#/active_h_scroll", "expected": { "left": 1, "right": 1 }, "note": "全页面唯一激活横向滚动容器为 ud__table-content；表格祖先容器全部 dormant，滚动不得收口到第二层" },
+    { "id": "table-min-width-971", "source_state_ids": ["manual:audit-h-scrollbars:1280"], "left": "table.scrollWidth", "right": "table-min-baseline", "property": "min-table-width", "operator": "equal", "evidence": "ui-capture/audit-h-scrollbars-report-1280.json#/table", "expected": { "left": 971, "right": 971 }, "note": "列基准 250/251/120/110/148/92 合计 971px，容器 <971 时仅 ud__table-content 出横向滚动条" },
+    { "id": "table-fit-stretch", "source_state_ids": ["manual:audit-h-scrollbars:1920"], "left": "table.width", "right": "container.width", "property": "fit-width", "operator": "equal", "evidence": "ui-capture/audit-h-scrollbars-report-1920.json#/table", "expected": { "left": 1352, "right": 1352 }, "note": "容器 ≥971 时无滚动条，列宽 = 基准 × 容器/971（250→348.1、251→349.5、120→167.1、110→153.2、148→206.1、92→128.1），table-layout fixed 分配" }
+  ],
+  "interaction_contracts": [
+    { "id": "cycle-select", "component_id": "PerformanceCycleListPane", "state": "selected", "action": { "type": "click", "target": "测试", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:cycle-select:hybrid-001-after"], "status": "captured" },
+    { "id": "cycle-search", "component_id": "PerformanceSearchInput", "state": "filled", "action": { "type": "fill", "target": "搜索周期", "value": "2026", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:cycle-search:hybrid-001-after"], "status": "captured" },
+    { "id": "project-search", "component_id": "PerformanceSearchInput", "state": "filled", "action": { "type": "fill", "target": "通过项目名称搜索", "value": "项目", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:project-search:hybrid-001-after"], "status": "captured" },
+    { "id": "nav-hover", "component_id": "PerformanceSettingsSidebar", "state": "hover", "action": { "type": "hover", "target": "周期与项目", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:nav-hover:hybrid-001-after"], "status": "captured" },
+    { "id": "filter-hover", "component_id": "PerformanceProjectToolbar", "state": "hover", "action": { "type": "hover", "target": "筛选", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:filter-hover:hybrid-001-after"], "status": "captured" },
+    { "id": "filter-open", "component_id": "PerformanceProjectToolbar", "state": "expanded", "action": { "type": "click", "target": "筛选", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:filter-open:hybrid-001-after"], "status": "captured" },
+    { "id": "horizontal-scroll", "component_id": "PerformanceManagementTable", "state": "horizontal-scroll", "action": { "type": "scroll", "target": "project-table-content", "replayable": false }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["clone:hover-72b3acfca64a"], "status": "optional-out-of-scope" }
+  ],
+  "source_states": [
+    {
+      "source_state_id": "clone:base",
+      "session": "idreamsky.feishu.cn_20260904_123515_419185",
+      "semantic_state": "default",
+      "viewport": { "width": 1920, "height": 1080, "dpr": 1 },
+      "evidence": {
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/idreamsky_feishu_cn_perf_admin_semester-activities_s_7671122266779814873.png",
+        "capture_model": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/capture_model.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/computed_styles.json",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/responsive/1920x1080/layout.json",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/responsive/1920x1080/after.html",
+        "pixel_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/pixel_evidence.json"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "hybrid:cycle-select:hybrid-001-after",
+      "session": "idreamsky.feishu.cn_20260904_124936_030495",
+      "semantic_state": "cycle-selected-after-click",
+      "viewport": { "width": 1920, "height": 1080, "dpr": 1.0000000298023224 },
+      "evidence": {
+        "before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_124936_030495/captures/initial/before.html",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_124936_030495/captures/hybrid_steps/step_01/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_124936_030495/captures/hybrid_steps/step_01/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_124936_030495/captures/hybrid_steps/step_01/after/computed.json",
+        "interaction": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_124936_030495/captures/hybrid_steps/step_01/after/interaction.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_124936_030495/captures/hybrid_steps/step_01/after/interaction_evidence.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_124936_030495/captures/hybrid_steps/step_01/after/target_contract.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_124936_030495/captures/hybrid_steps/step_01/after/after.png"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "hybrid:cycle-search:hybrid-001-after",
+      "session": "idreamsky.feishu.cn_20260904_125501_438118",
+      "semantic_state": "cycle-search-filled-2026",
+      "viewport": { "width": 1920, "height": 1080, "dpr": 1.0000000298023224 },
+      "evidence": {
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_125501_438118/captures/hybrid_steps/step_01/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_125501_438118/captures/hybrid_steps/step_01/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_125501_438118/captures/hybrid_steps/step_01/after/computed.json",
+        "interaction": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_125501_438118/captures/hybrid_steps/step_01/after/interaction.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_125501_438118/captures/hybrid_steps/step_01/after/interaction_evidence.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_125501_438118/captures/hybrid_steps/step_01/after/target_contract.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_125501_438118/captures/hybrid_steps/step_01/after/after.png"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "hybrid:project-search:hybrid-001-after",
+      "session": "idreamsky.feishu.cn_20260904_130027_301056",
+      "semantic_state": "project-search-filled-项目",
+      "viewport": { "width": 1920, "height": 1080, "dpr": 1.0000000298023224 },
+      "evidence": {
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130027_301056/captures/hybrid_steps/step_01/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130027_301056/captures/hybrid_steps/step_01/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130027_301056/captures/hybrid_steps/step_01/after/computed.json",
+        "interaction": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130027_301056/captures/hybrid_steps/step_01/after/interaction.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130027_301056/captures/hybrid_steps/step_01/after/interaction_evidence.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130027_301056/captures/hybrid_steps/step_01/after/target_contract.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130027_301056/captures/hybrid_steps/step_01/after/after.png"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "hybrid:nav-hover:hybrid-001-after",
+      "session": "idreamsky.feishu.cn_20260904_130548_882997",
+      "semantic_state": "sidebar-cycle-project-hover",
+      "viewport": { "width": 1920, "height": 1080, "dpr": 1.0000000298023224 },
+      "evidence": {
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130548_882997/captures/hybrid_steps/step_01/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130548_882997/captures/hybrid_steps/step_01/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130548_882997/captures/hybrid_steps/step_01/after/computed.json",
+        "interaction": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130548_882997/captures/hybrid_steps/step_01/after/interaction.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130548_882997/captures/hybrid_steps/step_01/after/interaction_evidence.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130548_882997/captures/hybrid_steps/step_01/after/target_contract.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_130548_882997/captures/hybrid_steps/step_01/after/after.png"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "hybrid:filter-hover:hybrid-001-after",
+      "session": "idreamsky.feishu.cn_20260904_131112_015558",
+      "semantic_state": "project-filter-hover",
+      "viewport": { "width": 1440, "height": 900, "dpr": 1.0000000298023224 },
+      "evidence": {
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131112_015558/captures/hybrid_steps/step_01/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131112_015558/captures/hybrid_steps/step_01/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131112_015558/captures/hybrid_steps/step_01/after/computed.json",
+        "interaction": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131112_015558/captures/hybrid_steps/step_01/after/interaction.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131112_015558/captures/hybrid_steps/step_01/after/interaction_evidence.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131112_015558/captures/hybrid_steps/step_01/after/target_contract.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131112_015558/captures/hybrid_steps/step_01/after/after.png"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "hybrid:filter-open:hybrid-001-after",
+      "session": "idreamsky.feishu.cn_20260904_131636_331359",
+      "semantic_state": "project-filter-open",
+      "viewport": { "width": 1920, "height": 1080, "dpr": 1.0000000298023224 },
+      "evidence": {
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131636_331359/captures/hybrid_steps/step_01/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131636_331359/captures/hybrid_steps/step_01/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131636_331359/captures/hybrid_steps/step_01/after/computed.json",
+        "interaction": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131636_331359/captures/hybrid_steps/step_01/after/interaction.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131636_331359/captures/hybrid_steps/step_01/after/interaction_evidence.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131636_331359/captures/hybrid_steps/step_01/after/target_contract.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_131636_331359/captures/hybrid_steps/step_01/after/after.png"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "hybrid:responsive-1440x900:hybrid-000-after",
+      "session": "idreamsky.feishu.cn_20260904_132213_666956",
+      "semantic_state": "default-viewport",
+      "viewport": { "width": 1440, "height": 900, "dpr": 1.0000000298023224 },
+      "evidence": {
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_132213_666956/captures/hybrid_steps/step_00/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_132213_666956/captures/hybrid_steps/step_00/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_132213_666956/captures/hybrid_steps/step_00/after/computed.json",
+        "interaction": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_132213_666956/captures/hybrid_steps/step_00/after/interaction.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_132213_666956/captures/hybrid_steps/step_00/after/after.png"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "hybrid:responsive-1024x768:hybrid-000-after",
+      "session": "idreamsky.feishu.cn_20260904_132733_513867",
+      "semantic_state": "default-viewport",
+      "viewport": { "width": 1024, "height": 768, "dpr": 1.0000000298023224 },
+      "evidence": {
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_132733_513867/captures/hybrid_steps/step_00/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_132733_513867/captures/hybrid_steps/step_00/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_132733_513867/captures/hybrid_steps/step_00/after/computed.json",
+        "interaction": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_132733_513867/captures/hybrid_steps/step_00/after/interaction.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_132733_513867/captures/hybrid_steps/step_00/after/after.png"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "hybrid:responsive-375x812:hybrid-000-after",
+      "session": "idreamsky.feishu.cn_20260904_133249_958126",
+      "semantic_state": "default-viewport",
+      "viewport": { "width": 375, "height": 812, "dpr": 1.0000000298023224 },
+      "evidence": {
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_133249_958126/captures/hybrid_steps/step_00/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_133249_958126/captures/hybrid_steps/step_00/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_133249_958126/captures/hybrid_steps/step_00/after/computed.json",
+        "interaction": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_133249_958126/captures/hybrid_steps/step_00/after/interaction.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_133249_958126/captures/hybrid_steps/step_00/after/after.png"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "manual:audit-h-scrollbars:1280",
+      "session": "manual-console-audit-20260918",
+      "semantic_state": "project-table-overflow-1280",
+      "viewport": { "width": 1280, "height": 314, "dpr": 1.5 },
+      "evidence": {
+        "audit_script": "specs/002-performance-management/features/PM-T003-cycle-creation/ui-capture/audit-h-scrollbars.js",
+        "audit_report": "specs/002-performance-management/features/PM-T003-cycle-creation/ui-capture/audit-h-scrollbars-report-1280.json",
+        "method": "user-executed console audit on live target page; JSON pasted back and stored"
+      },
+      "complete": true
+    },
+    {
+      "source_state_id": "manual:audit-h-scrollbars:1920",
+      "session": "manual-console-audit-20260918",
+      "semantic_state": "project-table-fit-1920",
+      "viewport": { "width": 1920, "height": 594, "dpr": 1 },
+      "evidence": {
+        "audit_script": "specs/002-performance-management/features/PM-T003-cycle-creation/ui-capture/audit-h-scrollbars.js",
+        "audit_report": "specs/002-performance-management/features/PM-T003-cycle-creation/ui-capture/audit-h-scrollbars-report-1920.json",
+        "method": "user-executed console audit on live target page; JSON pasted back and stored"
+      },
+      "complete": true
+    }
+  ],
+  "component_tree": [
+    { "id": "performance-settings-shell", "type": "page", "source_state_ids": ["clone:base"], "children": ["top-header", "settings-sidebar", "settings-content"] },
+    { "id": "top-header", "type": "global-layout", "source_state_ids": ["clone:base"], "children": ["product-logo", "product-title", "user-avatar"] },
+    { "id": "settings-sidebar", "type": "navigation", "source_state_ids": ["clone:base", "hybrid:nav-hover:hybrid-001-after"], "children": ["settings-category", "active-cycle-nav", "secondary-nav-items"] },
+    { "id": "settings-content", "type": "content-region", "source_state_ids": ["clone:base"], "children": ["content-frame", "cycle-project-card"] },
+    { "id": "cycle-project-card", "type": "split-card", "source_state_ids": ["clone:base"], "children": ["cycle-list-pane", "cycle-detail-pane"] },
+    { "id": "cycle-list-pane", "type": "business-component", "source_state_ids": ["clone:base", "hybrid:cycle-select:hybrid-001-after", "hybrid:cycle-search:hybrid-001-after"], "children": ["cycle-list-heading", "cycle-search", "cycle-create-icon-button", "cycle-items"] },
+    { "id": "cycle-detail-pane", "type": "business-component", "source_state_ids": ["clone:base"], "children": ["cycle-detail-header", "change-alert", "cycle-basic-info", "project-settings"] },
+    { "id": "project-settings", "type": "business-component", "source_state_ids": ["clone:base", "hybrid:project-search:hybrid-001-after", "hybrid:filter-hover:hybrid-001-after", "hybrid:filter-open:hybrid-001-after"], "children": ["project-toolbar", "project-table", "project-pagination"] },
+    { "id": "project-toolbar", "type": "shared-control-group", "source_state_ids": ["clone:base", "hybrid:project-search:hybrid-001-after", "hybrid:filter-hover:hybrid-001-after", "hybrid:filter-open:hybrid-001-after"], "children": ["project-create-button", "project-search-input", "project-filter-button"] },
+    { "id": "project-table", "type": "table", "source_state_ids": ["clone:base", "hybrid:responsive-1440x900:hybrid-000-after"], "children": ["project-columns", "project-operation-column"] }
+  ],
+  "components": [
+    {
+      "component_id": "PerformanceSettingsShell",
+      "layer": "page",
+      "responsibility": "组装 Header、侧栏和周期详情卡片；不持有真实业务数据契约",
+      "props": ["activeNav", "selectedCycleId"],
+      "events": ["nav-change", "cycle-change"],
+      "required_states": ["default", "responsive"],
+      "source_state_ids": ["clone:base", "hybrid:responsive-1440x900:hybrid-000-after", "hybrid:responsive-1024x768:hybrid-000-after", "hybrid:responsive-375x812:hybrid-000-after"]
+    },
+    {
+      "component_id": "PerformanceSettingsSidebar",
+      "layer": "business",
+      "responsibility": "应用设置分组和周期与项目选中态",
+      "props": ["items", "activeKey"],
+      "events": ["select"],
+      "required_states": ["default", "hover", "active"],
+      "source_state_ids": ["clone:base", "hybrid:nav-hover:hybrid-001-after"]
+    },
+    {
+      "component_id": "PerformanceCycleListPane",
+      "layer": "business",
+      "responsibility": "周期标题、搜索、加号按钮和周期项列表",
+      "props": ["cycles", "selectedId", "keyword"],
+      "events": ["update:keyword", "select-cycle", "create-cycle"],
+      "required_states": ["default", "selected", "search-filled"],
+      "source_state_ids": ["clone:base", "hybrid:cycle-select:hybrid-001-after", "hybrid:cycle-search:hybrid-001-after"]
+    },
+    {
+      "component_id": "PerformanceSearchInput",
+      "layer": "base",
+      "responsibility": "复用搜索输入外壳、搜索图标、placeholder、focus 和清空行为；过滤逻辑由父级持有",
+      "props": ["modelValue", "placeholder", "width", "clearable", "disabled"],
+      "events": ["update:modelValue", "search", "clear"],
+      "required_states": ["default", "filled", "focus"],
+      "source_state_ids": ["clone:base", "hybrid:cycle-search:hybrid-001-after", "hybrid:project-search:hybrid-001-after"]
+    },
+    {
+      "component_id": "PerformanceCreateButton",
+      "layer": "base",
+      "responsibility": "复用新建按钮的蓝色 filled 视觉；通过 variant 区分文字型和图标型",
+      "props": ["variant", "label", "disabled", "permission"],
+      "events": ["click"],
+      "required_states": ["default", "hover", "disabled"],
+      "source_state_ids": ["clone:base"]
+    },
+    {
+      "component_id": "PerformanceProjectToolbar",
+      "layer": "business",
+      "responsibility": "项目设置标题下的左侧新建和右侧搜索/筛选布局；父级负责横向位置",
+      "props": ["keyword", "filterState"],
+      "events": ["create", "update:keyword", "filter"],
+      "required_states": ["default", "search-filled", "filter-hover", "filter-open"],
+      "source_state_ids": ["clone:base", "hybrid:project-search:hybrid-001-after", "hybrid:filter-hover:hybrid-001-after", "hybrid:filter-open:hybrid-001-after"]
+    },
+    {
+      "component_id": "PerformanceManagementTable",
+      "layer": "base",
+      "responsibility": "项目表格结构、空态/加载态、分页和固定操作列；项目列由 slot 定义",
+      "props": ["rows", "loading", "total", "page", "pageSize", "scrollable", "minTableWidth"],
+      "events": ["page-change", "page-size-change"],
+      "required_states": ["default", "empty", "loading", "horizontal-scroll"],
+      "source_state_ids": ["clone:base", "hybrid:responsive-1440x900:hybrid-000-after"]
+    }
+  ],
+  "variant_contracts": [
+    {
+      "variant_key": "cycle-project-home-default",
+      "entry_mode": "settings-navigation",
+      "review_type": "not-applicable",
+      "config_discriminator": "selected_cycle_present",
+      "source_state_ids": ["clone:base"],
+      "status": "ready",
+      "visible_elements": [
+        { "id": "page-title", "text": "周期与项目", "owner": "PerformanceSettingsShell", "display_mode": "block" },
+        { "id": "cycle-pane-title", "text": "周期", "owner": "PerformanceCycleListPane", "display_mode": "block" },
+        { "id": "cycle-search-placeholder", "text": "搜索周期", "owner": "PerformanceSearchInput", "display_mode": "placeholder" },
+        { "id": "cycle-create-icon", "text": "", "owner": "PerformanceCreateButton", "display_mode": "icon-only" },
+        { "id": "selected-cycle", "text": "测试", "owner": "PerformanceCycleListPane", "display_mode": "active" },
+        { "id": "detail-title", "text": "测试", "owner": "cycle-detail-pane", "display_mode": "block" },
+        { "id": "change-alert", "text": "本周期新建后，人员与部门发生了 85 次变更，在环节启动前你可以选择是否更新数据 查看详情", "owner": "cycle-detail-pane", "display_mode": "alert" },
+        { "id": "basic-info", "text": "基本信息", "owner": "cycle-detail-pane", "display_mode": "section" },
+        { "id": "project-settings-title", "text": "项目设置", "owner": "project-settings", "display_mode": "section" },
+        { "id": "project-create", "text": "新建", "owner": "PerformanceCreateButton", "display_mode": "text" },
+        { "id": "project-search-placeholder", "text": "通过项目名称搜索", "owner": "PerformanceSearchInput", "display_mode": "placeholder" },
+        { "id": "project-filter", "text": "筛选", "owner": "project-toolbar", "display_mode": "button" },
+        { "id": "project-columns", "text": "项目名称 / 描述 / 项目管理员 / 状态 / 评估人数 / 操作", "owner": "PerformanceManagementTable", "display_mode": "table-header" }
+      ],
+      "forbidden_elements": [],
+      "line_groups": [
+        { "id": "project-toolbar-row", "members": ["project-create", "project-search-placeholder", "project-filter"], "relation": "same-row" },
+        { "id": "basic-info-row", "members": ["人员", "部门", "周期起止时间", "周期创建时间", "离职人员可在本周期成为被评估人"], "relation": "same-section-row" }
+      ],
+      "component_ownership": {
+        "page": ["PerformanceSettingsShell", "settings-content", "cycle-detail-pane"],
+        "shared": ["PerformanceSearchInput", "PerformanceCreateButton", "PerformanceManagementTable"],
+        "business": ["PerformanceSettingsSidebar", "PerformanceCycleListPane", "PerformanceProjectToolbar"]
+      },
+      "geometry": {
+        "viewport": { "width": 1920, "height": 1080, "dpr": 1 },
+        "page_frame": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
+        "header_height": 56,
+        "sidebar": { "x": 0, "y": 56, "width": 240, "height": 1024 },
+        "content_padding_region": { "x": 240, "y": 56, "width": 1680, "height": 1024 },
+        "content_frame": { "x": 260, "y": 76, "width": 1640, "height": 984 },
+        "outer_card": { "x": 260, "y": 118, "width": 1640, "height": 942 },
+        "split_wrapper": { "x": 280, "y": 138, "width": 1600, "height": 902 },
+        "cycle_list_width": 248,
+        "detail_pane": { "x": 528, "y": 138, "width": 1352, "height": 902 },
+        "project_toolbar": { "x": 528, "y": 392, "width": 1352, "height": 32 },
+        "project_table": { "x": 528, "y": 440, "width": 1352, "height": 146 },
+        "project_table_content": { "x": 528, "y": 440, "width": 1352, "height": 146 },
+        "operation_column": { "x": 1698.796875, "y": 441, "width": 181.203125, "height": 47 }
+      },
+      "styles": {
+        "page_background": "rgb(245, 246, 247)",
+        "sidebar_background": "rgb(255, 255, 255)",
+        "card_background": "rgb(255, 255, 255)",
+        "active_nav_background": "rgb(225, 234, 255)",
+        "primary": "rgb(51, 112, 255)",
+        "text_primary": "rgb(31, 35, 41)",
+        "text_secondary": "rgba(0, 0, 0, 0.65)",
+        "card_radius": "8px",
+        "card_shadow": "rgba(31, 35, 41, 0.05) 0px 1px 4px 0px",
+        "control_height": "32px",
+        "control_radius": "6px",
+        "font_family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif",
+        "font_size": "14px",
+        "line_height": "21px"
+      },
+      "visual_elements": [
+        { "id": "page-frame", "role": "container", "anchor": "page-layout.SettingsLayout", "bbox": { "x": 0, "y": 0, "width": 1920, "height": 1080 }, "styles": { "display": "flex", "width": "1920px", "height": "1080px", "margin-left": "0px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "21px", "align-items": "normal", "background-color": "rgb(245, 246, 247)", "border-radius": "0px", "box-shadow": "none" }, "state": "default", "source_state_ids": ["clone:base"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/computed_styles.json" },
+        { "id": "sidebar", "role": "container", "anchor": "SideContainer", "bbox": { "x": 0, "y": 56, "width": 240, "height": 1024 }, "styles": { "display": "flex", "width": "240px", "height": "1024px", "margin-left": "0px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "21px", "align-items": "normal", "background-color": "rgb(255, 255, 255)", "border-radius": "0px", "box-shadow": "none" }, "state": "default", "source_state_ids": ["clone:base"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/computed_styles.json" },
+        { "id": "active-nav", "role": "navigation-item", "anchor": "SideItem.active", "bbox": { "x": 0, "y": 102, "width": 240, "height": 41 }, "styles": { "display": "flex", "width": "240px", "height": "41px", "margin-left": "0px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "21px", "align-items": "start", "background-color": "rgb(225, 234, 255)", "border-radius": "0px", "box-shadow": "none" }, "state": "active", "source_state_ids": ["clone:base", "hybrid:nav-hover:hybrid-001-after"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/responsive/1920x1080/layout.json" },
+        { "id": "cycle-search", "role": "searchbox", "anchor": "ud__search", "bbox": { "x": 280, "y": 178, "width": 167, "height": 32 }, "styles": { "display": "flex", "width": "167px", "height": "32px", "margin-left": "0px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal", "background-color": "rgb(255, 255, 255)", "border-radius": "6px", "box-shadow": "none", "border": "1px solid" }, "state": "default", "source_state_ids": ["clone:base"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/computed_styles.json" },
+        { "id": "cycle-add", "role": "button", "anchor": "cycle-add-button", "bbox": { "x": 456, "y": 178, "width": 32, "height": 32 }, "styles": { "display": "flex", "width": "32px", "height": "32px", "margin-left": "9px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "center", "background-color": "rgb(255, 255, 255)", "border-radius": "6px", "box-shadow": "none", "border": "1px solid" }, "state": "default", "source_state_ids": ["clone:base"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/computed_styles.json" },
+        { "id": "project-toolbar", "role": "toolbar", "anchor": "table-addon-group", "bbox": { "x": 528, "y": 392, "width": 1352, "height": 32 }, "styles": { "display": "flex", "width": "1352px", "height": "32px", "margin-left": "0px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "21px", "align-items": "center", "background-color": "rgba(0, 0, 0, 0)", "border-radius": "0px", "box-shadow": "none" }, "state": "default", "source_state_ids": ["clone:base"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/responsive/1920x1080/layout.json" },
+        { "id": "project-create", "role": "button", "anchor": "table-addon-item-left > button", "bbox": { "x": 528, "y": 392, "width": 80, "height": 32 }, "styles": { "display": "flex", "width": "80px", "height": "32px", "margin-left": "0px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "center", "background-color": "rgb(51, 112, 255)", "border-radius": "6px", "box-shadow": "none" }, "state": "default", "source_state_ids": ["clone:base"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/responsive/1920x1080/computed.json" },
+        { "id": "project-search", "role": "searchbox", "anchor": "ud__search.ml-6", "bbox": { "x": 1552, "y": 392, "width": 224, "height": 32 }, "styles": { "display": "flex", "width": "224px", "height": "32px", "margin-left": "12px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "normal", "background-color": "rgb(255, 255, 255)", "border-radius": "6px", "box-shadow": "none", "border": "1px solid" }, "state": "default", "source_state_ids": ["clone:base", "hybrid:project-search:hybrid-001-after"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/responsive/1920x1080/computed.json" },
+        { "id": "project-filter", "role": "button", "anchor": "table-addon-item-right > button", "bbox": { "x": 1800, "y": 392, "width": 80, "height": 32 }, "styles": { "display": "flex", "width": "80px", "height": "32px", "margin-left": "12px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "center", "background-color": "rgb(255, 255, 255)", "border-radius": "6px", "box-shadow": "none", "border": "1px solid" }, "state": "default", "source_state_ids": ["clone:base", "hybrid:filter-hover:hybrid-001-after", "hybrid:filter-open:hybrid-001-after"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/responsive/1920x1080/computed.json" },
+        { "id": "project-table-content", "role": "table", "anchor": "ud__table-content", "bbox": { "x": 528, "y": 440, "width": 1352, "height": 146 }, "styles": { "display": "block", "width": "1352px", "height": "146px", "margin-left": "0px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "22.001px", "align-items": "not_applicable", "background-color": "rgba(0, 0, 0, 0)", "border-radius": "0px", "box-shadow": "none", "overflow-x": "auto", "overflow-y": "hidden" }, "state": "default", "source_state_ids": ["clone:base"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/responsive/1920x1080/layout.json" },
+        { "id": "operation-column", "role": "table-column", "anchor": "ud__table-cell-fix-right-first", "bbox": { "x": 1698.796875, "y": 441, "width": 181.203125, "height": 47 }, "styles": { "display": "table-cell", "width": "181.203125px", "height": "47px", "margin-left": "0px", "font-family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, PingFang SC, Microsoft YaHei, sans-serif", "font-size": "14px", "font-weight": "400", "line-height": "22px", "align-items": "not_applicable", "background-color": "rgb(255, 255, 255)", "border-radius": "0px", "box-shadow": "none", "position": "sticky", "z-index": "2" }, "state": "default", "source_state_ids": ["clone:base"], "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_123515_419185/captures/responsive/1920x1080/layout.json" }
+      ],
+      "svg": {
+        "search": { "data_icon": "SearchOutlined", "viewBox": "0 0 24 24", "size": "16px", "path": "M16.473 17.887A9.46 9.46 0 0 1 10.5 20a9.5 9.5 0 1 1 9.5-9.5 9.46 9.46 0 0 1-2.113 5.973l3.773 3.773a.996.996 0 0 1-.007 1.407.996.996 0 0 1-1.407.007l-3.773-3.773ZM18 10.5a7.5 7.5 0 1 0-15 0Z", "fill": "currentColor" },
+        "add": { "data_icon": "AddOutlined", "viewBox": "0 0 24 24", "size": "14px", "path": "M12 2a1 1 0 0 1-1 1v8H3a1 1 0 1 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 1 0 0-2h-8V3a1 1 0 0 0-1-1Z", "fill": "currentColor" },
+        "filter": { "data_icon": "FilterOutlined", "viewBox": "0 0 24 24", "size": "14px", "path": "M16 11.431V21a1 1 0 1 1-2 0V11c0-.147.032-.287.089-.412a.96.96 0 0 0-.4-.467L20 6.83V4H4v2.866l5.345 3.195A1 1 0 0 1 10 11v6.5a1 1 0 1 1-2 0v-6.035c-.477-.285-3.369-1.867-4.957-2.735A2 2 0 0 1 2 6.975V4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2.945a2 2 0 0 1-1.035 1.752L16 11.43Z", "fill": "currentColor" },
+        "more": { "data_icon": "MoreOutlined", "viewBox": "0 0 24 24", "size": "1em", "path": "M5.5 11.75a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 1 1-3.5 0Zm8.225 0a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 1 1-3.5 0Zm8.275 0a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 1 1-3.5 0Zm8.275 0a1.75 1.75 0 1 1-3.5 0Zm8.275 0a1.75 1.75 0 1 1-3.5 0Z", "fill": "currentColor", "status": "BLOCKED_PATH_NORMALIZATION" }
+      }
+    }
+  ],
+  "layout_relations": [
+    { "id": "sidebar-content-boundary", "source_state_ids": ["clone:base"], "left": "settings-sidebar.right", "right": "settings-content.left", "property": "edge-adjacency", "operator": "eq", "evidence": "capture_model.json#/base_layout[20,6]", "expected": { "left": 240, "right": 240 } },
+    { "id": "content-card-inset", "source_state_ids": ["clone:base"], "left": "outer-card.left", "right": "content-frame.left", "property": "left-inset", "operator": "eq", "evidence": "capture_model.json#/base_layout[7,8]", "expected": { "left": 260, "right": 260 } },
+    { "id": "split-detail-start", "source_state_ids": ["clone:base"], "left": "split-wrapper.left", "right": "detail-pane.left", "property": "ordered-x", "operator": "lt", "evidence": "capture_model.json#/base_layout[9,10]", "expected": { "left": 280, "right": 528 } },
+    { "id": "project-toolbar-table-gap", "source_state_ids": ["clone:base"], "left": "project-toolbar.bottom", "right": "project-table.top", "property": "vertical-gap", "operator": "eq", "evidence": "capture_model.json#/base_layout[13,15]", "expected": { "left": 424, "right": 440 } },
+    { "id": "operation-column-sticky", "source_state_ids": ["clone:base"], "left": "operation-column.position", "right": "table-content.overflow-x", "property": "sticky-over-scroll", "operator": "eq", "evidence": "capture_model.json#/base_layout[21,23]", "expected": { "left": 2, "right": 1 } },
+    { "id": "single-h-scroll-owner", "source_state_ids": ["manual:audit-h-scrollbars:1280", "manual:audit-h-scrollbars:1920"], "left": "page.active_h_scroll_count", "right": "ud__table-content", "property": "scroll-owner-count", "operator": "equal", "evidence": "ui-capture/audit-h-scrollbars-report-1280.json#/active_h_scroll", "expected": { "left": 1, "right": 1 }, "note": "全页面唯一激活横向滚动容器为 ud__table-content；表格祖先容器全部 dormant，滚动不得收口到第二层" },
+    { "id": "table-min-width-971", "source_state_ids": ["manual:audit-h-scrollbars:1280"], "left": "table.scrollWidth", "right": "table-min-baseline", "property": "min-table-width", "operator": "equal", "evidence": "ui-capture/audit-h-scrollbars-report-1280.json#/table", "expected": { "left": 971, "right": 971 }, "note": "列基准 250/251/120/110/148/92 合计 971px，容器 <971 时仅 ud__table-content 出横向滚动条" },
+    { "id": "table-fit-stretch", "source_state_ids": ["manual:audit-h-scrollbars:1920"], "left": "table.width", "right": "container.width", "property": "fit-width", "operator": "equal", "evidence": "ui-capture/audit-h-scrollbars-report-1920.json#/table", "expected": { "left": 1352, "right": 1352 }, "note": "容器 ≥971 时无滚动条，列宽 = 基准 × 容器/971（250→348.1、251→349.5、120→167.1、110→153.2、148→206.1、92→128.1），table-layout fixed 分配" }
+  ],
+  "container_constraints": [
+    { "component_id": "outer-card", "state": "default", "bbox": { "x": 260, "y": 118, "width": 1640, "height": 942 }, "first_visible_child": "split-wrapper", "terminal_visible_child": "project-table", "inset": { "top": 20, "right": 20, "bottom": 474, "left": 20 }, "ownership": "page", "evidence": "capture_model.json#/derived_spatial_constraints" },
+    { "component_id": "detail-pane", "state": "default", "bbox": { "x": 528, "y": 138, "width": 1352, "height": 902 }, "first_visible_child": "detail-title", "terminal_visible_child": "project-pagination", "inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 }, "ownership": "business", "evidence": "capture_model.json#/base_layout[10]" },
+    { "component_id": "project-table-content", "state": "default", "bbox": { "x": 528, "y": 440, "width": 1352, "height": 146 }, "first_visible_child": "project-columns", "terminal_visible_child": "project-operation-column", "inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 }, "ownership": "shared", "evidence": "capture_model.json#/base_layout[23,24,29]" }
+  ],
+  "interaction_contracts": [
+    { "id": "cycle-select", "component_id": "PerformanceCycleListPane", "state": "selected", "action": { "type": "click", "target": "测试", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:cycle-select:hybrid-001-after"], "visible_change": "周期项 active 背景/文字与右侧详情上下文保持；业务数据不写入", "status": "captured" },
+    { "id": "cycle-search", "component_id": "PerformanceSearchInput", "state": "filled", "action": { "type": "fill", "target": "搜索周期", "value": "2026", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:cycle-search:hybrid-001-after"], "visible_change": "输入值替换 placeholder，周期列表按静态 fixture 过滤", "status": "captured" },
+    { "id": "project-search", "component_id": "PerformanceSearchInput", "state": "filled", "action": { "type": "fill", "target": "通过项目名称搜索", "value": "项目", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:project-search:hybrid-001-after"], "visible_change": "输入值替换 placeholder，项目表格按静态 fixture 过滤", "status": "captured" },
+    { "id": "nav-hover", "component_id": "PerformanceSettingsSidebar", "state": "hover", "action": { "type": "hover", "target": "周期与项目", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:nav-hover:hybrid-001-after"], "visible_change": "记录 active nav 的背景、文字和图标颜色", "status": "captured" },
+    { "id": "filter-hover", "component_id": "PerformanceProjectToolbar", "state": "hover", "action": { "type": "hover", "target": "筛选", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:filter-hover:hybrid-001-after"], "visible_change": "记录按钮 hover 背景/边框/图标颜色", "status": "captured" },
+    { "id": "filter-open", "component_id": "PerformanceProjectToolbar", "state": "expanded", "action": { "type": "click", "target": "筛选", "replayable": true }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["hybrid:filter-open:hybrid-001-after"], "visible_change": "展示筛选面板的实际 after 状态；未应用筛选", "status": "captured" },
+    { "id": "horizontal-scroll", "component_id": "PerformanceManagementTable", "state": "horizontal-scroll", "action": { "type": "scroll", "target": "project-table-content", "replayable": false }, "before_source_state_ids": ["clone:base"], "after_source_state_ids": ["clone:hover-72b3acfca64a"], "visible_change": "表格内容横向溢出时操作列保持 sticky；滚动动作的独立 before/after 尚未形成", "status": "blocked" }
+  ],
+  "fixture_contract": {
+    "mode": "static_visual_fixture",
+    "real_data": false,
+    "network_api": false,
+    "write_actions": false,
+    "cycles": ["测试", "2026年半年度绩效评估", "2025年全年度绩效评估", "2025年半年度绩效评估", "2024年全年度绩效评估", "2024年半年度绩效评估", "2023年全年度绩效评估", "2023年半年度绩效评估", "2022年全年度绩效评估", "2022年半年度绩效评估", "2021年下半年绩效评估周期", "2021年上半年绩效评估周期"],
+    "selected_cycle": "测试",
+    "cycle_detail": { "people": "604", "departments": "927", "cycle_range": "2026-01-01 - 2026-03-31", "created_at": "2026-08-07 11:12", "leavers_allowed": "否", "change_count": "85" },
+    "projects": [
+      { "name": "dee", "description": "111", "manager": "--", "status": "待完成配置", "evaluator_count": 3 },
+      { "name": "111", "description": "--", "manager": "--", "status": "待完成配置", "evaluator_count": 5 }
+    ],
+    "project_columns": ["项目名称", "描述", "项目管理员", "状态", "评估人数", "操作"],
+    "fixture_rule": "字段和记录数量只用于撑起采集到的视觉密度；不作为业务模型、API 或权限事实。"
+  },
+  "responsive_contract": [
+    { "viewport": { "width": 1920, "height": 1080, "dpr": 1 }, "sidebar_width": 240, "detail_width": 1352, "operation_column_width": 181.203125, "source_state_ids": ["clone:base"] },
+    { "viewport": { "width": 1440, "height": 900, "dpr": 1 }, "sidebar_width": 240, "detail_width": 872, "operation_column_width": 136, "source_state_ids": ["hybrid:responsive-1440x900:hybrid-000-after"] },
+    { "viewport": { "width": 1366, "height": 768, "dpr": 1 }, "sidebar_width": 240, "detail_width": 798, "operation_column_width": 136, "source_state_ids": ["clone:responsive-1366x768"] },
+    { "viewport": { "width": 1280, "height": 720, "dpr": 1 }, "sidebar_width": 240, "detail_width": 712, "operation_column_width": 136, "source_state_ids": ["clone:responsive-1280x720"] },
+    { "viewport": { "width": 1024, "height": 768, "dpr": 1 }, "source_state_ids": ["hybrid:responsive-1024x768:hybrid-000-after"], "rule": "保留桌面侧栏与详情上下文；验证内容区和表格横向滚动，具体窄屏折叠行为未从 resize transition 证实", "status": "captured_snapshot_blocked_transition" },
+    { "viewport": { "width": 375, "height": 812, "dpr": 1 }, "source_state_ids": ["hybrid:responsive-375x812:hybrid-000-after"], "rule": "只作为窄视口快照；不得推断移动端组件重排", "status": "captured_snapshot_blocked_transition" }
+  ],
+  "svg": {
+    "search": { "data_icon": "SearchOutlined", "viewBox": "0 0 24 24", "width": 16, "height": 16, "fill": "currentColor", "path": "M16.473 17.887A9.46 9.46 0 0 1 10.5 20a9.5 9.5 0 1 1 9.5-9.5 9.46 9.46 0 0 1-2.113 5.973l3.773 3.773a.996.996 0 0 1-.007 1.407.996.996 0 0 1-1.407.007l-3.773-3.773ZM18 10.5a7.5 7.5 0 1 0-15 0Z", "source_state_ids": ["clone:base"] },
+    "add": { "data_icon": "AddOutlined", "viewBox": "0 0 24 24", "width": 14, "height": 14, "fill": "currentColor", "path": "M12 2a1 1 0 0 1-1 1v8H3a1 1 0 1 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 1 0 0-2h-8V3a1 1 0 0 1-1-1Z", "source_state_ids": ["clone:base"] },
+    "filter": { "data_icon": "FilterOutlined", "viewBox": "0 0 24 24", "width": 14, "height": 14, "fill": "currentColor", "path": "M16 11.431V21a1 1 0 1 1-2 0V11c0-.147.032-.287.089-.412a.96.96 0 0 0-.4-.467L20 6.83V4H4v2.866l5.345 3.195A1 1 0 0 1 10 11v6.5a1 1 0 1 1-2 0v-6.035c-.477-.285-3.369-1.867-4.957-2.735A2 2 0 0 1 2 6.975V4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2.945a2 2 0 0 1-1.035 1.752L16 11.43Z", "source_state_ids": ["clone:base", "hybrid:filter-hover:hybrid-001-after"] },
+    "more": { "data_icon": "MoreOutlined", "viewBox": "0 0 24 24", "width": "1em", "height": "1em", "path": "BLOCKED_PATH_NORMALIZATION", "source_state_ids": ["clone:base"], "status": "blocked" }
+  }
+}

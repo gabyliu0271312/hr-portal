@@ -13,7 +13,7 @@
 1. 本文件。
 2. `overview.md`、`integration.md`、`permission-model.md`、`data-model.md`、`workflow-design.md`。
 3. 当前功能目录下的 `spec.md`、`atomic-tasks.md`、`ui-interaction.md` 或相关蓝图。
-4. 相关架构决策 `decisions/ADR-*.md`。
+4. 相关架构决策 `decisions/ADR-*.md`，尤其是 `ADR-002-business-first-ui-fidelity.md`：后续开发默认采用业务骨干优先与分级 UI 还原策略。
 5. 任务涉及任何 UI 时，追加读取根目录 `AGENTS.md` 要求的 Spec 012 UI 规范；涉及 UCP、数据接入、数据资产、Pipeline、Webhook 或外部系统时，再追加读取 Spec 011/012 相关文档。
 
 ## 3. 需求进入规则

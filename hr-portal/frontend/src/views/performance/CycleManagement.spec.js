@@ -53,13 +53,19 @@ async function mountView(path = '/performance/settings/cycles') {
         history: createMemoryHistory(),
         routes: [
             { path: '/performance/settings/cycles', name: 'PerformanceCycles', component: CycleManagement },
+            { path: '/performance/settings/cycles/:cycleId/hrbp-auth', name: 'PerformanceCycleHrbpPermissions', component: { template: '<div>HRBP</div>' } },
             { path: '/performance/settings/cycles/new', name: 'PerformanceCycleCreate', component: CycleManagement },
             { path: '/performance/settings/cycles/:id/edit', name: 'PerformanceCycleEdit', component: CycleManagement },
         ],
     });
     await router.push(path);
     await router.isReady();
-    const wrapper = mount({ template: '<router-view />' }, { global: { plugins: [router] } });
+    const wrapper = mount({ template: '<router-view />' }, {
+        global: {
+            plugins: [router],
+            stubs: { PermissionButton: { template: '<button><slot /></button>' } },
+        },
+    });
     await flushPromises();
     return wrapper.getComponent(CycleManagement);
 }
@@ -82,6 +88,24 @@ describe('CycleManagement', () => {
         expect(wrapper.find('.project-table-wrap').exists()).toBe(true);
         expect(wrapper.find('.project-table-wrap table').exists()).toBe(true);
         expect(wrapper.find('.project-table-wrap .fixed-operation').exists()).toBe(true);
+    });
+    it('renders the captured default state of the cycle settings button', async () => {
+        const wrapper = await mountView();
+        const button = wrapper.get('[aria-label="设置周期"]');
+        expect(button.classes()).toContain('cycle-settings-button');
+        expect(button.text()).toBe('设置');
+        const icon = button.get('svg[data-icon="SettingOutlined"]');
+        expect(icon.attributes('viewBox')).toBe('0 0 24 24');
+        expect(icon.get('path').attributes('fill')).toBe('currentColor');
+    });
+    it('opens the HRBP permission page from the settings menu', async () => {
+        const wrapper = await mountView();
+        const router = wrapper.vm.$router;
+        await wrapper.get('[aria-label="设置周期"]').trigger('click');
+        document.body.querySelectorAll('[role="menuitem"]')[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await flushPromises();
+        expect(router.currentRoute.value.name).toBe('PerformanceCycleHrbpPermissions');
+        expect(router.currentRoute.value.params.cycleId).toBe('1');
     });
     it('hides cycle management actions without cycle permission', async () => {
         mocks.getAccessContext.mockResolvedValueOnce({ permission_codes: ['performance.projects.manage'] });

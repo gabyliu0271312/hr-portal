@@ -1,5 +1,11 @@
 # PM-T004 原子任务
 
+completion_status: incomplete
+pixel_restore_status: blocked
+uncovered_reasons:
+- 内容设置采集契约已投影；全 feature 仍受未完成采集分支和 UI 验收证据阻塞。
+- 只有主智能体在补齐代码、测试和验收证据后才能勾选任务。
+
 - [ ] PM-T004-T01 冻结模板流程 DTO、节点枚举与真实 API 契约
   - Goal: 提供 GET/PATCH 流程接口及稳定错误码，兼容旧节点读取映射。
   - Type: contract/backend/API
@@ -64,9 +70,32 @@
   - Test contract: Given used-cycle and draft templates; When save/back/next; Then locked fields, payload and navigation are correct
   - Acceptance: UI->API->reopen trace, permission deny, concurrent conflict, no data loss on failure
   - Evidence: E2E trace, request fixture, screenshot pair
-  - Blockers: backend endpoint availability
+  - [ ] PM-T004-T03-F01 修复模板列表编辑按钮进入真实编辑态
+    - Prerequisites: PM-T004-T03 已冻结列表、基本信息和流程步骤共用同一 `template_id`；用户于 2026-08-31 明确授权本缺陷使用定向 UI 门禁豁免。
+    - 功能范围：持久化模板行点击编辑后进入基本信息编辑态；GET 回填完整模板元数据；下一步 PATCH 更新同一模板；接口成功时列表不再混入无后端 ID 的参考行。不改变页面视觉结构、流程 DTO 或内容设置。
+    - 允许修改：模板列表/创建视图及 focused spec、`frontend/src/api/performance.ts`、模板元数据路由及 workflow 聚焦测试、本功能规格目录；删除遮蔽 TypeScript API 的旧 `frontend/src/api/performance.js`。
+    - 禁止修改：数据库模型与迁移、周期快照、权限模型、UCP、流程节点业务、内容设置业务和全局设计系统。
+    - 输入/输出契约：`GET/PATCH /api/v1/performance/templates/{template_id}`；请求复用基本信息字段，响应返回 `template_id`、基本信息、`DRAFT` 状态及时间；404=`TEMPLATE_NOT_FOUND`，重名 409=`PERFORMANCE_TEMPLATE_NAME_DUPLICATE`，权限沿用 `performance.configuration.manage`。
+    - 测试与验收：Given 持久化模板；When 列表点击编辑并修改名称后点击下一步；Then 路由携带真实 ID、GET 回填、PATCH 使用同一 ID、POST 未调用、审计事件记录前后值；覆盖 403、404、聚焦 Vitest、pytest、类型检查、生产构建和真实应用操作。
+    - Evidence: 2026-08-31 focused Vitest 10/10 通过；后端 workflow/metadata pytest 29/29 通过（1 个既有 Starlette deprecation warning）；`py_compile` 与独立 Vite 生产构建（2770 modules）通过。Docker 前后端重建成功；真实浏览器从模板列表首行点击编辑后进入 `templates/create?template_id=69`，标题为“编辑绩效模板”且名称回填；点击下一步捕获 `PATCH /api/v1/performance/templates/69` 与后续 workflow GET，未出现模板 POST，当前步骤进入“流程设置”。运行截图：`C:/Users/gaby.liu/AppData/Local/Temp/hr-portal-template-edit.png`（临时验收证据，不提交仓库）。实现门禁通过用户授权的 `PM-T004-T03-template-edit-entry-20260831` 定向豁免。
+    - Blockers: 仓库级 `vue-tsc --noEmit` 仅被本任务范围外 `ReviewRuleTable.spec.ts:79-91` 未定义 `reviewRuleTableSource` 的 9 个既有错误阻断；因此本子任务暂不勾选。
+    - Definition of done: 功能、API、审计、focused tests、构建、真实应用验证和门禁复查均记录后方可勾选。
+  - Blockers: full T03 still lacks authenticated workflow save/reopen E2E and used-cycle screenshot evidence
   - Non-scope: versioning, publish, content editing
   - Definition of done: integration and evidence complete; only main agent may check task
+
+- [ ] PM-T004-T07 实现模板真实删除与确认弹窗
+  - 前置条件：无；当前代码已具备真实模板 ID 列表链路，用户于 2026-08-31 提供并确认模板删除 SnapSpec。
+  - 功能范围：模板行“更多 → 删除”打开确认弹窗；“保留”取消且不发请求；“删除”调用真实 DELETE，成功后重新读取列表。删除模板元数据和模板流程草稿，已启动周期的快照与历史结果不受影响。
+  - 允许修改：`frontend/src/components/performance/PerformanceConfirmDialog.vue` 及 focused spec、模板列表视图/spec、`frontend/src/api/performance.ts`、模板路由及 workflow 聚焦测试、本功能规格目录与一张独立实现 PNG。
+  - 禁止修改：数据库模型与 migration、周期/项目快照、权限模型、菜单/路由、UCP、内容设置、全局主题和无关页面。
+  - 输入/输出契约：`DELETE /api/v1/performance/templates/{template_id}`；成功 204；404=`TEMPLATE_NOT_FOUND`；权限沿用 `performance.configuration.manage`；同一事务删除 `performance_templates` 与对应 `performance_template_workflows`，并写 `PERFORMANCE_TEMPLATE_DELETED` 审计事件。
+  - UI Implementation Brief：`variant_key=template-delete-confirm`，`source_state_ids=['user-snapspec-20260831-template-delete-confirm']`；420px 居中确认弹窗，Header 420×96px、padding 24px；24px `WarningFilled` 原始 SVG、`#FF8800`，标题 16/600/24 `#1F2329`；文案“后续配置项目将无法使用该模板，确定删除吗？”；Footer 按钮顺序“保留/删除”，均 80×32px、间距 12px、圆角 6px；禁止出现“取消/确定”替代文案。弹窗具备 mask、Escape、焦点圈定、删除中禁用和焦点归还。
+  - 组件拆解：基础层复用原生 button/SVG；业务层 `PerformanceConfirmDialog` 独立负责确认状态、焦点与视觉；页面层只持有待删除模板、调用 API 并刷新列表。
+  - 测试与验收：Given 持久化模板；When 取消；Then 弹窗关闭且 DELETE 未调用。When 确认；Then DELETE 使用真实 ID、按钮禁用防重复、成功关闭并刷新列表。覆盖 API 204/403/404、审计、工作流草稿清理、失败保留弹窗、聚焦 Vitest/pytest、类型检查、生产构建、Docker 和真实浏览器操作。
+  - Evidence: focused Vitest `17/17` 通过；模板 workflow pytest `31/31` 通过（1 个既有 Starlette deprecation warning）；Python `py_compile` 通过；Vite production build `2782 modules` 通过；Docker backend/frontend 已重建并运行。确认弹窗组件、取消、Escape、焦点圈定、删除 loading、DELETE API 与失败保留均有自动化覆盖。真实浏览器进入确认弹窗的后续删除验收因容器重启使旧登录 token 失效而未完成，状态为 `not-run`；为不保留测试数据，已按用户授权清理临时模板 ID=71，并按删除审计原值恢复误删的模板 ID=1“222”。
+  - Blockers: PM-T004 历史像素契约缺口尚未对本 T07 获得定向门禁授权；删除按钮 hover/active 未提供完整采集证据，只能实现可用性状态，不得宣称 hover 像素通过；真实浏览器 DELETE 操作仍需重新登录后补验。
+  - Definition of done: 用户授权的任务级门禁通过，代码/API/审计/测试/构建/运行时截图和真实删除验证齐备后方可勾选。
 
 - [ ] PM-T004-T04 流程设置视觉与验收回归
   - Goal: 建立附件 48 个状态的 focused visual regression。
@@ -190,15 +219,139 @@
     - Non-scope: runtime confirmation task generation/completion, cycle snapshots, result publication behavior, migration, and permission changes.
     - Definition of done: development, UI, API round-trip, tests, build, runtime verification, and evidence complete; only then mark `[x]`.
 
-- [ ] PM-T004-T05 内容设置整体架构与空态还原
-  - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。
+- [ ] PM-T004-T05 内容设置整体架构、空态与各环节配置区还原
+  - Goal: 根据采集数据（session `idreamsky.feishu.cn_20260821_140802`，真实飞书内容设置页）实现内容设置三栏（左 320 固定 + 右 320 固定 + 中栏弹性占剩余，1920 视口下中栏 1280）整体架构、左栏流程列表、右栏空态与各环节中栏配置区；修正已有开发 `PerformanceTemplateContentSettings.vue` 的中栏写死 640 为弹性占剩余，及左栏硬编码数据源。
   - Type: frontend/UI
-  - Prerequisites: PM-T004-T02；用户确认蓝图 `PM-T004-T05-content-settings.md`。
+  - Prerequisites: PM-T004-T02；用户已确认蓝图 `PM-T004-T05-content-settings.md` 的 T05 三栏范围。弹层不属于本任务。
   - Required reading: `spec.md`、`ui-interaction.md`、`ui-implementation-guardrails.md`、PM-T004-T05 蓝图及 Spec 012 N0001/N0002/N0004/N0005/N1102-N1104。
   - Allowed modifications: `PerformanceTemplateCreate.vue`、`PerformanceTemplateContentSettings.vue`、对应 focused spec、PM-T004-T05 蓝图与实现截图。
   - Forbidden modifications: 后端 API/DTO、数据库迁移、权限模型、UCP、内容编辑器业务规则、流程设置组件。
-  - UI: `/performance/settings/templates/create?step=content`；左侧流程列表、中间配置查看内容、右侧 `text-normal` 空态。
-  - Test contract: Given content step and a saved template workflow; When rendered; Then every configured workflow node is listed in order with its API-provided name and executor, while icon geometry and typography follow the captured SnapSpec.
-  - Acceptance: focused Vitest、`vue-tsc --noEmit`、生产构建；目标参考图已归档为 `../../ui-blueprints/PM-T004-T05-content-settings-reference.png`；实现截图 `../../ui-blueprints/PM-T004-T05-content-settings-implemented.png` 待浏览器截图工具可用后补齐。
-  - Non-scope: 添加内容/提示/参考内容弹层，右侧节点编辑表单，真实内容保存接口。
+  - UI: `/performance/settings/templates/create?step=content`；左侧流程列表（320 固定）、中间配置区（弹性占剩余，含各环节卡片）、右侧 `text-normal` 空态（320 固定）。
+  - Test contract: Given content step and a saved template workflow; When rendered; Then every configured workflow node is listed in order with its API-provided name and executor, and the left/right columns stay fixed at 320 while the middle column fills the remaining space.
+  - Acceptance: focused Vitest、`vue-tsc --noEmit`、生产构建；实现截图 `../../ui-blueprints/PM-T004-T05-content-settings-implemented.png` 待浏览器截图工具可用后补齐。
+  - Non-scope: 选择评估内容抽屉与新建弹层（见 PM-T004-T06），右侧节点编辑表单，真实内容保存接口。
   - Definition of done: development、UI、tests、build、screenshot and evidence complete; only then mark `[x]`.
+
+- [x] PM-T004-T05-F02 「选择参考内容」吸底入口条（reference tab 空态）
+  - Goal: 按 2026-09-18 SnapSpec（模板 7683366092697242555/3）+ 运行时补充采集实现中栏「配置参考内容」tab 空态的吸底添加入口，替代旧 `.content-card--reference` 占位。
+  - Type: frontend/UI
+  - Prerequisites: PM-T004-T05 蓝图已确认；用户确认按钮文案以采集「选择参考内容」为准（tab 名仍为「配置参考内容」）。
+  - 证据（source of truth）: 用户提供 SnapSpec `Div.bg-N-0` / `Button.ud__button` / `Svg` 三个 blueprint（viewport 894×631）+ DevTools 运行时采集（viewport 1280、sticky 条 600×54、按钮 110×22、文案/裸文本节点/图标 margin 4px）。x/y 坐标不跨视口套用，仅采纳内在尺寸。
+  - 允许修改: `hr-portal/frontend/src/components/performance/PerformanceReferenceEntryBar.vue`（新增）及其 spec、`PerformanceTemplateContentSettings.vue` 与 spec、本功能目录。
+  - 实现契约: 吸底条 `position:sticky; bottom:8px; z-index:20; height:54px; margin-bottom:24px; background:#fff; border-radius:4px; flex 居中`，宽度随容器；按钮 110×22、`#1456F0`、padding 2px 4px、圆角 6px、`font:400 14px/18px`、transition `.1s`（color/bg/border）+ `.2s`（width）；文案「选择参考内容」为 button 直属裸文本节点；`AddEntryOutlined` 原始 2-path SVG 14×14 `currentColor`，icon-inline `margin-right:4px`；hover 背景 `rgba(20,86,240,0.2)`。点击仅 `emit('select')`，父级走既有 `add-reference` 动作；仅 `activeTab==='reference' && !configuredContents.length` 时渲染。
+  - Evidence: 组件 focused Vitest `4/4` 通过（结构/裸文本/SVG path/CSS 契约含 hover/click emit）；视图 focused Vitest `23/23` 通过（含：fill tab 不显示、reference 空态仅显示入口条且无 section/已配置面板并触发抽屉、已配置后隐藏）；`vue-tsc --noEmit` 通过（0 错误）；`vite build` 通过；实现前后 `check_ui_spec.py --task-id PM-T004-T05 --phase implementation` 均 PASS（无豁免）。跟进修复（用户验收反馈）：reference 空态移除残留的 `PerformanceTemplateSectionCard` 旧配置卡（采集证据 `ud__tabs__pane` 仅含吸底条），入口条移入 `.reference-entry-pane`（`max-width:800px` 内容列）修正白底条横跨整个中栏过长的问题。运行时：frontend 镜像重建并 force-recreate 容器，运行镜像 `sha256:82470b5680917b3bf5478fe30b170212e0129c564bb89b6573d19384864375c9`，`/performance/settings/templates/create` 返回 HTTP 200；运行 chunk `PerformanceTemplateCreate-DD5yKVWZ.js` 含「选择参考内容」裸文本、`AddEntryOutlined` SVG、编译后的 `==="reference"&&!…length` 条件渲染，且不再含 `content-card--reference`/「添加其他参考内容」旧占位；运行 CSS `PerformanceTemplateCreate-1uvWZHe2.css` 含完整契约（`position:sticky;bottom:8px;z-index:20;height:54px;margin-bottom:24px`、按钮 `padding:2px 4px;height:22px`、hover `#1456f033` 即 rgba(20,86,240,0.2)、icon svg `width:14px;height:14px`、icon-inline `margin-right:4px`、`.reference-entry-pane{max-width:800px}`）。仓库级构建一度被范围外未跟踪文件 `ProjectManagement.vue`（另一会话进行中工作）对 `performance.js` 的 `projectManagementApi` 导入阻断，用户确认已在其侧处理后本任务构建恢复通过。
+  - Blockers: active/disabled 状态无采集证据，不得宣称像素通过；点击后的「选择参考内容」弹窗与后端保存属下一任务；独立 PNG 截图待浏览器验收时按 F 系列惯例补齐（本轮以运行产物契约验证收口）。
+  - Non-scope: 参考内容选择弹窗、后端 API/持久化、已配置态卡片视觉、右栏联动。
+  - Definition of done: only main agent may check task after runtime screenshot evidence.
+
+- [x] PM-T004-T05-F03 「选择参考内容」抽屉（复选卡分组列表）
+  - Goal: 点击 reference 入口条打开 680px 右侧抽屉，按 2026-09-18 双轮采集实现「评估环节内容」（动态节点候选）+「更多参考内容」（固定 3 项）两组复选卡与吸底「确认/取消」操作栏。
+  - Type: frontend/UI
+  - Prerequisites: PM-T004-T05-F02；蓝图结构由 SnapSpec + 运行时采集直接支撑（信息架构与已确认 T05/T06 蓝图一致：右侧 680px 抽屉）。
+  - 证据（source of truth）: SnapSpec 7 个 blueprint（`选择参考内容弹窗.txt`，模板 7680168681455815658/3，1534×911）+ 运行时两轮脚本采集（1920×594：卡片几何 624 宽、54/68/89 高、12 间距、分组距 54；勾选态壁纸 `#1456F0` 透明边框白对勾、卡片边框不变；确认按钮 hover 无视觉变化）+ 实测 Escape 不关闭、遮罩 z-index 9999 存在。
+  - 实现文件: 新增 `PerformanceReferenceContentDrawer.vue` + focused spec；`PerformanceTemplateContentSettings.vue`（`add-reference` 改为打开参考抽屉、`handleReferenceConfirm` 写回 reference slot、`assessmentInitialContents` 隔离 reference 类型）；`performance.ts` 扩展 `type: 'reference'`、`reference_kind/reference_value` 字段。
+  - Evidence: 组件 focused Vitest `5/5`（结构/两组候选/勾选视觉契约与 confirm 载荷/Esc 不关+取消关闭+close/22 条 CSS 契约断言）；视图+入口条+抽屉合计 `29/29` 通过（含新测试：reference 空态打开参考抽屉而非评估抽屉、节点候选排除当前环节、固定 3 项文案、勾选 OKR 后确认写回配置面板）；`vue-tsc --noEmit` 本任务文件 0 错误（仓库剩余 1 个既有错误在范围外 `CycleManagement.vue`，属另一会话工作）；`vite build` 通过（35.34s）；实现前后 `check_ui_spec.py --task-id PM-T004-T05 --phase implementation` PASS（无豁免）。运行时：frontend 镜像重建 + force-recreate，运行镜像 `sha256:6910f07496e3d092e29bb44595b22f6c52deefeb0965bfd6108632b08d2df902`，路由 HTTP 200；运行 chunk 含「选择参考内容」「评估环节内容」「更多参考内容」「team_stats」「CloseOutlined」；运行 CSS `PerformanceTemplateCreate-cDS8hC4A.css` 含完整契约：panel `width:680px`、header `padding:16px 24px` + `rgba(31,35,41,.15)` 分隔线、close `margin:-2px -4px` hover `#1f232933/#2b2f36`、卡 `min-height:54px` + multiline `padding:12px 0` + hover `#3370ff`、壁纸 `#8f959e` 边框/checked `#1456f0` 透明边框、文字 `margin-left:12px`、描述 `#646a73`、footer `height:62px;padding:10px 0 20px 24px`、确认 `min-width:80px;margin-right:12px`。
+  - Blockers: 遮罩点击行为未实测（保守不关闭，与 Escape 一致）；确认后中栏 reference 卡片视觉形态属下一任务（当前以既有 `PerformanceConfiguredContentBlock` 通用渲染）；组一候选随流程节点类型变化的精准过滤后续修复（用户 2026-09-18 明确）。
+  - Non-scope: 后端保存、reference slot 持久化结构变更、中栏 reference 卡片专属视觉、运行时参考内容展示。
+  - Definition of done: focused Vitest、typecheck、build、Docker 替换与运行产物验证齐备后由主智能体勾选。
+
+- [ ] PM-T004-T06 内容设置弹层：选择评估内容抽屉与新建弹窗
+  - Goal: 按 36 个核心状态、24 个取消/焦点/响应式扩展状态及校验恢复证据，像素级还原「选择评估内容」680px 抽屉、「新建」按钮触发的垂直类型菜单，以及工作总结/评分评级/自定义三个双栏弹窗的校验、增删排序、即时预览和关闭/成功状态。
+  - Type: frontend/UI
+  - 前置条件：无（本轮只对已有实现做 confirmed variants 的共享组件接入和契约差异修正；不启动 blocked variants）。
+  - Required reading: feature `spec.md`、本文件、`ui-interaction.md`、`../../ui-blueprints/PM-T004-T05-content-settings.md`、`../../ui-blueprints/PM-T004-T06-assessment-content-layers.md`、Spec 012 `ui-interaction.md` / `ui-implementation-guardrails.md` 及 N0001/N0002/N0004/N0005/N1102-N1104。
+  - Allowed modifications: `hr-portal/frontend/src/views/performance/PerformanceTemplateContentSettings.vue`、`hr-portal/frontend/src/components/performance/PerformanceAssessmentContentLayers.vue`、两者对应 focused spec，以及本任务要求的独立实现 PNG。
+  - Allowed new files: 仅可在 `hr-portal/frontend/src/components/performance/` 新增可复用的评估内容弹层子组件及同名 focused spec；PNG 仅写入 `specs/002-performance-management/ui-blueprints/PM-T004-T06-*.png`。
+  - Forbidden modifications: 后端 API/DTO、数据库模型或 migration、权限模型、UCP/外部系统、流程设置组件、全局主题/设计系统、无关页面；不得提交原始采集 HTML/截图/日志；不得把采集租户的评级项或标签项硬编码为通用产品常量。
+  - Shared files and merge rule: 保留 `PerformanceTemplateContentSettings.vue` 和 `PerformanceAssessmentContentLayers.vue` 中已有的用户改动；T05 只拥有三栏容器，T06 只拥有抽屉/菜单/弹窗行为；需扩展共享接口时先更新任务卡，不得顺带重构流程设置。
+  - Input contract: 当前选中的评估型环节；抽屉打开状态；通过“评估题管理”预留 API adapter 注入的评级选项与标签选项；当前会话中的新建内容 draft。真实 API 后续实现，当前 fixture 可以包含采集文本，但组件本身不得依赖固定租户值。
+  - Output contract: 关闭/取消事件；当前会话内创建成功的工作总结、评分评级或自定义内容结构；配置项顺序；预览状态。不得发明保存 endpoint、DTO、数据库写入或跨会话持久化承诺。
+  - UI: `/performance/settings/templates/create?step=content`；状态链为 `drawer-empty -> create-menu-open -> type-modal-open -> validate/configure -> add/delete/reorder -> valid-confirm -> drawer-populated`。抽屉 `680px`、Header `58px`、开关 `28×16px`、新建按钮 `80×32px`；三个类型只在新建菜单中显示。弹窗均宽 `1080px`，工作总结/评分评级/自定义高度分别为 `650/559/722px`，左配置右预览；按钮顺序取消/确定，确定初始 enabled；Esc 和关闭按钮关闭，遮罩点击不关闭。完整字段、富文本、评级、标签和滚动规则以 T06 蓝图为准。
+  - API/database/permission/external-system impact: 无。混合采集确认弹窗“新建成功”仅更新当前向导会话的前端状态；`POST /perf/api/user/custom_settings` 只查询通用设置，不是业务保存。模板级成功保存已观测为 detail PUT 加模板组基础信息 PUT，但实现仍须另立任务；T06 不得直接复制目标租户图 payload 或新增保存接口。
+  - Test contract:
+    - Given: 抽屉空态和开关开/关；新建菜单；三类空表单；有效工作总结/评级/自定义；单项/多项/自动追加空白项；两项拖拽；富文本选区；自定义标签默认全部填写；Esc/遮罩/关闭按钮。
+    - When: 切换可见性、打开菜单、选择类型、空值确定、输入并预览、添加/删除、拖拽并释放、切换富文本格式/链接、选择评级/标签、开启默认全部填写、执行三个已采集关闭路径、有效确定。
+    - Then: 设置分组按开关显示；类型不永久平铺；三类弹窗结构与尺寸匹配蓝图；红色“此项为必填”和边框按提交出现；添加自动追加空白项且可删除；顺序从 `First item, Second item` 变为 `Second item, First item`，预览在 drop 后同步；工具顺序/tooltip/active/link popover 正确；评级预览七个 pill；默认全部填写预勾选并预填预览；Esc/关闭/取消关闭且取消丢弃 draft，遮罩保持打开；有效确定显示“新建成功”并回填抽屉；1440/1366/1280 外框尺寸符合 v3 蓝图；所有 modal 将 Tab/Shift+Tab 限制在弹窗内，关闭后将焦点返回触发元素。
+    - Test files: `hr-portal/frontend/src/components/performance/PerformanceAssessmentContentLayers.spec.ts`、`hr-portal/frontend/src/views/performance/PerformanceTemplateContentSettings.spec.ts`。
+    - Commands: 从 `hr-portal/frontend` 执行两个 focused Vitest 文件、`npx vue-tsc --noEmit`、生产构建；实现后在本地开发环境按 1920×1080/DPR1/100% 缩放运行截图比较。
+    - skipped/not-run rule: 任一命令、状态截图或目标数据源未执行/不可用时标记 `not-run` 或 `blocked`，不得报告通过。
+  - Acceptance: 原 36 状态和扩展 24 状态均有可追溯测试或实现截图；抽屉、菜单、三弹窗、三类校验、添加/删除、拖拽、预览同步、富文本、评级、标签默认全部填写、取消/关闭行为、成功状态和三个桌面响应式视口通过；已测外框坐标/尺寸偏差不超过 1 CSS px，无可见文字截断/遮挡；focused tests、类型检查和生产构建通过；未引入真实评估题 API、保存 API、数据库、权限、UCP 变更或租户常量硬编码。
+  - Evidence: 2026-08-21 focused Vitest `16/16` 通过；`npx.cmd vite build` 通过（2579 modules，35.22s）；Playwright 隔离浏览器生成八张 `PM-T004-T06-*.png` 实现证据，并验证 1920×1080 抽屉 `x=1240,w=680,h=1080` / 工作总结弹窗 `x=420,y=215,w=1080,h=650`，1440×900 为抽屉 `x=760,w=680,h=900` / 弹窗 `x=180,y=32,w=1080,h=836`，1366×768 为抽屉 `x=686,w=680,h=768` / 弹窗 `x=180,y=32,w=1006,h=704`，1280×720 为抽屉 `x=600,w=680,h=720` / 弹窗 `x=180,y=32,w=920,h=656`；Footer 均完整可见。工作总结“添加后自动空白卡阻断 -> 删除空白卡恢复提交”与拖拽后预览顺序已有可执行断言。最新构建已更新到 `localhost:8080` 开发容器，真实本地账号 smoke 通过模板 17 的“评估型环节 -> 添加内容 -> 抽屉”链路。仓库级 `npx.cmd vue-tsc --noEmit` 未通过，仅报告任务允许文件之外的既有 `src/views/tools/任务范围外既有类型错误:405` 缺少 `output_fields`。
+  - Blockers: T06 v3 蓝图已由用户确认，键盘缺陷处理已按 Spec 012 修正；当前只剩仓库级 typecheck 被无关 `任务范围外既有类型错误:405` 阻断，因此按 Definition of done 暂不勾选 T06。弹窗“确定”已证明无业务写请求，模板级成功保存契约已有证据且不属于本任务，失败/幂等/并发/延迟生效后重开仍未采集。
+  - Non-scope: 真实保存 API/DTO/持久化、评估题管理真实 API 实现、设置分组后续流程、添加提示弹窗、跨会话重开、低于 1280px/移动端像素还原。
+  - Definition of done: 蓝图已确认，开发、全部交互状态、focused tests、typecheck、build、1920×1080 截图差分及证据完整；仅主代理验收后才可标记 `[x]`。
+
+- [x] PM-T004-T06-F01 工作总结空名称添加、整行拖拽与中置手柄补采修复
+  - Scope: 仅修复工作总结配置详情；打开时初始化一个空白填写项，“添加”不再要求先填写题名称，而是直接追加空白项；两个及以上填写项时才显示删除按钮与中置 `DragOutlined`，并由完整 42px 标题横条发起拖拽。
+  - Evidence source: `C:\Users\gaby.liu\ClonedSites\idreamsky.feishu.cn_20260822_093503\captures\hybrid_steps\step_08\before|dragging|after`，以及同 session `step_06/layout.json`；目标标题行 `398×42`、图标 `16×16`、颜色 `#646A73`、旋转 `90deg`，drag-handle 属性归属标题行。
+  - Acceptance evidence: 2026-08-22 focused Vitest `16/16` 通过，覆盖空名称添加、未命名预览、双项控件显隐、目标 SVG、标题行 dragstart、drop 后配置/预览同步排序及删回单项；`npx vite build` 通过（2582 modules）；Docker `frontend` 镜像构建成功并强制重建，`http://localhost:8080/performance/settings/templates/create` 返回 HTTP 200，容器状态为 Up。
+  - Typecheck: `npx vue-tsc --noEmit` 与标准 `npm run build` 均只被任务范围外既有 `src/views/tools/任务范围外既有类型错误:405` 缺少 `output_fields` 阻断；本任务目标文件无新增类型错误。父任务 `PM-T004-T06` 继续保持未完成，直至仓库级类型门禁和其余总验收条件全部通过。
+  - Non-scope: 评分评级/自定义业务流程、真实保存 API、数据库、migration、权限、UCP、外部系统与全局设计系统。
+
+- [x] PM-T004-T06-F02 工作总结拖拽浮层、占位与实时让位修复
+  - Scope: 仅将工作总结多配置项排序从浏览器原生 HTML5 drag 改为横条 Pointer Events 拖拽；4px 启动阈值后显示完整 fixed 卡片浮层、等尺寸透明占位和实时目标让位，松开后同步配置区与右侧预览顺序。
+  - Evidence source: `C:\Users\gaby.liu\ClonedSites\idreamsky.feishu.cn_PM-T004_supplemental_20260821\states\17a_drag_two_items_ready|17b_drag_handle_hover|17c_drag_in_progress|17d_drag_after_drop`；目标浮层为 `position:fixed`、`opacity:0.95`、`z-index:5000`、`box-shadow:0 6px 24px rgba(31,35,41,.08)`，原位保留等高 placeholder，body 为 `cursor:grabbing` 且禁止文本选择，无蓝色 drop 边框。
+  - Acceptance evidence: 2026-08-22 focused Vitest `12/12` 通过；Docker 前端生产构建通过（2583 modules）并强制重建。容器内真实入口 Playwright 验证拖动中 `dragging_count=1`、`placeholder_count=1`、`body_dragging=1`、`cursor=grabbing`、浮层 `width=491px`、当前内容实际高度 `218px`、`transform=translate(0px,244px)`；释放后配置与预览顺序均为 `Second item, First item`。独立实现截图：`../../ui-blueprints/PM-T004-T06-F02-implemented-drag-in-progress.png`。
+  - UI compliance: N0001/N0002/N0004/N0005/N1102-N1104 已按既有 T06 蓝图复核；稳定尺寸来自拖拽开始时的真实 DOM rect，状态反馈不改变弹窗信息架构，无重叠文本、蓝色猜测边框或默认拖拽 ghost。
+  - Typecheck: 仓库级 `vue-tsc --noEmit` 仍由任务范围外既有 `src/views/tools/任务范围外既有类型错误:405` 缺少 `output_fields` 阻断；父任务 `PM-T004-T06` 保持未完成。
+  - Non-scope: 富文本、评分评级/自定义流程、真实保存 API、数据库、migration、权限、UCP、外部系统与全局设计系统。
+
+- [x] PM-T004-T06-F03 富文本多行列表、工具栏选中态与列表互斥修复
+  - Scope: 工作总结及复用同一 `RichTextBox` 的自定义文本预览；根据真实 selection 对每个选中 `.ace-line` 生成独立目标列表块，列表内 Enter 延续当前列表类型，有序/无序按真实 DOM 严格互斥，并使用目标 `DisorderListOutlined` SVG 与自定义蓝色圆点。
+  - Evidence source: `C:\Users\gaby.liu\ClonedSites\idreamsky.feishu.cn_PM-T004_toolbar_sequence_20260822_124414\` 的 13 个同会话 hover/active 状态；目标三行有序列表为三个 `OL` 且 `start=1/2/3`，切换后为三个 `UL.list-bullet1.r-list.r-list-bullet > LI`；active 背景 `rgba(51,112,255,.1)`、图标色 `#3370ff`，hover 背景 `rgba(31,35,41,.1)`。
+  - Acceptance evidence: focused Vitest `18/18` 通过，覆盖三行加粗/斜体/下划线兼容、`OL start=1/2/3`、有序→无序互斥、三行圆点 DOM 与 Enter 延续；`npx vite build` 通过（2582 modules）；Docker `frontend` 镜像构建成功并强制重建容器。
+  - Browser validation: `http://localhost:8080/performance/settings/templates/create?step=content&template_id=17` 真实入口验证三个列表块各含一个 `LI`；圆点均为 `6×6px`、`rgb(51,112,255)`、`left:-17px`、`top:8px`；加粗/斜体/下划线/无序列表 active 为蓝色，有序列表为透明默认态。独立实现截图：`../../ui-blueprints/PM-T004-T06-F03-implemented-rich-text-list.png`。
+  - UI compliance: N0001/N0002/N0004/N0005 已复核；延用 T06 v3 双栏弹窗与富文本工具顺序，未改变信息架构，未出现文字截断、遮挡或容器溢出。
+  - Typecheck: 仓库级 `npx vue-tsc --noEmit` 仍仅被任务范围外既有 `src/views/tools/任务范围外既有类型错误:405` 缺少 `output_fields` 阻断；本任务目标文件无新增类型错误。父任务 `PM-T004-T06` 继续保持未完成。
+  - Non-scope: 真实保存 API、数据库、migration、权限、UCP、外部系统、评分评级/标签数据源与全局设计系统。
+
+- [x] PM-T004-T06-F05 空列表首字输入不自动换行修复
+  - Scope: 仅修复 `RichTextBox` 在空编辑器点击有序/无序列表后的光标定位与首次输入；列表创建后光标必须位于 `LI > span[data-enter]` 零宽叶节点，首个 `insertText` 由组件接管并生成正文叶节点与独立末尾占位叶节点，保持单一 `.ace-line`。
+  - Evidence source: `C:\Users\gaby.liu\ClonedSites\idreamsky.feishu.cn_PM-T004_empty_format_20260822_135618\empty_format_evidence.json`，目标点击后 Selection 路径为 `OL/UL > LI > SPAN[data-enter] > #text`，输入后为 `span(Probe) + span[data-enter]`。
+  - Acceptance evidence: focused Vitest `24/24` 通过；`npx vue-tsc --noEmit` 仅报告任务范围外既有 `src/views/tools/任务范围外既有类型错误:405` 缺少 `output_fields`；`npx vite build` 通过（2582 modules）；Docker frontend build 通过（2583 modules）并强制重建；容器入口 Playwright 验证有序/无序列表点击后的 Selection、单行 DOM、正文/占位叶节点与同一行视觉位置；独立实现截图 `../../ui-blueprints/PM-T004-T06-F05-implemented-list-first-input.png`。
+  - Implementation: `PerformanceAssessmentContentLayers.vue` 使用当前原生 Selection 处理 `beforeinput`，不再用失效缓存选区覆盖列表首字输入；`restoreBlockSelection` 将折叠光标放入目标占位叶节点。
+  - UI compliance: 延用 T06 v3 双栏弹窗、目标列表 DOM 和工具栏状态；无信息架构、后端 API、数据库、权限、UCP 或外部系统变更。
+  - Blockers: 仓库级 typecheck 被任务范围外 `任务范围外既有类型错误:405` 阻断；本任务目标文件无新增类型错误。
+  - Non-scope: Enter 后续列表行策略、真实保存 API、数据库、migration、权限、UCP、外部系统与全局设计系统。
+  - [ ] PM-T004-T06-F06 选择评估内容抽屉编辑/展开状态、勾选配置回填及采集器图标证据增强
+    - Scope: collector evidence for icon-only controls/geometry and frontend state wiring for edit, expand/collapse, disabled selection and middle configuration panel.
+    - Evidence: Perfect-Web-Clone-IDE unittest 29/29 passed; implementation-contract and target-diagnostic tests included; focused Vitest 27/27 passed; Vite build passed. Target capture sessions: `C:\Users\gaby.liu\ClonedSites\idreamsky.feishu.cn_20260822_154320` (post-confirm checkpoint remains incomplete).
+
+- [ ] PM-T004-T06-F07 采集证据投影为内容设置开发契约
+  - Goal: 将 2026-09-01 统一 manifest、九环节矩阵、抽屉/分组、卡片 root/item、操作条和自定义文本/标签证据投影为唯一机器契约及 Markdown 说明，不改变业务代码或目标模板数据。
+  - Type: contract/documentation/acceptance
+  - Prerequisites: PM-T004-T06；2026-09-01 采集 manifest 已生成；用户确认本轮仅整理契约。
+  - Required reading: `spec.md`、`capture-manifest.md`、`capture-completion-checklist.md`、`component-model.md`、`extracted-ui-contract.json`、`pixel-contract.md`、`acceptance-contract.md`、`references/acceptance-evidence.md`、`references/ui-design-delivery.md`。
+  - Allowed modifications: 本功能目录下上述规格/契约文档；不得修改 HR Portal 业务代码、采集器代码或原始证据目录。
+  - Forbidden modifications: 目标模板保存/删除/提交、真实评估题 API、数据库/migration、权限、UCP、外部系统和原始 HTML/截图/日志/认证信息入库。
+  - Input contract: `PM-T004-content-settings-20260901-50f0f4d0.json`、10 个 session、120 个完成动作、17 个 blocked 动作、594 个录制事件。
+  - Output contract: `extracted-ui-contract.json` schema v3；Markdown 投影保持相同 `completion_status=incomplete`、`pixel_restore_status=blocked` 和 blocker 语义；所有 variant 显式包含 visible/forbidden/line/ownership；九个环节通过 `ContentSettingsStageRenderer` + `stageContentRules` 复用；editor/configured-card/drawer-summary 三个上下文共享 `ContentPreviewRenderer`。
+  - UI: 仅文档交接；组件树至少拆出 `ConfiguredContentCardRoot`、`ConfiguredContentItem`、`ConfiguredCardActionToolbar`、`AssessmentContentDrawer`、`AssessmentGroupSettingsDialog`、`AssessmentCustomEditor` 和共享预览渲染器；source_state_ids 必须回溯 manifest。
+  - API/database/permission/external-system impact: none；本轮不定义内容保存接口，不产生数据库副作用。
+  - Test contract:
+    - Given: manifest、状态 artifacts 和现有 feature docs。
+    - When: 运行 JSON 语法检查与 `check_ui_spec.py --phase design`。
+    - Then: 必需文件存在、状态和 blocker 一致、契约 coverage 数组为空、每个 state 有完整 artifact 字段；九个环节通过规则 renderer 复用共享组件，编辑器/抽屉/中栏预览通过同一 `ContentPreviewRenderer` 与显式 `render_context`；局部重复控件仅可渐进替换；缺失实现截图/补采状态仍保持 not-run 或 blocked。
+    - Commands: `python -m json.tool specs/002-performance-management/features/PM-T004-template-create/extracted-ui-contract.json`；`python .claude/skills/performance-spec-development/scripts/check_ui_spec.py specs/002-performance-management/features/PM-T004-template-create --phase design --json`。
+    - skipped/not-run rule: 不运行实现/验收阶段命令；没有 rendered contract 时不得宣称 pixel 通过。
+  - Acceptance: 9 环节可见性组合、抽屉 680px、分组默认两组/第三组/取消、root/item 右栏差异、四按钮顺序和 rating/work_summary 语义均可追溯；开发必须通过共享 `ContentSettingsStageRenderer` 配置规则实现，不得按环节复制页面或卡片；新建/编辑预览、抽屉回填和中栏卡片必须复用 `ContentPreviewRenderer`，仅允许通过 `render_context` 做外层差异；工作总结“更多”、分组下拉、自定义最终卡片和新增状态矩阵明确列为 blocker。
+  - Evidence: `capture-manifest.md`、`capture-completion-checklist.md`、`component-model.md`、`extracted-ui-contract.json`、`pixel-contract.md`、`acceptance-contract.md`；设计门禁结果需附实际输出。
+  - Blockers: `content-work-summary-more-menu`、`assessment-group-content-select-options`、`custom-content-middle-panel-root-item`、`new-branch-focus-active-disabled`、`textarea-resize-and-responsive-evidence`。
+  - Non-scope: 实现、真实内容保存、模板持久化、补采和像素验收。
+  - Definition of done: 契约 JSON 可解析、设计门禁输出可复现、Markdown 与 JSON 状态一致；仅主智能体可在后续实现和验收证据齐备后勾选。
+
+- [ ] PM-T004-T14 自定义标签型填写题真实接入评估题管理
+  - Goal: 将“内容设置 > 添加内容 > 新建 > 自定义 > 标签型填写题”的候选项从前端 fixture 切换到“评估题管理 > 标签型填写题”真实数据源，并让管理页的新建、编辑、删除形成持久化闭环。
+  - Type: frontend/backend/API/database/UI integration
+  - 前置条件：无；沿用已有已确认标签型填写题弹窗结构；用户于 2026-09-20 提供 `D:\乐逗\Desktop\capture (2).json` 并明确要求真实接入。
+  - Evidence source: 采集确认列表参数 `GET /perf/api/review/questions?offset=0&limit=10&question_type=tag_text&keyword=` 与下拉参数 `GET /perf/api/review/questions_select?question_type=tag_text`；采集策略未保存响应体和写入 body，因此 HR Portal 使用独立 REST 资源承载同一业务语义，不复制目标租户 payload。
+  - Allowed modifications: `backend/app/performance/tag_fill_questions_router.py`、`models.py`、`main.py`、新 Alembic migration、对应后端测试；`frontend/src/api/performance.ts|js`、标签题管理/表单页面、内容设置页及 focused tests；本功能目录。
+  - Input/output contract: list 接受 `offset/limit/question_type=tag_text/keyword`；options 接受 `question_type=tag_text`；实体保存名称、描述、备注及有序标签项（名称/说明/提示）；内容设置把 options 映射为 `AssessmentTagOption` 并继续保存题目快照。
+  - Permission/security: 沿用 `performance.configuration.manage`；搜索使用 SQLAlchemy 参数化表达式；删除扫描模板 workflow/content library，发现 `tagOptionId` 引用返回 409。
+  - Migration: `0228_performance_tag_fill_questions`，单一 head；必须验证 upgrade、downgrade、re-upgrade。
+  - Test contract: Given 管理页真实记录和模板自定义标签题弹窗；When list/create/update/delete/options；Then 管理页与内容设置读取同一资源、字段可重开、引用中删除被拒绝、接口参数匹配采集。
+  - Acceptance: 后端 focused pytest、前端 API/表单/内容设置 Vitest、`vue-tsc --noEmit`、Vite build、迁移往返、真实容器 API/UI smoke。
+  - Evidence: `check_ui_spec.py --task-id PM-T004-T14 --phase implementation` PASS；前端 focused Vitest 3 files/26 tests 通过；后端标签题+评估题回归 18/18 通过（本地与运行容器）；`npx vite build` 通过（2999 modules）；迁移保持单一 head `0228_performance_tag_fill_questions`，downgrade 至 0227 后 re-upgrade 成功；运行时 API create/list/options/update/delete/reopen 为 201/1/found/200/204/0；前端容器路由 HTTP 200，运行 assets 含真实资源路径和 `question_type=tag_text`。
+  - Blockers: 仓库级 `vue-tsc --noEmit` 仍被任务范围外既有 `PerformanceTemplateFieldRenderer.vue:25` 的 template ref `Element | ComponentPublicInstance` 类型错误阻断；本次未执行新截图 diff，像素状态继续沿用 feature 的 blocked。
+  - Non-scope: 复制飞书租户响应 schema、普通评估题模型复用、周期快照回写、低于现有 T06 证据范围的视觉改版。
+  - Definition of done: 代码、迁移、测试、容器运行和重开证据齐备后仅主智能体可勾选。

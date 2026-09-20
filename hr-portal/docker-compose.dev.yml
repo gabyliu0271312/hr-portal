@@ -1,4 +1,6 @@
 services:
   backend:
+    environment:
+      PERFORMANCE_DEV_ADMIN_DEBUG: "true"
     ports:
       - "${BACKEND_PORT:-8000}:8000"

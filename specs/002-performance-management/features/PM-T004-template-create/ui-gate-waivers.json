@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "waivers": [
+    {
+      "id": "PM-T004-T03-template-edit-entry-20260831",
+      "task_id": "PM-T004-T03",
+      "approved_by": "user",
+      "approved_at": "2026-08-31",
+      "reason": "用户明确授权仅为绩效模板列表编辑按钮进入真实编辑状态的功能性缺陷修复豁免 PM-T004 历史像素契约缺口、未被检查器识别的 T03 前置条件及无关 TableMerge 旧样式问题；不改变页面视觉结构，不放宽其他任务门禁。",
+      "active": true,
+      "scope": [
+        "hr-portal/frontend/src/views/performance/PerformanceTemplateManagement.vue",
+        "hr-portal/frontend/src/views/performance/PerformanceTemplateManagement.spec.ts",
+        "hr-portal/frontend/src/views/performance/PerformanceTemplateCreate.vue",
+        "hr-portal/frontend/src/views/performance/PerformanceTemplateCreate.spec.ts",
+        "hr-portal/frontend/src/api/performance.ts",
+        "hr-portal/frontend/src/api/performance.js",
+        "hr-portal/backend/app/performance/templates_router.py",
+        "hr-portal/backend/tests/test_performance_template_workflow.py",
+        "specs/002-performance-management/features/PM-T004-template-create"
+      ],
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "task_prerequisites_unspecified:PM-T004-T03",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation",
+        "forbidden_source_pattern:fixed_600_max_height:D:\\AI项目\\HR提效工具搭建\\hr-portal\\frontend\\src\\views\\tools\\TableMerge.vue"
+      ]
+    },
+    {
+      "id": "PM-T004-T07-template-delete-confirm-20260831",
+      "task_id": "PM-T004-T07",
+      "approved_by": "user",
+      "approved_at": "2026-08-31",
+      "reason": "用户明确授权仅为绩效模板真实删除和确认弹窗实现豁免 PM-T004 历史像素契约缺口、实现 readiness 缺口及无关 TableMerge 旧样式问题；删除弹窗以用户提供的 2026-08-31 SnapSpec 为实现依据，未采集的 hover/active 状态仍不得宣称像素通过。",
+      "active": true,
+      "scope": [
+        "hr-portal/frontend/src/components/performance/PerformanceConfirmDialog.vue",
+        "hr-portal/frontend/src/components/performance/PerformanceConfirmDialog.spec.ts",
+        "hr-portal/frontend/src/views/performance/PerformanceTemplateManagement.vue",
+        "hr-portal/frontend/src/views/performance/PerformanceTemplateManagement.spec.ts",
+        "hr-portal/frontend/src/api/performance.ts",
+        "hr-portal/backend/app/performance/templates_router.py",
+        "hr-portal/backend/tests/test_performance_template_workflow.py",
+        "specs/002-performance-management/features/PM-T004-template-create",
+        "specs/002-performance-management/ui-blueprints/PM-T004-T07-implemented-template-delete-confirm.png"
+      ],
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation",
+        "forbidden_source_pattern:fixed_600_max_height:D:\\AI项目\\HR提效工具搭建\\hr-portal\\frontend\\src\\views\\tools\\TableMerge.vue"
+      ]
+    }
+  ]
+}

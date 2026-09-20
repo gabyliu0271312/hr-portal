@@ -1,7 +1,7 @@
 <template>
   <div class="template-section" data-ui-flow-id="TemplateSectionCard">
     <div class="template-section__heading"><div class="template-section__hover-border" aria-hidden="true"></div><div class="template-section__title">{{ title }}</div></div>
-    <PerformanceTemplateOperateBar :actions="actions" @action="$emit('action', $event)" />
+    <PerformanceTemplateOperateBar v-if="actions.length" :actions="actions" @action="$emit('action', $event)" />
   </div>
 </template>
 <script setup lang="ts">

@@ -1,7 +1,7 @@
 <template>
   <div class="prompt-notice" :style="{ backgroundColor: definition.noticeBackground }">
     <span class="prompt-notice__icon" :style="{ color: definition.iconColor }" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path :d="definition.iconPath" fill="currentColor" /><path :d="definition.iconInnerPath" fill="#fff" /></svg></span>
-    <div class="prompt-notice__text">{{ definition.label }}</div>
+    <div class="prompt-notice__text"><slot>{{ definition.label }}</slot></div>
   </div>
 </template>
 <script setup lang="ts">

@@ -2,7 +2,10 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { formatDateTime, shanghaiLocalToUtcIso, utcToShanghaiLocal } from '@/utils/datetime';
-import { performanceApi, performanceCycleApi } from '@/api/performance';
+import PerformanceProjectSettings from '@/components/performance/PerformanceProjectSettings.vue';
+import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue';
+import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue';
+import { performanceApi, performanceCycleApi, performanceProjectApi } from '@/api/performance';
 const route = useRoute();
 const router = useRouter();
 const cycles = ref([]);
@@ -31,8 +34,16 @@ const confirmDeleteRef = ref(null);
 const previousFocus = ref(null);
 const requestVersion = ref(0);
 const anchorObserver = ref(null);
+const projectDialogOpen = ref(false);
+const projectDialogMode = ref('create');
+const projectDialogProject = ref(null);
+const projectSaving = ref(false);
+const projectActionSuccess = ref('');
 const canManageCycles = computed(() => accessContext.value?.permission_codes.includes('performance.cycles.manage') ?? false);
 const canManagePeople = canManageCycles;
+const canManageProjects = computed(() => canManageCycles.value || accessContext.value?.permission_codes.includes('performance.projects.manage') || false);
+const managedProjectRefs = computed(() => accessContext.value?.role_grants?.filter(grant => grant.scope_type === 'PROJECT').map(grant => grant.scope_ref) || []);
+const canManageProjectDialog = computed(() => Boolean(selected.value && (canManageCycles.value || (projectDialogProject.value && managedProjectRefs.value.includes(projectDialogProject.value.project_ref)))));
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 const dateError = computed(() => Boolean(form.start_at && form.end_at && form.end_at <= form.start_at));
 const leaverDateError = computed(() => Boolean(form.leaver_enabled && form.leaver_start_date && form.leaver_end_date && form.leaver_end_date < form.leaver_start_date));
@@ -250,6 +261,51 @@ catch (error) {
 finally {
     deleting.value = false;
 } }
+async function reloadSelectedCycle() { if (!selected.value)
+    return; selected.value = await performanceCycleApi.get(selected.value.id); cycles.value = cycles.value.map(cycle => cycle.id === selected.value?.id ? selected.value : cycle); }
+function openProjectCreate() { if (!selected.value || !canManageCycles.value)
+    return; projectDialogProject.value = null; projectDialogMode.value = 'create'; projectActionSuccess.value = ''; projectDialogOpen.value = true; }
+function openProjectEdit(project) { if (!selected.value)
+    return; void router.push({ name: 'PerformanceProjectEdit', params: { cycleId: selected.value.id, id: project.id } }); }
+async function saveProject(payload) { if (!selected.value || !canManageProjectDialog.value)
+    return; projectSaving.value = true; formError.value = ''; try {
+    const project = projectDialogMode.value === 'create' ? await performanceProjectApi.create(selected.value.id, payload) : await performanceProjectApi.update(projectDialogProject.value.id, payload);
+    projectDialogOpen.value = false;
+    projectActionSuccess.value = projectDialogMode.value === 'create' ? '项目已创建' : '项目已保存';
+    await router.push({ name: 'PerformanceProjectEdit', params: { cycleId: selected.value.id, id: project.id } });
+}
+catch (error) {
+    formError.value = error?.response?.data?.detail || '项目保存失败';
+}
+finally {
+    projectSaving.value = false;
+} }
+async function startProject(project) { if (project.status === 'STARTED')
+    return; formError.value = ''; try {
+    await performanceProjectApi.start(project.id);
+    projectActionSuccess.value = '项目已启动';
+    await reloadSelectedCycle();
+}
+catch (error) {
+    formError.value = error?.response?.data?.detail || '项目启动失败';
+} }
+async function copyProject(project) { formError.value = ''; try {
+    await performanceProjectApi.copy(project.id);
+    projectActionSuccess.value = '项目已复制';
+    await reloadSelectedCycle();
+}
+catch (error) {
+    formError.value = error?.response?.data?.detail || '项目复制失败';
+} }
+async function removeProject(project) { if (project.status === 'STARTED' || !window.confirm('确定要删除项目吗？删除后不可恢复。'))
+    return; formError.value = ''; try {
+    await performanceProjectApi.remove(project.id);
+    projectActionSuccess.value = '项目已删除';
+    await reloadSelectedCycle();
+}
+catch (error) {
+    formError.value = error?.response?.data?.detail || '项目删除失败';
+} }
 async function syncRoute() { if (route.name === 'PerformanceCycleCreate') {
     if (!editing.value)
         startCreate();
@@ -359,6 +415,33 @@ let __VLS_directives;
 /** @type {__VLS_StyleScopedClasses['field-group']} */ ;
 /** @type {__VLS_StyleScopedClasses['two-col']} */ ;
 /** @type {__VLS_StyleScopedClasses['form-footer']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-list-panel']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-list-panel']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-search-row']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-search-row']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-search-row']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-search-row']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-search-row']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-search-row']} */ ;
+/** @type {__VLS_StyleScopedClasses['icon-button']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-item']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-item']} */ ;
+/** @type {__VLS_StyleScopedClasses['active']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-item']} */ ;
+/** @type {__VLS_StyleScopedClasses['detail-heading']} */ ;
+/** @type {__VLS_StyleScopedClasses['detail-actions']} */ ;
+/** @type {__VLS_StyleScopedClasses['detail-actions']} */ ;
+/** @type {__VLS_StyleScopedClasses['detail-content']} */ ;
+/** @type {__VLS_StyleScopedClasses['metrics']} */ ;
+/** @type {__VLS_StyleScopedClasses['metrics']} */ ;
+/** @type {__VLS_StyleScopedClasses['metrics']} */ ;
+/** @type {__VLS_StyleScopedClasses['metrics']} */ ;
+/** @type {__VLS_StyleScopedClasses['metrics']} */ ;
+/** @type {__VLS_StyleScopedClasses['metrics']} */ ;
+/** @type {__VLS_StyleScopedClasses['state-error']} */ ;
+/** @type {__VLS_StyleScopedClasses['cycle-list-panel']} */ ;
+/** @type {__VLS_StyleScopedClasses['metrics']} */ ;
+/** @type {__VLS_StyleScopedClasses['detail-content']} */ ;
 // CSS variable injection 
 // CSS variable injection end 
 __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
@@ -506,6 +589,13 @@ if (!__VLS_ctx.editing) {
             role: "status",
         });
     }
+    if (__VLS_ctx.projectActionSuccess) {
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
+            ...{ class: "success state-success" },
+            role: "status",
+        });
+        (__VLS_ctx.projectActionSuccess);
+    }
     if (__VLS_ctx.formError) {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
             ...{ class: "error state-error" },
@@ -569,108 +659,158 @@ if (!__VLS_ctx.editing) {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.label, __VLS_intrinsicElements.label)({});
         __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
         (__VLS_ctx.selected.leaver_enabled ? '是' : '否');
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-            ...{ class: "project-heading" },
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.h3, __VLS_intrinsicElements.h3)({});
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-            ...{ class: "project-tools" },
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-            ...{ class: "primary-button large" },
-            type: "button",
-            disabled: true,
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.input)({
-            'aria-label': "通过项目名称搜索",
-            placeholder: "⌕ 通过项目名称搜索",
-            disabled: true,
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-            ...{ class: "outline-button" },
-            type: "button",
-            disabled: true,
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-            ...{ class: "project-table-wrap" },
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.table, __VLS_intrinsicElements.table)({});
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.thead, __VLS_intrinsicElements.thead)({});
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.tr, __VLS_intrinsicElements.tr)({});
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({});
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({});
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({});
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({});
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({});
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({
-            ...{ class: "fixed-operation" },
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.tbody, __VLS_intrinsicElements.tbody)({});
-        for (const [project] of __VLS_getVForSourceType((__VLS_ctx.selected.projects))) {
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.tr, __VLS_intrinsicElements.tr)({
-                key: (project.id),
+        /** @type {[typeof PerformanceProjectSettings, ]} */ ;
+        // @ts-ignore
+        const __VLS_0 = __VLS_asFunctionalComponent(PerformanceProjectSettings, new PerformanceProjectSettings({
+            ...{ 'onCreate': {} },
+            ...{ 'onEdit': {} },
+            ...{ 'onStart': {} },
+            ...{ 'onCopy': {} },
+            ...{ 'onRemove': {} },
+            projects: (__VLS_ctx.selected?.projects || []),
+            projectCount: (__VLS_ctx.selected?.project_count || 0),
+            canCreate: (__VLS_ctx.canManageCycles),
+            managedProjectRefs: (__VLS_ctx.managedProjectRefs),
+        }));
+        const __VLS_1 = __VLS_0({
+            ...{ 'onCreate': {} },
+            ...{ 'onEdit': {} },
+            ...{ 'onStart': {} },
+            ...{ 'onCopy': {} },
+            ...{ 'onRemove': {} },
+            projects: (__VLS_ctx.selected?.projects || []),
+            projectCount: (__VLS_ctx.selected?.project_count || 0),
+            canCreate: (__VLS_ctx.canManageCycles),
+            managedProjectRefs: (__VLS_ctx.managedProjectRefs),
+        }, ...__VLS_functionalComponentArgsRest(__VLS_0));
+        let __VLS_3;
+        let __VLS_4;
+        let __VLS_5;
+        const __VLS_6 = {
+            onCreate: (__VLS_ctx.openProjectCreate)
+        };
+        const __VLS_7 = {
+            onEdit: (__VLS_ctx.openProjectEdit)
+        };
+        const __VLS_8 = {
+            onStart: (__VLS_ctx.startProject)
+        };
+        const __VLS_9 = {
+            onCopy: (__VLS_ctx.copyProject)
+        };
+        const __VLS_10 = {
+            onRemove: (__VLS_ctx.removeProject)
+        };
+        var __VLS_2;
+        /** @type {[typeof PerformanceProjectDialog, ]} */ ;
+        // @ts-ignore
+        const __VLS_11 = __VLS_asFunctionalComponent(PerformanceProjectDialog, new PerformanceProjectDialog({
+            ...{ 'onSubmit': {} },
+            modelValue: (__VLS_ctx.projectDialogOpen),
+            mode: (__VLS_ctx.projectDialogMode),
+            project: (__VLS_ctx.projectDialogProject),
+            canSubmit: (__VLS_ctx.canManageProjectDialog),
+            saving: (__VLS_ctx.projectSaving),
+        }));
+        const __VLS_12 = __VLS_11({
+            ...{ 'onSubmit': {} },
+            modelValue: (__VLS_ctx.projectDialogOpen),
+            mode: (__VLS_ctx.projectDialogMode),
+            project: (__VLS_ctx.projectDialogProject),
+            canSubmit: (__VLS_ctx.canManageProjectDialog),
+            saving: (__VLS_ctx.projectSaving),
+        }, ...__VLS_functionalComponentArgsRest(__VLS_11));
+        let __VLS_14;
+        let __VLS_15;
+        let __VLS_16;
+        const __VLS_17 = {
+            onSubmit: (__VLS_ctx.saveProject)
+        };
+        var __VLS_13;
+        if (false) {
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+                ...{ class: "project-table-wrap" },
             });
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
-            (project.name);
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
-            (project.description || '--');
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
-            (project.administrators.join('、') || '--');
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
-            (project.status);
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
-            (project.evaluated_count);
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.table, __VLS_intrinsicElements.table)({});
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.thead, __VLS_intrinsicElements.thead)({});
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.tr, __VLS_intrinsicElements.tr)({});
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({});
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({});
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({});
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({});
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({});
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.th, __VLS_intrinsicElements.th)({
                 ...{ class: "fixed-operation" },
             });
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-                type: "button",
-                disabled: true,
-            });
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-                type: "button",
-                disabled: true,
-            });
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.details, __VLS_intrinsicElements.details)({});
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.summary, __VLS_intrinsicElements.summary)({
-                'aria-label': "更多项目操作（后续开放）",
-            });
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-                type: "button",
-                disabled: true,
-            });
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-                type: "button",
-                disabled: true,
-            });
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.tbody, __VLS_intrinsicElements.tbody)({});
+            for (const [project] of __VLS_getVForSourceType((__VLS_ctx.selected?.projects || []))) {
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.tr, __VLS_intrinsicElements.tr)({
+                    key: (project.id),
+                });
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
+                (project.name);
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
+                (project.description || '--');
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
+                (project.administrators.join('、') || '--');
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
+                (project.status);
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
+                (project.evaluated_count);
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({
+                    ...{ class: "fixed-operation" },
+                });
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+                    type: "button",
+                    disabled: true,
+                });
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+                    type: "button",
+                    disabled: true,
+                });
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.details, __VLS_intrinsicElements.details)({});
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.summary, __VLS_intrinsicElements.summary)({
+                    'aria-label': "更多项目操作（后续开放）",
+                });
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+                    type: "button",
+                    disabled: true,
+                });
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+                    type: "button",
+                    disabled: true,
+                });
+            }
+            if (!__VLS_ctx.selected?.projects?.length) {
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.tr, __VLS_intrinsicElements.tr)({});
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({
+                    colspan: "6",
+                    ...{ class: "empty-project" },
+                });
+            }
         }
-        if (!__VLS_ctx.selected.projects.length) {
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.tr, __VLS_intrinsicElements.tr)({});
-            __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({
-                colspan: "6",
-                ...{ class: "empty-project" },
+        if (false) {
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+                ...{ class: "project-footer" },
             });
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
+            (__VLS_ctx.selected?.project_count || 0);
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+                disabled: true,
+            });
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+                ...{ class: "current" },
+                disabled: true,
+            });
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+                disabled: true,
+            });
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.select, __VLS_intrinsicElements.select)({
+                'aria-label': "项目每页条数",
+                disabled: true,
+            });
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.option, __VLS_intrinsicElements.option)({});
         }
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-            ...{ class: "project-footer" },
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
-        (__VLS_ctx.selected.project_count);
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-            disabled: true,
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-            ...{ class: "current" },
-            disabled: true,
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-            disabled: true,
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.select, __VLS_intrinsicElements.select)({
-            'aria-label': "项目每页条数",
-            disabled: true,
-        });
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.option, __VLS_intrinsicElements.option)({});
         if (__VLS_ctx.canManagePeople) {
             __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
                 ...{ class: "people-card" },
@@ -1115,14 +1255,24 @@ if (__VLS_ctx.editing) {
         for: "cycle-start",
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.input)({
-        id: "cycle-start",
-        type: "datetime-local",
+    /** @type {[typeof PerformanceDateTimeField, ]} */ ;
+    // @ts-ignore
+    const __VLS_18 = __VLS_asFunctionalComponent(PerformanceDateTimeField, new PerformanceDateTimeField({
+        modelValue: (__VLS_ctx.form.start_at),
+        inputId: "cycle-start",
+        'aria-label': "周期开始时间",
         required: true,
-        'aria-invalid': (__VLS_ctx.dateError || undefined),
-        'aria-describedby': (__VLS_ctx.dateError ? 'cycle-date-error' : undefined),
-    });
-    (__VLS_ctx.form.start_at);
+        invalid: (__VLS_ctx.dateError),
+        describedBy: (__VLS_ctx.dateError ? 'cycle-date-error' : ''),
+    }));
+    const __VLS_19 = __VLS_18({
+        modelValue: (__VLS_ctx.form.start_at),
+        inputId: "cycle-start",
+        'aria-label': "周期开始时间",
+        required: true,
+        invalid: (__VLS_ctx.dateError),
+        describedBy: (__VLS_ctx.dateError ? 'cycle-date-error' : ''),
+    }, ...__VLS_functionalComponentArgsRest(__VLS_18));
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ class: "field-group" },
     });
@@ -1130,14 +1280,24 @@ if (__VLS_ctx.editing) {
         for: "cycle-end",
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.input)({
-        id: "cycle-end",
-        type: "datetime-local",
+    /** @type {[typeof PerformanceDateTimeField, ]} */ ;
+    // @ts-ignore
+    const __VLS_21 = __VLS_asFunctionalComponent(PerformanceDateTimeField, new PerformanceDateTimeField({
+        modelValue: (__VLS_ctx.form.end_at),
+        inputId: "cycle-end",
+        'aria-label': "周期截止时间",
         required: true,
-        'aria-invalid': (__VLS_ctx.dateError || undefined),
-        'aria-describedby': (__VLS_ctx.dateError ? 'cycle-date-error' : undefined),
-    });
-    (__VLS_ctx.form.end_at);
+        invalid: (__VLS_ctx.dateError),
+        describedBy: (__VLS_ctx.dateError ? 'cycle-date-error' : ''),
+    }));
+    const __VLS_22 = __VLS_21({
+        modelValue: (__VLS_ctx.form.end_at),
+        inputId: "cycle-end",
+        'aria-label': "周期截止时间",
+        required: true,
+        invalid: (__VLS_ctx.dateError),
+        describedBy: (__VLS_ctx.dateError ? 'cycle-date-error' : ''),
+    }, ...__VLS_functionalComponentArgsRest(__VLS_21));
     if (__VLS_ctx.dateError) {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.small, __VLS_intrinsicElements.small)({
             id: "cycle-date-error",
@@ -1188,15 +1348,26 @@ if (__VLS_ctx.editing) {
             for: "lock-at",
         });
         __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.input)({
-            id: "lock-at",
-            type: "datetime-local",
+        /** @type {[typeof PerformanceDateTimeField, ]} */ ;
+        // @ts-ignore
+        const __VLS_24 = __VLS_asFunctionalComponent(PerformanceDateTimeField, new PerformanceDateTimeField({
+            modelValue: (__VLS_ctx.form.lock_at),
+            inputId: "lock-at",
+            'aria-label': "周期锁定时间",
             disabled: (__VLS_ctx.formMode === 'edit'),
             required: true,
-            'aria-invalid': (__VLS_ctx.lockError || undefined),
-            'aria-describedby': (__VLS_ctx.lockError ? 'lock-at-error' : undefined),
-        });
-        (__VLS_ctx.form.lock_at);
+            invalid: (Boolean(__VLS_ctx.lockError)),
+            describedBy: (__VLS_ctx.lockError ? 'lock-at-error' : ''),
+        }));
+        const __VLS_25 = __VLS_24({
+            modelValue: (__VLS_ctx.form.lock_at),
+            inputId: "lock-at",
+            'aria-label': "周期锁定时间",
+            disabled: (__VLS_ctx.formMode === 'edit'),
+            required: true,
+            invalid: (Boolean(__VLS_ctx.lockError)),
+            describedBy: (__VLS_ctx.lockError ? 'lock-at-error' : ''),
+        }, ...__VLS_functionalComponentArgsRest(__VLS_24));
         if (__VLS_ctx.lockError) {
             __VLS_asFunctionalElement(__VLS_intrinsicElements.small, __VLS_intrinsicElements.small)({
                 id: "lock-at-error",
@@ -1370,6 +1541,8 @@ if (__VLS_ctx.editing) {
 /** @type {__VLS_StyleScopedClasses['cycle-detail-panel']} */ ;
 /** @type {__VLS_StyleScopedClasses['success']} */ ;
 /** @type {__VLS_StyleScopedClasses['state-success']} */ ;
+/** @type {__VLS_StyleScopedClasses['success']} */ ;
+/** @type {__VLS_StyleScopedClasses['state-success']} */ ;
 /** @type {__VLS_StyleScopedClasses['error']} */ ;
 /** @type {__VLS_StyleScopedClasses['state-error']} */ ;
 /** @type {__VLS_StyleScopedClasses['outline-button']} */ ;
@@ -1380,11 +1553,6 @@ if (__VLS_ctx.editing) {
 /** @type {__VLS_StyleScopedClasses['outline-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['danger-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['metrics']} */ ;
-/** @type {__VLS_StyleScopedClasses['project-heading']} */ ;
-/** @type {__VLS_StyleScopedClasses['project-tools']} */ ;
-/** @type {__VLS_StyleScopedClasses['primary-button']} */ ;
-/** @type {__VLS_StyleScopedClasses['large']} */ ;
-/** @type {__VLS_StyleScopedClasses['outline-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['project-table-wrap']} */ ;
 /** @type {__VLS_StyleScopedClasses['fixed-operation']} */ ;
 /** @type {__VLS_StyleScopedClasses['fixed-operation']} */ ;
@@ -1484,6 +1652,9 @@ var __VLS_dollars;
 const __VLS_self = (await import('vue')).defineComponent({
     setup() {
         return {
+            PerformanceProjectSettings: PerformanceProjectSettings,
+            PerformanceProjectDialog: PerformanceProjectDialog,
+            PerformanceDateTimeField: PerformanceDateTimeField,
             cycles: cycles,
             selected: selected,
             loading: loading,
@@ -1505,8 +1676,15 @@ const __VLS_self = (await import('vue')).defineComponent({
             dialogRef: dialogRef,
             cancelDeleteRef: cancelDeleteRef,
             confirmDeleteRef: confirmDeleteRef,
+            projectDialogOpen: projectDialogOpen,
+            projectDialogMode: projectDialogMode,
+            projectDialogProject: projectDialogProject,
+            projectSaving: projectSaving,
+            projectActionSuccess: projectActionSuccess,
             canManageCycles: canManageCycles,
             canManagePeople: canManagePeople,
+            managedProjectRefs: managedProjectRefs,
+            canManageProjectDialog: canManageProjectDialog,
             totalPages: totalPages,
             dateError: dateError,
             leaverDateError: leaverDateError,
@@ -1546,6 +1724,12 @@ const __VLS_self = (await import('vue')).defineComponent({
             handleDialogKeydown: handleDialogKeydown,
             removeSelected: removeSelected,
             confirmDelete: confirmDelete,
+            openProjectCreate: openProjectCreate,
+            openProjectEdit: openProjectEdit,
+            saveProject: saveProject,
+            startProject: startProject,
+            copyProject: copyProject,
+            removeProject: removeProject,
         };
     },
 });

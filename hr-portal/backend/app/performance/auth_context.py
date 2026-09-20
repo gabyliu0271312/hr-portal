@@ -12,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.core.config import settings
 from app.core.deps import bearer_scheme, user_has_op
 from app.core.jwt import (
     TOKEN_SUBJECT_TYPE_PERFORMANCE_SYSTEM_ACCOUNT,
@@ -59,6 +60,16 @@ class TrustedPerformanceActor:
 
 class PerformanceIdentityMappingNotFound(ValueError):
     """Raised when a Portal user has no authorized employee identity for a cycle."""
+
+
+def performance_admin_preview_enabled(context: PerformanceAccessContext) -> bool:
+    if settings.APP_ENV.lower() != "dev" or not settings.PERFORMANCE_DEV_ADMIN_DEBUG:
+        return False
+    return (
+        context.subject_type == SUBJECT_TYPE_SYSTEM_ACCOUNT
+        or "performance.cycles.manage" in context.permission_codes
+        or "performance.projects.manage" in context.permission_codes
+    )
 
 
 async def resolve_trusted_performance_actor(

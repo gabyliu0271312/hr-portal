@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "completion_status": "incomplete",
+  "pixel_restore_status": "blocked",
+  "uncovered_reasons": ["Full target screenshots and collector state packages are unavailable; this contract is a mock-preview brief only."],
+  "capture_readiness": {
+    "capture_integrity": "blocked",
+    "capture_completeness": "incomplete",
+    "implementation_readiness": "blocked",
+    "readiness_scope": "variant",
+    "target_variant_keys": ["report-expanded-mock", "report-collapsed-mock"],
+    "blockers": ["Complete collector artifacts and target screenshots have not been supplied."],
+    "evidence": "ui-interaction.md#8"
+  },
+  "source_evidence": {
+    "origin": "User-supplied console JSON and SnapSpec in the current conversation; local labels are not collector session IDs.",
+    "viewport": {"width": 1280, "height": 314, "dpr": 1.5},
+    "expanded": {"id": "SOURCE-REPORT-EXPANDED", "content_width": 694.67, "navigation_width": 200, "gap": 36},
+    "collapsed": {"id": "SOURCE-REPORT-COLLAPSED", "content_width": 930.67, "navigation_width": 0, "gap": 0, "handle_width": 32, "handle_height": 24, "filter_right_inset": 21},
+    "scroll": {"id": "SOURCE-REPORT-SCROLL", "scrollport_top": 56, "sticky_top": 68, "observed_sticky_y": 124, "department_click_scroll_top": 730, "section_selection_verified": 9},
+    "tail": {"id": "SOURCE-REPORT-TAIL", "content_height_before": 3931.67, "content_height_after": 5299, "terminal_inset_before": 0, "terminal_inset_after": 0, "block_gap": 40, "last_block_gap": 0}
+  },
+  "department_matrix_brief": {
+    "source": "SOURCE-DEPARTMENT-DEFAULT-1920: user-supplied anonymized console capture in this conversation; not a collector session",
+    "viewport": {"width": 1920, "height": 594, "dpr": 1},
+    "owner": "ProjectReportMatrix",
+    "geometry": {"toolbar_height": 48, "rating_tab_width": 90, "rating_tab_height": 32, "header_region_height": 56, "row_height": 55, "value_height": 54, "body_max_height": 440, "department_width": 240, "rating_min_width": 140, "last_rating_observed_width": 144, "total_width": 110, "table_observed_width": 1334},
+    "visible": ["绩效评级", "部门", "rating badges supplied by provider", "总人数", "summary row", "percentage above count", "tree expand control"],
+    "forbidden": ["人数占比 / 人数 toolbar hint", "offscreen 更多", "rounded inset heat cells", "center-aligned values", "bold summary row", "continuous alpha heat calculation", "hardcoded 420px whole-table limit"],
+    "cells": {"padding": "5px 12px", "radius": 0, "font_size": 14, "font_weight": 400, "line_height": 22, "align": "right", "zero": "--", "zero_padding": "16px 12px", "zero_color": "#8f959e"},
+    "heat_styles": {"1": {"background": "#e1eaff", "color": "#133c9a"}, "2": {"background": "#bacefd", "color": "#133c9a"}, "3": {"background": "#82a7fc", "color": "#ffffff"}},
+    "rating_badges": [
+      {"label": "1星", "background": "#fde2e2", "color": "#621c18"},
+      {"label": "2星", "background": "#faf1d1", "color": "#5c3a00"},
+      {"label": "3星-", "background": "#d9f3fd", "color": "#004761"},
+      {"label": "3星", "background": "#e1eaff", "color": "#0c296e"},
+      {"label": "3星+", "background": "#d5f6f2", "color": "#024b41"},
+      {"label": "4星", "background": "#d9f5d6", "color": "#124b0c"},
+      {"label": "5星", "background": "#ece2fe", "color": "#460b46"}
+    ],
+    "badge_geometry": {"height": 24, "min_width": 44, "padding_inline": 10, "radius": 9999, "font_size": 14, "font_weight": 400},
+    "sorting": {"default_key": "total", "default_order": "descending", "icon_size": 10, "icon_vertical_overlap": 3, "badge_icon_gap": 8, "inactive_color": "#646a73", "active_color": "#3370ff"},
+    "tree": {"button_size": 16, "icon_size": 10, "padding": 3, "margin_left": 10, "margin_right": 4, "summary_text_inset": 26, "department_text_inset": 30},
+    "unconfirmed": ["heat threshold boundaries are not inferred from sparse samples", "expanded/sorted/scrolled records were truncated", "last rating 4px surplus is treated as available-space fill, not a rating semantic", "body scroll maximum responsive formula unknown", "target screenshot and border-edge details unavailable"],
+    "rating_color_authority": "Latest user requirement overrides captured sample colors: use the corresponding template level.color and the existing performanceLevelBackground value-to-trigger conversion. rating_badges is source evidence only, never a runtime star-label palette.",
+    "shared_components": {"PerformanceRatingTag": {"props": ["label", "color"], "responsibility": "24px display-only tag using configured template color"}, "PerformanceSortHeader": {"props": ["label", "order"], "events": ["click"], "responsibility": "captured 10px sort icons and accessible trigger, no data sorting"}},
+    "implementation_boundary": "Reuse Element Plus fixed-column/tree behavior. Provider supplies optional template level.color and explicit heatLevels; missing levels remain neutral. Template configuration renderer and report tag share performanceLevelBackground. Existing sort order cycle is retained rather than represented as newly verified source behavior."
+  },
+  "states": [],
+  "components": [],
+  "variant_contracts": [
+    {
+      "variant_key": "report-expanded-mock", "entry_mode": "cycle-overview-reports", "review_type": "statistics", "config_discriminator": "collapsed=false",
+      "source_state_ids": ["SOURCE-REPORT-EXPANDED"],
+      "visible_elements": [
+        {"id": "chapters", "owner": "ProjectStatisticsReportPanel", "display_mode": "continuous-flow"},
+        {"id": "filter", "owner": "ProjectStatisticsReportPanel", "display_mode": "sticky-overlay"},
+        {"id": "navigation", "owner": "ProjectReportNavigation", "display_mode": "right-column"},
+        {"id": "mock-notice", "owner": "ProjectStatisticsReportPanel", "display_mode": "inline-notice"}
+      ],
+      "forbidden_elements": ["offscreen-more-button", "invented-filter-form", "real-api-request", "fixed-report-heights", "collapsed-handle"],
+      "line_groups": [{"members": ["chapters", "navigation"], "relation": "horizontal", "gap": 36}],
+      "component_ownership": {"surface": "PerformanceSurfaceCard", "data": "ProjectReportProvider", "scroll": "useProjectReportNavigation", "plot": "ProjectReportDistribution", "matrix": "ProjectReportMatrix"}
+    },
+    {
+      "variant_key": "report-collapsed-mock", "entry_mode": "cycle-overview-reports", "review_type": "statistics", "config_discriminator": "collapsed=true",
+      "source_state_ids": ["SOURCE-REPORT-COLLAPSED"],
+      "visible_elements": [
+        {"id": "chapters", "owner": "ProjectStatisticsReportPanel", "display_mode": "full-width"},
+        {"id": "filter", "owner": "ProjectStatisticsReportPanel", "display_mode": "sticky-overlay-inset-21"},
+        {"id": "collapsed-handle", "owner": "ProjectReportNavigation", "display_mode": "absolute-overflow"},
+        {"id": "mock-notice", "owner": "ProjectStatisticsReportPanel", "display_mode": "inline-notice"}
+      ],
+      "forbidden_elements": ["menu-content", "expanded-collapse-button", "offscreen-more-button", "invented-filter-form", "real-api-request"],
+      "line_groups": [{"members": ["filter", "collapsed-handle"], "relation": "same-header-row"}],
+      "component_ownership": {"surface": "PerformanceSurfaceCard", "data": "ProjectReportProvider", "scroll": "useProjectReportNavigation"}
+    }
+  ],
+  "layout_relations": [{"id": "expanded-content-gap", "source_state_ids": ["SOURCE-REPORT-EXPANDED"], "left": "contents.right+36", "right": "navigation.left", "property": "x", "operator": "equal", "expected": {"left": 1031.33, "right": 1031.33}, "evidence": "ui-interaction.md#8"}],
+  "interaction_contracts": [{"component_id": "ProjectReportNavigation", "control": "directory", "resizable": false, "states": {"expanded": "SOURCE-REPORT-EXPANDED", "collapsed": "SOURCE-REPORT-COLLAPSED", "scroll-linked": "SOURCE-REPORT-SCROLL"}}],
+  "container_constraints": [{
+    "id": "report-content-terminal", "source_state_id": "SOURCE-REPORT-TAIL", "component_id": "ProjectStatisticsReportPanel",
+    "container": {"bbox": {"x": 300.67, "y": 184.67, "width": 694.67, "height": 3931.67}},
+    "first_visible_child": {"bbox": {"x": 300.67, "y": 184.67, "width": 694.67, "height": 48}},
+    "terminal_visible_child": {"bbox": {"x": 300.67, "y": 3816.33, "width": 694.67, "height": 300}},
+    "edge_insets": {"top": 0, "right": 0, "bottom": 0, "left": 0},
+    "evidence": "ui-interaction.md#8", "ownership": "ProjectStatisticsReportPanel"
+  }],
+  "variant_invariants": [],
+  "spatial_constraint_coverage": {"candidate_containers": 1, "containers_with_terminal": 1, "states_with_constraints": ["SOURCE-REPORT-TAIL"], "missing_terminal_anchors": [], "uncompared_variant_groups": [], "unmapped_containers": []},
+  "coverage": {"unmapped_source_states": ["Full collector states are not available; see source_evidence."], "unmapped_components": [], "unmapped_fields": [], "unmapped_visual_properties": ["Screenshots, full visual inventory and hover states are not available."], "unmapped_interactions": [], "cross_document_conflicts": [], "unmapped_spatial_constraints": []}
+}

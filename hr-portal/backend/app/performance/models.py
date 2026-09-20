@@ -461,13 +461,14 @@ class PerformanceProject(Base):
         Index("ix_performance_projects_cycle_status", "cycle_ref", "status"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     project_ref: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     cycle_ref: Mapped[str] = mapped_column(String(64), ForeignKey("performance_cycles.cycle_ref", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=PROJECT_STATUS_DRAFT)
     administrators: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     evaluated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -516,6 +517,7 @@ class PerformanceTemplateWorkflow(Base):
 
     template_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     nodes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    content_library: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     cycle_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     project_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -536,6 +538,7 @@ class PerformanceTemplate(Base):
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="inactive")
     language: Mapped[str] = mapped_column(String(16), nullable=False, default="zh-CN")
     english_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     calculation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -544,3 +547,176 @@ class PerformanceTemplate(Base):
     created_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class PerformanceReviewRule(Base):
+    """Current evaluation rule configuration referenced by review questions."""
+
+    __tablename__ = "performance_review_rules"
+    __table_args__ = (
+        CheckConstraint(
+            "review_type IN ('评级', '评分', '评分映射等级型')",
+            name="ck_performance_review_rule_type",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'inactive')",
+            name="ck_performance_review_rule_status",
+        ),
+        Index("ix_performance_review_rules_status_name", "status", "name"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    review_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    remark: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+
+
+class PerformanceTagFillQuestion(Base):
+    __tablename__ = "performance_tag_fill_questions"
+    __table_args__ = (Index("ix_performance_tag_fill_questions_name", "name"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    language: Mapped[str] = mapped_column(String(16), nullable=False, default="zh-CN")
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    remark: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class PerformanceProjectMemberSnapshot(Base):
+    __tablename__ = "performance_project_member_snapshots"
+    __table_args__ = (
+        UniqueConstraint("project_id", "snapshot_version", name="uq_performance_project_member_snapshot_version"),
+        Index("ix_performance_project_member_snapshot_project", "project_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    project_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_projects.id", ondelete="CASCADE"), nullable=False)
+    cycle_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_snapshot_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_authorization_snapshots.id", ondelete="RESTRICT"), nullable=False)
+    source_filter: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PerformanceProjectMember(Base):
+    __tablename__ = "performance_project_members"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "employee_no", name="uq_performance_project_member_employee"),
+        Index("ix_performance_project_members_portal_user", "snapshot_id", "portal_user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_project_member_snapshots.id", ondelete="CASCADE"), nullable=False)
+    employee_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    portal_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    organization_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    direct_manager_employee_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    hrbp_employee_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    employment_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PerformanceProjectNodeSnapshot(Base):
+    __tablename__ = "performance_project_node_snapshots"
+    __table_args__ = (
+        UniqueConstraint("project_id", "node_id", name="uq_performance_project_node_snapshot"),
+        Index("ix_performance_project_node_snapshot_project_order", "project_id", "node_order"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    project_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_projects.id", ondelete="CASCADE"), nullable=False)
+    node_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    node_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    node_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PerformanceNodeTask(Base):
+    __tablename__ = "performance_node_tasks"
+    __table_args__ = (
+        UniqueConstraint("project_id", "member_snapshot_id", "node_snapshot_id", "target_employee_no", "handler_ref", "task_kind", name="uq_performance_node_task_generation"),
+        Index("ix_performance_node_tasks_handler_state", "handler_ref", "status"),
+        Index("ix_performance_node_tasks_project_node", "project_id", "node_snapshot_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    project_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_projects.id", ondelete="CASCADE"), nullable=False)
+    cycle_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    member_snapshot_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_project_member_snapshots.id", ondelete="RESTRICT"), nullable=False)
+    node_snapshot_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_project_node_snapshots.id", ondelete="RESTRICT"), nullable=False)
+    target_employee_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    handler_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    task_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    answers: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    answer_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class PerformanceReviewQuestion(Base):
+    """Review question referencing the latest configuration of one rule."""
+
+    __tablename__ = "performance_review_questions"
+    __table_args__ = (
+        CheckConstraint(
+            "is_sub_question = true OR parent_question_id IS NULL",
+            name="ck_performance_review_question_parent",
+        ),
+        Index("ix_performance_review_questions_parent", "parent_question_id"),
+        Index("ix_performance_review_questions_rule", "rule_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    language: Mapped[str] = mapped_column(String(16), nullable=False, default="zh-CN")
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_sub_question: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    parent_question_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("performance_review_questions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    rule_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("performance_review_rules.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    display_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="标签样式")
+    remark: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

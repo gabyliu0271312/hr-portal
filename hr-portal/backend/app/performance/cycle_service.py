@@ -100,7 +100,7 @@ class PerformanceCycleService:
                 return []
             statement = statement.where(PerformanceProject.project_ref.in_(project_refs))
         projects = (await self.db.execute(statement.order_by(PerformanceProject.created_at.asc()))).scalars().all()
-        return [{"id": project.id, "project_ref": project.project_ref, "name": project.name, "description": project.description, "administrators": project.administrators or [], "status": project.status, "evaluated_count": project.evaluated_count} for project in projects]
+        return [{"id": project.id, "project_ref": project.project_ref, "name": project.name, "description": project.description, "administrators": project.administrators or [], "status": project.status, "evaluated_count": project.evaluated_count, "template_id": (project.settings or {}).get("template_id"), "start_at": (project.settings or {}).get("start_at"), "end_at": (project.settings or {}).get("end_at"), "evaluator_rules": (project.settings or {}).get("evaluator_rules", {"groups": []})} for project in projects]
 
     async def has_started_projects(self, cycle: PerformanceCycle) -> bool:
         return bool((await self.db.execute(select(PerformanceProject.id).where(PerformanceProject.cycle_ref == cycle.cycle_ref, PerformanceProject.status == PROJECT_STATUS_STARTED).limit(1))).scalar_one_or_none())
@@ -208,6 +208,10 @@ class PerformanceCycleService:
                     "administrators": project.administrators or [],
                     "status": project.status,
                     "evaluated_count": project.evaluated_count,
+                    "template_id": (project.settings or {}).get("template_id"),
+                    "start_at": (project.settings or {}).get("start_at"),
+                    "end_at": (project.settings or {}).get("end_at"),
+                    "evaluator_rules": (project.settings or {}).get("evaluator_rules", {"groups": []}),
                 }
             )
         for cycle_ref, (people, departments, _projects) in summaries.items():
@@ -244,6 +248,7 @@ class PerformanceCycleService:
         self.db.add(cycle)
         await self.db.flush()
         await self._sync_snapshot(cycle, actor_type=actor_type, actor_id=actor_id)
+        await self.db.flush()
         if cycle.lock_rule == CYCLE_LOCK_RULE_IMMEDIATE:
             await self.snapshots.lock_snapshot(cycle.cycle_ref, actor_type=actor_type, actor_ref=_actor_ref(actor_id), commit=False)
             cycle.status = CYCLE_STATUS_LOCKED
@@ -409,8 +414,8 @@ class PerformanceCycleService:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="员工实时花名册缺少 employee_no 或人员名称字段")
         selections = {
             "source_roster_id": _column(table, "id"), "employee_no": employee, "display_name": name,
-            "organization_ref": _column(table, "org_node_code", "company_org", "department_name"),
-            "direct_manager_source_value": _column(table, "direct_manager_employee_no", "direct_manager", "manager_employee_no"),
+            "organization_ref": _column(table, "company_org", "department", "department_name", "org_node_code"),
+            "direct_manager_source_value": _column(table, "direct_manager_employee_no", "direct_manager", "manager_employee_no", "direct_supervisor"),
             "hrbp_source_value": _column(table, "hrbp_employee_no", "hrbp"),
             "employment_status": _column(table, "employment_status", "employee_status", "active_status"),
             "departure_date": _column(table, "departure_date", "leave_date", "termination_date", "resignation_date"),

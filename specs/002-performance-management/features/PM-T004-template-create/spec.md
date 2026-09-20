@@ -1,5 +1,14 @@
 # PM-T004 绩效模板创建：流程设置
 
+completion_status: incomplete
+pixel_restore_status: blocked
+uncovered_reasons:
+- 内容设置采集已完成离线收口，但“更多”菜单、分组下拉选项和自定义内容最终中栏联动仍缺证据。
+- 新增分支 focus/active/disabled、resize、键盘和响应式证据未完整。
+- 本轮仅整理开发契约，不修改 HR Portal 业务代码，不保存目标模板。
+
+内容设置采集与开发契约：[`capture-manifest.md`](capture-manifest.md)、[`capture-completion-checklist.md`](capture-completion-checklist.md)、[`component-model.md`](component-model.md)、[`extracted-ui-contract.json`](extracted-ui-contract.json)、[`pixel-contract.md`](pixel-contract.md)、[`acceptance-contract.md`](acceptance-contract.md)。
+
 ## 1. 状态与范围
 
 - 状态：需求已确认，待实现
@@ -23,7 +32,7 @@
 画布固定包含“项目启动”和“项目结束”两个系统节点；中间为可配置业务节点。节点显示名称以附件为准，稳定类型如下：
 
 | node_type | 默认名称 | 可新增 | 删除 | 说明 |
-|---|---|---:|---:|---|
+| --- | --- | ---: | ---: | --- |
 | `project_start` | 项目启动 | 否 | 否 | 系统起点 |
 | `evaluation` | 评估型环节 | 是 | 是 | 通用评估环节，可配置评估类型 |
 | `result_view` | 绩效结果查看环节 | 是 | 是 | 只读结果查看 |
@@ -109,6 +118,13 @@
 
 ## 7. 前后端契约
 
+### 7.0 获取与更新模板基本信息
+
+- `GET /api/v1/performance/templates/{template_id}`：返回模板名称、描述、语言、双语开关、计算规则开关与已选规则，用于列表“编辑”进入向导后回填。
+- `PATCH /api/v1/performance/templates/{template_id}`：全量更新上述基本信息，必须更新原模板而不是创建新记录，并记录 `PERFORMANCE_TEMPLATE_UPDATED` 审计事件。
+- `DELETE /api/v1/performance/templates/{template_id}`：经确认弹窗确认后删除模板元数据与对应模板流程草稿，返回 204，并记录 `PERFORMANCE_TEMPLATE_DELETED` 审计事件；已启动周期使用固化快照，不随模板删除改写。
+- 三个接口均要求 `performance.configuration.manage`；模板不存在返回 404 `TEMPLATE_NOT_FOUND`，名称与其他模板重复返回 409 `PERFORMANCE_TEMPLATE_NAME_DUPLICATE`。
+
 ### 7.1 获取模板流程
 
 `GET /api/v1/performance/templates/{template_id}/workflow`
@@ -149,7 +165,7 @@
 
 请求体：`{ "nodes": [{ "node_id": null, "node_type": "calibration", "name": "校准环节", "description": "", "order": 2, "executor_types": ["PROJECT_CONFIGURED"], "evaluation_type": null, "include_final_result": false, "require_previous_node_completion": false, "subject_confirm_required": false, "calibration_reason_enabled": true, "calibration_reason_required": false }] }`
 
-约束：事务内校验节点顺序、系统节点、字段权限和重复提交；不引入版本号。响应返回完整规范化节点和 `usage_summary`。
+约束：事务内校验节点顺序、系统节点、字段权限和重复提交；不设 9 个节点的业务上限，当前接口传输层最多接收 100 个持久化业务节点；不引入版本号。响应返回完整规范化节点和 `usage_summary`。
 
 稳定错误码：`PERFORMANCE_PERMISSION_DENIED`、`TEMPLATE_NOT_FOUND`、`TEMPLATE_WORKFLOW_INVALID`、`TEMPLATE_WORKFLOW_LOCKED`、`TEMPLATE_CONCURRENT_UPDATE`、`TEMPLATE_SAVE_FAILED`。
 
@@ -162,8 +178,8 @@
 
 ## 9. 测试与验收
 
-- 单元测试：节点增删、选中、编辑同步、校验、只读字段裁剪、按钮跳转。
-- API 测试：成功保存、字段锁定、无权限、模板不存在、非法节点顺序、并发冲突、重复提交。
+- 单元测试：节点增删、选中、编辑同步、校验、只读字段裁剪、按钮跳转；模板列表删除确认、取消、重复提交禁用和失败保留。
+- API 测试：成功保存、模板删除与流程草稿清理、删除审计、字段锁定、无权限、模板不存在、非法节点顺序、并发冲突、重复提交。
 - E2E：按附件初始态和 state-1 至 state-47 覆盖核心状态；截图基线固定 1920x959。
 - 验收必须追踪 `UI -> PATCH payload -> service/database -> GET reopen`，确认保存后重新打开与画布一致。
 
@@ -180,3 +196,11 @@
 - `指定人员`执行人的搜索接口和最大选择数需在后端任务中冻结。
 - 参考/提示内容的具体字段归属内容设置任务，本页只消费 `editable_scope`。
 - `TEMPLATE_CONCURRENT_UPDATE` 在无版本号前提下需要后端定义幂等键或请求去重策略。
+
+## 12. 内容设置实现原则
+
+- 九个环节使用统一内容设置渲染器和规则注册表，不为每个环节复制页面、卡片、抽屉或右栏。
+- 单行/多行文本框、计数文本框、富文本框、复选框、单选框、开关、弹窗、拖拽和图标按钮优先复用现有 HR Portal 绩效基础组件。
+- 新建/编辑预览、抽屉回填摘要和中栏已配置卡片预览复用同一内容预览 renderer，通过 `render_context` 区分外层布局和交互责任。
+- 自定义“标签型填写题”的候选项以“评估题管理 > 标签型填写题”独立资源为真源；内容设置仅调用只读 options 接口并在模板中保存名称、标签项和提示快照，不再读取租户 fixture。管理页的新建、编辑、删除统一写入该资源；已被模板引用的题目禁止删除。
+- 本功能已有实现时，默认采用增量对齐：保留 public props/emits、状态机和已通过行为，只修改契约不一致部分；整体重写必须有不可复用原因、更新后的契约和 focused regression 证据。

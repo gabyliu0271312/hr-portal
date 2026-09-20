@@ -1,0 +1,130 @@
+{
+  "viewport": {
+    "width": 1920,
+    "height": 1080,
+    "dpr": 1
+  },
+  "browser": "Chrome",
+  "color_scheme": "light",
+  "fonts_status": "loaded",
+  "cases": [
+    {
+      "source_state_id": "RR-PREVIEW-RATING-VALIDATION-ERROR",
+      "target_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\01-rating-validation-target.png",
+      "actual_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\01-rating-validation.png",
+      "diff_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\01-rating-validation-diff.png",
+      "width": 1920,
+      "height": 1080,
+      "channel_tolerance": 3,
+      "max_diff_pixel_ratio": 0.01,
+      "diff_pixels": 174623,
+      "diff_pixel_ratio": 0.08421248070987654,
+      "pixel_status": "failed"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-RATING-NON-QUANTIFIED",
+      "target_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\02-rating-non-quantified-target.png",
+      "actual_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\02-rating-non-quantified.png",
+      "diff_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\02-rating-non-quantified-diff.png",
+      "width": 1920,
+      "height": 1080,
+      "channel_tolerance": 3,
+      "max_diff_pixel_ratio": 0.01,
+      "diff_pixels": 64006,
+      "diff_pixel_ratio": 0.030867091049382716,
+      "pixel_status": "failed"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-RATING-QUANTIFIED",
+      "target_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\03-rating-quantified-target.png",
+      "actual_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\03-rating-quantified.png",
+      "diff_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\03-rating-quantified-diff.png",
+      "width": 1920,
+      "height": 1080,
+      "channel_tolerance": 3,
+      "max_diff_pixel_ratio": 0.01,
+      "diff_pixels": 65139,
+      "diff_pixel_ratio": 0.0314134837962963,
+      "pixel_status": "failed"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-VALIDATION-ERROR",
+      "target_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\04-score-validation-target.png",
+      "actual_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\04-score-validation.png",
+      "diff_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\04-score-validation-diff.png",
+      "width": 1920,
+      "height": 1080,
+      "channel_tolerance": 3,
+      "max_diff_pixel_ratio": 0.01,
+      "diff_pixels": 79754,
+      "diff_pixel_ratio": 0.038461612654320985,
+      "pixel_status": "failed"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-BOUNDS",
+      "target_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\05-score-bounds-target.png",
+      "actual_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\05-score-bounds.png",
+      "diff_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\05-score-bounds-diff.png",
+      "width": 1920,
+      "height": 1080,
+      "channel_tolerance": 3,
+      "max_diff_pixel_ratio": 0.01,
+      "diff_pixels": 43446,
+      "diff_pixel_ratio": 0.02095196759259259,
+      "pixel_status": "failed"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-FIXED",
+      "target_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\06-score-fixed-target.png",
+      "actual_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\06-score-fixed.png",
+      "diff_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\06-score-fixed-diff.png",
+      "width": 1920,
+      "height": 1080,
+      "channel_tolerance": 3,
+      "max_diff_pixel_ratio": 0.01,
+      "diff_pixels": 117080,
+      "diff_pixel_ratio": 0.05646219135802469,
+      "pixel_status": "failed"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-MAPPING-VALIDATION-ERROR",
+      "target_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\07-mapping-validation-target.png",
+      "actual_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\07-mapping-validation.png",
+      "diff_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\07-mapping-validation-diff.png",
+      "width": 1920,
+      "height": 1080,
+      "channel_tolerance": 3,
+      "max_diff_pixel_ratio": 0.01,
+      "diff_pixels": 136893,
+      "diff_pixel_ratio": 0.06601707175925926,
+      "pixel_status": "failed"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-MAPPING-INITIAL",
+      "target_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\08-mapping-initial-target.png",
+      "actual_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\08-mapping-initial.png",
+      "diff_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\08-mapping-initial-diff.png",
+      "width": 1920,
+      "height": 1080,
+      "channel_tolerance": 3,
+      "max_diff_pixel_ratio": 0.01,
+      "diff_pixels": 86425,
+      "diff_pixel_ratio": 0.04167872299382716,
+      "pixel_status": "failed"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-MAPPING-VALUE-50",
+      "target_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\09-mapping-value-50-target.png",
+      "actual_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\09-mapping-value-50.png",
+      "diff_path": "specs\\002-performance-management\\features\\PM-T006-review-rule\\evidence\\preview-diff\\09-mapping-value-50-diff.png",
+      "width": 1920,
+      "height": 1080,
+      "channel_tolerance": 3,
+      "max_diff_pixel_ratio": 0.01,
+      "diff_pixels": 84068,
+      "diff_pixel_ratio": 0.0405420524691358,
+      "pixel_status": "failed"
+    }
+  ],
+  "pixel_status": "failed"
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "feature_id": "PM-T007",
+  "capture_session": "idreamsky.feishu.cn_20260902_165521_251185",
+  "capture_model": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260902_165521_251185/captures/capture_model.json",
+  "source_url": "https://idreamsky.feishu.cn/perf/admin/tagged-fill-in-questions/create",
+  "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+  "mapping_policy": {
+    "raw_state_identity": "capture_model.state_graph.nodes index plus hybrid_steps artifact directory",
+    "semantic_identity": "unique source_state_id per captured observation",
+    "variant_grouping": "variant_key groups repeated observations of the same visual state; repeated observations are not collapsed in evidence index",
+    "status": "projection-ready-for-contract-review"
+  },
+  "states": [
+    {"source_state_id":"T007-FORM-001","raw_node_index":1,"raw_id":"base","semantic_state_id":"form-base-01","variant_key":"create-default","action_step":"step_00","artifact_dir":"captures/hybrid_steps/step_00/after","capture_context":"none","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-002","raw_node_index":2,"raw_id":"create-default","semantic_state_id":"form-create-default-01","variant_key":"create-default","action_step":"step_02","artifact_dir":"captures/hybrid_steps/step_02/after","capture_context":"create-default","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-003","raw_node_index":3,"raw_id":"create-default","semantic_state_id":"form-create-default-02","variant_key":"create-default","action_step":"step_03","artifact_dir":"captures/hybrid_steps/step_03/after","capture_context":"create-default","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-004","raw_node_index":4,"raw_id":"create-default","semantic_state_id":"form-create-default-03","variant_key":"create-default","action_step":"step_04","artifact_dir":"captures/hybrid_steps/step_04/after","capture_context":"create-default","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-005","raw_node_index":5,"raw_id":"description-focus","semantic_state_id":"form-description-focus-01","variant_key":"description-focus","action_step":"step_05","artifact_dir":"captures/hybrid_steps/step_05/after","capture_context":"description-focus","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-006","raw_node_index":6,"raw_id":"description-focus","semantic_state_id":"form-description-focus-02","variant_key":"description-focus","action_step":"step_06","artifact_dir":"captures/hybrid_steps/step_06/after","capture_context":"description-focus","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-007","raw_node_index":7,"raw_id":"description-focus","semantic_state_id":"form-description-focus-03","variant_key":"description-focus","action_step":"step_07","artifact_dir":"captures/hybrid_steps/step_07/after","capture_context":"description-focus","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-008","raw_node_index":8,"raw_id":"remark-focus","semantic_state_id":"form-remark-focus-01","variant_key":"remark-focus","action_step":"step_08","artifact_dir":"captures/hybrid_steps/step_08/after","capture_context":"remark-focus","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-009","raw_node_index":9,"raw_id":"remark-focus","semantic_state_id":"form-remark-focus-02","variant_key":"remark-focus","action_step":"step_09","artifact_dir":"captures/hybrid_steps/step_09/after","capture_context":"remark-focus","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-010","raw_node_index":10,"raw_id":"remark-focus","semantic_state_id":"form-remark-focus-03","variant_key":"remark-focus","action_step":"step_10","artifact_dir":"captures/hybrid_steps/step_10/after","capture_context":"remark-focus","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-011","raw_node_index":11,"raw_id":"preview-trigger","semantic_state_id":"form-preview-trigger-01","variant_key":"preview-trigger","action_step":"step_11","artifact_dir":"captures/hybrid_steps/step_11/after","capture_context":"preview-trigger","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-012","raw_node_index":12,"raw_id":"preview-trigger","semantic_state_id":"form-preview-trigger-02","variant_key":"preview-trigger","action_step":"step_12","artifact_dir":"captures/hybrid_steps/step_12/after","capture_context":"preview-trigger","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-013","raw_node_index":13,"raw_id":"preview-trigger","semantic_state_id":"form-preview-trigger-03","variant_key":"preview-trigger","action_step":"step_13","artifact_dir":"captures/hybrid_steps/step_13/after","capture_context":"preview-trigger","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-014","raw_node_index":14,"raw_id":"preview-success","semantic_state_id":"form-preview-success-01","variant_key":"preview-success","action_step":"step_14","artifact_dir":"captures/hybrid_steps/step_14/after","capture_context":"preview-success","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-015","raw_node_index":15,"raw_id":"preview-success","semantic_state_id":"form-preview-success-02","variant_key":"preview-success","action_step":"step_15","artifact_dir":"captures/hybrid_steps/step_15/after","capture_context":"preview-success","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-016","raw_node_index":16,"raw_id":"preview-success","semantic_state_id":"form-preview-success-03","variant_key":"preview-success","action_step":"step_16","artifact_dir":"captures/hybrid_steps/step_16/after","capture_context":"preview-success","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-017","raw_node_index":17,"raw_id":"tag-added","semantic_state_id":"form-tag-added-01","variant_key":"tag-added","action_step":"step_17","artifact_dir":"captures/hybrid_steps/step_17/after","capture_context":"tag-added","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-018","raw_node_index":18,"raw_id":"tag-added","semantic_state_id":"form-tag-added-02","variant_key":"tag-added","action_step":"step_18","artifact_dir":"captures/hybrid_steps/step_18/after","capture_context":"tag-added","evidence_status":"captured"},
+    {"source_state_id":"T007-FORM-019","raw_node_index":19,"raw_id":"tag-added","semantic_state_id":"form-tag-added-03","variant_key":"tag-added","action_step":"step_19","artifact_dir":"captures/hybrid_steps/step_19/after","capture_context":"tag-added","evidence_status":"captured"}
+  ],
+  "variant_groups": [
+    {"variant_key":"create-default","source_state_ids":["T007-FORM-001","T007-FORM-002","T007-FORM-003","T007-FORM-004"],"status":"captured"},
+    {"variant_key":"description-focus","source_state_ids":["T007-FORM-005","T007-FORM-006","T007-FORM-007"],"status":"captured"},
+    {"variant_key":"remark-focus","source_state_ids":["T007-FORM-008","T007-FORM-009","T007-FORM-010"],"status":"captured"},
+    {"variant_key":"preview-trigger","source_state_ids":["T007-FORM-011","T007-FORM-012","T007-FORM-013"],"status":"captured"},
+    {"variant_key":"preview-success","source_state_ids":["T007-FORM-014","T007-FORM-015","T007-FORM-016"],"status":"captured"},
+    {"variant_key":"tag-added","source_state_ids":["T007-FORM-017","T007-FORM-018","T007-FORM-019"],"status":"captured"}
+  ],
+  "unresolved": [
+    "capture_model nodes omit before_html and before_screenshot for these realtime observations",
+    "latest model has no mission_id and implementation_brief.variant_contracts=0",
+    "dragging middle-state screenshot is intentionally out of scope; implementation reuses existing vertical-resizable textarea"
+  ]
+}

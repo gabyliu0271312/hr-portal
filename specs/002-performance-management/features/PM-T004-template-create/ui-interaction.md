@@ -14,6 +14,8 @@
 ## 已确认范围
 
 - 路由：`/performance/settings/templates/create?step=workflow`；编辑已有模板时携带 `template_id`。
+- 模板列表点击“编辑”必须进入同一创建/编辑向导的基本信息步骤，并通过 `template_id` 调用 `GET /api/v1/performance/templates/{template_id}` 回填名称、描述、语言与计算规则。基本信息“下一步”通过 `PATCH /api/v1/performance/templates/{template_id}` 更新同一模板，禁止再次调用创建接口；刷新编辑 URL 后仍可从后端恢复编辑态。
+- 模板列表“更多 → 删除”打开 `PerformanceConfirmDialog`：文案固定为“后续配置项目将无法使用该模板，确定删除吗？”，按钮固定为“保留/删除”。“保留”、遮罩和 Escape 关闭且不发请求；“删除”进入 loading 并调用 `DELETE /api/v1/performance/templates/{template_id}`，成功后关闭并刷新真实列表，失败保留弹窗允许重试。视觉以用户提供的 `user-snapspec-20260831-template-delete-confirm` 为准；未采集 hover/active 状态不作像素通过声明。
 - 默认角色：绩效管理员；仍需服务端权限校验。
 - 节点名称和顺序以附件为准：项目启动、评估型环节、绩效结果查看环节、项目结束；可新增工作总结环节、360°邀请环节、360°确认环节、校准环节、结果沟通环节。绩效结果查看环节是流程内置节点，不出现在加号弹层可新增列表。
 - 点击节点显示右侧配置；点击加号打开节点类型选择；新增节点后自动选中；可删除业务节点，系统起止节点不可删除。
@@ -39,6 +41,7 @@
 ## 未确认项
 
 流程节点 `StageCard` 的 280×38 参数究竟用于画布节点还是加号菜单项、流程 SVG path、连接线/加号几何、加号菜单布局，以及保存接口最终合同仍未确认；在确认前不得猜测或进入正式 UI 编码。
+
 ## Component reuse decision (PM-T004-T02-F15)
 
 - The workflow node name and description fields are shared across node types and are implemented by `WorkflowNodeBasicFields.vue` within the performance domain.
@@ -150,3 +153,20 @@
 - Directly below the executor field, render `PerformanceSwitchSettingRow.vue` with label `需要被评估人确认绩效结果`; its shared `PerformanceSwitch.vue` defaults off and uses the captured `8px` label-to-switch gap.
 - The existing workflow field `subject_confirm_required: boolean` is the sole persistence contract. It defaults to `false`, may retain `true` only for `result_view`, and is normalized to `false` for every other node type.
 - Existing GET/PATCH workflow JSONB is reused. No route, database migration, permission, UCP, external-system, cycle snapshot, or runtime confirmation-task behavior is introduced.
+
+## 内容设置弹层（PM-T004-T06）
+
+- 视觉与交互权威为 [`PM-T004-T06-assessment-content-layers.md`](../../ui-blueprints/PM-T004-T06-assessment-content-layers.md) `v3-capture-validation-save`，已按用户确认完成实现与浏览器验收；仓库级 typecheck 仍受无关 `TableMerge.vue:405` 既有错误阻断。旧 T05 蓝图中的弹层扩展描述已失效。
+- 入口链路为：评估型环节添加内容 -> 选择评估内容抽屉 -> 点击“新建”打开垂直类型菜单 -> 选择工作总结/评分评级/自定义 -> 对应双栏弹窗。三个类型不得永久平铺在抽屉中。
+- T06 覆盖抽屉可见性开关、空态、三类弹窗校验、添加/删除/拖拽、预览同步、富文本工具栏、评级选择、自定义标签默认全部填写、Esc/遮罩/关闭/取消及创建成功状态。取消关闭弹窗、丢弃 draft，并把焦点交回抽屉根对话框。
+- 评估内容抽屉与中间配置卡片的像素级开发契约见 [`assessment-content-capture-contract.md`](assessment-content-capture-contract.md)。实现必须引用其中的 `source_state_ids`，覆盖抽屉行展开/收起、全部展开/收起、卡片工具条、上移/下移边界、整条顶部拖拽命中区、编辑、删除回收和取消状态；不得仅凭文字或单张截图推断。
+- 评级项和标签项由“飞书绩效设置 -> 评估题管理”维护；T06 只保留可注入 API adapter 和测试 fixture，真实 API 后续开发，不得把采集租户数据硬编码为产品常量。
+- 1440×900、1366×768、1280×720 已完成响应式采集；抽屉固定 680px 右贴边，弹窗在窄于 1440px 时维持左右 180px、上下 32px 可用边距。目标页键盘链存在富文本停滞和焦点逸出；用户已确认 HR Portal 按 Spec 012 修正为完整 modal focus trap，不照搬该缺陷。
+- 弹窗“确定”只定义当前前端会话的状态转换，不发出内容业务写请求。预览页模板级“保存”已采集为 `PUT /perf/api/review/v2/template_groups/{id}/detail` 加 `PUT /perf/api/review/v2/template_groups/{id}`，均 HTTP 200 后显示“修改成功，预计 1 分钟后生效”；该保存实现、失败重试、幂等/并发和重新打开语义仍不属于 T06。
+- 实现证据为 `../../ui-blueprints/PM-T004-T06-*.png` 八张独立 PNG；Playwright 在 1920×1080、1440×900、1366×768、1280×720 验证抽屉/弹窗外框和 Footer 可见性，focused Vitest 16/16 通过，Vite 生产构建通过。评级/标签仍仅通过组件 props 注入，未接入真实业务 API。
+
+### PM-T004-T06-F05 空列表首字输入
+
+- 空编辑器点击有序或无序列表后，DOM 使用目标 `ace-line.list-div > OL/UL > LI > span[data-enter="true"]` 零宽叶节点；Selection 必须落在该叶节点的文本节点内，不能停留在外层 `.ace-line`。
+- 首次 `insertText` 以浏览器当前 Selection 为准，不恢复过期缓存 Range。组件接管事件并生成 `span[data-leaf]` 正文叶节点及独立末尾 `span[data-enter][data-leaf]` 占位叶节点；列表仍只有一个 `.ace-line`，正文与列表标记保持同一行。
+- 有序和无序列表均适用；两者仍按真实 DOM 互斥，按钮保持对应 active 状态。证据：`../../ui-blueprints/PM-T004-T06-F05-implemented-list-first-input.png` 及容器 Chrome 实测 Selection/DOM 输出。

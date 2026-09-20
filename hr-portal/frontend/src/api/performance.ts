@@ -6,6 +6,267 @@ export interface PerformanceRoleGrant {
   scope_ref: string
 }
 
+export interface PerformanceWorkbenchProject {
+  project_id: number
+  project_name: string
+  cycle_name: string
+  cycle_start_at: string
+  cycle_end_at: string
+  project_status: string
+  result_published?: boolean
+  participation_roles?: string[]
+}
+
+export interface PerformanceWorkbenchTimelineNode {
+  node_id: string
+  node_name: string
+  node_type: string
+  node_order: number
+  executor_label?: string | null
+  start_at: string | null
+  end_at: string | null
+  status: string
+}
+
+export interface PerformanceWorkbenchTaskGroup {
+  task_id?: number
+  node_id: string
+  node_type: string
+  node_name: string
+  pending_count: number
+  completed_count: number
+  overdue_count: number
+  available_at: string | null
+  due_at: string | null
+  action_url: string
+  participation_roles?: string[]
+}
+
+export interface PerformanceWorkbenchTaskPerson {
+  task_id: number
+  aggregate_task_id?: number | null
+  employee_no: string
+  display_name: string
+  status: string
+  due_at: string | null
+}
+
+export interface PerformanceReviewNode {
+  task_id?: number
+  node_id: string
+  node_name: string
+  node_type: string
+  task_kind?: string
+  entry_mode?: 'template_task' | 'route' | 'none'
+  executor_label: string
+  status: 'pending' | 'not_started' | 'overdue' | 'completed'
+  start_at: string | null
+  end_at: string | null
+  action_url: string
+  submitted_at?: string | null
+  editable?: boolean
+  form_schema?: SelfSummarySection[]
+  answers?: Record<string, unknown>
+}
+
+export interface PerformanceReviewCategory {
+  key: string
+  label: string
+  nodes: PerformanceReviewNode[]
+}
+
+export interface PerformanceReviewOverview {
+  projects: Array<Pick<PerformanceWorkbenchProject, 'project_id' | 'project_name' | 'cycle_name' | 'cycle_start_at' | 'cycle_end_at'>>
+  active_project: Pick<PerformanceWorkbenchProject, 'project_id' | 'project_name' | 'cycle_name' | 'cycle_start_at' | 'cycle_end_at'> | null
+  template_name: string
+  workflow_node_count?: number
+  categories: PerformanceReviewCategory[]
+}
+
+export const performanceReviewApi = {
+  async overview(projectId?: number, taskId?: number): Promise<PerformanceReviewOverview> {
+    const { data } = await api.get<PerformanceReviewOverview>('/performance/review/overview', {
+      params: projectId || taskId ? { ...(projectId ? { project_id: projectId } : {}), ...(taskId ? { task_id: taskId } : {}) } : undefined,
+    })
+    return data
+  },
+  async selfSummary(taskId: number | string, employeeNo?: string): Promise<SelfSummaryTask> {
+    const { data } = await api.get<SelfSummaryTask>(`/performance/tasks/${encodeURIComponent(String(taskId))}/self-summary`, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+    return data
+  },
+  async saveSelfSummaryDraft(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string): Promise<SelfSummarySaveResult> {
+    const { data } = await api.patch<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/self-summary/draft`, { answers, version }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+    return data
+  },
+  async submitSelfSummary(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string): Promise<SelfSummarySaveResult> {
+    const { data } = await api.post<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/self-summary/submit`, { answers, version }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+    return data
+  },
+  async templateTask(taskId: number | string, employeeNo?: string): Promise<PerformanceTemplateTask> {
+    const { data } = await api.get<PerformanceTemplateTask>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task`, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+    return data
+  },
+  async saveTemplateTaskDraft(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string): Promise<SelfSummarySaveResult> {
+    const { data } = await api.patch<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/draft`, { answers, version }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+    return data
+  },
+  async submitTemplateTask(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string): Promise<SelfSummarySaveResult> {
+    const { data } = await api.post<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/submit`, { answers, version }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+    return data
+  },
+}
+
+export interface ProjectManagementCycle {
+  cycle_id: number
+  cycle_name: string
+  cycle_start_at: string
+  cycle_end_at: string
+}
+
+export interface ProjectManagementProject {
+  project_id: number
+  project_name: string
+  project_ref: string
+  status: string
+}
+
+export interface ProjectManagementOverview {
+  cycles: ProjectManagementCycle[]
+  active_cycle: ProjectManagementCycle | null
+  projects: ProjectManagementProject[]
+  hrbp_scope: string[]
+  category: { key: string; label: string }
+}
+
+export interface ProjectMember {
+  id: number
+  employee_no: string
+  display_name: string
+  avatar_url: string | null
+  rating: string | null
+  rating_tone: string | null
+  completion: string | null
+  sequence: string | null
+  level: string | null
+  entry_date: string | null
+  department: string | null
+  employment_status: string | null
+}
+
+export interface ProjectMemberPage {
+  items: ProjectMember[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface ProjectMatrixPerson {
+  employee_no: string
+  display_name: string
+  employment_status: string | null
+}
+
+export interface ProjectMatrixRating {
+  key: string
+  label: string
+  color: string | null
+}
+
+export interface ProjectMatrixCell {
+  count: number
+  people: ProjectMatrixPerson[]
+}
+
+export interface ProjectMatrixRow {
+  level: string
+  total: number
+  cells: Record<string, ProjectMatrixCell>
+}
+
+export interface ProjectMatrix {
+  source: string
+  dimension: string
+  display_modes: Array<'name' | 'count'>
+  total: number
+  completed_count: number
+  pending_count: number
+  ratings: ProjectMatrixRating[]
+  pending_rows: ProjectMatrixRow[]
+  completed_rows: ProjectMatrixRow[]
+}
+
+export const projectManagementApi = {
+  async overview(cycleId?: number): Promise<ProjectManagementOverview> {
+    const { data } = await api.get<ProjectManagementOverview>('/performance/project-management/overview', {
+      params: cycleId ? { cycle_id: cycleId } : undefined,
+    })
+    return data
+  },
+  async members(projectId: number | string, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {
+    const { data } = await api.get<ProjectMemberPage>(`/performance/projects/${encodeURIComponent(String(projectId))}/members`, {
+      params: { ...(keyword ? { keyword } : {}), ...(sortBy && sortOrder ? { sort_by: sortBy, sort_order: sortOrder } : {}), page, page_size: pageSize },
+    })
+    return data
+  },
+  async matrix(projectId: number | string): Promise<ProjectMatrix> {
+    const { data } = await api.get<ProjectMatrix>(`/performance/projects/${encodeURIComponent(String(projectId))}/matrix`)
+    return data
+  },
+}
+
+export type PerformanceTemplateOption = { id: string; label: string; color?: string; placeholder?: string; description?: string; required?: boolean }
+export type PerformanceTemplateField = {
+  id: string
+  type: 'rich_text' | 'rating' | 'tag_with_followup'
+  label: string
+  required?: boolean
+  placeholder?: string
+  options?: PerformanceTemplateOption[]
+  display_mode?: '标签样式' | '下拉样式'
+}
+export type PerformanceTemplateSection = { id: string; name: string; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[] }
+export type SelfSummaryOption = PerformanceTemplateOption
+export type SelfSummaryField = PerformanceTemplateField
+export type SelfSummarySection = PerformanceTemplateSection
+export type SelfSummaryPerson = { employee_no: string; display_name: string; organization_ref?: string | null; manager_name?: string | null }
+export type PerformanceTemplateTask = {
+  task_id: string | number
+  task_kind: string
+  entry_mode: 'template_task' | 'route' | 'none'
+  node_name: string
+  deadline_at?: string | null
+  editable: boolean
+  submit_allowed: boolean
+  submitted_at?: string | null
+  version?: number
+  person: SelfSummaryPerson
+  form_schema: SelfSummarySection[]
+  answers: Record<string, unknown>
+}
+export type SelfSummaryTask = PerformanceTemplateTask
+export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean }
+
+export const performanceWorkbenchApi = {
+  async listProjects(keyword?: string): Promise<PerformanceWorkbenchProject[]> {
+    const { data } = await api.get<PerformanceWorkbenchProject[]>('/performance/workbench/projects', {
+      params: keyword ? { keyword } : undefined,
+    })
+    return data
+  },
+  async timeline(projectId: number): Promise<PerformanceWorkbenchTimelineNode[]> {
+    const { data } = await api.get<PerformanceWorkbenchTimelineNode[]>(`/performance/workbench/projects/${projectId}/timeline`)
+    return data
+  },
+  async tasks(projectId: number, state: 'pending' | 'completed'): Promise<PerformanceWorkbenchTaskGroup[]> {
+    const { data } = await api.get<PerformanceWorkbenchTaskGroup[]>('/performance/workbench/tasks', { params: { project_id: projectId, state } })
+    return data
+  },
+  async taskPeople(projectId: number, nodeId: string, state: 'pending' | 'completed', keyword?: string): Promise<PerformanceWorkbenchTaskPerson[]> {
+    const { data } = await api.get<PerformanceWorkbenchTaskPerson[]>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/people`, { params: { project_id: projectId, state, ...(keyword ? { keyword } : {}) } })
+    return data
+  },
+}
+
 export interface PerformanceAccessContext {
   subject_type: 'PORTAL_USER' | 'SYSTEM_ACCOUNT'
   subject_id: number
@@ -14,12 +275,216 @@ export interface PerformanceAccessContext {
   portal_entry_permissions: string[]
   role_grants?: PerformanceRoleGrant[]
   permission_codes: string[]
+  dev_admin_debug?: boolean
 }
 
 export const performanceApi = {
   async getAccessContext(): Promise<PerformanceAccessContext> {
     const { data } = await api.get<PerformanceAccessContext>('/performance/auth/context')
     return data
+  },
+}
+
+export interface PerformanceReviewRuleOption {
+  id: number
+  name: string
+  review_type: '评级' | '评分' | '评分映射等级型'
+  status: 'active' | 'inactive'
+  created_at: string
+  updated_at: string
+  remark: string
+  creator: string
+  config_summary: Record<string, unknown>
+  is_used: boolean
+  deletable: boolean
+}
+
+export interface PerformanceReviewRuleDetail extends PerformanceReviewRuleOption {
+  config: Record<string, unknown>
+}
+
+export interface PerformanceReviewQuestion {
+  id: number
+  language: string
+  name: string
+  description: string
+  type: 'regular' | 'okr' | 'bonus' | 'deduction'
+  is_sub_question: boolean
+  parent_question_id: number | null
+  rule_id: number
+  display_mode: '标签样式' | '下拉样式'
+  remark: string
+  created_at: string
+  updated_at: string
+  rule: PerformanceReviewRuleDetail
+}
+
+export interface PerformanceReviewSubQuestionOption {
+  id: number | string
+  name: string
+  rule_id: number
+  rule_name: string
+  review_type: '评级' | '评分'
+  grade_participates_in_calculation: boolean
+  score_min: number | null
+  score_max: number | null
+}
+
+export interface PerformanceReviewQuestionPayload {
+  language: 'zh-CN'
+  name: string
+  description: string
+  type: 'regular' | 'okr' | 'bonus' | 'deduction'
+  is_sub_question: boolean
+  parent_question_id: number | null
+  rule_id: number
+  display_mode: '标签样式' | '下拉样式'
+  remark: string
+}
+
+export interface PerformanceReviewRulePayload {
+  name: string
+  review_type: '评级' | '评分' | '评分映射等级型'
+  config: Record<string, unknown>
+  remark: string
+}
+
+export const performanceReviewRuleApi = {
+  async list(): Promise<PerformanceReviewRuleOption[]> {
+    const { data } = await api.get<{ items: PerformanceReviewRuleOption[] }>('/performance/review-rules')
+    return data.items
+  },
+  async get(id: number): Promise<PerformanceReviewRuleDetail> {
+    const { data } = await api.get<PerformanceReviewRuleDetail>(`/performance/review-rules/${id}`)
+    return data
+  },
+  async create(payload: PerformanceReviewRulePayload): Promise<PerformanceReviewRuleDetail> {
+    const { data } = await api.post<PerformanceReviewRuleDetail>('/performance/review-rules', payload)
+    return data
+  },
+  async update(id: number, payload: PerformanceReviewRulePayload): Promise<PerformanceReviewRuleDetail> {
+    const { data } = await api.patch<PerformanceReviewRuleDetail>(`/performance/review-rules/${id}`, payload)
+    return data
+  },
+  async remove(id: number): Promise<void> {
+    await api.delete(`/performance/review-rules/${id}`)
+  },
+}
+
+export const performanceReviewQuestionApi = {
+  async list(reviewType?: PerformanceReviewRuleOption['review_type']): Promise<PerformanceReviewQuestion[]> {
+    const { data } = await api.get<{ items: PerformanceReviewQuestion[] }>('/performance/review-questions', {
+      params: reviewType ? { review_type: reviewType } : undefined,
+    })
+    return data.items
+  },
+  async listSubQuestionOptions(calculationRule: 'none' | 'condition'): Promise<PerformanceReviewSubQuestionOption[]> {
+    const { data } = await api.get<{ items: PerformanceReviewSubQuestionOption[] }>('/performance/review-questions/sub-question-options', {
+      params: { calculation_rule: calculationRule },
+    })
+    return data.items
+  },
+  async get(id: number): Promise<PerformanceReviewQuestion> {
+    const { data } = await api.get<PerformanceReviewQuestion>(`/performance/review-questions/${id}`)
+    return data
+  },
+  async create(payload: PerformanceReviewQuestionPayload): Promise<PerformanceReviewQuestion> {
+    const { data } = await api.post<PerformanceReviewQuestion>('/performance/review-questions', payload)
+    return data
+  },
+  async update(id: number, payload: PerformanceReviewQuestionPayload): Promise<PerformanceReviewQuestion> {
+    const { data } = await api.patch<PerformanceReviewQuestion>(`/performance/review-questions/${id}`, payload)
+    return data
+  },
+}
+
+export interface PerformanceTagFillQuestionTag {
+  id: string
+  name: string
+  description: string
+  prompt: string
+}
+
+export interface PerformanceTagFillQuestion {
+  id: string
+  language: string
+  name: string
+  description: string
+  creator: string
+  createdAt: string
+  updatedAt: string
+  remark: string
+  tags: PerformanceTagFillQuestionTag[]
+}
+
+export interface PerformanceTagFillQuestionOption {
+  id: string
+  name: string
+  description: string
+  tags: PerformanceTagFillQuestionTag[]
+}
+
+export interface PerformanceTagFillQuestionPayload {
+  language: 'zh-CN'
+  name: string
+  description: string
+  remark: string
+  tags: PerformanceTagFillQuestionTag[]
+}
+
+interface PerformanceTagFillQuestionWire {
+  id: number
+  language: string
+  name: string
+  description: string
+  creator: string
+  created_at: string
+  updated_at: string
+  remark: string
+  tags: PerformanceTagFillQuestionTag[]
+}
+
+function mapTagFillQuestion(item: PerformanceTagFillQuestionWire): PerformanceTagFillQuestion {
+  return {
+    id: String(item.id),
+    language: item.language,
+    name: item.name,
+    description: item.description,
+    creator: item.creator,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+    remark: item.remark,
+    tags: item.tags,
+  }
+}
+
+export const performanceTagFillQuestionApi = {
+  async list(keyword = '', page = 1, pageSize = 10): Promise<{ items: PerformanceTagFillQuestion[]; total: number }> {
+    const { data } = await api.get<{ items: PerformanceTagFillQuestionWire[]; total: number }>('/performance/tagged-fill-in-questions', {
+      params: { offset: (page - 1) * pageSize, limit: pageSize, question_type: 'tag_text', keyword },
+    })
+    return { items: data.items.map(mapTagFillQuestion), total: data.total }
+  },
+  async options(): Promise<PerformanceTagFillQuestionOption[]> {
+    const { data } = await api.get<{ items: Array<{ id: number; name: string; description: string; tags: PerformanceTagFillQuestionTag[] }> }>('/performance/tagged-fill-in-questions/options', {
+      params: { question_type: 'tag_text' },
+    })
+    return data.items.map((item) => ({ ...item, id: String(item.id) }))
+  },
+  async get(id: string): Promise<PerformanceTagFillQuestion> {
+    const { data } = await api.get<PerformanceTagFillQuestionWire>(`/performance/tagged-fill-in-questions/${id}`)
+    return mapTagFillQuestion(data)
+  },
+  async create(payload: PerformanceTagFillQuestionPayload): Promise<PerformanceTagFillQuestion> {
+    const { data } = await api.post<PerformanceTagFillQuestionWire>('/performance/tagged-fill-in-questions', payload)
+    return mapTagFillQuestion(data)
+  },
+  async update(id: string, payload: PerformanceTagFillQuestionPayload): Promise<PerformanceTagFillQuestion> {
+    const { data } = await api.put<PerformanceTagFillQuestionWire>(`/performance/tagged-fill-in-questions/${id}`, payload)
+    return mapTagFillQuestion(data)
+  },
+  async remove(id: string): Promise<void> {
+    await api.delete(`/performance/tagged-fill-in-questions/${id}`)
   },
 }
 
@@ -36,11 +501,19 @@ export interface PerformanceTemplateCreateResponse {
   template_id: number
   name: string
 }
+
+export interface PerformanceTemplateDetail extends PerformanceTemplateCreateRequest {
+  template_id: number
+  status: 'DRAFT' | 'active' | 'inactive'
+  created_at: string
+  updated_at: string
+}
+
 export interface PerformanceTemplateListItem {
   template_id: number
   name: string
   description: string
-  status: 'DRAFT'
+  status: 'DRAFT' | 'active' | 'inactive'
   created_at: string
 }
 
@@ -49,18 +522,71 @@ export const performanceTemplateApi = {
     const { data } = await api.get<PerformanceTemplateListItem[]>('/performance/templates')
     return data
   },
+  async updateStatus(id: number, status: 'active' | 'inactive'): Promise<PerformanceTemplateListItem> {
+    const { data } = await api.patch<PerformanceTemplateListItem>(`/performance/templates/${id}/status`, { status })
+    return data
+  },
   async create(payload: PerformanceTemplateCreateRequest): Promise<PerformanceTemplateCreateResponse> {
     const { data } = await api.post<PerformanceTemplateCreateResponse>('/performance/templates', payload)
     return data
+  },
+  async get(id: number): Promise<PerformanceTemplateDetail> {
+    const { data } = await api.get<PerformanceTemplateDetail>(`/performance/templates/${id}`)
+    return data
+  },
+  async update(id: number, payload: PerformanceTemplateCreateRequest): Promise<PerformanceTemplateDetail> {
+    const { data } = await api.patch<PerformanceTemplateDetail>(`/performance/templates/${id}`, payload)
+    return data
+  },
+  async remove(id: number): Promise<void> {
+    await api.delete(`/performance/templates/${id}`)
   },
   async getWorkflow(id: number): Promise<PerformanceWorkflowResponse> {
     const { data } = await api.get<PerformanceWorkflowResponse>(`/performance/templates/${id}/workflow`)
     return data
   },
-  async updateWorkflow(id: number, payload: { nodes: PerformanceWorkflowNode[] }): Promise<PerformanceWorkflowResponse> {
+  async updateWorkflow(id: number, payload: { nodes: PerformanceWorkflowNode[]; content_library?: PerformanceTemplateContent[] }): Promise<PerformanceWorkflowResponse> {
     const { data } = await api.patch<PerformanceWorkflowResponse>(`/performance/templates/${id}/workflow`, payload)
     return data
   },
+}
+
+export interface PerformanceTemplateContentItem {
+  id: string
+  label: string
+  hint: string
+  richText?: string
+  settings?: {
+    mode?: 'fill' | 'hidden'
+    required?: boolean
+    hideDescription?: boolean
+    allowMultiple?: boolean
+  }
+  options?: Array<{ id: string; label: string; color?: string; placeholder?: string }>
+}
+
+export interface PerformanceTemplateContent {
+  id?: string
+  type: 'work_summary' | 'rating' | 'custom' | 'reference'
+  name: string
+  description: string
+  items: PerformanceTemplateContentItem[]
+  content_id?: string
+  content_slot?: 'fill' | 'reference' | 'adjustment' | 'view'
+  reference_kind?: 'node' | 'more'
+  reference_value?: string
+  settings?: {
+    hideDescription?: boolean
+    allowMultiple?: boolean
+    mode?: string
+    required?: boolean
+  }
+  ratingOptionId?: string
+  ratingDisplayMode?: '标签样式' | '下拉样式'
+  questionType?: 'text' | 'tag'
+  tagOptionId?: string
+  defaultAll?: boolean
+  options?: Array<{ id: string; label: string; color?: string; placeholder?: string }>
 }
 
 export interface PerformanceWorkflowNode {
@@ -84,6 +610,8 @@ export interface PerformanceWorkflowNode {
   appeal_prompt_content?: string
   appeal_reason_instruction?: string
   executor_config?: PerformanceExecutorConfig | null
+  content?: PerformanceTemplateContent[]
+  content_bindings?: Record<string, string[]>
 }
 
 export type PerformanceExecutorRoleType = 'REAL_LINE_MANAGER' | 'HRBP' | 'DEPARTMENT_HEAD' | 'SPECIFIED_PERSON'
@@ -106,6 +634,7 @@ export interface PerformanceWorkflowResponse {
   template_id: number
   usage_summary: { cycle_count: number; project_count: number }
   editable_scope?: { workflow: boolean; data_write_settings: boolean; reference_and_prompt_content: boolean }
+  content_library?: PerformanceTemplateContent[]
   nodes: PerformanceWorkflowNode[]
 }
 
@@ -123,6 +652,69 @@ export interface PerformanceCycleProjectShell {
   administrators: string[]
   status: string
   evaluated_count: number
+}
+
+export interface PerformanceProjectFlowRule {
+  subject_type: 'PERSON'
+  operator: 'INCLUDE' | 'EXCLUDE'
+  scope: 'PROJECT_ALL'
+  allow_authorize: boolean
+}
+
+export interface PerformanceProjectNodeTime {
+  start_at: string
+  end_at: string
+  appeal_deadline?: string
+}
+
+export interface PerformanceProjectFlowSettings {
+  node_settings: Record<string, {
+    invite?: {
+      default_invite: 'DIRECT_SUBORDINATES' | 'NONE'
+      minimum_invited_count: number
+      exclude_default_invite_from_limit: boolean
+      recommended_invite: string[]
+      allow_voluntary_evaluation: boolean
+    }
+    calibration?: {
+      force_distribution_enabled: boolean
+      phases: Array<{ rules: PerformanceProjectFlowRule[] }>
+    }
+    result_view?: { opening_mode: 'AUTOMATIC' | 'MANUAL' }
+    result_reconsideration?: { handler: string | null }
+  }>
+  node_times: Record<string, PerformanceProjectNodeTime>
+}
+
+export interface PerformanceProjectPayload {
+  name: string
+  description: string | null
+  administrators: string[]
+  template_id?: number | null
+  start_at?: string | null
+  end_at?: string | null
+  evaluator_rules?: {
+    groups: Array<{
+      conditions: Array<{ field: 'department' | 'employee_type' | 'employee'; operator: 'include' | 'exclude'; values: string[] }>
+    }>
+  }
+  flow_settings?: PerformanceProjectFlowSettings
+}
+
+export interface PerformanceProject extends PerformanceCycleProjectShell {
+  cycle_ref: string
+  template_id: number | null
+  start_at: string | null
+  end_at: string | null
+  evaluator_rules: NonNullable<PerformanceProjectPayload['evaluator_rules']>
+  flow_settings: PerformanceProjectFlowSettings
+}
+
+export interface PerformanceProjectPage {
+  items: PerformanceProject[]
+  total: number
+  page: number
+  page_size: number
 }
 
 export interface PerformanceCyclePerson {
@@ -153,7 +745,7 @@ export interface PerformanceCycle {
   leaver_start_date: string | null
   leaver_end_date: string | null
   leaver_participation_mode: PerformanceCycleLeaverMode
-  status: 'DRAFT' | 'LOCKED'
+  status: 'DRAFT' | 'active' | 'inactive' | 'LOCKED'
   people_count: number
   department_count: number
   project_count: number
@@ -200,5 +792,45 @@ export const performanceCycleApi = {
   },
   async remove(id: number): Promise<void> {
     await api.delete(`/performance/cycles/${id}`)
+  },
+}
+
+export const performanceProjectApi = {
+  async list(cycleId: number, keyword?: string, page = 1, pageSize = 20): Promise<PerformanceProjectPage> {
+    const { data } = await api.get<PerformanceProjectPage>(`/performance/cycles/${cycleId}/projects`, {
+      params: { ...(keyword ? { keyword } : {}), page, page_size: pageSize },
+    })
+    return data
+  },
+  async listEvaluatorOptions(cycleId: number): Promise<{ departments: Array<{ value: string; label: string }>; employee_types: Array<{ value: string; label: string }>; employees: Array<{ value: string; label: string }> }> {
+    const { data } = await api.get(`/performance/cycles/${cycleId}/evaluator-options`)
+    return data
+  },
+  async create(cycleId: number, payload: PerformanceProjectPayload): Promise<PerformanceProject> {
+    const { data } = await api.post<PerformanceProject>(`/performance/cycles/${cycleId}/projects`, payload)
+    return data
+  },
+  async get(id: number): Promise<PerformanceProject> {
+    const { data } = await api.get<PerformanceProject>(`/performance/projects/${id}`)
+    return data
+  },
+  async update(id: number, payload: PerformanceProjectPayload): Promise<PerformanceProject> {
+    const { data } = await api.patch<PerformanceProject>(`/performance/projects/${id}`, payload)
+    return data
+  },
+  async backfillWorkflowNodes(id: number, node_times: Record<string, PerformanceProjectNodeTime>): Promise<{ project_id: number; created_node_ids: string[] }> {
+    const { data } = await api.post(`/performance/projects/${id}/workflow-nodes/backfill`, { node_times })
+    return data
+  },
+  async start(id: number): Promise<PerformanceProject> {
+    const { data } = await api.post<PerformanceProject>(`/performance/projects/${id}/start`)
+    return data
+  },
+  async copy(id: number): Promise<PerformanceProject> {
+    const { data } = await api.post<PerformanceProject>(`/performance/projects/${id}/copy`)
+    return data
+  },
+  async remove(id: number): Promise<void> {
+    await api.delete(`/performance/projects/${id}`)
   },
 }

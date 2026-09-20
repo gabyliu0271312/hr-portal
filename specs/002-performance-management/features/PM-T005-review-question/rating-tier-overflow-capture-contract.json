@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "source_state_id": "20260831-manual:sub-question-rating-overflow",
+  "semantic_state_id": "sub_question:rating-tier-overflow-readonly",
+  "evidence_source": "user-provided Chrome DevTools computed-style capture",
+  "captured_at": "2026-08-31T03:14:53.333Z",
+  "completion_status": "supplemental_capture",
+  "pixel_restore_status": "implementation_ready_acceptance_pending",
+  "environment": {
+    "url": "https://idreamsky.feishu.cn/perf/admin/review-questions/review-indicators/create?isSub=1",
+    "viewport": { "width": 1280, "height": 314, "dpr": 1.5 },
+    "browser": "Chrome 152",
+    "color_scheme": "light"
+  },
+  "scope": {
+    "entry_modes": ["sub_question"],
+    "page_modes": ["create", "edit"],
+    "review_type": "评级",
+    "excluded": ["regular_question", "评分", "评分映射等级型", "review-rule-preview-default-interaction"]
+  },
+  "component": {
+    "id": "SubQuestionRatingTierNavigator",
+    "anatomy": [
+      "field",
+      "label",
+      "viewport",
+      "clip_layer",
+      "scroll_layer",
+      "track",
+      "pill",
+      "connector",
+      "overflow_mask",
+      "right_arrow"
+    ],
+    "ownership": {
+      "parent": ["800px ReviewRuleCard", "20px card inline padding", "natural card height"],
+      "component": ["38px viewport", "horizontal clipping", "natural pill width", "connectors", "overflow detection", "read-only overflow indicator"]
+    }
+  },
+  "geometry": {
+    "review_rule_card": {
+      "bbox": { "x": 236, "y": 166.667, "width": 800, "height": 232 },
+      "padding": { "top": 20, "right": 20, "bottom": 0, "left": 20 },
+      "margin_bottom": 16,
+      "border_width": 0.667,
+      "border_radius": 8,
+      "background": "rgb(255, 255, 255)",
+      "overflow": "visible",
+      "height_policy": "natural"
+    },
+    "field": {
+      "bbox": { "x": 256.667, "y": 310, "width": 758.667, "height": 68 },
+      "margin_bottom": 20,
+      "row_gap": 8
+    },
+    "label": {
+      "bbox": { "x": 256.667, "y": 310, "width": 56, "height": 22 },
+      "font_size": 14,
+      "font_weight": 600,
+      "line_height": 22,
+      "color": "rgb(31, 35, 41)"
+    },
+    "viewport": {
+      "bbox": { "x": 256.667, "y": 340, "width": 758.667, "height": 38 },
+      "width_policy": "parent-content-width",
+      "overflow_x": "hidden",
+      "overflow_y": "hidden",
+      "pointer_events": "none"
+    },
+    "scroll_layer": {
+      "visible_width": 758.667,
+      "height": 48,
+      "scroll_width": 2442,
+      "overflow_amount": 1683,
+      "padding_top": 4,
+      "overflow_x": "auto",
+      "overflow_y": "hidden",
+      "pointer_events": "none"
+    },
+    "track": {
+      "visible_width": 758.667,
+      "height": 32,
+      "scroll_width": 2442,
+      "display": "flex",
+      "align_items": "center",
+      "flex_wrap": "nowrap",
+      "pointer_events": "none"
+    },
+    "pill": {
+      "width_policy": "max-content",
+      "min_width": 42,
+      "height": 32,
+      "padding": { "vertical": 6, "horizontal": 12 },
+      "flex": "0 0 auto",
+      "border": "0.666667px solid rgb(208, 211, 214)",
+      "border_radius": 9999,
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(100, 106, 115)",
+      "font_size": 14,
+      "font_weight": 600,
+      "line_height": 18,
+      "pointer_events": "none",
+      "sample_widths": [141.927, 211.875, 273.302, 235.198, 227.427, 258.51]
+    },
+    "connector": {
+      "count": 9,
+      "width_policy": "flex-with-bounds",
+      "captured_overflow_width": 12,
+      "min_width": 12,
+      "max_width": 88,
+      "height": 0.667,
+      "border_top": "0.666667px solid rgb(208, 211, 214)",
+      "flex": "1 1 0%",
+      "pointer_events": "none"
+    },
+    "right_arrow": {
+      "visible_when": "scrollWidth > clientWidth",
+      "icon": "RightOutlined",
+      "interaction": "read-only",
+      "must_not_scroll": true,
+      "must_not_emit_navigation": true,
+      "visual_source": "PM-T006 RatingRulePreview verified RightOutlined",
+      "independent_bbox_status": "not_present_in_returned_fragment"
+    }
+  },
+  "fixtures": {
+    "pill_count": 10,
+    "connector_count": 9,
+    "first_labels": [
+      "111111111111111",
+      "111222222222222222222222",
+      "277777777777777777777777777777777",
+      "666666666666666666666666666",
+      "00000000000000000000000000",
+      "555555555555555555555555555555"
+    ]
+  },
+  "constraints": [
+    "field.width equals ReviewRuleCard content width within 1px",
+    "viewport.width equals field.width within 1px",
+    "label.bottom to viewport.top equals 8px within 1px",
+    "pill widths follow content and must not be normalized to one fixed width",
+    "connector count equals max(0, pill count - 1)",
+    "overflow content is clipped by viewport rather than ReviewRuleCard",
+    "right arrow is visible only during overflow and remains non-operable",
+    "left arrow is never rendered for the read-only sub-question variant",
+    "ReviewRuleCard height is natural and its bottom follows the field margin box"
+  ],
+  "acceptance_status": {
+    "structure": "captured",
+    "layout": "captured",
+    "visual": "captured_except_independent_arrow_bbox",
+    "behavior": "captured_read_only_pointer_contract",
+    "rendered_contract": "not-run",
+    "screenshot_diff": "not-run"
+  }
+}

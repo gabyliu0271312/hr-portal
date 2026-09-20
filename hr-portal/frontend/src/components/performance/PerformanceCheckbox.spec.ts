@@ -15,6 +15,11 @@ describe('PerformanceCheckbox', () => {
     expect(children[1].classList.contains('performance-checkbox__label')).toBe(true)
   })
 
+  it('supports a captured checked-color variant without changing the default', () => {
+    const wrapper = mount(PerformanceCheckbox, { props: { modelValue: true, label: '必填', checkedColor: '#336df4' } })
+    expect(wrapper.get('.performance-checkbox').attributes('style')).toContain('--performance-checkbox-checked-color: #336df4')
+  })
+
   it('supports the shared disabled state', () => {
     const wrapper = mount(PerformanceCheckbox, { props: { modelValue: false, label: '必填', disabled: true } })
     expect(wrapper.get('input').attributes('disabled')).toBeDefined()

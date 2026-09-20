@@ -1,0 +1,188 @@
+{
+  "schema_version": 2,
+  "feature": "PM-T006-review-rule",
+  "variant_id": "score-preview-fixed-options-20",
+  "contract_kind": "capture_projection_index",
+  "source_of_truth": "capture_evidence",
+  "completion_status": "incomplete",
+  "pixel_restore_status": "blocked",
+  "implementation_readiness": "blocked",
+  "uncovered_reasons": [
+    "mission coverage not declared",
+    "validation scope not declared",
+    "replay not run",
+    "rendered contract, screenshot diff and pixel acceptance remain not-run for this variant",
+    "raw capture context IDs are split by deterministic after-layout evidence"
+  ],
+  "environment": {
+    "url": "https://idreamsky.feishu.cn/perf/admin/review-questions/review-rules/create",
+    "viewport": { "width": 894, "height": 631, "dpr": 1.0000000298023224 },
+    "browser": "Chrome 152",
+    "color_scheme": "light",
+    "fonts_status": "loaded"
+  },
+  "source_session": {
+    "id": "idreamsky.feishu.cn_20260830_105058_603180",
+    "capture_model": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/capture_model.json",
+    "manual_capture": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/manual_capture.json",
+    "action_log": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/action_log.json",
+    "validation_coverage": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/validation_coverage.json",
+    "replay_result": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/replay_result.json",
+    "capture_model_status": "completed",
+    "coverage": { "declared_states": 13, "analyzed_states": 13, "captured_valid": 13, "failed": 0, "blocked": 0 },
+    "security": { "bodies_collected": false, "credential_headers_collected": false, "query_values_collected": false }
+  },
+  "states": [
+    {
+      "source_state_id": "RR-SCORE-FIXED-OPTIONS-20-FORM",
+      "capture_step": 1,
+      "semantic_state": "fixed score options form with 20 values",
+      "artifacts_dir": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/hybrid_steps/step_01/after",
+      "components": ["ReviewRuleForm", "ScoreConfig", "FixedScoreOptionsEditor"],
+      "fields": [{ "id": "fixedScoreOptions", "label": "配置分值选项 *", "control": "sortable-list", "options": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], "option_count": 20, "add_button": { "label": "添加分值", "disabled": true } }],
+      "visual_elements_ref": "target_contract.json#/bbox_inventory",
+      "styles_ref": "computed.json",
+      "svg_ref": "interaction_evidence.json#/icons",
+      "evidence_status": "captured_valid"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW",
+      "capture_step": 3,
+      "semantic_state": "preview first window, options 1-10",
+      "artifacts_dir": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/hybrid_steps/step_03/after",
+      "components": ["ReviewRulePreviewModal", "ScoreRulePreview", "FixedScorePreviewNavigator", "PreviewCloseButton"],
+      "fields": [{ "id": "fixedScoreOptions", "label": "固定分值选项", "control": "horizontal-carousel", "options": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], "visible_window": [1, 10] }],
+      "geometry": { "modal_root": { "width": 600, "height": 158 }, "header": { "height": 72 }, "body": { "height": 62 }, "navigator_viewport": { "width": 552, "height": 38 }, "track_x": 171, "right_icon": { "width": 16, "height": 16 } },
+      "visual_elements_ref": "target_contract.json#/bbox_inventory",
+      "styles_ref": "computed.json",
+      "svg_ref": "interaction_evidence.json#/icons",
+      "evidence_status": "captured_valid"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-HOVER-5",
+      "capture_step": 4,
+      "semantic_state": "first window with option 5 hovered",
+      "artifacts_dir": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/hybrid_steps/step_04/after",
+      "components": ["ReviewRulePreviewModal", "FixedScorePreviewNavigator"],
+      "state_delta": { "hover_target": 5, "track_x": 171, "visible_window": [1, 10] },
+      "visual_elements_ref": "target_contract.json#/bbox_inventory",
+      "styles_ref": "computed.json",
+      "svg_ref": "interaction_evidence.json#/icons",
+      "evidence_status": "captured_valid"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-10",
+      "capture_step": 5,
+      "semantic_state": "edge hover on option 10 with partial horizontal shift",
+      "artifacts_dir": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/hybrid_steps/step_05/after",
+      "components": ["ReviewRulePreviewModal", "FixedScorePreviewNavigator"],
+      "state_delta": { "hover_target": 10, "track_x": 171, "observed_capture_track_x": -60.333, "observed_not_target": true, "visible_window": [1, 10], "left_arrow": false, "right_arrow": true },
+      "visual_elements_ref": "target_contract.json#/bbox_inventory",
+      "styles_ref": "computed.json",
+      "svg_ref": "interaction_evidence.json#/icons",
+      "evidence_status": "captured_valid"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW",
+      "capture_step": 7,
+      "semantic_state": "preview last window, options 11-20",
+      "artifacts_dir": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/hybrid_steps/step_07/after",
+      "components": ["ReviewRulePreviewModal", "FixedScorePreviewNavigator", "PreviewCloseButton"],
+      "state_delta": { "track_x": -345, "visible_window": [11, 20], "left_arrow": true, "right_arrow": false },
+      "visual_elements_ref": "target_contract.json#/bbox_inventory",
+      "styles_ref": "computed.json",
+      "svg_ref": "interaction_evidence.json#/icons",
+      "evidence_status": "captured_valid"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-HOVER-15",
+      "capture_step": 8,
+      "semantic_state": "last window with option 15 hovered",
+      "artifacts_dir": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/hybrid_steps/step_08/after",
+      "components": ["ReviewRulePreviewModal", "FixedScorePreviewNavigator"],
+      "state_delta": { "hover_target": 15, "track_x": -345, "visible_window": [11, 20] },
+      "visual_elements_ref": "target_contract.json#/bbox_inventory",
+      "styles_ref": "computed.json",
+      "svg_ref": "interaction_evidence.json#/icons",
+      "evidence_status": "captured_valid"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-11",
+      "capture_step": 9,
+      "semantic_state": "edge hover on option 11 with partial horizontal shift",
+      "artifacts_dir": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/hybrid_steps/step_09/after",
+      "components": ["ReviewRulePreviewModal", "FixedScorePreviewNavigator"],
+      "state_delta": { "hover_target": 11, "track_x": -345, "observed_capture_track_x": 141, "observed_not_target": true, "visible_window": [11, 20], "left_arrow": true, "right_arrow": false },
+      "visual_elements_ref": "target_contract.json#/bbox_inventory",
+      "styles_ref": "computed.json",
+      "svg_ref": "interaction_evidence.json#/icons",
+      "evidence_status": "captured_valid"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-AFTER-LEFT",
+      "capture_step": 11,
+      "semantic_state": "preview restored to first window after left navigation",
+      "artifacts_dir": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/hybrid_steps/step_11/after",
+      "components": ["ReviewRulePreviewModal", "FixedScorePreviewNavigator", "PreviewCloseButton"],
+      "state_delta": { "track_x": 171, "visible_window": [1, 10], "left_arrow": false, "right_arrow": true },
+      "visual_elements_ref": "target_contract.json#/bbox_inventory",
+      "styles_ref": "computed.json",
+      "svg_ref": "interaction_evidence.json#/icons",
+      "evidence_status": "captured_valid"
+    },
+    {
+      "source_state_id": "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-COMPLETED",
+      "capture_step": 12,
+      "semantic_state": "preview closed and form restored",
+      "artifacts_dir": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260830_105058_603180/captures/hybrid_steps/step_12/after",
+      "components": ["ReviewRuleForm", "ScoreConfig", "FixedScoreOptionsEditor"],
+      "state_delta": { "overlay_count_decreased": true, "dismissed": true },
+      "visual_elements_ref": "target_contract.json#/bbox_inventory",
+      "styles_ref": "computed.json",
+      "svg_ref": "interaction_evidence.json#/icons",
+      "evidence_status": "captured_valid"
+    }
+  ],
+  "shared_components": [
+    { "component_id": "PerformanceOptionNavigator", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-HOVER-5", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-10", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-HOVER-15", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-11", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-AFTER-LEFT"], "props": ["options", "layoutPolicy", "appearanceVariant"], "events": ["next", "previous", "hover"] },
+    { "component_id": "FixedScoreOptionsEditor", "source_state_ids": ["RR-SCORE-FIXED-OPTIONS-20-FORM"], "props": ["options"], "events": ["update:options", "add", "remove", "reorder"] },
+    { "component_id": "FixedScorePreviewNavigator", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW"], "props": ["options"], "events": ["next", "previous", "hover"], "adapts_to": "PerformanceOptionNavigator" },
+    { "component_id": "ReviewRulePreviewModal", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW"], "props": ["open", "reviewType", "formValue"], "events": ["close"] },
+    { "component_id": "PreviewCloseButton", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-AFTER-LEFT"], "props": ["icon=CloseOutlined"], "events": ["close"] }
+  ],
+  "layout_relations": [
+    { "id": "modal-width", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-10", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-11"], "left": "modal_root.width", "right": 600, "property": "equal", "operator": "equal", "expected": { "left": 600, "right": 600 }, "tolerance": 1 },
+    { "id": "modal-height", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW"], "left": "modal_root.height", "right": 158, "property": "equal", "operator": "equal", "expected": { "left": 158, "right": 158 }, "tolerance": 1 },
+    { "id": "header-height", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW"], "left": "header.height", "right": 72, "property": "equal", "operator": "equal", "expected": { "left": 72, "right": 72 }, "tolerance": 1 },
+    { "id": "navigator-viewport", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-10", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-11"], "left": "navigator_viewport.width", "right": 552, "property": "equal", "operator": "equal", "expected": { "left": 552, "right": 552 }, "tolerance": 1 },
+    { "id": "chip-size-and-pitch", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW"], "left": "option_chip.width", "right": 42, "property": "width", "operator": "equal", "expected": { "left": 42, "right": 42 }, "tolerance": 1 },
+    { "id": "chip-pitch", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW"], "left": "option_chip_1.x + 54", "right": "option_chip_2.x", "property": "horizontal-pitch", "operator": "equal", "expected": { "left": 54, "right": 54 }, "tolerance": 1 },
+    { "id": "edge-track-offsets", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-10", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-11"], "left": "navigator_track.x", "right": "captured state-specific value", "property": "variant", "operator": "explicit", "expected": { "first": 171, "edge_hover_10": -60.333, "last": -345, "edge_hover_11": 141 }, "tolerance": 1 },
+    { "id": "close-icon-size", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW"], "left": "CloseOutlined.width", "right": 20, "property": "equal", "operator": "equal", "expected": { "left": 20, "right": 20 }, "tolerance": 1 }
+  ],
+  "interaction_contracts": [
+    { "id": "edge-hover-10-scroll", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-HOVER-5", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-10"], "trigger": "hover option 10", "effect": "formal track remains at first-window x=171; captured x=-60.333 is observed_not_target" },
+    { "id": "edge-hover-11-scroll", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-HOVER-15", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-11"], "trigger": "hover option 11", "effect": "formal track remains at last-window x=-345; captured x=141 is observed_not_target" },
+    { "id": "navigation-and-dismiss", "source_state_ids": ["RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-10", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-11", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-AFTER-LEFT"], "previous": "LeftOutlined", "next": "RightOutlined", "dismiss": "CloseOutlined", "dismiss_verification": "verified" }
+  ],
+  "navigation_contract": {
+    "mode": "sequential-pages",
+    "page_index": { "initial": 0, "next": "+1", "previous": "-1", "clamp": "0..pageCount-1" },
+    "button_visibility": { "first": { "previous": false, "next": true }, "middle": { "previous": true, "next": true }, "last": { "previous": true, "next": false } },
+    "max_track_offset_role": "last-page-boundary-only",
+    "evidence_limit": "20260830 source covers two-page 20-option path; three-page behavior is implementation-test coverage, not captured pixel evidence"
+  },
+  "normalization": {
+    "raw_context_ids": ["RR-SCORE-FIXED-OPTIONS-20-FORM", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-AFTER-LEFT"],
+    "projected_state_ids": ["RR-SCORE-FIXED-OPTIONS-20-FORM", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-FIRST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-HOVER-5", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-10", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-LAST-WINDOW", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-HOVER-15", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-EDGE-HOVER-11", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-AFTER-LEFT", "RR-PREVIEW-SCORE-FIXED-OPTIONS-20-COMPLETED"],
+    "rules": ["split hover and edge-scroll states by after layout", "split post-close form from pre-close preview context", "bind absolute geometry to 894x631 viewport"]
+  },
+  "coverage": {
+    "unmapped_source_states": [],
+    "unmapped_components": [],
+    "unmapped_fields": [],
+    "unmapped_interactions": [],
+    "cross_document_conflicts": [],
+    "blocked": ["mission coverage not declared", "validation scope not declared", "replay not run", "rendered contract not-run", "screenshot diff not-run", "pixel acceptance not-run"]
+  }
+}

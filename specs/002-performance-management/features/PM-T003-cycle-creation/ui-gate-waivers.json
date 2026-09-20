@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "waivers": [
+    {
+      "id": "PM-T003-I01-cycle-settings-button-default-20260920",
+      "task_id": "PM-T003-I01",
+      "approved_by": "用户（本会话确认先实现已采集 HRBP 页面壳和列表静态交互）",
+      "approved_at": "2026-09-20",
+      "reason": "仅允许依据用户提供的 HRBP 权限管理 SnapSpec，实现周期 HRBP 权限管理页面壳、首个页签、静态列表交互和从设置菜单进入该页面；不实现真实 HRBP 授权 CRUD、API、数据持久化、变更记录内容或弹窗。PM-T003 现有采集文件位于 ui-capture 子目录、原子任务沿用 I01 旧编号，未适配当前检查器的根级文件布局与 Txx 任务解析；主按钮文案、列表数据、变更记录和弹窗状态证据仍不完整，继续保持完整像素验收 blocked，不放宽其他组件或任务门禁。",
+      "active": true,
+      "scope": [
+        "hr-portal/frontend/src/components/performance/PerformanceManagementTable.vue",
+        "hr-portal/frontend/src/components/performance/PerformancePromptNotice.vue",
+        "hr-portal/frontend/src/router/index.ts",
+        "hr-portal/frontend/src/views/performance/CycleHrbpPermissionManagement.spec.ts",
+        "hr-portal/frontend/src/components/performance/PerformanceHrbpPermissionTable.spec.ts",
+        "hr-portal/frontend/src/components/performance/PerformanceHrbpScopeSummary.spec.ts",
+        "hr-portal/frontend/src/components/performance/PerformanceHrbpPermissionTable.vue",
+        "hr-portal/frontend/src/components/performance/PerformanceHrbpScopeSummary.vue",
+        "hr-portal/frontend/src/views/performance/CycleHrbpPermissionManagement.vue",
+        "hr-portal/frontend/src/components/performance/PerformanceCycleSettingsMenu.spec.ts",
+        "hr-portal/frontend/src/components/performance/PerformanceCycleSettingsMenu.vue",
+        "hr-portal/frontend/src/views/performance/CycleManagement.vue",
+        "hr-portal/frontend/src/views/performance/CycleManagement.spec.js",
+        "specs/002-performance-management/features/PM-T003-cycle-creation"
+      ],
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "task_not_found:PM-T003-I01",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation"
+      ]
+    }
+  ]
+}

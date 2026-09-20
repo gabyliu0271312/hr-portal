@@ -209,7 +209,7 @@ def build_snapshot_people(
                 display_name=_normalized_reference(row.display_name) or "",
                 source_roster_id=row.source_roster_id,
                 organization_ref=_normalized_reference(row.organization_ref),
-                direct_manager_employee_no=resolve_reference(row.direct_manager_source_value),
+                direct_manager_employee_no=resolve_reference(row.direct_manager_source_value) or _normalized_reference(row.direct_manager_source_value),
                 direct_manager_source_value=_normalized_reference(
                     row.direct_manager_source_value
                 ),

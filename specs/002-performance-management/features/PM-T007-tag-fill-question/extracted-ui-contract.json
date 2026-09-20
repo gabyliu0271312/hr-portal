@@ -1,0 +1,300 @@
+{
+  "schema_version": 3,
+  "feature_id": "PM-T007",
+  "state_map": "state-map.json",
+  "raw_state_projection": {"session":"idreamsky.feishu.cn_20260902_165521_251185","mapped_state_count":19,"variant_group_count":6,"status":"mapped-with-unresolved-before-artifacts"},
+  "completion_status": "incomplete",
+  "pixel_restore_status": "blocked",
+  "capture_readiness": {
+    "capture_integrity": "passed",
+    "capture_completeness": "passed",
+    "implementation_readiness": "design_incomplete",
+    "readiness_scope": "variant",
+    "target_variant_keys": ["list-default", "list-row-hover", "create-default", "edit-default", "description-focus", "remark-focus", "preview-validation", "preview-success", "tag-added"],
+    "blockers": [
+      "navigation-parent-and-review-selection-mapping-incomplete",
+      "edit-ownership-comparison-pending",
+      "semantic-variant-context-incomplete",
+      "create-action-context-incomplete",
+      "raw-state-before-artifact-projection-pending",
+      "rendered-contract-and-screenshot-diff-missing",
+      "api-data-model-permission-contract-unconfirmed"
+    ],
+    "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260902_123014_357212/captures/"
+  },
+  "capture": {
+    "mission_id": "mission-e9067c6b3862",
+    "sessions": [
+      "idreamsky.feishu.cn_20260902_112536_141654",
+      "idreamsky.feishu.cn_20260902_122428_527008",
+      "idreamsky.feishu.cn_20260902_123014_357212",
+      "idreamsky.feishu.cn_20260902_142513_564760",
+      "idreamsky.feishu.cn_20260902_153113_566355",
+      "idreamsky.feishu.cn_20260902_161653_099829",
+      "idreamsky.feishu.cn_20260902_165521_251185",
+      "idreamsky.feishu.cn_20260902_170518_391976"
+    ],
+    "url": "https://idreamsky.feishu.cn/perf/admin/tagged-fill-in-questions?currentPage=1&pageSize=10",
+    "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+    "coverage": {
+      "unmapped_states": ["navigation-hover", "navigation-expanded", "navigation-collapsed"],
+      "unmapped_components": ["EditIcon", "NavigationExpandCollapseIcon"],
+      "conflicts": [],
+      "missing_artifacts": ["navigation-complete-mapping", "rendered-contract", "screenshot-diff"]
+    }
+  },
+  "states": [
+    {
+      "source_state_id": "LIST-DEFAULT",
+      "variant_key": "list-default",
+      "entry_mode": "list",
+      "review_type": "tag-fill-question",
+      "config_discriminator": "default",
+      "session": "idreamsky.feishu.cn_20260902_123014_357212",
+      "url": "https://idreamsky.feishu.cn/perf/admin/tagged-fill-in-questions?currentPage=1&pageSize=10",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "state": "default",
+      "components": ["TagFillQuestionManagement", "PerformanceListToolbar", "TagFillQuestionTable", "PerformanceListPagination"],
+      "fields": [],
+      "geometry": {"bbox": {"x": 0, "y": 0, "width": 1920, "height": 1080}, "padding": {"top": 0, "right": 0, "bottom": 0, "left": 0}, "margin": {"top": 0, "right": 0, "bottom": 0, "left": 0}},
+      "styles": {"display": "flex", "position": "relative", "boxSizing": "border-box", "backgroundColor": "rgb(245,246,247)", "color": "BLOCKED", "fontSize": "BLOCKED", "fontWeight": "BLOCKED", "lineHeight": "BLOCKED", "border": "BLOCKED", "borderRadius": "BLOCKED", "boxShadow": "BLOCKED", "overflowX": "auto", "overflowY": "auto", "zIndex": "auto"},
+      "interactions": [],
+      "svg": [],
+      "artifacts": {
+        "before_html": "captures/initial/before.html",
+        "after_html": "captures/initial/before.html",
+        "layout": "captures/initial/layout.json",
+        "computed": "captures/initial/computed.json",
+        "overlay": "captures/initial/overlay.json",
+        "screenshot": "captures/initial/before.png",
+        "interaction_evidence": "BLOCKED",
+        "target_contract": "BLOCKED"
+      },
+      "visual_elements": [
+        {"id":"list-page-root","role":"container","anchor":"root","bbox":{"x":0,"y":0,"width":1920,"height":1080},"styles":{"display":"flex","width":"1920px","height":"1080px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"BLOCKED"},"state":"default","source_state_ids":["LIST-DEFAULT"],"evidence":"captures/initial/layout.json","parent_structure":"root"},
+        {"id":"list-card","role":"container","anchor":"setting-content-wrapper","bbox":{"x":260,"y":118,"width":1640,"height":942},"styles":{"display":"block","width":"1640px","height":"942px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"BLOCKED"},"state":"default","source_state_ids":["LIST-DEFAULT"],"evidence":"captures/initial/layout.json","parent_structure":"list-page-root"},
+        {"id":"create-button","role":"button","anchor":"text:新建","bbox":{"x":280,"y":138,"width":80,"height":32},"styles":{"display":"flex","width":"80px","height":"32px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"center"},"state":"default","source_state_ids":["LIST-DEFAULT"],"evidence":"captures/initial/layout.json","parent_structure":"list-card"},
+        {"id":"table-header","role":"table-header","anchor":"text:名称/创建人/创建时间/备注/操作","bbox":{"x":280,"y":186.666672,"width":1600,"height":46.666668},"styles":{"display":"table-header-group","width":"1600px","height":"46.666668px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"BLOCKED"},"state":"default","source_state_ids":["LIST-DEFAULT"],"evidence":"captures/initial/layout.json","parent_structure":"list-card"},
+        {"id":"pagination","role":"navigation","anchor":"table-pagination","bbox":{"x":280,"y":395.333333,"width":1600,"height":28},"styles":{"display":"flex","width":"1600px","height":"28px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"center"},"state":"default","source_state_ids":["LIST-DEFAULT"],"evidence":"captures/initial/layout.json","parent_structure":"list-card"}
+      ]
+    },
+    {
+      "source_state_id": "CREATE-DEFAULT",
+      "variant_key": "create-default",
+      "entry_mode": "create",
+      "review_type": "tag-fill-question",
+      "config_discriminator": "empty-form",
+      "session": "idreamsky.feishu.cn_20260902_123014_357212",
+      "url": "https://idreamsky.feishu.cn/perf/admin/tagged-fill-in-questions/create",
+      "viewport": {"width":1920,"height":1080,"dpr":1},
+      "state":"default",
+      "components": ["TagFillQuestionCreatePage", "SharedPerformancePageHeader", "TagFillQuestionForm", "TagItemEditor", "SharedPerformanceActionBar"],
+      "fields": [
+        {"id":"name","label":"名称","control":"input","placeholder":"请输入名称","required":true,"order":2},
+        {"id":"description","label":"描述","control":"textarea","placeholder":"请输入描述","required":false,"order":3},
+        {"id":"tags.name","label":"名称","control":"input","placeholder":"请输入标签名称","required":true,"order":4},
+        {"id":"tags.description","label":"说明","control":"textarea","placeholder":"请输入标签说明（选填）","required":false,"order":5},
+        {"id":"tags.prompt","label":"提示","control":"textarea","placeholder":"请输入提示（选填）","required":false,"order":6},
+        {"id":"remark","label":"备注","control":"textarea","placeholder":"填写帮助管理员理解此问题的内容，备注仅展示在飞书绩效管理后台","required":false,"order":7}
+      ],
+      "geometry": {"bbox": {"x": 0, "y": 0, "width": 1920, "height": 1080}, "padding": {"top": 0, "right": 0, "bottom": 0, "left": 0}, "margin": {"top": 0, "right": 0, "bottom": 0, "left": 0}},
+      "styles": {"display": "flex", "position": "relative", "boxSizing": "border-box", "backgroundColor": "rgb(255,255,255)", "color": "BLOCKED", "fontSize": "BLOCKED", "fontWeight": "BLOCKED", "lineHeight": "BLOCKED", "border": "BLOCKED", "borderRadius": "BLOCKED", "boxShadow": "BLOCKED", "overflowX": "auto", "overflowY": "auto", "zIndex": "auto"},
+      "interactions": [],
+      "svg": [],
+      "artifacts": {
+        "before_html":"captures/hybrid_steps/step_01/before/before.html",
+        "after_html":"captures/hybrid_steps/step_01/after/after.html",
+        "layout":"captures/hybrid_steps/step_01/after/layout.json",
+        "computed":"captures/hybrid_steps/step_01/after/computed.json",
+        "overlay":"captures/hybrid_steps/step_01/after/overlay.json",
+        "screenshot":"captures/hybrid_steps/step_01/after/after.png",
+        "interaction_evidence":"captures/hybrid_steps/step_01/after/interaction_evidence.json",
+        "target_contract":"captures/hybrid_steps/step_01/after/target_contract.json",
+        "state_contract":"captures/hybrid_steps/step_01/after/state_contract.json"
+      },
+      "visual_elements": [
+        {"id":"create-page-root","role":"container","anchor":"root","bbox":{"x":0,"y":0,"width":1920,"height":1080},"styles":{"display":"flex","width":"1920px","height":"1080px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"BLOCKED"},"state":"default","source_state_ids":["CREATE-DEFAULT"],"evidence":"captures/hybrid_steps/step_01/after/layout.json","parent_structure":"root"},
+        {"id":"page-header","role":"header","anchor":"text:返回/新建标签型填写题","bbox":{"x":0,"y":0,"width":1920,"height":56},"styles":{"display":"flex","width":"1920px","height":"56px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"center"},"state":"default","source_state_ids":["CREATE-DEFAULT"],"evidence":"captures/hybrid_steps/step_01/after/layout.json","parent_structure":"create-page-root"},
+        {"id":"form-root","role":"form","anchor":"path:form-root","bbox":{"x":584,"y":64,"width":752,"height":719.333374},"styles":{"display":"block","width":"752px","height":"719.333374px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"BLOCKED"},"state":"default","source_state_ids":["CREATE-DEFAULT"],"evidence":"captures/hybrid_steps/step_01/after/target_contract.json","parent_structure":"create-page-root"},
+        {"id":"tag-items-section","role":"group","anchor":"text:标签/添加标签","bbox":{"x":584,"y":311.333343,"width":752,"height":352.666687},"styles":{"display":"block","width":"752px","height":"352.666687px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"BLOCKED"},"state":"default","source_state_ids":["CREATE-DEFAULT"],"evidence":"captures/hybrid_steps/step_01/after/layout.json","parent_structure":"form-root"},
+        {"id":"action-bar","role":"group","anchor":"text:提交/预览/取消","bbox":{"x":584,"y":767.333374,"width":752,"height":64},"styles":{"display":"flex","width":"752px","height":"64px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"center"},"state":"default","source_state_ids":["CREATE-DEFAULT"],"evidence":"captures/hybrid_steps/step_01/after/layout.json","parent_structure":"create-page-root"}
+      ]
+    },
+    {
+      "source_state_id":"EDIT-DEFAULT",
+      "variant_key":"edit-default",
+      "entry_mode":"edit",
+      "review_type":"tag-fill-question",
+      "config_discriminator":"prefilled-first-record",
+      "session":"idreamsky.feishu.cn_20260902_142513_564760",
+      "url":"https://idreamsky.feishu.cn/perf/admin/tagged-fill-in-questions/7173973572648894465?from",
+      "viewport":{"width":1920,"height":1080,"dpr":1},
+      "state":"default",
+      "components":["TagFillQuestionEditPage","SharedPerformancePageHeader","TagFillQuestionForm","TagItemEditor","SharedPerformanceActionBar"],
+      "fields":[
+        {"id":"name","label":"名称","control":"input","placeholder":"请输入名称","required":true,"order":2,"value":"价值观"},
+        {"id":"description","label":"描述","control":"textarea","placeholder":"请输入描述","required":false,"order":3,"value_length":47},
+        {"id":"tags.name","label":"名称","control":"input","placeholder":"请输入标签名称","required":true,"order":4,"value":"价值观测评语"},
+        {"id":"tags.description","label":"说明","control":"textarea","placeholder":"请输入标签说明（选填）","required":false,"order":5},
+        {"id":"tags.prompt","label":"提示","control":"textarea","placeholder":"请输入提示（选填）","required":false,"order":6},
+        {"id":"remark","label":"备注","control":"textarea","placeholder":"填写帮助管理员理解此问题的内容，备注仅展示在飞书绩效管理后台","required":false,"order":7}
+      ],
+      "geometry":{"bbox":{"x":0,"y":0,"width":1920,"height":1080},"padding":{"top":0,"right":0,"bottom":0,"left":0},"margin":{"top":0,"right":0,"bottom":0,"left":0}},
+      "styles":{"display":"flex","position":"relative","boxSizing":"border-box","backgroundColor":"rgb(255,255,255)","color":"BLOCKED","fontSize":"BLOCKED","fontWeight":"BLOCKED","lineHeight":"BLOCKED","border":"BLOCKED","borderRadius":"BLOCKED","boxShadow":"BLOCKED","overflowX":"auto","overflowY":"auto","zIndex":"auto"},
+      "interactions":[],
+      "svg":[],
+      "artifacts":{"before_html":"captures/hybrid_steps/step_12/before/before.html","after_html":"captures/hybrid_steps/step_12/after/after.html","layout":"captures/hybrid_steps/step_12/after/layout.json","computed":"captures/hybrid_steps/step_12/after/computed.json","overlay":"captures/hybrid_steps/step_12/after/overlay.json","screenshot":"captures/hybrid_steps/step_12/after/after.png","interaction_evidence":"captures/hybrid_steps/step_12/after/interaction_evidence.json","target_contract":"captures/hybrid_steps/step_12/after/target_contract.json"},
+      "visual_elements":[
+        {"id":"edit-page-root","role":"container","anchor":"root","bbox":{"x":0,"y":0,"width":1920,"height":1080},"styles":{"display":"flex","width":"1920px","height":"1080px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"BLOCKED"},"state":"default","source_state_ids":["EDIT-DEFAULT"],"evidence":"captures/hybrid_steps/step_12/after/layout.json","parent_structure":"root"},
+        {"id":"edit-page-header","role":"header","anchor":"text:返回/价值观","bbox":{"x":0,"y":0,"width":1920,"height":56},"styles":{"display":"flex","width":"1920px","height":"56px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"center"},"state":"default","source_state_ids":["EDIT-DEFAULT"],"evidence":"captures/hybrid_steps/step_12/after/layout.json","parent_structure":"edit-page-root"},
+        {"id":"edit-form-root","role":"form","anchor":"path:form-root","bbox":{"x":584,"y":64,"width":752,"height":719.333374},"styles":{"display":"block","width":"752px","height":"719.333374px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"BLOCKED"},"state":"default","source_state_ids":["EDIT-DEFAULT"],"evidence":"captures/hybrid_steps/step_12/after/target_contract.json","parent_structure":"edit-page-root"},
+        {"id":"edit-tag-items-section","role":"group","anchor":"text:标签/添加标签","bbox":{"x":584,"y":311.333343,"width":752,"height":352.666687},"styles":{"display":"block","width":"752px","height":"352.666687px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"BLOCKED"},"state":"default","source_state_ids":["EDIT-DEFAULT"],"evidence":"captures/hybrid_steps/step_12/after/layout.json","parent_structure":"edit-form-root"},
+        {"id":"edit-action-bar","role":"group","anchor":"text:提交/预览/取消","bbox":{"x":584,"y":767.333374,"width":752,"height":64},"styles":{"display":"flex","width":"752px","height":"64px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"center"},"state":"default","source_state_ids":["EDIT-DEFAULT"],"evidence":"captures/hybrid_steps/step_12/after/layout.json","parent_structure":"edit-page-root"}
+      ]
+    },
+    {
+      "source_state_id":"REMARK-RESIZE-AFTER",
+      "variant_key":"remark-resize-after",
+      "entry_mode":"create",
+      "review_type":"tag-fill-question",
+      "config_discriminator":"remark-textarea-resized",
+      "session":"idreamsky.feishu.cn_20260902_170518_391976",
+      "url":"https://idreamsky.feishu.cn/perf/admin/tagged-fill-in-questions/create",
+      "viewport":{"width":1920,"height":1080,"dpr":1},
+      "state":"after-drag",
+      "components":["TagFillQuestionForm"],
+      "fields":[{"id":"remark","label":"备注","control":"textarea","placeholder":"填写帮助管理员理解此问题的内容，备注仅展示在飞书绩效管理后台","required":false,"order":7}],
+      "geometry":{"bbox":{"x":584,"y":713.98,"width":752,"height":126},"padding":{"top":0,"right":0,"bottom":0,"left":0},"margin":{"top":0,"right":0,"bottom":0,"left":0}},
+      "styles":{"display":"block","position":"relative","boxSizing":"border-box","backgroundColor":"rgb(255,255,255)","color":"rgb(31,35,41)","fontSize":"14px","fontWeight":400,"lineHeight":"22px","border":"1px solid rgb(20,86,240)","borderRadius":"BLOCKED","boxShadow":"none","overflowX":"visible","overflowY":"visible","zIndex":"auto"},
+      "interactions":[{"kind":"resize","target":"remark","phases":["after-drag"],"before":"CREATE-DEFAULT","after":"REMARK-RESIZE-AFTER"}],
+      "svg":[],
+      "artifacts":{"before_html":"captures/hybrid_steps/step_01/before/before.html","after_html":"captures/hybrid_steps/step_01/after/after.html","layout":"captures/hybrid_steps/step_01/after/layout.json","computed":"captures/hybrid_steps/step_01/after/computed.json","target_contract":"captures/hybrid_steps/step_01/after/target_contract.json","interaction_evidence":"captures/hybrid_steps/step_01/after/interaction_evidence.json","screenshot":"captures/hybrid_steps/step_01/after/after.png"},
+      "visual_elements":[
+        {"id":"remark-resized","role":"control","anchor":"placeholder:填写帮助管理员理解此问题的内容，备注仅展示在飞书绩效管理后台","bbox":{"x":584,"y":713.98,"width":752,"height":126},"styles":{"display":"block","width":"752px","height":"126px","margin-left":"0px","font-family":"-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif","font-size":"14px","font-weight":"400","line-height":"22px","align-items":"not_applicable"},"state":"after-drag","source_state_ids":["REMARK-RESIZE-AFTER"],"evidence":"captures/hybrid_steps/step_01/after/target_contract.json","parent_structure":{"parent_role":"TagFillQuestionForm","relation":"direct-child"}}
+      ]
+    },
+    {
+      "source_state_id":"NAV-TAG-SELECTED",
+      "variant_key":"navigation-tag-selected",
+      "entry_mode":"navigation",
+      "review_type":"tag-fill-question",
+      "config_discriminator":"selected",
+      "session":"idreamsky.feishu.cn_20260902_153113_566355",
+      "url":"https://idreamsky.feishu.cn/perf/admin/tagged-fill-in-questions?currentPage=1&pageSize=10",
+      "viewport":{"width":1920,"height":1080,"dpr":1},
+      "state":"selected",
+      "components":["PerformanceAssessmentNavigation"],
+      "fields":[],
+      "geometry":{"bbox":{"x":0,"y":0,"width":1920,"height":1080},"padding":{"top":0,"right":0,"bottom":0,"left":0},"margin":{"top":0,"right":0,"bottom":0,"left":0}},
+      "styles":{"display":"flex","position":"relative","boxSizing":"border-box","backgroundColor":"rgb(245,246,247)","color":"BLOCKED","fontSize":"BLOCKED","fontWeight":"BLOCKED","lineHeight":"BLOCKED","border":"BLOCKED","borderRadius":"BLOCKED","boxShadow":"BLOCKED","overflowX":"auto","overflowY":"auto","zIndex":"auto"},
+      "interactions":[],
+      "svg":[],
+      "artifacts":{"before_html":"captures/hybrid_steps/step_19/before/before.html","after_html":"captures/hybrid_steps/step_18/after/after.html","layout":"captures/hybrid_steps/step_18/after/layout.json","computed":"captures/hybrid_steps/step_18/after/computed.json","target_contract":"captures/hybrid_steps/step_18/after/target_contract.json","interaction_evidence":"captures/hybrid_steps/step_18/after/interaction_evidence.json","screenshot":"captures/hybrid_steps/step_18/after/after.png"},
+      "visual_elements":[
+        {"id":"tag-nav-item","role":"navigation-item","anchor":"text:标签型填写题","bbox":{"x":0,"y":307,"width":232,"height":41},"styles":{"display":"flex","width":"232px","height":"41px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"center"},"state":"selected","source_state_ids":["NAV-TAG-SELECTED"],"evidence":"captures/hybrid_steps/step_18/after/target_contract.json","parent_structure":"PerformanceAssessmentNavigation"},
+        {"id":"tag-nav-background","role":"background","anchor":"text:标签型填写题","bbox":{"x":0,"y":307,"width":232,"height":41},"styles":{"display":"block","width":"232px","height":"41px","margin-left":"0px","font-family":"BLOCKED","font-size":"BLOCKED","font-weight":"BLOCKED","line-height":"BLOCKED","align-items":"not_applicable"},"state":"selected","source_state_ids":["NAV-TAG-SELECTED"],"evidence":"captures/hybrid_steps/step_18/after/target_contract.json","parent_structure":"tag-nav-item"}
+      ]
+    }
+  ],
+  "components": [
+    {"component_id":"TagFillQuestionManagement","source_state_ids":["LIST-DEFAULT","EDIT-DEFAULT"],"props":{"items":"array","loading":"boolean"},"events":["create","edit","remove"],"state_matrix":{"default":"LIST-DEFAULT","row-hover":"BLOCKED"},"geometry":{"bbox_role":"component_root","bbox":{"x":260,"y":118,"width":1640,"height":942}},"styles":{"display":"block","position":"relative","boxSizing":"border-box","backgroundColor":"rgb(255,255,255)","color":"BLOCKED","fontSize":"BLOCKED","fontWeight":"BLOCKED","lineHeight":"BLOCKED","border":"BLOCKED","borderRadius":"BLOCKED","boxShadow":"BLOCKED","overflowX":"visible","overflowY":"visible","zIndex":"auto"},"svg":[]},
+    {"component_id":"PerformanceListToolbar","source_state_ids":["LIST-DEFAULT"],"props":{"search":"string","actions":"array"},"events":["search","filter","create"],"state_matrix":{"default":"LIST-DEFAULT","new-hover":"BLOCKED"},"geometry":{"bbox_role":"component_root","bbox":{"x":280,"y":138,"width":1600,"height":32}},"styles":{"display":"flex","position":"static","boxSizing":"border-box","backgroundColor":"rgba(0,0,0,0)","color":"BLOCKED","fontSize":"BLOCKED","fontWeight":"BLOCKED","lineHeight":"BLOCKED","border":"0px none","borderRadius":"0px","boxShadow":"none","overflowX":"visible","overflowY":"visible","zIndex":"auto"},"svg":[]},
+    {"component_id":"TagFillQuestionForm","source_state_ids":["CREATE-DEFAULT","EDIT-DEFAULT"],"props":{"mode":"create|edit","modelValue":"object"},"events":["update:modelValue","submit","preview","cancel","back"],"state_matrix":{"create":"CREATE-DEFAULT","edit":"EDIT-DEFAULT"},"geometry":{"bbox_role":"component_root","bbox":{"x":584,"y":64,"width":752,"height":719.333374}},"styles":{"display":"block","position":"static","boxSizing":"border-box","backgroundColor":"rgb(255,255,255)","color":"BLOCKED","fontSize":"BLOCKED","fontWeight":"BLOCKED","lineHeight":"BLOCKED","border":"0px none","borderRadius":"BLOCKED","boxShadow":"BLOCKED","overflowX":"visible","overflowY":"visible","zIndex":"auto"},"svg":[]},
+    {"component_id":"SharedPerformancePageHeader","source_state_ids":["CREATE-DEFAULT","EDIT-DEFAULT"],"props":{"title":"string","mode":"create|edit"},"events":["back"],"state_matrix":{"default":"CREATE-DEFAULT","edit":"BLOCKED"},"geometry":{"bbox_role":"component_root","bbox":{"x":0,"y":0,"width":1920,"height":56}},"styles":{"display":"flex","position":"static","boxSizing":"border-box","backgroundColor":"rgb(255,255,255)","color":"BLOCKED","fontSize":"BLOCKED","fontWeight":"BLOCKED","lineHeight":"BLOCKED","border":"BLOCKED","borderRadius":"0px","boxShadow":"none","overflowX":"visible","overflowY":"visible","zIndex":"auto"},"svg":[]},
+    {"component_id":"SharedPerformanceActionBar","source_state_ids":["CREATE-DEFAULT","EDIT-DEFAULT"],"props":{"loading":"boolean","disabled":"boolean"},"events":["submit","preview","cancel"],"state_matrix":{"default":"CREATE-DEFAULT","disabled":"BLOCKED"},"geometry":{"bbox_role":"component_root","bbox":{"x":584,"y":767.333374,"width":752,"height":64}},"styles":{"display":"flex","position":"static","boxSizing":"border-box","backgroundColor":"rgb(255,255,255)","color":"BLOCKED","fontSize":"BLOCKED","fontWeight":"BLOCKED","lineHeight":"BLOCKED","border":"BLOCKED","borderRadius":"0px","boxShadow":"none","overflowX":"visible","overflowY":"visible","zIndex":"auto"},"svg":[]}
+  ],
+  "variant_contracts": [
+    {
+      "variant_key":"list-default",
+      "entry_mode":"list",
+      "review_type":"tag-fill-question",
+      "config_discriminator":"default",
+      "source_state_ids":["LIST-DEFAULT"],
+      "visible_elements":[
+        {"id":"list-page-root","owner":"TagFillQuestionManagement","display_mode":"visible"},
+        {"id":"create-button","owner":"PerformanceListToolbar","display_mode":"visible"},
+        {"id":"table-header","owner":"TagFillQuestionTable","display_mode":"visible"},
+        {"id":"pagination","owner":"PerformanceListPagination","display_mode":"visible"}
+      ],
+      "forbidden_elements":[{"id":"edit-dialog","owner":"TagFillQuestionEditPage","display_mode":"not-visible"}],
+      "line_groups":[{"id":"list-toolbar","members":["create-button"],"relation":"same-row","evidence":"captures/initial/layout.json"}],
+      "component_ownership":{"page":["list-page-root"],"shared":["create-button","pagination"],"business":["table-header"]}
+    },
+    {
+      "variant_key":"create-default",
+      "entry_mode":"create",
+      "review_type":"tag-fill-question",
+      "config_discriminator":"empty-form",
+      "source_state_ids":["CREATE-DEFAULT"],
+      "visible_elements":[
+        {"id":"page-header","owner":"SharedPerformancePageHeader","display_mode":"visible"},
+        {"id":"form-root","owner":"TagFillQuestionForm","display_mode":"visible"},
+        {"id":"tag-items-section","owner":"TagItemEditor","display_mode":"visible"},
+        {"id":"action-bar","owner":"SharedPerformanceActionBar","display_mode":"visible"}
+      ],
+      "forbidden_elements":[{"id":"edit-title","owner":"SharedPerformancePageHeader","display_mode":"not-visible"}],
+      "line_groups":[
+        {"id":"header-title","members":["page-header"],"relation":"single-row","evidence":"captures/hybrid_steps/step_01/after/layout.json"},
+        {"id":"footer-actions","members":["action-bar"],"relation":"same-row","evidence":"captures/hybrid_steps/step_01/after/layout.json"}
+      ],
+      "component_ownership":{"page":["page-header","form-root","action-bar"],"shared":["page-header","action-bar"],"business":["tag-items-section"]}
+    },
+    {
+      "variant_key":"edit-default",
+      "entry_mode":"edit",
+      "review_type":"tag-fill-question",
+      "config_discriminator":"prefilled-first-record",
+      "source_state_ids":["EDIT-DEFAULT"],
+      "visible_elements":[
+        {"id":"edit-page-root","owner":"TagFillQuestionEditPage","display_mode":"visible"},
+        {"id":"edit-page-header","owner":"SharedPerformancePageHeader","display_mode":"visible"},
+        {"id":"edit-form-root","owner":"TagFillQuestionForm","display_mode":"visible"},
+        {"id":"edit-tag-items-section","owner":"TagItemEditor","display_mode":"visible"},
+        {"id":"edit-action-bar","owner":"SharedPerformanceActionBar","display_mode":"visible"}
+      ],
+      "forbidden_elements":[{"id":"create-title","owner":"SharedPerformancePageHeader","display_mode":"not-visible"}],
+      "line_groups":[
+        {"id":"edit-header-title","members":["edit-page-header"],"relation":"single-row","evidence":"captures/hybrid_steps/step_12/after/layout.json"},
+        {"id":"edit-footer-actions","members":["edit-action-bar"],"relation":"same-row","evidence":"captures/hybrid_steps/step_12/after/layout.json"}
+      ],
+      "component_ownership":{"page":["edit-page-header","edit-form-root","edit-action-bar"],"shared":["edit-page-header","edit-action-bar"],"business":["edit-tag-items-section"]}
+    },
+    {
+      "variant_key":"navigation-tag-selected",
+      "entry_mode":"navigation",
+      "review_type":"tag-fill-question",
+      "config_discriminator":"selected",
+      "source_state_ids":["NAV-TAG-SELECTED"],
+      "visible_elements":[
+        {"id":"tag-nav-item","owner":"PerformanceAssessmentNavigation","display_mode":"visible"},
+        {"id":"tag-nav-background","owner":"PerformanceAssessmentNavigation","display_mode":"visible"}
+      ],
+      "forbidden_elements":[{"id":"review-nav-selected","owner":"PerformanceAssessmentNavigation","display_mode":"not-visible"}],
+      "line_groups":[{"id":"navigation-selected-item","members":["tag-nav-item","tag-nav-background"],"relation":"same-box","evidence":"captures/hybrid_steps/step_18/after/layout.json"}],
+      "component_ownership":{"page":["tag-nav-item"],"shared":["tag-nav-background"],"business":[]}
+    }
+  ],
+  "layout_relations":[
+    {"id":"create-form-centered-width","source_state_ids":["CREATE-DEFAULT"],"left":"form-root","right":"page-header","property":"width","operator":"less_than","evidence":"captures/hybrid_steps/step_01/after/layout.json","expected":{"left":752,"right":1920}},
+    {"id":"tag-section-width-equals-form","source_state_ids":["CREATE-DEFAULT"],"left":"tag-items-section","right":"form-root","property":"width","operator":"equal","evidence":"captures/hybrid_steps/step_01/after/layout.json","expected":{"left":752,"right":752}}
+  ],
+  "interaction_contracts":[
+    {"id":"navigation-hover","component_id":"PerformanceAssessmentNavigation","control":"parent-menu","resizable":"not_applicable","states":{"default":"BLOCKED","hover":"BLOCKED"},"source_state_ids":["NAV-*"],"status":"BLOCKED","evidence":"missing complete before/after semantic mapping"},
+    {"id":"create-dialog-route-transition","component_id":"TagFillQuestionManagement","control":"new-button","resizable":"not_applicable","states":{"default":"LIST-DEFAULT","after-click":"CREATE-DEFAULT"},"source_state_ids":["LIST-DEFAULT","CREATE-DEFAULT"],"status":"partial","evidence":"captures/hybrid_steps/step_01/after/state_contract.json"},
+    {"id":"description-textarea-resize","component_id":"TagFillQuestionForm","control":"description","resizable":"vertical","states":{"default":{"bbox":{"x":584,"y":242,"width":752,"height":49.333336},"evidence":"captures/hybrid_steps/step_01/after/target_contract.json"},"dragging":{"bbox":{"x":584,"y":242,"width":752,"height":49.333336},"evidence":"BLOCKED"},"after-drag":{"bbox":{"x":584,"y":242,"width":752,"height":49.333336},"evidence":"BLOCKED","status":"blocked"}},"source_state_ids":["CREATE-DEFAULT"],"status":"BLOCKED","evidence":"dragging and after-drag artifacts missing"},
+    {"id":"tags-description-textarea-resize","component_id":"TagItemEditor","control":"tags.description","resizable":"vertical","states":{"default":{"bbox":{"x":604,"y":469.333344,"width":712,"height":49.333336},"evidence":"captures/hybrid_steps/step_01/after/target_contract.json"},"dragging":{"bbox":{"x":604,"y":469.333344,"width":712,"height":49.333336},"evidence":"BLOCKED"},"after-drag":{"bbox":{"x":604,"y":469.333344,"width":712,"height":49.333336},"evidence":"BLOCKED","status":"blocked"}},"source_state_ids":["CREATE-DEFAULT"],"status":"BLOCKED","evidence":"dragging and after-drag artifacts missing"},
+    {"id":"tags-prompt-textarea-resize","component_id":"TagItemEditor","control":"tags.prompt","resizable":"vertical","states":{"default":{"bbox":{"x":604,"y":568.666687,"width":712,"height":49.333336},"evidence":"captures/hybrid_steps/step_01/after/target_contract.json"},"dragging":{"bbox":{"x":604,"y":568.666687,"width":712,"height":49.333336},"evidence":"BLOCKED"},"after-drag":{"bbox":{"x":604,"y":568.666687,"width":712,"height":49.333336},"evidence":"BLOCKED","status":"blocked"}},"source_state_ids":["CREATE-DEFAULT"],"status":"BLOCKED","evidence":"dragging and after-drag artifacts missing"},
+    {"id":"remark-textarea-resize","component_id":"TagFillQuestionForm","control":"remark","resizable":"vertical","states":{"default":{"bbox":{"x":584,"y":714,"width":752,"height":49.333336},"evidence":"captures/hybrid_steps/step_01/after/target_contract.json"},"dragging":{"bbox":{"x":584,"y":714,"width":752,"height":49.333336},"evidence":"C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260902_170518_391976/captures/recording_events/","status":"blocked"},"after-drag":{"bbox":{"x":584,"y":713.98,"width":752,"height":126},"evidence":"C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260902_170518_391976/captures/hybrid_steps/step_01/after/target_contract.json","status":"observed"}},"source_state_ids":["CREATE-DEFAULT","REMARK-RESIZE-AFTER"],"status":"not_required_for_current_implementation","evidence":"current implementation delegates vertical resize to shared textarea component"}
+  ],
+  "container_constraints":[
+    {"id":"form-root-constraint","source_state_id":"CREATE-DEFAULT","component_id":"TagFillQuestionForm","container":{"id":"form-root","bbox_role":"component_root","bbox":{"x":584,"y":64,"width":752,"height":719.333374}},"first_visible_child":{"id":"language-bar","bbox_role":"first_visible_child","bbox":{"x":584,"y":64,"width":752,"height":46}},"terminal_visible_child":{"id":"remark-field","bbox_role":"terminal_visible_child","bbox":{"x":584,"y":684,"width":752,"height":79.333335}},"edge_insets":{"top":0,"right":0,"bottom":0,"left":0},"evidence":"captures/hybrid_steps/step_01/after/layout.json","ownership":"parent-container","status":"blocked","tolerance":1},
+    {"id":"edit-form-root-constraint","source_state_id":"EDIT-DEFAULT","component_id":"TagFillQuestionForm","container":{"id":"edit-form-root","bbox_role":"component_root","bbox":{"x":584,"y":64,"width":752,"height":719.333374}},"first_visible_child":{"id":"edit-language-bar","bbox_role":"first_visible_child","bbox":{"x":584,"y":64,"width":752,"height":46}},"terminal_visible_child":{"id":"edit-remark-field","bbox_role":"terminal_visible_child","bbox":{"x":584,"y":684,"width":752,"height":79.333335}},"edge_insets":{"top":0,"right":0,"bottom":0,"left":0},"evidence":"captures/hybrid_steps/step_12/after/layout.json","ownership":"parent-container","status":"blocked","tolerance":1}
+  ],
+  "variant_invariants":[],
+  "spatial_constraint_coverage":{"candidate_containers":3,"containers_with_terminal":3,"states_with_constraints":["CREATE-DEFAULT","EDIT-DEFAULT"],"missing_terminal_anchors":[],"uncompared_variant_groups":[],"unmapped_containers":[]},
+  "coverage":{"unmapped_source_states":[],"unmapped_components":[],"unmapped_fields":[],"unmapped_visual_properties":[],"unmapped_interactions":[],"unmapped_spatial_constraints":[],"cross_document_conflicts":[]},
+  "component_ownership":{
+    "TagFillQuestionManagement":{"page_owned":["route","page composition","list-specific title/columns"],"shared_owned":["toolbar","pagination"],"status":"partial"},
+    "TagFillQuestionForm":{"page_owned":["mode title"],"shared_owned":["form body candidate","header/footer candidate"],"status":"partial; ownership comparison pending"}
+  }
+}

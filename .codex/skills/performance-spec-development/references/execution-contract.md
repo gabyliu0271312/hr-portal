@@ -1,44 +1,44 @@
-# Execution Contract
+# 执行契约
 
-Use this contract for multi-agent or cross-layer performance work.
+多智能体或跨层绩效工作使用此契约。
 
-## Freeze Before Tasks
+## 任务前冻结
 
-Before decomposing tasks, freeze the shared contracts:
+分解任务前，冻结共享契约：
 
-- DTO names, versions, fields, enums, defaults, and unknown-field behavior;
-- API URLs, methods, request/response schemas, status codes, and stable error codes;
-- role/policy scope and RBAC versus business-policy precedence;
-- adapter read/transform/write behavior and lossy-write handling;
-- executor input/output, batch semantics, reference-data loading, and side effects;
-- event envelope, idempotency, retry, audit, and notification behavior;
-- source-of-truth, snapshot, binding, cache, and derived-data boundaries;
-- transaction, concurrency, optimistic-lock, rollback, and migration boundaries.
+- DTO 名称、版本、字段、枚举、默认值和未知字段行为；
+- API URL、方法、请求/响应 schema、状态码和稳定错误码；
+- 角色/策略范围，以及 RBAC 与业务策略的优先级；
+- 适配器读取/转换/写入行为和有损写入处理；
+- 执行器输入/输出、批处理语义、参考数据加载和副作用；
+- 事件信封、幂等、重试、审计和通知行为；
+- 真源、快照、绑定、缓存和派生数据边界；
+- 事务、并发、乐观锁、回滚和迁移边界。
 
-Unresolved shared contracts are blockers. Implementation tasks must not invent local alternatives.
+未解决的共享契约是阻塞项。实现任务不得自造本地替代。
 
-## File Boundaries
+## 文件边界
 
-Every task must list required files to read, allowed files to modify, allowed new-file directories, forbidden files, shared files, and serial merge rules. An agent may modify only the listed files. Scope expansion requires the main agent's approval.
+每个任务必须列出必读文件、可修改文件、可新建目录、禁止文件、共享文件和串行合并规则。智能体只能修改列出的文件。范围扩展需主智能体批准。
 
-Typical performance shared files include performance route registration, `PerformanceLayout`, permission registries, cycle status services, common API types, review/result components, and the migration head chain. Do not modify the same shared file in parallel.
+典型绩效共享文件包括绩效路由注册、`PerformanceLayout`、权限注册表、周期状态服务、通用 API 类型、评估/结果组件和迁移 head 链。不得并行修改同一共享文件。
 
-## Agent Rules
+## 智能体规则
 
-- One implementation agent owns one task or explicitly grouped task.
-- Agents do not mark tasks complete.
-- The main agent checks diff, tests, migration, boundaries, and evidence before marking `[x]`.
-- Unreadable context, missing prerequisite, file conflict, or environment failure is reported as a blocker.
-- Do not claim a test passed unless it actually ran.
+- 一个实现智能体负责一个任务或明确归组的任务。
+- 智能体不标记任务完成。
+- 主智能体在标记 `[x]` 前检查 diff、测试、迁移、边界和证据。
+- 不可读上下文、缺失前置、文件冲突或环境失败报告为阻塞。
+- 不得声称测试通过除非确实运行过。
 
-## Assumption Safety
+## 假设安全
 
-Minor presentation details may use minimal documented assumptions. Do not assume unresolved role scope, snapshot semantics, state transitions, DTO/API contracts, source-of-truth, migration behavior, permissions, audit, rollback, security, or external side effects. Mark them as blockers or ask focused questions.
+次要呈现细节可用最小量已记录假设。不得假设未解决的角色范围、快照语义、状态流转、DTO/API 契约、真源、迁移行为、权限、审计、回滚、安全或外部副作用。标记为阻塞或问聚焦问题。
 
-## UI Evidence
+## UI 证据
 
-For every UI task, generate one independent PNG under `specs/002-performance-management/ui-blueprints/`. Name it `<task-id>-<descriptive-kebab-case>.png`, for example `PM-T002-T02-implemented-settings-shell.png`. Do not reuse a PNG across unrelated tasks or overwrite another task's artifact. The task card must record the PNG path, and implementation acceptance must verify that the image represents the implemented UI rather than only a planned mockup.
+每个 UI 任务在 `specs/002-performance-management/ui-blueprints/` 下生成一个独立 PNG。命名为 `<task-id>-<描述性-kebab-case>.png`，例如 `PM-T002-T02-implemented-settings-shell.png`。不得跨无关任务复用 PNG 或覆盖其他任务的产物。任务卡必须记录 PNG 路径，实现验收必须验证图片代表已实现 UI 而非仅计划 mockup。
 
-## Cross-Artifact Check
+## 跨产物检查
 
-Before finalizing, compare baseline documents, related Specs, actual models/APIs, permission names, status enums, snapshot semantics, task dependencies, test files/commands, and migration chain. Never silently choose between conflicting authorities.
+最终确定前，对比基线文档、相关 Spec、实际模型/API、权限名、状态枚举、快照语义、任务依赖、测试文件/命令和迁移链。绝不静默选择冲突中的一方。

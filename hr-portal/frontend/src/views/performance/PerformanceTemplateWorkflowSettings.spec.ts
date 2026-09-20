@@ -7,7 +7,7 @@ import workflowSource from './PerformanceTemplateWorkflowSettings.vue?raw'
 import infoPopoverSource from '@/components/performance/PerformanceInfoPopover.vue?raw'
 import executorFieldSource from '@/components/performance/WorkflowExecutorField.vue?raw'
 import checkboxSource from '@/components/performance/PerformanceCheckbox.vue?raw'
-import countedTextareaSource from '@/components/performance/PerformanceCountedTextarea.vue?raw'
+import textFieldSource from '@/components/performance/PerformanceTextField.vue?raw'
 
 config.global.stubs = { Teleport: true }
 
@@ -603,10 +603,10 @@ describe('PerformanceTemplateWorkflowSettings', () => {
 
     expect(wrapper.get('.appeal-modal').attributes('role')).toBe('dialog')
     expect(wrapper.get('#appeal-modal-title').text()).toBe('发起复议提示')
-    const inputs = wrapper.findAll('.performance-counted-textarea__input')
-    const counts = wrapper.findAll('.performance-counted-textarea__count')
+    const inputs = wrapper.findAll('.appeal-modal .native-textarea')
+    const counts = wrapper.findAll('.appeal-modal .performance-text-field .count')
     expect(inputs).toHaveLength(2)
-    expect(wrapper.findAll('.performance-counted-textarea__label').map(label => label.text())).toEqual(['提示文案*', '填写说明*'])
+    expect(wrapper.findAll('.performance-form-field .field-label').map(label => label.text())).toEqual(['提示文案*', '填写说明*'])
     expect((inputs[0].element as HTMLTextAreaElement).value).toBe('如果你不认可本次绩效结果，请详细说明复议原因并提供事实依据')
     expect((inputs[1].element as HTMLTextAreaElement).value).toBe('请输入复议理由')
     expect(counts.map(count => count.text())).toEqual(['29/1500', '7/1000'])
@@ -614,20 +614,19 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     await inputs[1].setValue('自定义填写说明')
     await wrapper.findAll('.appeal-button').find(button => button.text() === '取消')?.trigger('click')
     await wrapper.get('.appeal-prompt-edit').trigger('click')
-    expect((wrapper.findAll('.performance-counted-textarea__input')[0].element as HTMLTextAreaElement).value).not.toBe('自定义复议提示')
-    expect((wrapper.findAll('.performance-counted-textarea__input')[1].element as HTMLTextAreaElement).value).not.toBe('自定义填写说明')
+    expect((wrapper.findAll('.appeal-modal .native-textarea')[0].element as HTMLTextAreaElement).value).not.toBe('自定义复议提示')
+    expect((wrapper.findAll('.appeal-modal .native-textarea')[1].element as HTMLTextAreaElement).value).not.toBe('自定义填写说明')
 
-    await wrapper.findAll('.performance-counted-textarea__input')[0].setValue('自定义复议提示')
-    await wrapper.findAll('.performance-counted-textarea__input')[1].setValue('自定义填写说明')
+    await wrapper.findAll('.appeal-modal .native-textarea')[0].setValue('自定义复议提示')
+    await wrapper.findAll('.appeal-modal .native-textarea')[1].setValue('自定义填写说明')
     await wrapper.get('.appeal-button--primary').trigger('click')
     await wrapper.get('.appeal-prompt-edit').trigger('click')
-    expect((wrapper.findAll('.performance-counted-textarea__input')[0].element as HTMLTextAreaElement).value).toBe('自定义复议提示')
-    expect((wrapper.findAll('.performance-counted-textarea__input')[1].element as HTMLTextAreaElement).value).toBe('自定义填写说明')
+    expect((wrapper.findAll('.appeal-modal .native-textarea')[0].element as HTMLTextAreaElement).value).toBe('自定义复议提示')
+    expect((wrapper.findAll('.appeal-modal .native-textarea')[1].element as HTMLTextAreaElement).value).toBe('自定义填写说明')
     expect(workflowSource).toContain('appeal_prompt_content')
     expect(workflowSource).toContain('appeal_reason_instruction')
-    expect(countedTextareaSource).toContain('resize:vertical')
-    expect(countedTextareaSource).toContain('right:9px;bottom:9px')
-    expect(countedTextareaSource).toContain('height:49.3333px')
+    expect(textFieldSource).toContain('resizeTextarea')
+    expect(textFieldSource).toContain('overflow-y: hidden')
   })
 
   it('renders the measured appeal preview button and delayed popover', async () => {

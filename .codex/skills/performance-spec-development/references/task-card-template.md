@@ -1,33 +1,34 @@
-# Atomic Task Card
+# 原子任务卡
 
-Use this template for every implementation task.
+每个实现任务使用此模板。
 
 ```markdown
-- [ ] PM-xxx-Txx Task name
-  - Goal: one verifiable primary outcome
-  - Type: contract/backend/frontend/API/migration/adapter/business migration/test/documentation
-  - Prerequisites:
-  - Required reading:
-  - Allowed modifications: exact paths
-  - Allowed new files: exact directory and naming rule
-  - Forbidden modifications: exact paths or protected boundaries
-  - Shared files and merge rule:
-  - Input contract:
-  - Output contract:
-  - UI: no UI, with rationale / route, fields, actions, states, transitions, blueprint path/version, independent PNG path, and implemented-UI validation
-  - API/database/permission/external-system impact:
-  - Test contract:
-    - Given:
-    - When:
-    - Then:
-    - Test files:
-    - Commands:
-    - skipped/not-run rule:
-  - Acceptance: success, failure, permission, empty, boundary, compatibility, rollback, regression
-  - Evidence: diff, fixture, test output, migration, UI validation, audit or data comparison
-  - Blockers:
-  - Non-scope:
-  - Definition of done: development, UI, tests, acceptance, and evidence complete; only the main agent may check the task
+- [ ] PM-xxx-Txx 任务名
+  - 目标：一个可验证的主要成果
+  - 类型：契约/后端/前端/API/迁移/适配器/业务迁移/测试/文档
+  - 前置条件：
+  - 必读：
+  - 允许修改：精确路径
+  - 允许新建：精确目录和命名规则
+  - 禁止修改：精确路径或受保护边界
+  - 共享文件与合并规则：
+  - 输入契约：
+  - 输出契约：
+  - UI：无 UI，附理由 / 路由、字段、动作、状态、流转、蓝图路径/版本、独立 PNG 路径、已实现 UI 校验
+  - 采集/像素门禁：不适用，附理由 / `completion_status`、`pixel_restore_status`、`extracted-ui-contract.json`、组件 ID、`source_state_ids`、目标截图、viewport、容器四边约束、terminal visible child、跨状态不变量、缺失证据
+  - API/数据库/权限/外部系统影响：
+  - 测试契约：
+    - Given：
+    - When：
+    - Then：
+    - 测试文件：
+    - 命令：
+    - 跳过/未运行规则：
+  - 验收：成功、失败、权限、空、边界、兼容、回滚、回归；UI任务逐状态验证 container edge inset 和 variant invariant
+  - 证据：diff、夹具、测试输出、迁移、UI 校验、审计或数据对比
+  - 阻塞项：
+  - 非范围：
+  - 完成定义：开发、UI、测试、验收、证据都完成；只有主智能体可以勾选任务
 ```
 
-Split a task when it combines independent contracts, APIs, rule types, lifecycle stages, callers, migrations, or test scopes. Keep contracts, backend, frontend, migration, and validation separable when they can fail independently.
+当任务组合了独立契约、API、规则类型、生命周期阶段、调用方、迁移或测试范围时，拆分为多个任务。让契约、后端、前端、迁移和校验在可独立失败时保持可分离。

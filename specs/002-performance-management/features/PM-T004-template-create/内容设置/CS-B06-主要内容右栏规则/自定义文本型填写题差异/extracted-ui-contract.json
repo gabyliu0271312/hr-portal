@@ -1,0 +1,2208 @@
+{
+  "schema_version": 3,
+  "feature": "PM-T004-template-create/内容设置/CS-B06-主要内容右栏规则/自定义文本型填写题差异",
+  "source_of_truth": "capture_evidence",
+  "completion_status": "incomplete",
+  "pixel_restore_status": "blocked",
+  "pixel_acceptance_status": "not-run",
+  "implementation_readiness": "design_incomplete",
+  "uncovered_reasons": [
+    "semantic_variant_context_incomplete",
+    "item-display-off-visual-restore-mismatch",
+    "vertical-resize-not-observed-in-this-diff-capture"
+  ],
+  "source": {
+    "url": "https://idreamsky.feishu.cn/perf/admin/templates/7680168681455815658/3",
+    "viewport": {
+      "width": 1920,
+      "height": 1080,
+      "dpr": 1
+    },
+    "sessions": [
+      {
+        "realtime_session": "realtime-57c95df92247",
+        "capture_session": "idreamsky.feishu.cn_20260904_151126_823218",
+        "evidence_root": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218",
+        "scope": "root default/display on/display off and root binding"
+      },
+      {
+        "realtime_session": "realtime-fb72a2e77342",
+        "capture_session": "idreamsky.feishu.cn_20260904_155422_606177",
+        "evidence_root": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177",
+        "scope": "item default/display on/display off and owner isolation"
+      }
+    ],
+    "capture_models": [
+      "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/capture_model.json",
+      "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/capture_model.json"
+    ],
+    "target_preflight": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/target_preflight.json",
+    "target_bindings": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/target_bindings.json"
+  },
+  "capture_readiness": {
+    "capture_integrity": "passed",
+    "capture_completeness": "passed",
+    "implementation_readiness": "design_incomplete",
+    "readiness_scope": "variant",
+    "target_variant_keys": [
+      "custom-text-root",
+      "root-display-on",
+      "root-display-off",
+      "custom-text-item",
+      "item-display-on",
+      "item-display-off"
+    ],
+    "blockers": [
+      "semantic_variant_context_incomplete",
+      "item-display-off-visual-restore-mismatch",
+      "vertical-resize-not-observed-in-this-diff-capture"
+    ],
+    "evidence": "capture_model.json#/capture_readiness and this contract"
+  },
+  "bindings": [
+    {
+      "binding_id": "work-summary-custom-text-root",
+      "owner": "root",
+      "status": "captured",
+      "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/target_bindings.json"
+    },
+    {
+      "binding_id": "work-summary-custom-text-item",
+      "owner": "item",
+      "status": "captured",
+      "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/target_bindings.json"
+    }
+  ],
+  "states": [
+    {
+      "source_state_id": "custom-text-root-default",
+      "variant_key": "custom-text-root",
+      "state": "default",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7680168681455815658/3",
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "artifacts": {
+        "before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_03/before/before.html",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_03/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_03/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_03/after/computed.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_03/after/target_contract.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_03/after/interaction_evidence.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_03/after/after.png"
+      },
+      "components": [
+        "PerformanceConfiguredContentBlock",
+        "CustomTextRootSettings"
+      ],
+      "fields": [
+        {
+          "id": "hide-description",
+          "label": "隐藏描述",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 1
+        }
+      ],
+      "visual_elements": [
+        {
+          "id": "state-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 280
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "280px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "default",
+          "source_state_ids": [
+            "custom-text-root-default"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_03/after/layout.json"
+        }
+      ],
+      "geometry": {
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 280
+        }
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "interactions": [
+        {
+          "id": "custom-text-root-default-interaction",
+          "kind": "click",
+          "target": "隐藏描述",
+          "phases": [
+            "trigger",
+            "observe"
+          ],
+          "before": false,
+          "after": null
+        }
+      ],
+      "svg": [],
+      "session": "realtime-57c95df92247"
+    },
+    {
+      "source_state_id": "custom-text-root-display-on",
+      "variant_key": "root-display-on",
+      "state": "display-on",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7680168681455815658/3",
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "artifacts": {
+        "before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_08/before/before.html",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_08/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_08/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_08/after/computed.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_08/after/target_contract.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_08/after/interaction_evidence.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_08/after/after.png"
+      },
+      "components": [
+        "PerformanceConfiguredContentBlock",
+        "CustomTextRootSettings"
+      ],
+      "fields": [
+        {
+          "id": "hide-description",
+          "label": "隐藏描述",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 1
+        }
+      ],
+      "visual_elements": [
+        {
+          "id": "state-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 258
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "258px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "display-on",
+          "source_state_ids": [
+            "custom-text-root-display-on"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_08/after/layout.json"
+        }
+      ],
+      "geometry": {
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 258
+        }
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "interactions": [
+        {
+          "id": "custom-text-root-display-on-interaction",
+          "kind": "click",
+          "target": "隐藏描述",
+          "phases": [
+            "trigger",
+            "observe"
+          ],
+          "before": null,
+          "after": true
+        }
+      ],
+      "svg": [],
+      "session": "realtime-57c95df92247"
+    },
+    {
+      "source_state_id": "custom-text-root-display-off",
+      "variant_key": "root-display-off",
+      "state": "display-off",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7680168681455815658/3",
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "artifacts": {
+        "before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_11/before/before.html",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_11/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_11/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_11/after/computed.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_11/after/target_contract.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_11/after/interaction_evidence.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_11/after/after.png"
+      },
+      "components": [
+        "PerformanceConfiguredContentBlock",
+        "CustomTextRootSettings"
+      ],
+      "fields": [
+        {
+          "id": "hide-description",
+          "label": "隐藏描述",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 1
+        }
+      ],
+      "visual_elements": [
+        {
+          "id": "state-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 280
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "280px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "display-off",
+          "source_state_ids": [
+            "custom-text-root-display-off"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_151126_823218/captures/hybrid_steps/step_11/after/layout.json"
+        }
+      ],
+      "geometry": {
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 280
+        }
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "interactions": [
+        {
+          "id": "custom-text-root-display-off-interaction",
+          "kind": "click",
+          "target": "隐藏描述",
+          "phases": [
+            "trigger",
+            "observe"
+          ],
+          "before": null,
+          "after": false
+        }
+      ],
+      "svg": [],
+      "session": "realtime-57c95df92247"
+    },
+    {
+      "source_state_id": "custom-text-item-default",
+      "variant_key": "custom-text-item",
+      "state": "default",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7680168681455815658/3",
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "artifacts": {
+        "before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_05/before/before.html",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_05/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_05/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_05/after/computed.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_05/after/target_contract.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_05/after/interaction_evidence.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_05/after/after.png"
+      },
+      "components": [
+        "PerformanceConfiguredContentBlock",
+        "CustomTextItemSettings"
+      ],
+      "fields": [
+        {
+          "id": "hide-name",
+          "label": "隐藏名称",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 1
+        },
+        {
+          "id": "fill-mode",
+          "label": "填写设置",
+          "control": "radio",
+          "placeholder": "",
+          "required": true,
+          "order": 2
+        },
+        {
+          "id": "required",
+          "label": "必填",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 3
+        }
+      ],
+      "visual_elements": [
+        {
+          "id": "state-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 280
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "280px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "default",
+          "source_state_ids": [
+            "custom-text-item-default"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_05/after/layout.json"
+        }
+      ],
+      "geometry": {
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 280
+        }
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "interactions": [
+        {
+          "id": "custom-text-item-default-interaction",
+          "kind": "click",
+          "target": "隐藏名称",
+          "phases": [
+            "trigger",
+            "observe"
+          ],
+          "before": false,
+          "after": null
+        }
+      ],
+      "svg": [],
+      "session": "realtime-fb72a2e77342"
+    },
+    {
+      "source_state_id": "custom-text-item-display-on",
+      "variant_key": "item-display-on",
+      "state": "display-on",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7680168681455815658/3",
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "artifacts": {
+        "before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_12/before/before.html",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_12/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_12/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_12/after/computed.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_12/after/target_contract.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_12/after/interaction_evidence.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_12/after/after.png"
+      },
+      "components": [
+        "PerformanceConfiguredContentBlock",
+        "CustomTextItemSettings"
+      ],
+      "fields": [
+        {
+          "id": "hide-name",
+          "label": "隐藏名称",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 1
+        },
+        {
+          "id": "fill-mode",
+          "label": "填写设置",
+          "control": "radio",
+          "placeholder": "",
+          "required": true,
+          "order": 2
+        },
+        {
+          "id": "required",
+          "label": "必填",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 3
+        }
+      ],
+      "visual_elements": [
+        {
+          "id": "state-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 250
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "250px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "display-on",
+          "source_state_ids": [
+            "custom-text-item-display-on"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_12/after/layout.json"
+        }
+      ],
+      "geometry": {
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 250
+        }
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "interactions": [
+        {
+          "id": "custom-text-item-display-on-interaction",
+          "kind": "click",
+          "target": "隐藏名称",
+          "phases": [
+            "trigger",
+            "observe"
+          ],
+          "before": null,
+          "after": true
+        }
+      ],
+      "svg": [],
+      "session": "realtime-fb72a2e77342"
+    },
+    {
+      "source_state_id": "custom-text-item-display-off",
+      "variant_key": "item-display-off",
+      "state": "display-off",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7680168681455815658/3",
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "artifacts": {
+        "before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_16/before/before.html",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_16/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_16/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_16/after/computed.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_16/after/target_contract.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_16/after/interaction_evidence.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_16/after/after.png"
+      },
+      "components": [
+        "PerformanceConfiguredContentBlock",
+        "CustomTextItemSettings"
+      ],
+      "fields": [
+        {
+          "id": "hide-name",
+          "label": "隐藏名称",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 1
+        },
+        {
+          "id": "fill-mode",
+          "label": "填写设置",
+          "control": "radio",
+          "placeholder": "",
+          "required": true,
+          "order": 2
+        },
+        {
+          "id": "required",
+          "label": "必填",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 3
+        }
+      ],
+      "visual_elements": [
+        {
+          "id": "state-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 250
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "250px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "display-off",
+          "source_state_ids": [
+            "custom-text-item-display-off"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_16/after/layout.json"
+        }
+      ],
+      "geometry": {
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 250
+        },
+        "expected_restore_height": 280
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "interactions": [
+        {
+          "id": "custom-text-item-display-off-interaction",
+          "kind": "click",
+          "target": "隐藏名称",
+          "phases": [
+            "trigger",
+            "observe"
+          ],
+          "before": null,
+          "after": false
+        }
+      ],
+      "svg": [],
+      "session": "realtime-fb72a2e77342"
+    },
+    {
+      "source_state_id": "custom-text-owner-root",
+      "variant_key": "custom-text-root",
+      "state": "owner-root",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7680168681455815658/3",
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "artifacts": {
+        "before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_17/before/before.html",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_17/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_17/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_17/after/computed.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_17/after/target_contract.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_17/after/interaction_evidence.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_17/after/after.png"
+      },
+      "components": [
+        "PerformanceConfiguredContentBlock",
+        "CustomTextRootSettings"
+      ],
+      "fields": [
+        {
+          "id": "hide-description",
+          "label": "隐藏描述",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 1
+        }
+      ],
+      "visual_elements": [
+        {
+          "id": "state-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 250
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "250px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "owner-root",
+          "source_state_ids": [
+            "custom-text-owner-root"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_17/after/layout.json"
+        }
+      ],
+      "geometry": {
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 250
+        },
+        "styles_note": "owner state screenshot captured after item display-off; height reflects current visual state"
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "interactions": [
+        {
+          "id": "custom-text-owner-root-interaction",
+          "kind": "click",
+          "target": "隐藏描述",
+          "phases": [
+            "trigger",
+            "observe"
+          ],
+          "before": false,
+          "after": null
+        }
+      ],
+      "svg": [],
+      "session": "realtime-fb72a2e77342"
+    },
+    {
+      "source_state_id": "custom-text-owner-item",
+      "variant_key": "custom-text-item",
+      "state": "owner-item",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7680168681455815658/3",
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "artifacts": {
+        "before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_18/before/before.html",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_18/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_18/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_18/after/computed.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_18/after/target_contract.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_18/after/interaction_evidence.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_18/after/after.png"
+      },
+      "components": [
+        "PerformanceConfiguredContentBlock",
+        "CustomTextItemSettings"
+      ],
+      "fields": [
+        {
+          "id": "hide-name",
+          "label": "隐藏名称",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 1
+        },
+        {
+          "id": "fill-mode",
+          "label": "填写设置",
+          "control": "radio",
+          "placeholder": "",
+          "required": true,
+          "order": 2
+        },
+        {
+          "id": "required",
+          "label": "必填",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 3
+        }
+      ],
+      "visual_elements": [
+        {
+          "id": "state-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 250
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "250px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "owner-item",
+          "source_state_ids": [
+            "custom-text-owner-item"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_18/after/layout.json"
+        }
+      ],
+      "geometry": {
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 250
+        },
+        "styles": {
+          "note": "owner evidence captured in display-off branch"
+        }
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "interactions": [
+        {
+          "id": "custom-text-owner-item-interaction",
+          "kind": "click",
+          "target": "隐藏名称",
+          "phases": [
+            "trigger",
+            "observe"
+          ],
+          "before": false,
+          "after": null
+        }
+      ],
+      "svg": [],
+      "session": "realtime-fb72a2e77342"
+    },
+    {
+      "source_state_id": "custom-text-owner-root-return",
+      "variant_key": "custom-text-root",
+      "state": "owner-root-return",
+      "url": "https://idreamsky.feishu.cn/perf/admin/templates/7680168681455815658/3",
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "artifacts": {
+        "before_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_20/before/before.html",
+        "after_html": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_20/after/after.html",
+        "layout": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_20/after/layout.json",
+        "computed": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_20/after/computed.json",
+        "target_contract": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_20/after/target_contract.json",
+        "interaction_evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_20/after/interaction_evidence.json",
+        "screenshot": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_20/after/after.png"
+      },
+      "components": [
+        "PerformanceConfiguredContentBlock",
+        "CustomTextRootSettings"
+      ],
+      "fields": [
+        {
+          "id": "hide-description",
+          "label": "隐藏描述",
+          "control": "checkbox",
+          "placeholder": "",
+          "required": false,
+          "order": 1
+        }
+      ],
+      "visual_elements": [
+        {
+          "id": "state-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 250
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "250px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "owner-root-return",
+          "source_state_ids": [
+            "custom-text-owner-root-return"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "C:/Users/gaby.liu/ClonedSites/idreamsky.feishu.cn_20260904_155422_606177/captures/hybrid_steps/step_20/after/layout.json"
+        }
+      ],
+      "geometry": {
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 250
+        },
+        "styles": {
+          "note": "owner evidence captured in display-off branch"
+        }
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "interactions": [
+        {
+          "id": "custom-text-owner-root-return-interaction",
+          "kind": "click",
+          "target": "隐藏描述",
+          "phases": [
+            "trigger",
+            "observe"
+          ],
+          "before": false,
+          "after": false
+        }
+      ],
+      "svg": [],
+      "session": "realtime-fb72a2e77342"
+    }
+  ],
+  "coverage": {
+    "unmapped_source_states": [],
+    "unmapped_components": [],
+    "unmapped_fields": [],
+    "unmapped_visual_properties": [],
+    "unmapped_interactions": [],
+    "unmapped_spatial_constraints": [],
+    "cross_document_conflicts": [
+      "item-display-off checkbox=false versus some visual/layout snapshots still height=250",
+      "resize default/dragging/after-drag evidence absent"
+    ]
+  },
+  "not_attempted": [
+    {
+      "id": "item-switch-second-item",
+      "status": "not_attempted",
+      "reason": "页面没有第二个同类型自定义文本 item；没有创建或持久化第二项。"
+    },
+    {
+      "id": "richtext-vertical-resize",
+      "status": "not_attempted",
+      "reason": "本轮只采集 root/item 显示设置差异，未采集 resize 三态。"
+    }
+  ],
+  "variant_contracts": [
+    {
+      "variant_key": "custom-text-root",
+      "entry_mode": "regular_question",
+      "review_type": "custom_text",
+      "config_discriminator": "work_summary_custom_text_root",
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-root-display-off",
+        "custom-text-owner-root",
+        "custom-text-owner-root-return"
+      ],
+      "visible_elements": [
+        {
+          "id": "root-title-indicator",
+          "role": "indicator",
+          "anchor": "#templateItemId-7680846474699341826/title-indicator",
+          "owner": "PerformanceConfiguredContentBlock/root",
+          "display_mode": "visible"
+        },
+        {
+          "id": "root-title",
+          "role": "text",
+          "anchor": "#templateItemId-7680846474699341826/title",
+          "owner": "PerformanceConfiguredContentBlock/root",
+          "display_mode": "visible"
+        },
+        {
+          "id": "root-description",
+          "role": "text",
+          "anchor": "#templateItemId-7680846474699341826/description",
+          "owner": "PerformanceConfiguredContentBlock/root",
+          "display_mode": "visible"
+        },
+        {
+          "id": "root-display-setting",
+          "role": "setting-group",
+          "anchor": "right-aside/显示设置",
+          "owner": "CustomTextRootSettings",
+          "display_mode": "visible"
+        },
+        {
+          "id": "hide-description",
+          "role": "checkbox",
+          "anchor": "right-aside/隐藏描述",
+          "owner": "CustomTextRootSettings",
+          "display_mode": "visible"
+        }
+      ],
+      "forbidden_elements": [
+        {
+          "id": "root-fill-settings",
+          "text": "填写设置",
+          "owner": "CustomTextRootSettings"
+        },
+        {
+          "id": "root-required-settings",
+          "text": "必填项设置",
+          "owner": "CustomTextRootSettings"
+        },
+        {
+          "id": "root-allow-multiple",
+          "text": "允许添加多个",
+          "owner": "CustomTextRootSettings"
+        },
+        {
+          "id": "root-hide-name",
+          "text": "隐藏名称",
+          "owner": "CustomTextRootSettings"
+        }
+      ],
+      "line_groups": [
+        {
+          "id": "root-title-line",
+          "members": [
+            "root-title-indicator",
+            "root-title"
+          ],
+          "relation": "same-line"
+        }
+      ],
+      "component_ownership": {
+        "page": "PerformanceTemplateContentSettings",
+        "rule_layer": "stageContentRule/config_discriminator/Profile resolver",
+        "shared_component": "PerformanceConfiguredContentBlock",
+        "profile_renderer": "CustomTextRootSettings"
+      },
+      "visual_elements": [
+        {
+          "id": "root-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 280
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "280px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "default",
+          "source_state_ids": [
+            "custom-text-root-default"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "captures/hybrid_steps/step_03/after/layout.json"
+        }
+      ]
+    },
+    {
+      "variant_key": "root-display-on",
+      "entry_mode": "regular_question",
+      "review_type": "custom_text",
+      "config_discriminator": "work_summary_custom_text_root",
+      "source_state_ids": [
+        "custom-text-root-display-on"
+      ],
+      "visible_elements": [
+        {
+          "id": "root-title-indicator",
+          "role": "indicator",
+          "anchor": "#templateItemId-7680846474699341826/title-indicator",
+          "owner": "PerformanceConfiguredContentBlock/root",
+          "display_mode": "visible"
+        },
+        {
+          "id": "root-title",
+          "role": "text",
+          "anchor": "#templateItemId-7680846474699341826/title",
+          "owner": "PerformanceConfiguredContentBlock/root",
+          "display_mode": "visible"
+        },
+        {
+          "id": "root-item-editor",
+          "role": "rich-text-editor",
+          "anchor": "#templateItemId-7680846474699341826/item-editor",
+          "owner": "PerformanceConfiguredContentBlock/item",
+          "display_mode": "visible"
+        },
+        {
+          "id": "hide-description",
+          "role": "checkbox",
+          "anchor": "right-aside/隐藏描述",
+          "owner": "CustomTextRootSettings",
+          "display_mode": "visible/checked"
+        }
+      ],
+      "forbidden_elements": [
+        {
+          "id": "root-description",
+          "text": "描述",
+          "owner": "PerformanceConfiguredContentBlock/root"
+        }
+      ],
+      "line_groups": [
+        {
+          "id": "root-title-line",
+          "members": [
+            "root-title-indicator",
+            "root-title"
+          ],
+          "relation": "same-line"
+        }
+      ],
+      "component_ownership": {
+        "page": "PerformanceTemplateContentSettings",
+        "rule_layer": "stageContentRule/config_discriminator/Profile resolver",
+        "shared_component": "PerformanceConfiguredContentBlock",
+        "profile_renderer": "CustomTextRootSettings"
+      },
+      "visual_elements": [
+        {
+          "id": "root-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 258
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "258px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "display-on",
+          "source_state_ids": [
+            "custom-text-root-display-on"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "captures/hybrid_steps/step_08/after/layout.json"
+        }
+      ]
+    },
+    {
+      "variant_key": "root-display-off",
+      "entry_mode": "regular_question",
+      "review_type": "custom_text",
+      "config_discriminator": "work_summary_custom_text_root",
+      "source_state_ids": [
+        "custom-text-root-display-off"
+      ],
+      "visible_elements": [
+        {
+          "id": "root-title-indicator",
+          "role": "indicator",
+          "anchor": "#templateItemId-7680846474699341826/title-indicator",
+          "owner": "PerformanceConfiguredContentBlock/root",
+          "display_mode": "visible"
+        },
+        {
+          "id": "root-title",
+          "role": "text",
+          "anchor": "#templateItemId-7680846474699341826/title",
+          "owner": "PerformanceConfiguredContentBlock/root",
+          "display_mode": "visible"
+        },
+        {
+          "id": "root-description",
+          "role": "text",
+          "anchor": "#templateItemId-7680846474699341826/description",
+          "owner": "PerformanceConfiguredContentBlock/root",
+          "display_mode": "visible"
+        },
+        {
+          "id": "hide-description",
+          "role": "checkbox",
+          "anchor": "right-aside/隐藏描述",
+          "owner": "CustomTextRootSettings",
+          "display_mode": "visible/unchecked"
+        }
+      ],
+      "forbidden_elements": [],
+      "line_groups": [
+        {
+          "id": "root-title-line",
+          "members": [
+            "root-title-indicator",
+            "root-title"
+          ],
+          "relation": "same-line"
+        }
+      ],
+      "component_ownership": {
+        "page": "PerformanceTemplateContentSettings",
+        "rule_layer": "stageContentRule/config_discriminator/Profile resolver",
+        "shared_component": "PerformanceConfiguredContentBlock",
+        "profile_renderer": "CustomTextRootSettings"
+      },
+      "visual_elements": [
+        {
+          "id": "root-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 280
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "280px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "display-off",
+          "source_state_ids": [
+            "custom-text-root-display-off"
+          ],
+          "parent_structure": "page > center > root-card",
+          "evidence": "captures/hybrid_steps/step_11/after/layout.json"
+        }
+      ]
+    },
+    {
+      "variant_key": "custom-text-item",
+      "entry_mode": "regular_question",
+      "review_type": "custom_text",
+      "config_discriminator": "work_summary_custom_text_item",
+      "source_state_ids": [
+        "custom-text-item-default",
+        "custom-text-owner-item"
+      ],
+      "visible_elements": [
+        {
+          "id": "item-name",
+          "role": "text",
+          "anchor": "#templateItemId-7680846474699341826/item-label",
+          "owner": "PerformanceConfiguredContentBlock/item",
+          "display_mode": "visible"
+        },
+        {
+          "id": "item-required-mark",
+          "role": "required-mark",
+          "anchor": "#templateItemId-7680846474699341826/item-required-mark",
+          "owner": "PerformanceConfiguredContentBlock/item",
+          "display_mode": "visible"
+        },
+        {
+          "id": "item-editor",
+          "role": "rich-text-editor",
+          "anchor": "#templateItemId-7680846474699341826/item-editor",
+          "owner": "PerformanceConfiguredContentBlock/item",
+          "display_mode": "visible"
+        },
+        {
+          "id": "hide-name",
+          "role": "checkbox",
+          "anchor": "right-aside/隐藏名称",
+          "owner": "CustomTextItemSettings",
+          "display_mode": "visible"
+        },
+        {
+          "id": "fill-settings",
+          "role": "radio-group",
+          "anchor": "right-aside/填写设置",
+          "owner": "CustomTextItemSettings",
+          "display_mode": "visible"
+        },
+        {
+          "id": "required-settings",
+          "role": "checkbox",
+          "anchor": "right-aside/必填项设置/必填",
+          "owner": "CustomTextItemSettings",
+          "display_mode": "visible/checked"
+        }
+      ],
+      "forbidden_elements": [
+        {
+          "id": "item-hide-description",
+          "text": "隐藏描述",
+          "owner": "CustomTextItemSettings"
+        },
+        {
+          "id": "item-allow-multiple",
+          "text": "允许添加多个",
+          "owner": "CustomTextItemSettings"
+        }
+      ],
+      "line_groups": [
+        {
+          "id": "item-label-required",
+          "members": [
+            "item-name",
+            "item-required-mark"
+          ],
+          "relation": "same-line"
+        }
+      ],
+      "component_ownership": {
+        "page": "PerformanceTemplateContentSettings",
+        "rule_layer": "stageContentRule/config_discriminator/Profile resolver",
+        "shared_component": "PerformanceConfiguredContentBlock",
+        "profile_renderer": "CustomTextItemSettings"
+      },
+      "visual_elements": [
+        {
+          "id": "item-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 280
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "280px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "default",
+          "source_state_ids": [
+            "custom-text-item-default"
+          ],
+          "parent_structure": "page > center > root-card > item",
+          "evidence": "captures/hybrid_steps/step_05/after/layout.json"
+        }
+      ]
+    },
+    {
+      "variant_key": "item-display-on",
+      "entry_mode": "regular_question",
+      "review_type": "custom_text",
+      "config_discriminator": "work_summary_custom_text_item",
+      "source_state_ids": [
+        "custom-text-item-display-on"
+      ],
+      "visible_elements": [
+        {
+          "id": "item-description",
+          "role": "text",
+          "anchor": "#templateItemId-7680846474699341826/description",
+          "owner": "PerformanceConfiguredContentBlock/item",
+          "display_mode": "visible"
+        },
+        {
+          "id": "item-editor",
+          "role": "rich-text-editor",
+          "anchor": "#templateItemId-7680846474699341826/item-editor",
+          "owner": "PerformanceConfiguredContentBlock/item",
+          "display_mode": "visible"
+        },
+        {
+          "id": "hide-name",
+          "role": "checkbox",
+          "anchor": "right-aside/隐藏名称",
+          "owner": "CustomTextItemSettings",
+          "display_mode": "visible/checked"
+        },
+        {
+          "id": "fill-settings",
+          "role": "radio-group",
+          "anchor": "right-aside/填写设置",
+          "owner": "CustomTextItemSettings",
+          "display_mode": "visible"
+        },
+        {
+          "id": "required-settings",
+          "role": "checkbox",
+          "anchor": "right-aside/必填项设置/必填",
+          "owner": "CustomTextItemSettings",
+          "display_mode": "visible/checked"
+        }
+      ],
+      "forbidden_elements": [
+        {
+          "id": "item-name",
+          "text": "填写题名称",
+          "owner": "PerformanceConfiguredContentBlock/item"
+        },
+        {
+          "id": "item-required-mark",
+          "text": "required mark",
+          "owner": "PerformanceConfiguredContentBlock/item"
+        }
+      ],
+      "line_groups": [],
+      "component_ownership": {
+        "page": "PerformanceTemplateContentSettings",
+        "rule_layer": "stageContentRule/config_discriminator/Profile resolver",
+        "shared_component": "PerformanceConfiguredContentBlock",
+        "profile_renderer": "CustomTextItemSettings"
+      },
+      "visual_elements": [
+        {
+          "id": "item-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 250
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "250px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "display-on",
+          "source_state_ids": [
+            "custom-text-item-display-on"
+          ],
+          "parent_structure": "page > center > root-card > item",
+          "evidence": "captures/hybrid_steps/step_12/after/layout.json"
+        }
+      ]
+    },
+    {
+      "variant_key": "item-display-off",
+      "entry_mode": "regular_question",
+      "review_type": "custom_text",
+      "config_discriminator": "work_summary_custom_text_item",
+      "source_state_ids": [
+        "custom-text-item-display-off"
+      ],
+      "visible_elements": [
+        {
+          "id": "item-description",
+          "role": "text",
+          "anchor": "#templateItemId-7680846474699341826/description",
+          "owner": "PerformanceConfiguredContentBlock/item",
+          "display_mode": "visible"
+        },
+        {
+          "id": "item-editor",
+          "role": "rich-text-editor",
+          "anchor": "#templateItemId-7680846474699341826/item-editor",
+          "owner": "PerformanceConfiguredContentBlock/item",
+          "display_mode": "visible"
+        },
+        {
+          "id": "hide-name",
+          "role": "checkbox",
+          "anchor": "right-aside/隐藏名称",
+          "owner": "CustomTextItemSettings",
+          "display_mode": "visible/unchecked"
+        },
+        {
+          "id": "item-name",
+          "role": "text",
+          "anchor": "#templateItemId-7680846474699341826/item-label",
+          "owner": "PerformanceConfiguredContentBlock/item",
+          "display_mode": "BLOCKED"
+        },
+        {
+          "id": "item-required-mark",
+          "role": "required-mark",
+          "anchor": "#templateItemId-7680846474699341826/item-required-mark",
+          "owner": "PerformanceConfiguredContentBlock/item",
+          "display_mode": "BLOCKED"
+        }
+      ],
+      "forbidden_elements": [],
+      "line_groups": [
+        {
+          "id": "item-label-required-restore",
+          "members": [
+            "item-name",
+            "item-required-mark"
+          ],
+          "relation": "same-line",
+          "status": "BLOCKED"
+        }
+      ],
+      "component_ownership": {
+        "page": "PerformanceTemplateContentSettings",
+        "rule_layer": "stageContentRule/config_discriminator/Profile resolver",
+        "shared_component": "PerformanceConfiguredContentBlock",
+        "profile_renderer": "CustomTextItemSettings"
+      },
+      "visual_elements": [
+        {
+          "id": "item-card",
+          "role": "container",
+          "anchor": "#templateItemId-7680846474699341826",
+          "bbox": {
+            "x": 560,
+            "y": 195.6667,
+            "width": 792,
+            "height": 250
+          },
+          "styles": {
+            "display": "block",
+            "width": "792px",
+            "height": "250px",
+            "margin-left": "0px",
+            "font-family": "system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "22px",
+            "align-items": "not_applicable"
+          },
+          "state": "display-off-observed",
+          "source_state_ids": [
+            "custom-text-item-display-off"
+          ],
+          "parent_structure": "page > center > root-card > item",
+          "evidence": "captures/hybrid_steps/step_16/after/layout.json",
+          "status": "BLOCKED"
+        }
+      ]
+    }
+  ],
+  "layout_relations": [
+    {
+      "id": "root-width-invariant",
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-root-display-on",
+        "custom-text-root-display-off"
+      ],
+      "left": "root-card.width",
+      "right": "root-card.width",
+      "property": "width",
+      "operator": "equal",
+      "expected": {
+        "left": 792,
+        "right": 792
+      },
+      "evidence": "root layout states"
+    },
+    {
+      "id": "root-display-height",
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-root-display-on"
+      ],
+      "left": "root-card.height",
+      "right": "root-card.height",
+      "property": "height",
+      "operator": "not_equal",
+      "expected": {
+        "left": 280,
+        "right": 258
+      },
+      "evidence": "root default/display-on layout states"
+    },
+    {
+      "id": "item-display-height",
+      "source_state_ids": [
+        "custom-text-item-default",
+        "custom-text-item-display-on"
+      ],
+      "left": "item-card.height",
+      "right": "item-card.height",
+      "property": "height",
+      "operator": "not_equal",
+      "expected": {
+        "left": 280,
+        "right": 250
+      },
+      "evidence": "item default/display-on layout states"
+    },
+    {
+      "id": "item-display-off-restore",
+      "source_state_ids": [
+        "custom-text-item-display-off"
+      ],
+      "left": "observed-item-card.height",
+      "right": "expected-item-card.height",
+      "property": "height",
+      "operator": "not_equal",
+      "expected": {
+        "left": 250,
+        "right": 280
+      },
+      "evidence": "item display-off layout; status BLOCKED"
+    }
+  ],
+  "container_constraints": [
+    {
+      "id": "custom-text-card-default",
+      "source_state_id": "custom-text-item-default",
+      "component_id": "PerformanceConfiguredContentBlock",
+      "container": {
+        "id": "custom-text-card",
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 280
+        }
+      },
+      "first_visible_child": {
+        "id": "card-title-row",
+        "bbox": {
+          "x": 584,
+          "y": 219.6667,
+          "width": 720,
+          "height": 24
+        }
+      },
+      "terminal_visible_child": {
+        "id": "item-editor",
+        "bbox": {
+          "x": 584,
+          "y": 293,
+          "width": 744,
+          "height": 160
+        }
+      },
+      "edge_insets": {
+        "top": 24,
+        "right": 24,
+        "bottom": 20,
+        "left": 24
+      },
+      "ownership": "PerformanceConfiguredContentBlock",
+      "evidence": "item default layout.json"
+    },
+    {
+      "id": "custom-text-card-display-on",
+      "source_state_id": "custom-text-item-display-on",
+      "component_id": "PerformanceConfiguredContentBlock",
+      "container": {
+        "id": "custom-text-card",
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 250
+        }
+      },
+      "first_visible_child": {
+        "id": "card-title-row",
+        "bbox": {
+          "x": 584,
+          "y": 219.6667,
+          "width": 720,
+          "height": 24
+        }
+      },
+      "terminal_visible_child": {
+        "id": "item-editor",
+        "bbox": {
+          "x": 584,
+          "y": 293,
+          "width": 744,
+          "height": 130
+        }
+      },
+      "edge_insets": {
+        "top": 24,
+        "right": 24,
+        "bottom": 20,
+        "left": 24
+      },
+      "ownership": "PerformanceConfiguredContentBlock",
+      "evidence": "item display-on layout.json"
+    }
+  ],
+  "variant_invariants": [
+    {
+      "id": "custom-text-card-width",
+      "component_id": "PerformanceConfiguredContentBlock",
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-root-display-on",
+        "custom-text-item-default",
+        "custom-text-item-display-on"
+      ],
+      "property": "width",
+      "measurements": {
+        "default": 792,
+        "display-on": 792
+      },
+      "expected": 792,
+      "tolerance": 1,
+      "invariant_across_variants": true,
+      "ownership": "ContentSettingsCenter",
+      "evidence": "captured layout states"
+    },
+    {
+      "id": "aside-width",
+      "component_id": "ContentSettingsAside",
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-item-default",
+        "custom-text-owner-root-return"
+      ],
+      "property": "width",
+      "measurements": {
+        "root": 320,
+        "item": 320
+      },
+      "expected": 320,
+      "tolerance": 1,
+      "invariant_across_variants": true,
+      "ownership": "TemplateBuilderLayout",
+      "evidence": "captured layout states"
+    }
+  ],
+  "spatial_constraint_coverage": {
+    "candidate_containers": 2,
+    "containers_with_terminal": 2,
+    "missing_terminal_anchors": [],
+    "uncompared_variant_groups": [],
+    "unmapped_containers": [],
+    "states_with_constraints": [
+      "custom-text-item-default",
+      "custom-text-item-display-on"
+    ]
+  },
+  "components": [
+    {
+      "component_id": "PerformanceConfiguredContentBlock",
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-root-display-on",
+        "custom-text-root-display-off",
+        "custom-text-item-default",
+        "custom-text-item-display-on",
+        "custom-text-item-display-off",
+        "custom-text-owner-root",
+        "custom-text-owner-item",
+        "custom-text-owner-root-return"
+      ],
+      "props": [
+        "content",
+        "activeOwner",
+        "rootProfile",
+        "itemProfile",
+        "rootSettings",
+        "itemSettings"
+      ],
+      "events": [
+        "activate",
+        "update:root-settings",
+        "update:item-settings",
+        "update:expanded"
+      ],
+      "state_matrix": {
+        "custom-text-root": "root Profile",
+        "custom-text-item": "item Profile"
+      },
+      "geometry": {
+        "bbox": {
+          "x": 560,
+          "y": 195.6667,
+          "width": 792,
+          "height": 280
+        }
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "svg": []
+    },
+    {
+      "component_id": "CustomTextRootSettings",
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-root-display-on",
+        "custom-text-root-display-off"
+      ],
+      "props": [
+        "modelValue"
+      ],
+      "events": [
+        "update:modelValue"
+      ],
+      "state_matrix": {
+        "default": "hideDescription=false",
+        "display-on": "hideDescription=true",
+        "display-off": "hideDescription=false"
+      },
+      "geometry": {
+        "bbox": {
+          "x": 1620,
+          "y": 123.6667,
+          "width": 272,
+          "height": 55
+        }
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "svg": []
+    },
+    {
+      "component_id": "CustomTextItemSettings",
+      "source_state_ids": [
+        "custom-text-item-default",
+        "custom-text-item-display-on",
+        "custom-text-item-display-off"
+      ],
+      "props": [
+        "modelValue"
+      ],
+      "events": [
+        "update:modelValue"
+      ],
+      "state_matrix": {
+        "default": "hideName=false/fill/required",
+        "display-on": "hideName=true/fill/required",
+        "display-off": "hideName=false/fill/required"
+      },
+      "geometry": {
+        "bbox": {
+          "x": 1620,
+          "y": 123.6667,
+          "width": 272,
+          "height": 165
+        }
+      },
+      "styles": {
+        "display": "block",
+        "boxSizing": "border-box",
+        "backgroundColor": "rgb(255,255,255)",
+        "color": "rgb(31,35,41)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "border": "0px none",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "zIndex": "auto",
+        "position": "relative"
+      },
+      "svg": []
+    }
+  ],
+  "fields": [
+    {
+      "owner": "root",
+      "field": "hideDescription",
+      "label": "隐藏描述",
+      "control": "checkbox",
+      "default": false,
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-root-display-on",
+        "custom-text-root-display-off"
+      ]
+    },
+    {
+      "owner": "item",
+      "field": "hideName",
+      "label": "隐藏名称",
+      "control": "checkbox",
+      "default": false,
+      "source_state_ids": [
+        "custom-text-item-default",
+        "custom-text-item-display-on",
+        "custom-text-item-display-off"
+      ]
+    },
+    {
+      "owner": "item",
+      "field": "fillMode",
+      "label": "填写设置",
+      "options": [
+        "在此环节填写",
+        "在此环节隐藏"
+      ],
+      "control": "radio",
+      "default": "在此环节填写",
+      "source_state_ids": [
+        "custom-text-item-default"
+      ]
+    },
+    {
+      "owner": "item",
+      "field": "required",
+      "label": "必填",
+      "control": "checkbox",
+      "default": true,
+      "source_state_ids": [
+        "custom-text-item-default",
+        "custom-text-item-display-on"
+      ]
+    }
+  ],
+  "visual_properties": [
+    {
+      "id": "root-display-height",
+      "component_id": "PerformanceConfiguredContentBlock",
+      "property": "height",
+      "values": {
+        "default": 280,
+        "display-on": 258,
+        "display-off": 280
+      },
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-root-display-on",
+        "custom-text-root-display-off"
+      ]
+    },
+    {
+      "id": "item-display-height",
+      "component_id": "PerformanceConfiguredContentBlock",
+      "property": "height",
+      "values": {
+        "default": 280,
+        "display-on": 250,
+        "display-off-observed": 250,
+        "display-off-expected": 280
+      },
+      "source_state_ids": [
+        "custom-text-item-default",
+        "custom-text-item-display-on",
+        "custom-text-item-display-off"
+      ],
+      "status": "BLOCKED"
+    },
+    {
+      "id": "aside-width",
+      "component_id": "ContentSettingsAside",
+      "property": "width",
+      "values": {
+        "default": 320
+      },
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-item-default"
+      ]
+    }
+  ],
+  "interactions": [
+    {
+      "id": "root-hide-description",
+      "source_state_ids": [
+        "custom-text-root-default",
+        "custom-text-root-display-on",
+        "custom-text-root-display-off"
+      ],
+      "control": "隐藏描述",
+      "states": {
+        "before": false,
+        "on": true,
+        "off": false
+      },
+      "status": "captured"
+    },
+    {
+      "id": "item-hide-name",
+      "source_state_ids": [
+        "custom-text-item-default",
+        "custom-text-item-display-on",
+        "custom-text-item-display-off"
+      ],
+      "control": "隐藏名称",
+      "states": {
+        "before": false,
+        "on": true,
+        "off": false
+      },
+      "status": "captured_with_visual_restore_blocker"
+    },
+    {
+      "id": "owner-isolation",
+      "source_state_ids": [
+        "custom-text-owner-root",
+        "custom-text-owner-item",
+        "custom-text-owner-root-return"
+      ],
+      "control": "root/item visual bindings",
+      "states": {
+        "root": "root Profile",
+        "item": "item Profile",
+        "root-return": "root Profile"
+      },
+      "status": "captured"
+    }
+  ],
+  "interaction_contracts": [],
+  "component_ownership": {
+    "page": "PerformanceTemplateContentSettings",
+    "rule_layer": "stageContentRule/config_discriminator/Profile resolver",
+    "shared_business_component": "PerformanceConfiguredContentBlock",
+    "custom_text_root_profile": "CustomTextRootSettings",
+    "custom_text_item_profile": "CustomTextItemSettings",
+    "shared_controls": [
+      "PerformanceCheckbox",
+      "PerformanceRadioGroup",
+      "PerformanceRichTextBox"
+    ],
+    "forbidden": [
+      "content.type === 'work_summary' as business rule switch",
+      "duplicate custom-text page logic"
+    ]
+  }
+}
