@@ -525,7 +525,7 @@ async def _ensure_period_meta(table_name: str, db: AsyncSession) -> None:
 
 
 async def _get_manual_columns(table_name: str, db: AsyncSession) -> list[dict]:
-    """手工字段（auto_discovered=false）：[{code, copy, default}, ...]
+    """手工字段（auto_discovered=false 且非业务主键）：[{code, copy, default}, ...]
 
     default：值列表(enum)字段取第一个可选项作为默认值；其它类型为 None。
     新增行（上月没有、复制不到值）落库时用 default 兜底。
@@ -541,6 +541,7 @@ async def _get_manual_columns(table_name: str, db: AsyncSession) -> list[dict]:
             ).where(
                 TableColumn.table_name == table_name,
                 TableColumn.auto_discovered.is_(False),
+                TableColumn.is_pk_part.is_(False),
             )
         )
     ).all()

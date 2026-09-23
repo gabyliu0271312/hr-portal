@@ -21,6 +21,7 @@ const options = [
 ] as const
 const isLockedPeriodMode = computed(() => props.isPeriod)
 const selected = computed(() => options.find(option => option.value === props.modelValue))
+const requiresBusinessKey = computed(() => props.modelValue != null && props.modelValue !== 'append')
 const visibleOptions = computed(() => props.isPeriod ? options.filter(option => option.value === 'period_full_snapshot') : options.filter(option => option.value !== 'period_full_snapshot'))
 
 watch(() => props.isPeriod, (isPeriod) => {
@@ -32,7 +33,7 @@ watch(() => props.isPeriod, (isPeriod) => {
   <el-form-item label="入仓方式">
     <div class="ingestion-mode-row">
       <el-select :model-value="modelValue" placeholder="选择入仓方式" :disabled="disabled || isLockedPeriodMode" style="width:100%" @update:model-value="emit('update:modelValue', $event)">
-        <el-option v-for="option in visibleOptions" :key="option.value" :label="option.label" :value="option.value">
+        <el-option v-for="option in visibleOptions" :key="option.value" :label="option.label" :value="option.value" :disabled="option.value !== 'append' && !keyLabels.length">
           <span>{{ option.label }}</span>
         </el-option>
       </el-select>
@@ -40,10 +41,13 @@ watch(() => props.isPeriod, (isPeriod) => {
         <el-icon class="mode-info"><InfoFilled /></el-icon>
       </el-tooltip>
     </div>
-    <div v-if="modelValue === 'period_full_snapshot'" class="mode-meta">
-      <div>期间字段：{{ periodLabel || '待配置' }}</div>
+    <div v-if="requiresBusinessKey" class="mode-meta">
       <div>业务主键：{{ keyLabels.length ? keyLabels.join(' + ') : '请先在字段管理中标记' }}</div>
-      <div>期间字段与业务主键来自资产字段定义；月度资产固定使用期间覆盖。</div>
+      <div v-if="!keyLabels.length && isPeriod">首次配置请先保存来源并发现字段，再在字段管理中标记业务主键。</div>
+      <div v-else-if="!keyLabels.length">首次配置请先选择“流水追加”完成字段发现，再在字段管理中标记业务主键。</div>
+      <div v-else>业务主键来自资产字段定义。</div>
+      <div v-if="isPeriod">期间字段：{{ periodLabel || '待配置' }}</div>
+      <div v-if="isPeriod">期间字段与业务主键来自资产字段定义；月度资产固定使用期间覆盖。</div>
     </div>
   </el-form-item>
 </template>

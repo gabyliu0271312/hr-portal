@@ -95,6 +95,14 @@ async def _business_key_fields(table: str, db: AsyncSession) -> list[str]:
     )).scalars().all())
 
 
+def _validate_business_key_source(*, is_pk_part: bool, auto_discovered: bool) -> None:
+    if is_pk_part and not auto_discovered:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="业务主键字段不能设置为手动字段",
+        )
+
+
 async def _migrate_business_key_if_changed(
     table: str,
     old_keys: list[str],
@@ -566,6 +574,7 @@ async def create_column(
     ).scalar_one_or_none()
     if exists is not None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="该字段已存在")
+    _validate_business_key_source(is_pk_part=payload.is_pk_part, auto_discovered=False)
 
     if payload.is_computed:
         await _validate_formula(table, column_code, payload.formula_expr, db)
@@ -625,6 +634,10 @@ async def bulk_update(
         col = await db.get(TableColumn, cid)
         if col is None or col.table_name != table:
             continue
+        _validate_business_key_source(
+            is_pk_part=bool(item.get("is_pk_part", col.is_pk_part)),
+            auto_discovered=bool(col.auto_discovered),
+        )
         # 接口字段不允许开启「复制上月」
         if item.get("copy_from_last_month") and col.auto_discovered:
             raise HTTPException(
@@ -745,6 +758,10 @@ async def update_column(
     col = await db.get(TableColumn, column_id)
     if col is None or col.table_name != table:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="字段不存在")
+    _validate_business_key_source(
+        is_pk_part=payload.is_pk_part,
+        auto_discovered=bool(col.auto_discovered),
+    )
     # 接口字段不允许开启「复制上月」
     if payload.copy_from_last_month and col.auto_discovered:
         raise HTTPException(

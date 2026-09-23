@@ -169,6 +169,87 @@ async def test_create_column_rejects_invalid_column_name_before_db_work(register
     assert db.added == []
 
 
+async def test_create_column_rejects_manual_business_key(monkeypatch, registered_table):
+    add_calls = []
+
+    async def fake_add_source_column(*args):
+        add_calls.append(args)
+
+    monkeypatch.setattr(columns_router, "add_source_column", fake_add_source_column)
+    db = FakeSession(results=[None])
+    payload = columns_router.ColumnIn(
+        column_code="employee_no",
+        column_label="员工编号",
+        is_pk_part=True,
+    )
+
+    with pytest.raises(HTTPException, match="业务主键字段不能设置为手动字段") as exc_info:
+        await columns_router.create_column(registered_table, payload, db=db)
+
+    assert exc_info.value.status_code == 400
+    assert add_calls == []
+    assert db.added == []
+    assert db.committed is False
+
+
+async def test_update_column_rejects_marking_manual_field_as_business_key(registered_table):
+    col = make_column(auto_discovered=False)
+    db = FakeSession(get_obj=col)
+    payload = columns_router.ColumnIn(
+        column_code=col.column_code,
+        column_label=col.column_label,
+        is_pk_part=True,
+    )
+
+    with pytest.raises(HTTPException, match="业务主键字段不能设置为手动字段") as exc_info:
+        await columns_router.update_column(registered_table, col.id, payload, db=db)
+
+    assert exc_info.value.status_code == 400
+    assert col.is_pk_part is False
+    assert db.committed is False
+
+
+async def test_bulk_update_rejects_marking_manual_field_as_business_key(registered_table):
+    col = make_column(auto_discovered=False)
+    db = FakeSession(get_obj=col)
+
+    with pytest.raises(HTTPException, match="业务主键字段不能设置为手动字段") as exc_info:
+        await columns_router.bulk_update(
+            registered_table,
+            columns_router.BulkUpdateIn(columns=[{"id": col.id, "is_pk_part": True}]),
+            db=db,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert col.is_pk_part is False
+    assert db.committed is False
+
+
+async def test_update_column_keeps_synced_field_as_business_key(monkeypatch, registered_table):
+    col = make_column(auto_discovered=True)
+    db = FakeSession(get_obj=col)
+
+    async def fake_column_exists(*args):
+        return True
+
+    async def fake_get_physical_column_types(*args):
+        return {col.column_code: "text"}
+
+    monkeypatch.setattr(columns_router, "column_exists", fake_column_exists)
+    monkeypatch.setattr(columns_router, "get_physical_column_types", fake_get_physical_column_types)
+    payload = columns_router.ColumnIn(
+        column_code=col.column_code,
+        column_label=col.column_label,
+        is_pk_part=True,
+    )
+
+    result = await columns_router.update_column(registered_table, col.id, payload, db=db)
+
+    assert result.is_pk_part is True
+    assert col.auto_discovered is True
+    assert db.committed is True
+
+
 async def test_enable_local_maintenance_converts_synced_column(monkeypatch, registered_table):
     col = make_column(auto_discovered=True)
     db = FakeSession(get_obj=col)

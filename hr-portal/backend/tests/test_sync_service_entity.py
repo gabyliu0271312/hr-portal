@@ -181,6 +181,17 @@ async def test_ensure_columns_adds_physical_column_and_metadata(monkeypatch):
     assert db.added_all[0].auto_discovered is True
 
 
+async def test_manual_columns_exclude_business_keys():
+    db = FakeSession(results=[FakeResult(rows=[])])
+
+    result = await sync_service._get_manual_columns("sync_entity_table", db)
+
+    assert result == []
+    statement = db.executed[0][0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "is_pk_part IS false" in compiled
+
+
 async def test_ensure_columns_keeps_identifier_code_as_string(monkeypatch):
     add_calls = []
 

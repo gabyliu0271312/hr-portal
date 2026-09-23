@@ -323,6 +323,13 @@ async function saveDS() {
       }
     }
   }
+  if (dsForm.ingestion_mode && dsForm.ingestion_mode !== 'append' && !businessKeyLabels.value.length) {
+    const message = asset.value?.is_period
+      ? '请先保存来源并发现字段，再在字段管理中标记业务主键'
+      : '请先选择“流水追加”完成字段发现，再在字段管理中标记业务主键'
+    ElMessage.warning(message)
+    return
+  }
   dsSaving.value = true
   try {
     const { settings, secrets } = splitPayload()
@@ -348,7 +355,9 @@ async function saveDS() {
     endpoints.value = null
     await loadEndpoints()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    if (e?.response?.status !== 422) {
+      ElMessage.error(e?.response?.data?.detail || '保存失败')
+    }
   } finally {
     dsSaving.value = false
   }

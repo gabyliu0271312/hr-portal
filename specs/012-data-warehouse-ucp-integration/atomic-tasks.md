@@ -5779,6 +5779,16 @@ UCP 不可用时：显示降级说明，DataSource 继续可用
 
 - [x] T0703 定义数据接入入口与 UCP 独立应用化契约（2026-07-05：contract 已写入 spec.md §17.2；数据仓库通过 ucp_adapter 查询 UCP 信息且优雅降级——UCP 不可用时返回空摘要+提示”数据连接平台未启用，现有 DataSource 同步不受影响”）
 
+- [x] T0704 修正非月度资产业务主键配置引导与字段来源约束（2026-09-23）
+  - 前置任务：T0701、T0702、T0703。
+  - 功能范围：接口自动发现字段保持 `auto_discovered=true`；无业务主键时禁止保存非追加入仓方式；业务主键不得与手动字段组合；存量异常组合不再被同步逻辑当作手工字段丢弃；同一 422 错误只展示一次。
+  - 代码交付物：`backend/app/data/columns_router.py`、`backend/app/datasources/sync_service.py`、`frontend/src/components/warehouse/IngestionModeSelect.vue`、`frontend/src/views/warehouse/WarehouseAssetDetail.vue` 及对应测试。
+  - UI 要求：数据资产来源配置中，无业务主键时禁用全量同步/增量变更并提示先完成字段发现和主键标记；涉及 `ui-interaction.md` §4.2、§4.3、§17 与 U17；字段定义主键/维护方式展示遵循 U03 和 N04。
+  - UCP 协同要求：不新增 UCP 能力；仅保留现有 DataSource 入仓路径和字段元数据约束。
+  - 测试要求：后端覆盖手动字段不能标记业务主键、同步查询排除业务主键、接口字段仍可标记主键；前端覆盖无主键入仓方式提示；执行相关后端测试、组件测试和前端构建。
+  - 验收标准：非月度新表可先用流水追加完成字段发现，再标记业务主键并保存全量/增量方式；接口字段值不会因主键标记而被手动字段逻辑丢弃；非法字段组合返回 400；重复 422 提示消失；既有 DataSource/UCP 边界不变。
+  - 完成定义：代码、UI、测试、构建和回归验收全部完成。
+
 ## T08 数据视图与数据资产融合
 
 
