@@ -11,7 +11,7 @@ defineEmits<{ close: [] }>()
 </script>
 
 <style scoped>
-.preview-close-button { position: absolute; top: 22px; right: 20px; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 4px; box-sizing: border-box; border: 0; border-radius: 6px; background: transparent; color: #646a73; cursor: pointer; }
-.preview-close-button:hover,.preview-close-button:focus-visible { background: #eff0f1; color: #3370ff; outline: 0; }
+.preview-close-button { position: absolute; top: 22px; right: 20px; display: flex; align-items: center; justify-content: center; width: var(--performance-dialog-close-size); height: var(--performance-dialog-close-size); padding: 4px; box-sizing: border-box; border: 0; border-radius: var(--performance-button-radius); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+.preview-close-button:hover,.preview-close-button:focus-visible { background: var(--color-surface-disabled); color: var(--color-action-primary-hover); outline: 0; box-shadow: var(--performance-button-focus-ring); }
 .preview-close-button svg { display: block; flex: 0 0 20px; width: 20px; height: 20px; }
 </style>

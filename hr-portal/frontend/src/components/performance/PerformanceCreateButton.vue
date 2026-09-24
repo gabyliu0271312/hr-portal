@@ -29,10 +29,12 @@ defineEmits<{ click: [] }>()
 </template>
 
 <style scoped>
-.performance-create-button { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 32px; padding: 4px 11px; border: 1px solid #3370ff; border-radius: 6px; background: #3370ff; color: #fff; font: inherit; font-size: 14px; line-height: 22px; cursor: pointer; }
-.performance-create-button:hover { background: #245bdb; border-color: #245bdb; }
-.performance-create-button:disabled { background: #f2f3f5; border-color: #f2f3f5; color: #bbbfc4; cursor: not-allowed; }
-.performance-create-button.is-icon { width: 32px; padding: 0; border-color: #d0d3d6; background: #fff; color: #1f2329; }
-.performance-create-button.is-icon:hover { background: #f5f6f7; border-color: #8f959e; }
+.performance-create-button { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: var(--performance-button-height); padding: 4px var(--performance-button-padding-x); border: 1px solid var(--performance-button-primary-background); border-radius: var(--performance-button-radius); background: var(--performance-button-primary-background); color: var(--performance-button-primary-text); font: inherit; font-size: var(--performance-button-font-size); line-height: var(--performance-button-line-height); cursor: pointer; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard); }
+.performance-create-button:hover { background: var(--performance-button-primary-hover-background); border-color: var(--performance-button-primary-hover-background); }
+.performance-create-button:active { background: var(--performance-button-primary-active-background); border-color: var(--performance-button-primary-active-background); }
+.performance-create-button:focus-visible { outline: 0; box-shadow: var(--performance-button-focus-ring); }
+.performance-create-button:disabled { background: var(--performance-button-primary-disabled-background); border-color: var(--performance-button-primary-disabled-background); color: var(--color-text-disabled); cursor: not-allowed; }
+.performance-create-button.is-icon { width: var(--performance-button-height); padding: 0; border-color: var(--performance-button-secondary-border); background: var(--performance-button-secondary-background); color: var(--color-text-primary); }
+.performance-create-button.is-icon:hover { background: var(--performance-button-secondary-hover-background); border-color: var(--performance-field-border-hover); }
 .create-icon { width: 14px; height: 14px; }
 </style>

@@ -19,27 +19,27 @@
         </div>
       </div>
       <div class="review-body">
-        <div class="review-panel" :class="{ completed: node.status === 'completed', evaluation: node.task_kind === 'evaluation' && node.status !== 'completed' }">
-        <template v-if="node.status === 'completed'">
-          <div class="completed-content">
-            <PerformanceReviewCompletionNotice :editable="Boolean(node.editable)" :message="node.editable ? (node.end_at ? `你可以在 ${formatEditDeadline(node.end_at)} 前继续编辑` : '已提交，可继续编辑') : (node.end_at ? `该环节已在 ${formatEditDeadline(node.end_at)} 截止；如有疑问，请联系你的 HRBP。` : '该环节已截止；如有疑问，请联系你的 HRBP。')" @edit="emit('open-node', node)" />
-            <PerformanceTemplateRenderer v-if="node.form_schema?.length" mode="readonly" :sections="node.form_schema" :answers="node.answers || {}" />
-            <p v-else class="completed-fallback">已完成</p>
-          </div>
-        </template>
-        <template v-else-if="node.task_kind === 'evaluation'">
+        <div class="review-panel" :class="{ completed: node.status === 'completed' && node.task_kind !== 'evaluation', evaluation: node.task_kind === 'evaluation' && node.status !== 'not_started' }">
+        <template v-if="node.task_kind === 'evaluation' && node.status !== 'not_started'">
           <div class="evaluation-workspace">
             <PerformanceLineTabs v-model="evaluationTab" :tabs="evaluationTabs" sticky flush>
               <ProjectMemberListPanel
                 v-if="evaluationTab === 'members' && props.projectId && node.node_id"
                 :project-id="props.projectId"
-                :review-context="{ nodeId: node.node_id, state: 'pending' }"
+                :review-context="{ nodeId: node.node_id, state: 'all' }"
                 :show-export="false"
                 search-width="calc(100% - 88px)"
                 @select-member="emit('open-member', { node, member: $event })"
               />
               <p v-else class="evaluation-pane-hint">该页签内容将在后续迭代中开发</p>
             </PerformanceLineTabs>
+          </div>
+        </template>
+        <template v-else-if="node.status === 'completed'">
+          <div class="completed-content">
+            <PerformanceReviewCompletionNotice :editable="Boolean(node.editable)" :message="node.editable ? (node.end_at ? `你可以在 ${formatEditDeadline(node.end_at)} 前继续编辑` : '已提交，可继续编辑') : (node.end_at ? `该环节已在 ${formatEditDeadline(node.end_at)} 截止；如有疑问，请联系你的 HRBP。` : '该环节已截止；如有疑问，请联系你的 HRBP。')" @edit="emit('open-node', node)" />
+            <PerformanceTemplateRenderer v-if="node.form_schema?.length" mode="readonly" :sections="node.form_schema" :answers="node.answers || {}" />
+            <p v-else class="completed-fallback">已完成</p>
           </div>
         </template>
         <template v-else>
@@ -65,7 +65,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { PerformanceReviewNode } from '@/api/performance'
+import type { PerformanceReviewMemberContext, PerformanceReviewNode } from '@/api/performance'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
@@ -89,7 +89,7 @@ const evaluationTab = ref('members')
 const emit = defineEmits<{
   retry: []
   'open-node': [node: PerformanceReviewNode]
-  'open-member': [payload: { node: PerformanceReviewNode; member: { task_id?: number; aggregate_task_id?: number | null; employee_no: string } }]
+  'open-member': [payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext }]
 }>()
 
 function formatDeadline(value: string) {

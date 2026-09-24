@@ -8,8 +8,8 @@
         </header>
         <slot />
         <footer v-if="chrome" class="performance-editor-modal__footer modal-footer">
-          <button class="button button--secondary" type="button" @click="$emit('close')">&#x53D6;&#x6D88;</button>
-          <button class="button button--primary" type="button" @click="$emit('confirm')">&#x786E;&#x5B9A;</button>
+          <PerformanceButton variant="secondary" @click="$emit('close')">取消</PerformanceButton>
+          <PerformanceButton variant="primary" @click="$emit('confirm')">确定</PerformanceButton>
         </footer>
       </section>
     </div>
@@ -18,6 +18,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import PerformanceButton from './PerformanceButton.vue'
 withDefaults(defineProps<{ open: boolean; type: string; label: string; mode?: 'create' | 'edit'; sorting?: boolean; chrome?: boolean }>(), { chrome: true })
 defineEmits<{ close: []; confirm: []; keydown: [event: KeyboardEvent] }>()
 const modalRef = ref<HTMLElement | null>(null)
@@ -26,11 +27,11 @@ defineExpose({ modalRef, closeRef })
 </script>
 
 <style scoped>
-.performance-editor-modal-layer { position: fixed; inset: 0; z-index: 2200; display: flex; align-items: center; justify-content: center; padding: 32px 180px; box-sizing: border-box; background: rgba(31,35,41,.55); }
-.performance-editor-modal { display: flex; flex-direction: column; width: min(1080px,calc(100vw - 360px)); max-height: calc(100vh - 64px); overflow: hidden; border-radius: 8px; background: #fff; box-shadow: 0 12px 32px rgba(31,35,41,.2); }
+.performance-editor-modal-layer { position: fixed; inset: 0; z-index: var(--performance-confirm-z-index); display: flex; align-items: center; justify-content: center; padding: 32px 180px; box-sizing: border-box; background: var(--performance-dialog-overlay); }
+.performance-editor-modal { display: flex; flex-direction: column; width: min(1080px,calc(100vw - 360px)); max-height: calc(100vh - 64px); overflow: hidden; border-radius: var(--performance-dialog-radius); background: var(--color-bg-card); box-shadow: var(--performance-dialog-shadow); }
 .performance-editor-modal--work_summary { height: 650px; }.performance-editor-modal--rating { height: 559px; }.performance-editor-modal--custom { height: 722px; }
-.performance-editor-modal__header { display: flex; align-items: center; justify-content: space-between; height: 72px; min-height: 72px; padding: 0 24px; border-bottom: 1px solid #dee0e3; }
-.performance-editor-modal__header h2 { margin: 0; font-size: 18px; }.performance-editor-modal__close { width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: #646a73; font-size: 22px; cursor: pointer; }.performance-editor-modal__close:hover { background: #eff0f1; }
-.performance-editor-modal__body { display: grid; grid-template-columns: 1fr 1fr; flex: 1; min-height: 0; }.performance-editor-modal__footer { display: flex; justify-content: flex-end; gap: 12px; height: 81px; min-height: 81px; padding: 24px; box-sizing: border-box; border-top: 1px solid #dee0e3; }
+.performance-editor-modal__header { display: flex; align-items: center; justify-content: space-between; height: var(--performance-dialog-header-height); min-height: var(--performance-dialog-header-height); padding: 0 var(--performance-dialog-padding); border-bottom: 1px solid var(--color-border-light); }
+.performance-editor-modal__header h2 { margin: 0; font-size: var(--font-size-lg); }.performance-editor-modal__close { width: var(--performance-dialog-close-size); height: var(--performance-dialog-close-size); border: 0; border-radius: var(--performance-button-radius); background: transparent; color: var(--color-text-secondary); font-size: 22px; cursor: pointer; }.performance-editor-modal__close:hover,.performance-editor-modal__close:focus-visible { background: var(--color-surface-disabled); color: var(--color-action-primary-hover); outline: 0; box-shadow: var(--performance-button-focus-ring); }
+.performance-editor-modal__body { display: grid; grid-template-columns: 1fr 1fr; flex: 1; min-height: 0; }.performance-editor-modal__footer { display: flex; justify-content: flex-end; gap: var(--performance-button-gap); height: 81px; min-height: 81px; padding: var(--spacing-6); box-sizing: border-box; border-top: 1px solid var(--color-border-light); }
 @media(max-width:1440px){.performance-editor-modal{width:calc(100vw - 360px);height:calc(100vh - 64px)}}
 </style>

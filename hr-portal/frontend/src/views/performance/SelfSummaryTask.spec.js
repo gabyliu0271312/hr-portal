@@ -6,15 +6,16 @@ import SelfSummaryTask from './SelfSummaryTask.vue'
 import { performanceReviewApi } from '@/api/performance'
 
 const back = vi.fn()
+const push = vi.fn()
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: { task_id: 'task-1' } }),
-  useRouter: () => ({ back }),
+  useRouter: () => ({ back, push }),
 }))
 
 const task = {
   task_id: 'task-1',
   node_name: '模板维护的总结名称',
-  person: { employee_no: 'E001', display_name: '刘琦', organization_ref: '产品中心', manager_name: '刘芝萍' },
+  person: { employee_no: 'E001', display_name: '刘琦', department: '产品中心', direct_supervisor_name: '刘芝萍' },
   editable: true,
   submit_allowed: true,
   version: 1,
@@ -31,10 +32,38 @@ describe('SelfSummaryTask', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     back.mockReset()
+    push.mockReset()
     Element.prototype.scrollIntoView = vi.fn()
     vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(structuredClone(task))
     vi.spyOn(performanceReviewApi, 'saveSelfSummaryDraft').mockResolvedValue({ answers: {}, version: 2 })
     vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockResolvedValue({ answers: {}, version: 3, submitted_at: '2026-09-11T00:00:00Z', editable: true, submit_allowed: true })
+  })
+
+  it('renders configured reference tabs and reminder action for an unsubmitted reference task', async () => {
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue({
+      ...structuredClone(task),
+      reference_tabs: [{
+        key: 'reference-node',
+        node_id: 'evaluation-1',
+        node_name: '上级评估',
+        task_id: 77,
+        employee_no: 'E001',
+        status: 'pending',
+        submitted_at: null,
+        form_schema: [],
+        answers: {},
+        can_remind: true,
+      }],
+    })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+
+    expect(wrapper.findAll('.summary-tabs button').map(button => button.text())).toEqual(['模板维护的总结名称', '上级评估'])
+    await wrapper.findAll('.summary-tabs button')[1].trigger('click')
+    expect(wrapper.text()).toContain('暂未提交')
+    expect(wrapper.find('.performance-reminder-button').exists()).toBe(true)
+    await wrapper.get('.performance-reminder-button').trigger('click')
+    expect(push).toHaveBeenCalledWith({ name: 'PerformanceReminderPlaceholder', query: { project_id: '', node_id: 'evaluation-1', task_id: '77', employee_no: 'E001' } })
   })
 
   it('loads an evaluation task through the generic template task endpoint', async () => {
@@ -54,7 +83,7 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.get('.summary-tabs .active').text()).toBe('模板维护的总结名称')
     expect(wrapper.get('.self-summary-form h1').text()).toBe('模板维护的总结名称')
     expect(wrapper.get('.person-info').text()).toContain('刘琦')
-    expect(wrapper.get('.person-info').text()).toContain('产品中心 · 刘芝萍')
+    expect(wrapper.findAll('.person-meta__separator')).toHaveLength(1)
     expect(wrapper.findAll('.section-header h2').map(section => section.text())).toEqual(['文本型填写题', '工作总结', '评分评级', '标签型填写题'])
     expect(wrapper.findAll('.field-label span').map(field => field.text())).toEqual(['填写题名称', '填写题名称', '绩效评级', '价值贡献'])
     expect(wrapper.findAll('.rating-option').map(option => option.text())).toEqual(['1星', '5星'])

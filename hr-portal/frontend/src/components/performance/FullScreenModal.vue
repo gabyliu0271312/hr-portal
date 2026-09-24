@@ -58,6 +58,8 @@ const emit = defineEmits<{
   display: flex;
   flex: 1 1 auto;
   overflow: auto;
+  padding-bottom: var(--performance-fullscreen-content-bottom-space);
+  box-sizing: border-box;
   background: var(--color-surface-page);
 }
 </style>

@@ -5,8 +5,11 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from sqlalchemy import Column, Date, MetaData, String, Table
+
+from app.data.models import DATA_TABLES
 from app.performance.cycle_service import CycleValidationError, PerformanceCycleService
-from app.performance.cycles_router import CyclePatch, CyclePayload
+from app.performance.cycles_router import CyclePatch, CyclePayload, _build_hrbp_organization_tree, _load_hrbp_options
 
 
 def _payload(**overrides):
@@ -374,3 +377,255 @@ def test_project_manager_cycle_summary_hides_global_counts():
     summary = cycles_router._summary_for_context(cycle, 10, 4, [], context)
     assert summary.people_count == 0
     assert summary.department_count == 0
+
+
+def test_build_hrbp_organization_tree_uses_six_roster_levels():
+    tree = _build_hrbp_organization_tree([
+        {
+            "company_org": "集团",
+            "department": "研发中心",
+            "department_2": "平台部",
+            "department_3": "数据组",
+            "department_4": "分析小组",
+            "department_5": "应用单元",
+        },
+        {
+            "company_org": "集团",
+            "department": "研发中心",
+            "department_2": "产品部",
+        },
+    ])
+
+    assert tree[0].value == "集团"
+    assert tree[0].children[0].value == "集团/研发中心"
+    assert [node.label for node in tree[0].children[0].children] == ["产品部", "平台部"]
+    platform = tree[0].children[0].children[1]
+    assert platform.children[0].children[0].children[0].label == "应用单元"
+
+
+class _HrbpRosterMappings:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def all(self):
+        return self.rows
+
+
+class _HrbpRosterResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def mappings(self):
+        return _HrbpRosterMappings(self.rows)
+
+
+class _HrbpRosterDb:
+    def __init__(self, rows):
+        self.rows = rows
+        self.statement = None
+
+    async def execute(self, statement):
+        self.statement = statement
+        return _HrbpRosterResult(self.rows)
+
+
+@pytest.mark.asyncio
+async def test_load_hrbp_options_filters_active_people_and_builds_tree():
+    columns = [
+        Column("employee_no", String),
+        Column("full_name", String),
+        Column("employment_status", String),
+        Column("company_org", String),
+        Column("department", String),
+        Column("department_2", String),
+        Column("department_3", String),
+        Column("department_4", String),
+        Column("department_5", String),
+    ]
+    model = SimpleNamespace(__table__=Table("emp_realtime_roster", MetaData(), *columns))
+    previous = DATA_TABLES.get("emp_realtime_roster")
+    DATA_TABLES["emp_realtime_roster"] = model
+    db = _HrbpRosterDb([
+        {
+            "employee_no": "E001",
+            "full_name": "张三",
+            "employment_status": "在职",
+            "company_org": "集团",
+            "department": "研发中心",
+            "department_2": "平台部",
+            "department_3": None,
+            "department_4": None,
+            "department_5": None,
+        }
+    ])
+    try:
+        result = await _load_hrbp_options(db)
+    finally:
+        if previous is None:
+            DATA_TABLES.pop("emp_realtime_roster", None)
+        else:
+            DATA_TABLES["emp_realtime_roster"] = previous
+
+    assert result.people[0].model_dump() == {"value": "E001", "label": "张三"}
+    assert result.organization_tree[0].children[0].children[0].label == "平台部"
+    assert "在职" in db.statement.compile().params.values()
+
+
+@pytest.mark.asyncio
+async def test_load_hrbp_options_exposes_cycle_snapshot_people_for_invisible_selector():
+    from app.performance.cycles_router import _load_hrbp_options
+
+    columns = [
+        Column("employee_no", String), Column("full_name", String), Column("employment_status", String),
+        Column("company_org", String), Column("department", String), Column("department_2", String),
+        Column("department_3", String), Column("department_4", String), Column("department_5", String),
+    ]
+    model = SimpleNamespace(__table__=Table("emp_realtime_roster", MetaData(), *columns))
+    previous = DATA_TABLES.get("emp_realtime_roster")
+    DATA_TABLES["emp_realtime_roster"] = model
+
+    class SnapshotResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [SimpleNamespace(employee_no="E002", display_name="李四", employment_status="在职", company_org="集团", department="研发中心", department_2=None, department_3=None, department_4=None, department_5=None)]
+
+    class Db(_HrbpRosterDb):
+        def __init__(self):
+            super().__init__([])
+            self.calls = 0
+
+        async def scalar(self, _statement):
+            return SimpleNamespace(id=3)
+
+        async def execute(self, statement):
+            self.calls += 1
+            return SnapshotResult()
+
+    try:
+        result = await _load_hrbp_options(Db(), SimpleNamespace(cycle_ref="cycle:1"))
+    finally:
+        if previous is None:
+            DATA_TABLES.pop("emp_realtime_roster", None)
+        else:
+            DATA_TABLES["emp_realtime_roster"] = previous
+
+    assert [item.value for item in result.invisible_people] == ["E002"]
+    assert result.invisible_people[0].label == "李四（E002）"
+
+
+@pytest.mark.asyncio
+async def test_cycle_snapshot_reads_canonical_employee_roster_fields():
+    from datetime import date
+
+    columns = [
+        Column("id", String),
+        Column("employee_no", String),
+        Column("full_name", String),
+        Column("company_org", String),
+        Column("department", String),
+        Column("department_2", String),
+        Column("department_3", String),
+        Column("department_4", String),
+        Column("department_5", String),
+        Column("direct_supervisor", String),
+        Column("hrbp", String),
+        Column("employee_type", String),
+        Column("employment_status", String),
+        Column("job_family", String),
+        Column("job_category", String),
+        Column("position_level", String),
+        Column("hire_date", Date),
+        Column("expected_departure_date", Date),
+    ]
+    model = SimpleNamespace(__table__=Table("emp_realtime_roster", MetaData(), *columns))
+    previous = DATA_TABLES.get("emp_realtime_roster")
+    DATA_TABLES["emp_realtime_roster"] = model
+    row = {
+        "source_roster_id": "7",
+        "employee_no": "E001",
+        "display_name": "员工一",
+        "company_org": "集团",
+        "department": "研发中心",
+        "department_2": "平台部",
+        "department_3": None,
+        "department_4": None,
+        "department_5": None,
+        "direct_supervisor_source_value": "M001",
+        "hrbp_source_value": "H001",
+        "employee_type": "正式员工",
+        "employment_status": "在职",
+        "job_family": "技术",
+        "job_category": "研发",
+        "position_level": "P6",
+        "hire_date": date(2020, 1, 2),
+        "departure_date": None,
+    }
+    try:
+        people = await PerformanceCycleService(_HrbpRosterDb([row]))._load_roster_inputs(SimpleNamespace(
+            leaver_enabled=False,
+            leaver_start_date=None,
+            leaver_end_date=None,
+        ))
+    finally:
+        if previous is None:
+            DATA_TABLES.pop("emp_realtime_roster", None)
+        else:
+            DATA_TABLES["emp_realtime_roster"] = previous
+
+    assert len(people) == 1
+    person = people[0]
+    assert (person.company_org, person.department, person.department_2) == ("集团", "研发中心", "平台部")
+    assert person.direct_supervisor_source_value == "M001"
+    assert person.employee_type == "正式员工"
+    assert (person.job_family, person.job_category) == ("技术", "研发")
+    assert (person.position_level, person.hire_date) == ("P6", date(2020, 1, 2))
+
+
+def test_manual_people_payload_rejects_derived_organization_ref():
+    from app.performance.cycles_router import ManualPersonUpdate
+
+    with pytest.raises(ValidationError, match="organization_ref"):
+        ManualPersonUpdate(employee_no="E001", organization_ref="集团/研发")
+    assert ManualPersonUpdate(employee_no="E001", department_2="平台").department_2 == "平台"
+
+
+@pytest.mark.asyncio
+async def test_cycle_manual_organization_edit_recomputes_path(monkeypatch):
+    from datetime import UTC
+    from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson
+
+    cycle = SimpleNamespace(cycle_ref="cycle:org", start_at=datetime(2027, 1, 1, tzinfo=UTC))
+    snapshot = SimpleNamespace(id=8)
+    person = SimpleNamespace(
+        employee_no="E001", display_name="员工一", company_org="集团", department="研发",
+        department_2="平台", department_3=None, department_4=None, department_5=None,
+        organization_ref="集团/研发/平台", direct_supervisor_employee_no=None,
+        hrbp_employee_no=None, employee_type="正式", job_family=None, job_category=None,
+        position_level=None, hire_date=None, is_manually_maintained=False,
+    )
+
+    class Db:
+        async def execute(self, stmt):
+            entity = stmt.column_descriptions[0]["entity"]
+            if entity is PerformanceAuthorizationSnapshot:
+                return SimpleNamespace(scalar_one_or_none=lambda: snapshot)
+            if entity is PerformanceAuthorizationSnapshotPerson:
+                return SimpleNamespace(scalars=lambda: [person])
+            raise AssertionError(stmt)
+
+        async def commit(self):
+            pass
+
+        async def refresh(self, _):
+            pass
+
+    service = PerformanceCycleService(Db())
+    service.audit = SimpleNamespace(append_event=lambda _: None)
+    await service.update_people_manually(
+        cycle, [{"employee_no": "E001", "department_2": "新平台", "department_3": "小组"}],
+        actor_type="PORTAL_USER", actor_id=1, reason="调整组织",
+    )
+    assert person.organization_ref == "集团/研发/新平台/小组"
+    assert person.is_manually_maintained is True

@@ -19,6 +19,16 @@
       @open-node="openNode"
       @open-member="openMember"
     />
+    <PerformanceReviewEvaluationDrawer
+      v-if="drawerMember"
+      v-model="drawerOpen"
+      :task-id="drawerMember.task_id"
+      :employee-no="drawerMember.member.employee_no"
+      :node-name="drawerMember.node.node_name"
+      :person="drawerMember.member"
+      @edit="editDrawerTask"
+      @remind="openReminderPlaceholder"
+    />
   </div>
 </template>
 
@@ -27,12 +37,15 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   performanceReviewApi,
+  type PerformanceReferenceTab,
   type PerformanceReviewCategory,
+  type PerformanceReviewMemberContext,
   type PerformanceReviewNode,
   type PerformanceReviewOverview,
 } from '@/api/performance'
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
+import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import { performanceTaskEntryRoute } from '@/components/performance/performanceTaskEntry'
 
@@ -55,6 +68,8 @@ const emptyCategories: PerformanceReviewCategory[] = [
 
 const allNodes = computed(() => overview.value?.categories.flatMap(category => category.nodes) || [])
 const selectedNode = computed(() => allNodes.value.find(node => node.node_id === selectedNodeId.value) || allNodes.value[0] || null)
+const drawerMember = ref<{ node: PerformanceReviewNode; member: PerformanceReviewMemberContext; task_id: number } | null>(null)
+const drawerOpen = computed({ get: () => Boolean(drawerMember.value), set: value => { if (!value) drawerMember.value = null } })
 
 function applyOverview(loaded: PerformanceReviewOverview) {
   overview.value = loaded
@@ -120,12 +135,28 @@ async function openNode(node: PerformanceReviewNode) {
   if (node.entry_mode === 'template_task') return
   await router.push(node.action_url)
 }
-async function openMember(payload: { node: PerformanceReviewNode; member: { aggregate_task_id?: number | null; employee_no: string } }) {
-  const taskId = payload.member.aggregate_task_id || payload.node.task_id
+async function openMember(payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext }) {
+  const taskId = payload.member.task_id || payload.member.aggregate_task_id || payload.node.task_id
   if (!taskId) return
+  if (payload.member.status === 'completed' && payload.node.task_kind === 'evaluation') {
+    drawerMember.value = { node: payload.node, member: payload.member, task_id: taskId }
+    return
+  }
   const taskRoute = performanceTaskEntryRoute({ ...payload.node, task_id: taskId }, activeProjectId.value)
   if (!taskRoute) return
   await router.replace({ query: { ...route.query, project_id: String(activeProjectId.value || ''), node: payload.node.node_id, task_id: String(taskId), employee_no: payload.member.employee_no } })
+  await router.push(taskRoute)
+}
+async function openReminderPlaceholder(reference: PerformanceReferenceTab) {
+  await router.push({ name: 'PerformanceReminderPlaceholder', query: { project_id: String(activeProjectId.value || ''), node_id: reference.node_id, task_id: String(reference.task_id || ''), employee_no: reference.employee_no } })
+}
+async function editDrawerTask(payload: { task_id: string | number; employee_no: string }) {
+  const current = drawerMember.value
+  drawerMember.value = null
+  if (!current) return
+  const taskRoute = performanceTaskEntryRoute({ ...current.node, task_id: Number(payload.task_id) }, activeProjectId.value)
+  if (!taskRoute) return
+  await router.replace({ query: { ...route.query, project_id: String(activeProjectId.value || ''), node: current.node.node_id, task_id: String(payload.task_id), employee_no: payload.employee_no } })
   await router.push(taskRoute)
 }
 onMounted(() => {
@@ -140,6 +171,6 @@ onMounted(() => {
 
 <style scoped>
 :global(html:has(.review-page)) { scrollbar-gutter: auto; }
-.review-page { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: #f4f6f8; }
+.review-page { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--performance-page-surface); }
 @media (max-width: 720px) { .review-page { display: block; } }
 </style>

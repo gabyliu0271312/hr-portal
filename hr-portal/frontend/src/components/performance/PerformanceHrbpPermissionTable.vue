@@ -33,6 +33,13 @@ const emit = defineEmits<{
   'page-change': [page: number]
   'page-size-change': [pageSize: number]
 }>()
+
+function create() { emit('create') }
+function edit(row: unknown) { emit('edit', row as HrbpPermissionRow) }
+function remove(row: unknown) { emit('remove', row as HrbpPermissionRow) }
+function selectionChange(rows: unknown) { emit('selection-change', rows as HrbpPermissionRow[]) }
+function pageChange(page: number) { emit('page-change', page) }
+function pageSizeChange(pageSize: number) { emit('page-size-change', pageSize) }
 </script>
 
 <template>
@@ -42,7 +49,7 @@ const emit = defineEmits<{
     </PerformancePromptNotice>
 
     <div class="permission-toolbar">
-      <PerformanceCreateButton class="permission-create-button" label="新建 HRBP" @click="emit('create')" />
+      <PerformanceCreateButton class="permission-create-button" label="新建 HRBP" @click="create" />
     </div>
 
     <PerformanceManagementTable
@@ -55,19 +62,19 @@ const emit = defineEmits<{
       :page="page"
       :page-size="pageSize"
       :total="total"
-      @selection-change="emit('selection-change', $event as HrbpPermissionRow[])"
-      @page-change="emit('page-change', $event)"
-      @page-size-change="emit('page-size-change', $event)"
+      @selection-change="selectionChange"
+      @page-change="pageChange"
+      @page-size-change="pageSizeChange"
     >
-      <el-table-column type="selection" width="40" />
-      <el-table-column prop="hrbp" label="HRBP" min-width="300" show-overflow-tooltip />
-      <el-table-column prop="scope" label="本周期负责范围" min-width="856" show-overflow-tooltip />
-      <el-table-column prop="invisiblePeople" label="不可见人员" min-width="150" show-overflow-tooltip />
-      <el-table-column label="操作" width="100" fixed="right">
+      <el-table-column type="selection" width="40" align="left" header-align="left" />
+      <el-table-column prop="hrbp" label="HRBP" min-width="300" align="left" header-align="left" show-overflow-tooltip />
+      <el-table-column prop="scope" label="本周期负责范围" min-width="856" align="left" header-align="left" show-overflow-tooltip />
+      <el-table-column prop="invisiblePeople" label="不可见人员" min-width="150" align="left" header-align="left" show-overflow-tooltip />
+      <el-table-column label="操作" width="128" align="left" header-align="left" fixed="right">
         <template #default="{ row }">
           <div class="permission-row-actions">
-            <PerformancePermissionButton :allowed="allowed" op="U" class="row-action" @click="emit('edit', row)">编辑</PerformancePermissionButton>
-            <PerformancePermissionButton :allowed="allowed" op="D" class="row-action" @click="emit('remove', row)">删除</PerformancePermissionButton>
+            <PerformancePermissionButton :allowed="allowed" op="U" class="row-action" :aria-label="`编辑${row.hrbp}`" @click="edit(row)">编辑</PerformancePermissionButton>
+            <PerformancePermissionButton :allowed="allowed" op="D" danger class="row-action" :aria-label="`删除${row.hrbp}`" @click="remove(row)">删除</PerformancePermissionButton>
           </div>
         </template>
       </el-table-column>
@@ -79,11 +86,9 @@ const emit = defineEmits<{
 .hrbp-permission-list { min-width: 0; }
 .permission-notice { width: 100%; height: 40px; margin-bottom: 16px; }
 .permission-count { color: #3370ff; }
-.permission-toolbar { display: flex; align-items: center; min-height: 32px; margin-bottom: 16px; }
+.permission-toolbar { display: flex; align-items: center; justify-content: flex-start; min-height: 32px; margin-bottom: 16px; }
 .permission-create-button { min-width: 109px; }
-.permission-row-actions { display: flex; align-items: center; white-space: nowrap; }
-.permission-row-actions .row-action { min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; color: #1456f0; font-size: 14px; line-height: 22px; }
-.permission-row-actions .row-action + .row-action { margin-left: 16px; }
+.permission-row-actions { display: flex; align-items: center; gap: var(--performance-button-gap); white-space: nowrap; }
 .hrbp-permission-list :deep(.el-table th.el-table__cell) { color: #646a73; font-weight: 500; }
 .hrbp-permission-list :deep(.el-table__row:hover > td.el-table__cell) { background: #eff0f1; }
 </style>

@@ -1,0 +1,264 @@
+{
+  "schema_version": 3,
+  "feature": "PM-T013-notification-settings",
+  "completion_status": "incomplete",
+  "pixel_restore_status": "blocked",
+  "capture_readiness": {
+    "capture_integrity": "blocked",
+    "capture_completeness": "incomplete",
+    "implementation_readiness": "design_incomplete",
+    "readiness_scope": "variant",
+    "target_variant_keys": [
+      "notification-default",
+      "notification-settings-container"
+    ],
+    "blockers": [
+      "source_state_id not observed in browser script",
+      "target screenshot and individual artifact files absent",
+      "click, save, failure and reopen states absent",
+      "notification strategy persistence API not specified"
+    ],
+    "evidence": "D:\\乐逗\\Desktop\\pm-t013-browser-2026-09-23T07-01-19-124Z.json"
+  },
+  "states": [
+    {
+      "source_state_id": "not_observed",
+      "variant_key": "notification-default",
+      "viewport": {
+        "width": 894,
+        "height": 631,
+        "dpr": "BLOCKED"
+      },
+      "artifacts": {
+        "screenshot": "BLOCKED",
+        "before_html": "BLOCKED",
+        "after_html": "BLOCKED",
+        "layout": "BLOCKED",
+        "computed": "BLOCKED",
+        "interaction_evidence": "BLOCKED"
+      },
+      "components": [
+        "notification-methods-card",
+        "notification-feishu-checkbox",
+        "notification-email-checkbox"
+      ],
+      "fields": [
+        "通知方式",
+        "系统通知（待办提醒、催办等）的推送方式",
+        "飞书推送",
+        "邮件",
+        "勾选后，邮件通知将会发送到参评人员在飞书中配置的邮箱。"
+      ],
+      "geometry": {
+        "card": {
+          "width": 712,
+          "height": 168,
+          "padding": 20,
+          "border_radius": 8
+        },
+        "checkbox": {
+          "width": 16,
+          "height": 16
+        }
+      },
+      "styles": {
+        "background": "#FFFFFF",
+        "title_color": "#1F2329",
+        "description_color": "#646A73",
+        "disabled_checkbox": "#BBBFC4",
+        "disabled_checkbox_fill": "#EFF0F1"
+      },
+      "interactions": {
+        "email": {
+          "action": "PATCH email_enabled",
+          "failure": "rollback"
+        },
+        "feishu": {
+          "disabled": true
+        }
+      },
+      "svg": {
+        "checked_path": "M9.589 2.903l.808.809a.35.35 0 010 .495L5.18 9.425a.35.35 0 01-.495 0l-2.981-2.98a.35.35 0 010-.496l.808-.808a.35.35 0 01.495 0l1.925 1.925 4.163-4.163a.35.35 0 01.495 0z"
+      },
+      "visual_elements": [],
+      "source_state_ids": [
+        "not_observed"
+      ],
+      "visible_elements": [
+        {
+          "id": "title",
+          "text": "通知方式",
+          "owner": "notification-methods-card",
+          "display_mode": "block"
+        },
+        {
+          "id": "description",
+          "text": "系统通知（待办提醒、催办等）的推送方式",
+          "owner": "notification-methods-card",
+          "display_mode": "block"
+        },
+        {
+          "id": "feishu",
+          "text": "飞书推送",
+          "owner": "notification-feishu-checkbox",
+          "display_mode": "checked-disabled"
+        },
+        {
+          "id": "email",
+          "text": "邮件",
+          "owner": "notification-email-checkbox",
+          "display_mode": "unchecked"
+        },
+        {
+          "id": "email-help",
+          "text": "勾选后，邮件通知将会发送到参评人员在飞书中配置的邮箱。",
+          "owner": "notification-email-checkbox",
+          "display_mode": "block"
+        }
+      ],
+      "forbidden_elements": [
+        "保存按钮",
+        "邮件服务配置表单"
+      ],
+      "line_groups": [
+        {
+          "id": "card-heading",
+          "elements": [
+            "title",
+            "description"
+          ],
+          "relation": "ordered-blocks"
+        }
+      ],
+      "component_ownership": {
+        "page": [
+          "loading",
+          "error",
+          "API"
+        ],
+        "card": [
+          "layout",
+          "copy"
+        ],
+        "checkbox": [
+          "control",
+          "SVG",
+          "disabled-state"
+        ]
+      }
+    }
+  ],
+  "layout_relations": [],
+  "interaction_contracts": [],
+  "coverage": {
+    "unmapped": [],
+    "conflicts": [],
+    "missing": [
+      "collector evidence bundle",
+      "runtime screenshot",
+      "save and reopen states",
+      "second-card variant contract"
+    ]
+  },
+  "browser_observations": {
+    "status": "unverified_source_observation_not_variant_contract",
+    "session": "pm-t013-browser-2026-09-23T07-01-19-124Z",
+    "url": "https://idreamsky.feishu.cn/perf/admin/system-setting/notify",
+    "viewport": {
+      "width": 1280,
+      "height": 361,
+      "dpr": 1.5
+    },
+    "states": [
+      {
+        "label": "default",
+        "source_state_id": "not_observed"
+      },
+      {
+        "label": "focus-1",
+        "source_state_id": "not_observed"
+      },
+      {
+        "label": "focus-2",
+        "source_state_id": "not_observed"
+      },
+      {
+        "label": "focus-3",
+        "source_state_id": "not_observed"
+      }
+    ],
+    "target_component": {
+      "selector": "div.content.container-padding:nth-of-type(2) > div.flex-1 > div > div.p-10.rounded-8:nth-of-type(3)",
+      "bbox": {
+        "x": 260,
+        "y": 302,
+        "top": 302,
+        "right": 1252,
+        "bottom": 1009.33,
+        "left": 260,
+        "width": 992,
+        "height": 707.33
+      },
+      "source": "default.visual_elements"
+    },
+    "source_files": [
+      {
+        "path": "D:\\乐逗\\Desktop\\pm-t013-browser-2026-09-23T07-01-19-124Z.json",
+        "sha256": "7fde9221068017edd3bf8903ebce30e4426c79e30aaed198cf702a5c4f127772"
+      },
+      {
+        "path": "D:\\乐逗\\Desktop\\pm-t013-browser-2026-09-23T07-01-19-124Z-default.html",
+        "sha256": "36372f2ad19d4cabbefd0f2d348363b4bda0ed4c7e9ffa0132b5bf83de215de4"
+      }
+    ],
+    "artifact_files_present": false,
+    "screenshot_present": false,
+    "interaction_after_states_present": false
+  },
+  "supplemental_observations": {
+    "source": "user-supplied SnapSpec excerpt, 2026-09-23; not a replayable collector state",
+    "state": "cancel-checked-notification confirmation",
+    "source_state_id": "not_observed",
+    "viewport": {
+      "width": 894,
+      "height": 631,
+      "dpr": "BLOCKED"
+    },
+    "header": {
+      "width": 420,
+      "height": 103,
+      "padding": 24
+    },
+    "footer": {
+      "width": 420,
+      "height": 56
+    },
+    "buttons": {
+      "confirm": {
+        "text": "确定",
+        "width": 80,
+        "height": 32
+      },
+      "keep": {
+        "text": "保留",
+        "width": 80,
+        "height": 32
+      }
+    },
+    "title": "确定取消勾选吗",
+    "body": "取消后，所有人都将收不到该通知。",
+    "warning_icon": {
+      "viewBox": "0 0 24 24",
+      "width": 24,
+      "height": 24,
+      "color": "#FF811A",
+      "path": "M23 12c0 6.075-4.925 11-11 11S1 18.075 1 12 5.925 1 12 1s11 4.925 11 11ZM12 7a1 1 0 0 0-1 1v5a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1Zm0 8a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"
+    },
+    "missing": [
+      "full dialog screenshot",
+      "collector source_state_id",
+      "before/after action bundle",
+      "hover and active states"
+    ]
+  }
+}

@@ -138,24 +138,24 @@ function adjust(delta: number) {
 </template>
 
 <style scoped>
-.performance-number-input { position: relative; display: flex; width: var(--number-input-width); height: var(--number-input-control-height); box-sizing: border-box; overflow: hidden; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; }
+.performance-number-input { position: relative; display: flex; width: var(--number-input-width); height: var(--number-input-control-height); box-sizing: border-box; overflow: hidden; border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius); background: var(--color-bg-card); color: var(--color-text-primary); }
 .performance-number-input[data-size="interval"] { display: block; padding: 4px 11px; border-width: 0.666667px; }
-.performance-number-input:focus-within { border-color: #1456f0; }
-.performance-number-input.is-invalid { border-color: #f54a45; }
+.performance-number-input:focus-within { border-color: var(--performance-field-border-focus); box-shadow: var(--performance-field-focus-ring); }
+.performance-number-input.is-invalid { border-color: var(--performance-field-border-invalid); box-shadow: none; }
 .number-input-wrap { display: flex; flex: 1 1 auto; align-items: center; min-width: 0; min-height: 0; box-sizing: border-box; }
 .performance-number-input input { min-width: 0; flex: 1; width: 100%; height: 100%; padding: 4px 8px; box-sizing: border-box; border: 0; outline: 0; background: transparent; color: inherit; font: 400 14px/var(--number-input-line-height) inherit; }
 .performance-number-input[data-size="interval"] input { flex: 0 0 auto; width: 75.0729px; height: 22px; padding: 0 32px 0 0; line-height: 0; }
-.performance-number-input input::placeholder { color: #8f959e; }
+.performance-number-input input::placeholder { color: var(--color-text-placeholder); }
 .performance-number-input[data-size="interval"] .number-stepper { position: absolute; top: 0; left: 65.0729px; right: auto; width: 32px; height: 30px; }
-.number-stepper { display: flex; flex: 0 0 var(--number-input-stepper-width); flex-direction: column; border-left: 1px solid #d0d3d6; }
-.number-stepper button { display: grid; flex: 1; min-height: 0; place-items: center; padding: 0; border: 0; background: #fff; color: #646a73; cursor: pointer; }
-.number-stepper button + button { border-top: 1px solid #d0d3d6; }
-.number-stepper button:hover:not(:disabled), .number-stepper button:focus-visible { background: #f2f3f5; color: #3370ff; outline: 0; }
-.performance-number-input.is-disabled, .performance-number-input.is-readonly { border-color: #d0d3d6; background: #eff0f1; color: #8f959e; }
+.number-stepper { display: flex; flex: 0 0 var(--number-input-stepper-width); flex-direction: column; border-left: 1px solid var(--performance-field-border); }
+.number-stepper button { display: grid; flex: 1; min-height: 0; place-items: center; padding: 0; border: 0; background: var(--color-bg-card); color: var(--color-text-secondary); cursor: pointer; }
+.number-stepper button + button { border-top: 1px solid var(--performance-field-border); }
+.number-stepper button:hover:not(:disabled), .number-stepper button:focus-visible { background: var(--color-surface-disabled); color: var(--color-primary); outline: 0; }
+.performance-number-input.is-disabled, .performance-number-input.is-readonly { border-color: var(--performance-field-border); background: var(--performance-field-disabled-background); color: var(--performance-field-disabled-text); }
 .performance-number-input.is-disabled { cursor: not-allowed; }
 .performance-number-input[data-size="interval"].is-disabled input { cursor: default; }
-.performance-number-input.is-disabled .number-stepper, .performance-number-input.is-readonly .number-stepper, .performance-number-input.is-disabled .number-stepper button + button, .performance-number-input.is-readonly .number-stepper button + button { border-color: #d0d3d6; }
-.performance-number-input.is-disabled .number-stepper button, .performance-number-input.is-readonly .number-stepper button { background: #eff0f1; color: #8f959e; }
+.performance-number-input.is-disabled .number-stepper, .performance-number-input.is-readonly .number-stepper, .performance-number-input.is-disabled .number-stepper button + button, .performance-number-input.is-readonly .number-stepper button + button { border-color: var(--performance-field-border); }
+.performance-number-input.is-disabled .number-stepper button, .performance-number-input.is-readonly .number-stepper button { background: var(--performance-field-disabled-background); color: var(--performance-field-disabled-text); }
 .performance-number-input.is-disabled .number-stepper button { cursor: not-allowed; }
 .performance-number-input.is-readonly .number-stepper button:disabled { cursor: default; }
 .performance-number-input input:disabled { color: #8f959e; cursor: not-allowed; }

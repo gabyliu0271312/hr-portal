@@ -16,7 +16,7 @@ type MemberRow = ProjectMember & {
 
 const props = withDefaults(defineProps<{
   projectId: number | string
-  reviewContext?: { nodeId: string; state: 'pending' | 'completed' }
+  reviewContext?: { nodeId: string; state: 'pending' | 'completed' | 'all' }
   showExport?: boolean
   searchWidth?: string
 }>(), {
@@ -44,9 +44,10 @@ const projectColumns: MemberColumnOption[] = [
   { key: 'name', label: '姓名', locked: true },
   { key: 'rating', label: '绩效评级' },
   { key: 'completion', label: '360° 评估率' },
-  { key: 'sequence', label: '序列' },
-  { key: 'level', label: '职级' },
-  { key: 'entry_date', label: '入职日期' },
+  { key: 'direct_supervisor', label: '直属上级' },
+  { key: 'job_sequence', label: '序列' },
+  { key: 'position_level', label: '职级' },
+  { key: 'hire_date', label: '入职日期' },
   { key: 'department', label: '所属部门' },
 ]
 const reviewColumns: MemberColumnOption[] = [
@@ -55,18 +56,45 @@ const reviewColumns: MemberColumnOption[] = [
   { key: 'due_at', label: '截止时间' },
   { key: 'rating', label: '绩效评级' },
   { key: 'completion', label: '360° 评估率' },
-  { key: 'sequence', label: '序列' },
-  { key: 'level', label: '职级' },
-  { key: 'entry_date', label: '入职日期' },
+  { key: 'direct_supervisor', label: '直属上级' },
+  { key: 'job_sequence', label: '序列' },
+  { key: 'position_level', label: '职级' },
+  { key: 'hire_date', label: '入职日期' },
   { key: 'department', label: '所属部门' },
 ]
 const columns = computed(() => props.reviewContext ? reviewColumns : projectColumns)
+const profileColumnKeys: Record<string, string> = {
+  department: 'department',
+  direct_supervisor: 'direct_supervisor',
+  position_level: 'position_level',
+  job_sequence: 'job_sequence',
+  hire_date: 'hire_date',
+  employee_type: 'employee_type',
+}
+const visibleProfileColumnKeys = computed(() => {
+  const configuredRows = members.value.filter(member => Array.isArray(member.visible_profile_fields))
+  if (!configuredRows.length) return null
+  return new Set(configuredRows.flatMap(member => member.visible_profile_fields || []).map(field => profileColumnKeys[field]).filter(Boolean))
+})
+const availableColumns = computed(() => {
+  const allowed = visibleProfileColumnKeys.value
+  return allowed
+    ? columns.value.filter(column => !Object.values(profileColumnKeys).includes(column.key) || allowed.has(column.key))
+    : columns.value
+})
 const columnDrawerOpen = ref(false)
 const selectedColumnKeys = ref<string[]>([])
+watch([availableColumns, () => Boolean(props.reviewContext)], ([available, isReview]) => {
+  const base = (isReview ? reviewColumns : projectColumns).map(column => column.key)
+  const allowed = new Set(available.map(column => column.key))
+  selectedColumnKeys.value = selectedColumnKeys.value.filter(key => allowed.has(key))
+  if (!selectedColumnKeys.value.length) selectedColumnKeys.value = base.filter(key => allowed.has(key))
+})
 watch(() => Boolean(props.reviewContext), isReview => {
   selectedColumnKeys.value = (isReview ? reviewColumns : projectColumns).map(column => column.key)
 }, { immediate: true })
-const visibleColumns = computed(() => selectedColumnKeys.value.map(key => columns.value.find(column => column.key === key)).filter((column): column is MemberColumnOption => Boolean(column)))
+const visibleColumns = computed(() => selectedColumnKeys.value.map(key => availableColumns.value.find(column => column.key === key)).filter((column): column is MemberColumnOption => Boolean(column)))
+const hiddenColumnCount = computed(() => Math.max(0, availableColumns.value.length - selectedColumnKeys.value.length))
 
 const loadMembers = async () => {
   loading.value = true
@@ -82,11 +110,15 @@ const loadMembers = async () => {
         rating: null,
         rating_tone: null,
         completion: null,
-        sequence: null,
-        level: null,
-        entry_date: null,
-        department: null,
-        employment_status: null,
+        job_family: item.job_family,
+        job_category: item.job_category,
+        job_sequence: item.job_sequence,
+        position_level: item.position_level,
+        hire_date: item.hire_date,
+        department: item.department,
+        employee_type: item.employee_type,
+        employment_status: item.employment_status,
+        visible_profile_fields: item.visible_profile_fields,
         task_id: item.task_id,
         aggregate_task_id: item.aggregate_task_id,
         status: item.status,
@@ -98,6 +130,8 @@ const loadMembers = async () => {
       members.value = result.items
       total.value = result.total
     }
+    const availableKeys = new Set(availableColumns.value.map(column => column.key))
+    selectedColumnKeys.value = selectedColumnKeys.value.filter(key => availableKeys.has(key))
   } catch {
     error.value = '成员列表加载失败，请稍后重试'
   } finally {
@@ -161,7 +195,7 @@ onMounted(() => void loadMembers())
         <button class="member-action-button" type="button" aria-label="导出" @click="emit('export')"><PerformanceExportIcon class="export-icon" /><span>导出</span></button>
       </template>
     </PerformanceListToolbar>
-    <div class="member-list-summary"><span>{{ total }}个结果</span><button class="column-visibility-button" type="button" @click="columnDrawerOpen = true"><PerformanceColumnVisibilityIcon /><span>{{ columns.length - selectedColumnKeys.length }} 列被隐藏</span></button></div>
+    <div class="member-list-summary"><span>{{ total }}个结果</span><button class="column-visibility-button" type="button" @click="columnDrawerOpen = true"><PerformanceColumnVisibilityIcon /><span>{{ hiddenColumnCount }} 列被隐藏</span></button></div>
     <div class="member-table-scroll">
       <table class="member-table">
         <colgroup><col class="selection-column" /><col v-for="column in visibleColumns" :key="column.key" :class="`${column.key}-column`" /></colgroup>
@@ -177,7 +211,7 @@ onMounted(() => void loadMembers())
       </table>
     </div>
     <div class="member-pagination" aria-label="成员列表分页"><span>共 {{ total }} 条</span><button type="button" :disabled="page <= 1" aria-label="上一页" @click="changePage(page - 1)">‹</button><button class="current-page" type="button" aria-current="page">{{ page }}</button><button type="button" :disabled="page >= pageCount" aria-label="下一页" @click="changePage(page + 1)">›</button><span class="page-size">{{ pageSize }} 条/页⌄</span></div>
-    <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="columns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
+    <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="availableColumns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
   </section>
 </template>
 

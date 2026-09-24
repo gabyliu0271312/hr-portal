@@ -21,6 +21,13 @@ from app.performance.projects_router import router as performance_projects_route
 from app.performance.templates_router import router as performance_templates_router
 from app.performance.review_router import router as performance_review_router
 from app.performance.tag_fill_questions_router import router as performance_tag_fill_questions_router
+from app.performance.workbench_settings_router import consumer_router as performance_workbench_consumer_router
+from app.performance.workbench_settings_router import router as performance_workbench_settings_router
+from app.performance.other_permission_settings_router import router as performance_other_permission_settings_router
+from app.performance.notification_settings_router import router as performance_notification_settings_router
+from app.performance.assessment_method_settings_router import router as performance_assessment_method_settings_router
+from app.performance.subject_visibility_router import router as performance_subject_visibility_router
+from app.performance.role_configuration_router import router as performance_role_configuration_router
 from app.performance.seed import PerformanceBootstrapConfigurationError
 from app.data.columns_router import router as columns_router
 from app.ai.employee_profile_fields_router import router as employee_profile_fields_router
@@ -217,6 +224,13 @@ app.include_router(performance_projects_router, prefix=settings.API_PREFIX)
 app.include_router(performance_templates_router, prefix=settings.API_PREFIX)
 app.include_router(performance_review_router, prefix=settings.API_PREFIX)
 app.include_router(performance_tag_fill_questions_router, prefix=settings.API_PREFIX)
+app.include_router(performance_workbench_settings_router, prefix=settings.API_PREFIX)
+app.include_router(performance_workbench_consumer_router, prefix=settings.API_PREFIX)
+app.include_router(performance_other_permission_settings_router, prefix=settings.API_PREFIX)
+app.include_router(performance_notification_settings_router, prefix=settings.API_PREFIX)
+app.include_router(performance_assessment_method_settings_router, prefix=settings.API_PREFIX)
+app.include_router(performance_subject_visibility_router, prefix=settings.API_PREFIX)
+app.include_router(performance_role_configuration_router, prefix=settings.API_PREFIX)
 app.include_router(ai_router, prefix=settings.API_PREFIX)
 app.include_router(codegen_router, prefix=settings.API_PREFIX)
 app.include_router(users_router, prefix=settings.API_PREFIX)

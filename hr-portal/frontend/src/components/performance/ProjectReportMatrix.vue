@@ -2,8 +2,8 @@
   <div ref="root" class="report-matrix">
     <div class="matrix-toolbar"><span class="matrix-rating-tab">绩效评级</span></div>
     <div class="matrix-scroll">
-      <el-table ref="table" :data="rows" row-key="id" :fit="false" :max-height="496" style="width: 100%" :default-sort="{ prop: 'total', order: 'descending' }" :row-class-name="rowClassName" empty-text="暂无部门统计数据" @sort-change="sort = { prop: $event.prop ?? 'total', order: $event.order }" :expand-row-keys="expandedKeys" @expand-change="(row, expanded) => updateExpanded(row.id, expanded)">
-        <el-table-column prop="name" label="部门" min-width="240" fixed="left" class-name="matrix-department-column">
+      <el-table ref="table" :data="rows" row-key="id" :fit="false" :max-height="496" style="width: 100%" :default-sort="{ prop: 'total', order: 'descending' }" :row-class-name="rowClassName" :empty-text="`暂无${report.rowLabel}统计数据`" @sort-change="sort = { prop: $event.prop ?? 'total', order: $event.order }" :expand-row-keys="expandedKeys" @expand-change="(row, expanded) => updateExpanded(row.id, expanded)">
+        <el-table-column prop="name" :label="report.rowLabel" min-width="240" fixed="left" class-name="matrix-department-column">
           <template #default="{ row }">
             <div class="matrix-department" :style="{ paddingLeft: `${row.depth * 16}px` }">
               <PerformanceIconButton v-if="row.children?.length" class="matrix-tree-toggle" :class="{ expanded: expandedKeys.includes(row.id) }" icon="ExpandRightFilled" :label="`${expandedKeys.includes(row.id) ? '收起' : '展开'}${row.name}`" :expanded="expandedKeys.includes(row.id)" @click="table?.toggleRowExpansion(row)" />
@@ -40,30 +40,36 @@ import { ElTable, ElTableColumn, type TableInstance } from 'element-plus'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import PerformanceSortHeader from './PerformanceSortHeader.vue'
-import { reportPercent, reportTotal, type ProjectStatisticsReport, type ReportDepartment } from './projectStatisticsReport'
+import { getProjectReportMatrixConfig, reportPercent, reportTotal, type ProjectReportMatrixConfig, type ProjectStatisticsReport, type ReportDepartment } from './projectStatisticsReport'
 
-const props = defineProps<{ report: ProjectStatisticsReport }>()
+const props = defineProps<{ report: ProjectStatisticsReport; config?: ProjectReportMatrixConfig }>()
 const root = ref<HTMLElement | null>(null)
 const table = ref<TableInstance>()
 const tableWidth = ref(0)
 const lastRatingWidth = computed(() => Math.max(140, tableWidth.value - 240 - 110 - Math.max(0, props.report.ratings.length - 1) * 140))
 interface MatrixRow extends Omit<ReportDepartment, 'children'> { total: number; depth: number; children?: MatrixRow[] }
 const expandedKeys = ref<string[]>([])
+const matrixConfig = computed(() => props.config ?? getProjectReportMatrixConfig(props.report.dimension))
+const allowTree = computed(() => matrixConfig.value.allowTree)
 function updateExpanded(id: string, expanded: unknown) {
-  if (typeof expanded !== 'boolean') return
+  if (!allowTree.value || typeof expanded !== 'boolean') return
   expandedKeys.value = expanded ? [...new Set([...expandedKeys.value, id])] : expandedKeys.value.filter(key => key !== id)
 }
 const sort = ref<{ prop: string; order: 'ascending' | 'descending' | null }>({ prop: 'total', order: 'descending' })
 function sorted(departments: ReportDepartment[], depth = 0): MatrixRow[] {
-  const rows = departments.map(department => ({ ...department, depth, total: reportTotal(department.counts), children: department.children ? sorted(department.children, depth + 1) : undefined }))
+  const rows = departments.map(department => ({ ...department, depth, total: reportTotal(department.counts), children: allowTree.value && department.children ? sorted(department.children, depth + 1) : undefined }))
   if (!sort.value.order) return rows
   const value = (row: MatrixRow) => sort.value.prop === 'total' ? row.total : (row.counts[sort.value.prop] ?? 0) / (row.total || 1)
   return rows.sort((a, b) => (value(a) - value(b)) * (sort.value.order === 'ascending' ? 1 : -1))
 }
-const rows = computed<MatrixRow[]>(() => props.report.departments.length ? [
-  { id: 'report-summary', name: '汇总', depth: 0, counts: props.report.distribution, heatLevels: props.report.heatLevels, total: reportTotal(props.report.distribution) },
-  ...sorted(props.report.departments),
-] : [])
+const rows = computed<MatrixRow[]>(() => {
+  const matrixRows = sorted(props.report.departments)
+  if (!matrixConfig.value.showSummary || !matrixRows.length) return matrixRows
+  return [
+    { id: 'report-summary', name: '汇总', depth: 0, counts: props.report.distribution, heatLevels: props.report.heatLevels, total: reportTotal(props.report.distribution) },
+    ...matrixRows,
+  ]
+})
 const rowClassName = ({ row }: { row: MatrixRow }) => row.id === 'report-summary' ? 'matrix-summary-row' : ''
 const heatClass = (level?: number) => level === 1 || level === 2 || level === 3 ? `matrix-heat-${level}` : ''
 function changeSort(prop: string) {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Filter, Search } from '@element-plus/icons-vue'
+import { Search } from '@element-plus/icons-vue'
+import PerformanceFilterButton from './PerformanceFilterButton.vue'
 
 defineProps<{ modelValue: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -17,9 +18,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
     >
       <template #prefix><el-icon><Search /></el-icon></template>
     </el-input>
-    <el-button aria-label="筛选">
-      <el-icon><Filter /></el-icon>筛选
-    </el-button>
+    <PerformanceFilterButton />
   </div>
 </template>
 

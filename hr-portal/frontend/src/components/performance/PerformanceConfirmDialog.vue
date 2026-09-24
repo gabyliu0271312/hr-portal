@@ -184,7 +184,7 @@ onBeforeUnmount(() => {
 }
 
 .performance-confirm-dialog__body {
-  margin: 8px 0 0 40px;
+  margin: var(--spacing-2) 0 0 40px;
   font-size: var(--font-size-md);
   font-weight: 400;
   line-height: 22px;
@@ -201,7 +201,7 @@ onBeforeUnmount(() => {
 .performance-confirm-dialog__confirm-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-2);
   margin-top: 26px;
 }
 
@@ -240,7 +240,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
-  gap: var(--spacing-3);
+  gap: var(--performance-dialog-footer-gap);
   height: var(--performance-dialog-footer-height);
   padding: 0 var(--performance-dialog-padding) var(--spacing-3);
   box-sizing: border-box;
@@ -250,23 +250,23 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--performance-dialog-button-width);
-  min-width: var(--performance-dialog-button-width);
-  height: var(--performance-control-height);
-  padding: 4px 11px;
+  width: var(--performance-button-min-width);
+  min-width: var(--performance-button-min-width);
+  height: var(--performance-button-height);
+  padding: 4px var(--performance-button-padding-x);
   box-sizing: border-box;
   border: 1px solid;
-  border-radius: var(--performance-control-radius);
-  font: 400 var(--font-size-md)/22px var(--font-sans);
+  border-radius: var(--performance-button-radius);
+  font: var(--performance-button-font-weight) var(--performance-button-font-size)/var(--performance-button-line-height) var(--font-sans);
   white-space: nowrap;
   cursor: pointer;
   transition: color 0.1s ease-in, background-color 0.1s ease-in, border-color 0.1s ease-in;
 }
 
 .performance-confirm-dialog__button--cancel {
-  border-color: var(--color-line-control);
-  background: var(--color-surface-disabled);
-  color: var(--color-text-primary);
+  border-color: var(--performance-button-secondary-border);
+  background: var(--performance-button-secondary-hover-background);
+  color: var(--performance-button-secondary-text);
 }
 
 .performance-confirm-dialog__button--danger {

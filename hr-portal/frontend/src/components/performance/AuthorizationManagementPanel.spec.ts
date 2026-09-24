@@ -56,8 +56,8 @@ describe('extracted shared shells', () => {
   })
 
   it('PerformanceTextButton uses the captured text button tokens with hover evidence', () => {
-    expect(textButtonSource).toMatch(/color:\s*#1456f0/)
-    expect(textButtonSource).toMatch(/padding:\s*2px 4px;[^}]*border-radius:\s*6px/s)
-    expect(textButtonSource).toMatch(/:hover\s*\{[^}]*background:\s*rgba\(20, 86, 240, 0\.2\)/s)
+    expect(textButtonSource).toMatch(/color:\s*var\(--performance-button-text-color\)/)
+    expect(textButtonSource).toMatch(/padding:\s*2px var\(--spacing-1\);[^}]*border-radius:\s*var\(--performance-button-radius\)/s)
+    expect(textButtonSource).toMatch(/:hover\s*\{[^}]*background:\s*var\(--performance-button-text-hover-background\)/s)
   })
 })

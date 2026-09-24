@@ -1,11 +1,11 @@
 ﻿<template>
   <PerformanceListPage title="绩效模板">
-      <PerformanceListToolbar v-model:keyword="keyword" @filter="showComingSoon('筛选')">
+      <PerformanceListToolbar v-model:keyword="keyword" search-aria-label="通过名称、备注搜索" @filter="showComingSoon('筛选')">
         <template #left>
-          <el-button class="create-button" type="primary" @click="openCreatePage">
+          <PerformanceButton variant="primary" class="create-button" @click="openCreatePage">
             <el-icon><Plus /></el-icon>
             <span>新建</span>
-          </el-button>
+          </PerformanceButton>
         </template>
       </PerformanceListToolbar>
 
@@ -28,8 +28,8 @@
           <el-table-column label="操作" width="190" fixed="right">
             <template #default="{ row }">
               <div class="row-actions">
-                <el-button link type="primary" @click="openEditPage(row)">编辑</el-button>
-                <el-button link type="primary" @click="handleTemplateAction(row.status === 'active' ? '停用' : '启用', row)">{{ row.status === 'active' ? '停用' : '启用' }}</el-button>
+                <PerformancePermissionButton :allowed="true" op="U" class="template-row-button" @click="openEditPage(row)">编辑</PerformancePermissionButton>
+                <PerformancePermissionButton :allowed="true" op="U" class="template-row-button" @click="handleTemplateAction(row.status === 'active' ? '停用' : '启用', row)">{{ row.status === 'active' ? '停用' : '启用' }}</PerformancePermissionButton>
                 <el-dropdown trigger="click" @command="(action: string) => handleTemplateAction(action, row)">
                   <el-button class="more-button" link aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
                   <template #dropdown>
@@ -61,9 +61,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { performanceTemplateApi } from '@/api/performance'
+import PerformanceButton from '@/components/performance/PerformanceButton.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
+import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
 import { ArrowDown, ArrowLeftBold, ArrowRightBold, MoreFilled, Plus } from '@element-plus/icons-vue'
 
 type TemplateStatus = 'active' | 'inactive' | 'DRAFT'
@@ -187,7 +189,7 @@ onMounted(loadTemplates)
 .status-badge { display: inline-flex; align-items: center; gap: 6px; color: #646a73; white-space: nowrap; }
 .status-badge i { width: 6px; height: 6px; border-radius: 50%; background: #f5920a; }
 .status-active { color: #1f2329; }.status-active i { background: #12b76a; }
-.row-actions { gap: 2px; white-space: nowrap; }.row-actions :deep(.el-button) { padding: 4px 6px; }.more-button { width: 28px; }
+.row-actions { gap: var(--performance-button-gap); white-space: nowrap; }.more-button { width: 28px; }
 :global(.template-action-menu) { min-width: 67px; margin: 0; padding: 2px 0; border: 1px solid #dee0e3; border-radius: 6px; box-shadow: 0 8px 24px 8px rgba(31, 35, 41, .04), 0 6px 12px rgba(31, 35, 41, .04), 0 4px 8px -8px rgba(31, 35, 41, .06); }
 :global(.template-action-menu .el-dropdown-menu__item) { min-width: 60px; height: 37px; margin: 1px 3px; padding: 7px 16px; border-radius: 4px; color: #1f2329; font-size: 14px; line-height: 22px; }
 :global(.template-action-menu .el-dropdown-menu__item:hover) { background: rgba(31, 35, 41, .08); color: #1f2329; }

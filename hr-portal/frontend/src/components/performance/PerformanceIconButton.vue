@@ -36,8 +36,10 @@ const paths: Record<string, string> = {
 </script>
 
 <style scoped>
-.performance-icon-button { display: grid; place-items: center; width: var(--performance-icon-button-size); height: var(--performance-icon-button-size); padding: var(--spacing-1); border: 0; border-radius: 0; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+.performance-icon-button { display: grid; place-items: center; width: var(--performance-icon-button-size, var(--performance-button-icon-size)); height: var(--performance-icon-button-size, var(--performance-button-icon-size)); padding: var(--spacing-1); border: 0; border-radius: var(--performance-button-radius); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard); }
 .performance-icon-button:hover, .performance-icon-button:focus-visible, .performance-icon-button.is-active { background: var(--color-surface-disabled); color: var(--color-action-primary-hover); outline: 0; }
+.performance-icon-button:focus-visible { box-shadow: var(--performance-button-focus-ring); }
 .performance-icon-button:disabled, .performance-icon-button.is-disabled { opacity: .5; cursor: default; }
-.performance-icon-button.is-static { cursor: default; pointer-events: none; }</style>
+.performance-icon-button.is-static { cursor: default; pointer-events: none; }
+</style>
 

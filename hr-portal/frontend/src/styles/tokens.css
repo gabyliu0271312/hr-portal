@@ -22,8 +22,9 @@
   --performance-content-surface-radius: var(--radius-lg);
   --performance-content-surface-background: var(--color-surface-card);
   --performance-content-surface-shadow: 0 1px 4px rgba(31, 35, 41, 0.05);
+  --performance-page-surface: #f2f3f5;
   --performance-review-surface-inset: var(--spacing-5);
-  --performance-review-page-bg: #f7f8fa;
+  --performance-review-page-bg: var(--performance-page-surface);
   --performance-review-content-max-width: 984px;
   --performance-review-completion-bg: #e4fae1;
   --performance-review-completion-icon: #32a645;
@@ -61,7 +62,7 @@
   --performance-line-tabs-ink: #1456f0;
   --performance-line-tabs-text: #1f2329;
   --performance-line-tabs-divider: rgba(31, 35, 41, 0.15);
-  --performance-line-tabs-surface: #f2f3f5;
+  --performance-line-tabs-surface: var(--performance-page-surface);
   --performance-page-title-size: 18px;
   --performance-page-title-weight: 600;
   --performance-page-title-line-height: 32px;
@@ -80,8 +81,20 @@
   --performance-count-badge-bg: #eff0f1;
   --performance-count-badge-text: #646a73;
   --performance-dialog-width: 420px;
+  --performance-workbench-editor-width: 600px;
+  --performance-workbench-editor-header-height: 72px;
+  --performance-workbench-editor-padding-x: 24px;
+  --performance-workbench-editor-padding-right: 56px;
+  --performance-workbench-editor-field-gap: 28px;
+  --performance-workbench-editor-select-indent: 24px;
+  --performance-workbench-editor-language-tag-bg: rgba(31, 35, 41, 0.1);
+  --performance-workbench-editor-language-tag-color: #646a73;
+  --performance-workbench-editor-radio-size: 16px;
+  --performance-workbench-editor-compact-switch-width: 28px;
+  --performance-workbench-editor-compact-switch-height: 16px;
   --performance-dialog-radius: var(--radius-lg);
   --performance-dialog-padding: var(--spacing-6);
+  --performance-dialog-header-padding-right: 56px;
   --performance-dialog-footer-height: 56px;
   --performance-dialog-button-width: 80px;
   --performance-dialog-shadow: 0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12);
@@ -91,6 +104,62 @@
   --performance-confirm-z-index: 2200;
   --performance-drawer-z-index: 2200;
   --performance-overlay: rgba(0, 0, 0, 0.45);
+
+  /* Shared button tokens: every page-level action should use a button family or Element Plus alias. */
+  --performance-button-height: 32px;
+  --performance-button-height-small: 28px;
+  --performance-button-min-width: 80px;
+  --performance-button-padding-x: 16px;
+  --performance-button-icon-size: 24px;
+  --performance-button-radius: var(--radius-md);
+  --performance-button-gap: var(--spacing-3);
+  --performance-button-font-size: var(--font-size-md);
+  --performance-button-line-height: 22px;
+  --performance-button-font-weight: 400;
+  --performance-button-focus-ring: var(--shadow-focus);
+  --performance-button-primary-background: var(--color-primary);
+  --performance-button-primary-hover-background: var(--color-primary-hover);
+  --performance-button-primary-active-background: var(--color-primary-active);
+  --performance-button-primary-disabled-background: var(--color-surface-disabled);
+  --performance-button-primary-text: var(--color-bg-card);
+  --performance-button-secondary-background: var(--color-bg-card);
+  --performance-button-secondary-hover-background: var(--color-surface-disabled);
+  --performance-button-secondary-border: var(--color-line-control);
+  --performance-button-secondary-text: var(--color-text-primary);
+  --performance-button-text-color: var(--color-primary-hover);
+  --performance-button-text-hover-background: rgba(20, 86, 240, 0.2);
+  --performance-button-text-active-background: rgba(20, 86, 240, 0.32);
+  --performance-button-danger-background: var(--color-danger);
+  --performance-button-danger-hover-background: #b42318;
+  --performance-button-danger-text: var(--color-bg-card);
+
+  /* Shared field states: the field shell owns visual state, business controls own value logic. */
+  --performance-field-border: var(--performance-control-border);
+  --performance-field-border-hover: var(--color-text-placeholder);
+  --performance-field-border-focus: var(--performance-control-focus-border);
+  --performance-field-focus-ring: var(--performance-control-focus-ring);
+  --performance-field-border-invalid: var(--color-text-danger-strong);
+  --performance-field-error-color: var(--color-text-danger-strong);
+  --performance-field-error-font-size: var(--font-size-sm);
+  --performance-field-error-line-height: 20px;
+  --performance-field-error-gap: var(--spacing-1);
+  --performance-field-help-color: var(--color-text-secondary);
+  --performance-field-disabled-background: var(--color-surface-page);
+  --performance-field-disabled-text: var(--color-text-placeholder);
+
+  /* Shared container behavior: used by shells, not as a substitute for a shell. */
+  --performance-dialog-overlay: var(--performance-overlay);
+  --performance-dialog-content-gap: var(--spacing-6);
+  --performance-dialog-content-bottom-space: var(--performance-dialog-footer-height);
+  --performance-dialog-close-size: 28px;
+  --performance-dialog-header-height: 72px;
+  --performance-dialog-footer-gap: var(--performance-button-gap);
+  --performance-drawer-header-height: 56px;
+  --performance-drawer-footer-height: 61px;
+  --performance-drawer-footer-padding-x: var(--spacing-5);
+  --performance-fullscreen-footer-height: 48px;
+  --performance-fullscreen-footer-padding-x: var(--spacing-5);
+  --performance-fullscreen-content-bottom-space: var(--performance-fullscreen-footer-height);
 
   /* Font */
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;

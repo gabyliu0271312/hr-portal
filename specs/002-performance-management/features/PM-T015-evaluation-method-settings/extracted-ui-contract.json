@@ -1,0 +1,84 @@
+{
+  "schema_version": 3,
+  "feature": "PM-T015-evaluation-method-settings",
+  "completion_status": "incomplete",
+  "pixel_restore_status": "blocked",
+  "uncovered_reasons": ["missing_replayable_session", "missing_dpr", "missing_target_screenshot", "missing_persistence_contract"],
+  "capture_readiness": {
+    "capture_integrity": "blocked",
+    "capture_completeness": "incomplete",
+    "implementation_readiness": "design_incomplete",
+    "readiness_scope": "variant",
+    "target_variant_keys": ["assessment-method-default"],
+    "blockers": ["Text blueprint has no replayable session, screenshot, DPR or persistence contract"],
+    "evidence": "D:/乐逗/Desktop/考核方式设置.txt"
+  },
+  "variant_contracts": [
+    {
+      "variant_key": "assessment-method-default",
+      "entry_mode": "admin-route",
+      "review_type": "not_applicable",
+      "config_discriminator": "default-list",
+      "source_state_ids": ["SNAPSPEC-PM-T015-DEFAULT-20260923"],
+      "visible_elements": [
+        {"id": "page-title", "text": "考核方式设置", "owner": "AssessmentMethodSettings", "display_mode": "block"},
+        {"id": "metric-title", "text": "关键指标考核", "owner": "PerformanceAssessmentMethodCard", "display_mode": "block"},
+        {"id": "metric-description", "text": "在项目中让各成员制定并确认关键指标，并在绩效评估时考核指标完成情况；适用于 KPI（关键业绩指标）、PBC（个人绩效承诺） 等考核场景。", "owner": "PerformanceAssessmentMethodCard", "display_mode": "block"},
+        {"id": "metric-help", "text": "查看使用说明", "owner": "PerformanceAssessmentMethodCard", "display_mode": "inline"},
+        {"id": "metric-switch", "text": "", "owner": "PerformanceSwitch", "display_mode": "control"},
+        {"id": "project-title", "text": "项目制考核", "owner": "PerformanceProjectAssessmentCard", "display_mode": "block"},
+        {"id": "project-description", "text": "可在模板中设置由项目上级评估的环节，并在周期中导入各成员间的业务项目合作关系", "owner": "PerformanceProjectAssessmentCard", "display_mode": "block"},
+        {"id": "project-help", "text": "查看使用说明", "owner": "PerformanceProjectAssessmentCard", "display_mode": "inline"},
+        {"id": "project-switch", "text": "", "owner": "PerformanceSwitch", "display_mode": "control"},
+        {"id": "project-source-title", "text": "项目合作关系来源", "owner": "PerformanceProjectAssessmentCard", "display_mode": "block"},
+        {"id": "manual-import", "text": "管理员在周期中手动导入", "owner": "PerformanceProjectAssessmentCard", "display_mode": "block"},
+        {"id": "role-summary-title", "text": "导入时可选的项目角色", "owner": "PerformanceProjectAssessmentCard", "display_mode": "block"},
+        {"id": "role-edit", "text": "编辑", "owner": "PerformanceProjectAssessmentCard", "display_mode": "inline"},
+        {"id": "role-summary", "text": "--", "owner": "PerformanceProjectAssessmentCard", "display_mode": "block"},
+        {"id": "result-visibility-title", "text": "查看项目团队绩效结果的入口可见性设置", "owner": "PerformanceProjectAssessmentCard", "display_mode": "block"},
+        {"id": "result-visibility-label", "text": "项目上级可查看「项目团队绩效结果」", "owner": "PerformanceProjectAssessmentCard", "display_mode": "block"},
+        {"id": "result-visibility-description", "text": "开启后，项目上级可在「查看项目团队绩效结果」中汇总查看所负责的各级项目下级的绩效数据，具体内容以模板配置为准", "owner": "PerformanceProjectAssessmentCard", "display_mode": "block"},
+        {"id": "example-action", "text": "查看功能示例", "owner": "PerformanceProjectAssessmentCard", "display_mode": "inline"}
+      ],
+      "forbidden_elements": [
+        {"id": "create-button", "text": "新建", "owner": "AssessmentMethodSettings"},
+        {"id": "role-editor-form", "text": "项目角色编辑表单", "owner": "PerformanceProjectRoleDialog"}
+      ],
+      "line_groups": [
+        {"id": "metric-header", "members": ["metric-title", "metric-help", "metric-switch"], "relation": "title-help-and-switch-row"},
+        {"id": "project-header", "members": ["project-title", "project-help", "project-switch"], "relation": "title-help-and-switch-row"}
+      ],
+      "component_ownership": {
+        "page": ["page-title", "card-order"],
+        "method_card": ["metric-title", "metric-description", "metric-help", "metric-switch"],
+        "project_card": ["project-title", "project-description", "project-help", "project-source-title", "manual-import", "role-summary-title", "role-edit", "role-summary", "result-visibility-title", "result-visibility-label", "result-visibility-description", "example-action"]
+      },
+      "geometry": {"card": {"padding": 20, "radius": 8, "margin_bottom": 16}},
+      "styles": {"background": "#FFFFFF", "text": "#1F2329", "secondary": "#646A73", "action": "#1456F0"}
+    }
+  ],
+  "layout_relations": [],
+  "interaction_contracts": [],
+  "coverage": {"unmapped_source_states": [], "unmapped_components": [], "unmapped_fields": [], "unmapped_visual_properties": [], "unmapped_interactions": [], "cross_document_conflicts": [], "unmapped_spatial_constraints": []},
+  "states": [
+    {
+      "source_state_id": "SNAPSPEC-PM-T015-DEFAULT-20260923",
+      "session": "BLOCKED",
+      "url": "https://idreamsky.feishu.cn/perf/admin/system-setting/assessment-pattern",
+      "viewport": {"width": 1534, "height": 911, "dpr": "BLOCKED"},
+      "artifacts": {"before_html": "BLOCKED", "after_html": "D:/乐逗/Desktop/考核方式设置.txt", "layout": "BLOCKED", "computed": "D:/乐逗/Desktop/考核方式设置.txt", "target_contract": "BLOCKED", "screenshot": "BLOCKED", "interaction_evidence": "BLOCKED"},
+      "components": [{"id": "assessment-method-page", "source_state_ids": ["SNAPSPEC-PM-T015-DEFAULT-20260923"]}],
+      "fields": [],
+      "geometry": {"card": {"padding": 20, "radius": 8}},
+      "styles": {"background": "#FFFFFF", "text": "#1F2329", "secondary": "#646A73", "action": "#1456F0"},
+      "interactions": [],
+      "svg": [],
+      "visual_elements": [
+        {"id": "assessment-method-card", "role": "container", "anchor": ".assessment-method-card", "bbox": {"x": 0, "y": 0, "width": 1254, "height": 86}, "styles": {"display": "block", "width": "1254px", "height": "86px", "margin-left": "0px", "font-family": "-apple-system", "font-size": "14px", "font-weight": "400", "line-height": "21px", "align-items": "not_applicable"}, "state": "default", "source_state_ids": ["SNAPSPEC-PM-T015-DEFAULT-20260923"], "evidence": "D:/乐逗/Desktop/考核方式设置.txt", "parent_structure": "page > card"}
+      ]
+    }
+  ],
+  "container_constraints": [],
+  "variant_invariants": [],
+  "spatial_constraint_coverage": {"missing_terminal_anchors": [], "uncompared_variant_groups": [], "unmapped_containers": [], "candidate_containers": 0, "containers_with_terminal": 0, "states_with_constraints": []}
+}

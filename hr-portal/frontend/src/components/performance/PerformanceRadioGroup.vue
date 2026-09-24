@@ -11,11 +11,13 @@ withDefaults(defineProps<{
   name?: string
   disabled?: boolean
   gap?: number
+  direction?: 'horizontal' | 'vertical'
   ariaLabel?: string
 }>(), {
   name: 'performance-radio',
   disabled: false,
   gap: 24,
+  direction: 'horizontal',
   ariaLabel: '',
 })
 
@@ -23,7 +25,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 </script>
 
 <template>
-  <div class="performance-radio-group" role="radiogroup" :aria-label="ariaLabel" :style="{ gap: `${gap}px` }">
+  <div class="performance-radio-group" :class="`performance-radio-group--${direction}`" role="radiogroup" :aria-label="ariaLabel" :style="{ gap: `${gap}px` }">
     <label v-for="option in options" :key="option.value" class="performance-radio-option" :class="{ checked: modelValue === option.value, disabled }">
       <input type="radio" :name="name" :value="option.value" :checked="modelValue === option.value" :disabled="disabled" @change="emit('update:modelValue', option.value)" />
       <span class="radio-wallpaper" aria-hidden="true"></span>
@@ -35,11 +37,12 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
 <style scoped>
 .performance-radio-group { display: inline-flex; align-items: center; min-width: 0; min-height: 22px; }
-.performance-radio-option { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; height: 22px; color: #1f2329; font-size: 14px; line-height: 22px; cursor: pointer; }
-.performance-radio-option input { position: absolute; width: 16px; height: 16px; margin: 0; opacity: 0; cursor: pointer; }
-.radio-wallpaper { flex: 0 0 16px; width: 16px; height: 16px; margin-right: 8px; box-sizing: border-box; border: 1px solid #8f959e; border-radius: 50%; background: #fff; }
-.performance-radio-option.checked .radio-wallpaper { border: 5px solid #1456f0; }
-.performance-radio-option input:focus-visible + .radio-wallpaper { outline: 2px solid #1456f0; outline-offset: 2px; }
+.performance-radio-group--vertical { flex-direction: column; align-items: flex-start; }
+.performance-radio-option { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; height: 22px; color: var(--color-text-primary); font-size: var(--font-size-md); line-height: 22px; cursor: pointer; }
+.performance-radio-option input { position: absolute; width: var(--performance-workbench-editor-radio-size); height: var(--performance-workbench-editor-radio-size); margin: 0; opacity: 0; cursor: pointer; }
+.radio-wallpaper { flex: 0 0 var(--performance-workbench-editor-radio-size); width: var(--performance-workbench-editor-radio-size); height: var(--performance-workbench-editor-radio-size); margin-right: var(--performance-field-label-gap); box-sizing: border-box; border: 1px solid #8f959e; border-radius: 50%; background: var(--color-bg-card); }
+.performance-radio-option.checked .radio-wallpaper { border: 5px solid var(--color-primary-hover); }
+.performance-radio-option input:focus-visible + .radio-wallpaper { outline: 2px solid var(--color-primary-hover); outline-offset: 2px; }
 .performance-radio-option.disabled { color: #8f959e; cursor: not-allowed; }
 .performance-radio-option.disabled input { cursor: not-allowed; }
 .radio-label { white-space: nowrap; }

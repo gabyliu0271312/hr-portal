@@ -13,9 +13,12 @@ const props = withDefaults(defineProps<{
   page?: number
   pageSize?: number
   total?: number
+  maxHeight?: number | string
+  showPagination?: boolean
 }>(), {
   page: 1,
   pageSize: 10,
+  showPagination: true,
 })
 
 const emit = defineEmits<{
@@ -36,17 +39,19 @@ function changePage(page: number) {
 <template>
   <div class="performance-management-table" :aria-label="tableAriaLabel">
     <div class="table-scroll">
-      <el-table :data="tableRows" style="width: 100%" row-key="id" table-layout="fixed" @selection-change="emit('selection-change', $event)">
+      <el-table :data="tableRows" style="width: 100%" :max-height="maxHeight" row-key="id" table-layout="fixed" @selection-change="emit('selection-change', $event)">
         <slot />
         <template #empty>
-          <div class="table-state" :role="loading ? 'status' : undefined">
-            {{ loading ? loadingText : emptyText }}
-          </div>
+          <slot name="empty" :loading="loading" :text="loading ? loadingText : emptyText">
+            <div class="table-state" :role="loading ? 'status' : undefined">
+              {{ loading ? loadingText : emptyText }}
+            </div>
+          </slot>
         </template>
       </el-table>
     </div>
 
-    <div class="table-pagination" :aria-label="paginationAriaLabel">
+    <div v-if="showPagination" class="table-pagination" :aria-label="paginationAriaLabel">
       <span class="pagination-total">共 {{ totalCount }} 条</span>
       <button class="pagination-arrow" type="button" aria-label="上一页" :disabled="page <= 1" @click="changePage(page - 1)">
         <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="LeftBoldOutlined"><path d="m16.314 3.515-.707-.707a1 1 0 0 0-1.414 0l-7.779 7.778a2 2 0 0 0 0 2.829l7.779 7.778a1 1 0 0 0 1.414 0l.707-.707a1 1 0 0 0 0-1.414L9.243 12l7.07-7.072a1 1 0 0 0 0-1.414Z" fill="currentColor" /></svg>
@@ -76,6 +81,7 @@ function changePage(page: number) {
 .page-size-select { width: 88px; margin-left: 2px; }
 :deep(.el-table) { --el-table-header-bg-color: #fff; border-top: 1px solid rgba(31, 35, 41, 0.15); }
 :deep(.el-table th.el-table__cell) { height: 46.6667px; padding: 12px; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; }
-:deep(.el-table th.el-table__cell > .cell) { padding: 0; line-height: 22px; }
+:deep(.el-table th.el-table__cell > .cell) { padding: 0 12px; line-height: 22px; }
+:deep(.el-table .el-table-column--selection > .cell) { padding-right: 0; padding-left: 0; }
 :deep(.el-table__cell) { height: 48px; padding-top: 0; padding-bottom: 0; }
 </style>

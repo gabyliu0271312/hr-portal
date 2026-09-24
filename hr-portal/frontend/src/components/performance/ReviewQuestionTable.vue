@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
+import PerformanceButton from './PerformanceButton.vue'
 import { questionTypeLabel, type ReviewQuestion } from './reviewQuestionTypes'
 
 withDefaults(defineProps<{
@@ -55,9 +56,9 @@ const emit = defineEmits<{
     <el-table-column label="操作" min-width="128" fixed="right">
       <template #default="{ row }">
         <div class="row-actions">
-          <el-button link type="primary" @click="emit('edit', row)">编辑</el-button>
+          <PerformanceButton variant="text" class="edit-button" @click="emit('edit', row)">编辑</PerformanceButton>
           <PerformanceDisabledReason :disabled="false" reason="">
-            <el-button link class="delete-button" @click="emit('remove', row)">删除</el-button>
+            <PerformanceButton variant="text" class="delete-button" @click="emit('remove', row)">删除</PerformanceButton>
           </PerformanceDisabledReason>
         </div>
       </template>
@@ -70,6 +71,5 @@ const emit = defineEmits<{
 .creator-chip img, .creator-avatar { width: 20px; height: 20px; flex: none; border-radius: 50%; }
 .creator-avatar { display: grid; place-items: center; background: #dee0e3; color: #646a73; font-size: 11px; }
 .creator-name { margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-actions { display: flex; align-items: center; gap: 4px; }
-.delete-button { color: rgb(187, 191, 196); }
+.row-actions { display: flex; align-items: center; gap: var(--performance-button-gap); }
 </style>

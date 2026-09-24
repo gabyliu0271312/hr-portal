@@ -1,0 +1,126 @@
+{
+  "schema_version": 2,
+  "feature": "PM-xxx-name",
+  "source_of_truth": "capture_evidence",
+  "implementation_readiness": "blocked",
+  "states": [
+    {
+      "source_state_id": "RR-STATE",
+      "session": "C:/Users/.../capture-session",
+      "url": "https://...",
+      "viewport": {"width": 1920, "height": 1080, "dpr": 1},
+      "artifacts": {
+        "before_html": ".../before.html",
+        "after_html": ".../after.html",
+        "layout": ".../layout.json",
+        "computed": ".../computed.json",
+        "target_contract": ".../target_contract.json",
+        "interaction_evidence": ".../interaction_evidence.json",
+        "screenshot": ".../after.png"
+      },
+      "components": ["ComponentId"],
+      "fields": [
+        {"id": "fieldId", "label": "采集标签", "control": "input", "placeholder": "采集占位符", "required": false, "order": 1}
+      ],
+      "visual_elements": [
+        {"id": "elementId", "role": "label|text|icon|control|container|pseudo", "anchor": "stable DOM selector or ancestor path", "parent_structure": {"parent_role": "...", "relation": "direct-child|nested|pseudo-of|root"}, "bbox": {"x": 0, "y": 0, "width": 1, "height": 1}, "styles": {"display": "block", "width": "1px", "height": "1px", "margin-left": "0px", "font-family": "not_applicable", "font-size": "not_applicable", "font-weight": "not_applicable", "line-height": "not_applicable", "align-items": "not_applicable"}, "state": "default", "source_state_ids": ["RR-STATE"], "evidence": ".../computed.json"}
+      ],
+      "geometry": {"bbox": {"x": 0, "y": 0, "width": 1, "height": 1}, "padding": {"top": 0, "right": 0, "bottom": 0, "left": 0}, "margin": {"top": 0, "right": 0, "bottom": 0, "left": 0}},
+      "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgb(255, 255, 255)", "color": "rgb(31, 35, 41)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "21px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"},
+      "interactions": [{"kind": "hover", "target": "ComponentId", "phases": ["hover"], "before": "RR-STATE", "after": "RR-STATE-HOVER"}],
+      "svg": [{"data_icon": "IconName", "viewBox": "0 0 24 24", "path": "M...", "fill": "currentColor", "stroke": "none", "bbox": {"x": 0, "y": 0, "width": 14, "height": 14}}]
+    }
+  ],
+  "components": [
+    {
+      "component_id": "ComponentId",
+      "source_state_ids": ["RR-STATE"],
+      "props": {"modelValue": "string"},
+      "events": ["update:modelValue"],
+      "state_matrix": {"default": "RR-STATE"},
+      "geometry": {"bbox_role": "component_root", "bbox": {"x": 0, "y": 0, "width": 1, "height": 1}},
+      "styles": {"display": "block", "position": "static", "boxSizing": "border-box", "backgroundColor": "rgba(0, 0, 0, 0)", "color": "rgb(31, 35, 41)", "fontSize": "14px", "fontWeight": 400, "lineHeight": "21px", "border": "0px none", "borderRadius": "0px", "boxShadow": "none", "overflowX": "visible", "overflowY": "visible", "zIndex": "auto"},
+      "svg": []
+    }
+  ],
+  "layout_relations": [
+    {
+      "id": "relation-example",
+      "source_state_ids": ["RR-STATE"],
+      "left": "ComponentId.left",
+      "right": "ComponentId.left",
+      "property": "x",
+      "operator": "equal",
+      "expected": {"left": 0, "right": 0},
+      "evidence": ".../layout.json"
+    }
+  ],
+  "interaction_contracts": [],
+  "compound_controls": [
+    {
+      "component_id": "PerformanceNumberInput",
+      "source_state_ids": ["RR-STATE"],
+      "state": "default",
+      "variant": {"id": "default", "viewport": {"width": 894, "height": 631, "dpr": 1}},
+      "root": {"id": "rootId", "bbox_role": "component_root", "bbox": {"x": 0, "y": 0, "width": 98, "height": 31}, "parent_id": null, "source_state_id": "RR-STATE", "evidence": ".../target_contract.json"},
+      "parts": {
+        "input_wrap": {"id": "inputWrapId", "bbox_role": "container_part", "bbox": {"x": 0, "y": 0, "width": 1, "height": 1}, "parent_id": "rootId", "source_state_id": "RR-STATE", "evidence": ".../target_contract.json"},
+        "input": {"id": "inputId", "bbox_role": "input", "bbox": {"x": 0, "y": 0, "width": 75.0729, "height": 22}, "parent_id": "inputWrapId", "source_state_id": "RR-STATE", "evidence": ".../target_contract.json"},
+        "handle": {"id": "handleId", "bbox_role": "handle", "bbox": {"x": 0, "y": 0, "width": 32, "height": 30}, "parent_id": "rootId", "source_state_id": "RR-STATE", "evidence": ".../target_contract.json"},
+        "handle_items": [
+          {"id": "handleItemUpId", "bbox_role": "handle_item", "bbox": {"x": 0, "y": 0, "width": 32, "height": 15}, "parent_id": "handleId", "source_state_id": "RR-STATE", "evidence": ".../target_contract.json"},
+          {"id": "handleItemDownId", "bbox_role": "handle_item", "bbox": {"x": 0, "y": 15, "width": 32, "height": 15}, "parent_id": "handleId", "source_state_id": "RR-STATE", "evidence": ".../target_contract.json"}
+        ],
+        "svg": [
+          {"id": "upIconId", "bbox_role": "svg", "bbox": {"x": 0, "y": 0, "width": 8, "height": 8}, "parent_id": "handleItemUpId", "source_state_id": "RR-STATE", "evidence": ".../target_contract.json"},
+          {"id": "downIconId", "bbox_role": "svg", "bbox": {"x": 0, "y": 0, "width": 8, "height": 8}, "parent_id": "handleItemDownId", "source_state_id": "RR-STATE", "evidence": ".../target_contract.json"}
+        ]
+      }
+    }
+  ],
+  "container_constraints": [
+    {
+      "id": "constraint-state-component",
+      "source_state_id": "RR-STATE",
+      "component_id": "ComponentId",
+      "container": {"id": "containerId", "bbox_role": "component_root", "bbox": {"x": 0, "y": 0, "width": 800, "height": 417}},
+      "first_visible_child": {"id": "firstChildId", "bbox_role": "first_visible_child", "bbox": {"x": 20, "y": 20, "width": 100, "height": 24}},
+      "terminal_visible_child": {"id": "terminalId", "bbox_role": "terminal_visible_child", "bbox": {"x": 20, "y": 375, "width": 82, "height": 22}},
+      "edge_insets": {"top": 20, "right": 20, "bottom": 20, "left": 20},
+      "evidence": ".../layout.json",
+      "ownership": "parent-container",
+      "tolerance": 1
+    }
+  ],
+  "variant_invariants": [
+    {
+      "id": "invariant-component-bottom-gap",
+      "component_id": "ComponentId",
+      "source_state_ids": ["RR-STATE", "RR-STATE-ALTERNATE"],
+      "property": "bottom_gap",
+      "measurements": {"RR-STATE": 20, "RR-STATE-ALTERNATE": 20},
+      "expected": 20,
+      "tolerance": 1,
+      "invariant_across_variants": true,
+      "evidence": [".../state/layout.json", ".../alternate/layout.json"],
+      "ownership": "parent-container"
+    }
+  ],
+  "spatial_constraint_coverage": {
+    "candidate_containers": 1,
+    "containers_with_terminal": 1,
+    "states_with_constraints": ["RR-STATE"],
+    "missing_terminal_anchors": [],
+    "uncompared_variant_groups": [],
+    "unmapped_containers": []
+  },
+  "coverage": {
+    "unmapped_source_states": [],
+    "unmapped_components": [],
+    "unmapped_fields": [],
+    "unmapped_visual_properties": [],
+    "unmapped_interactions": [],
+    "unmapped_spatial_constraints": [],
+    "cross_document_conflicts": []
+  }
+}

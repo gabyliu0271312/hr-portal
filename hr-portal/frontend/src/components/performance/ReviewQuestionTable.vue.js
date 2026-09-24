@@ -187,11 +187,13 @@ __VLS_32.slots.default;
         ...{ 'onClick': {} },
         link: true,
         type: "primary",
+        ...{ class: "edit-button" },
     }));
     const __VLS_35 = __VLS_34({
         ...{ 'onClick': {} },
         link: true,
         type: "primary",
+        ...{ class: "edit-button" },
     }, ...__VLS_functionalComponentArgsRest(__VLS_34));
     let __VLS_37;
     let __VLS_38;

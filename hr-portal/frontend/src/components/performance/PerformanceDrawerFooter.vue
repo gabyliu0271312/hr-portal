@@ -1,15 +1,17 @@
 <template>
-  <footer class="performance-drawer-footer">
-    <button class="performance-drawer-footer__confirm" type="button" @click="$emit('confirm')">{{ confirmText }}</button>
-    <button class="performance-drawer-footer__cancel" type="button" @click="$emit('cancel')">{{ cancelText }}</button>
+  <footer class="performance-drawer-footer" :class="`performance-drawer-footer--${variant}`">
+    <PerformanceButton variant="primary" @click="$emit('confirm')">{{ confirmText }}</PerformanceButton>
+    <PerformanceButton variant="secondary" @click="$emit('cancel')">{{ cancelText }}</PerformanceButton>
   </footer>
 </template>
 
 <script setup lang="ts">
-withDefaults(defineProps<{ confirmText?: string; cancelText?: string }>(), { confirmText: '确定', cancelText: '取消' })
+import PerformanceButton from './PerformanceButton.vue'
+
+withDefaults(defineProps<{ confirmText?: string; cancelText?: string; variant?: 'default' | 'captured' }>(), { confirmText: '确定', cancelText: '取消', variant: 'default' })
 defineEmits<{ confirm: []; cancel: [] }>()
 </script>
 
 <style scoped>
-.performance-drawer-footer{display:flex;align-items:center;flex:0 0 61px;padding:12px 20px;box-sizing:border-box;border-top:1px solid rgba(31,35,41,.15);background:#fff;box-shadow:0 1px 6px rgba(31,35,41,.12);z-index:1}.performance-drawer-footer button{display:inline-flex;align-items:center;justify-content:center;min-width:80px;height:32px;padding:4px 11px;border-radius:6px;cursor:pointer;font:400 14px/22px inherit}.performance-drawer-footer__confirm{border:1px solid #1456f0;background:#1456f0;color:#fff}.performance-drawer-footer__confirm:active{border-color:#0442d2;background:#0442d2}.performance-drawer-footer__cancel{margin-left:12px;border:1px solid #d0d3d6;background:#fff;color:#1f2329}.performance-drawer-footer__cancel:hover{background:#eff0f1}
+.performance-drawer-footer{display:flex;align-items:center;flex:0 0 var(--performance-drawer-footer-height);padding:12px var(--performance-drawer-footer-padding-x);box-sizing:border-box;border-top:1px solid var(--color-line-divider);background:var(--color-bg-card);box-shadow:0 1px 6px rgba(31,35,41,.12);z-index:1;gap:var(--performance-button-gap)}.performance-drawer-footer :deep(.performance-button){min-width:var(--performance-button-min-width)}.performance-drawer-footer--captured{flex-basis:72px;padding:var(--spacing-5)}
 </style>

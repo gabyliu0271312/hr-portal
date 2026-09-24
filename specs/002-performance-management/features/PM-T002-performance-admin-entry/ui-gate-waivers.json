@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "waivers": [
+    {
+      "id": "PM-T002-T02-cycle-projects-nav-icon-20260920",
+      "task_id": "PM-T002-T02",
+      "approved_by": "用户（本会话明确选择定向豁免）",
+      "approved_at": "2026-09-20",
+      "reason": "仅允许依据用户提供的 2026-09-20 SnapSpec Blueprint，将绩效后台‘周期与项目’菜单前图标替换为指定的 18×18 内联 SVG，并补充精确结构测试与小范围交互说明；不修改其他菜单图标、导航顺序、路由、权限、页面业务、API 或数据。PM-T002 为历史功能，缺少当前检查器要求的根级完整采集契约，且原子任务仍使用‘前置任务’字段；本豁免不改变全功能 completion_status 或 pixel_restore_status，不代表运行时像素验收通过。",
+      "active": true,
+      "scope": [
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.ts",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.js",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.spec.ts",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.spec.js",
+        "specs/002-performance-management/features/PM-T002-performance-admin-entry/ui-interaction.md",
+        "specs/002-performance-management/features/PM-T002-performance-admin-entry/ui-gate-waivers.json"
+      ],
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "task_prerequisites_unspecified:PM-T002-T02",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation"
+      ]
+    },
+    {
+      "id": "PM-T002-T02-seats-nav-icon-20260921",
+      "task_id": "PM-T002-T02",
+      "approved_by": "用户（本会话明确要求完成席位管理图标替换）",
+      "approved_at": "2026-09-21",
+      "reason": "仅允许依据用户提供的 2026-09-21 SnapSpec Blueprint，将绩效后台“席位管理”菜单前图标替换为指定的 18×18 内联 SVG，并补充精确结构测试与 Element Plus 尺寸覆盖；不修改其他菜单图标、导航顺序、路由、权限、页面业务、API 或数据。PM-T002 为历史功能，缺少当前检查器要求的根级完整采集契约；本豁免不改变全功能 completion_status 或 pixel_restore_status，不代表运行时像素验收通过。",
+      "active": true,
+      "scope": [
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.ts",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.js",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.spec.ts",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.spec.js",
+        "hr-portal/frontend/src/layouts/PerformanceAdminLayout.vue",
+        "hr-portal/frontend/src/layouts/PerformanceAdminLayout.spec.ts",
+        "hr-portal/frontend/src/layouts/PerformanceAdminLayout.spec.js",
+        "specs/002-performance-management/features/PM-T002-performance-admin-entry/ui-interaction.md",
+        "specs/002-performance-management/features/PM-T002-performance-admin-entry/ui-gate-waivers.json"
+      ],
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "task_prerequisites_unspecified:PM-T002-T02",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation"
+      ]
+    },
+    {
+      "id": "PM-T002-T02-templates-nav-icon-20260921",
+      "task_id": "PM-T002-T02",
+      "approved_by": "用户（本会话明确要求完成绩效模板图标替换）",
+      "approved_at": "2026-09-21",
+      "reason": "仅允许依据用户提供的 2026-09-21 SnapSpec Blueprint，将绩效后台“绩效模板”菜单前图标替换为指定的 18×18 内联 SVG，并补充精确结构测试与 Element Plus 尺寸覆盖；不修改其他菜单图标、导航顺序、路由、权限、页面业务、API 或数据。PM-T002 为历史功能，缺少当前检查器要求的根级完整采集契约；本豁免不改变全功能 completion_status 或 pixel_restore_status，不代表运行时像素验收通过。",
+      "active": true,
+      "scope": [
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.ts",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.js",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.spec.ts",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.spec.js",
+        "hr-portal/frontend/src/layouts/PerformanceAdminLayout.vue",
+        "hr-portal/frontend/src/layouts/PerformanceAdminLayout.spec.ts",
+        "hr-portal/frontend/src/layouts/PerformanceAdminLayout.spec.js",
+        "specs/002-performance-management/features/PM-T002-performance-admin-entry/ui-interaction.md",
+        "specs/002-performance-management/features/PM-T002-performance-admin-entry/ui-gate-waivers.json"
+      ],
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "task_prerequisites_unspecified:PM-T002-T02",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation"
+      ]
+    },
+    {
+      "id": "PM-T002-T02-remaining-nav-icons-20260921",
+      "task_id": "PM-T002-T02",
+      "approved_by": "用户（本会话明确要求完成评估题管理、权限管理、系统设置图标修复）",
+      "approved_at": "2026-09-21",
+      "reason": "仅允许依据用户提供的 2026-09-21 SnapSpec Blueprints，将绩效后台评估题管理、权限管理、系统设置菜单前图标替换为指定的 18×18 内联 SVG，并补充精确结构测试与 Element Plus 尺寸覆盖；不修改其他菜单图标、导航顺序、路由、权限、页面业务、API 或数据。PM-T002 为历史功能，缺少当前检查器要求的根级完整采集契约；本豁免不改变全功能 completion_status 或 pixel_restore_status，不代表运行时像素验收通过。 同时修复可展开菜单子组件中的 scoped SVG 尺寸覆盖，避免权限管理图标在无 viewBox 的 18×18 采集结构下被 Element Plus 14px 规则裁切。",
+      "active": true,
+      "scope": [
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.ts",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.js",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.spec.ts",
+        "hr-portal/frontend/src/utils/performanceAdminNavigation.spec.js",
+        "hr-portal/frontend/src/layouts/PerformanceAdminLayout.vue",
+        "hr-portal/frontend/src/layouts/PerformanceAdminLayout.spec.ts",
+        "hr-portal/frontend/src/layouts/PerformanceAdminLayout.spec.js",
+        "specs/002-performance-management/features/PM-T002-performance-admin-entry/ui-interaction.md",
+        "specs/002-performance-management/features/PM-T002-performance-admin-entry/ui-gate-waivers.json",
+        "hr-portal/frontend/src/components/performance/PerformanceAdminExpandableMenu.vue"
+      ],
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "task_prerequisites_unspecified:PM-T002-T02",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation"
+      ]
+    }
+  ]
+}

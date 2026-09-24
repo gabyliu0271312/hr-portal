@@ -131,7 +131,7 @@ def test_audit_service_captures_reconstructable_before_and_after_states():
             before_state={"effective_publisher": {"actor_ref": "200"}},
             after_state={
                 "effective_publisher": {"actor_ref": "600"},
-                "original_direct_manager_employee_no": "200",
+                "original_direct_supervisor_employee_no": "200",
                 "reason": "原直属上级无法处理",
             },
         )
@@ -140,7 +140,7 @@ def test_audit_service_captures_reconstructable_before_and_after_states():
     assert db.records == [record]
     assert record.before_state["effective_publisher"]["actor_ref"] == "200"
     assert record.after_state["effective_publisher"]["actor_ref"] == "600"
-    assert record.after_state["original_direct_manager_employee_no"] == "200"
+    assert record.after_state["original_direct_supervisor_employee_no"] == "200"
 
 
 def test_object_authorization_migration_has_immutable_audit_trigger():

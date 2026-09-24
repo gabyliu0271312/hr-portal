@@ -80,6 +80,86 @@ describe('ProjectReportMatrix', () => {
     wrapper.unmount()
   })
 
+  it('renders team and sequence rows with summary configuration', async () => {
+    const team = await mockProjectReportProvider({ cycleId: 1, dimension: 'team' })
+    const teamWrapper = mount(ProjectReportMatrix, { props: { report: team } })
+    await flushPromises()
+    expect(teamWrapper.get('.el-table__header').text()).toContain('上级')
+    expect((teamWrapper.findComponent({ name: 'ElTable' }).props('data') as any[])[0].id).toBe('report-summary')
+    expect((teamWrapper.findComponent({ name: 'ElTable' }).props('data') as any[]).some(row => row.name === '示例上级A')).toBe(true)
+    teamWrapper.unmount()
+
+    const sequence = await mockProjectReportProvider({ cycleId: 1, dimension: 'sequence' })
+    const sequenceWrapper = mount(ProjectReportMatrix, { props: { report: sequence } })
+    await flushPromises()
+    expect(sequenceWrapper.get('.el-table__header').text()).toContain('序列（筛选结果含子序列）')
+    expect((sequenceWrapper.findComponent({ name: 'ElTable' }).props('data') as any[])[0].id).toBe('report-summary')
+    sequenceWrapper.unmount()
+  })
+
+  it('renders flat tenure buckets with a summary and no expansion control', async () => {
+    const report = await mockProjectReportProvider({ cycleId: 1 })
+    report.source = 'api'
+    report.dimension = 'tenure'
+    report.rowLabel = '司龄'
+    report.departments = [
+      { id: 'tenure:under-3', name: '入职未满3个月', counts: {} },
+      { id: 'tenure:missing', name: '入职日期缺失', counts: {} },
+    ]
+    const wrapper = mount(ProjectReportMatrix, { props: { report } })
+    await flushPromises()
+    expect(wrapper.get('.el-table__header').text()).toContain('司龄')
+    expect((wrapper.findComponent({ name: 'ElTable' }).props('data') as any[])[0].name).toBe('汇总')
+    expect(wrapper.findAll('.matrix-tree-toggle')).toHaveLength(0)
+    expect(wrapper.text()).toContain('入职未满3个月')
+    expect(wrapper.text()).toContain('入职日期缺失')
+    wrapper.unmount()
+  })
+
+  it('renders level summary and zero rows without any expandable children', async () => {
+    const report = await mockProjectReportProvider({ cycleId: 1 })
+    report.dimension = 'level'
+    report.rowLabel = '岗位职级'
+    report.source = 'api'
+    report.departments[1].counts = {}
+    delete report.heatLevels
+    report.departments.forEach(row => { delete row.heatLevels })
+    const wrapper = mount(ProjectReportMatrix, { props: { report } })
+    await flushPromises()
+    const table = wrapper.findComponent({ name: 'ElTable' })
+    const rows = table.props('data') as any[]
+    expect(rows[0].name).toBe('汇总')
+    expect(rows.every(row => !row.children)).toBe(true)
+    expect(wrapper.findAll('.matrix-tree-toggle')).toHaveLength(0)
+    expect(wrapper.get('.el-table__header').text()).toContain('岗位职级')
+    expect(wrapper.text()).toContain('--')
+    expect(wrapper.findAll('.matrix-heat-1, .matrix-heat-2, .matrix-heat-3')).toHaveLength(0)
+    table.vm.$emit('sort-change', { prop: 'total', order: 'ascending' })
+    await flushPromises()
+    expect((table.props('data') as any[])[0].name).toBe('汇总')
+    wrapper.unmount()
+  })
+
+  it('renders real level headers as rule grades with configured colors, not grade names', async () => {
+    const labels = ['1星', '2星', '3星-', '3星', '3星+', '4星', '5星']
+    const colors = ['rgb(251, 191, 188)', 'rgb(254, 212, 164)', 'rgb(248, 230, 171)', 'rgb(183, 237, 177)', 'rgb(169, 239, 230)', 'rgb(177, 232, 252)', 'rgb(186, 206, 253)']
+    const report = await mockProjectReportProvider({ cycleId: 1 })
+    report.source = 'api'
+    report.dimension = 'level'
+    report.rowLabel = '岗位职级'
+    report.ratings = labels.map((label, index) => ({ key: `rule-level-${index}`, label, color: colors[index] }))
+    const wrapper = mount(ProjectReportMatrix, { props: { report } })
+    await flushPromises()
+    const tags = wrapper.findAllComponents({ name: 'PerformanceRatingTag' })
+    expect(tags.map(tag => tag.props('label'))).toEqual(labels)
+    expect(tags.map(tag => tag.props('color'))).toEqual(colors)
+    for (const name of ['不合格', '待改进', '符合预期', '超出预期', '卓越']) {
+      expect(wrapper.get('.el-table__header').text()).not.toContain(name)
+    }
+    expect(wrapper.findAll('.matrix-tree-toggle')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
   it('uses an empty table rather than a synthetic summary for absent departments', async () => {
     const report = await mockProjectReportProvider({ cycleId: 1 })
     report.departments = []

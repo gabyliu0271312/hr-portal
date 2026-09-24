@@ -9,6 +9,7 @@ export interface PerformanceRoleGrant {
 export interface PerformanceWorkbenchProject {
   project_id: number
   project_name: string
+  cycle_ref?: string | null
   cycle_name: string
   cycle_start_at: string
   cycle_end_at: string
@@ -42,13 +43,59 @@ export interface PerformanceWorkbenchTaskGroup {
   participation_roles?: string[]
 }
 
-export interface PerformanceWorkbenchTaskPerson {
-  task_id: number
-  aggregate_task_id?: number | null
+export interface PerformanceMemberProfile {
   employee_no: string
   display_name: string
+  company_org?: string | null
+  department_2?: string | null
+  department_3?: string | null
+  department_4?: string | null
+  department_5?: string | null
+  job_family: string | null
+  job_category: string | null
+  job_sequence: string | null
+  position_level: string | null
+  hire_date: string | null
+  department: string | null
+  employee_type: string | null
+  employment_status: string | null
+  visible_profile_fields?: string[]
+}
+
+export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile {
+  task_id: number
+  aggregate_task_id?: number | null
   status: string
   due_at: string | null
+  reminder_target?: string | null
+  direct_supervisor?: string | null
+  hrbp?: string | null
+  completion?: string | null
+  visibility_role?: string
+  visible_profile_fields?: string[]
+}
+
+export interface PerformanceReminderResult {
+  accepted_task_ids: number[]
+  skipped_task_ids: number[]
+  delivery_status: 'recorded'
+}
+
+export type PerformanceReviewMemberContext = {
+  task_id?: number
+  aggregate_task_id?: number | null
+  employee_no: string
+  display_name?: string
+  avatar_url?: string | null
+  department?: string | null
+  job_family?: string | null
+  job_category?: string | null
+  job_sequence?: string | null
+  position_level?: string | null
+  hire_date?: string | null
+  employee_type?: string | null
+  status?: string
+  due_at?: string | null
 }
 
 export interface PerformanceReviewNode {
@@ -116,6 +163,293 @@ export const performanceReviewApi = {
   },
 }
 
+export interface PerformanceOtherPermissionPerson {
+  employee_no: string
+  display_name: string
+}
+
+export interface PerformanceOtherPermissionHrbpPermission {
+  hrbp: PerformanceOtherPermissionPerson
+  scope: string[]
+  invisible_people: PerformanceOtherPermissionPerson[]
+}
+
+export interface PerformanceOtherPermissionSettings {
+  hrbp_invisible_scope_enabled: boolean
+  hrbp_invisible_people: PerformanceOtherPermissionPerson[]
+  hrbp_permissions: PerformanceOtherPermissionHrbpPermission[]
+  people_options: PerformanceOtherPermissionPerson[]
+  organization_tree: PerformanceHrbpOrganizationNode[]
+  manager_reminder_enabled: boolean
+  manager_reminder_node_types: string[]
+}
+
+export interface PerformanceOtherPermissionHrbpPermissionPayload {
+  hrbp: string
+  scope: string[]
+  invisible_people: string[]
+}
+
+export interface PerformanceOtherPermissionSettingsPayload {
+  hrbp_invisible_scope_enabled?: boolean
+  hrbp_invisible_people?: string[]
+  hrbp_permissions?: PerformanceOtherPermissionHrbpPermissionPayload[]
+  manager_reminder_enabled: boolean
+  manager_reminder_node_types: string[]
+}
+
+export const performanceOtherPermissionSettingsApi = {
+  async get(): Promise<PerformanceOtherPermissionSettings> {
+    const { data } = await api.get<PerformanceOtherPermissionSettings>('/performance/permission-settings/other')
+    return data
+  },
+  async update(payload: PerformanceOtherPermissionSettingsPayload): Promise<PerformanceOtherPermissionSettings> {
+    const { data } = await api.patch<PerformanceOtherPermissionSettings>('/performance/permission-settings/other', payload)
+    return data
+  },
+}
+
+export interface PerformanceAssessmentMethodSettings {
+  metric_assessment_enabled: boolean
+}
+
+export const performanceAssessmentMethodSettingsApi = {
+  async get(): Promise<PerformanceAssessmentMethodSettings> {
+    const { data } = await api.get<PerformanceAssessmentMethodSettings>('/performance/system-settings/assessment-method')
+    return data
+  },
+  async update(payload: PerformanceAssessmentMethodSettings): Promise<PerformanceAssessmentMethodSettings> {
+    const { data } = await api.patch<PerformanceAssessmentMethodSettings>('/performance/system-settings/assessment-method', payload)
+    return data
+  },
+}
+
+export interface PerformanceNotificationSettings {
+  feishu_push_enabled: boolean
+  email_enabled: boolean
+  calibration_delivery_mode: 'realtime' | 'after_calibration'
+  result_change_notification_scope: 'final_score_grade' | 'any_content'
+  todo_task_notification_enabled: boolean
+  progress_daily_notification_enabled: boolean
+  stage_start_notification_enabled: boolean
+}
+
+export type PerformanceNotificationRuleKey =
+  | 'todo_task_notification_enabled'
+  | 'progress_daily_notification_enabled'
+  | 'stage_start_notification_enabled'
+
+export type PerformanceNotificationSettingsPayload = Partial<Pick<
+  PerformanceNotificationSettings,
+  | 'email_enabled'
+  | 'calibration_delivery_mode'
+  | 'result_change_notification_scope'
+  | 'todo_task_notification_enabled'
+  | 'progress_daily_notification_enabled'
+  | 'stage_start_notification_enabled'
+> >
+
+export const performanceNotificationSettingsApi = {
+  async get(): Promise<PerformanceNotificationSettings> {
+    const { data } = await api.get<PerformanceNotificationSettings>('/performance/system-settings/notifications')
+    return data
+  },
+  async update(payload: PerformanceNotificationSettingsPayload): Promise<PerformanceNotificationSettings> {
+    const { data } = await api.patch<PerformanceNotificationSettings>('/performance/system-settings/notifications', payload)
+    return data
+  },
+}
+
+export interface PerformanceRoleListItem {
+  id: number
+  code: string
+  name: string
+  description: string | null
+  is_system: boolean
+  is_active: boolean
+  updated_at: string
+  function_permission_keys: string[]
+}
+
+export interface PerformanceRoleListPage {
+  items: PerformanceRoleListItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface PerformanceRoleCreatePayload {
+  name: string
+  description?: string | null
+  function_permission_keys?: string[]
+}
+
+export const performanceRoleApi = {
+  async list(keyword = '', page = 1, pageSize = 10): Promise<PerformanceRoleListPage> {
+    const { data } = await api.get<PerformanceRoleListPage>('/performance/permission-settings/roles', {
+      params: { keyword: keyword || undefined, page, page_size: pageSize },
+    })
+    return data
+  },
+  async create(payload: PerformanceRoleCreatePayload): Promise<PerformanceRoleListItem> {
+    const { data } = await api.post<PerformanceRoleListItem>('/performance/permission-settings/roles', payload)
+    return data
+  },
+}
+export interface PerformanceSubjectVisibilityFieldOption {
+  key: string
+  label: string
+}
+
+export interface PerformanceSubjectVisibilityRole {
+  role_key: string
+  role_name: string
+  visible_labels: string[]
+  visible_fields: string[]
+}
+
+export interface PerformanceSubjectVisibilityPage {
+  items: PerformanceSubjectVisibilityRole[]
+  total: number
+  page: number
+  page_size: number
+  field_options: PerformanceSubjectVisibilityFieldOption[]
+}
+
+export const performanceSubjectVisibilityApi = {
+  async list(page = 1, pageSize = 10): Promise<PerformanceSubjectVisibilityPage> {
+    const { data } = await api.get<PerformanceSubjectVisibilityPage>('/performance/permission-settings/subject-visibility', { params: { page, page_size: pageSize } })
+    return data
+  },
+  async update(roleKey: string, visibleFields: string[]): Promise<PerformanceSubjectVisibilityRole> {
+    const { data } = await api.patch<PerformanceSubjectVisibilityRole>(`/performance/permission-settings/subject-visibility/${encodeURIComponent(roleKey)}`, { visible_fields: visibleFields })
+    return data
+  },
+}
+
+export interface PerformanceWorkbenchSetting {
+  announcement_enabled: boolean
+}
+
+export interface PerformanceWorkbenchEntry {
+  id: number
+  title: string
+  status: 'active' | 'inactive'
+  link: string
+  icon: string | null
+  visibility: string
+  display_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface PerformanceWorkbenchAnnouncement {
+  id: number
+  title: string
+  status: 'active' | 'inactive'
+  link: string
+  cycle_label: string
+  cycle_ref: string | null
+  visibility: string
+  visibility_role: string | null
+  require_ack: boolean
+  display_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface PerformanceWorkbenchAnnouncementFeedItem {
+  id: number
+  title: string
+  link: string
+  cycle_label: string
+  require_ack: boolean
+  display_order: number
+  updated_at: string
+}
+
+export interface PerformanceWorkbenchAnnouncementFeed {
+  announcement_enabled: boolean
+  items: PerformanceWorkbenchAnnouncementFeedItem[]
+}
+
+export interface PerformanceWorkbenchPage<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface PerformanceWorkbenchEntryPayload {
+  title: string
+  link: string
+  icon?: string | null
+  visibility?: string
+  status?: 'active' | 'inactive'
+  display_order?: number
+}
+
+export interface PerformanceWorkbenchAnnouncementPayload {
+  title: string
+  link: string
+  cycle_label?: string
+  cycle_ref?: string | null
+  visibility?: string
+  visibility_role?: 'HRBP' | 'REAL_LINE_MANAGER' | null
+  require_ack?: boolean
+  status?: 'active' | 'inactive'
+  display_order?: number
+}
+
+export const performanceWorkbenchSettingsApi = {
+  async get(): Promise<PerformanceWorkbenchSetting> {
+    const { data } = await api.get<PerformanceWorkbenchSetting>('/performance/workbench-settings')
+    return data
+  },
+  async update(payload: PerformanceWorkbenchSetting): Promise<PerformanceWorkbenchSetting> {
+    const { data } = await api.patch<PerformanceWorkbenchSetting>('/performance/workbench-settings', payload)
+    return data
+  },
+  async listEntries(keyword = '', status?: 'active' | 'inactive', page = 1, pageSize = 10): Promise<PerformanceWorkbenchPage<PerformanceWorkbenchEntry>> {
+    const { data } = await api.get<PerformanceWorkbenchPage<PerformanceWorkbenchEntry>>('/performance/workbench-settings/entries', { params: { keyword: keyword || undefined, status, page, page_size: pageSize } })
+    return data
+  },
+  async createEntry(payload: PerformanceWorkbenchEntryPayload): Promise<PerformanceWorkbenchEntry> {
+    const { data } = await api.post<PerformanceWorkbenchEntry>('/performance/workbench-settings/entries', payload)
+    return data
+  },
+  async updateEntry(id: number, payload: Partial<PerformanceWorkbenchEntryPayload>): Promise<PerformanceWorkbenchEntry> {
+    const { data } = await api.patch<PerformanceWorkbenchEntry>(`/performance/workbench-settings/entries/${id}`, payload)
+    return data
+  },
+  async updateEntryStatus(id: number, status: 'active' | 'inactive'): Promise<PerformanceWorkbenchEntry> {
+    const { data } = await api.post<PerformanceWorkbenchEntry>(`/performance/workbench-settings/entries/${id}/status`, { status })
+    return data
+  },
+  async removeEntry(id: number): Promise<void> {
+    await api.delete(`/performance/workbench-settings/entries/${id}`)
+  },
+  async listAnnouncements(keyword = '', status?: 'active' | 'inactive', page = 1, pageSize = 10): Promise<PerformanceWorkbenchPage<PerformanceWorkbenchAnnouncement>> {
+    const { data } = await api.get<PerformanceWorkbenchPage<PerformanceWorkbenchAnnouncement>>('/performance/workbench-settings/announcements', { params: { keyword: keyword || undefined, status, page, page_size: pageSize } })
+    return data
+  },
+  async createAnnouncement(payload: PerformanceWorkbenchAnnouncementPayload): Promise<PerformanceWorkbenchAnnouncement> {
+    const { data } = await api.post<PerformanceWorkbenchAnnouncement>('/performance/workbench-settings/announcements', payload)
+    return data
+  },
+  async updateAnnouncement(id: number, payload: Partial<PerformanceWorkbenchAnnouncementPayload>): Promise<PerformanceWorkbenchAnnouncement> {
+    const { data } = await api.patch<PerformanceWorkbenchAnnouncement>(`/performance/workbench-settings/announcements/${id}`, payload)
+    return data
+  },
+  async updateAnnouncementStatus(id: number, status: 'active' | 'inactive'): Promise<PerformanceWorkbenchAnnouncement> {
+    const { data } = await api.post<PerformanceWorkbenchAnnouncement>(`/performance/workbench-settings/announcements/${id}/status`, { status })
+    return data
+  },
+  async removeAnnouncement(id: number): Promise<void> {
+    await api.delete(`/performance/workbench-settings/announcements/${id}`)
+  },
+}
+
 export interface ProjectManagementCycle {
   cycle_id: number
   cycle_name: string
@@ -130,27 +464,31 @@ export interface ProjectManagementProject {
   status: string
 }
 
+export interface ProjectManagementCompletionNode {
+  key: string
+  title: string
+  status: 'active' | 'completed' | 'not_started' | 'overdue' | 'unavailable'
+  completed_count: number
+  total_count: number
+  completion_rate: number | null
+  deadline_at: string | null
+}
+
 export interface ProjectManagementOverview {
   cycles: ProjectManagementCycle[]
   active_cycle: ProjectManagementCycle | null
   projects: ProjectManagementProject[]
+  completion_nodes?: ProjectManagementCompletionNode[]
   hrbp_scope: string[]
   category: { key: string; label: string }
 }
 
-export interface ProjectMember {
+export interface ProjectMember extends PerformanceMemberProfile {
   id: number
-  employee_no: string
-  display_name: string
   avatar_url: string | null
   rating: string | null
   rating_tone: string | null
   completion: string | null
-  sequence: string | null
-  level: string | null
-  entry_date: string | null
-  department: string | null
-  employment_status: string | null
 }
 
 export interface ProjectMemberPage {
@@ -195,6 +533,18 @@ export interface ProjectMatrix {
   completed_rows: ProjectMatrixRow[]
 }
 
+export interface ProjectStatisticsReport {
+  source: 'api'
+  dimension: 'level' | 'tenure'
+  rowLabel: '岗位职级' | '司龄'
+  showSummary: true
+  totalParticipants: number
+  ratings: ProjectMatrixRating[]
+  distribution: Record<string, number>
+  heatLevels?: Record<string, 1 | 2 | 3>
+  departments: Array<{ id: string; name: string; counts: Record<string, number>; heatLevels?: Record<string, 1 | 2 | 3>; children?: never[] }>
+}
+
 export const projectManagementApi = {
   async overview(cycleId?: number): Promise<ProjectManagementOverview> {
     const { data } = await api.get<ProjectManagementOverview>('/performance/project-management/overview', {
@@ -212,6 +562,14 @@ export const projectManagementApi = {
     const { data } = await api.get<ProjectMatrix>(`/performance/projects/${encodeURIComponent(String(projectId))}/matrix`)
     return data
   },
+  async remindTasks(projectId: number | string, nodeId: string, taskIds: number[]): Promise<PerformanceReminderResult> {
+    const { data } = await api.post<PerformanceReminderResult>(`/performance/projects/${encodeURIComponent(String(projectId))}/reminder-tasks/remind`, { node_id: nodeId, task_ids: taskIds })
+    return data
+  },
+  async levelStatistics(cycleId: number, dimension: 'level' | 'tenure' = 'level'): Promise<ProjectStatisticsReport> {
+    const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension } })
+    return data
+  },
 }
 
 export type PerformanceTemplateOption = { id: string; label: string; color?: string; placeholder?: string; description?: string; required?: boolean }
@@ -225,10 +583,30 @@ export type PerformanceTemplateField = {
   display_mode?: '标签样式' | '下拉样式'
 }
 export type PerformanceTemplateSection = { id: string; name: string; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[] }
+export type PerformanceReferenceTab = {
+  key: string
+  node_id: string
+  node_name: string
+  task_id?: number | null
+  employee_no: string
+  status: 'not_started' | 'pending' | 'overdue' | 'completed'
+  submitted_at?: string | null
+  form_schema: PerformanceTemplateSection[]
+  answers: Record<string, unknown>
+  can_remind: boolean
+}
 export type SelfSummaryOption = PerformanceTemplateOption
 export type SelfSummaryField = PerformanceTemplateField
 export type SelfSummarySection = PerformanceTemplateSection
-export type SelfSummaryPerson = { employee_no: string; display_name: string; organization_ref?: string | null; manager_name?: string | null }
+export type SelfSummaryProfileField = { key: string; label: string; value: string }
+export type SelfSummaryPerson = {
+  employee_no: string
+  display_name: string
+  department?: string | null
+  direct_supervisor_name?: string | null
+  visibility_role?: string
+  profile_fields?: SelfSummaryProfileField[]
+}
 export type PerformanceTemplateTask = {
   task_id: string | number
   task_kind: string
@@ -242,6 +620,7 @@ export type PerformanceTemplateTask = {
   person: SelfSummaryPerson
   form_schema: SelfSummarySection[]
   answers: Record<string, unknown>
+  reference_tabs?: PerformanceReferenceTab[]
 }
 export type SelfSummaryTask = PerformanceTemplateTask
 export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean }
@@ -253,6 +632,12 @@ export const performanceWorkbenchApi = {
     })
     return data
   },
+  async announcements(cycleRef?: string | null): Promise<PerformanceWorkbenchAnnouncementFeed> {
+    const { data } = await api.get<PerformanceWorkbenchAnnouncementFeed>('/performance/workbench/announcements', {
+      params: cycleRef ? { cycle_ref: cycleRef } : undefined,
+    })
+    return data
+  },
   async timeline(projectId: number): Promise<PerformanceWorkbenchTimelineNode[]> {
     const { data } = await api.get<PerformanceWorkbenchTimelineNode[]>(`/performance/workbench/projects/${projectId}/timeline`)
     return data
@@ -261,7 +646,7 @@ export const performanceWorkbenchApi = {
     const { data } = await api.get<PerformanceWorkbenchTaskGroup[]>('/performance/workbench/tasks', { params: { project_id: projectId, state } })
     return data
   },
-  async taskPeople(projectId: number, nodeId: string, state: 'pending' | 'completed', keyword?: string): Promise<PerformanceWorkbenchTaskPerson[]> {
+  async taskPeople(projectId: number, nodeId: string, state: 'pending' | 'completed' | 'all', keyword?: string): Promise<PerformanceWorkbenchTaskPerson[]> {
     const { data } = await api.get<PerformanceWorkbenchTaskPerson[]>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/people`, { params: { project_id: projectId, state, ...(keyword ? { keyword } : {}) } })
     return data
   },
@@ -717,13 +1102,60 @@ export interface PerformanceProjectPage {
   page_size: number
 }
 
+export interface PerformanceHrbpPersonOption {
+  value: string
+  label: string
+}
+
+export interface PerformanceHrbpOrganizationNode {
+  value: string
+  label: string
+  level: number
+  children: PerformanceHrbpOrganizationNode[]
+}
+
+export interface PerformanceHrbpOptions {
+  people: PerformanceHrbpPersonOption[]
+  organization_tree: PerformanceHrbpOrganizationNode[]
+  invisible_people: PerformanceHrbpPersonOption[]
+}
+
+export interface PerformanceHrbpPermissionPerson {
+  employee_no: string
+  display_name: string
+}
+
+export interface PerformanceHrbpPermission {
+  id: number
+  hrbp: PerformanceHrbpPermissionPerson
+  scope: string[]
+  invisible_people: PerformanceHrbpPermissionPerson[]
+}
+
+export interface PerformanceHrbpPermissionPayload {
+  hrbp: string
+  scope: string[]
+  invisible_people: string[]
+}
+
 export interface PerformanceCyclePerson {
   employee_no: string
   display_name: string
+  company_org: string | null
+  department: string | null
+  department_2: string | null
+  department_3: string | null
+  department_4: string | null
+  department_5: string | null
   organization_ref: string | null
-  direct_manager_employee_no: string | null
+  direct_supervisor_employee_no: string | null
   hrbp_employee_no: string | null
+  employee_type: string | null
   employment_status: string | null
+  job_family: string | null
+  job_category: string | null
+  position_level: string | null
+  hire_date: string | null
   departure_date: string | null
   is_manually_maintained: boolean
 }
@@ -777,6 +1209,25 @@ export const performanceCycleApi = {
   async update(id: number, payload: Partial<PerformanceCyclePayload>): Promise<PerformanceCycle> {
     const { data } = await api.patch<PerformanceCycle>(`/performance/cycles/${id}`, payload)
     return data
+  },
+  async listHrbpOptions(id: number): Promise<PerformanceHrbpOptions> {
+    const { data } = await api.get<PerformanceHrbpOptions>(`/performance/cycles/${id}/hrbp-options`)
+    return data
+  },
+  async listHrbpPermissions(id: number): Promise<PerformanceHrbpPermission[]> {
+    const { data } = await api.get<PerformanceHrbpPermission[]>(`/performance/cycles/${id}/hrbp-permissions`)
+    return data
+  },
+  async createHrbpPermission(id: number, payload: PerformanceHrbpPermissionPayload): Promise<PerformanceHrbpPermission> {
+    const { data } = await api.post<PerformanceHrbpPermission>(`/performance/cycles/${id}/hrbp-permissions`, payload)
+    return data
+  },
+  async updateHrbpPermission(id: number, permissionId: number, payload: PerformanceHrbpPermissionPayload): Promise<PerformanceHrbpPermission> {
+    const { data } = await api.patch<PerformanceHrbpPermission>(`/performance/cycles/${id}/hrbp-permissions/${permissionId}`, payload)
+    return data
+  },
+  async removeHrbpPermission(id: number, permissionId: number): Promise<void> {
+    await api.delete(`/performance/cycles/${id}/hrbp-permissions/${permissionId}`)
   },
   async listPeople(id: number): Promise<PerformanceCyclePerson[]> {
     const { data } = await api.get<PerformanceCyclePerson[]>(`/performance/cycles/${id}/people`)

@@ -429,7 +429,7 @@ class PerformancePublicationTransferService:
                 )
             )
         ).scalar_one_or_none()
-        if person is None or not person.direct_manager_employee_no:
+        if person is None or not person.direct_supervisor_employee_no:
             raise PerformanceObjectAuthorizationDenied("员工缺少锁定的直属上级快照")
 
         active_transfer = (
@@ -456,7 +456,7 @@ class PerformancePublicationTransferService:
             before_state = {
                 "effective_publisher": {
                     "actor_type": DYNAMIC_ASSIGNMENT_ACTOR_TYPE_EMPLOYEE,
-                    "actor_ref": person.direct_manager_employee_no,
+                    "actor_ref": person.direct_supervisor_employee_no,
                 },
                 "previous_transfer_id": None,
             }
@@ -464,7 +464,7 @@ class PerformancePublicationTransferService:
         transfer = PerformancePublicationTransfer(
             cycle_ref=request.cycle_ref,
             employee_no=request.employee_no,
-            original_direct_manager_employee_no=person.direct_manager_employee_no,
+            original_direct_supervisor_employee_no=person.direct_supervisor_employee_no,
             transferred_by_type=request.actor_type,
             transferred_by_ref=request.actor_ref,
             recipient_type=recipient_type,
@@ -480,7 +480,7 @@ class PerformancePublicationTransferService:
                 "actor_type": recipient_type,
                 "actor_ref": recipient_ref,
             },
-            "original_direct_manager_employee_no": person.direct_manager_employee_no,
+            "original_direct_supervisor_employee_no": person.direct_supervisor_employee_no,
             "reason": reason,
             "transfer_id": transfer.id,
         }

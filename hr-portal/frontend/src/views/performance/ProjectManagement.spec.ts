@@ -169,6 +169,26 @@ describe('ProjectManagement', () => {
     expect(lineTabs[0].emitted('update:modelValue')).toEqual([['members']])
   })
 
+  it('renders real completion data and hides reminder actions for a not-started node', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({
+      completion_nodes: [
+        { key: 'work-summary', title: '填写工作总结', status: 'not_started', completed_count: 0, total_count: 406, completion_rate: null, deadline_at: '2099-07-10T15:59:00Z' },
+        { key: 'self-review', title: '自评', status: 'active', completed_count: 101, total_count: 406, completion_rate: 24.88, deadline_at: '2099-07-20T15:59:00Z' },
+      ],
+    }))
+    const wrapper = mountView()
+    await flushPromises()
+
+    const cards = wrapper.findAll('.completion-node-card')
+    expect(cards[0].find('.card-progress').text()).toBe('未开始')
+    expect(cards[0].text()).toContain('完成情况：0/406')
+    expect(cards[0].find('.text-button').exists()).toBe(false)
+    expect(cards[1].find('.card-progress').text()).toBe('24.88%')
+    expect(cards[1].text()).toContain('完成情况：101/406')
+    expect(cards[1].text()).toContain('截止时间：2099-07-20 23:59（GMT+8）')
+    expect(cards[1].find('.text-button').text()).toBe('去催办')
+  })
+
   it('keeps member headers when the member list is empty', async () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
     vi.mocked(mockedApi.members).mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })

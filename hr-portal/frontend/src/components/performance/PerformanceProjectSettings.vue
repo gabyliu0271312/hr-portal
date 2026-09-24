@@ -53,7 +53,7 @@ function statusLabel(status: string) {
     </div>
     <PerformanceListToolbar class="project-tools" :keyword="keyword" search-placeholder="通过项目名称搜索" @update:keyword="keyword = $event" @filter="filterOpen = !filterOpen">
       <template #left>
-        <PerformancePermissionButton op="C" :allowed="canCreate" class="project-create primary-button" aria-label="新建项目" @click="emit('create')">
+        <PerformancePermissionButton op="C" :allowed="canCreate" variant="primary" class="project-create primary-button" aria-label="新建项目" @click="emit('create')">
           <span aria-hidden="true">＋</span> 新建
         </PerformancePermissionButton>
       </template>
@@ -104,8 +104,7 @@ function statusLabel(status: string) {
 .project-tools { margin-bottom: 16px; }
 .project-tools :deep(.list-toolbar) { margin-bottom: 0; }
 .project-tools :deep(.search-input) { width: 224px; }
-.project-create { display: inline-flex; align-items: center; justify-content: center; width: 80px; height: 32px; padding: 4px 11px; border: 1px solid #3370ff; border-radius: 6px; background: #3370ff; color: #fff; font: inherit; line-height: 22px; cursor: pointer; }
-.project-create:hover { background: #245bdb; border-color: #245bdb; }
+.project-create { width: 80px; }
 .project-filter-panel { margin: -8px 0 16px; padding: 10px 12px; border: 1px solid #d0d3d6; border-radius: 6px; color: #646a73; background: #fff; font-size: 14px; line-height: 22px; }
 .project-table-wrap { min-width: 0; }
 .project-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }

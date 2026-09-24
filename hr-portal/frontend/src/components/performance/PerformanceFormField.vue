@@ -45,6 +45,6 @@ defineEmits<{ 'update:modelValue': [value: string] }>()
 </script>
 
 <style scoped>
-.performance-form-field{display:block;margin-bottom:var(--performance-input-field-gap)}.performance-form-field--inside{margin:var(--performance-input-field-gap) var(--spacing-5)}.field-label{display:block;margin-bottom:var(--performance-input-label-gap);font-weight:600}.field-error{display:block;margin-top:var(--spacing-1);color:var(--color-text-danger-strong);font-size:var(--font-size-sm)}
+.performance-form-field{display:block;margin-bottom:var(--performance-input-field-gap)}.performance-form-field--inside{margin:var(--performance-input-field-gap) var(--spacing-5)}.field-label{display:block;margin-bottom:var(--performance-input-label-gap);font-weight:600}.field-error{display:block;margin-top:var(--performance-field-error-gap);color:var(--performance-field-error-color);font-size:var(--performance-field-error-font-size);line-height:var(--performance-field-error-line-height)}
 </style>
 

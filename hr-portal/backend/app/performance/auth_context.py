@@ -67,6 +67,7 @@ def performance_admin_preview_enabled(context: PerformanceAccessContext) -> bool
         return False
     return (
         context.subject_type == SUBJECT_TYPE_SYSTEM_ACCOUNT
+        or "performance.admin" in context.portal_entry_permissions
         or "performance.cycles.manage" in context.permission_codes
         or "performance.projects.manage" in context.permission_codes
     )

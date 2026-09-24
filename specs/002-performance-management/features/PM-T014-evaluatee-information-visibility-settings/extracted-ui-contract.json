@@ -1,0 +1,304 @@
+{
+  "schema_version": 3,
+  "feature": "PM-T014-evaluatee-information-visibility-settings",
+  "completion_status": "incomplete",
+  "pixel_restore_status": "blocked",
+  "uncovered_reasons": [
+    "missing_replayable_session",
+    "missing_dpr",
+    "missing_target_screenshot",
+    "missing_editor_state",
+    "missing_interaction_evidence"
+  ],
+  "capture_readiness": {
+    "capture_integrity": "blocked",
+    "capture_completeness": "incomplete",
+    "implementation_readiness": "design_incomplete",
+    "readiness_scope": "variant",
+    "target_variant_keys": [
+      "subject-visibility-default"
+    ],
+    "blockers": [
+      "No stable source state/session or screenshot package"
+    ],
+    "evidence": "D:/乐逗/Desktop/被评估人可见性设置.txt"
+  },
+  "variant_contracts": [
+    {
+      "variant_key": "subject-visibility-default",
+      "entry_mode": "admin-route",
+      "review_type": "not_applicable",
+      "config_discriminator": "default-list",
+      "source_state_ids": [
+        "SNAPSPEC-DEFAULT-20260923"
+      ],
+      "visible_elements": [
+        {
+          "id": "page-title",
+          "text": "被评估人信息可见性设置",
+          "owner": "SubjectVisibilitySettings",
+          "display_mode": "block"
+        },
+        {
+          "id": "description",
+          "text": "配置不同角色可见的被评估人信息字段，如各角色在被评估人绩效详情页、任务列表页和导出的表格可见的字段",
+          "owner": "SubjectVisibilitySettings",
+          "display_mode": "block"
+        },
+        {
+          "id": "role-name-column",
+          "text": "角色名称",
+          "owner": "PerformanceManagementTable",
+          "display_mode": "table-cell"
+        },
+        {
+          "id": "visible-label-column",
+          "text": "可见标签信息",
+          "owner": "PerformanceManagementTable",
+          "display_mode": "table-cell"
+        },
+        {
+          "id": "visible-field-column",
+          "text": "可见字段",
+          "owner": "PerformanceManagementTable",
+          "display_mode": "table-cell"
+        },
+        {
+          "id": "action-column",
+          "text": "操作",
+          "owner": "PerformanceManagementTable",
+          "display_mode": "table-cell"
+        },
+        {
+          "id": "pagination",
+          "text": "共 10 条|1|10 条/页",
+          "owner": "PerformanceManagementTable",
+          "display_mode": "flex"
+        }
+      ],
+      "forbidden_elements": [
+        {
+          "id": "create-button",
+          "text": "新建",
+          "owner": "SubjectVisibilitySettings"
+        }
+      ],
+      "line_groups": [
+        {
+          "id": "table-header-row",
+          "members": [
+            "role-name-column",
+            "visible-label-column",
+            "visible-field-column",
+            "action-column"
+          ],
+          "relation": "same-row"
+        }
+      ],
+      "component_ownership": {
+        "page": [
+          "description",
+          "data-loading",
+          "edit-state"
+        ],
+        "shared_table": [
+          "table",
+          "pagination"
+        ],
+        "editor": [
+          "field-draft",
+          "submit"
+        ]
+      },
+      "geometry": {
+        "card": {
+          "width": 1254,
+          "height": 676,
+          "padding": 20,
+          "radius": 8
+        }
+      },
+      "styles": {
+        "card_background": "#FFFFFF",
+        "secondary_text": "#646A73",
+        "action_text": "#1456F0"
+      }
+    }
+  ],
+  "layout_relations": [],
+  "interaction_contracts": [],
+  "coverage": {
+    "unmapped_source_states": [],
+    "unmapped_components": [],
+    "unmapped_fields": [],
+    "unmapped_visual_properties": [],
+    "unmapped_interactions": [],
+    "cross_document_conflicts": [],
+    "unmapped_spatial_constraints": []
+  },
+  "states": [
+    {
+      "source_state_id": "SNAPSPEC-DEFAULT-20260923",
+      "session": "BLOCKED",
+      "url": "https://idreamsky.feishu.cn/perf/admin/permission/information/setting",
+      "viewport": {
+        "width": 1534,
+        "height": 911,
+        "dpr": "BLOCKED"
+      },
+      "artifacts": {
+        "before_html": "BLOCKED",
+        "after_html": "D:\\乐逗\\Desktop\\被评估人可见性设置.txt",
+        "layout": "BLOCKED",
+        "computed": "D:\\乐逗\\Desktop\\被评估人可见性设置.txt",
+        "target_contract": "BLOCKED",
+        "screenshot": "BLOCKED",
+        "interaction_evidence": "BLOCKED"
+      },
+      "components": [
+        {
+          "id": "subject-visibility-table-card",
+          "source_state_ids": [
+            "SNAPSPEC-DEFAULT-20260923"
+          ]
+        }
+      ],
+      "fields": [
+        {
+          "id": "role_name",
+          "label": "角色名称",
+          "type": "table-column"
+        },
+        {
+          "id": "visible_labels",
+          "label": "可见标签信息",
+          "type": "table-column"
+        },
+        {
+          "id": "visible_fields",
+          "label": "可见字段",
+          "type": "table-column"
+        },
+        {
+          "id": "actions",
+          "label": "操作",
+          "type": "table-column"
+        }
+      ],
+      "geometry": {
+        "card": {
+          "width": 1254,
+          "height": 676,
+          "padding": 20,
+          "radius": 8
+        }
+      },
+      "styles": {
+        "background": "#FFFFFF",
+        "text": "#1F2329",
+        "secondary": "#646A73",
+        "action": "#1456F0"
+      },
+      "interactions": [
+        {
+          "type": "click",
+          "target": "编辑",
+          "result": "not_observed"
+        }
+      ],
+      "svg": [
+        {
+          "id": "pagination-left",
+          "viewBox": "0 0 24 24"
+        },
+        {
+          "id": "pagination-right",
+          "viewBox": "0 0 24 24"
+        }
+      ],
+      "visual_elements": [
+        {
+          "id": "table-card",
+          "role": "container",
+          "anchor": ".subject-visibility-card",
+          "bbox": {
+            "x": 0,
+            "y": 37,
+            "width": 1254,
+            "height": 676
+          },
+          "styles": {
+            "display": "block",
+            "width": "1254px",
+            "height": "676px",
+            "margin-left": "0px",
+            "font-family": "-apple-system",
+            "font-size": "14px",
+            "font-weight": "400",
+            "line-height": "21px",
+            "align-items": "not_applicable"
+          },
+          "state": "default",
+          "source_state_ids": [
+            "SNAPSPEC-DEFAULT-20260923"
+          ],
+          "evidence": "D:\\乐逗\\Desktop\\被评估人可见性设置.txt",
+          "parent_structure": "page > card"
+        }
+      ]
+    }
+  ],
+  "container_constraints": [
+    {
+      "id": "subject-visibility-card-edges",
+      "source_state_id": "SNAPSPEC-DEFAULT-20260923",
+      "component_id": "subject-visibility-table-card",
+      "container": {
+        "anchor": ".subject-visibility-card",
+        "bbox": {
+          "x": 0,
+          "y": 37,
+          "width": 1254,
+          "height": 676
+        }
+      },
+      "first_visible_child": {
+        "anchor": ".el-table",
+        "bbox": {
+          "x": 20,
+          "y": 57,
+          "width": 1214,
+          "height": 529
+        }
+      },
+      "terminal_visible_child": {
+        "anchor": ".table-pagination",
+        "bbox": {
+          "x": 920,
+          "y": 602,
+          "width": 314,
+          "height": 28
+        }
+      },
+      "edge_insets": {
+        "top": 20,
+        "right": 20,
+        "bottom": 46,
+        "left": 20
+      },
+      "evidence": "D:/乐逗/Desktop/被评估人可见性设置.txt",
+      "ownership": "SubjectVisibilitySettings"
+    }
+  ],
+  "variant_invariants": [],
+  "spatial_constraint_coverage": {
+    "missing_terminal_anchors": [],
+    "uncompared_variant_groups": [],
+    "unmapped_containers": [],
+    "candidate_containers": 1,
+    "containers_with_terminal": 1,
+    "states_with_constraints": [
+      "SNAPSPEC-DEFAULT-20260923"
+    ]
+  }
+}

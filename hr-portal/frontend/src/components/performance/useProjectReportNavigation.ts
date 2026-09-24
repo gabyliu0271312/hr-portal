@@ -33,8 +33,9 @@ export function useProjectReportNavigation(root: Ref<HTMLElement | null>) {
 
   function select(key: string) {
     const target = sections().find(item => item.dataset.reportSection === key)
-    if (!target || !scroller) return
+    if (!target) return
     activeKey.value = key
+    if (!scroller) return
     const top = scroller.scrollTop + target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - offset() - 40
     scroller.scrollTo({ top: Math.max(0, top), behavior: 'auto' })
     schedule()

@@ -1,20 +1,24 @@
 <template>
   <div class="self-summary-page">
     <PerformanceSelfSummaryHeader :person="task.person" @back="router.back()" />
-    <nav class="summary-tabs" aria-label="绩效填写页签"><button class="active" type="button">{{ task.node_name || '加载中…' }}</button><button type="button" disabled>OKR</button></nav>
+    <nav class="summary-tabs" aria-label="绩效填写页签">
+      <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" type="button" @click="activeTab = tab.key">{{ tab.label }}</button>
+    </nav>
     <main class="summary-scroll">
       <section v-if="loading" class="state">正在加载…</section>
       <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load">重新加载</button></section>
-      <PerformanceTemplateRenderer v-else ref="formRef" mode="edit" :title="task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
+      <PerformanceTemplateRenderer v-else-if="activeTab === 'current'" ref="formRef" mode="edit" :title="task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
+      <PerformanceReferenceContent v-else-if="activeReference" :reference="activeReference" @remind="openReminder" />
     </main>
-    <PerformanceSelfSummaryFooter :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit" @cancel="router.back()" />
+    <PerformanceSelfSummaryFooter v-if="activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit" @cancel="router.back()" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { performanceReviewApi, type SelfSummaryTask } from '@/api/performance'
+import { performanceReviewApi, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
+import PerformanceReferenceContent from '@/components/performance/PerformanceReferenceContent.vue'
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
@@ -32,6 +36,9 @@ const task = ref<SelfSummaryTask>({ task_id: String(route.query.task_id || ''), 
 const answers = reactive<Record<string, unknown>>({})
 const errors = reactive<Record<string, string>>({})
 const formRef = ref<{ focusField: (id: string) => void } | null>(null)
+const activeTab = ref('current')
+const tabs = computed(() => [{ key: 'current', label: task.value.node_name || '加载中…' }, ...(task.value.reference_tabs || []).map(reference => ({ key: reference.key, label: reference.node_name }))])
+const activeReference = computed<PerformanceReferenceTab | null>(() => task.value.reference_tabs?.find(reference => reference.key === activeTab.value) || null)
 const canEdit = computed(() => task.value.editable && task.value.submit_allowed)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
@@ -52,6 +59,7 @@ async function load() {
       ? employeeNo ? await performanceReviewApi.selfSummary(taskId, employeeNo) : await performanceReviewApi.selfSummary(taskId)
       : employeeNo ? await performanceReviewApi.templateTask(taskId, employeeNo) : await performanceReviewApi.templateTask(taskId)
     task.value = loaded
+    activeTab.value = 'current'
     Object.keys(answers).forEach(key => delete answers[key])
     Object.assign(answers, loaded.answers || {})
   } catch (error) {
@@ -87,6 +95,9 @@ function saveDraft() {
     }
   })
   return saveChain
+}
+function openReminder(reference: PerformanceReferenceTab) {
+  void router.push({ name: 'PerformanceReminderPlaceholder', query: { project_id: String(route.query.project_id || ''), node_id: reference.node_id, task_id: String(reference.task_id || ''), employee_no: reference.employee_no } })
 }
 function selectedTags(value: unknown) { return Array.isArray(value) ? value as string[] : (value as { tags?: string[] } | undefined)?.tags || [] }
 function tagNotes(value: unknown) { return (value as { notes?: Record<string, string> } | undefined)?.notes || {} }

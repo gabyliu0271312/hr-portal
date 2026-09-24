@@ -1,23 +1,12 @@
 ﻿<template>
   <div class="full-screen-modal">
-    <header class="full-screen-modal-header">
-      <div class="full-screen-modal-header-left">
-        <button class="full-screen-modal-header-back" type="button" @click="goBackToList">
-          <span class="universe-icon full-screen-modal-header-back-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" data-icon="SpaceLeftOutlined"><path d="M1.293 11.293a1 1 0 0 0 0 1.414l7 7a1 1 0 0 0 1.414-1.414L4.414 13H21a1 1 0 1 0 0-2H4.414l5.293-5.293a1 1 0 0 0-1.414-1.414l-7 7Z" fill="currentColor" /></svg></span>
-          <span class="full-screen-modal-header-back-text">返回</span>
-        </button>
-        <div class="full-screen-modal-header-gap" aria-hidden="true"></div>
-        <div class="full-screen-modal-header-title">{{ isEditing ? '编辑绩效模板' : '新建绩效模板' }}</div>
-        <div class="full-screen-modal-header-subtitle" aria-hidden="true"></div>
-      </div>
-      <div class="full-screen-modal-header-right">
-        <div class="full-screen-modal-header-actions">
-          <PerformanceStepFlow :steps="steps" :current-step="currentStep" aria-label="创建步骤" />
-          <button v-if="currentStep > 0" class="previous-button" type="button" @click="goBack">上一步</button>
-          <button class="next-button" type="button" :disabled="loadingTemplate || saving" @click="handleNext">{{ currentStep === steps.length - 1 ? '保存' : '下一步' }}</button>
-        </div>
-      </div>
-    </header>
+    <PageHeader :title="isEditing ? '编辑绩效模板' : '新建绩效模板'" @back="goBackToList">
+      <template #actions>
+        <PerformanceStepFlow class="step-flow" :steps="steps" :current-step="currentStep" aria-label="创建步骤" />
+        <PerformanceButton v-if="currentStep > 0" class="previous-button" variant="secondary" @click="goBack">上一步</PerformanceButton>
+        <PerformanceButton class="next-button" variant="primary" :disabled="loadingTemplate || saving" @click="handleNext">{{ currentStep === steps.length - 1 ? '保存' : '下一步' }}</PerformanceButton>
+      </template>
+    </PageHeader>
     <main class="full-screen-modal-content">
       <section v-if="currentStep === 0" class="basic-info-panel" aria-labelledby="basic-info-title">
         <h1 id="basic-info-title">基本信息</h1><p class="panel-description">请填写绩效模板基本信息</p>
@@ -31,7 +20,7 @@
             </div>
           </fieldset>
           <label class="form-item" :class="{ invalid: nameError }"><span class="field-label">名称<span class="required-mark">*</span></span><input v-model="templateName" class="native-input" maxlength="100" placeholder="请输入模板名称" aria-label="模板名称" /><span v-if="nameError" class="field-error">{{ nameError }}</span></label>
-          <label class="form-item"><span class="field-label">描述</span><PerformanceTextField v-model="description" type="textarea" :maxlength="2000" show-count placeholder="请输入模板描述" input-id="template-description" /></label>
+          <label class="form-item"><span class="field-label">描述</span><PerformanceTextField v-model="description" type="textarea" aria-label="模板描述" :maxlength="2000" show-count placeholder="请输入模板描述" input-id="template-description" /></label>
           <fieldset class="form-item calculation-field" :class="{ invalid: calculationError }">
             <div class="calculation-heading"><span>配置「计算规则」</span><PerformanceSwitch :model-value="calculationEnabled" aria-label="配置计算规则" @update:model-value="toggleCalculation" /></div>
             <div class="calculation-hint">开启后，可为评估项配置计算规则</div>
@@ -50,6 +39,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import PageHeader from '@/components/performance/PageHeader.vue'
 import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
 import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
@@ -196,7 +187,6 @@ onBeforeUnmount(() => { document.body.style.overflow = '' })
   z-index: 100;
   display: flex;
   flex-direction: column;
-  min-width: 1300px;
   padding-top: 56px;
   overflow: auto;
   background: #f5f6f7;
@@ -210,7 +200,6 @@ onBeforeUnmount(() => { document.body.style.overflow = '' })
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-width: 1200px;
   height: 56px;
   padding: 0 20px 0 16px;
   box-sizing: border-box;
@@ -280,7 +269,7 @@ onBeforeUnmount(() => { document.body.style.overflow = '' })
 .calculation-field .switch.on .switch-thumb { transform: none; left: 14px; }
 .calculation-hint { margin-top: 4px; color: #646a73; font-size: 14px; font-weight: 400; line-height: 22px; }
 .full-screen-modal-content .notice { z-index: 101; }
-@media (max-width: 1299px) { .full-screen-modal, .full-screen-modal-header, .full-screen-modal-content { min-width: 1200px; } .full-screen-modal-content .basic-info-panel, .full-screen-modal-content .placeholder-panel { margin-right: 280px; margin-left: 280px; } }</style>
+</style>
 
 
 

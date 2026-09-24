@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PerformanceButton from './PerformanceButton.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import type { TagFillQuestionRecord } from './tagFillQuestionFixtures'
 
@@ -43,8 +44,8 @@ const emit = defineEmits<{
     <el-table-column label="操作" min-width="160" fixed="right">
       <template #default="{ row }">
         <div class="row-actions">
-          <el-button link type="primary" @click="emit('edit', row)">编辑</el-button>
-          <el-button link class="delete-button" @click="emit('remove', row)">删除</el-button>
+          <PerformanceButton variant="text" @click="emit('edit', row)">编辑</PerformanceButton>
+          <PerformanceButton variant="text" @click="emit('remove', row)">删除</PerformanceButton>
         </div>
       </template>
     </el-table-column>
@@ -52,8 +53,7 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-.row-actions { display: flex; align-items: center; gap: 4px; }
-.delete-button { color: rgb(187, 191, 196); }
+.row-actions { display: flex; align-items: center; gap: var(--performance-button-gap); }
 :deep(.performance-management-table colgroup col:nth-child(1)) { width: 14.85% !important; }
 :deep(.performance-management-table colgroup col:nth-child(2)) { width: 19.79% !important; }
 :deep(.performance-management-table colgroup col:nth-child(3)) { width: 19.81% !important; }

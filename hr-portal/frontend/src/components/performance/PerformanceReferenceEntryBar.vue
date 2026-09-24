@@ -27,8 +27,8 @@ defineEmits<{ select: [] }>()
   height: 54px;
   margin-bottom: 24px;
   box-sizing: border-box;
-  background-color: #ffffff;
-  border-radius: 4px;
+  background-color: var(--color-bg-card);
+  border-radius: var(--performance-button-radius);
 }
 
 .reference-entry-bar__button {
@@ -41,17 +41,17 @@ defineEmits<{ select: [] }>()
   height: 22px;
   border: 0;
   background-color: transparent;
-  border-radius: 6px;
-  font: 400 14px/18px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  border-radius: var(--performance-button-radius);
+  font: var(--performance-button-font-weight) var(--performance-button-font-size)/18px var(--font-sans);
   text-align: center;
   white-space: nowrap;
-  color: #1456f0;
+  color: var(--performance-button-text-color);
   cursor: pointer;
-  transition: color 0.1s ease-in, background-color 0.1s ease-in, border-color 0.1s ease-in, width 0.2s ease-in;
+  transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), width var(--duration-base) var(--ease-standard);
 }
 
 .reference-entry-bar__button:hover {
-  background-color: rgba(20, 86, 240, 0.2);
+  background-color: var(--performance-button-text-hover-background);
 }
 
 .reference-entry-bar__icon-inline {

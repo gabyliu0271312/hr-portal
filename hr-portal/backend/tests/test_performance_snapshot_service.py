@@ -35,14 +35,14 @@ def _roster_inputs():
         RosterAuthorizationInput(
             employee_no="200",
             display_name="经理",
-            direct_manager_source_value="总监",
+            direct_supervisor_source_value="总监",
             hrbp_source_value="HRBP",
             employment_status="在职",
         ),
         RosterAuthorizationInput(
             employee_no="300",
             display_name="员工甲",
-            direct_manager_source_value="经理",
+            direct_supervisor_source_value="经理",
             hrbp_source_value="HRBP",
             employment_status="在职",
         ),
@@ -67,8 +67,8 @@ def test_build_snapshot_people_resolves_manager_and_hrbp_to_employee_numbers():
     people = build_snapshot_people(_roster_inputs())
     employee = next(person for person in people if person.employee_no == "300")
 
-    assert employee.direct_manager_employee_no == "200"
-    assert employee.direct_manager_source_value == "经理"
+    assert employee.direct_supervisor_employee_no == "200"
+    assert employee.direct_supervisor_source_value == "经理"
     assert employee.hrbp_employee_no == "400"
     assert employee.hrbp_source_value == "HRBP"
 
@@ -81,7 +81,7 @@ def test_draft_changes_replace_relationships_before_lock():
             RosterAuthorizationInput(
                 employee_no="300",
                 display_name="员工甲",
-                direct_manager_source_value="总监",
+                direct_supervisor_source_value="总监",
                 hrbp_source_value="HRBP",
                 employment_status="在职",
             ),
@@ -92,8 +92,8 @@ def test_draft_changes_replace_relationships_before_lock():
     initial_employee = next(person for person in initial_people if person.employee_no == "300")
     changed_employee = next(person for person in changed_people if person.employee_no == "300")
 
-    assert initial_employee.direct_manager_employee_no == "200"
-    assert changed_employee.direct_manager_employee_no == "100"
+    assert initial_employee.direct_supervisor_employee_no == "200"
+    assert changed_employee.direct_supervisor_employee_no == "100"
 
 
 def test_build_snapshot_people_keeps_ambiguous_name_references_unresolved():
@@ -104,14 +104,14 @@ def test_build_snapshot_people_keeps_ambiguous_name_references_unresolved():
             RosterAuthorizationInput(
                 employee_no="300",
                 display_name="员工甲",
-                direct_manager_source_value="同名",
+                direct_supervisor_source_value="同名",
                 hrbp_source_value="不存在",
             ),
         )
     )
 
     employee = next(person for person in people if person.employee_no == "300")
-    assert employee.direct_manager_employee_no is None
+    assert employee.direct_supervisor_employee_no is None
     assert employee.hrbp_employee_no is None
 
 
@@ -123,13 +123,13 @@ def test_build_snapshot_people_prefers_employee_number_to_name():
             RosterAuthorizationInput(
                 employee_no="300",
                 display_name="员工甲",
-                direct_manager_source_value=" 200 ",
+                direct_supervisor_source_value=" 200 ",
             ),
         )
     )
 
     employee = next(person for person in people if person.employee_no == "300")
-    assert employee.direct_manager_employee_no == "200"
+    assert employee.direct_supervisor_employee_no == "200"
 
 
 
@@ -144,7 +144,7 @@ def test_live_termination_sync_only_changes_employment_status():
     updated_employee = next(person for person in updated_people if person.employee_no == "300")
 
     assert updated_employee.employment_status == "离职"
-    assert updated_employee.direct_manager_employee_no == original_employee.direct_manager_employee_no
+    assert updated_employee.direct_supervisor_employee_no == original_employee.direct_supervisor_employee_no
     assert updated_employee.hrbp_employee_no == original_employee.hrbp_employee_no
 
 
@@ -261,3 +261,14 @@ def test_snapshot_migration_defines_upgrade_and_downgrade_paths():
     assert 'op.drop_table("performance_dynamic_identity_assignments")' in migration
     assert 'op.drop_table("performance_authorization_snapshot_people")' in migration
     assert 'op.drop_table("performance_authorization_snapshots")' in migration
+
+
+def test_snapshot_organization_path_comes_only_from_atomic_levels():
+    row = RosterAuthorizationInput(
+        employee_no="E001", display_name="员工一",
+        company_org="集团", department="研发", department_2="  ", department_3="平台",
+        organization_ref="不可信的旧路径",
+    )
+    person = build_snapshot_people([row])[0]
+    assert person.organization_ref == "集团/研发/平台"
+    assert (person.company_org, person.department, person.department_2, person.department_3) == ("集团", "研发", None, "平台")

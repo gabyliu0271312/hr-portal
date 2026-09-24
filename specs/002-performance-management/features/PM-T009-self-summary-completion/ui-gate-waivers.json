@@ -58,6 +58,37 @@
         "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
         "phase_requires_implementation_ready:implementation"
       ]
+    },
+    {
+      "id": "PM-T009-T05-evaluation-drawer-20260922",
+      "task_id": "PM-T009-T05",
+      "approved_by": "user",
+      "approved_at": "2026-09-22",
+      "reason": "用户明确授权根据已提供的上级评估完成成员侧边抽屉采集结果，先完成 P0/P1 业务与结构实现：复用抽屉壳、页签和模板只读渲染，增加已完成成员侧边详情、编辑回到同一 task_id、成员状态分流和抽屉宽度调整；缺失完整可重放像素契约时仅豁免实现门禁，不宣称像素验收通过，也不扩展到其他绩效环节。",
+      "active": true,
+      "scope": [
+        "hr-portal/frontend/src/components/performance/PerformanceDrawerShell.vue",
+        "hr-portal/frontend/src/components/performance/PerformanceReviewPersonHeader.vue",
+        "hr-portal/frontend/src/components/performance/PerformanceReviewEvaluationDrawer.vue",
+        "hr-portal/frontend/src/components/performance/PerformanceReviewCompletionNotice.vue",
+        "hr-portal/frontend/src/components/performance/PerformanceReviewContent.vue",
+        "hr-portal/frontend/src/views/performance/Review.vue",
+        "hr-portal/frontend/src/views/performance/Review.spec.ts",
+        "hr-portal/frontend/src/api/performance.ts",
+        "specs/002-performance-management/features/PM-T009-self-summary-completion"
+      ],
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "task_prerequisites_unspecified:PM-T009-T05",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation"
+      ]
     }
   ]
 }

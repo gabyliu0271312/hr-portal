@@ -16,6 +16,7 @@ def _option(value: dict, index: int) -> dict:
     return {
         "id": str(value.get("id") or value.get("value") or index),
         "label": label,
+        **({"code": value["code"]} if "code" in value else {}),
         "color": value.get("color"),
         "placeholder": value.get("placeholder") or value.get("content") or value.get("prompt") or "",
         "required": bool(value.get("required", False)),
@@ -73,6 +74,7 @@ async def hydrate_self_summary_template(template: dict, db: AsyncSession) -> dic
         for content in contents
         if content.get("type") == "rating" and (
             not content.get("options") or content.get("ratingDisplayMode") not in {"标签样式", "下拉样式"}
+            or _rating_reference(content).isdigit()
         )
     }
     question_ids = {int(value) for value in rating_references.values() if value.isdigit()}
@@ -88,7 +90,7 @@ async def hydrate_self_summary_template(template: dict, db: AsyncSession) -> dic
         questions = {question.id: (question, rule) for question, rule in rows}
 
     for content in contents:
-        if content.get("type") == "rating" and not content.get("options"):
+        if content.get("type") == "rating":
             raw_id = rating_references.get(id(content), "")
             pair = questions.get(int(raw_id)) if raw_id.isdigit() else None
             if pair:
@@ -99,6 +101,16 @@ async def hydrate_self_summary_template(template: dict, db: AsyncSession) -> dic
                         for index, level in enumerate((rule.config or {}).get("levels") or [])
                         if isinstance(level, dict)
                     ]
+                else:
+                    levels_by_id = {
+                        str(level.get("id")): level
+                        for level in ((rule.config or {}).get("levels") or [])
+                        if isinstance(level, dict) and level.get("id") is not None
+                    }
+                    for option in content["options"]:
+                        level = levels_by_id.get(str(option.get("id")))
+                        if level and level.get("code") and "code" not in option:
+                            option["code"] = level["code"]
                 content["ratingDisplayMode"] = question.display_mode or "标签样式"
                 if not content.get("description"):
                     content["description"] = question.description or ""

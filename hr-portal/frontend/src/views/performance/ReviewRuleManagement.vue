@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { performanceReviewRuleApi } from '@/api/performance'
 import AddOutlinedIcon from '@/components/performance/AddOutlinedIcon.vue'
+import PerformanceButton from '@/components/performance/PerformanceButton.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import ReviewRuleTable from '@/components/performance/ReviewRuleTable.vue'
 import type { ReviewRule } from '@/components/performance/reviewRuleTypes'
@@ -63,8 +64,8 @@ onMounted(() => { void loadRules() })
   <div class="review-rule-management">
     <PerformanceListToolbar v-model:keyword="keyword" @filter="emit('filter')">
       <template #left>
-        <el-button type="primary" class="rule-create-button" @click="emit('create')">
-          <AddOutlinedIcon class="rule-create-icon" /><span class="rule-create-label">新建</span></el-button>
+        <PerformanceButton variant="primary" class="rule-create-button" @click="emit('create')">
+          <AddOutlinedIcon class="rule-create-icon" /><span class="rule-create-label">新建</span></PerformanceButton>
       </template>
     </PerformanceListToolbar>
 

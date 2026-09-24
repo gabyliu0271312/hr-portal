@@ -887,7 +887,7 @@ if (!__VLS_ctx.editing) {
                         __VLS_asFunctionalElement(__VLS_intrinsicElements.input)({
                             'aria-label': (`${person.employee_no}直属上级`),
                         });
-                        (person.direct_manager_employee_no);
+                        (person.direct_supervisor_employee_no);
                         __VLS_asFunctionalElement(__VLS_intrinsicElements.td, __VLS_intrinsicElements.td)({});
                         __VLS_asFunctionalElement(__VLS_intrinsicElements.input)({
                             'aria-label': (`${person.employee_no}HRBP`),

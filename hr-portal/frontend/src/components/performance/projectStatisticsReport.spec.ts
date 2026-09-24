@@ -25,4 +25,22 @@ describe('project statistics mock provider', () => {
     expect(reportPercent(0, 0)).toBe('0.0')
     expect(reportTotal({})).toBe(0)
   })
+
+  it('provides dimension-specific row labels and hierarchy contracts', async () => {
+    const team = await mockProjectReportProvider({ cycleId: 1, dimension: 'team' })
+    expect(team.rowLabel).toBe('上级')
+    expect(team.showSummary).toBe(true)
+    expect(team.departments[0].name).toBe('示例上级A')
+    expect(reportTotal(team.distribution)).toBe(243)
+
+    const sequence = await mockProjectReportProvider({ cycleId: 1, dimension: 'sequence' })
+    expect(sequence.rowLabel).toBe('序列（筛选结果含子序列）')
+    expect(sequence.showSummary).toBe(true)
+    expect(sequence.departments[0].children).toHaveLength(5)
+    expect(reportTotal(sequence.distribution)).toBe(403)
+  })
+
+  it('rejects mock data for the real-only level dimension', async () => {
+    await expect(mockProjectReportProvider({ cycleId: 1, dimension: 'level' })).rejects.toThrow('级别统计必须使用真实 API')
+  })
 })

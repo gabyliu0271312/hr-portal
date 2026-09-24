@@ -74,5 +74,39 @@
       "extraction_unresolved:unmapped_source_states",
       "extraction_unresolved:unmapped_visual_properties"
     ]
+  }, {
+    "id": "PM-T010-T08-level-real-data",
+    "task_id": "PM-T010-T08",
+    "approved_by": "用户（本会话明确授权：级别统计真实接入增加任务级定向豁免，允许业务接入与结构实现）",
+    "approved_at": "2026-09-21",
+    "reason": "允许岗位职级与司龄统计 P0/P1：复用现有矩阵、有汇总无展开；级别接入同源实时 position_level，司龄接入同源实时 hire_date 并按当前日期计算；完整采集和像素证据缺口仍 blocked。权限、口径、测试不豁免；不扩大其他统计章节或全局门禁。",
+    "active": true,
+    "scope": [
+      "hr-portal/backend/app/performance/projects_router.py",
+      "hr-portal/backend/app/performance/self_summary_service.py",
+      "hr-portal/backend/tests/test_performance_projects.py",
+      "hr-portal/frontend/src/api/performance.ts",
+      "hr-portal/frontend/src/api/performance.js",
+      "hr-portal/frontend/src/components/performance/projectStatisticsReport.ts",
+      "hr-portal/frontend/src/components/performance/projectStatisticsReport.spec.ts",
+      "hr-portal/frontend/src/components/performance/ProjectStatisticsReportPanel.vue",
+      "hr-portal/frontend/src/components/performance/ProjectStatisticsReportPanel.spec.ts",
+      "hr-portal/frontend/src/components/performance/ProjectReportMatrix.vue",
+      "hr-portal/frontend/src/components/performance/ProjectReportMatrix.spec.ts",
+      "specs/002-performance-management/features/PM-T010-project-management/"
+    ],
+    "allowed_errors": [
+      "missing_required_file:capture-manifest.md",
+      "missing_required_file:capture-completion-checklist.md",
+      "missing_required_file:component-model.md",
+      "missing_required_file:pixel-contract.md",
+      "missing_required_file:acceptance-contract.md",
+      "invalid_extracted_ui_contract:variant_contracts[0].source_state_ids:must_reference_states",
+      "invalid_extracted_ui_contract:variant_contracts[1].source_state_ids:must_reference_states",
+      "invalid_extracted_ui_contract:variant_contracts[2].source_state_ids:must_reference_states",
+      "phase_requires_implementation_ready:implementation",
+      "extraction_unresolved:unmapped_source_states",
+      "extraction_unresolved:unmapped_visual_properties"
+    ]
   }]
 }

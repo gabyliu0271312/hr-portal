@@ -31,14 +31,23 @@
   - 前置：T04
   - 覆盖：必填分支、颜色配置、标签+补充输入、保存失败、提交失败、截止后锁定和重复提交
   - 2026-09-17 提交后重读缺陷证据：数据库确认任务 145/146/147 的 `status=completed`、`submitted_at` 和答案均已持久化；请求日志确认旧概览在提交 145 后错误切换到 146、再切换到 147/148。修复后真实 API 使用 `project_id=3&task_id=145` 返回同一任务、`status=completed`、2 个冻结表单区块及一致答案；任务详情重开与概览 `same_task=true`、`same_answers=true`。
-  - 自动化证据：`pytest -q tests/test_performance_projects.py` 为 27 passed；Review/SelfSummary 聚焦 Vitest 为 20 passed；`npm run build` 与 Docker 前端构建通过。真实浏览器截图与完整像素契约仍未运行，T05 保持未完成。
+  - 2026-09-22 上级评估完成成员侧边抽屉：成员任务 `status=completed` 时打开同一 `task_id` 的详情抽屉；待完成任务继续进入模板任务页；抽屉复用 `PerformanceDrawerShell`、`PerformanceLineTabs` 和 `PerformanceTemplateRenderer mode=readonly`；编辑入口回到同一评估任务；抽屉支持键盘/指针宽度调整。用户已定向授权缺失完整像素契约时先完成 P0/P1 实现，像素验收保持 blocked。
+  - 自动化证据：pytest 与 Review/SelfSummary 聚焦 Vitest、前端构建需在本次实现后重新运行；真实浏览器截图与完整像素契约仍未运行，T05 保持未完成。
 
+- [ ] PM-T009-T06 动态参考节点页签与未提交催办入口
+  - 前置条件：PM-T009-T04
+  - 范围：按模板 `配置参考内容` 中的 `reference_kind=node` 生成填写页和成员完成抽屉页签；读取同项目、同成员快照、同被评估人的参考任务结构与答案；未提交显示原状态图标和“暂未提交”；按管理者催办开关与环节类型返回催办权限；催办按钮跳转占位页。
+  - 不包含：OKR、更多参考、团队统计真实内容；真实催办发送、通知投递和催办表单提交；移动端和像素级截图验收。
+  - 代码证据：`backend/app/performance/projects_router.py`、`frontend/src/api/performance.ts`、`frontend/src/components/performance/PerformanceReferenceContent.vue`、`frontend/src/components/performance/PerformanceReviewEvaluationDrawer.vue`、`frontend/src/views/performance/SelfSummaryTask.vue`、`frontend/src/views/performance/PerformanceReminderPlaceholder.vue`、`frontend/src/views/performance/Review.vue`、`frontend/src/router/index.ts`
+  - UI 要求：参考页签顺序服从模板配置；已提交使用只读模板 renderer；未提交保留原状态图标并显示“暂未提交”；有权限时显示 80×32px、`#C2D4FF`、`#1456F0`、14×14px `BellOutlined` 催办按钮；无权限不显示按钮。
+  - 测试证据：`pytest -q tests/test_performance_projects.py`（88 passed）；`npm run test -- --run src/views/performance/SelfSummaryTask.spec.js`（11 passed）；`npm run test -- --run src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts`（3 passed）；`npm run build` 通过。
+  - 验收状态：代码和自动化验证完成；真实浏览器截图、催办跳转运行时证据和完整 rendered contract 尚未运行，任务保持未完成。
 ## 依赖
 
 ```text
 PM-T007 / PM-T008 / 现有表单组件
           ↓
-T01 → T02 → T03 → T04 → T05
+T01 → T02 → T03 → T04 → T05 → T06
 ```
 
 ## 当前待决

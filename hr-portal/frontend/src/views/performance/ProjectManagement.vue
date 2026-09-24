@@ -26,7 +26,7 @@
         <div v-if="!selectedProject" class="cycle-overview">
           <PerformancePageTitle title="周期概览" />
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
-            <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" @action="emit('completion-action', $event)" />
+            <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" @action="handleCompletionAction" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="emit('authorization-view', $event)" />
             <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="memberProjectId" @filter="emit('member-filter')" @export="emit('member-export')" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :project-id="memberProjectId" />
@@ -41,6 +41,9 @@
         </div>
       </template>
     </section>
+    <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" @close="closeReminder">
+      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" @filter="handleReminderFilter" @export="handleReminderExport" />
+    </PerformanceTaskOverlay>
   </div>
 </template>
 
@@ -49,6 +52,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   projectManagementApi,
+  performanceWorkbenchApi,
   type PerformanceReviewCategory,
   type PerformanceReviewNode,
   type ProjectManagementOverview,
@@ -61,6 +65,9 @@ import ProjectPerformanceMatrix from '@/components/performance/ProjectPerformanc
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
 import CompletionRatePanel from '@/components/performance/CompletionRatePanel.vue'
 import AuthorizationManagementPanel from '@/components/performance/AuthorizationManagementPanel.vue'
+import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOverlay.vue'
+import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
+import type { ReminderContext } from '@/components/performance/performanceReminder'
 import type { CompletionNode } from '@/components/performance/CompletionNodeCard.vue'
 import type { AuthorizationItem } from '@/components/performance/AuthorizationManagementPanel.vue'
 
@@ -87,18 +94,47 @@ const activeTab = ref('overview')
 const overviewTabs = OVERVIEW_TABS
 const loading = ref(true)
 const error = ref('')
+const reminderOpen = ref(false)
+const reminderContext = ref<ReminderContext | null>(null)
 
-// 完成率环节卡：本期静态占位数据（采集快照），完成率 API 契约待后续任务
-const completionNodes = ref<CompletionNode[]>([
-  { key: 'work-summary', title: '填写工作总结', progress: '--', deadline: null },
-  { key: 'self-review', title: '自评', progress: '--', deadline: null },
-  { key: 'review-360', title: '360°反馈（自愿评估）', progress: '--', deadline: null },
-  { key: 'manager-review', title: '上级评估', progress: '--', deadline: null },
-  { key: 'calibration', title: '绩效校准', progress: '--', deadline: null },
-  { key: 'communicate', title: '绩效沟通并开通结果', progress: '--', deadline: null },
-  { key: 'view-result', title: '查看绩效结果', progress: '--', deadline: null },
-  { key: 'result-reconsideration', title: '结果复议处理', progress: '--', deadline: null },
-])
+const fallbackCompletionNodes: CompletionNode[] = [
+  { key: 'work-summary', title: '填写工作总结', progress: '--', deadline: null, status: 'unavailable' },
+  { key: 'self-review', title: '自评', progress: '--', deadline: null, status: 'unavailable' },
+  { key: 'review-360', title: '360°反馈（自愿评估）', progress: '--', deadline: null, status: 'unavailable' },
+  { key: 'manager-review', title: '上级评估', progress: '--', deadline: null, status: 'unavailable' },
+  { key: 'calibration', title: '绩效校准', progress: '--', deadline: null, status: 'unavailable' },
+  { key: 'communicate', title: '绩效沟通并开通结果', progress: '--', deadline: null, status: 'unavailable' },
+  { key: 'view-result', title: '查看绩效结果', progress: '--', deadline: null, status: 'unavailable' },
+  { key: 'result-reconsideration', title: '结果复议处理', progress: '--', deadline: null, status: 'unavailable' },
+]
+
+function formatDeadline(value: string | null) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(date).reduce<Record<string, string>>((result, part) => {
+    result[part.type] = part.value
+    return result
+  }, {})
+  const text = `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}（GMT+8）`
+  return date.getTime() <= Date.now() ? `${text}（已截止）` : text
+}
+
+const completionNodes = computed<CompletionNode[]>(() => {
+  const loaded = overview.value?.completion_nodes
+  if (!loaded) return fallbackCompletionNodes
+  return loaded.map(node => ({
+    key: node.key,
+    title: node.title,
+    status: node.status,
+    progress: node.status === 'not_started' ? '未开始' : node.completion_rate == null ? '--' : `${node.completion_rate.toFixed(2)}%`,
+    completionStatus: node.status === 'unavailable' ? '--' : `${node.completed_count}/${node.total_count}`,
+    deadline: formatDeadline(node.deadline_at),
+  }))
+})
 
 // 授权管理卡：本期静态数据（采集快照），查看动作待后续任务
 const authorizations = ref<AuthorizationItem[]>([
@@ -177,6 +213,46 @@ async function selectNode(node: PerformanceReviewNode) {
   await router.replace({ query })
 }
 
+async function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string }) {
+  emit('completion-action', payload)
+  if (payload.action !== 'remind' || !activeCycle.value || !memberProjectId.value) return
+  try {
+    const groups = await performanceWorkbenchApi.tasks(memberProjectId.value, 'pending')
+    const taskGroup = groups.find(group => payload.nodeKey === 'manager-review'
+      ? group.node_type === 'evaluation' && group.node_name.includes('上级评估')
+      : group.node_type === payload.nodeKey)
+    reminderContext.value = {
+      projectId: memberProjectId.value,
+      cycleId: activeCycle.value.cycle_id,
+      nodeId: taskGroup?.node_id || payload.nodeKey,
+      nodeType: taskGroup?.node_type || 'evaluation',
+      reviewType: 'leader_review',
+      title: '上级评估',
+      sectionTitle: '未完成的被评估人',
+    }
+    reminderOpen.value = true
+  } catch {
+    reminderContext.value = {
+      projectId: memberProjectId.value,
+      cycleId: activeCycle.value.cycle_id,
+      nodeId: payload.nodeKey,
+      nodeType: 'evaluation',
+      reviewType: 'leader_review',
+      title: '上级评估',
+      sectionTitle: '未完成的被评估人',
+    }
+    reminderOpen.value = true
+  }
+}
+
+function closeReminder() {
+  reminderOpen.value = false
+  reminderContext.value = null
+}
+
+function handleReminderFilter() {}
+function handleReminderExport() {}
+
 onMounted(() => {
   const routeCycleId = Number(route.query.cycle_id)
   const routeProjectId = Number(route.query.project_id)
@@ -186,7 +262,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.project-management-page { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: #f4f6f8; }
+.project-management-page { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--performance-page-surface); }
 .management-content { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow-y: auto; padding: var(--performance-review-surface-inset) var(--performance-review-surface-inset) 24px; background: var(--performance-line-tabs-surface); }
 .cycle-overview { display: flex; min-width: 0; flex-direction: column; }
 .pane-hint { margin: 16px 0 0; color: #8f959e; font-size: 13px; }

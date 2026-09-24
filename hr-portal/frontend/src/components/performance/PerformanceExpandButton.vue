@@ -52,10 +52,10 @@ function handleClick() {
 </script>
 
 <style scoped>
-.performance-expand-button { display:grid; place-items:center; width:24px; height:24px; padding:4px; border:0; border-radius:4px; background:transparent; color:#646a73; cursor:pointer; }
-.performance-expand-button:hover,.performance-expand-button:focus-visible,.performance-expand-button.is-active { background:#eff0f1; color:#1456f0; outline:0; }
+.performance-expand-button { display:grid; place-items:center; width:var(--performance-button-icon-size); height:var(--performance-button-icon-size); padding:var(--spacing-1); border:0; border-radius:var(--performance-button-radius); background:transparent; color:var(--color-text-secondary); cursor:pointer; transition:color var(--duration-fast) var(--ease-standard),background-color var(--duration-fast) var(--ease-standard); }
+.performance-expand-button:hover,.performance-expand-button:focus-visible,.performance-expand-button.is-active { background:var(--color-surface-disabled); color:var(--color-action-primary-hover); outline:0; box-shadow:var(--performance-button-focus-ring); }
 .performance-expand-button:disabled { opacity:.5; cursor:default; }
-.performance-expand-button.is-navigation { display:block; width:16px; height:16px; flex:0 0 16px; margin-left:auto; margin-top:3px; margin-right:20px; padding:0; border-radius:0; color:#8f959e; }
-.performance-expand-button.is-navigation:hover,.performance-expand-button.is-navigation:focus-visible,.performance-expand-button.is-navigation.is-active { background:transparent; color:#8f959e; }
-.performance-expand-button.is-navigation svg { display:block; width:16px; height:16px; transition:transform .15s ease; }
+.performance-expand-button.is-navigation { display:block; width:16px; height:16px; flex:0 0 16px; margin-left:auto; margin-top:3px; margin-right:20px; padding:0; border-radius:0; color:var(--color-text-placeholder); }
+.performance-expand-button.is-navigation:hover,.performance-expand-button.is-navigation:focus-visible,.performance-expand-button.is-navigation.is-active { background:transparent; color:var(--color-text-placeholder); box-shadow:none; }
+.performance-expand-button.is-navigation svg { display:block; width:16px; height:16px; transition:transform var(--duration-base) var(--ease-standard); }
 </style>

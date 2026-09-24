@@ -14,12 +14,13 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/api/performance', () => ({
   performanceReviewQuestionApi: { list: vi.fn().mockResolvedValue([]) },
+  performanceReviewRuleApi: { list: vi.fn().mockResolvedValue([]) },
 }))
 
 import ReviewQuestionManagement from './ReviewQuestionManagement.vue'
 import reviewQuestionManagementSource from './ReviewQuestionManagement.vue?raw'
 
-function mountView() {
+function mountView(realRules = false) {
   return mount(ReviewQuestionManagement, {
     global: {
       stubs: {
@@ -38,6 +39,7 @@ function mountView() {
         'el-dropdown-menu': { template: '<div><slot /></div>' },
         'el-dropdown-item': { template: '<button><slot /></button>' },
         'el-button': { template: '<button><slot /></button>' },
+        ...(realRules ? { PerformanceListPage: false, PerformanceListToolbar: false, ReviewRuleManagement: false, ReviewRuleTable: true } : {}),
       },
     },
   })
@@ -69,6 +71,27 @@ describe('ReviewQuestionManagement', () => {
     expect(wrapper.find('[data-testid="question-table"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="rule-management"]').text()).toContain('评估规则列表')
     expect(replace).toHaveBeenCalledWith({ query: { tab: 'rule' } })
+  })
+
+  it('renders the real rule toolbar after switching tabs and returning', async () => {
+    const wrapper = mountView(true)
+    const tabs = wrapper.findAll('.tab')
+    await tabs[1].trigger('click')
+
+    const toolbar = wrapper.get('.review-rule-management .list-toolbar')
+    expect(toolbar.get('button.rule-create-button').text()).toContain('新建')
+    expect(toolbar.get('input').attributes('placeholder')).toBe('通过名称、备注搜索')
+    expect(toolbar.get('button.filter-button').text()).toContain('筛选')
+    await toolbar.get('input').setValue('测试规则')
+    expect((toolbar.get('input').element as HTMLInputElement).value).toBe('测试规则')
+    await toolbar.get('button.rule-create-button').trigger('click')
+    expect(push).toHaveBeenCalledWith({ name: 'ReviewRuleCreate' })
+
+    await tabs[0].trigger('click')
+    expect(wrapper.find('.review-rule-management').exists()).toBe(false)
+    await tabs[1].trigger('click')
+    expect(wrapper.find('.review-rule-management button.rule-create-button').exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it('opens ordinary and sub-question entries from separate menu commands', async () => {

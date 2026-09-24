@@ -9,7 +9,7 @@
         <template v-if="node.key === 'view-result'" #header-extra>
           <PerformanceSegmentedControl v-model="resultView" size="sm" :options="resultOptions" aria-label="结果查看维度" />
         </template>
-        <template v-if="node.key !== 'result-reconsideration'" #actions>
+        <template v-if="node.status !== 'not_started' && node.status !== 'unavailable' && node.key !== 'result-reconsideration'" #actions>
           <PerformanceTextButton
             class="node-action"
             :label="node.key === 'view-result' ? '去开通' : '去催办'"

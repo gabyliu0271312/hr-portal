@@ -6,10 +6,13 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import String, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.data.employee_roster_contract import EmployeeRosterContractError, ORGANIZATION_FIELDS, employee_roster_table, require_employee_roster_columns
 from app.performance.auth_context import PerformanceAccessContext, get_performance_access_context, require_performance_permission
+from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.cycle_service import (
     CycleValidationError,
     PerformanceCycleService,
@@ -22,7 +25,10 @@ from app.performance.models import (
     CYCLE_LOCK_RULE_SCHEDULED,
     CYCLE_PRE_LOCK_SYNC_AUTO_DAILY,
     CYCLE_PRE_LOCK_SYNC_MANUAL,
+    PerformanceAuthorizationSnapshot,
+    PerformanceAuthorizationSnapshotPerson,
     PerformanceCycle,
+    PerformanceHrbpPermission,
     PerformanceProject,
 )
 
@@ -90,12 +96,204 @@ class CyclePatch(BaseModel):
 class CyclePerson(BaseModel):
     employee_no: str
     display_name: str
+    company_org: str | None
+    department: str | None
+    department_2: str | None
+    department_3: str | None
+    department_4: str | None
+    department_5: str | None
     organization_ref: str | None
-    direct_manager_employee_no: str | None
+    direct_supervisor_employee_no: str | None
     hrbp_employee_no: str | None
+    employee_type: str | None
     employment_status: str | None
+    job_family: str | None
+    job_category: str | None
+    position_level: str | None
+    hire_date: date | None
     departure_date: date | None
     is_manually_maintained: bool
+
+
+class HrbpPersonOption(BaseModel):
+    value: str
+    label: str
+
+
+class HrbpOrganizationNode(BaseModel):
+    value: str
+    label: str
+    level: int
+    children: list["HrbpOrganizationNode"] = Field(default_factory=list)
+
+
+class HrbpOptionsResponse(BaseModel):
+    people: list[HrbpPersonOption]
+    organization_tree: list[HrbpOrganizationNode]
+    invisible_people: list[HrbpPersonOption] = Field(default_factory=list)
+
+
+class HrbpPermissionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hrbp: str = Field(..., min_length=1, max_length=64)
+    scope: list[str] = Field(default_factory=list, max_length=100)
+    invisible_people: list[str] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def normalize(self):
+        self.hrbp = self.hrbp.strip()
+        if not self.hrbp:
+            raise ValueError("HRBP 不能为空")
+        self.scope = list(dict.fromkeys(value.strip() for value in self.scope if value.strip()))
+        self.invisible_people = list(dict.fromkeys(value.strip() for value in self.invisible_people if value.strip()))
+        return self
+
+
+class HrbpPermissionPerson(BaseModel):
+    employee_no: str
+    display_name: str
+
+
+class HrbpPermissionResponse(BaseModel):
+    id: int
+    hrbp: HrbpPermissionPerson
+    scope: list[str]
+    invisible_people: list[HrbpPermissionPerson]
+
+
+_HRBP_ORGANIZATION_FIELDS = ORGANIZATION_FIELDS
+
+
+def _build_hrbp_organization_tree(rows: list[dict[str, Any]]) -> list[HrbpOrganizationNode]:
+    roots: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        path: list[str] = []
+        siblings = roots
+        for field in _HRBP_ORGANIZATION_FIELDS:
+            label = str(row.get(field) or "").strip()
+            if not label:
+                continue
+            path.append(label)
+            node = siblings.setdefault(label, {"path": list(path), "children": {}})
+            siblings = node["children"]
+
+    def serialize(nodes: dict[str, dict[str, Any]]) -> list[HrbpOrganizationNode]:
+        return [
+            HrbpOrganizationNode(
+                value="/".join(node["path"]),
+                label=label,
+                level=len(node["path"]),
+                children=serialize(node["children"]),
+            )
+            for label, node in sorted(nodes.items())
+        ]
+
+    return serialize(roots)
+
+
+async def _load_hrbp_options(db: AsyncSession, cycle: PerformanceCycle | None = None) -> HrbpOptionsResponse:
+    snapshot_people: list[PerformanceAuthorizationSnapshotPerson] = []
+    if cycle is not None:
+        snapshot = await db.scalar(
+            select(PerformanceAuthorizationSnapshot).where(
+                PerformanceAuthorizationSnapshot.cycle_ref == cycle.cycle_ref
+            )
+        )
+        if snapshot is not None:
+            snapshot_result = await db.execute(
+                select(PerformanceAuthorizationSnapshotPerson).where(
+                    PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id
+                ).order_by(PerformanceAuthorizationSnapshotPerson.display_name, PerformanceAuthorizationSnapshotPerson.employee_no)
+            )
+            scalars = getattr(snapshot_result, "scalars", None)
+            snapshot_people = list(scalars().all()) if scalars is not None else list(getattr(snapshot_result, "all", lambda: [])())
+        rows = [
+            {
+                "employee_no": person.employee_no,
+                "full_name": person.display_name,
+                "employment_status": person.employment_status,
+                **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
+            }
+            for person in snapshot_people
+            if person.employment_status == "在职"
+        ]
+    else:
+        try:
+            table = employee_roster_table()
+            roster_columns = require_employee_roster_columns(table, ("employee_no", "display_name", "employment_status", *ORGANIZATION_FIELDS))
+        except EmployeeRosterContractError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        rows = (await db.execute(
+            select(
+                roster_columns["employee_no"].label("employee_no"),
+                roster_columns["display_name"].label("full_name"),
+                roster_columns["employment_status"].label("employment_status"),
+                *[roster_columns[field].label(field) for field in ORGANIZATION_FIELDS],
+            ).where(cast(roster_columns["employment_status"], String) == "在职")
+            .order_by(cast(roster_columns["display_name"], String), cast(roster_columns["employee_no"], String))
+        )).mappings().all()
+    people_by_no: dict[str, HrbpPersonOption] = {}
+    organization_rows: list[dict[str, Any]] = []
+    for row in rows:
+        employee_no = str(row.get("employee_no") or "").strip()
+        full_name = str(row.get("full_name") or "").strip()
+        if employee_no and full_name:
+            people_by_no.setdefault(employee_no, HrbpPersonOption(value=employee_no, label=full_name))
+        organization_rows.append(dict(row))
+    invisible_people = [
+        HrbpPersonOption(value=person.employee_no, label=f"{person.display_name}（{person.employee_no}）")
+        for person in snapshot_people if person.employee_no and person.display_name
+    ]
+    return HrbpOptionsResponse(
+        people=list(people_by_no.values()),
+        organization_tree=_build_hrbp_organization_tree(organization_rows),
+        invisible_people=invisible_people,
+    )
+
+
+def _snapshot_people_by_employee(people: list[PerformanceAuthorizationSnapshotPerson]) -> dict[str, HrbpPermissionPerson]:
+    return {
+        person.employee_no: HrbpPermissionPerson(employee_no=person.employee_no, display_name=person.display_name)
+        for person in people
+        if person.employee_no and person.display_name
+    }
+
+
+def _serialize_hrbp_permission(
+    permission: PerformanceHrbpPermission,
+    people_by_employee: dict[str, HrbpPermissionPerson],
+) -> HrbpPermissionResponse:
+    hrbp = people_by_employee.get(
+        permission.hrbp_employee_no,
+        HrbpPermissionPerson(employee_no=permission.hrbp_employee_no, display_name=permission.hrbp_employee_no),
+    )
+    invisible_people = [
+        people_by_employee.get(employee_no, HrbpPermissionPerson(employee_no=employee_no, display_name=employee_no))
+        for employee_no in (permission.invisible_people or [])
+    ]
+    return HrbpPermissionResponse(
+        id=permission.id,
+        hrbp=hrbp,
+        scope=list(permission.scope or []),
+        invisible_people=invisible_people,
+    )
+
+
+async def _cycle_snapshot_people(db: AsyncSession, cycle: PerformanceCycle) -> dict[str, HrbpPermissionPerson]:
+    snapshot = await db.scalar(
+        select(PerformanceAuthorizationSnapshot).where(
+            PerformanceAuthorizationSnapshot.cycle_ref == cycle.cycle_ref
+        )
+    )
+    if snapshot is None:
+        return {}
+    people = list((await db.execute(
+        select(PerformanceAuthorizationSnapshotPerson).where(
+            PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id
+        )
+    )).scalars().all())
+    return _snapshot_people_by_employee(people)
 
 
 class CycleSummary(BaseModel):
@@ -136,11 +334,23 @@ class PeopleRefreshIn(BaseModel):
 
 
 class ManualPersonUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     employee_no: str = Field(..., min_length=1, max_length=64)
     display_name: str | None = Field(default=None, min_length=1, max_length=128)
-    organization_ref: str | None = Field(default=None, max_length=128)
-    direct_manager_employee_no: str | None = Field(default=None, max_length=64)
+    company_org: str | None = Field(default=None, max_length=256)
+    department: str | None = Field(default=None, max_length=256)
+    department_2: str | None = Field(default=None, max_length=256)
+    department_3: str | None = Field(default=None, max_length=256)
+    department_4: str | None = Field(default=None, max_length=256)
+    department_5: str | None = Field(default=None, max_length=256)
+    direct_supervisor_employee_no: str | None = Field(default=None, max_length=64)
     hrbp_employee_no: str | None = Field(default=None, max_length=64)
+    employee_type: str | None = Field(default=None, max_length=64)
+    job_family: str | None = Field(default=None, max_length=128)
+    job_category: str | None = Field(default=None, max_length=128)
+    position_level: str | None = Field(default=None, max_length=128)
+    hire_date: date | None = None
 
     @model_validator(mode="after")
     def validate_display_name(self):
@@ -244,6 +454,149 @@ async def create_cycle(
     visible_refs = None if "performance.cycles.manage" in context.permission_codes else _project_scope_refs(context)
     projects = await service.projects_for_cycle(cycle, project_refs=visible_refs)
     return _summary_for_context(cycle, people, departments, projects, context)
+
+
+@router.get("/{cycle_id}/hrbp-options", response_model=HrbpOptionsResponse)
+async def get_cycle_hrbp_options(
+    cycle_id: int,
+    _: PerformanceAccessContext = Depends(require_performance_permission("performance.cycles.manage")),
+    db: AsyncSession = Depends(get_session),
+) -> HrbpOptionsResponse:
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    if cycle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="周期不存在")
+    return await _load_hrbp_options(db, cycle)
+
+
+@router.get("/{cycle_id}/hrbp-permissions", response_model=list[HrbpPermissionResponse])
+async def list_cycle_hrbp_permissions(
+    cycle_id: int,
+    _: PerformanceAccessContext = Depends(require_performance_permission("performance.cycles.manage")),
+    db: AsyncSession = Depends(get_session),
+) -> list[HrbpPermissionResponse]:
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    if cycle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="周期不存在")
+    people_by_employee = await _cycle_snapshot_people(db, cycle)
+    permissions = list((await db.execute(
+        select(PerformanceHrbpPermission)
+        .where(PerformanceHrbpPermission.cycle_ref == cycle.cycle_ref)
+        .order_by(PerformanceHrbpPermission.id)
+    )).scalars().all())
+    return [_serialize_hrbp_permission(permission, people_by_employee) for permission in permissions]
+
+
+@router.post("/{cycle_id}/hrbp-permissions", response_model=HrbpPermissionResponse, status_code=status.HTTP_201_CREATED)
+async def create_cycle_hrbp_permission(
+    cycle_id: int,
+    payload: HrbpPermissionPayload,
+    context: PerformanceAccessContext = Depends(require_performance_permission("performance.cycles.manage")),
+    db: AsyncSession = Depends(get_session),
+) -> HrbpPermissionResponse:
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    if cycle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="周期不存在")
+    people_by_employee = await _cycle_snapshot_people(db, cycle)
+    unknown = {payload.hrbp, *payload.invisible_people} - set(people_by_employee)
+    if unknown:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"周期快照中不存在员工：{', '.join(sorted(unknown))}")
+    duplicate = await db.scalar(select(PerformanceHrbpPermission).where(
+        PerformanceHrbpPermission.cycle_ref == cycle.cycle_ref,
+        PerformanceHrbpPermission.hrbp_employee_no == payload.hrbp,
+    ))
+    if duplicate is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="当前周期已存在该 HRBP 权限配置")
+    permission = PerformanceHrbpPermission(
+        cycle_ref=cycle.cycle_ref,
+        hrbp_employee_no=payload.hrbp,
+        scope=payload.scope,
+        invisible_people=payload.invisible_people,
+        created_by_type=context.subject_type,
+        created_by_ref=str(context.subject_id),
+        updated_by_type=context.subject_type,
+        updated_by_ref=str(context.subject_id),
+    )
+    db.add(permission)
+    await db.flush()
+    PerformanceAuditService(db).append_event(AuditEventInput(
+        event_type="PERFORMANCE_CYCLE_HRBP_PERMISSION_CREATED",
+        cycle_ref=cycle.cycle_ref,
+        actor_type=context.subject_type,
+        actor_ref=str(context.subject_id),
+        subject_type="PERFORMANCE_HRBP_PERMISSION",
+        subject_ref=str(permission.id),
+        after_state={"hrbp": payload.hrbp, "scope": payload.scope, "invisible_people": payload.invisible_people},
+    ))
+    await db.commit()
+    await db.refresh(permission)
+    return _serialize_hrbp_permission(permission, people_by_employee)
+
+
+@router.patch("/{cycle_id}/hrbp-permissions/{permission_id}", response_model=HrbpPermissionResponse)
+async def update_cycle_hrbp_permission(
+    cycle_id: int,
+    permission_id: int,
+    payload: HrbpPermissionPayload,
+    context: PerformanceAccessContext = Depends(require_performance_permission("performance.cycles.manage")),
+    db: AsyncSession = Depends(get_session),
+) -> HrbpPermissionResponse:
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    permission = await db.get(PerformanceHrbpPermission, permission_id)
+    if cycle is None or permission is None or permission.cycle_ref != cycle.cycle_ref:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HRBP 权限配置不存在")
+    people_by_employee = await _cycle_snapshot_people(db, cycle)
+    unknown = {payload.hrbp, *payload.invisible_people} - set(people_by_employee)
+    if unknown:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"周期快照中不存在员工：{', '.join(sorted(unknown))}")
+    duplicate = await db.scalar(select(PerformanceHrbpPermission).where(
+        PerformanceHrbpPermission.cycle_ref == cycle.cycle_ref,
+        PerformanceHrbpPermission.hrbp_employee_no == payload.hrbp,
+        PerformanceHrbpPermission.id != permission_id,
+    ))
+    if duplicate is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="当前周期已存在该 HRBP 权限配置")
+    before = {"hrbp": permission.hrbp_employee_no, "scope": list(permission.scope or []), "invisible_people": list(permission.invisible_people or [])}
+    permission.hrbp_employee_no = payload.hrbp
+    permission.scope = payload.scope
+    permission.invisible_people = payload.invisible_people
+    permission.updated_by_type = context.subject_type
+    permission.updated_by_ref = str(context.subject_id)
+    PerformanceAuditService(db).append_event(AuditEventInput(
+        event_type="PERFORMANCE_CYCLE_HRBP_PERMISSION_UPDATED",
+        cycle_ref=cycle.cycle_ref,
+        actor_type=context.subject_type,
+        actor_ref=str(context.subject_id),
+        subject_type="PERFORMANCE_HRBP_PERMISSION",
+        subject_ref=str(permission.id),
+        before_state=before,
+        after_state={"hrbp": payload.hrbp, "scope": payload.scope, "invisible_people": payload.invisible_people},
+    ))
+    await db.commit()
+    await db.refresh(permission)
+    return _serialize_hrbp_permission(permission, people_by_employee)
+
+
+@router.delete("/{cycle_id}/hrbp-permissions/{permission_id}", response_model=None, status_code=status.HTTP_204_NO_CONTENT)
+async def delete_cycle_hrbp_permission(
+    cycle_id: int,
+    permission_id: int,
+    context: PerformanceAccessContext = Depends(require_performance_permission("performance.cycles.manage")),
+    db: AsyncSession = Depends(get_session),
+) -> None:
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    permission = await db.get(PerformanceHrbpPermission, permission_id)
+    if cycle is None or permission is None or permission.cycle_ref != cycle.cycle_ref:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HRBP 权限配置不存在")
+    await db.delete(permission)
+    PerformanceAuditService(db).append_event(AuditEventInput(
+        event_type="PERFORMANCE_CYCLE_HRBP_PERMISSION_DELETED",
+        cycle_ref=cycle.cycle_ref,
+        actor_type=context.subject_type,
+        actor_ref=str(context.subject_id),
+        subject_type="PERFORMANCE_HRBP_PERMISSION",
+        subject_ref=str(permission.id),
+    ))
+    await db.commit()
 
 
 @router.get("/{cycle_id}", response_model=CycleSummary)

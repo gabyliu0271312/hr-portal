@@ -62,9 +62,15 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 |---|---|---|
 | `PerformanceSwitch.vue` | 开关、禁用态、`v-model` | 绩效配置和表单开关 |
 | `PerformanceCheckbox.vue` | 复选框、勾选/禁用态、`v-model` | 绩效配置选项 |
+| `PerformanceButton.vue` | 主按钮、次按钮、文字按钮、危险按钮及统一状态 | 所有页面级操作按钮 |
 | `PerformanceIconButton.vue` | 统一图标按钮和状态属性 | 编辑、删除、展开、关闭等操作 |
 | `PerformanceRatingTag.vue` | 展示型评级胶囊，`label` + 模板配置 `color`，24px高 | 统计表头等只读评级展示；不承担评级选择 |
 | `PerformanceSortHeader.vue` | `label`/默认插槽 + `order`，发出 `click`；10px上下三角 | 原生表/Element Plus表头；宿主负责排序循环与数据 |
+| `PerformanceComparisonMatrix.vue` | 行列维度、评级胶囊、热力单元格、重点区域和键盘焦点 | 自评/终评、绩效维度、历史绩效对比的共同矩阵骨架；业务组件只提供数据 |
+| `PerformanceComparisonDimensionSelector.vue` | 对比维度选择器、下拉状态和箭头 | 所有差异分析矩阵的行列维度入口 |
+| `PerformanceComparisonCell.vue` | 百分比/人数、空值、热力色阶和单元格可访问性 | 所有差异分析矩阵单元格 |
+| `PerformanceReportSectionTitle.vue` | 章节标题与 `InfoOutlined` 图标 | 统计报表九个章节标题；图标视觉优化统一生效 |
+| `PerformanceReportCommentButton.vue` | “添加备注（仅自己可见）”及备注图标 | 统计报表各对比章节底部备注入口 |
 | `PerformanceTextField.vue` | 输入框/文本域和错误、禁用、字数状态 | 绩效表单 |
 | `PerformanceCountedTextarea.vue` | 带标签和计数器的多行文本框 | 长文本配置 |
 | `PerformanceFormField.vue` | 标签、输入控件和错误提示组合 | 简单绩效表单 |
@@ -136,7 +142,25 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 - 页面级卡片默认不加阴影，弹窗/浮层可用 `--shadow-popover`
 - hover 可以改变边框色或浅背景，不建议使用强阴影和上移动效
 
-## 菜单结构
+### 组件 Token 约定
+
+按钮、字段和容器的视觉状态必须消费 `tokens.css` 中的 `--performance-button-*`、`--performance-field-*` 和 `--performance-dialog-*` / `--performance-drawer-*` 变量。Token 只负责视觉值；内容滚动、自动撑高、固定 Footer 和焦点管理必须由共享壳组件实现。
+
+按钮按以下族使用：
+
+| 族 | 默认入口 | 用途 |
+|---|---|---|
+| Primary / Secondary / Text / Danger | `PerformanceButton` 或 Element Plus Button 主题 | 页面和弹窗操作 |
+| Icon | `PerformanceIconButton` | 编辑、删除、移动、关闭、展开 |
+| Create | `PerformanceCreateButton` | 新建入口 |
+| Footer | `FixedActionBar` / `PerformanceDrawerFooter` | 全屏壳和抽屉底部操作 |
+
+新增页面不得直接复制按钮 CSS。页面专属尺寸通过显式 prop、variant 或局部布局变量声明，不修改共享按钮默认值。
+
+表单字段统一使用 `PerformanceFormItem` 或 `PerformanceFormField` 承载标签、必填标记、help、invalid 和错误文本；业务控件只负责值和业务校验，不重复实现错误文本样式。错误文本必须通过 `aria-describedby` 与控件关联。
+
+标准 Dialog 使用 `PerformanceDialogShell`，Drawer 使用 `PerformanceDrawerShell`，全屏编辑使用 `FullScreenModal`。共享壳负责 header/body/footer 的滚动与空间分配，调用方只提供内容和业务操作。固定 Footer 时，内容区必须消费共享的底部预留空间，禁止页面自行叠加第二套 margin/gap。
+
 
 ```text
 顶部 tab（一级）

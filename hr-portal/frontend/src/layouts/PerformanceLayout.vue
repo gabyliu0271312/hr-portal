@@ -158,7 +158,7 @@ onMounted(async () => {
 .performance-app {
   height: 100vh;
   flex-direction: column;
-  background: var(--color-bg-page);
+  background: var(--performance-page-surface);
 }
 .performance-header {
   position: sticky;
@@ -298,7 +298,7 @@ onMounted(async () => {
   padding: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  background: var(--color-bg-page);
+  background: var(--performance-page-surface);
 }
 .review-main {
   min-height: 0;

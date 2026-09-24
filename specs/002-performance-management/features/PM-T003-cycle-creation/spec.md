@@ -91,6 +91,9 @@
 | `/api/v1/performance/projects/{id}` | PATCH/DELETE | 编辑项目基础信息、已选模板、项目级流程节点配置；仅 DRAFT 可删除 | 周期管理员或授权项目管理员 | 403/404/409/422 |
 | `/api/v1/performance/projects/{id}/start` | POST | 将项目从 DRAFT 启动为 STARTED，并按 PM-T008 生成项目成员快照和个人任务 | 周期管理员或授权项目管理员 | 400/403/404/409/422 |
 | `/api/v1/performance/projects/{id}/copy` | POST | 复制为新的 DRAFT 项目 | 周期管理员或授权项目管理员 | 403/404/422 |
+| `/api/v1/performance/cycles/{id}/hrbp-options` | GET | HRBP 选项、组织范围和周期快照人员 | 绩效管理员 | 403/404/503 |
+| `/api/v1/performance/cycles/{id}/hrbp-permissions` | GET/POST | 查询或新增周期级 HRBP 权限配置 | 绩效管理员 | 403/404/409/422 |
+| `/api/v1/performance/cycles/{id}/hrbp-permissions/{permission_id}` | PATCH/DELETE | 编辑或删除周期级 HRBP 权限配置 | 绩效管理员 | 403/404/409/422 |
 
 ### 5.3 业务逻辑
 
@@ -116,6 +119,8 @@
 - 项目复制创建新的 `DRAFT` 项目，复制名称、描述和管理员展示名，并生成新的项目引用。
 - 项目删除只允许删除 `DRAFT` 项目；`STARTED` 项目由后端拒绝，前端在更多菜单中置灰删除。
 - 周期管理员可管理周期内全部项目；项目管理员只能管理其项目授权范围内的项目。
+- HRBP 权限配置按周期保存 HRBP 员工编号、组织范围和不可见人员员工编号；不可见人员候选必须来自该周期人员快照，不能直接写入实时花名册人员。
+- HRBP 配置保存后，项目管理的成员列表、矩阵分析和统计报表在该 HRBP 的访问范围内过滤不可见人员；不删除、不改写周期快照及项目成员快照。
 
 ### 5.4 前端与交互
 

@@ -10,7 +10,16 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.data.models import DATA_TABLES
+from app.data.employee_roster_contract import (
+    EmployeeRosterContractError,
+    ORGANIZATION_FIELDS,
+    organization_path,
+    employee_roster_table,
+    normalize_employee_no,
+    normalize_roster_date,
+    normalize_roster_text,
+    require_employee_roster_columns,
+)
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.models import (
     AUTHORIZATION_SNAPSHOT_STATUS_LOCKED,
@@ -36,26 +45,6 @@ class CycleValidationError(ValueError):
 
 def _actor_ref(subject_id: int) -> str:
     return str(subject_id)
-
-
-def _column(table, *candidates: str):
-    for candidate in candidates:
-        if candidate in table.c:
-            return table.c[candidate]
-    return None
-
-
-def _as_date(value: Any) -> date | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    try:
-        return date.fromisoformat(str(value)[:10])
-    except ValueError:
-        return None
 
 
 def normalize_cycle_datetime(value: datetime) -> datetime:
@@ -129,10 +118,16 @@ class PerformanceCycleService:
             {
                 "employee_no": person.employee_no,
                 "display_name": person.display_name,
+                **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
                 "organization_ref": person.organization_ref,
-                "direct_manager_employee_no": person.direct_manager_employee_no,
+                "direct_supervisor_employee_no": person.direct_supervisor_employee_no,
                 "hrbp_employee_no": person.hrbp_employee_no,
+                "employee_type": person.employee_type,
                 "employment_status": person.employment_status,
+                "job_family": person.job_family,
+                "job_category": person.job_category,
+                "position_level": person.position_level,
+                "hire_date": person.hire_date.isoformat() if person.hire_date else None,
                 "departure_date": person.departure_date.isoformat() if person.departure_date else None,
                 "is_manually_maintained": person.is_manually_maintained,
             }
@@ -297,7 +292,7 @@ class PerformanceCycleService:
         if snapshot is None:
             return {}
         people = (await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id))).scalars().all()
-        fields = ("display_name", "organization_ref", "direct_manager_employee_no", "hrbp_employee_no", "employment_status", "departure_date", "is_manually_maintained")
+        fields = ("display_name", *ORGANIZATION_FIELDS, "organization_ref", "direct_supervisor_employee_no", "hrbp_employee_no", "employee_type", "employment_status", "job_family", "job_category", "position_level", "hire_date", "departure_date", "is_manually_maintained")
         return {person.employee_no: {field: getattr(person, field).isoformat() if isinstance(getattr(person, field), date) else getattr(person, field) for field in fields} for person in people}
 
     @staticmethod
@@ -349,10 +344,11 @@ class PerformanceCycleService:
             person = people.get(employee_no)
             if person is None:
                 raise CycleValidationError(f"周期快照中不存在员工：{employee_no}")
-            before = {field: getattr(person, field) for field in ("display_name", "organization_ref", "direct_manager_employee_no", "hrbp_employee_no")}
+            before = {field: getattr(person, field) for field in ("display_name", *ORGANIZATION_FIELDS, "direct_supervisor_employee_no", "hrbp_employee_no", "employee_type", "job_family", "job_category", "position_level", "hire_date")}
             for field in before:
                 if field in update:
                     setattr(person, field, update[field])
+            person.organization_ref = organization_path(person)
             person.is_manually_maintained = True
             changed.append({"employee_no": employee_no, "before": before, "after": {field: getattr(person, field) for field in before}})
         self.audit.append_event(AuditEventInput(event_type="PERFORMANCE_CYCLE_PEOPLE_MANUALLY_UPDATED", cycle_ref=cycle.cycle_ref, actor_type=actor_type, actor_ref=_actor_ref(actor_id), after_state={"reason": reason.strip(), "changes": changed}))
@@ -404,35 +400,53 @@ class PerformanceCycleService:
         await self.snapshots.sync_roster(cycle.cycle_ref, people, actor_type=actor_type, actor_ref=_actor_ref(actor_id), allow_locked_update=allow_locked_update, commit=False)
 
     async def _load_roster_inputs(self, cycle: PerformanceCycle) -> list[RosterAuthorizationInput]:
-        model = DATA_TABLES.get("emp_realtime_roster")
-        if model is None:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="员工实时花名册未准备好")
-        table = model.__table__
-        employee = _column(table, "employee_no")
-        name = _column(table, "full_name", "employee_name", "name")
-        if employee is None or name is None:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="员工实时花名册缺少 employee_no 或人员名称字段")
+        try:
+            table = employee_roster_table()
+            columns = require_employee_roster_columns(table)
+        except EmployeeRosterContractError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
         selections = {
-            "source_roster_id": _column(table, "id"), "employee_no": employee, "display_name": name,
-            "organization_ref": _column(table, "company_org", "department", "department_name", "org_node_code"),
-            "direct_manager_source_value": _column(table, "direct_manager_employee_no", "direct_manager", "manager_employee_no", "direct_supervisor"),
-            "hrbp_source_value": _column(table, "hrbp_employee_no", "hrbp"),
-            "employment_status": _column(table, "employment_status", "employee_status", "active_status"),
-            "departure_date": _column(table, "departure_date", "leave_date", "termination_date", "resignation_date"),
+            "employee_no": columns["employee_no"],
+            "display_name": columns["display_name"],
+            **{field: columns[field] for field in ORGANIZATION_FIELDS},
+            "direct_supervisor_source_value": columns["direct_supervisor"],
+            "hrbp_source_value": columns["hrbp"],
+            "employee_type": columns["employee_type"],
+            "employment_status": columns["employment_status"],
+            "job_family": columns["job_family"],
+            "job_category": columns["job_category"],
+            "position_level": columns["position_level"],
+            "hire_date": columns["hire_date"],
+            "departure_date": columns["departure_date"],
         }
-        rows = (await self.db.execute(select(*[column.label(key) for key, column in selections.items() if column is not None]))).mappings().all()
+        if "id" in table.c:
+            selections["source_roster_id"] = table.c.id
+        rows = (await self.db.execute(select(*[column.label(key) for key, column in selections.items()]))).mappings().all()
         people: list[RosterAuthorizationInput] = []
         for row in rows:
-            employee_no = str(row.get("employee_no") or "").strip()
-            display_name = str(row.get("display_name") or "").strip()
+            employee_no = normalize_employee_no(row.get("employee_no"))
+            display_name = normalize_roster_text(row.get("display_name"))
             if not employee_no or not display_name:
                 continue
-            is_leaver = str(row.get("employment_status") or "").strip() == "离职"
-            if is_leaver:
-                departure = _as_date(row.get("departure_date"))
-                if not cycle.leaver_enabled or departure is None or cycle.leaver_start_date is None or cycle.leaver_end_date is None or not (cycle.leaver_start_date <= departure <= cycle.leaver_end_date):
+            departure_date = normalize_roster_date(row.get("departure_date"))
+            if normalize_roster_text(row.get("employment_status")) == "离职":
+                if not cycle.leaver_enabled or departure_date is None or cycle.leaver_start_date is None or cycle.leaver_end_date is None or not (cycle.leaver_start_date <= departure_date <= cycle.leaver_end_date):
                     continue
-            people.append(RosterAuthorizationInput(employee_no=employee_no, display_name=display_name, source_roster_id=row.get("source_roster_id"), organization_ref=row.get("organization_ref"), direct_manager_source_value=row.get("direct_manager_source_value"), hrbp_source_value=row.get("hrbp_source_value"), employment_status=row.get("employment_status"), departure_date=_as_date(row.get("departure_date"))))
+            people.append(RosterAuthorizationInput(
+                employee_no=employee_no,
+                display_name=display_name,
+                source_roster_id=row.get("source_roster_id"),
+                **{field: normalize_roster_text(row.get(field)) for field in ORGANIZATION_FIELDS},
+                direct_supervisor_source_value=normalize_roster_text(row.get("direct_supervisor_source_value")),
+                hrbp_source_value=normalize_roster_text(row.get("hrbp_source_value")),
+                employee_type=normalize_roster_text(row.get("employee_type")),
+                employment_status=normalize_roster_text(row.get("employment_status")),
+                job_family=normalize_roster_text(row.get("job_family")),
+                job_category=normalize_roster_text(row.get("job_category")),
+                position_level=normalize_roster_text(row.get("position_level")),
+                hire_date=normalize_roster_date(row.get("hire_date")),
+                departure_date=departure_date,
+            ))
         return people
 
     @staticmethod

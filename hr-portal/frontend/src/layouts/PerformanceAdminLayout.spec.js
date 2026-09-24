@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { describe, expect, it } from 'vitest';
 import PerformanceAdminLayout from './PerformanceAdminLayout.vue';
 import performanceAdminLayoutSource from './PerformanceAdminLayout.vue?raw';
+import performanceAdminExpandableMenuSource from '@/components/performance/PerformanceAdminExpandableMenu.vue?raw';
 function mountLayout() {
     const router = createRouter({
         history: createMemoryHistory(),
@@ -29,6 +30,12 @@ function mountLayout() {
 describe('PerformanceAdminLayout', () => {
     it('reclaims the stable root scrollbar gutter for the full-viewport admin shell', () => {
         expect(performanceAdminLayoutSource).toContain(':global(html:has(.performance-admin-app)) { scrollbar-gutter: auto; }');
+    });
+    it('keeps the captured cycles icon at its full 18px render size', () => {
+        expect(performanceAdminLayoutSource).toContain(".admin-menu-item :deep(.el-icon svg[data-icon='CyclesProjectsOutlined']), .admin-menu-item :deep(.el-icon svg[data-icon='SeatsOutlined']), .admin-menu-item :deep(.el-icon svg[data-icon='TemplatesOutlined']), .admin-menu-item :deep(.el-icon svg[data-icon='MetricManagementOutlined']), .admin-menu-item :deep(.el-icon svg[data-icon='EvaluationQuestionsOutlined']), .admin-menu-item :deep(.el-icon svg[data-icon='PermissionsOutlined']), .admin-menu-item :deep(.el-icon svg[data-icon='SystemSettingsOutlined']) { width: 18px; height: 18px; }");
+    });
+    it('keeps expandable-menu SVGs at their full 18px render size', () => {
+        expect(performanceAdminExpandableMenuSource).toContain(".admin-menu-item :deep(.el-icon svg[data-icon='EvaluationQuestionsOutlined']), .admin-menu-item :deep(.el-icon svg[data-icon='MetricManagementOutlined']), .admin-menu-item :deep(.el-icon svg[data-icon='PermissionsOutlined']), .admin-menu-item :deep(.el-icon svg[data-icon='SystemSettingsOutlined']) { width: 18px; height: 18px; }");
     });
     it('keeps the evaluation parent expanded without a second active background', () => {
         expect(performanceAdminLayoutSource).toContain("if (section === 'evaluation-questions') evaluationExpanded.value = !evaluationExpanded.value");

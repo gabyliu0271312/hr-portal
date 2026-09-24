@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { reactive, watch } from 'vue'
 import type { ReviewQuestion, ReviewQuestionForm, ReviewRuleOption } from './reviewQuestionTypes'
+import PerformanceButton from './PerformanceButton.vue'
+import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import ReviewQuestionFormType from './ReviewQuestionFormType.vue'
 
 const props = withDefaults(defineProps<{
@@ -39,18 +41,19 @@ watch(
   },
 )
 
+function close() { emit('update:modelValue', false) }
 function handleSubmit() {
   emit('submit', { ...form })
-  emit('update:modelValue', false)
+  close()
 }
 </script>
 
 <template>
-  <el-dialog
+  <PerformanceDialogShell
     :model-value="modelValue"
     :title="mode === 'create' ? '新建评估题' : '编辑评估题'"
     width="640px"
-    :close-on-click-modal="false"
+    @close="close"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <el-form label-width="96px" label-position="left">
@@ -82,20 +85,21 @@ function handleSubmit() {
         </el-select>
       </el-form-item>
       <el-form-item label="备注">
-        <el-input
-          v-model="form.remark"
-          type="textarea"
-          :rows="2"
-          maxlength="2000"
-          show-word-limit
-        />
+        <el-input v-model="form.remark" type="textarea" :rows="2" maxlength="2000" show-word-limit />
       </el-form-item>
     </el-form>
 
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button @click="emit('preview', { ...form })">预览</el-button>
-      <el-button type="primary" @click="handleSubmit">提交</el-button>
+      <div class="review-question-edit-footer">
+        <PerformanceButton variant="secondary" @click="close">取消</PerformanceButton>
+        <PerformanceButton variant="secondary" @click="emit('preview', { ...form })">预览</PerformanceButton>
+        <PerformanceButton variant="primary" @click="handleSubmit">提交</PerformanceButton>
+      </div>
     </template>
-  </el-dialog>
+  </PerformanceDialogShell>
 </template>
+
+<style scoped>
+.review-question-edit-footer { display: flex; justify-content: flex-end; gap: var(--performance-button-gap); }
+.review-question-edit-footer :deep(.performance-button) { min-width: var(--performance-button-min-width); }
+</style>

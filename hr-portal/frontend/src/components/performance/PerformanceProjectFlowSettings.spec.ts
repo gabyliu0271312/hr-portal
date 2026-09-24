@@ -60,6 +60,40 @@ describe('PerformanceProjectFlowSettings', () => {
     expect(wrapper.findAll('.phase-heading')).toHaveLength(1)
   })
 
+  it('opens the captured calibration rule drawer without inserting until confirmation', async () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)] } })
+
+    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    await wrapper.get('.add-rule').trigger('click')
+    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    expect(document.body.querySelector('[aria-label="校准规则编辑"]')).not.toBeNull()
+    expect(document.body.querySelector('.performance-drawer__header h2')?.textContent).toBe('添加校准规则')
+    expect(document.body.querySelector('.performance-drawer-footer--captured')).not.toBeNull()
+
+    const confirm = document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement
+    confirm.click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.rule-row')).toHaveLength(2)
+  })
+
+  it('drops the calibration rule draft when the drawer is cancelled or closed', async () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)] } })
+
+    await wrapper.get('.add-rule').trigger('click')
+    const cancel = document.body.querySelector('.performance-drawer-footer__cancel') as HTMLButtonElement
+    cancel.click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    expect(document.body.querySelector('[aria-label="校准规则编辑"]')).toBeNull()
+
+    await wrapper.get('.add-rule').trigger('click')
+    const close = document.body.querySelector('.performance-drawer__close') as HTMLButtonElement
+    close.click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    expect(document.body.querySelector('[aria-label="校准规则编辑"]')).toBeNull()
+  })
+
   it('persists editable flow settings through v-model without changing template nodes', async () => {
     const wrapper = mount(PerformanceProjectFlowSettings, {
       props: { nodes: [node('reviewer_360_invite', 1), node('result_view', 2)] },

@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.employee_roster_contract import ORGANIZATION_FIELDS, organization_path
 from app.performance.models import (
     AUTHORIZATION_SNAPSHOT_STATUS_DRAFT,
     AUTHORIZATION_SNAPSHOT_STATUS_LOCKED,
@@ -59,10 +60,21 @@ class RosterAuthorizationInput:
     display_name: str
     source_roster_id: int | None = None
     portal_user_id: int | None = None
+    company_org: str | None = None
+    department: str | None = None
+    department_2: str | None = None
+    department_3: str | None = None
+    department_4: str | None = None
+    department_5: str | None = None
     organization_ref: str | None = None
-    direct_manager_source_value: str | None = None
+    direct_supervisor_source_value: str | None = None
     hrbp_source_value: str | None = None
+    employee_type: str | None = None
     employment_status: str | None = None
+    job_family: str | None = None
+    job_category: str | None = None
+    position_level: str | None = None
+    hire_date: date | None = None
     departure_date: date | None = None
 
 
@@ -72,12 +84,23 @@ class SnapshotPersonState:
     display_name: str
     source_roster_id: int | None = None
     portal_user_id: int | None = None
+    company_org: str | None = None
+    department: str | None = None
+    department_2: str | None = None
+    department_3: str | None = None
+    department_4: str | None = None
+    department_5: str | None = None
     organization_ref: str | None = None
-    direct_manager_employee_no: str | None = None
-    direct_manager_source_value: str | None = None
+    direct_supervisor_employee_no: str | None = None
+    direct_supervisor_source_value: str | None = None
     hrbp_employee_no: str | None = None
     hrbp_source_value: str | None = None
+    employee_type: str | None = None
     employment_status: str | None = None
+    job_family: str | None = None
+    job_category: str | None = None
+    position_level: str | None = None
+    hire_date: date | None = None
     departure_date: date | None = None
 
 
@@ -208,14 +231,20 @@ def build_snapshot_people(
                 employee_no=employee_no,
                 display_name=_normalized_reference(row.display_name) or "",
                 source_roster_id=row.source_roster_id,
-                organization_ref=_normalized_reference(row.organization_ref),
-                direct_manager_employee_no=resolve_reference(row.direct_manager_source_value) or _normalized_reference(row.direct_manager_source_value),
-                direct_manager_source_value=_normalized_reference(
-                    row.direct_manager_source_value
+                **{key: _normalized_reference(getattr(row, key)) for key in ORGANIZATION_FIELDS},
+                organization_ref=organization_path(row),
+                direct_supervisor_employee_no=resolve_reference(row.direct_supervisor_source_value),
+                direct_supervisor_source_value=_normalized_reference(
+                    row.direct_supervisor_source_value
                 ),
                 hrbp_employee_no=resolve_reference(row.hrbp_source_value),
                 hrbp_source_value=_normalized_reference(row.hrbp_source_value),
+                employee_type=_normalized_reference(row.employee_type),
                 employment_status=_normalized_reference(row.employment_status),
+                job_family=_normalized_reference(row.job_family),
+                job_category=_normalized_reference(row.job_category),
+                position_level=_normalized_reference(row.position_level),
+                hire_date=row.hire_date,
                 departure_date=row.departure_date,
             )
         )
@@ -264,17 +293,17 @@ def resolve_identity_scopes(
             scopes.update(
                 (DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE, person.employee_no)
                 for person in people_by_employee.values()
-                if person.direct_manager_employee_no == actor_ref
+                if person.direct_supervisor_employee_no == actor_ref
             )
         elif identity_type == DYNAMIC_IDENTITY_TYPE_INDIRECT_MANAGER:
             for person in people_by_employee.values():
-                manager_employee_no = person.direct_manager_employee_no
+                manager_employee_no = person.direct_supervisor_employee_no
                 visited: set[str] = set()
                 while manager_employee_no and manager_employee_no not in visited:
                     visited.add(manager_employee_no)
                     manager = people_by_employee.get(manager_employee_no)
                     manager_employee_no = (
-                        manager.direct_manager_employee_no if manager is not None else None
+                        manager.direct_supervisor_employee_no if manager is not None else None
                     )
                     if manager_employee_no == actor_ref:
                         scopes.add((DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE, person.employee_no))
@@ -378,12 +407,19 @@ class PerformanceAuthorizationSnapshotService:
             record.source_roster_id = person.source_roster_id
             record.portal_user_id = person.portal_user_id
             record.display_name = person.display_name
-            record.organization_ref = person.organization_ref
-            record.direct_manager_employee_no = person.direct_manager_employee_no
-            record.direct_manager_source_value = person.direct_manager_source_value
+            for field in ORGANIZATION_FIELDS:
+                setattr(record, field, getattr(person, field))
+            record.organization_ref = organization_path(person)
+            record.direct_supervisor_employee_no = person.direct_supervisor_employee_no
+            record.direct_supervisor_source_value = person.direct_supervisor_source_value
             record.hrbp_employee_no = person.hrbp_employee_no
             record.hrbp_source_value = person.hrbp_source_value
+            record.employee_type = person.employee_type
             record.employment_status = person.employment_status
+            record.job_family = person.job_family
+            record.job_category = person.job_category
+            record.position_level = person.position_level
+            record.hire_date = person.hire_date
             record.departure_date = person.departure_date
         for employee_no, record in existing_people.items():
             if employee_no not in incoming_employee_nos and not record.is_manually_maintained:
@@ -597,12 +633,19 @@ class PerformanceAuthorizationSnapshotService:
                     employee_no=person.employee_no,
                     display_name=person.display_name,
                     source_roster_id=person.source_roster_id,
-                    organization_ref=person.organization_ref,
-                    direct_manager_employee_no=person.direct_manager_employee_no,
-                    direct_manager_source_value=person.direct_manager_source_value,
+                    **{key: getattr(person, key) for key in ORGANIZATION_FIELDS},
+                    organization_ref=organization_path(person),
+                    direct_supervisor_employee_no=person.direct_supervisor_employee_no,
+                    direct_supervisor_source_value=person.direct_supervisor_source_value,
                     hrbp_employee_no=person.hrbp_employee_no,
                     hrbp_source_value=person.hrbp_source_value,
+                    employee_type=person.employee_type,
                     employment_status=person.employment_status,
+                    job_family=person.job_family,
+                    job_category=person.job_category,
+                    position_level=person.position_level,
+                    hire_date=person.hire_date,
+                    departure_date=person.departure_date,
                 )
                 for person in people
             ],

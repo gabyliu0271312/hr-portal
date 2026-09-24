@@ -8,7 +8,17 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.data.models import DATA_TABLES
+from app.data.employee_roster_contract import (
+    EmployeeRosterContractError,
+    ORGANIZATION_FIELDS,
+    organization_leaf,
+    organization_path,
+    employee_roster_table,
+    normalize_employee_no,
+    normalize_roster_date,
+    normalize_roster_text,
+    require_employee_roster_columns,
+)
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.self_summary_service import hydrate_self_summary_template, resolve_self_summary_content
 from app.performance.models import (
@@ -49,11 +59,14 @@ def _parse_time(value: Any) -> datetime | None:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
-def _column(table, *candidates: str):
-    for candidate in candidates:
-        if candidate in table.c:
-            return table.c[candidate]
-    return None
+async def _canonical_roster_rows(db: AsyncSession) -> list[dict[str, Any]]:
+    try:
+        table = employee_roster_table()
+        columns = require_employee_roster_columns(table)
+    except EmployeeRosterContractError as exc:
+        raise ProjectValidationError(str(exc)) from exc
+    rows = (await db.execute(select(*[column.label(key) for key, column in columns.items()]))).mappings().all()
+    return [{**dict(row), "organization_ref": organization_path(row)} for row in rows]
 
 
 class PerformanceProjectService:
@@ -74,8 +87,8 @@ class PerformanceProjectService:
                     PerformanceAuthorizationSnapshotPerson.snapshot_id == locked_snapshot.id
                 )
             )).scalars().all())
-            departments = sorted({person.organization_ref.strip() for person in people if person.organization_ref and person.organization_ref.strip()})
-            employee_types = sorted({person.employment_status.strip() for person in people if person.employment_status and person.employment_status.strip()})
+            departments = sorted({leaf for person in people if (leaf := organization_leaf(person))})
+            employee_types = sorted({person.employee_type.strip() for person in people if person.employee_type and person.employee_type.strip()})
             employees = sorted(
                 [
                     {"value": person.employee_no, "label": f"{person.display_name}（{person.employee_no}）"}
@@ -89,35 +102,19 @@ class PerformanceProjectService:
                 "employee_types": [{"value": value, "label": value} for value in employee_types],
                 "employees": employees,
             }
-        model = DATA_TABLES.get("emp_realtime_roster")
-        if model is None:
-            return {"departments": [], "employee_types": [], "employees": []}
-        table = model.__table__
-        employee_no = _column(table, "employee_no")
-        name = _column(table, "full_name", "chinese_name", "employee_name", "name")
-        department = _column(table, "department", "company_org", "org_node_code")
-        employee_type = _column(table, "employee_type", "employment_status")
-        status_column = _column(table, "employment_status", "employee_status", "active_status")
-        if employee_no is None or name is None:
-            return {"departments": [], "employee_types": [], "employees": []}
-        columns = {"employee_no": employee_no, "name": name}
-        if department is not None:
-            columns["department"] = department
-        if employee_type is not None:
-            columns["employee_type"] = employee_type
-        if status_column is not None:
-            columns["employment_status"] = status_column
-        rows = (await self.db.execute(select(*[column.label(key) for key, column in columns.items()]))).mappings().all()
-        departments = set(); employee_types = set(); employees = []
+        rows = await _canonical_roster_rows(self.db)
+        departments: set[str] = set()
+        employee_types: set[str] = set()
+        employees: list[dict[str, str]] = []
         for row in rows:
-            employee_no_value = str(row.get("employee_no") or "").strip()
-            name_value = str(row.get("name") or "").strip()
+            employee_no_value = normalize_employee_no(row.get("employee_no"))
+            name_value = normalize_roster_text(row.get("display_name"))
             if not employee_no_value or not name_value:
                 continue
-            if row.get("department"):
-                departments.add(str(row["department"]).strip())
-            if row.get("employee_type"):
-                employee_types.add(str(row["employee_type"]).strip())
+            if department := organization_leaf(row):
+                departments.add(department)
+            if employee_type := normalize_roster_text(row.get("employee_type")):
+                employee_types.add(employee_type)
             employees.append({"value": employee_no_value, "label": f"{name_value}（{employee_no_value}）"})
         return {
             "departments": [{"value": value, "label": value} for value in sorted(departments)],
@@ -126,33 +123,45 @@ class PerformanceProjectService:
         }
 
     async def evaluator_count(self, cycle: PerformanceCycle, rules: dict[str, Any]) -> int:
-        model = DATA_TABLES.get("emp_realtime_roster")
-        if model is None:
-            return 0
-        table = model.__table__
-        employee_no = _column(table, "employee_no")
-        name = _column(table, "full_name", "chinese_name", "employee_name", "name")
-        department = _column(table, "department", "company_org", "org_node_code")
-        employee_type = _column(table, "employee_type", "employment_status")
-        status_column = _column(table, "employment_status", "employee_status", "active_status")
-        departure_column = _column(table, "terminated_date", "departure_date", "leave_date", "termination_date")
-        if employee_no is None or name is None:
-            return 0
-        columns = {"employee_no": employee_no, "name": name}
-        for key, column in (("department", department), ("employee_type", employee_type), ("employment_status", status_column), ("departure_date", departure_column)):
-            if column is not None:
-                columns[key] = column
-        rows = (await self.db.execute(select(*[column.label(key) for key, column in columns.items()]))).mappings().all()
+        locked_snapshot = await self.db.scalar(
+            select(PerformanceAuthorizationSnapshot).where(
+                PerformanceAuthorizationSnapshot.cycle_ref == cycle.cycle_ref,
+                PerformanceAuthorizationSnapshot.status == AUTHORIZATION_SNAPSHOT_STATUS_LOCKED,
+            )
+        )
+        if locked_snapshot is not None:
+            snapshot_people = list((await self.db.execute(
+                select(PerformanceAuthorizationSnapshotPerson).where(
+                    PerformanceAuthorizationSnapshotPerson.snapshot_id == locked_snapshot.id
+                )
+            )).scalars().all())
+            rows = [
+                {
+                    "employee_no": person.employee_no,
+                    "organization_ref": person.organization_ref,
+                    "department": organization_leaf(person),
+                    "employee_type": person.employee_type,
+                    "employment_status": person.employment_status,
+                    "departure_date": person.departure_date,
+                }
+                for person in snapshot_people
+            ]
+        else:
+            rows = await _canonical_roster_rows(self.db)
         groups = (rules or {}).get("groups", [])
         if not groups:
             return 0
         count = 0
         for row in rows:
-            if str(row.get("employment_status") or "").strip() == "离职":
-                departure = row.get("departure_date")
+            if normalize_roster_text(row.get("employment_status")) == "离职":
+                departure = normalize_roster_date(row.get("departure_date"))
                 if not cycle.leaver_enabled or departure is None or cycle.leaver_start_date is None or cycle.leaver_end_date is None or not (cycle.leaver_start_date <= departure <= cycle.leaver_end_date):
                     continue
-            values = {"department": str(row.get("department") or "").strip(), "employee_type": str(row.get("employee_type") or "").strip(), "employee": str(row.get("employee_no") or "").strip()}
+            values = {
+                "department": organization_leaf(row) or "",
+                "employee_type": normalize_roster_text(row.get("employee_type")) or "",
+                "employee": normalize_employee_no(row.get("employee_no")) or "",
+            }
             groups_match = any(all((values.get(condition.get("field"), "") in condition.get("values", [])) == (condition.get("operator") == "include") for condition in group.get("conditions", [])) for group in groups)
             if groups_match:
                 count += 1
@@ -463,12 +472,6 @@ class PerformanceProjectService:
         groups = rules.get("groups") or []
         if not groups:
             raise ProjectValidationError("项目未配置被评估人")
-        if any(
-            condition.get("field") == "employee_type"
-            for group in groups
-            for condition in group.get("conditions", [])
-        ):
-            raise ProjectValidationError("周期人员快照不包含员工类型，无法按员工类型筛选")
         people = list((await self.db.execute(
             select(PerformanceAuthorizationSnapshotPerson).where(
                 PerformanceAuthorizationSnapshotPerson.snapshot_id == authorization_snapshot.id
@@ -476,7 +479,11 @@ class PerformanceProjectService:
         )).scalars().all())
         selected = []
         for person in people:
-            values = {"department": person.organization_ref or "", "employee": person.employee_no}
+            values = {
+                "department": organization_leaf(person) or "",
+                "employee_type": person.employee_type or "",
+                "employee": person.employee_no,
+            }
             matched = any(
                 all((values.get(condition.get("field"), "") in condition.get("values", [])) == (condition.get("operator") == "include") for condition in group.get("conditions", []))
                 for group in groups
@@ -509,10 +516,16 @@ class PerformanceProjectService:
                 employee_no=person.employee_no,
                 portal_user_id=person.portal_user_id,
                 display_name=person.display_name,
-                organization_ref=person.organization_ref,
-                direct_manager_employee_no=person.direct_manager_employee_no,
+                **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
+                organization_ref=organization_path(person),
+                direct_supervisor_employee_no=person.direct_supervisor_employee_no,
                 hrbp_employee_no=person.hrbp_employee_no,
+                employee_type=person.employee_type,
                 employment_status=person.employment_status,
+                job_family=person.job_family,
+                job_category=person.job_category,
+                position_level=person.position_level,
+                hire_date=person.hire_date,
             ))
         flow_settings = (project.settings or {}).get("flow_settings") or {}
         node_times = flow_settings.get("node_times") or {}
@@ -536,7 +549,7 @@ class PerformanceProjectService:
             for person in selected:
                 executor_types = raw_node.get("executor_types") or []
                 if "DIRECT_MANAGER" in executor_types:
-                    handlers = [person.direct_manager_employee_no] if person.direct_manager_employee_no else []
+                    handlers = [person.direct_supervisor_employee_no] if person.direct_supervisor_employee_no else []
                 elif "HRBP" in executor_types:
                     handlers = [person.hrbp_employee_no] if person.hrbp_employee_no else []
                 else:
@@ -613,7 +626,7 @@ class PerformanceProjectService:
             if node_type not in {"result_view", "reviewer_360_confirm"}:
                 for person in members:
                     types = raw_node.get("executor_types") or []
-                    handlers = [person.direct_manager_employee_no] if "DIRECT_MANAGER" in types else [person.hrbp_employee_no] if "HRBP" in types else [person.employee_no] if "SUBJECT" in types or node_type in {"work_summary", "reviewer_360_invite"} else []
+                    handlers = [person.direct_supervisor_employee_no] if "DIRECT_MANAGER" in types else [person.hrbp_employee_no] if "HRBP" in types else [person.employee_no] if "SUBJECT" in types or node_type in {"work_summary", "reviewer_360_invite"} else []
                     for handler in {value for value in handlers if value}:
                         timing = normalized_times[node_id]
                         self.db.add(PerformanceNodeTask(project_id=project.id, cycle_ref=project.cycle_ref, member_snapshot_id=member_snapshot.id, node_snapshot_id=snapshot.id, target_employee_no=person.employee_no, handler_ref=str(handler), task_kind=node_type, available_at=_parse_time(timing.get("start_at")), due_at=_parse_time(timing.get("end_at") or timing.get("appeal_deadline")), status="pending"))

@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { ElButton } from 'element-plus'
-import FilterOutlinedIcon from './FilterOutlinedIcon.vue'
+import PerformanceFilterButton from './PerformanceFilterButton.vue'
 import PerformanceSearchInput from './PerformanceSearchInput.vue'
 
 withDefaults(defineProps<{
@@ -10,12 +9,14 @@ withDefaults(defineProps<{
   searchWidth?: string
   showFilter?: boolean
   filterLabel?: string
+  searchFill?: boolean
 }>(), {
   searchPlaceholder: '通过名称、备注搜索',
   searchAriaLabel: '搜索',
   searchWidth: '224px',
   showFilter: true,
   filterLabel: '筛选',
+  searchFill: false,
 })
 
 const emit = defineEmits<{
@@ -29,7 +30,7 @@ const emit = defineEmits<{
 <template>
   <div class="list-toolbar">
     <slot name="left" />
-    <div class="toolbar-spacer"></div>
+    <div v-if="!searchFill" class="toolbar-spacer"></div>
     <PerformanceSearchInput
       :model-value="keyword"
       class="search-input"
@@ -40,10 +41,7 @@ const emit = defineEmits<{
       @search="emit('search')"
       @clear="emit('clear')"
     />
-    <el-button v-if="showFilter" class="filter-button" :aria-label="filterLabel" @click="emit('filter')">
-      <FilterOutlinedIcon class="filter-icon" />
-      {{ filterLabel }}
-    </el-button>
+    <PerformanceFilterButton v-if="showFilter" class="filter-button" :label="filterLabel" @click="emit('filter')" />
     <slot name="actions" />
   </div>
 </template>
@@ -64,14 +62,5 @@ const emit = defineEmits<{
 .search-icon {
   width: 16px;
   height: 16px;
-}
-.filter-button {
-  width: 80px;
-  color: #1f2329;
-}
-.filter-icon {
-  width: 14px;
-  height: 14px;
-  margin-right: 4px;
 }
 </style>

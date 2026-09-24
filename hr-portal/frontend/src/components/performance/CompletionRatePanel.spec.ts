@@ -62,10 +62,23 @@ describe('CompletionRatePanel', () => {
     ])
   })
 
+  it('renders 未开始 with the captured muted typography and hides actions', () => {
+    const wrapper = mount(CompletionRatePanel, {
+      props: {
+        nodes: [{ key: 'future', title: '未来环节', progress: '未开始', completionStatus: '0/406', deadline: '2099-01-01 23:59（GMT+8）', status: 'not_started' }],
+      },
+    })
+
+    expect(wrapper.find('.card-progress').text()).toBe('未开始')
+    expect(wrapper.find('.card-progress').classes()).toContain('no-start')
+    expect(wrapper.findAll('.text-button')).toHaveLength(0)
+    expect(completionCardSource).toMatch(/\.card-progress\.no-start\s*\{[^}]*font-size:\s*20px;[^}]*font-weight:\s*600;[^}]*color:\s*#8f959e/s)
+  })
+
   it('uses the captured geometry and typography (bar 2x16, progress DIN 28px, grid 3 cols)', () => {
     expect(sectionCardHeaderSource).toMatch(/\.header-bar\s*\{[^}]*width:\s*2px;[^}]*height:\s*16px;[^}]*background:\s*#3370ff/s)
-    expect(filterButtonSource).toMatch(/\.filter-button:hover\s*\{[^}]*background:\s*#f2f3f5;/s)
-    expect(filterButtonSource).toMatch(/\.filter-button:active\s*\{[^}]*background:\s*#eff0f1;/s)
+    expect(filterButtonSource).toMatch(/\.filter-button:hover\s*\{[^}]*background:\s*var\(--performance-button-secondary-hover-background\);/s)
+    expect(filterButtonSource).toMatch(/\.filter-button:active\s*\{[^}]*background:\s*var\(--color-surface-disabled\);/s)
     expect(completionCardSource).toMatch(/font-family:\s*'DIN Alternate'/)
     expect(completionCardSource).toMatch(/font-size:\s*28px;[^}]*color:\s*#3370ff/s)
     expect(gridCardSource).toMatch(/border:\s*1px solid #dee0e3;[^}]*border-radius:\s*8px/s)

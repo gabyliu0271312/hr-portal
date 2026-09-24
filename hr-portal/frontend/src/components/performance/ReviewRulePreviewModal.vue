@@ -59,13 +59,11 @@ function precisionDigits(value: string) {
 </script>
 
 <style scoped>
-.review-rule-preview-layer { position: fixed; inset: 0; z-index: 2600; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); }
-.review-rule-preview-modal { position: relative; display: flex; flex-direction: column; width: 600px; box-sizing: border-box; border-radius: 8px; overflow: visible; background: #fff; color: #1f2329; font: 400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif; }
-.review-rule-preview-modal.is-rating,.review-rule-preview-modal.is-score { height: 158px; }
-.review-rule-preview-modal.is-mapping { height: calc(var(--mapping-preview-body-height, 262.667px) + 96px); }
-.review-rule-preview-header { position: relative; flex: 0 0 72px; height: 72px; padding: 24px 56px 24px 24px; box-sizing: border-box; }
-.review-rule-preview-header h2 { width: 520px; height: 24px; margin: 0; font-size: 16px; font-weight: 600; line-height: 24px; }
-.review-rule-preview-body { min-height: 0; padding: 0 24px; box-sizing: border-box; }
-.review-rule-preview-modal.is-rating .review-rule-preview-body,.review-rule-preview-modal.is-score .review-rule-preview-body { flex: 0 0 62px; height: 62px; }
-.review-rule-preview-modal.is-mapping .review-rule-preview-body { flex: 0 0 var(--mapping-preview-body-height, 262.667px); height: var(--mapping-preview-body-height, 262.667px); }
+.review-rule-preview-layer { position: fixed; inset: 0; z-index: var(--performance-confirm-z-index); display: flex; align-items: center; justify-content: center; padding: var(--spacing-4); box-sizing: border-box; background: var(--performance-dialog-overlay); }
+.review-rule-preview-modal { position: relative; display: flex; flex-direction: column; width: 600px; box-sizing: border-box; border-radius: var(--performance-dialog-radius); overflow: visible; background: var(--color-bg-card); color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); box-shadow: var(--performance-dialog-shadow); }
+.review-rule-preview-modal.is-rating,.review-rule-preview-modal.is-score { height: 158px; }.review-rule-preview-modal.is-mapping { height: calc(var(--mapping-preview-body-height, 262.667px) + 96px); }
+.review-rule-preview-header { position: relative; flex: 0 0 var(--performance-dialog-header-height); height: var(--performance-dialog-header-height); padding: var(--spacing-6) var(--performance-dialog-header-padding-right) var(--spacing-6) var(--performance-dialog-padding); box-sizing: border-box; }
+.review-rule-preview-header h2 { width: 520px; height: 24px; margin: 0; font-size: var(--font-size-lg); font-weight: 600; line-height: 24px; }
+.review-rule-preview-body { min-height: 0; padding: 0 var(--performance-dialog-padding); box-sizing: border-box; }
+.review-rule-preview-modal.is-rating .review-rule-preview-body,.review-rule-preview-modal.is-score .review-rule-preview-body { flex: 0 0 62px; height: 62px; }.review-rule-preview-modal.is-mapping .review-rule-preview-body { flex: 0 0 var(--mapping-preview-body-height, 262.667px); height: var(--mapping-preview-body-height, 262.667px); }
 </style>

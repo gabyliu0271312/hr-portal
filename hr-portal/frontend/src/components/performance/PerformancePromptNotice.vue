@@ -1,5 +1,5 @@
 <template>
-  <div class="prompt-notice" :style="{ backgroundColor: definition.noticeBackground }">
+  <div class="prompt-notice" :class="{ 'prompt-notice--multiline': multiline }" :style="{ backgroundColor: definition.noticeBackground }">
     <span class="prompt-notice__icon" :style="{ color: definition.iconColor }" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path :d="definition.iconPath" fill="currentColor" /><path :d="definition.iconInnerPath" fill="#fff" /></svg></span>
     <div class="prompt-notice__text"><slot>{{ definition.label }}</slot></div>
   </div>
@@ -7,7 +7,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 export type PromptColorKey = 'info' | 'warning' | 'error' | 'success'
-const props = defineProps<{ type: PromptColorKey }>()
+const props = withDefaults(defineProps<{ type: PromptColorKey; multiline?: boolean }>(), { multiline: false })
 const definitions = {
   info: { label:'用于常规提示', noticeBackground:'#F0F4FF', iconColor:'#1456F0', iconPath:'M12 23c6.075 0 11-4.925 11-11S18.075 1 12 1 1 5.925 1 12s4.925 11 11 11Z', iconInnerPath:'M13 7.5a1 1 0 1 0-2 0 1 1 0 0 0 2 0Zm-2 4v4h-.5a1 1 0 1 0 0 2h3a1 1 0 1 0 0-2H13c0-.667 0-1.333.002-2 0-1.001.002-2.002 0-3.004a.998.998 0 0 0-.998-.996H11a1 1 0 1 0 0 2Z' },
   warning: { label:'用于警示提示', noticeBackground:'#FFF3E5', iconColor:'#FF811A', iconPath:'M12 23c6.075 0 11-4.925 11-11S18.075 1 12 1 1 5.925 1 12s4.925 11 11 11Z', iconInnerPath:'M13 7.5a1 1 0 1 0-2 0 1 1 0 0 0 2 0Zm-2 4v4h-.5a1 1 0 1 0 0 2h3a1 1 0 1 0 0-2H13c0-.667 0-1.333.002-2 0-1.001.002-2.002 0-3.004a.998.998 0 0 0-.998-.996H11a1 1 0 1 0 0 2Z' },
@@ -17,5 +17,5 @@ const definitions = {
 const definition = computed(() => definitions[props.type])
 </script>
 <style scoped>
-.prompt-notice{display:flex;align-items:center;overflow:hidden;min-height:0;padding:9px 0 9px 16px;box-sizing:border-box;border-radius:6px;color:#1F2329;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif}.prompt-notice__icon{display:block;align-self:baseline;width:16px;height:16px;flex:none;margin:3px 8px 0 0;line-height:0}.prompt-notice__icon svg{display:block;width:16px;height:16px}.prompt-notice__text{display:-webkit-box;overflow:hidden;margin-bottom:4px;padding-right:32px;word-break:break-word;white-space:nowrap}
+.prompt-notice{display:flex;align-items:center;overflow:hidden;min-height:0;padding:9px 0 9px 16px;box-sizing:border-box;border-radius:6px;color:#1F2329;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif}.prompt-notice__icon{display:block;align-self:baseline;width:16px;height:16px;flex:none;margin:3px 8px 0 0;line-height:0}.prompt-notice__icon svg{display:block;width:16px;height:16px}.prompt-notice__text{display:-webkit-box;overflow:hidden;margin-bottom:4px;padding-right:32px;word-break:break-word;white-space:nowrap}.prompt-notice--multiline{align-items:flex-start}.prompt-notice--multiline .prompt-notice__text{white-space:normal}
 </style>

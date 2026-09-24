@@ -49,12 +49,12 @@ describe('PerformanceReferenceEntryBar', () => {
     assertCss(css, [
       'display: flex; position: sticky; bottom: 8px; z-index: 20;',
       'height: 54px; margin-bottom: 24px;',
-      'background-color: #ffffff; border-radius: 4px;',
+      'background-color: var(--color-bg-card); border-radius: var(--performance-button-radius);',
       'padding: 2px 4px;',
-      'border-radius: 6px; font: 400 14px/18px',
-      'white-space: nowrap; color: #1456f0;',
-      'transition: color 0.1s ease-in, background-color 0.1s ease-in, border-color 0.1s ease-in, width 0.2s ease-in',
-      '.reference-entry-bar__button:hover { background-color: rgba(20, 86, 240, 0.2); }',
+      'border-radius: var(--performance-button-radius); font: var(--performance-button-font-weight) var(--performance-button-font-size)/18px',
+      'white-space: nowrap; color: var(--performance-button-text-color);',
+      'transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), width var(--duration-base) var(--ease-standard)',
+      '.reference-entry-bar__button:hover { background-color: var(--performance-button-text-hover-background); }',
       '.reference-entry-bar__icon-inline { display: block; margin-right: 4px;',
       '.reference-entry-bar__icon svg { display: inline-block; overflow: hidden; width: 14px; height: 14px;',
     ])

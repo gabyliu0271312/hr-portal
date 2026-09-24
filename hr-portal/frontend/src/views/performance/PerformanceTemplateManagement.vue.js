@@ -330,11 +330,13 @@ else {
             ...{ 'onClick': {} },
             link: true,
             type: "primary",
+            ...{ class: "template-row-button" },
         }));
         const __VLS_57 = __VLS_56({
             ...{ 'onClick': {} },
             link: true,
             type: "primary",
+            ...{ class: "template-row-button" },
         }, ...__VLS_functionalComponentArgsRest(__VLS_56));
         let __VLS_59;
         let __VLS_60;
@@ -357,11 +359,13 @@ else {
             ...{ 'onClick': {} },
             link: true,
             type: "primary",
+            ...{ class: "template-row-button" },
         }));
         const __VLS_65 = __VLS_64({
             ...{ 'onClick': {} },
             link: true,
             type: "primary",
+            ...{ class: "template-row-button" },
         }, ...__VLS_functionalComponentArgsRest(__VLS_64));
         let __VLS_67;
         let __VLS_68;

@@ -46,7 +46,81 @@
     "shared_components": {"PerformanceRatingTag": {"props": ["label", "color"], "responsibility": "24px display-only tag using configured template color"}, "PerformanceSortHeader": {"props": ["label", "order"], "events": ["click"], "responsibility": "captured 10px sort icons and accessible trigger, no data sorting"}},
     "implementation_boundary": "Reuse Element Plus fixed-column/tree behavior. Provider supplies optional template level.color and explicit heatLevels; missing levels remain neutral. Template configuration renderer and report tag share performanceLevelBackground. Existing sort order cycle is retained rather than represented as newly verified source behavior."
   },
-  "states": [],
+  "level_statistics_brief": {
+    "task_id": "PM-T010-T08",
+    "authority": "2026-09-21 user requirement and task-specific P0/P1 waiver; not a collector capture",
+    "scope": "Existing report matrix reused for real position_level data only",
+    "visible": ["级别统计", "岗位职级", "汇总", "template rating labels", "总人数", "section-specific real source notice"],
+    "forbidden": ["expand toggle", "children rows", "mock fallback", "global all-real source notice", "invented heat thresholds"],
+    "states": ["loading", "success", "empty", "permission-error", "request-error-retry", "cycle-change"],
+    "geometry_style_policy": "Inherit department_matrix_brief and current shared components; no new pixel claims",
+    "data_policy": "Authorized cycle projects, snapshot membership, read-only live position_level, submitted final rating answers, no migrations"
+  },
+  "tenure_statistics_brief": {
+    "task_id": "PM-T010-T08",
+    "row_label": "司龄",
+    "rows": ["入职未满3个月", "3-6个月（不含6个月）", "6个月-1年（不含1年）", "1-3年内（不含3年）", "3年以上", "入职日期缺失"],
+    "summary": true,
+    "children": false,
+    "source": "api",
+    "hire_date_policy": "read-only realtime hire_date; completed calendar months to current date"
+  },
+  "level_statistics_runtime_evidence": {
+    "task_id": "PM-T010-T08",
+    "date": "2026-09-21",
+    "real_api": {
+      "url": "http://127.0.0.1:8080/api/v1/performance/project-management/statistics?cycle_id=6&dimension=level",
+      "status": 200,
+      "source": "api",
+      "totalParticipants": 56,
+      "level_rows": 2,
+      "rating_columns": 7,
+      "rating_labels": ["1星", "2星", "3星-", "3星", "3星+", "4星", "5星"],
+      "rating_names_not_used": ["不合格", "待改进", "符合预期-", "符合预期", "符合预期+", "超出预期", "卓越"],
+      "rated_count": 0,
+      "anonymous_status": 401,
+      "database_readonly_check": {"snapshot_members": 56, "unique_members": 56, "live_position_level_groups": 2, "final_node_tasks": 56, "submitted_final_tasks": 0}
+    },
+    "browser": {
+      "url": "http://127.0.0.1:8080/performance/project-management",
+      "viewport": {"width": 1534, "height": 911, "dpr": 1},
+      "api_intercepted": false,
+      "reload_verified": true,
+      "summary_rows": 1,
+      "expand_buttons": 0,
+      "page_horizontal_overflow": false,
+      "page_errors": [],
+      "screenshot": "PM-T010-T08-level-api-1534.png"
+    },
+    "fixture_visual": {
+      "viewports": [{"width": 1534, "height": 911, "dpr": 1}, {"width": 1100, "height": 911, "dpr": 1}],
+      "screenshots": ["PM-T010-T08-level-fixture-1534.png", "PM-T010-T08-level-fixture-1100.png"],
+      "note": "Synthetic rating counts verify layout only; not real API evidence"
+    },
+    "pixel_diff": "not-run",
+    "full_acceptance_gate": "not-run"
+  },
+  "tenure_statistics_runtime_evidence": {
+    "task_id": "PM-T010-T08",
+    "date": "2026-09-21",
+    "real_api": {
+      "url": "http://127.0.0.1:8080/api/v1/performance/project-management/statistics?cycle_id=6&dimension=tenure",
+      "status": 200,
+      "source": "api",
+      "dimension": "tenure",
+      "row_label": "司龄",
+      "totalParticipants": 56,
+      "rows": ["入职未满3个月", "3-6个月（不含6个月）", "6个月-1年（不含1年）", "1-3年内（不含3年）", "3年以上", "入职日期缺失"],
+      "summary_rows": 1,
+      "expand_buttons": 0,
+      "rating_labels": ["1星", "2星", "3星-", "3星", "3星+", "4星", "5星"],
+      "page_errors": [],
+      "screenshot": "PM-T010-T08-tenure-api-1534.png"
+    },
+    "date_boundary_policy": "completed calendar months; current date from application server",
+    "pixel_diff": "not-run"
+  },
+
   "components": [],
   "variant_contracts": [
     {
@@ -58,7 +132,7 @@
         {"id": "navigation", "owner": "ProjectReportNavigation", "display_mode": "right-column"},
         {"id": "mock-notice", "owner": "ProjectStatisticsReportPanel", "display_mode": "inline-notice"}
       ],
-      "forbidden_elements": ["offscreen-more-button", "invented-filter-form", "real-api-request", "fixed-report-heights", "collapsed-handle"],
+      "forbidden_elements": ["offscreen-more-button", "invented-filter-form", "non-level-real-api-request", "fixed-report-heights", "collapsed-handle"],
       "line_groups": [{"members": ["chapters", "navigation"], "relation": "horizontal", "gap": 36}],
       "component_ownership": {"surface": "PerformanceSurfaceCard", "data": "ProjectReportProvider", "scroll": "useProjectReportNavigation", "plot": "ProjectReportDistribution", "matrix": "ProjectReportMatrix"}
     },
@@ -71,9 +145,27 @@
         {"id": "collapsed-handle", "owner": "ProjectReportNavigation", "display_mode": "absolute-overflow"},
         {"id": "mock-notice", "owner": "ProjectStatisticsReportPanel", "display_mode": "inline-notice"}
       ],
-      "forbidden_elements": ["menu-content", "expanded-collapse-button", "offscreen-more-button", "invented-filter-form", "real-api-request"],
+      "forbidden_elements": ["menu-content", "expanded-collapse-button", "offscreen-more-button", "invented-filter-form", "non-level-real-api-request"],
       "line_groups": [{"members": ["filter", "collapsed-handle"], "relation": "same-header-row"}],
       "component_ownership": {"surface": "PerformanceSurfaceCard", "data": "ProjectReportProvider", "scroll": "useProjectReportNavigation"}
+    },
+    {
+      "variant_key": "report-level-api",
+      "entry_mode": "cycle-overview-reports",
+      "review_type": "statistics",
+      "config_discriminator": "dimension=level",
+      "source_state_ids": ["USER-LEVEL-REQUIREMENT-2026-09-21"],
+      "visible_elements": [
+        {"id": "level-heading", "owner": "ProjectStatisticsReportPanel", "display_mode": "级别统计"},
+        {"id": "level-source", "owner": "ProjectStatisticsReportPanel", "display_mode": "section-only-api-notice"},
+        {"id": "level-matrix", "owner": "ProjectReportMatrix", "display_mode": "flat-with-summary"},
+        {"id": "position-level", "owner": "ProjectReportMatrix", "display_mode": "岗位职级"},
+        {"id": "template-ratings", "owner": "PerformanceRatingTag", "display_mode": "template-options"},
+        {"id": "rated-total", "owner": "ProjectReportMatrix", "display_mode": "总人数"}
+      ],
+      "forbidden_elements": ["tree-expand-button", "child-row", "mock-fallback", "invented-heat-threshold"],
+      "line_groups": [{"members": ["position-level", "template-ratings", "rated-total"], "relation": "table-columns"}],
+      "component_ownership": {"data": "projectManagementApi.levelStatistics", "state": "ProjectStatisticsReportPanel", "matrix": "ProjectReportMatrix", "rating": "PerformanceRatingTag", "sorting": "PerformanceSortHeader"}
     }
   ],
   "layout_relations": [{"id": "expanded-content-gap", "source_state_ids": ["SOURCE-REPORT-EXPANDED"], "left": "contents.right+36", "right": "navigation.left", "property": "x", "operator": "equal", "expected": {"left": 1031.33, "right": 1031.33}, "evidence": "ui-interaction.md#8"}],

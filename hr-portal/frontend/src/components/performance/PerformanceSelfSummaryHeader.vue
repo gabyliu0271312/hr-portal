@@ -6,7 +6,12 @@
     <span class="person-avatar" aria-hidden="true">{{ initial }}</span>
     <div class="person-info">
       <strong>{{ person.display_name }}</strong>
-      <span v-if="personMeta">{{ personMeta }}</span>
+      <span v-if="profileParts.length" class="person-meta">
+        <template v-for="(part, index) in profileParts" :key="`${part}-${index}`">
+          <span class="person-meta__value">{{ part }}</span>
+          <i v-if="index < profileParts.length - 1" class="person-meta__separator" aria-hidden="true"></i>
+        </template>
+      </span>
     </div>
     <div class="header-actions" aria-label="页面工具">
       <button type="button" disabled aria-label="翻译">
@@ -28,9 +33,11 @@ import SpaceLeftOutlinedIcon from '@/components/performance/SpaceLeftOutlinedIco
 const props = defineProps<{ person: SelfSummaryPerson }>()
 defineEmits<{ back: [] }>()
 const initial = computed(() => props.person.display_name.trim().slice(0, 1) || '我')
-const personMeta = computed(() => [props.person.organization_ref, props.person.manager_name].filter(Boolean).join(' · '))
+const profileParts = computed(() => Array.isArray(props.person.profile_fields)
+  ? props.person.profile_fields.map(field => field.value).filter(Boolean)
+  : [props.person.department, props.person.direct_supervisor_name].filter(Boolean))
 </script>
 
 <style scoped>
-.self-summary-header{display:flex;height:64px;flex:none;align-items:center;padding:0 20px 0 16px;box-sizing:border-box;border-bottom:1px solid rgba(31,35,41,.15);background:#fff;color:#1f2329}.header-actions button{display:grid;place-items:center;padding:4px;border:0;border-radius:6px;background:transparent;color:#1f2329}.back-button{display:flex;width:28px;height:24px;flex:0 0 28px;align-items:center;justify-content:center;margin-right:16px;padding:2px 4px;box-sizing:border-box;border:0;border-radius:0;background:transparent;color:#1f2329;cursor:pointer;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";font-size:16px;font-weight:600;line-height:24px}.back-button:hover{background:rgba(31,35,41,.1)}.back-icon{display:block;width:20px;height:20px;flex:0 0 20px;color:#1f2329;line-height:20px}.person-avatar{display:grid;width:40px;height:40px;flex:0 0 40px;place-items:center;border-radius:50%;background:#dbe4f5;color:#1456f0;font-size:14px;font-weight:600}.person-info{min-width:0;margin-left:12px}.person-info strong,.person-info span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.person-info strong{color:#1d252f;font-size:16px;line-height:24px}.person-info span{max-width:680px;color:#646a73;font-size:14px;line-height:20px}.header-actions{display:flex;align-items:center;gap:8px;margin-left:auto}.header-actions button{width:28px;height:28px}.header-actions button:disabled{color:#646a73;cursor:not-allowed;opacity:.72}.header-actions svg{width:14px;height:14px}.header-actions i{width:1px;height:16px;background:rgba(31,35,41,.15)}
+.self-summary-header{display:flex;height:64px;flex:none;align-items:center;padding:0 20px 0 16px;box-sizing:border-box;border-bottom:1px solid rgba(31,35,41,.15);background:#fff;color:#1f2329}.header-actions button{display:grid;place-items:center;padding:4px;border:0;border-radius:6px;background:transparent;color:#1f2329}.back-button{display:flex;width:28px;height:24px;flex:0 0 28px;align-items:center;justify-content:center;margin-right:16px;padding:2px 4px;box-sizing:border-box;border:0;border-radius:0;background:transparent;color:#1f2329;cursor:pointer;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";font-size:16px;font-weight:600;line-height:24px}.back-button:hover{background:rgba(31,35,41,.1)}.back-icon{display:block;width:20px;height:20px;flex:0 0 20px;color:#1f2329;line-height:20px}.person-avatar{display:grid;width:40px;height:40px;flex:0 0 40px;place-items:center;border-radius:50%;background:#dbe4f5;color:#1456f0;font-size:14px;font-weight:600}.person-info{min-width:0;margin-left:12px}.person-info strong,.person-info span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.person-info strong{color:#1d252f;font-size:16px;line-height:24px}.person-info span{max-width:680px;color:#646a73;font-size:14px;line-height:20px}.person-meta{display:flex!important;align-items:center}.person-meta__value{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.person-meta__separator{display:inline-block;width:1px;height:24px;flex:0 0 1px;margin:2px 8px;box-sizing:border-box;background:#bbbfc4;content:''}.header-actions{display:flex;align-items:center;gap:8px;margin-left:auto}.header-actions button{width:28px;height:28px}.header-actions button:disabled{color:#646a73;cursor:not-allowed;opacity:.72}.header-actions svg{width:14px;height:14px}.header-actions i{width:1px;height:16px;background:rgba(31,35,41,.15)}
 </style>

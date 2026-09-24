@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
+import PerformanceButton from './PerformanceButton.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import { REVIEW_RULE_METHOD_LABELS, type ReviewRule } from './reviewRuleTypes'
 
@@ -58,9 +59,9 @@ function handleRemove(rule: ReviewRule) {
     <el-table-column label="操作" min-width="128" fixed="right">
       <template #default="{ row }">
         <div class="row-actions">
-          <el-button link type="primary" @click="emit('edit', row)">编辑</el-button>
+          <PerformanceButton variant="text" @click="emit('edit', row)">编辑</PerformanceButton>
           <PerformanceDisabledReason :disabled="!row.deletable" reason="此评估规则已被使用，不允许删除">
-            <el-button link class="delete-button" :disabled="!row.deletable" @click="handleRemove(row)">删除</el-button>
+            <PerformanceButton variant="text" :disabled="!row.deletable" @click="handleRemove(row)">删除</PerformanceButton>
           </PerformanceDisabledReason>
         </div>
       </template>
@@ -73,8 +74,7 @@ function handleRemove(rule: ReviewRule) {
 .creator-chip img, .creator-avatar { width: 20px; height: 20px; flex: none; border-radius: 50%; }
 .creator-avatar { display: grid; place-items: center; background: #dee0e3; color: #646a73; font-size: 11px; }
 .creator-name { margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-actions { display: flex; align-items: center; gap: 4px; }
-.delete-button:disabled { color: rgb(187, 191, 196); }
+.row-actions { display: flex; align-items: center; gap: var(--performance-button-gap); }
 /* 评估规则页自身的列几何（源自其采集契约），不进共享表格组件 */
 :deep(.performance-management-table colgroup col:nth-child(1)) { width: 12.9325% !important; }
 :deep(.performance-management-table colgroup col:nth-child(2)) { width: 12.9325% !important; }

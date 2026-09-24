@@ -47,27 +47,21 @@
       <section v-else-if="node.node_type === 'calibration'" class="node-settings calibration-settings" aria-label="校准规则设置">
         <div class="calibration-switch-row"><div><strong>绩效结果强制 / 建议分布</strong><p>开启后，可以选择一个评估项，针对评估项的等级设置强制分布和建议分布规则</p></div><PerformanceSwitch :model-value="calibrationSettings(node).force_distribution_enabled" aria-label="绩效结果强制建议分布" @update:model-value="calibrationSettings(node).force_distribution_enabled = $event" /></div>
         <div class="settings-heading calibration-heading"><div><h3>校准规则设置 <span class="required-mark">*</span><span class="info-mark" aria-label="校准规则说明">i</span></h3></div></div>
-        <div class="calibration-summary"><span class="info-circle">i</span><span>当前共 {{ evaluatedCount }} 个被评估人，{{ assignedCount(node) }} 人已分配校准，{{ Math.max(0, evaluatedCount - assignedCount(node)) }} 人未分配校准人。</span><button type="button" class="link-button">查看校准详情</button></div>
+        <div class="calibration-summary"><span class="info-circle">i</span><span>当前共 {{ evaluatedCount }} 个被评估人，{{ assignedCount(node) }} 人已分配校准，{{ Math.max(0, evaluatedCount - assignedCount(node)) }} 人未分配校准人。</span><PerformanceTextButton label="查看校准详情" /></div>
         <div v-for="(phase, phaseIndex) in calibrationSettings(node).phases" :key="phaseIndex" class="calibration-phase">
           <div class="phase-heading"><div class="phase-title">第 {{ phaseIndex + 1 }} 阶段</div><PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除第 ${phaseIndex + 1} 阶段`" :disabled="calibrationSettings(node).phases.length <= 1" @click="removePhase(node, phaseIndex)" /></div>
           <div class="rule-table">
             <div class="rule-table-header"><span>校准人</span><span>校准范围</span><span>是否允许授权他人</span><span>操作</span></div>
             <div v-for="(rule, ruleIndex) in phase.rules" :key="ruleIndex" class="rule-row">
-              <template v-if="isEditingRule(node, phaseIndex, ruleIndex)">
-                <select v-model="rule.subject_type" aria-label="校准人类型"><option value="PERSON">人员</option></select>
-                <div class="scope-editor"><select v-model="rule.operator" aria-label="校准范围操作"><option value="INCLUDE">包含</option><option value="EXCLUDE">不包含</option></select><select v-model="rule.scope" aria-label="校准范围"><option value="PROJECT_ALL">项目全员</option></select></div>
-              </template>
-              <template v-else>
-                <span class="rule-person"><span class="rule-tag">{{ subjectLabel(rule.subject_type) }}</span><span>{{ rule.operator === 'INCLUDE' ? '包含...' : '不包含...' }}</span></span>
-                <span class="rule-scope-tag">{{ scopeLabel(rule.scope) }}</span>
-              </template>
+              <span class="rule-person"><span class="rule-tag">{{ subjectLabel(rule.subject_type) }}</span><span>{{ rule.operator === 'INCLUDE' ? '包含...' : '不包含...' }}</span></span>
+              <span class="rule-scope-tag">{{ scopeLabel(rule.scope) }}</span>
               <PerformanceCheckbox :model-value="rule.allow_authorize" label="" @update:model-value="rule.allow_authorize = $event" />
-              <span class="rule-actions"><button type="button" class="text-button" @click="toggleRuleEdit(node, phaseIndex, ruleIndex)">编辑</button><button type="button" class="text-button" @click="removeRule(node, phaseIndex, ruleIndex)">删除</button></span>
+              <span class="rule-actions"><PerformanceTextButton label="编辑" @click="openRuleEditor(node, phaseIndex, ruleIndex)" /><PerformanceTextButton label="删除" @click="removeRule(node, phaseIndex, ruleIndex)" /></span>
             </div>
-            <button type="button" class="link-button add-rule" @click="addRule(node, phaseIndex)">＋ 添加校准规则</button>
+            <PerformanceTextButton class="link-button add-rule" label="＋ 添加校准规则" @click="openRuleEditor(node, phaseIndex)" />
           </div>
         </div>
-        <button type="button" class="link-button add-phase" @click="addPhase(node)">＋ 添加校准阶段</button>
+        <PerformanceTextButton class="link-button add-phase" label="＋ 添加校准阶段" @click="addPhase(node)" />
       </section>
 
       <section v-else-if="node.node_type === 'result_view'" class="node-settings result-view-settings" aria-label="绩效结果查看设置">
@@ -85,19 +79,38 @@
         </select>
       </section>
     </article>
+    <PerformanceCalibrationRuleDrawer
+      v-if="ruleEditor"
+      v-model="drawerOpen"
+      :mode="ruleEditor.ruleIndex === null ? 'create' : 'edit'"
+      :rule="ruleEditor.rule"
+      :people-options="peopleOptions"
+      :scope-options="peopleOptions"
+      @confirm="saveRuleEditor"
+      @cancel="ruleEditor = null"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { PerformanceProjectFlowSettings, PerformanceWorkflowNode } from '@/api/performance'
+import type { PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
+import PerformanceTextButton from '@/components/performance/PerformanceTextButton.vue'
 import PerformanceMultiSelect from '@/components/performance/PerformanceMultiSelect.vue'
 import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
+import PerformanceCalibrationRuleDrawer from '@/components/performance/PerformanceCalibrationRuleDrawer.vue'
 import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflowStageIcon.vue'
 
 type PeopleOption = { value: string; label: string }
+type RuleEditorState = {
+  open: boolean
+  node: PerformanceWorkflowNode
+  phaseIndex: number
+  ruleIndex: number | null
+  rule: PerformanceProjectFlowRule | null
+}
 
 const props = withDefaults(defineProps<{
   nodes: PerformanceWorkflowNode[]
@@ -111,7 +124,8 @@ const emit = defineEmits<{ 'update:modelValue': [value: PerformanceProjectFlowSe
 
 const draft = ref<PerformanceProjectFlowSettings>(cloneSettings(props.modelValue))
 const lastEmitted = ref(JSON.stringify(draft.value))
-const editingRules = ref<Record<string, boolean>>({})
+const ruleEditor = ref<RuleEditorState | null>(null)
+const drawerOpen = computed({ get: () => Boolean(ruleEditor.value), set: value => { if (!value) ruleEditor.value = null } })
 const inviteEdit = ref<Record<string, boolean>>({})
 const descriptions: Record<string, string> = {
   reviewer_360_invite: '「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效',
@@ -157,13 +171,20 @@ function descriptionFor(node: PerformanceWorkflowNode) { return node.description
 function inviteLabel(value: string) { return value === 'DIRECT_SUBORDINATES' ? '直属下级' : '暂未配置' }
 function subjectLabel(value: string) { return value === 'PERSON' ? '人员' : value }
 function scopeLabel(value: string) { return value === 'PROJECT_ALL' ? '项目全员' : value }
-function ruleKey(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number) { return `${nodeKey(node)}:${phaseIndex}:${ruleIndex}` }
-function isEditingRule(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number) { return editingRules.value[ruleKey(node, phaseIndex, ruleIndex)] === true }
-function toggleRuleEdit(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number) { const key = ruleKey(node, phaseIndex, ruleIndex); editingRules.value[key] = !editingRules.value[key] }
+function openRuleEditor(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number | null = null) {
+  const rule = ruleIndex === null ? null : calibrationSettings(node).phases[phaseIndex].rules[ruleIndex]
+  ruleEditor.value = { open: true, node, phaseIndex, ruleIndex, rule: rule ? JSON.parse(JSON.stringify(rule)) : null }
+}
+function saveRuleEditor(rule: PerformanceProjectFlowRule) {
+  if (!ruleEditor.value) return
+  const rules = calibrationSettings(ruleEditor.value.node).phases[ruleEditor.value.phaseIndex].rules
+  if (ruleEditor.value.ruleIndex === null) rules.push(rule)
+  else rules.splice(ruleEditor.value.ruleIndex, 1, rule)
+  ruleEditor.value = null
+}
 function setInviteDefault(node: PerformanceWorkflowNode, event: Event) { inviteSettings(node).default_invite = (event.target as HTMLSelectElement).value as 'DIRECT_SUBORDINATES' | 'NONE' }
 function setMinimumInviteCount(node: PerformanceWorkflowNode, event: Event) { inviteSettings(node).minimum_invited_count = Number((event.target as HTMLInputElement).value) }
 function assignedCount(node: PerformanceWorkflowNode) { return calibrationSettings(node).phases.reduce((sum, phase) => sum + phase.rules.length, 0) ? props.evaluatedCount : 0 }
-function addRule(node: PerformanceWorkflowNode, phaseIndex: number) { calibrationSettings(node).phases[phaseIndex].rules.push({ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }) }
 function removeRule(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number) { const rules = calibrationSettings(node).phases[phaseIndex].rules; if (rules.length > 1) rules.splice(ruleIndex, 1) }
 function removePhase(node: PerformanceWorkflowNode, phaseIndex: number) { const phases = calibrationSettings(node).phases; if (phases.length > 1) phases.splice(phaseIndex, 1) }
 function addPhase(node: PerformanceWorkflowNode) { calibrationSettings(node).phases.push({ rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }) }

@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
-import { performanceReviewApi, type PerformanceReviewOverview } from '@/api/performance'
+import { performanceReviewApi, performanceWorkbenchApi, type PerformanceReviewOverview } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const push = vi.fn()
@@ -68,6 +68,7 @@ describe('PerformanceReview', () => {
     replace.mockReset()
     vi.restoreAllMocks()
     vi.spyOn(performanceReviewApi, 'overview').mockResolvedValue(overview)
+    vi.spyOn(performanceWorkbenchApi, 'taskPeople').mockResolvedValue([])
   })
 
   it('renders the template name and all four template-driven categories', async () => {
@@ -248,6 +249,30 @@ describe('PerformanceReview', () => {
     expect(wrapper.findAll('.review-panel')).toHaveLength(1)
   })
 
+  it('renders an unstarted direct-manager evaluation with the shared unstarted state', async () => {
+    const scheduled = structuredClone(overview)
+    Object.assign(scheduled.categories[2].nodes[0], {
+      node_id: 'manager-review',
+      node_name: '直接上级评估',
+      node_type: 'evaluation',
+      task_kind: 'evaluation',
+      executor_label: '直接上级',
+      status: 'not_started',
+      start_at: '2026-09-24T00:00:00Z',
+    })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce(scheduled)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('.review-node')[2].trigger('click')
+
+    expect(wrapper.get('.review-panel').classes()).not.toContain('evaluation')
+    expect(wrapper.get('.state-illustration img').attributes('src')).toBe('/performance-not-started.svg')
+    expect(wrapper.get('.review-panel').text()).toContain('暂未启动')
+    expect(wrapper.find('.evaluation-workspace').exists()).toBe(false)
+    expect(wrapper.find('.primary-button').exists()).toBe(false)
+  })
+
   it('keeps the submitted task selected and renders its answers in the review panel', async () => {
     const completed = structuredClone(overview)
     Object.assign(completed.categories[0].nodes[0], {
@@ -308,6 +333,78 @@ describe('PerformanceReview', () => {
     expect(wrapper.find('.performance-review-completion-notice').exists()).toBe(true)
     expect(wrapper.text()).toContain('该环节已在 2026-07-10 23:59（GMT+8） 截止；如有疑问，请联系你的 HRBP。')
     expect(wrapper.find('.performance-review-completion-notice__edit').exists()).toBe(false)
+  })
+
+  it('keeps the member list when every direct-report evaluation is completed', async () => {
+    const completedEvaluation = structuredClone(overview)
+    Object.assign(completedEvaluation.categories[2].nodes[0], {
+      node_id: 'manager-review',
+      node_name: '直接上级评估',
+      node_type: 'evaluation',
+      task_kind: 'evaluation',
+      status: 'completed',
+    })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce(completedEvaluation)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('.review-node')[2].trigger('click')
+
+    expect(wrapper.find('.evaluation-workspace').exists()).toBe(true)
+    expect(wrapper.find('.performance-review-completion-notice').exists()).toBe(false)
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledWith(1, 'manager-review', 'all', undefined)
+  })
+
+  it('opens a completed evaluation member in the readonly drawer and keeps pending members on task entry', async () => {
+    const evaluationOverview = structuredClone(overview)
+    Object.assign(evaluationOverview.categories[1].nodes[0], {
+      task_id: 22,
+      status: 'pending',
+      task_kind: 'evaluation',
+      entry_mode: 'template_task',
+    })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce(evaluationOverview)
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([{
+      task_id: 22,
+      aggregate_task_id: null,
+      employee_no: 'E002',
+      display_name: '已完成员工',
+      job_family: '专业',
+      job_category: '产品',
+      job_sequence: '专业-产品',
+      position_level: 'J3',
+      hire_date: '2020-01-01',
+      department: '产品中心',
+      employee_type: '正式员工',
+      employment_status: '在职',
+      status: 'completed',
+      due_at: '2026-10-03T15:59:00Z',
+    }])
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({
+      task_id: 22,
+      task_kind: 'evaluation',
+      entry_mode: 'template_task',
+      node_name: '360°评估',
+      deadline_at: '2026-10-03T15:59:00Z',
+      submitted_at: '2026-09-22T07:29:00Z',
+      editable: true,
+      submit_allowed: true,
+      person: { employee_no: 'E002', display_name: '已完成员工' },
+      form_schema: [{ id: 'summary', name: '评估内容', fields: [{ id: 'answer', type: 'rich_text', label: '内容' }] }],
+      answers: { answer: '已提交内容' },
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('.review-node')[1].trigger('click')
+    await flushPromises()
+    await wrapper.get('.member-row-clickable').trigger('click')
+    await flushPromises()
+
+    expect(performanceReviewApi.templateTask).toHaveBeenCalledWith(22, 'E002')
+    expect(document.body.textContent).toContain('已完成员工')
+    expect(document.body.textContent).toContain('已提交内容')
+    expect(document.body.querySelector('.performance-review-evaluation-drawer__scroll')).not.toBeNull()
+    wrapper.unmount()
   })
 
   it('renders an empty state when the current user has no started project', async () => {

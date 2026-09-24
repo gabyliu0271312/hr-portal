@@ -41,7 +41,7 @@
           <strong>查看绩效结果</strong>
           <span>查看你的绩效评估结果，请注意信息保密</span>
         </div>
-        <el-button plain @click="goToResults">查看</el-button>
+        <PerformanceButton variant="secondary" @click="goToResults">查看</PerformanceButton>
       </section>
 
       <section class="todo-section">
@@ -107,11 +107,22 @@
           </button>
         </div>
       </section>
-      <section class="side-card announcement-card">
+      <section v-if="announcementEnabled" class="side-card announcement-card">
         <h2>公告</h2>
-        <button v-for="announcement in announcements" :key="announcement.title" type="button">
-          <span>{{ announcement.title }}</span><time>{{ announcement.time }}</time>
-        </button>
+        <div v-if="announcementLoading" class="announcement-state">正在加载公告...</div>
+        <template v-else-if="announcements.length">
+          <a
+            v-for="announcement in announcements"
+            :key="announcement.id"
+            class="announcement-link"
+            :href="announcement.link"
+            :target="isExternalLink(announcement.link) ? '_blank' : undefined"
+            :rel="isExternalLink(announcement.link) ? 'noreferrer' : undefined"
+          >
+            <span>{{ announcement.title }}</span><time>{{ formatAnnouncementTime(announcement.updated_at) }}</time>
+          </a>
+        </template>
+        <div v-else class="announcement-state">暂无公告</div>
       </section>
     </aside>
   </div>
@@ -129,8 +140,8 @@ import InviteTaskIcon from '@/components/performance/InviteTaskIcon.vue'
 import ReadinfoOutlinedIcon from '@/components/performance/ReadinfoOutlinedIcon.vue'
 import RightOutlinedIcon from '@/components/performance/RightOutlinedIcon.vue'
 import WorkSummaryTaskIcon from '@/components/performance/WorkSummaryTaskIcon.vue'
-import PerformanceWorkbenchTimeline from '@/components/performance/PerformanceWorkbenchTimeline.vue'
-import { performanceApi, performanceWorkbenchApi, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
+import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import { performanceApi, performanceWorkbenchApi, type PerformanceWorkbenchAnnouncementFeedItem, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
 import { usePerformanceProjectContextStore, type PerformanceWorkbenchSnapshot } from '@/stores/performanceProjectContext'
 
 interface Todo extends PerformanceWorkbenchTaskGroup {
@@ -167,7 +178,9 @@ const visibleTodos = computed<Todo[]>(() => (todoTab.value === 'pending' ? pendi
 }))
 const pendingCount = computed(() => pendingTodos.value.length)
 const completedCount = computed(() => completedTodos.value.length)
-const announcements = [{ title: '2026半年度个人绩效评估方案', time: '2个月前' }, { title: '管理者绩效面谈指引', time: '9个月前' }]
+const announcements = ref<PerformanceWorkbenchAnnouncementFeedItem[]>([])
+const announcementEnabled = ref(true)
+const announcementLoading = ref(false)
 
 function formatDateTime(value: string | null) {
   if (!value) return null
@@ -178,6 +191,31 @@ function formatDateTime(value: string | null) {
 function formatRange(startAt: string | null, endAt: string | null) {
   if (!startAt && !endAt) return '时间待配置'
   return `${formatDateTime(startAt) || '--'} - ${formatDateTime(endAt) || '--'}`
+}
+function formatAnnouncementTime(value: string) {
+  const updatedAt = new Date(value).getTime()
+  if (Number.isNaN(updatedAt)) return ''
+  const elapsedDays = Math.max(0, Math.floor((Date.now() - updatedAt) / 86_400_000))
+  if (elapsedDays === 0) return '今天'
+  if (elapsedDays < 30) return `${elapsedDays}天前`
+  if (elapsedDays < 365) return `${Math.floor(elapsedDays / 30)}个月前`
+  return `${Math.floor(elapsedDays / 365)}年前`
+}
+function isExternalLink(link: string) {
+  return /^(https?:|mailto:)/i.test(link)
+}
+function loadAnnouncements(cycleRef?: string | null) {
+  announcementLoading.value = true
+  return performanceWorkbenchApi.announcements(cycleRef)
+    .then((feed) => {
+      announcementEnabled.value = feed.announcement_enabled
+      announcements.value = feed.items
+    })
+    .catch(() => {
+      announcementEnabled.value = false
+      announcements.value = []
+    })
+    .finally(() => { announcementLoading.value = false })
 }
 function formatDueAt(value: string | null) {
   if (!value) return '未配置'
@@ -225,7 +263,13 @@ async function selectProject(rawId: number | string) {
   const cached = projectContext.workbenchSnapshot(id)
   if (cached) applyProjectSnapshot(cached)
   if (unchanged) return
-  try { await loadProject(id) } catch { ElMessage.error('工作台数据加载失败') }
+  const project = projects.value.find((item) => item.project_id === id)
+  try {
+    await Promise.all([
+      loadProject(id),
+      loadAnnouncements(project?.cycle_ref),
+    ])
+  } catch { ElMessage.error('工作台数据加载失败') }
 }
 function reviewQuery(entry: string) { return { name: 'PerformanceReview', query: { entry, project_id: String(activeProjectId.value || '') } } }
 function goToResults() { router.push(reviewQuery('results')) }
@@ -245,7 +289,9 @@ function openTodo(todo: Todo, event?: MouseEvent) {
   void router.push(todoHref(todo))
 }
 onMounted(async () => {
-  try { devAdminDebug.value = Boolean((await performanceApi.getAccessContext()).dev_admin_debug) } catch { devAdminDebug.value = false }
+  void performanceApi.getAccessContext()
+    .then((context) => { devAdminDebug.value = Boolean(context.dev_admin_debug) })
+    .catch(() => { devAdminDebug.value = false })
   const cachedProjects = projectContext.workbenchProjects
   if (cachedProjects) projects.value = cachedProjects
   const cachedProjectId = activeProjectId.value
@@ -262,8 +308,13 @@ onMounted(async () => {
       ? activeProjectId.value
       : loadedProjects[0]?.project_id || null
     projectContext.setActiveProjectId(preferredId)
-    if (!preferredId) return
+    const preferredProject = loadedProjects.find(project => project.project_id === preferredId)
+    if (!preferredId) {
+      await loadAnnouncements(null)
+      return
+    }
     if (String(route.query.project_id || '') !== String(preferredId)) await router.replace({ query: { ...route.query, project_id: String(preferredId) } })
+    await loadAnnouncements(preferredProject?.cycle_ref)
     const snapshot = projectContext.workbenchSnapshot(preferredId)
     if (snapshot) {
       applyProjectSnapshot(snapshot)
@@ -276,7 +327,7 @@ onMounted(async () => {
 
 <style scoped>
 .dev-debug-banner { grid-column: 1 / -1; padding: 8px 12px; border: 1px solid #f3c56b; border-radius: 6px; background: #fff8e6; color: #8a5a00; font-size: 13px; }
-.workbench-page { display: grid; grid-template-columns: minmax(640px, 1fr) 340px; align-items: start; gap: 12px; width: min(1408px, calc(100vw - 40px)); min-width: 992px; max-width: 1408px; min-height: 100%; margin: 0 auto; padding: 18px 0 32px; background: #f4f6f8; color: #172033; }
+.workbench-page { display: grid; grid-template-columns: minmax(640px, 1fr) 340px; align-items: start; gap: 12px; width: min(1408px, calc(100vw - 40px)); min-width: 992px; max-width: 1408px; min-height: 100%; margin: 0 auto; padding: 18px 0 32px; background: var(--performance-page-surface); color: #172033; }
 .workbench-main { display: flex; min-width: 0; width: auto; flex-direction: column; padding: 20px; border: 0.666667px solid transparent; border-radius: 12px; background: #fff; box-shadow: rgba(31, 35, 41, 0.03) 0 4px 16px 4px, rgba(31, 35, 41, 0.02) 0 4px 8px 0, rgba(31, 35, 41, 0.02) 0 2px 4px -4px; }
 .cycle-picker-row { margin: 0 0 16px; }
 .cycle-picker { display: inline-flex; min-width: 0; max-width: 760px; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; }
@@ -325,9 +376,10 @@ onMounted(async () => {
 .quick-result-spacer { flex: 0 0 auto; margin-right: 4px; margin-left: 16px; }
 .quick-group .chevron { display: block; width: 12px; height: 12px; flex: 0 0 12px; color: #8f959e; line-height: 0; }
 .announcement-card h2 { margin: 0 0 12px; color: #1f2329; font-family: inherit; font-size: 18px; font-weight: 500; line-height: 27px; }
-.announcement-card button { display: flex; width: 100%; align-items: center; justify-content: space-between; margin-top: 12px; padding: 0; border: 0; background: transparent; cursor: pointer; font-family: inherit; text-align: left; }
-.announcement-card button:first-of-type { margin-top: 0; }
-.announcement-card button span { overflow: hidden; color: #3370ff; font-size: 14px; font-weight: 400; line-height: 19px; text-overflow: ellipsis; white-space: nowrap; }
+.announcement-card .announcement-link { display: flex; width: 100%; align-items: center; justify-content: space-between; margin-top: 12px; padding: 0; border: 0; background: transparent; cursor: pointer; font-family: inherit; text-align: left; text-decoration: none; }
+.announcement-card .announcement-link:first-of-type { margin-top: 0; }
+.announcement-card .announcement-link span { overflow: hidden; color: #3370ff; font-size: 14px; font-weight: 400; line-height: 19px; text-overflow: ellipsis; white-space: nowrap; }
 .announcement-card time { color: #8b96a7; font-size: 13px; white-space: nowrap; }
+.announcement-state { color: #8b96a7; font-size: 13px; line-height: 20px; }
 @media (max-width: 720px) { .workbench-page { width: calc(100vw - 32px); min-width: 0; grid-template-columns: 1fr; padding: 16px 0; } .workbench-main, .side-card { width: 100%; } .workbench-side { grid-template-columns: 1fr; } .timeline-card { overflow-x: auto; padding: 24px 12px 18px; } .result-card { align-items: flex-start; padding: 18px; } .result-card :deep(.el-button) { min-width: 76px; } .todo-tabs { padding: 0 14px; } .todo-item { gap: 12px; } .todo-icon { width: 44px; height: 44px; font-size: 21px; } .todo-action { padding: 8px 12px; } }
 </style>
