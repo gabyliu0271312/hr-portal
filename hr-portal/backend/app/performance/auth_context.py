@@ -62,6 +62,15 @@ class PerformanceIdentityMappingNotFound(ValueError):
     """Raised when a Portal user has no authorized employee identity for a cycle."""
 
 
+PERFORMANCE_PORTAL_ADMIN_PERMISSIONS = (
+    "performance.authorization.manage",
+    "performance.configuration.manage",
+    "performance.cycles.manage",
+    "performance.projects.manage",
+    "performance.audit.view",
+)
+
+
 def performance_admin_preview_enabled(context: PerformanceAccessContext) -> bool:
     if settings.APP_ENV.lower() != "dev" or not settings.PERFORMANCE_DEV_ADMIN_DEBUG:
         return False
@@ -240,6 +249,8 @@ async def get_performance_access_context(
             SUBJECT_TYPE_PORTAL_USER,
             user.id,
         )
+        if "performance.admin" in portal_entry_permissions:
+            permission_codes = tuple(dict.fromkeys((*permission_codes, *PERFORMANCE_PORTAL_ADMIN_PERMISSIONS)))
         context = PerformanceAccessContext(
             subject_type=SUBJECT_TYPE_PORTAL_USER,
             subject_id=user.id,

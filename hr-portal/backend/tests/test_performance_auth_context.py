@@ -197,6 +197,36 @@ async def test_portal_context_combines_portal_entry_and_performance_roles(monkey
 
 
 @pytest.mark.asyncio
+async def test_portal_admin_entry_grants_default_performance_admin_permissions(monkeypatch):
+    async def has_entry(_user, _db, menu_code, _operation):
+        return menu_code == "performance.admin"
+
+    async def fake_authorization(_db, subject_type, subject_id):
+        assert (subject_type, subject_id) == ("PORTAL_USER", 8)
+        return (), ()
+
+    monkeypatch.setattr(auth_context, "user_has_op", has_entry)
+    monkeypatch.setattr(auth_context, "load_active_authorization", fake_authorization)
+    portal_user = SimpleNamespace(id=8, display_name="Portal User", is_active=True)
+
+    context = await get_performance_access_context(
+        _request(),
+        _creds(create_access_token(8)),
+        _ContextDb(portal_user=portal_user),
+    )
+
+    assert context.portal_entry_permissions == ("performance.admin",)
+    assert set(context.permission_codes) == {
+        "performance.authorization.manage",
+        "performance.configuration.manage",
+        "performance.cycles.manage",
+        "performance.projects.manage",
+        "performance.audit.view",
+    }
+    assert "performance.admin_accounts.manage" not in context.permission_codes
+
+
+@pytest.mark.asyncio
 async def test_permission_dependency_rejects_system_account_overreach():
     dependency = require_performance_permission("performance.cycles.manage")
     context = PerformanceAccessContext(

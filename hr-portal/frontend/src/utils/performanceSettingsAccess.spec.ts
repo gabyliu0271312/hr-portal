@@ -11,9 +11,12 @@ const context = (permissions: string[]) => ({
 })
 
 describe('canManagePerformanceSettings', () => {
-  it('requires both the Portal backend entry and an internal configuration permission', () => {
-    expect(canManagePerformanceSettings(['performance.admin'], context(['performance.cycles.manage']))).toBe(true)
-    expect(canManagePerformanceSettings(['performance.app'], context(['performance.cycles.manage']))).toBe(false)
-    expect(canManagePerformanceSettings(['performance.admin'], context([]))).toBe(false)
+  it('allows the Portal performance admin entry without an internal permission code', () => {
+    expect(canManagePerformanceSettings(['performance.admin'], context([]))).toBe(true)
+    expect(canManagePerformanceSettings(['performance.app'], context([]))).toBe(false)
+    expect(canManagePerformanceSettings(['performance.admin'], {
+      ...context([]),
+      portal_entry_permissions: ['performance.app'],
+    })).toBe(false)
   })
 })
