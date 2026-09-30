@@ -1,0 +1,314 @@
+{
+  "source": "hr-portal/frontend/src/components/performance/",
+  "total": 218,
+  "categories": [
+    {
+      "category": "弹层与容器",
+      "count": 28,
+      "components": [
+        "FixedActionBar.vue",
+        "FullScreenModal.vue",
+        "PageHeader.vue",
+        "PerformanceAssessmentEditorModal.vue",
+        "PerformanceAssessmentMethodCard.vue",
+        "PerformanceAssessmentMethodHeader.vue",
+        "PerformanceAssessmentPreviewHeader.vue",
+        "PerformanceConfiguredCardActionToolbar.vue",
+        "PerformanceConfirmDialog.vue",
+        "PerformanceDialogShell.vue",
+        "PerformanceDrawerFooter.vue",
+        "PerformanceDrawerShell.vue",
+        "PerformanceGridCard.vue",
+        "PerformanceInfoPopover.vue",
+        "PerformanceNotificationMethodsCard.vue",
+        "PerformanceNotificationSettingsCard.vue",
+        "PerformancePageTitle.vue",
+        "PerformanceProjectAssessmentCard.vue",
+        "PerformanceProjectDialog.vue",
+        "PerformanceProjectRoleDialog.vue",
+        "PerformancePromptColorPicker.vue",
+        "PerformancePromptModal.vue",
+        "PerformancePromptNotice.vue",
+        "PerformancePromptPopover.vue",
+        "PerformanceReviewEvaluationDrawer.vue",
+        "PerformanceSelectShell.vue",
+        "PerformanceSelectionActionBar.vue",
+        "PerformanceSurfaceCard.vue"
+      ]
+    },
+    {
+      "category": "基础表单控件",
+      "count": 28,
+      "components": [
+        "PerformanceAddAnotherButton.vue",
+        "PerformanceAssessmentSelect.vue",
+        "PerformanceButton.vue",
+        "PerformanceCheckbox.vue",
+        "PerformanceCreateButton.vue",
+        "PerformanceDateTimeField.vue",
+        "PerformanceDragHandle.vue",
+        "PerformanceExpandButton.vue",
+        "PerformanceFilterButton.vue",
+        "PerformanceFormField.vue",
+        "PerformanceFormItem.vue",
+        "PerformanceMultiSelect.vue",
+        "PerformanceNumberInput.vue",
+        "PerformanceOrganizationSelect.vue",
+        "PerformanceOrganizationTreeSelect.vue",
+        "PerformancePersonSelect.vue",
+        "PerformanceRadioGroup.vue",
+        "PerformanceRemoveButton.vue",
+        "PerformanceRequiredLabel.vue",
+        "PerformanceRoleMultiSelect.vue",
+        "PerformanceSearchInput.vue",
+        "PerformanceSearchSelect.vue",
+        "PerformanceSegmentedControl.vue",
+        "PerformanceSwitch.vue",
+        "PerformanceSwitchSettingRow.vue",
+        "PerformanceTextButton.vue",
+        "PerformanceTextField.vue",
+        "PreviewCloseButton.vue"
+      ]
+    },
+    {
+      "category": "图标",
+      "count": 26,
+      "components": [
+        "AddOutlinedIcon.vue",
+        "AsteriskOutlinedIcon.vue",
+        "BellOutlinedIcon.vue",
+        "DownBoldOutlinedIcon.vue",
+        "DownOutlinedIcon.vue",
+        "FileLinkOtherfileOutlinedIcon.vue",
+        "FilterOutlinedIcon.vue",
+        "GroupOutlinedIcon.vue",
+        "InfoOutlinedIcon.vue",
+        "InviteTaskIcon.vue",
+        "OrganizationOutlinedIcon.vue",
+        "PaReleaseResultOutlinedIcon.vue",
+        "PerformanceBrand.vue",
+        "PerformanceColumnVisibilityIcon.vue",
+        "PerformanceExportIcon.vue",
+        "PerformanceIconButton.vue",
+        "PerformanceImportIcon.vue",
+        "PerformanceVisibleLockIcon.vue",
+        "ReadinfoOutlinedIcon.vue",
+        "RightOutlinedIcon.vue",
+        "SearchOutlinedIcon.vue",
+        "SpaceLeftOutlinedIcon.vue",
+        "TimeOutlinedIcon.vue",
+        "ViewVideoOutlinedIcon.vue",
+        "WorkSummaryTaskIcon.vue",
+        "YesOutlinedIcon.vue"
+      ]
+    },
+    {
+      "category": "内容与模板",
+      "count": 25,
+      "components": [
+        "ContentSettingsStageRenderer.vue",
+        "MetricTemplateActionButtons.vue",
+        "MetricTemplateEmptyIllustration.vue",
+        "PerformanceAssessmentContentLayers.vue",
+        "PerformanceAssessmentContentPreview.vue",
+        "PerformanceAssessmentRichTextField.vue",
+        "PerformanceConfiguredContentBlock.vue",
+        "PerformanceContentRenderer.vue",
+        "PerformanceContentSelectionFrame.vue",
+        "PerformanceContentSurface.vue",
+        "PerformanceNotificationRadioSection.vue",
+        "PerformanceReferenceContent.vue",
+        "PerformanceReferenceContentDrawer.vue",
+        "PerformanceReferenceEntryBar.vue",
+        "PerformanceRepeatableContent.vue",
+        "PerformanceRepeatableFillItemList.vue",
+        "PerformanceReviewContent.vue",
+        "PerformanceRichTextBox.vue",
+        "PerformanceRichTextToolbar.vue",
+        "PerformanceSectionCardHeader.vue",
+        "PerformanceTemplateFieldRenderer.vue",
+        "PerformanceTemplateOperateBar.vue",
+        "PerformanceTemplateRenderer.vue",
+        "PerformanceTemplateSection.vue",
+        "PerformanceTemplateSectionCard.vue"
+      ]
+    },
+    {
+      "category": "评估规则与评分",
+      "count": 23,
+      "components": [
+        "FixedScoreOptionsEditor.vue",
+        "FixedScoreOptionsSummary.vue",
+        "FixedScorePreviewNavigator.vue",
+        "IntervalHeader.vue",
+        "LevelConfigEditor.vue",
+        "PerformanceCalibrationConditionGroup.vue",
+        "PerformanceCalibrationRuleDrawer.vue",
+        "PerformanceRatingControl.vue",
+        "PerformanceRatingTag.vue",
+        "RatingRulePreview.vue",
+        "ReviewRuleConfigRenderer.vue",
+        "ReviewRuleForm.vue",
+        "ReviewRulePreviewModal.vue",
+        "ReviewRuleTable.vue",
+        "ReviewTypeRadioGroup.vue",
+        "ScoreBoundsField.vue",
+        "ScoreConfig.vue",
+        "ScoreIntervalEditor.vue",
+        "ScoreMappingConfig.vue",
+        "ScoreMappingRulePreview.vue",
+        "ScoreMappingSummary.vue",
+        "ScoreRangeSummary.vue",
+        "ScoreRulePreview.vue"
+      ]
+    },
+    {
+      "category": "评估题",
+      "count": 19,
+      "components": [
+        "ReviewQuestionCalculationRuleSection.vue",
+        "ReviewQuestionDisplayMethodCard.vue",
+        "ReviewQuestionEditModal.vue",
+        "ReviewQuestionFilterPanel.vue",
+        "ReviewQuestionFormBasic.vue",
+        "ReviewQuestionFormType.vue",
+        "ReviewQuestionMethodSelector.vue",
+        "ReviewQuestionOrderPreview.vue",
+        "ReviewQuestionOrderSection.vue",
+        "ReviewQuestionRatingMethodSection.vue",
+        "ReviewQuestionRuleAdditionalCards.vue",
+        "ReviewQuestionRuleSelect.vue",
+        "ReviewQuestionScoringMethodCard.vue",
+        "ReviewQuestionSubQuestionCreateModal.vue",
+        "ReviewQuestionSubQuestionList.vue",
+        "ReviewQuestionSubQuestionSelect.vue",
+        "ReviewQuestionTable.vue",
+        "TagFillQuestionForm.vue",
+        "TagFillQuestionTable.vue"
+      ]
+    },
+    {
+      "category": "工作台与任务",
+      "count": 12,
+      "components": [
+        "PerformanceReminderPanel.vue",
+        "PerformanceReviewPersonHeader.vue",
+        "PerformanceSelfSummaryFooter.vue",
+        "PerformanceSelfSummaryForm.vue",
+        "PerformanceSelfSummaryHeader.vue",
+        "PerformanceSelfSummaryReadOnly.vue",
+        "PerformanceSubjectVisibilityEditor.vue",
+        "PerformanceTaskHeader.vue",
+        "PerformanceTaskOverlay.vue",
+        "PerformanceTaskTable.vue",
+        "PerformanceWorkbenchTimeline.vue",
+        "WorkbenchSettingEditor.vue"
+      ]
+    },
+    {
+      "category": "表格与列表",
+      "count": 11,
+      "components": [
+        "PerformanceColumnVisibilityDrawer.vue",
+        "PerformanceListPage.vue",
+        "PerformanceListToolbar.vue",
+        "PerformanceManagementTable.vue",
+        "PerformanceNotificationRuleSummary.vue",
+        "PerformancePagination.vue",
+        "PerformanceSortHeader.vue",
+        "PerformanceSortableList.vue",
+        "PerformanceTableSummary.vue",
+        "PerformanceWorkSummaryItemSettings.vue",
+        "PerformanceWorkSummaryRootSettings.vue"
+      ]
+    },
+    {
+      "category": "其他业务组件",
+      "count": 9,
+      "components": [
+        "PerformanceAdminExpandableMenu.vue",
+        "PerformanceCycleSettingsMenu.vue",
+        "PerformanceDisabledReason.vue",
+        "PerformanceLineTabs.vue",
+        "PerformanceNotificationDisableConfirm.vue",
+        "PerformanceProjectActions.vue",
+        "PerformanceProjectSettings.vue",
+        "PerformanceProjectTimeSettings.vue",
+        "PerformanceReviewCategorySidebar.vue"
+      ]
+    },
+    {
+      "category": "统计报表",
+      "count": 8,
+      "components": [
+        "CompletionNodeCard.vue",
+        "CompletionRatePanel.vue",
+        "PerformanceComparisonCell.vue",
+        "PerformanceComparisonDimensionSelector.vue",
+        "PerformanceComparisonMatrix.vue",
+        "PerformanceReportCommentButton.vue",
+        "PerformanceReportSectionTitle.vue",
+        "PerformanceReviewCompletionNotice.vue"
+      ]
+    },
+    {
+      "category": "流程与执行人",
+      "count": 8,
+      "components": [
+        "PerformanceExecutorSelect.vue",
+        "PerformanceExecutorTag.vue",
+        "PerformanceMultiExecutorField.vue",
+        "PerformanceProjectFlowSettings.vue",
+        "PerformanceStepFlow.vue",
+        "WorkflowExecutorField.vue",
+        "WorkflowFixedExecutorField.vue",
+        "WorkflowNodeBasicFields.vue"
+      ]
+    },
+    {
+      "category": "项目与周期",
+      "count": 8,
+      "components": [
+        "ProjectMemberColumnDrawer.vue",
+        "ProjectMemberListPanel.vue",
+        "ProjectPerformanceMatrix.vue",
+        "ProjectReportComparison.vue",
+        "ProjectReportDistribution.vue",
+        "ProjectReportMatrix.vue",
+        "ProjectReportNavigation.vue",
+        "ProjectStatisticsReportPanel.vue"
+      ]
+    },
+    {
+      "category": "权限与授权",
+      "count": 7,
+      "components": [
+        "AuthorizationManagementPanel.vue",
+        "FunctionPermissionNode.vue",
+        "PerformanceFunctionPermissionTree.vue",
+        "PerformanceHrbpPermissionDialog.vue",
+        "PerformanceHrbpPermissionTable.vue",
+        "PerformanceHrbpScopeSummary.vue",
+        "PerformancePermissionButton.vue"
+      ]
+    },
+    {
+      "category": "颜色与选择器",
+      "count": 3,
+      "components": [
+        "ColorPicker.vue",
+        "PerformanceOrganizationTreeNodes.vue",
+        "TagItemEditor.vue"
+      ]
+    },
+    {
+      "category": "预览",
+      "count": 3,
+      "components": [
+        "PerformanceAssessmentConfiguredPreview.vue",
+        "PerformanceAssessmentPreview.vue",
+        "PerformanceOptionNavigator.vue"
+      ]
+    }
+  ]
+}

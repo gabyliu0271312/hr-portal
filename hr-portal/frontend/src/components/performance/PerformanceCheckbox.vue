@@ -8,7 +8,7 @@
         </span>
       </span>
     </label>
-    <span class="performance-checkbox__label">{{ label }}</span>
+    <span class="performance-checkbox__label"><slot name="label">{{ label }}</slot></span>
   </div>
 </template>
 

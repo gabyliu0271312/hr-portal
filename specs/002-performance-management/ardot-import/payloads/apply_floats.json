@@ -1,0 +1,466 @@
+{
+ "Performance Tokens": {
+  "variables": {
+   "performance-content-surface-padding": {
+    "type": "FLOAT",
+    "value": 20.0
+   },
+   "performance-content-surface-radius": {
+    "type": "FLOAT",
+    "value": 8.0
+   },
+   "performance-review-surface-inset": {
+    "type": "FLOAT",
+    "value": 20.0
+   },
+   "performance-review-content-max-width": {
+    "type": "FLOAT",
+    "value": 984.0
+   },
+   "performance-form-surface-width": {
+    "type": "FLOAT",
+    "value": 800.0
+   },
+   "performance-form-surface-page-gap": {
+    "type": "FLOAT",
+    "value": 20.0
+   },
+   "performance-control-height": {
+    "type": "FLOAT",
+    "value": 32.0
+   },
+   "performance-admin-sidebar-width": {
+    "type": "FLOAT",
+    "value": 240.0
+   },
+   "performance-admin-content-inset": {
+    "type": "FLOAT",
+    "value": 20.0
+   },
+   "performance-control-height-compact": {
+    "type": "FLOAT",
+    "value": 30.0
+   },
+   "performance-control-radius": {
+    "type": "FLOAT",
+    "value": 6.0
+   },
+   "performance-input-height": {
+    "type": "FLOAT",
+    "value": 31.0
+   },
+   "performance-input-compact-height": {
+    "type": "FLOAT",
+    "value": 30.0
+   },
+   "performance-input-padding-x": {
+    "type": "FLOAT",
+    "value": 11.0
+   },
+   "performance-input-padding-y": {
+    "type": "FLOAT",
+    "value": 4.0
+   },
+   "performance-input-line-height": {
+    "type": "FLOAT",
+    "value": 22.0
+   },
+   "performance-input-textarea-padding-bottom": {
+    "type": "FLOAT",
+    "value": 22.0
+   },
+   "performance-input-label-gap": {
+    "type": "FLOAT",
+    "value": 6.0
+   },
+   "performance-input-field-gap": {
+    "type": "FLOAT",
+    "value": 18.0
+   },
+   "performance-required-mark-gap": {
+    "type": "FLOAT",
+    "value": 2.0
+   },
+   "performance-required-mark-width": {
+    "type": "FLOAT",
+    "value": 8.0
+   },
+   "performance-header-back-width": {
+    "type": "FLOAT",
+    "value": 68.0
+   },
+   "performance-header-inner-height": {
+    "type": "FLOAT",
+    "value": 28.0
+   },
+   "performance-header-icon-size": {
+    "type": "FLOAT",
+    "value": 20.0
+   },
+   "performance-header-divider-height": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "performance-header-title-size": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "performance-header-title-weight": {
+    "type": "FLOAT",
+    "value": 600.0
+   },
+   "performance-header-title-line-height": {
+    "type": "FLOAT",
+    "value": 24.0
+   },
+   "performance-header-action-gap": {
+    "type": "FLOAT",
+    "value": 12.0
+   },
+   "performance-icon-button-size": {
+    "type": "FLOAT",
+    "value": 24.0
+   },
+   "performance-icon-size": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "performance-page-title-size": {
+    "type": "FLOAT",
+    "value": 18.0
+   },
+   "performance-page-title-weight": {
+    "type": "FLOAT",
+    "value": 600.0
+   },
+   "performance-page-title-line-height": {
+    "type": "FLOAT",
+    "value": 32.0
+   },
+   "performance-page-title-gap": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "performance-switch-width": {
+    "type": "FLOAT",
+    "value": 28.0
+   },
+   "performance-switch-height": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "performance-switch-handler-size": {
+    "type": "FLOAT",
+    "value": 12.0
+   },
+   "performance-checkbox-size": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "performance-field-label-gap": {
+    "type": "FLOAT",
+    "value": 8.0
+   },
+   "performance-textarea-min-height": {
+    "type": "FLOAT",
+    "value": 49.3333
+   },
+   "performance-count-badge-height": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "performance-dialog-width": {
+    "type": "FLOAT",
+    "value": 420.0
+   },
+   "performance-workbench-editor-width": {
+    "type": "FLOAT",
+    "value": 600.0
+   },
+   "performance-workbench-editor-header-height": {
+    "type": "FLOAT",
+    "value": 72.0
+   },
+   "performance-workbench-editor-padding-x": {
+    "type": "FLOAT",
+    "value": 24.0
+   },
+   "performance-workbench-editor-padding-right": {
+    "type": "FLOAT",
+    "value": 56.0
+   },
+   "performance-workbench-editor-field-gap": {
+    "type": "FLOAT",
+    "value": 28.0
+   },
+   "performance-workbench-editor-select-indent": {
+    "type": "FLOAT",
+    "value": 24.0
+   },
+   "performance-workbench-editor-radio-size": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "performance-workbench-editor-compact-switch-width": {
+    "type": "FLOAT",
+    "value": 28.0
+   },
+   "performance-workbench-editor-compact-switch-height": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "performance-dialog-radius": {
+    "type": "FLOAT",
+    "value": 8.0
+   },
+   "performance-dialog-padding": {
+    "type": "FLOAT",
+    "value": 24.0
+   },
+   "performance-dialog-header-padding-right": {
+    "type": "FLOAT",
+    "value": 56.0
+   },
+   "performance-dialog-footer-height": {
+    "type": "FLOAT",
+    "value": 56.0
+   },
+   "performance-dialog-button-width": {
+    "type": "FLOAT",
+    "value": 80.0
+   },
+   "performance-confirm-z-index": {
+    "type": "FLOAT",
+    "value": 2200.0
+   },
+   "performance-drawer-z-index": {
+    "type": "FLOAT",
+    "value": 2200.0
+   },
+   "performance-button-height": {
+    "type": "FLOAT",
+    "value": 32.0
+   },
+   "performance-button-height-small": {
+    "type": "FLOAT",
+    "value": 28.0
+   },
+   "performance-button-min-width": {
+    "type": "FLOAT",
+    "value": 80.0
+   },
+   "performance-button-padding-x": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "performance-button-icon-size": {
+    "type": "FLOAT",
+    "value": 24.0
+   },
+   "performance-button-radius": {
+    "type": "FLOAT",
+    "value": 6.0
+   },
+   "performance-button-gap": {
+    "type": "FLOAT",
+    "value": 12.0
+   },
+   "performance-button-font-size": {
+    "type": "FLOAT",
+    "value": 14.0
+   },
+   "performance-button-line-height": {
+    "type": "FLOAT",
+    "value": 22.0
+   },
+   "performance-button-font-weight": {
+    "type": "FLOAT",
+    "value": 400.0
+   },
+   "performance-field-error-font-size": {
+    "type": "FLOAT",
+    "value": 13.0
+   },
+   "performance-field-error-line-height": {
+    "type": "FLOAT",
+    "value": 20.0
+   },
+   "performance-field-error-gap": {
+    "type": "FLOAT",
+    "value": 4.0
+   },
+   "performance-dialog-content-gap": {
+    "type": "FLOAT",
+    "value": 24.0
+   },
+   "performance-dialog-content-bottom-space": {
+    "type": "FLOAT",
+    "value": 56.0
+   },
+   "performance-dialog-close-size": {
+    "type": "FLOAT",
+    "value": 28.0
+   },
+   "performance-dialog-header-height": {
+    "type": "FLOAT",
+    "value": 72.0
+   },
+   "performance-dialog-footer-gap": {
+    "type": "FLOAT",
+    "value": 12.0
+   },
+   "performance-drawer-header-height": {
+    "type": "FLOAT",
+    "value": 56.0
+   },
+   "performance-drawer-footer-height": {
+    "type": "FLOAT",
+    "value": 61.0
+   },
+   "performance-drawer-footer-padding-x": {
+    "type": "FLOAT",
+    "value": 20.0
+   },
+   "performance-fullscreen-footer-height": {
+    "type": "FLOAT",
+    "value": 48.0
+   },
+   "performance-fullscreen-footer-padding-x": {
+    "type": "FLOAT",
+    "value": 20.0
+   },
+   "performance-fullscreen-content-bottom-space": {
+    "type": "FLOAT",
+    "value": 48.0
+   },
+   "font-size-xs": {
+    "type": "FLOAT",
+    "value": 12.0
+   },
+   "font-size-sm": {
+    "type": "FLOAT",
+    "value": 13.0
+   },
+   "font-size-md": {
+    "type": "FLOAT",
+    "value": 14.0
+   },
+   "font-size-lg": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "font-size-xl": {
+    "type": "FLOAT",
+    "value": 20.0
+   },
+   "font-size-2xl": {
+    "type": "FLOAT",
+    "value": 24.0
+   },
+   "line-height-tight": {
+    "type": "FLOAT",
+    "value": 1.3
+   },
+   "line-height-base": {
+    "type": "FLOAT",
+    "value": 1.5
+   },
+   "line-height-loose": {
+    "type": "FLOAT",
+    "value": 1.7
+   },
+   "spacing-1": {
+    "type": "FLOAT",
+    "value": 4.0
+   },
+   "spacing-2": {
+    "type": "FLOAT",
+    "value": 8.0
+   },
+   "spacing-25": {
+    "type": "FLOAT",
+    "value": 10.0
+   },
+   "spacing-3": {
+    "type": "FLOAT",
+    "value": 12.0
+   },
+   "spacing-4": {
+    "type": "FLOAT",
+    "value": 16.0
+   },
+   "spacing-5": {
+    "type": "FLOAT",
+    "value": 20.0
+   },
+   "spacing-6": {
+    "type": "FLOAT",
+    "value": 24.0
+   },
+   "spacing-7": {
+    "type": "FLOAT",
+    "value": 32.0
+   },
+   "spacing-8": {
+    "type": "FLOAT",
+    "value": 40.0
+   },
+   "radius-xs": {
+    "type": "FLOAT",
+    "value": 2.0
+   },
+   "radius-sm": {
+    "type": "FLOAT",
+    "value": 4.0
+   },
+   "radius-md": {
+    "type": "FLOAT",
+    "value": 6.0
+   },
+   "radius-lg": {
+    "type": "FLOAT",
+    "value": 8.0
+   },
+   "radius-pill": {
+    "type": "FLOAT",
+    "value": 999.0
+   },
+   "radius-2xl": {
+    "type": "FLOAT",
+    "value": 32.0
+   },
+   "layout-topbar-height": {
+    "type": "FLOAT",
+    "value": 56.0
+   },
+   "layout-sidebar-width": {
+    "type": "FLOAT",
+    "value": 220.0
+   },
+   "layout-content-max-width": {
+    "type": "FLOAT",
+    "value": 1440.0
+   },
+   "z-index-sidebar": {
+    "type": "FLOAT",
+    "value": 50.0
+   },
+   "z-index-topbar": {
+    "type": "FLOAT",
+    "value": 60.0
+   },
+   "z-index-drawer": {
+    "type": "FLOAT",
+    "value": 100.0
+   },
+   "z-index-dialog": {
+    "type": "FLOAT",
+    "value": 110.0
+   },
+   "z-index-toast": {
+    "type": "FLOAT",
+    "value": 200.0
+   }
+  }
+ }
+}

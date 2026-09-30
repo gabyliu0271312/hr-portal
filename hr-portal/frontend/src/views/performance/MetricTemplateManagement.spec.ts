@@ -1,11 +1,16 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { performanceTemplateApi } from '@/api/performance'
+
+const routerPush = vi.hoisted(() => vi.fn())
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: routerPush }) }))
 import pageSource from './MetricTemplateManagement.vue?raw'
 import MetricTemplateManagement from './MetricTemplateManagement.vue'
 
 const stubs = {
   PerformanceListPage: { props: ['title'], template: '<section><h1>{{ title }}</h1><slot /></section>' },
   MetricTemplateEmptyIllustration: { template: '<svg class="metric-template-empty-illustration" width="250" height="125" />' },
+  MetricTemplateCreateDialog: { props: ['modelValue', 'saving', 'errorMessage'], emits: ['confirm'], template: `<section v-if="modelValue" role="dialog">新建指标模板<button class="confirm-template" @click="$emit('confirm', { name: '季度目标', description: '描述', byAudience: true })">确定</button></section>` },
   MetricTemplateActionButtons: {
     props: ['placement'],
     emits: ['create', 'import'],
@@ -45,7 +50,14 @@ describe('MetricTemplateManagement', () => {
     expect(actions.text()).toContain('通过导入新建')
 
     await wrapper.get('.create-template').trigger('click')
-    expect(wrapper.get('[role="alert"]').text()).toContain('新建指标模板')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('新建指标模板')
+    expect((pageSource.match(/@create="createDialogOpen = true"/g) || []).length).toBe(2)
+
+    vi.spyOn(performanceTemplateApi, 'list').mockResolvedValue([])
+    const createSpy = vi.spyOn(performanceTemplateApi, 'create').mockResolvedValue({ template_id: 901, name: '季度目标' })
+    await wrapper.get('.confirm-template').trigger('click')
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ name: '季度目标', audience_settings_enabled: true }))
+    expect(routerPush).toHaveBeenCalledWith({ name: 'PerformanceMetricTemplateDetail', params: { templateId: 901 } })
 
     await wrapper.get('.import-template').trigger('click')
     expect(wrapper.get('[role="alert"]').text()).toContain('导入指标模板')

@@ -27,14 +27,15 @@
             <span v-if="requireConfirm" class="performance-confirm-dialog__des">{{ description }}</span>
             <template v-else>{{ description }}</template>
           </p>
+          <p v-if="errorMessage" class="performance-confirm-dialog__body performance-confirm-dialog__error" role="alert">{{ errorMessage }}</p>
           <div v-if="requireConfirm" class="performance-confirm-dialog__confirm-field">
             <label class="performance-confirm-dialog__confirm-label" :for="confirmInputId">输入「确认删除」以确认当前操作<span class="performance-confirm-dialog__required-mark" aria-hidden="true">*</span></label>
             <input :id="confirmInputId" v-model="confirmInput" class="performance-confirm-dialog__confirm-input" type="text" autocomplete="off" :disabled="loading" />
           </div>
         </header>
         <footer class="performance-confirm-dialog__footer">
-          <button ref="confirmRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--danger" type="button" :disabled="loading || !canConfirm" :aria-busy="loading" @click="$emit('confirm')">删除</button>
           <button ref="cancelRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--cancel" type="button" :disabled="loading" @click="cancel">保留</button>
+          <button ref="confirmRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--danger" type="button" :disabled="loading || !canConfirm" :aria-busy="loading" @click="$emit('confirm')">删除</button>
         </footer>
       </section>
     </div>
@@ -50,11 +51,15 @@ const props = withDefaults(defineProps<{
   description?: string
   loading?: boolean
   requireConfirm?: boolean
+  confirmDisabled?: boolean
+  errorMessage?: string
 }>(), {
   message: '后续配置项目将无法使用该模板，确定删除吗？',
   description: '',
   loading: false,
   requireConfirm: false,
+  confirmDisabled: false,
+  errorMessage: '',
 })
 
 const emit = defineEmits<{
@@ -69,7 +74,7 @@ const confirmInputId = 'performance-confirm-delete-input'
 let returnFocus: HTMLElement | null = null
 let previousOverflow = ''
 
-const canConfirm = computed(() => !props.requireConfirm || confirmInput.value.trim() === '确认删除')
+const canConfirm = computed(() => !props.confirmDisabled && (!props.requireConfirm || confirmInput.value.trim() === '确认删除'))
 
 function restorePage() {
   document.body.style.overflow = previousOverflow
@@ -88,9 +93,10 @@ function onKeydown(event: KeyboardEvent) {
     return
   }
   if (event.key !== 'Tab') return
-  const first = cancelRef.value
-  const last = confirmRef.value
-  if (!first || !last) return
+  const controls = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]'))
+  const first = controls[0]
+  const last = controls.at(-1)
+  if (!first || !last) { event.preventDefault(); return }
   if (event.shiftKey && document.activeElement === first) {
     event.preventDefault()
     last.focus()
@@ -198,6 +204,7 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary);
 }
 
+.performance-confirm-dialog__error { color: var(--performance-field-error-color); }
 .performance-confirm-dialog__confirm-field {
   display: flex;
   flex-direction: column;

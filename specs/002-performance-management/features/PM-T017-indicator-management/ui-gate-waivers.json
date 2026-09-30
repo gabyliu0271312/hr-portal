@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "waivers": [{
+    "id": "PM-T017-T04-p0-p1-only",
+    "task_id": "PM-T017-T04",
+    "approved_by": "用户（本会话门禁说明后要求继续实现开发）",
+    "approved_at": "2026-09-30",
+    "reason": "按 ADR-002 完成指标字段P0/P1闭环；用户后续明确要求编辑/删除，并选择固定业务编号。复用现有组件，不改P2与采集完整性状态。",
+    "scope": ["指标字段新建/编辑及删除确认", "指标字段 GET/POST/PATCH/DELETE 与固定业务编号迁移、权限、引用保护、审计", "字段列表真实回读、搜索分页、错误反馈", "本任务测试与规格记录"],
+    "active": true,
+    "allowed_errors": [
+      "missing_required_file:capture-manifest.md",
+      "missing_required_file:capture-completion-checklist.md",
+      "missing_required_file:component-model.md",
+      "missing_required_file:pixel-contract.md",
+      "missing_required_file:acceptance-contract.md",
+      "missing_required_file:extracted-ui-contract.json",
+      "invalid_extracted_ui_contract:layout_relations:must_be_array",
+      "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+      "phase_requires_implementation_ready:implementation"
+    ]
+    }, {
+      "id": "PM-T017-T03-p0-p1-only",
+      "task_id": "PM-T017-T03",
+      "approved_by": "用户（2026-09-30 明确确认开始开发）",
+      "approved_at": "2026-09-30",
+      "reason": "仅按 ADR-002 完成指标模板添加指标维度的 P0/P1 真实闭环，保留采集契约缺口与 P2 像素验收 blocked。",
+      "scope": ["指标模板详情添加指标维度弹窗", "指标类型与评估规则选项读取", "模板维度保存、读取、重开与审计", "本任务测试与规格记录"],
+      "active": true,
+      "allowed_errors": [
+        "missing_required_file:capture-manifest.md",
+        "missing_required_file:capture-completion-checklist.md",
+        "missing_required_file:component-model.md",
+        "missing_required_file:pixel-contract.md",
+        "missing_required_file:acceptance-contract.md",
+        "missing_required_file:extracted-ui-contract.json",
+        "invalid_extracted_ui_contract:layout_relations:must_be_array",
+        "invalid_extracted_ui_contract:interaction_contracts:must_be_array",
+        "phase_requires_implementation_ready:implementation"
+      ]
+    }
+  ]
+}

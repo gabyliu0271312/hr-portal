@@ -1,5 +1,9 @@
+<script setup lang="ts">
+withDefaults(defineProps<{ variant?: 'default' | 'table' }>(), { variant: 'default' })
+</script>
+
 <template>
-  <section class="performance-content-surface">
+  <section class="performance-content-surface" :class="`is-${variant}`">
     <slot />
   </section>
 </template>
@@ -14,4 +18,5 @@
   background: var(--performance-content-surface-background);
   box-shadow: var(--performance-content-surface-shadow);
 }
+.performance-content-surface.is-table { padding: var(--performance-table-surface-padding); }
 </style>

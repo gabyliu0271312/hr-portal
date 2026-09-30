@@ -1,0 +1,726 @@
+{
+ "Performance Tokens": {
+  "variables": {
+   "color-surface-page": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9569,
+     "g": 0.9647,
+     "b": 0.9765,
+     "a": 1.0
+    }
+   },
+   "color-surface-card": {
+    "type": "COLOR",
+    "value": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "color-surface-disabled": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9373,
+     "g": 0.9412,
+     "b": 0.9451,
+     "a": 1.0
+    }
+   },
+   "color-line-control": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.8157,
+     "g": 0.8275,
+     "b": 0.8392,
+     "a": 1.0
+    }
+   },
+   "color-line-divider": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.1216,
+     "g": 0.1373,
+     "b": 0.1608,
+     "a": 0.15
+    }
+   },
+   "color-text-danger-strong": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9608,
+     "g": 0.2902,
+     "b": 0.2706,
+     "a": 1.0
+    }
+   },
+   "color-text-warning-strong": {
+    "type": "COLOR",
+    "value": {
+     "r": 1.0,
+     "g": 0.5333,
+     "b": 0.0,
+     "a": 1.0
+    }
+   },
+   "color-action-primary": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.2,
+     "g": 0.4392,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "color-action-primary-hover": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0784,
+     "g": 0.3373,
+     "b": 0.9412,
+     "a": 1.0
+    }
+   },
+   "performance-content-surface-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "performance-page-surface": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.949,
+     "g": 0.9529,
+     "b": 0.9608,
+     "a": 1.0
+    }
+   },
+   "performance-review-page-bg": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.949,
+     "g": 0.9529,
+     "b": 0.9608,
+     "a": 1.0
+    }
+   },
+   "performance-review-completion-bg": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.8941,
+     "g": 0.9804,
+     "b": 0.8824,
+     "a": 1.0
+    }
+   },
+   "performance-review-completion-icon": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.1961,
+     "g": 0.651,
+     "b": 0.2706,
+     "a": 1.0
+    }
+   },
+   "performance-review-readonly-surface": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9608,
+     "g": 0.9647,
+     "b": 0.9686,
+     "a": 1.0
+    }
+   },
+   "performance-control-border": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.8157,
+     "g": 0.8275,
+     "b": 0.8392,
+     "a": 1.0
+    }
+   },
+   "performance-control-focus-border": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0784,
+     "g": 0.3373,
+     "b": 0.9412,
+     "a": 1.0
+    }
+   },
+   "performance-line-tabs-ink": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0784,
+     "g": 0.3373,
+     "b": 0.9412,
+     "a": 1.0
+    }
+   },
+   "performance-line-tabs-text": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.1216,
+     "g": 0.1373,
+     "b": 0.1608,
+     "a": 1.0
+    }
+   },
+   "performance-line-tabs-divider": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.1216,
+     "g": 0.1373,
+     "b": 0.1608,
+     "a": 0.15
+    }
+   },
+   "performance-line-tabs-surface": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.949,
+     "g": 0.9529,
+     "b": 0.9608,
+     "a": 1.0
+    }
+   },
+   "performance-page-title-color": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.1216,
+     "g": 0.1373,
+     "b": 0.1608,
+     "a": 1.0
+    }
+   },
+   "performance-switch-off": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.8706,
+     "g": 0.8784,
+     "b": 0.8902,
+     "a": 1.0
+    }
+   },
+   "performance-checkbox-checked": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0157,
+     "g": 0.2588,
+     "b": 0.8235,
+     "a": 1.0
+    }
+   },
+   "performance-checkbox-disabled": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.7333,
+     "g": 0.749,
+     "b": 0.7686,
+     "a": 1.0
+    }
+   },
+   "performance-count-badge-bg": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9373,
+     "g": 0.9412,
+     "b": 0.9451,
+     "a": 1.0
+    }
+   },
+   "performance-count-badge-text": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.3922,
+     "g": 0.4157,
+     "b": 0.451,
+     "a": 1.0
+    }
+   },
+   "performance-workbench-editor-language-tag-bg": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.1216,
+     "g": 0.1373,
+     "b": 0.1608,
+     "a": 0.1
+    }
+   },
+   "performance-workbench-editor-language-tag-color": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.3922,
+     "g": 0.4157,
+     "b": 0.451,
+     "a": 1.0
+    }
+   },
+   "performance-dialog-danger-bg": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9843,
+     "g": 0.749,
+     "b": 0.7373,
+     "a": 1.0
+    }
+   },
+   "performance-dialog-cancel-hover": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.8706,
+     "g": 0.8784,
+     "b": 0.8902,
+     "a": 1.0
+    }
+   },
+   "performance-dialog-focus-ring": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.2,
+     "g": 0.4392,
+     "b": 1.0,
+     "a": 0.45
+    }
+   },
+   "performance-overlay": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0,
+     "g": 0.0,
+     "b": 0.0,
+     "a": 0.45
+    }
+   },
+   "performance-button-primary-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.2,
+     "g": 0.4392,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "performance-button-primary-hover-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0784,
+     "g": 0.3373,
+     "b": 0.9412,
+     "a": 1.0
+    }
+   },
+   "performance-button-primary-active-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.1412,
+     "g": 0.3569,
+     "b": 0.8588,
+     "a": 1.0
+    }
+   },
+   "performance-button-primary-disabled-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9373,
+     "g": 0.9412,
+     "b": 0.9451,
+     "a": 1.0
+    }
+   },
+   "performance-button-primary-text": {
+    "type": "COLOR",
+    "value": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "performance-button-secondary-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "performance-button-secondary-hover-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9373,
+     "g": 0.9412,
+     "b": 0.9451,
+     "a": 1.0
+    }
+   },
+   "performance-button-secondary-border": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.8157,
+     "g": 0.8275,
+     "b": 0.8392,
+     "a": 1.0
+    }
+   },
+   "performance-button-secondary-text": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.1216,
+     "g": 0.1373,
+     "b": 0.1608,
+     "a": 1.0
+    }
+   },
+   "performance-button-text-color": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0784,
+     "g": 0.3373,
+     "b": 0.9412,
+     "a": 1.0
+    }
+   },
+   "performance-button-text-hover-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0784,
+     "g": 0.3373,
+     "b": 0.9412,
+     "a": 0.2
+    }
+   },
+   "performance-button-text-active-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0784,
+     "g": 0.3373,
+     "b": 0.9412,
+     "a": 0.32
+    }
+   },
+   "performance-button-danger-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.8471,
+     "g": 0.2235,
+     "b": 0.1922,
+     "a": 1.0
+    }
+   },
+   "performance-button-danger-hover-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.7059,
+     "g": 0.1373,
+     "b": 0.0941,
+     "a": 1.0
+    }
+   },
+   "performance-button-danger-text": {
+    "type": "COLOR",
+    "value": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "performance-field-border": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.8157,
+     "g": 0.8275,
+     "b": 0.8392,
+     "a": 1.0
+    }
+   },
+   "performance-field-border-hover": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.5608,
+     "g": 0.5843,
+     "b": 0.6196,
+     "a": 1.0
+    }
+   },
+   "performance-field-border-focus": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0784,
+     "g": 0.3373,
+     "b": 0.9412,
+     "a": 1.0
+    }
+   },
+   "performance-field-border-invalid": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9608,
+     "g": 0.2902,
+     "b": 0.2706,
+     "a": 1.0
+    }
+   },
+   "performance-field-error-color": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9608,
+     "g": 0.2902,
+     "b": 0.2706,
+     "a": 1.0
+    }
+   },
+   "performance-field-help-color": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.3608,
+     "g": 0.4196,
+     "b": 0.5098,
+     "a": 1.0
+    }
+   },
+   "performance-field-disabled-background": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9569,
+     "g": 0.9647,
+     "b": 0.9765,
+     "a": 1.0
+    }
+   },
+   "performance-field-disabled-text": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.5608,
+     "g": 0.5843,
+     "b": 0.6196,
+     "a": 1.0
+    }
+   },
+   "performance-dialog-overlay": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0,
+     "g": 0.0,
+     "b": 0.0,
+     "a": 0.45
+    }
+   },
+   "color-primary": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.2,
+     "g": 0.4392,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "color-primary-hover": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0784,
+     "g": 0.3373,
+     "b": 0.9412,
+     "a": 1.0
+    }
+   },
+   "color-primary-active": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.1412,
+     "g": 0.3569,
+     "b": 0.8588,
+     "a": 1.0
+    }
+   },
+   "color-primary-light": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9333,
+     "g": 0.949,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "color-primary-subtle": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9608,
+     "g": 0.9686,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "color-text-primary": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.1216,
+     "g": 0.1373,
+     "b": 0.1608,
+     "a": 1.0
+    }
+   },
+   "color-text-regular": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.2157,
+     "g": 0.2549,
+     "b": 0.3176,
+     "a": 1.0
+    }
+   },
+   "color-text-secondary": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.3608,
+     "g": 0.4196,
+     "b": 0.5098,
+     "a": 1.0
+    }
+   },
+   "color-text-placeholder": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.5608,
+     "g": 0.5843,
+     "b": 0.6196,
+     "a": 1.0
+    }
+   },
+   "color-text-disabled": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.7686,
+     "g": 0.7922,
+     "b": 0.8314,
+     "a": 1.0
+    }
+   },
+   "color-link": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0941,
+     "g": 0.5647,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "color-bg-page": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9569,
+     "g": 0.9647,
+     "b": 0.9765,
+     "a": 1.0
+    }
+   },
+   "color-bg-card": {
+    "type": "COLOR",
+    "value": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "color-bg-elevated": {
+    "type": "COLOR",
+    "value": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "color-bg-subtle": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9725,
+     "g": 0.9804,
+     "b": 0.9882,
+     "a": 1.0
+    }
+   },
+   "color-bg-hover": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9412,
+     "g": 0.9608,
+     "b": 1.0,
+     "a": 1.0
+    }
+   },
+   "color-border": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.7333,
+     "g": 0.749,
+     "b": 0.7686,
+     "a": 1.0
+    }
+   },
+   "color-border-light": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9333,
+     "g": 0.9451,
+     "b": 0.9647,
+     "a": 1.0
+    }
+   },
+   "color-border-lighter": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9529,
+     "g": 0.9647,
+     "b": 0.9843,
+     "a": 1.0
+    }
+   },
+   "color-border-strong": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.8157,
+     "g": 0.8431,
+     "b": 0.8863,
+     "a": 1.0
+    }
+   },
+   "color-success": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.0706,
+     "g": 0.7176,
+     "b": 0.4157,
+     "a": 1.0
+    }
+   },
+   "color-success-light": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.9098,
+     "g": 0.9686,
+     "b": 0.9333,
+     "a": 1.0
+    }
+   },
+   "color-success-border": {
+    "type": "COLOR",
+    "value": {
+     "r": 0.7176,
+     "g": 0.902,
+     "b": 0.7725,
+     "a": 1.0
+    }
+   }
+  }
+ }
+}

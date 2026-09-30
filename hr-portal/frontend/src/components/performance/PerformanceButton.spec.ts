@@ -15,6 +15,15 @@ describe('PerformanceButton', () => {
     expect(wrapper.text()).toContain('保存')
   })
 
+  it.each([{ disabled: true }, { loading: true }])('keeps shared link actions natively disabled for %j', async state => {
+    const wrapper = mount(PerformanceButton, { props: { variant: 'link', ...state }, slots: { default: '编辑' } })
+    expect(wrapper.get('button').classes()).toContain('performance-button--link')
+    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    await wrapper.get('button').trigger('click')
+    expect(wrapper.emitted('click')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('emits the native click event for enabled actions', async () => {
     const wrapper = mount(PerformanceButton, { slots: { default: '取消' } })
 

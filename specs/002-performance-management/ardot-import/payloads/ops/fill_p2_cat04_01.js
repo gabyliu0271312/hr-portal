@@ -1,0 +1,2 @@
+k24=I("2:269", {"type":"frame","name":"card:PerformanceTemplateSectionCard","layout":"vertical","gap":2,"padding":10,"cornerRadius":6,"fill":"#FFFFFF","strokes":[{"type":"SOLID","color":{"r":0.9333,"g":0.9451,"b":0.9647},"opacity":1,"visible":true,"blendMode":"NORMAL"}],"strokeWeight":1,"width":228,"height":"hug_contents"})
+k24t=I(k24, {"type":"text","name":"组件名 PerformanceTemplateSectionCard","content":"PerformanceTemplateSectionCard.vue","fontSize":12,"fontWeight":"400","fill":"#1F2329","fontName":{"family":"Noto Sans SC","style":"Regular"},"width":"fill_container"})

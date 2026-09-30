@@ -22,6 +22,7 @@
   --performance-content-surface-radius: var(--radius-lg);
   --performance-content-surface-background: var(--color-surface-card);
   --performance-content-surface-shadow: 0 1px 4px rgba(31, 35, 41, 0.05);
+  --performance-table-surface-padding: var(--spacing-6);
   --performance-page-surface: #f2f3f5;
   --performance-review-surface-inset: var(--spacing-5);
   --performance-review-page-bg: var(--performance-page-surface);
@@ -35,6 +36,15 @@
   --performance-admin-sidebar-width: 240px;
   --performance-admin-content-inset: var(--spacing-5);
   --performance-control-height-compact: 30px;
+  --performance-metric-field-button-width: 98px;
+  --performance-create-wide-icon-width: 97px;
+  --performance-metric-field-button-gap: var(--spacing-1);
+  --performance-metric-formula-button-width: var(--performance-metric-field-button-width);
+  --performance-metric-formula-button-gap: var(--performance-metric-field-button-gap);
+  --performance-formula-create-button-width: 126px;
+  --performance-formula-resource-search-width: 150px;
+  --performance-formula-resource-hover-bg: #e1eaff;
+  --performance-formula-example-number: #de7802;
   --performance-control-radius: var(--radius-md);
   --performance-control-border: var(--color-line-control);
   --performance-control-focus-border: var(--color-primary-hover);
@@ -71,6 +81,10 @@
   --performance-switch-width: 28px;
   --performance-switch-height: 16px;
   --performance-switch-handler-size: 12px;
+  --performance-switch-medium-width: 40px;
+  --performance-switch-medium-height: 22px;
+  --performance-switch-medium-handler-size: 18px;
+  --performance-switch-medium-on-left: 20px;
   --performance-switch-off: #dee0e3;
   --performance-checkbox-size: 16px;
   --performance-checkbox-checked: #0442d2;
@@ -104,6 +118,16 @@
   --performance-confirm-z-index: 2200;
   --performance-drawer-z-index: 2200;
   --performance-overlay: rgba(0, 0, 0, 0.45);
+  --performance-popover-background: var(--color-bg-card);
+  --performance-popover-border: #dee0e3;
+  --performance-popover-border-width: 1px;
+  --performance-popover-radius: var(--radius-lg);
+  --performance-popover-padding-y: var(--spacing-3);
+  --performance-popover-padding-x: var(--spacing-4);
+  --performance-popover-line-height: 22px;
+  --performance-popover-min-width: 30px;
+  --performance-popover-shadow: 0 8px 24px 8px rgba(31, 35, 41, 0.04), 0 6px 12px 0 rgba(31, 35, 41, 0.04), 0 4px 8px -8px rgba(31, 35, 41, 0.06);
+  --performance-popover-z-index: calc(var(--performance-confirm-z-index) + 1);
 
   /* Shared button tokens: every page-level action should use a button family or Element Plus alias. */
   --performance-button-height: 32px;
@@ -126,7 +150,17 @@
   --performance-button-secondary-hover-background: var(--color-surface-disabled);
   --performance-button-secondary-border: var(--color-line-control);
   --performance-button-secondary-text: var(--color-text-primary);
+  --performance-button-outline-primary-background: var(--color-bg-card);
+  --performance-button-outline-primary-hover-background: var(--color-bg-hover);
+  --performance-button-outline-primary-border: var(--color-primary-hover);
+  --performance-button-outline-primary-text: var(--color-primary-hover);
+  --performance-button-continue-background: #c2d4ff;
+  --performance-button-continue-hover-background: #adc5ff;
+  --performance-button-continue-border: #c2d4ff;
+  --performance-button-continue-hover-border: #adc5ff;
+  --performance-button-continue-text: var(--color-primary-hover);
   --performance-button-text-color: var(--color-primary-hover);
+  --performance-button-link-disabled-color: #bbbfc4;
   --performance-button-text-hover-background: rgba(20, 86, 240, 0.2);
   --performance-button-text-active-background: rgba(20, 86, 240, 0.32);
   --performance-button-danger-background: var(--color-danger);

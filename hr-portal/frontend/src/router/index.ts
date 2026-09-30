@@ -487,6 +487,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '指标模板' },
       },
       {
+        path: 'metric-management/templates/:templateId',
+        name: 'PerformanceMetricTemplateDetail',
+        component: () => import('@/views/performance/MetricTemplateDetail.vue'),
+        meta: { label: '编辑指标模板', hideAside: true },
+      },
+      {
         path: 'evaluation-questions',
         name: 'ReviewQuestionManagement',
         component: () => import('@/views/performance/ReviewQuestionManagement.vue'),

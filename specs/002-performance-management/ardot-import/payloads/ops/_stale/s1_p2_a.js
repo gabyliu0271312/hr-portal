@@ -1,0 +1,3 @@
+hd2=I("2:222", {"type": "frame", "name": "header:components", "layout": "vertical", "gap": 6, "x": 3990, "y": 0, "width": "hug_contents", "height": "hug_contents"})
+t1=I("hd2", {"type": "text", "name": "标题", "content": "HR Portal 绩效管理 · 组件目录", "fontSize": 20, "fontWeight": "600", "fill": "#1F2329", "fontName": {"family": "Noto Sans SC", "style": "SemiBold"}})
+t2=I("hd2", {"type": "text", "name": "副标题", "content": "218 个组件 · 15 分类 · 源自 src/components/performance/ · 名称卡片 = 组件名 + 来源文件名，作为逐个落高保真组件的目录骨架", "fontSize": 12, "fontWeight": "400", "fill": "#646A73", "fontName": {"family": "Noto Sans SC", "style": "Regular"}})

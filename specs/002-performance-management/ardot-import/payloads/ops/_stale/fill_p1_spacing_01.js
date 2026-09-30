@@ -1,0 +1,3 @@
+p8=I("2:242", {"type":"frame","name":"ruler:spacing-8","layout":"vertical","gap":4,"width":120,"height":"hug_contents"})
+p8s=I(p8, {"type":"frame","name":"标尺 spacing-8","width":40,"height":40.0,"cornerRadius":2,"fill":"#EEF2FF","strokes":[{"type":"SOLID","color":{"r":0.0784,"g":0.3373,"b":0.9412},"opacity":1,"visible":true,"blendMode":"NORMAL"}],"strokeWeight":1})
+p8x=I(p8, {"type":"text","name":"标签","content":"spacing-8 · 40px","fontSize":10,"fontWeight":"400","fill":"#646A73","fontName":{"family":"Noto Sans SC","style":"Regular"}})

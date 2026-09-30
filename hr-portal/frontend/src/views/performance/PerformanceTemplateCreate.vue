@@ -76,6 +76,7 @@ function templatePayload() {
     description: description.value,
     language: 'zh-CN' as const,
     english_enabled: englishEnabled.value,
+    audience_settings_enabled: false,
     calculation_enabled: calculationEnabled.value,
     selected_rules: selectedRules.value,
   }

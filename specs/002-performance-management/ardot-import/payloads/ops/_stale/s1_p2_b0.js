@@ -1,0 +1,3 @@
+c0=I("2:222", {"type": "frame", "name": "cat:弹层与容器", "layout": "vertical", "gap": 12, "padding": 24, "cornerRadius": 12, "fill": "#FFFFFF", "strokes": [{"type": "SOLID", "color": {"r": 0.8157, "g": 0.8275, "b": 0.8392}, "opacity": 1, "visible": true, "blendMode": "NORMAL"}], "strokeWeight": 1, "x": 0, "y": 0, "width": 1240, "height": "hug_contents"})
+c0t=I("c0", {"type": "text", "name": "分区标题", "content": "01 · 弹层与容器 · 28 个", "fontSize": 15, "fontWeight": "600", "fill": "#1F2329", "fontName": {"family": "Noto Sans SC", "style": "SemiBold"}})
+c0g=I("c0", {"type": "frame", "name": "grid:cat-01", "layout": "wrap", "gap": 10, "width": "fill_container", "height": "hug_contents", "counterAxisAlignContent": "AUTO"})

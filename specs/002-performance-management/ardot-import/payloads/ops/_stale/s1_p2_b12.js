@@ -1,0 +1,3 @@
+c12=I("2:222", {"type": "frame", "name": "cat:权限与授权", "layout": "vertical", "gap": 12, "padding": 24, "cornerRadius": 12, "fill": "#FFFFFF", "strokes": [{"type": "SOLID", "color": {"r": 0.8157, "g": 0.8275, "b": 0.8392}, "opacity": 1, "visible": true, "blendMode": "NORMAL"}], "strokeWeight": 1, "x": 2660, "y": 960, "width": 1240, "height": "hug_contents"})
+c12t=I("c12", {"type": "text", "name": "分区标题", "content": "13 · 权限与授权 · 7 个", "fontSize": 15, "fontWeight": "600", "fill": "#1F2329", "fontName": {"family": "Noto Sans SC", "style": "SemiBold"}})
+c12g=I("c12", {"type": "frame", "name": "grid:cat-13", "layout": "wrap", "gap": 10, "width": "fill_container", "height": "hug_contents", "counterAxisAlignContent": "AUTO"})

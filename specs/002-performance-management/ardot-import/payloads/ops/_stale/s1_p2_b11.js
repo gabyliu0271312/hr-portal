@@ -1,0 +1,3 @@
+c11=I("2:222", {"type": "frame", "name": "cat:项目与周期", "layout": "vertical", "gap": 12, "padding": 24, "cornerRadius": 12, "fill": "#FFFFFF", "strokes": [{"type": "SOLID", "color": {"r": 0.8157, "g": 0.8275, "b": 0.8392}, "opacity": 1, "visible": true, "blendMode": "NORMAL"}], "strokeWeight": 1, "x": 2660, "y": 640, "width": 1240, "height": "hug_contents"})
+c11t=I("c11", {"type": "text", "name": "分区标题", "content": "12 · 项目与周期 · 8 个", "fontSize": 15, "fontWeight": "600", "fill": "#1F2329", "fontName": {"family": "Noto Sans SC", "style": "SemiBold"}})
+c11g=I("c11", {"type": "frame", "name": "grid:cat-12", "layout": "wrap", "gap": 10, "width": "fill_container", "height": "hug_contents", "counterAxisAlignContent": "AUTO"})

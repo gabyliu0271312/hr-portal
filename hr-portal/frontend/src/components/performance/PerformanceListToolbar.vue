@@ -7,14 +7,18 @@ withDefaults(defineProps<{
   searchPlaceholder?: string
   searchAriaLabel?: string
   searchWidth?: string
+  searchVariant?: 'default' | 'compact'
   showFilter?: boolean
+  filterVariant?: 'default' | 'icon-only'
   filterLabel?: string
   searchFill?: boolean
 }>(), {
   searchPlaceholder: '通过名称、备注搜索',
   searchAriaLabel: '搜索',
   searchWidth: '224px',
+  searchVariant: 'default',
   showFilter: true,
+  filterVariant: 'default',
   filterLabel: '筛选',
   searchFill: false,
 })
@@ -37,11 +41,12 @@ const emit = defineEmits<{
       :width="searchWidth"
       :placeholder="searchPlaceholder"
       :aria-label="searchAriaLabel"
+      :variant="searchVariant"
       @update:model-value="emit('update:keyword', $event)"
       @search="emit('search')"
       @clear="emit('clear')"
     />
-    <PerformanceFilterButton v-if="showFilter" class="filter-button" :label="filterLabel" @click="emit('filter')" />
+    <PerformanceFilterButton v-if="showFilter" class="filter-button" :label="filterLabel" :variant="filterVariant" @click="emit('filter')" />
     <slot name="actions" />
   </div>
 </template>

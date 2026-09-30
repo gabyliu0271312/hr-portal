@@ -55,6 +55,21 @@ describe('PerformanceConfirmDialog', () => {
     wrapper.unmount()
   })
 
+  it('shows a server conflict and disables confirmation without trapping the user', async () => {
+    const wrapper = mountDialog({ message: '确定删除字段吗？', errorMessage: '该字段已被引用', confirmDisabled: true })
+    await flushPromises()
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('该字段已被引用')
+    const confirm = document.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement
+    const cancel = document.querySelector('.performance-confirm-dialog__button--cancel') as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    expect(cancel.disabled).toBe(false)
+    confirm.click()
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    cancel.click()
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+    wrapper.unmount()
+  })
+
   it('traps keyboard focus and restores it after closing', async () => {
     const opener = document.createElement('button')
     document.body.appendChild(opener)

@@ -3,16 +3,24 @@
     <template #title-actions>
       <div class="metric-library-heading-actions" aria-label="指标库辅助入口">
         <PerformanceButton
+          class="metric-fields-button"
           aria-label="字段管理"
-          @click="notifyUnavailable('字段管理')"
+          @click="fieldManagementOpen = true"
         >
-          <el-icon><DataAnalysis /></el-icon>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" data-icon="StyleOutlined" aria-hidden="true">
+            <path d="M8.437 4.898 5.447 13h6.063L8.437 4.898Zm6.025 15.881L12.269 15h-7.56l-2.131 5.78a1 1 0 1 1-1.873-.703L7.02 2.982c.491-1.31 2.344-1.31 2.835 0l6.48 17.095a1 1 0 1 1-1.872.702ZM15.056 5a1 1 0 1 0 0 2H23a1 1 0 1 0 0-2h-7.944Zm1.055 7a1 1 0 0 1 1-1H23a1 1 0 1 1 0 2h-5.89a1 1 0 1 1-1-2Zm3.056 5a1 1 0 1 0 0 2H23a1 1 0 0 0 0-2-0h-3.833Z" fill="currentColor" />
+          </svg>
+          <span>字段管理</span>
         </PerformanceButton>
         <PerformanceButton
+          class="metric-formula-button"
           aria-label="公式管理"
-          @click="notifyUnavailable('公式管理')"
+          @click="formulaManagementOpen = true"
         >
-          <el-icon><Tickets /></el-icon>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" data-icon="FormulaOutlined" aria-hidden="true">
+            <path d="M11 6.5C11 4.011 13.028 2 15.51 2 17.98 2 20 4.002 20 6.48v.02a1 1 0 1 1-2 0v-.02A2.489 2.489 0 0 0 15.51 4 2.508 2.508 0 0 0 13 6.5V10h4a1 1 0 1 1 0 2h-4v5.5c0 2.489-2.028 4.5-4.51 4.5A4.489 4.489 0 0 1 4 17.52v-.02a1 1 0 1 1 2 0v.02A2.489 2.489 0 0 0 8.49 20 2.508 2.508 0 0 0 11 17.5V12H8a1 1 0 1 1 0-2h3V6.5Z" fill="currentColor" />
+          </svg>
+          <span>公式管理</span>
         </PerformanceButton>
       </div>
     </template>
@@ -22,7 +30,7 @@
         <PerformanceCreateButton
           variant="text"
           label="新建指标"
-          @click="notifyUnavailable('新建指标')"
+          @click="openMetricDrawer"
         />
         <div class="toolbar-spacer"></div>
         <PerformanceSearchInput
@@ -67,19 +75,35 @@
       :selected-keys="selectedColumnKeys"
       @confirm="selectedColumnKeys = $event"
     />
+    <PerformanceMetricCreateDrawer
+      v-model="metricDrawerOpen"
+      @confirm="handleMetricConfirm"
+      @continue="handleMetricContinue"
+    />
+    <PerformanceMetricFieldManagementModal v-model="fieldManagementOpen" :type-api-enabled="true" />
+    <PerformanceMetricFormulaManagementModal
+      v-model="formulaManagementOpen"
+      @confirm="handleFormulaConfirm"
+      @help="notifyUnavailable('公式编辑器帮助')"
+      @filter="notifyUnavailable('筛选')"
+      @edit="notifyUnavailable('编辑评分公式')"
+    />
   </PerformanceListPage>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { DataAnalysis, EditPen, Tickets } from '@element-plus/icons-vue'
+import { EditPen } from '@element-plus/icons-vue'
 import PerformanceButton from '@/components/performance/PerformanceButton.vue'
 import PerformanceCreateButton from '@/components/performance/PerformanceCreateButton.vue'
 import PerformanceColumnVisibilityIcon from '@/components/performance/PerformanceColumnVisibilityIcon.vue'
 import PerformanceFilterButton from '@/components/performance/PerformanceFilterButton.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
+import PerformanceMetricCreateDrawer, { type PerformanceMetricDraft } from '@/components/performance/PerformanceMetricCreateDrawer.vue'
+import PerformanceMetricFieldManagementModal from '@/components/performance/PerformanceMetricFieldManagementModal.vue'
+import PerformanceMetricFormulaManagementModal from '@/components/performance/PerformanceMetricFormulaManagementModal.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from '@/components/performance/ProjectMemberColumnDrawer.vue'
 
 const keyword = ref('')
@@ -92,6 +116,24 @@ const metricColumns: MemberColumnOption[] = [
   { key: 'status', label: '状态' },
 ]
 const selectedColumnKeys = ref(metricColumns.map(column => column.key))
+const metricDrawerOpen = ref(false)
+const fieldManagementOpen = ref(false)
+const formulaManagementOpen = ref(false)
+
+function openMetricDrawer() { metricDrawerOpen.value = true }
+function handleMetricConfirm(value: PerformanceMetricDraft) {
+  void value
+  ElMessage.info('指标表单已提交，保存接口待接入')
+}
+function handleMetricContinue(value: PerformanceMetricDraft) {
+  void value
+  ElMessage.info('当前指标配置已提交，保存接口待接入，可继续添加')
+}
+
+function handleFormulaConfirm(value: { name: string; formula: string }) {
+  void value
+  notifyUnavailable('评分公式保存')
+}
 
 function notifyUnavailable(action: string) {
   ElMessage.info(`${action}功能将在后续任务接入`)
@@ -107,7 +149,44 @@ function notifyUnavailable(action: string) {
 
 .metric-library-heading-actions :deep(.performance-button) {
   min-width: var(--performance-control-height);
+  height: var(--performance-control-height);
+}
+
+.metric-library-heading-actions :deep(.metric-fields-button) {
+  width: var(--performance-metric-field-button-width);
+  min-width: var(--performance-metric-field-button-width);
+  padding-inline: var(--performance-input-padding-x);
+  gap: var(--performance-metric-field-button-gap);
+  border-color: var(--color-line-control);
+  background: var(--color-surface-disabled);
+  color: var(--color-text-primary);
+}
+
+.metric-library-heading-actions :deep(.metric-fields-button svg) {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+
+.metric-library-heading-actions :deep(.metric-formula-button) {
+  width: var(--performance-metric-formula-button-width);
+  min-width: var(--performance-metric-formula-button-width);
+  padding-inline: var(--performance-input-padding-x);
+  gap: var(--performance-metric-formula-button-gap);
+  border-color: var(--color-line-control);
+  background: var(--color-surface-disabled);
+  color: var(--color-text-primary);
+}
+
+.metric-library-heading-actions :deep(.metric-formula-button svg) {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+
+.metric-library-heading-actions :deep(.metric-icon-button) {
   width: var(--performance-control-height);
+  min-width: var(--performance-control-height);
   padding-inline: 0;
 }
 

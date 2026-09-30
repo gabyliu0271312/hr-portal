@@ -1,0 +1,2637 @@
+[
+ {
+  "name": "color-surface-page",
+  "raw": "var(--color-bg-page)",
+  "resolved": "#f4f6f9",
+  "section": "Semantic surface and control aliases",
+  "layer": "semantic",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9569,
+   "g": 0.9647,
+   "b": 0.9765,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-surface-card",
+  "raw": "var(--color-bg-card)",
+  "resolved": "#ffffff",
+  "section": "Semantic surface and control aliases",
+  "layer": "semantic",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 1.0,
+   "g": 1.0,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-surface-disabled",
+  "raw": "#eff0f1",
+  "resolved": "#eff0f1",
+  "section": "Semantic surface and control aliases",
+  "layer": "semantic",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9373,
+   "g": 0.9412,
+   "b": 0.9451,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-line-control",
+  "raw": "#d0d3d6",
+  "resolved": "#d0d3d6",
+  "section": "Semantic surface and control aliases",
+  "layer": "semantic",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8157,
+   "g": 0.8275,
+   "b": 0.8392,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-line-divider",
+  "raw": "rgba(31, 35, 41, 0.15)",
+  "resolved": "rgba(31, 35, 41, 0.15)",
+  "section": "Semantic surface and control aliases",
+  "layer": "semantic",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.1216,
+   "g": 0.1373,
+   "b": 0.1608,
+   "a": 0.15
+  }
+ },
+ {
+  "name": "color-text-danger-strong",
+  "raw": "#f54a45",
+  "resolved": "#f54a45",
+  "section": "Semantic surface and control aliases",
+  "layer": "semantic",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9608,
+   "g": 0.2902,
+   "b": 0.2706,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-text-warning-strong",
+  "raw": "#ff8800",
+  "resolved": "#ff8800",
+  "section": "Semantic surface and control aliases",
+  "layer": "semantic",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 1.0,
+   "g": 0.5333,
+   "b": 0.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-action-primary",
+  "raw": "var(--color-primary)",
+  "resolved": "#3370ff",
+  "section": "Semantic surface and control aliases",
+  "layer": "semantic",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.2,
+   "g": 0.4392,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-action-primary-hover",
+  "raw": "var(--color-primary-hover)",
+  "resolved": "#1456f0",
+  "section": "Semantic surface and control aliases",
+  "layer": "semantic",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0784,
+   "g": 0.3373,
+   "b": 0.9412,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-content-surface-padding",
+  "raw": "var(--spacing-5)",
+  "resolved": "20px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 20.0
+ },
+ {
+  "name": "performance-content-surface-radius",
+  "raw": "var(--radius-lg)",
+  "resolved": "8px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 8.0
+ },
+ {
+  "name": "performance-content-surface-background",
+  "raw": "var(--color-surface-card)",
+  "resolved": "#ffffff",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 1.0,
+   "g": 1.0,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-content-surface-shadow",
+  "raw": "0 1px 4px rgba(31, 35, 41, 0.05)",
+  "resolved": "0 1px 4px rgba(31, 35, 41, 0.05)",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "0 1px 4px rgba(31, 35, 41, 0.05)"
+ },
+ {
+  "name": "performance-page-surface",
+  "raw": "#f2f3f5",
+  "resolved": "#f2f3f5",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.949,
+   "g": 0.9529,
+   "b": 0.9608,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-review-surface-inset",
+  "raw": "var(--spacing-5)",
+  "resolved": "20px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 20.0
+ },
+ {
+  "name": "performance-review-page-bg",
+  "raw": "var(--performance-page-surface)",
+  "resolved": "#f2f3f5",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.949,
+   "g": 0.9529,
+   "b": 0.9608,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-review-content-max-width",
+  "raw": "984px",
+  "resolved": "984px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 984.0
+ },
+ {
+  "name": "performance-review-completion-bg",
+  "raw": "#e4fae1",
+  "resolved": "#e4fae1",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8941,
+   "g": 0.9804,
+   "b": 0.8824,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-review-completion-icon",
+  "raw": "#32a645",
+  "resolved": "#32a645",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.1961,
+   "g": 0.651,
+   "b": 0.2706,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-review-readonly-surface",
+  "raw": "#f5f6f7",
+  "resolved": "#f5f6f7",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9608,
+   "g": 0.9647,
+   "b": 0.9686,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-form-surface-width",
+  "raw": "800px",
+  "resolved": "800px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 800.0
+ },
+ {
+  "name": "performance-form-surface-page-gap",
+  "raw": "var(--spacing-5)",
+  "resolved": "20px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 20.0
+ },
+ {
+  "name": "performance-control-height",
+  "raw": "32px",
+  "resolved": "32px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 32.0
+ },
+ {
+  "name": "performance-admin-sidebar-width",
+  "raw": "240px",
+  "resolved": "240px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 240.0
+ },
+ {
+  "name": "performance-admin-content-inset",
+  "raw": "var(--spacing-5)",
+  "resolved": "20px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 20.0
+ },
+ {
+  "name": "performance-control-height-compact",
+  "raw": "30px",
+  "resolved": "30px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 30.0
+ },
+ {
+  "name": "performance-control-radius",
+  "raw": "var(--radius-md)",
+  "resolved": "6px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 6.0
+ },
+ {
+  "name": "performance-control-border",
+  "raw": "var(--color-line-control)",
+  "resolved": "#d0d3d6",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8157,
+   "g": 0.8275,
+   "b": 0.8392,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-control-focus-border",
+  "raw": "var(--color-primary-hover)",
+  "resolved": "#1456f0",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0784,
+   "g": 0.3373,
+   "b": 0.9412,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-control-focus-ring",
+  "raw": "var(--shadow-focus)",
+  "resolved": "0 0 0 3px rgba(51, 112, 255, 0.16)",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "0 0 0 3px rgba(51, 112, 255, 0.16)"
+ },
+ {
+  "name": "performance-input-height",
+  "raw": "31px",
+  "resolved": "31px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 31.0
+ },
+ {
+  "name": "performance-input-compact-height",
+  "raw": "30px",
+  "resolved": "30px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 30.0
+ },
+ {
+  "name": "performance-input-padding-x",
+  "raw": "11px",
+  "resolved": "11px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 11.0
+ },
+ {
+  "name": "performance-input-padding-y",
+  "raw": "4px",
+  "resolved": "4px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 4.0
+ },
+ {
+  "name": "performance-input-line-height",
+  "raw": "22px",
+  "resolved": "22px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 22.0
+ },
+ {
+  "name": "performance-input-textarea-padding-bottom",
+  "raw": "22px",
+  "resolved": "22px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 22.0
+ },
+ {
+  "name": "performance-input-label-gap",
+  "raw": "6px",
+  "resolved": "6px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 6.0
+ },
+ {
+  "name": "performance-input-field-gap",
+  "raw": "18px",
+  "resolved": "18px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 18.0
+ },
+ {
+  "name": "performance-required-mark-gap",
+  "raw": "2px",
+  "resolved": "2px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 2.0
+ },
+ {
+  "name": "performance-required-mark-width",
+  "raw": "8px",
+  "resolved": "8px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 8.0
+ },
+ {
+  "name": "performance-header-back-width",
+  "raw": "68px",
+  "resolved": "68px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 68.0
+ },
+ {
+  "name": "performance-header-inner-height",
+  "raw": "28px",
+  "resolved": "28px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 28.0
+ },
+ {
+  "name": "performance-header-icon-size",
+  "raw": "20px",
+  "resolved": "20px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 20.0
+ },
+ {
+  "name": "performance-header-divider-height",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "performance-header-title-size",
+  "raw": "var(--font-size-lg)",
+  "resolved": "16px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "performance-header-title-weight",
+  "raw": "600",
+  "resolved": "600",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 600.0
+ },
+ {
+  "name": "performance-header-title-line-height",
+  "raw": "24px",
+  "resolved": "24px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 24.0
+ },
+ {
+  "name": "performance-header-action-gap",
+  "raw": "var(--spacing-3)",
+  "resolved": "12px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 12.0
+ },
+ {
+  "name": "performance-icon-button-size",
+  "raw": "24px",
+  "resolved": "24px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 24.0
+ },
+ {
+  "name": "performance-icon-size",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "performance-line-tabs-ink",
+  "raw": "#1456f0",
+  "resolved": "#1456f0",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0784,
+   "g": 0.3373,
+   "b": 0.9412,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-line-tabs-text",
+  "raw": "#1f2329",
+  "resolved": "#1f2329",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.1216,
+   "g": 0.1373,
+   "b": 0.1608,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-line-tabs-divider",
+  "raw": "rgba(31, 35, 41, 0.15)",
+  "resolved": "rgba(31, 35, 41, 0.15)",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.1216,
+   "g": 0.1373,
+   "b": 0.1608,
+   "a": 0.15
+  }
+ },
+ {
+  "name": "performance-line-tabs-surface",
+  "raw": "var(--performance-page-surface)",
+  "resolved": "#f2f3f5",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.949,
+   "g": 0.9529,
+   "b": 0.9608,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-page-title-size",
+  "raw": "18px",
+  "resolved": "18px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 18.0
+ },
+ {
+  "name": "performance-page-title-weight",
+  "raw": "600",
+  "resolved": "600",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 600.0
+ },
+ {
+  "name": "performance-page-title-line-height",
+  "raw": "32px",
+  "resolved": "32px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 32.0
+ },
+ {
+  "name": "performance-page-title-color",
+  "raw": "#1f2329",
+  "resolved": "#1f2329",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.1216,
+   "g": 0.1373,
+   "b": 0.1608,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-page-title-gap",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "performance-switch-width",
+  "raw": "28px",
+  "resolved": "28px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 28.0
+ },
+ {
+  "name": "performance-switch-height",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "performance-switch-handler-size",
+  "raw": "12px",
+  "resolved": "12px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 12.0
+ },
+ {
+  "name": "performance-switch-off",
+  "raw": "#dee0e3",
+  "resolved": "#dee0e3",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8706,
+   "g": 0.8784,
+   "b": 0.8902,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-checkbox-size",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "performance-checkbox-checked",
+  "raw": "#0442d2",
+  "resolved": "#0442d2",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0157,
+   "g": 0.2588,
+   "b": 0.8235,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-checkbox-disabled",
+  "raw": "var(--color-border)",
+  "resolved": "#bbbfc4",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.7333,
+   "g": 0.749,
+   "b": 0.7686,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-field-label-gap",
+  "raw": "8px",
+  "resolved": "8px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 8.0
+ },
+ {
+  "name": "performance-textarea-min-height",
+  "raw": "49.3333px",
+  "resolved": "49.3333px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 49.3333
+ },
+ {
+  "name": "performance-count-badge-height",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "performance-count-badge-bg",
+  "raw": "#eff0f1",
+  "resolved": "#eff0f1",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9373,
+   "g": 0.9412,
+   "b": 0.9451,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-count-badge-text",
+  "raw": "#646a73",
+  "resolved": "#646a73",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.3922,
+   "g": 0.4157,
+   "b": 0.451,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-dialog-width",
+  "raw": "420px",
+  "resolved": "420px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 420.0
+ },
+ {
+  "name": "performance-workbench-editor-width",
+  "raw": "600px",
+  "resolved": "600px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 600.0
+ },
+ {
+  "name": "performance-workbench-editor-header-height",
+  "raw": "72px",
+  "resolved": "72px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 72.0
+ },
+ {
+  "name": "performance-workbench-editor-padding-x",
+  "raw": "24px",
+  "resolved": "24px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 24.0
+ },
+ {
+  "name": "performance-workbench-editor-padding-right",
+  "raw": "56px",
+  "resolved": "56px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 56.0
+ },
+ {
+  "name": "performance-workbench-editor-field-gap",
+  "raw": "28px",
+  "resolved": "28px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 28.0
+ },
+ {
+  "name": "performance-workbench-editor-select-indent",
+  "raw": "24px",
+  "resolved": "24px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 24.0
+ },
+ {
+  "name": "performance-workbench-editor-language-tag-bg",
+  "raw": "rgba(31, 35, 41, 0.1)",
+  "resolved": "rgba(31, 35, 41, 0.1)",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.1216,
+   "g": 0.1373,
+   "b": 0.1608,
+   "a": 0.1
+  }
+ },
+ {
+  "name": "performance-workbench-editor-language-tag-color",
+  "raw": "#646a73",
+  "resolved": "#646a73",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.3922,
+   "g": 0.4157,
+   "b": 0.451,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-workbench-editor-radio-size",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "performance-workbench-editor-compact-switch-width",
+  "raw": "28px",
+  "resolved": "28px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 28.0
+ },
+ {
+  "name": "performance-workbench-editor-compact-switch-height",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "performance-dialog-radius",
+  "raw": "var(--radius-lg)",
+  "resolved": "8px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 8.0
+ },
+ {
+  "name": "performance-dialog-padding",
+  "raw": "var(--spacing-6)",
+  "resolved": "24px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 24.0
+ },
+ {
+  "name": "performance-dialog-header-padding-right",
+  "raw": "56px",
+  "resolved": "56px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 56.0
+ },
+ {
+  "name": "performance-dialog-footer-height",
+  "raw": "56px",
+  "resolved": "56px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 56.0
+ },
+ {
+  "name": "performance-dialog-button-width",
+  "raw": "80px",
+  "resolved": "80px",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 80.0
+ },
+ {
+  "name": "performance-dialog-shadow",
+  "raw": "0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12)",
+  "resolved": "0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12)",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12)"
+ },
+ {
+  "name": "performance-dialog-danger-bg",
+  "raw": "#fbbfbc",
+  "resolved": "#fbbfbc",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9843,
+   "g": 0.749,
+   "b": 0.7373,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-dialog-cancel-hover",
+  "raw": "#dee0e3",
+  "resolved": "#dee0e3",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8706,
+   "g": 0.8784,
+   "b": 0.8902,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-dialog-focus-ring",
+  "raw": "rgba(51, 112, 255, 0.45)",
+  "resolved": "rgba(51, 112, 255, 0.45)",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.2,
+   "g": 0.4392,
+   "b": 1.0,
+   "a": 0.45
+  }
+ },
+ {
+  "name": "performance-confirm-z-index",
+  "raw": "2200",
+  "resolved": "2200",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 2200.0
+ },
+ {
+  "name": "performance-drawer-z-index",
+  "raw": "2200",
+  "resolved": "2200",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 2200.0
+ },
+ {
+  "name": "performance-overlay",
+  "raw": "rgba(0, 0, 0, 0.45)",
+  "resolved": "rgba(0, 0, 0, 0.45)",
+  "section": "Performance shared component tokens",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0,
+   "g": 0.0,
+   "b": 0.0,
+   "a": 0.45
+  }
+ },
+ {
+  "name": "performance-button-height",
+  "raw": "32px",
+  "resolved": "32px",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 32.0
+ },
+ {
+  "name": "performance-button-height-small",
+  "raw": "28px",
+  "resolved": "28px",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 28.0
+ },
+ {
+  "name": "performance-button-min-width",
+  "raw": "80px",
+  "resolved": "80px",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 80.0
+ },
+ {
+  "name": "performance-button-padding-x",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "performance-button-icon-size",
+  "raw": "24px",
+  "resolved": "24px",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 24.0
+ },
+ {
+  "name": "performance-button-radius",
+  "raw": "var(--radius-md)",
+  "resolved": "6px",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 6.0
+ },
+ {
+  "name": "performance-button-gap",
+  "raw": "var(--spacing-3)",
+  "resolved": "12px",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 12.0
+ },
+ {
+  "name": "performance-button-font-size",
+  "raw": "var(--font-size-md)",
+  "resolved": "14px",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 14.0
+ },
+ {
+  "name": "performance-button-line-height",
+  "raw": "22px",
+  "resolved": "22px",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 22.0
+ },
+ {
+  "name": "performance-button-font-weight",
+  "raw": "400",
+  "resolved": "400",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 400.0
+ },
+ {
+  "name": "performance-button-focus-ring",
+  "raw": "var(--shadow-focus)",
+  "resolved": "0 0 0 3px rgba(51, 112, 255, 0.16)",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "0 0 0 3px rgba(51, 112, 255, 0.16)"
+ },
+ {
+  "name": "performance-button-primary-background",
+  "raw": "var(--color-primary)",
+  "resolved": "#3370ff",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.2,
+   "g": 0.4392,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-primary-hover-background",
+  "raw": "var(--color-primary-hover)",
+  "resolved": "#1456f0",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0784,
+   "g": 0.3373,
+   "b": 0.9412,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-primary-active-background",
+  "raw": "var(--color-primary-active)",
+  "resolved": "#245bdb",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.1412,
+   "g": 0.3569,
+   "b": 0.8588,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-primary-disabled-background",
+  "raw": "var(--color-surface-disabled)",
+  "resolved": "#eff0f1",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9373,
+   "g": 0.9412,
+   "b": 0.9451,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-primary-text",
+  "raw": "var(--color-bg-card)",
+  "resolved": "#ffffff",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 1.0,
+   "g": 1.0,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-secondary-background",
+  "raw": "var(--color-bg-card)",
+  "resolved": "#ffffff",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 1.0,
+   "g": 1.0,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-secondary-hover-background",
+  "raw": "var(--color-surface-disabled)",
+  "resolved": "#eff0f1",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9373,
+   "g": 0.9412,
+   "b": 0.9451,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-secondary-border",
+  "raw": "var(--color-line-control)",
+  "resolved": "#d0d3d6",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8157,
+   "g": 0.8275,
+   "b": 0.8392,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-secondary-text",
+  "raw": "var(--color-text-primary)",
+  "resolved": "#1f2329",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.1216,
+   "g": 0.1373,
+   "b": 0.1608,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-text-color",
+  "raw": "var(--color-primary-hover)",
+  "resolved": "#1456f0",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0784,
+   "g": 0.3373,
+   "b": 0.9412,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-text-hover-background",
+  "raw": "rgba(20, 86, 240, 0.2)",
+  "resolved": "rgba(20, 86, 240, 0.2)",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0784,
+   "g": 0.3373,
+   "b": 0.9412,
+   "a": 0.2
+  }
+ },
+ {
+  "name": "performance-button-text-active-background",
+  "raw": "rgba(20, 86, 240, 0.32)",
+  "resolved": "rgba(20, 86, 240, 0.32)",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0784,
+   "g": 0.3373,
+   "b": 0.9412,
+   "a": 0.32
+  }
+ },
+ {
+  "name": "performance-button-danger-background",
+  "raw": "var(--color-danger)",
+  "resolved": "#d83931",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8471,
+   "g": 0.2235,
+   "b": 0.1922,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-danger-hover-background",
+  "raw": "#b42318",
+  "resolved": "#b42318",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.7059,
+   "g": 0.1373,
+   "b": 0.0941,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-button-danger-text",
+  "raw": "var(--color-bg-card)",
+  "resolved": "#ffffff",
+  "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 1.0,
+   "g": 1.0,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-field-border",
+  "raw": "var(--performance-control-border)",
+  "resolved": "#d0d3d6",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8157,
+   "g": 0.8275,
+   "b": 0.8392,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-field-border-hover",
+  "raw": "var(--color-text-placeholder)",
+  "resolved": "#8f959e",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.5608,
+   "g": 0.5843,
+   "b": 0.6196,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-field-border-focus",
+  "raw": "var(--performance-control-focus-border)",
+  "resolved": "#1456f0",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0784,
+   "g": 0.3373,
+   "b": 0.9412,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-field-focus-ring",
+  "raw": "var(--performance-control-focus-ring)",
+  "resolved": "0 0 0 3px rgba(51, 112, 255, 0.16)",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "0 0 0 3px rgba(51, 112, 255, 0.16)"
+ },
+ {
+  "name": "performance-field-border-invalid",
+  "raw": "var(--color-text-danger-strong)",
+  "resolved": "#f54a45",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9608,
+   "g": 0.2902,
+   "b": 0.2706,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-field-error-color",
+  "raw": "var(--color-text-danger-strong)",
+  "resolved": "#f54a45",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9608,
+   "g": 0.2902,
+   "b": 0.2706,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-field-error-font-size",
+  "raw": "var(--font-size-sm)",
+  "resolved": "13px",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 13.0
+ },
+ {
+  "name": "performance-field-error-line-height",
+  "raw": "20px",
+  "resolved": "20px",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 20.0
+ },
+ {
+  "name": "performance-field-error-gap",
+  "raw": "var(--spacing-1)",
+  "resolved": "4px",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 4.0
+ },
+ {
+  "name": "performance-field-help-color",
+  "raw": "var(--color-text-secondary)",
+  "resolved": "#5c6b82",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.3608,
+   "g": 0.4196,
+   "b": 0.5098,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-field-disabled-background",
+  "raw": "var(--color-surface-page)",
+  "resolved": "#f4f6f9",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9569,
+   "g": 0.9647,
+   "b": 0.9765,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-field-disabled-text",
+  "raw": "var(--color-text-placeholder)",
+  "resolved": "#8f959e",
+  "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.5608,
+   "g": 0.5843,
+   "b": 0.6196,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "performance-dialog-overlay",
+  "raw": "var(--performance-overlay)",
+  "resolved": "rgba(0, 0, 0, 0.45)",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0,
+   "g": 0.0,
+   "b": 0.0,
+   "a": 0.45
+  }
+ },
+ {
+  "name": "performance-dialog-content-gap",
+  "raw": "var(--spacing-6)",
+  "resolved": "24px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 24.0
+ },
+ {
+  "name": "performance-dialog-content-bottom-space",
+  "raw": "var(--performance-dialog-footer-height)",
+  "resolved": "56px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 56.0
+ },
+ {
+  "name": "performance-dialog-close-size",
+  "raw": "28px",
+  "resolved": "28px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 28.0
+ },
+ {
+  "name": "performance-dialog-header-height",
+  "raw": "72px",
+  "resolved": "72px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 72.0
+ },
+ {
+  "name": "performance-dialog-footer-gap",
+  "raw": "var(--performance-button-gap)",
+  "resolved": "12px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 12.0
+ },
+ {
+  "name": "performance-drawer-header-height",
+  "raw": "56px",
+  "resolved": "56px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 56.0
+ },
+ {
+  "name": "performance-drawer-footer-height",
+  "raw": "61px",
+  "resolved": "61px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 61.0
+ },
+ {
+  "name": "performance-drawer-footer-padding-x",
+  "raw": "var(--spacing-5)",
+  "resolved": "20px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 20.0
+ },
+ {
+  "name": "performance-fullscreen-footer-height",
+  "raw": "48px",
+  "resolved": "48px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 48.0
+ },
+ {
+  "name": "performance-fullscreen-footer-padding-x",
+  "raw": "var(--spacing-5)",
+  "resolved": "20px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 20.0
+ },
+ {
+  "name": "performance-fullscreen-content-bottom-space",
+  "raw": "var(--performance-fullscreen-footer-height)",
+  "resolved": "48px",
+  "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+  "layer": "component",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 48.0
+ },
+ {
+  "name": "font-sans",
+  "raw": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+  "resolved": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+  "section": "Font",
+  "layer": "base",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif"
+ },
+ {
+  "name": "font-mono",
+  "raw": "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+  "resolved": "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+  "section": "Font",
+  "layer": "base",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace"
+ },
+ {
+  "name": "font-size-xs",
+  "raw": "12px",
+  "resolved": "12px",
+  "section": "Font",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 12.0
+ },
+ {
+  "name": "font-size-sm",
+  "raw": "13px",
+  "resolved": "13px",
+  "section": "Font",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 13.0
+ },
+ {
+  "name": "font-size-md",
+  "raw": "14px",
+  "resolved": "14px",
+  "section": "Font",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 14.0
+ },
+ {
+  "name": "font-size-lg",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Font",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "font-size-xl",
+  "raw": "20px",
+  "resolved": "20px",
+  "section": "Font",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 20.0
+ },
+ {
+  "name": "font-size-2xl",
+  "raw": "24px",
+  "resolved": "24px",
+  "section": "Font",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 24.0
+ },
+ {
+  "name": "line-height-tight",
+  "raw": "1.3",
+  "resolved": "1.3",
+  "section": "Font",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 1.3
+ },
+ {
+  "name": "line-height-base",
+  "raw": "1.5",
+  "resolved": "1.5",
+  "section": "Font",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 1.5
+ },
+ {
+  "name": "line-height-loose",
+  "raw": "1.7",
+  "resolved": "1.7",
+  "section": "Font",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 1.7
+ },
+ {
+  "name": "color-primary",
+  "raw": "#3370ff",
+  "resolved": "#3370ff",
+  "section": "Brand",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.2,
+   "g": 0.4392,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-primary-hover",
+  "raw": "#1456f0",
+  "resolved": "#1456f0",
+  "section": "Brand",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0784,
+   "g": 0.3373,
+   "b": 0.9412,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-primary-active",
+  "raw": "#245bdb",
+  "resolved": "#245bdb",
+  "section": "Brand",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.1412,
+   "g": 0.3569,
+   "b": 0.8588,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-primary-light",
+  "raw": "#eef2ff",
+  "resolved": "#eef2ff",
+  "section": "Brand",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9333,
+   "g": 0.949,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-primary-subtle",
+  "raw": "#f5f7ff",
+  "resolved": "#f5f7ff",
+  "section": "Brand",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9608,
+   "g": 0.9686,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-text-primary",
+  "raw": "#1f2329",
+  "resolved": "#1f2329",
+  "section": "Text",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.1216,
+   "g": 0.1373,
+   "b": 0.1608,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-text-regular",
+  "raw": "#374151",
+  "resolved": "#374151",
+  "section": "Text",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.2157,
+   "g": 0.2549,
+   "b": 0.3176,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-text-secondary",
+  "raw": "#5c6b82",
+  "resolved": "#5c6b82",
+  "section": "Text",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.3608,
+   "g": 0.4196,
+   "b": 0.5098,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-text-placeholder",
+  "raw": "#8f959e",
+  "resolved": "#8f959e",
+  "section": "Text",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.5608,
+   "g": 0.5843,
+   "b": 0.6196,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-text-disabled",
+  "raw": "#c4cad4",
+  "resolved": "#c4cad4",
+  "section": "Text",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.7686,
+   "g": 0.7922,
+   "b": 0.8314,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-link",
+  "raw": "#1890ff",
+  "resolved": "#1890ff",
+  "section": "Text",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0941,
+   "g": 0.5647,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-bg-page",
+  "raw": "#f4f6f9",
+  "resolved": "#f4f6f9",
+  "section": "Background",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9569,
+   "g": 0.9647,
+   "b": 0.9765,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-bg-card",
+  "raw": "#ffffff",
+  "resolved": "#ffffff",
+  "section": "Background",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 1.0,
+   "g": 1.0,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-bg-elevated",
+  "raw": "#ffffff",
+  "resolved": "#ffffff",
+  "section": "Background",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 1.0,
+   "g": 1.0,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-bg-subtle",
+  "raw": "#f8fafc",
+  "resolved": "#f8fafc",
+  "section": "Background",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9725,
+   "g": 0.9804,
+   "b": 0.9882,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-bg-hover",
+  "raw": "#f0f5ff",
+  "resolved": "#f0f5ff",
+  "section": "Background",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9412,
+   "g": 0.9608,
+   "b": 1.0,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-border",
+  "raw": "#bbbfc4",
+  "resolved": "#bbbfc4",
+  "section": "Border",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.7333,
+   "g": 0.749,
+   "b": 0.7686,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-border-light",
+  "raw": "#eef1f6",
+  "resolved": "#eef1f6",
+  "section": "Border",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9333,
+   "g": 0.9451,
+   "b": 0.9647,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-border-lighter",
+  "raw": "#f3f6fb",
+  "resolved": "#f3f6fb",
+  "section": "Border",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9529,
+   "g": 0.9647,
+   "b": 0.9843,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-border-strong",
+  "raw": "#d0d7e2",
+  "resolved": "#d0d7e2",
+  "section": "Border",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8157,
+   "g": 0.8431,
+   "b": 0.8863,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-success",
+  "raw": "#12b76a",
+  "resolved": "#12b76a",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.0706,
+   "g": 0.7176,
+   "b": 0.4157,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-success-light",
+  "raw": "#e8f7ee",
+  "resolved": "#e8f7ee",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9098,
+   "g": 0.9686,
+   "b": 0.9333,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-success-border",
+  "raw": "#b7e6c5",
+  "resolved": "#b7e6c5",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.7176,
+   "g": 0.902,
+   "b": 0.7725,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-warning",
+  "raw": "#f5920a",
+  "resolved": "#f5920a",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9608,
+   "g": 0.5725,
+   "b": 0.0392,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-warning-light",
+  "raw": "#fff7e8",
+  "resolved": "#fff7e8",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 1.0,
+   "g": 0.9686,
+   "b": 0.9098,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-warning-border",
+  "raw": "#ffd99a",
+  "resolved": "#ffd99a",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 1.0,
+   "g": 0.851,
+   "b": 0.6039,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-danger",
+  "raw": "#d83931",
+  "resolved": "#d83931",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8471,
+   "g": 0.2235,
+   "b": 0.1922,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-danger-light",
+  "raw": "#fdecec",
+  "resolved": "#fdecec",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9922,
+   "g": 0.9255,
+   "b": 0.9255,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-danger-border",
+  "raw": "#f5c2c2",
+  "resolved": "#f5c2c2",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.9608,
+   "g": 0.7608,
+   "b": 0.7608,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-info",
+  "raw": "#667085",
+  "resolved": "#667085",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.4,
+   "g": 0.4392,
+   "b": 0.5216,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-info-light",
+  "raw": "#f2f4f7",
+  "resolved": "#f2f4f7",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.949,
+   "g": 0.9569,
+   "b": 0.9686,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "color-info-border",
+  "raw": "#d0d5dd",
+  "resolved": "#d0d5dd",
+  "section": "Status",
+  "layer": "base",
+  "kind": "COLOR",
+  "type": "COLOR",
+  "value": {
+   "r": 0.8157,
+   "g": 0.8353,
+   "b": 0.8667,
+   "a": 1.0
+  }
+ },
+ {
+  "name": "spacing-1",
+  "raw": "4px",
+  "resolved": "4px",
+  "section": "Spacing",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 4.0
+ },
+ {
+  "name": "spacing-2",
+  "raw": "8px",
+  "resolved": "8px",
+  "section": "Spacing",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 8.0
+ },
+ {
+  "name": "spacing-25",
+  "raw": "10px",
+  "resolved": "10px",
+  "section": "Spacing",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 10.0
+ },
+ {
+  "name": "spacing-3",
+  "raw": "12px",
+  "resolved": "12px",
+  "section": "Spacing",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 12.0
+ },
+ {
+  "name": "spacing-4",
+  "raw": "16px",
+  "resolved": "16px",
+  "section": "Spacing",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 16.0
+ },
+ {
+  "name": "spacing-5",
+  "raw": "20px",
+  "resolved": "20px",
+  "section": "Spacing",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 20.0
+ },
+ {
+  "name": "spacing-6",
+  "raw": "24px",
+  "resolved": "24px",
+  "section": "Spacing",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 24.0
+ },
+ {
+  "name": "spacing-7",
+  "raw": "32px",
+  "resolved": "32px",
+  "section": "Spacing",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 32.0
+ },
+ {
+  "name": "spacing-8",
+  "raw": "40px",
+  "resolved": "40px",
+  "section": "Spacing",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 40.0
+ },
+ {
+  "name": "radius-xs",
+  "raw": "2px",
+  "resolved": "2px",
+  "section": "Shape",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 2.0
+ },
+ {
+  "name": "radius-sm",
+  "raw": "4px",
+  "resolved": "4px",
+  "section": "Shape",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 4.0
+ },
+ {
+  "name": "radius-md",
+  "raw": "6px",
+  "resolved": "6px",
+  "section": "Shape",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 6.0
+ },
+ {
+  "name": "radius-lg",
+  "raw": "8px",
+  "resolved": "8px",
+  "section": "Shape",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 8.0
+ },
+ {
+  "name": "radius-pill",
+  "raw": "999px",
+  "resolved": "999px",
+  "section": "Shape",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 999.0
+ },
+ {
+  "name": "radius-2xl",
+  "raw": "32px",
+  "resolved": "32px",
+  "section": "Shape",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 32.0
+ },
+ {
+  "name": "shadow-none",
+  "raw": "none",
+  "resolved": "none",
+  "section": "Elevation",
+  "layer": "base",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "none"
+ },
+ {
+  "name": "shadow-card",
+  "raw": "0 1px 2px rgba(31, 35, 41, 0.06)",
+  "resolved": "0 1px 2px rgba(31, 35, 41, 0.06)",
+  "section": "Elevation",
+  "layer": "base",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "0 1px 2px rgba(31, 35, 41, 0.06)"
+ },
+ {
+  "name": "shadow-popover",
+  "raw": "0 8px 20px rgba(31, 35, 41, 0.10)",
+  "resolved": "0 8px 20px rgba(31, 35, 41, 0.10)",
+  "section": "Elevation",
+  "layer": "base",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "0 8px 20px rgba(31, 35, 41, 0.10)"
+ },
+ {
+  "name": "shadow-dialog",
+  "raw": "0 4px 16px 4px rgba(31, 35, 41, 0.03), 0 4px 8px 0 rgba(31, 35, 41, 0.02), 0 2px 4px -4px rgba(31, 35, 41, 0.02)",
+  "resolved": "0 4px 16px 4px rgba(31, 35, 41, 0.03), 0 4px 8px 0 rgba(31, 35, 41, 0.02), 0 2px 4px -4px rgba(31, 35, 41, 0.02)",
+  "section": "Elevation",
+  "layer": "base",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "0 4px 16px 4px rgba(31, 35, 41, 0.03), 0 4px 8px 0 rgba(31, 35, 41, 0.02), 0 2px 4px -4px rgba(31, 35, 41, 0.02)"
+ },
+ {
+  "name": "shadow-focus",
+  "raw": "0 0 0 3px rgba(51, 112, 255, 0.16)",
+  "resolved": "0 0 0 3px rgba(51, 112, 255, 0.16)",
+  "section": "Elevation",
+  "layer": "base",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "0 0 0 3px rgba(51, 112, 255, 0.16)"
+ },
+ {
+  "name": "duration-fast",
+  "raw": "120ms",
+  "resolved": "120ms",
+  "section": "Motion",
+  "layer": "base",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "120ms"
+ },
+ {
+  "name": "duration-base",
+  "raw": "180ms",
+  "resolved": "180ms",
+  "section": "Motion",
+  "layer": "base",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "180ms"
+ },
+ {
+  "name": "ease-standard",
+  "raw": "ease",
+  "resolved": "ease",
+  "section": "Motion",
+  "layer": "base",
+  "kind": "STRING",
+  "type": "STRING",
+  "value": "ease"
+ },
+ {
+  "name": "layout-topbar-height",
+  "raw": "56px",
+  "resolved": "56px",
+  "section": "Layout",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 56.0
+ },
+ {
+  "name": "layout-sidebar-width",
+  "raw": "220px",
+  "resolved": "220px",
+  "section": "Layout",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 220.0
+ },
+ {
+  "name": "layout-content-max-width",
+  "raw": "1440px",
+  "resolved": "1440px",
+  "section": "Layout",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 1440.0
+ },
+ {
+  "name": "z-index-sidebar",
+  "raw": "50",
+  "resolved": "50",
+  "section": "Z index",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 50.0
+ },
+ {
+  "name": "z-index-topbar",
+  "raw": "60",
+  "resolved": "60",
+  "section": "Z index",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 60.0
+ },
+ {
+  "name": "z-index-drawer",
+  "raw": "100",
+  "resolved": "100",
+  "section": "Z index",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 100.0
+ },
+ {
+  "name": "z-index-dialog",
+  "raw": "110",
+  "resolved": "110",
+  "section": "Z index",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 110.0
+ },
+ {
+  "name": "z-index-toast",
+  "raw": "200",
+  "resolved": "200",
+  "section": "Z index",
+  "layer": "base",
+  "kind": "FLOAT",
+  "type": "FLOAT",
+  "value": 200.0
+ }
+]

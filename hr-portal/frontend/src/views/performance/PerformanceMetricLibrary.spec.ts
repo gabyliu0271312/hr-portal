@@ -14,7 +14,8 @@ const stubs = {
   },
   PerformanceCreateButton: {
     props: ['label', 'variant'],
-    template: '<button class="create-button" :aria-label="label"><slot /></button>',
+    emits: ['click'],
+    template: '<button class="create-button" :aria-label="label" @click="$emit(\'click\')"><slot /></button>',
   },
   PerformanceSearchInput: {
     props: ['modelValue', 'placeholder', 'ariaLabel'],
@@ -30,10 +31,20 @@ const stubs = {
     props: ['modelValue'],
     template: '<div v-if="modelValue" class="column-drawer" />',
   },
+  PerformanceMetricCreateDrawer: {
+    props: ['modelValue'],
+    template: '<div v-if="modelValue" class="metric-create-drawer" />',
+  },
+  PerformanceMetricFieldManagementModal: {
+    props: ['modelValue'],
+    template: '<div v-if="modelValue" class="metric-field-management-modal" />',
+  },
+  PerformanceMetricFormulaManagementModal: {
+    props: ['modelValue'],
+    template: '<div v-if="modelValue" class="metric-formula-management-modal" />',
+  },
   ElIcon: { template: '<span class="el-icon"><slot /></span>' },
-  DataAnalysis: { template: '<span />' },
   EditPen: { template: '<span />' },
-  Tickets: { template: '<span />' },
 }
 
 describe('PerformanceMetricLibrary', () => {
@@ -42,9 +53,23 @@ describe('PerformanceMetricLibrary', () => {
 
     expect(wrapper.get('.list-page-title').text()).toBe('指标库')
     expect(wrapper.find('.list-page-title-actions [aria-label="指标库辅助入口"]').exists()).toBe(true)
+    expect(wrapper.get('[aria-label="字段管理"]').text()).toBe('字段管理')
+    expect(wrapper.find('[aria-label="字段管理"] [data-icon="StyleOutlined"]').exists()).toBe(true)
+    expect(wrapper.get('[aria-label="字段管理"]').classes()).toContain('metric-fields-button')
+    expect(wrapper.get('[aria-label="公式管理"]').text()).toBe('公式管理')
+    expect(wrapper.find('[aria-label="公式管理"] [data-icon="FormulaOutlined"]').exists()).toBe(true)
+    expect(wrapper.get('[aria-label="公式管理"]').classes()).toContain('metric-formula-button')
+    expect(wrapper.find('.metric-field-management-modal').exists()).toBe(false)
+    expect(wrapper.find('.metric-formula-management-modal').exists()).toBe(false)
+    await wrapper.get('[aria-label="字段管理"]').trigger('click')
+    expect(wrapper.find('.metric-field-management-modal').exists()).toBe(true)
+    await wrapper.get('[aria-label="公式管理"]').trigger('click')
+    expect(wrapper.find('.metric-formula-management-modal').exists()).toBe(true)
     expect(wrapper.find('.list-page-content .metric-library-content').exists()).toBe(true)
     expect(wrapper.find('input[placeholder="通过名称搜索"]').exists()).toBe(true)
     expect(wrapper.find('.create-button').attributes('aria-label')).toBe('新建指标')
+    await wrapper.find('.create-button').trigger('click')
+    expect(wrapper.find('.metric-create-drawer').exists()).toBe(true)
     expect(wrapper.find('.filter-button').exists()).toBe(true)
     expect(wrapper.get('[aria-label="自定义列"]').text()).toBe('自定义列')
     expect(wrapper.find('[aria-label="自定义列"] [data-icon="ColumnsOutlined"]').exists()).toBe(true)

@@ -1,0 +1,3 @@
+c1=I("2:222", {"type": "frame", "name": "cat:基础表单控件", "layout": "vertical", "gap": 12, "padding": 24, "cornerRadius": 12, "fill": "#FFFFFF", "strokes": [{"type": "SOLID", "color": {"r": 0.8157, "g": 0.8275, "b": 0.8392}, "opacity": 1, "visible": true, "blendMode": "NORMAL"}], "strokeWeight": 1, "x": 0, "y": 560, "width": 1240, "height": "hug_contents"})
+c1t=I("c1", {"type": "text", "name": "分区标题", "content": "02 · 基础表单控件 · 28 个", "fontSize": 15, "fontWeight": "600", "fill": "#1F2329", "fontName": {"family": "Noto Sans SC", "style": "SemiBold"}})
+c1g=I("c1", {"type": "frame", "name": "grid:cat-02", "layout": "wrap", "gap": 10, "width": "fill_container", "height": "hug_contents", "counterAxisAlignContent": "AUTO"})

@@ -1,7 +1,7 @@
 <template>
   <button
     class="performance-icon-button"
-    :class="{ 'is-active': active, 'is-disabled': disabled, 'is-static': static }"
+    :class="{ 'is-active': active, 'is-disabled': disabled, 'is-static': static, 'is-outlined': variant === 'outlined' }"
     type="button"
     :aria-label="label"
     :aria-expanded="expanded === undefined ? undefined : expanded"
@@ -12,11 +12,12 @@
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" :data-icon="icon">
       <path :d="paths[icon] || paths.more" fill="currentColor" />
     </svg>
+    <span v-if="text" class="performance-icon-button__text">{{ text }}</span>
   </button>
 </template>
 
 <script setup lang="ts">
-defineProps<{ icon: string; label: string; disabled?: boolean; active?: boolean; expanded?: boolean; static?: boolean }>()
+defineProps<{ icon: string; label: string; disabled?: boolean; active?: boolean; expanded?: boolean; static?: boolean; variant?: 'default' | 'outlined'; text?: string }>()
 defineEmits<{ click: [event: MouseEvent] }>()
 
 const paths: Record<string, string> = {
@@ -36,10 +37,14 @@ const paths: Record<string, string> = {
 </script>
 
 <style scoped>
-.performance-icon-button { display: grid; place-items: center; width: var(--performance-icon-button-size, var(--performance-button-icon-size)); height: var(--performance-icon-button-size, var(--performance-button-icon-size)); padding: var(--spacing-1); border: 0; border-radius: var(--performance-button-radius); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard); }
+.performance-icon-button { display: inline-flex; align-items: center; justify-content: center; width: var(--performance-icon-button-size, var(--performance-button-icon-size)); height: var(--performance-icon-button-size, var(--performance-button-icon-size)); padding: var(--spacing-1); border: 0; border-radius: var(--performance-button-radius); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard); }
 .performance-icon-button:hover, .performance-icon-button:focus-visible, .performance-icon-button.is-active { background: var(--color-surface-disabled); color: var(--color-action-primary-hover); outline: 0; }
 .performance-icon-button:focus-visible { box-shadow: var(--performance-button-focus-ring); }
 .performance-icon-button:disabled, .performance-icon-button.is-disabled { opacity: .5; cursor: default; }
 .performance-icon-button.is-static { cursor: default; pointer-events: none; }
+.performance-icon-button.is-outlined { width: var(--performance-button-min-width); height: var(--performance-button-height); border: 1px solid var(--performance-button-secondary-border); background: var(--performance-button-secondary-background); color: var(--color-text-primary); }
+.performance-icon-button.is-outlined svg { width: 14px; height: 14px; }
+.performance-icon-button__text { margin-left: var(--spacing-2); font: var(--performance-button-font-weight) var(--performance-button-font-size)/var(--performance-button-line-height) var(--font-sans); white-space: nowrap; }
+.performance-icon-button.is-outlined:hover { background: var(--performance-button-secondary-hover-background); }
 </style>
 

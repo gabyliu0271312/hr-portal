@@ -1,0 +1,1369 @@
+{
+  "source": "hr-portal/frontend/src/styles/tokens.css",
+  "total": 219,
+  "sections": [
+    {
+      "section": "Semantic surface and control aliases",
+      "count": 9,
+      "tokens": [
+        {
+          "name": "--color-surface-page",
+          "value": "var(--color-bg-page)",
+          "layer": "semantic"
+        },
+        {
+          "name": "--color-surface-card",
+          "value": "var(--color-bg-card)",
+          "layer": "semantic"
+        },
+        {
+          "name": "--color-surface-disabled",
+          "value": "#eff0f1",
+          "layer": "semantic"
+        },
+        {
+          "name": "--color-line-control",
+          "value": "#d0d3d6",
+          "layer": "semantic"
+        },
+        {
+          "name": "--color-line-divider",
+          "value": "rgba(31, 35, 41, 0.15)",
+          "layer": "semantic"
+        },
+        {
+          "name": "--color-text-danger-strong",
+          "value": "#f54a45",
+          "layer": "semantic"
+        },
+        {
+          "name": "--color-text-warning-strong",
+          "value": "#ff8800",
+          "layer": "semantic"
+        },
+        {
+          "name": "--color-action-primary",
+          "value": "var(--color-primary)",
+          "layer": "semantic"
+        },
+        {
+          "name": "--color-action-primary-hover",
+          "value": "var(--color-primary-hover)",
+          "layer": "semantic"
+        }
+      ]
+    },
+    {
+      "section": "Performance shared component tokens",
+      "count": 86,
+      "tokens": [
+        {
+          "name": "--performance-content-surface-padding",
+          "value": "var(--spacing-5)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-content-surface-radius",
+          "value": "var(--radius-lg)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-content-surface-background",
+          "value": "var(--color-surface-card)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-content-surface-shadow",
+          "value": "0 1px 4px rgba(31, 35, 41, 0.05)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-page-surface",
+          "value": "#f2f3f5",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-review-surface-inset",
+          "value": "var(--spacing-5)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-review-page-bg",
+          "value": "var(--performance-page-surface)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-review-content-max-width",
+          "value": "984px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-review-completion-bg",
+          "value": "#e4fae1",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-review-completion-icon",
+          "value": "#32a645",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-review-readonly-surface",
+          "value": "#f5f6f7",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-form-surface-width",
+          "value": "800px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-form-surface-page-gap",
+          "value": "var(--spacing-5)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-control-height",
+          "value": "32px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-admin-sidebar-width",
+          "value": "240px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-admin-content-inset",
+          "value": "var(--spacing-5)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-control-height-compact",
+          "value": "30px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-control-radius",
+          "value": "var(--radius-md)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-control-border",
+          "value": "var(--color-line-control)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-control-focus-border",
+          "value": "var(--color-primary-hover)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-control-focus-ring",
+          "value": "var(--shadow-focus)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-input-height",
+          "value": "31px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-input-compact-height",
+          "value": "30px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-input-padding-x",
+          "value": "11px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-input-padding-y",
+          "value": "4px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-input-line-height",
+          "value": "22px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-input-textarea-padding-bottom",
+          "value": "22px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-input-label-gap",
+          "value": "6px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-input-field-gap",
+          "value": "18px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-required-mark-gap",
+          "value": "2px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-required-mark-width",
+          "value": "8px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-header-back-width",
+          "value": "68px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-header-inner-height",
+          "value": "28px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-header-icon-size",
+          "value": "20px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-header-divider-height",
+          "value": "16px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-header-title-size",
+          "value": "var(--font-size-lg)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-header-title-weight",
+          "value": "600",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-header-title-line-height",
+          "value": "24px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-header-action-gap",
+          "value": "var(--spacing-3)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-icon-button-size",
+          "value": "24px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-icon-size",
+          "value": "16px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-line-tabs-ink",
+          "value": "#1456f0",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-line-tabs-text",
+          "value": "#1f2329",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-line-tabs-divider",
+          "value": "rgba(31, 35, 41, 0.15)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-line-tabs-surface",
+          "value": "var(--performance-page-surface)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-page-title-size",
+          "value": "18px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-page-title-weight",
+          "value": "600",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-page-title-line-height",
+          "value": "32px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-page-title-color",
+          "value": "#1f2329",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-page-title-gap",
+          "value": "16px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-switch-width",
+          "value": "28px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-switch-height",
+          "value": "16px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-switch-handler-size",
+          "value": "12px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-switch-off",
+          "value": "#dee0e3",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-checkbox-size",
+          "value": "16px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-checkbox-checked",
+          "value": "#0442d2",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-checkbox-disabled",
+          "value": "var(--color-border)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-label-gap",
+          "value": "8px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-textarea-min-height",
+          "value": "49.3333px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-count-badge-height",
+          "value": "16px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-count-badge-bg",
+          "value": "#eff0f1",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-count-badge-text",
+          "value": "#646a73",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-width",
+          "value": "420px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-width",
+          "value": "600px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-header-height",
+          "value": "72px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-padding-x",
+          "value": "24px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-padding-right",
+          "value": "56px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-field-gap",
+          "value": "28px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-select-indent",
+          "value": "24px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-language-tag-bg",
+          "value": "rgba(31, 35, 41, 0.1)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-language-tag-color",
+          "value": "#646a73",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-radio-size",
+          "value": "16px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-compact-switch-width",
+          "value": "28px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-workbench-editor-compact-switch-height",
+          "value": "16px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-radius",
+          "value": "var(--radius-lg)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-padding",
+          "value": "var(--spacing-6)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-header-padding-right",
+          "value": "56px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-footer-height",
+          "value": "56px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-button-width",
+          "value": "80px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-shadow",
+          "value": "0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-danger-bg",
+          "value": "#fbbfbc",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-cancel-hover",
+          "value": "#dee0e3",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-focus-ring",
+          "value": "rgba(51, 112, 255, 0.45)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-confirm-z-index",
+          "value": "2200",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-drawer-z-index",
+          "value": "2200",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-overlay",
+          "value": "rgba(0, 0, 0, 0.45)",
+          "layer": "component"
+        }
+      ]
+    },
+    {
+      "section": "Shared button tokens: every page-level action should use a button family or Element Plus alias.",
+      "count": 26,
+      "tokens": [
+        {
+          "name": "--performance-button-height",
+          "value": "32px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-height-small",
+          "value": "28px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-min-width",
+          "value": "80px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-padding-x",
+          "value": "16px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-icon-size",
+          "value": "24px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-radius",
+          "value": "var(--radius-md)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-gap",
+          "value": "var(--spacing-3)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-font-size",
+          "value": "var(--font-size-md)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-line-height",
+          "value": "22px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-font-weight",
+          "value": "400",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-focus-ring",
+          "value": "var(--shadow-focus)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-primary-background",
+          "value": "var(--color-primary)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-primary-hover-background",
+          "value": "var(--color-primary-hover)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-primary-active-background",
+          "value": "var(--color-primary-active)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-primary-disabled-background",
+          "value": "var(--color-surface-disabled)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-primary-text",
+          "value": "var(--color-bg-card)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-secondary-background",
+          "value": "var(--color-bg-card)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-secondary-hover-background",
+          "value": "var(--color-surface-disabled)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-secondary-border",
+          "value": "var(--color-line-control)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-secondary-text",
+          "value": "var(--color-text-primary)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-text-color",
+          "value": "var(--color-primary-hover)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-text-hover-background",
+          "value": "rgba(20, 86, 240, 0.2)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-text-active-background",
+          "value": "rgba(20, 86, 240, 0.32)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-danger-background",
+          "value": "var(--color-danger)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-danger-hover-background",
+          "value": "#b42318",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-button-danger-text",
+          "value": "var(--color-bg-card)",
+          "layer": "component"
+        }
+      ]
+    },
+    {
+      "section": "Shared field states: the field shell owns visual state, business controls own value logic.",
+      "count": 12,
+      "tokens": [
+        {
+          "name": "--performance-field-border",
+          "value": "var(--performance-control-border)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-border-hover",
+          "value": "var(--color-text-placeholder)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-border-focus",
+          "value": "var(--performance-control-focus-border)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-focus-ring",
+          "value": "var(--performance-control-focus-ring)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-border-invalid",
+          "value": "var(--color-text-danger-strong)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-error-color",
+          "value": "var(--color-text-danger-strong)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-error-font-size",
+          "value": "var(--font-size-sm)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-error-line-height",
+          "value": "20px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-error-gap",
+          "value": "var(--spacing-1)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-help-color",
+          "value": "var(--color-text-secondary)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-disabled-background",
+          "value": "var(--color-surface-page)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-field-disabled-text",
+          "value": "var(--color-text-placeholder)",
+          "layer": "component"
+        }
+      ]
+    },
+    {
+      "section": "Shared container behavior: used by shells, not as a substitute for a shell.",
+      "count": 12,
+      "tokens": [
+        {
+          "name": "--performance-dialog-overlay",
+          "value": "var(--performance-overlay)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-content-gap",
+          "value": "var(--spacing-6)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-content-bottom-space",
+          "value": "var(--performance-dialog-footer-height)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-close-size",
+          "value": "28px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-header-height",
+          "value": "72px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-dialog-footer-gap",
+          "value": "var(--performance-button-gap)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-drawer-header-height",
+          "value": "56px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-drawer-footer-height",
+          "value": "61px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-drawer-footer-padding-x",
+          "value": "var(--spacing-5)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-fullscreen-footer-height",
+          "value": "48px",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-fullscreen-footer-padding-x",
+          "value": "var(--spacing-5)",
+          "layer": "component"
+        },
+        {
+          "name": "--performance-fullscreen-content-bottom-space",
+          "value": "var(--performance-fullscreen-footer-height)",
+          "layer": "component"
+        }
+      ]
+    },
+    {
+      "section": "Font",
+      "count": 11,
+      "tokens": [
+        {
+          "name": "--font-sans",
+          "value": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+          "layer": "base"
+        },
+        {
+          "name": "--font-mono",
+          "value": "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+          "layer": "base"
+        },
+        {
+          "name": "--font-size-xs",
+          "value": "12px",
+          "layer": "base"
+        },
+        {
+          "name": "--font-size-sm",
+          "value": "13px",
+          "layer": "base"
+        },
+        {
+          "name": "--font-size-md",
+          "value": "14px",
+          "layer": "base"
+        },
+        {
+          "name": "--font-size-lg",
+          "value": "16px",
+          "layer": "base"
+        },
+        {
+          "name": "--font-size-xl",
+          "value": "20px",
+          "layer": "base"
+        },
+        {
+          "name": "--font-size-2xl",
+          "value": "24px",
+          "layer": "base"
+        },
+        {
+          "name": "--line-height-tight",
+          "value": "1.3",
+          "layer": "base"
+        },
+        {
+          "name": "--line-height-base",
+          "value": "1.5",
+          "layer": "base"
+        },
+        {
+          "name": "--line-height-loose",
+          "value": "1.7",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Brand",
+      "count": 5,
+      "tokens": [
+        {
+          "name": "--color-primary",
+          "value": "#3370ff",
+          "layer": "base"
+        },
+        {
+          "name": "--color-primary-hover",
+          "value": "#1456f0",
+          "layer": "base"
+        },
+        {
+          "name": "--color-primary-active",
+          "value": "#245bdb",
+          "layer": "base"
+        },
+        {
+          "name": "--color-primary-light",
+          "value": "#eef2ff",
+          "layer": "base"
+        },
+        {
+          "name": "--color-primary-subtle",
+          "value": "#f5f7ff",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Text",
+      "count": 6,
+      "tokens": [
+        {
+          "name": "--color-text-primary",
+          "value": "#1f2329",
+          "layer": "base"
+        },
+        {
+          "name": "--color-text-regular",
+          "value": "#374151",
+          "layer": "base"
+        },
+        {
+          "name": "--color-text-secondary",
+          "value": "#5c6b82",
+          "layer": "base"
+        },
+        {
+          "name": "--color-text-placeholder",
+          "value": "#8f959e",
+          "layer": "base"
+        },
+        {
+          "name": "--color-text-disabled",
+          "value": "#c4cad4",
+          "layer": "base"
+        },
+        {
+          "name": "--color-link",
+          "value": "#1890ff",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Background",
+      "count": 5,
+      "tokens": [
+        {
+          "name": "--color-bg-page",
+          "value": "#f4f6f9",
+          "layer": "base"
+        },
+        {
+          "name": "--color-bg-card",
+          "value": "#ffffff",
+          "layer": "base"
+        },
+        {
+          "name": "--color-bg-elevated",
+          "value": "#ffffff",
+          "layer": "base"
+        },
+        {
+          "name": "--color-bg-subtle",
+          "value": "#f8fafc",
+          "layer": "base"
+        },
+        {
+          "name": "--color-bg-hover",
+          "value": "#f0f5ff",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Border",
+      "count": 4,
+      "tokens": [
+        {
+          "name": "--color-border",
+          "value": "#bbbfc4",
+          "layer": "base"
+        },
+        {
+          "name": "--color-border-light",
+          "value": "#eef1f6",
+          "layer": "base"
+        },
+        {
+          "name": "--color-border-lighter",
+          "value": "#f3f6fb",
+          "layer": "base"
+        },
+        {
+          "name": "--color-border-strong",
+          "value": "#d0d7e2",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Status",
+      "count": 12,
+      "tokens": [
+        {
+          "name": "--color-success",
+          "value": "#12b76a",
+          "layer": "base"
+        },
+        {
+          "name": "--color-success-light",
+          "value": "#e8f7ee",
+          "layer": "base"
+        },
+        {
+          "name": "--color-success-border",
+          "value": "#b7e6c5",
+          "layer": "base"
+        },
+        {
+          "name": "--color-warning",
+          "value": "#f5920a",
+          "layer": "base"
+        },
+        {
+          "name": "--color-warning-light",
+          "value": "#fff7e8",
+          "layer": "base"
+        },
+        {
+          "name": "--color-warning-border",
+          "value": "#ffd99a",
+          "layer": "base"
+        },
+        {
+          "name": "--color-danger",
+          "value": "#d83931",
+          "layer": "base"
+        },
+        {
+          "name": "--color-danger-light",
+          "value": "#fdecec",
+          "layer": "base"
+        },
+        {
+          "name": "--color-danger-border",
+          "value": "#f5c2c2",
+          "layer": "base"
+        },
+        {
+          "name": "--color-info",
+          "value": "#667085",
+          "layer": "base"
+        },
+        {
+          "name": "--color-info-light",
+          "value": "#f2f4f7",
+          "layer": "base"
+        },
+        {
+          "name": "--color-info-border",
+          "value": "#d0d5dd",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Spacing",
+      "count": 9,
+      "tokens": [
+        {
+          "name": "--spacing-1",
+          "value": "4px",
+          "layer": "base"
+        },
+        {
+          "name": "--spacing-2",
+          "value": "8px",
+          "layer": "base"
+        },
+        {
+          "name": "--spacing-25",
+          "value": "10px",
+          "layer": "base"
+        },
+        {
+          "name": "--spacing-3",
+          "value": "12px",
+          "layer": "base"
+        },
+        {
+          "name": "--spacing-4",
+          "value": "16px",
+          "layer": "base"
+        },
+        {
+          "name": "--spacing-5",
+          "value": "20px",
+          "layer": "base"
+        },
+        {
+          "name": "--spacing-6",
+          "value": "24px",
+          "layer": "base"
+        },
+        {
+          "name": "--spacing-7",
+          "value": "32px",
+          "layer": "base"
+        },
+        {
+          "name": "--spacing-8",
+          "value": "40px",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Shape",
+      "count": 6,
+      "tokens": [
+        {
+          "name": "--radius-xs",
+          "value": "2px",
+          "layer": "base"
+        },
+        {
+          "name": "--radius-sm",
+          "value": "4px",
+          "layer": "base"
+        },
+        {
+          "name": "--radius-md",
+          "value": "6px",
+          "layer": "base"
+        },
+        {
+          "name": "--radius-lg",
+          "value": "8px",
+          "layer": "base"
+        },
+        {
+          "name": "--radius-pill",
+          "value": "999px",
+          "layer": "base"
+        },
+        {
+          "name": "--radius-2xl",
+          "value": "32px",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Elevation",
+      "count": 5,
+      "tokens": [
+        {
+          "name": "--shadow-none",
+          "value": "none",
+          "layer": "base"
+        },
+        {
+          "name": "--shadow-card",
+          "value": "0 1px 2px rgba(31, 35, 41, 0.06)",
+          "layer": "base"
+        },
+        {
+          "name": "--shadow-popover",
+          "value": "0 8px 20px rgba(31, 35, 41, 0.10)",
+          "layer": "base"
+        },
+        {
+          "name": "--shadow-dialog",
+          "value": "0 4px 16px 4px rgba(31, 35, 41, 0.03), 0 4px 8px 0 rgba(31, 35, 41, 0.02), 0 2px 4px -4px rgba(31, 35, 41, 0.02)",
+          "layer": "base"
+        },
+        {
+          "name": "--shadow-focus",
+          "value": "0 0 0 3px rgba(51, 112, 255, 0.16)",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Motion",
+      "count": 3,
+      "tokens": [
+        {
+          "name": "--duration-fast",
+          "value": "120ms",
+          "layer": "base"
+        },
+        {
+          "name": "--duration-base",
+          "value": "180ms",
+          "layer": "base"
+        },
+        {
+          "name": "--ease-standard",
+          "value": "ease",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Layout",
+      "count": 3,
+      "tokens": [
+        {
+          "name": "--layout-topbar-height",
+          "value": "56px",
+          "layer": "base"
+        },
+        {
+          "name": "--layout-sidebar-width",
+          "value": "220px",
+          "layer": "base"
+        },
+        {
+          "name": "--layout-content-max-width",
+          "value": "1440px",
+          "layer": "base"
+        }
+      ]
+    },
+    {
+      "section": "Z index",
+      "count": 5,
+      "tokens": [
+        {
+          "name": "--z-index-sidebar",
+          "value": "50",
+          "layer": "base"
+        },
+        {
+          "name": "--z-index-topbar",
+          "value": "60",
+          "layer": "base"
+        },
+        {
+          "name": "--z-index-drawer",
+          "value": "100",
+          "layer": "base"
+        },
+        {
+          "name": "--z-index-dialog",
+          "value": "110",
+          "layer": "base"
+        },
+        {
+          "name": "--z-index-toast",
+          "value": "200",
+          "layer": "base"
+        }
+      ]
+    }
+  ],
+  "colors": [
+    {
+      "name": "--color-surface-page",
+      "value": "var(--color-bg-page)"
+    },
+    {
+      "name": "--color-surface-card",
+      "value": "var(--color-bg-card)"
+    },
+    {
+      "name": "--color-surface-disabled",
+      "value": "#eff0f1"
+    },
+    {
+      "name": "--color-line-control",
+      "value": "#d0d3d6"
+    },
+    {
+      "name": "--color-line-divider",
+      "value": "rgba(31, 35, 41, 0.15)"
+    },
+    {
+      "name": "--color-text-danger-strong",
+      "value": "#f54a45"
+    },
+    {
+      "name": "--color-text-warning-strong",
+      "value": "#ff8800"
+    },
+    {
+      "name": "--color-action-primary",
+      "value": "var(--color-primary)"
+    },
+    {
+      "name": "--color-action-primary-hover",
+      "value": "var(--color-primary-hover)"
+    },
+    {
+      "name": "--color-primary",
+      "value": "#3370ff"
+    },
+    {
+      "name": "--color-primary-hover",
+      "value": "#1456f0"
+    },
+    {
+      "name": "--color-primary-active",
+      "value": "#245bdb"
+    },
+    {
+      "name": "--color-primary-light",
+      "value": "#eef2ff"
+    },
+    {
+      "name": "--color-primary-subtle",
+      "value": "#f5f7ff"
+    },
+    {
+      "name": "--color-text-primary",
+      "value": "#1f2329"
+    },
+    {
+      "name": "--color-text-regular",
+      "value": "#374151"
+    },
+    {
+      "name": "--color-text-secondary",
+      "value": "#5c6b82"
+    },
+    {
+      "name": "--color-text-placeholder",
+      "value": "#8f959e"
+    },
+    {
+      "name": "--color-text-disabled",
+      "value": "#c4cad4"
+    },
+    {
+      "name": "--color-link",
+      "value": "#1890ff"
+    },
+    {
+      "name": "--color-bg-page",
+      "value": "#f4f6f9"
+    },
+    {
+      "name": "--color-bg-card",
+      "value": "#ffffff"
+    },
+    {
+      "name": "--color-bg-elevated",
+      "value": "#ffffff"
+    },
+    {
+      "name": "--color-bg-subtle",
+      "value": "#f8fafc"
+    },
+    {
+      "name": "--color-bg-hover",
+      "value": "#f0f5ff"
+    },
+    {
+      "name": "--color-border",
+      "value": "#bbbfc4"
+    },
+    {
+      "name": "--color-border-light",
+      "value": "#eef1f6"
+    },
+    {
+      "name": "--color-border-lighter",
+      "value": "#f3f6fb"
+    },
+    {
+      "name": "--color-border-strong",
+      "value": "#d0d7e2"
+    },
+    {
+      "name": "--color-success",
+      "value": "#12b76a"
+    },
+    {
+      "name": "--color-success-light",
+      "value": "#e8f7ee"
+    },
+    {
+      "name": "--color-success-border",
+      "value": "#b7e6c5"
+    },
+    {
+      "name": "--color-warning",
+      "value": "#f5920a"
+    },
+    {
+      "name": "--color-warning-light",
+      "value": "#fff7e8"
+    },
+    {
+      "name": "--color-warning-border",
+      "value": "#ffd99a"
+    },
+    {
+      "name": "--color-danger",
+      "value": "#d83931"
+    },
+    {
+      "name": "--color-danger-light",
+      "value": "#fdecec"
+    },
+    {
+      "name": "--color-danger-border",
+      "value": "#f5c2c2"
+    },
+    {
+      "name": "--color-info",
+      "value": "#667085"
+    },
+    {
+      "name": "--color-info-light",
+      "value": "#f2f4f7"
+    },
+    {
+      "name": "--color-info-border",
+      "value": "#d0d5dd"
+    }
+  ]
+}

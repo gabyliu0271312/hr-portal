@@ -873,11 +873,30 @@ export const performanceTagFillQuestionApi = {
   },
 }
 
+export interface PerformanceMetricTemplateDimension {
+  id: string
+  name: string
+  description: string
+  need_weight: boolean
+  weight: number | null
+  metric_type_ids: number[]
+  allow_reviewee_add_metrics: boolean
+  reviewee_add_method: 'library' | 'library_or_custom'
+  reviewee_scoring_method: 'manual'
+  reviewee_min_one_metric: boolean
+  review_rule_mode: 'same' | 'different'
+  review_rule_id: number | null
+}
+
 export interface PerformanceTemplateCreateRequest {
   name: string
   description: string
   language: 'zh-CN'
   english_enabled: boolean
+  audience_settings_enabled?: boolean
+  template_kind?: 'performance' | 'metric'
+  score_method?: 'manual' | 'dimension_sum' | 'dimension_weighted' | 'custom_formula'
+  dimensions?: PerformanceMetricTemplateDimension[]
   calculation_enabled: boolean
   selected_rules: string[]
 }
@@ -895,6 +914,8 @@ export interface PerformanceTemplateDetail extends PerformanceTemplateCreateRequ
 }
 
 export interface PerformanceTemplateListItem {
+  updated_at?: string
+  updated_by?: string
   template_id: number
   name: string
   description: string
@@ -903,8 +924,8 @@ export interface PerformanceTemplateListItem {
 }
 
 export const performanceTemplateApi = {
-  async list(): Promise<PerformanceTemplateListItem[]> {
-    const { data } = await api.get<PerformanceTemplateListItem[]>('/performance/templates')
+  async list(kind?: 'performance' | 'metric'): Promise<PerformanceTemplateListItem[]> {
+    const { data } = await api.get<PerformanceTemplateListItem[]>('/performance/templates', kind ? { params: { template_kind: kind } } : undefined)
     return data
   },
   async updateStatus(id: number, status: 'active' | 'inactive'): Promise<PerformanceTemplateListItem> {
@@ -915,8 +936,8 @@ export const performanceTemplateApi = {
     const { data } = await api.post<PerformanceTemplateCreateResponse>('/performance/templates', payload)
     return data
   },
-  async get(id: number): Promise<PerformanceTemplateDetail> {
-    const { data } = await api.get<PerformanceTemplateDetail>(`/performance/templates/${id}`)
+  async get(id: number, kind?: 'performance' | 'metric'): Promise<PerformanceTemplateDetail> {
+    const { data } = await api.get<PerformanceTemplateDetail>(`/performance/templates/${id}`, kind ? { params: { template_kind: kind } } : undefined)
     return data
   },
   async update(id: number, payload: PerformanceTemplateCreateRequest): Promise<PerformanceTemplateDetail> {

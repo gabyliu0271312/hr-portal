@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Identity, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, FetchedValue, ForeignKey, ForeignKeyConstraint, Identity, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -729,6 +729,10 @@ class PerformanceTemplate(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="inactive")
     language: Mapped[str] = mapped_column(String(16), nullable=False, default="zh-CN")
     english_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    audience_settings_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    template_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="performance", server_default="performance")
+    score_method: Mapped[str] = mapped_column(String(32), nullable=False, default="manual", server_default="manual")
+    dimensions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     calculation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     selected_rules: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     created_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -736,6 +740,44 @@ class PerformanceTemplate(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+
+class PerformanceMetricField(Base):
+    __tablename__ = "performance_metric_fields"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_performance_metric_fields_name"),
+        UniqueConstraint("display_id", name="uq_performance_metric_fields_display_id"),
+        CheckConstraint("field_type IN ('text', 'number', 'percentage', 'person')", name="ck_performance_metric_field_type"),
+        CheckConstraint("field_type != 'person' OR is_system", name="ck_performance_metric_field_person_system"),
+        CheckConstraint("length(btrim(name)) > 0", name="ck_performance_metric_field_name"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(start=9), primary_key=True)
+    display_id: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=FetchedValue())
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    field_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class PerformanceMetricType(Base):
+    __tablename__ = "performance_metric_types"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_performance_metric_types_name"),
+        CheckConstraint("length(btrim(name)) > 0", name="ck_performance_metric_type_name"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    field_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    created_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 class PerformanceReviewRule(Base):
     """Current evaluation rule configuration referenced by review questions."""

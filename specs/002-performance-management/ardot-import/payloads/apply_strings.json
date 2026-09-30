@@ -1,0 +1,66 @@
+{
+ "Performance Tokens": {
+  "variables": {
+   "performance-content-surface-shadow": {
+    "type": "STRING",
+    "value": "0 1px 4px rgba(31, 35, 41, 0.05)"
+   },
+   "performance-control-focus-ring": {
+    "type": "STRING",
+    "value": "0 0 0 3px rgba(51, 112, 255, 0.16)"
+   },
+   "performance-dialog-shadow": {
+    "type": "STRING",
+    "value": "0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12)"
+   },
+   "performance-button-focus-ring": {
+    "type": "STRING",
+    "value": "0 0 0 3px rgba(51, 112, 255, 0.16)"
+   },
+   "performance-field-focus-ring": {
+    "type": "STRING",
+    "value": "0 0 0 3px rgba(51, 112, 255, 0.16)"
+   },
+   "font-sans": {
+    "type": "STRING",
+    "value": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif"
+   },
+   "font-mono": {
+    "type": "STRING",
+    "value": "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace"
+   },
+   "shadow-none": {
+    "type": "STRING",
+    "value": "none"
+   },
+   "shadow-card": {
+    "type": "STRING",
+    "value": "0 1px 2px rgba(31, 35, 41, 0.06)"
+   },
+   "shadow-popover": {
+    "type": "STRING",
+    "value": "0 8px 20px rgba(31, 35, 41, 0.10)"
+   },
+   "shadow-dialog": {
+    "type": "STRING",
+    "value": "0 4px 16px 4px rgba(31, 35, 41, 0.03), 0 4px 8px 0 rgba(31, 35, 41, 0.02), 0 2px 4px -4px rgba(31, 35, 41, 0.02)"
+   },
+   "shadow-focus": {
+    "type": "STRING",
+    "value": "0 0 0 3px rgba(51, 112, 255, 0.16)"
+   },
+   "duration-fast": {
+    "type": "STRING",
+    "value": "120ms"
+   },
+   "duration-base": {
+    "type": "STRING",
+    "value": "180ms"
+   },
+   "ease-standard": {
+    "type": "STRING",
+    "value": "ease"
+   }
+  }
+ }
+}

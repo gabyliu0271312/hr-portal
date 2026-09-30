@@ -1,6 +1,7 @@
 <template>
   <footer class="performance-drawer-footer" :class="`performance-drawer-footer--${variant}`">
     <PerformanceButton variant="primary" @click="$emit('confirm')">{{ confirmText }}</PerformanceButton>
+    <PerformanceButton v-if="continueText" variant="continue" @click="$emit('continue')">{{ continueText }}</PerformanceButton>
     <PerformanceButton variant="secondary" @click="$emit('cancel')">{{ cancelText }}</PerformanceButton>
   </footer>
 </template>
@@ -8,8 +9,8 @@
 <script setup lang="ts">
 import PerformanceButton from './PerformanceButton.vue'
 
-withDefaults(defineProps<{ confirmText?: string; cancelText?: string; variant?: 'default' | 'captured' }>(), { confirmText: '确定', cancelText: '取消', variant: 'default' })
-defineEmits<{ confirm: []; cancel: [] }>()
+withDefaults(defineProps<{ confirmText?: string; continueText?: string; cancelText?: string; variant?: 'default' | 'captured' }>(), { confirmText: '确定', continueText: '', cancelText: '取消', variant: 'default' })
+defineEmits<{ confirm: []; continue: []; cancel: [] }>()
 </script>
 
 <style scoped>

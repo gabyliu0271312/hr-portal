@@ -1,0 +1,3 @@
+s8=I("2:234", {"type":"frame","name":"swatch:color-action-primary-hover","layout":"vertical","gap":4,"width":148,"height":"hug_contents"})
+s8c=I(s8, {"type":"frame","name":"色块 color-action-primary-hover","width":148,"height":48,"cornerRadius":6,"fill":"var(--color-primary-hover)","strokes":[{"type":"SOLID","color":{"r":0.8157,"g":0.8275,"b":0.8392},"opacity":1,"visible":true,"blendMode":"NORMAL"}],"strokeWeight":1})
+s8t=I(s8, {"type":"text","name":"标签 color-action-primary-hover","content":"color-action-primary-hover\nvar(--color-primary-hover)","fontSize":10,"fontWeight":"400","fill":"#646A73","fontName":{"family":"Noto Sans SC","style":"Regular"},"width":"fill_container"})

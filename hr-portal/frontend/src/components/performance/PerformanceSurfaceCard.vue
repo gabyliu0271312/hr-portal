@@ -16,5 +16,5 @@ defineProps<{
 </script>
 
 <style scoped>
-.surface-card { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; box-sizing: border-box; padding: 20px; border-radius: 8px; background: var(--performance-content-surface-background, #fff); box-shadow: rgba(31, 35, 41, 0.03) 0 4px 16px 4px, rgba(31, 35, 41, 0.02) 0 4px 8px 0, rgba(31, 35, 41, 0.02) 0 2px 4px -4px; font-size: 14px; line-height: 21px; color: #1f2329; }
+.surface-card { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; box-sizing: border-box; padding: var(--spacing-5); border-radius: var(--radius-lg); background: var(--performance-content-surface-background); box-shadow: var(--shadow-dialog); font-size: var(--font-size-md); line-height: 21px; color: var(--color-text-primary); }
 </style>

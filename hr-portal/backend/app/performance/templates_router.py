@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, require_performance_permission
-from app.performance.models import PerformanceAuditEvent, PerformanceTemplate, PerformanceTemplateWorkflow
+from app.performance.models import PerformanceAuditEvent, PerformanceMetricType, PerformanceReviewRule, PerformanceTemplate, PerformanceTemplateWorkflow
 from app.performance.template_workflow_service import (
     PerformanceTemplateWorkflowService,
     TemplateWorkflowValidationError,
@@ -73,12 +75,43 @@ class WorkflowResponse(BaseModel):
     nodes: list[WorkflowNode]
 
 
+class MetricTemplateDimension(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id: str = Field(default_factory=lambda: uuid4().hex, min_length=1, max_length=96)
+    name: str = Field(..., min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+    need_weight: bool = False
+    weight: float | None = Field(default=None, ge=0, le=100)
+    metric_type_ids: list[int] = Field(..., min_length=1, max_length=100)
+    allow_reviewee_add_metrics: bool = False
+    reviewee_add_method: Literal["library", "library_or_custom"] = "library_or_custom"
+    reviewee_scoring_method: Literal["manual"] = "manual"
+    reviewee_min_one_metric: bool = True
+    review_rule_mode: Literal["same", "different"] = "same"
+    review_rule_id: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def validate_ids(self) -> "MetricTemplateDimension":
+        if not self.need_weight:
+            self.weight = None
+        if any(value <= 0 for value in self.metric_type_ids) or len(set(self.metric_type_ids)) != len(self.metric_type_ids):
+            raise ValueError("metric_type_ids must contain unique positive IDs")
+        if self.review_rule_mode == "same" and self.review_rule_id is None:
+            raise ValueError("review_rule_id is required when review_rule_mode is same")
+        return self
+
+
 class TemplateCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     name: str = Field(..., min_length=1, max_length=128)
     description: str = Field(default="", max_length=2000)
     language: Literal["zh-CN"] = "zh-CN"
     english_enabled: bool = False
+    audience_settings_enabled: bool = False
+    template_kind: Literal["performance", "metric"] = "performance"
+    score_method: Literal["manual", "dimension_sum", "dimension_weighted", "custom_formula"] = "manual"
+    dimensions: list[MetricTemplateDimension] = Field(default_factory=list, max_length=100)
     calculation_enabled: bool = False
     selected_rules: list[str] = Field(default_factory=list, max_length=16)
 
@@ -101,6 +134,33 @@ class TemplateListItem(BaseModel):
     description: str
     status: Literal["active", "inactive"]
     created_at: str
+    updated_at: str = ""
+    updated_by: str = ""
+
+
+async def _validate_metric_dimensions(db: AsyncSession, dimensions: list[MetricTemplateDimension]) -> None:
+    if not dimensions:
+        return
+    if any(dimension.need_weight and dimension.weight is None for dimension in dimensions):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "PERFORMANCE_METRIC_DIMENSION_WEIGHT_REQUIRED", "message": "请填写维度权重"},
+        )
+    type_ids = {type_id for dimension in dimensions for type_id in dimension.metric_type_ids}
+    existing_type_ids = set((await db.execute(select(PerformanceMetricType.id).where(PerformanceMetricType.id.in_(type_ids)))).scalars().all())
+    if existing_type_ids != type_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "PERFORMANCE_METRIC_TYPE_NOT_FOUND", "message": "指标维度包含不存在的指标类型"},
+        )
+    rule_ids = {dimension.review_rule_id for dimension in dimensions if dimension.review_rule_id is not None}
+    if rule_ids:
+        existing_rule_ids = set((await db.execute(select(PerformanceReviewRule.id).where(PerformanceReviewRule.id.in_(rule_ids), PerformanceReviewRule.status == "active"))).scalars().all())
+        if existing_rule_ids != rule_ids:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "PERFORMANCE_REVIEW_RULE_NOT_FOUND", "message": "指标维度包含不存在或不可用的评估规则"},
+            )
 
 
 @router.get("", response_model=list[TemplateListItem])
@@ -109,8 +169,9 @@ async def list_templates(
         require_performance_permission("performance.configuration.manage")
     ),
     db: AsyncSession = Depends(get_session),
+    template_kind: Literal["performance", "metric"] = "performance",
 ):
-    rows = (await db.execute(select(PerformanceTemplate).order_by(PerformanceTemplate.created_at.desc()))).scalars().all()
+    rows = (await db.execute(select(PerformanceTemplate).where(PerformanceTemplate.template_kind == template_kind).order_by(PerformanceTemplate.created_at.desc()))).scalars().all()
     return [
         TemplateListItem(
             template_id=row.id,
@@ -118,6 +179,8 @@ async def list_templates(
             description=row.description,
             status=getattr(row, "status", "inactive"),
             created_at=row.created_at.isoformat() if row.created_at else "",
+            updated_at=row.updated_at.isoformat() if row.updated_at else "",
+            updated_by=row.created_by_ref,
         )
         for row in rows
     ]
@@ -131,6 +194,10 @@ def _template_detail(template: PerformanceTemplate) -> TemplateDetailResponse:
         status=getattr(template, "status", "inactive"),
         language=template.language,
         english_enabled=template.english_enabled,
+        audience_settings_enabled=getattr(template, "audience_settings_enabled", False),
+        template_kind=getattr(template, "template_kind", "performance"),
+        score_method=getattr(template, "score_method", "manual"),
+        dimensions=[MetricTemplateDimension.model_validate(item) for item in (getattr(template, "dimensions", None) or [])],
         calculation_enabled=template.calculation_enabled,
         selected_rules=template.selected_rules,
         created_at=template.created_at.isoformat() if template.created_at else "",
@@ -145,9 +212,10 @@ async def get_template(
         require_performance_permission("performance.configuration.manage")
     ),
     db: AsyncSession = Depends(get_session),
+    template_kind: Literal["performance", "metric"] | None = None,
 ):
     template = await db.get(PerformanceTemplate, template_id)
-    if template is None:
+    if template is None or (template_kind is not None and template.template_kind != template_kind):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "TEMPLATE_NOT_FOUND", "message": "绩效模板不存在"},
@@ -165,12 +233,13 @@ async def update_template(
     db: AsyncSession = Depends(get_session),
 ):
     template = await db.get(PerformanceTemplate, template_id)
-    if template is None:
+    if template is None or getattr(template, "template_kind", "performance") != payload.template_kind:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "TEMPLATE_NOT_FOUND", "message": "绩效模板不存在"},
         )
 
+    await _validate_metric_dimensions(db, payload.dimensions)
     name = payload.name.strip()
     existing = await db.execute(
         select(PerformanceTemplate).where(
@@ -189,6 +258,9 @@ async def update_template(
     template.description = payload.description
     template.language = payload.language
     template.english_enabled = payload.english_enabled
+    template.audience_settings_enabled = payload.audience_settings_enabled
+    template.score_method = payload.score_method
+    template.dimensions = [dimension.model_dump(mode="json") for dimension in payload.dimensions]
     template.calculation_enabled = payload.calculation_enabled
     template.selected_rules = payload.selected_rules
     db.add(
@@ -295,18 +367,40 @@ async def create_template(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "PERFORMANCE_TEMPLATE_NAME_DUPLICATE", "message": "该模板名称已存在，请重新输入"},
         )
+    await _validate_metric_dimensions(db, payload.dimensions)
     template = PerformanceTemplate(
         name=payload.name.strip(),
         description=payload.description,
         language=payload.language,
         english_enabled=payload.english_enabled,
+        audience_settings_enabled=payload.audience_settings_enabled,
+        template_kind=payload.template_kind,
+        score_method=payload.score_method,
+        dimensions=[dimension.model_dump(mode="json") for dimension in payload.dimensions],
         calculation_enabled=payload.calculation_enabled,
         selected_rules=payload.selected_rules,
         created_by_type=context.subject_type,
         created_by_ref=str(context.subject_id),
     )
     db.add(template)
-    await db.commit()
+    try:
+        await db.flush()
+        db.add(PerformanceAuditEvent(
+            event_type="PERFORMANCE_TEMPLATE_CREATED",
+            actor_type=context.subject_type,
+            actor_ref=str(context.subject_id),
+            subject_type="PERFORMANCE_TEMPLATE",
+            subject_ref=str(template.id),
+            before_state={},
+            after_state=payload.model_dump(),
+        ))
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "PERFORMANCE_TEMPLATE_NAME_DUPLICATE", "message": "该模板名称已存在，请重新输入"},
+        ) from exc
     await db.refresh(template)
     return TemplateCreateResponse(template_id=template.id, name=template.name)
 

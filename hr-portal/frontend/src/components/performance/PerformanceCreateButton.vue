@@ -2,7 +2,7 @@
 import AddOutlinedIcon from './AddOutlinedIcon.vue'
 
 withDefaults(defineProps<{
-  variant?: 'icon' | 'text'
+  variant?: 'icon' | 'text' | 'wide-icon'
   label?: string
   disabled?: boolean
 }>(), {
@@ -17,14 +17,14 @@ defineEmits<{ click: [] }>()
 <template>
   <button
     class="performance-create-button"
-    :class="`is-${variant}`"
+    :class="[`is-${variant}`, { 'is-icon': variant === 'icon' }]"
     type="button"
-    :aria-label="variant === 'icon' ? `新建${label}` : undefined"
+    :aria-label="variant === 'icon' ? `新建${label}` : variant === 'wide-icon' ? label : undefined"
     :disabled="disabled"
     @click="$emit('click')"
   >
     <AddOutlinedIcon class="create-icon" />
-    <span v-if="variant === 'text'">{{ label }}</span>
+    <span v-if="variant !== 'icon'">{{ label }}</span>
   </button>
 </template>
 
@@ -35,6 +35,9 @@ defineEmits<{ click: [] }>()
 .performance-create-button:focus-visible { outline: 0; box-shadow: var(--performance-button-focus-ring); }
 .performance-create-button:disabled { background: var(--performance-button-primary-disabled-background); border-color: var(--performance-button-primary-disabled-background); color: var(--color-text-disabled); cursor: not-allowed; }
 .performance-create-button.is-icon { width: var(--performance-button-height); padding: 0; border-color: var(--performance-button-secondary-border); background: var(--performance-button-secondary-background); color: var(--color-text-primary); }
-.performance-create-button.is-icon:hover { background: var(--performance-button-secondary-hover-background); border-color: var(--performance-field-border-hover); }
+.performance-create-button.is-icon:hover:not(:disabled) { background: var(--performance-button-secondary-hover-background); border-color: var(--performance-field-border-hover); }
+.performance-create-button.is-wide-icon { width: auto; min-width: var(--performance-create-wide-icon-width); gap: var(--spacing-1); padding-inline: var(--performance-input-padding-x); }
+.performance-create-button.is-wide-icon:hover:not(:disabled) { border-color: var(--performance-button-primary-hover-background); background: var(--performance-button-primary-hover-background); }
+.performance-create-button.is-wide-icon:active:not(:disabled) { border-color: var(--performance-button-primary-active-background); background: var(--performance-button-primary-active-background); }
 .create-icon { width: 14px; height: 14px; }
 </style>

@@ -428,6 +428,8 @@ class _TemplateMetadataDb:
         return _NoDuplicateResult()
 
     def add(self, value):
+        if isinstance(value, PerformanceTemplate) and value.id is None:
+            value.id = 43
         self.added.append(value)
 
     async def delete(self, value):
@@ -435,6 +437,12 @@ class _TemplateMetadataDb:
 
     async def commit(self):
         self.commits += 1
+
+    async def flush(self):
+        return None
+
+    async def rollback(self):
+        return None
 
     async def refresh(self, _value):
         return None
@@ -468,6 +476,32 @@ def _template_admin_context():
 
 
 @pytest.mark.asyncio
+async def test_metric_template_create_persists_kind_and_audience_setting_with_audit():
+    db = _TemplateMetadataDb(None)
+    created = await templates_router.create_template(
+        templates_router.TemplateCreateRequest(
+            name="指标模板",
+            description="指标描述",
+            language="zh-CN",
+            audience_settings_enabled=True,
+            template_kind="metric",
+            score_method="dimension_weighted",
+        ),
+        _template_admin_context(),
+        db,
+    )
+
+    template = next(value for value in db.added if isinstance(value, PerformanceTemplate))
+    audit = next(value for value in db.added if isinstance(value, templates_router.PerformanceAuditEvent))
+    assert created.template_id == 43
+    assert template.template_kind == "metric"
+    assert template.audience_settings_enabled is True
+    assert template.score_method == "dimension_weighted"
+    assert audit.event_type == "PERFORMANCE_TEMPLATE_CREATED"
+    assert audit.after_state["template_kind"] == "metric"
+
+
+@pytest.mark.asyncio
 async def test_template_metadata_get_and_update_round_trip_without_creating_a_new_template():
     db = _TemplateMetadataDb(_template_metadata())
     before = await templates_router.get_template(42, _template_admin_context(), db)
@@ -479,6 +513,7 @@ async def test_template_metadata_get_and_update_round_trip_without_creating_a_ne
             description="修改后的描述",
             language="zh-CN",
             english_enabled=True,
+            audience_settings_enabled=True,
             calculation_enabled=True,
             selected_rules=["content"],
         ),
@@ -491,6 +526,7 @@ async def test_template_metadata_get_and_update_round_trip_without_creating_a_ne
     assert updated.name == "修改后的模板"
     assert updated.description == "修改后的描述"
     assert updated.english_enabled is True
+    assert updated.audience_settings_enabled is True
     assert updated.calculation_enabled is True
     assert updated.selected_rules == ["content"]
     assert db.commits == 1
