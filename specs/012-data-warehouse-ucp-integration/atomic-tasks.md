@@ -5514,6 +5514,22 @@ Canonical owner：数据仓库（`TableColumn` / 数据仓库字段 API）
   - 完成日期：2026-07-05
   - 完成证据：T0203-T0207 全部完成。前端 build 通过（零 TS 错误），后端路由加载正常（23 routes）。DataSource/PushTarget 在无 UCP 环境下完整可用；三个入口（旧接口配置/数据仓库来源与开放/UCP）均不冗余。遗留风险：UCP 未部署时 UCP 资源摘要不可验证，但不阻塞数据仓库功能。
 
+- [ ] T0209 修复 API 暴露经 Nginx 转发后的真实来源 IP 校验（2026-10-10）
+  - 前置任务：T0203；生产日志已确认后端将 Nginx 容器 IP 误判为调用方 IP。
+  - 功能范围：Compose 显式传入 `FORWARDED_ALLOW_IPS`，Uvicorn 显式启用 proxy headers；生产配置仅信任实际 Nginx 地址，业务白名单仍校验调用方出口 IP。
+  - 实现契约：复用 Uvicorn `ProxyHeadersMiddleware` 和 `app.push.router.expose_data`；不直接信任请求头、不使用 `*`、不加入代理 IP 到业务白名单、不改凭证或报表权限。默认仅信任 `127.0.0.1`，保持未配置时拒绝外部代理头。
+  - 发布契约：所有修改在开发仓库完成后提交/推送，生产仅拉取发布版本后部署，不现场编辑源码、Compose 或 `.env`；部署命令从 Docker 元数据取得实际代理 IP 并注入本次后端容器创建，每次重新创建后端或前端 IP 变化后必须刷新。
+  - 代码交付物：`hr-portal/docker-compose.yml`、`hr-portal/.env.example`、`hr-portal/backend/entrypoint.sh`、现有 `test_push_service_entity.py`、现有 `hr-portal/README.md` 的生产部署流程。
+  - UI 要求：不涉及 UI；N 章节不适用。
+  - UCP 协同：只修复既有 PushTarget 入口，不新增连接器、凭证或执行旁路。
+  - 测试要求：覆盖可信代理、非可信代理伪造头、可信代理后的伪造前缀、非白名单真实来源、空白名单、错误凭证、代理 IP 变化后的显式配置刷新；执行现有推送回归与 Compose/启动脚本检查。
+  - 验收标准：白名单来源和有效凭证返回 200，空白名单/非授权来源返回 403，错误凭证返回 401；既有 404 行为不变。生产后端日志显示真实调用方 IP，容器重建导致代理 IP 变化时按部署流程刷新配置并重新创建后端。
+  - [x] T0209a 本地修复及回归验证。
+    - 完成证据：`python -m pytest tests/test_push_service_entity.py tests/test_push_mapping_adapter.py -q`：42 passed（包含新增 8 个代理/鉴权场景及 1 个部署配置检查）；`bash -n entrypoint.sh`、`docker compose config --quiet`、指定代理 IP 的 Compose 环境映射校验、本次修改文件的 `git diff --check` 均通过。
+    - 发布隔离验证：干净 HEAD + 仅本次暂存补丁的临时 worktree 中，42 项推送回归及 Compose 配置验证再次通过，不依赖其他未提交代码。
+    - 验证边界：本地 Docker daemon 未运行，未执行容器级或生产验证；全仓 `git diff --check` 被 011 `implementation-plan.md` 已有冲突标记阻断，与本次修改无关。
+  - [ ] T0209b 生产部署、真实调用方重试和来源 IP 验收（等待用户执行）。
+
 ### T02 修订：抽屉式轻量操作替代页面跳转（2026-07-05 评估决策）
 
 **问题**：此前"来源与开放"Tab 的「配置入仓来源/出仓目标」按钮跳转到旧系统设置接口配置页，旧页又有迁移 Banner 指回仓库，形成死循环。

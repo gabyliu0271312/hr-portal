@@ -34,6 +34,30 @@ curl http://localhost:${FRONTEND_PORT:-8080}/api/v1/health
 
 详细部署说明见 [quickstart.md](../specs/001-hr-permission-portal/quickstart.md)。
 
+## API 暴露的生产更新
+
+代码和 Compose 修改只在开发仓库完成、测试并推送，生产只拉取已发布版本后部署；不得在生产现场编辑源码、启动脚本或 Compose 文件。拉取前先检查当前分支及 `git status --short`，存在生产配置漂移时停止并核对，不使用强制覆盖或整份替换。
+
+Nginx 已转发 `X-Forwarded-For`，后端必须通过 `FORWARDED_ALLOW_IPS` 仅信任实际代理地址。业务 IP 白名单仍填写调用方出口 IP，不填写 Nginx 容器 IP，也不使用 `*` 信任所有代理。
+
+对于已运行的 Docker 部署，在拉取已发布版本后执行以下部署命令。代理地址由 Docker 元数据取得，通过本次 Compose 命令传入容器，不编辑生产 `.env` 或代码文件：
+
+```bash
+FRONTEND_CONTAINER="$(docker compose ps -q frontend)" &&
+  test -n "$FRONTEND_CONTAINER" &&
+  NGINX_IPS="$(docker inspect "$FRONTEND_CONTAINER" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}},{{end}}')" &&
+  NGINX_IPS="${NGINX_IPS%,}" &&
+  test -n "$NGINX_IPS" &&
+  FORWARDED_ALLOW_IPS="$NGINX_IPS" docker compose config --quiet &&
+  FORWARDED_ALLOW_IPS="$NGINX_IPS" docker compose up -d --no-deps --no-build --force-recreate backend
+```
+
+以上命令仅重建后端容器，不重建前端或数据库、不切换镜像，后端启动仍执行既有迁移检查；适用于当前 `./backend:/app` 挂载源码的部署。未挂载源码的镜像部署应先构建或拉取对应发布镜像。
+
+每次后端重新创建，都应使用该命令或由部署流水线注入同样的代理地址。前端重建后 IP 可能变化，需再次执行该命令刷新后端信任列表；只执行 `restart` 不会更新容器环境变量。不注入时默认仅信任 `127.0.0.1`，对外部代理头保持拒绝。
+
+验证：后端容器中的 `FORWARDED_ALLOW_IPS` 等于当前 Nginx IP；调用方使用有效 AppID/AppSecret 拉取时，后端访问日志显示调用方真实 IP。白名单内返回 200，非白名单或空白名单返回 403，错误凭证返回 401。不要将凭证粘贴到日志、工单或版本库。
+
 ## 数据库只读访问配置
 
 数据库消费默认仅绑定本机 `127.0.0.1:5432`。要给外部 BI/SQL 客户端使用时，在 `.env` 设置：

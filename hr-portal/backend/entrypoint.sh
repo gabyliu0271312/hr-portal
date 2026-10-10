@@ -18,4 +18,4 @@ if ! python -c 'from app.push.pg_hba import prepare_pg_hba_managed_block; prepar
 fi
 
 echo "[entrypoint] starting uvicorn..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 "$@"
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers "$@"
