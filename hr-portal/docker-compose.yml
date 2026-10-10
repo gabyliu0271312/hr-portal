@@ -28,6 +28,7 @@ services:
         condition: service_started
     environment:
       APP_ENV: ${APP_ENV:-prod}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       DB_HOST: db
       DB_BIND_HOST: ${DB_BIND_HOST:-127.0.0.1}

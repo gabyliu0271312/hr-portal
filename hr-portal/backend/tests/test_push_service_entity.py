@@ -1,9 +1,10 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy import BigInteger, Column, Date, DateTime, MetaData, Numeric, String, Table
 
 from app.core.secret_box import encrypt
@@ -14,6 +15,8 @@ from app.push import push_service
 from app.push.models import PushTarget
 from app.push.router import _build_integration_documentation, _normalize_query_parameters, _runtime_filters_from_request, _to_out, expose_data
 from tests.entity_helpers import make_legacy_raw_model
+from uvicorn import Config
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 
 pytestmark = pytest.mark.asyncio
@@ -361,6 +364,87 @@ async def test_api_expose_endpoint_returns_json_ready_rows():
             "hire_date": "2021-01-01",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "proxy_ip,peer_ip,forwarded_for,whitelist,app_secret,expected_ip,expected_status",
+    [
+        ("172.19.0.5", "172.19.0.5", "192.168.89.221", ["192.168.89.221"], "secret-1", "192.168.89.221", 200),
+        ("172.20.0.5", "172.20.0.5", "192.168.89.221", ["192.168.89.221"], "secret-1", "192.168.89.221", 200),
+        ("127.0.0.1", "172.19.0.5", "192.168.89.221", ["192.168.89.221"], "secret-1", "172.19.0.5", 403),
+        ("172.19.0.5", "192.168.89.6", "192.168.89.221", ["192.168.89.221"], "secret-1", "192.168.89.6", 403),
+        ("172.19.0.5", "172.19.0.5", "10.100.12.57", ["192.168.89.221"], "secret-1", "10.100.12.57", 403),
+        ("172.19.0.5", "172.19.0.5", "192.168.89.221, 10.100.12.57", ["192.168.89.221"], "secret-1", "10.100.12.57", 403),
+        ("172.19.0.5", "172.19.0.5", "192.168.89.221", [], "secret-1", "192.168.89.221", 403),
+        ("172.19.0.5", "172.19.0.5", "192.168.89.221", ["192.168.89.221"], "wrong-secret", "192.168.89.221", 401),
+    ],
+)
+async def test_api_expose_proxy_headers(
+    monkeypatch, proxy_ip, peer_ip, forwarded_for, whitelist, app_secret, expected_ip, expected_status,
+):
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", proxy_ip)
+    config = Config("app.main:app", proxy_headers=True)
+    pt = PushTarget(
+        id=17,
+        source_table="push_api_entity",
+        push_type="api_expose",
+        settings={"app_id": "app-1", "ip_whitelist": whitelist},
+        secrets_encrypted={"app_secret": encrypt("secret-1")},
+        field_mappings=[],
+        is_active=True,
+    )
+    db = FakeSession(get_obj=pt)
+    loaded = []
+
+    async def load_rows(*args, **kwargs):
+        loaded.append(True)
+        return [{"amount": "1234.50"}]
+
+    async def resolve_policy(*args, **kwargs):
+        return {}
+
+    async def map_rows(rows, *args, **kwargs):
+        return rows
+
+    monkeypatch.setattr(push_service, "_load_source_rows", load_rows)
+    monkeypatch.setattr(push_service, "_resolve_push_mapping_policy", resolve_policy)
+    monkeypatch.setattr(push_service, "execute_push_mapping", map_rows)
+
+    async def app(scope, receive, send):
+        request = Request(scope)
+        assert request.client.host == expected_ip
+        if expected_status == 200:
+            assert await expose_data(17, request, db) == [{"amount": "1234.50"}]
+        else:
+            with pytest.raises(HTTPException) as exc_info:
+                await expose_data(17, request, db)
+            assert exc_info.value.status_code == expected_status
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/push-targets/17/data",
+        "query_string": b"",
+        "scheme": "http",
+        "client": (peer_ip, 41052),
+        "headers": [
+            (b"x-app-id", b"app-1"),
+            (b"x-app-secret", app_secret.encode()),
+            (b"x-forwarded-for", forwarded_for.encode()),
+        ],
+    }
+    await ProxyHeadersMiddleware(app, trusted_hosts=config.forwarded_allow_ips)(scope, None, None)
+    assert bool(loaded) is (expected_status == 200)
+
+
+async def test_api_expose_proxy_deployment_configuration():
+    portal = Path(__file__).resolve().parents[2]
+    compose = (portal / "docker-compose.yml").read_text(encoding="utf-8")
+    entrypoint = (portal / "backend/entrypoint.sh").read_text(encoding="utf-8")
+    env_example = (portal / ".env.example").read_text(encoding="utf-8")
+    assert "      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}" in compose
+    assert 'exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers "$@"' in entrypoint
+    assert "FORWARDED_ALLOW_IPS=127.0.0.1" in env_example
 
 
 async def test_api_expose_endpoint_rejects_inactive_target():
