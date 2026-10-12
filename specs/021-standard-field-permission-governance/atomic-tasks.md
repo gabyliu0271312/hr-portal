@@ -1,0 +1,773 @@
+# 021执行任务：先报表可靠性，后可配置主数据
+
+> 状态：A0生产只读盘点已有证据；X2110本地止损、旧别名兼容和X2111只读诊断已有实现及自动化验证。未部署生产，未通过全部门禁的父任务保持待完成；已完成的本地子项单独勾选。保留原40个父编号，新增X2106/X2127，共42项：A 29项、B 9项、后续4项。编号不连续，执行按依赖。仅当全部具名子项、代码、UI、迁移/回滚及验收通过才勾父项。
+
+## 0. 执行合同与禁止项
+
+- 先读START_HERE/spec、本文件及012 A01/A02/A05、相关N/UI/测试、017 Mapping和011协同；查分支/status，不覆盖已有变更。B依赖A交付，不把X2105/X2174重新加为A前置。
+- 固定新合同：明细D=人员范围，获准事实汇总S=D OR 获准中心范围；同事实只算一次。分析维度不是额外授权AND；成本汇总不得返回人员明细或绕字段权限；普通消费方不选策略。
+- 交付平台仅PC（2026-10-10用户确认）；手机适配/验收不适用、不是上线阻塞。历史手机失败不改写为通过；012其他功能要求不被取消，PC窗口/键盘/权限及生产门禁继续执行。
+- 复用app.permissions.scope_filter/build_scope_filter/_build_scope_filter_for_model、masker.resolve_field_access、reports.sql_builder.run_dataset_query、TableColumn/RegisteredTable/树、DataSet/输出/ACL、standardization_rules及017 adapter。新D/S不能直接用旧cross_filter所有标签OR冒充；适配既有范围原语，不相似重写。
+- 每个后端任务开发前冻结API请求/响应Schema、V/C/U/D/E、最终路径、200/201/400/403/404/409/422适用和稳定错误码；参数化数据，合法identifier工具，不自由SQL/脚本。发布/审核沿U，不新造操作码。
+- UI先细化spec7.2草图并关联012 N03/N04/N05/N06/N07/N09/N12或B N00/N04/N09/N11；沿项目token/PermissionButton/表格五件套，组件拆分、三级菜单SOP。旧N已完成不表示021的新UI已验收。
+- 未映射源业务列可ODS待治理，全新受控业务输出必须批准；稳定身份/输出白名单优先于新门禁，数据刷新不等于发布。
+- 无权/配置失效/真实空数据分开；跨组织汇总内部依赖不得出现在用户明细、调试/审计。新查询不接受旧策略绕过；安全回滚不复活漏洞。
+- 外部旧出口默认不随对象试点迁移；有出口关联而不能隔离旧版本时阻断。A/B均保留外部未治理边界，不以列名一致代替结果/可执行性回归。
+- 具名子项是实施拆分标识，不另计父任务数量；开发证据须逐子项记录，不能单个模块可编译就整项勾选。生产不可达如实阻塞，不制造数字/工期。
+
+## A0. 最小安全基线（不等完整主数据设计）
+
+- [ ] **X2106 最小止损盘点与安全试点清单（新增）**
+  - 前置：无。范围：仅盘点待修报表实际别名/策略/范围/ACL、人员/分摊样例、共享预览/计数/导出/推送调用及旧出口关联；确认无出口试点和生产可访问性。完整资产盘点交X2101，主数据身份交X2105。
+  - 交付：基于当前sql_builder/scope_filter/router/push的可复核路径与授权/字段/金额基线，不改代码/UI/外部。
+  - 验收：分清本地代码和生产证据，记录现有“跳过别名”测试旧预期；不可访问明确阻塞，不以全业务源身份未确定阻止本地安全验证。
+  - 当前进度：用户通过MobaXterm已取生产15报表/18数据集/14出口、源锚点/关联/用户4权限及旧容器代码证据；本机SSH仍不可达。业务金额基线/批准的无出口试点未完成，父任务保持[ ]。下方早期阻塞是历史记录，不代表生产盘点未发生。
+
+- [ ] **X2102 冻结操作粒度决策、表角色与跨Spec冲突**
+  - 前置：X2106。范围：冻结spec2.1/3.3–3.5的D/S、同域标签、并集去重、多维业务筛选、内部键/批准人数指标/个人定位/下钻、事实/参考/桥接分类及所有JOIN期望；legacy不静默重释。
+  - 交付：具名子项X2102.a固定D/S和三事实矩阵；X2102.b固定JOIN/字段用途/错误语义；X2102.c记录005/001/012冲突和旧出口试点隔离规则。
+  - UI：范围提示及拒绝文案按spec7.2，不开发。验收：仅cc中心×组织100/200、org明细F1/F3、双授权汇总600且明细不F2、业务组织筛选不变授权；public_dim是分类非第四策略，单人汇总风险不伪称匿名。
+  - 当前进度：X2102.a/b/c本地决策表及真实生产结构已有记录；实际参考角色批准、完整安全回滚/受影响出口业务差异尚未冻结，父任务保持[ ]。
+
+- [ ] **X2103 查询基线、旧出口与安全回滚合同**
+  - 前置：X2106、X2102。范围：固定既有单元/API/组件/build与真实SQL/环境基线，报表列实例/标签/顺序、行/金额和创建人出口样本；明确legacy/new合同隔离、只选无出口试点和安全暂停路径。
+  - 交付：命令实际结果/未运行、有效性能基线及回滚方案。UI：仅记录旧回显。外部：只读，无端点改造。
+  - 验收：不恢复别名跳过，不能隔离的对象不迁移；模拟73 passed不当安全或真实DB通过；无生产条件不勾灰度。
+  - 当前进度：已运行扩大本地回归及旧生产只读查询，X2110仅作未部署本地候选实现；新实现真实PostgreSQL/旧出口金额与页面P95未验证，父任务保持[ ]，不因此批准上线。
+  - 已完成的本地验证子项（完整执行命令/结果见文末）：
+    - [x] X2103.local.1 已开发模块扩大后端回归：最新426 passed、6 skipped、3 warnings；跳过明确列出，不算通过。
+    - [x] X2103.local.2 报表组件/列表回归：3个文件、6 passed。
+    - [x] X2103.local.3 前端完整vue-tsc类型检查和Vite生产构建通过，不等于生产发布或页面P95。
+    - [x] X2103.isolated_api 普通合成用户的真实HTTP运行/COUNT/CSV/XLSX与审计持久化通过；旧别名ID保持，敏感字段403、只读批准403。仅隔离样例，不是生产金额/出口/P95。
+    - [ ] X2103.production 生产实际金额/列结构、旧出口结果/执行身份与性能基线；新代码隔离PostgreSQL已验证，真实生产门禁未完成。
+
+
+## A1. 现有报表安全止损
+
+- [ ] **X2110 修复别名级权限隐式跳过**
+  - 前置：X2102、X2103。范围：修改reports/sql_builder.py显式策略下不可解析即continue的路径；实际事实/独立桥接必须有约束或配置错误，获准最小参考可按明示合同处理。先做legacy安全修复，不提前自动迁移全部报表；已确认中心授权逐人/匿名逐行放行风险同时拒绝或暂停，不能以legacy为豁免。实际粒度/安全路径不可验证则配置错误；修复缩减或暂停含共享旧出口时记录批准差异。
+  - 交付：X2110.a别名解析/重建失败拒绝；X2110.b更新旧跳过测试并增加部分可解析负例；X2110.c明确错误返回与共享路径非放宽。
+  - UI：运行/导出显示安全错误，不装空表。测试：单/多表、INNER/LEFT/RIGHT/FULL、全部/部分缺配置、无标签/超管、未批准参考；不依赖X2104/X2105/B。
+
+  - 本地已完成子项（只标实现/自动化，不代表父任务或生产验收）：
+    - [x] X2110.a.1 显式策略的不可解析别名返回安全409，删除隐式continue放行。
+    - [x] X2110.a.2 原限制条件重建成None/无限制时拒绝，SELECT与COUNT保留同一限制。
+    - [x] X2110.b.1 四类JOIN×六种范围状态的24个模拟/SQL编译用例通过；拒绝路径不执行数据SELECT。
+    - [x] X2110.c.1 运行、CSV、XLSX、导出取数、推送取数、推送字段与调度7条调用路径传播409，无数据结果/成功提交。
+    - [ ] X2110.c.2 全部受影响生产对象的差异批准、新代码真实SQL/保留侧业务结果及旧出口非放宽验收；中心逐人止损、批准参考和UI仍待完整实施。
+
+- [ ] **X2111 表角色、权限健康审计与修复诊断**
+  - 前置：X2102、X2110。范围：最小记录受控事实/敏感事实/人员桥接/批准公共参考及批准人/理由；扫描scope_role、roster_join_col、树编码、未知角色、别名和受影响报表。
+  - 交付：RegisteredTable/治理服务增量及按别名决策审计；不记员工/金额原值。
+  - UI：管理员诊断，普通用户安全提示。验收：默认受控、未批准不能公共化、400/403/404/422、迁移升降级与敏感审计校验；整张员工表不能参考豁免。
+
+  - 本地已完成子项（非完整安全治理交付）：
+    - [x] X2111.a.1 只读配置分析器：物理锚点、未知策略、无效穿透/不可用花名册、部分域诊断及负例通过。
+    - [x] X2111.a.2 scope-health API及Schema：数据集有效策略、全局花名册解析、去重引用计数和安全元数据响应。
+    - [x] X2111.a.3 真实FastAPI路由/权限依赖的ASGI集成测试：200/401/403/404/422、不授权不泄资产元数据；数据库为模拟会话。
+    - [ ] X2111.b 安全分类/批准人原因持久化、逐别名运行审计及迁移/回滚。
+      - [x] X2111.b.1 本地模型/0253迁移定义及离线SQL测试：RegisteredTable角色/批准身份/原因/版本、默认受控和一致性约束；未执行真实PostgreSQL迁移。
+      - [x] X2111.b.2 GET/PUT分类API本地实现及ASGI验证：warehouse.governance V/U，Schema、401/403/404/409/422、服务端批准身份、expected_version和行锁语句；非生产并发验收。
+      - [x] X2111.b.3 分类变更审计、失败原子回滚及本地验证：SystemLog仅表ID/旧新角色/版本/批准人/原因存在性，不复制自由文本；SQLite实际约束、批准外键与范围不豁免测试通过。
+      - [ ] X2111.b.4 逐别名运行时裁决审计、真实PostgreSQL升降级/并发及生产验收。
+        - [x] X2111.b.4.1 SQL构建器本地逐别名收集及24组合验证：有效legacy策略、restricted/unrestricted/denied/configuration_invalid及稳定原因码，不记录SQL/人员/标签值。
+        - [x] X2111.b.4.2 共享包装本地接入运行/预览/导出/推送/调度，SystemLog独立审计事务；治理日志读取权限测试通过，无真实PostgreSQL持久验证。
+        - [x] X2111.b.4.3 收集器/白名单/独立事务、审计故障及9通道正负例本地测试通过；新D/S合同不假称已执行。
+        - [x] X2111.b.4.db PostgreSQL15.17隔离增量升降级、真实并发批准、分类与审计原子回滚、独立审计保留实测通过；空库全历史链仍有独立冷启动阻塞。
+        - [ ] X2111.b.4.production 旧出口及生产验收；隔离数据库不能代替生产受影响配置、结果和回滚批准。
+
+
+    - [ ] X2111.c 管理员UI、真实PostgreSQL和生产扫描验收。
+      - [x] X2111.c.1 本地治理页健康列表/分类详情和权限/状态组件测试通过；复用PermissionButton和012 N03/N04/N09，真实走查仍待c.visual。
+      - [x] X2111.c.2 本地批准抽屉/expected_version、409核对、重复提交/过期响应保护及20组件用例/28前端回归/完整build通过；对应N0914.a/b。
+      - [ ] X2111.c.visual PC真实浏览器/键盘及生产接口的可用性验收；隔离PC已验证，生产后端尚待，父项不以组件模拟通过替代。
+        - [x] X2111.c.visual.desktop 真实Chrome与真实登录/API通过桌面健康、批准、409保留草稿/主动重载、只读权限和Tab/Escape；截图已查看。
+        - **X2111.c.visual.mobile：不适用。**用户明确本期仅PC，手机走查结果作为历史观察保存，不标通过、不作为待办或上线门禁。
+
+
+
+- [ ] **X2112 Portal运行/计数/导出止损回归**
+  - 前置：X2110、X2111。范围：运行/预览/COUNT/CSV/XLSX统一legacy别名限制和身份，隐藏字段不借筛选/计算/导出泄露；旧报表读写回显保持。
+  - 交付：reports/router/sql_builder及既有测试增量。UI：拒绝/配置错误/有权空数据区别。
+  - 验收：字段/顺序保持、行/金额差异有原因；旧出口结构/范围/可执行性只读对比，不无意扩大。
+
+  - 旧报表兼容的独立已测子项（其余闭环及前置门禁仍未完成）：
+    - [x] X2112.compat.1 单表DWD旧别名在字段校验时解析，不改原config/source_code/instance_id/显示标签/筛选字面值；非DWD/多表/隐藏字段不因兼容放行。
+    - [x] X2112.compat.2 单表执行层按旧alias绑定真实物理表，字符串列/重复列实例输出ID保持，SELECT/COUNT/过滤/排序及人员范围继承验证通过；混用别名安全拒绝，不改注册对象。
+    - [ ] X2112.compat.3 新实现生产运行/预览/计数/CSV/XLSX、共享出口及旧字段标签顺序真实验收；别名仅内部依赖或复杂派生场景须单独复核。
+
+## A2. 标准字段、映射与稳定身份
+
+- [ ] **X2101 完整资产、消费者和出口盘点**
+  - 前置：X2106。范围：全资产/字段/数据集/ACL/角色/报表/出口、创建/发布/刷新/消费入口与published默认值；登记0043旧目录删除、员工字段契约/档案设置、已有动态CRUD及ODS噪音/规范化。
+  - 交付：兼容清单与语义唯一源边界，X2104据此定治理范围；不开发UI/外部。不作为X2110的新阻塞。
+  - 验收：真实样本和代码推测分别标明，不把旧005全局继承当现状、生产未盘点不造数据。
+
+- [ ] **X2104 冻结标准属性、治理运营与发现/发布合同**
+  - 前置：X2101、X2102。范围：spec3.2/3.6全部属性去向、employee_no身份、owner/审核/替补/批量/积压、计算输出、生命周期、稳定字段逻辑身份、技术/业务列、必要值域转换和安全实时性；不先设计B完整存储。
+  - 交付：X2104.a属性/源码引用/首批目录；X2104.bAPI/审核/运营状态及consumer归属；X2104.c新旧准入/失效/安全回滚合同。
+  - UI：目录/源绑定按spec7.2细化。验收：每个V10属性有归属，不工号混内部ID，不无消费者占位，A直接ODS→DWD可运行，B仅后接。
+
+- [ ] **X2120 通用标准字段与版本化绑定元数据**
+  - 前置：X2103、X2104。范围：field_code/定义/类型/适用粒度/语义域/候选锚点/owner/status/version/审计/可选值域，源/输出稳定引用及审核状态；首批按盘点，全新业务输出按需补定义。
+  - 交付：标准目录/绑定唯一模型与迁移，TableColumn/DatasetOutputField最小引用；不保存转换正文或复制敏感分类。
+  - UI由X2133。验收：编码唯一不可变、同名异义、度量非coarse、建议不授权、一列不冲突认领、旧无绑定可读，升降级保持旧编码。
+
+  - 数据库合同子项（本轮只做此部分，不表示目录治理完整可用）：
+    - [x] X2120.meta.1 稳定StandardField、完整语义StandardFieldVersion及既有FieldCategory关联；版本/编码/状态/批准证据约束。
+    - [x] X2120.meta.2 语义绑定只引用TableColumn或DatasetOutputField之一及确定版本，目标唯一、审核状态/来源快照；建议不等于批准，FK不静默换身份。
+    - [x] X2120.meta.3 0254增量迁移、已批准语义不可覆盖/字段编码不可改的PostgreSQL保护、模型/迁移及真实数据库正负例；无新CRUD/UI/消费。
+    - [ ] X2120.release 目录CRUD/生命周期、真实首批owner/字段确认、稳定刷新/安全消费及UI与迁移回滚整体验收，父任务保持待完成。
+
+- [ ] **X2121 校验并复用当前组织/成本中心树**
+  - 前置：X2120。范围：A保留org_unit和cost_center_monthly的构树输入，绑定员工/分摊/维度编码；检查父子/启停/过期/名称path/后代/孤儿与标签。不等待B接管。
+  - 交付：现有OrgNode/CostCenterNode/ScopeTag健康验证，无新权限树。
+  - [x] X2121.health.local 只读组织/成本中心树健康分析：编码重复、孤儿父节点、循环、level/path异常和inactive统计；复用现有OrgNode/CostCenterNode，不新增权限树，异常fail-closed。
+  - UI：健康错误修复入口，不假历史树。验收：ID和展开范围分别比较，重复名称/缺父/环/停用不扩大权限，旧月度口径保持。
+
+- [ ] **X2124 目录管理API与安全生命周期**
+  - 前置：X2120。范围：warehouse.assets V/C/U/D目录搜索/详情/草稿/审核/版本/影响/停用/禁删；固定响应Schema、409并发及原因，未审核不参与新消费。
+  - 交付：X2124.aCRUD/审核；X2124.b引用/影响/版本；X2124.c停用/安全限制/回滚，与已有分类和Mapping分离。
+  - UI由X2133。验收：403/404/400/409/422、旧版只读、被引用禁删、撤权/敏感升级立即生效，语义冻结不冻结安全。
+
+  - 本地后端子项（与业务/生产完成分开）：
+    - [x] X2124.a.local 目录分页检索/详情、草稿创建和编辑、新语义版本、人工批准API；真实权限依赖、Schema/稳定错误、版本并发和原子审计测试。
+    - [x] X2124.b.local 直接绑定引用/固定版本详情及被引用/已批准禁删；仅元数据，不声称全渠道影响扫描完成。
+    - [x] X2124.c.local deprecated/archived单向生命周期及并发/原因记录；不开放绑定，不接入业务消费，安全实时传播留待X2125/X2127/X2126/X2143。
+    - [ ] X2124.release 首批真实owner/审核运营、完整资产/规则/报表/出口影响、当前敏感限制传播及生产生命周期验收。
+
+
+- [ ] **X2125 来源发现确认与唯一转换规则衔接**
+  - 前置：X2104、X2120、X2124。范围：source_field_id/原名/物理码/批次/类型证据，unmapped/suggested/confirmed/invalid；合法未知业务列入ODS，技术噪音有排除证据。确认绑定引用standardization_rules/017 adapter，非第二转换正文。
+  - 交付：X2125.a发现/漂移/分类；X2125.b确认/转换预览与版本适配；X2125.c未知新列和批准旧输出隔离。
+  - 本地子项：
+    - [x] X2125.a.local ODS/DWD来源字段候选发现、稳定源标识/类型/原名回显及未知字段隔离；不改物理源表。
+    - [x] X2125.b.local suggested→confirmed/invalid绑定状态、active语义版本校验、目标唯一和并发令牌；不执行转换正文。
+    - [x] X2125.c.local 来源身份/类型漂移使绑定失效，刷新不借旧绑定放行；完整批次证据、017预览和生产验收留待后续。
+  - UI由X2131。验收：异名工号都确认employee_no、原标识可追溯、漂移失效、同名不自动确认；不足以保留完整报文标边界；旧DWD不被新列污染、不无故停更。
+
+- [ ] **X2127 稳定字段身份与批准输出刷新（新增）**
+  - 前置：X2120、X2125。范围：改standardization.py::execute_full/_sync_dwd_dataset_fields及相关刷新，未变元数据差量更新，保留TableColumn/DatasetOutputField/绑定ID、分类/审核/标签/顺序；数据刷新不发新schema/授权版本。
+  - 交付：X2127.a稳定逻辑键与物理变更迁移；X2127.b替代全量删元数据；X2127.c批准白名单/原子刷新/安全有效旧版与失败回退。
+  - 本地子项：
+    - [ ] X2127.a.local 物理字段变化关联/失效迁移、旧字段不可借稳定ID继续放行；尚未完成。
+    - [x] X2127.b.local DWD刷新按稳定逻辑编码差量保留TableColumn/DatasetOutputField及治理属性；两次隔离PostgreSQL刷新ID保持已验证。
+    - [x] X2127.c.local（本地安全子集）刷新不递增DataSet语义版本、不自动公开新字段；输出/物理类型、来源身份、绑定状态、字段移除漂移拒绝；敏感/可见性只收紧，失败回滚并于提交后更新DATA_TABLES缓存。完整批准白名单/消费准入仍留X2126。
+    - [ ] X2127.c.release 新字段批准白名单、原子刷新失败回退和安全有效旧版；尚未接入消费准入。
+  - UI：引用/失效状态按spec7.2。验收：两次以上真实刷新ID不变、未映射新列不公开、旧报表实例保持、安全分类传播、schema漂移不能借旧元数据放行；迁移/回滚有效。须先于新发布/查询绑定消费。
+
+- [ ] **X2131 源字段发现/确认/转换预览UI**
+  - 前置：X2124、X2125、X2127。范围：全部拟发布业务字段原ID/类型/建议/确认/失效/证据，017 MappingWorkspace预览；现有DataSource/UCP入口不变，不复制凭证/编辑器。
+  - UI：spec7.2、012 U22（同名章节按“字段标准化与清洗规则”内容定位）、N03/N04/N09；加载/未发现/多候选/冲突/只读/失效/PC窗口。
+  - 验收：组件/E2E/build、未知ODS可入且不透DWD、源改名/非权限字段未确认阻断、无权绑定403、UCP不可用降级。
+
+- [ ] **X2133 目录维护与发布影响UI**
+  - 前置：X2120、X2124。范围：既有仓库字段入口增目录、属性、引用/版本/审计、草稿审核停用；旧FieldColumns只读兼容、物理字段及分类入口保持。
+  - UI：spec7.2、012 U03/U22、N03/N04/N09；责任/积压、无匹配先申请、影响确认，无敏感样例。
+  - 验收：组件/E2E/build、空态/无权/版本冲突/草稿不可选/被引用禁删/失效/PC键盘，已有consumer只管展示用途。
+
+## A3. 数据产品与自动明细/汇总授权
+
+- [ ] **X2122 数据产品操作粒度授权合同**
+  - 前置：X2112、X2121、X2127。范围：逐事实身份/人员关联D、可选获准中心汇总S、树/基数/缺归属、参考/桥接角色、输出/指标/分组/筛选/关联白名单及版本；ACL独立保留，不等待X2174。
+  - 交付：DataSet及产品合同增量，X2122.a路径/准入；X2122.b逐事实/内部参考关联；X2122.c引用/影响/legacy迁移。不能只搬scope_strategy或新增普通用户策略选择。
+  - [x] X2122.meta.local 0255增量合同版本表、严格事实/路径/字段Schema、草稿创建/编辑/元数据批准/退休及原子审计；approved不可覆盖。登记≠运行批准，不开放业务消费。
+  - [x] X2122.validation.local 每个来源别名角色、稳定事实键/人员键、实际物理类型、输出和分组/度量/内部字段白名单、模型快照漂移校验；中心汇总、参考、桥接复杂路径暂拒绝元数据批准，留后续树/基数/最小投影验证。
+  - [x] X2122.execution.local 执行准备检查：解析person/allocation/reference/bridge事实角色、D/S候选路径、模型快照和ACL可用性；明确tree/cardinality/sql compiler未接入时eligible=false，runtime_enabled=false，复杂路径不可批准；不执行真实查询。
+  - [ ] X2122.execution 事实集合D/S、批准关系基数/树路径及生产试点、UI和当前ACL回归；不得以meta完成替代执行合同完成。
+  - UI：spec7.2产品底座一次配置、健康解释。验收：个人产品无自动中心特许，多维组织不AND组织授权，多事实不借单事实OR放行；未知路径/字段/敏感参考/关联拒绝，空授权和配置失效分开。
+
+- [ ] **X2126 全业务输出发布/刷新/消费准入**
+  - 前置：X2122、X2124、X2125、X2127。范围：全部新DWD/消费业务输出active+confirmed+转换有效，事实/授权路径及获准维度/指标通过；技术列不业务选用。先校验后替换产物，批准白名单固定。
+  - 交付：X2126.a唯一服务端资格校验；X2126.b覆盖API/自动化生成/刷新；X2126.c预览/新报表/消费防旁路，新旧状态版本区分。
+  - 本地子项：
+    - [x] X2126.a.local 唯一服务端完整资格校验与发布：字段通过不等于发布通过，缺X2122事实/授权路径及转换证据时明确拒绝完整发布。
+    - [x] X2126.a.fields 本地字段资格校验：全部输出confirmed+active，真实物理字段/类型、来源身份、可见/敏感限制及技术列；fields_eligible独立于eligible，缺授权/转换合同拒绝发布。
+    - [ ] X2126.b.local 覆盖所有生成/刷新/预览/新报表消费入口；尚未接入全渠道。
+    - [ ] X2126.c.local 新旧状态版本隔离、消费旁路阻断和生产迁移回滚；尚未完成。
+  - UI：逐字段阻断和修复由X2130/X2132。验收：锚点合格但普通列未绑定仍拒绝、伪造published不放行、新ODS列不透、旧资产不整体下线、失败无部分新列公开、真实迁移回滚。
+
+- [ ] **X2123 准入健康摘要与安全变更影响**
+  - 前置：X2126、X2124。范围：汇总标准绑定/转换/事实路径/参考维度/字段分类/schema状态、精确修复入口；已发布变更差异及批准版本，不重复建一套门禁。
+  - 交付：复用X2126校验结果及impact，语义/授权变更审计。
+  - [x] X2123.health.local 只读健康摘要复用X2126结果及ImpactAnalyzer.scan_model；区分字段资格与完整准入，返回报表/指标引用及检查覆盖边界，不假称外部出口盘点完整；真实API权限/失败/变更即时复核测试，无UI。
+  - UI：spec7.2发布前通过/待治理/阻断；验收400/403/404/409/422、缺必要路径拒绝，旧版兼容不延迟安全限制。
+
+- [ ] **X2130 手工资产/字段选择标准定义**
+  - 前置：X2120、X2124、X2123。范围：CreateTableDialog/WarehouseAssetColumns及已有字段API；业务选active目录，缺项先申请，技术列明确且不业务消费；新资产待治理，不改旧物理列名。
+  - UI：spec7.2、012 U03/U22、N03/N04，空目录/冲突/无权/PC表单；新批准合同隐藏旧策略选择、legacy编辑回显保持。
+  - 验收：组件/API/E2E/build，C/U、类型/重复/技术伪装、新建前后元数据；源自动发现仍可未映射ODS，不提供客户端策略降权。
+
+- [ ] **X2132 数据集健康与报表策略入口收口**
+  - 前置：X2122、X2123、X2130。范围：数据集全字段状态/获准D/S能力/维度指标/健康；报表自动裁决有效形态和当前授权范围，旧策略仅legacy回显，不删旧API/DB字段。不等待主数据DWD。
+  - UI：spec7.2、012 N05/N06/N07/N12；中心×组织正常预览，混合/部分贡献不显示全量，普通用户不见隐藏元数据。
+  - 验收：组件/E2E/build、新旧创建/保存、无准入阻断、伪造策略不绕过、下钻重新人员授权、导出/列实例保持。
+
+- [ ] **X2140 实际查询计划与操作粒度判定**
+  - 前置：X2122、X2123、X2127。范围：sql_builder实际投影/过滤/分组/排序/JOIN/计算/名单/数值拆分/透视/维度归并/运行覆盖和最终形态，按spec3.4判D或S；无关表不加域，但影响基数的关联不可任意省略。
+  - 交付：X2140.a完整依赖/粒度；X2140.b内部员工键与批准人数指标；X2140.c个人定位/派生/后处理安全检查。不仅依据grain_level或aggregate参数。
+  - [x] X2140.plan.local 服务端实际请求计划形态判定：明细/汇总、字段白名单、度量聚合、个人定位和未知依赖阻断；不信任客户端summary/aggregate开关，不执行SQL，运行时授权仍由X2122/X2141完成。
+  - UI：管理员原因可定位，普通用户安全形态提示。验收：匿名逐行、员工分组/筛选/名单、计算标识仍明细；组织×中心真实聚合、JOIN内部键、批准COUNT DISTINCT可汇总；未知依赖拒绝，重复实例保持。
+
+- [ ] **X2141 逐事实D/S编译与多维汇总引擎**
+  - 前置：X2140、X2110。范围：现有范围/字段原语适配D和S；明细仅D，获准分摊汇总D OR中心集合，不先D抹贡献；业务条件再AND，事实集合去重、逐事实限制、获准参考最小投影。
+  - 交付：X2141.a范围表达式/同域标签；X2141.b先受控后JOIN、LEFT/RIGHT/FULL/NULL；X2141.c聚合/COUNT/金额及独立多事实安全。避免相似重写或任意SQL，S不返回底层明细。
+  - UI：配置失效/无权/范围摘要。验收：真实SQL复核spec2.1的100/200/300/600、不700；org-only跨所有中心明细、cc-only无明细、多维不AND组织，独立事实/一对多/笛卡尔积拒绝，字段保护和计数一致；内部锚点不因输出裁剪/物化丢失，不按某使用者D加工成所有消费者产物而抹掉S贡献。
+
+- [ ] **X2142 旧报表版本试点与安全回退**
+  - 前置：X2141、X2112、X2132。范围：人员/分摊及旧多表无出口试点，保存legacy/new产品和报表迁移记录、固定数据/用户/字段/结果差异；经批准切换，不依赖X2176。
+  - 交付：X2142.a无出口选样/版本隔离；X2142.b对照/批准切换；X2142.c安全回退。绑定旧出口而不能固定兼容版本则阻断试点。
+  - UI：新/旧状态、范围/形态和审计，用户不能手选降低权限。
+  - 验收：旧实例/中文表头/顺序保持，减少/增加的业务结果有批准原因；旧出口只读结构/行/金额/身份/可执行性非放宽回归；回滚不恢复漏洞。
+
+- [ ] **X2143 Portal运行、计数、预览、导出与下钻闭环**
+  - 前置：X2141、X2142。范围：同用户相同计划、D/S与字段裁决，分组COUNT、批准人数指标、CSV/XLSX及后处理不旁路；下钻新请求用D，中心汇总参与人员不作为明细授权。
+  - 交付：reports/router/export及预览调用一致性和测试，混合范围提示不伪全量。
+  - UI：spec7.2、012 N07/N12加载/无权/失效/空态/导出失败；不新增外部功能。
+  - 验收：行/金额/分组数/表头/隐藏字段比对，跨组织原始明细不进响应/日志，个人筛选不能S定位，撤权下次请求生效，旧出口未迁移风险保持。
+
+## A4. 先独立验收报表可靠性
+
+- [ ] **X2150 A自动化与真实执行回归**
+  - 前置：X2143、X2126、X2131、X2133。范围：单元/API/真实PostgreSQL/迁移、组件/E2E/build，覆盖D/S/全部JOIN、个人定位/下钻/人数、多维、刷新ID/输出白名单、默认状态/直接API/自动化旁路、旧报表/出口。
+  - 交付：X2150.a安全矩阵与真实金额；X2150.b治理/刷新/版本/迁移；X2150.c前端与兼容。无需B实体/接管测试，B由X2177追加。
+  - 验收：记录命令和实际结果/未运行、零合同越权、字段契约100%保持；模拟单测不代替真实查询，未运行不写通过。
+
+- [ ] **X2154 A来源→DWD链路专项验收**
+  - 前置：X2125、X2126、X2127、X2130、X2131、X2150。范围：两种源工号及非权限字段，来源发现/原标识→人工确认employee_no→既有规则→批准DWD→数据集/报表；不经过新主数据。
+  - UI：待确认/预览/阻断/成功及刷新后证据。验收：业务输出100%绑定、无确认/不兼容/未验证/路径失效100%阻断，未知新ODS业务列不穿透、批准旧DWD继续刷新、ID/审核/分类不丢、技术列内部化。先专项后生产灰度。
+
+- [ ] **X2153 A字段治理实际使用验收**
+  - 前置：X2104、X2124、X2133、X2150、X2154。范围：草稿→审核→绑定→真实产品/查询消费→影响变更→安全回滚→停用/禁删，owner/替补/批量/积压可见；验证目录不是空壳。
+  - UI：引用/版本/审核证据。验收：全部新业务输出及试点关键字段100%确认，未来属性不假执行，旧语义不冻结安全升级，employee_no/内部ID不混，同义复用与consumer职责可复核。
+
+- [ ] **X2151 A生产灰度、性能与安全回滚**
+  - 前置：X2150、X2154、X2153、X2101。范围：先真实专项再生产试点，固定数据/用户/查询/环境，比对多维金额/明细范围/刷新/有效P95；演练撤试点及字段/合同回退。
+  - UI：回退/批准/差异/失败指引。验收：批准人和实际证据，P95≤基线+20%，记录内部计算量；无生产条件不能勾，不恢复漏洞、不能隔离的旧出口不迁移。
+
+- [ ] **X2152 A交付与主数据后续边界确认**
+  - 前置：X2150、X2154、X2153、X2151。范围：独立交付spec6.2九项，更新A状态/证据/残余风险、B未实施清单，外部未治理/历史/单人组/旧未迁移明确。
+  - 交付：现有文档和验收记录，不因A完成宣称整个021完成；不依赖X2105/X217x。
+  - 验收：UI/真实命令/兼容/迁移回滚可复核，A九项均有证据或任务保持阻塞；先完成A再启动B运行建设。
+
+## B5. 可配置主数据：身份、实体、关系及通用记录
+
+- [ ] **X2105 B身份、存储、实体授权与同步合同冻结**
+  - 前置：X2152。范围：现有北森落库源稳定身份/业务键、物理ID/employee_no/master_record_id/未来雇佣段、实体列存储及DATA_TABLES适配；实体访问主体/owner、关系范围、external_sync/local；来源批次完整性/水位/消失/重现/字段缺失语义及树切换。
+  - 交付：X2105.a源身份/0重导样本；X2105.b存储/约束/字段分类与范围适配；X2105.c实体资源授权、Schema/menu及可靠同步/回滚合同。不做源真实性评分。
+  - UI：spec7.2 B流程及关系选择授权草图。验收：不姓名/物理ID合并、不JSON退回旁路、不菜单V自动读所有实体；未知源身份或环境阻塞显式记录，不反向阻塞A。
+
+- [ ] **X2170 可配置实体、属性和业务关系元数据**
+  - 前置：X2105、X2120、X2124。范围：唯一通用实体编码/ID/owner/版本，已批准标准属性/类型/必填/唯一/业务键；1:1/1:N/关联实体N:M、目标/完整性/限制删除，不覆盖DataSet分析JOIN。
+  - 交付：X2170.a定义/版本/迁移；X2170.b关系/引用；X2170.c配置变更影响/回滚。每个新增实体不复制Schema/路由。
+  - UI由X2172。验收：重复码/字段、非法类型/悬空/循环必填/未发布字段拒绝、旧记录版本兼容、升降级不改旧仓库/报表。
+
+- [ ] **X2171 通用记录存储、约束、来源与授权**
+  - 前置：X2170、X2143。范围：任意已发布实体的持久ID/标准值/关系/写者/来源、CRUD/停用、配置版本/审计；复用现有实体列/字段裁决/人员范围并按X2105适配，不重建一套角色。
+  - 交付：X2171.a通用存储/类型/必填/唯一/事务；X2171.b来源身份/幂等/并发/版本；X2171.c实体资源访问/D/关系选择器/字段/COUNT及导出；X2171.d受控写者/操作审计/安全回滚。每子项分别验证才勾父项。
+  - UI由X2172。验收：hrmaster菜单不是所有实体ACL；员工/关联对象D，无关系实体默认拒绝；external_sync不得用户伪造、本地API不能改托管员工；选择/搜索/COUNT不泄授权外人员，日志无敏感明文；真实约束/迁移/并发。
+
+- [ ] **X2172 实体配置与通用记录管理UI**
+  - 前置：X2170、X2171、X2133。范围：业务应用主数据入口，已启用字段/关系/实体权限/影响发布；同一动态列表/详情/新增编辑/关联记录，不复制每实体Vue或字段编辑器。
+  - UI：spec7.2、012 N00/N04/N09/N11，托管只读、PC窗口/键盘、加载/空/无权/草稿/唯一冲突/版本过期/引用删除受阻；三级菜单SOP、PermissionButton。
+  - 验收：组件/E2E/build及后端权限同步，来源员工不local按钮，选择器不泄漏，重复提交不造记录，旧Warehouse/UCP/报表菜单可用。
+
+- [ ] **X2175 非内置实体零专属CRUD验收**
+  - 前置：X2171、X2172。范围：管理员配置至少一类扩展实体，可用合同基础记录而非审批；标准字段/约束/员工1:N，B5以隔离合成员工验证，接管后X2177真关联。
+  - UI：实际配置/新增编辑查找、无权/错误证据。验收：0实体专属CRUD代码/页面，新增批准字段保留实体/记录ID，配置升级老记录可读、引用归档受限；不宣称审批/提醒/薪酬业务已交付。
+
+## B6. 已落库北森接管与可靠持续同步
+
+- [ ] **X2173 已落库员工/组织当前态自动接管**
+  - 前置：X2105、X2125、X2171、X2175。范围：emp_realtime_roster/org_unit的已确认规则标准输入写通用服务，source identity显式绑定master_record_id和批次/版本；不重导/重拉/重初始化、不写回ODS/旧DWD。
+  - 交付：X2173.a组织/员工依赖与准备校验；X2173.b幂等接管/事务及拒绝；X2173.c批次结果/重试/回退保持身份关系。
+  - UI：spec7.2准备/结果/失败，无敏感原文。验收：首跑/重跑/并发、同名不同人/工号变更/空冲突键/源列漂移；0重导/0同来源重复，无法识别明确阻断，不补造历史。
+
+- [ ] **X2174 持久同步、水位与唯一组织投影切换**
+  - 前置：X2173、X2121。范围：DataSource/UCP成功提交后用同一接管/记录服务，可靠任务/事件与重试补偿，不平行连接器；源增量/完整快照、停用恢复、乱序/部分批次、组织依赖按spec4.3。
+  - 交付：X2174.a持久触发/幂等/水位/补偿；X2174.b完整性/缺行/缺字段/重现/组织就绪；X2174.c双读比对/唯一构树/停旧重复入口；X2174.d故障与安全回滚。各项分开提交证据。
+  - UI：任务/失败/重试/旧新树对照/批准切换，UCP只引用跳转。
+  - 验收：同ID更新、旧批不覆盖、增量漏行不删、异常空/部分批次不清树、完整快照停用/恢复保留ID/关系、源提交后失败可重放；code/存续ID/标签/后代/启停比较，单输入无反复覆盖；关闭新接管仍旧同步可用、成本树不变。
+
+## B7. 主数据单向消费
+
+- [ ] **X2176 主数据发布DWD及沿用A授权合同**
+  - 前置：X2174、X2126、X2127、X2143。范围：首批员工/组织主数据到只读DWD/数据集，沿用标准身份/稳定输出/规则引用/准入及D/S合同；只替换批准身份来源，不重配每个报表策略。
+  - 交付：通用记录消费适配、血缘/版本及旧新身份对照、批准试点切换，不master→DWD→master、不DWD直接编辑人员。
+  - UI：主数据来源跳转/字段/授权健康，旧链路保持。验收：同步后消费更新、绑定100%、无审字段/失效路径拒绝、稳定ID/关系/金额与A矩阵保持，旧出口默认不迁移、迁移/回退证据。
+
+## B8. 主数据平台整体验收
+
+- [ ] **X2177 B端到端及A再回归验收**
+  - 前置：X2152、X2173、X2174、X2175、X2176。范围：已有北森→确认规则→接管→持久同步→组织投影→DWD/产品/报表；扩展实体真实员工关系/字段升级/记录授权，A全矩阵再执行。
+  - 交付：X2177.a真实接管/扩展实体；X2177.b故障/乱序/停用恢复/构树回滚；X2177.cA真实SQL/组件/出口非放宽再回归；X2177.d更新B状态/残余风险/后续本地权威边界。
+  - UI：实际实体/来源/树/报表证据。验收：spec6.3五项及6.2九项再通过，0重导/重复、有效授权节点一致、CRUD真实可用；生产不可达不勾，外部/历史/员工本地权威明确未完成。
+
+## 后续迭代（4项，不计A/B完成）
+
+- [ ] **X2160 全量存量报表迁移**
+  - 前置：X2152。逐份当前授权/字段/金额/出口比对，无法隔离先处理；全部兼容收敛后另评删除scope_strategy。不直接回填旧报表。UI/真实执行/安全回滚独立验收。
+
+- [ ] **X2161 外部渠道及创建人撤权**
+  - 前置：X2152及业务批准。单独设计API/PushTarget/实时视图/快照的身份/版本/字段/D/S与撤权回收，全渠道统一授权需独立端到端和外部结果验收；本期不假完成。
+
+- [ ] **X2162 历史、事件流、DWS/AI及更广授权能力**
+  - 前置：X2152及对应业务输入。生效/系统时间、月度历史树、来源权威/值列表、DWS小样本、字段传播和新业务域逐项复评，同步012/017/UI/测试。不能将分摊S的OR复制到任意新事实，也不取消DWS阈值。
+
+- [ ] **X2163 员工/组织本地权威切换与HR业务流程**
+  - 前置：X2177及业务批准。同ID切写者，冻结/转换external_sync归属，外部仍ODS不得覆盖本地；权限/审批/比较/回滚成熟再开放。入转调离/合同审批/复杂HR规则单独建设，通用CRUD不等于完成。
+
+## 交付证据规则
+
+每个父任务记录：具名子项状态、文件/迁移、实际命令/结果、真实SQL或不适用原因、UI/角色/PC浏览器与键盘证据、批准和回滚、旧报表/出口差异、未验证项。纯合同/盘点任务不强求代码或自动化，须有可复核决策/基线；后端无UI不因总说明强制做页面。A交付和B交付分别核对，不把规格自检、单元通过或A完成充当全项目完成。
+
+## 2026-10-09 A0执行记录（本地准备完成，真实环境阻塞）
+
+### 执行范围与真实环境
+
+- 用户已允许在规格检查清单未全部完成时开始实施，但不等于取消各任务的前置/生产门禁。本轮先完成可独立的本地盘点、合同和基线，未迁移、重启或修改生产。
+- 分支feature/performance-management-all；021文档及多份后端/前端源码已有未提交修改，本轮保留，不回退生成JS/同步服务/员工档案等既有修改。
+- 仓库没有.specify及其before/after hooks、prerequisite脚本；021没有平行tasks.md/plan.md，按项目START_HERE以atomic-tasks为任务权威、spec的合同/阶段为实施计划，不创建重复文档。
+- 本机Docker API连接失败；Windows服务com.docker.service为Stopped，没有监听5432/5433/8000/8080/5173的进程，未自动启动全局Docker服务。
+- 只读元数据探测使用现有hr-portal/.env配置，DB_HOST=db、DB_PORT=5432、DB_NAME=hr_portal；解析失败gaierror，事务/SELECT没有成功运行，不记录或输出密码。
+- ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=8 hr-test只读探测失败：Could not resolve hostname hr-test，退出255。记忆中的主机名不是当前可用SSH连接配置；不猜测用户名/地址、不绕过host-key检查。
+- 真实报告ID/数量/别名/用户范围、中心/组织树状态、敏感分类赋值、PushTarget/ApiService绑定、输出字段/金额及无出口试点均**未知**。本地测试中的dataset_id=9和r/a别名是合成夹具，不能冒充实际试点。
+- 未运行PostgreSQL验收、数据库迁移、生产金额比对或页面P95。实际SSH连接/测试数据库可访问后先补X2106/X2103，不先部署修复。
+
+### X2106：当前本地调用链与待补数据
+
+| 通道 | 当前代码入口与复用链 | 身份/兼容边界 |
+| --- | --- | --- |
+| Portal运行 | reports/router.py::run_report → _can_access/字段引用校验 → run_dataset_query | 当前登录用户；Report.scope_strategy传到执行器；当前有owner/超管资源快捷分支，不能声称各分支已统一强制dataset ACL，完整现状留X2101/后续门禁核对 |
+| CSV/XLSX | export_report_csv/export_report_xlsx → _collect_export_rows → run_dataset_query | 当前用户，page_size=0取获准全量；展示格式/实例/标签投影属于已有兼容合同 |
+| 维度候选/归并预览 | _dimension_combination_items/search_dimension_combinations/preview_dimension_merge → run_dataset_query | dataset/report ACL，当前用户和聚合配置；真实员工筛选/最终粒度仍需新合同防绕过 |
+| 报表推送 | push_service::_load_report_source_rows → collect_report_push_rows → _collect_export_rows | 报表owner当前身份，与内部共用执行器；不得假定端点未改所以结果不变 |
+| 推送字段预览 | get_report_push_columns → run_dataset_query → _project_report_output | owner及同一Report配置，旧字段/顺序和安全失败也会受共享修复影响 |
+| API服务 | warehouse/api_service/router.py::query_api_service_data → service_ref.resolve_source_table_name → 字段白名单动态SQL | 原有独立取数，不等于已走Portal裁决；本期只盘点不改，真实数据产品/源绑定未知 |
+| 实时/快照数据库出口 | sql_builder::assess_report_realtime_deployability/compile_report_realtime_sql及push目标协议 | 实时只支持部分SQL直出明细、非Python聚合；已有外部产物/撤权回收需独立X2161，不本轮宣称安全 |
+| 通用物理表浏览 | data/router.py::query_table/_build_scope_clause | 按RegisteredTable默认策略；不是新数据产品合同，不能只修报表就称全渠道已治理 |
+
+待数据库可用后只读采集：reports/dataset_tables/dataset_relations的真实结构及策略，registered_tables/table_columns的范围键/人员关联，ReportAcl/DataSetAcl及匿名授权角色样本，push_targets/api_services的源ID/旧兼容引用和输出结构。不读取或粘贴员工姓名、工资、凭证原文到文档。经批准的业务金额比对和性能样本另执行，不能从单元夹具替代。
+
+已核实旧缺陷：sql_builder对显式策略不可解析别名continue；测试test_report_scope_filter_skips_alias_that_cannot_resolve_explicit_strategy用r员工键/a中心列合成JOIN，且断言r不应重建范围。该测试目前通过是旧行为基线，不能作为新规则安全证据。_rebuild_scope_filter_for_alias复用_build_scope_filter_for_model，None是旧“无需限制”结果，安全修复需区分真正无限制与重建失败，不能None一律丢约束。
+
+### X2102.a：本地实施决策表
+
+合同F1/F2/F3及D/S沿用spec2.1。以下是批准的新目标，不是现网已执行结果：
+
+| 输入/行为 | 要求 | 安全结果 |
+| --- | --- | --- |
+| org-only，逐行员工/分摊 | D | F1/F3，跨全部中心，无需中心授权 |
+| cc-only，逐行或匿名金额 | D，无人员范围 | 拒绝，不因aggregate标志/无姓名放行 |
+| cc-only，中心/中心×组织/中心×组织×期间真实汇总 | S | 包含授权中心跨组织贡献；300及100/200，不加组织授权AND |
+| 双授权，明细/汇总 | 明细D、汇总S | 明细F1/F3，汇总600，F1不重复；提示当前授权范围，不伪全量 |
+| 组织业务过滤 | 获准事实范围AND业务条件 | 组织筛选不要求组织人员授权，也不扩大事实范围 |
+| 个人筛选/名单/员工分组/个人定位派生 | D重新裁决 | 不借S查询单个员工金额 |
+| 内部员工JOIN键/获准人数指标 | 批准内部用途且结果真正聚合 | 不机械升级明细；不得返回键/可逆名单 |
+| 下钻/员工详情 | 新请求D及对象/字段权限 | 中心汇总参与集合不是员工授权集合 |
+| 无资源ACL或无可用操作范围 | 拒绝 | 不查询授权外对象，不用有权空结果冒充 |
+| 薪酬等隐藏分类字段 | 先字段权限 | 中心范围再大也不可聚合无权薪酬 |
+| 任意legacy/summary/client策略参数 | 服务端产品版本+实际粒度 | 参数不构成权限来源，不允许选择旧漏洞 |
+| 超管 | 保持现行范围特许，仍验证对象/字段存在及查询结构 | 超管结果不能替代受限用户测试；不以未知schema生成任意查询 |
+
+同标签组织段AND人员段，多同域标签OR；新S仅在同一批准事实将D与批准中心汇总路径OR，不拆散标签条件，不跨独立事实授权。
+
+### X2102.b：JOIN、字段用途和错误合同
+
+| 关联角色 | 固定期望 |
+| --- | --- |
+| 主事实LEFT JOIN批准组织/员工最小参考 | 主事实先D/S；参考缺匹配保留批准未知桶，不全局WHERE追加组织人员范围抹事实 |
+| INNER参考关联 | 缺匹配排除仅在产品明确批准时允许；否则拒绝配置，不能悄悄少算 |
+| RIGHT/FULL | 每个实际受控事实先各自过滤后关联，获准保留侧及NULL处理按固定样例验证；不允许无授权记录借NULL补行泄露 |
+| 独立事实JOIN另一事实 | 每侧独立验证路径/范围/字段；某侧合法不能替代另一侧授权 |
+| 人员桥接 | 内部键和批准属性最小投影；整张员工表不能公共化、不能返回未经批准员工详情 |
+| 一对多/多对多 | 明确事实键和批准拆分/去重，金额/人数实测不放大；未知关系/自动笛卡尔积拒绝 |
+| 表安全分类 | 默认受控；public_dim为批准参考分类而非scope_strategy；真实批准名单尚未取得，没有批准不能豁免 |
+
+A1错误响应沿现有FastAPI detail字符串兼容，包含稳定代码前缀，不新增请求参数或接受客户端范围：
+
+- 403：[REPORT_SCOPE_DENIED] 当前无可用数据范围；[REPORT_FIELD_DENIED] 当前无权使用所需字段。资源ACL继续既有403。
+- 409：[REPORT_SCOPE_CONFIGURATION_INVALID] 数据范围配置未完成，请联系管理员；[REPORT_RELATION_CONFIGURATION_INVALID] 数据关联配置不可安全执行。普通响应不含隐藏表/列、员工或金额，管理员定位由后续健康审计提供。
+- 400/422：非法参数/字段依赖/不支持的查询形态；404：报告/数据集不存在；200：确有合法范围但业务过滤无命中时空结果。
+- 旧语义回退与安全暂停分开：不能恢复continue漏约束或中心逐人放行；源/字段漂移不能依旧版本假放行。上述字符串合同由X2110/后续测试落实，当前代码尚未实现。
+
+### X2102.c：跨Spec及旧出口台账
+
+- 005的旧cc_first逐人跨组织和cross_filter AND示例为历史参照；当前代码cross_filter是标签OR，新合同需产品版本隔离。
+- 001韧性草案非已实现批准参考分类，不将其public_dim当第四策略。
+- 012第20.3已协调版本化合同/不逐调用声明，DWS小样本/传播及AI裁剪仍保留；本轮不开发AI功能。
+- 011 implementation-plan仍有原有未解决合并标记，已登记，不擅自选择一侧；当前盘点不新增UCP行为，涉及后续UCP实施前须解决。
+- 016为资源授权目标，不把尚未覆盖通用物理/API通道的能力当现状；尤其报告owner快捷分支须单独核对，不能由标题推断ACL已全覆盖。
+- 试点仅批准无旧出口对象；真实对象未知，不宣称已经找到无出口试点。共享安全修复的缩减/暂停需有影响清单和审批，无法隔离新旧版本不迁移，外部既有漏洞不作为新引擎通过依据。
+
+### X2103：本轮实际测试/构建命令与结果
+
+以下命令分别在backend/frontend目录运行，不启动应用或生产任务。
+
+```text
+DB_HOST=127.0.0.1 DB_PORT=1 PYTHONDONTWRITEBYTECODE=1 .venv/Scripts/python.exe -m pytest
+  tests/test_scope_filter_entity.py tests/test_reports_sql_builder_entity.py
+  tests/test_dataset_acl.py tests/test_standardization_service.py tests/test_sync_service_entity.py
+  tests/test_report_rounding_export.py tests/test_report_service_validation.py tests/test_report_access_audit.py
+  tests/test_track_b_report_field_validation.py tests/test_track_b_report_runtime_validation.py
+  -q -p no:cacheprovider
+```
+
+- 109 passed，1 warning，7.46s，退出0。DB_HOST/PORT明确指向不可用本地端口，以运行纯单元/模拟会话基线；没有成功数据库schema校验或真实SQL证据。warning是python_multipart依赖弃用提示。
+- npm run build：vue-tsc --noEmit与vite build均通过，退出0，Vite打包54.04s；VueUse第三方PURE注释位置警告未阻塞构建，没有跳过类型检查。此构建时长不是页面加载P95。
+- npm test -- src/components/report src/views/report/ReportList.spec.ts：3个文件、6个测试通过，退出0，31.15s；包括维度归并TS/JS镜像及报表列表，不声称全前端或浏览器E2E通过。
+- Docker/数据库/SSH探测结果见上文。真实PostgreSQL、现有报表行/金额、外部结果、浏览器UI/端到端及页面P95均未运行。
+- 未执行数据库迁移/降级、生产灰度、外部推送、应用重启、git commit/push。未修改sql_builder或scope_filter，因此旧漏洞尚未修复。
+
+### 项目准备及任务放行状态
+
+- 按实施流程补.gitignore中的.env.*、测试/build/cache/log输出，保留.env.example可追踪；已有被追踪的改动不删除/回退。
+- frontend/.dockerignore补dist/build/coverage和构建上下文排除；backend此前无.dockerignore，新增排除本地venv、env、cache/log等。保留tests、脚本、entrypoint和字体资源，不因忽略规则破坏现有镜像资源。
+- git check-ignore验证.env.stage/pytest缓存/coverage被忽略，.env.example未忽略；本轮忽略文件git diff --check通过。
+- X2106：本地代码/夹具盘点完成，真实报告/授权/出口清单未取得，保持[ ]。
+- X2102：本地决策表/错误/跨Spec合同已补，真实参考批准角色及前置未通过，保持[ ]。
+- X2103：本地109后端+6前端+完整构建通过，真实SQL/出口/业务性能未验证，保持[ ]。
+- X2110及后续：前置未通过，不开始修改执行器，不勾任务。此停点不是取消A范围，待环境补齐后按既定顺序继续。
+
+### 生产只读盘点进展（用户通过MobaXterm执行）
+
+- 用户确认部署目录/opt/hr-portal/hr-portal；HR Portal独立容器hr-portal-backend、hr-portal-frontend、hr-portal-db、hr-portal-gotenberg正在运行，hr-portal-db为postgres:15-alpine且healthy。同机成本系统有独立PostgreSQL，不能混用。
+- 用户返回只读事务结果：database=hr_portal，PostgreSQL=15.17，transaction_read_only=on，schema revision=0252_performance_metric_field_display_ids。已取得reports/datasets/关联/字段/ACL/范围/分类/push_targets/api_services等17张元数据表的列清单。
+- 这是用户执行的生产元数据SQL证据，不是本机SSH已连接或真实业务授权/金额测试已通过。此前本机Docker停止、db/hr-test不能解析仍属本机事实，但生产盘点可经用户终端继续，不要求先复制生产库。
+- 下一步取报告/数据集实际数量、配置引用及出口源绑定（不取完整config/settings、人员筛选值、凭证或员工明细）。X2106/X2102/X2103父任务仍待全部证据，不提前勾选。
+
+- 后续生产只读结果：reports=15、datasets=18、push_targets=14（返回均active）、api_services=0。报告ID为1/3/8/10/14/16/17/18/19/20/21/22/23/24/25；报告3/18/20显式cross_filter，其余报告及返回数据集策略为空。aggregate标志只作配置盘点，不是有效汇总证明。
+- dataset15被报告3/8/14/17/18/20/22共用，包含工资/分摊/成本中心/奖金/补偿金/估算因子六张DWD源；不按显示别名推断真实实体（例如roster_2实际为year_end_bonus）。副本20没有直接出口也不能认定共享dataset安全可整包试点。
+- 旧出口直接涉及报告3（push12/18）、8（push17）、10（push13）、18（push23）；多条source_type仍为table但source_table/source_id是report:N，须按legacy协议识别，不能只筛source_type=report。push8/14引用report6/11，未在本次reports清单出现，属待核对遗留引用，不擅自删除。
+- api_services=0不代表没有API出口：push17/22/23为api_expose；push10对dwd_emp_realtime_roster为db_realtime，push3等为物理表快照。报告/数据集与共享物理源及既有产物均须一起审查。字段锚点、实际JOIN/粒度、范围/敏感分类及金额/性能尚待继续取证。
+
+- 用户继续返回生产锚点/关联元数据：12张报告源/人员穿透相关表已注册published；dwd_emp_monthly_salary的org锚点配置为salary_code，需核对字段业务含义及树匹配，不按英文名直接判错。ODS工资/分摊有roster_join_col=employee_no，DWD对应表为空；DWD工资仅org键、DWD分摊仅cc键，奖金/补偿金/因子/市场/成本维表无scope_role且无人员穿透声明。
+- 返回范围内所有TableColumn.is_sensitive计数为0；ODS工资有45列敏感分类、ODS人员2列、ODS成本中心1列，而上述DWD敏感分类计数均为0。这是明确的分类配置/传播风险，不等于已验证生产泄露；还需结合实际用户、资源ACL、投影/指标和出口执行。
+- dataset15有5个LEFT关系，主工资→分摊1:N、分摊→成本维N:1、工资→年奖/补偿金1:1、分摊→因子N:1；dataset22人员→市场数据LEFT/N:1。关联基数是配置声明非实际唯一性证据；员工键存在不能自动视为已批准穿透或免过滤。
+- 下一步核对报表选列/聚合/字段用途、敏感分类和范围标签配置（不读筛选值/员工明细），再确定可安全的本地复现和试点，暂不更改生产锚点/分类或任何报告。
+
+- 当前终端stdout曾未显示，用户通过stderr探测及exec 1>/dev/tty恢复；此前无输出不能归因为Docker/PostgreSQL卡住。恢复后生产只读报表字段配置查询正常结束ROLLBACK。
+- 报告3配置aggregate=true但投影含employee_no/employee等人员定位字段，按新合同仍属人员明细能力，不能仅看aggregate标志授予中心汇总范围。报告18投影中心/期间及费用/人数度量，但包含薪酬及跨事实派生指标，需逐字段分类及依赖，不因“汇总”标题放行。
+- 报告19为未聚合逐人分摊；报告23为未聚合人员档案，投影还包含base_salary/target_year_end_bonus。结合DWD敏感分类为0属待核实安全风险，不能未检查当前使用者/ACL就声称实际泄露。
+- 报告16/23字段引用使用dwd_current，而此前dataset16配置别名为current；这是实际引用/兼容疑点，须核对部署执行层是否存在适配，不凭新本地规则自动改生产报告。下一步查当前范围/资源/敏感授权主体的匿名元数据，不取人员条件值。
+
+- 用户返回15份报告owner/ACL元数据：只有报告16/17的owner4不是超级管理员，其余返回owner均有当前active超级管理员角色；全部report_acl为空，多数据集有1项ACL，7/8/9/22等部分数据集无ACL。超管路径不代表普通HRBP路径可用或字段裁决正确。
+- 现网范围标签共7项，全部dimension=org，没有cost_center标签；当前只能核实人员路径样本，中心单授权及D/S并集须在隔离/合成测试中验证，不私自给生产用户加标签。tag6为组织无限范围并带employment_entity条件，字段/穿透缺失时需验证人员条件不被丢弃；人员条件值不采集。
+- salary_code的字段标签是“编码”，没有足以确认它为组织节点编码的语义证据；不直接把其scope_role改掉。下一步只读抽样比对树编码匹配率（不输出编码/员工/金额原值），同时核实部署代码的别名兼容及受限用户执行，继续保持未验证门禁。
+
+- 用户返回生产每表最多500行编码匹配抽样：工资ODS/DWD分别99/100个不同salary_code全部匹配org_tree、不匹配成本树；人员ODS/DWD分别83/82个组织码全部匹配org_tree；分摊ODS/DWD分别69/95个中心码全部匹配cost_center_tree。六表样本均500行、空编码0。salary_code不能因命名/标签“编码”就判错误；本次样本支持其当前组织锚点，但不证明全表/所有期间/启停/授权展开正确，也不提供人员条件覆盖证据。
+- ODS/DWD抽样不同代码数不等于同步漏数据：LIMIT未排序、源产物覆盖期间/转换不同，未做同批业务键全量对照。下一步核对部署查询执行代码，确认是否与本地别名跳过及旧报表别名兼容行为一致；不按静态工作树直接宣布生产复现。
+
+### X2110本地实现进度（生产旧版本已确认，待完整门禁）
+
+- 生产容器 `/app/app/reports/sql_builder.py` 已通过用户终端确认仍含不可解析别名 `continue` 路径；生产镜像哈希已留在用户执行输出中，未在生产修改/重启。
+- 本地先改测试：`test_report_scope_filter_skips_alias_that_cannot_resolve_explicit_strategy` 改为期望 HTTP 409 配置错误；先运行按旧实现失败（DID NOT RAISE），证明测试有效。
+- 本地实现：`hr-portal/backend/app/reports/sql_builder.py` 在显式范围策略下，任一实际别名无法解析时抛出 `[REPORT_SCOPE_CONFIGURATION_INVALID]`/HTTP 409，不再跳过别名；这只修复旧别名隐式放行，不实现新的D/S并集汇总合同。
+- 本地验证：目标测试1 passed；范围/报表SQL/ACL/报表校验/审计/导出回归48 passed、1 warning、5.93s。未运行生产容器代码，未执行数据库迁移或部署。
+- X2110父任务仍保持[ ]：还需补INNER/LEFT/RIGHT/FULL、全部/部分缺配置、无标签/批准参考、真实PostgreSQL、运行/计数/CSV/XLSX及共享出口非放宽证据；X2102/X2103父任务也仍未完成。
+
+- X2110测试增补：`test_report_scope_filter_enforces_every_alias`覆盖join_type=inner/left/right/full × scope_state=partial/none/rebuild_missing/restricted/unrestricted/denied，共24个组合；验证不可解析或重建丢约束统一HTTP409、受限两别名均注入条件、无权保留false、超管/无限制不凭空加WHERE。错误detail只含稳定错误码和安全提示，不暴露内部alias。
+- 本地最后一次回归正在运行；前一次同范围回归为152 passed、1 warning、7.65s，组合测试在最新代码下为24 passed、20 deselected、1 warning、5.19s。待最后一次完整结果返回后再更新准确数字。
+- 最终X2110本地回归结果：175 passed、1 warning、6.96s，退出0；覆盖范围过滤、SQL构建、ACL、报表校验/审计/导出、列实例、字段/运行时校验、数据对比脱敏及新增四类JOIN/六种配置状态组合。warning仍为python_multipart弃用提示。
+
+- X2110生产门禁下一步：用户已确认生产存在非超管owner_id=4的报告16/17；此前只知道其组织标签数量为1、成本中心标签数量为0，尚未核对report.list V/E、role scope_dimension及当前数据集ACL可见性。下一次用户侧只读查询仅取权限元数据，不取用户名、标签值、员工或金额。
+
+- 受限用户生产样本进一步确认：user_id=4 active、4个角色、非超管；report.list V/E=true且scope_dimension=none；org标签1、cost_center标签0、unlimited标签0。报告16/17均private、owner=4、dataset ACL各1、report ACL=0。该样本适合验证“有组织人员范围但无中心范围”的执行路径；尚未执行实际报表SQL或读取结果。
+
+- user4 ACL核对结果：dataset15 ACL命中user4的直接用户授权1条，dataset16 ACL为直接用户授权但不命中user4；报告16仍可因当前_report_access owner快捷路径进入（owner=4/private），这是资源ACL与报表owner优先级需登记的兼容事实，不修改生产。报告17 dataset15命中ACL；两者均owner=4。生产多表dataset15源表6、关系5（统计输出因LEFT JOIN计数会乘行，仅作存在性信号），dataset16单表；尚未执行实际查询结果。
+
+- 用户执行生产只读真实查询（backend容器、User4、report16/17、只读事务、page_size=1）：两份报告资源访问均True；报告16在字段引用校验阶段HTTP422，印证dwd_current/current引用兼容疑点；报告17进入执行后KeyError，说明存在生产配置/执行器不兼容，不能解释为无权空数据或安全修复结果。未打印数据行/字段值，事务回滚。下一步只取KeyError键名定位代码路径。
+
+- 生产动态加载复核结果：调用load_dynamic_tables后DATA_TABLES=31，dataset15六张DWD表均成功反射（物理列数81/9/16/8/10/7）；同一只读事务内以user4执行报告17查询为query_ok、column_count=21、total_rows=0。此前KeyError=dwd_emp_monthly_salary来自诊断脚本未执行FastAPI lifespan/load_dynamic_tables，不能归因于生产在线应用；已更正判断。报告17旧执行器已成功返回0行，但未验证这是业务无数据还是缺配置被false过滤，不能称已证明合法空结果；不是执行器KeyError。
+- 报告16仍在字段引用校验阶段HTTP422，dwd_current/current兼容问题仍待定位；下一步只读取安全的422 detail类型/字段标识，不修改生产报告。
+
+- 生产报告16真实422已定位：单表DWD数据集16的实际alias=current，历史报告columns仍引用dwd_current.employee_no等，字段校验返回“数据集字段不存在”。本地新增受限兼容：仅单表、DWD物理表且legacy alias恰为dwd_<当前alias>时，在共享校验入口原地规范化source_code/instance_id及嵌套引用；多表/非DWD/无法唯一匹配继续422，避免猜测。生产不直接改报告配置。
+- 本地新增test_field_reference_validator_normalizes_legacy_single_dwd_alias，并修正Pydantic model_fields弃用访问；目标兼容/隐藏计算字段测试2 passed（修复前有1个夹具失败，已调整）。完整回归正在运行，待结果后更新。
+
+- 本地兼容实现曾因新增helper误包住validate_report_config_references，导致12个既有校验测试NameError；已恢复函数作用域并补回原有测试路径。最终兼容/报表SQL/字段/运行时/服务/范围/ACL/审计/导出回归：94 passed、1 warning、6.23s；另此前X2110完整回归175 passed、1 warning。warning为python_multipart弃用提示。
+- 当前本地修改尚未部署生产；生产报告16仍会按旧容器代码返回422。部署前还需把兼容变更纳入完整A门禁和发布审批，不能在生产直接热改容器。
+
+- 旧别名兼容最终本地回归：94 passed、1 warning、6.23s；包含报表SQL、字段/运行时校验、导出/推送字段、报表服务、范围、ACL、审计、舍入回归。未改生产，未勾X2106/X2102/X2103/X2110；生产报告16仍需部署后重新验证，生产报告17已确认动态加载后执行返回0行，业务无数据与权限/配置过滤的原因尚待区分。
+
+### X2111本地实现进度：范围健康诊断第一部分
+
+- 新增`app/reports/scope_health.py`纯配置分析器：检查权限锚点可解析性、roster_join_col物理列存在性、人员穿透目标可用性及cross_filter部分域；只返回代码/严重级别/安全提示，不读取业务原值。
+- 新增`GET /api/v1/warehouse/scope-health`，权限为`warehouse.governance:V`，支持按dataset_id过滤；返回资产状态、策略、锚点角色、数据集/报表引用数量和诊断问题。当前不写安全分类/批准表，不包含员工/金额/标签值；UI尚未实现。
+- 新增`tests/test_scope_health.py`覆盖人员锚点、成本中心缺锚点、无效穿透字段、cross_filter部分域4项；路由导入通过，关联报表/字段/SQL测试65 passed、1 warning、5.98s。
+- X2111父任务保持[ ]：仍需补持久化安全分类/批准原因、运行时决策审计、API状态码/权限集成测试、管理员UI/迁移和真实生产配置扫描；本轮只完成第一部分后端纯诊断。
+
+
+## 2026-10-10 已开发部分测试与子项勾选（最新状态）
+
+本节取代上方历史记录的“尚未取生产盘点/回归正在运行”和旧兼容实现描述；历史记录保留排查过程，不作为当前功能完成结论。
+
+### 本轮修正及通过的覆盖
+
+- X2110：不可解析别名409及重建丢约束拒绝；4种JOIN×6状态的24个SQL编译/模拟会话用例；运行/CSV/XLSX/导出取数/推送取数/推送字段/调度7条路径均传播409，不返回结果或成功提交。未验证新代码真实PostgreSQL/外连接保留侧金额，不能把编译测试当真实DB。
+- 旧单表DWD别名兼容由“原地重写配置”改为“只解析引用、在执行层绑定同一物理表”。source_code/instance_id、重复实例、标签、业务筛选字面值及已存配置不变；人员限制仍使用真实表，不生成第二个未约束别名；非DWD/多表未知别名和隐藏字段不因兼容放行，混用旧/新别名明确422。仅内部计算依赖等复杂旧别名场景仍需专项复核，不声称所有旧配置已迁移。
+- X2111纯诊断：未知策略、缺真实物理锚点、无效穿透不能算已解析；过滤dataset时从全局注册及物理模型解析花名册，不要求其是该数据集显式JOIN表；使用数据集覆盖策略、去重同数据集引用数。报告级覆盖策略、真实编码匹配/基数、标准身份、安全分类批准和人员条件完整性仍非本接口已交付能力。
+- X2111 API：现有GET路由/warehouse.governance V依赖、Schema及200/401/403/404/422经ASGI测试；数据库为模拟metadata会话，无员工/金额/secret及业务SELECT。该接口不是“新权限合同发布已通过”的证明，也不授予记录访问权。
+
+### 实际执行命令和结果
+
+在hr-portal/backend运行：
+
+```bash
+DB_HOST=127.0.0.1 DB_PORT=1 PYTHONDONTWRITEBYTECODE=1 .venv/Scripts/python.exe -m pytest   tests/test_scope_health.py tests/test_reports_sql_builder_entity.py tests/test_scope_filter_entity.py   tests/test_dataset_acl.py tests/test_dataset_relation_validation.py tests/test_dataset_output_fields.py   tests/test_report_service_validation.py tests/test_report_access_audit.py tests/test_report_rounding_export.py   tests/test_report_dimension_merge.py tests/test_report_quality_gate.py tests/test_track_a_report_number_format.py   tests/test_track_b_report_column_instances.py tests/test_track_b_report_field_validation.py   tests/test_track_b_report_runtime_validation.py tests/test_push_service_entity.py tests/test_data_compare_masking.py   tests/test_warehouse_assets.py tests/test_warehouse_asset_columns.py tests/test_warehouse_models.py   tests/test_warehouse_impact.py tests/test_warehouse_preview.py tests/test_standardization_service.py   tests/test_schema_check.py -q --tb=short -rs -p no:cacheprovider
+```
+
+- 最终354 passed、6 skipped、1 warning，10.05s，退出0（最后加入混用别名3项负例后再跑完整范围，不用前一次351通过替代）。
+- 6跳过均是test_warehouse_impact.py:70/76/82/88/94/100的既有测试，标记原因“需要测试数据库和Token”；没有关闭权限校验或移除标记来形式通过。
+- warning为starlette/python_multipart依赖弃用提示。未成功连接本地PostgreSQL，schema数据库检查跳过；Alembic单一head为0252_performance_metric_field_display_ids，只有结构头检查，没有迁移升降级验收。
+- 健康诊断17项（7纯逻辑+10 API参数化用例）、旧别名校验5项+执行7项、409调用传播7项以及原范围/输出/导出/推送均包含在扩大回归中。
+
+在hr-portal/frontend运行：
+
+```bash
+npm test -- src/components/report src/views/report/ReportList.spec.ts
+npm run build
+```
+
+- 报表组件/列表3文件、6 passed，63.48s，退出0；包含TS/JS镜像，不误算为6个不同业务路径或全前端/E2E覆盖。
+- vue-tsc --noEmit与vite build成功，Vite构建36.55s，退出0；第三方VueUse的PURE注释警告不影响构建。没有跳过类型检查，没有部署构建产物。
+- 8个修改/新增Python文件AST语法检查通过；本次代码/测试及文档git diff --check通过。ruff未安装，静态lint未执行，未安装额外依赖。
+
+### 勾选和未完成门禁
+
+- 本轮仅勾12个已完成本地子项：X2103.local.1–3；X2110.a.1/a.2/b.1/c.1；X2111.a.1–3；X2112.compat.1–2。证据分别是上述已开发代码、纯逻辑/SQL编译/模拟API、前端回归及build。
+- 42个父任务仍未全部达到各自门禁，保持[ ]；不是没有进展，也不冒称整项/阶段/021完成。spec和requirements的已表达要求不等于运行验收。
+- X2106/X2102/X2103仍缺批准无出口试点、真实关联角色、金额/输出/身份及性能基线；新执行器真实PostgreSQL、CSV/XLSX/旧外部结果和生产灰度未验证。
+- X2110仍缺中心逐人止损/批准参考完整处理及UI和生产回归；X2111仍缺持久化分类/批准/运行审计/迁移/管理员UI；X2112完整多渠道/下钻及新D/S能力未完成。
+- 本轮没有生产修改、角色授权、迁移、重启、部署、git commit/push；遵守“继续开发，先不部署”。
+
+
+### X2111.b 本地开工合同（分类登记，不是授权豁免）
+
+- 角色枚举固定controlled_fact/sensitive_fact/person_bridge/public_reference；RegisteredTable保存角色、版本及最新批准身份/时间/原因，原有scope_strategy/roster_join_col/字段分类/报表配置不改。
+- GET返回默认或当前分类，PUT携带security_classification/reason/expected_version；表名合法identifier，不接受approved_by/user_id/version任意改写，身份来自current_user及warehouse.governance U。
+- 初始controlled_fact/version=0、无批准；每次批准生成版本+1。行锁加expected_version避免并发覆盖，冲突409、表不存在404、未知分类/空原因/非法表名/越权字段422，无权限403；原因在管理员批准记录保存，SystemLog不复制自由原因文本。
+- 分类改变和审计同一事务。public_reference登记不自动跳过scope_filter/sql_builder，不等于安全参考投影已实现；人员表也不能因分类获得公共明细，后续产品/字段/JOIN批准门禁保持。
+- 0253只增加治理列及一致性约束，不修改现存范围/出口/数据。降级只移除新增治理列/约束，不删除RegisteredTable行或SystemLog既有证据。本轮不在生产执行迁移，不完成X2111父项。
+
+
+## 2026-10-10 X2111.b分类登记交付（本地、未部署）
+
+### 已实现与实际证据
+
+- RegisteredTable新增security_classification、scope_classification_version、scope_approved_by/at、scope_approval_reason。默认controlled_fact/version=0且无批准信息；改分类需正版本及完整批准信息，未知分类/空批准原因/负版本在数据库约束层拒绝。批准人外键RESTRICT保留证据，不因删用户默默清掉批准身份；未来删除曾批准用户会受该约束限制，需按治理策略处理而非绕外键。
+- scope_classification.py复用RegisteredTable及SystemLog，GET只读、PUT行锁+expected_version检查，批准身份/时间由服务端当前用户生成，客户端不能改批准人、版本或scope_strategy。最新批准原因仅受治理权限接口读取；变更审计不复制原因自由文本，只记分类/版本/批准身份和reason_supplied，失败回滚分类和审计。
+- 四个角色controlled_fact/sensitive_fact/person_bridge/public_reference均是治理登记。本接口明确runtime_filter_exemption=false：不修改scope_filter/sql_builder、数据集ACL、字段分类或任何出口。public_reference不是整张员工表的可执行豁免，后续产品/JOIN/最小投影门禁仍待实现；sensitive_fact也不能代替字段敏感分类传播。
+- 新增GET/PUT /api/v1/warehouse/scope-classifications/{table_name}，复用warehouse.governance V/U及现有账号依赖，无新菜单/操作码/UI。合法表名严格校验，空原因/未知分类/伪造字段422；无权限403、未登录401、不存在404、版本冲突409、成功200。批准变更与SystemLog同一事务提交。
+- 0253_table_scope_classification接在0252后，是本地唯一新head。升级只加治理列/约束/外键，存量默认受控，不更新实际授权/数据；降级仅移除新增字段及约束，不删注册表行/既有SystemLog。批准数据降级后最新状态会失去新增字段，回退前需保留批准记录并遵守安全回滚流程，本轮未执行真实降级。
+
+### 测试命令与真实结果
+
+```bash
+# 在hr-portal/backend：仅本地测试，数据库端口明确不可用
+DB_HOST=127.0.0.1 DB_PORT=1 PYTHONDONTWRITEBYTECODE=1 .venv/Scripts/python.exe -m pytest   tests/test_scope_classification.py tests/test_scope_health.py tests/test_admin_tables_router.py   tests/test_schema_check.py -q --tb=short -p no:cacheprovider
+```
+
+- 上述目标回归62 passed、1 warning、6.64s，退出0，含31个分类相关用例（ORM/Schema、真实路由+模拟会话、提交失败、迁移SQL及SQLite真实约束），不等于真实PostgreSQL验收。
+- 扩大回归命令沿用上一节24文件列表，再增加test_scope_classification.py、test_admin_tables_router.py并带-rs：最终**394 passed、6 skipped、1 warning、11.76s**，退出0。6个跳过仍是既有warehouse_impact需要数据库/Token的用例；唯一warning为python_multipart依赖弃用提示。旧报表/权限/别名/导出/推送及健康API未回退。
+- 以下仅生成PostgreSQL SQL文本，没有数据库连接、DDL执行或数据修改：
+
+```bash
+.venv/Scripts/python.exe -m alembic heads
+.venv/Scripts/python.exe -m alembic upgrade 0252_performance_metric_field_display_ids:0253_table_scope_classification --sql
+.venv/Scripts/python.exe -m alembic downgrade 0253_table_scope_classification:0252_performance_metric_field_display_ids --sql
+```
+
+- 离线升降级生成成功；SQL范围/默认值/外键/约束经测试检查。另用SQLite内存数据库执行ORM结构和约束正负例，验证默认受控、完整批准、拒绝空/未知批准、外键留痕；SQLite不支持同等PostgreSQL行锁语义，真实并发及迁移仍未验证。
+- 本轮6个代码/测试/迁移文件AST解析、git diff --check通过。未改前端，本轮不重复计入上轮已通过的前端6测试/完整build；ruff仍未安装。
+
+### 完成/未完成
+
+- 新勾选本地子项X2111.b.1/b.2/b.3；截至本轮共15个本地子项已完成，42父任务仍保持[ ]。X2111.b.4及X2111.c尚缺逐别名运行时裁决审计、真实PostgreSQL升降级/并发、管理员UI、真实配置扫描及生产验收。
+- ORM现在要求0253的数据库列；未来获准部署需先在目标库执行对应迁移再启新代码，不能靠create_all给已有表补列。生产仍为此前用户核实的0252，没有在本轮升级/重启。
+- 无生产修改、账号授权、外部发送、部署、git commit/push；继续遵守“先不部署”。
+
+
+### X2111.b.4运行审计开工合同
+
+- 授权引擎仍是legacy_scope_strategy：本轮不实现新D/S，不将客户端aggregate标志当实际汇总授权。记录真实被编译的逐别名状态及请求聚合标志（明确requested_aggregate）。
+- run_dataset_query新增可选scope_decisions_sink，仅收集安全dict；未传sink的调用保持兼容/只读，不直接写审计。共享run_audited_dataset_query包装持久化一条scope_governance摘要/每次实际查询，复用SystemLog，不重复写已有report_access日志。
+- 内部入口传当前使用者，推送/调度按现有owner；审计user_id与实际查询user保持一致。普通查询响应不带审计里的物理表/alias信息。
+- 仅记录dataset_id/report_id/channel、legacy合同标识、query_status、requested_aggregate及安全alias/table/strategy/decision/reason_code/restricted白名单。未知额外字段/自由异常文本/SQL/业务值不可写入。
+- 已有独立审计session模式：审计失败告警但不吞查询异常，不提交/回滚业务db；原请求失败/回滚后审计仍可独立提交。日志失败状态不假称业务成功。
+- 该新分类的读取通过既有system-logs接口warehouse.governance可见性校验，不放到普通report.list用户。无UI；真实PostgreSQL持久/并发及生产门禁保留。
+
+
+## 2026-10-10 X2111.b.4逐别名运行审计（本地、未部署）
+
+- run_dataset_query新增可选scope_decisions_sink。每个根数据集别名记录真实有效legacy策略、范围是否施加、restricted/unrestricted/denied/configuration_invalid与稳定原因码；None/无限制重建、不可解析、条件构建异常不会被记成获准。新字段仅是内部sink，不出现在查询响应。
+- run_audited_dataset_query统一包装内部实际查询，当前用户用于运行/CSV/XLSX/模型与维度预览，owner用于推送/调度，与原查询身份一致。每次有范围裁决的查询写一条scope_governance/ report_scope_decision日志，不重复写原report_access审计。
+- 仅记录dataset_id/report_id/channel、legacy_scope_strategy合同标识、requested_aggregate及安全别名/表名/策略/裁决/原因/限制标志。聚合字段是请求标志，不是新D/S判定。SQL、员工/金额、条件/标签原值、自由异常信息及未知额外字段不可进入新范围审计。
+- 复用独立审计session，不提交/回滚业务db；查询失败仍尝试提交失败审计，原异常保持；日志存储失败仅安全告警，不泄数据库异常文本、不改变业务成功/失败。无user或无scope决策不写该类日志；资源/字段校验之前的失败仍由原审计路径负责，不能冒称每类拒绝均已由范围审计覆盖。
+- 根数据集别名审计不等于花名册内部子查询/每个名单子查询/新多事实完整计划已审计，也不代替实际批准分类或新D/S。分类登记不执行豁免。
+- system-logs新增scope_governance分类，读取需warehouse.governance菜单可见权限；普通report.list或仅operation日志权限不能读取新范围/分类元数据。本轮无新UI/菜单。
+- 本轮扩大回归沿上一节26文件列表执行：**414 passed、6 skipped、3 warnings，13.67s，退出0**。6跳过仍为warehouse_impact数据库/Token用例；警告为python_multipart及新成功路径测试触发的两处既有datetime.utcnow弃用提示。没有新代码真实PostgreSQL/E2E/生产验收。
+- 覆盖24个JOIN/裁决组合真实收集摘要，7个运行/导出/推送/调度通道各成功/失败审计及身份/输出保持，模型/维度预览各成功/失败，独立事务/原异常/审计失败/未知字段脱敏和治理日志读取正负例。9个代码/测试文件AST和差异检查通过，唯一迁移head仍0253，没有新增迁移。
+- 勾选本地X2111.b.4.1–3，累计18个已完成本地子项。42父任务、X2111.b.4.production/X2111.c保持[ ]，真实持久/并发/迁移及管理员UI尚未完成。生产没有修改、部署、重启或发送数据。
+
+
+## 2026-10-10 X2111.c治理界面（本地、未部署）
+
+- 用户要求继续后，将健康扫描与分类批准嵌入现有WarehouseGovernance.vue；原分层/质量/影响入口不改。不新增菜单/路由，现有meta.menuCode及seed为warehouse.governance；没有重启seed或私自配角色。
+- 新增scopeGovernance.ts复用全局api客户端，无独立token/request实例；健康列表仅元数据，分类详情按V、批准按U，客户端只发角色/原因/expected_version，不发批准人/权限范围。用独立TS入口避开旧warehouse.js镜像，不全量重写既有API/生成JS。
+- ScopeGovernancePanel持有扫描/筛选/抽屉状态，ScopeHealthTable仅表格与操作，ScopeClassificationDrawer持有读取/保存/过期请求控制，ScopeClassificationForm只管理字段UI；4个Vue组件44/100/94/39行，均低于200行，不复制物理字段/Mapping编辑器。
+- 新动作全部PermissionButton：无治理V不请求/不展示健康元数据，只有V只读，U才有编辑/批准；字段修复入口另外要求warehouse.assets V。切换/撤销权限/关闭/重新加载使旧异步请求失效，不由旧响应覆盖新对象。普通响应中不加入审计决策/SQL/员工值。
+- 固定提示分类只登记治理判断，不豁免当前范围过滤或代替字段/数据集授权；策略仅显示legacy配置，用户不手选报表策略。不把“未发现配置问题”写成“已安全验收”。
+- 批准空原因禁用、提交中禁用、409保留当前草稿并禁止自动重试，须主动重新加载/核对最新版本；成功按服务器返回展示，不乐观假保存。403/404/500读取及批准失败有安全提示，旧后端未部署的404明确核对版本/迁移。
+- 窄屏工具栏换行、单个表格横向滚动/max-height=600/数据列min-width/操作列280 fixed-right，抽屉min(560px,100vw)。这些是模板/CSS和组件验证，未冒称真实移动端/键盘走查。
+
+### 测试与构建
+
+```bash
+# 在hr-portal/frontend
+npm test -- src/components/warehouse/ScopeGovernance.spec.ts
+npx vue-tsc --noEmit
+npm test -- src/components/warehouse/ScopeGovernance.spec.ts src/components/warehouse/IngestionModeSelect.spec.ts src/components/report src/views/report/ReportList.spec.ts
+npm run build
+```
+
+- 新治理组件20 passed（1文件），4.48s；修正表单fragment class继承警告及测试按钮emits模拟后，无新增Vue运行警告。此前测试模板引号/事件stub失败已修正，不作为通过证据。
+- 相关前端扩大回归5文件、28 passed，12.35s，退出0；TypeScript检查和Vite生产build通过，Vite33.34s，退出0。构建产物验证包含范围健康及分类批准入口，不是只改源码而页面未接入。
+- 后端上一节最新扩大回归414 passed/6 skipped/3 warnings；本次纯前端增量未再改变后端，不重复计为新后端执行。真实浏览器、真实API联调/E2E和生产均未运行；没有部署dist或Docker镜像。
+- 新勾本地X2111.c.1/c.2，累计20个已完成本地子项；012新增N0914增量检查，仅a/b勾选，c和父N0914保持[ ]，旧N任务状态不改。42个021父任务、X2111.c.visual与真实PostgreSQL/生产门禁仍未完成。
+- 设计上下文已读取.impeccable.md及项目设计系统，遵循数据管理员/专业克制飞书风；未新增图表/仪表盘、UCP配置、权限中心、凭证收集或业务值展示。
+
+## 2026-10-10 隔离PostgreSQL与真实浏览器验收（非生产，上线仍阻塞）
+
+### 隔离环境及起点边界
+
+- 本机Docker Desktop未启动。未启动Docker服务或修改原开发/生产库；使用临时目录hr021-acceptance-YFZBYI的PostgreSQL **15.17**，仅监听127.0.0.1:55432，新建hr021_acceptance/hr021_migration两库。临时目录位于本机用户Temp，不在仓库，不包含生产数据。
+- 二进制为固定@embedded-postgres/windows-x64@15.17.0-beta.17，官方npm registry tarball，禁用包脚本并独立校验SHA512；下载/提取/工具/证据目录分开。浏览器工具playwright1.52.0仅装临时目录，实际Chrome154.0.8037.99，未改项目依赖或用户浏览器配置。
+- 从空库完整跑旧历史链有两次真实失败：0046 revision超出默认alembic_version VARCHAR(32)；只在隔离库扩到128后，0051因tools.hr菜单尚未seed失败。历史冷启动链未修复，不能说空库历史迁移全通过；生产已0252，不因本轮改变历史迁移或生产版本表。
+- 增量验收改用合成0252起点：当前211个ORM表结构在空隔离库建立，执行0253治理字段降级并标记0252；不是完整生产备份/克隆，不能证明所有旧触发器/生产数据条件。预存合成注册资产及既有人员策略，再真实执行alembic upgrade0253验证字段默认和记录保持。
+- 启动完整FastAPI应用/lifespan与真实Vite前端（127.0.0.1:8000/5174），真实health返回dev/db.ok=true；内置来源在测试库默认inactive，无外部输出或生产凭证。合成治理编辑/只读用户为普通角色（非超管），仅测试库ORM配置权限。
+
+### 数据库与真实应用结果
+
+- 新增3个postgres_acceptance用例到既有test_scope_classification.py，强制检查127.0.0.1:55432、hr021_库名及测试账号；在hr021_migration中每个用例自建随机schema并清理，拒绝误用非测试库。
+- 真实0253升降级/再升级保持注册资产行、既有scope_strategy和SystemLog；同expected_version=0两路并发批准，恰一成功一409，版本只增1、成功审计只有1条。
+- 强制审计表约束失败时，批准与审计同事务全回滚；业务事务回滚后，独立失败范围审计仍能在另一session读取，身份/合同标识正确。
+- 目标3 passed、31 deselected、1 warning，7.26s；带--postgres-acceptance的已开发模块扩大回归为**426 passed、6 skipped、3 warnings，14.33s，退出0**，数据库schema检查真实通过0253。6跳过仍是既有warehouse_impact的显式数据库/Token标记，未解除；3警告为依赖与既有utcnow弃用。
+- 真实HTTP登录普通合成用户，旧单表DWD报告使用dwd_current别名成功200，范围内2行，合成金额400，只有F1/F3；F2被组织人员范围过滤。CSV/XLSX各200、2数据行、金额400，标签/旧列ID保持。此样例不等于生产工资或6事实成本数据集15的金额回归。
+- 敏感secret_note访问真实403，不返回合成私有值；只读治理用户PUT批准403。system-logs治理类别读取200，可读取run/csv/xlsx的已提交scope_governance事件，user_id与实际查询普通用户一致，不需要修改生产用户。
+- 新D/S汇总能力、真实多事实/基数、生产工资敏感传播、全部生产出口结果和页面P95仍未实现/未验收，不能凭上述单表/合成金额批准整套021上线。
+
+### 真实浏览器走查
+
+- 浏览器执行真实登录页面，不用API/数据mock；在1366×900下进入实际/warehouse/governance，看到10条合成/内置元数据资产，无未处理pageerror，已截图并查看实际渲染。
+- 桌面批准通过200/version1/服务端批准身份；模拟另一路真实PUT把版本改到2后，旧页面保存真实409，保留草稿且禁保存；主动重载核对后再次真实200/version3。键盘Tab焦点留在抽屉，Escape可关闭；只读用户无编辑框/批准按钮。
+- **390×844触屏走查失败**：共享固定220px侧栏、顶部溢出和宽表固定操作导致文档宽613px，治理面板仅122px。抽屉可打开、CSS宽390px，但整体界面坐标/主内容不可用，不能只按drawer宽度判移动端通过。截图已查看；后续用户明确仅PC，该结果不适用于本期验收，不伪装通过也不作为上线阻塞。
+- 证据在临时evidence目录：live-api.json、browser-desktop.json、browser-mobile.json及governance-desktop/conflict/readonly/mobile/mobile-drawer.png。全部为合成环境，未发布外部链接；文件可能随Temp清理，不将其当生产永久记录。
+
+### 命令与候选边界
+
+```text
+# 本地独立DB环境显式指定，密码从临时认证文件读取，不写入文档/仓库
+DB_HOST=127.0.0.1 DB_PORT=55432 DB_NAME=hr021_acceptance DB_USER=hr021_test
+pytest tests/test_scope_classification.py --postgres-acceptance -k postgres -q
+# 扩大回归沿上节26文件列表，增加--postgres-acceptance；实际426/6跳过/3警告
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+npm run dev -- --host 127.0.0.1 --port 5174 --strictPort
+```
+
+- 仅冻结19个源码候选并在临时release-candidate.json记录SHA256，不是已批准发布包：后端models、scope_health/classification、sql_builder/validation/audit/report_service/router、warehouse路由/Schema/service.assets、system.router及0253；前端scopeGovernance API、4个Scope组件及WarehouseGovernance.vue。
+- 不包含.env、现有docker-compose/Dockerfile变更、无关AI/绩效/同步/生成JS、测试数据库/下载工具。共享文件还须在干净生产基线及候选镜像中构建，不把当前大量未提交工作树整体复制到生产；生产Linux/Python3.11候选镜像未验证。
+- 测试结束已停止本次后端、Vite及临时PostgreSQL（包括遗留Vite子进程），没有停其他Docker/Node或生产服务；临时数据/截图保留可复查。
+- 新勾X2103.isolated_api、X2111.b.4.db、X2111.c.visual.desktop，累计23个完成子项；42父任务仍[ ]。N0914.c.desktop已勾；后续PC范围确认后mobile不适用，父项仍缺生产联调。
+- 当前结论：增量数据库/桌面功能与普通用户单表范围/导出实测通过；**生产仍不部署**。按用户确认的PC范围，完成生产dataset15/旧出口差异批准、在干净基线构建候选并验证发布/回滚，再决定是否灰度。
+
+
+## 2026-10-10 用户确认：仅PC交付
+
+- 用户明确“移动端不用管，这个是有PC端”。已同步spec/START_HERE/本任务/requirements及012中仅针对021的N0914增量，A/B本期均仅PC。
+- 390px手机走查结果保留为历史观察，不删除失败证据、不勾成通过；X2111.c.visual.mobile/N0914.c.mobile改为不适用，不再作为待办/上线门禁。既有窄屏CSS保留，本轮不改UI代码或共享布局。
+- PC浏览器/键盘/窗口与真实API的已验证部分保持勾选；未验证的生产数据集15/旧出口、干净候选构建/镜像、发布批准与回滚仍待完成。没有把PC范围确认解释为部署授权。
+- 012其他模块仍按其原响应式要求执行，只有021本期例外。累计23个已完成子项不变，42父任务仍保持未完成；本轮文档一致性检查，无代码/测试重跑或生产操作。
+
+
+## 2026-10-10 A2开工：目录版本与绑定最小数据库合同
+
+- 按建议先完成A开发及上线前验收，不以治理页面替代字段/自动授权，不等待B。当前新增目录元数据不改生产、旧报表字段名/ID/Query/Mapping正文或已记录PC范围。
+- StandardField保存稳定id/field_code/创建身份；StandardFieldVersion保存编号、名称/定义/基本类型/粒度/字段域/候选锚点、owner、值域定义、draft/active/deprecated/archived及批准身份/时间/原因。读取当前定义取最高有效active版本，旧绑定固定version_id；不复制一份可变current属性或未来SCD/权威执行配置。
+- 本轮数据库合同要求版本属性完整，owner引用现有用户；度量grain可NULL，候选组织/中心编码锚点必须字符串且coarse/fine，不以属性自动授予范围。绑定是否实际匹配树/有转换/可消费由后续批准服务/产品门禁验证。
+- FieldVersionCategory是对现有field_categories的关联，不建敏感角色/分类副本；赋敏感及向DWD传播在后续确认/刷新/消费执行，不将链接表存在当已完成传播。
+- 一个binding只引用一个现有table_column_id或dataset_output_field_id，关联稳定version_id，状态unmapped/suggested/confirmed/invalid、来源字段ID/类型快照及确认身份/时间/并发版本；唯一目标不能两份冲突确认。建议不运行，confirmed需有证据但不等于已经可授权，后续服务还校验active及类型/转换。
+- 已批准版本语义不可覆盖，变化创建新version；field_code首次批准后永久不可修改。状态可停用/归档，但回到draft或清除批准证据不允许。数据库保护与后续API权限/敏感安全覆盖是不同层，不把版本冻结用来延迟撤权。
+- 绑定外键RESTRICT保护标准/分类/物理/输出身份；绑定后的删除/重建应被阻断。旧DWD刷新仍会删元数据，因此X2127之前不开放DWD/输出绑定或发布消费；源ODS绑定/确认API也需明确漂移/拆分迁移合同，不能为了让刷新继续而CASCADE丢证据。
+- 此处是X2104的技术设计部分；真实首批字段、owner/审核者/替补和目录运营/API合同仍未全部冻结，父项不勾。X2124、X2125、X2127及新D/S尚未完成，目录表建成不代表业务可用。
+
+
+## 2026-10-12 X2120/X2124本地后端交付证据
+
+- **已勾选子项**：X2120.meta.1、X2120.meta.2、X2120.meta.3、X2124.a.local、X2124.b.local、X2124.c.local。
+- **修改范围**：0254迁移与ORM增加版本revision、生命周期状态原因/身份/时间及数据库冻结/单向状态触发器；新增 `warehouse/standard_fields.py` 服务与 `standard_fields_router.py` 路由；warehouse Schema 增加目录分页、详情、语义版本、绑定引用和操作请求；warehouse主路由挂载 `/api/v1/warehouse/standard-fields`；扩展目录PostgreSQL验收测试。
+- **真实隔离数据库命令**：`DB_HOST=127.0.0.1 DB_PORT=55432 DB_NAME=hr021_acceptance DB_USER=hr021_test ... python -m alembic downgrade 0253_table_scope_classification && python -m alembic upgrade head && python -m pytest tests/test_standard_field_catalog.py --postgres-acceptance -q`；结果 **48 passed, 67 warnings**。
+- **回归命令**：同隔离库执行 `python -m pytest tests/test_standard_field_catalog.py tests/test_scope_classification.py tests/test_scope_health.py tests/test_warehouse_assets.py tests/test_warehouse_models.py tests/test_warehouse_impact.py tests/test_warehouse_standardization.py -q`；结果 **118 passed, 41 skipped, 1 warning**。跳过项是既有需显式PostgreSQL验收标记的用例。
+- **覆盖证据**：真实 `warehouse.assets` V/C/U/D 依赖、401/403/404/409/422、编码/owner/category/锚点校验、草稿/新版本/审核/弃用/归档、旧语义只读、分页关键词转义、直接绑定引用与禁删、固定版本、并发同令牌一成功一409、审计写入失败业务回滚、数据库状态回退和FK保护。
+- **边界**：未接入首批真实字段、来源发现/转换正文、DWD刷新完整发布治理、业务授权消费、报表/导出、前端UI或UCP；X2120.release、X2124.release及父任务保持 `[ ]`。X2127仅完成本地刷新稳定性子项，不代表发布消费准入。本地目录API不代表字段已经批准可消费，也不改变现有授权执行。
+- **全量回归（稳定刷新后）**：后端全量 **2274 passed、107 skipped、5 failed、164 warnings**；5项失败位于既有AI动作、绩效模板、UCP系统概览和warehouse结果详情测试，未修改其代码，需单独区分基线/工作区并行变更后再处理，不能据此勾选021父任务。
+- **X2140.plan.local交付证据**：新增 `POST /warehouse/models/{id}/execution-plan` 和纯计划编译器；个人定位+汇总、未知字段、非度量聚合、重复分组均阻断，明细/汇总计划测试 **2 passed**，未接入真实D/S执行。
+- **X2122.execution.local交付证据**：新增 `GET /warehouse/models/{id}/authorization-execution-readiness`，返回事实角色、detail/summary候选路径、合同快照/ACL检查范围和未完成树/基数/SQL编译阻断；真实隔离PostgreSQL **2 passed**，runtime_enabled恒为false，不改变legacy查询。
+- **X2121.health.local交付证据**：新增 `GET /warehouse/tree-health?kind=org|cost_center`，复用现有两棵树并只返回健康元数据；孤儿/循环/重复编码/path/level异常测试 **2 passed**，不扩展权限范围，不替代生产树校验。
+- **X2122本地元数据子集交付证据**：新增0255合同表/冻结触发器及 `/warehouse/models/{id}/authorization-contracts` 列表、草稿、编辑、active批准、retired生命周期；真实隔离PostgreSQL覆盖严格Schema、事实物理键/类型、字段白名单、复杂路径批准阻断、expected_version/revision、权限、旧scope_strategy/ACL/发布状态不变和发布准入继续阻断；X2122合同专项 **3 passed**。完整D/S执行、树/基数、生产试点和全渠道消费未完成，不勾X2122父任务。
+- **X2126.a本地子集交付证据**：新增 `GET /warehouse/models/{id}/release-readiness`、`GET /warehouse/models/{id}/release-health` 与 `POST /warehouse/models/{id}/release`；真实隔离PostgreSQL验证字段未绑定/来源漂移/技术字段/物理类型/敏感可见性阻断、健康摘要复用ImpactAnalyzer、缺X2122授权路径和转换合同即阻断发布且不改状态版本；专项准入 **2 passed**，标准字段专项当前 **78 passed**。仅完成服务端字段资格与显式阻断，不代表全业务消费已接入，不勾X2126父任务。
+- **X2125本地子集交付证据（仅后端）**：候选/建议/确认/失效及绑定目标唯一、ODS发布门禁、active版本、来源物理类型、source_field_id漂移和真实刷新失效均已验证；标准字段专项 **65 passed**，来源漂移与刷新联动新增 **4 passed**，治理/刷新/标准化/层级/成本中心隔离回归 **218 passed**。未完成批次漂移全量证据、017转换预览、首批真实字段、前端UI和生产验收，不勾X2125父任务。
+- **X2127候选止损（勾选X2127.b.local及X2127.c.local本地安全子集）**：标准化执行链已停止删除既有 `TableColumn`/`DatasetOutputField`，按稳定 `column_code`/`output_code` 更新物理映射并保留标签、顺序、可见性、敏感性等治理字段；新字段才创建。隔离PostgreSQL刷新与漂移回归 **13 passed**，标准化相关回归 **61 passed, 46 skipped**。物理字段变化关联/失效、批准白名单、消费准入和失败回退尚未完成，因此X2127父任务及X2127.a.local不勾选；X2127.c.local仅完成本地安全子集，批准白名单/消费准入不在本轮声称完成。
+
+## 2026-10-12 X2120/X2124后端开工合同
+
+- 仅A2本地候选实现；不动生产/旧Query/Mapping/报表或出口，不开放DWD、输出或来源绑定API。X2120父任务及X2124.release的业务/生产门禁仍在。
+- 0254尚未部署，继续修订同一增量：版本新增revision（并发编辑/状态令牌，非语义编号）、status_reason/status_changed_by/status_changed_at（生命周期原因/身份/时间）。已批准语义仍不可原地覆盖；语义编号变化创建新version。目录编码API创建后不可修改。
+- 最终路径均以/api/v1/warehouse/standard-fields开头：GET集合分页/keyword/status与GET/{field_id}详情挂warehouse.assets V；POST集合创建首草稿及POST/{field_id}/versions创建新语义版本挂C；PUT/{field_id}/versions/{version_id}仅草稿编辑及POST同路径/approve、/deprecate挂U；POST同路径/archive及DELETE/{field_id}挂D。发布/审核不造新操作码，身份来自require_op/current_user，不接受客户端approved_by/status/created_by。
+- 所有请求extra=forbid；完整语义输入含名称/定义/受控类型/粒度/域/锚点/owner/值域/已有category_ids，使用Pydantic。列表返回items/total；详情含field_id/field_code/current_active_version_id和全部版本及直接bindings（无业务值）；版本含语义编号version和编辑令牌revision。keyword按文字子串而非SQL通配符匹配，分页有上限。
+- 返回200读取/编辑/批准/状态、201创建、204删除；401未登录、403缺对应操作、404不存在或version不属于field、422结构/空白/枚举/额外参数、400失效owner/分类及不兼容锚点；409重复编码、expected_version/expected_revision冲突、非草稿修改/批准、非法状态回退、已批准/有引用删除。detail={code,message}保持稳定，不返回原始SQL/数据库异常。
+- 新版本expected_version比较当前最大语义编号，同一字段最多一个draft；草稿编辑/批准/停用/归档使用expected_revision，删除同时校验expected_version和最新版本expected_revision。父字段与版本行锁、数据库唯一/FK/冻结保护，业务变更与SystemLog同事务，故障回滚；并发两路同令牌只能一路成功。
+- approved旧版仅可active→deprecated→archived或active→archived；draft可archive，不能重新打开。新版本批准不篡改旧版，current_active取最高active；停用最新版本不会宣称旧版本可安全消费（当前接口只元数据，后续消费须重新检查当前安全限制）。批准/停用原因存元数据，审计只留ID/版本/状态/原因存在性，不复制自由文本或员工/金额值。
+- 目录owner必须当前有效用户；category_ids引用现有FieldCategory不复制分类，不改变既有分类权限。meta冻结保护追加父字段/版本行锁，验证并发批准与类别编辑不产生冻结穿透。
+- UI/UCP/017正文不涉及，前端组件/E2E/build不适用；测试写入既有test_standard_field_catalog.py，包含Schema/API真实依赖与隔离PostgreSQL迁移/CRUD/并发/失败原子回滚。完整下游影响与安全实时消费仍是待实施，不以本地元数据API代替。
+
+
+## 2026-10-12 X2125来源发现本地合同
+
+- 本地API沿 `/api/v1/warehouse/standard-fields/{field_id}`：GET `/binding-candidates` 只读返回TableColumn/DatasetOutputField候选的目标身份、table/dataset、alias、原名/显示名、source_field_id、类型、可见/敏感摘要；不返回业务值、SQL或凭证。候选不按中文名自动确认，keyword仅搜索编码/标签/来源ID。
+- POST `/bindings` 仅开放已登记ODS的TableColumn suggested绑定；DWD/输出目标返回409 `standard_binding_release_required`，候选仍可只读查看，完整X2127/X2126放行前不提前开放。必须指定一个target_kind和target_id及draft/active/deprecated语义版本；服务端校验目标存在、版本属于当前field、版本非archived且类型兼容，目标唯一由FK/唯一约束保护。客户端不能指定confirmed/confirmed_by/confirmed_at。
+- POST `/bindings/{binding_id}/confirm` 和 `/bindings/{binding_id}/invalidate` 使用expected_revision；confirm仅允许suggested，版本必须active，服务端从目标读取observed_source_field_id/类型快照并写confirmed身份/时间；invalidate允许suggested/confirmed，确认版本仍保留但刷新门禁立即失效。操作挂warehouse.assets U，审计只记ID/版本/目标/状态/原因存在性。
+- 来源标识优先TableColumn.source_field_id；缺失时使用稳定物理锚点 `table:SHA256(table_name+NUL+column_code)`（保证快照不超过128字符）；输出只读候选展示 `dataset:{dataset_id}:{alias}:{source_column}`，不按显示名猜测。源ID/类型在刷新前与confirmed快照不一致即拒绝/后续失效，不自动换列。
+- 不修改standardization_rules正文、不新增转换执行器、不把suggested/invalid绑定纳入刷新批准；转换预览/017 adapter、批次漂移分类、生产来源证据和UI留在X2125/X2131后续。
+- 测试：真实隔离PostgreSQL覆盖候选发现、无业务值、目标/版本/类型/重复/权限/401/403/404/409/422、确认/失效、并发令牌、审计失败回滚、源身份漂移；不涉及UI/UCP。
+
+## 2026-10-12 X2127刷新收口开工合同
+
+- 本轮仅收口现有DWD刷新安全和隔离真SQL；X2125/X2126及生产门禁仍未通过，不声明整个X2127完成。复用standardization_rules/execute_rules、现有DDL层级和JOIN键校验，不复制Mapping正文。
+- 普通刷新保留DataSet.status/version/输出source_alias/source_column/output_code及全部稳定ID；输出按真实source_column匹配而非假设output_code等于物理列。现存输出集合是legacy白名单，不等于021已确认语义，不能因刷新自动加入新列或启用draft/archived对象。
+- 既有DWD物理/元数据列保持投影；未知新增源业务列保留ODS、不写入既有DWD或输出。新建DWD登记draft且新字段默认不可见，尚无批准发布API时不冒充可消费。
+- 执行前按目标行锁验证移除、类型及source_field_id漂移；现有元数据不能与拟写入schema不符。无法证明兼容时整体拒绝并保留上次数据/元数据，不自动迁移批准或用同名新ID认领。失效标记/人工物理迁移另属X2125/X2127.a后续，不声称已实现。
+- 已有绑定必须confirmed且关联active/deprecated获准版本、类型/来源快照有效；suggested/unmapped/invalid或archived版本阻断。现有已确认输出仍需后续X2126全业务准入；本轮不能把少量绑定当全字段批准。
+- 源is_sensitive升级、is_visible收紧和既有FieldCategoryAssignment集合向DWD单向合并，刷新不能降敏/恢复可见或移除分类；输出同步沿当前列属性取最高限制。分类不复制定义、姓名/金额不进入错误。
+- 替换数据/元数据/输出/血缘在同一DB事务，失败rollback；动态模型在事务提交前反射成功但提交后才写DATA_TABLES缓存，失败不留下对应新模型。
+- generate_dwd_view兼容入口不发布：实际物理列缺失/类型不符、输出映射错误拒绝并rollback；多数据集输出不重新指向任意别名。不新增菜单/路由/动作，沿已有V/C/U/D及error返回，刷新安全失败为write_failed或schema_drift，不暴露SQL/人员值。
+- 测试扩展既有test_standard_field_catalog.py：真实execute_full两次刷新/绑定ID/分类/标签/版本保持、新列隔离、漂移拒绝、事务故障与缓存保持；夹具用随机schema，反射适配同一随机schema（只替换public限定的反射，不替换业务SQL），不接触生产数据。UI/浏览器不涉及。
+
+
+## 2026-10-12 准入收口与健康摘要开工合同
+
+- 前次/release只验证字段绑定即可发布，未满足X2122事实/授权路径和转换合同。本次纠正资格边界：fields_eligible仅表示已声明输出的字段检查通过；eligible还要求完整产品授权/转换合同，本阶段相关能力未实现，明确阻断，不允许借published/旧scope_strategy/任意JSON冒充批准。
+- 新发布只能active语义；deprecated供已批准旧版刷新，本接口不是旧版证明。版本批准完整证据、绑定完整确认、实际information_schema类型、output.data_type、原始源身份以及字段hidden/敏感收紧均复核，不自动修复或降级元数据。
+- GET /warehouse/models/{id}/release-readiness：warehouse.assets V，200安全元数据、404不存在、422非法ID。POST /release：warehouse.assets U，严格expected_version请求，行锁与409冲突/准入不足，任何失败rollback且不改发布状态、版本、发布人、时间或输出。当前缺合同不提供成功发布路径。
+- GET /warehouse/models/{id}/release-health：warehouse.assets V，复用同一check_dataset_release及既有ImpactAnalyzer.scan_model；输出readiness/references/blocking及coverage限定“输出字段、报表、指标”，转换/事实权限/外部出口未验证显式列出；不响应SQL/原始报表配置/员工值。
+- 字段检查批量读取输出、绑定、语义版本、列及物理schema；不能按输出逐次查询整张业务表，不扫描业务行。旧报表/旧发布入口本轮不静默迁移，不称全渠道闭环完成，X2126.b/c及父任务仍待。
+- 在既有test_standard_field_catalog.py增量测试：字段全通过仍发布拒绝、状态伪造不扩权、新普通列未绑定阻断、active/deprecated差别、物理类型漂移、隐藏/敏感收紧、401/403/404/409/422、并发/失败不变状态、健康摘要引用复用；隔离PostgreSQL真执行，不造生产证据。
+
+
+## 2026-10-12 X2122合同元数据本地开工合同
+
+- 仅登记版本，不切换legacy/new查询版本，不修改DataSet.scope_strategy/ACL/published或外部关联。事实person_fact/allocation_fact、候选成本中心仅汇总路径、reference/bridge可存草稿；元数据批准暂仅单person_fact无成本汇总/无JOIN，其他组合409 contract_execution_validation_required，不宣称已验证树/基数。
+- DataProductAuthorizationContract每dataset/version一行，RESTRICT引用dataset/user，draft/active/retired，revision、contract_json、批准身份/时间/原因、创建身份和模型结构快照。active是元数据批准不是运行批准，响应runtime_enabled=false；发布门禁继续eligible=false。
+- GET /warehouse/models/{id}/authorization-contracts 挂warehouse.assets V返回版本列表；POST集合挂U，expected_version=当前最大合同版本（首次0），最多一个draft；PUT /.../{contract_id}挂U，expected_revision仅修改draft；POST /.../{contract_id}/approve及/retire挂U、reason。严格extra=forbid，401/403/404/409/422、验证400；不接受客户端status/批准/运行开关。
+- 变更父DataSet→合同行锁及expected_version/revision；合同和SystemLog同事务、异常rollback。approved语义/结构快照数据库冻结，active只能retired；永久保留，不硬删、不CASCADE删数据集。模型snapshot保存tables/relations/outputs稳定ID和字段投影（无业务值），批准识别后续漂移。
+- 每个source alias恰一个role；person/allocation具fact_key/employee_key，allow_cost_center_summary默认false，true仅allocation+cost_center_key；dimensions/measures为output子集且不重叠，internal_fields为alias.column；物理依赖元数据+information_schema一致。
+- 追加既有test_standard_field_catalog.py测试，不创建脚本/测试文档：真实0255升降级、唯一/冻结/非空降级阻断、Schema/权限/异常/并发/审计故障、旧策略/ACL/状态不变、已批准仍不能发布、结构漂移和复杂路径拒绝。UI/UCP/生产不涉及。

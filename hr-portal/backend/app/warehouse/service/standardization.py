@@ -489,6 +489,22 @@ def _to_table_column_data_type(sql_type: str) -> str:
     return "string"
 
 
+def _normalized_metadata_type(value):
+    return "string" if value == "enum" else value
+
+
+def _physical_metadata_type(value):
+    if value in {"bigint", "integer", "smallint", "numeric", "double precision", "real"}:
+        return "number"
+    if value == "date":
+        return "date"
+    if value in {"timestamp with time zone", "timestamp without time zone"}:
+        return "datetime"
+    if value == "boolean":
+        return "bool"
+    return "string"
+
+
 class StandardizationRuleService:
     """ODS→DWD 标准化规则 CRUD + 预览 + 执行 + DWD 视图生成"""
 
@@ -610,107 +626,145 @@ class StandardizationRuleService:
         output_columns: list[str] | None = None,
         commit: bool = False,
     ) -> dict | None:
-        """同步 DWD 单表数据集输出字段；默认不提交，供执行链路纳入同一事务。"""
-        from app.warehouse.models import StandardizationRule
+        """Refresh existing output safety attributes without releasing a schema."""
+        from sqlalchemy import text
+        from app.data.models import TableColumn
         from app.datasets.models import DataSet, DataSetTable, DatasetOutputField
-        from sqlalchemy import delete as sa_delete
-
-        q = select(StandardizationRule).where(
-            StandardizationRule.asset_code == asset_code,
-            StandardizationRule.enabled == True,
-        ).order_by(StandardizationRule.display_order)
-        rules = (await self.session.execute(q)).scalars().all()
-        if not rules:
-            return None
 
         dwd_table = target_table or self._derive_dwd_name(asset_code)
-        ds_row = (
-            await self.session.execute(
+        try:
+            rows = (await self.session.execute(
                 select(DataSet, DataSetTable.alias)
                 .join(DataSetTable, DataSetTable.dataset_id == DataSet.id)
                 .where(DataSetTable.table_name == dwd_table)
-                .order_by(
-                    (DataSet.warehouse_layer == "DWD").desc(),
-                    DataSet.id,
-                    DataSetTable.id,
-                )
-            )
-        ).first()
-        if ds_row is None:
-            return {"error": "no_dwd_dataset", "detail": f"未找到 DWD 数据集（{dwd_table}），请先检查 datasets/dataset_tables 关联"}
-        ds, source_alias = ds_row
+                .order_by(DataSet.id, DataSetTable.id)
+                .with_for_update(of=DataSet)
+            )).all()
+            if not rows:
+                return {"error": "no_dwd_dataset", "detail": "未找到DWD数据集，请核对关联配置"}
+            physical = (await self.session.execute(text(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_schema=current_schema() AND table_name=:table_name"
+            ), {"table_name": dwd_table})).all()
+            physical_types = {code: _physical_metadata_type(kind) for code, kind in physical}
+            available = set(physical_types) if output_columns is None else set(output_columns) & set(physical_types)
+            columns = (await self.session.execute(
+                select(TableColumn).where(TableColumn.table_name == dwd_table)
+            )).scalars().all()
+            by_code = {column.column_code: column for column in columns}
+            counts = {}
+            for ds, alias in rows:
+                outputs = (await self.session.execute(
+                    select(DatasetOutputField).where(
+                        DatasetOutputField.dataset_id == ds.id,
+                        DatasetOutputField.source_alias == alias,
+                    ).with_for_update()
+                )).scalars().all()
+                for output in outputs:
+                    column = by_code.get(output.source_column)
+                    if column is None or output.source_column not in available:
+                        raise ValueError("DWD_REFRESH_OUTPUT_MISSING: 输出引用的物理字段已失效")
+                    if (_normalized_metadata_type(column.data_type) != physical_types[output.source_column]
+                            or _normalized_metadata_type(output.data_type) != physical_types[output.source_column]):
+                        raise ValueError("DWD_REFRESH_TYPE_DRIFT: 输出字段类型已变化")
+                    await self._validate_refresh_binding(output_id=output.id, column=column)
+                    output.is_sensitive = bool(output.is_sensitive or column.is_sensitive)
+                    output.is_visible = bool(output.is_visible and column.is_visible)
+                counts[ds.id] = counts.get(ds.id, 0) + len(outputs)
+            await self.session.flush()
+            if commit:
+                await self.session.commit()
+            ds = rows[0][0]
+            return {"dataset_id": ds.id, "view_name": ds.name,
+                    "version": ds.version, "field_count": counts[ds.id]}
+        except Exception:
+            if commit:
+                await self.session.rollback()
+                return {"error": "schema_drift", "detail": "DWD输出或批准绑定失效，请先核对字段与版本"}
+            raise
 
-        ds.warehouse_layer = "DWD"
-        ds.status = "published"
-        ds.version = (ds.version or 1) + 1
-        await self.session.execute(sa_delete(DatasetOutputField).where(DatasetOutputField.dataset_id == ds.id))
+    async def _validate_refresh_binding(self, *, column, output_id=None):
+        from app.data.models import StandardFieldBinding, StandardFieldVersion
 
-        from app.data.models import TableColumn
+        target = (StandardFieldBinding.dataset_output_field_id == output_id
+                  if output_id is not None
+                  else StandardFieldBinding.table_column_id == column.id)
+        rows = (await self.session.execute(
+            select(StandardFieldBinding, StandardFieldVersion)
+            .outerjoin(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
+            .where(target)
+        )).all()
+        from app.warehouse.service.standard_fields import _physical_source_identity
+        for binding, version in rows:
+            source_identity = column.source_field_id or _physical_source_identity(column.table_name, column.column_code)
+            if (binding.status != "confirmed" or version is None
+                    or version.status not in {"active", "deprecated"}
+                    or version.approved_by is None
+                    or binding.observed_source_field_id != source_identity
+                    or _normalized_metadata_type(binding.observed_data_type) != _normalized_metadata_type(column.data_type)
+                    or _normalized_metadata_type(version.data_type) != _normalized_metadata_type(column.data_type)):
+                raise ValueError("DWD_REFRESH_BINDING_INVALID: 字段确认或语义版本已失效")
 
-        source_columns_meta = (
-            await self.session.execute(
-                select(TableColumn)
-                .where(TableColumn.table_name == asset_code)
-                .order_by(TableColumn.display_order, TableColumn.id)
-            )
-        ).scalars().all()
-        rules = _normalize_standardization_rules(
-            rules,
-            source_columns=[c.column_code for c in source_columns_meta],
-            source_label_by_code={c.column_code: c.column_label for c in source_columns_meta},
-        )
-
-        dwd_columns = (
-            await self.session.execute(
-                select(TableColumn)
-                .where(TableColumn.table_name == dwd_table)
-                .order_by(TableColumn.display_order, TableColumn.id)
-            )
-        ).scalars().all()
-        dwd_by_code = {c.column_code: c for c in dwd_columns}
-        columns = output_columns or [c.column_code for c in dwd_columns]
-        if not columns:
-            columns = []
-            seen_rule_cols = set()
-            for r in rules:
-                target_col = r.target_field or r.source_field
-                if target_col and target_col not in seen_rule_cols:
-                    columns.append(target_col)
-                    seen_rule_cols.add(target_col)
-
-        output_labels = _rule_output_labels(rules)
-        seen = set()
-        display_order = 0
-        for target_col in columns:
-            if not target_col or target_col in seen:
+    async def _prepare_dwd_refresh(self, target, columns, column_types, source_field_map, source_columns):
+        from app.data.models import RegisteredTable, TableColumn
+        table = (await self.session.execute(select(RegisteredTable).where(
+            RegisteredTable.table_name == target,
+        ).with_for_update())).scalar_one_or_none()
+        existing = (await self.session.execute(select(TableColumn).where(
+            TableColumn.table_name == target,
+        ).with_for_update())).scalars().all()
+        if table is not None and not existing:
+            raise ValueError("DWD_REFRESH_SCHEMA_UNKNOWN: 既有DWD缺少字段基线")
+        from sqlalchemy import text
+        physical_rows = (await self.session.execute(text(
+            "SELECT column_name,data_type FROM information_schema.columns "
+            "WHERE table_schema=current_schema() AND table_name=:table_name"
+        ), {"table_name": target})).all()
+        physical_types = {code: _physical_metadata_type(kind) for code, kind in physical_rows}
+        source_by_code = {column.column_code: column for column in source_columns}
+        for column in existing:
+            if _is_system_technical_column(column.column_code):
                 continue
-            col_meta = dwd_by_code.get(target_col)
-            # Dataset outputs drive front-end visible fields. Keep physical DWD
-            # technical columns for PK/audit, but do not publish hidden metadata
-            # columns such as id/pk_hash/synced_at to the dataset field list.
-            if col_meta is not None and not bool(col_meta.is_visible):
-                continue
-            if col_meta is None and _is_system_technical_column(target_col):
-                continue
-            seen.add(target_col)
-            self.session.add(DatasetOutputField(
-                dataset_id=ds.id,
-                source_alias=source_alias,
-                source_column=target_col,
-                output_code=target_col,
-                output_label=output_labels.get(target_col) or (col_meta.column_label if col_meta else target_col),
-                data_type=(col_meta.data_type if col_meta else "string"),
-                agg_role=(col_meta.agg_role if col_meta else "dimension"),
-                description=(col_meta.description if col_meta else "") or "",
-                display_order=display_order,
-            ))
-            display_order += 10
+            if column.column_code not in columns or column.column_code not in physical_types:
+                raise ValueError("DWD_REFRESH_COLUMN_MISSING: 既有字段已移除，须先确认影响")
+            if _normalized_metadata_type(column.data_type) != physical_types[column.column_code]:
+                raise ValueError("DWD_REFRESH_PHYSICAL_DRIFT: 目标物理字段与批准基线不符")
+            if _normalized_metadata_type(column.data_type) != _to_table_column_data_type(column_types[column.column_code]):
+                raise ValueError("DWD_REFRESH_TYPE_DRIFT: 既有字段类型变化，须先完成迁移")
+            source = source_by_code.get(source_field_map.get(column.column_code, column.column_code))
+            if column.source_field_id is not None and (source is None or source.source_field_id != column.source_field_id):
+                raise ValueError("DWD_REFRESH_SOURCE_DRIFT: 来源字段身份变化，不能自动转移批准")
+            if source is not None and source.scope_role and column.scope_role != source.scope_role:
+                raise ValueError("DWD_REFRESH_SCOPE_DRIFT: 来源授权角色变化，须先审核")
+            await self._validate_refresh_binding(column=column)
+            if source is not None:
+                await self._validate_refresh_binding(column=source)
+        if existing:
+            whitelist = {column.column_code for column in existing}
+            columns = [code for code in columns if code in whitelist or _is_system_technical_column(code)]
+        return columns, existing
 
-        if commit:
-            await self.session.commit()
-            await self.session.refresh(ds)
-        return {"dataset_id": ds.id, "view_name": ds.name, "version": ds.version, "field_count": len(seen)}
-
+    async def _inherit_refresh_categories(self, source_table, target_table, source_field_map, columns):
+        from app.field_category.models import FieldCategoryAssignment
+        assignments = (await self.session.execute(select(FieldCategoryAssignment).where(
+            FieldCategoryAssignment.table_name.in_([source_table, target_table]),
+        ))).scalars().all()
+        source_categories = {}
+        target_keys = set()
+        for assignment in assignments:
+            if assignment.table_name == source_table:
+                source_categories.setdefault(assignment.column_name, set()).add(assignment.category_id)
+            else:
+                target_keys.add((assignment.column_name, assignment.category_id))
+        for column in columns:
+            source_code = source_field_map.get(column.column_code, column.column_code)
+            for category_id in source_categories.get(source_code, set()):
+                key = (column.column_code, category_id)
+                if key not in target_keys:
+                    self.session.add(FieldCategoryAssignment(
+                        table_name=target_table, column_name=column.column_code, category_id=category_id,
+                    ))
+                    target_keys.add(key)
 
     async def _validate_dataset_relation_keys_for_target(self, *, target_table: str, output_columns: list[str]) -> None:
         """Block DWD rebuilds that would remove fields used by dataset joins."""
@@ -896,7 +950,7 @@ class StandardizationRuleService:
         from app.warehouse.models import StandardizationRule
         from app.warehouse.standardization_engine import execute_rules
         from app.data.models import RegisteredTable, TableColumn
-        from sqlalchemy import text as sa_text, delete as sa_delete
+        from sqlalchemy import text as sa_text
 
         # P0: 校验来源层级 — 仅允许 ODS 或 DWD
         source_layer = await self._get_layer(asset_code)
@@ -938,7 +992,7 @@ class StandardizationRuleService:
         if not rules and asset_code != "cost_center_monthly":
             return {"error": "no_rules", "detail": f"表 {asset_code} 没有启用的标准化规则"}
         try:
-            query = f'SELECT * FROM "{asset_code}"'
+            query = f'SELECT * FROM {_quote_ident(asset_code)}'
             params = {}
             if asset_code == "cost_center_monthly":
                 period_column = "month"
@@ -1018,7 +1072,7 @@ class StandardizationRuleService:
                 "errors": [],
             }
         success = len(transformed); failed = total - success
-        target = target_table.strip().replace('"', "")
+        target = target_table.strip()
         # P0: 校验目标层级 — 目标表若已注册，必须是 DWD 层
         target_layer = await self._get_layer(target)
         if target_layer and target_layer != "DWD":
@@ -1048,6 +1102,10 @@ class StandardizationRuleService:
                 source_data_types=source_data_types,
                 rules=rules,
             )
+            bcols, existing_dwd_columns = await self._prepare_dwd_refresh(
+                target, bcols, column_types, source_field_map, source_columns_meta_for_rules,
+            )
+            await self._validate_dataset_relation_keys_for_target(target_table=target, output_columns=bcols)
             target_exists = bool(await self.session.scalar(sa_text(
                 "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
                 "WHERE table_schema = current_schema() AND table_name = :table_name)"
@@ -1059,7 +1117,6 @@ class StandardizationRuleService:
                     await validate_ddl_operation(self.session, target, DDL_REPLACE)
                 else:
                     await validate_ddl_operation(self.session, target, DDL_CREATE, target_layer="DWD")
-                await self._validate_dataset_relation_keys_for_target(target_table=target, output_columns=bcols)
                 col_defs = _dwd_create_column_definitions(bcols, column_types)
                 # 即使转换后没有行，也保留空 DWD 物理表及其元数据契约。
                 # DDL 和元数据仍处于同一事务，异常会整体回滚而不会留下“有元数据无表”。
@@ -1101,23 +1158,25 @@ class StandardizationRuleService:
             if existing_rt is not None:
                 existing_rt.warehouse_layer = "DWD"
             else:
-                self.session.add(RegisteredTable(table_name=target, table_label=target, warehouse_layer="DWD", source_system="数据加工", asset_status="published"))
+                self.session.add(RegisteredTable(table_name=target, table_label=target, warehouse_layer="DWD", source_system="数据加工", asset_status="draft"))
             await self.session.flush()
-            from app.data.dynamic_loader import register_source_table_model
-            await register_source_table_model(self.session, target, force=True)
-            await self.session.execute(sa_delete(TableColumn).where(TableColumn.table_name == target))
+            dwd_by_code = {column.column_code: column for column in existing_dwd_columns}
             source_by_code = {c.column_code: c for c in source_columns_meta_for_rules}
             output_labels = _rule_output_labels(rules)
             display_index = 0
-            for i, tgt in enumerate(bcols if transformed else cols):
+            for tgt in bcols:
                 src_meta = source_by_code.get(source_field_map.get(tgt, tgt))
-                # System technical columns can exist physically for ORM/audit, but
-                # if ODS does not expose them as business metadata, do not create
-                # DWD table_columns for them. Some front-end table views build
-                # headers from table_columns, so hidden rows are not enough.
+                # Technical columns may exist physically without a business metadata row.
                 if src_meta is None and _is_system_technical_column(tgt):
                     continue
                 display_index += 1
+                existing_column = dwd_by_code.get(tgt)
+                if existing_column is not None:
+                    # Keep TableColumn.id and governance fields stable across refreshes.
+                    if src_meta is not None:
+                        existing_column.is_sensitive = bool(existing_column.is_sensitive or src_meta.is_sensitive)
+                        existing_column.is_visible = bool(existing_column.is_visible and src_meta.is_visible)
+                    continue
                 self.session.add(TableColumn(
                     table_name=target,
                     column_code=tgt,
@@ -1126,7 +1185,7 @@ class StandardizationRuleService:
                     data_type=_to_table_column_data_type(column_types.get(tgt, "TEXT")) if transformed else (src_meta.data_type if src_meta else "string"),
                     is_pk_part=bool(src_meta.is_pk_part) if src_meta else False,
                     is_sensitive=bool(src_meta.is_sensitive) if src_meta else False,
-                    is_visible=bool(src_meta.is_visible) if src_meta else True,
+                    is_visible=False,
                     display_order=(src_meta.display_order if src_meta else display_index * 10),
                     auto_discovered=True,
                     agg_role=(src_meta.agg_role if src_meta else "dimension"),
@@ -1134,6 +1193,10 @@ class StandardizationRuleService:
                     description=(src_meta.description if src_meta else None),
                 ))
             await self.session.flush()
+            target_columns = (await self.session.execute(select(TableColumn).where(
+                TableColumn.table_name == target,
+            ))).scalars().all()
+            await self._inherit_refresh_categories(asset_code, target, source_field_map, target_columns)
             # Z02: 血缘写入与主流程同一事务
             from app.warehouse.service import write_lineage_edge
             rule_ids = [r.id for r in rules]
@@ -1142,8 +1205,12 @@ class StandardizationRuleService:
             })
             # P2/P3 收口：执行成功后同步 DWD 单表数据集输出字段，避免额外“发布 DWD 视图”动作。
             sync_result = await self._sync_dwd_dataset_fields(asset_code=asset_code, target_table=target, output_columns=(bcols if transformed else cols), commit=False)
-            if sync_result and sync_result.get("error"):
-                raise RuntimeError(sync_result.get("detail") or "DWD 数据集字段同步失败")
+            if sync_result and sync_result.get("error") and not (
+                not existing_dwd_columns and sync_result["error"] == "no_dwd_dataset"
+            ):
+                raise ValueError("DWD_REFRESH_OUTPUT_INVALID: DWD数据集字段同步失败")
+            from app.data.dynamic_loader import reflect_source_table_model
+            refreshed_model = await reflect_source_table_model(self.session, target)
             if asset_code == "cost_center_monthly" and cost_center_period:
                 from app.mapping.cost_center_service import CostCenterMappingService
                 await CostCenterMappingService(self.session).mark_rebuild_result(
@@ -1153,7 +1220,10 @@ class StandardizationRuleService:
             await self.session.commit()
         except Exception as e:
             await self.session.rollback()
-            return {"error": "write_failed", "detail": str(e)[:500], "total": total, "success": 0, "failed": total, "target_table": target, "errors": []}
+            reason = str(e).split(":", 1)[0] if isinstance(e, ValueError) and str(e).startswith("DWD_REFRESH_") else "DWD_REFRESH_WRITE_FAILED"
+            return {"error": "write_failed", "reason": reason, "detail": "DWD刷新未保存，请核对字段、绑定和版本；此前数据已保留", "total": total, "success": 0, "failed": total, "target_table": target, "errors": []}
+        from app.data.models import DATA_TABLES
+        DATA_TABLES[target] = refreshed_model
         # P0-3: 空结果警告
         result = {
             "total": total,

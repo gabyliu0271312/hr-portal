@@ -8,7 +8,7 @@
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ==================== 枚举 ====================
@@ -29,6 +29,53 @@ class UcpInfoOut(BaseModel):
     resource_id: Optional[int] = None
     connector_config_id: Optional[int] = None
     config_route: Optional[str] = None
+
+
+ScopeClassification = Literal["controlled_fact", "sensitive_fact", "person_bridge", "public_reference"]
+
+
+class ScopeClassificationIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    security_classification: ScopeClassification
+    reason: str = Field(min_length=1, max_length=1000)
+    expected_version: int = Field(ge=0, strict=True)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("批准原因不能为空")
+        return value
+
+
+class ScopeClassificationOut(BaseModel):
+    table_name: str
+    security_classification: ScopeClassification
+    version: int
+    approved_by: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    reason: Optional[str] = None
+    runtime_filter_exemption: Literal[False] = False
+
+
+class ScopeHealthIssueOut(BaseModel):
+    code: str
+    severity: Literal["warning", "error"]
+    message: str
+
+
+class ScopeHealthOut(BaseModel):
+    table_name: str
+    warehouse_layer: Optional[str] = None
+    asset_status: Optional[str] = None
+    scope_strategy: Optional[str] = None
+    roster_join_configured: bool = False
+    role_columns: list[str] = []
+    dataset_count: int = 0
+    report_count: int = 0
+    issues: list[ScopeHealthIssueOut] = []
+
 
 
 # ==================== 数据资产 ====================
@@ -1642,3 +1689,228 @@ class FormulaDecomposeOut(BaseModel):
     dimensions: list[str] = Field(default_factory=list, description="从数据集推断的维度字段")
     is_ratio: bool = Field(False, description="是否检测到比率公式")
     rate_expression: Optional[str] = Field(None, description="被剥离的展示逻辑，如 '*100' 或 'ROUND(2) *100'；无可剥离时为 None")
+
+
+# ==================== 标准字段语义目录 ====================
+
+StandardFieldStatus = Literal["draft", "active", "deprecated", "archived"]
+
+
+class StandardFieldDefinitionIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    field_name: str = Field(min_length=1, max_length=128)
+    business_definition: str = Field(min_length=1, max_length=4000)
+    data_type: Literal["string", "number", "date", "datetime", "bool", "enum"]
+    grain_level: Literal["coarse", "fine", "identifying"] | None = None
+    permission_domain: Literal["public", "org", "cost_center", "salary", "personal"]
+    is_permission_anchor: bool = Field(default=False, strict=True)
+    owner_user_id: int = Field(gt=0, strict=True)
+    value_domain: dict | None = None
+    category_ids: list[int] = Field(default_factory=list, max_length=100)
+
+    @field_validator("field_name", "business_definition")
+    @classmethod
+    def nonempty_text(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("名称和业务定义不能为空")
+        return value
+
+    @field_validator("category_ids")
+    @classmethod
+    def unique_categories(cls, value):
+        if any(item <= 0 for item in value) or len(set(value)) != len(value):
+            raise ValueError("分类ID必须为正数且不可重复")
+        return value
+
+
+class StandardFieldCreateIn(StandardFieldDefinitionIn):
+    field_code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+
+
+class StandardFieldVersionCreateIn(StandardFieldDefinitionIn):
+    expected_version: int = Field(ge=1, strict=True)
+
+
+class StandardFieldVersionUpdateIn(StandardFieldDefinitionIn):
+    expected_revision: int = Field(ge=0, strict=True)
+
+
+class StandardFieldActionIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    expected_revision: int = Field(ge=0, strict=True)
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def nonempty_reason(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("操作原因不能为空")
+        return value
+
+
+class StandardFieldVersionOut(StandardFieldDefinitionIn):
+    model_config = {"from_attributes": True}
+    id: int
+    standard_field_id: int
+    version: int
+    revision: int
+    status: StandardFieldStatus
+    created_by: int
+    approved_by: int | None = None
+    approved_at: datetime | None = None
+    approval_reason: str | None = None
+    status_reason: str | None = None
+    status_changed_by: int | None = None
+    status_changed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class StandardFieldBindingRefOut(BaseModel):
+    model_config = {"from_attributes": True}
+    id: int
+    standard_field_version_id: int | None
+    table_column_id: int | None
+    dataset_output_field_id: int | None
+    status: Literal["unmapped", "suggested", "confirmed", "invalid"]
+    binding_version: int
+
+
+class StandardFieldSummaryOut(BaseModel):
+    id: int
+    field_code: str
+    current_active_version_id: int | None
+    latest_version: StandardFieldVersionOut
+
+
+class StandardFieldDetailOut(StandardFieldSummaryOut):
+    versions: list[StandardFieldVersionOut]
+    bindings: list[StandardFieldBindingRefOut]
+
+
+class StandardFieldListOut(BaseModel):
+    items: list[StandardFieldSummaryOut]
+    total: int
+
+
+class StandardFieldBindingCandidateOut(BaseModel):
+    target_kind: Literal["table_column", "dataset_output_field"]
+    target_id: int
+    table_name: str | None = None
+    dataset_id: int | None = None
+    dataset_name: str | None = None
+    alias: str | None = None
+    column_code: str
+    display_name: str
+    source_field_id: str
+    data_type: str
+    is_visible: bool
+    is_sensitive: bool
+    existing_binding_id: int | None = None
+    existing_binding_status: Literal["unmapped", "suggested", "confirmed", "invalid"] | None = None
+
+
+class StandardFieldBindingCreateIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    target_kind: Literal["table_column", "dataset_output_field"]
+    target_id: int = Field(gt=0, strict=True)
+    standard_field_version_id: int = Field(gt=0, strict=True)
+
+
+class StandardFieldBindingActionIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    expected_revision: int = Field(ge=0, strict=True)
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def binding_reason(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("操作原因不能为空")
+        return value
+
+
+class StandardFieldBindingOut(StandardFieldBindingRefOut):
+    standard_field_id: int
+    standard_field_version_status: StandardFieldStatus | None = None
+    observed_source_field_id: str | None = None
+    observed_data_type: str | None = None
+    revision: int
+    confirmed_by: int | None = None
+    confirmed_at: datetime | None = None
+
+
+class DatasetReleaseIssueOut(BaseModel):
+    code: str
+    severity: Literal["error", "warning"] = "error"
+    target_kind: str | None = None
+    target_id: int | None = None
+    message: str
+
+
+class DatasetReleaseReadinessOut(BaseModel):
+    dataset_id: int
+    dataset_status: str
+    eligible: bool
+    fields_eligible: bool
+    authorization_verified: bool = False
+    conversion_verified: bool = False
+    checked_output_count: int
+    confirmed_output_count: int
+    issues: list[DatasetReleaseIssueOut]
+
+
+class DatasetReleaseIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    expected_version: int = Field(ge=1, strict=True)
+
+
+class DatasetReleaseHealthOut(BaseModel):
+    readiness: DatasetReleaseReadinessOut
+    references: list[ImpactRefOut]
+    blocking: bool
+    checked_areas: list[str]
+    unchecked_areas: list[str]
+
+
+class TreeHealthIssueOut(BaseModel):
+    code: str
+    node_id: int | None = None
+    node_code: str | None = None
+    message: str
+
+
+class TreeHealthOut(BaseModel):
+    kind: Literal["org", "cost_center"]
+    node_count: int
+    active_count: int
+    root_count: int
+    eligible: bool
+    issues: list[TreeHealthIssueOut]
+
+
+class ExecutionPlanIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    output_fields: list[str] = Field(min_length=1, max_length=500)
+    filters: list[str] = Field(default_factory=list, max_length=200)
+    group_by: list[str] = Field(default_factory=list, max_length=200)
+    order_by: list[str] = Field(default_factory=list, max_length=200)
+    aggregations: dict[str, Literal["sum", "count", "count_distinct", "avg", "min", "max"]] = Field(default_factory=dict)
+    personal_fields: list[str] = Field(default_factory=list, max_length=100)
+    employee_keys: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ExecutionPlanOut(BaseModel):
+    dataset_id: int
+    shape: Literal["detail", "summary", "blocked"]
+    detail_path: Literal["person_scope", "not_allowed"]
+    summary_path: Literal["person_scope", "person_or_cost_center_scope", "not_allowed"]
+    output_fields: list[str]
+    group_by: list[str]
+    aggregations: dict[str, str]
+    eligible: bool
+    runtime_enabled: Literal[False] = False
+    issues: list[dict[str, str]]

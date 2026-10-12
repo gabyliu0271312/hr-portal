@@ -4,20 +4,25 @@
 路由前缀: /api/v1/warehouse
 """
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
+from app.data.models import DATA_TABLES, RegisteredTable, TableColumn
 from app.datasets.models import DataSet, DataSetRelation, DataSetTable
+from app.reports.scope_health import analyze_scope_configuration
 from app.reports.models import Report
 from app.users.models import User
 from app.warehouse.schemas import (
     WAREHOUSE_LAYERS,
     ASSET_STATUSES,
     WarehouseAssetUpdateIn,
+    ScopeHealthOut,
+    ScopeClassificationIn,
+    ScopeClassificationOut,
     WarehousePeriodConfigIn,
     WarehousePeriodConfigOut,
     WarehouseModelCreateIn,
@@ -56,8 +61,18 @@ from app.warehouse.schemas import (
     WarehouseRunSummaryOut,
     WarehouseAlertRuleIn,
     WarehouseAlertRuleOut,
+    DatasetReleaseIn,
+    DatasetReleaseReadinessOut,
+    DatasetReleaseHealthOut,
+    TreeHealthOut,
+    ExecutionPlanIn,
+    ExecutionPlanOut,
 )
 from app.warehouse.service import WarehouseService, get_warehouse_service
+from app.datasets.authorization_contract import (
+    ProductAuthorizationActionIn, ProductAuthorizationCreateIn, ProductAuthorizationOut, ProductAuthorizationUpdateIn,
+    AuthorizationExecutionReadinessOut,
+)
 from app.warehouse.impact import get_impact_analyzer
 from app.warehouse.lineage import (
     get_lineage_builder,
@@ -111,7 +126,10 @@ from app.warehouse.schemas import (
     FormulaDecomposeIn, FormulaDecomposeOut,
 )
 
+from app.warehouse.standard_fields_router import router as standard_fields_router
+
 router = APIRouter(prefix="/warehouse", tags=["数据仓库"])
+router.include_router(standard_fields_router)
 
 
 # ==================== 辅助 ====================
@@ -246,6 +264,104 @@ async def batch_update_asset_layer(
     )
     await db.commit()
     return result
+
+
+@router.get("/scope-classifications/{table_name}", response_model=ScopeClassificationOut)
+async def get_scope_classification(
+    table_name: str = Path(..., pattern=r"^[a-z][a-z0-9_]{0,63}$"),
+    user: User = Depends(require_op("warehouse.governance", "V")),
+    db: AsyncSession = Depends(get_session),
+) -> ScopeClassificationOut:
+    from app.reports.scope_classification import read_scope_classification
+    return await read_scope_classification(db, table_name)
+
+
+@router.put("/scope-classifications/{table_name}", response_model=ScopeClassificationOut)
+async def update_scope_classification(
+    payload: ScopeClassificationIn,
+    table_name: str = Path(..., pattern=r"^[a-z][a-z0-9_]{0,63}$"),
+    user: User = Depends(require_op("warehouse.governance", "U")),
+    db: AsyncSession = Depends(get_session),
+) -> ScopeClassificationOut:
+    from app.reports.scope_classification import approve_scope_classification
+    return await approve_scope_classification(db, table_name, payload, user)
+
+
+@router.get("/scope-health", response_model=list[ScopeHealthOut], dependencies=[Depends(require_op("warehouse.governance", "V"))])
+async def scope_health(
+    dataset_id: int | None = Query(None, ge=1),
+    db: AsyncSession = Depends(get_session),
+) -> list[ScopeHealthOut]:
+    """返回不含业务原值的范围配置健康摘要。"""
+    dataset_strategy = None
+    if dataset_id is None:
+        registered = (await db.execute(select(RegisteredTable).order_by(RegisteredTable.table_name))).scalars().all()
+    else:
+        dataset = await db.get(DataSet, dataset_id)
+        if dataset is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="数据集不存在")
+        dataset_strategy = dataset.scope_strategy
+        registered = (
+            await db.execute(
+                select(RegisteredTable)
+                .join(DataSetTable, DataSetTable.table_name == RegisteredTable.table_name)
+                .where(DataSetTable.dataset_id == dataset_id)
+                .order_by(RegisteredTable.table_name)
+            )
+        ).scalars().unique().all()
+
+    roster = (await db.execute(
+        select(RegisteredTable).where(RegisteredTable.table_name == "emp_realtime_roster")
+    )).scalars().first()
+    roster_model = DATA_TABLES.get("emp_realtime_roster")
+    roster_physical = set(roster_model.__table__.columns.keys()) if roster_model is not None else set()
+    roster_columns = (
+        await db.execute(
+            select(TableColumn).where(TableColumn.table_name == "emp_realtime_roster")
+        )
+    ).scalars().all()
+    roster_roles = [column.scope_role for column in roster_columns
+                    if column.scope_role and column.column_code in roster_physical]
+    roster_available = (roster is not None and "employee_no" in roster_physical)
+
+    output: list[ScopeHealthOut] = []
+    for item in registered:
+        columns = (
+            await db.execute(select(TableColumn).where(TableColumn.table_name == item.table_name))
+        ).scalars().all()
+        role_columns = {column.scope_role: column.column_code for column in columns if column.scope_role}
+        model = DATA_TABLES.get(item.table_name)
+        physical_columns = list(model.__table__.columns.keys()) if model is not None else []
+        effective_strategy = dataset_strategy or item.scope_strategy
+        issues = analyze_scope_configuration(
+            table_name=item.table_name,
+            strategy=effective_strategy,
+            role_columns=role_columns,
+            physical_columns=physical_columns,
+            roster_join_col=item.roster_join_col,
+            roster_role_columns=roster_roles,
+            roster_registered=roster_available,
+        )
+        dataset_count = await db.scalar(
+            select(func.count(func.distinct(DataSetTable.dataset_id))).where(DataSetTable.table_name == item.table_name)
+        )
+        report_count = await db.scalar(
+            select(func.count(Report.id)).where(Report.dataset_id.in_(
+                select(DataSetTable.dataset_id).where(DataSetTable.table_name == item.table_name)
+            ))
+        )
+        output.append(ScopeHealthOut(
+            table_name=item.table_name,
+            warehouse_layer=item.warehouse_layer,
+            asset_status=item.asset_status,
+            scope_strategy=effective_strategy,
+            roster_join_configured=bool(item.roster_join_col),
+            role_columns=sorted(set(role_columns)),
+            dataset_count=int(dataset_count or 0),
+            report_count=int(report_count or 0),
+            issues=issues,
+        ))
+    return output
 
 
 @router.get(
@@ -1830,6 +1946,93 @@ async def preview_ucp_resource(
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"UCP 资源不存在: {resource_id}")
     return result
+
+
+# ==================== 当前权限树健康校验 (X2121 local) ====================
+
+@router.get("/tree-health", response_model=TreeHealthOut,
+            dependencies=[Depends(require_op("warehouse.governance", "V"))])
+async def tree_health(kind: str = Query(..., pattern="^(org|cost_center)$"), db: AsyncSession = Depends(get_session)):
+    from app.data.models import CostCenterNode, OrgNode
+    from app.warehouse.service.tree_health import analyze_tree
+    model = OrgNode if kind == "org" else CostCenterNode
+    nodes = (await db.execute(select(model).order_by(model.id))).scalars().all()
+    return analyze_tree(kind, nodes)
+
+
+# ==================== 数据产品授权合同 (X2122 local) ====================
+
+@router.get("/models/{model_id}/authorization-contracts", response_model=list[ProductAuthorizationOut], dependencies=[Depends(require_op("warehouse.assets", "V"))])
+async def list_authorization_contracts(model_id: int, db: AsyncSession = Depends(get_session)):
+    from app.datasets.authorization_contract import list_contracts
+    return await list_contracts(db, model_id)
+
+
+@router.post("/models/{model_id}/authorization-contracts", response_model=ProductAuthorizationOut, status_code=201, dependencies=[Depends(require_op("warehouse.assets", "U"))])
+async def create_authorization_contract(model_id: int, payload: ProductAuthorizationCreateIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
+    from app.datasets.authorization_contract import create_contract
+    return await create_contract(db, model_id, payload, user)
+
+
+@router.put("/models/{model_id}/authorization-contracts/{contract_id}", response_model=ProductAuthorizationOut, dependencies=[Depends(require_op("warehouse.assets", "U"))])
+async def update_authorization_contract(model_id: int, contract_id: int, payload: ProductAuthorizationUpdateIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
+    from app.datasets.authorization_contract import update_contract
+    return await update_contract(db, model_id, contract_id, payload, user)
+
+
+@router.post("/models/{model_id}/authorization-contracts/{contract_id}/approve", response_model=ProductAuthorizationOut, dependencies=[Depends(require_op("warehouse.assets", "U"))])
+async def approve_authorization_contract(model_id: int, contract_id: int, payload: ProductAuthorizationActionIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
+    from app.datasets.authorization_contract import approve_contract
+    return await approve_contract(db, model_id, contract_id, payload, user)
+
+
+@router.get("/models/{model_id}/authorization-execution-readiness", response_model=AuthorizationExecutionReadinessOut, dependencies=[Depends(require_op("warehouse.assets", "V"))])
+async def authorization_execution_readiness(model_id: int, db: AsyncSession = Depends(get_session)):
+    from app.datasets.authorization_contract import execution_readiness
+    return await execution_readiness(db, model_id)
+
+
+@router.post("/models/{model_id}/authorization-contracts/{contract_id}/retire", response_model=ProductAuthorizationOut, dependencies=[Depends(require_op("warehouse.assets", "U"))])
+async def retire_authorization_contract(model_id: int, contract_id: int, payload: ProductAuthorizationActionIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
+    from app.datasets.authorization_contract import retire_contract
+    return await retire_contract(db, model_id, contract_id, payload, user)
+
+
+# ==================== 标准字段输出发布准入 (X2126 local) ====================
+
+@router.post("/models/{model_id}/execution-plan", response_model=ExecutionPlanOut, dependencies=[Depends(require_op("warehouse.assets", "V"))])
+async def compile_execution_plan_route(model_id: int, payload: ExecutionPlanIn, db: AsyncSession = Depends(get_session)):
+    from app.datasets.models import DataSet, DatasetOutputField
+    from app.reports.execution_plan import compile_execution_plan
+    dataset = await db.get(DataSet, model_id)
+    if dataset is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "dataset_not_found", "message": "数据集不存在"})
+    fields = (await db.execute(select(DatasetOutputField).where(DatasetOutputField.dataset_id == model_id))).scalars().all()
+    allowed = {field.output_code for field in fields}
+    measures = {field.output_code for field in fields if field.agg_role == "measure"}
+    return compile_execution_plan(model_id, payload, allowed_fields=allowed, measures=measures, approved_summary=False)
+
+
+@router.get("/models/{model_id}/release-readiness", response_model=DatasetReleaseReadinessOut,
+            dependencies=[Depends(require_op("warehouse.assets", "V"))])
+async def dataset_release_readiness(model_id: int, db: AsyncSession = Depends(get_session)):
+    from app.warehouse.service.release_gate import check_dataset_release
+    return await check_dataset_release(db, model_id)
+
+
+@router.get("/models/{model_id}/release-health", response_model=DatasetReleaseHealthOut,
+            dependencies=[Depends(require_op("warehouse.assets", "V"))])
+async def dataset_release_health(model_id: int, db: AsyncSession = Depends(get_session)):
+    from app.warehouse.service.release_gate import get_dataset_release_health
+    return await get_dataset_release_health(db, model_id)
+
+
+@router.post("/models/{model_id}/release", response_model=DatasetReleaseReadinessOut,
+             dependencies=[Depends(require_op("warehouse.assets", "U"))])
+async def release_dataset(model_id: int, payload: DatasetReleaseIn,
+                         db: AsyncSession = Depends(get_session)):
+    from app.warehouse.service.release_gate import request_dataset_release
+    return await request_dataset_release(db, model_id, payload.expected_version)
 
 
 # ==================== 建模 V2 (Q05) ====================

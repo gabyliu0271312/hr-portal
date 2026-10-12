@@ -13,6 +13,7 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -262,3 +263,34 @@ class WarehouseMetric(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class DataProductAuthorizationContract(Base):
+    """X2122 数据产品授权合同；不替代旧 scope_strategy。"""
+    __tablename__ = "data_product_authorization_contracts"
+    __table_args__ = (
+        UniqueConstraint("dataset_id", "contract_version", name="uq_data_product_contract_version"),
+        CheckConstraint("contract_version > 0 AND revision >= 0", name="ck_data_product_contract_numbers"),
+        CheckConstraint("status IN ('draft','active','retired')", name="ck_data_product_contract_status"),
+        CheckConstraint(
+            "(status='draft' AND approved_by IS NULL AND approved_at IS NULL AND approval_reason IS NULL) OR "
+            "(status IN ('active','retired') AND approved_by IS NOT NULL AND approved_at IS NOT NULL "
+            "AND approval_reason IS NOT NULL AND length(trim(approval_reason))>0)",
+            name="ck_data_product_contract_approval",
+        ),
+        Index("ix_data_product_contract_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    dataset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("datasets.id", ondelete="RESTRICT"), nullable=False)
+    contract_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", server_default="draft")
+    contract_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    model_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    approved_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approval_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

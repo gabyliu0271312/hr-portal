@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -160,7 +161,21 @@ class RegisteredTable(Base):
     不再硬编码。DATA_TABLES 在启动时动态加载此表中的记录。
     """
     __tablename__ = "registered_tables"
-    __table_args__ = (UniqueConstraint("table_name", name="uq_registered_table_name"),)
+    __table_args__ = (
+        UniqueConstraint("table_name", name="uq_registered_table_name"),
+        CheckConstraint(
+            "security_classification IN ('controlled_fact','sensitive_fact','person_bridge','public_reference')",
+            name="ck_registered_table_security_classification",
+        ),
+        CheckConstraint(
+            "(scope_classification_version = 0 AND security_classification = 'controlled_fact' "
+            "AND scope_approved_by IS NULL AND scope_approved_at IS NULL AND scope_approval_reason IS NULL) "
+            "OR (scope_classification_version > 0 AND scope_approved_by IS NOT NULL "
+            "AND scope_approved_at IS NOT NULL AND scope_approval_reason IS NOT NULL "
+            "AND length(trim(scope_approval_reason)) > 0)",
+            name="ck_registered_table_scope_approval",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     table_name: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -186,6 +201,18 @@ class RegisteredTable(Base):
 
     # 数据范围场景策略：person_first / cc_first / cross_filter。
     scope_strategy: Mapped[str] = mapped_column(String(32), nullable=False, default="cross_filter")
+
+    security_classification: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="controlled_fact", server_default="controlled_fact"
+    )
+    scope_classification_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    scope_approved_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT", name="fk_registered_table_scope_approved_by"), nullable=True
+    )
+    scope_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scope_approval_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # 图标（Element Plus icon name）
     icon: Mapped[str] = mapped_column(String(64), nullable=False, default="Grid")
@@ -223,3 +250,107 @@ class RegisteredTable(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class StandardField(Base):
+    __tablename__ = "standard_fields"
+    __table_args__ = (
+        UniqueConstraint("field_code", name="uq_standard_field_code"),
+        CheckConstraint("length(trim(field_code)) > 0", name="ck_standard_field_code"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    field_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class StandardFieldVersion(Base):
+    __tablename__ = "standard_field_versions"
+    __table_args__ = (
+        UniqueConstraint("standard_field_id", "version", name="uq_standard_field_version"),
+        CheckConstraint("version > 0", name="ck_standard_field_version_number"),
+        CheckConstraint("revision >= 0", name="ck_standard_field_revision"),
+        CheckConstraint("length(trim(field_name)) > 0 AND length(trim(business_definition)) > 0", name="ck_standard_field_definition"),
+        CheckConstraint("data_type IN ('string','number','date','datetime','bool','enum')", name="ck_standard_field_type"),
+        CheckConstraint("grain_level IS NULL OR grain_level IN ('coarse','fine','identifying')", name="ck_standard_field_grain"),
+        CheckConstraint("permission_domain IN ('public','org','cost_center','salary','personal')", name="ck_standard_field_domain"),
+        CheckConstraint("status IN ('draft','active','deprecated','archived')", name="ck_standard_field_status"),
+        CheckConstraint(
+            "NOT is_permission_anchor OR (data_type='string' AND permission_domain IN ('org','cost_center') "
+            "AND grain_level IS NOT NULL AND grain_level IN ('coarse','fine'))", name="ck_standard_field_anchor"
+        ),
+        CheckConstraint(
+            "(status IN ('draft','archived') AND approved_by IS NULL AND approved_at IS NULL AND approval_reason IS NULL) "
+            "OR (status IN ('active','deprecated','archived') AND approved_by IS NOT NULL AND approved_at IS NOT NULL "
+            "AND approval_reason IS NOT NULL AND length(trim(approval_reason)) > 0)", name="ck_standard_field_approval"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    standard_field_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("standard_fields.id", ondelete="RESTRICT"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    field_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_definition: Mapped[str] = mapped_column(Text, nullable=False)
+    data_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    grain_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    permission_domain: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_permission_anchor: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    owner_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    value_domain: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", server_default="draft")
+    created_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    approved_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approval_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status_changed_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    status_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class StandardFieldVersionCategory(Base):
+    __tablename__ = "standard_field_version_categories"
+
+    standard_field_version_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("standard_field_versions.id", ondelete="RESTRICT"), primary_key=True)
+    field_category_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("field_categories.id", ondelete="RESTRICT"), primary_key=True)
+
+
+class StandardFieldBinding(Base):
+    __tablename__ = "standard_field_bindings"
+    __table_args__ = (
+        UniqueConstraint("table_column_id", name="uq_standard_binding_table_column"),
+        UniqueConstraint("dataset_output_field_id", name="uq_standard_binding_output_field"),
+        CheckConstraint(
+            "(table_column_id IS NOT NULL AND dataset_output_field_id IS NULL) "
+            "OR (table_column_id IS NULL AND dataset_output_field_id IS NOT NULL)", name="ck_standard_binding_target"
+        ),
+        CheckConstraint("binding_version >= 0", name="ck_standard_binding_version"),
+        CheckConstraint("status IN ('unmapped','suggested','confirmed','invalid')", name="ck_standard_binding_status"),
+        CheckConstraint(
+            "(status='unmapped' AND standard_field_version_id IS NULL AND confirmed_by IS NULL AND confirmed_at IS NULL) "
+            "OR (status='suggested' AND standard_field_version_id IS NOT NULL AND confirmed_by IS NULL AND confirmed_at IS NULL) "
+            "OR (status='confirmed' AND standard_field_version_id IS NOT NULL AND binding_version > 0 "
+            "AND confirmed_by IS NOT NULL AND confirmed_at IS NOT NULL AND observed_data_type IS NOT NULL "
+            "AND length(trim(observed_data_type)) > 0) "
+            "OR (status='invalid' AND ((confirmed_by IS NULL AND confirmed_at IS NULL) OR "
+            "(standard_field_version_id IS NOT NULL AND binding_version > 0 AND confirmed_by IS NOT NULL AND confirmed_at IS NOT NULL)))",
+            name="ck_standard_binding_confirmation"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    table_column_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("table_columns.id", ondelete="RESTRICT"), nullable=True)
+    dataset_output_field_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("dataset_output_fields.id", ondelete="RESTRICT"), nullable=True)
+    standard_field_version_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_field_versions.id", ondelete="RESTRICT"), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="unmapped", server_default="unmapped")
+    binding_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    observed_source_field_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    observed_data_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    confirmed_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
