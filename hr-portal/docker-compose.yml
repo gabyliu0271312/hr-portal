@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${DB_USER:-hr_portal}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me}
     volumes:
-      - ./data/pg:/var/lib/postgresql/data
+      - ${PG_DATA_DIR:-./data/pg}:/var/lib/postgresql/data
     ports:
       - "${DB_BIND_HOST:-127.0.0.1}:${DB_PUBLIC_PORT:-5432}:5432"
     healthcheck:
@@ -73,7 +73,7 @@ services:
 
     volumes:
       - ./backend:/app:cached
-      - ./data/pg/pg_hba.conf:/app/pg_hba.conf:rw
+      - ${PG_DATA_DIR:-./data/pg}/pg_hba.conf:/app/pg_hba.conf:rw
       - ./backend/data:/app/data
       - ./backend/logs:/app/logs
       - ./backend/docker/fonts:/usr/share/fonts/truetype/custom:ro
