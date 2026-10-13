@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { listAssets } from '@/api/warehouse'
 import type { Asset } from '@/api/warehouse'
 import LayerStatsPanel from '@/components/warehouse/LayerStatsPanel.vue'
+import ScopeGovernancePanel from '@/components/warehouse/ScopeGovernancePanel.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -36,6 +37,8 @@ onMounted(load)
 <template>
   <div style="padding: 24px; max-width: 1000px; margin: 0 auto">
     <h2 style="margin: 0 0 16px; font-size: 20px">数据治理</h2>
+
+    <ScopeGovernancePanel />
 
     <!-- 治理功能入口 -->
     <el-row :gutter="16" style="margin-bottom: 16px">

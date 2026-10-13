@@ -861,7 +861,7 @@ class WarehouseService:
         summary 中的 unmatched_count / duplicate_match_count / null_count /
         type_error_count 当前阶段暂不计算，统一返回 null。
         """
-        from app.reports.sql_builder import run_dataset_query
+        from app.reports.report_service import run_audited_dataset_query
 
         limit = min(max(limit, 1), 100)
 
@@ -887,7 +887,8 @@ class WarehouseService:
 
         try:
             warnings: list[str] = []
-            columns_meta, items, total = await run_dataset_query(
+            columns_meta, items, total = await run_audited_dataset_query(
+                channel="model_preview",
                 dataset_id=model_id,
                 columns=sql_columns,
                 filters=[],

@@ -20,6 +20,7 @@ _CATEGORY_MENU = {
     "automation_notification": "system.logs.operation",
     "compensation_calc": "system.logs.operation",
     "report_access": "system.logs.operation",
+    "scope_governance": "warehouse.governance",
 }
 
 

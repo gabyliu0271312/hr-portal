@@ -23,6 +23,24 @@ from app.users.models import User
 logger = logging.getLogger("reports.service")
 
 
+async def run_audited_dataset_query(*, channel, report_id=None, **query):
+    from app.reports.audit import record_scope_audit
+    from app.reports.sql_builder import run_dataset_query
+
+    decisions = []
+    query_status = "failed"
+    try:
+        result = await run_dataset_query(**query, scope_decisions_sink=decisions)
+        query_status = "success"
+        return result
+    finally:
+        await record_scope_audit(
+            user=query.get("user"), dataset_id=query["dataset_id"], report_id=report_id,
+            channel=channel, query_status=query_status,
+            requested_aggregate=query.get("aggregate", False), decisions=decisions,
+        )
+
+
 async def run_report_query(
     report: Report,
     db: AsyncSession,
@@ -38,8 +56,6 @@ async def run_report_query(
     from datetime import datetime
     from app.reports.config import ReportConfig
     from app.reports.runtime import apply_runtime_overrides, validate_runtime_filters
-    from app.reports.sql_builder import run_dataset_query
-
     if report.dataset_id is None:
         raise RuntimeError(f"报表 {report.id} 未绑定数据集")
 
@@ -96,7 +112,8 @@ async def run_report_query(
 
     # 定时任务下使用 page_size=1 只获取 total，避免大量数据占内存
     warnings: list[str] = []
-    _, _, total = await run_dataset_query(
+    _, _, total = await run_audited_dataset_query(
+        channel="scheduled", report_id=report.id,
         dataset_id=report.dataset_id,
         columns=columns,
         filters=filters if isinstance(filters, list) else [],

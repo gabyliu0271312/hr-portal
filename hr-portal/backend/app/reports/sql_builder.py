@@ -22,6 +22,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
 from typing import Any
+from types import SimpleNamespace
 
 from sqlalchemy.dialects import postgresql
 
@@ -1315,6 +1316,7 @@ async def run_dataset_query(
     dimension_merge_rules: list[dict[str, Any]] | None = None,
     scope_strategy: str | None = None,
     warnings_sink: list[str] | None = None,
+    scope_decisions_sink: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     """执行数据集多表查询 (Track B: columns 支持 str | ColumnInstance)
 
@@ -1364,6 +1366,22 @@ async def run_dataset_query(
     ds, ds_tables, ds_rels = await _get_dataset_meta(dataset_id, db)
     if not ds_tables:
         return [], [], 0
+
+    from app.reports.validation import resolve_report_source_alias
+
+    if len(ds_tables) == 1 and not ds_rels:
+        table = ds_tables[0]
+        legacy_alias = f"dwd_{table.alias}"
+        refs = [*_effective_columns,
+                *[str(item.get("column") or "") for item in raw_filters],
+                *[str(item.get("column") or "") for item in sorts or []]]
+        if any(ref.startswith(f"{legacy_alias}.") for ref in refs) and (
+            resolve_report_source_alias(legacy_alias, ds_tables) == table.alias
+        ):
+            if any(ref.startswith(f"{table.alias}.") for ref in refs):
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                    detail="旧报表与当前数据集别名不能混用")
+            ds_tables = [SimpleNamespace(alias=legacy_alias, table_name=table.table_name)]
 
     alias_to_table = {t.alias: t.table_name for t in ds_tables}
     alias_to_model = {t.alias: DATA_TABLES[t.table_name] for t in ds_tables}
@@ -1686,14 +1704,26 @@ async def run_dataset_query(
             build_scope_filter,
             is_unrestricted,
         )
-        any_strategy_resolved = False
         for a in used_aliases:
             strategy = strategy_by_alias[a]
+            decision = {
+                "alias": a, "table_name": alias_to_table[a], "strategy": strategy,
+                "decision": "configuration_invalid", "reason_code": "CONDITION_BUILD_FAILED",
+                "restricted": False,
+            }
+            if scope_decisions_sink is not None:
+                scope_decisions_sink.append(decision)
             if resolved_scope_strategy and not await can_resolve_scope_strategy(
                 alias_to_table[a], strategy, db
             ):
-                continue
-            any_strategy_resolved = True
+                decision["reason_code"] = "STRATEGY_UNRESOLVABLE"
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail=(
+                        "[REPORT_SCOPE_CONFIGURATION_INVALID] "
+                        "数据范围配置未完成，请联系管理员"
+                    ),
+                )
             clause = await build_scope_filter(user, alias_to_table[a], db, strategy=strategy)
             if not is_unrestricted(clause):
                 # build_scope_filter 引用原 Model；报表查询使用 aliased model，
@@ -1701,14 +1731,26 @@ async def run_dataset_query(
                 clause2 = await _rebuild_scope_filter_for_alias(
                     user, alias_to_table[a], aliased_models[a], db, strategy=strategy
                 )
-                if clause2 is not None:
-                    stmt = stmt.where(clause2)
-                    count_stmt = count_stmt.where(clause2)
-        if resolved_scope_strategy and not any_strategy_resolved:
-            from sqlalchemy import false
-
-            stmt = stmt.where(false())
-            count_stmt = count_stmt.where(false())
+                if is_unrestricted(clause2):
+                    decision["reason_code"] = "REBUILD_UNRESTRICTED"
+                    raise HTTPException(
+                        status.HTTP_409_CONFLICT,
+                        detail=(
+                            "[REPORT_SCOPE_CONFIGURATION_INVALID] "
+                            "数据范围配置未完成，请联系管理员"
+                        ),
+                    )
+                stmt = stmt.where(clause2)
+                count_stmt = count_stmt.where(clause2)
+                from sqlalchemy.sql.elements import False_
+                denied = isinstance(clause2, False_)
+                decision.update(
+                    decision="denied" if denied else "restricted",
+                    reason_code="ROW_SCOPE_FALSE" if denied else "ROW_SCOPE_APPLIED",
+                    restricted=True,
+                )
+            else:
+                decision.update(decision="unrestricted", reason_code="UNRESTRICTED_SCOPE")
 
     # 用户级 filters
     def _dataset_filter_clause(f: dict[str, Any]) -> ColumnElement | None:

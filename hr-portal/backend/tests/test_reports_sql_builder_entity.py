@@ -931,7 +931,9 @@ async def test_report_scope_filter_rebuild_binds_to_aliased_entity_column(monkey
     assert "jsonb" not in sql
 
 
-async def test_report_scope_filter_skips_alias_that_cannot_resolve_explicit_strategy(monkeypatch):
+@pytest.mark.parametrize("join_type", ["inner", "left", "right", "full"])
+@pytest.mark.parametrize("scope_state", ["partial", "none", "rebuild_missing", "restricted", "unrestricted", "denied"])
+async def test_report_scope_filter_enforces_every_alias(monkeypatch, join_type, scope_state):
     roster_table = "report_scope_roster"
     allocation_table = "report_scope_allocation"
     roster_model = make_entity_model(roster_table, [Column("employee_no", String)])
@@ -950,7 +952,7 @@ async def test_report_scope_filter_skips_alias_that_cannot_resolve_explicit_stra
         dataset_id=9,
         left_alias="r",
         right_alias="a",
-        join_type="left",
+        join_type=join_type,
         keys=[{"left": "employee_no", "right": "employee_no"}],
     )
     db = FakeSession(
@@ -967,10 +969,6 @@ async def test_report_scope_filter_skips_alias_that_cannot_resolve_explicit_stra
             FakeResult(rows=[]),  # sensitive roster
             FakeResult(rows=[]),  # hidden allocation
             FakeResult(rows=[]),  # sensitive allocation
-            FakeResult(rows=[
-                (roster_table, "person_first"),
-                (allocation_table, "cc_first"),
-            ]),
             FakeResult(value=1),  # count
             FakeResult(rows=[
                 FakeRow(__r__id=1, __a__id=2, __r__employee_no="E001", __a__code="CC001")
@@ -984,16 +982,30 @@ async def test_report_scope_filter_skips_alias_that_cannot_resolve_explicit_stra
     async def fake_sensitive(user, table, db):
         return set()
 
+    async def fake_strategies(tables, db):
+        return {roster_table: "person_first", allocation_table: "cc_first"}
+
     async def fake_can_resolve(table, strategy, db):
-        return table == allocation_table
+        if scope_state == "none":
+            return False
+        if scope_state == "partial":
+            return table == allocation_table
+        return True
 
     async def fake_build_scope(user, table, db, strategy=None):
-        return False_() if table == allocation_table else None
+        if scope_state == "unrestricted":
+            from sqlalchemy import true
+            return true()
+        return False_()
 
     async def fake_rebuild(user, table, aliased_model, db, strategy=None):
-        if table != allocation_table:
-            raise AssertionError("roster alias should not rebuild cc_first scope")
-        return aliased_model.__table__.c.code == "CC001"
+        if scope_state == "rebuild_missing":
+            return None
+        if scope_state == "denied":
+            return False_()
+        column = "employee_no" if table == roster_table else "code"
+        value = "E001" if table == roster_table else "CC001"
+        return getattr(aliased_model, column) == value
 
     import app.permissions.masker as masker
     import app.permissions.scope_filter as scope_filter
@@ -1003,9 +1015,12 @@ async def test_report_scope_filter_skips_alias_that_cannot_resolve_explicit_stra
     monkeypatch.setattr(scope_filter, "can_resolve_scope_strategy", fake_can_resolve)
     monkeypatch.setattr(scope_filter, "build_scope_filter", fake_build_scope)
     monkeypatch.setattr(sql_builder, "_rebuild_scope_filter_for_alias", fake_rebuild)
+    monkeypatch.setattr(sql_builder, "_table_scope_strategy_map", fake_strategies)
 
-    try:
-        _cols, _items, _total = await sql_builder.run_dataset_query(
+    scope_decisions = []
+
+    async def run_query():
+        return await sql_builder.run_dataset_query(
             dataset_id=9,
             columns=["r.employee_no", "a.code"],
             filters=[],
@@ -1020,7 +1035,44 @@ async def test_report_scope_filter_skips_alias_that_cannot_resolve_explicit_stra
             page_size=50,
             user=SimpleNamespace(id=1),
             db=db,
+            scope_decisions_sink=scope_decisions,
         )
+
+    try:
+        if scope_state in {"partial", "none", "rebuild_missing"}:
+            with pytest.raises(HTTPException, match="REPORT_SCOPE_CONFIGURATION_INVALID") as exc_info:
+                await run_query()
+            assert exc_info.value.status_code == 409
+            assert exc_info.value.detail == (
+                "[REPORT_SCOPE_CONFIGURATION_INVALID] 数据范围配置未完成，请联系管理员"
+            )
+            assert not any("__r__id" in str(stmt) for stmt, _ in db.executed)
+            last = scope_decisions[-1]
+            assert last["decision"] == "configuration_invalid"
+            expected_reason = "REBUILD_UNRESTRICTED" if scope_state == "rebuild_missing" else "STRATEGY_UNRESOLVABLE"
+            assert last["reason_code"] == expected_reason
+        else:
+            await run_query()
+            assert len(scope_decisions) == 2
+            expected = {"restricted": "restricted", "denied": "denied", "unrestricted": "unrestricted"}[scope_state]
+            assert {item["decision"] for item in scope_decisions} == {expected}
+            assert all(item["restricted"] is (scope_state != "unrestricted") for item in scope_decisions)
+            assert {item["table_name"] for item in scope_decisions} == {roster_table, allocation_table}
+            assert all(set(item) == {"alias", "table_name", "strategy", "decision", "reason_code", "restricted"}
+                       for item in scope_decisions)
+            count_sql = str(db.executed[-2][0]).lower()
+            data_sql = str(db.executed[-1][0]).lower()
+            if scope_state == "restricted":
+                for sql in (count_sql, data_sql):
+                    assert "r.employee_no =" in sql
+                    assert "a.code =" in sql
+                    assert " and " in sql
+            elif scope_state == "denied":
+                assert "where false" in count_sql
+                assert "where false" in data_sql
+            else:
+                assert "where" not in count_sql
+                assert "where" not in data_sql
     finally:
         restore_table(roster_table, old_roster)
         restore_table(allocation_table, old_allocation)
@@ -1398,3 +1450,87 @@ async def test_duplicate_instance_metric_filter_reads_unselected_source_field(ag
     assert all('r.status' not in item for item in items)
     sql = '\n'.join(str(statement) for statement, _ in db.executed)
     assert 'AS __r__status' in sql
+
+
+@pytest.mark.parametrize("instances", [False, True])
+@pytest.mark.parametrize("restricted", [False, True])
+async def test_legacy_single_dwd_alias_preserves_output_ids_and_scope(monkeypatch, instances, restricted):
+    from app.permissions import masker, scope_filter
+
+    table_name = "dwd_legacy_roster"
+    model = make_entity_model(table_name, [Column("employee_no", String)])
+    monkeypatch.setitem(DATA_TABLES, table_name, model)
+    table = DataSetTable(dataset_id=16, table_name=table_name, alias="current")
+    source = "dwd_current.employee_no"
+    selected = [source] if not instances else [
+        {"source_code": source, "instance_id": source},
+        {"source_code": source, "instance_id": source + "#2"},
+    ]
+    row = {"__dwd_current__id": 1}
+    if instances:
+        row.update({source: "E001", source + "#2": "E001"})
+    else:
+        row["__dwd_current__employee_no"] = "E001"
+    db = FakeSession(get_map={(DataSet, 16): DataSet(id=16, name="legacy")}, results=[
+        *dataset_rows(16, [table]),
+        FakeResult(rows=[make_column(table_name, "employee_no")]),
+        FakeResult(rows=[]),
+        FakeResult(value=1),
+        FakeResult(rows=[FakeRow(**row)]),
+    ])
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(sql_builder, "_table_scope_strategy_map", AsyncMock(return_value={table_name: "person_first"}))
+    monkeypatch.setattr(masker, "get_hidden_columns", AsyncMock(return_value=set()))
+    monkeypatch.setattr(masker, "get_sensitive_columns", AsyncMock(return_value=set()))
+    monkeypatch.setattr(scope_filter, "build_scope_filter", AsyncMock(return_value=False_()))
+
+    async def scoped(user, table_name, alias_model, session, strategy=None):
+        return alias_model.employee_no == "E001"
+
+    monkeypatch.setattr(sql_builder, "_rebuild_scope_filter_for_alias", scoped)
+    columns, items, total = await sql_builder.run_dataset_query(
+        dataset_id=16, columns=selected,
+        filters=[{"column": source, "op": "eq", "value": "dwd_current.employee_no"}],
+        sorts=[{"column": source, "order": "asc"}],
+        value_rules=[], aggregate=False, aggregations={}, transpose={}, rounding_corrections=[],
+        page=1, page_size=20, user=SimpleNamespace(id=4) if restricted else None, db=db,
+    )
+    expected = [source, source + "#2"] if instances else [source]
+    assert [column["code"] for column in columns] == expected
+    assert list(items[0]) == expected
+    assert total == 1
+    for statement, _ in db.executed[-2:]:
+        sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
+        assert "dwd_current.employee_no" in sql
+        assert "'dwd_current.employee_no'" in sql
+        if restricted:
+            assert "'E001'" in sql
+    assert table.alias == "current"
+
+
+@pytest.mark.parametrize("mixed_part", ["columns", "filters", "sorts"])
+async def test_legacy_single_dwd_alias_rejects_mixed_aliases_before_data_query(mixed_part):
+    table = DataSetTable(dataset_id=16, table_name="dwd_legacy_roster", alias="current")
+    db = FakeSession(
+        get_map={(DataSet, 16): DataSet(id=16, name="legacy")},
+        results=dataset_rows(16, [table]),
+    )
+    config = {
+        "columns": ["dwd_current.employee_no"],
+        "filters": [],
+        "sorts": [],
+    }
+    if mixed_part == "columns":
+        config["columns"].append("current.employee_no")
+    elif mixed_part == "filters":
+        config["filters"] = [{"column": "current.employee_no", "value": "E001"}]
+    else:
+        config["sorts"] = [{"column": "current.employee_no", "order": "asc"}]
+    with pytest.raises(HTTPException) as error:
+        await sql_builder.run_dataset_query(
+            dataset_id=16, **config, value_rules=[], aggregate=False, aggregations={},
+            transpose={}, rounding_corrections=[], page=1, page_size=20, user=None, db=db,
+        )
+    assert error.value.status_code == 422
+    assert "别名不能混用" in error.value.detail
+    assert not any("__dwd_current__id" in str(statement) for statement, _ in db.executed)

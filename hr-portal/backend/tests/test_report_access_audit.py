@@ -240,3 +240,193 @@ def test_dimension_merge_audit_masks_sensitive_values() -> None:
     assert "李四" not in serialized
     assert "华东" in serialized
     assert protected[0]["source"]["t.employee"]["value_hmac"]
+
+
+def test_scope_audit_event_keeps_only_safe_decision_metadata():
+    from app.reports.audit import build_scope_audit_event
+    event = build_scope_audit_event(
+        user=_user(), dataset_id=15, report_id=17, channel="run", query_status="success",
+        requested_aggregate=True,
+        decisions=[{
+            "alias": "salary", "table_name": "dwd_salary", "strategy": "person_first",
+            "decision": "restricted", "reason_code": "ROW_SCOPE_APPLIED", "restricted": True,
+            "sql": "SELECT salary FROM employee WHERE name='PRIVATE_NAME'",
+            "values": ["PRIVATE_NAME", "123456.78"],
+        }],
+    )
+    serialized = json.dumps(event, ensure_ascii=False)
+    assert event["category"] == "scope_governance"
+    assert event["user_id"] == _user().id
+    assert event["metadata_json"]["authorization_contract"] == "legacy_scope_strategy"
+    assert event["metadata_json"]["decisions"] == [{
+        "alias": "salary", "table_name": "dwd_salary", "strategy": "person_first",
+        "decision": "restricted", "reason_code": "ROW_SCOPE_APPLIED", "restricted": True,
+    }]
+    assert "PRIVATE_NAME" not in serialized and "123456.78" not in serialized
+    assert "SELECT salary" not in serialized
+
+
+def test_scope_audit_drops_free_text_states_and_unexpected_values():
+    from app.reports.audit import build_scope_audit_event
+    event = build_scope_audit_event(
+        user=_user(), dataset_id=15, report_id=17, channel="PRIVATE_CHANNEL", query_status="failed",
+        requested_aggregate=False,
+        decisions=[
+            {"alias": "r", "table_name": "salary", "strategy": "PRIVATE_STRATEGY",
+             "decision": "restricted", "reason_code": "ROW_SCOPE_APPLIED", "restricted": True,
+             "condition": "PRIVATE_CONDITION"},
+            {"alias": "PRIVATE NAME", "table_name": "salary", "strategy": "person_first",
+             "decision": "restricted", "reason_code": "ROW_SCOPE_APPLIED"},
+            {"alias": "r", "table_name": "salary", "strategy": "person_first",
+             "decision": "restricted", "reason_code": "PRIVATE_REASON"},
+        ],
+    )
+    text = json.dumps(event)
+    assert "PRIVATE" not in text
+    assert event["metadata_json"]["channel"] == "unknown"
+    assert event["metadata_json"]["decisions"][0]["strategy"] == "unknown"
+    assert len(event["metadata_json"]["decisions"]) == 1
+
+
+class _ScopeAuditSession:
+    def __init__(self, fail=False):
+        self.logs = []
+        self.commits = 0
+        self.fail = fail
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    def add(self, log):
+        self.logs.append(log)
+
+    async def commit(self):
+        if self.fail:
+            raise RuntimeError("PRIVATE_DATABASE_MESSAGE")
+        self.commits += 1
+
+
+def _safe_decision():
+    return {"alias": "r", "table_name": "allocation", "strategy": "cc_first",
+            "decision": "restricted", "reason_code": "ROW_SCOPE_APPLIED", "restricted": True}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True])
+async def test_audited_query_records_success_or_error_in_independent_session(monkeypatch, fails):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from app.reports import audit, report_service, sql_builder
+
+    audit_session = _ScopeAuditSession()
+    monkeypatch.setattr(audit, "get_session_factory", lambda: lambda: audit_session)
+    business = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    error = HTTPException(status_code=409, detail="PRIVATE_QUERY_ERROR")
+    result = ([{"code": "r.amount"}], [{"r.amount": "123456.78"}], 1)
+
+    async def query(**kwargs):
+        assert kwargs["user"] is user and kwargs["db"] is business
+        kwargs["scope_decisions_sink"].append(_safe_decision())
+        if fails:
+            raise error
+        return result
+
+    user = _user()
+    monkeypatch.setattr(sql_builder, "run_dataset_query", query)
+    if fails:
+        with pytest.raises(HTTPException) as caught:
+            await report_service.run_audited_dataset_query(
+                channel="run", report_id=17, dataset_id=15, user=user, db=business, aggregate=True)
+        assert caught.value is error
+    else:
+        returned = await report_service.run_audited_dataset_query(
+            channel="run", report_id=17, dataset_id=15, user=user, db=business, aggregate=True)
+        assert returned is result
+    business.commit.assert_not_awaited()
+    business.rollback.assert_not_awaited()
+    assert audit_session.commits == 1 and len(audit_session.logs) == 1
+    log = audit_session.logs[0]
+    assert log.status == ("failed" if fails else "success")
+    assert log.user_id == user.id
+    assert log.metadata_json["report_id"] == 17
+    assert "PRIVATE_QUERY_ERROR" not in repr(log.__dict__)
+    assert "123456.78" not in repr(log.__dict__)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True])
+async def test_scope_audit_storage_failure_keeps_query_result_and_exception(monkeypatch, caplog, fails):
+    from app.reports import audit, report_service, sql_builder
+    audit_session = _ScopeAuditSession(fail=True)
+    monkeypatch.setattr(audit, "get_session_factory", lambda: lambda: audit_session)
+    error = HTTPException(status_code=409, detail="scope configuration invalid")
+
+    async def query(**kwargs):
+        kwargs["scope_decisions_sink"].append(_safe_decision())
+        if fails:
+            raise error
+        return [], [], 0
+
+    monkeypatch.setattr(sql_builder, "run_dataset_query", query)
+    if fails:
+        with pytest.raises(HTTPException) as raised:
+            await report_service.run_audited_dataset_query(channel="run", dataset_id=15, user=_user(), db=object())
+        assert raised.value is error
+    else:
+        result = await report_service.run_audited_dataset_query(channel="run", dataset_id=15, user=_user(), db=object())
+        assert result == ([], [], 0)
+    assert "审计写入失败" in caplog.text
+    assert "PRIVATE_DATABASE_MESSAGE" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_scope_audit_without_scope_decisions_does_not_open_database(monkeypatch):
+    from app.reports import audit
+
+    def no_session():
+        raise AssertionError("no scope decision should not emit a scope audit")
+
+    monkeypatch.setattr(audit, "get_session_factory", no_session)
+    await audit.record_scope_audit(user=_user(), dataset_id=15, report_id=17, channel="run",
+                                   query_status="success", requested_aggregate=False, decisions=[])
+
+
+@pytest.mark.asyncio
+async def test_scope_governance_log_requires_governance_permission(monkeypatch):
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+
+    async def menus(user, db):
+        return [{"code": "report.list"}, {"code": "system.logs.operation"}]
+
+    monkeypatch.setattr(system_router, "get_user_menus", menus)
+    db = SimpleNamespace(execute=AsyncMock(), scalar=AsyncMock())
+    with pytest.raises(HTTPException) as error:
+        await system_router.list_system_logs(
+            category="scope_governance", status_filter=None, action=None, operator=None, keyword=None,
+            start_at=None, end_at=None, paged=True, page=1, page_size=20, limit=100, user=_user(), db=db)
+    assert error.value.status_code == 403
+    db.execute.assert_not_awaited()
+    db.scalar.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_scope_governance_log_is_readable_by_governance_viewer(monkeypatch):
+    async def menus(user, db):
+        return [{"code": "warehouse.governance"}]
+
+    class ScopeDb(_FakeDb):
+        async def execute(self, stmt):
+            result = await super().execute(stmt)
+            result._rows[0][0].category = "scope_governance"
+            result._rows[0][0].action = "report_scope_decision"
+            return result
+
+    monkeypatch.setattr(system_router, "get_user_menus", menus)
+    page = await system_router.list_system_logs(
+        category="scope_governance", status_filter=None, action=None, operator=None, keyword=None,
+        start_at=None, end_at=None, paged=True, page=1, page_size=20, limit=100, user=_user(), db=ScopeDb())
+    assert page.total == 1 and page.items[0].category == "scope_governance"

@@ -651,7 +651,7 @@ async def _dimension_combination_items(
     from app.datasets.models import DataSet
     from app.datasets.router import _can_access as dataset_can_access
     from app.reports.dimension_merge import combination_key
-    from app.reports.sql_builder import run_dataset_query
+    from app.reports.report_service import run_audited_dataset_query
 
     dataset = await db.get(DataSet, payload.dataset_id)
     if dataset is None:
@@ -698,7 +698,8 @@ async def _dimension_combination_items(
         for item in payload.config.filters
         if item.column not in dimension_sources
     ]
-    columns_meta, rows, _ = await run_dataset_query(
+    columns_meta, rows, _ = await run_audited_dataset_query(
+        channel="dimension_preview", report_id=payload.report_id,
         dataset_id=payload.dataset_id,
         columns=payload.config.columns,
         filters=base_filters,
@@ -1213,12 +1214,13 @@ async def run_report(
 
     from app.automation.events import AutomationEvent, publish_event
     from app.core.db import get_session_factory
-    from app.reports.sql_builder import run_dataset_query
+    from app.reports.report_service import run_audited_dataset_query
 
     warnings: list[str] = []
     error_message = ""
     try:
-        columns_meta, items, total = await run_dataset_query(
+        columns_meta, items, total = await run_audited_dataset_query(
+            channel="run", report_id=report.id,
             dataset_id=report.dataset_id,
             columns=cfg.columns,
             filters=[item.model_dump() for item in cfg.filters],
@@ -1507,6 +1509,8 @@ async def _collect_export_rows(
     user: User,
     db: AsyncSession,
     runtime_filters: list[dict[str, Any]] | None = None,
+    *,
+    audit_channel: str = "export_rows",
 ) -> tuple[list[str], list[list[Any]], list[str]]:
     if report.dataset_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
@@ -1516,9 +1520,10 @@ async def _collect_export_rows(
     cfg = _ensure_valid_report_config(_apply_runtime_overrides(cfg, runtime_filters))
     await _ensure_valid_report_field_references(cfg, report.dataset_id, user, db, runtime_filters)
 
-    from app.reports.sql_builder import run_dataset_query
+    from app.reports.report_service import run_audited_dataset_query
 
-    columns_meta, items, _ = await run_dataset_query(
+    columns_meta, items, _ = await run_audited_dataset_query(
+        channel=audit_channel, report_id=report.id,
         dataset_id=report.dataset_id,
         columns=cfg.columns,
         filters=[item.model_dump() for item in cfg.filters],
@@ -1571,7 +1576,7 @@ async def collect_report_push_rows(
     owner = await db.get(User, report.owner_id)
     if owner is None:
         raise RuntimeError("报表创建人不存在，无法执行报表推送")
-    labels, matrix, codes, _cols_meta = await _collect_export_rows(report, owner, db, runtime_filters)
+    labels, matrix, codes, _cols_meta = await _collect_export_rows(report, owner, db, runtime_filters, audit_channel="push")
     rows = [dict(zip(codes, row, strict=False)) for row in matrix]
     return rows, dict(zip(codes, labels, strict=False))
 
@@ -1584,8 +1589,9 @@ async def get_report_push_columns(report: Report, db: AsyncSession) -> list[dict
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表创建人不存在")
     cfg = _ensure_valid_report_config(ReportConfig(**(report.config or {})))
     await _ensure_valid_report_field_references(cfg, report.dataset_id, owner, db)
-    from app.reports.sql_builder import run_dataset_query
-    columns_meta, items, _ = await run_dataset_query(
+    from app.reports.report_service import run_audited_dataset_query
+    columns_meta, items, _ = await run_audited_dataset_query(
+        channel="push_columns", report_id=report.id,
         dataset_id=report.dataset_id,
         columns=cfg.columns,
         filters=[item.model_dump() for item in cfg.filters],
@@ -1744,7 +1750,7 @@ async def export_report_csv(
             action="export",
         )
         labels, rows, codes, columns_meta = await _collect_export_rows(
-            report, user, db, export_filters
+            report, user, db, export_filters, audit_channel="csv"
         )
     except Exception as exc:
         await record_report_audit(
@@ -1838,7 +1844,7 @@ async def export_report_xlsx(
             action="export",
         )
         labels, rows, codes, columns_meta = await _collect_export_rows(
-            report, user, db, export_filters
+            report, user, db, export_filters, audit_channel="xlsx"
         )
     except Exception as exc:
         await record_report_audit(

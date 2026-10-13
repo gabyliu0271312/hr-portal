@@ -9,6 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.users.models import User
 
 
+def resolve_report_source_alias(alias: str, tables: list[Any]) -> str:
+    if len(tables) == 1:
+        table = tables[0]
+        if str(table.table_name).startswith("dwd_") and alias == f"dwd_{table.alias}":
+            return table.alias
+    return alias
+
+
 def validate_report_config_references(config: Any) -> Any:
     instance_ids = {column.instance_id for column in config.columns}
     source_codes = {column.source_code for column in config.columns}
@@ -187,6 +195,7 @@ async def ensure_valid_report_field_references(
         if '.' not in source_code:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f'{path} 字段格式无效: {source_code}')
         alias, column_code = source_code.split('.', 1)
+        alias = resolve_report_source_alias(alias, list(tables))
         table = tables_by_alias.get(alias)
         column = columns_by_alias.get(alias, {}).get(column_code)
         if table is None or column is None:

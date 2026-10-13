@@ -1,4 +1,4 @@
-# 通用连接器平台（UCP）开发规格说明书
+﻿# 通用连接器平台（UCP）开发规格说明书
 
 版本：v1.0  
 日期：2026-07-02  
@@ -1457,3 +1457,73 @@ Phase 1 节点类型至少包括：
 | Phase 5 | 通用 API 配置化能力 | 在已支持认证、分页、响应结构范围内，提供 REST API 配置化接入，不承诺任意系统零代码接入 |
 | Phase 6 | 集成治理 / iPaaS 能力雏形 | 在 UCP 稳定支撑 HR Portal 后，扩展资产目录、依赖拓扑、SLA、告警、审批和团队隔离 |
 | Phase 7 | 外部系统主数据治理协同 | 扩展外部 ID 映射、差异检测、质量规则、冲突处理和治理闭环，不替代外部系统自身主数据管理 |
+
+---
+
+## 20. 2026-07-04 数据仓库协同与独立应用边界补充
+
+### 20.1 与 012 数据仓库规划的关系
+
+UCP 与数据仓库不是替代关系，而是上下游协同关系：
+
+- UCP 是统一数据连接平台，负责外部系统、资源、凭证、Adapter、Pipeline、事件、执行、监控和告警。
+- 数据仓库是统一数据资产平台，负责表资产、字段资产、数据建模、指标目录、数据治理、影响分析和数据预览。
+- 现有 `DataSource + SyncRun` 在一期不删除、不强迁移；`DataSource` 在数据仓库侧可理解为落表配置，UCP 通过桥接复用其同步能力。
+
+### 20.2 对原模型的优化调整
+
+原文档中“连接器 Connector”相关表述，实施时应统一收敛为：
+
+```text
+系统 System
+  → 资源 Resource
+  → 凭证 Credential
+  → Adapter Definition
+  → Pipeline Template / Pipeline Run
+```
+
+数据仓库文档中提到的“接口定义 / 连接器实例 / 同步任务”在 UCP 中分别对应：
+
+```text
+接口定义        → AdapterDefinition + ConnectorResource 技术规格
+连接器实例      → ConnectorSystem + Credential + Resource 业务配置
+同步任务        → Pipeline + 调度 + 数据仓库落表配置
+执行日志        → PipelineExecution + StepExecution + SyncRun 过渡关联
+```
+
+### 20.3 独立应用边界
+
+UCP 当前在 HR Portal 内以一级菜单 `数据连接` 交付，但必须为未来独立应用预留：
+
+- 路由前缀：`/ucp`。
+- 权限命名空间：`ucp.*`。
+- API 契约：通过 HTTP API / 事件对外开放，不要求调用方直接访问 UCP 数据库表。
+- 数据仓库只保存 UCP 远端 ID、展示快照和跳转 URL，不强依赖 UCP 内部 ORM。
+
+### 20.4 UI 边界
+
+UCP UI 应展示和编辑数据连接侧能力，包括系统、资源、凭证、Pipeline、事件、执行、监控、死信、告警。
+
+UCP UI 不应承载数据仓库的建模、指标、表字段治理主流程。如果需要展示数据仓库信息，只能提供：
+
+- 引用摘要。
+- 跳转入口。
+- 执行状态。
+- 影响提示。
+
+### 20.5 开发任务执行要求
+
+后续开发不再只依据阶段表格执行，而应以 `atomic-tasks.md` 为执行入口。每个原子任务必须包含：
+
+- 任务内容。
+- UI 交互要求或“不涉及 UI”。
+- 数据仓库协同要求或“不直接涉及”。
+- 测试要求。
+- 验收标准。
+- 完成定义。
+
+详见：
+
+- `specs/011-universal-connector-platform/START_HERE.md`
+- `specs/011-universal-connector-platform/atomic-tasks.md`
+- `specs/011-universal-connector-platform/warehouse-coordination.md`

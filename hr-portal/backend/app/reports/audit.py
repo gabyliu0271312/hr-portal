@@ -374,3 +374,56 @@ async def record_report_audit(**kwargs: Any) -> None:
             await audit_db.commit()
     except Exception:
         logger.exception("写入报表访问审计失败 action=%s", kwargs.get("action"))
+
+
+def build_scope_audit_event(*, user, dataset_id, report_id, channel, query_status,
+                            requested_aggregate, decisions):
+    import re
+    from app.permissions.strategy import SCOPE_STRATEGIES
+
+    allowed_decisions = {"restricted", "unrestricted", "denied", "configuration_invalid"}
+    allowed_reasons = {
+        "ROW_SCOPE_APPLIED", "ROW_SCOPE_FALSE", "UNRESTRICTED_SCOPE",
+        "STRATEGY_UNRESOLVABLE", "REBUILD_UNRESTRICTED", "CONDITION_BUILD_FAILED",
+    }
+    manifest = []
+    for item in decisions:
+        if item.get("decision") not in allowed_decisions or item.get("reason_code") not in allowed_reasons:
+            continue
+        alias, table = item.get("alias"), item.get("table_name")
+        if not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", value)
+                   for value in (alias, table)):
+            continue
+        manifest.append({
+            "alias": alias, "table_name": table,
+            "strategy": item.get("strategy") if item.get("strategy") in SCOPE_STRATEGIES else "unknown",
+            "decision": item["decision"], "reason_code": item["reason_code"],
+            "restricted": item.get("restricted") is True,
+        })
+    allowed_channels = {"run", "csv", "xlsx", "export_rows", "push", "push_columns", "scheduled",
+                        "dimension_preview", "model_preview"}
+    return {
+        "category": "scope_governance", "action": "report_scope_decision",
+        "status": "success" if query_status == "success" else "failed", "user_id": user.id,
+        "request_summary": "查询范围裁决", "response_summary": "仅记录范围配置与执行状态",
+        "trace_id": uuid4().hex,
+        "metadata_json": {
+            "schema_version": 1, "authorization_contract": "legacy_scope_strategy",
+            "dataset_id": dataset_id, "report_id": report_id,
+            "channel": channel if channel in allowed_channels else "unknown",
+            "requested_aggregate": requested_aggregate is True,
+            "decisions": manifest,
+        },
+    }
+
+
+async def record_scope_audit(**kwargs):
+    if not kwargs.get("decisions") or kwargs.get("user") is None:
+        return
+    try:
+        event = build_scope_audit_event(**kwargs)
+        async with get_session_factory()() as audit_db:
+            audit_db.add(SystemLog(**event))
+            await audit_db.commit()
+    except Exception:
+        logger.warning("范围裁决审计写入失败；未改变业务查询结果")

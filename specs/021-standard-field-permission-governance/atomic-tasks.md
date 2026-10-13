@@ -771,3 +771,59 @@ npm run dev -- --host 127.0.0.1 --port 5174 --strictPort
 - 变更父DataSet→合同行锁及expected_version/revision；合同和SystemLog同事务、异常rollback。approved语义/结构快照数据库冻结，active只能retired；永久保留，不硬删、不CASCADE删数据集。模型snapshot保存tables/relations/outputs稳定ID和字段投影（无业务值），批准识别后续漂移。
 - 每个source alias恰一个role；person/allocation具fact_key/employee_key，allow_cost_center_summary默认false，true仅allocation+cost_center_key；dimensions/measures为output子集且不重叠，internal_fields为alias.column；物理依赖元数据+information_schema一致。
 - 追加既有test_standard_field_catalog.py测试，不创建脚本/测试文档：真实0255升降级、唯一/冻结/非空降级阻断、Schema/权限/异常/并发/审计故障、旧策略/ACL/状态不变、已批准仍不能发布、结构漂移和复杂路径拒绝。UI/UCP/生产不涉及。
+
+## 2026-10-12 生产联调与下次启动交接记录
+
+### 生产代码、迁移和运行状态
+
+- 生产发布前 schema 备份已完成：`/root/hr021-evidence/schema-before-021.sql`，大小 `621448 bytes`，SHA256 `edc77240a84be42c2bdee0fd36d6166cdfd1894185fa917281fc11282533e4ae`。
+- 生产原始数据库 revision 为 `0252_performance_metric_field_display_ids`；生产应用更新期间发现 main 缺少完整绩效迁移父链，已补齐并推送：`3ae5ae1`（0240–0252）、`b70947d`（0230–0239）；当前main还需确认0228/0229及报告治理依赖是否已包含，下一次启动前必须先运行 `git log --oneline -8`、完整迁移图检查和应用导入检查，不能只看短SHA。
+- 生产 PostgreSQL 挂载曾因恢复仓库版 compose 而错误指向 `./data/pg`，已恢复生产专用配置：`/data/hr-portal/pg:/var/lib/postgresql/data` 与 `/data/hr-portal/pg/pg_hba.conf:/app/pg_hba.conf`。数据库随后恢复 `healthy`。
+- 生产 backend entrypoint 成功执行：`0252 → 0253_table_scope_classification → 0254_standard_field_catalog → 0255_product_auth_contract`；当前数据库 revision 为 `0255_product_auth_contract`，5张新增目录/合同表已存在。
+- 生产健康检查已通过：`/api/v1/health` 返回HTTP 200，`status=ok`，`db.ok=true`，`env=prod`；新路由代码导入检查通过，standard-fields/tree-health/authorization-contracts/authorization-execution-readiness/execution-plan/release-readiness/release-health均已加载。
+- 未登录生产接口返回401，未授权元数据不泄露已完成验证；已登录接口未完成，因为交互式登录请求体在终端传递失败返回422，未将其误报为业务权限通过。未执行任何生产业务写入、合同创建、字段确认或报表迁移。
+
+### 生产只读盘点证据
+
+- 当前生产约31个registered_tables、18个datasets、26个dataset_tables、8个relations、329个dataset_output_fields、15个reports、14个push_targets；本次返回的早期统计曾显示31/18，后续以实际查询结果为准。
+- dataset 15 `ds_dwd_cost_allocation`：6张DWD来源表、5条关系、78个输出字段、7个报表、版本83，仅1条用户ACL；来源含工资、分摊、成本中心、年终奖、补偿金和年终奖系数。
+- dataset 16 `ds_dwd_emp_realtime_roster`：1张来源表、46个输出字段、3个报表、1条用户ACL。
+- 生产重点DWD表均已存在；工资5869行、分摊7999行、成本中心2527行、实时花名册2188行、补偿金24行、年终奖3行、年终奖系数1748行（精确COUNT结果）。
+- 生产字段分类盘点：重点7张DWD表均无FieldCategoryAssignment，物理`is_sensitive`均为false；成本中心表仅1个隐藏字段。不能把“未标敏感”当作已完成字段治理。
+- 生产关键关联：工资→分摊为`pay_month/cost_period + employee_no`，配置1:N；分摊→成本中心为`cost_period/month + code`，N:1；工资还关联年终奖和补偿金；分摊关联年终奖系数。工资×期间复合键存在1个重复组，但两行pk_hash不同且员工性质/费用类型不同，不能直接删除或去重。
+- 分摊权重检查：匹配工资的5868个员工×期间分组中1500个为多中心分组，但权重合计均接近1；76个分摊分组没有工资匹配，需业务口径确认。
+- 生产报表全部`is_published=false`；报表3/18/20为成本分摊核心对象，报表3虽然命名“明细”却同时配置aggregate、转置和个人标识字段；报表8/17/18/20/22涉及工资或成本金额；花名册报表1/16/23涉及工号/姓名。不能按报表名称或aggregate标志判定D/S。
+- 生产active PushTarget包含db_snapshot、db_realtime、api_expose、feishu_sheet；报表3存在db_snapshot和feishu_sheet出口，最近推送约7927行；旧出口均为legacy_v1。涉及出口的对象禁止直接迁移，必须先隔离版本并完成结构/行/金额/执行身份对照。
+
+### 已完成本地子项（当前权威摘要）
+
+- X2103.local.1/local.2/local.3/isolated_api。
+- X2110.a.1/a.2/b.1/c.1。
+- X2111.a.1/a.2/a.3、b.1/b.2/b.3、b.4.1/b.4.2/b.4.3。
+- X2112.compat.1/compat.2。
+- X2120.meta.1/meta.2/meta.3。
+- X2121.health.local。
+- X2122.meta.local/validation.local/execution.local。
+- X2123.health.local。
+- X2124.a.local/b.local/c.local。
+- X2125.a.local/b.local/c.local。
+- X2126.a.local/a.fields。
+- X2127.b.local/c.local（仅本地安全子集）。
+- X2140.plan.local。
+
+### 未完成与下次启动顺序
+
+1. **先处理生产代码历史一致性**：每次生产部署先确认main包含完整Alembic父链，执行`alembic heads/current`；禁止逐个猜迁移文件。
+2. **X2122.execution**：树健康、后代展开、基数、缺归属、当前ACL和D/S执行编译；当前execution-readiness只做准备检查，`eligible=false/runtime_enabled=false`。
+3. **X2140/X2141**：将execution-plan从纯形态判定扩展为实际受控D/S SQL计划，严格复用`scope_filter`和`run_dataset_query`，不接受客户端策略开关。
+4. **X2126.b/c与X2143**：接入刷新、预览、COUNT、CSV/XLSX、报表运行和下钻；下钻必须重新执行D，汇总参与集合不进入明细响应。
+5. **X2142/A4**：只选无出口对象试点；dataset 15及报表3等有出口/多事实风险对象默认阻断，先完成出口隔离和对照。
+6. **生产已登录验收**：当前尚未完成，原因是终端交互登录请求体传递失败，不要把未登录401当业务权限结论；可改用浏览器已有会话或按部署方安全方式获取临时会话，但不要把JWT写入文档/仓库。
+7. **B5–B8/X2160–X2163**继续保持未完成；A本地子集完成不代表021/A或021全项目完成。
+
+### 明确不可做
+
+- 不在生产直接编辑/删除迁移文件。
+- 不删除`/data/hr-portal/pg`或重建生产数据库。
+- 不直接修改生产字段分类、合同、ACL、scope_strategy、报表、PushTarget或业务数据。
+- 不以字段未标敏感、报表未发布、旧出口pending或本地隔离测试替代生产批准和真实业务对照。

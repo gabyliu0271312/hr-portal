@@ -1,4 +1,4 @@
-# 011-universal-connector-platform 文档索引
+﻿# 011-universal-connector-platform 文档索引
 
 本目录为 UCP（Universal Connector Platform，通用连接器平台）的统一规格目录。涉及统一数据映射时，必须同时阅读 `../017-mapping-component-reference-governance/spec.md` 和 `code-status-review-and-revision-decision.md`；017 通过 adapter 接入 UCP，不改变 UCP 的资源、凭证、Pipeline 和执行边界。
 
@@ -6,8 +6,10 @@
 
 | 文件 | 标注 | 说明 |
 | --- | --- | --- |
+| START_HERE.md | 每次开发入口 | 后续任何模型/开发者开始 UCP 开发前必须先读，并输出启动确认。 |
 | `spec.md` | 主规格 / 目标规格 | 描述 UCP 的业务目标、范围、模型、安全、权限、数据库建议、验收标准；末尾第 19 章已补充 2026-07-03 实施定调。 |
 | `implementation-plan.md` | 实施拆解 / 可勾选任务清单 | 结合蓝图交互、HR Portal 视觉风格、真实代码和主规格，按 Phase 拆成可开发、可标记、含验收标准的任务。 |
+| tomic-tasks.md | 原子级任务清单 | 从实施计划拆出的逐项任务；每个任务内嵌任务内容、UI 交互、测试要求、验收标准。 |
 
 ## 当前实施定调
 
@@ -26,4 +28,12 @@ outputs/ucp-blueprint/index.html
 ```
 
 蓝图文件需保持可查看；真实产品实现以 `hr-portal/frontend/src/views/datasource/ucp/` 下 Vue 组件为准。
+
+
+## 原子任务执行要求
+
+- 每次开发先读 START_HERE.md。
+- 实际开发以 tomic-tasks.md 为执行入口。
+- 每个原子任务都必须内嵌 UI 交互要求、测试要求和验收标准；不能只依赖顶部总原则。
+- 涉及数据仓库、DataSource、RegisteredTable、SyncRun、落表或资源引用时，必须遵守 warehouse-coordination.md。
 

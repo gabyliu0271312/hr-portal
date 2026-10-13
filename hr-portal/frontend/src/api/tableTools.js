@@ -27,7 +27,8 @@ export const tableToolsApi = {
     updateKeyMapping: (templateId, mappingId, payload) => api.put(`/table-tools/templates/${templateId}/key-mappings/${mappingId}`, payload).then((r) => r.data),
     deleteKeyMapping: (templateId, mappingId) => api.delete(`/table-tools/templates/${templateId}/key-mappings/${mappingId}`).then(() => undefined),
     listDwdSources: () => api.get('/table-tools/dwd-relation-sources').then((r) => r.data),
-    listDwdFields: (reportId) => api.get(`/table-tools/reports/${reportId}/dwd-fields`).then((r) => r.data),
+    listDwdFields: (datasetId) => api.get(`/table-tools/datasets/${datasetId}/dwd-fields`).then((r) => r.data),
+    listDwdFieldsByReport: (reportId) => api.get(`/table-tools/reports/${reportId}/dwd-fields`).then((r) => r.data),
     listDwdRelations: (templateId) => api.get(`/table-tools/templates/${templateId}/dwd-relations`).then((r) => r.data),
     createDwdRelation: (templateId, payload) => api.post(`/table-tools/templates/${templateId}/dwd-relations`, payload).then((r) => r.data),
     updateDwdRelation: (templateId, relationId, payload) => api.put(`/table-tools/templates/${templateId}/dwd-relations/${relationId}`, payload).then((r) => r.data),
@@ -55,6 +56,18 @@ export const tableToolsApi = {
         const a = document.createElement('a');
         a.href = url;
         a.download = 'merged_result.xlsx';
+        a.click();
+        URL.revokeObjectURL(url);
+    },
+    saveResultBatch: (templateId, previewToken, period) => api.post(`/table-tools/templates/${templateId}/result-batches/save`, { preview_token: previewToken, ...(period ? { period } : {}) }).then((r) => r.data),
+    listResultBatches: (templateId) => api.get(`/table-tools/templates/${templateId}/result-batches`).then((r) => r.data),
+    getResultBatchRows: (templateId, batchId, page = 1) => api.get(`/table-tools/templates/${templateId}/result-batches/${batchId}/rows`, { params: { page, page_size: 100 } }).then((r) => r.data),
+    downloadResultBatch: async (templateId, batch) => {
+        const resp = await api.get(`/table-tools/templates/${templateId}/result-batches/${batch.id}/download`, { responseType: 'blob' });
+        const url = URL.createObjectURL(resp.data);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `merged_result_${batch.period}.xlsx`;
         a.click();
         URL.revokeObjectURL(url);
     },

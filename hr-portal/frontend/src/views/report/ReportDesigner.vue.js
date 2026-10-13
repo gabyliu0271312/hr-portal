@@ -2,10 +2,12 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { ArrowLeft, View, Check, MagicStick, Position } from '@element-plus/icons-vue';
+import { View, Check, MagicStick, Position } from '@element-plus/icons-vue';
+import FullscreenWorkspaceShell from '@/components/layout/FullscreenWorkspaceShell.vue';
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue';
 import ReportBasicInfo from '@/components/report/ReportBasicInfo.vue';
 import ReportFieldWorkbench from '@/components/report/ReportFieldWorkbench.vue';
+import ReportDimensionMergeConfig from '@/components/report/ReportDimensionMergeConfig.vue';
 import ReportFilterList from '@/components/report/ReportFilterList.vue';
 import ReportListLookupConfig from '@/components/report/ReportListLookupConfig.vue';
 import ReportTransposeConfig from '@/components/report/ReportTransposeConfig.vue';
@@ -19,6 +21,10 @@ import { dependencyCount, removeReportColumnInstance, } from '@/utils/reportColu
 const { tables: TABLES } = useTableOptions();
 const route = useRoute();
 const router = useRouter();
+const reportListTarget = computed(() => {
+    const target = route.query.returnTo;
+    return typeof target === 'string' && target.startsWith('/report/list') ? target : '/report/list';
+});
 const reportId = computed(() => {
     const id = route.params.id;
     return id === 'new' ? null : Number(id);
@@ -53,6 +59,7 @@ const form = reactive({
     aggregate: false,
     default_aggregation: 'sum',
     aggregations: {},
+    dimension_merge_rules: [],
     transpose: {
         enabled: false,
         drop_zero_measures: true,
@@ -128,6 +135,7 @@ const previewItems = ref([]);
 const previewTotal = ref(0);
 const previewPage = ref(1);
 const previewPageSize = ref(20);
+const dimensionMergeErrors = ref([]);
 const reportPushSourceTable = computed(() => reportId.value ? `report:${reportId.value}` : '');
 const reportPushColumns = computed(() => selectedColsDetail.value.map((c) => ({
     code: instanceIdOf(c),
@@ -149,6 +157,7 @@ const publishStatusLabel = computed(() => REPORT_VISIBILITY_LABELS[form.visibili
 const scopeStrategyLabel = computed(() => SCOPE_STRATEGY_OPTIONS.find((item) => item.value === form.scope_strategy)?.label || '继承默认');
 const filterSummary = computed(() => form.filters.length ? `${form.filters.length} 条筛选` : '未设置筛选');
 const pushSummary = computed(() => reportPushTargets.value.length ? `${reportPushTargets.value.length} 个推送配置` : '未配置推送');
+const fieldWorkbenchRef = ref(null);
 const transposeRef = ref(null);
 const filterRef = ref(null);
 let explainChatId = 0;
@@ -182,6 +191,12 @@ function isMeasureLike(col) {
 }
 const selectedDimensions = computed(() => selectedColsDetail.value.filter((c) => !isMeasureLike(c)));
 const selectedMeasures = computed(() => selectedColsDetail.value.filter((c) => isMeasureLike(c)));
+const structuralReshapeEnabled = computed(() => !!form.transpose.column_to_row?.enabled || !!form.transpose.row_to_column?.enabled);
+const currentDimensionSignature = computed(() => selectedDimensions.value.map(instanceIdOf));
+const dimensionMergePending = computed(() => form.dimension_merge_rules.length > 0 && (!form.aggregate
+    || structuralReshapeEnabled.value
+    || form.dimension_merge_rules.some((rule) => rule.dimension_signature.join('|') !== currentDimensionSignature.value.join('|'))));
+const dimensionMergeReportConfig = computed(() => buildPayload().config);
 const isDataset = computed(() => true);
 async function loadDatasets() {
     try {
@@ -226,6 +241,12 @@ async function loadReport() {
         form.aggregate = r.config.aggregate ?? false;
         form.default_aggregation = (r.config.default_aggregation || 'sum');
         form.aggregations = { ...(r.config.aggregations ?? {}) };
+        form.dimension_merge_rules = (r.config.dimension_merge_rules ?? []).map((rule) => ({
+            ...rule,
+            dimension_signature: [...rule.dimension_signature],
+            sources: rule.sources.map((source) => ({ values: { ...source.values } })),
+            target: { values: { ...rule.target.values }, modes: { ...rule.target.modes } },
+        }));
         for (const [code, aggregation] of Object.entries(form.aggregations)) {
             if (aggregation && !form.column_settings[code]?.aggregation) {
                 form.column_settings[code] = {
@@ -443,6 +464,12 @@ function buildPayload() {
                     ];
                 }))
                 : {},
+            dimension_merge_rules: form.dimension_merge_rules.map((rule) => ({
+                ...rule,
+                dimension_signature: [...rule.dimension_signature],
+                sources: rule.sources.map((source) => ({ values: { ...source.values } })),
+                target: { values: { ...rule.target.values }, modes: { ...rule.target.modes } },
+            })),
             transpose: {
                 enabled: form.transpose.enabled,
                 drop_zero_measures: form.transpose.drop_zero_measures,
@@ -536,6 +563,29 @@ function buildPayload() {
         },
     };
 }
+function reportErrorDetail(error) {
+    const detail = error?.response?.data?.detail;
+    if (typeof detail !== 'string')
+        return detail;
+    try {
+        return JSON.parse(detail);
+    }
+    catch {
+        return detail;
+    }
+}
+function reportErrorMessage(error, fallback) {
+    if (error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT') {
+        return '保存校验耗时较长，请稍后重试；如仍失败请缩小数据范围或联系管理员';
+    }
+    const detail = reportErrorDetail(error);
+    if (typeof detail === 'string')
+        return detail;
+    const nestedError = Array.isArray(detail?.errors)
+        ? detail.errors.find((item) => item?.message || item?.code)
+        : null;
+    return nestedError?.message || nestedError?.code || detail?.message || detail?.code || fallback;
+}
 async function save() {
     if (!form.name.trim()) {
         ElMessage.warning('请填写报表名');
@@ -549,7 +599,14 @@ async function save() {
         ElMessage.warning('请选择数据集');
         return;
     }
+    if (dimensionMergePending.value) {
+        dimensionMergeErrors.value = [{ message: '归并规则与当前出数类型、维度结构或数据重塑配置冲突' }];
+        fieldWorkbenchRef.value?.openAdvanced('merge');
+        ElMessage.error('维度归并规则与当前出数类型、维度结构或数据重塑配置冲突，请先处理');
+        return;
+    }
     saving.value = true;
+    dimensionMergeErrors.value = [];
     try {
         if (form.transpose.enabled && form.transpose.rules?.length)
             await transposeRef.value?.ensureCcMaster();
@@ -557,7 +614,7 @@ async function save() {
         if (saveCreatesReport.value) {
             const r = await reportsApi.create(payload);
             ElMessage.success(isCopyMode.value ? '已另存为你的报表' : '已创建');
-            router.replace(`/report/designer/${r.id}`);
+            router.replace({ path: `/report/designer/${r.id}`, query: route.query });
         }
         else {
             await reportsApi.update(reportId.value, payload);
@@ -565,7 +622,13 @@ async function save() {
         }
     }
     catch (e) {
-        ElMessage.error(e?.response?.data?.detail || '保存失败');
+        const detail = reportErrorDetail(e);
+        const message = reportErrorMessage(e, '保存失败');
+        if (JSON.stringify(detail || '').includes('DIMENSION_MERGE')) {
+            dimensionMergeErrors.value = Array.isArray(detail?.errors) ? detail.errors : [detail];
+            fieldWorkbenchRef.value?.openAdvanced('merge');
+        }
+        ElMessage.error(message);
     }
     finally {
         saving.value = false;
@@ -591,7 +654,12 @@ async function preview() {
         previewTotal.value = res.total;
     }
     catch (e) {
-        ElMessage.error(e?.response?.data?.detail || '预览失败');
+        const detail = reportErrorDetail(e);
+        if (JSON.stringify(detail || '').includes('DIMENSION_MERGE')) {
+            dimensionMergeErrors.value = Array.isArray(detail?.errors) ? detail.errors : [detail];
+            fieldWorkbenchRef.value?.openAdvanced('merge');
+        }
+        ElMessage.error(reportErrorMessage(e, '预览失败'));
     }
     finally {
         previewing.value = false;
@@ -753,9 +821,6 @@ const __VLS_ctx = {};
 let __VLS_components;
 let __VLS_directives;
 /** @type {__VLS_StyleScopedClasses['section-title-row']} */ ;
-/** @type {__VLS_StyleScopedClasses['designer-card']} */ ;
-/** @type {__VLS_StyleScopedClasses['designer-header']} */ ;
-/** @type {__VLS_StyleScopedClasses['designer-actions']} */ ;
 /** @type {__VLS_StyleScopedClasses['report-settings-drawer']} */ ;
 /** @type {__VLS_StyleScopedClasses['report-settings-drawer']} */ ;
 /** @type {__VLS_StyleScopedClasses['el-drawer__body']} */ ;
@@ -772,229 +837,181 @@ let __VLS_directives;
 /** @type {__VLS_StyleScopedClasses['warning-item']} */ ;
 // CSS variable injection 
 // CSS variable injection end 
-__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "designer-page" },
-});
-const __VLS_0 = {}.ElCard;
-/** @type {[typeof __VLS_components.ElCard, typeof __VLS_components.elCard, typeof __VLS_components.ElCard, typeof __VLS_components.elCard, ]} */ ;
+/** @type {[typeof FullscreenWorkspaceShell, typeof FullscreenWorkspaceShell, ]} */ ;
 // @ts-ignore
-const __VLS_1 = __VLS_asFunctionalComponent(__VLS_0, new __VLS_0({
-    ...{ class: "designer-card" },
+const __VLS_0 = __VLS_asFunctionalComponent(FullscreenWorkspaceShell, new FullscreenWorkspaceShell({
+    ...{ 'onBack': {} },
+    title: (__VLS_ctx.pageTitle),
+    subtitle: (`${__VLS_ctx.currentDatasetName} · ${__VLS_ctx.publishStatusLabel} · ${__VLS_ctx.form.selected_codes.length} 个字段 · ${__VLS_ctx.filterSummary}`),
+    busy: (__VLS_ctx.saving),
 }));
-const __VLS_2 = __VLS_1({
-    ...{ class: "designer-card" },
-}, ...__VLS_functionalComponentArgsRest(__VLS_1));
-__VLS_3.slots.default;
+const __VLS_1 = __VLS_0({
+    ...{ 'onBack': {} },
+    title: (__VLS_ctx.pageTitle),
+    subtitle: (`${__VLS_ctx.currentDatasetName} · ${__VLS_ctx.publishStatusLabel} · ${__VLS_ctx.form.selected_codes.length} 个字段 · ${__VLS_ctx.filterSummary}`),
+    busy: (__VLS_ctx.saving),
+}, ...__VLS_functionalComponentArgsRest(__VLS_0));
+let __VLS_3;
+let __VLS_4;
+let __VLS_5;
+const __VLS_6 = {
+    onBack: (...[$event]) => {
+        __VLS_ctx.router.push(__VLS_ctx.reportListTarget);
+    }
+};
+__VLS_2.slots.default;
 {
-    const { header: __VLS_thisSlot } = __VLS_3.slots;
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-        ...{ class: "designer-header" },
-    });
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-        ...{ class: "designer-title-wrap" },
-    });
-    const __VLS_4 = {}.ElButton;
+    const { actions: __VLS_thisSlot } = __VLS_2.slots;
+    const __VLS_7 = {}.ElButton;
     /** @type {[typeof __VLS_components.ElButton, typeof __VLS_components.elButton, typeof __VLS_components.ElButton, typeof __VLS_components.elButton, ]} */ ;
     // @ts-ignore
-    const __VLS_5 = __VLS_asFunctionalComponent(__VLS_4, new __VLS_4({
-        ...{ 'onClick': {} },
-        link: true,
-        ...{ class: "back-button" },
-    }));
-    const __VLS_6 = __VLS_5({
-        ...{ 'onClick': {} },
-        link: true,
-        ...{ class: "back-button" },
-    }, ...__VLS_functionalComponentArgsRest(__VLS_5));
-    let __VLS_8;
-    let __VLS_9;
-    let __VLS_10;
-    const __VLS_11 = {
-        onClick: (...[$event]) => {
-            __VLS_ctx.router.push('/report/list');
-        }
-    };
-    __VLS_7.slots.default;
-    const __VLS_12 = {}.ElIcon;
-    /** @type {[typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, ]} */ ;
-    // @ts-ignore
-    const __VLS_13 = __VLS_asFunctionalComponent(__VLS_12, new __VLS_12({}));
-    const __VLS_14 = __VLS_13({}, ...__VLS_functionalComponentArgsRest(__VLS_13));
-    __VLS_15.slots.default;
-    const __VLS_16 = {}.ArrowLeft;
-    /** @type {[typeof __VLS_components.ArrowLeft, ]} */ ;
-    // @ts-ignore
-    const __VLS_17 = __VLS_asFunctionalComponent(__VLS_16, new __VLS_16({}));
-    const __VLS_18 = __VLS_17({}, ...__VLS_functionalComponentArgsRest(__VLS_17));
-    var __VLS_15;
-    var __VLS_7;
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-        ...{ class: "designer-title-block" },
-    });
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
-        ...{ class: "designer-title" },
-    });
-    (__VLS_ctx.pageTitle);
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
-        ...{ class: "designer-subtitle" },
-    });
-    (__VLS_ctx.currentDatasetName);
-    (__VLS_ctx.publishStatusLabel);
-    (__VLS_ctx.form.selected_codes.length);
-    (__VLS_ctx.filterSummary);
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-        ...{ class: "designer-actions" },
-    });
-    const __VLS_20 = {}.ElButton;
-    /** @type {[typeof __VLS_components.ElButton, typeof __VLS_components.elButton, typeof __VLS_components.ElButton, typeof __VLS_components.elButton, ]} */ ;
-    // @ts-ignore
-    const __VLS_21 = __VLS_asFunctionalComponent(__VLS_20, new __VLS_20({
+    const __VLS_8 = __VLS_asFunctionalComponent(__VLS_7, new __VLS_7({
         ...{ 'onClick': {} },
         plain: true,
     }));
-    const __VLS_22 = __VLS_21({
+    const __VLS_9 = __VLS_8({
         ...{ 'onClick': {} },
         plain: true,
-    }, ...__VLS_functionalComponentArgsRest(__VLS_21));
-    let __VLS_24;
-    let __VLS_25;
-    let __VLS_26;
-    const __VLS_27 = {
+    }, ...__VLS_functionalComponentArgsRest(__VLS_8));
+    let __VLS_11;
+    let __VLS_12;
+    let __VLS_13;
+    const __VLS_14 = {
         onClick: (...[$event]) => {
             __VLS_ctx.basicSettingsOpen = true;
         }
     };
-    __VLS_23.slots.default;
-    var __VLS_23;
-    const __VLS_28 = {}.ElButton;
+    __VLS_10.slots.default;
+    var __VLS_10;
+    const __VLS_15 = {}.ElButton;
     /** @type {[typeof __VLS_components.ElButton, typeof __VLS_components.elButton, typeof __VLS_components.ElButton, typeof __VLS_components.elButton, ]} */ ;
     // @ts-ignore
-    const __VLS_29 = __VLS_asFunctionalComponent(__VLS_28, new __VLS_28({
+    const __VLS_16 = __VLS_asFunctionalComponent(__VLS_15, new __VLS_15({
         ...{ 'onClick': {} },
         loading: (__VLS_ctx.explaining),
     }));
-    const __VLS_30 = __VLS_29({
+    const __VLS_17 = __VLS_16({
         ...{ 'onClick': {} },
         loading: (__VLS_ctx.explaining),
-    }, ...__VLS_functionalComponentArgsRest(__VLS_29));
-    let __VLS_32;
-    let __VLS_33;
-    let __VLS_34;
-    const __VLS_35 = {
+    }, ...__VLS_functionalComponentArgsRest(__VLS_16));
+    let __VLS_19;
+    let __VLS_20;
+    let __VLS_21;
+    const __VLS_22 = {
         onClick: (__VLS_ctx.explainConfig)
     };
-    __VLS_31.slots.default;
-    const __VLS_36 = {}.ElIcon;
+    __VLS_18.slots.default;
+    const __VLS_23 = {}.ElIcon;
     /** @type {[typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, ]} */ ;
     // @ts-ignore
-    const __VLS_37 = __VLS_asFunctionalComponent(__VLS_36, new __VLS_36({
+    const __VLS_24 = __VLS_asFunctionalComponent(__VLS_23, new __VLS_23({
         ...{ style: {} },
     }));
-    const __VLS_38 = __VLS_37({
+    const __VLS_25 = __VLS_24({
         ...{ style: {} },
-    }, ...__VLS_functionalComponentArgsRest(__VLS_37));
-    __VLS_39.slots.default;
-    const __VLS_40 = {}.MagicStick;
+    }, ...__VLS_functionalComponentArgsRest(__VLS_24));
+    __VLS_26.slots.default;
+    const __VLS_27 = {}.MagicStick;
     /** @type {[typeof __VLS_components.MagicStick, ]} */ ;
     // @ts-ignore
-    const __VLS_41 = __VLS_asFunctionalComponent(__VLS_40, new __VLS_40({}));
-    const __VLS_42 = __VLS_41({}, ...__VLS_functionalComponentArgsRest(__VLS_41));
-    var __VLS_39;
-    var __VLS_31;
-    const __VLS_44 = {}.ElButton;
+    const __VLS_28 = __VLS_asFunctionalComponent(__VLS_27, new __VLS_27({}));
+    const __VLS_29 = __VLS_28({}, ...__VLS_functionalComponentArgsRest(__VLS_28));
+    var __VLS_26;
+    var __VLS_18;
+    const __VLS_31 = {}.ElButton;
     /** @type {[typeof __VLS_components.ElButton, typeof __VLS_components.elButton, typeof __VLS_components.ElButton, typeof __VLS_components.elButton, ]} */ ;
     // @ts-ignore
-    const __VLS_45 = __VLS_asFunctionalComponent(__VLS_44, new __VLS_44({
+    const __VLS_32 = __VLS_asFunctionalComponent(__VLS_31, new __VLS_31({
         ...{ 'onClick': {} },
         loading: (__VLS_ctx.previewing),
         disabled: (__VLS_ctx.saveCreatesReport),
     }));
-    const __VLS_46 = __VLS_45({
+    const __VLS_33 = __VLS_32({
         ...{ 'onClick': {} },
         loading: (__VLS_ctx.previewing),
         disabled: (__VLS_ctx.saveCreatesReport),
-    }, ...__VLS_functionalComponentArgsRest(__VLS_45));
-    let __VLS_48;
-    let __VLS_49;
-    let __VLS_50;
-    const __VLS_51 = {
+    }, ...__VLS_functionalComponentArgsRest(__VLS_32));
+    let __VLS_35;
+    let __VLS_36;
+    let __VLS_37;
+    const __VLS_38 = {
         onClick: (__VLS_ctx.preview)
     };
-    __VLS_47.slots.default;
-    const __VLS_52 = {}.ElIcon;
+    __VLS_34.slots.default;
+    const __VLS_39 = {}.ElIcon;
     /** @type {[typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, ]} */ ;
     // @ts-ignore
-    const __VLS_53 = __VLS_asFunctionalComponent(__VLS_52, new __VLS_52({
+    const __VLS_40 = __VLS_asFunctionalComponent(__VLS_39, new __VLS_39({
         ...{ style: {} },
     }));
-    const __VLS_54 = __VLS_53({
+    const __VLS_41 = __VLS_40({
         ...{ style: {} },
-    }, ...__VLS_functionalComponentArgsRest(__VLS_53));
-    __VLS_55.slots.default;
-    const __VLS_56 = {}.View;
+    }, ...__VLS_functionalComponentArgsRest(__VLS_40));
+    __VLS_42.slots.default;
+    const __VLS_43 = {}.View;
     /** @type {[typeof __VLS_components.View, ]} */ ;
     // @ts-ignore
-    const __VLS_57 = __VLS_asFunctionalComponent(__VLS_56, new __VLS_56({}));
-    const __VLS_58 = __VLS_57({}, ...__VLS_functionalComponentArgsRest(__VLS_57));
-    var __VLS_55;
-    var __VLS_47;
-    const __VLS_60 = {}.ElButton;
+    const __VLS_44 = __VLS_asFunctionalComponent(__VLS_43, new __VLS_43({}));
+    const __VLS_45 = __VLS_44({}, ...__VLS_functionalComponentArgsRest(__VLS_44));
+    var __VLS_42;
+    var __VLS_34;
+    const __VLS_47 = {}.ElButton;
     /** @type {[typeof __VLS_components.ElButton, typeof __VLS_components.elButton, typeof __VLS_components.ElButton, typeof __VLS_components.elButton, ]} */ ;
     // @ts-ignore
-    const __VLS_61 = __VLS_asFunctionalComponent(__VLS_60, new __VLS_60({
+    const __VLS_48 = __VLS_asFunctionalComponent(__VLS_47, new __VLS_47({
         ...{ 'onClick': {} },
         type: "primary",
         loading: (__VLS_ctx.saving),
     }));
-    const __VLS_62 = __VLS_61({
+    const __VLS_49 = __VLS_48({
         ...{ 'onClick': {} },
         type: "primary",
         loading: (__VLS_ctx.saving),
-    }, ...__VLS_functionalComponentArgsRest(__VLS_61));
-    let __VLS_64;
-    let __VLS_65;
-    let __VLS_66;
-    const __VLS_67 = {
+    }, ...__VLS_functionalComponentArgsRest(__VLS_48));
+    let __VLS_51;
+    let __VLS_52;
+    let __VLS_53;
+    const __VLS_54 = {
         onClick: (__VLS_ctx.save)
     };
-    __VLS_63.slots.default;
-    const __VLS_68 = {}.ElIcon;
+    __VLS_50.slots.default;
+    const __VLS_55 = {}.ElIcon;
     /** @type {[typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, ]} */ ;
     // @ts-ignore
-    const __VLS_69 = __VLS_asFunctionalComponent(__VLS_68, new __VLS_68({
+    const __VLS_56 = __VLS_asFunctionalComponent(__VLS_55, new __VLS_55({
         ...{ style: {} },
     }));
-    const __VLS_70 = __VLS_69({
+    const __VLS_57 = __VLS_56({
         ...{ style: {} },
-    }, ...__VLS_functionalComponentArgsRest(__VLS_69));
-    __VLS_71.slots.default;
-    const __VLS_72 = {}.Check;
+    }, ...__VLS_functionalComponentArgsRest(__VLS_56));
+    __VLS_58.slots.default;
+    const __VLS_59 = {}.Check;
     /** @type {[typeof __VLS_components.Check, ]} */ ;
     // @ts-ignore
-    const __VLS_73 = __VLS_asFunctionalComponent(__VLS_72, new __VLS_72({}));
-    const __VLS_74 = __VLS_73({}, ...__VLS_functionalComponentArgsRest(__VLS_73));
-    var __VLS_71;
-    var __VLS_63;
+    const __VLS_60 = __VLS_asFunctionalComponent(__VLS_59, new __VLS_59({}));
+    const __VLS_61 = __VLS_60({}, ...__VLS_functionalComponentArgsRest(__VLS_60));
+    var __VLS_58;
+    var __VLS_50;
 }
-const __VLS_76 = {}.ElForm;
+const __VLS_63 = {}.ElForm;
 /** @type {[typeof __VLS_components.ElForm, typeof __VLS_components.elForm, typeof __VLS_components.ElForm, typeof __VLS_components.elForm, ]} */ ;
 // @ts-ignore
-const __VLS_77 = __VLS_asFunctionalComponent(__VLS_76, new __VLS_76({
+const __VLS_64 = __VLS_asFunctionalComponent(__VLS_63, new __VLS_63({
     labelPosition: "top",
     ...{ class: "designer-form" },
 }));
-const __VLS_78 = __VLS_77({
+const __VLS_65 = __VLS_64({
     labelPosition: "top",
     ...{ class: "designer-form" },
-}, ...__VLS_functionalComponentArgsRest(__VLS_77));
-__VLS_79.slots.default;
+}, ...__VLS_functionalComponentArgsRest(__VLS_64));
+__VLS_66.slots.default;
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ class: "section-title compact-section-title" },
 });
 (__VLS_ctx.form.selected_codes.length);
 /** @type {[typeof CalculatedFieldBridge, typeof CalculatedFieldBridge, ]} */ ;
 // @ts-ignore
-const __VLS_80 = __VLS_asFunctionalComponent(CalculatedFieldBridge, new CalculatedFieldBridge({
+const __VLS_67 = __VLS_asFunctionalComponent(CalculatedFieldBridge, new CalculatedFieldBridge({
     ...{ 'onColumnsChange': {} },
     ...{ 'onDatasetChange': {} },
     ...{ 'onSaved': {} },
@@ -1002,40 +1019,41 @@ const __VLS_80 = __VLS_asFunctionalComponent(CalculatedFieldBridge, new Calculat
     datasets: (__VLS_ctx.datasets),
     tables: (__VLS_ctx.TABLES),
 }));
-const __VLS_81 = __VLS_80({
+const __VLS_68 = __VLS_67({
     ...{ 'onColumnsChange': {} },
     ...{ 'onDatasetChange': {} },
     ...{ 'onSaved': {} },
     datasetId: (__VLS_ctx.form.dataset_id),
     datasets: (__VLS_ctx.datasets),
     tables: (__VLS_ctx.TABLES),
-}, ...__VLS_functionalComponentArgsRest(__VLS_80));
-let __VLS_83;
-let __VLS_84;
-let __VLS_85;
-const __VLS_86 = {
+}, ...__VLS_functionalComponentArgsRest(__VLS_67));
+let __VLS_70;
+let __VLS_71;
+let __VLS_72;
+const __VLS_73 = {
     onColumnsChange: (...[$event]) => {
         __VLS_ctx.allColumns = $event;
     }
 };
-const __VLS_87 = {
+const __VLS_74 = {
     onDatasetChange: (...[$event]) => {
         __VLS_ctx.currentDataset = $event;
     }
 };
-const __VLS_88 = {
+const __VLS_75 = {
     onSaved: (__VLS_ctx.onCalculatedFieldSaved)
 };
-__VLS_82.slots.default;
+__VLS_69.slots.default;
 {
-    const { default: __VLS_thisSlot } = __VLS_82.slots;
+    const { default: __VLS_thisSlot } = __VLS_69.slots;
     const [{ columns, loading, sourceGroups, canCreateField, createField, editField }] = __VLS_getSlotParams(__VLS_thisSlot);
     /** @type {[typeof ReportFieldWorkbench, typeof ReportFieldWorkbench, ]} */ ;
     // @ts-ignore
-    const __VLS_89 = __VLS_asFunctionalComponent(ReportFieldWorkbench, new ReportFieldWorkbench({
+    const __VLS_76 = __VLS_asFunctionalComponent(ReportFieldWorkbench, new ReportFieldWorkbench({
         ...{ 'onRemoveColumn': {} },
         ...{ 'onCreateField': {} },
         ...{ 'onEditField': {} },
+        ref: "fieldWorkbenchRef",
         selectedCodes: (__VLS_ctx.form.selected_codes),
         columnSettings: (__VLS_ctx.form.column_settings),
         defaultSplitRule: (__VLS_ctx.form.default_split_rule),
@@ -1050,13 +1068,16 @@ __VLS_82.slots.default;
         lookupEnabled: (__VLS_ctx.form.list_lookup.enabled),
         pushEnabled: (__VLS_ctx.reportPushEnabled),
         pushTargetCount: (__VLS_ctx.reportPushTargets.length),
+        dimensionMergeRuleCount: (__VLS_ctx.form.dimension_merge_rules.length),
+        dimensionMergePending: (__VLS_ctx.dimensionMergePending),
         isDataset: (__VLS_ctx.isDataset),
         canCreateField: (canCreateField),
     }));
-    const __VLS_90 = __VLS_89({
+    const __VLS_77 = __VLS_76({
         ...{ 'onRemoveColumn': {} },
         ...{ 'onCreateField': {} },
         ...{ 'onEditField': {} },
+        ref: "fieldWorkbenchRef",
         selectedCodes: (__VLS_ctx.form.selected_codes),
         columnSettings: (__VLS_ctx.form.column_settings),
         defaultSplitRule: (__VLS_ctx.form.default_split_rule),
@@ -1071,123 +1092,173 @@ __VLS_82.slots.default;
         lookupEnabled: (__VLS_ctx.form.list_lookup.enabled),
         pushEnabled: (__VLS_ctx.reportPushEnabled),
         pushTargetCount: (__VLS_ctx.reportPushTargets.length),
+        dimensionMergeRuleCount: (__VLS_ctx.form.dimension_merge_rules.length),
+        dimensionMergePending: (__VLS_ctx.dimensionMergePending),
         isDataset: (__VLS_ctx.isDataset),
         canCreateField: (canCreateField),
-    }, ...__VLS_functionalComponentArgsRest(__VLS_89));
-    let __VLS_92;
-    let __VLS_93;
-    let __VLS_94;
-    const __VLS_95 = {
+    }, ...__VLS_functionalComponentArgsRest(__VLS_76));
+    let __VLS_79;
+    let __VLS_80;
+    let __VLS_81;
+    const __VLS_82 = {
         onRemoveColumn: (__VLS_ctx.removeSelectedColumn)
     };
-    const __VLS_96 = {
+    const __VLS_83 = {
         onCreateField: (createField)
     };
-    const __VLS_97 = {
+    const __VLS_84 = {
         onEditField: (editField)
     };
-    __VLS_91.slots.default;
+    /** @type {typeof __VLS_ctx.fieldWorkbenchRef} */ ;
+    var __VLS_85 = {};
+    __VLS_78.slots.default;
     {
-        const { filters: __VLS_thisSlot } = __VLS_91.slots;
+        const { filters: __VLS_thisSlot } = __VLS_78.slots;
         /** @type {[typeof ReportFilterList, ]} */ ;
         // @ts-ignore
-        const __VLS_98 = __VLS_asFunctionalComponent(ReportFilterList, new ReportFilterList({
+        const __VLS_87 = __VLS_asFunctionalComponent(ReportFilterList, new ReportFilterList({
             ref: "filterRef",
             filters: (__VLS_ctx.form.filters),
             filterLogic: (__VLS_ctx.form.filter_logic),
             allColumns: (__VLS_ctx.allColumns),
             currentDatasetTables: (__VLS_ctx.currentDataset?.tables),
         }));
-        const __VLS_99 = __VLS_98({
+        const __VLS_88 = __VLS_87({
             ref: "filterRef",
             filters: (__VLS_ctx.form.filters),
             filterLogic: (__VLS_ctx.form.filter_logic),
             allColumns: (__VLS_ctx.allColumns),
             currentDatasetTables: (__VLS_ctx.currentDataset?.tables),
-        }, ...__VLS_functionalComponentArgsRest(__VLS_98));
+        }, ...__VLS_functionalComponentArgsRest(__VLS_87));
         /** @type {typeof __VLS_ctx.filterRef} */ ;
-        var __VLS_101 = {};
-        var __VLS_100;
+        var __VLS_90 = {};
+        var __VLS_89;
     }
     {
-        const { reshape: __VLS_thisSlot } = __VLS_91.slots;
+        const { merge: __VLS_thisSlot } = __VLS_78.slots;
+        const [{ openTab }] = __VLS_getSlotParams(__VLS_thisSlot);
+        /** @type {[typeof ReportDimensionMergeConfig, ]} */ ;
+        // @ts-ignore
+        const __VLS_92 = __VLS_asFunctionalComponent(ReportDimensionMergeConfig, new ReportDimensionMergeConfig({
+            ...{ 'onOpenRules': {} },
+            ...{ 'onOpenReshape': {} },
+            modelValue: (__VLS_ctx.form.dimension_merge_rules),
+            dimensions: (__VLS_ctx.selectedDimensions),
+            datasetId: (__VLS_ctx.form.dataset_id || 0),
+            scopeStrategy: (__VLS_ctx.form.scope_strategy),
+            reportId: (__VLS_ctx.reportId),
+            reportConfig: (__VLS_ctx.dimensionMergeReportConfig),
+            aggregate: (__VLS_ctx.form.aggregate),
+            structuralReshape: (__VLS_ctx.structuralReshapeEnabled),
+            errors: (__VLS_ctx.dimensionMergeErrors),
+        }));
+        const __VLS_93 = __VLS_92({
+            ...{ 'onOpenRules': {} },
+            ...{ 'onOpenReshape': {} },
+            modelValue: (__VLS_ctx.form.dimension_merge_rules),
+            dimensions: (__VLS_ctx.selectedDimensions),
+            datasetId: (__VLS_ctx.form.dataset_id || 0),
+            scopeStrategy: (__VLS_ctx.form.scope_strategy),
+            reportId: (__VLS_ctx.reportId),
+            reportConfig: (__VLS_ctx.dimensionMergeReportConfig),
+            aggregate: (__VLS_ctx.form.aggregate),
+            structuralReshape: (__VLS_ctx.structuralReshapeEnabled),
+            errors: (__VLS_ctx.dimensionMergeErrors),
+        }, ...__VLS_functionalComponentArgsRest(__VLS_92));
+        let __VLS_95;
+        let __VLS_96;
+        let __VLS_97;
+        const __VLS_98 = {
+            onOpenRules: (...[$event]) => {
+                openTab('rules');
+            }
+        };
+        const __VLS_99 = {
+            onOpenReshape: (...[$event]) => {
+                openTab('reshape');
+            }
+        };
+        var __VLS_94;
+    }
+    {
+        const { reshape: __VLS_thisSlot } = __VLS_78.slots;
         /** @type {[typeof ReportTransposeConfig, ]} */ ;
         // @ts-ignore
-        const __VLS_103 = __VLS_asFunctionalComponent(ReportTransposeConfig, new ReportTransposeConfig({
+        const __VLS_100 = __VLS_asFunctionalComponent(ReportTransposeConfig, new ReportTransposeConfig({
             ref: "transposeRef",
             transpose: (__VLS_ctx.form.transpose),
             selectedDimensions: (__VLS_ctx.selectedDimensions),
             selectedMeasures: (__VLS_ctx.selectedMeasures),
             selectedColumns: (__VLS_ctx.selectedColsDetail),
         }));
-        const __VLS_104 = __VLS_103({
+        const __VLS_101 = __VLS_100({
             ref: "transposeRef",
             transpose: (__VLS_ctx.form.transpose),
             selectedDimensions: (__VLS_ctx.selectedDimensions),
             selectedMeasures: (__VLS_ctx.selectedMeasures),
             selectedColumns: (__VLS_ctx.selectedColsDetail),
-        }, ...__VLS_functionalComponentArgsRest(__VLS_103));
+        }, ...__VLS_functionalComponentArgsRest(__VLS_100));
         /** @type {typeof __VLS_ctx.transposeRef} */ ;
-        var __VLS_106 = {};
-        var __VLS_105;
+        var __VLS_103 = {};
+        var __VLS_102;
     }
     {
-        const { lookup: __VLS_thisSlot } = __VLS_91.slots;
+        const { lookup: __VLS_thisSlot } = __VLS_78.slots;
         /** @type {[typeof ReportListLookupConfig, ]} */ ;
         // @ts-ignore
-        const __VLS_108 = __VLS_asFunctionalComponent(ReportListLookupConfig, new ReportListLookupConfig({
+        const __VLS_105 = __VLS_asFunctionalComponent(ReportListLookupConfig, new ReportListLookupConfig({
             listLookup: (__VLS_ctx.form.list_lookup),
             allColumns: (__VLS_ctx.allColumns),
             currentDatasetTables: (__VLS_ctx.currentDataset?.tables),
         }));
-        const __VLS_109 = __VLS_108({
+        const __VLS_106 = __VLS_105({
             listLookup: (__VLS_ctx.form.list_lookup),
             allColumns: (__VLS_ctx.allColumns),
             currentDatasetTables: (__VLS_ctx.currentDataset?.tables),
-        }, ...__VLS_functionalComponentArgsRest(__VLS_108));
+        }, ...__VLS_functionalComponentArgsRest(__VLS_105));
     }
     {
-        const { push: __VLS_thisSlot } = __VLS_91.slots;
+        const { push: __VLS_thisSlot } = __VLS_78.slots;
         if (__VLS_ctx.saveCreatesReport) {
-            const __VLS_111 = {}.ElAlert;
+            const __VLS_108 = {}.ElAlert;
             /** @type {[typeof __VLS_components.ElAlert, typeof __VLS_components.elAlert, ]} */ ;
             // @ts-ignore
-            const __VLS_112 = __VLS_asFunctionalComponent(__VLS_111, new __VLS_111({
+            const __VLS_109 = __VLS_asFunctionalComponent(__VLS_108, new __VLS_108({
                 type: "info",
                 closable: (false),
                 showIcon: true,
                 title: "保存为你的报表后，可为该报表配置多个对外推送配置；从他人报表进入编辑时不会带入原报表推送配置。",
                 ...{ style: {} },
             }));
-            const __VLS_113 = __VLS_112({
+            const __VLS_110 = __VLS_109({
                 type: "info",
                 closable: (false),
                 showIcon: true,
                 title: "保存为你的报表后，可为该报表配置多个对外推送配置；从他人报表进入编辑时不会带入原报表推送配置。",
                 ...{ style: {} },
-            }, ...__VLS_functionalComponentArgsRest(__VLS_112));
+            }, ...__VLS_functionalComponentArgsRest(__VLS_109));
         }
         else if (__VLS_ctx.reportPushSourceTable) {
             /** @type {[typeof PushTargetList, ]} */ ;
             // @ts-ignore
-            const __VLS_115 = __VLS_asFunctionalComponent(PushTargetList, new PushTargetList({
+            const __VLS_112 = __VLS_asFunctionalComponent(PushTargetList, new PushTargetList({
                 ...{ 'onTargetsChange': {} },
                 sourceTable: (__VLS_ctx.reportPushSourceTable),
                 sourceColumns: (__VLS_ctx.reportPushColumns),
                 compact: true,
                 hideHeader: true,
             }));
-            const __VLS_116 = __VLS_115({
+            const __VLS_113 = __VLS_112({
                 ...{ 'onTargetsChange': {} },
                 sourceTable: (__VLS_ctx.reportPushSourceTable),
                 sourceColumns: (__VLS_ctx.reportPushColumns),
                 compact: true,
                 hideHeader: true,
-            }, ...__VLS_functionalComponentArgsRest(__VLS_115));
-            let __VLS_118;
-            let __VLS_119;
-            let __VLS_120;
-            const __VLS_121 = {
+            }, ...__VLS_functionalComponentArgsRest(__VLS_112));
+            let __VLS_115;
+            let __VLS_116;
+            let __VLS_117;
+            const __VLS_118 = {
                 onTargetsChange: (...[$event]) => {
                     if (!!(__VLS_ctx.saveCreatesReport))
                         return;
@@ -1196,12 +1267,12 @@ __VLS_82.slots.default;
                     __VLS_ctx.reportPushTargets = $event;
                 }
             };
-            var __VLS_117;
+            var __VLS_114;
         }
     }
-    var __VLS_91;
+    var __VLS_78;
 }
-var __VLS_82;
+var __VLS_69;
 if (__VLS_ctx.previewItems.length || __VLS_ctx.previewTotal) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ class: "section-title" },
@@ -1209,7 +1280,7 @@ if (__VLS_ctx.previewItems.length || __VLS_ctx.previewTotal) {
     (__VLS_ctx.previewTotal);
     /** @type {[typeof ReportPreviewTable, ]} */ ;
     // @ts-ignore
-    const __VLS_122 = __VLS_asFunctionalComponent(ReportPreviewTable, new ReportPreviewTable({
+    const __VLS_119 = __VLS_asFunctionalComponent(ReportPreviewTable, new ReportPreviewTable({
         ...{ 'onUpdate:page': {} },
         ...{ 'onUpdate:pageSize': {} },
         ...{ 'onPageChange': {} },
@@ -1221,7 +1292,7 @@ if (__VLS_ctx.previewItems.length || __VLS_ctx.previewTotal) {
         loading: (__VLS_ctx.previewing),
         columnSettings: (__VLS_ctx.form.column_settings),
     }));
-    const __VLS_123 = __VLS_122({
+    const __VLS_120 = __VLS_119({
         ...{ 'onUpdate:page': {} },
         ...{ 'onUpdate:pageSize': {} },
         ...{ 'onPageChange': {} },
@@ -1232,62 +1303,62 @@ if (__VLS_ctx.previewItems.length || __VLS_ctx.previewTotal) {
         pageSize: (__VLS_ctx.previewPageSize),
         loading: (__VLS_ctx.previewing),
         columnSettings: (__VLS_ctx.form.column_settings),
-    }, ...__VLS_functionalComponentArgsRest(__VLS_122));
-    let __VLS_125;
-    let __VLS_126;
-    let __VLS_127;
-    const __VLS_128 = {
+    }, ...__VLS_functionalComponentArgsRest(__VLS_119));
+    let __VLS_122;
+    let __VLS_123;
+    let __VLS_124;
+    const __VLS_125 = {
         'onUpdate:page': (...[$event]) => {
             if (!(__VLS_ctx.previewItems.length || __VLS_ctx.previewTotal))
                 return;
             __VLS_ctx.previewPage = $event;
         }
     };
-    const __VLS_129 = {
+    const __VLS_126 = {
         'onUpdate:pageSize': (...[$event]) => {
             if (!(__VLS_ctx.previewItems.length || __VLS_ctx.previewTotal))
                 return;
             __VLS_ctx.previewPageSize = $event;
         }
     };
-    const __VLS_130 = {
+    const __VLS_127 = {
         onPageChange: (__VLS_ctx.preview)
     };
-    var __VLS_124;
+    var __VLS_121;
 }
-var __VLS_79;
-var __VLS_3;
-const __VLS_131 = {}.ElDrawer;
+var __VLS_66;
+var __VLS_2;
+const __VLS_128 = {}.ElDrawer;
 /** @type {[typeof __VLS_components.ElDrawer, typeof __VLS_components.elDrawer, typeof __VLS_components.ElDrawer, typeof __VLS_components.elDrawer, ]} */ ;
 // @ts-ignore
-const __VLS_132 = __VLS_asFunctionalComponent(__VLS_131, new __VLS_131({
+const __VLS_129 = __VLS_asFunctionalComponent(__VLS_128, new __VLS_128({
     modelValue: (__VLS_ctx.basicSettingsOpen),
     title: "报表基础设置",
     size: "min(720px, 92vw)",
     appendToBody: true,
     ...{ class: "report-settings-drawer" },
 }));
-const __VLS_133 = __VLS_132({
+const __VLS_130 = __VLS_129({
     modelValue: (__VLS_ctx.basicSettingsOpen),
     title: "报表基础设置",
     size: "min(720px, 92vw)",
     appendToBody: true,
     ...{ class: "report-settings-drawer" },
-}, ...__VLS_functionalComponentArgsRest(__VLS_132));
-__VLS_134.slots.default;
-const __VLS_135 = {}.ElForm;
+}, ...__VLS_functionalComponentArgsRest(__VLS_129));
+__VLS_131.slots.default;
+const __VLS_132 = {}.ElForm;
 /** @type {[typeof __VLS_components.ElForm, typeof __VLS_components.elForm, typeof __VLS_components.ElForm, typeof __VLS_components.elForm, ]} */ ;
 // @ts-ignore
-const __VLS_136 = __VLS_asFunctionalComponent(__VLS_135, new __VLS_135({
+const __VLS_133 = __VLS_asFunctionalComponent(__VLS_132, new __VLS_132({
     labelPosition: "top",
 }));
-const __VLS_137 = __VLS_136({
+const __VLS_134 = __VLS_133({
     labelPosition: "top",
-}, ...__VLS_functionalComponentArgsRest(__VLS_136));
-__VLS_138.slots.default;
+}, ...__VLS_functionalComponentArgsRest(__VLS_133));
+__VLS_135.slots.default;
 /** @type {[typeof ReportBasicInfo, ]} */ ;
 // @ts-ignore
-const __VLS_139 = __VLS_asFunctionalComponent(ReportBasicInfo, new ReportBasicInfo({
+const __VLS_136 = __VLS_asFunctionalComponent(ReportBasicInfo, new ReportBasicInfo({
     ...{ 'onDatasetChange': {} },
     name: (__VLS_ctx.form.name),
     description: (__VLS_ctx.form.description),
@@ -1298,7 +1369,7 @@ const __VLS_139 = __VLS_asFunctionalComponent(ReportBasicInfo, new ReportBasicIn
     datasets: (__VLS_ctx.datasets),
     currentDataset: (__VLS_ctx.currentDataset),
 }));
-const __VLS_140 = __VLS_139({
+const __VLS_137 = __VLS_136({
     ...{ 'onDatasetChange': {} },
     name: (__VLS_ctx.form.name),
     description: (__VLS_ctx.form.description),
@@ -1308,82 +1379,82 @@ const __VLS_140 = __VLS_139({
     acl: (__VLS_ctx.form.acl),
     datasets: (__VLS_ctx.datasets),
     currentDataset: (__VLS_ctx.currentDataset),
-}, ...__VLS_functionalComponentArgsRest(__VLS_139));
-let __VLS_142;
-let __VLS_143;
-let __VLS_144;
-const __VLS_145 = {
+}, ...__VLS_functionalComponentArgsRest(__VLS_136));
+let __VLS_139;
+let __VLS_140;
+let __VLS_141;
+const __VLS_142 = {
     onDatasetChange: (__VLS_ctx.onDatasetChange)
 };
-var __VLS_141;
-const __VLS_146 = {}.ElFormItem;
+var __VLS_138;
+const __VLS_143 = {}.ElFormItem;
 /** @type {[typeof __VLS_components.ElFormItem, typeof __VLS_components.elFormItem, typeof __VLS_components.ElFormItem, typeof __VLS_components.elFormItem, ]} */ ;
 // @ts-ignore
-const __VLS_147 = __VLS_asFunctionalComponent(__VLS_146, new __VLS_146({
+const __VLS_144 = __VLS_asFunctionalComponent(__VLS_143, new __VLS_143({
     label: "质量检查期间字段",
 }));
-const __VLS_148 = __VLS_147({
+const __VLS_145 = __VLS_144({
     label: "质量检查期间字段",
-}, ...__VLS_functionalComponentArgsRest(__VLS_147));
-__VLS_149.slots.default;
-const __VLS_150 = {}.ElSelect;
+}, ...__VLS_functionalComponentArgsRest(__VLS_144));
+__VLS_146.slots.default;
+const __VLS_147 = {}.ElSelect;
 /** @type {[typeof __VLS_components.ElSelect, typeof __VLS_components.elSelect, typeof __VLS_components.ElSelect, typeof __VLS_components.elSelect, ]} */ ;
 // @ts-ignore
-const __VLS_151 = __VLS_asFunctionalComponent(__VLS_150, new __VLS_150({
+const __VLS_148 = __VLS_asFunctionalComponent(__VLS_147, new __VLS_147({
     modelValue: (__VLS_ctx.form.quality_period_field),
     clearable: true,
     filterable: true,
     placeholder: "仅受治理报表需要配置",
     ...{ style: {} },
 }));
-const __VLS_152 = __VLS_151({
+const __VLS_149 = __VLS_148({
     modelValue: (__VLS_ctx.form.quality_period_field),
     clearable: true,
     filterable: true,
     placeholder: "仅受治理报表需要配置",
     ...{ style: {} },
-}, ...__VLS_functionalComponentArgsRest(__VLS_151));
-__VLS_153.slots.default;
+}, ...__VLS_functionalComponentArgsRest(__VLS_148));
+__VLS_150.slots.default;
 for (const [column] of __VLS_getVForSourceType((__VLS_ctx.allColumns))) {
-    const __VLS_154 = {}.ElOption;
+    const __VLS_151 = {}.ElOption;
     /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
     // @ts-ignore
-    const __VLS_155 = __VLS_asFunctionalComponent(__VLS_154, new __VLS_154({
+    const __VLS_152 = __VLS_asFunctionalComponent(__VLS_151, new __VLS_151({
         key: (column.code),
         label: (column.label || column.code),
         value: (column.code),
     }));
-    const __VLS_156 = __VLS_155({
+    const __VLS_153 = __VLS_152({
         key: (column.code),
         label: (column.label || column.code),
         value: (column.code),
-    }, ...__VLS_functionalComponentArgsRest(__VLS_155));
+    }, ...__VLS_functionalComponentArgsRest(__VLS_152));
 }
-var __VLS_153;
+var __VLS_150;
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ style: {} },
 });
-var __VLS_149;
-var __VLS_138;
-var __VLS_134;
-const __VLS_158 = {}.ElDrawer;
+var __VLS_146;
+var __VLS_135;
+var __VLS_131;
+const __VLS_155 = {}.ElDrawer;
 /** @type {[typeof __VLS_components.ElDrawer, typeof __VLS_components.elDrawer, typeof __VLS_components.ElDrawer, typeof __VLS_components.elDrawer, ]} */ ;
 // @ts-ignore
-const __VLS_159 = __VLS_asFunctionalComponent(__VLS_158, new __VLS_158({
+const __VLS_156 = __VLS_asFunctionalComponent(__VLS_155, new __VLS_155({
     modelValue: (__VLS_ctx.explainOpen),
     title: "AI 报表助手",
     size: "min(640px, 92vw)",
     appendToBody: true,
     ...{ class: "report-ai-drawer" },
 }));
-const __VLS_160 = __VLS_159({
+const __VLS_157 = __VLS_156({
     modelValue: (__VLS_ctx.explainOpen),
     title: "AI 报表助手",
     size: "min(640px, 92vw)",
     appendToBody: true,
     ...{ class: "report-ai-drawer" },
-}, ...__VLS_functionalComponentArgsRest(__VLS_159));
-__VLS_161.slots.default;
+}, ...__VLS_functionalComponentArgsRest(__VLS_156));
+__VLS_158.slots.default;
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ class: "report-ai-chat" },
 });
@@ -1433,10 +1504,10 @@ if (__VLS_ctx.explaining) {
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ class: "ai-send-box" },
 });
-const __VLS_162 = {}.ElInput;
+const __VLS_159 = {}.ElInput;
 /** @type {[typeof __VLS_components.ElInput, typeof __VLS_components.elInput, ]} */ ;
 // @ts-ignore
-const __VLS_163 = __VLS_asFunctionalComponent(__VLS_162, new __VLS_162({
+const __VLS_160 = __VLS_asFunctionalComponent(__VLS_159, new __VLS_159({
     ...{ 'onKeydown': {} },
     modelValue: (__VLS_ctx.explainInput),
     ...{ class: "ai-send-input" },
@@ -1445,7 +1516,7 @@ const __VLS_163 = __VLS_asFunctionalComponent(__VLS_162, new __VLS_162({
     resize: "none",
     placeholder: "继续追问，例如：这个报表的筛选条件是什么意思？",
 }));
-const __VLS_164 = __VLS_163({
+const __VLS_161 = __VLS_160({
     ...{ 'onKeydown': {} },
     modelValue: (__VLS_ctx.explainInput),
     ...{ class: "ai-send-input" },
@@ -1453,57 +1524,57 @@ const __VLS_164 = __VLS_163({
     autosize: ({ minRows: 1, maxRows: 3 }),
     resize: "none",
     placeholder: "继续追问，例如：这个报表的筛选条件是什么意思？",
-}, ...__VLS_functionalComponentArgsRest(__VLS_163));
-let __VLS_166;
-let __VLS_167;
-let __VLS_168;
-const __VLS_169 = {
+}, ...__VLS_functionalComponentArgsRest(__VLS_160));
+let __VLS_163;
+let __VLS_164;
+let __VLS_165;
+const __VLS_166 = {
     onKeydown: (__VLS_ctx.handleExplainKeydown)
 };
-var __VLS_165;
+var __VLS_162;
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ class: "ai-send-actions" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
     ...{ class: "send-hint" },
 });
-const __VLS_170 = {}.ElButton;
+const __VLS_167 = {}.ElButton;
 /** @type {[typeof __VLS_components.ElButton, typeof __VLS_components.elButton, typeof __VLS_components.ElButton, typeof __VLS_components.elButton, ]} */ ;
 // @ts-ignore
-const __VLS_171 = __VLS_asFunctionalComponent(__VLS_170, new __VLS_170({
+const __VLS_168 = __VLS_asFunctionalComponent(__VLS_167, new __VLS_167({
     ...{ 'onClick': {} },
     ...{ class: "send-icon-button" },
     type: "primary",
     circle: true,
     loading: (__VLS_ctx.explaining),
 }));
-const __VLS_172 = __VLS_171({
+const __VLS_169 = __VLS_168({
     ...{ 'onClick': {} },
     ...{ class: "send-icon-button" },
     type: "primary",
     circle: true,
     loading: (__VLS_ctx.explaining),
-}, ...__VLS_functionalComponentArgsRest(__VLS_171));
-let __VLS_174;
-let __VLS_175;
-let __VLS_176;
-const __VLS_177 = {
+}, ...__VLS_functionalComponentArgsRest(__VLS_168));
+let __VLS_171;
+let __VLS_172;
+let __VLS_173;
+const __VLS_174 = {
     onClick: (__VLS_ctx.sendExplainInput)
 };
-__VLS_173.slots.default;
-const __VLS_178 = {}.ElIcon;
+__VLS_170.slots.default;
+const __VLS_175 = {}.ElIcon;
 /** @type {[typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, ]} */ ;
 // @ts-ignore
-const __VLS_179 = __VLS_asFunctionalComponent(__VLS_178, new __VLS_178({}));
-const __VLS_180 = __VLS_179({}, ...__VLS_functionalComponentArgsRest(__VLS_179));
-__VLS_181.slots.default;
-const __VLS_182 = {}.Position;
+const __VLS_176 = __VLS_asFunctionalComponent(__VLS_175, new __VLS_175({}));
+const __VLS_177 = __VLS_176({}, ...__VLS_functionalComponentArgsRest(__VLS_176));
+__VLS_178.slots.default;
+const __VLS_179 = {}.Position;
 /** @type {[typeof __VLS_components.Position, ]} */ ;
 // @ts-ignore
-const __VLS_183 = __VLS_asFunctionalComponent(__VLS_182, new __VLS_182({}));
-const __VLS_184 = __VLS_183({}, ...__VLS_functionalComponentArgsRest(__VLS_183));
-var __VLS_181;
-var __VLS_173;
+const __VLS_180 = __VLS_asFunctionalComponent(__VLS_179, new __VLS_179({}));
+const __VLS_181 = __VLS_180({}, ...__VLS_functionalComponentArgsRest(__VLS_180));
+var __VLS_178;
+var __VLS_170;
 if (__VLS_ctx.explainResult) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ class: "explain-metrics" },
@@ -1524,24 +1595,24 @@ if (__VLS_ctx.explainResult) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
     (__VLS_ctx.explainResult.aggregation_count);
     __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
-    const __VLS_186 = {}.ElCollapse;
+    const __VLS_183 = {}.ElCollapse;
     /** @type {[typeof __VLS_components.ElCollapse, typeof __VLS_components.elCollapse, typeof __VLS_components.ElCollapse, typeof __VLS_components.elCollapse, ]} */ ;
     // @ts-ignore
-    const __VLS_187 = __VLS_asFunctionalComponent(__VLS_186, new __VLS_186({}));
-    const __VLS_188 = __VLS_187({}, ...__VLS_functionalComponentArgsRest(__VLS_187));
-    __VLS_189.slots.default;
-    const __VLS_190 = {}.ElCollapseItem;
+    const __VLS_184 = __VLS_asFunctionalComponent(__VLS_183, new __VLS_183({}));
+    const __VLS_185 = __VLS_184({}, ...__VLS_functionalComponentArgsRest(__VLS_184));
+    __VLS_186.slots.default;
+    const __VLS_187 = {}.ElCollapseItem;
     /** @type {[typeof __VLS_components.ElCollapseItem, typeof __VLS_components.elCollapseItem, typeof __VLS_components.ElCollapseItem, typeof __VLS_components.elCollapseItem, ]} */ ;
     // @ts-ignore
-    const __VLS_191 = __VLS_asFunctionalComponent(__VLS_190, new __VLS_190({
+    const __VLS_188 = __VLS_asFunctionalComponent(__VLS_187, new __VLS_187({
         title: "配置上下文",
         name: "context",
     }));
-    const __VLS_192 = __VLS_191({
+    const __VLS_189 = __VLS_188({
         title: "配置上下文",
         name: "context",
-    }, ...__VLS_functionalComponentArgsRest(__VLS_191));
-    __VLS_193.slots.default;
+    }, ...__VLS_functionalComponentArgsRest(__VLS_188));
+    __VLS_190.slots.default;
     __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
         ...{ class: "explain-section" },
     });
@@ -1552,22 +1623,22 @@ if (__VLS_ctx.explainResult) {
         ...{ class: "tag-list" },
     });
     for (const [field] of __VLS_getVForSourceType((__VLS_ctx.explainResult.visible_fields))) {
-        const __VLS_194 = {}.ElTag;
+        const __VLS_191 = {}.ElTag;
         /** @type {[typeof __VLS_components.ElTag, typeof __VLS_components.elTag, typeof __VLS_components.ElTag, typeof __VLS_components.elTag, ]} */ ;
         // @ts-ignore
-        const __VLS_195 = __VLS_asFunctionalComponent(__VLS_194, new __VLS_194({
+        const __VLS_192 = __VLS_asFunctionalComponent(__VLS_191, new __VLS_191({
             key: (field),
             size: "small",
             effect: "plain",
         }));
-        const __VLS_196 = __VLS_195({
+        const __VLS_193 = __VLS_192({
             key: (field),
             size: "small",
             effect: "plain",
-        }, ...__VLS_functionalComponentArgsRest(__VLS_195));
-        __VLS_197.slots.default;
+        }, ...__VLS_functionalComponentArgsRest(__VLS_192));
+        __VLS_194.slots.default;
         (field);
-        var __VLS_197;
+        var __VLS_194;
     }
     if (__VLS_ctx.explainResult.warnings.length) {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
@@ -1577,10 +1648,10 @@ if (__VLS_ctx.explainResult) {
             ...{ class: "explain-title" },
         });
         for (const [item] of __VLS_getVForSourceType((__VLS_ctx.explainResult.warnings))) {
-            const __VLS_198 = {}.ElAlert;
+            const __VLS_195 = {}.ElAlert;
             /** @type {[typeof __VLS_components.ElAlert, typeof __VLS_components.elAlert, ]} */ ;
             // @ts-ignore
-            const __VLS_199 = __VLS_asFunctionalComponent(__VLS_198, new __VLS_198({
+            const __VLS_196 = __VLS_asFunctionalComponent(__VLS_195, new __VLS_195({
                 key: (item),
                 title: (item),
                 type: "warning",
@@ -1588,14 +1659,14 @@ if (__VLS_ctx.explainResult) {
                 closable: (false),
                 ...{ class: "warning-item" },
             }));
-            const __VLS_200 = __VLS_199({
+            const __VLS_197 = __VLS_196({
                 key: (item),
                 title: (item),
                 type: "warning",
                 showIcon: true,
                 closable: (false),
                 ...{ class: "warning-item" },
-            }, ...__VLS_functionalComponentArgsRest(__VLS_199));
+            }, ...__VLS_functionalComponentArgsRest(__VLS_196));
         }
     }
     __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
@@ -1608,19 +1679,10 @@ if (__VLS_ctx.explainResult) {
         ...{ class: "context-json" },
     });
     (JSON.stringify(__VLS_ctx.explainResult.context_packet, null, 2));
-    var __VLS_193;
-    var __VLS_189;
+    var __VLS_190;
+    var __VLS_186;
 }
-var __VLS_161;
-/** @type {__VLS_StyleScopedClasses['designer-page']} */ ;
-/** @type {__VLS_StyleScopedClasses['designer-card']} */ ;
-/** @type {__VLS_StyleScopedClasses['designer-header']} */ ;
-/** @type {__VLS_StyleScopedClasses['designer-title-wrap']} */ ;
-/** @type {__VLS_StyleScopedClasses['back-button']} */ ;
-/** @type {__VLS_StyleScopedClasses['designer-title-block']} */ ;
-/** @type {__VLS_StyleScopedClasses['designer-title']} */ ;
-/** @type {__VLS_StyleScopedClasses['designer-subtitle']} */ ;
-/** @type {__VLS_StyleScopedClasses['designer-actions']} */ ;
+var __VLS_158;
 /** @type {__VLS_StyleScopedClasses['designer-form']} */ ;
 /** @type {__VLS_StyleScopedClasses['section-title']} */ ;
 /** @type {__VLS_StyleScopedClasses['compact-section-title']} */ ;
@@ -1654,19 +1716,20 @@ var __VLS_161;
 /** @type {__VLS_StyleScopedClasses['explain-title']} */ ;
 /** @type {__VLS_StyleScopedClasses['context-json']} */ ;
 // @ts-ignore
-var __VLS_102 = __VLS_101, __VLS_107 = __VLS_106;
+var __VLS_86 = __VLS_85, __VLS_91 = __VLS_90, __VLS_104 = __VLS_103;
 var __VLS_dollars;
 const __VLS_self = (await import('vue')).defineComponent({
     setup() {
         return {
-            ArrowLeft: ArrowLeft,
             View: View,
             Check: Check,
             MagicStick: MagicStick,
             Position: Position,
+            FullscreenWorkspaceShell: FullscreenWorkspaceShell,
             CalculatedFieldBridge: CalculatedFieldBridge,
             ReportBasicInfo: ReportBasicInfo,
             ReportFieldWorkbench: ReportFieldWorkbench,
+            ReportDimensionMergeConfig: ReportDimensionMergeConfig,
             ReportFilterList: ReportFilterList,
             ReportListLookupConfig: ReportListLookupConfig,
             ReportTransposeConfig: ReportTransposeConfig,
@@ -1674,6 +1737,8 @@ const __VLS_self = (await import('vue')).defineComponent({
             PushTargetList: PushTargetList,
             TABLES: TABLES,
             router: router,
+            reportListTarget: reportListTarget,
+            reportId: reportId,
             saveCreatesReport: saveCreatesReport,
             pageTitle: pageTitle,
             form: form,
@@ -1693,6 +1758,7 @@ const __VLS_self = (await import('vue')).defineComponent({
             previewTotal: previewTotal,
             previewPage: previewPage,
             previewPageSize: previewPageSize,
+            dimensionMergeErrors: dimensionMergeErrors,
             reportPushSourceTable: reportPushSourceTable,
             reportPushColumns: reportPushColumns,
             reportPushTargets: reportPushTargets,
@@ -1701,12 +1767,16 @@ const __VLS_self = (await import('vue')).defineComponent({
             currentDatasetName: currentDatasetName,
             publishStatusLabel: publishStatusLabel,
             filterSummary: filterSummary,
+            fieldWorkbenchRef: fieldWorkbenchRef,
             transposeRef: transposeRef,
             filterRef: filterRef,
             explainMessages: explainMessages,
             selectedColsDetail: selectedColsDetail,
             selectedDimensions: selectedDimensions,
             selectedMeasures: selectedMeasures,
+            structuralReshapeEnabled: structuralReshapeEnabled,
+            dimensionMergePending: dimensionMergePending,
+            dimensionMergeReportConfig: dimensionMergeReportConfig,
             isDataset: isDataset,
             onDatasetChange: onDatasetChange,
             onCalculatedFieldSaved: onCalculatedFieldSaved,

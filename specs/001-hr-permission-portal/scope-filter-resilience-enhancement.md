@@ -5,6 +5,8 @@
 **Status**: Draft
 **关联 Spec**: 001-hr-permission-portal — T057 scope_filter.py
 
+> **评审结论（2026-09-20）**：背景问题成立，但原方案不可直接上线。本文将“缺配置导致误杀”和“报表权限口径冲突”拆分处理：缺配置不再默认无条件跳过，`scope_dimension` 不作为数据集级强制权限开关；优先复用已有 `report.scope_strategy → dataset.scope_strategy → registered_table.scope_strategy` 优先级，并以表级安全分类决定缺配置表的处理方式。本文下方的实现、任务和验收标准均以本结论为准。
+
 ---
 
 ## 1. 背景与目标
@@ -54,18 +56,21 @@ WHERE salary.salary_code IN ('RootOrg', 'DSKY01', ...)  -- 主表权限 ✅
 
 ### 目标
 
-1. **容错**：表缺 `scope_role` 和 `roster_join_col` 配置时，不再注入 `false()` 杀整个报表，改为跳过该表的权限过滤 + WARNING 日志
-2. **维度驱动**：数据集创建者可指定"权限维度"（org / cc），非驱动维度的 JOIN 表跳过权限注入
-3. **底线兜底**：如果数据集内所有表都无法解析权限 → 仍然 `false()` fail-closed
-4. **可观测性**：后端启动时自动扫描所有配置不完整的表，输出 WARNING 日志
-5. **向后兼容**：现有报表默认行为不变（不指定驱动维度 = AND 模式）
+1. **区分两类故障**：分别处理“权限元数据缺失导致 `false()` 清空结果”和“报表人员/组织权限与成本中心权限口径不匹配”，不得用一个开关覆盖两类问题。
+2. **安全容错**：缺少权限配置的表不得默认无条件跳过；主事实表、敏感事实表和权限穿透桥接表缺配置时继续 fail-closed，仅明确标记为公共维表的表允许跳过。
+3. **报表级权限口径**：复用已有 `scope_strategy`，明确 `person_first`、`cc_first`、`cross_filter` 的语义和优先级，避免用数据集级单一维度覆盖多个报表。
+4. **别名级权限注入**：报表中的每个 alias 必须有可审计的权限处理结果；权限条件必须同时应用于数据查询、计数、导出、推送等出口。
+5. **可观测性**：配置缺失、策略冲突、公共维表跳过和最终裁决结果都输出结构化日志，并能定位到 dataset、report、alias 和 table。
+6. **向后兼容**：已有报表在未声明新策略时，沿用当前策略优先级；不通过默认值把原有安全边界放宽。
 
 ### 非目标 / 不做范围
 
 - 不改变权限标签、角色、管理单元的配置逻辑
-- 不改变单表（无 JOIN）场景的现有行为
-- 不实现"自动检测 employee_no 列并穿透"（因不同表列名不同，仍需手动配置）
-- 不实现数据集级别的 RBAC/ACL（那是另一个需求）
+- 不把 `scope_dimension` 作为数据集级强制权限开关；如保留该字段，仅作为迁移期兼容字段或默认提示，不得覆盖报表级策略
+- 不把 JOIN 条件视为权限边界；JOIN 只能参与业务关联，不能替代行级权限过滤
+- 不允许通过缺配置自动推断 `employee_no` 或其他穿透列
+- 不实现新的数据集 RBAC/ACL；继续复用现有数据集访问控制
+- 不在本期重构所有报表 SQL，但必须补齐 LEFT/RIGHT/FULL JOIN 和敏感字段场景的安全测试
 
 ---
 
@@ -81,35 +86,31 @@ WHERE salary.salary_code IN ('RootOrg', 'DSKY01', ...)  -- 主表权限 ✅
 
 **操作流程**：
 1. 用户进入"报表管理"，点击"月度成本入账表 - 副本"
-2. 系统加载报表，注入数据权限
-3. 系统扫描 6 张 JOIN 表，识别出 4 张无法解析 → 跳过，不做权限注入
-4. salary 表、allocation 表正常注入 org/cc 权限
+2. 系统按报表/数据集/表级优先级解析最终权限策略
+3. 系统扫描 6 张 JOIN 表：必需事实表和敏感事实表无法解析时拒绝，不得静默跳过；明确登记的公共维表才允许跳过
+4. salary 表、allocation 表按各自策略正常注入 org/cc 权限
 
-**成功结果**：用户看到 salary 约束下的 625 行数据（与模拟 SQL 一致）
+**成功结果**：在所有必需表配置完整且策略明确的前提下，用户看到授权范围内的数据；不能以固定 625 行作为唯一验收标准。
 
-**异常/警告表现**：后端日志输出 WARNING：`表 'dwd_cost_center_monthly' 策略 'cc_first' 无法解析，跳过权限过滤`
+**异常/警告表现**：后端日志输出结构化 ERROR/WARNING，包含 report、dataset、alias、table、strategy、classification 和 decision。
 
-**修改前行为**：看到"没有数据匹配当前筛选条件"（0 行）
+**修改前行为**：某个缺配置 alias 返回 `false()`，导致整个报表被无条件抹零。
 
 ---
 
-### 场景 2：管理员设置数据集的权限驱动维度（P2）
+### 场景 2：管理员维护报表权限策略（P2）
 
 **角色**：系统管理员
 
-**前置条件**：数据集 `ds_dwd_cost_allocation` 含 org 维度表 + cc 维度表
+**前置条件**：数据集含 org 维度表和 cc 维度表，且被多个报表复用。
 
 **操作流程**：
-1. 管理员进入"报表设置 → 数据集管理"，编辑 `ds_dwd_cost_allocation`
-2. 在"权限维度"下拉中选择"org（组织维度驱动）"
-3. 保存配置
+1. 管理员进入“报表设置 → 报表管理”，编辑目标报表。
+2. 选择 `person_first`、`cc_first` 或 `cross_filter`，或选择继承数据集策略。
+3. 系统展示引用 alias、表级安全分类、缺配置项和受影响字段。
+4. 保存前校验策略与表分类；策略变更写入审计日志。
 
-**系统反馈**：
-- org 维度的表（person_first 策略）正常注入权限
-- cc 维度的表（cc_first 策略）跳过权限注入
-- cross_filter 策略的表跳过权限注入
-
-**成功结果**：用户只需要有 org 维度权限即可看到数据，不会被 cc 表拦截
+**成功结果**：不同报表可以在同一数据集上使用不同权限口径，不通过数据集级单一 `org/cc` 开关覆盖所有报表。
 
 ---
 
@@ -154,14 +155,13 @@ WARNING 表 'dwd_emp_year_end_bonus' 策略 'cross_filter' 无 scope_role 列且
 
 | 功能项 | 是否本期实现 | 说明 |
 |---|---|---|
-| 不可解析的表跳过权限注入（替代 false()）| ✅ 是 | 核心修复 |
-| 所有表都不可解析时 fail-closed 兜底 | ✅ 是 | 安全底线 |
-| 数据集新增 `scope_dimension` 字段 | ✅ 是 | 支持 org/cc 维度驱动 |
-| 权限注入时按 scope_dimension 跳过非驱动维度表 | ✅ 是 | 解决 org+cc 冲突 |
-| 前端数据集编辑页加"权限驱动维度"下拉 | ✅ 是 | 配合后端字段 |
-| 后端启动时扫描未配置表并 WARNING | ✅ 是 | 可观测性 |
-| `can_resolve_scope_strategy` 复用 | ✅ 是 | 不新增判断函数 |
-| 数据库 migration | ✅ 是 | datasets 表加字段 |
+| 缺配置表按安全分类处理 | ✅ 是 | 必需/敏感/桥接表 fail-closed，明确公共维表才允许跳过 |
+| 报表级策略优先级统一 | ✅ 是 | report > dataset > registered_table > 默认策略 |
+| `cross_filter` 语义固定 | ✅ 是 | 组织权限 AND 成本中心权限 |
+| 表级安全分类与健康度 | ✅ 是 | 未分类表默认按 required_fact |
+| alias 级权限裁决和结构化日志 | ✅ 是 | 覆盖查询、计数、导出、推送 |
+| 启动扫描未配置表 | ✅ 是 | 告警和治理指标，不改变运行时裁决 |
+| 旧 `scope_dimension` 兼容读取 | ✅ 是 | 不作为强制数据集级权限开关 |
 | 自动检测 employee_no 并穿透 | ❌ 不做 | 不同表列名不同，仍需显式配置 |
 | 数据集级别 RBAC/ACL | ❌ 不做 | 独立需求 |
 
@@ -171,50 +171,58 @@ WARNING 表 'dwd_emp_year_end_bonus' 策略 'cross_filter' 无 scope_role 列且
 
 ### 4.1 数据库 / 数据模型
 
-#### 4.1.1 datasets 表新增字段
+#### 4.1.1 权限策略模型调整
 
-```sql
-ALTER TABLE datasets ADD COLUMN scope_dimension VARCHAR(10) NULL;
-COMMENT ON COLUMN datasets.scope_dimension IS '权限驱动维度：org=组织维度驱动, cc=成本中心维度驱动, NULL=全部维度AND模式';
+本期不新增 `datasets.scope_dimension` 作为强制裁决字段。系统复用已有策略字段，并采用以下优先级：
+
+```text
+report.scope_strategy
+    > dataset.scope_strategy
+    > registered_table.scope_strategy
+    > 系统默认策略
 ```
 
-**Migration 文件**：`alembic/versions/xxxx_add_scope_dimension_to_datasets.py`
+策略语义固定为：
 
-**默认值**：`NULL`（兼容现有行为——所有维度 AND 匹配）
+| 策略 | 语义 |
+|---|---|
+| `person_first` | 仅使用人员/组织权限；适用于花名册、工资、人员明细 |
+| `cc_first` | 仅使用成本中心权限；适用于成本分摊、项目投入、成本中心报表 |
+| `cross_filter` | 人员/组织权限 AND 成本中心权限；仅用于业务上明确要求交集的报表 |
+| `public_dim` | 仅允许明确标记的公共维表跳过行级权限，不得用于事实表 |
 
-**回滚**：
-```sql
-ALTER TABLE datasets DROP COLUMN scope_dimension;
-```
+`scope_dimension` 如已存在于迁移草稿或数据库中，仅作为兼容读取/迁移提示，不得覆盖报表级 `scope_strategy`，也不得据此无条件跳过某类表。
 
-#### 4.1.2 ORM 模型
+#### 4.1.2 表级安全分类
 
-`backend/app/data/models.py` 中 `Dataset` 类新增：
+为避免“缺配置即跳过”造成权限放宽，表需要明确安全分类：
 
-```python
-scope_dimension = Column(String(10), nullable=True, default=None)
-```
+| 分类 | 缺少 `scope_role` / `roster_join_col` 时的处理 |
+|---|---|
+| `required_fact` | fail-closed，返回拒绝，不允许跳过 |
+| `sensitive_fact` | fail-closed，并输出高优先级告警 |
+| `passthrough_bridge` | fail-closed，必须补齐显式穿透配置 |
+| `public_dim` | 允许跳过，但记录审计，且禁止选择敏感字段作为结果主数据 |
 
-**Schema 更新**：`backend/app/schemas/dataset.py` 中 DatasetRead / DatasetCreate / DatasetUpdate 均新增 `scope_dimension` 字段（Optional[str]）。
+没有分类的现有表按 `required_fact` 处理，确保迁移期间不放宽权限。
+
+---
 
 ---
 
 ### 4.2 后端接口
 
-#### 4.2.1 数据集 CRUD 接口 — scope_dimension 字段透传
+#### 4.2.1 报表/数据集策略透传与校验
 
-| 接口 | 改动 |
-|---|---|
-| `GET /api/v1/datasets/{id}` | Response 新增 `scope_dimension: string \| null` |
-| `POST /api/v1/datasets` | Request 新增可选 `scope_dimension` |
-| `PUT /api/v1/datasets/{id}` | Request 新增可选 `scope_dimension` |
-| `GET /api/v1/datasets` | 列表 Response 每条新增 `scope_dimension` |
+已有 `report.scope_strategy`、`dataset.scope_strategy` 和 `registered_table.scope_strategy` 均必须按统一优先级读取。新增或调整策略时：
 
-**校验规则**：
-- `scope_dimension` 可选，值仅允许 `null`、`"org"`、`"cc"`
-- 非法值返回 422：`"scope_dimension 仅支持 null / 'org' / 'cc'"`
+- 仅允许 `person_first`、`cc_first`、`cross_filter`、`public_dim`；未知值返回 422。
+- `public_dim` 只能用于已标记为 `public_dim` 的表，不能用于报表主事实表。
+- 报表策略变更必须检查其引用表的安全分类和敏感字段，并记录审计日志。
+- 数据集编辑页展示“继承策略/显式策略”和受影响表清单，不提供会覆盖所有报表的单一 `org/cc` 开关。
+- 若数据库中已有 `scope_dimension`，API 保留读取兼容，但新接口不得用它覆盖 `report.scope_strategy`。
 
-**不涉及新增路由**。
+---
 
 ---
 
@@ -239,109 +247,101 @@ scope_dimension = Column(String(10), nullable=True, default=None)
 
 ### 4.3 业务逻辑
 
-#### 4.3.1 核心调整：权限注入循环（sql_builder.py 第 1653-1682 行）
+#### 4.3.1 核心调整：按报表策略和表级安全分类注入权限
 
-**当前逻辑**：
-
-```python
-for a in used_aliases:
-    strategy = strategy_by_alias[a]
-    # 仅当数据集级策略存在时才检查 can_resolve
-    if resolved_scope_strategy and not await can_resolve_scope_strategy(
-        alias_to_table[a], strategy, db
-    ):
-        continue
-    # 否则直接调 build_scope_filter → 不能解析的表返回 false()
-    clause = await build_scope_filter(user, alias_to_table[a], db, strategy=strategy)
-    ...
-# 仅当数据集级策略存在时才 fail-closed
-if resolved_scope_strategy and not any_strategy_resolved:
-    stmt = stmt.where(false())
-```
-
-**新逻辑**：
+权限注入循环必须先解析最终策略，再判断表的安全分类和配置状态：
 
 ```python
-dataset_scope_dimension = ds.scope_dimension  # 新增：从数据集配置读取
+final_strategy = resolve_scope_strategy(
+    report_strategy=report.scope_strategy,
+    dataset_strategy=dataset.scope_strategy,
+    table_strategy=registered_table.scope_strategy,
+)
 
-for a in used_aliases:
-    table = alias_to_table[a]
-    strategy = strategy_by_alias[a]
+for alias in used_aliases:
+    table = alias_to_table[alias]
+    strategy = strategy_for_alias(final_strategy, table)
+    classification = table_scope_classification(table)
+    resolvable = await can_resolve_scope_strategy(table, strategy, db)
 
-    # ---- 检查 1：这张表能不能解析权限？----
-    if not await can_resolve_scope_strategy(table, strategy, db):
-        logger.warning(f"表 '{table}' 策略 '{strategy}' 无 scope_role 列且无 roster_join_col，跳过权限过滤")
+    if not resolvable:
+        if classification in {"required_fact", "sensitive_fact", "passthrough_bridge"}:
+            logger.error("权限配置缺失，拒绝表 %s alias=%s", table, alias)
+            stmt = stmt.where(false())
+            count_stmt = count_stmt.where(false())
+            decision = "DENIED_UNRESOLVABLE"
+        elif classification == "public_dim":
+            logger.warning("公共维表跳过行级权限 table=%s alias=%s", table, alias)
+            decision = "SKIPPED_PUBLIC_DIM"
+        else:
+            stmt = stmt.where(false())
+            count_stmt = count_stmt.where(false())
+            decision = "DENIED_UNKNOWN_CLASSIFICATION"
+        record_scope_decision(report, dataset, alias, table, strategy, decision)
         continue
 
-    # ---- 检查 2：维度是否匹配驱动维度？----
-    if dataset_scope_dimension:
-        table_dim = _strategy_to_dimension(strategy)  # person_first→"org", cc_first→"cc", cross_filter→"any"
-        if table_dim not in (dataset_scope_dimension, "any"):
-            # 非驱动维度 → 跳过，交由 JOIN 条件自然约束
-            continue
-
-    # ---- 能解析 + 维度匹配 → 正常注入权限 ----
-    any_strategy_resolved = True
     clause = await build_scope_filter(user, table, db, strategy=strategy)
-    if not is_unrestricted(clause):
-        clause2 = await _rebuild_scope_filter_for_alias(...)
-        if clause2 is not None:
-            stmt = stmt.where(clause2)
-            count_stmt = count_stmt.where(clause2)
-
-# ---- 兜底：所有表均未注入任何权限 → fail-closed ----
-# （去掉原来的 resolved_scope_strategy 前缀条件）
-if not any_strategy_resolved:
-    stmt = stmt.where(false())
-    count_stmt = count_stmt.where(false())
+    clause2 = await _rebuild_scope_filter_for_alias(
+        user, table, aliased_models[alias], db, strategy=strategy
+    )
+    if clause2 is None:
+        stmt = stmt.where(false())
+        count_stmt = count_stmt.where(false())
+        decision = "DENIED_NO_EFFECTIVE_CLAUSE"
+    elif not is_unrestricted(clause):
+        stmt = stmt.where(clause2)
+        count_stmt = count_stmt.where(clause2)
+        decision = "RESOLVED_RESTRICTED"
+    else:
+        decision = "RESOLVED_UNRESTRICTED"
+    record_scope_decision(report, dataset, alias, table, strategy, decision)
 ```
 
-#### 4.3.2 新增辅助函数：`_strategy_to_dimension`
+关键约束：
+
+- `can_resolve_scope_strategy()` 只表示“元数据具备解析条件”，不能单独作为放行依据。
+- `cross_filter` 必须明确执行组织权限 AND 成本中心权限，不得映射为“任意维度”或自动跳过。
+- `stmt`、`count_stmt`、导出和推送必须复用同一组已裁决的权限条件。
+- 缺配置表只有在显式 `public_dim` 分类下才能跳过；JOIN 条件不能替代权限过滤。
+- 不再使用 `any_strategy_resolved` 作为全局安全兜底。每个 alias 都必须产生明确的 `decision`，任何必需表拒绝时整体拒绝。
+
+#### 4.3.2 新增辅助函数：`resolve_scope_strategy()`
 
 ```python
-def _strategy_to_dimension(strategy: str) -> str:
-    """将 scope_strategy 映射为权限维度标识"""
-    mapping = {
-        SCOPE_STRATEGY_PERSON_FIRST: "org",      # person_first → org 维度
-        SCOPE_STRATEGY_CC_FIRST: "cc",           # cc_first → cc 维度
-        SCOPE_STRATEGY_CROSS_FILTER: "any",      # cross_filter → 不限于单一维度
-    }
-    return mapping.get(normalize_scope_strategy(strategy), "any")
+def resolve_scope_strategy(
+    report_strategy: str | None,
+    dataset_strategy: str | None,
+    table_strategy: str | None,
+) -> str:
+    """按报表 > 数据集 > 表级默认策略解析最终权限口径。"""
+    return normalize_scope_strategy(
+        report_strategy or dataset_strategy or table_strategy or DEFAULT_SCOPE_STRATEGY
+    )
 ```
 
-位置：`backend/app/permissions/scope_filter.py`，与现有策略常量同级。
+该函数只负责确定策略，不负责决定表是否可以跳过权限。表是否可跳过由独立的安全分类裁决。
 
-#### 4.3.3 新增启动扫描函数：`warn_unresolvable_tables`
+#### 4.3.3 新增辅助函数：`record_scope_decision()`
 
-```python
-import logging
-logger = logging.getLogger(__name__)
+每个 alias 必须记录结构化裁决结果，至少包括：
 
-async def warn_unresolvable_tables(db: AsyncSession) -> list[str]:
-    """
-    启动时扫描 registered_tables：strategy 非空但无 scope_role 列且无 roster_join_col → WARNING。
-    返回未配置的表名列表，供日志/监控消费。
-    """
-    from app.data.models import RegisteredTable
-    
-    rows = (await db.execute(
-        select(RegisteredTable.table_name, RegisteredTable.scope_strategy)
-        .where(RegisteredTable.scope_strategy.isnot(None))
-    )).all()
-    
-    unresolved = []
-    for table_name, strategy in rows:
-        strategy = normalize_scope_strategy(strategy)
-        if not await can_resolve_scope_strategy(table_name, strategy, db):
-            logger.warning(
-                "表 '%s' 策略 '%s' 无 scope_role 列且无 roster_join_col，权限过滤将无法生效",
-                table_name, strategy,
-            )
-            unresolved.append(table_name)
-    return unresolved
+```text
+report_id, dataset_id, alias, table_name,
+resolved_strategy, classification, decision,
+reason, user_id
 ```
 
-位置：`backend/app/permissions/scope_filter.py`，在 `build_scope_filter` 函数之前。
+日志级别约定：
+
+- `ERROR`：required_fact / sensitive_fact / passthrough_bridge 缺配置或策略冲突
+- `WARNING`：明确标记为 public_dim 的表被跳过
+- `INFO`：正常注入限制条件
+
+#### 4.3.4 启动扫描函数：`warn_unresolvable_tables`
+
+启动扫描保留，但只作为治理告警，不能改变运行时裁决。扫描结果必须包含表级安全分类，并建议写入结构化指标；不应只输出无法关联到报表的单行 WARNING。
+
+
 
 #### 4.3.4 调用入口
 
@@ -360,96 +360,65 @@ async with AsyncSessionLocal() as db:
 用户请求报表
     │
     ▼
-sql_builder.py 生成 SQL
+sql_builder.py 解析最终 scope_strategy
     │
-    ├── 获取数据集 scope_dimension（新增字段）
-    │
-    ├── 遍历每张 JOIN 表
+    ├── 按 report > dataset > table 优先级确定策略
+    ├── 遍历每个 alias
+    │   ├── 读取表级安全分类
     │   ├── can_resolve_scope_strategy()?
-    │   │   ├── NO → WARNING + continue（跳过）
-    │   │   └── YES → 维度匹配 scope_dimension?
-    │   │       ├── NO → continue（跳过，JOIN 约束）
-    │   │       └── YES → build_scope_filter() → 注入 WHERE
-    │   │
-    │   └── any_strategy_resolved = True
+    │   │   ├── NO + required/sensitive/bridge → DENIED + false()
+    │   │   ├── NO + public_dim → WARNING + 明确跳过
+    │   │   └── YES → build_scope_filter() → 注入 WHERE
+    │   └── 记录结构化裁决结果
     │
-    └── any_strategy_resolved?
-        ├── YES → 正常返回 WHERE 子句
-        └── NO  → WHERE false()（fail-closed）
+    └── 任一必需 alias DENIED?
+        ├── YES → 整体 fail-closed
+        └── NO  → 返回带完整权限条件的查询
 ```
 
 ---
 
 ### 4.4 前端与 UI/交互
 
-#### 4.4.1 数据集编辑页 — 新增"权限驱动维度"下拉
+#### 4.4.1 报表编辑页 — 权限策略与影响范围
 
-**页面路径**：`报表设置 → 数据集管理 → 编辑数据集`
+报表编辑页展示最终权限策略及其来源：
 
-**组件位置**：数据集编辑页"数据范围策略"字段下方（数据范围策略为已有字段，本期不改动）
-
-**与已有字段的关系**：
-
-| 字段 | 是否本期新增 | 作用 |
-|---|---|---|
-| `scope_strategy`（数据范围策略）| ❌ 已有 | 控制数据集级权限策略，覆盖所有 JOIN 表的表级策略 |
-| `scope_dimension`（权限驱动维度）| ✅ 新增 | 控制以哪个维度为主线，非主线维度表跳过权限注入 |
-
-两个字段正交：`scope_strategy` 决定"用哪种算法算"，`scope_dimension` 决定"哪些表需要算"。
-
-**UI 示意图**（仅展示新增部分，已有字段省略）：
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  编辑数据集  ds_dwd_cost_allocation                         │
-├─────────────────────────────────────────────────────────────┤
-│  ...（已有字段：名称、启用、描述、数据范围策略等）...        │
-│                                                             │
-│  权限驱动维度：[全部维度（AND模式） ▼]    ← 🆕 新增         │
-│             ┌──────────────────────────────────┐            │
-│             │ 全部维度（AND模式）               │            │
-│             │ org（组织维度驱动）               │            │
-│             │ cc（成本中心维度驱动）            │            │
-│             └──────────────────────────────────┘            │
-│                                                             │
-│  帮助提示：                                                  │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │ 💡 如数据集同时包含组织维度和成本中心维度的表，      │    │
-│  │    建议选择"org"或"cc"避免维度冲突导致数据为空。    │    │
-│  │    选择后，非驱动维度的表将不注入权限过滤，          │    │
-│  │    其数据范围由 JOIN 条件自然约束。                  │    │
-│  └─────────────────────────────────────────────────────┘    │
-│                                                             │
-│  [取消]                              [保存]                 │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**状态说明**：
-
-| 状态 | 表现 |
+| 信息 | 展示内容 |
 |---|---|
-| 加载态 | 下拉置灰，显示 placeholder "加载中..." |
-| 空值（默认）| 选中"全部维度（AND模式）" |
-| 已选 org | 选中"org（组织维度驱动）" |
-| 已选 cc | 选中"cc（成本中心维度驱动）" |
-| 保存成功 | Toast："数据集保存成功" |
-| 保存失败 | Toast：错误信息，下拉保持用户选择值 |
+| 最终策略 | `person_first` / `cc_first` / `cross_filter` |
+| 策略来源 | 报表显式配置 / 继承数据集 / 继承表默认 |
+| 受影响 alias | 每个 alias 的表名、策略、安全分类、权限处理结果 |
+| 风险提示 | 缺少权限配置、公共维表跳过、策略冲突 |
 
-#### 4.4.2 数据集列表页 — 展示维度标识
+保存报表策略前，系统必须检查所有引用表：
 
-在数据集列表表格中，新增可选的"权限维度"列或标签。
+- 主事实表或敏感事实表缺配置时阻止保存，或明确要求管理员确认并补齐配置。
+- `public_dim` 只能用于已登记的公共维表。
+- `cross_filter` 显示“组织权限 AND 成本中心权限”，不得显示为“全部维度”。
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  数据集列表                                                  │
-├────┬──────────────────────┬────────────┬─────────────────────┤
-│ ID │ 名称                 │ 权限维度   │ 表数                │
-├────┼──────────────────────┼────────────┼─────────────────────┤
-│ 15 │ ds_dwd_cost_alloc... │ org        │ 6                   │
-│ 12 │ ds_employee_roster   │ --         │ 2                   │
-│  8 │ ds_cost_center       │ cc         │ 3                   │
-└────┴──────────────────────┴────────────┴─────────────────────┘
-```
+#### 4.4.2 数据集编辑页 — 继承策略与配置健康度
+
+数据集编辑页不提供覆盖所有报表的 `org/cc` 单选开关。页面改为展示：
+
+- 数据集默认 `scope_strategy`；
+- 未显式配置策略的报表数量；
+- 引用表的安全分类和权限配置健康度；
+- 缺配置表清单及受影响报表；
+- 明确提示：JOIN 条件不替代行级权限。
+
+#### 4.4.3 数据集/报表列表 — 权限健康度标签
+
+列表增加可选的“权限健康度”标签：
+
+| 状态 | 含义 |
+|---|---|
+| 正常 | 所有必需表均可解析权限 |
+| 待配置 | 存在缺少权限元数据的必需表 |
+| 有风险 | 存在公共维表跳过或策略冲突 |
+| 已阻断 | 运行时会 fail-closed |
+
+---
 
 ---
 
@@ -459,29 +428,39 @@ sql_builder.py 生成 SQL
 
 | 安全检查点 | 机制 |
 |---|---|
-| 所有表都不可解析 → 数据裸奔 | `any_strategy_resolved == False` → `false()` 兜底 |
-| 驱动维度选了 org，cc 表跳过 | cc 表数据仅通过 INNER JOIN 条件可达，无法独立泄露 |
-| 驱动维度选了 cc，org 表跳过 | 同上 |
-| 管理员忘记配 scope_dimension | 默认 NULL → AND 模式 → 与现有行为一致 |
-| 管理员配错了 scope_dimension | 仅影响该数据集，不影响其他数据集/报表 |
+| 必需事实表缺权限配置 | fail-closed，不允许跳过 |
+| 敏感事实表缺权限配置 | fail-closed + ERROR 告警 |
+| 权限穿透桥接表缺配置 | fail-closed，不依赖 JOIN 自然约束 |
+| 明确的公共维表缺配置 | 允许跳过 + WARNING + 审计记录 |
+| `cross_filter` | 明确执行组织权限 AND 成本中心权限 |
+| LEFT/RIGHT/FULL JOIN | 每个敏感 alias 独立应用权限，不把 JOIN 当权限边界 |
+| 策略冲突 | 保存时阻止或运行时 fail-closed |
+| 查询与计数不一致 | 复用同一权限条件生成 `stmt` 和 `count_stmt` |
 
 #### 4.5.2 潜在攻击面评估
 
-**假设攻击**：攻击者创建数据集，把所有表都设为不可解析，尝试绕过权限。
+**风险一：攻击者通过缺配置表绕过权限**
 
-**防护**：`any_strategy_resolved == False` 兜底触发 `false()`，返回空数据。
+防护：默认分类为 `required_fact`；只有显式登记的 `public_dim` 才能跳过，且公共维表不得包含敏感结果字段。
 
-**假设攻击**：攻击者设置 `scope_dimension="org"`，但删掉了 org 表的 scope_role 配置，试图让 org 表也无法解析。
+**风险二：通过 LEFT JOIN 获取未授权附表数据**
 
-**防护**：org 表无法解析 → 被跳过 → 所有表都不可解析 → `any_strategy_resolved == False` → `false()` 兜底。
+防护：所有敏感事实表和桥接表仍必须注入权限条件；禁止以“主表已过滤”或“JOIN 条件自然约束”作为放行理由。
 
-**结论**：新逻辑维持 fail-closed 原则，不存在权限提升路径。
+**风险三：通过修改报表策略扩大数据范围**
+
+防护：策略变更需要报表编辑权限，保存前校验引用表分类和字段，写入审计日志；`public_dim` 不得用于事实表。
+
+**风险四：`cross_filter` 被错误处理为单维度或无限制**
+
+防护：统一策略解析函数和策略契约测试，禁止将 `cross_filter` 映射为 `any` 或自动跳过。
 
 #### 4.5.3 不涉及
 
 - 不涉及 UCP 或其他第三方系统
-- 不涉及敏感字段脱敏逻辑变更
-- 不涉及 SQL 注入风险（权限子句通过 SQLAlchemy ORM 生成，非字符串拼接）
+- 不改变敏感字段脱敏规则，但必须验证行级权限与字段脱敏同时生效
+- 不引入字符串拼接生成权限 SQL，权限子句继续通过 SQLAlchemy 表达式构造
+
 
 ---
 
@@ -489,298 +468,220 @@ sql_builder.py 生成 SQL
 
 ### 后端任务
 
-- [ ] **T001** 数据库 migration：datasets 表新增 `scope_dimension` 字段
-  - 前置任务：无
-  - 功能范围：ALTER TABLE + COMMENT
-  - 代码交付物：`alembic/versions/xxxx_add_scope_dimension_to_datasets.py`
-  - UI 要求：不涉及 UI
-  - UCP/外部系统要求：不涉及
-  - 测试要求：`alembic upgrade head` 成功；`alembic downgrade -1` 回滚成功
-  - 验收标准：字段存在，默认 NULL，写入 "org"/"cc" 不报错
+- [ ] **T001** 确认并统一权限策略优先级
+  - `report.scope_strategy > dataset.scope_strategy > registered_table.scope_strategy > 默认策略`
+  - 明确 `person_first`、`cc_first`、`cross_filter`、`public_dim` 的语义
+  - 禁止未知策略隐式降级为无限制
 
-- [ ] **T002** ORM 模型更新：Dataset 类新增 `scope_dimension` 字段
-  - 前置任务：T001
-  - 功能范围：`app/data/models.py` Dataset 类
-  - 代码交付物：`backend/app/data/models.py`
-  - UI 要求：不涉及 UI
-  - UCP/外部系统要求：不涉及
-  - 测试要求：`py_compile` 通过；import 不报错
-  - 验收标准：字段映射正确，类型为 `String(10), nullable=True`
+- [ ] **T002** 建立表级安全分类
+  - 分类：`required_fact`、`sensitive_fact`、`passthrough_bridge`、`public_dim`
+  - 未分类表默认按 `required_fact` 处理
+  - `public_dim` 需要权限管理员配置并记录审计
 
-- [ ] **T003** Schema 更新：DatasetRead/Create/Update 新增 `scope_dimension`
-  - 前置任务：T002
-  - 功能范围：`app/schemas/dataset.py`
-  - 代码交付物：`backend/app/schemas/dataset.py`
-  - UI 要求：不涉及 UI
-  - UCP/外部系统要求：不涉及
-  - 测试要求：API 能正确序列化/反序列化该字段
-  - 验收标准：`scope_dimension` 可选，仅允许 `null`/`"org"`/`"cc"`
+- [ ] **T003** 重写报表权限注入循环
+  - 按 alias 解析最终策略和安全分类
+  - 必需表无法解析时 fail-closed
+  - 只有明确的公共维表允许跳过
+  - `stmt`、`count_stmt`、导出和推送复用同一权限条件
 
-- [ ] **T004** 数据集 CRUD API：读/写 `scope_dimension` 字段
-  - 前置任务：T003
-  - 功能范围：`app/api/dataset.py` 的 GET/POST/PUT 路由
-  - 代码交付物：`backend/app/api/dataset.py`（可能为 `datasets.py`）
-  - UI 要求：不涉及 UI
-  - UCP/外部系统要求：不涉及
-  - 测试要求：POST 写入 "org" → GET 返回 "org"；PUT 改为 "cc" → GET 返回 "cc"；写入非法值 → 422
-  - 验收标准：字段持久化正确，校验规则生效
+- [ ] **T004** 新增结构化权限裁决记录
+  - 记录 report、dataset、alias、table、strategy、classification、decision、reason、user
+  - 区分 `DENIED_UNRESOLVABLE`、`SKIPPED_PUBLIC_DIM`、`RESOLVED_RESTRICTED` 等状态
 
-- [ ] **T005** 新增 `_strategy_to_dimension()` 辅助函数
-  - 前置任务：无
-  - 功能范围：`app/permissions/scope_filter.py`
-  - 代码交付物：`backend/app/permissions/scope_filter.py`
-  - UI 要求：不涉及 UI
-  - UCP/外部系统要求：不涉及
-  - 测试要求：单测覆盖 person_first→"org"、cc_first→"cc"、cross_filter→"any"、未知策略→"any"
-  - 验收标准：映射正确，不抛异常
+- [ ] **T005** 保留并改造启动扫描
+  - 扫描结果包含安全分类和受影响资源
+  - 启动扫描只产生告警和指标，不改变运行时授权裁决
+  - 数据库不可用时不阻塞启动，但必须输出结构化 ERROR
 
-- [ ] **T006** 核心修复：`sql_builder.py` 权限注入循环重写
-  - 前置任务：T004、T005
-  - 功能范围：`app/reports/sql_builder.py` 第 1653-1682 行
-  - 代码交付物：`backend/app/reports/sql_builder.py`
-  - UI 要求：不涉及 UI
-  - UCP/外部系统要求：不涉及
-  - 测试要求：
-    - 单表数据集，表可解析 → 权限正常注入
-    - 多表数据集，部分表不可解析 → 可解析的注入，不可解析的跳过
-    - 多表数据集，全部不可解析 → 注入 `false()`
-    - 数据集 scope_dimension="org" + cc 表 → cc 表跳过
-    - 原有 behavior（scope_dimension=NULL）不变
-  - 验收标准：见测试要求各场景全部通过
-
-- [ ] **T007** 新增 `warn_unresolvable_tables()` 启动扫描函数
-  - 前置任务：无（复用已有 `can_resolve_scope_strategy`）
-  - 功能范围：`app/permissions/scope_filter.py`
-  - 代码交付物：`backend/app/permissions/scope_filter.py`
-  - UI 要求：不涉及 UI
-  - UCP/外部系统要求：不涉及
-  - 测试要求：单测 mock 未配置表 → 输出 WARNING 日志；全部已配置 → 无 WARNING
-  - 验收标准：日志含表名和策略名
-
-- [ ] **T008** 启动事件集成：lifespan 中调用 `warn_unresolvable_tables`
-  - 前置任务：T007
-  - 功能范围：`app/main.py` lifespan
-  - 代码交付物：`backend/app/main.py`
-  - UI 要求：不涉及 UI
-  - UCP/外部系统要求：不涉及
-  - 测试要求：启动后查看日志含扫描结果
-  - 验收标准：启动不阻塞，日志正常输出
+- [ ] **T006** 处理已有 `scope_dimension` 兼容性
+  - 若数据库已有该字段，保留读取兼容
+  - 不允许它覆盖报表级 `scope_strategy`
+  - 不新增以 `org/cc` 为数据集级强制开关的 migration
 
 ### 前端任务
 
-- [ ] **T009** 数据集编辑页：新增"权限驱动维度"下拉选择
-  - 前置任务：T004（需后端接口就绪）
-  - 功能范围：数据集编辑表单
-  - 代码交付物：数据集编辑页 Vue 组件
-  - UI 要求：
-    - 下拉位置：scope_strategy 字段下方
-    - 选项：`{ label: '全部维度（AND模式）', value: null }`、`{ label: 'org（组织维度驱动）', value: 'org' }`、`{ label: 'cc（成本中心维度驱动）', value: 'cc' }`
-    - 帮助提示 tooltip 或 hint 文本
-    - 编辑态：加载已有值；新建态：默认 null
-  - UCP/外部系统要求：不涉及
-  - 测试要求：选择"org"→保存→重新进入编辑→显示"org"；选择"全部维度"→保存→重新进入→显示默认
-  - 验收标准：字段正确读写，UI 布局合理
+- [ ] **T007** 报表编辑页展示权限策略
+  - 支持显式选择 `person_first`、`cc_first`、`cross_filter`
+  - 展示策略来源和最终生效策略
+  - 保存前展示引用表、权限分类和风险提示
 
-- [ ] **T010** 数据集列表页：展示"权限维度"标签
-  - 前置任务：T009
-  - 功能范围：数据集列表表格
-  - 代码交付物：数据集列表页 Vue 组件
-  - UI 要求：新增可选列"权限维度"，有值时显示 tag，无值时显示 "--"
-  - UCP/外部系统要求：不涉及
-  - 测试要求：列表正确展示各数据集的维度
-  - 验收标准：列显示正确，排序/筛选功能正常
+- [ ] **T008** 数据集编辑页展示继承策略和配置健康度
+  - 不提供“非驱动维度跳过权限”的单选开关
+  - 展示缺配置表、受影响报表和修复建议
+
+- [ ] **T009** 数据集/报表列表展示权限健康度
+  - `正常`、`待配置`、`有风险`、`已阻断`
 
 ### 测试与构建
 
-- [ ] **T011** 单元测试：权限注入循环 8 场景覆盖
-  - 前置任务：T006
-  - 功能范围：`tests/test_sql_builder_scope.py`
-  - 代码交付物：`backend/tests/test_sql_builder_scope.py`
-  - UI 要求：不涉及 UI
-  - UCP/外部系统要求：不涉及
-  - 测试要求：见 T006 测试要求
-  - 验收标准：8 个场景全部 pass
+- [ ] **T010** 策略解析单测
+  - 覆盖报表、数据集、表级策略优先级
+  - 覆盖未知策略、`cross_filter` 和 `public_dim`
 
-- [ ] **T012** 单测：`_strategy_to_dimension` 和 `warn_unresolvable_tables`
-  - 前置任务：T005、T007
-  - 功能范围：`tests/test_scope_filter_unit.py`
-  - 代码交付物：`backend/tests/test_scope_filter_unit.py`（追加用例）
-  - UI 要求：不涉及 UI
-  - 验收标准：3+ 用例 pass
+- [ ] **T011** 权限注入单测
+  - 单表/多表
+  - 必需表缺配置
+  - 敏感表缺配置
+  - 公共维表缺配置
+  - 用户无标签
+  - org、cc、cross_filter 三种口径
 
-- [ ] **T013** 集成测试：端到端报表运行验证
-  - 前置任务：T006、T011
-  - 功能范围：`POST /api/v1/reports/{id}/run`
-  - 测试要求：
-    - 报表 17（多表 JOIN）→ 返回 625 行（非 0）
-    - scope_dimension="org" 的数据集 → 仅 org 维度表注入权限
-    - 全部不可解析的数据集 → 返回 0 行
-  - 验收标准：3 场景 pass
+- [ ] **T012** JOIN 安全集成测试
+  - INNER/LEFT/RIGHT/FULL JOIN
+  - 一对多和多对多 JOIN
+  - 主表已过滤但敏感附表未配置
+  - 验证不存在越权行和越权敏感字段
 
-- [ ] **T014** 构建验证
-  - 前置任务：T001–T013
-  - 功能范围：`py_compile` 全后端 + `vue-tsc` + `vite build`
-  - 验收标准：0 错误，构建成功
+- [ ] **T013** 出口一致性测试
+  - 报表运行、计数、导出、推送使用相同权限条件
+
+- [ ] **T014** 构建和回归验证
+  - 后端编译、单测、前端类型检查和构建
+  - 已有报表无策略变更时的结果和权限边界不放宽
 
 ---
 
 ## 6. 测试计划
 
-### 6.1 后端单元测试
+### 6.1 策略与配置测试
 
-| 测试场景 | 输入 | 期望 |
-|---|---|---|
-| 单表可解析 | 1 张表，有 scope_role | build_scope_filter 正常返回 WHERE 子句 |
-| 单表不可解析 | 1 张表，无 scope_role/roster | can_resolve 返回 False |
-| 多表，部分不可解析 | 3 张表，2 可解析 + 1 不可解析 | 2 张注入权限，1 张跳过（WARNING 日志） |
-| 多表，全部不可解析 | 3 张表均不可解析 | `any_strategy_resolved=False` → `false()` 兜底 |
-| scope_dimension="org" + cc 表 | org 表可解析，cc 表可解析但维度不匹配 | org 表注入，cc 表跳过 |
-| scope_dimension="cc" + org 表 | cc 表可解析，org 表可解析但维度不匹配 | cc 表注入，org 表跳过 |
-| scope_dimension=NULL（默认）| 同现有逻辑 | 所有能解析的都注入（AND 模式） |
-| `_strategy_to_dimension` | person_first / cc_first / cross_filter / 未知 | "org" / "cc" / "any" / "any" |
+| 场景 | 期望 |
+|---|---|
+| report 显式配置策略 | 使用 report 策略 |
+| report 未配置、dataset 已配置 | 使用 dataset 策略 |
+| report/dataset 均未配置 | 使用 registered_table 或系统默认策略 |
+| 未知策略 | API 返回 422，不得降级为无限制 |
+| `cross_filter` | 明确执行组织权限 AND 成本中心权限 |
+| `public_dim` 用于事实表 | 保存或运行时拒绝 |
+| 未分类表 | 按 `required_fact` 处理 |
 
-### 6.2 后端集成测试
+### 6.2 权限注入与安全测试
 
-| 测试场景 | API | 期望 |
-|---|---|---|
-| 报表 17 运行（生产环境复现）| `POST /api/v1/reports/17/run` | 返回 625 行（非 0） |
-| 数据集 15 设置 scope_dimension="org" 后报表运行 | 同上 | 权限仅从 org 维度表注入，cc 表跳过 |
-| 新建数据集 scope_dimension="cc" | `POST /api/v1/datasets` | 201，回读确认 |
-| 编辑 scope_dimension 为非法值 | `PUT /api/v1/datasets/{id}` | 422 |
+| 场景 | 期望 |
+|---|---|
+| 单表可解析 | 注入正确权限条件 |
+| 必需事实表不可解析 | fail-closed，不允许跳过 |
+| 敏感事实表不可解析 | fail-closed，并输出 ERROR |
+| 穿透桥接表不可解析 | fail-closed |
+| 明确公共维表不可解析 | 允许跳过，输出 WARNING 和审计记录 |
+| 用户无权限标签 | 返回空集，不扩大范围 |
+| `stmt` 与 `count_stmt` | 使用完全相同的权限条件 |
 
-### 6.3 前端测试
+### 6.3 JOIN 安全测试
 
-| 测试场景 | 操作 | 期望 |
-|---|---|---|
-| 编辑数据集，选择 org 驱动 | 下拉选 "org" → 保存 | 重新进入编辑显示 "org" |
-| 新建数据集，默认维度 | 进入新建页 | 下拉显示 "全部维度（AND模式）" |
-| 数据集列表展示维度 | 列表页加载 | org/cc 的数据集显示对应 tag |
+必须覆盖 INNER、LEFT、RIGHT、FULL JOIN，以及一对多、多对多 JOIN：
 
-### 6.4 构建验证
+- 主表过滤正确但敏感附表缺配置时，不得返回附表越权数据。
+- 公共维表被跳过时，不得通过维表字段暴露敏感结果。
+- JOIN 条件变化不能替代行级权限条件。
+- SELECT、聚合、排序和计算字段均不得绕过权限过滤。
+
+### 6.4 出口一致性测试
+
+运行、计数、导出、推送必须对同一 report/dataset/alias 使用相同的策略和权限条件。测试不仅验证“有数据”，还要验证结果行、聚合值和敏感字段均在授权范围内。
+
+### 6.5 构建验证
 
 ```bash
-# 后端
-cd backend && python -m py_compile $(find app -name '*.py')  # 0 error
-
-# 前端
-cd frontend && npx vue-tsc --noEmit  # 0 error
-npx vite build  # OK
+cd backend && python -m py_compile $(find app -name '*.py')
+pytest tests/test_sql_builder_scope.py -v
+pytest tests/test_scope_filter_unit.py -v
+pytest tests/test_integration_report_run.py -v
+cd frontend && npx vue-tsc --noEmit
+npx vite build
 ```
 
-### 6.5 异常路径
+### 6.6 异常路径
 
 | 异常 | 表现 |
 |---|---|
-| scope_dimension 非法值 | API 返回 422 |
-| 数据库不可用（启动扫描时）| 捕获异常，不阻塞启动，输出 ERROR 日志 |
-| 所有表都不可解析 | 用户看到空数据（fail-closed），日志有 WARNING |
-
----
+| 策略非法 | API 返回 422 |
+| 必需表权限配置缺失 | fail-closed，结构化 ERROR |
+| 公共维表缺权限配置 | 跳过行级权限，结构化 WARNING + 审计 |
+| 数据库不可用（启动扫描） | 不阻塞启动，输出 ERROR |
+| 计数与查询权限条件不一致 | 测试失败，禁止上线 |
 
 ## 7. 验收标准
 
 ### 从用户角度
 
-- [ ] gaby.liu 查看"月度成本入账表 - 副本"能看到 625 行数据（当前为 0）
-- [ ] 即使报表 JOIN 了多张未配置权限的表，只要主表配置正确，用户仍能看到数据
-- [ ] 管理员可以在数据集编辑页设置"权限驱动维度"
+- [ ] 人员/组织报表按 `person_first` 返回授权范围内的数据。
+- [ ] 成本中心报表按 `cc_first` 返回授权范围内的数据，不被无关组织权限误杀。
+- [ ] 明确需要交集的报表按 `cross_filter` 执行组织权限 AND 成本中心权限。
+- [ ] 权限配置缺失时，用户不会看到越权数据；必要时显示可识别的受保护空态或错误提示。
+- [ ] 管理员可查看报表权限策略、继承来源、引用表和权限健康度。
 
 ### 从开发角度
 
-- [ ] 核心改动仅涉及 3 个后端文件：`sql_builder.py`、`scope_filter.py`、`main.py`
-- [ ] 新增 1 个 migration 文件
-- [ ] `py_compile` 全后端 0 错误
-- [ ] 不引入新的外部依赖
+- [ ] 已有策略优先级统一为 report > dataset > registered_table > 默认值。
+- [ ] 缺配置表不会被默认无条件跳过。
+- [ ] 未分类表按 `required_fact` 处理。
+- [ ] 每个 alias 产生结构化权限裁决记录。
+- [ ] 查询、计数、导出和推送复用相同权限条件。
 
-### 从测试角度
+### 从安全角度
 
-- [ ] 8 个单测场景全部 pass
-- [ ] 3 个集成测试场景 pass
-- [ ] 回归测试：已有报表行为不变
+- [ ] 必需事实表、敏感事实表、穿透桥接表缺配置时 fail-closed。
+- [ ] LEFT/RIGHT/FULL JOIN 场景无越权行和越权敏感字段。
+- [ ] `public_dim` 只能用于明确登记的公共维表。
+- [ ] 策略变更受权限控制并写入审计日志。
 
-### 从 UI/交互角度
+### 从构建与回归角度
 
-- [ ] 数据集编辑页有"权限驱动维度"下拉，包含帮助提示
-- [ ] 数据集列表可展示维度标签
-- [ ] 各状态（加载/默认/已选/保存成功/保存失败）表现正确
-
-### 从上线角度
-
-- [ ] migration 可正向执行、可回滚
-- [ ] 启动扫描日志输出正常
-- [ ] 生产环境 regression test pass（已有报表无影响）
-
----
+- [ ] 后端编译、前端类型检查和构建通过。
+- [ ] 单元测试、JOIN 安全集成测试和出口一致性测试通过。
+- [ ] 未声明新策略的既有报表权限边界不放宽。
 
 ## 8. 风险与兼容性
 
 | 风险 | 等级 | 影响 | 应对方案 |
 |---|---|---|---|
-| 所有表都不可解析 → 全裸奔 | 🟢 低 | 敏感数据泄露 | `any_strategy_resolved=False` 兜底 → `false()` 防裸奔 |
-| JOIN 维度表被跳过，INNER JOIN 导致主表行被意外过滤 | 🟡 中 | 某些行可能缺失 | INNER JOIN 本身需要两表都有匹配行；维度表数据通常齐全。如遇问题，可补配 scope_role |
-| LEFT JOIN 维度表被跳过 | 🟡 中 | 维度表数据不受权限约束 | LEFT JOIN 场景下维度表行可能无约束，但主表已过滤。如需规则化，后续可加数据集级策略 |
-| `scope_dimension` 新增字段，旧 API 调用不传 | 🟢 低 | 无影响 | 默认 NULL，AND 模式，与现有行为一致 |
-| 启动扫描因数据库不可用报错 | 🟢 低 | 启动失败 | try/except 包裹，输出 ERROR 日志，不阻塞启动 |
-| 用户错误设置 scope_dimension | 🟢 低 | 该数据集权限范围错误 | 仅影响该数据集，不影响其他。可自助改回 |
+| 缺配置表直接跳过造成数据泄露 | P0 | 敏感事实表可能裸奔 | 默认 required_fact；只有 public_dim 可跳过 |
+| 数据集级策略覆盖不同报表口径 | P0 | 报表范围错误或越权 | 使用 report > dataset > table 优先级 |
+| LEFT/RIGHT/FULL JOIN 绕过权限 | P0 | 附表数据越权 | 每个敏感 alias 独立注入权限，不依赖 JOIN |
+| cross_filter 被当作任意维度 | P1 | 组织/成本中心交集失效 | 固定定义为两维 AND，增加契约测试 |
+| 启动扫描日志噪声 | P2 | 告警失真 | 结构化指标、去重和受影响报表关联 |
+| 旧 `scope_dimension` 配置影响现有系统 | P1 | 策略行为不一致 | 兼容读取但不得覆盖报表级策略，迁移前盘点 |
+| 计数、导出、推送与查询口径不一致 | P1 | 页面与导出数据不同 | 复用统一权限条件并做出口一致性测试 |
 
----
+## 9. 待确认事项
 
-## 9. 假设与待确认事项
-
-1. **假设**：数据集 JOIN 关系均为 INNER JOIN 或语义等价的 JOIN（当前 production 数据确认为 INNER JOIN）
-2. **假设**：`cross_filter` 策略的表通常为维度/参考表，其 `scope_dimension` 映射为 `"any"`（总是跳过权限注入）
-3. **假设**：管理员知道数据集内哪些表是"主表"并能正确选择驱动维度（通过 UI 提示文字引导）
-4. **待确认**：`scope_dimension` 是否需要在前端以"必填"形式呈现（当前设计为可选，默认 NULL）
-
----
+1. 生产中每张 registered_table 的安全分类由谁维护，是否需要独立权限。
+2. `public_dim` 的允许字段范围，以及是否禁止选择敏感字段作为报表主数据。
+3. `report.scope_strategy`、`dataset.scope_strategy` 的现有数据质量和默认值。
+4. 报表编辑、数据集编辑和表安全分类变更是否需要审计审批。
+5. LEFT/RIGHT/FULL JOIN 当前产品是否允许继续创建；若允许，必须完成对应安全测试。
+6. 生产报表 17 的正确验收口径应验证授权范围和结果语义，不以固定 625 行作为唯一标准。
 
 ## 10. 交付说明模板
 
 ### 完成任务
 
-1. T001–T008：后端全链路（migration + ORM + Schema + API + 权限引擎 + 启动扫描）
-2. T009–T010：前端 UI（数据集编辑 + 列表展示）
-3. T011–T014：测试与构建
+1. 权限策略优先级和策略契约统一。
+2. 表级安全分类和缺配置处理完成。
+3. alias 级权限注入、结构化裁决和启动扫描完成。
+4. 报表策略与数据集权限健康度 UI 完成。
+5. 单测、JOIN 安全集成测试、出口一致性测试和构建验证完成。
 
 ### 修改文件
 
-| 文件 | 改动类型 |
-|---|---|
-| `backend/app/data/models.py` | 新增字段 |
-| `backend/app/schemas/dataset.py` | 新增字段 |
-| `backend/app/api/dataset.py`（或 `datasets.py`）| 透传字段 |
-| `backend/app/reports/sql_builder.py` | 权限注入循环重写（核心） |
-| `backend/app/permissions/scope_filter.py` | 新增 `_strategy_to_dimension` + `warn_unresolvable_tables` |
-| `backend/app/main.py` | lifespan 集成启动扫描 |
-| `alembic/versions/xxxx_add_scope_dimension_to_datasets.py` | 新增 migration |
-| 前端数据集编辑页 Vue 组件 | 新增下拉 |
-| 前端数据集列表页 Vue 组件 | 新增列 |
-| `backend/tests/test_sql_builder_scope.py` | 新增测试 |
-| `backend/tests/test_scope_filter_unit.py` | 追加用例 |
+以实际代码结构为准，至少包括：
 
-### 测试命令与结果
-
-```bash
-# 后端编译验证
-cd backend && python -m py_compile $(find app -name '*.py')  # expect: 0 errors
-
-# 单测
-pytest tests/test_sql_builder_scope.py -v          # expect: 8 passed
-pytest tests/test_scope_filter_unit.py -v          # expect: N passed (含新增)
-
-# 集成测试
-pytest tests/test_integration_report_run.py -v      # expect: 3 passed
-
-# 前端构建
-cd frontend && npx vue-tsc --noEmit                # expect: 0 errors
-npx vite build                                      # expect: OK
-```
+- `backend/app/reports/sql_builder.py`
+- `backend/app/permissions/scope_filter.py`
+- 报表/数据集策略 Schema 与 Router
+- 表级安全分类的数据模型和 migration
+- `backend/app/main.py`
+- 报表权限和数据集健康度相关前端组件
+- 权限引擎、报表运行、导出、推送测试
 
 ### 未完成项
 
-- 无（本期范围内全部覆盖）
+- 多维度权限的更复杂穿透关系不在本期自动推断；必须通过显式策略和显式穿透列配置。
+- 生产中缺配置表的治理需要根据扫描结果逐表补齐，不能以运行时跳过替代配置修复。
 
-### 风险与后续建议
+### 后续建议
 
-- 上线后建议：为 production 中 20 张未配置的表补全 `scope_role` 或 `roster_join_col`（可根据启动扫描日志列表逐表配置）
-- 后续可选增强：支持"多维度驱动"（如同时 org+cc），当前一期仅支持单选
+- 上线前完成 production 中缺配置表的安全分类和责任人确认。
+- 上线后持续监控 `DENIED_UNRESOLVABLE`、`SKIPPED_PUBLIC_DIM` 和策略冲突指标。
+- 如后续需要同时支持多个主维度，应新增明确的多维策略模型，不复用单选 `scope_dimension`。
