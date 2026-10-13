@@ -87,6 +87,11 @@ function syncLabel(config) {
 function statusIcon(s) { if (s === 'success')
     return CircleCheck; if (s === 'failed')
     return CircleClose; return Clock; }
+function statusLabel(s) {
+    return { success: '成功', failed: '失败', review_required: '待确认', approval_required: '待审批', skipped: '已跳过', blocked: '已阻断' }[s || ''] || s || '-';
+}
+function statusColor(s) { return s === 'success' ? '#67C23A' : s === 'failed' ? '#F56C6C' : '#E6A23C'; }
+function statusTagType(s) { return s === 'success' ? 'success' : s === 'failed' ? 'danger' : 'warning'; }
 onMounted(load);
 debugger; /* PartiallyEnd: #3632/scriptSetup.vue */
 const __VLS_ctx = {};
@@ -304,7 +309,7 @@ __VLS_51.slots.default;
 {
     const { default: __VLS_thisSlot } = __VLS_51.slots;
     const [{ row }] = __VLS_getSlotParams(__VLS_thisSlot);
-    if (row.last_execution_status === 'failed' && row.last_execution_error) {
+    if (row.last_execution_status !== 'success' && row.last_execution_error) {
         const __VLS_52 = {}.ElTooltip;
         /** @type {[typeof __VLS_components.ElTooltip, typeof __VLS_components.elTooltip, typeof __VLS_components.ElTooltip, typeof __VLS_components.elTooltip, ]} */ ;
         // @ts-ignore
@@ -320,7 +325,7 @@ __VLS_51.slots.default;
         }, ...__VLS_functionalComponentArgsRest(__VLS_53));
         __VLS_55.slots.default;
         __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
-            ...{ style: ({ color: '#F56C6C', cursor: 'help' }) },
+            ...{ style: ({ color: __VLS_ctx.statusColor(row.last_execution_status), cursor: 'help' }) },
         });
         const __VLS_56 = ((__VLS_ctx.statusIcon(row.last_execution_status)));
         // @ts-ignore
@@ -330,11 +335,12 @@ __VLS_51.slots.default;
         const __VLS_58 = __VLS_57({
             ...{ style: {} },
         }, ...__VLS_functionalComponentArgsRest(__VLS_57));
+        (__VLS_ctx.statusLabel(row.last_execution_status));
         var __VLS_55;
     }
     else if (row.last_execution_status) {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
-            ...{ style: ({ color: row.last_execution_status === 'success' ? '#67C23A' : '#F56C6C' }) },
+            ...{ style: ({ color: __VLS_ctx.statusColor(row.last_execution_status) }) },
         });
         const __VLS_60 = ((__VLS_ctx.statusIcon(row.last_execution_status)));
         // @ts-ignore
@@ -344,7 +350,7 @@ __VLS_51.slots.default;
         const __VLS_62 = __VLS_61({
             ...{ style: {} },
         }, ...__VLS_functionalComponentArgsRest(__VLS_61));
-        (row.last_execution_status === 'success' ? '成功' : '失败');
+        (__VLS_ctx.statusLabel(row.last_execution_status));
     }
     else {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
@@ -551,6 +557,8 @@ const __VLS_self = (await import('vue')).defineComponent({
             modeLabel: modeLabel,
             syncLabel: syncLabel,
             statusIcon: statusIcon,
+            statusLabel: statusLabel,
+            statusColor: statusColor,
         };
     },
 });

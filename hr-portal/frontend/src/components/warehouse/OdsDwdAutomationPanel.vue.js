@@ -114,10 +114,12 @@ function statusIcon(status) { if (status === 'success')
     return CircleCheck; if (status === 'failed')
     return CircleClose; if (status === 'running')
     return Loading; return Clock; }
+function statusLabel(status) { return { success: '成功', failed: '失败', review_required: '待确认', approval_required: '待审批', skipped: '已跳过', blocked: '已阻断' }[status || ''] || status || '-'; }
+function statusTagType(status) { return status === 'success' ? 'success' : status === 'failed' ? 'danger' : 'warning'; }
 function statusColor(status) { if (status === 'success')
     return '#67C23A'; if (status === 'failed')
     return '#F56C6C'; if (status === 'running')
-    return '#409EFF'; return '#909399'; }
+    return '#409EFF'; return '#E6A23C'; }
 // 展开面板时重新检测
 watch(expanded, (val) => { if (val)
     refreshDetectedMode(); });
@@ -514,14 +516,14 @@ if (!__VLS_ctx.loadingFeature) {
                 // @ts-ignore
                 const __VLS_89 = __VLS_asFunctionalComponent(__VLS_88, new __VLS_88({
                     size: "small",
-                    type: (__VLS_ctx.config.last_execution_status === 'success' ? 'success' : 'danger'),
+                    type: (__VLS_ctx.statusTagType(__VLS_ctx.config.last_execution_status)),
                 }));
                 const __VLS_90 = __VLS_89({
                     size: "small",
-                    type: (__VLS_ctx.config.last_execution_status === 'success' ? 'success' : 'danger'),
+                    type: (__VLS_ctx.statusTagType(__VLS_ctx.config.last_execution_status)),
                 }, ...__VLS_functionalComponentArgsRest(__VLS_89));
                 __VLS_91.slots.default;
-                (__VLS_ctx.config.last_execution_status);
+                (__VLS_ctx.statusLabel(__VLS_ctx.config.last_execution_status));
                 var __VLS_91;
             }
         }
@@ -583,15 +585,15 @@ if (!__VLS_ctx.loadingFeature) {
                 /** @type {[typeof __VLS_components.ElTag, typeof __VLS_components.elTag, typeof __VLS_components.ElTag, typeof __VLS_components.elTag, ]} */ ;
                 // @ts-ignore
                 const __VLS_105 = __VLS_asFunctionalComponent(__VLS_104, new __VLS_104({
-                    type: (e.status === 'success' ? 'success' : 'danger'),
+                    type: (__VLS_ctx.statusTagType(e.status)),
                     size: "small",
                 }));
                 const __VLS_106 = __VLS_105({
-                    type: (e.status === 'success' ? 'success' : 'danger'),
+                    type: (__VLS_ctx.statusTagType(e.status)),
                     size: "small",
                 }, ...__VLS_functionalComponentArgsRest(__VLS_105));
                 __VLS_107.slots.default;
-                (e.status);
+                (__VLS_ctx.statusLabel(e.status));
                 var __VLS_107;
                 __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
                     ...{ class: "exec-mode" },
@@ -603,7 +605,7 @@ if (!__VLS_ctx.loadingFeature) {
                     });
                     (e.rows);
                 }
-                if (e.status === 'failed' && (e.error_message || e.actions?.[0]?.output?.detail || e.actions?.[0]?.error)) {
+                if (e.status !== 'success' && (e.error_message || e.actions?.[0]?.output?.detail || e.actions?.[0]?.error)) {
                     const __VLS_108 = {}.ElTooltip;
                     /** @type {[typeof __VLS_components.ElTooltip, typeof __VLS_components.elTooltip, typeof __VLS_components.ElTooltip, typeof __VLS_components.elTooltip, ]} */ ;
                     // @ts-ignore
@@ -694,6 +696,8 @@ const __VLS_self = (await import('vue')).defineComponent({
             businessKeys: businessKeys,
             strategyLabel: strategyLabel,
             statusIcon: statusIcon,
+            statusLabel: statusLabel,
+            statusTagType: statusTagType,
             statusColor: statusColor,
         };
     },
