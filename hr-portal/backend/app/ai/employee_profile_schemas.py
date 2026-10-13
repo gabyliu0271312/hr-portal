@@ -21,6 +21,8 @@ class EmployeeProfileFieldCode(str, Enum):
     POSITION_NAME = "position_name"
     STANDARD_POSITION = "standard_position"
     POSITION_LEVEL = "position_level"
+    JOB_FAMILY = "job_family"
+    JOB_CATEGORY = "job_category"
     EMPLOYEE_TYPE = "employee_type"
     EMPLOYMENT_STATUS = "employment_status"
     HIRE_DATE = "hire_date"
@@ -34,6 +36,8 @@ EMPLOYEE_PROFILE_FIELD_LABELS: dict[EmployeeProfileFieldCode, str] = {
     EmployeeProfileFieldCode.POSITION_NAME: "\u5c97\u4f4d",
     EmployeeProfileFieldCode.STANDARD_POSITION: "\u6807\u51c6\u804c\u4f4d",
     EmployeeProfileFieldCode.POSITION_LEVEL: "\u5c97\u4f4d\u5c42\u7ea7",
+    EmployeeProfileFieldCode.JOB_FAMILY: "\u804c\u4f4d\u65cf",
+    EmployeeProfileFieldCode.JOB_CATEGORY: "\u804c\u4f4d\u7c7b",
     EmployeeProfileFieldCode.EMPLOYEE_TYPE: "\u5458\u5de5\u7c7b\u578b",
     EmployeeProfileFieldCode.EMPLOYMENT_STATUS: "\u5728\u804c\u72b6\u6001",
     EmployeeProfileFieldCode.HIRE_DATE: "\u5165\u804c\u65e5\u671f",
@@ -45,6 +49,8 @@ DEFAULT_EMPLOYEE_PROFILE_FIELD_CODES: tuple[EmployeeProfileFieldCode, ...] = (
     EmployeeProfileFieldCode.ORGANIZATION_NAME,
     EmployeeProfileFieldCode.HIRE_DATE,
     EmployeeProfileFieldCode.EMPLOYEE_TYPE,
+    EmployeeProfileFieldCode.JOB_FAMILY,
+    EmployeeProfileFieldCode.JOB_CATEGORY,
     EmployeeProfileFieldCode.STANDARD_POSITION,
     EmployeeProfileFieldCode.POSITION_LEVEL,
 )
@@ -57,7 +63,7 @@ class EmployeeProfileQuerySpec(BaseModel):
 
     lookup_type: Literal["name", "employee_no"]
     lookup_value: str = Field(min_length=1, max_length=64)
-    requested_field_codes: list[str] = Field(default_factory=list, max_length=10)
+    requested_field_codes: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator("lookup_value")
     @classmethod
@@ -104,7 +110,7 @@ class EmployeeProfileResultData(BaseModel):
 
     employee_no: str | None = Field(default=None, max_length=128)
     full_name: str | None = Field(default=None, max_length=256)
-    fields: list[EmployeeProfileField] = Field(min_length=1, max_length=10)
+    fields: list[EmployeeProfileField] = Field(min_length=1, max_length=20)
 
     @field_validator("fields")
     @classmethod
@@ -186,7 +192,7 @@ class EmployeeProfileSelectCandidateActionContext(ControlledActionContext):
     employee_id: int = Field(ge=1)
     effective_requested_field_codes: tuple[str, ...] = Field(
         min_length=1,
-        max_length=10,
+        max_length=20,
     )
 
     @field_validator("effective_requested_field_codes")

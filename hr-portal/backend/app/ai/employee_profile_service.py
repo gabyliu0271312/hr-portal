@@ -9,14 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.employee_profile_catalog import EmployeeProfileCatalogError, EmployeeProfileCatalogItem, load_employee_profile_catalog, resolve_employee_profile_codes
 from app.ai.employee_profile_repository import EMPLOYEE_PROFILE_ROSTER_TABLE, EMPLOYEE_PROFILE_SCOPE_STRATEGY, build_employee_profile_lookup_statement, build_employee_profile_selected_lookup_statement, validate_employee_profile_roster_model
 from app.ai.employee_profile_schemas import EmployeeProfileQuerySpec
+from app.data.employee_roster_contract import EMPLOYEE_ROSTER_FIELDS
 from app.data.models import DATA_TABLES
 from app.permissions.masker import VERDICT_HIDE, resolve_field_access
 from app.permissions.scope_filter import build_scope_filter, is_unrestricted
 from app.users.models import User
 
 EmployeeProfileMatchKind = Literal["no_match", "unique", "candidates", "too_many"]
-_HEADER_COLUMNS = {"employee_no": "employee_no", "full_name": "full_name"}
-_CANDIDATE_COLUMNS = {**_HEADER_COLUMNS, "organization_name": "department", "employment_status": "employment_status"}
+_HEADER_COLUMNS = {
+    "employee_no": EMPLOYEE_ROSTER_FIELDS["employee_no"].source_column,
+    "full_name": EMPLOYEE_ROSTER_FIELDS["display_name"].source_column,
+}
+_CANDIDATE_COLUMNS = {
+    **_HEADER_COLUMNS,
+    "organization_name": EMPLOYEE_ROSTER_FIELDS["company_org"].source_column,
+    "employment_status": EMPLOYEE_ROSTER_FIELDS["employment_status"].source_column,
+}
 
 
 class EmployeeProfileServiceContractError(RuntimeError):

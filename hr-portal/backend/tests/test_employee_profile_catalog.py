@@ -33,7 +33,7 @@ def _model():
             MetaData(),
             Column("id", BigInteger, primary_key=True),
             Column("employee_no", String(64)),
-            Column("department", String(128)),
+            Column("company_org", String(128)),
             Column("bu", String(128)),
             Column("payload", String(128)),
             Column("synced_at", String(64)),
@@ -60,13 +60,13 @@ def roster_model():
 async def test_catalog_only_exposes_safe_reflected_fields_and_settings(roster_model):
     metadata = [
         SimpleNamespace(column_code="employee_no", column_label="工号", data_type="string"),
-        SimpleNamespace(column_code="department", column_label="部门", data_type="string"),
+        SimpleNamespace(column_code="company_org", column_label="部门", data_type="string"),
         SimpleNamespace(column_code="bu", column_label="BU", data_type="string"),
         SimpleNamespace(column_code="payload", column_label="载荷", data_type="json"),
     ]
     settings = [
         SimpleNamespace(
-            column_name="department",
+            column_name="company_org",
             field_code="organization_name",
             display_name="所属组织",
             is_default_card=True,
@@ -79,7 +79,7 @@ async def test_catalog_only_exposes_safe_reflected_fields_and_settings(roster_mo
     result = await catalog.load_employee_profile_catalog(FakeDb([metadata, settings]))
 
     assert [(item.field_code, item.column_name) for item in result] == [
-        ("organization_name", "department"),
+        ("organization_name", "company_org"),
         ("bu", "bu"),
         ("employee_no", "employee_no"),
     ]

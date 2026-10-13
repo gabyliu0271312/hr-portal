@@ -9,13 +9,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.employee_profile_fields import EmployeeProfileFieldSetting
 from app.ai.employee_profile_repository import EMPLOYEE_PROFILE_ROSTER_TABLE
+from app.data.employee_roster_contract import EMPLOYEE_ROSTER_FIELDS
 from app.data.models import DATA_TABLES, TableColumn
 from app.users.models import User
 
 _ALLOWED_TYPES = {"string", "number", "date", "datetime", "bool", "enum"}
 _TECHNICAL_COLUMNS = {"id", "pk_hash", "synced_at", "created_at", "updated_at", "raw"}
 _TECHNICAL_PREFIXES = ("_", "sys_", "sync_")
-_DEFAULT_CARD_COLUMNS = ("department", "hire_date", "employee_type", "standard_position", "position_level")
+_DEFAULT_CARD_COLUMNS = tuple(
+    EMPLOYEE_ROSTER_FIELDS[key].source_column
+    for key in ("company_org", "hire_date", "employee_type", "job_family", "job_category", "position_level")
+)
 
 
 class EmployeeProfileCatalogError(RuntimeError):

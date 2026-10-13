@@ -7,7 +7,9 @@ from typing import Literal
 from sqlalchemy import bindparam, or_, select
 from sqlalchemy.sql.elements import ColumnElement
 
-EMPLOYEE_PROFILE_ROSTER_TABLE = "emp_realtime_roster"
+from app.data.employee_roster_contract import EMPLOYEE_ROSTER_TABLE
+
+EMPLOYEE_PROFILE_ROSTER_TABLE = EMPLOYEE_ROSTER_TABLE
 EMPLOYEE_PROFILE_SCOPE_STRATEGY = "person_first"
 EMPLOYEE_PROFILE_LOOKUP_LIMIT = 6
 EMPLOYEE_PROFILE_STABLE_SORT_COLUMN = "employee_no"

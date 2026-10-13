@@ -23,7 +23,7 @@ class FakeDb:
 
 @pytest.fixture(autouse=True)
 def extractor_catalog(monkeypatch):
-    codes = ("full_name", "employee_no", "organization_name", "business_unit", "position_name", "employment_status", "hire_date", "employee_type", "standard_position", "position_level", "company_name", "work_location")
+    codes = (*tuple(field.value for field in EmployeeProfileFieldCode), "company_name", "work_location")
     async def load(*_args, **_kwargs):
         return tuple(EmployeeProfileCatalogItem(code, code, code.replace("_", " ").title(), "string", False, None, 999) for code in codes)
     monkeypatch.setattr(ai_router, "load_employee_profile_extractor_catalog", load)
