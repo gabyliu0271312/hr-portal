@@ -9,10 +9,9 @@ ARG VITE_COST_ALLOCATION_ADMIN_URL=
 ENV VITE_COST_ALLOCATION_APP_URL=$VITE_COST_ALLOCATION_APP_URL
 ENV VITE_COST_ALLOCATION_ADMIN_URL=$VITE_COST_ALLOCATION_ADMIN_URL
 
-# 先装依赖(无 lock 文件用 install),单独成层利用缓存
-# 换国内 npm 源(npmmirror),避免拉国外源超时
-COPY package.json ./
-RUN npm config set registry https://registry.npmmirror.com && npm install
+# 先装依赖，使用 lock 文件保证容器与本地依赖版本一致，单独成层利用缓存
+COPY package.json package-lock.json ./
+RUN npm config set registry https://registry.npmmirror.com && npm ci --no-audit --no-fund
 
 # 拷源码并构建(只跑 vite build,跳过 vue-tsc 类型检查避免历史类型错误阻塞发布)
 COPY . .
