@@ -13,7 +13,8 @@ from app.data.models import DATA_TABLES, TableColumn
 from app.datasources.sync_service import PERIOD_TABLES
 from app.push import push_service
 from app.push.models import PushTarget
-from app.push.router import _build_integration_documentation, _normalize_query_parameters, _runtime_filters_from_request, _to_out, expose_data
+from app.push.pg_hba import build_rules
+from app.push.router import _build_integration_documentation, _normalize_query_parameters, _runtime_filters_from_request, _to_out, _validate_ip_whitelist_settings, expose_data
 from tests.entity_helpers import make_legacy_raw_model
 from uvicorn import Config
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
@@ -199,6 +200,10 @@ def restore_table(table_name: str, old_model, old_period):
 
 def sql_texts(db: FakeSession) -> list[str]:
     return [str(statement) for statement, _ in db.executed]
+
+
+async def _async_value(value):
+    return value
 
 
 async def test_load_source_rows_reads_entity_columns_and_keeps_native_values():
@@ -495,6 +500,46 @@ async def test_api_expose_endpoint_rejects_empty_ip_whitelist(settings):
 
     assert exc_info.value.status_code == 403
     assert db.executed == []
+
+
+async def test_api_expose_endpoint_skips_ip_check_when_disabled(monkeypatch):
+    pt = PushTarget(
+        id=9,
+        source_table="push_api_entity",
+        name="API 暴露",
+        push_type="api_expose",
+        settings={"app_id": "app-1", "ip_whitelist_enabled": False, "ip_whitelist": []},
+        secrets_encrypted={"app_secret": encrypt("secret-1")},
+        is_active=True,
+    )
+    db = FakeSession(get_obj=pt)
+    monkeypatch.setattr(push_service, "_load_source_rows", lambda *args, **kwargs: _async_value([{"amount": "1234.50"}]))
+    monkeypatch.setattr(push_service, "_resolve_push_mapping_policy", lambda *args, **kwargs: _async_value({}))
+    monkeypatch.setattr(push_service, "execute_push_mapping", lambda rows, *args, **kwargs: _async_value(rows))
+    request = SimpleNamespace(
+        headers={"X-App-Id": "app-1", "X-App-Secret": "secret-1"},
+        client=SimpleNamespace(host="203.0.113.10"),
+    )
+
+    assert await expose_data(9, request, db) == [{"amount": "1234.50"}]
+
+
+async def test_pg_hba_omits_rules_when_ip_whitelist_is_disabled():
+    target = SimpleNamespace(settings={
+        "readonly_user": "readonly_target",
+        "database": "hr_portal",
+        "ip_whitelist_enabled": False,
+        "ip_whitelist": ["10.0.0.1"],
+    })
+
+    assert "readonly_target" not in build_rules([target])
+
+
+async def test_ip_whitelist_settings_validate_disabled_and_cidr_modes():
+    _validate_ip_whitelist_settings("api_expose", {"ip_whitelist_enabled": False, "ip_whitelist": []})
+    _validate_ip_whitelist_settings("api_expose", {"ip_whitelist_enabled": True, "ip_whitelist": ["10.0.0.0/24"]})
+    with pytest.raises(HTTPException, match="至少配置一个"):
+        _validate_ip_whitelist_settings("api_expose", {"ip_whitelist_enabled": True, "ip_whitelist": []})
 
 
 async def test_api_expose_endpoint_rejects_ip_outside_whitelist():

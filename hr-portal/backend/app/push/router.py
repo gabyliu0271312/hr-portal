@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import date, datetime, UTC
 from decimal import Decimal
 import hashlib
+import ipaddress
 import json
 import logging
 import re
@@ -79,6 +80,46 @@ class PushTargetOut(BaseModel):
 
 class RunIn(BaseModel):
     period_ym: str = ""   # 月度表指定月份，空则用配置里的
+
+
+_IP_WHITELIST_TYPES = {"api_expose", "db_realtime", "db_snapshot"}
+
+
+def _ip_whitelist_enabled(settings: dict[str, Any]) -> bool:
+    return settings.get("ip_whitelist_enabled", True) is not False
+
+
+def _validate_ip_whitelist_settings(push_type: str, settings: dict[str, Any]) -> None:
+    if push_type not in _IP_WHITELIST_TYPES:
+        return
+    enabled = settings.get("ip_whitelist_enabled", True)
+    if not isinstance(enabled, bool):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="IP 白名单开关配置不正确")
+    addresses = settings.get("ip_whitelist") or []
+    if not isinstance(addresses, list):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="IP 白名单必须为数组")
+    from app.push.pg_hba import _network
+    for value in addresses:
+        try:
+            _network(str(value))
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if enabled and not addresses:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="已开启 IP 白名单限制，请至少配置一个 IP 或 CIDR")
+
+
+def _client_ip_allowed(client_ip: str, addresses: list[Any]) -> bool:
+    try:
+        address = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+    for value in addresses:
+        try:
+            if address in ipaddress.ip_network(str(value), strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 # ===== helpers =====
@@ -609,13 +650,7 @@ async def create_push_target(
     await _normalize_query_parameters(payload.source_table, payload.settings, db)
     await _validate_query_parameters(payload.source_table, payload.settings, db)
     _validate_db_snapshot_password(payload)
-    if payload.push_type in ("db_realtime", "db_snapshot"):
-        from app.push.pg_hba import _network
-        for value in payload.settings.get("ip_whitelist") or []:
-            try:
-                _network(str(value))
-            except ValueError as exc:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    _validate_ip_whitelist_settings(payload.push_type, payload.settings)
     secrets_enc = {k: encrypt(v) for k, v in payload.secrets.items()}
 
     # api_expose：自动生成 AppID + AppSecret（如果未填）
@@ -772,13 +807,7 @@ async def update_push_target(
     await _normalize_query_parameters(pt.source_table, payload.settings, db, pt.settings.get("query_parameters") if pt.settings else None)
     await _validate_query_parameters(pt.source_table, payload.settings, db)
     _validate_db_snapshot_password(payload)
-    if payload.push_type in ("db_realtime", "db_snapshot"):
-        from app.push.pg_hba import _network
-        for value in payload.settings.get("ip_whitelist") or []:
-            try:
-                _network(str(value))
-            except ValueError as exc:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    _validate_ip_whitelist_settings(payload.push_type, payload.settings)
 
     pt.name = payload.name
     pt.description = payload.description
@@ -1125,6 +1154,11 @@ async def _build_integration_documentation(pt: PushTarget, db: AsyncSession) -> 
         jdbc_url = settings.get("jdbc_url", "")
         psql_url = f"postgresql://{user}:由管理员受控提供的密码@{host}:{port}/{database}"
         query = f'SELECT * FROM "{schema}"."{view}" LIMIT 100;'
+        access_control = (
+            "数据库 IP 白名单限制已开启，由 PostgreSQL pg_hba.conf 在连接建立阶段强制执行。只有配置的 IP 或 CIDR 可以使用该账号连接。"
+            if _ip_whitelist_enabled(settings)
+            else "数据库 IP 白名单限制已关闭，来源 IP 不受该推送目标的白名单限制，但仍需数据库账号鉴权并受网络防火墙/安全组控制。"
+        )
         lines += [
             "", "二、访问模式", mode_title,
             ("查询时实时读取当前源数据；每次 SQL 查询都无需执行同步，源数据更新后下次查询即可看到最新结果。" if is_realtime
@@ -1137,9 +1171,8 @@ async def _build_integration_documentation(pt: PushTarget, db: AsyncSession) -> 
             f"事务空闲超时：{getattr(app_settings, 'DB_READONLY_IDLE_TRANSACTION_TIMEOUT_SECONDS', 60)} 秒",
             f"JDBC URL：{jdbc_url}",
             "", "四、访问控制",
-            "数据库 IP 白名单由 PostgreSQL pg_hba.conf 在连接建立阶段强制执行。",
-            "只有配置的 IP 或 CIDR 可以使用该账号连接；IP 白名单为空时拒绝该账号的所有远程连接。",
-            "宿主机防火墙或云安全组也必须只向相同来源 IP 放通数据库端口。",
+            access_control,
+            "宿主机防火墙或云安全组也必须按实际安全要求管理数据库端口。",
             "", "五、连接与查询示例",
             f'psql "{psql_url}"', query,
             "", "六、数据时效",
@@ -1168,14 +1201,19 @@ async def _build_integration_documentation(pt: PushTarget, db: AsyncSession) -> 
         "", f"{['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][response_start + 3]}、返回状态说明",
     ]
     if pt.push_type == "api_expose":
-        lines += ["200：请求成功。", "400：查询参数缺失、格式错误或未登记。", "401：AppID 或 AppSecret 错误。", "403：来源 IP 不在白名单，或白名单为空。", "404：配置不存在、已停用或不是 API 暴露类型。", "500：服务端读取异常。"]
+        ip_status = (
+            "403：来源 IP 不在白名单，或白名单为空。"
+            if _ip_whitelist_enabled(settings)
+            else "403：AppID 或 AppSecret 无效，或请求不满足其他访问条件。"
+        )
+        lines += ["200：请求成功。", "400：查询参数缺失、格式错误或未登记。", "401：AppID 或 AppSecret 错误。", ip_status, "404：配置不存在、已停用或不是 API 暴露类型。", "500：服务端读取异常。"]
     else:
         lines += ["成功：以推送记录显示 success 为准。", "失败：以推送记录中的错误信息为准，由 HR Portal 管理员处理。"]
     lines += [
         "", f"{['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][response_start + 4]}、接入与安全约定",
         "1. X-App-Id、X-App-Secret、密码、Token 和 App Secret 必须通过受控渠道交付，不得写入文档、邮件、群聊、代码或日志。",
         "2. 请按最小权限、访问审计和数据留存要求处理数据。",
-        "3. 配置停用后不应继续使用；只读 API 的 IP 白名单为空时拒绝所有访问。",
+        "3. 配置停用后不应继续使用。",
     ]
     return "\n".join(lines) + "\n"
 
@@ -1247,11 +1285,12 @@ async def expose_data(
 
     # IP 白名单校验
     ip_whitelist: list[str] = s.get("ip_whitelist") or []
-    if not ip_whitelist:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="未配置 IP 白名单")
-    client_ip = request.client.host if request.client else ""
-    if client_ip not in ip_whitelist:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"IP {client_ip} 不在白名单")
+    if _ip_whitelist_enabled(s):
+        if not ip_whitelist:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="未配置 IP 白名单")
+        client_ip = request.client.host if request.client else ""
+        if not _client_ip_allowed(client_ip, ip_whitelist):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"IP {client_ip} 不在白名单")
 
     runtime_filters = await _runtime_filters_from_request(pt, request, db)
     # P2: 统一来源协议 — 非 table 类型解析来源表名

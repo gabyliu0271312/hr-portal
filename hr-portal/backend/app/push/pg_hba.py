@@ -114,6 +114,8 @@ def build_rules(targets: list) -> str:
         role = settings.get("readonly_user")
         if not role:
             continue
+        if not settings.get("ip_whitelist_enabled", True):
+            continue
         addresses = settings.get("ip_whitelist") or []
         db_name = settings.get("database") or "hr_portal"
         role_sql = _quote_role(role)

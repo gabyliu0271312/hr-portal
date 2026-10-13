@@ -74,6 +74,7 @@ const DIALECTS = [
 ]
 
 const isExposeType = (t: string) => t === 'api_expose' || t === 'db_realtime'
+const isIpWhitelistType = (t: string) => t === 'api_expose' || t === 'db_realtime' || t === 'db_snapshot'
 
 const form = reactive<{
   name: string
@@ -98,6 +99,7 @@ const form = reactive<{
   app_id: string
   app_secret: string
   readonly_password: string
+  ip_whitelist_enabled: boolean
   ip_whitelist: string
   query_parameters: QueryParameterInput[]
   feishu_app_id: string
@@ -113,7 +115,7 @@ const form = reactive<{
   is_active: true, schedule: '手动触发', field_mappings: [], mapping_component: null, period_ym: '',
   dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
   url: '', method: 'POST', bearer_token: '', batch_size: '500',
-  app_id: '', app_secret: '', readonly_password: '', ip_whitelist: '', query_parameters: [],
+  app_id: '', app_secret: '', readonly_password: '', ip_whitelist_enabled: true, ip_whitelist: '', query_parameters: [],
   feishu_app_id: '', feishu_app_secret: '', feishu_wiki_url_or_token: '',
   feishu_spreadsheet_token: '', feishu_sheet_id: '', feishu_start_cell: 'A1',
   feishu_include_header: true, feishu_batch_size: '1000',
@@ -143,6 +145,7 @@ async function open(target?: PushTargetOut | null) {
     form.mapping_component = target.mapping_component ? JSON.parse(JSON.stringify(target.mapping_component)) : null
     form.schedule = s.schedule ?? '手动触发'
     form.period_ym = s.period_ym ?? ''
+    form.ip_whitelist_enabled = s.ip_whitelist_enabled !== false
     form.ip_whitelist = (s.ip_whitelist || []).join(', ')
     form.query_parameters = (s.query_parameters || []).map((item: QueryParameterInput) => ({
       column: item.column,
@@ -175,7 +178,7 @@ async function open(target?: PushTargetOut | null) {
     }
     Object.assign(form, {
       name: '', description: '', push_type: 'external_db', is_active: true,
-      schedule: '手动触发', field_mappings: [], mapping_component: null, period_ym: '', ip_whitelist: '', query_parameters: [],
+      schedule: '手动触发', field_mappings: [], mapping_component: null, period_ym: '', ip_whitelist_enabled: true, ip_whitelist: '', query_parameters: [],
       dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
       url: '', method: 'POST', bearer_token: '', batch_size: '500',
       app_id: '', app_secret: '', readonly_password: '',
@@ -259,12 +262,13 @@ function buildPayload(): PushTargetIn {
   } else if (form.push_type === 'api_expose') {
     base.settings = {
       app_id: form.app_id,
+      ip_whitelist_enabled: form.ip_whitelist_enabled,
       ip_whitelist: parseIpWhitelist(),
       query_parameters: form.query_parameters.filter((item) => item.column),
     }
     if (form.app_secret) base.secrets = { app_secret: form.app_secret }
   } else if (form.push_type === 'db_realtime' || form.push_type === 'db_snapshot') {
-    base.settings = { period_ym: form.period_ym, ip_whitelist: parseIpWhitelist() }
+    base.settings = { period_ym: form.period_ym, ip_whitelist_enabled: form.ip_whitelist_enabled, ip_whitelist: parseIpWhitelist() }
     if (form.readonly_password) base.secrets = { readonly_password: form.readonly_password }
   } else if (form.push_type === 'feishu_sheet') {
     base.settings = {
@@ -285,6 +289,10 @@ function buildPayload(): PushTargetIn {
 
 async function confirm() {
   if (!form.name.trim()) { ElMessage.warning('请填写推送目标名称'); return }
+  if (isIpWhitelistType(form.push_type) && form.ip_whitelist_enabled && !parseIpWhitelist().length) {
+    ElMessage.warning('已开启 IP 白名单限制，请至少配置一个 IP 或 CIDR')
+    return
+  }
   saving.value = true
   try {
     const payload = buildPayload()
@@ -470,8 +478,11 @@ defineExpose({ open })
             保存后系统将自动生成 AppID 和 AppSecret，在编辑页查看。
           </el-alert>
         </template>
-        <el-form-item label="IP 白名单（必填：仅允许这些来源 IP）">
-          <el-input v-model="form.ip_whitelist" type="textarea" :rows="3" placeholder="192.168.1.100, 10.0.0.1" />
+        <el-form-item label="IP 白名单限制">
+          <el-switch v-model="form.ip_whitelist_enabled" active-text="开启" inactive-text="关闭" />
+        </el-form-item>
+        <el-form-item v-if="form.ip_whitelist_enabled" label="IP 白名单（必填，支持 IP 或 CIDR）" required>
+          <el-input v-model="form.ip_whitelist" type="textarea" :rows="3" placeholder="192.168.1.100, 10.0.0.0/24" />
         </el-form-item>
         <ApiExposeQueryParameters
           v-if="isMultiSource ? Boolean(sourceRef.source_id) : Boolean(props.sourceTable)"
@@ -533,8 +544,11 @@ defineExpose({ open })
       <!-- db_realtime / db_snapshot -->
       <template v-else-if="form.push_type === 'db_realtime' || form.push_type === 'db_snapshot'">
         <div class="section-title">访问控制</div>
-        <el-form-item label="IP 白名单（逗号或换行分隔，空则不限制）">
-          <el-input v-model="form.ip_whitelist" type="textarea" :rows="3" placeholder="192.168.1.100, 10.0.0.1" />
+        <el-form-item label="IP 白名单限制">
+          <el-switch v-model="form.ip_whitelist_enabled" active-text="开启" inactive-text="关闭" />
+        </el-form-item>
+        <el-form-item v-if="form.ip_whitelist_enabled" label="IP 白名单（必填，支持 IP 或 CIDR）" required>
+          <el-input v-model="form.ip_whitelist" type="textarea" :rows="3" placeholder="192.168.1.100, 10.0.0.0/24" />
         </el-form-item>
         <div class="section-title">连接信息（保存后自动生成）</div>
         <template v-if="currentTarget?.settings?.conn_url">

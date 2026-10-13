@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import { adminTablesApi, type RegisteredTableOut } from '@/api/admin_tables'
-import { pushTargetsApi, type PushTargetIn } from '@/api/push_targets'
 import PushTargetDialog from '@/components/push/PushTargetDialog.vue'
 import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
 
@@ -20,6 +19,7 @@ const emit = defineEmits<{
 const visible = ref(false)
 const saving = ref(false)
 const pushDialogRef = ref<InstanceType<typeof PushTargetDialog> | null>(null)
+const createdTableName = ref('')
 
 const DATASOURCE_TYPES = [
   { value: 'upload', label: '手动上传' },
@@ -50,20 +50,6 @@ const form = reactive({
   create_push_target: false,
 })
 
-// 推送目标内嵌表单状态（与 PushTargetDialog 共享同一套字段结构）
-const pushForm = reactive({
-  name: '',
-  push_type: 'external_db' as 'external_db' | 'http_push' | 'api_expose',
-  schedule: '手动触发',
-  period_ym: '',
-  dialect: 'mysql',
-  host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
-  url: '', method: 'POST', bearer_token: '', batch_size: '500',
-  access_token: '',
-  field_mappings: [] as { source: string; target: string }[],
-  is_active: true,
-})
-
 function open() {
   Object.assign(form, {
     table_name: '', table_label: '', description: '',
@@ -72,40 +58,8 @@ function open() {
     create_datasource: false, datasource_source_type: 'upload',
     create_push_target: false,
   })
-  Object.assign(pushForm, {
-    name: '', push_type: 'external_db', schedule: '手动触发', period_ym: '',
-    dialect: 'mysql', host: '', port: '3306', database: '', db_user: '', password: '', target_table: '',
-    url: '', method: 'POST', bearer_token: '', batch_size: '500', access_token: '',
-    field_mappings: [], is_active: true,
-  })
+  createdTableName.value = ''
   visible.value = true
-}
-
-function buildPushPayload(tableName: string): PushTargetIn {
-  const base: PushTargetIn = {
-    source_table: tableName,
-    name: pushForm.name || `${form.table_label}推送`,
-    push_type: pushForm.push_type,
-    settings: { period_ym: pushForm.period_ym },
-    secrets: {},
-    field_mappings: pushForm.field_mappings.filter((m) => m.source && m.target),
-    is_active: pushForm.is_active,
-    schedule: pushForm.schedule,
-  }
-  if (pushForm.push_type === 'external_db') {
-    base.settings = {
-      ...base.settings,
-      dialect: pushForm.dialect, host: pushForm.host, port: Number(pushForm.port),
-      database: pushForm.database, user: pushForm.db_user, target_table: pushForm.target_table,
-    }
-    if (pushForm.password) base.secrets = { password: pushForm.password }
-  } else if (pushForm.push_type === 'http_push') {
-    base.settings = { ...base.settings, url: pushForm.url, method: pushForm.method, batch_size: Number(pushForm.batch_size) }
-    if (pushForm.bearer_token) base.secrets = { bearer_token: pushForm.bearer_token }
-  } else if (pushForm.push_type === 'api_expose') {
-    if (pushForm.access_token) base.secrets = { access_token: pushForm.access_token }
-  }
-  return base
 }
 
 async function confirm() {
@@ -134,18 +88,14 @@ async function confirm() {
       datasource_source_type: form.datasource_source_type,
     })
 
-    // 同时创建推送目标
-    if (form.create_push_target && form.create_datasource) {
-      try {
-        await pushTargetsApi.create(buildPushPayload(result.table_name))
-      } catch {
-        ElMessage.warning('视图已创建，但推送目标创建失败，请到接口配置页补充配置')
-      }
-    }
-
     ElMessage.success(`视图「${result.table_label}」创建成功`)
     visible.value = false
     emit('done', result)
+    if (form.create_push_target && form.create_datasource) {
+      createdTableName.value = `dwd_${result.table_name.slice(4)}`
+      await nextTick()
+      pushDialogRef.value?.open()
+    }
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '创建失败')
   } finally {
@@ -247,73 +197,14 @@ defineExpose({ open })
           <el-switch v-model="form.create_push_target" active-text="是（配置对外推送）" />
         </el-form-item>
         <template v-if="form.create_push_target">
-          <el-form-item label="推送方式" required>
-            <el-select v-model="pushForm.push_type" style="width: 100%">
-              <el-option value="external_db" label="写入外部数据库（MySQL/PostgreSQL）" />
-              <el-option value="http_push" label="POST JSON 到接口" />
-              <el-option value="api_expose" label="暴露只读 API（对方主动拉取）" />
-              <el-option value="db_realtime" label="实时只读数据库访问（对方直连 PostgreSQL）" />
-              <el-option value="db_snapshot" label="同步快照数据库访问（支持定时刷新）" />
-            </el-select>
-          </el-form-item>
-          <template v-if="pushForm.push_type === 'external_db'">
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
-              <el-form-item label="目标表名" required>
-                <el-input v-model="pushForm.target_table" placeholder="如 beisen_salary_report" />
-              </el-form-item>
-              <el-form-item label="数据库类型">
-                <el-select v-model="pushForm.dialect" style="width: 100%">
-                  <el-option value="mysql" label="MySQL" />
-                  <el-option value="postgresql" label="PostgreSQL" />
-                </el-select>
-              </el-form-item>
-            </div>
-            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px">
-              <el-form-item label="Host" required>
-                <el-input v-model="pushForm.host" placeholder="192.168.1.100" />
-              </el-form-item>
-              <el-form-item label="Port">
-                <el-input v-model="pushForm.port" placeholder="3306" />
-              </el-form-item>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px">
-              <el-form-item label="数据库名" required>
-                <el-input v-model="pushForm.database" />
-              </el-form-item>
-              <el-form-item label="用户名" required>
-                <el-input v-model="pushForm.db_user" />
-              </el-form-item>
-              <el-form-item label="密码">
-                <el-input v-model="pushForm.password" type="password" show-password />
-              </el-form-item>
-            </div>
-          </template>
-          <template v-else-if="pushForm.push_type === 'http_push'">
-            <el-form-item label="接口 URL" required>
-              <el-input v-model="pushForm.url" placeholder="https://..." />
-            </el-form-item>
-            <el-form-item label="Bearer Token（可选）">
-              <el-input v-model="pushForm.bearer_token" type="password" show-password />
-            </el-form-item>
-          </template>
-          <template v-else-if="pushForm.push_type === 'api_expose'">
-            <el-form-item label="Access Token">
-              <el-input v-model="pushForm.access_token" type="password" show-password placeholder="设置一个随机字符串" />
-            </el-form-item>
-          </template>
-          <template v-else-if="pushForm.push_type === 'api_expose'">
-            <el-form-item label="Access Token">
-              <el-input v-model="pushForm.access_token" type="password" show-password placeholder="设置一个随机字符串" />
-            </el-form-item>
-          </template>
-          <template v-else-if="pushForm.push_type === 'db_realtime' || pushForm.push_type === 'db_snapshot'">
-            <el-alert type="info" :closable="false" show-icon style="margin-top: 4px">
-              保存后系统将自动创建 PostgreSQL 只读账号，连接信息到接口配置页「推送接口」Tab 查看。
-            </el-alert>
-          </template>
-          <div style="font-size: 12px; color: var(--color-text-placeholder); margin-top: 4px">
-            字段映射可创建后在接口配置页的「推送接口」Tab 里补充配置。
-          </div>
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            style="margin-top: 8px"
+          >
+            创建成功后将以对应的 DWD 消费表打开统一推送配置，可配置推送方式、IP 白名单、字段映射和调度计划。
+          </el-alert>
         </template>
       </template>
     </el-form>
@@ -323,6 +214,11 @@ defineExpose({ open })
       <el-button type="primary" :loading="saving" @click="confirm">确认创建</el-button>
     </template>
   </el-dialog>
+
+  <PushTargetDialog
+    ref="pushDialogRef"
+    :source-table="createdTableName"
+  />
 </template>
 
 <style scoped>

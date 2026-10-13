@@ -39,6 +39,8 @@ export interface SourceCapabilitiesOut {
 }
 
 export interface PushTargetSettings {
+  ip_whitelist_enabled?: boolean
+  ip_whitelist?: string[]
   query_parameters?: QueryParameterInput[]
   [key: string]: any
 }

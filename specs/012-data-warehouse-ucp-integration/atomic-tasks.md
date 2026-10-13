@@ -5564,6 +5564,16 @@ Canonical owner：数据仓库（`TableColumn` / 数据仓库字段 API）
 - [x] T0213 出仓目标创建/编辑抽屉 → 已实现（`PushTargetList` 组件嵌入来源与开放 Tab，CRUD+立即推送）
 - [x] T0214 旧入口死循环修复 → 已实现（配置按钮不再跳转旧页，预览→资产详情预览Tab，全部在仓库内闭环）
 
+- [x] T0215 统一推送配置入口与 IP 白名单开关
+  - 前置任务：T0213；复用 `PushTargetDialog` 和现有 `PushTarget`/`pg_hba` 链路，不新增平行推送主表。
+  - 功能范围：新建数据表弹窗只负责创建数据表，成功后打开统一推送配置；`api_expose`、`db_realtime`、`db_snapshot` 支持 IP 白名单开关，开启时校验 IP/CIDR，关闭时不执行来源 IP 限制但保留 AppID/AppSecret 或数据库账号鉴权。
+  - 代码交付物：`frontend/src/components/data/CreateTableDialog.vue`、`frontend/src/components/push/PushTargetDialog.vue`、`frontend/src/api/push_targets.ts`、`backend/app/push/router.py`、`backend/app/push/pg_hba.py`、推送回归测试与 README 配置说明。
+  - UI 要求：来源与开放/报表推送继续复用统一弹窗；开关开启显示白名单输入框，关闭隐藏但保留已填值；开启且为空时字段级提示；创建表成功后以对应 DWD 消费表打开配置；关联 U20、N0001-N0005、N1101-N1106。
+  - UCP / 数据仓库边界要求：仅统一既有 PushTarget 资产级配置，不新增 UCP 凭证、Pipeline 或事件配置；数据表创建仍先落库，推送配置失败不回滚数据表。
+  - 测试要求：后端推送服务、CIDR、开关开启/关闭、HBA 规则与凭证回归；前端共享推送组件测试和生产构建；`git diff --check`。
+  - 验收标准：报表管理、数据仓库资产详情、数据服务页和新建数据表快捷路径使用同一推送配置；开启白名单时仅允许匹配 IP/CIDR，关闭时任意来源仍需有效凭证；历史配置缺少开关字段按开启处理；旧推送类型和数据表创建主链路不回归。
+  - 完成证据：后端 `pytest -q tests/test_push_service_entity.py tests/test_push_mapping_adapter.py`：45 passed；前端 `npx vitest run src/components/push/PushTargetDialog.spec.ts`：4 passed；`npm run build` 通过；本次修改文件 `git diff --check` 通过。
+
 ## T03 同步历史归并展示
 
 
