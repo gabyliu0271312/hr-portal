@@ -2,10 +2,16 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue';
+import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue';
+import { performanceTemplateApi } from '@/api/performance';
 import PerformanceTemplateWorkflowSettings from './PerformanceTemplateWorkflowSettings.vue';
+import PerformanceTemplateContentSettings from './PerformanceTemplateContentSettings.vue';
 const router = useRouter();
 const workflowRef = ref(null);
+const contentSettingsRef = ref(null);
 const templateId = Number(router.currentRoute.value.query.template_id || 0) || null;
+const activeTemplateId = ref(templateId);
+const isEditing = computed(() => activeTemplateId.value !== null);
 const templateName = ref('');
 const description = ref('');
 const englishEnabled = ref(false);
@@ -15,6 +21,8 @@ const currentStep = ref(0);
 const nameError = ref('');
 const calculationError = ref(false);
 const notice = ref('');
+const saving = ref(false);
+const loadingTemplate = ref(false);
 const mockTemplateNames = ['11', '半年度绩效评估（2026模板）', '全年度绩效评估', '半年度绩效评估'];
 const calculationOptions = [{ key: 'content', label: '按评估内容计算', description: '可配置环节内的各个评估项评分计算得到环节内的总分' }, { key: 'role', label: '按评估角色计算', description: '可配置不同环节的评估项评分计算得到最终结果' }];
 const steps = computed(() => { const result = [{ key: 'basic', label: '基本信息' }, { key: 'flow', label: '流程设置' }, { key: 'content', label: '内容设置' }]; if (calculationEnabled.value)
@@ -23,7 +31,7 @@ function toggleCalculation(value) { calculationEnabled.value = value; calculatio
 function validate() { const name = templateName.value.trim(); if (!name) {
     nameError.value = '名称为必填';
     return false;
-} ; if (mockTemplateNames.includes(name)) {
+} ; if (!isEditing.value && mockTemplateNames.includes(name)) {
     nameError.value = '该模板名称已存在，请重新输入';
     notice.value = nameError.value;
     return false;
@@ -31,19 +39,130 @@ function validate() { const name = templateName.value.trim(); if (!name) {
     calculationError.value = true;
     return false;
 } ; calculationError.value = false; return true; }
-function handleNext() { if (currentStep.value === 1) {
-    void workflowRef.value?.save();
-    return;
-} ; goNext(); }
-function goNext() { if (currentStep.value === 0 && !validate())
-    return; if (currentStep.value === 0)
-    localStorage.setItem('performance-template-draft', JSON.stringify({ name: templateName.value.trim(), description: description.value, englishEnabled: englishEnabled.value, calculationEnabled: calculationEnabled.value, selectedRules: selectedRules.value })); currentStep.value = Math.min(currentStep.value + 1, steps.value.length - 1); }
-function goBack() { if (currentStep.value === 0)
-    void router.push({ name: 'PerformanceTemplates' });
-else
-    currentStep.value -= 1; }
-onMounted(() => { document.body.style.overflow = 'hidden'; if (router.currentRoute.value.query.step === 'workflow')
-    currentStep.value = 1; });
+function templatePayload() {
+    return {
+        name: templateName.value.trim(),
+        description: description.value,
+        language: 'zh-CN',
+        english_enabled: englishEnabled.value,
+        calculation_enabled: calculationEnabled.value,
+        selected_rules: selectedRules.value,
+    };
+}
+async function loadTemplate(id) {
+    loadingTemplate.value = true;
+    try {
+        const template = await performanceTemplateApi.get(id);
+        templateName.value = template.name;
+        description.value = template.description;
+        englishEnabled.value = template.english_enabled;
+        calculationEnabled.value = template.calculation_enabled;
+        selectedRules.value = [...template.selected_rules];
+    }
+    catch (error) {
+        notice.value = error?.response?.data?.detail?.message || '模板加载失败，请返回列表后重试';
+    }
+    finally {
+        loadingTemplate.value = false;
+    }
+}
+async function handleNext() {
+    if (currentStep.value === steps.value.length - 1) {
+        await saveTemplate();
+        return;
+    }
+    if (currentStep.value === 1) {
+        await workflowRef.value?.save();
+        return;
+    }
+    await goNext();
+}
+async function saveTemplate() {
+    if (!activeTemplateId.value || saving.value)
+        return;
+    saving.value = true;
+    try {
+        await performanceTemplateApi.update(activeTemplateId.value, templatePayload());
+        localStorage.setItem('performance-template-draft', JSON.stringify({ name: templateName.value.trim(), description: description.value, englishEnabled: englishEnabled.value, calculationEnabled: calculationEnabled.value, selectedRules: selectedRules.value, templateId: activeTemplateId.value }));
+        notice.value = '保存成功';
+        await router.push({ name: 'PerformanceTemplates' });
+    }
+    catch (error) {
+        notice.value = error?.response?.data?.detail?.message || '模板保存失败，请稍后重试';
+    }
+    finally {
+        saving.value = false;
+    }
+}
+async function goNext() {
+    if (currentStep.value === 0) {
+        if (!validate() || saving.value)
+            return;
+        saving.value = true;
+        try {
+            const payload = templatePayload();
+            if (activeTemplateId.value) {
+                await performanceTemplateApi.update(activeTemplateId.value, payload);
+            }
+            else {
+                const created = await performanceTemplateApi.create(payload);
+                activeTemplateId.value = created.template_id;
+            }
+            localStorage.setItem('performance-template-draft', JSON.stringify({ name: templateName.value.trim(), description: description.value, englishEnabled: englishEnabled.value, calculationEnabled: calculationEnabled.value, selectedRules: selectedRules.value, templateId: activeTemplateId.value }));
+            currentStep.value = Math.min(currentStep.value + 1, steps.value.length - 1);
+        }
+        catch (error) {
+            notice.value = error?.response?.data?.detail?.message || '模板保存失败，请稍后重试';
+        }
+        finally {
+            saving.value = false;
+        }
+        return;
+    }
+    if (currentStep.value === 2) {
+        if (!activeTemplateId.value || saving.value)
+            return;
+        saving.value = true;
+        try {
+            await contentSettingsRef.value?.save();
+            currentStep.value = Math.min(currentStep.value + 1, steps.value.length - 1);
+        }
+        catch (error) {
+            notice.value = error?.response?.data?.detail?.message || '内容设置保存失败，请稍后重试';
+        }
+        finally {
+            saving.value = false;
+        }
+        return;
+    }
+    currentStep.value = Math.min(currentStep.value + 1, steps.value.length - 1);
+}
+function goBackToList() { void router.push({ name: 'PerformanceTemplates' }); }
+async function goBack() {
+    if (currentStep.value === 2 && contentSettingsRef.value) {
+        try {
+            await contentSettingsRef.value.save();
+        }
+        catch (error) {
+            notice.value = error?.response?.data?.detail?.message || '内容设置保存失败，请稍后重试';
+            return;
+        }
+    }
+    if (currentStep.value === 0)
+        goBackToList();
+    else
+        currentStep.value -= 1;
+}
+onMounted(async () => {
+    document.body.style.overflow = 'hidden';
+    const step = router.currentRoute.value.query.step;
+    if (step === 'workflow')
+        currentStep.value = 1;
+    if (step === 'content')
+        currentStep.value = 2;
+    if (activeTemplateId.value)
+        await loadTemplate(activeTemplateId.value);
+});
 onBeforeUnmount(() => { document.body.style.overflow = ''; });
 debugger; /* PartiallyEnd: #3632/scriptSetup.vue */
 const __VLS_ctx = {};
@@ -82,6 +201,11 @@ let __VLS_directives;
 /** @type {__VLS_StyleScopedClasses['step-separator']} */ ;
 /** @type {__VLS_StyleScopedClasses['full-screen-modal-header']} */ ;
 /** @type {__VLS_StyleScopedClasses['step-separator']} */ ;
+/** @type {__VLS_StyleScopedClasses['full-screen-modal-header']} */ ;
+/** @type {__VLS_StyleScopedClasses['full-screen-modal-header']} */ ;
+/** @type {__VLS_StyleScopedClasses['next-button']} */ ;
+/** @type {__VLS_StyleScopedClasses['full-screen-modal-header']} */ ;
+/** @type {__VLS_StyleScopedClasses['previous-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['full-screen-modal-header']} */ ;
 /** @type {__VLS_StyleScopedClasses['next-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['full-screen-modal-content']} */ ;
@@ -151,7 +275,7 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.d
     ...{ class: "full-screen-modal-header-left" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-    ...{ onClick: (__VLS_ctx.goBack) },
+    ...{ onClick: (__VLS_ctx.goBackToList) },
     ...{ class: "full-screen-modal-header-back" },
     type: "button",
 });
@@ -181,6 +305,7 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.d
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ class: "full-screen-modal-header-title" },
 });
+(__VLS_ctx.isEditing ? '编辑绩效模板' : '新建绩效模板');
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ class: "full-screen-modal-header-subtitle" },
     'aria-hidden': "true",
@@ -191,24 +316,18 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.d
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ class: "full-screen-modal-header-actions" },
 });
-__VLS_asFunctionalElement(__VLS_intrinsicElements.nav, __VLS_intrinsicElements.nav)({
-    ...{ class: "step-flow" },
+/** @type {[typeof PerformanceStepFlow, ]} */ ;
+// @ts-ignore
+const __VLS_0 = __VLS_asFunctionalComponent(PerformanceStepFlow, new PerformanceStepFlow({
+    steps: (__VLS_ctx.steps),
+    currentStep: (__VLS_ctx.currentStep),
     'aria-label': "创建步骤",
-});
-for (const [step, index] of __VLS_getVForSourceType((__VLS_ctx.steps))) {
-    (step.key);
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
-        ...{ class: "step-item" },
-        ...{ class: ({ current: index === __VLS_ctx.currentStep }) },
-    });
-    (step.label);
-    if (index < __VLS_ctx.steps.length - 1) {
-        __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
-            ...{ class: "step-separator" },
-            'aria-hidden': "true",
-        });
-    }
-}
+}));
+const __VLS_1 = __VLS_0({
+    steps: (__VLS_ctx.steps),
+    currentStep: (__VLS_ctx.currentStep),
+    'aria-label': "创建步骤",
+}, ...__VLS_functionalComponentArgsRest(__VLS_0));
 if (__VLS_ctx.currentStep > 0) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (__VLS_ctx.goBack) },
@@ -220,7 +339,9 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElement
     ...{ onClick: (__VLS_ctx.handleNext) },
     ...{ class: "next-button" },
     type: "button",
+    disabled: (__VLS_ctx.loadingTemplate || __VLS_ctx.saving),
 });
+(__VLS_ctx.currentStep === __VLS_ctx.steps.length - 1 ? '保存' : '下一步');
 __VLS_asFunctionalElement(__VLS_intrinsicElements.main, __VLS_intrinsicElements.main)({
     ...{ class: "full-screen-modal-content" },
 });
@@ -333,23 +454,23 @@ if (__VLS_ctx.currentStep === 0) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
     /** @type {[typeof PerformanceSwitch, ]} */ ;
     // @ts-ignore
-    const __VLS_0 = __VLS_asFunctionalComponent(PerformanceSwitch, new PerformanceSwitch({
+    const __VLS_3 = __VLS_asFunctionalComponent(PerformanceSwitch, new PerformanceSwitch({
         ...{ 'onUpdate:modelValue': {} },
         modelValue: (__VLS_ctx.calculationEnabled),
         'aria-label': "配置计算规则",
     }));
-    const __VLS_1 = __VLS_0({
+    const __VLS_4 = __VLS_3({
         ...{ 'onUpdate:modelValue': {} },
         modelValue: (__VLS_ctx.calculationEnabled),
         'aria-label': "配置计算规则",
-    }, ...__VLS_functionalComponentArgsRest(__VLS_0));
-    let __VLS_3;
-    let __VLS_4;
-    let __VLS_5;
-    const __VLS_6 = {
+    }, ...__VLS_functionalComponentArgsRest(__VLS_3));
+    let __VLS_6;
+    let __VLS_7;
+    let __VLS_8;
+    const __VLS_9 = {
         'onUpdate:modelValue': (__VLS_ctx.toggleCalculation)
     };
-    var __VLS_2;
+    var __VLS_5;
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ class: "calculation-hint" },
     });
@@ -390,32 +511,47 @@ if (__VLS_ctx.currentStep === 0) {
 if (__VLS_ctx.currentStep === 1) {
     /** @type {[typeof PerformanceTemplateWorkflowSettings, ]} */ ;
     // @ts-ignore
-    const __VLS_7 = __VLS_asFunctionalComponent(PerformanceTemplateWorkflowSettings, new PerformanceTemplateWorkflowSettings({
+    const __VLS_10 = __VLS_asFunctionalComponent(PerformanceTemplateWorkflowSettings, new PerformanceTemplateWorkflowSettings({
         ...{ 'onBack': {} },
         ...{ 'onNext': {} },
         ref: "workflowRef",
-        templateId: (__VLS_ctx.templateId),
+        templateId: (__VLS_ctx.activeTemplateId),
     }));
-    const __VLS_8 = __VLS_7({
+    const __VLS_11 = __VLS_10({
         ...{ 'onBack': {} },
         ...{ 'onNext': {} },
         ref: "workflowRef",
-        templateId: (__VLS_ctx.templateId),
-    }, ...__VLS_functionalComponentArgsRest(__VLS_7));
-    let __VLS_10;
-    let __VLS_11;
-    let __VLS_12;
-    const __VLS_13 = {
+        templateId: (__VLS_ctx.activeTemplateId),
+    }, ...__VLS_functionalComponentArgsRest(__VLS_10));
+    let __VLS_13;
+    let __VLS_14;
+    let __VLS_15;
+    const __VLS_16 = {
         onBack: (__VLS_ctx.goBack)
     };
-    const __VLS_14 = {
+    const __VLS_17 = {
         onNext: (__VLS_ctx.goNext)
     };
     /** @type {typeof __VLS_ctx.workflowRef} */ ;
-    var __VLS_15 = {};
-    var __VLS_9;
+    var __VLS_18 = {};
+    var __VLS_12;
 }
-else if (__VLS_ctx.currentStep >= 2) {
+else if (__VLS_ctx.currentStep === 2) {
+    /** @type {[typeof PerformanceTemplateContentSettings, ]} */ ;
+    // @ts-ignore
+    const __VLS_20 = __VLS_asFunctionalComponent(PerformanceTemplateContentSettings, new PerformanceTemplateContentSettings({
+        ref: "contentSettingsRef",
+        templateId: (__VLS_ctx.activeTemplateId),
+    }));
+    const __VLS_21 = __VLS_20({
+        ref: "contentSettingsRef",
+        templateId: (__VLS_ctx.activeTemplateId),
+    }, ...__VLS_functionalComponentArgsRest(__VLS_20));
+    /** @type {typeof __VLS_ctx.contentSettingsRef} */ ;
+    var __VLS_23 = {};
+    var __VLS_22;
+}
+else if (__VLS_ctx.currentStep >= 3) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
         ...{ class: "placeholder-panel" },
         'aria-live': "polite",
@@ -443,9 +579,6 @@ if (__VLS_ctx.notice) {
 /** @type {__VLS_StyleScopedClasses['full-screen-modal-header-subtitle']} */ ;
 /** @type {__VLS_StyleScopedClasses['full-screen-modal-header-right']} */ ;
 /** @type {__VLS_StyleScopedClasses['full-screen-modal-header-actions']} */ ;
-/** @type {__VLS_StyleScopedClasses['step-flow']} */ ;
-/** @type {__VLS_StyleScopedClasses['step-item']} */ ;
-/** @type {__VLS_StyleScopedClasses['step-separator']} */ ;
 /** @type {__VLS_StyleScopedClasses['previous-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['next-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['full-screen-modal-content']} */ ;
@@ -488,15 +621,19 @@ if (__VLS_ctx.notice) {
 /** @type {__VLS_StyleScopedClasses['placeholder-panel']} */ ;
 /** @type {__VLS_StyleScopedClasses['notice']} */ ;
 // @ts-ignore
-var __VLS_16 = __VLS_15;
+var __VLS_19 = __VLS_18, __VLS_24 = __VLS_23;
 var __VLS_dollars;
 const __VLS_self = (await import('vue')).defineComponent({
     setup() {
         return {
             PerformanceSwitch: PerformanceSwitch,
+            PerformanceStepFlow: PerformanceStepFlow,
             PerformanceTemplateWorkflowSettings: PerformanceTemplateWorkflowSettings,
+            PerformanceTemplateContentSettings: PerformanceTemplateContentSettings,
             workflowRef: workflowRef,
-            templateId: templateId,
+            contentSettingsRef: contentSettingsRef,
+            activeTemplateId: activeTemplateId,
+            isEditing: isEditing,
             templateName: templateName,
             description: description,
             englishEnabled: englishEnabled,
@@ -506,11 +643,14 @@ const __VLS_self = (await import('vue')).defineComponent({
             nameError: nameError,
             calculationError: calculationError,
             notice: notice,
+            saving: saving,
+            loadingTemplate: loadingTemplate,
             calculationOptions: calculationOptions,
             steps: steps,
             toggleCalculation: toggleCalculation,
             handleNext: handleNext,
             goNext: goNext,
+            goBackToList: goBackToList,
             goBack: goBack,
         };
     },

@@ -13,8 +13,11 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* 全屏应用布局：锁死 window 级滚动，滚动只发生在应用内部容器，
+   防止 sticky 吸顶元素因双滚动钻到页面 head 之下。 */
 body {
   margin: 0;
+  overflow: hidden;
   font-family: var(--font-sans);
   font-size: var(--font-size-md);
   line-height: var(--line-height-base);

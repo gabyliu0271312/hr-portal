@@ -12,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.core.config import settings
 from app.core.deps import bearer_scheme, user_has_op
 from app.core.jwt import (
     TOKEN_SUBJECT_TYPE_PERFORMANCE_SYSTEM_ACCOUNT,
@@ -59,6 +60,26 @@ class TrustedPerformanceActor:
 
 class PerformanceIdentityMappingNotFound(ValueError):
     """Raised when a Portal user has no authorized employee identity for a cycle."""
+
+
+PERFORMANCE_PORTAL_ADMIN_PERMISSIONS = (
+    "performance.authorization.manage",
+    "performance.configuration.manage",
+    "performance.cycles.manage",
+    "performance.projects.manage",
+    "performance.audit.view",
+)
+
+
+def performance_admin_preview_enabled(context: PerformanceAccessContext) -> bool:
+    if settings.APP_ENV.lower() != "dev" or not settings.PERFORMANCE_DEV_ADMIN_DEBUG:
+        return False
+    return (
+        context.subject_type == SUBJECT_TYPE_SYSTEM_ACCOUNT
+        or "performance.admin" in context.portal_entry_permissions
+        or "performance.cycles.manage" in context.permission_codes
+        or "performance.projects.manage" in context.permission_codes
+    )
 
 
 async def resolve_trusted_performance_actor(
@@ -228,6 +249,8 @@ async def get_performance_access_context(
             SUBJECT_TYPE_PORTAL_USER,
             user.id,
         )
+        if "performance.admin" in portal_entry_permissions:
+            permission_codes = tuple(dict.fromkeys((*permission_codes, *PERFORMANCE_PORTAL_ADMIN_PERMISSIONS)))
         context = PerformanceAccessContext(
             subject_type=SUBJECT_TYPE_PORTAL_USER,
             subject_id=user.id,

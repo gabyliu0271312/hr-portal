@@ -1,5 +1,6 @@
-﻿import { mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+﻿import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { performanceTemplateApi } from '@/api/performance'
 
 const push = vi.fn()
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
@@ -25,13 +26,25 @@ function mountView() {
   })
 }
 
+beforeEach(() => {
+  push.mockReset()
+  vi.restoreAllMocks()
+  vi.spyOn(performanceTemplateApi, 'list').mockImplementation(() => new Promise(() => {}))
+  vi.spyOn(performanceTemplateApi, 'remove').mockResolvedValue()
+})
+
+afterEach(() => {
+  document.body.innerHTML = ''
+  document.body.style.overflow = ''
+})
+
 describe('PerformanceTemplateManagement', () => {
   it('matches the reference page structure', () => {
     const wrapper = mountView()
-    expect(wrapper.find('.template-title').text()).toBe('绩效模板')
-    expect(wrapper.find('.template-content .template-title').exists()).toBe(false)
+    expect(wrapper.find('.list-page-title').text()).toBe('绩效模板')
+    expect(wrapper.find('.list-page-content .list-page-title').exists()).toBe(false)
     expect(wrapper.find('.create-button').text()).toContain('新建')
-    expect(wrapper.find('.template-search').exists()).toBe(true)
+    expect(wrapper.find('.search-input').exists()).toBe(true)
     expect(wrapper.find('.filter-button').exists()).toBe(true)
     expect(wrapper.text()).toContain('半年度绩效评估（2026模板）')
     expect(wrapper.text()).toContain('已启用')
@@ -52,6 +65,98 @@ describe('PerformanceTemplateManagement', () => {
     const wrapper = mountView()
     await wrapper.get('.create-button').trigger('click')
     expect(push).toHaveBeenCalledWith({ name: 'PerformanceTemplateCreate' })
+  })
+
+  it('opens a persisted template in edit mode with its real id', async () => {
+    vi.mocked(performanceTemplateApi.list).mockResolvedValueOnce([{
+      template_id: 42,
+      name: '真实模板',
+      description: '真实描述',
+      status: 'DRAFT',
+      created_at: '2026-08-31T10:00:00Z',
+    }])
+    const wrapper = mountView()
+    await flushPromises()
+
+    const setupState = (wrapper.vm.$ as any).setupState
+    const row = setupState.templates[0]
+    setupState.openEditPage(row)
+
+    expect(push).toHaveBeenCalledWith({
+      name: 'PerformanceTemplateCreate',
+      query: { template_id: '42' },
+    })
+  })
+
+  it('opens the captured confirmation and keeps the template when cancelled', async () => {
+    vi.mocked(performanceTemplateApi.list).mockResolvedValueOnce([{
+      template_id: 42,
+      name: '待删除模板',
+      description: '',
+      status: 'DRAFT',
+      created_at: '2026-08-31T10:00:00Z',
+    }])
+    const wrapper = mountView()
+    await flushPromises()
+    const setupState = (wrapper.vm.$ as any).setupState
+
+    setupState.handleTemplateAction('删除', setupState.templates[0])
+    await flushPromises()
+
+    expect(document.querySelector('.performance-confirm-dialog__title-content')?.textContent).toBe('后续配置项目将无法使用该模板，确定删除吗？')
+    ;(document.querySelector('.performance-confirm-dialog__button--cancel') as HTMLButtonElement).click()
+    await flushPromises()
+
+    expect(performanceTemplateApi.remove).not.toHaveBeenCalled()
+    expect(document.querySelector('.performance-confirm-dialog')).toBeNull()
+  })
+
+  it('deletes the real template and refreshes the persisted list after confirmation', async () => {
+    vi.mocked(performanceTemplateApi.list)
+      .mockResolvedValueOnce([{
+        template_id: 42,
+        name: '待删除模板',
+        description: '',
+        status: 'DRAFT',
+        created_at: '2026-08-31T10:00:00Z',
+      }])
+      .mockResolvedValueOnce([])
+    const wrapper = mountView()
+    await flushPromises()
+    const setupState = (wrapper.vm.$ as any).setupState
+
+    setupState.handleTemplateAction('删除', setupState.templates[0])
+    await flushPromises()
+    ;(document.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+
+    expect(performanceTemplateApi.remove).toHaveBeenCalledWith(42)
+    expect(performanceTemplateApi.list).toHaveBeenCalledTimes(2)
+    expect(setupState.templates).toEqual([])
+    expect(document.querySelector('.performance-confirm-dialog')).toBeNull()
+    expect(wrapper.text()).toContain('模板已删除')
+  })
+
+  it('keeps the confirmation open when the delete API fails', async () => {
+    vi.mocked(performanceTemplateApi.list).mockResolvedValueOnce([{
+      template_id: 42,
+      name: '待删除模板',
+      description: '',
+      status: 'DRAFT',
+      created_at: '2026-08-31T10:00:00Z',
+    }])
+    vi.mocked(performanceTemplateApi.remove).mockRejectedValueOnce({ response: { data: { detail: '模板删除失败' } } })
+    const wrapper = mountView()
+    await flushPromises()
+    const setupState = (wrapper.vm.$ as any).setupState
+
+    setupState.handleTemplateAction('删除', setupState.templates[0])
+    await flushPromises()
+    ;(document.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+
+    expect(document.querySelector('.performance-confirm-dialog')).not.toBeNull()
+    expect(wrapper.text()).toContain('模板删除失败')
   })
 })
 

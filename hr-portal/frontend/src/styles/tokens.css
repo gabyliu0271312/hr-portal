@@ -6,6 +6,195 @@
  * ============================================================ */
 
 :root {
+  /* Semantic surface and control aliases */
+  --color-surface-page: var(--color-bg-page);
+  --color-surface-card: var(--color-bg-card);
+  --color-surface-disabled: #eff0f1;
+  --color-line-control: #d0d3d6;
+  --color-line-divider: rgba(31, 35, 41, 0.15);
+  --color-text-danger-strong: #f54a45;
+  --color-text-warning-strong: #ff8800;
+  --color-action-primary: var(--color-primary);
+  --color-action-primary-hover: var(--color-primary-hover);
+
+  /* Performance shared component tokens */
+  --performance-content-surface-padding: var(--spacing-5);
+  --performance-content-surface-radius: var(--radius-lg);
+  --performance-content-surface-background: var(--color-surface-card);
+  --performance-content-surface-shadow: 0 1px 4px rgba(31, 35, 41, 0.05);
+  --performance-table-surface-padding: var(--spacing-6);
+  --performance-page-surface: #f2f3f5;
+  --performance-review-surface-inset: var(--spacing-5);
+  --performance-review-page-bg: var(--performance-page-surface);
+  --performance-review-content-max-width: 984px;
+  --performance-review-completion-bg: #e4fae1;
+  --performance-review-completion-icon: #32a645;
+  --performance-review-readonly-surface: #f5f6f7;
+  --performance-form-surface-width: 800px;
+  --performance-form-surface-page-gap: var(--spacing-5);
+  --performance-control-height: 32px;
+  --performance-admin-sidebar-width: 240px;
+  --performance-admin-content-inset: var(--spacing-5);
+  --performance-control-height-compact: 30px;
+  --performance-metric-field-button-width: 98px;
+  --performance-create-wide-icon-width: 97px;
+  --performance-metric-field-button-gap: var(--spacing-1);
+  --performance-metric-formula-button-width: var(--performance-metric-field-button-width);
+  --performance-metric-formula-button-gap: var(--performance-metric-field-button-gap);
+  --performance-formula-create-button-width: 126px;
+  --performance-formula-resource-search-width: 150px;
+  --performance-formula-resource-hover-bg: #e1eaff;
+  --performance-formula-example-number: #de7802;
+  --performance-control-radius: var(--radius-md);
+  --performance-control-border: var(--color-line-control);
+  --performance-control-focus-border: var(--color-primary-hover);
+  --performance-control-focus-ring: var(--shadow-focus);
+  --performance-input-height: 31px;
+  --performance-input-compact-height: 30px;
+  --performance-input-padding-x: 11px;
+  --performance-input-padding-y: 4px;
+  --performance-input-line-height: 22px;
+  --performance-input-textarea-padding-bottom: 22px;
+  --performance-input-label-gap: 6px;
+  --performance-input-field-gap: 18px;
+  --performance-required-mark-gap: 2px;
+  --performance-required-mark-width: 8px;
+  --performance-header-back-width: 68px;
+  --performance-header-inner-height: 28px;
+  --performance-header-icon-size: 20px;
+  --performance-header-divider-height: 16px;
+  --performance-header-title-size: var(--font-size-lg);
+  --performance-header-title-weight: 600;
+  --performance-header-title-line-height: 24px;
+  --performance-header-action-gap: var(--spacing-3);
+  --performance-icon-button-size: 24px;
+  --performance-icon-size: 16px;
+  --performance-line-tabs-ink: #1456f0;
+  --performance-line-tabs-text: #1f2329;
+  --performance-line-tabs-divider: rgba(31, 35, 41, 0.15);
+  --performance-line-tabs-surface: var(--performance-page-surface);
+  --performance-page-title-size: 18px;
+  --performance-page-title-weight: 600;
+  --performance-page-title-line-height: 32px;
+  --performance-page-title-color: #1f2329;
+  --performance-page-title-gap: 16px;
+  --performance-switch-width: 28px;
+  --performance-switch-height: 16px;
+  --performance-switch-handler-size: 12px;
+  --performance-switch-medium-width: 40px;
+  --performance-switch-medium-height: 22px;
+  --performance-switch-medium-handler-size: 18px;
+  --performance-switch-medium-on-left: 20px;
+  --performance-switch-off: #dee0e3;
+  --performance-checkbox-size: 16px;
+  --performance-checkbox-checked: #0442d2;
+  --performance-checkbox-disabled: var(--color-border);
+  --performance-field-label-gap: 8px;
+  --performance-textarea-min-height: 49.3333px;
+  --performance-count-badge-height: 16px;
+  --performance-count-badge-bg: #eff0f1;
+  --performance-count-badge-text: #646a73;
+  --performance-dialog-width: 420px;
+  --performance-workbench-editor-width: 600px;
+  --performance-workbench-editor-header-height: 72px;
+  --performance-workbench-editor-padding-x: 24px;
+  --performance-workbench-editor-padding-right: 56px;
+  --performance-workbench-editor-field-gap: 28px;
+  --performance-workbench-editor-select-indent: 24px;
+  --performance-workbench-editor-language-tag-bg: rgba(31, 35, 41, 0.1);
+  --performance-workbench-editor-language-tag-color: #646a73;
+  --performance-workbench-editor-radio-size: 16px;
+  --performance-workbench-editor-compact-switch-width: 28px;
+  --performance-workbench-editor-compact-switch-height: 16px;
+  --performance-dialog-radius: var(--radius-lg);
+  --performance-dialog-padding: var(--spacing-6);
+  --performance-dialog-header-padding-right: 56px;
+  --performance-dialog-footer-height: 56px;
+  --performance-dialog-button-width: 80px;
+  --performance-dialog-shadow: 0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12);
+  --performance-dialog-danger-bg: #fbbfbc;
+  --performance-dialog-cancel-hover: #dee0e3;
+  --performance-dialog-focus-ring: rgba(51, 112, 255, 0.45);
+  --performance-confirm-z-index: 2200;
+  --performance-drawer-z-index: 2200;
+  --performance-overlay: rgba(0, 0, 0, 0.45);
+  --performance-popover-background: var(--color-bg-card);
+  --performance-popover-border: #dee0e3;
+  --performance-popover-border-width: 1px;
+  --performance-popover-radius: var(--radius-lg);
+  --performance-popover-padding-y: var(--spacing-3);
+  --performance-popover-padding-x: var(--spacing-4);
+  --performance-popover-line-height: 22px;
+  --performance-popover-min-width: 30px;
+  --performance-popover-shadow: 0 8px 24px 8px rgba(31, 35, 41, 0.04), 0 6px 12px 0 rgba(31, 35, 41, 0.04), 0 4px 8px -8px rgba(31, 35, 41, 0.06);
+  --performance-popover-z-index: calc(var(--performance-confirm-z-index) + 1);
+
+  /* Shared button tokens: every page-level action should use a button family or Element Plus alias. */
+  --performance-button-height: 32px;
+  --performance-button-height-small: 28px;
+  --performance-button-min-width: 80px;
+  --performance-button-padding-x: 16px;
+  --performance-button-icon-size: 24px;
+  --performance-button-radius: var(--radius-md);
+  --performance-button-gap: var(--spacing-3);
+  --performance-button-font-size: var(--font-size-md);
+  --performance-button-line-height: 22px;
+  --performance-button-font-weight: 400;
+  --performance-button-focus-ring: var(--shadow-focus);
+  --performance-button-primary-background: var(--color-primary);
+  --performance-button-primary-hover-background: var(--color-primary-hover);
+  --performance-button-primary-active-background: var(--color-primary-active);
+  --performance-button-primary-disabled-background: var(--color-surface-disabled);
+  --performance-button-primary-text: var(--color-bg-card);
+  --performance-button-secondary-background: var(--color-bg-card);
+  --performance-button-secondary-hover-background: var(--color-surface-disabled);
+  --performance-button-secondary-border: var(--color-line-control);
+  --performance-button-secondary-text: var(--color-text-primary);
+  --performance-button-outline-primary-background: var(--color-bg-card);
+  --performance-button-outline-primary-hover-background: var(--color-bg-hover);
+  --performance-button-outline-primary-border: var(--color-primary-hover);
+  --performance-button-outline-primary-text: var(--color-primary-hover);
+  --performance-button-continue-background: #c2d4ff;
+  --performance-button-continue-hover-background: #adc5ff;
+  --performance-button-continue-border: #c2d4ff;
+  --performance-button-continue-hover-border: #adc5ff;
+  --performance-button-continue-text: var(--color-primary-hover);
+  --performance-button-text-color: var(--color-primary-hover);
+  --performance-button-link-disabled-color: #bbbfc4;
+  --performance-button-text-hover-background: rgba(20, 86, 240, 0.2);
+  --performance-button-text-active-background: rgba(20, 86, 240, 0.32);
+  --performance-button-danger-background: var(--color-danger);
+  --performance-button-danger-hover-background: #b42318;
+  --performance-button-danger-text: var(--color-bg-card);
+
+  /* Shared field states: the field shell owns visual state, business controls own value logic. */
+  --performance-field-border: var(--performance-control-border);
+  --performance-field-border-hover: var(--color-text-placeholder);
+  --performance-field-border-focus: var(--performance-control-focus-border);
+  --performance-field-focus-ring: var(--performance-control-focus-ring);
+  --performance-field-border-invalid: var(--color-text-danger-strong);
+  --performance-field-error-color: var(--color-text-danger-strong);
+  --performance-field-error-font-size: var(--font-size-sm);
+  --performance-field-error-line-height: 20px;
+  --performance-field-error-gap: var(--spacing-1);
+  --performance-field-help-color: var(--color-text-secondary);
+  --performance-field-disabled-background: var(--color-surface-page);
+  --performance-field-disabled-text: var(--color-text-placeholder);
+
+  /* Shared container behavior: used by shells, not as a substitute for a shell. */
+  --performance-dialog-overlay: var(--performance-overlay);
+  --performance-dialog-content-gap: var(--spacing-6);
+  --performance-dialog-content-bottom-space: var(--performance-dialog-footer-height);
+  --performance-dialog-close-size: 28px;
+  --performance-dialog-header-height: 72px;
+  --performance-dialog-footer-gap: var(--performance-button-gap);
+  --performance-drawer-header-height: 56px;
+  --performance-drawer-footer-height: 61px;
+  --performance-drawer-footer-padding-x: var(--spacing-5);
+  --performance-fullscreen-footer-height: 48px;
+  --performance-fullscreen-footer-padding-x: var(--spacing-5);
+  --performance-fullscreen-content-bottom-space: var(--performance-fullscreen-footer-height);
+
   /* Font */
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
@@ -23,17 +212,18 @@
 
   /* Brand */
   --color-primary: #3370ff;
-  --color-primary-hover: #2855cc;
-  --color-primary-active: #1f4fb8;
+  --color-primary-hover: #1456f0;
+  --color-primary-active: #245bdb;
   --color-primary-light: #eef2ff;
   --color-primary-subtle: #f5f7ff;
 
   /* Text */
-  --color-text-primary: #1a2233;
+  --color-text-primary: #1f2329;
   --color-text-regular: #374151;
   --color-text-secondary: #5c6b82;
-  --color-text-placeholder: #9aa5b4;
+  --color-text-placeholder: #8f959e;
   --color-text-disabled: #c4cad4;
+  --color-link: #1890ff;
 
   /* Background */
   --color-bg-page: #f4f6f9;
@@ -43,7 +233,7 @@
   --color-bg-hover: #f0f5ff;
 
   /* Border */
-  --color-border: #e4e9f0;
+  --color-border: #bbbfc4;
   --color-border-light: #eef1f6;
   --color-border-lighter: #f3f6fb;
   --color-border-strong: #d0d7e2;
@@ -55,7 +245,7 @@
   --color-warning: #f5920a;
   --color-warning-light: #fff7e8;
   --color-warning-border: #ffd99a;
-  --color-danger: #f04438;
+  --color-danger: #d83931;
   --color-danger-light: #fdecec;
   --color-danger-border: #f5c2c2;
   --color-info: #667085;
@@ -65,6 +255,7 @@
   /* Spacing */
   --spacing-1: 4px;
   --spacing-2: 8px;
+  --spacing-25: 10px;
   --spacing-3: 12px;
   --spacing-4: 16px;
   --spacing-5: 20px;
@@ -78,11 +269,13 @@
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-pill: 999px;
+  --radius-2xl: 32px;
 
   /* Elevation */
   --shadow-none: none;
   --shadow-card: 0 1px 2px rgba(31, 35, 41, 0.06);
   --shadow-popover: 0 8px 20px rgba(31, 35, 41, 0.10);
+  --shadow-dialog: 0 4px 16px 4px rgba(31, 35, 41, 0.03), 0 4px 8px 0 rgba(31, 35, 41, 0.02), 0 2px 4px -4px rgba(31, 35, 41, 0.02);
   --shadow-focus: 0 0 0 3px rgba(51, 112, 255, 0.16);
 
   /* Motion */

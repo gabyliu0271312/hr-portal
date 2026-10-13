@@ -7,12 +7,15 @@ import { performanceApi } from '@/api/performance';
 import { canManagePerformanceSettings } from '@/utils/performanceSettingsAccess';
 import { openPerformanceSettingsInNewTab } from '@/utils/performanceSettingsNavigation';
 import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue';
+import PerformanceBrand from '@/components/performance/PerformanceBrand.vue';
 const route = useRoute();
 const router = useRouter();
 const userStore = useUserStore();
 const performanceContext = ref(null);
 const canAdmin = computed(() => canManagePerformanceSettings(userStore.menus.map((menu) => menu.code), performanceContext.value));
 const userInitial = computed(() => userStore.user?.display_name?.trim().slice(0, 1) || '我');
+const isWorkbench = computed(() => route.path === '/performance/workbench');
+const isReview = computed(() => route.path === '/performance/review');
 const tabs = computed(() => [
     {
         label: '工作台',
@@ -77,6 +80,8 @@ debugger; /* PartiallyEnd: #3632/scriptSetup.vue */
 const __VLS_ctx = {};
 let __VLS_components;
 let __VLS_directives;
+/** @type {__VLS_StyleScopedClasses['launcher']} */ ;
+/** @type {__VLS_StyleScopedClasses['launcher']} */ ;
 /** @type {__VLS_StyleScopedClasses['portal-link']} */ ;
 /** @type {__VLS_StyleScopedClasses['tab-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['tab-button']} */ ;
@@ -113,15 +118,23 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElement
     ...{ onClick: (...[$event]) => {
             __VLS_ctx.router.push('/home');
         } },
-    ...{ class: "portal-link" },
+    ...{ class: "launcher" },
     type: "button",
+    'aria-label': "应用启动器",
 });
-__VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
-    ...{ class: "divider" },
-});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
-    ...{ class: "app-name" },
-});
+for (const [index] of __VLS_getVForSourceType((9))) {
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.i, __VLS_intrinsicElements.i)({
+        key: (index),
+    });
+}
+/** @type {[typeof PerformanceBrand, ]} */ ;
+// @ts-ignore
+const __VLS_5 = __VLS_asFunctionalComponent(PerformanceBrand, new PerformanceBrand({
+    label: "创梦绩效",
+}));
+const __VLS_6 = __VLS_5({
+    label: "创梦绩效",
+}, ...__VLS_functionalComponentArgsRest(__VLS_5));
 __VLS_asFunctionalElement(__VLS_intrinsicElements.nav, __VLS_intrinsicElements.nav)({
     ...{ class: "performance-tabs" },
 });
@@ -140,159 +153,161 @@ for (const [tab] of __VLS_getVForSourceType((__VLS_ctx.visibleTabs))) {
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ class: "header-right" },
 });
-const __VLS_5 = {}.ElDropdown;
+const __VLS_8 = {}.ElDropdown;
 /** @type {[typeof __VLS_components.ElDropdown, typeof __VLS_components.elDropdown, typeof __VLS_components.ElDropdown, typeof __VLS_components.elDropdown, ]} */ ;
 // @ts-ignore
-const __VLS_6 = __VLS_asFunctionalComponent(__VLS_5, new __VLS_5({
+const __VLS_9 = __VLS_asFunctionalComponent(__VLS_8, new __VLS_8({
     ...{ 'onCommand': {} },
     trigger: "click",
 }));
-const __VLS_7 = __VLS_6({
+const __VLS_10 = __VLS_9({
     ...{ 'onCommand': {} },
     trigger: "click",
-}, ...__VLS_functionalComponentArgsRest(__VLS_6));
-let __VLS_9;
-let __VLS_10;
-let __VLS_11;
-const __VLS_12 = {
+}, ...__VLS_functionalComponentArgsRest(__VLS_9));
+let __VLS_12;
+let __VLS_13;
+let __VLS_14;
+const __VLS_15 = {
     onCommand: (__VLS_ctx.handleUserCommand)
 };
-__VLS_8.slots.default;
+__VLS_11.slots.default;
 __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
     ...{ class: "user-trigger" },
     type: "button",
 });
-const __VLS_13 = {}.ElAvatar;
+const __VLS_16 = {}.ElAvatar;
 /** @type {[typeof __VLS_components.ElAvatar, typeof __VLS_components.elAvatar, typeof __VLS_components.ElAvatar, typeof __VLS_components.elAvatar, ]} */ ;
 // @ts-ignore
-const __VLS_14 = __VLS_asFunctionalComponent(__VLS_13, new __VLS_13({
+const __VLS_17 = __VLS_asFunctionalComponent(__VLS_16, new __VLS_16({
     size: (30),
 }));
-const __VLS_15 = __VLS_14({
+const __VLS_18 = __VLS_17({
     size: (30),
-}, ...__VLS_functionalComponentArgsRest(__VLS_14));
-__VLS_16.slots.default;
+}, ...__VLS_functionalComponentArgsRest(__VLS_17));
+__VLS_19.slots.default;
 (__VLS_ctx.userInitial);
-var __VLS_16;
+var __VLS_19;
 __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
     ...{ class: "user-name" },
 });
 (__VLS_ctx.userStore.user?.display_name);
-const __VLS_17 = {}.ElIcon;
+const __VLS_20 = {}.ElIcon;
 /** @type {[typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, typeof __VLS_components.ElIcon, typeof __VLS_components.elIcon, ]} */ ;
 // @ts-ignore
-const __VLS_18 = __VLS_asFunctionalComponent(__VLS_17, new __VLS_17({}));
-const __VLS_19 = __VLS_18({}, ...__VLS_functionalComponentArgsRest(__VLS_18));
-__VLS_20.slots.default;
-const __VLS_21 = {}.ArrowDown;
+const __VLS_21 = __VLS_asFunctionalComponent(__VLS_20, new __VLS_20({}));
+const __VLS_22 = __VLS_21({}, ...__VLS_functionalComponentArgsRest(__VLS_21));
+__VLS_23.slots.default;
+const __VLS_24 = {}.ArrowDown;
 /** @type {[typeof __VLS_components.ArrowDown, ]} */ ;
 // @ts-ignore
-const __VLS_22 = __VLS_asFunctionalComponent(__VLS_21, new __VLS_21({}));
-const __VLS_23 = __VLS_22({}, ...__VLS_functionalComponentArgsRest(__VLS_22));
-var __VLS_20;
+const __VLS_25 = __VLS_asFunctionalComponent(__VLS_24, new __VLS_24({}));
+const __VLS_26 = __VLS_25({}, ...__VLS_functionalComponentArgsRest(__VLS_25));
+var __VLS_23;
 {
-    const { dropdown: __VLS_thisSlot } = __VLS_8.slots;
-    const __VLS_25 = {}.ElDropdownMenu;
+    const { dropdown: __VLS_thisSlot } = __VLS_11.slots;
+    const __VLS_28 = {}.ElDropdownMenu;
     /** @type {[typeof __VLS_components.ElDropdownMenu, typeof __VLS_components.elDropdownMenu, typeof __VLS_components.ElDropdownMenu, typeof __VLS_components.elDropdownMenu, ]} */ ;
     // @ts-ignore
-    const __VLS_26 = __VLS_asFunctionalComponent(__VLS_25, new __VLS_25({}));
-    const __VLS_27 = __VLS_26({}, ...__VLS_functionalComponentArgsRest(__VLS_26));
-    __VLS_28.slots.default;
+    const __VLS_29 = __VLS_asFunctionalComponent(__VLS_28, new __VLS_28({}));
+    const __VLS_30 = __VLS_29({}, ...__VLS_functionalComponentArgsRest(__VLS_29));
+    __VLS_31.slots.default;
     if (__VLS_ctx.canAdmin) {
-        const __VLS_29 = {}.ElDropdownItem;
+        const __VLS_32 = {}.ElDropdownItem;
         /** @type {[typeof __VLS_components.ElDropdownItem, typeof __VLS_components.elDropdownItem, typeof __VLS_components.ElDropdownItem, typeof __VLS_components.elDropdownItem, ]} */ ;
         // @ts-ignore
-        const __VLS_30 = __VLS_asFunctionalComponent(__VLS_29, new __VLS_29({
+        const __VLS_33 = __VLS_asFunctionalComponent(__VLS_32, new __VLS_32({
             command: "settings",
         }));
-        const __VLS_31 = __VLS_30({
+        const __VLS_34 = __VLS_33({
             command: "settings",
-        }, ...__VLS_functionalComponentArgsRest(__VLS_30));
-        __VLS_32.slots.default;
-        var __VLS_32;
+        }, ...__VLS_functionalComponentArgsRest(__VLS_33));
+        __VLS_35.slots.default;
+        var __VLS_35;
     }
-    const __VLS_33 = {}.ElDropdownItem;
+    const __VLS_36 = {}.ElDropdownItem;
     /** @type {[typeof __VLS_components.ElDropdownItem, typeof __VLS_components.elDropdownItem, typeof __VLS_components.ElDropdownItem, typeof __VLS_components.elDropdownItem, ]} */ ;
     // @ts-ignore
-    const __VLS_34 = __VLS_asFunctionalComponent(__VLS_33, new __VLS_33({
+    const __VLS_37 = __VLS_asFunctionalComponent(__VLS_36, new __VLS_36({
         command: "logout",
         divided: (__VLS_ctx.canAdmin),
     }));
-    const __VLS_35 = __VLS_34({
+    const __VLS_38 = __VLS_37({
         command: "logout",
         divided: (__VLS_ctx.canAdmin),
-    }, ...__VLS_functionalComponentArgsRest(__VLS_34));
-    __VLS_36.slots.default;
-    var __VLS_36;
-    var __VLS_28;
+    }, ...__VLS_functionalComponentArgsRest(__VLS_37));
+    __VLS_39.slots.default;
+    var __VLS_39;
+    var __VLS_31;
 }
-var __VLS_8;
-const __VLS_37 = {}.ElContainer;
+var __VLS_11;
+const __VLS_40 = {}.ElContainer;
 /** @type {[typeof __VLS_components.ElContainer, typeof __VLS_components.elContainer, typeof __VLS_components.ElContainer, typeof __VLS_components.elContainer, ]} */ ;
 // @ts-ignore
-const __VLS_38 = __VLS_asFunctionalComponent(__VLS_37, new __VLS_37({
+const __VLS_41 = __VLS_asFunctionalComponent(__VLS_40, new __VLS_40({
     ...{ class: "performance-body" },
 }));
-const __VLS_39 = __VLS_38({
+const __VLS_42 = __VLS_41({
     ...{ class: "performance-body" },
-}, ...__VLS_functionalComponentArgsRest(__VLS_38));
-__VLS_40.slots.default;
-const __VLS_41 = {}.ElAside;
-/** @type {[typeof __VLS_components.ElAside, typeof __VLS_components.elAside, typeof __VLS_components.ElAside, typeof __VLS_components.elAside, ]} */ ;
-// @ts-ignore
-const __VLS_42 = __VLS_asFunctionalComponent(__VLS_41, new __VLS_41({
-    width: "220px",
-    ...{ class: "performance-aside" },
-}));
-const __VLS_43 = __VLS_42({
-    width: "220px",
-    ...{ class: "performance-aside" },
-}, ...__VLS_functionalComponentArgsRest(__VLS_42));
-__VLS_44.slots.default;
-__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "aside-title" },
-});
-(__VLS_ctx.activeTab?.label || '绩效管理');
-for (const [item] of __VLS_getVForSourceType((__VLS_ctx.activeMenu))) {
+}, ...__VLS_functionalComponentArgsRest(__VLS_41));
+__VLS_43.slots.default;
+if (!__VLS_ctx.isWorkbench && !__VLS_ctx.isReview) {
+    const __VLS_44 = {}.ElAside;
+    /** @type {[typeof __VLS_components.ElAside, typeof __VLS_components.elAside, typeof __VLS_components.ElAside, typeof __VLS_components.elAside, ]} */ ;
+    // @ts-ignore
+    const __VLS_45 = __VLS_asFunctionalComponent(__VLS_44, new __VLS_44({
+        width: "220px",
+        ...{ class: "performance-aside" },
+    }));
+    const __VLS_46 = __VLS_45({
+        width: "220px",
+        ...{ class: "performance-aside" },
+    }, ...__VLS_functionalComponentArgsRest(__VLS_45));
+    __VLS_47.slots.default;
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-        ...{ onClick: (...[$event]) => {
-                __VLS_ctx.router.push(item.path);
-            } },
-        key: (item.key),
-        ...{ class: "menu-item" },
-        ...{ class: ({ active: item.path === __VLS_ctx.route.path }) },
+        ...{ class: "aside-title" },
     });
-    (item.label);
+    (__VLS_ctx.activeTab?.label || '绩效管理');
+    for (const [item] of __VLS_getVForSourceType((__VLS_ctx.activeMenu))) {
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+            ...{ onClick: (...[$event]) => {
+                    if (!(!__VLS_ctx.isWorkbench && !__VLS_ctx.isReview))
+                        return;
+                    __VLS_ctx.router.push(item.path);
+                } },
+            key: (item.key),
+            ...{ class: "menu-item" },
+            ...{ class: ({ active: item.path === __VLS_ctx.route.path }) },
+        });
+        (item.label);
+    }
+    var __VLS_47;
 }
-var __VLS_44;
-const __VLS_45 = {}.ElMain;
+const __VLS_48 = {}.ElMain;
 /** @type {[typeof __VLS_components.ElMain, typeof __VLS_components.elMain, typeof __VLS_components.ElMain, typeof __VLS_components.elMain, ]} */ ;
 // @ts-ignore
-const __VLS_46 = __VLS_asFunctionalComponent(__VLS_45, new __VLS_45({
-    ...{ class: "performance-main" },
+const __VLS_49 = __VLS_asFunctionalComponent(__VLS_48, new __VLS_48({
+    ...{ class: (['performance-main', { 'review-main': __VLS_ctx.isReview }]) },
 }));
-const __VLS_47 = __VLS_46({
-    ...{ class: "performance-main" },
-}, ...__VLS_functionalComponentArgsRest(__VLS_46));
-__VLS_48.slots.default;
-const __VLS_49 = {}.RouterView;
+const __VLS_50 = __VLS_49({
+    ...{ class: (['performance-main', { 'review-main': __VLS_ctx.isReview }]) },
+}, ...__VLS_functionalComponentArgsRest(__VLS_49));
+__VLS_51.slots.default;
+const __VLS_52 = {}.RouterView;
 /** @type {[typeof __VLS_components.RouterView, typeof __VLS_components.routerView, ]} */ ;
 // @ts-ignore
-const __VLS_50 = __VLS_asFunctionalComponent(__VLS_49, new __VLS_49({}));
-const __VLS_51 = __VLS_50({}, ...__VLS_functionalComponentArgsRest(__VLS_50));
-var __VLS_48;
-var __VLS_40;
+const __VLS_53 = __VLS_asFunctionalComponent(__VLS_52, new __VLS_52({}));
+const __VLS_54 = __VLS_53({}, ...__VLS_functionalComponentArgsRest(__VLS_53));
+var __VLS_51;
+var __VLS_43;
 /** @type {[typeof GlobalAiAssistant, ]} */ ;
 // @ts-ignore
-const __VLS_53 = __VLS_asFunctionalComponent(GlobalAiAssistant, new GlobalAiAssistant({}));
-const __VLS_54 = __VLS_53({}, ...__VLS_functionalComponentArgsRest(__VLS_53));
+const __VLS_56 = __VLS_asFunctionalComponent(GlobalAiAssistant, new GlobalAiAssistant({}));
+const __VLS_57 = __VLS_56({}, ...__VLS_functionalComponentArgsRest(__VLS_56));
 var __VLS_3;
 /** @type {__VLS_StyleScopedClasses['performance-app']} */ ;
 /** @type {__VLS_StyleScopedClasses['performance-header']} */ ;
 /** @type {__VLS_StyleScopedClasses['header-left']} */ ;
-/** @type {__VLS_StyleScopedClasses['portal-link']} */ ;
-/** @type {__VLS_StyleScopedClasses['divider']} */ ;
-/** @type {__VLS_StyleScopedClasses['app-name']} */ ;
+/** @type {__VLS_StyleScopedClasses['launcher']} */ ;
 /** @type {__VLS_StyleScopedClasses['performance-tabs']} */ ;
 /** @type {__VLS_StyleScopedClasses['tab-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['header-right']} */ ;
@@ -302,18 +317,20 @@ var __VLS_3;
 /** @type {__VLS_StyleScopedClasses['performance-aside']} */ ;
 /** @type {__VLS_StyleScopedClasses['aside-title']} */ ;
 /** @type {__VLS_StyleScopedClasses['menu-item']} */ ;
-/** @type {__VLS_StyleScopedClasses['performance-main']} */ ;
 var __VLS_dollars;
 const __VLS_self = (await import('vue')).defineComponent({
     setup() {
         return {
             ArrowDown: ArrowDown,
             GlobalAiAssistant: GlobalAiAssistant,
+            PerformanceBrand: PerformanceBrand,
             route: route,
             router: router,
             userStore: userStore,
             canAdmin: canAdmin,
             userInitial: userInitial,
+            isWorkbench: isWorkbench,
+            isReview: isReview,
             visibleTabs: visibleTabs,
             activeTab: activeTab,
             activeMenu: activeMenu,

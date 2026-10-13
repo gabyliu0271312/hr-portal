@@ -458,6 +458,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '周期与项目' },
       },
       {
+        path: 'cycles/:cycleId/hrbp-auth',
+        name: 'PerformanceCycleHrbpPermissions',
+        component: () => import('@/views/performance/CycleHrbpPermissionManagement.vue'),
+        meta: { label: 'HRBP 权限管理' },
+      },
+      {
         path: 'templates',
         name: 'PerformanceTemplates',
         component: () => import('@/views/performance/PerformanceTemplateManagement.vue'),
@@ -467,6 +473,148 @@ const routes: RouteRecordRaw[] = [
         name: 'PerformanceTemplateCreate',
         component: () => import('@/views/performance/PerformanceTemplateCreate.vue'),
         meta: { label: '绩效模板' },
+      },
+      {
+        path: 'metric-management/library',
+        name: 'PerformanceMetricLibrary',
+        component: () => import('@/views/performance/PerformanceMetricLibrary.vue'),
+        meta: { label: '指标库' },
+      },
+      {
+        path: 'metric-management/templates',
+        name: 'PerformanceMetricTemplates',
+        component: () => import('@/views/performance/MetricTemplateManagement.vue'),
+        meta: { label: '指标模板' },
+      },
+      {
+        path: 'metric-management/templates/:templateId',
+        name: 'PerformanceMetricTemplateDetail',
+        component: () => import('@/views/performance/MetricTemplateDetail.vue'),
+        meta: { label: '编辑指标模板', hideAside: true },
+      },
+      {
+        path: 'evaluation-questions',
+        name: 'ReviewQuestionManagement',
+        component: () => import('@/views/performance/ReviewQuestionManagement.vue'),
+        meta: { label: '评估题管理' },
+      },
+      {
+        path: 'permissions/roles',
+        name: 'PerformancePermissionRoles',
+        component: () => import('@/views/performance/PerformanceRoleConfiguration.vue'),
+        meta: { label: '角色配置' },
+      },
+      {
+        path: 'permissions/roles/create',
+        name: 'PerformancePermissionRoleCreate',
+        component: () => import('@/views/performance/PerformanceRoleCreate.vue'),
+        meta: { label: '新建角色', hideAside: true },
+      },
+      {
+        path: 'permissions/authorization',
+        name: 'PerformancePermissionAuthorization',
+        component: () => import('@/views/performance/Settings.vue'),
+        props: { section: 'permissions', title: '授权配置' },
+        meta: { label: '授权配置' },
+      },
+      {
+        path: 'permissions/other',
+        name: 'PerformancePermissionOther',
+        component: () => import('@/views/performance/OtherPermissionSettings.vue'),
+        meta: { label: '其他权限设置' },
+      },
+      {
+        path: 'permissions/subject-visibility',
+        name: 'PerformancePermissionSubjectVisibility',
+        component: () => import('@/views/performance/SubjectVisibilitySettings.vue'),
+        meta: { label: '被评估人信息可见性设置' },
+      },
+      {
+        path: 'system/assessment-method',
+        name: 'PerformanceSystemAssessmentMethod',
+        component: () => import('@/views/performance/AssessmentMethodSettings.vue'),
+        meta: { label: '考核方式设置' },
+      },
+      {
+        path: 'system/notifications',
+        name: 'PerformanceSystemNotifications',
+        component: () => import('@/views/performance/NotificationSettings.vue'),
+        meta: { label: '通知设置' },
+      },
+      {
+        path: 'system/workbench',
+        name: 'PerformanceSystemWorkbench',
+        component: () => import('@/views/performance/WorkbenchSettings.vue'),
+        props: { section: 'system', title: '工作台设置' },
+        meta: { label: '工作台设置' },
+      },
+      {
+        path: 'system/copy',
+        name: 'PerformanceSystemCopy',
+        component: () => import('@/views/performance/Settings.vue'),
+        props: { section: 'system', title: '字眼设置' },
+        meta: { label: '字眼设置' },
+      },
+      {
+        path: 'system/other',
+        name: 'PerformanceSystemOther',
+        component: () => import('@/views/performance/Settings.vue'),
+        props: { section: 'system', title: '其他设置' },
+        meta: { label: '其他设置' },
+      },
+      {
+        path: 'evaluation-questions/tagged-fill-in-questions',
+        name: 'TaggedFillQuestionManagement',
+        component: () => import('@/views/performance/TagFillQuestionManagement.vue'),
+        meta: { label: '标签型填写题' },
+      },
+      {
+        path: 'evaluation-questions/tagged-fill-in-questions/create',
+        name: 'TaggedFillQuestionCreate',
+        component: () => import('@/views/performance/TagFillQuestionPage.vue'),
+        meta: { label: '新建标签型填写题' },
+      },
+      {
+        path: 'evaluation-questions/tagged-fill-in-questions/:id',
+        name: 'TaggedFillQuestionEdit',
+        component: () => import('@/views/performance/TagFillQuestionPage.vue'),
+        meta: { label: '编辑标签型填写题' },
+      },
+      {
+        path: 'evaluation-questions/create',
+        name: 'ReviewQuestionCreate',
+        component: () => import('@/views/performance/ReviewQuestionCreatePage.vue'),
+        meta: { label: '新建评估题' },
+      },
+      {
+        path: 'evaluation-questions/:id/edit',
+        name: 'ReviewQuestionEdit',
+        component: () => import('@/views/performance/ReviewQuestionCreatePage.vue'),
+        meta: { label: '编辑评估题' },
+      },
+      {
+        path: 'evaluation-questions/review-rules/create',
+        name: 'ReviewRuleCreate',
+        component: () => import('@/views/performance/ReviewRuleCreatePage.vue'),
+        meta: { label: '新建评估规则' },
+      },
+      {
+        path: 'evaluation-questions/review-rules/:id',
+        name: 'ReviewRuleEdit',
+        component: () => import('@/views/performance/ReviewRuleCreatePage.vue'),
+        meta: { label: '编辑评估规则' },
+      },
+      {
+        path: 'cycles/:cycleId/projects/new',
+        name: 'PerformanceProjectCreate',
+        component: () => import('@/views/performance/PerformanceProjectSettingsPage.vue'),
+        meta: { label: '新建项目' },
+      },
+      {
+        path: 'cycles/:cycleId/projects/:id/edit',
+        name: 'PerformanceProjectEdit',
+        component: () => import('@/views/performance/PerformanceProjectSettingsPage.vue'),
+        meta: { label: '项目设置' },
       },
       {
         path: 'cycles/new',
@@ -482,8 +630,27 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
-  {
-    path: '/performance',
+    {
+      path: '/performance/reminder-placeholder',
+      name: 'PerformanceReminderPlaceholder',
+      component: () => import('@/views/performance/PerformanceReminderPlaceholder.vue'),
+      meta: { label: '催办任务', menuCode: null, hideAside: true },
+    },
+    {
+      path: '/performance/review/self-summary',
+      name: 'PerformanceSelfSummaryStandalone',
+      component: () => import('@/views/performance/SelfSummaryTask.vue'),
+      meta: { label: 'Self Summary', menuCode: null, hideAside: true },
+    },
+    {
+      path: '/performance/review/template-task',
+      name: 'PerformanceTemplateTaskStandalone',
+      component: () => import('@/views/performance/SelfSummaryTask.vue'),
+      props: { taskKind: 'evaluation' },
+      meta: { label: '绩效任务', menuCode: null, hideAside: true },
+    },
+    {
+      path: '/performance',
     component: () => import('@/layouts/PerformanceLayout.vue'),
     meta: { menuCode: 'performance.app' },
     children: [
@@ -504,9 +671,21 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '绩效评估', menuCode: 'performance.app' },
       },
       {
+        path: 'review/self-summary',
+        name: 'PerformanceSelfSummary',
+        component: () => import('@/views/performance/SelfSummaryTask.vue'),
+        meta: { label: '自我总结', menuCode: 'performance.app', hideAside: true },
+      },
+      {
         path: 'projects',
         name: 'PerformanceProjects',
         component: () => import('@/views/performance/Projects.vue'),
+        meta: { label: '项目管理', menuCode: 'performance.app' },
+      },
+      {
+        path: 'project-management',
+        name: 'PerformanceProjectManagement',
+        component: () => import('@/views/performance/ProjectManagement.vue'),
         meta: { label: '项目管理', menuCode: 'performance.app' },
       },
 
@@ -551,9 +730,10 @@ router.beforeEach(async (to) => {
   const menuCodes = userStore.menus.map(m => m.code)
   const requiredCode = to.meta.requiredMenuCode as string | null | undefined
   const code = to.meta.menuCode as string | null | undefined
-  if (requiredCode) {
+  const isSelfSummaryTask = to.name === 'PerformanceSelfSummary'
+  if (requiredCode && !isSelfSummaryTask) {
     if (!menuCodes.includes(requiredCode)) return { name: 'Home' }
-  } else if (code) {
+  } else if (code && !isSelfSummaryTask) {
     if (!menuCodes.includes(code)) return { name: 'Home' }
   }
 

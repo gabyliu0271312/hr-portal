@@ -13,6 +13,7 @@ from app.core.jwt import create_performance_system_access_token
 from app.performance.auth_context import (
     PerformanceAccessContext,
     get_performance_access_context,
+    performance_admin_preview_enabled,
     require_performance_permission,
     resolve_trusted_performance_actor,
 )
@@ -62,6 +63,7 @@ class PerformanceAccessContextOut(BaseModel):
     portal_entry_permissions: list[str]
     role_grants: list[PerformanceRoleGrantOut]
     permission_codes: list[str]
+    dev_admin_debug: bool = False
 
 
 class PerformanceAdminAccountCreateIn(BaseModel):
@@ -156,6 +158,7 @@ async def get_context(
             for grant in context.role_grants
         ],
         permission_codes=list(context.permission_codes),
+        dev_admin_debug=performance_admin_preview_enabled(context),
     )
 
 

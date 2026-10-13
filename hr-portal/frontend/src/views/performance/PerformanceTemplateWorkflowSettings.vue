@@ -38,7 +38,7 @@
               </div>
               <div class="form-row">
                 <div class="form-label">环节描述</div>
-                <textarea v-model="selectedNode.description" class="form-control form-textarea" :disabled="locked('description')" />
+                <PerformanceTextField v-model="selectedNode.description" type="textarea" :disabled="locked('description')" />
               </div>
               <PerformanceMultiExecutorField
                 v-if="selectedNode.node_type === 'result_reconsideration'"
@@ -202,8 +202,8 @@
         <section class="appeal-modal" role="dialog" aria-modal="true" aria-labelledby="appeal-modal-title">
           <header class="appeal-modal-header"><div id="appeal-modal-title">发起复议提示</div><button class="appeal-modal-close" type="button" aria-label="关闭" @click="closeAppealPromptEditor">×</button></header>
           <div class="appeal-modal-body">
-            <PerformanceCountedTextarea v-model="appealPromptDraft" label="提示文案" input-id="appeal-prompt-input" :max-length="1500" required />
-            <PerformanceCountedTextarea v-model="appealReasonInstructionDraft" label="填写说明" input-id="appeal-reason-instruction-input" :max-length="1000" required />
+            <PerformanceFormField v-model="appealPromptDraft" textarea label="提示文案" input-id="appeal-prompt-input" :maxlength="1500" show-count required />
+            <PerformanceFormField v-model="appealReasonInstructionDraft" textarea label="填写说明" input-id="appeal-reason-instruction-input" :maxlength="1000" show-count required />
           </div>
           <footer class="appeal-modal-footer"><button class="appeal-button appeal-button--primary" type="button" @click="saveAppealPrompt">保存</button><button class="appeal-button" type="button" @click="closeAppealPromptEditor">取消</button></footer>
         </section>
@@ -226,7 +226,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { performanceTemplateApi, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
-import PerformanceCountedTextarea from '@/components/performance/PerformanceCountedTextarea.vue'
+import PerformanceFormField from '@/components/performance/PerformanceFormField.vue'
+import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
 import PerformanceSwitchSettingRow from '@/components/performance/PerformanceSwitchSettingRow.vue'
 import WorkflowFixedExecutorField from '@/components/performance/WorkflowFixedExecutorField.vue'
@@ -437,7 +438,7 @@ function invalidInviteNodeId() {
 }
 function normalizeRestrictedExecutor(node: PerformanceWorkflowNode) {
   if (node.node_type !== 'evaluation') return
-  if (node.executor_label === '被评估人') node.evaluation_type = 'SINGLE'
+  if (node.executor_label === '被评估人') { node.executor_types = ['SUBJECT']; node.evaluation_type = 'SINGLE' }
   else if (node.executor_label === '360°评估人') node.evaluation_type = 'MULTI'
   else if (node.executor_label === '实线上级') { node.evaluation_type = 'SINGLE'; return }
   else if (node.executor_label === '虚线上级') { node.include_final_result = false; return }
