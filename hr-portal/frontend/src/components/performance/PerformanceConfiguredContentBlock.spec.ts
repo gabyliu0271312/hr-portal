@@ -64,6 +64,33 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(wrapper.findAll('[data-content-item-id]')).toHaveLength(1)
   })
 
+  it('shows rating visibility settings for a rating item and reuses the shared checkbox', async () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, {
+      props: {
+        content: { ...content, type: 'rating', name: '评分评级', items: [{ id: 'rating-item', label: '季度评级', hint: '' }] },
+        active: true,
+        expanded: true,
+        dragging: false,
+        index: 0,
+        count: 1,
+        toolbarVisible: false,
+        rootSettings: { hideDescription: false, allowMultiple: false },
+        itemSettings: { 'rating-item': { mode: 'fill', required: true, hideName: false } },
+        rootSettingsVariant: 'work-summary-root',
+        itemSettingsVariant: 'work-summary-item',
+      },
+    })
+
+    await wrapper.get('[data-content-item-id="rating-item"]').trigger('click')
+    expect(wrapper.get('.content-settings-detail--item').text()).toContain('隐藏名称')
+    expect(wrapper.get('.content-settings-detail--item').text()).toContain('必填项设置')
+    expect(wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')).toHaveLength(2)
+    await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(true)
+    expect(wrapper.emitted('update:item-settings')?.at(-1)).toEqual([{ 'rating-item': { mode: 'fill', required: true, hideName: true } }])
+    await wrapper.setProps({ itemSettings: { 'rating-item': { mode: 'fill', required: true, hideName: true } } })
+    expect(wrapper.find('[data-content-item-id="rating-item"] strong').exists()).toBe(false)
+    expect(wrapper.find('[data-content-item-id="rating-item"] > i').exists()).toBe(false)
+  })
   it('does not mount the rule panel when the stage variants do not opt in', () => {
     mount(PerformanceConfiguredContentBlock, {
       props: {

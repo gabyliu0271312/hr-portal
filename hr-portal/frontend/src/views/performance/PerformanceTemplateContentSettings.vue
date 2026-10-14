@@ -219,14 +219,14 @@ const allowedContentTypes = computed(() => activeStageContentRule.value.allowedC
 const allowedContentTypeList = computed(() => [...allowedContentTypes.value])
 const availableContentCandidates = computed(() => contentLibrary.value.filter((content) => allowedContentTypes.value.includes(content.type as AssessmentContentType)).map((content) => { const normalized = normalizeRatingContent(content); return { ...normalized, id: normalized.content_id || normalized.id || `${normalized.type}-${normalized.name}` } }) as Array<AssessmentContentDraft & { id: string }>)
 const defaultRootSettings = (): WorkSummaryRootSettings => ({ hideDescription: false, allowMultiple: false })
-const defaultItemSettings = (): WorkSummaryItemSettings => ({ mode: 'fill', required: true })
+const defaultItemSettings = (): WorkSummaryItemSettings => ({ mode: 'fill', required: true, hideName: false })
 function normalizeRootSettings(value: unknown): WorkSummaryRootSettings {
   const settings = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   return { hideDescription: settings.hideDescription === true, allowMultiple: settings.allowMultiple === true }
 }
 function normalizeItemSettings(value: unknown): WorkSummaryItemSettings {
   const settings = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  return { mode: settings.mode === 'hidden' ? 'hidden' : 'fill', required: settings.required !== false }
+  return { mode: settings.mode === 'hidden' ? 'hidden' : 'fill', required: settings.required !== false, hideName: settings.hideName === true }
 }
 function rootSettingFor(contentId: string): WorkSummaryRootSettings {
   return rootSettings.value[contentId] || defaultRootSettings()

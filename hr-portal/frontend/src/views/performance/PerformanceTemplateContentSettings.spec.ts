@@ -35,6 +35,21 @@ describe('PerformanceTemplateContentSettings', () => {
     vi.restoreAllMocks()
   })
 
+  it('shows rating item display settings inside a work-summary stage', async () => {
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.find('.stage-card').trigger('click')
+    const layer = wrapper.findComponent(PerformanceAssessmentContentLayers)
+    layer.vm.$emit('confirm', [{ type: 'rating', name: '评分评级', description: '', items: [{ id: 'rating-item', label: '季度评级', hint: '' }], options: [{ id: 'a', label: '符合预期' }] }])
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-content-item-id="rating-item"]').trigger('click')
+    expect(wrapper.get('.content-settings-detail--item').text()).toContain('隐藏名称')
+    expect(wrapper.get('.content-settings-detail--item').text()).toContain('必填项设置')
+    await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(true)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-content-item-id="rating-item"] strong').exists()).toBe(false)
+    expect(wrapper.find('[data-content-item-id="rating-item"] > i').exists()).toBe(false)
+  })
   it('renders the three-column architecture and workflow-driven stage list in API order', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
@@ -166,7 +181,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.findAll('.content-renderer-rating')).toHaveLength(1)
-    expect(wrapper.get('.content-renderer-rating > strong').text()).toBe('当前绩效评级')
+    expect(wrapper.get('.content-renderer-rating__header strong').text()).toBe('当前绩效评级')
     const ratingControl = wrapper.getComponent(PerformanceRatingControl)
     expect(ratingControl.props('displayMode')).toBe('下拉样式')
     expect(ratingControl.props('options').map((option: { label: string }) => option.label)).toEqual(['当前等级'])
@@ -456,7 +471,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.findAll('.content-renderer-rating')).toHaveLength(1)
-    expect(wrapper.get('.content-renderer-rating > strong').text()).toBe('新评估项')
+    expect(wrapper.get('.content-renderer-rating__header strong').text()).toBe('新评估项')
     expect(wrapper.text()).not.toContain('旧评估项')
     expect(wrapper.findAll('.content-renderer-rating__levels .performance-rating-control__option').map(item => item.text())).toEqual(['优秀'])
   })

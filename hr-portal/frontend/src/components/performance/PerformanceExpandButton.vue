@@ -2,7 +2,7 @@
   <component
     :is="renderTag"
     class="performance-icon-button performance-expand-button"
-    :class="{ 'is-active': expanded, 'is-navigation': variant === 'navigation' }"
+    :class="{ 'is-active': expanded, 'is-navigation': variant === 'navigation', 'is-hover-only': hoverOnly }"
     :type="renderTag === 'button' ? 'button' : undefined"
     :aria-label="label"
     :aria-expanded="expanded"
@@ -25,10 +25,12 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   iconVariant?: 'bold' | 'regular'
   variant?: 'button' | 'navigation'
+  hoverOnly?: boolean
 }>(), {
   disabled: false,
   iconVariant: 'bold',
   variant: 'button',
+  hoverOnly: false,
 })
 
 const emit = defineEmits<{ toggle: [] }>()
@@ -52,8 +54,10 @@ function handleClick() {
 </script>
 
 <style scoped>
-.performance-expand-button { display:grid; place-items:center; width:var(--performance-button-icon-size); height:var(--performance-button-icon-size); padding:var(--spacing-1); border:0; border-radius:var(--performance-button-radius); background:transparent; color:var(--color-text-secondary); cursor:pointer; transition:color var(--duration-fast) var(--ease-standard),background-color var(--duration-fast) var(--ease-standard); }
+.performance-expand-button { display:grid; place-items:center; width:24px; height:24px; padding:4px; border:0; border-radius:6px; background:transparent; color:#646a73; cursor:pointer; transition:color .1s ease-in,background-color .1s ease-in,border-color .1s ease-in,width .2s ease-in; }
 .performance-expand-button:hover,.performance-expand-button:focus-visible,.performance-expand-button.is-active { background:var(--color-surface-disabled); color:var(--color-action-primary-hover); outline:0; box-shadow:var(--performance-button-focus-ring); }
+.performance-expand-button.is-hover-only { background:transparent; color:#646a73; box-shadow:none; }
+.performance-expand-button.is-hover-only:hover,.performance-expand-button.is-hover-only:focus-visible { background:rgba(31,35,41,.2); color:#646a73; box-shadow:none; }
 .performance-expand-button:disabled { opacity:.5; cursor:default; }
 .performance-expand-button.is-navigation { display:block; width:16px; height:16px; flex:0 0 16px; margin-left:auto; margin-top:3px; margin-right:20px; padding:0; border-radius:0; color:var(--color-text-placeholder); }
 .performance-expand-button.is-navigation:hover,.performance-expand-button.is-navigation:focus-visible,.performance-expand-button.is-navigation.is-active { background:transparent; color:var(--color-text-placeholder); box-shadow:none; }

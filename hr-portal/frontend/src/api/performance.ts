@@ -965,6 +965,7 @@ export interface PerformanceTemplateContentItem {
   settings?: {
     mode?: 'fill' | 'hidden'
     required?: boolean
+    hideName?: boolean
     hideDescription?: boolean
     allowMultiple?: boolean
   }
