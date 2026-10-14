@@ -7,7 +7,14 @@
           <aside class="cycle-list-panel" aria-labelledby="cycle-list-title">
             <h2>周期 <span class="info" aria-hidden="true">ⓘ</span></h2>
             <div class="cycle-search-row">
-          <input v-model="keyword" aria-label="搜索周期" placeholder="⌕ 搜索周期" @keyup.enter="searchCycles" />
+          <PerformanceSearchInput
+            v-model="keyword"
+            placeholder="搜索周期"
+            aria-label="搜索周期"
+            width="167px"
+            @search="searchCycles"
+            @clear="clearSearch"
+          />
           <button class="outline-button filter-button" type="button" @click="searchCycles">筛选</button>
           <button v-if="canManageCycles" class="icon-button" type="button" aria-label="新建周期" @click="startCreate">＋</button>
         </div>
@@ -19,9 +26,52 @@
           <button v-if="keyword" class="outline-button" type="button" @click="clearSearch">清除筛选</button>
           <button v-else-if="canManageCycles" class="primary-button" type="button" @click="startCreate">新建周期</button>
         </div>
-        <button v-for="cycle in cycles" :key="cycle.id" class="cycle-item" :class="{ active: selected?.id === cycle.id }" type="button" @click="selectCycle(cycle)">
-          <span class="truncate">{{ cycle.name }}</span><span v-if="selected?.id === cycle.id" class="cycle-more">•••</span>
-        </button>
+        <div
+          v-for="cycle in cycles"
+          :key="cycle.id"
+          class="cycle-item"
+          :class="{ active: selected?.id === cycle.id }"
+          role="button"
+          tabindex="0"
+          @click="selectCycle(cycle)"
+          @keydown.enter.prevent="selectCycle(cycle)"
+          @keydown.space.prevent="selectCycle(cycle)"
+          @mouseenter="cancelCycleMenuClose"
+          @mouseleave="scheduleCycleMenuClose(cycle.id)"
+        >
+          <span class="truncate">{{ cycle.name }}</span>
+          <button
+            v-if="canManageCycles"
+            :ref="element => setCycleMoreButton(cycle.id, element)"
+            class="cycle-more"
+            :class="{ 'is-open': activeCycleMenuId === cycle.id }"
+            type="button"
+            aria-label="更多操作"
+            aria-haspopup="menu"
+            :aria-expanded="activeCycleMenuId === cycle.id"
+            @click.stop="toggleCycleMenu(cycle.id)"
+            @mouseenter.stop="openCycleMenu(cycle.id)"
+            @focus="openCycleMenu(cycle.id)"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5.5 11.75a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Zm8.225 0a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 1 1 3.5 0Zm8.275 0a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 1 1-3.5 0Z" fill="currentColor" /></svg>
+          </button>
+          <Teleport to="body">
+            <ul
+              v-if="canManageCycles && activeCycleMenuId === cycle.id"
+              ref="cycleMenuRef"
+              class="cycle-action-menu"
+              role="menu"
+              aria-label="周期操作"
+              :style="cycleMenuStyle"
+              @mouseenter="cancelCycleMenuClose"
+              @mouseleave="scheduleCycleMenuClose(cycle.id)"
+              @keydown.esc.prevent="closeCycleMenu(true)"
+            >
+              <li role="none"><div class="cycle-action-menu__item" role="menuitem" tabindex="0" @click="editCycleFromMenu(cycle)" @keydown.enter.prevent="editCycleFromMenu(cycle)" @keydown.space.prevent="editCycleFromMenu(cycle)"><PerformanceIconButton class="cycle-action-menu__icon" icon="EditOutlined" label="编辑" static /><span>编辑</span></div></li>
+              <li role="none"><div class="cycle-action-menu__item" :class="{ 'is-disabled': hasStartedProjectFor(cycle) }" role="menuitem" :aria-disabled="hasStartedProjectFor(cycle)" :tabindex="hasStartedProjectFor(cycle) ? -1 : 0" @click="!hasStartedProjectFor(cycle) && removeCycleFromMenu(cycle)" @keydown.enter.prevent="!hasStartedProjectFor(cycle) && removeCycleFromMenu(cycle)" @keydown.space.prevent="!hasStartedProjectFor(cycle) && removeCycleFromMenu(cycle)"><PerformanceIconButton class="cycle-action-menu__icon" icon="DeleteTrashOutlined" label="删除" static :disabled="hasStartedProjectFor(cycle)" /><span>删除</span></div></li>
+            </ul>
+          </Teleport>
+        </div>
         <div v-if="total > pageSize" class="cycle-pagination" aria-label="周期分页">
           <button :disabled="page === 1" aria-label="上一页" @click="changePage(page - 1)">‹</button>
           <span>{{ page }} / {{ totalPages }}</span>
@@ -83,11 +133,7 @@
 
     <div v-if="editing" class="cycle-modal" role="presentation">
       <form class="cycle-form" role="dialog" aria-modal="true" :aria-label="formMode === 'create' ? '新建周期' : '编辑周期'" @submit.prevent="submitForm">
-        <header class="form-top">
-          <button type="button" class="back-button" @click="cancelEdit"><span aria-hidden="true">←</span><span>返回</span></button>
-          <span class="header-divider" aria-hidden="true"></span>
-          <strong>{{ formMode === 'create' ? '新建周期' : '编辑周期' }}</strong>
-        </header>
+        <PageHeader class="cycle-form-header" :title="formMode === 'create' ? '新建周期' : '编辑周期'" @back="cancelEdit" />
         <div class="form-layout">
           <nav class="form-anchor" aria-label="周期表单导航">
             <div class="anchor-track" aria-hidden="true"></div>
@@ -111,7 +157,7 @@
                 <div class="field-group">
                   <label for="cycle-year">年份<span>*</span></label>
                   <div class="year-picker">
-                    <button id="cycle-year" type="button" class="selector-control" aria-label="选择年份" :aria-expanded="yearPickerOpen" @click="toggleYearPicker"><span :class="{ 'selector-placeholder': !form.period_year }">{{ form.period_year || '请选择年份' }}</span><span class="selector-icon calendar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2a1 1 0 0 1 1 1h8a1 1 0 1 1 2 0h2a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2a1 1 0 0 1 1 1Zm9 3H8a1 1 0 0 1-2 0H4v15h16V5h-2a1 1 0 0 1-2 0Zm-7 10a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1Zm1.5-5a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1Zm3 5a1 1 0 0 0-1-1h-1a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1Zm1.5 0a1 1 0 0 1 1 1h1a1 1 0 0 1 1-1v-1a1 1 0 0 0-1-1h-1a1 1 0 0 0-1 1Z" fill="currentColor" /></svg></span></button>
+                    <button id="cycle-year" type="button" class="selector-control" aria-label="选择年份" :aria-expanded="yearPickerOpen" @click="toggleYearPicker"><span :class="{ 'selector-placeholder': !form.period_year }">{{ form.period_year || '请选择年份' }}</span><span class="selector-icon calendar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><rect x="2.25" y="3.25" width="11.5" height="10.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.25" /><path d="M5 2.25v2M11 2.25v2M2.75 6h10.5" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" /><path d="M5 8.5h1.25M8 8.5h1.25M11 8.5h.01M5 11h1.25M8 11h1.25" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" /></svg></span></button>
                     <div v-if="yearPickerOpen" class="picker-panel year-panel" role="dialog" aria-label="年份选择器" :style="yearPanelStyle">
                       <div class="picker-panel-header"><strong>{{ yearPageStart }} - {{ yearPageStart + yearPageSize - 1 }}</strong><div><button type="button" aria-label="上一组年份" :disabled="yearPageStart <= 1900" @click="changeYearPage(-1)">‹</button><button type="button" aria-label="下一组年份" :disabled="yearPageStart + yearPageSize > 2200" @click="changeYearPage(1)">›</button></div></div>
                       <div class="year-options" role="group" aria-label="选择年份"><button v-for="year in yearOptions" :key="year" type="button" :class="{ active: form.period_year === year }" :aria-pressed="form.period_year === year" @click="selectYear(year); yearPickerOpen = false">{{ year }}</button></div>
@@ -155,26 +201,30 @@
             </section>
           </div>
         </div>
-        <footer class="form-footer"><button class="primary-button" type="submit" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button><p v-if="formError" class="error" role="alert">{{ formError }}</p></footer>
+        <footer class="form-footer"><button class="primary-button cycle-save-button" type="submit" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button><p v-if="formError" class="error" role="alert">{{ formError }}</p></footer>
       </form>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, type CSSProperties, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, type CSSProperties, type ComponentPublicInstance, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { formatDateTime, shanghaiLocalToUtcIso, utcToShanghaiLocal } from '@/utils/datetime'
 import PerformanceProjectSettings from '@/components/performance/PerformanceProjectSettings.vue'
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
+import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
+import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceCycleSettingsMenu from '@/components/performance/PerformanceCycleSettingsMenu.vue'
+import PageHeader from '@/components/performance/PageHeader.vue'
 import { performanceApi, performanceCycleApi, performanceProjectApi, type PerformanceAccessContext, type PerformanceCycle, type PerformanceCyclePayload, type PerformanceCyclePerson, type PerformanceCycleProjectShell, type PerformanceProjectPayload, type PerformanceCyclePeriodSubtype, type PerformanceCyclePeriodType } from '@/api/performance'
 
 const organizationFields = [{ key: 'company_org', label: '公司级组织' }, { key: 'department', label: '一级部门' }, { key: 'department_2', label: '二级部门' }, { key: 'department_3', label: '三级部门' }, { key: 'department_4', label: '四级部门' }, { key: 'department_5', label: '五级部门' }] as const
 const route = useRoute(); const router = useRouter(); const cycles = ref<PerformanceCycle[]>([]); const selected = ref<PerformanceCycle | null>(null); const loading = ref(false); const saving = ref(false); const deleting = ref(false); const editing = ref(false); const formMode = ref<'create' | 'edit'>('create'); const keyword = ref(''); const page = ref(1); const pageSize = ref(20); const total = ref(0); const formError = ref(''); const saveSuccess = ref(false); const accessContext = ref<PerformanceAccessContext | null>(null); const people = ref<PerformanceCyclePerson[]>([]); const peopleLoading = ref(false); const showPeople = ref(false); const peopleReason = ref(''); const deleteConfirm = ref(false); const initialForm = ref(''); const dialogRef = ref<HTMLElement | null>(null); const cancelDeleteRef = ref<HTMLButtonElement | null>(null); const confirmDeleteRef = ref<HTMLButtonElement | null>(null); const previousFocus = ref<HTMLElement | null>(null); const requestVersion = ref(0); const anchorObserver = ref<IntersectionObserver | null>(null)
 const projectDialogOpen = ref(false); const projectDialogMode = ref<'create' | 'edit'>('create'); const projectDialogProject = ref<PerformanceCycleProjectShell | null>(null); const projectSaving = ref(false); const projectActionSuccess = ref(''); const projectRemoveTarget = ref<PerformanceCycleProjectShell | null>(null); const projectRemoveOpen = ref(false); const projectRemoving = ref(false)
+const activeCycleMenuId = ref<number | null>(null); const cycleMenuStyle = ref<CSSProperties>({}); const cycleMenuRef = ref<HTMLElement | null>(null); const cycleMoreButtons = new Map<number, HTMLButtonElement>(); let cycleMenuCloseTimer: number | undefined
 const canManageCycles = computed(() => accessContext.value?.permission_codes.includes('performance.cycles.manage') ?? false); const canManagePeople = canManageCycles; const canManageProjects = computed(() => canManageCycles.value || accessContext.value?.permission_codes.includes('performance.projects.manage') || false); const managedProjectRefs = computed(() => accessContext.value?.role_grants?.filter(grant => grant.scope_type === 'PROJECT').map(grant => grant.scope_ref) || []); const canManageProjectDialog = computed(() => Boolean(selected.value && (canManageCycles.value || (projectDialogProject.value && managedProjectRefs.value.includes(projectDialogProject.value.project_ref))))); const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value))); const dateError = computed(() => Boolean(form.start_at && form.end_at && form.end_at <= form.start_at)); const leaverDateError = computed(() => Boolean(form.leaver_enabled && form.leaver_start_date && form.leaver_end_date && form.leaver_end_date < form.leaver_start_date)); const lockError = computed(() => form.lock_rule === 'SCHEDULED' && form.lock_at && (shanghaiLocalToUtcIso(form.lock_at) || '') < new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString()); const hasStartedProject = computed(() => selected.value?.projects.some(project => ['STARTED', '进行中', '已启动'].includes(project.status)) ?? false)
 const yearPickerOpen = ref(false); const periodTypePickerOpen = ref(false); const yearPanelStyle = ref<CSSProperties>({}); const periodPanelStyle = ref<CSSProperties>({}); const periodTypes: { value: PerformanceCyclePeriodType; label: string }[] = [{ value: 'YEAR', label: '全年' }, { value: 'HALF_YEAR', label: '半年度' }, { value: 'QUARTER', label: '季度' }, { value: 'BIMONTH', label: '双月' }, { value: 'MONTH', label: '月度' }, { value: 'CUSTOM', label: '自定义' }];
 type PeriodTypeOption = { value: string; type: PerformanceCyclePeriodType; subtype: string | null; label: string }; const periodTypeGroups: { label: string; options: PeriodTypeOption[] }[] = [{ label: '年/半年度', options: [{ value: 'YEAR', type: 'YEAR', subtype: null, label: '全年' }, { value: 'H1', type: 'HALF_YEAR', subtype: 'H1', label: '上半年' }, { value: 'H2', type: 'HALF_YEAR', subtype: 'H2', label: '下半年' }] }, { label: '季度', options: [1, 2, 3, 4].map(index => ({ value: `Q${index}`, type: 'QUARTER', subtype: `Q${index}`, label: `第 ${index} 季度` })) }, { label: '双月', options: [1, 2, 3, 4, 5, 6].map(index => ({ value: `B${index}`, type: 'BIMONTH', subtype: `B${index}`, label: `${index * 2 - 1}-${index * 2} 双月` })) }, { label: '月度', options: Array.from({ length: 12 }, (_, index) => ({ value: `M${index + 1}`, type: 'MONTH', subtype: `M${index + 1}`, label: `${index + 1} 月份` })) }, { label: '非标准周期', options: [{ value: 'CUSTOM', type: 'CUSTOM', subtype: 'CUSTOM', label: '自定义' }] }];
@@ -187,6 +237,65 @@ async function searchCycles() { page.value = 1; await loadCycles() }; function c
 function openCycleSettings(key: string) {
   if (key !== 'hrbp-permission' || !selected.value) return
   void router.push({ name: 'PerformanceCycleHrbpPermissions', params: { cycleId: selected.value.id }, query: { activeKey: 'auth-list' } })
+}
+function setCycleMoreButton(id: number, element: Element | ComponentPublicInstance | null) {
+  if (element instanceof HTMLButtonElement) cycleMoreButtons.set(id, element)
+}
+function cancelCycleMenuClose() {
+  if (cycleMenuCloseTimer) window.clearTimeout(cycleMenuCloseTimer)
+}
+function positionCycleMenu() {
+  const trigger = activeCycleMenuId.value === null ? null : cycleMoreButtons.get(activeCycleMenuId.value)
+  if (!trigger) return
+  const rect = trigger.getBoundingClientRect()
+  const width = 160
+  const height = 80
+  const margin = 16
+  const left = Math.min(Math.max(margin, rect.right - width), Math.max(margin, window.innerWidth - width - margin))
+  const top = rect.bottom + height <= window.innerHeight - margin ? rect.bottom + 4 : Math.max(margin, rect.top - height - 4)
+  cycleMenuStyle.value = { position: 'fixed', left: `${left}px`, top: `${top}px` }
+}
+function openCycleMenu(id: number) {
+  cancelCycleMenuClose()
+  activeCycleMenuId.value = id
+  cycleMenuStyle.value = { visibility: 'hidden' }
+  void nextTick(positionCycleMenu)
+}
+function scheduleCycleMenuClose(id: number) {
+  cancelCycleMenuClose()
+  cycleMenuCloseTimer = window.setTimeout(() => {
+    if (activeCycleMenuId.value === id) closeCycleMenu()
+  }, 120)
+}
+function closeCycleMenu(restoreFocus = false) {
+  cancelCycleMenuClose()
+  activeCycleMenuId.value = null
+  cycleMenuStyle.value = {}
+  if (restoreFocus) void nextTick(() => cycleMoreButtons.get(selected.value?.id || 0)?.focus())
+}
+function handleCycleMenuOutsidePointerDown(event: PointerEvent) {
+  if (activeCycleMenuId.value === null) return
+  const target = event.target
+  if (!(target instanceof Node)) return
+  const trigger = cycleMoreButtons.get(activeCycleMenuId.value)
+  if (!trigger?.contains(target) && !cycleMenuRef.value?.contains(target)) closeCycleMenu()
+}
+function toggleCycleMenu(id: number) {
+  if (activeCycleMenuId.value === id) closeCycleMenu()
+  else openCycleMenu(id)
+}
+function hasStartedProjectFor(cycle: PerformanceCycle) {
+  return cycle.projects.some(project => ['STARTED', '进行中', '已启动'].includes(project.status))
+}
+function editCycleFromMenu(cycle: PerformanceCycle) {
+  closeCycleMenu()
+  selected.value = cycle
+  void startEdit()
+}
+function removeCycleFromMenu(cycle: PerformanceCycle) {
+  closeCycleMenu()
+  selected.value = cycle
+  removeSelected()
 }
 function startCreate() { resetForm(); formMode.value = 'create'; formError.value = ''; saveSuccess.value = false; editing.value = true; if (route.name !== 'PerformanceCycleCreate') void router.push({ name: 'PerformanceCycleCreate' }) }; async function startEdit() { if (!selected.value) return; await enterEdit(selected.value.id); if (route.name !== 'PerformanceCycleEdit') void router.push({ name: 'PerformanceCycleEdit', params: { id: selected.value.id } }) }; async function enterEdit(id: number) { const cycle = await performanceCycleApi.get(id); selected.value = cycle; Object.assign(form, { name: cycle.name, period_year: cycle.period_year, period_type: cycle.period_type, start_at: toLocal(cycle.start_at), end_at: toLocal(cycle.end_at), lock_rule: cycle.lock_rule, lock_at: toLocal(cycle.lock_at), pre_lock_sync_mode: cycle.pre_lock_sync_mode, leaver_enabled: cycle.leaver_enabled, leaver_start_date: cycle.leaver_start_date || '', leaver_end_date: cycle.leaver_end_date || '', leaver_participation_mode: cycle.leaver_participation_mode }); snapshotForm(); formMode.value = 'edit'; editing.value = true }
 function confirmDiscard() { return !isDirty.value || window.confirm('当前内容尚未保存，确定离开吗？') }; function discardEdit() { editing.value = false; formError.value = '' }; function cancelEdit() { if (!confirmDiscard()) return; discardEdit(); void router.replace({ name: 'PerformanceCycles' }) }
@@ -203,7 +312,7 @@ async function removeProject(project: PerformanceCycleProjectShell) { projectRem
 async function confirmRemoveProject() { const project = projectRemoveTarget.value; if (!project) return; projectRemoving.value = true; try { await performanceProjectApi.remove(project.id); projectRemoveOpen.value = false; projectRemoveTarget.value = null; projectActionSuccess.value = '项目已删除'; await reloadSelectedCycle() } catch (error: any) { formError.value = error?.response?.data?.detail || '项目删除失败' } finally { projectRemoving.value = false } }
 async function syncRoute() { if (route.name === 'PerformanceCycleCreate') { if (!editing.value) startCreate(); return }; if (route.name === 'PerformanceCycleEdit' && route.params.id) { if (selected.value?.id !== Number(route.params.id) || !editing.value) await enterEdit(Number(route.params.id)); return }; if (!editing.value && !cycles.value.length) await loadCycles() }
 function observeAnchors() { anchorObserver.value?.disconnect(); if (typeof IntersectionObserver === 'undefined') return; anchorObserver.value = new IntersectionObserver((entries) => { const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]; if (visible) activeAnchor.value = (visible.target as HTMLElement).id }, { threshold: [0.25, 0.5, 0.75], rootMargin: '-10% 0px -65% 0px' }); anchorItems.forEach(item => { const section = document.getElementById(item.id); if (section) anchorObserver.value?.observe(section) }) }
-watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(editing, value => { if (value) void nextTick(observeAnchors); else anchorObserver.value?.disconnect() }); onBeforeRouteLeave(() => confirmDiscard()); onBeforeRouteUpdate(() => { if (!confirmDiscard()) return false; if (isDirty.value) discardEdit(); return true }); onMounted(async () => { document.addEventListener('pointerdown', handlePickerOutsidePointerDown);  try { accessContext.value = await performanceApi.getAccessContext(); if (route.name === 'PerformanceCycleEdit') await syncRoute(); else { await loadCycles(); await syncRoute() } } catch (error: any) { formError.value = error?.response?.data?.detail || '权限加载失败' } }); onUnmounted(() => { anchorObserver.value?.disconnect(); document.removeEventListener('pointerdown', handlePickerOutsidePointerDown) })
+watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(editing, value => { if (value) void nextTick(observeAnchors); else anchorObserver.value?.disconnect() }); onBeforeRouteLeave(() => confirmDiscard()); onBeforeRouteUpdate(() => { if (!confirmDiscard()) return false; if (isDirty.value) discardEdit(); return true }); onMounted(async () => { document.addEventListener('pointerdown', handlePickerOutsidePointerDown); document.addEventListener('pointerdown', handleCycleMenuOutsidePointerDown);  try { accessContext.value = await performanceApi.getAccessContext(); if (route.name === 'PerformanceCycleEdit') await syncRoute(); else { await loadCycles(); await syncRoute() } } catch (error: any) { formError.value = error?.response?.data?.detail || '权限加载失败' } }); onUnmounted(() => { anchorObserver.value?.disconnect(); document.removeEventListener('pointerdown', handlePickerOutsidePointerDown); document.removeEventListener('pointerdown', handleCycleMenuOutsidePointerDown); cancelCycleMenuClose(); cycleMoreButtons.clear() })
 </script>
 
 <style scoped>
@@ -219,71 +328,37 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 
 .cycle-form {
   display: grid;
-  grid-template-rows: 56px minmax(0, 1fr) 64px;
+  grid-template-rows: var(--layout-topbar-height) minmax(0, 1fr) 64px;
   width: 100%;
   height: 100%;
   overflow: hidden;
   background: #f2f3f5;
 }
 
-.form-top {
-  display: flex;
-  align-items: center;
-  height: 56px;
-  padding: 0 20px;
-  background: #fff;
-  border-bottom: 1px solid rgba(187, 191, 196, 0.5);
-}
-
-.form-top .back-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0;
-  color: #1f2329;
-  background: transparent;
-  border: 0;
-  font-size: 14px;
-  line-height: 22px;
-  cursor: pointer;
-}
-
-.form-top .back-button span:first-child {
-  font-size: 20px;
-  line-height: 20px;
-}
-
-.header-divider {
-  width: 1px;
-  height: 24px;
-  margin: 0 12px;
-  background: rgba(31, 35, 41, 0.15);
-}
-
-.form-top strong {
-  color: #1f2329;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 24px;
-}
+.cycle-form > :deep(.full-screen-modal-header) { position: relative; grid-row: 1; }
 
 .form-layout {
   display: grid;
-  grid-template-columns: 200px minmax(0, 800px) 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 800px) minmax(0, 1fr);
+  grid-template-rows: max-content;
   column-gap: 40px;
+  align-items: start;
   min-height: 0;
   padding: 0 20px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   background: #f2f3f5;
 }
 
 .form-anchor {
-  position: relative;
+  position: sticky;
+  top: 0;
+  align-self: start;
   width: 200px;
   min-height: 0;
   padding: 21px 0 24px 20px;
-  overflow-y: auto;
+  overflow: visible;
   box-sizing: border-box;
 }
 
@@ -332,9 +407,8 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   max-width: 100%;
   min-width: 0;
   padding: 20px 0 32px;
-  overflow-y: auto;
+  overflow: visible;
   box-sizing: border-box;
-  scrollbar-width: thin;
 }
 
 .form-card {
@@ -443,6 +517,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .two-col > .field-group,
 .two-col > input {
   flex: 1 1 0;
+  width: 0;
   min-width: 0;
 }
 
@@ -664,6 +739,18 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   margin-top: 16px;
 }
 
+.range-group .two-col > .field-group {
+  display: flex;
+  min-height: 62px;
+  margin-top: 0;
+  flex-direction: column;
+}
+
+.range-group .performance-date-time-field {
+  flex: 0 0 32px;
+  height: 32px;
+}
+
 .sub-card {
   margin-top: 16px;
   padding: 16px;
@@ -733,20 +820,38 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   align-items: center;
   gap: 16px;
   height: 64px;
-  padding: 16px 20px 16px 260px;
+  padding: 16px 20px 16px 264px;
   box-sizing: border-box;
   background: #fff;
   border-top: 1px solid rgba(187, 191, 196, 0.5);
 }
 
-.form-footer .primary-button {
+.form-footer .cycle-save-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 80px;
   height: 32px;
   padding: 4px 11px;
+  box-sizing: border-box;
   border: 1px solid #3370ff;
   border-radius: 6px;
-  font-size: 14px;
-  line-height: 22px;
+  background: #3370ff;
+  color: #fff;
+  font: 400 14px/22px var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.form-footer .cycle-save-button:hover:not(:disabled) { border-color: #1456f0; background: #1456f0; }
+.form-footer .cycle-save-button:active:not(:disabled) { border-color: #0442d2; background: #0442d2; }
+.form-footer .cycle-save-button:disabled { opacity: .6; cursor: not-allowed; }
+
+@media (max-width: 1200px) {
+  .form-layout {
+    grid-template-columns: 200px minmax(0, 800px);
+    column-gap: 24px;
+  }
 }
 
 @media (max-width: 1100px) {
@@ -758,7 +863,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 
 @media (max-width: 768px) {
   .cycle-form {
-    grid-template-rows: 56px minmax(0, 1fr) 64px;
+    grid-template-rows: var(--layout-topbar-height) minmax(0, 1fr) 64px;
   }
 
   .form-layout {
@@ -768,6 +873,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   }
 
   .form-anchor {
+    position: relative;
     display: flex;
     width: auto;
     gap: 20px;
@@ -813,6 +919,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 
   .two-col > .field-group,
   .two-col > input {
+    width: auto;
     margin-bottom: 16px;
   }
 
@@ -820,27 +927,41 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
     padding: 16px;
   }
 }
-.cycle-page { height: 100%; min-width: 0; }
-.cycle-page-content { display: flex; min-width: 0; height: 100%; flex-direction: column; }
-.cycle-page-title { flex: 0 0 auto; margin: 0 0 16px; color: #1f2329; font-size: 20px; font-weight: 600; line-height: 28px; }
-.cycle-workspace-card { flex: 1 1 0; min-height: 0; padding: 20px; overflow: hidden; border-radius: 8px; background: #fff; box-shadow: 0 1px 4px rgba(31,35,41,.05); }
-.cycle-workspace { display: flex; width: 100%; height: 100%; min-width: 0; }
-.cycle-list-panel { flex: 0 0 248px; width: 248px; min-width: 248px; padding-right: 20px; border-right: 1px solid #dee0e3; box-sizing: border-box; overflow: hidden; }
+.cycle-page { min-width: 0; }
+.cycle-page-content { min-width: 0; padding: 0 20px 24px; }
+.cycle-page-title { margin: 0 0 16px; color: #1f2329; font-size: 20px; font-weight: 600; line-height: 28px; }
+.cycle-workspace-card { min-width: 0; padding: 20px; border-radius: 8px; background: #fff; box-shadow: 0 1px 4px rgba(31,35,41,.05); }
+.cycle-workspace { display: flex; width: 100%; min-width: 0; align-items: stretch; }
+.cycle-list-panel { flex: 0 0 248px; width: 248px; min-width: 248px; padding-right: 20px; border-right: 1px solid #dee0e3; box-sizing: border-box; }
 .cycle-list-panel h2 { margin: 0 0 16px; color: #373c43; font-size: 16px; font-weight: 600; line-height: 24px; }
 .cycle-list-panel .info { color: #646a73; font-size: 14px; }
 .cycle-search-row { display: flex; align-items: center; width: 208px; height: 32px; margin-bottom: 16px; }
-.cycle-search-row > input { width: 167px; height: 32px; box-sizing: border-box; padding: 4px 8px 4px 35px; border: 1px solid #d0d3d6; border-radius: 6px; color: #1f2329; background: #fff; font: inherit; line-height: 22px; }
-.cycle-search-row > input::placeholder { color: #8f959e; }
-.cycle-search-row > input:focus { border-color: #3370ff; outline: 2px solid rgba(51,112,255,.2); }
+.cycle-search-row :deep(.performance-search-input) { flex: 0 0 167px; width: 167px !important; }
+.cycle-search-row :deep(.search-icon) { width: 16px; height: 16px; }
 .cycle-search-row .filter-button { display: none; }
 .cycle-search-row .icon-button { display: grid; width: 32px; height: 32px; margin-left: 9px; place-items: center; padding: 0; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; font-size: 22px; line-height: 22px; cursor: pointer; }
 .cycle-search-row .icon-button:hover { background: #f5f6f7; }
-.cycle-item { display: flex; align-items: center; justify-content: space-between; width: 208px; min-height: 41px; box-sizing: border-box; padding: 10px 12px; border: 0; border-radius: 6px; background: transparent; color: #1f2329; font: inherit; font-size: 14px; line-height: 22px; text-align: left; cursor: pointer; }
+.cycle-item { display: flex; align-items: center; justify-content: space-between; width: 208px; min-height: 41px; box-sizing: border-box; padding: 8px 12px; border: 0; border-radius: 6px; background: transparent; color: #1f2329; font: inherit; font-size: 14px; line-height: 22px; text-align: left; cursor: pointer; }
 .cycle-item:hover { background: rgba(31,35,41,.08); }
 .cycle-item.active { background: rgba(51,112,255,.08); color: #3370ff; font-weight: 600; }
 .cycle-item .truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cycle-more { margin-left: 8px; color: #3370ff; letter-spacing: 1px; }
-.cycle-detail-panel { flex: 1 1 0; min-width: 0; height: 100%; overflow: hidden auto; }
+.cycle-more { display: flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; margin-left: 12px; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; opacity: 0; pointer-events: none; }
+.cycle-item:hover .cycle-more, .cycle-more:focus-visible, .cycle-more.is-open { opacity: 1; pointer-events: auto; }
+.cycle-more:hover { background: rgba(31,35,41,.1); }
+.cycle-more:focus-visible { outline: 2px solid rgba(51,112,255,.35); outline-offset: 1px; }
+.cycle-more svg { display: block; width: 16px; height: 16px; }
+.cycle-action-menu { position: fixed; z-index: 1050; width: 160px; margin: 0; padding: 4px; box-sizing: border-box; border: 1px solid #dee0e3; border-radius: 6px; background: #fff; box-shadow: 0 8px 24px rgba(31,35,41,.12); list-style: none; }
+.cycle-action-menu li { margin: 0; padding: 0; }
+.cycle-action-menu button { display: block; width: 100%; height: 32px; padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: #1f2329; font: inherit; font-size: 14px; line-height: 22px; text-align: left; cursor: pointer; }
+.cycle-action-menu button:hover, .cycle-action-menu button:focus-visible { outline: 0; background: rgba(31,35,41,.08); }
+.cycle-action-menu__item { display: flex; width: 100%; height: 32px; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 4px; color: #1f2329; font-size: 14px; line-height: 22px; cursor: pointer; }
+.cycle-action-menu__item:hover, .cycle-action-menu__item:focus-visible { outline: 0; background: rgba(31,35,41,.08); }
+.cycle-action-menu__item.is-disabled { color: #bbbfc4; cursor: not-allowed; }
+.cycle-action-menu__icon { flex: 0 0 24px; }
+.cycle-action-menu__icon :deep(.performance-icon-button) { color: inherit; }
+.cycle-action-menu__icon :deep(.performance-icon-button:hover), .cycle-action-menu__icon :deep(.performance-icon-button:focus-visible) { background: transparent; color: inherit; }
+.cycle-action-menu__item.is-disabled .cycle-action-menu__icon { pointer-events: none; }
+.cycle-detail-panel { flex: 1 1 0; min-width: 0; }
 .detail-content { min-width: 0; padding-left: 20px; color: #1f2329; }
 .detail-heading { display: flex; align-items: flex-start; justify-content: space-between; height: 40px; margin-bottom: 0; }
 .detail-heading h2 { margin: 0; color: #1f2329; font-size: 20px; font-weight: 600; line-height: 28px; }

@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { performanceCycleApi, type PerformanceHrbpOrganizationNode, type PerformanceHrbpPermission, type PerformanceHrbpPersonOption } from '@/api/performance'
 import FullScreenModal from '@/components/performance/FullScreenModal.vue'
 import PerformanceContentSurface from '@/components/performance/PerformanceContentSurface.vue'
+import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceHrbpPermissionTable from '@/components/performance/PerformanceHrbpPermissionTable.vue'
 import PerformanceHrbpPermissionDialog from '@/components/performance/PerformanceHrbpPermissionDialog.vue'
 import PerformanceHrbpScopeSummary from '@/components/performance/PerformanceHrbpScopeSummary.vue'
@@ -29,6 +30,9 @@ const pageSize = ref(10)
 const showCreateDialog = ref(false)
 const optionsLoading = ref(false)
 const saving = ref(false)
+const deleting = ref(false)
+const deleteDialogVisible = ref(false)
+const deleteTarget = ref<HrbpPermissionRow | null>(null)
 const hrbpOptions = ref<PerformanceHrbpPersonOption[]>([])
 const invisiblePeopleOptions = ref<PerformanceHrbpPersonOption[]>([])
 const organizationTree = ref<PerformanceHrbpOrganizationNode[]>([])
@@ -144,16 +148,24 @@ async function submitPermission(value: { hrbp: string; scope: string[]; invisibl
   }
 }
 
-async function removePermission(rawRow: any) {
-  const row = rawRow as HrbpPermissionRow
+function openDeleteDialog(rawRow: unknown) {
+  deleteTarget.value = rawRow as HrbpPermissionRow
+  deleteDialogVisible.value = true
+}
+
+async function confirmDelete() {
   const id = cycleId()
-  if (!id || !window.confirm(`确定要删除“${row.hrbp}”的 HRBP 权限配置吗？`)) return
+  if (!id || !deleteTarget.value) return
+  deleting.value = true
   try {
-    await performanceCycleApi.removeHrbpPermission(id, row.id)
+    await performanceCycleApi.removeHrbpPermission(id, deleteTarget.value.id)
+    deleteDialogVisible.value = false
     await loadPermissions()
     ElMessage.success('HRBP 权限已删除')
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.detail || 'HRBP 权限删除失败')
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -183,11 +195,18 @@ onMounted(() => {
             @page-size-change="pageSize = $event"
             @create="openCreateDialog"
             @edit="openEditDialog"
-            @remove="removePermission"
+            @remove="openDeleteDialog"
           />
           <section v-else class="history-panel" aria-label="变更记录"></section>
         </PerformanceLineTabs>
       </PerformanceContentSurface>
+      <PerformanceConfirmDialog
+        v-model="deleteDialogVisible"
+        message="确定删除吗？"
+        :subject="deleteTarget?.hrbp"
+        :loading="deleting"
+        @confirm="confirmDelete"
+      />
       <PerformanceHrbpPermissionDialog
         v-model="showCreateDialog"
         :loading-options="optionsLoading"

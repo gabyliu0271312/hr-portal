@@ -7,6 +7,7 @@ import PerformancePermissionButton from './PerformancePermissionButton.vue'
 const rows = [{ id: 1, hrbp: 'HRBP 示例', scope: '示例部门', invisiblePeople: '示例人员' }]
 const permissionButtonStub = {
   inheritAttrs: false,
+  props: { danger: Boolean, variant: String },
   emits: ['click'],
   template: '<button v-bind="$attrs" @click="$emit(\'click\')"><slot /></button>',
 }
@@ -22,8 +23,11 @@ describe('PerformanceHrbpPermissionTable', () => {
     expect(labels).toEqual([undefined, 'HRBP', '本周期负责范围', '不可见人员', '操作'])
     await wrapper.get('.permission-create-button').trigger('click')
 
-    expect(wrapper.findAllComponents(PerformancePermissionButton)).toHaveLength(2)
+    const buttons = wrapper.findAllComponents(PerformancePermissionButton)
+    expect(buttons).toHaveLength(2)
     expect(wrapper.findAll('.row-action')).toHaveLength(2)
+    expect((buttons[0] as any).props('danger')).toBe(false)
+    expect((buttons[1] as any).props('danger')).toBe(false)
     expect(wrapper.emitted('create')).toHaveLength(1)
   })
 })

@@ -17,15 +17,18 @@
         <header class="performance-confirm-dialog__header">
           <div id="performance-confirm-title" class="performance-confirm-dialog__title">
             <span class="performance-confirm-dialog__icon" aria-hidden="true">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" data-icon="WarningFilled">
-                <path d="M23 12c0 6.075-4.925 11-11 11S1 18.075 1 12 5.925 1 12 1s11 4.925 11 11ZM12 7a1 1 0 0 0-1 1v5a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1Zm0 8a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" fill="currentColor" />
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" data-icon="WarningColorful">
+                <circle cx="12" cy="12" r="11" fill="#FF811A" />
+                <path d="M12 7a1 1 0 0 0-1 1v5a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1Zm0 10a1 1 0 1 0-2 0 1 1 0 0 0 2 0Z" fill="#fff" />
               </svg>
             </span>
             <span class="performance-confirm-dialog__title-content">{{ message }}</span>
           </div>
-          <p v-if="description" class="performance-confirm-dialog__body">
-            <span v-if="requireConfirm" class="performance-confirm-dialog__des">{{ description }}</span>
-            <template v-else>{{ description }}</template>
+          <p v-if="subject || description" class="performance-confirm-dialog__body">
+            <template v-if="subject">
+              删除后，<span class="performance-confirm-dialog__subject">{{ subject }}</span>将失去本周期「被授权」范围的管理权限，但 Ta 仍拥有自己「当前负责」范围的管理权限。
+            </template>
+            <span v-else :class="{ 'performance-confirm-dialog__des': requireConfirm }">{{ description }}</span>
           </p>
           <p v-if="errorMessage" class="performance-confirm-dialog__body performance-confirm-dialog__error" role="alert">{{ errorMessage }}</p>
           <div v-if="requireConfirm" class="performance-confirm-dialog__confirm-field">
@@ -48,6 +51,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 const props = withDefaults(defineProps<{
   modelValue: boolean
   message?: string
+  subject?: string
   description?: string
   loading?: boolean
   requireConfirm?: boolean
@@ -55,6 +59,7 @@ const props = withDefaults(defineProps<{
   errorMessage?: string
 }>(), {
   message: '后续配置项目将无法使用该模板，确定删除吗？',
+  subject: '',
   description: '',
   loading: false,
   requireConfirm: false,
@@ -197,12 +202,8 @@ onBeforeUnmount(() => {
   color: var(--color-text-primary);
 }
 
-/* 强确认变体的警示描述：灰色 14px，mt-4 */
-.performance-confirm-dialog__des {
-  display: block;
-  margin-top: 4px;
-  color: var(--color-text-secondary);
-}
+.performance-confirm-dialog__subject { display: inline; white-space: nowrap; color: var(--color-action-primary); }
+.performance-confirm-dialog__des { display: block; margin-top: 4px; color: var(--color-text-secondary); }
 
 .performance-confirm-dialog__error { color: var(--performance-field-error-color); }
 .performance-confirm-dialog__confirm-field {
@@ -272,13 +273,13 @@ onBeforeUnmount(() => {
 
 .performance-confirm-dialog__button--cancel {
   border-color: var(--performance-button-secondary-border);
-  background: var(--performance-button-secondary-hover-background);
+  background: var(--color-surface-card);
   color: var(--performance-button-secondary-text);
 }
 
 .performance-confirm-dialog__button--danger {
   border-color: var(--color-text-danger-strong);
-  background: var(--performance-dialog-danger-bg);
+  background: var(--color-surface-card);
   color: var(--color-text-danger-strong);
 }
 
@@ -292,8 +293,8 @@ onBeforeUnmount(() => {
 }
 
 .performance-confirm-dialog__button--danger:hover:not(:disabled) {
-  background: var(--color-text-danger-strong);
-  color: var(--color-bg-card);
+  background: var(--performance-dialog-danger-bg);
+  color: var(--color-text-danger-strong);
 }
 
 .performance-confirm-dialog__button:disabled {

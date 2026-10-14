@@ -74,7 +74,7 @@ function pageSizeChange(pageSize: number) { emit('page-size-change', pageSize) }
         <template #default="{ row }">
           <div class="permission-row-actions">
             <PerformancePermissionButton :allowed="allowed" op="U" class="row-action" :aria-label="`编辑${row.hrbp}`" @click="edit(row)">编辑</PerformancePermissionButton>
-            <PerformancePermissionButton :allowed="allowed" op="D" danger class="row-action" :aria-label="`删除${row.hrbp}`" @click="remove(row)">删除</PerformancePermissionButton>
+            <PerformancePermissionButton :allowed="allowed" op="D" class="row-action" :aria-label="`删除${row.hrbp}`" @click="remove(row)">删除</PerformancePermissionButton>
           </div>
         </template>
       </el-table-column>

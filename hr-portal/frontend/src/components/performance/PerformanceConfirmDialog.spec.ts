@@ -22,12 +22,21 @@ describe('PerformanceConfirmDialog', () => {
     const dialog = document.querySelector('.performance-confirm-dialog')
     expect(dialog?.getAttribute('role')).toBe('alertdialog')
     expect(document.querySelector('.performance-confirm-dialog__header')?.textContent).toContain('后续配置项目将无法使用该模板，确定删除吗？')
-    expect(document.querySelector('.performance-confirm-dialog__icon path')?.getAttribute('d')).toContain('M23 12c0 6.075')
+    expect(document.querySelector('.performance-confirm-dialog__icon circle')?.getAttribute('fill')).toBe('#FF811A')
+    expect(document.querySelector('.performance-confirm-dialog__icon path')?.getAttribute('fill')).toBe('#fff')
     expect(Array.from(document.querySelectorAll('.performance-confirm-dialog__button')).map(button => button.textContent)).toEqual(['保留', '删除'])
     expect(document.querySelector('[data-source-state-id="user-snapspec-20260831-template-delete-confirm"]')).not.toBeNull()
     wrapper.unmount()
   })
 
+  it('renders the HRBP delete subject using the captured warning dialog', async () => {
+    const wrapper = mountDialog({ message: '确定删除吗？', subject: 'alice.xiao肖惠方' })
+    await flushPromises()
+
+    expect(document.querySelector('.performance-confirm-dialog__subject')?.textContent).toBe('alice.xiao肖惠方')
+    expect(document.querySelector('.performance-confirm-dialog__body')?.textContent).toContain('删除后，alice.xiao肖惠方将失去本周期「被授权」范围的管理权限，但 Ta 仍拥有自己「当前负责」范围的管理权限。')
+    wrapper.unmount()
+  })
   it('cancels without confirming and supports Escape', async () => {
     const wrapper = mountDialog()
     await flushPromises()

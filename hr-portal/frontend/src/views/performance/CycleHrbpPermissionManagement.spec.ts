@@ -1,12 +1,15 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { createPinia, setActivePinia } from 'pinia'
+import { useUserStore } from '@/stores/user'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { performanceCycleApi } from '@/api/performance'
 import CycleHrbpPermissionManagement from './CycleHrbpPermissionManagement.vue'
 import PerformanceHrbpPermissionDialog from '@/components/performance/PerformanceHrbpPermissionDialog.vue'
+import PerformanceHrbpPermissionTable from '@/components/performance/PerformanceHrbpPermissionTable.vue'
 
-async function mountPage(path = '/performance/settings/cycles/1/hrbp-auth?activeKey=auth-list') {
-  vi.spyOn(performanceCycleApi, 'listHrbpPermissions').mockResolvedValue([])
+async function mountPage(path = '/performance/settings/cycles/1/hrbp-auth?activeKey=auth-list', permissions: any[] = []) {
+  vi.spyOn(performanceCycleApi, 'listHrbpPermissions').mockResolvedValue(permissions)
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -16,9 +19,12 @@ async function mountPage(path = '/performance/settings/cycles/1/hrbp-auth?active
   })
   await router.push(path)
   await router.isReady()
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useUserStore().menus = [{ code: 'performance.admin', can_create: true, can_update: true, can_delete: true } as any]
   const wrapper = mount(CycleHrbpPermissionManagement, {
     global: {
-      plugins: [router],
+      plugins: [router, createPinia()],
       stubs: { PermissionButton: { template: '<button v-bind="$attrs"><slot /></button>' } },
     },
   })
@@ -89,6 +95,28 @@ describe('CycleHrbpPermissionManagement', () => {
     expect(create).toHaveBeenCalledWith(1, { hrbp: 'E001', scope: ['集团'], invisible_people: ['E002'] })
   })
 
+  it('opens the captured delete confirmation and deletes through the real API client', async () => {
+    const permissions = [{
+      id: 7,
+      hrbp: { employee_no: 'E001', display_name: '张三' },
+      scope: ['集团'],
+      invisible_people: [],
+    }]
+    vi.spyOn(performanceCycleApi, 'listHrbpPermissions').mockResolvedValue(permissions)
+    const remove = vi.spyOn(performanceCycleApi, 'removeHrbpPermission').mockResolvedValue()
+    const { wrapper } = await mountPage('/performance/settings/cycles/1/hrbp-auth?activeKey=auth-list', permissions)
+
+    wrapper.findComponent(PerformanceHrbpPermissionTable).vm.$emit('remove', { id: 7, hrbp: '张三', scope: '集团', invisiblePeople: '' })
+    await flushPromises()
+
+    expect(document.querySelector('.performance-confirm-dialog__title-content')?.textContent).toBe('确定删除吗？')
+    expect(document.querySelector('.performance-confirm-dialog__subject')?.textContent).toBe('张三')
+    await (document.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+
+    expect(remove).toHaveBeenCalledWith(1, 7)
+    wrapper.unmount()
+  })
   it('returns to the cycle list from the shared page header', async () => {
     const { wrapper, router } = await mountPage()
     await wrapper.get('.full-screen-modal-header-back').trigger('click')

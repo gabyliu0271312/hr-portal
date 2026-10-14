@@ -112,8 +112,8 @@
   --performance-dialog-footer-height: 56px;
   --performance-dialog-button-width: 80px;
   --performance-dialog-shadow: 0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12);
-  --performance-dialog-danger-bg: #fbbfbc;
-  --performance-dialog-cancel-hover: #dee0e3;
+  --performance-dialog-danger-bg: #fee3e2;
+  --performance-dialog-cancel-hover: #f2f3f5;
   --performance-dialog-focus-ring: rgba(51, 112, 255, 0.45);
   --performance-confirm-z-index: 2200;
   --performance-drawer-z-index: 2200;
