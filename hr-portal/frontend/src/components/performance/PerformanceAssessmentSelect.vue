@@ -1,5 +1,5 @@
 <template>
-  <label class="performance-assessment-select">
+  <label ref="root" class="performance-assessment-select">
     <span v-if="label" class="field-label">{{ label }}<i v-if="required">*</i></span>
     <div :class="['select-shell', { invalid, open }]">
       <button type="button" role="combobox" :aria-label="ariaLabel || label || undefined" :aria-expanded="open" :disabled="disabled" @click="open = !open">
@@ -34,7 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ArrowDown, ArrowUp, Check } from '@element-plus/icons-vue'
 
 export interface PerformanceAssessmentSelectOption {
@@ -66,6 +66,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const root = ref<HTMLElement | null>(null)
 const open = ref(false)
 const defaultDisabledReason = '模板中已存在该评估项'
 const selected = computed(() => props.options.find((option) => option.id === props.modelValue))
@@ -75,6 +76,11 @@ function select(option: PerformanceAssessmentSelectOption) {
   emit('update:modelValue', option.id)
   open.value = false
 }
+function onOutside(event: PointerEvent) {
+  if (event.target instanceof Node && !root.value?.contains(event.target)) open.value = false
+}
+onMounted(() => document.addEventListener('pointerdown', onOutside))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 </script>
 
 <style scoped>

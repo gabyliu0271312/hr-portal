@@ -78,6 +78,19 @@
   - 完成证据：API 响应、数据库记录、审计记录和浏览器截图。
   - 完成定义：危险操作和审计均通过验收。
 
+- [x] PM-T003-I06 实现评估结果差异提示规则抽屉
+  - 前置任务：PM-T003-I02
+  - 功能范围：在周期创建表单中打开“添加需对比的环节”右侧抽屉；配置两个评估环节、评估项差异规则、阈值和提示方式；提交后回写周期表单草稿。
+  - 代码交付物：`PerformanceComparisonRuleDrawer.vue`、组件测试、`CycleManagement.vue` 入口接入和交互测试。
+  - UI 要求：复用 `PerformanceDrawerShell`、`PerformanceDrawerFooter`、`PerformanceAssessmentSelect`、`PerformanceMetricSelect`、`PerformanceNumberInput`、`PerformanceCheckbox`、`PerformanceInfoPopover` 和现有设计 token；覆盖校验、动态增删规则、关闭、提交和窄视口横向适配。关联本功能 `ui-interaction.md` 第 5 节及 Spec 012 的 N0001-N0005、N1101-N1106 通用检查；数据仓库专属 N 检查不涉及（本页面属绩效后台）。
+  - UI 示意图：参考本功能 `ui-interaction.md` 第 5 节与 2026-10-15 采集的 680px 右侧抽屉；正式独立蓝图尚待确认。
+  - UCP 协同要求：不涉及 UCP。
+  - 测试要求：前端组件测试覆盖空提交、完整提交、删除行限制、关闭重置；周期页面测试覆盖入口打开；执行 `npm run build`。
+  - 验收标准：用户可从评估设置打开 680px 右侧抽屉；两个环节不可相同；至少保留一条规则；阈值为正整数；至少选择一种提示方式；提交只回写周期草稿，不绕过周期保存。
+  - 当前限制：评估模板接口和规则后端 DTO 尚未接入，当前支持通过 props 传入真实选项，并保留默认演示环节选项；本任务不声明后端持久化完成。
+  - 完成证据：组件测试 3 项、周期页面测试 25 项、前端构建通过。
+  - 完成定义：抽屉 UI、组件复用、表单校验、周期草稿回写和前端验证全部完成；后端契约另行任务。
+
 ## 任务依赖图
 
 ```text

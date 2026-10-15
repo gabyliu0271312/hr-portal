@@ -197,6 +197,7 @@
   --performance-dialog-header-height: 72px;
   --performance-dialog-footer-gap: var(--performance-button-gap);
   --performance-drawer-header-height: 56px;
+  --performance-drawer-title-weight: 600;
   --performance-drawer-footer-height: 61px;
   --performance-drawer-footer-padding-x: var(--spacing-5);
   --performance-fullscreen-footer-height: 48px;
