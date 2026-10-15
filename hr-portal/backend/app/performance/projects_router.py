@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, date
+from typing import Literal
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
@@ -330,6 +331,9 @@ class ProjectPayload(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=500)
     administrators: list[str] = Field(default_factory=list, max_length=50)
+    data_managers: list[Literal["PROJECT_ADMIN", "HRBP"]] | None = Field(default=None, min_length=1)
+    scope_limited: bool | None = None
+    scope_employee_nos: list[str] | None = Field(default=None, max_length=5000)
     template_id: int | None = Field(default=None, ge=1)
     start_at: datetime | None = None
     end_at: datetime | None = None
@@ -349,6 +353,9 @@ class ProjectResponse(BaseModel):
     name: str
     description: str | None
     administrators: list[str]
+    data_managers: list[Literal["PROJECT_ADMIN", "HRBP"]] = Field(default_factory=lambda: ["HRBP"])
+    scope_limited: bool = False
+    scope_employee_nos: list[str] = Field(default_factory=list)
     status: str
     evaluated_count: int
     template_id: int | None = None

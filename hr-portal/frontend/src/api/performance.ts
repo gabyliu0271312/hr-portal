@@ -1057,6 +1057,9 @@ export interface PerformanceCycleProjectShell {
   name: string
   description: string | null
   administrators: string[]
+  data_managers?: Array<'PROJECT_ADMIN' | 'HRBP'>
+  scope_limited?: boolean
+  scope_employee_nos?: string[]
   status: string
   evaluated_count: number
 }
@@ -1097,6 +1100,9 @@ export interface PerformanceProjectPayload {
   name: string
   description: string | null
   administrators: string[]
+  data_managers?: Array<'PROJECT_ADMIN' | 'HRBP'>
+  scope_limited?: boolean
+  scope_employee_nos?: string[]
   template_id?: number | null
   start_at?: string | null
   end_at?: string | null

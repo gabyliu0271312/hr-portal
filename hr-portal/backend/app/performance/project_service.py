@@ -202,6 +202,9 @@ class PerformanceProjectService:
             "name": project.name,
             "description": project.description,
             "administrators": project.administrators or [],
+            "data_managers": (project.settings or {}).get("data_managers", ["HRBP"]),
+            "scope_limited": (project.settings or {}).get("scope_limited", False),
+            "scope_employee_nos": (project.settings or {}).get("scope_employee_nos", []),
             "status": project.status,
             "evaluated_count": project.evaluated_count,
         }
@@ -216,6 +219,9 @@ class PerformanceProjectService:
             "name": project.name,
             "description": project.description,
             "administrators": project.administrators or [],
+            "data_managers": (project.settings or {}).get("data_managers", ["HRBP"]),
+            "scope_limited": (project.settings or {}).get("scope_limited", False),
+            "scope_employee_nos": (project.settings or {}).get("scope_employee_nos", []),
             "status": project.status,
             "evaluated_count": project.evaluated_count,
             "template_id": settings.get("template_id"),
@@ -374,6 +380,18 @@ class PerformanceProjectService:
             if value not in normalized:
                 normalized.append(value)
         settings = dict(existing_settings or {})
+        if payload.get("data_managers") is not None:
+            managers = payload["data_managers"]
+            if not managers or any(manager not in {"PROJECT_ADMIN", "HRBP"} for manager in managers):
+                raise ProjectValidationError("请选择谁可管理人员绩效数据")
+            settings["data_managers"] = list(dict.fromkeys(managers))
+        settings.setdefault("data_managers", ["HRBP"])
+        if payload.get("scope_limited") is not None:
+            settings["scope_limited"] = bool(payload["scope_limited"])
+        settings.setdefault("scope_limited", False)
+        if payload.get("scope_employee_nos") is not None:
+            settings["scope_employee_nos"] = list(dict.fromkeys(str(value).strip() for value in payload["scope_employee_nos"] if str(value).strip()))
+        settings.setdefault("scope_employee_nos", [])
         if "template_id" in payload:
             template_id = payload.get("template_id")
             if template_id is not None and int(template_id) <= 0:
