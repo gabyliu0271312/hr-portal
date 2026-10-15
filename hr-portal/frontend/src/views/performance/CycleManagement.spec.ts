@@ -261,8 +261,11 @@ describe('CycleManagement', () => {
     expect(wrapper.get('.evaluation-result-rules__title').text()).toBe('评估结果校验提示规则')
     expect(wrapper.get('.evaluation-result-rule-card__title').text()).toBe('不同评估环节的评估结果差异提示')
     expect(wrapper.get('.evaluation-result-rule-card').text()).toContain('可设置当不同环节中相同评估项的评估结果有一定差异时，会触发差异提示。')
-    expect(wrapper.get('.evaluation-result-rule-add').attributes('aria-label')).toContain('下一步实现')
-    expect((wrapper.get('.evaluation-result-rule-add').element as HTMLButtonElement).disabled).toBe(true)
+    const addButton = wrapper.get('.evaluation-result-rule-add')
+    expect(addButton.text()).toBe('添加需对比的环节')
+    expect(addButton.attributes('aria-label')).toContain('添加需对比的环节')
+    expect(addButton.attributes('aria-label')).toContain('下一步实现')
+    expect((addButton.element as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('shows field-level required errors and blocks an empty save', async () => {

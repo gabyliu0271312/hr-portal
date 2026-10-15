@@ -206,8 +206,9 @@
                 <div class="evaluation-result-rule-card">
                   <div class="evaluation-result-rule-card__title">不同评估环节的评估结果差异提示</div>
                   <p>可设置当不同环节中相同评估项的评估结果有一定差异时，会触发差异提示。</p>
-                  <button class="evaluation-result-rule-add" type="button" disabled title="规则配置将在下一步实现" aria-label="添加评估结果校验提示规则（下一步实现）">
+                  <button class="evaluation-result-rule-add" type="button" disabled title="规则配置将在下一步实现" aria-label="添加需对比的环节（下一步实现）">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a1 1 0 0 0-1 1v8H3a1 1 0 1 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 0 0 0-2h-8V3a1 1 0 0 0-1-1Z" fill="currentColor" /></svg>
+                    <span>添加需对比的环节</span>
                   </button>
                 </div>
               </div>
@@ -886,59 +887,62 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 }
 
 .evaluation-result-rules {
-  margin-top: 24px;
+  margin-top: var(--spacing-6);
 }
 
 .evaluation-result-rules__title {
-  margin-bottom: 12px;
-  color: #1f2329;
-  font-size: 14px;
+  margin-bottom: var(--spacing-3);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
   font-weight: 600;
-  line-height: 22px;
+  line-height: var(--performance-button-line-height);
 }
 
 .evaluation-result-rule-card {
   min-height: 83px;
-  padding: 6px 8px;
+  padding: 6px var(--spacing-2);
   box-sizing: border-box;
-  border-radius: 6px;
-  background: #f8f9fa;
+  border-radius: var(--radius-md);
+  background: var(--performance-evaluation-rule-surface);
 }
 
 .evaluation-result-rule-card__title {
-  color: #1f2329;
-  font-size: 14px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
   font-weight: 600;
-  line-height: 22px;
+  line-height: var(--performance-button-line-height);
 }
 
 .evaluation-result-rule-card p {
   margin: 0;
-  color: #646a73;
-  font-size: 14px;
+  color: var(--performance-count-badge-text);
+  font-size: var(--font-size-md);
   font-weight: 400;
-  line-height: 22px;
+  line-height: var(--performance-button-line-height);
 }
 
 .evaluation-result-rule-add {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 138px;
-  height: 22px;
-  margin-top: 4px;
-  padding: 2px 4px;
+  justify-content: flex-start;
+  gap: var(--spacing-1);
+  min-height: 22px;
+  margin-top: var(--spacing-1);
+  padding: 2px var(--spacing-1);
   box-sizing: border-box;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: transparent;
-  color: #1456f0;
+  color: var(--performance-button-text-color);
+  font: 400 var(--font-size-md)/18px var(--font-sans);
+  white-space: nowrap;
   cursor: not-allowed;
 }
 
 .evaluation-result-rule-add svg {
   width: 14px;
   height: 14px;
+  flex: 0 0 14px;
 }
 
 .evaluation-result-rule-add:disabled {
@@ -946,7 +950,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 }
 
 .evaluation-result-rule-add:not(:disabled):hover {
-  background: rgba(20, 86, 240, 0.2);
+  background: var(--performance-button-text-hover-background);
 }
 
 .switch-field {
