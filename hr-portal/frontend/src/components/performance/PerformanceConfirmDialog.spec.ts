@@ -22,13 +22,25 @@ describe('PerformanceConfirmDialog', () => {
     const dialog = document.querySelector('.performance-confirm-dialog')
     expect(dialog?.getAttribute('role')).toBe('alertdialog')
     expect(document.querySelector('.performance-confirm-dialog__header')?.textContent).toContain('后续配置项目将无法使用该模板，确定删除吗？')
-    expect(document.querySelector('.performance-confirm-dialog__icon circle')?.getAttribute('fill')).toBe('#FF811A')
-    expect(document.querySelector('.performance-confirm-dialog__icon path')?.getAttribute('fill')).toBe('#fff')
+    expect(document.querySelector('[data-icon="WarningFilled"] path')?.getAttribute('fill')).toBe('currentColor')
     expect(Array.from(document.querySelectorAll('.performance-confirm-dialog__button')).map(button => button.textContent)).toEqual(['保留', '删除'])
     expect(document.querySelector('[data-source-state-id="user-snapspec-20260831-template-delete-confirm"]')).not.toBeNull()
     wrapper.unmount()
   })
 
+  it('renders the leave confirmation copy with shared warning icon and actions', async () => {
+    const wrapper = mountDialog({
+      message: '离开后，已填写的信息将会丢失。确定离开此页面吗？',
+      cancelText: '取消',
+      confirmText: '确定',
+    })
+    await flushPromises()
+
+    expect(document.querySelector('[data-icon="WarningFilled"]')).not.toBeNull()
+    expect(document.querySelector('.performance-confirm-dialog__header')?.textContent).toContain('离开后，已填写的信息将会丢失。确定离开此页面吗？')
+    expect(Array.from(document.querySelectorAll('.performance-confirm-dialog__button')).map(button => button.textContent)).toEqual(['取消', '确定'])
+    wrapper.unmount()
+  })
   it('renders the HRBP delete subject using the captured warning dialog', async () => {
     const wrapper = mountDialog({ message: '确定删除吗？', subject: 'alice.xiao肖惠方' })
     await flushPromises()

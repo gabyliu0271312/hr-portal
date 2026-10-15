@@ -1,5 +1,6 @@
 ﻿import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { createPinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CycleManagement from './CycleManagement.vue'
 
@@ -79,8 +80,11 @@ async function mountView(path = '/performance/settings/cycles') {
   await router.isReady()
   const wrapper = mount({ template: '<router-view />' }, {
     global: {
-      plugins: [router],
-      stubs: { PermissionButton: { template: '<button><slot /></button>' } },
+      plugins: [router, createPinia()],
+      stubs: {
+        PermissionButton: { template: '<button><slot /></button>' },
+        PerformanceListPage: { props: ['title'], template: '<section class="list-page-title"><h1>{{ title }}</h1><div class="list-page-content"><slot /></div></section>' },
+      },
     },
   })
   await flushPromises()
@@ -102,7 +106,8 @@ describe('CycleManagement', () => {
     mocks.projectRemove.mockResolvedValue(undefined)
     const wrapper = await mountView()
 
-    await wrapper.findAll('button').find(button => button.text() === '···')!.trigger('click')
+    const moreButton = wrapper.findAll('button').find(button => button.attributes('aria-label') === '更多操作')
+    await moreButton!.trigger('click')
     await document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     await wrapper.vm.$nextTick()
     const removeItems = [...document.body.querySelectorAll('.el-dropdown-menu__item')].filter(item => item.textContent === '删除')
@@ -129,7 +134,8 @@ describe('CycleManagement', () => {
     mocks.get.mockResolvedValue({ ...cycle, projects: [project] })
     const wrapper = await mountView()
 
-    await wrapper.findAll('button').find(button => button.text() === '···')!.trigger('click')
+    const moreButton = wrapper.findAll('button').find(button => button.attributes('aria-label') === '更多操作')
+    await moreButton!.trigger('click')
     const removeItems = [...document.body.querySelectorAll('.el-dropdown-menu__item')].filter(item => item.textContent === '删除')
     removeItems[0].dispatchEvent(new Event('click', { bubbles: true }))
     await flushPromises()
@@ -150,7 +156,8 @@ describe('CycleManagement', () => {
     mocks.projectRemove.mockResolvedValue(undefined)
     const wrapper = await mountView()
 
-    await wrapper.findAll('button').find(button => button.text() === '···')!.trigger('click')
+    const moreButton = wrapper.findAll('button').find(button => button.attributes('aria-label') === '更多操作')
+    await moreButton!.trigger('click')
     const removeItems = [...document.body.querySelectorAll('.el-dropdown-menu__item')].filter(item => item.textContent === '删除')
     expect(removeItems.length).toBeGreaterThanOrEqual(1)
     removeItems[removeItems.length - 1].dispatchEvent(new Event('click', { bubbles: true }))
@@ -186,9 +193,10 @@ describe('CycleManagement', () => {
     expect(wrapper.find('.detail-content').exists()).toBe(true)
     expect(wrapper.find('.project-heading').text()).toContain('项目设置')
     expect(wrapper.find('.project-tools .primary-button').text()).toContain('新建')
-    expect(wrapper.find('.project-table-wrap').exists()).toBe(true)
-    expect(wrapper.find('.project-table-wrap table').exists()).toBe(true)
-    expect(wrapper.find('.project-table-wrap .fixed-operation').exists()).toBe(true)
+    expect(wrapper.find('.project-table-wrap').exists()).toBe(false)
+    expect(wrapper.find('.project-settings .project-table-wrap').exists()).toBe(true)
+    expect(wrapper.find('.project-settings .fixed-operation').exists()).toBe(true)
+    expect(wrapper.find('.list-page-title').text()).toBe('周期与项目')
   })
 
   it('hides cycle management actions without cycle permission', async () => {
@@ -198,9 +206,62 @@ describe('CycleManagement', () => {
     expect(wrapper.findAll('.people-card')).toHaveLength(0)
   })
 
-  it('renders form validation relationships and the paged year panel', async () => {
+  it('shows the unsaved leave dialog when returning from a changed cycle form', async () => {
     const wrapper = await mountView('/performance/settings/cycles/new')
-    expect(wrapper.get('#cycle-name').attributes('maxlength')).toBe('128')
+    await wrapper.get('#cycle-name').setValue('未保存周期')
+    await wrapper.get('.full-screen-modal-header-back').trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('.performance-confirm-dialog')
+    expect(dialog?.textContent).toContain('离开后，已填写的信息将会丢失。确定离开此页面吗？')
+    expect(Array.from(dialog?.querySelectorAll('button') || []).map(button => button.textContent)).toEqual(['取消', '确定'])
+
+    ;[...dialog!.querySelectorAll('button')].find(button => button.textContent === '取消')!.click()
+    await flushPromises()
+    expect(wrapper.find('.cycle-modal').exists()).toBe(true)
+
+    ;[...dialog!.querySelectorAll('button')].find(button => button.textContent === '确定')!.click()
+    await flushPromises()
+    expect(wrapper.find('.cycle-modal').exists()).toBe(false)
+  })
+  it('renders the language options vertically with Chinese selected by default', async () => {
+    const wrapper = await mountView('/performance/settings/cycles/new')
+
+    const options = wrapper.findAll('.language-options label')
+    expect(options.map(option => option.text())).toEqual(['中文', '英文'])
+    expect((wrapper.get('#cycle-language-zh').element as HTMLInputElement).checked).toBe(true)
+    expect((wrapper.get('#cycle-language-en').element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper.get('.language-options').classes()).toContain('language-options')
+  })
+
+  it('only shows scheduled lock details inside the gray settings area', async () => {
+    const wrapper = await mountView('/performance/settings/cycles/new')
+
+    expect(wrapper.find('.lock-rule-options').findAll('label').map(option => option.text())).toEqual([
+      '新建周期时，立即锁定',
+      '新建周期并到达指定时间后，再锁定',
+    ])
+    expect(wrapper.find('.lock-settings-card').exists()).toBe(false)
+    expect(wrapper.find('.sync-card').exists()).toBe(false)
+
+    await wrapper.find('input[type="radio"][value="SCHEDULED"]').setValue(true)
+
+    expect(wrapper.find('.lock-settings-card').exists()).toBe(true)
+    expect(wrapper.find('.lock-settings-card').text()).toContain('锁定时间')
+    expect(wrapper.find('.lock-settings-card').text()).toContain('锁定前名单同步')
+    expect(wrapper.find('.lock-settings-card .sync-field').exists()).toBe(true)
+  })
+
+  it('removes the duplicate empty-state create button', async () => {
+    mocks.list.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 })
+    const wrapper = await mountView()
+
+    expect(wrapper.findAll('[aria-label="新建周期"]')).toHaveLength(1)
+    expect(wrapper.findAll('button').filter(button => button.text() === '新建周期')).toHaveLength(0)
+  })
+
+  it('renders the form validation relationships and the paged year panel', async () => {
+    const wrapper = await mountView('/performance/settings/cycles/new')
     expect(wrapper.get('#cycle-year').text()).toContain('请选择年份')
     expect(wrapper.get('#cycle-year').text()).not.toContain('2026')
     await wrapper.get('#cycle-year').trigger('click')
