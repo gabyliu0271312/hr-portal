@@ -41,6 +41,21 @@ describe('PerformanceConfirmDialog', () => {
     expect(Array.from(document.querySelectorAll('.performance-confirm-dialog__button')).map(button => button.textContent)).toEqual(['取消', '确定'])
     wrapper.unmount()
   })
+  it('uses the same shell for the cycle delete title and description', async () => {
+    const wrapper = mountDialog({
+      message: '确定要删除周期吗？',
+      description: '删除后，周期内的所有项目将同步删除，请谨慎操作。',
+    })
+    await flushPromises()
+
+    const dialog = document.querySelector('.performance-confirm-dialog')!
+    expect(dialog.querySelector('.performance-confirm-dialog__header')?.textContent).toContain('确定要删除周期吗？')
+    expect(dialog.querySelector('.performance-confirm-dialog__body')?.textContent).toBe('删除后，周期内的所有项目将同步删除，请谨慎操作。')
+    expect(dialog.getAttribute('aria-describedby')).toBe('performance-confirm-description')
+    expect(dialog.querySelector('[data-icon="WarningFilled"]')).not.toBeNull()
+    expect(Array.from(dialog.querySelectorAll('.performance-confirm-dialog__button')).map(button => button.textContent)).toEqual(['保留', '删除'])
+    wrapper.unmount()
+  })
   it('renders the HRBP delete subject using the captured warning dialog', async () => {
     const wrapper = mountDialog({ message: '确定删除吗？', subject: 'alice.xiao肖惠方' })
     await flushPromises()

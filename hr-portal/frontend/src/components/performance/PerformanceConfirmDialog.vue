@@ -12,6 +12,7 @@
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="performance-confirm-title"
+        :aria-describedby="subject || description ? 'performance-confirm-description' : undefined"
         @keydown="onKeydown"
       >
         <header class="performance-confirm-dialog__header">
@@ -21,7 +22,7 @@
             </span>
             <span class="performance-confirm-dialog__title-content">{{ message }}</span>
           </div>
-          <p v-if="subject || description" class="performance-confirm-dialog__body">
+          <p v-if="subject || description" id="performance-confirm-description" class="performance-confirm-dialog__body">
             <template v-if="subject">
               删除后，<span class="performance-confirm-dialog__subject">{{ subject }}</span>将失去本周期「被授权」范围的管理权限，但 Ta 仍拥有自己「当前负责」范围的管理权限。
             </template>
@@ -143,7 +144,11 @@ onBeforeUnmount(() => {
 }
 
 .performance-confirm-dialog {
-  width: min(var(--performance-dialog-width), calc(100vw - 32px));
+  --performance-confirm-width: var(--performance-dialog-width);
+  width: min(var(--performance-confirm-width), calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border-radius: var(--performance-dialog-radius);
   background: var(--color-surface-card);
@@ -152,15 +157,16 @@ onBeforeUnmount(() => {
   font-family: var(--font-sans);
 }
 
-/* 强确认变体：对应采集的已启动项目删除弹窗（600px 宽） */
 .performance-confirm-dialog--wide {
-  width: min(600px, calc(100vw - 32px));
+  --performance-confirm-width: var(--performance-dialog-wide-width);
 }
 
 .performance-confirm-dialog__header {
   display: flex;
   flex-direction: column;
-  min-height: 96px;
+  min-height: var(--performance-dialog-header-min-height);
+  max-height: calc(100vh - var(--performance-dialog-footer-height) - 32px);
+  overflow: auto;
   padding: var(--performance-dialog-padding);
   box-sizing: border-box;
 }
@@ -188,8 +194,8 @@ onBeforeUnmount(() => {
 .performance-confirm-dialog__icon svg {
   display: inline-block;
   overflow: hidden;
-  width: 24px;
-  height: 24px;
+  width: var(--performance-dialog-icon-size);
+  height: var(--performance-dialog-icon-size);
   min-width: 0;
   min-height: 0;
   box-sizing: border-box;
@@ -202,7 +208,7 @@ onBeforeUnmount(() => {
 }
 
 .performance-confirm-dialog__body {
-  margin: var(--spacing-2) 0 0 40px;
+  margin: var(--performance-dialog-body-gap) 0 0 var(--performance-dialog-body-indent);
   font-size: var(--font-size-md);
   font-weight: 400;
   line-height: 22px;
@@ -252,11 +258,12 @@ onBeforeUnmount(() => {
 }
 
 .performance-confirm-dialog__footer {
+  flex: 0 0 auto;
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
   gap: var(--performance-dialog-footer-gap);
-  height: var(--performance-dialog-footer-height);
+  min-height: var(--performance-dialog-footer-height);
   padding: 0 var(--performance-dialog-padding) var(--spacing-3);
   box-sizing: border-box;
 }

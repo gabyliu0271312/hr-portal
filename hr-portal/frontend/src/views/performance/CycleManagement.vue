@@ -127,15 +127,18 @@
           @confirm="confirmLeaveEdit"
         />
 
-      <div v-if="deleteConfirm" class="modal-mask" role="presentation" @click.self="closeDeleteDialog">
-        <div ref="dialogRef" class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-description" tabindex="-1" @keydown="handleDialogKeydown">
-          <h3 id="delete-title">确定要删除周期吗？</h3><p id="delete-description">删除后，周期内的所有项目将同步删除，请谨慎操作。</p>
-          <div><button ref="cancelDeleteRef" class="outline-button" type="button" @click="closeDeleteDialog">保留</button><button ref="confirmDeleteRef" class="danger-button" type="button" :disabled="deleting" @click="confirmDelete">{{ deleting ? '删除中...' : '删除' }}</button></div>
-        </div>
-      </div>
+      <PerformanceConfirmDialog
+        v-model="deleteConfirm"
+        message="确定要删除周期吗？"
+        description="删除后，周期内的所有项目将同步删除，请谨慎操作。"
+        cancel-text="保留"
+        confirm-text="删除"
+        :loading="deleting"
+        @confirm="confirmDelete"
+      />
 
     <div v-if="editing" class="cycle-modal" role="presentation">
-      <form class="cycle-form" role="dialog" aria-modal="true" novalidate :aria-label="formMode === 'create' ? '新建周期' : '编辑周期'" @input="updateInputValidity" @submit.prevent="submitForm">
+      <form ref="cycleFormRef" class="cycle-form" role="dialog" aria-modal="true" novalidate :aria-label="formMode === 'create' ? '新建周期' : '编辑周期'" @input="updateInputValidity" @submit.prevent="submitForm">
         <PageHeader class="cycle-form-header" :title="formMode === 'create' ? '新建周期' : '编辑周期'" @back="cancelEdit" />
         <div class="form-layout">
           <nav class="form-anchor" aria-label="周期表单导航">
@@ -198,6 +201,16 @@
             <section id="evaluation-settings" class="form-card">
               <h2>评估设置</h2>
               <div class="field-group"><label for="evaluation-template"><span>绩效模板</span></label><select id="evaluation-template" v-model="form.evaluation_template" disabled aria-disabled="true"><option value="">绩效模板（暂未接入）</option></select></div>
+              <div class="evaluation-result-rules">
+                <div class="evaluation-result-rules__title">评估结果校验提示规则</div>
+                <div class="evaluation-result-rule-card">
+                  <div class="evaluation-result-rule-card__title">不同评估环节的评估结果差异提示</div>
+                  <p>可设置当不同环节中相同评估项的评估结果有一定差异时，会触发差异提示。</p>
+                  <button class="evaluation-result-rule-add" type="button" disabled title="规则配置将在下一步实现" aria-label="添加评估结果校验提示规则（下一步实现）">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a1 1 0 0 0-1 1v8H3a1 1 0 1 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 0 0 0-2h-8V3a1 1 0 0 0-1-1Z" fill="currentColor" /></svg>
+                  </button>
+                </div>
+              </div>
             </section>
             <section id="leaver-settings" class="form-card">
               <h2>离职人员参评设置</h2>
@@ -230,7 +243,7 @@ import PageHeader from '@/components/performance/PageHeader.vue'
 import { performanceApi, performanceCycleApi, performanceProjectApi, type PerformanceAccessContext, type PerformanceCycle, type PerformanceCyclePayload, type PerformanceCyclePerson, type PerformanceCycleProjectShell, type PerformanceProjectPayload, type PerformanceCyclePeriodSubtype, type PerformanceCyclePeriodType } from '@/api/performance'
 
 const organizationFields = [{ key: 'company_org', label: '公司级组织' }, { key: 'department', label: '一级部门' }, { key: 'department_2', label: '二级部门' }, { key: 'department_3', label: '三级部门' }, { key: 'department_4', label: '四级部门' }, { key: 'department_5', label: '五级部门' }] as const
-const route = useRoute(); const router = useRouter(); const cycles = ref<PerformanceCycle[]>([]); const selected = ref<PerformanceCycle | null>(null); const loading = ref(false); const saving = ref(false); const deleting = ref(false); const editing = ref(false); const formMode = ref<'create' | 'edit'>('create'); const keyword = ref(''); const page = ref(1); const pageSize = ref(20); const total = ref(0); const formError = ref(''); const saveSuccess = ref(false); const accessContext = ref<PerformanceAccessContext | null>(null); const people = ref<PerformanceCyclePerson[]>([]); const peopleLoading = ref(false); const showPeople = ref(false); const peopleReason = ref(''); const deleteConfirm = ref(false); const initialForm = ref(''); const dialogRef = ref<HTMLElement | null>(null); const cancelDeleteRef = ref<HTMLButtonElement | null>(null); const confirmDeleteRef = ref<HTMLButtonElement | null>(null); const previousFocus = ref<HTMLElement | null>(null); const requestVersion = ref(0); const anchorObserver = ref<IntersectionObserver | null>(null)
+const route = useRoute(); const router = useRouter(); const cycles = ref<PerformanceCycle[]>([]); const selected = ref<PerformanceCycle | null>(null); const loading = ref(false); const saving = ref(false); const deleting = ref(false); const editing = ref(false); const formMode = ref<'create' | 'edit'>('create'); const keyword = ref(''); const page = ref(1); const pageSize = ref(20); const total = ref(0); const formError = ref(''); const saveSuccess = ref(false); const accessContext = ref<PerformanceAccessContext | null>(null); const people = ref<PerformanceCyclePerson[]>([]); const peopleLoading = ref(false); const showPeople = ref(false); const peopleReason = ref(''); const deleteConfirm = ref(false); const initialForm = ref(''); const requestVersion = ref(0); const anchorObserver = ref<IntersectionObserver | null>(null)
 const projectDialogOpen = ref(false); const projectDialogMode = ref<'create' | 'edit'>('create'); const projectDialogProject = ref<PerformanceCycleProjectShell | null>(null); const projectSaving = ref(false); const projectActionSuccess = ref(''); const projectRemoveTarget = ref<PerformanceCycleProjectShell | null>(null); const projectRemoveOpen = ref(false); const projectRemoving = ref(false)
 const leaveConfirmOpen = ref(false)
 const activeCycleMenuId = ref<number | null>(null); const cycleMenuStyle = ref<CSSProperties>({}); const cycleMenuRef = ref<HTMLElement | null>(null); const cycleMoreButtons = new Map<number, HTMLButtonElement>(); let cycleMenuCloseTimer: number | undefined
@@ -239,7 +252,35 @@ const yearPickerOpen = ref(false); const periodTypePickerOpen = ref(false); cons
 type PeriodTypeOption = { value: string; type: PerformanceCyclePeriodType; subtype: string | null; label: string }; const periodTypeGroups: { label: string; options: PeriodTypeOption[] }[] = [{ label: '年/半年度', options: [{ value: 'YEAR', type: 'YEAR', subtype: null, label: '全年' }, { value: 'H1', type: 'HALF_YEAR', subtype: 'H1', label: '上半年' }, { value: 'H2', type: 'HALF_YEAR', subtype: 'H2', label: '下半年' }] }, { label: '季度', options: [1, 2, 3, 4].map(index => ({ value: `Q${index}`, type: 'QUARTER', subtype: `Q${index}`, label: `第 ${index} 季度` })) }, { label: '双月', options: [1, 2, 3, 4, 5, 6].map(index => ({ value: `B${index}`, type: 'BIMONTH', subtype: `B${index}`, label: `${index * 2 - 1}-${index * 2} 双月` })) }, { label: '月度', options: Array.from({ length: 12 }, (_, index) => ({ value: `M${index + 1}`, type: 'MONTH', subtype: `M${index + 1}`, label: `${index + 1} 月份` })) }, { label: '非标准周期', options: [{ value: 'CUSTOM', type: 'CUSTOM', subtype: 'CUSTOM', label: '自定义' }] }];
 const selectedPeriodOption = computed(() => periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type && option.subtype === (form.period_subtype || null)) || periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type));
 const activeAnchor = ref('cycle-info'); const anchorItems = [{ id: 'cycle-info', label: '周期信息' }, { id: 'people-settings', label: '人员和部门信息设置' }, { id: 'evaluation-settings', label: '评估设置' }, { id: 'leaver-settings', label: '离职人员参评设置' }]; const yearPageSize = 20; const getDefaultYearPageStart = () => Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize; const yearPageStart = ref(Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize); const yearOptions = computed(() => Array.from({ length: yearPageSize }, (_, index) => yearPageStart.value + index).filter(year => year >= 1900 && year <= 2200)); const form = reactive<any>({ name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', evaluation_template: '' }); const formSubmitted = ref(false); const isDirty = computed(() => editing.value && JSON.stringify(form) !== initialForm.value)
-function snapshotForm() { initialForm.value = JSON.stringify(form) }; function resetForm() { Object.assign(form, { name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', evaluation_template: '' }); formSubmitted.value = false; yearPageStart.value = getDefaultYearPageStart(); yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {}; snapshotForm() }; function changeYearPage(direction: number) { yearPageStart.value = Math.min(2200 - yearPageSize + 1, Math.max(1900, yearPageStart.value + direction * yearPageSize)) }; function positionPanel(trigger: HTMLElement | null, width: number, height: number): CSSProperties { if (!trigger) return { position: 'fixed', top: '0px', left: '0px' }; const rect = trigger.getBoundingClientRect(); const gap = 6; const margin = 16; const below = rect.bottom + gap; const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, rect.top - height - gap); const left = Math.min(Math.max(margin, rect.left), Math.max(margin, window.innerWidth - width - margin)); return { position: 'fixed', top: top + 'px', left: left + 'px' } }; function updatePanelPosition(type: 'year' | 'period') { void nextTick(() => { const trigger = document.getElementById(type === 'year' ? 'cycle-year' : 'cycle-type'); const style = positionPanel(trigger, type === 'year' ? 279 : 385, type === 'year' ? 311 : 364); if (type === 'year') yearPanelStyle.value = style; else periodPanelStyle.value = style }) }; function toggleYearPicker() { periodTypePickerOpen.value = false; yearPickerOpen.value = !yearPickerOpen.value; yearPanelStyle.value = {}; if (yearPickerOpen.value) updatePanelPosition('year') }; function togglePeriodTypePicker() { yearPickerOpen.value = false; periodTypePickerOpen.value = !periodTypePickerOpen.value; periodPanelStyle.value = {}; if (periodTypePickerOpen.value) updatePanelPosition('period') }; function closePickers() { yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {} }; function handlePickerOutsidePointerDown(event: PointerEvent) { if (!yearPickerOpen.value && !periodTypePickerOpen.value) return; const target = event.target; if (!(target instanceof Node)) return; const yearRoot = document.querySelector('.year-picker'); const periodRoot = document.querySelector('.period-type-picker'); if (yearPickerOpen.value && !yearRoot?.contains(target)) closePickers(); if (periodTypePickerOpen.value && !periodRoot?.contains(target)) closePickers() }; function selectYear(year: number) { form.period_year = year; applyPeriodDates() }; function selectPeriodOption(option: PeriodTypeOption) { form.period_type = option.type; form.period_subtype = option.subtype; periodTypePickerOpen.value = false; applyPeriodDates() }; function daysInMonth(year: number, month: number) { return new Date(year, month, 0).getDate() }; function applyPeriodDates() { const year = form.period_year; const subtype = form.period_subtype as string | null; if (!year || form.period_type === 'CUSTOM') return; let startMonth = 1; let endMonth = 12; if (form.period_type === 'HALF_YEAR') { startMonth = subtype === 'H2' ? 7 : 1; endMonth = subtype === 'H2' ? 12 : 6 } else if (form.period_type === 'QUARTER') { const quarter = Number(subtype?.slice(1) || 1); startMonth = (quarter - 1) * 3 + 1; endMonth = startMonth + 2 } else if (form.period_type === 'BIMONTH') { const bimonth = Number(subtype?.slice(1) || 1); startMonth = (bimonth - 1) * 2 + 1; endMonth = startMonth + 1 } else if (form.period_type === 'MONTH') { startMonth = Number(subtype?.slice(1) || 1); endMonth = startMonth } form.start_at = `${year}-${String(startMonth).padStart(2, '0')}-01T00:00`; form.end_at = `${year}-${String(endMonth).padStart(2, '0')}-${daysInMonth(year, endMonth)}T23:59` }; function toLocal(value: string | null) { return utcToShanghaiLocal(value) || '' }; function formatRange(start: string, end: string) { return `${formatDateTime(start)} - ${formatDateTime(end)}` }; function toIso(value: string) { return shanghaiLocalToUtcIso(value) || '' }
+const cycleFormRef = ref<HTMLFormElement | null>(null)
+const fieldErrors = reactive<Record<string, string>>({})
+const requiredFields = computed(() => [
+  { id: 'cycle-name', key: 'name', label: '周期名称' },
+  { id: 'cycle-year', key: 'period_year', label: '年份' },
+  { id: 'cycle-type', key: 'period_type', label: '周期类型' },
+  { id: 'cycle-start', key: 'start_at', label: '开始时间' },
+  { id: 'cycle-end', key: 'end_at', label: '截止时间' },
+  ...(form.lock_rule === 'SCHEDULED' && formMode.value === 'create' ? [{ id: 'lock-at', key: 'lock_at', label: '锁定时间' }] : []),
+  ...(form.leaver_enabled ? [
+    { id: 'leaver-start', key: 'leaver_start_date', label: '离职开始日期' },
+    { id: 'leaver-end', key: 'leaver_end_date', label: '离职截止日期' },
+  ] : []),
+])
+function clearFormErrors() { Object.keys(fieldErrors).forEach(key => delete fieldErrors[key]) }
+function validateFields() {
+  clearFormErrors()
+  for (const field of requiredFields.value) {
+    const control = cycleFormRef.value?.querySelector<HTMLInputElement>(`input[id="${field.id}"]`)
+    const value = control ? control.value : form[field.key]
+    if (!String(value ?? '').trim()) fieldErrors[field.id] = `${field.label}为必填`
+    else if (control && !control.validity.valid) fieldErrors[field.id] = `${field.label}格式不正确`
+  }
+}
+function updateInputValidity() {
+  if (formSubmitted.value) void nextTick(validateFields)
+}
+watch(form, updateInputValidity, { flush: 'post' })
+function snapshotForm() { initialForm.value = JSON.stringify(form) }; function resetForm() { clearFormErrors(); Object.assign(form, { name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', evaluation_template: '' }); formSubmitted.value = false; yearPageStart.value = getDefaultYearPageStart(); yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {}; snapshotForm() }; function changeYearPage(direction: number) { yearPageStart.value = Math.min(2200 - yearPageSize + 1, Math.max(1900, yearPageStart.value + direction * yearPageSize)) }; function positionPanel(trigger: HTMLElement | null, width: number, height: number): CSSProperties { if (!trigger) return { position: 'fixed', top: '0px', left: '0px' }; const rect = trigger.getBoundingClientRect(); const gap = 6; const margin = 16; const below = rect.bottom + gap; const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, rect.top - height - gap); const left = Math.min(Math.max(margin, rect.left), Math.max(margin, window.innerWidth - width - margin)); return { position: 'fixed', top: top + 'px', left: left + 'px' } }; function updatePanelPosition(type: 'year' | 'period') { void nextTick(() => { const trigger = document.getElementById(type === 'year' ? 'cycle-year' : 'cycle-type'); const style = positionPanel(trigger, type === 'year' ? 279 : 385, type === 'year' ? 311 : 364); if (type === 'year') yearPanelStyle.value = style; else periodPanelStyle.value = style }) }; function toggleYearPicker() { periodTypePickerOpen.value = false; yearPickerOpen.value = !yearPickerOpen.value; yearPanelStyle.value = {}; if (yearPickerOpen.value) updatePanelPosition('year') }; function togglePeriodTypePicker() { yearPickerOpen.value = false; periodTypePickerOpen.value = !periodTypePickerOpen.value; periodPanelStyle.value = {}; if (periodTypePickerOpen.value) updatePanelPosition('period') }; function closePickers() { yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {} }; function handlePickerOutsidePointerDown(event: PointerEvent) { if (!yearPickerOpen.value && !periodTypePickerOpen.value) return; const target = event.target; if (!(target instanceof Node)) return; const yearRoot = document.querySelector('.year-picker'); const periodRoot = document.querySelector('.period-type-picker'); if (yearPickerOpen.value && !yearRoot?.contains(target)) closePickers(); if (periodTypePickerOpen.value && !periodRoot?.contains(target)) closePickers() }; function selectYear(year: number) { form.period_year = year; applyPeriodDates() }; function selectPeriodOption(option: PeriodTypeOption) { form.period_type = option.type; form.period_subtype = option.subtype; periodTypePickerOpen.value = false; applyPeriodDates() }; function daysInMonth(year: number, month: number) { return new Date(year, month, 0).getDate() }; function applyPeriodDates() { const year = form.period_year; const subtype = form.period_subtype as string | null; if (!year || form.period_type === 'CUSTOM') return; let startMonth = 1; let endMonth = 12; if (form.period_type === 'HALF_YEAR') { startMonth = subtype === 'H2' ? 7 : 1; endMonth = subtype === 'H2' ? 12 : 6 } else if (form.period_type === 'QUARTER') { const quarter = Number(subtype?.slice(1) || 1); startMonth = (quarter - 1) * 3 + 1; endMonth = startMonth + 2 } else if (form.period_type === 'BIMONTH') { const bimonth = Number(subtype?.slice(1) || 1); startMonth = (bimonth - 1) * 2 + 1; endMonth = startMonth + 1 } else if (form.period_type === 'MONTH') { startMonth = Number(subtype?.slice(1) || 1); endMonth = startMonth } form.start_at = `${year}-${String(startMonth).padStart(2, '0')}-01T00:00`; form.end_at = `${year}-${String(endMonth).padStart(2, '0')}-${daysInMonth(year, endMonth)}T23:59` }; function toLocal(value: string | null) { return utcToShanghaiLocal(value) || '' }; function formatRange(start: string, end: string) { return `${formatDateTime(start)} - ${formatDateTime(end)}` }; function toIso(value: string) { return shanghaiLocalToUtcIso(value) || '' }
 function toPayload(): PerformanceCyclePayload | Partial<PerformanceCyclePayload> { const base = { name: form.name, language: 'zh-CN' as const, period_year: form.period_year, period_type: form.period_type, period_subtype: form.period_subtype, start_at: toIso(form.start_at), end_at: toIso(form.end_at), leaver_enabled: form.leaver_enabled, leaver_start_date: form.leaver_enabled ? form.leaver_start_date : null, leaver_end_date: form.leaver_enabled ? form.leaver_end_date : null, leaver_participation_mode: form.leaver_participation_mode }; return formMode.value === 'create' ? { ...base, lock_rule: form.lock_rule, lock_at: form.lock_rule === 'SCHEDULED' ? toIso(form.lock_at) : null, pre_lock_sync_mode: form.pre_lock_sync_mode } : base }
 async function loadCycles() { const version = ++requestVersion.value; loading.value = true; formError.value = ''; try { const result = await performanceCycleApi.list(keyword.value, page.value, pageSize.value); if (version !== requestVersion.value) return; cycles.value = result.items; total.value = result.total; if (page.value > totalPages.value) { page.value = totalPages.value; return loadCycles() }; if (!selected.value || !cycles.value.some(item => item.id === selected.value?.id)) selected.value = cycles.value[0] || null } catch (error: any) { formError.value = error?.response?.data?.detail || '周期加载失败' } finally { if (version === requestVersion.value) loading.value = false } }
 async function searchCycles() { page.value = 1; await loadCycles() }; function clearSearch() { keyword.value = ''; void searchCycles() }; async function changePage(nextPage: number) { page.value = Math.min(Math.max(1, nextPage), totalPages.value); await loadCycles() }; async function selectCycle(cycle: PerformanceCycle) { selected.value = cycle; if (showPeople.value) await loadPeople() }
@@ -308,12 +349,12 @@ function removeCycleFromMenu(cycle: PerformanceCycle) {
   selected.value = cycle
   removeSelected()
 }
-function startCreate() { resetForm(); formMode.value = 'create'; formError.value = ''; saveSuccess.value = false; editing.value = true; if (route.name !== 'PerformanceCycleCreate') void router.push({ name: 'PerformanceCycleCreate' }) }; async function startEdit() { if (!selected.value) return; await enterEdit(selected.value.id); if (route.name !== 'PerformanceCycleEdit') void router.push({ name: 'PerformanceCycleEdit', params: { id: selected.value.id } }) }; async function enterEdit(id: number) { const cycle = await performanceCycleApi.get(id); selected.value = cycle; Object.assign(form, { name: cycle.name, period_year: cycle.period_year, period_type: cycle.period_type, start_at: toLocal(cycle.start_at), end_at: toLocal(cycle.end_at), lock_rule: cycle.lock_rule, lock_at: toLocal(cycle.lock_at), pre_lock_sync_mode: cycle.pre_lock_sync_mode, leaver_enabled: cycle.leaver_enabled, leaver_start_date: cycle.leaver_start_date || '', leaver_end_date: cycle.leaver_end_date || '', leaver_participation_mode: cycle.leaver_participation_mode }); snapshotForm(); formMode.value = 'edit'; editing.value = true }
-function discardEdit() { editing.value = false; formError.value = '' }; function cancelEdit() { if (!isDirty.value) { discardEdit(); void router.replace({ name: 'PerformanceCycles' }); return }; leaveConfirmOpen.value = true }
+function startCreate() { resetForm(); formMode.value = 'create'; formError.value = ''; saveSuccess.value = false; editing.value = true; if (route.name !== 'PerformanceCycleCreate') void router.push({ name: 'PerformanceCycleCreate' }) }; async function startEdit() { if (!selected.value) return; await enterEdit(selected.value.id); if (route.name !== 'PerformanceCycleEdit') void router.push({ name: 'PerformanceCycleEdit', params: { id: selected.value.id } }) }; async function enterEdit(id: number) { const cycle = await performanceCycleApi.get(id); selected.value = cycle; clearFormErrors(); formSubmitted.value = false; Object.assign(form, { name: cycle.name, period_year: cycle.period_year, period_type: cycle.period_type, period_subtype: cycle.period_subtype || null, start_at: toLocal(cycle.start_at), end_at: toLocal(cycle.end_at), lock_rule: cycle.lock_rule, lock_at: toLocal(cycle.lock_at), pre_lock_sync_mode: cycle.pre_lock_sync_mode, leaver_enabled: cycle.leaver_enabled, leaver_start_date: cycle.leaver_start_date || '', leaver_end_date: cycle.leaver_end_date || '', leaver_participation_mode: cycle.leaver_participation_mode }); snapshotForm(); formMode.value = 'edit'; editing.value = true }
+function discardEdit() { editing.value = false; formError.value = ''; clearFormErrors(); formSubmitted.value = false }; function cancelEdit() { if (!isDirty.value) { discardEdit(); void router.replace({ name: 'PerformanceCycles' }); return }; leaveConfirmOpen.value = true }
 function confirmLeaveEdit() { leaveConfirmOpen.value = false; discardEdit(); void router.replace({ name: 'PerformanceCycles' }) }
-async function submitForm() { formError.value = ''; saveSuccess.value = false; if (!form.period_year) { formError.value = '请选择年份'; return }; if (dateError.value) { formError.value = '需晚于开始时间'; return }; if (leaverDateError.value) { formError.value = '离职人员参评日期范围不合法'; return }; if (lockError.value) { formError.value = '定时锁定需晚于当前时间至少 6 小时'; return }; saving.value = true; try { const cycle = formMode.value === 'create' ? await performanceCycleApi.create(toPayload() as PerformanceCyclePayload) : await performanceCycleApi.update(selected.value!.id, toPayload()); snapshotForm(); discardEdit(); saveSuccess.value = true; await loadCycles(); selected.value = cycle; await router.replace({ name: 'PerformanceCycles' }) } catch (error: any) { formError.value = error?.response?.data?.detail || error?.response?.data?.message || '保存失败' } finally { saving.value = false } }
+async function submitForm() { formError.value = ''; saveSuccess.value = false; formSubmitted.value = true; validateFields(); if (Object.keys(fieldErrors).length) { formError.value = '请完善必填信息'; return }; if (dateError.value) { formError.value = '需晚于开始时间'; return }; if (leaverDateError.value) { formError.value = '离职人员参评日期范围不合法'; return }; if (lockError.value && !(formMode.value === 'edit' && form.lock_rule === 'SCHEDULED')) { formError.value = '定时锁定需晚于当前时间至少 6 小时'; return }; saving.value = true; try { const cycle = formMode.value === 'create' ? await performanceCycleApi.create(toPayload() as PerformanceCyclePayload) : await performanceCycleApi.update(selected.value!.id, toPayload()); snapshotForm(); discardEdit(); saveSuccess.value = true; await loadCycles(); selected.value = cycle; await router.replace({ name: 'PerformanceCycles' }) } catch (error: any) { formError.value = error?.response?.data?.detail || error?.response?.data?.message || '保存失败' } finally { saving.value = false } }
 async function loadPeople() { if (!selected.value) return; peopleLoading.value = true; try { people.value = await performanceCycleApi.listPeople(selected.value.id) } catch (error: any) { formError.value = error?.response?.data?.detail || '人员快照加载失败' } finally { peopleLoading.value = false } }; async function togglePeople() { showPeople.value = !showPeople.value; if (showPeople.value) await loadPeople() }; async function refreshPeople() { if (!selected.value || !peopleReason.value) return; try { await performanceCycleApi.refreshPeople(selected.value.id, peopleReason.value); await loadPeople() } catch (error: any) { formError.value = error?.response?.data?.detail || '名单刷新失败' } }; async function savePerson(person: PerformanceCyclePerson) { if (!selected.value || !peopleReason.value) return; try { await performanceCycleApi.updatePerson(selected.value.id, { employee_no: person.employee_no, display_name: person.display_name, ...Object.fromEntries(organizationFields.map(field => [field.key, person[field.key]])), direct_supervisor_employee_no: person.direct_supervisor_employee_no, hrbp_employee_no: person.hrbp_employee_no }, peopleReason.value); await loadPeople() } catch (error: any) { formError.value = error?.response?.data?.detail || '人员维护失败' } }
-function restoreDeleteFocus() { void nextTick(() => previousFocus.value?.isConnected && previousFocus.value.focus()) }; function closeDeleteDialog() { deleteConfirm.value = false; restoreDeleteFocus() }; function handleDialogKeydown(event: KeyboardEvent) { if (event.key === 'Escape') { event.preventDefault(); closeDeleteDialog(); return }; if (event.key !== 'Tab') return; const focusable = [cancelDeleteRef.value, confirmDeleteRef.value].filter((item): item is HTMLButtonElement => Boolean(item && !item.disabled)); if (!focusable.length) return; const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }; function removeSelected() { if (!selected.value || hasStartedProject.value) return; previousFocus.value = document.activeElement as HTMLElement; deleteConfirm.value = true; void nextTick(() => cancelDeleteRef.value?.focus()) }; async function confirmDelete() { if (!selected.value) return; deleting.value = true; try { await performanceCycleApi.remove(selected.value.id); deleteConfirm.value = false; selected.value = null; await loadCycles(); restoreDeleteFocus() } catch (error: any) { formError.value = error?.response?.data?.detail || '删除失败' } finally { deleting.value = false } }
+function removeSelected() { if (!selected.value || hasStartedProject.value) return; deleteConfirm.value = true }; async function confirmDelete() { if (!selected.value) return; deleting.value = true; try { await performanceCycleApi.remove(selected.value.id); deleteConfirm.value = false; selected.value = null; await loadCycles() } catch (error: any) { formError.value = error?.response?.data?.detail || '删除失败' } finally { deleting.value = false } }
 async function reloadSelectedCycle() { if (!selected.value) return; selected.value = await performanceCycleApi.get(selected.value.id); cycles.value = cycles.value.map(cycle => cycle.id === selected.value?.id ? selected.value! : cycle) }
 function openProjectCreate() { if (!selected.value || !canManageCycles.value) return; projectDialogProject.value = null; projectDialogMode.value = 'create'; projectActionSuccess.value = ''; projectDialogOpen.value = true }
 function openProjectEdit(project: PerformanceCycleProjectShell) { if (!selected.value) return; void router.push({ name: 'PerformanceProjectEdit', params: { cycleId: selected.value.id, id: project.id } }) }
@@ -463,15 +504,6 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   line-height: 22px;
 }
 
-.field-group > label span:not(.required-mark),
-.form-card label span:not(.required-mark) {
-  color: inherit;
-}
-
-.required-mark {
-  color: var(--color-text-danger-strong);
-}
-
 .field-description,
 .form-card .description {
   margin: 0 0 12px;
@@ -521,8 +553,10 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   border-color: #3370ff;
 }
 
-.form-card input::placeholder {
-  color: #8f959e;
+.selector-control[aria-invalid='true'],
+.form-card input[aria-invalid='true'],
+.form-card select[aria-invalid='true'] {
+  border-color: var(--performance-field-border-invalid);
 }
 
 .two-col {
@@ -558,6 +592,10 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   display: flex;
   align-items: flex-start;
   gap: 24px;
+}
+
+.lock-rule-options {
+  flex-direction: column;
 }
 
 .language-options label,
@@ -847,6 +885,70 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   margin-top: 16px;
 }
 
+.evaluation-result-rules {
+  margin-top: 24px;
+}
+
+.evaluation-result-rules__title {
+  margin-bottom: 12px;
+  color: #1f2329;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.evaluation-result-rule-card {
+  min-height: 83px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  background: #f8f9fa;
+}
+
+.evaluation-result-rule-card__title {
+  color: #1f2329;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.evaluation-result-rule-card p {
+  margin: 0;
+  color: #646a73;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.evaluation-result-rule-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 138px;
+  height: 22px;
+  margin-top: 4px;
+  padding: 2px 4px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #1456f0;
+  cursor: not-allowed;
+}
+
+.evaluation-result-rule-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+.evaluation-result-rule-add:disabled {
+  opacity: 1;
+}
+
+.evaluation-result-rule-add:not(:disabled):hover {
+  background: rgba(20, 86, 240, 0.2);
+}
+
 .switch-field {
   display: flex;
   align-items: center;
@@ -892,10 +994,10 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 
 .error {
   display: block;
-  margin-top: 7px;
-  color: #f04438;
-  font-size: 13px;
-  line-height: 20px;
+  margin-top: var(--performance-field-error-gap);
+  color: var(--performance-field-error-color);
+  font-size: var(--performance-field-error-font-size);
+  line-height: var(--performance-field-error-line-height);
 }
 
 .form-footer {
@@ -1014,11 +1116,12 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 }
 .cycle-page { min-width: 0; }
 .cycle-list-page :deep(.list-page-title) { margin: 0; }
-.cycle-page-content { min-width: 0; padding: 0; }
-.cycle-list-page :deep(.list-page-content) { min-height: 0; padding: var(--performance-content-surface-padding); }
+.cycle-page-content { display: flex; flex: 1; min-width: 0; padding: 0; }
+.cycle-list-page :deep(.list-page-content) { display: flex; min-height: auto; padding: var(--performance-content-surface-padding); }
 .cycle-workspace-card { min-width: 0; padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .cycle-workspace { display: flex; width: 100%; min-width: 0; align-items: stretch; }
-.cycle-list-panel { flex: 0 0 208px; width: 208px; min-width: 208px; padding-right: 0; border-right: 1px solid #dee0e3; box-sizing: border-box; }
+.cycle-list-panel { position: relative; flex: 0 0 228px; width: 228px; min-width: 228px; padding-right: 20px; box-sizing: border-box; }
+.cycle-list-panel::after { content: ''; position: absolute; top: -20px; right: -1px; bottom: -20px; left: auto; width: 1px; background: rgba(187, 191, 196, 0.5); }
 .cycle-list-panel h2 { margin: 0 0 16px; color: #373c43; font-size: 16px; font-weight: 600; line-height: 24px; }
 .cycle-list-panel .info { color: #646a73; font-size: 14px; }
 .cycle-search-row { display: flex; align-items: center; width: 208px; height: 32px; margin-bottom: 16px; }
@@ -1048,7 +1151,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .cycle-action-menu__icon :deep(.performance-icon-button:hover), .cycle-action-menu__icon :deep(.performance-icon-button:focus-visible) { background: transparent; color: inherit; }
 .cycle-action-menu__item.is-disabled .cycle-action-menu__icon { pointer-events: none; }
 .cycle-detail-panel { flex: 1 1 0; min-width: 0; }
-.detail-content { min-width: 0; padding-left: 40px; color: #1f2329; }
+.detail-content { min-width: 0; padding-left: 20px; color: #1f2329; }
 .detail-heading { display: flex; align-items: flex-start; justify-content: space-between; height: 40px; margin-bottom: 0; }
 .detail-heading h2 { margin: 0; color: #1f2329; font-size: 20px; font-weight: 600; line-height: 28px; }
 .detail-actions { display: flex; align-items: center; gap: 8px; }
@@ -1063,7 +1166,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .metrics strong { color: #3370ff; font-size: 14px; font-weight: 400; }
 .metrics > div:nth-child(3) { min-width: 156px; }.metrics > div:nth-child(4) { min-width: 108px; }.metrics > div:nth-child(5) { min-width: 210px; }
 .state-success, .state-error { margin: 0 0 12px; }.state-error { color: #f04438; }
-@media (max-width: 1280px) { .cycle-list-panel { flex-basis: 208px; width: 208px; min-width: 208px; padding-right: 0; }.metrics { gap: 24px; }.detail-content { padding-left: 40px; } }
+@media (max-width: 1280px) { .metrics { gap: 24px; } }
 </style>
 
 

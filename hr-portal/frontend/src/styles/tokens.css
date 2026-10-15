@@ -95,6 +95,10 @@
   --performance-count-badge-bg: #eff0f1;
   --performance-count-badge-text: #646a73;
   --performance-dialog-width: 420px;
+  --performance-dialog-wide-width: 600px;
+  --performance-dialog-body-indent: calc(var(--performance-dialog-icon-size) + var(--spacing-4));
+  --performance-dialog-icon-size: 24px;
+  --performance-dialog-body-gap: var(--spacing-2);
   --performance-workbench-editor-width: 600px;
   --performance-workbench-editor-header-height: 72px;
   --performance-workbench-editor-padding-x: 24px;
@@ -107,6 +111,7 @@
   --performance-workbench-editor-compact-switch-width: 28px;
   --performance-workbench-editor-compact-switch-height: 16px;
   --performance-dialog-radius: var(--radius-lg);
+  --performance-dialog-header-min-height: 96px;
   --performance-dialog-padding: var(--spacing-6);
   --performance-dialog-header-padding-right: 56px;
   --performance-dialog-footer-height: 56px;

@@ -1,6 +1,7 @@
 ﻿import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { createPinia } from 'pinia'
+import { createPinia, setActivePinia } from 'pinia'
+import { useUserStore } from '@/stores/user'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CycleManagement from './CycleManagement.vue'
 
@@ -78,12 +79,14 @@ async function mountView(path = '/performance/settings/cycles') {
   })
   await router.push(path)
   await router.isReady()
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useUserStore().menus = [{ code: 'performance.admin', can_create: true, can_update: true, can_delete: true } as any]
   const wrapper = mount({ template: '<router-view />' }, {
     global: {
-      plugins: [router, createPinia()],
+      plugins: [router, pinia],
       stubs: {
         PermissionButton: { template: '<button><slot /></button>' },
-        PerformanceListPage: { props: ['title'], template: '<section class="list-page-title"><h1>{{ title }}</h1><div class="list-page-content"><slot /></div></section>' },
       },
     },
   })
@@ -193,7 +196,7 @@ describe('CycleManagement', () => {
     expect(wrapper.find('.detail-content').exists()).toBe(true)
     expect(wrapper.find('.project-heading').text()).toContain('项目设置')
     expect(wrapper.find('.project-tools .primary-button').text()).toContain('新建')
-    expect(wrapper.find('.project-table-wrap').exists()).toBe(false)
+    expect(wrapper.findAll('.project-table-wrap')).toHaveLength(1)
     expect(wrapper.find('.project-settings .project-table-wrap').exists()).toBe(true)
     expect(wrapper.find('.project-settings .fixed-operation').exists()).toBe(true)
     expect(wrapper.find('.list-page-title').text()).toBe('周期与项目')
@@ -252,8 +255,30 @@ describe('CycleManagement', () => {
     expect(wrapper.find('.lock-settings-card .sync-field').exists()).toBe(true)
   })
 
+  it('renders the evaluation result validation rule placeholder below the performance template', async () => {
+    const wrapper = await mountView('/performance/settings/cycles/new')
+
+    expect(wrapper.get('.evaluation-result-rules__title').text()).toBe('评估结果校验提示规则')
+    expect(wrapper.get('.evaluation-result-rule-card__title').text()).toBe('不同评估环节的评估结果差异提示')
+    expect(wrapper.get('.evaluation-result-rule-card').text()).toContain('可设置当不同环节中相同评估项的评估结果有一定差异时，会触发差异提示。')
+    expect(wrapper.get('.evaluation-result-rule-add').attributes('aria-label')).toContain('下一步实现')
+    expect((wrapper.get('.evaluation-result-rule-add').element as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('shows field-level required errors and blocks an empty save', async () => {
+    const wrapper = await mountView('/performance/settings/cycles/new')
+
+    await wrapper.get('form').trigger('submit')
+
+    expect(mocks.create).not.toHaveBeenCalled()
+    expect(wrapper.get('#cycle-name').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('#cycle-name-error').text()).toBe('周期名称为必填')
+    expect(wrapper.get('#cycle-year-error').text()).toBe('年份为必填')
+    expect(wrapper.get('#cycle-type-error').text()).toBe('周期类型为必填')
+    expect(wrapper.get('#cycle-start-error').text()).toBe('开始时间为必填')
+    expect(wrapper.get('#cycle-end-error').text()).toBe('截止时间为必填')
+  })
   it('removes the duplicate empty-state create button', async () => {
-    mocks.list.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 })
     const wrapper = await mountView()
 
     expect(wrapper.findAll('[aria-label="新建周期"]')).toHaveLength(1)
@@ -325,16 +350,43 @@ describe('CycleManagement', () => {
     const wrapper = await mountView()
     const deleteButton = wrapper.findAll('button').find(button => button.text() === '删除')
     await deleteButton!.trigger('click')
-    expect(wrapper.findAll('[role="dialog"]')).toHaveLength(1)
-    await wrapper.get('[role="dialog"] button.outline-button').trigger('click')
-    await wrapper.vm.$nextTick()
-    expect(wrapper.findAll('[role="dialog"]')).toHaveLength(0)
+    await flushPromises()
+    const dialog = document.body.querySelector('.performance-confirm-dialog')!
+    expect(dialog.getAttribute('role')).toBe('alertdialog')
+    expect(dialog.querySelector('.performance-confirm-dialog__title-content')?.textContent).toBe('确定要删除周期吗？')
+    expect(dialog.querySelector('.performance-confirm-dialog__body')?.textContent).toBe('删除后，周期内的所有项目将同步删除，请谨慎操作。')
+    expect(dialog.querySelector('[data-icon="WarningFilled"]')).not.toBeNull()
+    expect([...dialog.querySelectorAll('button')].map(button => button.textContent)).toEqual(['保留', '删除'])
+    expect(mocks.remove).not.toHaveBeenCalled()
+    ;(dialog.querySelector('.performance-confirm-dialog__button--cancel') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(document.body.querySelector('.performance-confirm-dialog')).toBeNull()
+    expect(mocks.remove).not.toHaveBeenCalled()
   })
 
+  it('only removes the selected cycle after confirmation', async () => {
+    mocks.remove.mockResolvedValue(undefined)
+    const wrapper = await mountView()
+    await wrapper.findAll('button').find(button => button.text() === '删除')!.trigger('click')
+    expect(mocks.remove).not.toHaveBeenCalled()
+    ;(document.body.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(mocks.remove).toHaveBeenCalledOnce()
+    expect(mocks.remove).toHaveBeenCalledWith(cycle.id)
+    expect(document.body.querySelector('.performance-confirm-dialog')).toBeNull()
+  })
+
+  it('keeps the dialog open and reports a failed deletion', async () => {
+    mocks.remove.mockRejectedValue({ response: { data: { detail: '删除失败' } } })
+    const wrapper = await mountView()
+    await wrapper.findAll('button').find(button => button.text() === '删除')!.trigger('click')
+    ;(document.body.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(document.body.querySelector('.performance-confirm-dialog')).not.toBeNull()
+    expect(wrapper.find('[role="alert"]').text()).toContain('删除失败')
+  })
   it('keeps the desktop cycle workspace proportions and full detail surface', async () => {
     const wrapper = await mountView()
-
-    wrapper.get('.cycle-workspace')
     wrapper.get('.cycle-list-panel')
     wrapper.get('.cycle-detail-panel')
     expect(wrapper.get('.detail-content').text()).toContain('基本信息')
@@ -349,6 +401,8 @@ describe('CycleManagement', () => {
     const wrapper = await mountView('/performance/settings/cycles/new')
     await wrapper.get('#cycle-year').trigger('click')
     await wrapper.get('[aria-label="年份选择器"]').findAll('.year-options button').find(item => item.text() === '2026')!.trigger('click')
+    await wrapper.get('#cycle-type').trigger('click')
+    await wrapper.get('[aria-label="周期类型选择器"]').findAll('[role="option"]').find(item => item.text() === '自定义')!.trigger('click')
     await wrapper.get('#cycle-name').setValue('新周期')
     await wrapper.get('#cycle-start').setValue('2026-01-01T09:00')
     await wrapper.get('#cycle-end').setValue('2026-12-31T18:00')
@@ -359,6 +413,8 @@ describe('CycleManagement', () => {
   })
   it('prevents submission when the leaver date range is invalid', async () => {
     const wrapper = await mountView('/performance/settings/cycles/new')
+    await wrapper.get('#cycle-type').trigger('click')
+    await wrapper.get('[aria-label="周期类型选择器"]').findAll('[role="option"]').find(item => item.text() === '自定义')!.trigger('click')
     await wrapper.get('#cycle-name').setValue('新周期')
     await wrapper.get('#cycle-start').setValue('2026-01-01T09:00')
     await wrapper.get('#cycle-end').setValue('2026-12-31T18:00')
@@ -377,6 +433,8 @@ describe('CycleManagement', () => {
     const wrapper = await mountView('/performance/settings/cycles/new')
     await wrapper.get('#cycle-year').trigger('click')
     await wrapper.get('[aria-label="年份选择器"]').findAll('.year-options button').find(item => item.text() === '2026')!.trigger('click')
+    await wrapper.get('#cycle-type').trigger('click')
+    await wrapper.get('[aria-label="周期类型选择器"]').findAll('[role="option"]').find(item => item.text() === '自定义')!.trigger('click')
     await wrapper.get('#cycle-name').setValue('新周期')
     await wrapper.get('#cycle-start').setValue('2026-01-01T09:00')
     await wrapper.get('#cycle-end').setValue('2026-12-31T18:00')
@@ -394,6 +452,8 @@ describe('CycleManagement', () => {
     const wrapper = await mountView('/performance/settings/cycles/new')
     await wrapper.get('#cycle-year').trigger('click')
     await wrapper.get('[aria-label="年份选择器"]').findAll('.year-options button').find(item => item.text() === '2026')!.trigger('click')
+    await wrapper.get('#cycle-type').trigger('click')
+    await wrapper.get('[aria-label="周期类型选择器"]').findAll('[role="option"]').find(item => item.text() === '自定义')!.trigger('click')
     await wrapper.get('#cycle-name').setValue('保留的周期')
     await wrapper.get('#cycle-start').setValue('2026-01-01T09:00')
     await wrapper.get('#cycle-end').setValue('2026-12-31T18:00')
