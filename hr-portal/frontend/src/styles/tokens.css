@@ -114,6 +114,7 @@
   --performance-dialog-shadow: 0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12);
   --performance-dialog-danger-bg: #fee3e2;
   --performance-dialog-cancel-hover: #f2f3f5;
+  --performance-dialog-warning-icon: #ff811a;
   --performance-dialog-focus-ring: rgba(51, 112, 255, 0.45);
   --performance-confirm-z-index: 2200;
   --performance-drawer-z-index: 2200;
@@ -165,6 +166,7 @@
   --performance-button-text-active-background: rgba(20, 86, 240, 0.32);
   --performance-button-danger-background: var(--color-danger);
   --performance-button-danger-hover-background: #b42318;
+  --performance-button-danger-outline-hover-background: #fdc6c4;
   --performance-button-danger-text: var(--color-bg-card);
 
   /* Shared field states: the field shell owns visual state, business controls own value logic. */

@@ -16,11 +16,8 @@
       >
         <header class="performance-confirm-dialog__header">
           <div id="performance-confirm-title" class="performance-confirm-dialog__title">
-            <span class="performance-confirm-dialog__icon" aria-hidden="true">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" data-icon="WarningColorful">
-                <circle cx="12" cy="12" r="11" fill="#FF811A" />
-                <path d="M12 7a1 1 0 0 0-1 1v5a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1Zm0 10a1 1 0 1 0-2 0 1 1 0 0 0 2 0Z" fill="#fff" />
-              </svg>
+            <span class="performance-confirm-dialog__icon">
+              <PerformanceWarningFilledIcon />
             </span>
             <span class="performance-confirm-dialog__title-content">{{ message }}</span>
           </div>
@@ -37,8 +34,8 @@
           </div>
         </header>
         <footer class="performance-confirm-dialog__footer">
-          <button ref="cancelRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--cancel" type="button" :disabled="loading" @click="cancel">保留</button>
-          <button ref="confirmRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--danger" type="button" :disabled="loading || !canConfirm" :aria-busy="loading" @click="$emit('confirm')">删除</button>
+          <button ref="cancelRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--cancel" type="button" :disabled="loading" @click="cancel">{{ cancelText }}</button>
+          <button ref="confirmRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--danger" type="button" :disabled="loading || !canConfirm" :aria-busy="loading" @click="$emit('confirm')">{{ confirmText }}</button>
         </footer>
       </section>
     </div>
@@ -47,12 +44,15 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import PerformanceWarningFilledIcon from './PerformanceWarningFilledIcon.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
   message?: string
   subject?: string
   description?: string
+  cancelText?: string
+  confirmText?: string
   loading?: boolean
   requireConfirm?: boolean
   confirmDisabled?: boolean
@@ -61,6 +61,8 @@ const props = withDefaults(defineProps<{
   message: '后续配置项目将无法使用该模板，确定删除吗？',
   subject: '',
   description: '',
+  cancelText: '保留',
+  confirmText: '删除',
   loading: false,
   requireConfirm: false,
   confirmDisabled: false,
@@ -173,20 +175,25 @@ onBeforeUnmount(() => {
 }
 
 .performance-confirm-dialog__icon {
-  display: inline-flex;
-  flex: 0 0 24px;
-  align-self: center;
-  width: 24px;
-  height: 24px;
+  display: flex;
+  align-items: baseline;
   margin-right: var(--spacing-4);
+  box-sizing: border-box;
   color: var(--color-text-warning-strong);
-  line-height: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  line-height: 24px;
 }
 
 .performance-confirm-dialog__icon svg {
-  display: block;
+  display: inline-block;
+  overflow: hidden;
   width: 24px;
   height: 24px;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  line-height: 24px;
 }
 
 .performance-confirm-dialog__title-content {
@@ -293,7 +300,7 @@ onBeforeUnmount(() => {
 }
 
 .performance-confirm-dialog__button--danger:hover:not(:disabled) {
-  background: var(--performance-dialog-danger-bg);
+  background: var(--performance-button-danger-outline-hover-background);
   color: var(--color-text-danger-strong);
 }
 

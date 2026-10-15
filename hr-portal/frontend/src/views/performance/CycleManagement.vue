@@ -1,8 +1,7 @@
 ﻿<template>
   <section class="cycle-page">
-    <div v-if="!editing" class="cycle-page-content">
-      <h1 id="cycle-list-title" class="cycle-page-title">周期与项目</h1>
-      <div class="cycle-workspace-card">
+    <PerformanceListPage v-if="!editing" title="周期与项目" class="cycle-list-page">
+      <div class="cycle-page-content">
         <div class="cycle-workspace">
           <aside class="cycle-list-panel" aria-labelledby="cycle-list-title">
             <h2>周期 <span class="info" aria-hidden="true">ⓘ</span></h2>
@@ -24,7 +23,6 @@
         <div v-else-if="!cycles.length" class="empty-state">
           <strong>{{ keyword ? '没有找到匹配周期' : '暂无周期' }}</strong>
           <button v-if="keyword" class="outline-button" type="button" @click="clearSearch">清除筛选</button>
-          <button v-else-if="canManageCycles" class="primary-button" type="button" @click="startCreate">新建周期</button>
         </div>
         <div
           v-for="cycle in cycles"
@@ -83,14 +81,14 @@
         <p v-if="saveSuccess" class="success state-success" role="status">周期已保存</p>
         <p v-if="projectActionSuccess" class="success state-success" role="status">{{ projectActionSuccess }}</p>
         <p v-if="formError" class="error state-error" role="alert">{{ formError }} <button class="outline-button" type="button" @click="loadCycles">重试</button></p>
-        <div v-if="selected" class="detail-content">
-          <header class="detail-heading"><h2 class="truncate">{{ selected.name }}</h2><div v-if="canManageCycles" class="detail-actions"><PerformanceCycleSettingsMenu @select="openCycleSettings" /><button class="danger-button" type="button" :disabled="hasStartedProject" @click="removeSelected">删除</button></div></header>
+        <div class="detail-content">
+          <header class="detail-heading"><h2 class="truncate">{{ selected?.name || '周期详情' }}</h2><div v-if="canManageCycles" class="detail-actions"><PerformanceCycleSettingsMenu @select="openCycleSettings" /><button v-if="selected" class="danger-button" type="button" :disabled="hasStartedProject" @click="removeSelected">删除</button></div></header>
           <h3>基本信息</h3>
-          <div class="metrics"><div><label>人员</label><strong>{{ selected.people_count }}</strong></div><div><label>部门</label><strong>{{ selected.department_count }}</strong></div><div><label>周期起止时间</label><span>{{ formatRange(selected.start_at, selected.end_at) }}</span></div><div><label>锁定状态</label><span>{{ selected.status === 'LOCKED' ? '已锁定' : '待锁定' }}</span></div><div><label>离职人员参评</label><span>{{ selected.leaver_enabled ? '是' : '否' }}</span></div></div>
+          <div class="metrics"><div><label>人员</label><strong>{{ selected?.people_count ?? '--' }}</strong></div><div><label>部门</label><strong>{{ selected?.department_count ?? '--' }}</strong></div><div><label>周期起止时间</label><span>{{ selected ? formatRange(selected.start_at, selected.end_at) : '--' }}</span></div><div><label>锁定状态</label><span>{{ selected ? (selected.status === 'LOCKED' ? '已锁定' : '待锁定') : '--' }}</span></div><div><label>离职人员参评</label><span>{{ selected ? (selected.leaver_enabled ? '是' : '否') : '--' }}</span></div></div>
           <PerformanceProjectSettings
             :projects="selected?.projects || []"
             :project-count="selected?.project_count || 0"
-            :can-create="canManageCycles"
+            :can-create="canManageCycles && Boolean(selected)"
             :managed-project-refs="managedProjectRefs"
             @create="openProjectCreate"
             @edit="openProjectEdit"
@@ -114,25 +112,30 @@
             :loading="projectRemoving"
             @confirm="confirmRemoveProject"
           />
-          <div v-if="false" class="project-table-wrap"><table><thead><tr><th>项目名称</th><th>描述</th><th>项目管理员</th><th>状态</th><th>评估人数</th><th class="fixed-operation">操作</th></tr></thead><tbody><tr v-for="project in selected?.projects || []" :key="project.id"><td>{{ project.name }}</td><td>{{ project.description || '--' }}</td><td>{{ project.administrators.join('、') || '--' }}</td><td>{{ project.status }}</td><td>{{ project.evaluated_count }}</td><td class="fixed-operation"><button type="button" disabled>编辑</button><button type="button" disabled>启动</button><details><summary aria-label="更多项目操作（后续开放）">•••</summary><button type="button" disabled>复制</button><button type="button" disabled>删除</button></details></td></tr><tr v-if="!selected?.projects?.length"><td colspan="6" class="empty-project">项目配置将在下一项功能中开放</td></tr></tbody></table></div>
-          <div v-if="false" class="project-footer"><span>共 {{ selected?.project_count || 0 }} 条</span><button disabled>‹</button><button class="current" disabled>1</button><button disabled>›</button><select aria-label="项目每页条数" disabled><option>10 条/页</option></select></div>
-          <section v-if="canManagePeople" class="people-card"><div class="people-heading"><h3>人员与部门信息</h3><button class="outline-button" type="button" @click="togglePeople">{{ showPeople ? '收起' : '维护名单' }}</button></div><div v-if="showPeople" class="people-content"><p class="description">锁定后、绩效开始前可刷新名单或手工维护组织关系、汇报线；保存必须填写原因。</p><div class="people-actions"><input v-model.trim="peopleReason" aria-label="人员维护原因" placeholder="请输入维护原因" /><button class="outline-button" type="button" :disabled="peopleLoading || !peopleReason" @click="refreshPeople">刷新未手工维护名单</button></div><div v-if="peopleLoading" class="state" role="status">正在加载人员...</div><div v-else class="people-table-wrap"><table><thead><tr><th>工号</th><th>姓名</th><th>组织</th><th>直属上级</th><th>HRBP</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="person in people" :key="person.employee_no"><td>{{ person.employee_no }}</td><td><input v-model.trim="person.display_name" :aria-label="`${person.employee_no}姓名`" /></td><td><input v-for="field in organizationFields" :key="field.key" v-model.trim="person[field.key]" :aria-label="`${person.employee_no}${field.label}`" :placeholder="field.label" /></td><td><input v-model.trim="person.direct_supervisor_employee_no" :aria-label="`${person.employee_no}直属上级`" /></td><td><input v-model.trim="person.hrbp_employee_no" :aria-label="`${person.employee_no}HRBP`" /></td><td>{{ person.employment_status || '--' }}<small v-if="person.is_manually_maintained">（已手工维护）</small></td><td><button type="button" :disabled="!peopleReason" @click="savePerson(person)">保存</button></td></tr><tr v-if="!people.length"><td colspan="7" class="empty-project">暂无周期人员快照</td></tr></tbody></table></div></div></section>
+
         </div>
-        <div v-else-if="!loading" class="state detail-empty">请选择一个周期</div>
           </main>
         </div>
       </div>
-    </div>
+    </PerformanceListPage>
 
-    <div v-if="deleteConfirm" class="modal-mask" role="presentation" @click.self="closeDeleteDialog">
-      <div ref="dialogRef" class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-description" tabindex="-1" @keydown="handleDialogKeydown">
-        <h3 id="delete-title">确定要删除周期吗？</h3><p id="delete-description">删除后，周期内的所有项目将同步删除，请谨慎操作。</p>
-        <div><button ref="cancelDeleteRef" class="outline-button" type="button" @click="closeDeleteDialog">保留</button><button ref="confirmDeleteRef" class="danger-button" type="button" :disabled="deleting" @click="confirmDelete">{{ deleting ? '删除中...' : '删除' }}</button></div>
+        <PerformanceConfirmDialog
+          v-model="leaveConfirmOpen"
+          message="离开后，已填写的信息将会丢失。确定离开此页面吗？"
+          cancel-text="取消"
+          confirm-text="确定"
+          @confirm="confirmLeaveEdit"
+        />
+
+      <div v-if="deleteConfirm" class="modal-mask" role="presentation" @click.self="closeDeleteDialog">
+        <div ref="dialogRef" class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-description" tabindex="-1" @keydown="handleDialogKeydown">
+          <h3 id="delete-title">确定要删除周期吗？</h3><p id="delete-description">删除后，周期内的所有项目将同步删除，请谨慎操作。</p>
+          <div><button ref="cancelDeleteRef" class="outline-button" type="button" @click="closeDeleteDialog">保留</button><button ref="confirmDeleteRef" class="danger-button" type="button" :disabled="deleting" @click="confirmDelete">{{ deleting ? '删除中...' : '删除' }}</button></div>
+        </div>
       </div>
-    </div>
 
     <div v-if="editing" class="cycle-modal" role="presentation">
-      <form class="cycle-form" role="dialog" aria-modal="true" :aria-label="formMode === 'create' ? '新建周期' : '编辑周期'" @submit.prevent="submitForm">
+      <form class="cycle-form" role="dialog" aria-modal="true" novalidate :aria-label="formMode === 'create' ? '新建周期' : '编辑周期'" @input="updateInputValidity" @submit.prevent="submitForm">
         <PageHeader class="cycle-form-header" :title="formMode === 'create' ? '新建周期' : '编辑周期'" @back="cancelEdit" />
         <div class="form-layout">
           <nav class="form-anchor" aria-label="周期表单导航">
@@ -144,20 +147,23 @@
               <h2>周期信息</h2>
               <p class="notice">创建成功后，可以继续修改周期名称、绩效表现起止时间，改动将对该周期内所有项目生效。</p>
               <div class="field-group language-group">
-                <label>语言<span>*</span></label>
-                <div class="radio-row">
-                  <label><input id="cycle-language" type="radio" checked disabled /> <span>中文</span></label>
+                <label><PerformanceRequiredLabel label="语言" /></label>
+                <div class="language-options">
+                  <label><input id="cycle-language-zh" type="checkbox" checked disabled /> <span>中文</span></label>
+                  <label><input id="cycle-language-en" type="checkbox" disabled /> <span>英文</span></label>
                 </div>
               </div>
               <div class="field-group">
-                <label for="cycle-name">周期名称<span>*</span></label>
-                <input id="cycle-name" v-model.trim="form.name" required maxlength="128" class="wide-input" />
+                <label for="cycle-name"><PerformanceRequiredLabel label="周期名称" /></label>
+                <input id="cycle-name" v-model.trim="form.name" required maxlength="128" class="wide-input" :aria-invalid="Boolean(fieldErrors['cycle-name']) || undefined" :aria-describedby="fieldErrors['cycle-name'] ? 'cycle-name-error' : undefined" />
+                <small v-if="fieldErrors['cycle-name']" id="cycle-name-error" class="error" role="alert">{{ fieldErrors['cycle-name'] }}</small>
               </div>
               <div class="two-col field-row cycle-info-period-row">
                 <div class="field-group">
-                  <label for="cycle-year">年份<span>*</span></label>
+                  <label for="cycle-year"><PerformanceRequiredLabel label="年份" /></label>
                   <div class="year-picker">
-                    <button id="cycle-year" type="button" class="selector-control" aria-label="选择年份" :aria-expanded="yearPickerOpen" @click="toggleYearPicker"><span :class="{ 'selector-placeholder': !form.period_year }">{{ form.period_year || '请选择年份' }}</span><span class="selector-icon calendar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><rect x="2.25" y="3.25" width="11.5" height="10.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.25" /><path d="M5 2.25v2M11 2.25v2M2.75 6h10.5" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" /><path d="M5 8.5h1.25M8 8.5h1.25M11 8.5h.01M5 11h1.25M8 11h1.25" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" /></svg></span></button>
+                    <button id="cycle-year" type="button" class="selector-control" aria-label="选择年份" aria-required="true" :aria-invalid="Boolean(fieldErrors['cycle-year']) || undefined" :aria-describedby="fieldErrors['cycle-year'] ? 'cycle-year-error' : undefined" :aria-expanded="yearPickerOpen" @click="toggleYearPicker"><span :class="{ 'selector-placeholder': !form.period_year }">{{ form.period_year || '请选择年份' }}</span><span class="selector-icon calendar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><rect x="2.25" y="3.25" width="11.5" height="10.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.25" /><path d="M5 2.25v2M11 2.25v2M2.75 6h10.5" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" /><path d="M5 8.5h1.25M8 8.5h1.25M11 8.5h.01M5 11h1.25M8 11h1.25" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" /></svg></span></button>
+                    <small v-if="fieldErrors['cycle-year']" id="cycle-year-error" class="error" role="alert">{{ fieldErrors['cycle-year'] }}</small>
                     <div v-if="yearPickerOpen" class="picker-panel year-panel" role="dialog" aria-label="年份选择器" :style="yearPanelStyle">
                       <div class="picker-panel-header"><strong>{{ yearPageStart }} - {{ yearPageStart + yearPageSize - 1 }}</strong><div><button type="button" aria-label="上一组年份" :disabled="yearPageStart <= 1900" @click="changeYearPage(-1)">‹</button><button type="button" aria-label="下一组年份" :disabled="yearPageStart + yearPageSize > 2200" @click="changeYearPage(1)">›</button></div></div>
                       <div class="year-options" role="group" aria-label="选择年份"><button v-for="year in yearOptions" :key="year" type="button" :class="{ active: form.period_year === year }" :aria-pressed="form.period_year === year" @click="selectYear(year); yearPickerOpen = false">{{ year }}</button></div>
@@ -165,9 +171,10 @@
                   </div>
                 </div>
                 <div class="field-group">
-                  <label for="cycle-type">周期类型<span>*</span></label>
+                  <label for="cycle-type"><PerformanceRequiredLabel label="周期类型" /></label>
                   <div class="period-type-picker">
-                    <button id="cycle-type" type="button" class="selector-control" aria-label="选择周期类型" :aria-expanded="periodTypePickerOpen" @click="togglePeriodTypePicker"><span :class="{ 'selector-placeholder': !selectedPeriodOption }">{{ selectedPeriodOption?.label || '请选择' }}</span><span class="selector-icon arrow-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3.414 7.086-.707.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0-1.414-1.414l-7.071 7.071-7.071-7.071a1 1 0 0 0-1.414 0Z" fill="currentColor" /></svg></span></button>
+                    <button id="cycle-type" type="button" class="selector-control" aria-label="选择周期类型" aria-required="true" :aria-invalid="Boolean(fieldErrors['cycle-type']) || undefined" :aria-describedby="fieldErrors['cycle-type'] ? 'cycle-type-error' : undefined" :aria-expanded="periodTypePickerOpen" @click="togglePeriodTypePicker"><span :class="{ 'selector-placeholder': !selectedPeriodOption }">{{ selectedPeriodOption?.label || '请选择' }}</span><span class="selector-icon arrow-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3.414 7.086-.707.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0-1.414-1.414l-7.071 7.071-7.071-7.071a1 1 0 0 0-1.414 0Z" fill="currentColor" /></svg></span></button>
+                    <small v-if="fieldErrors['cycle-type']" id="cycle-type-error" class="error" role="alert">{{ fieldErrors['cycle-type'] }}</small>
                     <div v-if="periodTypePickerOpen" class="picker-panel period-panel" role="listbox" aria-label="周期类型选择器" :style="periodPanelStyle">
                       <div v-for="group in periodTypeGroups" :key="group.label" class="period-group"><div class="period-group-label">{{ group.label }}</div><div class="period-group-options"><button v-for="option in group.options" :key="option.value" type="button" role="option" :aria-selected="selectedPeriodOption?.value === option.value" :class="{ active: selectedPeriodOption?.value === option.value }" @click="selectPeriodOption(option)">{{ option.label }}</button></div></div>
                     </div>
@@ -178,26 +185,25 @@
                 <label>周期起止时间</label>
                 <p class="field-description">评估这段时间内的绩效表现</p>
                 <div class="two-col field-row">
-                  <div class="field-group"><label for="cycle-start">开始时间<span>*</span></label><PerformanceDateTimeField v-model="form.start_at" input-id="cycle-start" aria-label="周期开始时间" required :invalid="dateError" :described-by="dateError ? 'cycle-date-error' : ''" /></div>
-                  <div class="field-group"><label for="cycle-end">截止时间<span>*</span></label><PerformanceDateTimeField v-model="form.end_at" input-id="cycle-end" aria-label="周期截止时间" required :invalid="dateError" :described-by="dateError ? 'cycle-date-error' : ''" /><small v-if="dateError" id="cycle-date-error" class="error" role="alert">需晚于开始时间</small></div>
+                  <div class="field-group"><label for="cycle-start"><PerformanceRequiredLabel label="开始时间" /></label><PerformanceDateTimeField v-model="form.start_at" input-id="cycle-start" aria-label="周期开始时间" required :invalid="Boolean(fieldErrors['cycle-start']) || dateError" :described-by="fieldErrors['cycle-start'] ? 'cycle-start-error' : dateError ? 'cycle-date-error' : ''" /><small v-if="fieldErrors['cycle-start']" id="cycle-start-error" class="error" role="alert">{{ fieldErrors['cycle-start'] }}</small></div>
+                  <div class="field-group"><label for="cycle-end"><PerformanceRequiredLabel label="截止时间" /></label><PerformanceDateTimeField v-model="form.end_at" input-id="cycle-end" aria-label="周期截止时间" required :invalid="Boolean(fieldErrors['cycle-end']) || dateError" :described-by="fieldErrors['cycle-end'] ? 'cycle-end-error' : dateError ? 'cycle-date-error' : ''" /><small v-if="fieldErrors['cycle-end']" id="cycle-end-error" class="error" role="alert">{{ fieldErrors['cycle-end'] }}</small><small v-if="dateError" id="cycle-date-error" class="error" role="alert">需晚于开始时间</small></div>
                 </div>
               </div>
             </section>
             <section id="people-settings" class="form-card">
               <h2>人员和部门信息设置</h2>
-              <div class="field-group"><label>锁定规则<span>*</span></label><p class="field-description">配置锁定规则和时间后，各项目人员汇报线和组织关系信息将以锁定时的信息为准。在绩效环节开始前，管理员仍可更新锁定的人员和部门信息。</p><div class="radio-row"><label><input v-model="form.lock_rule" value="IMMEDIATE" type="radio" :disabled="formMode === 'edit'" /> <span>新建周期时，立即锁定</span></label><label><input v-model="form.lock_rule" value="SCHEDULED" type="radio" :disabled="formMode === 'edit'" /> <span>新建周期并到达指定时间后，再锁定</span></label></div></div>
-              <div v-if="form.lock_rule === 'SCHEDULED'" class="sub-card"><div class="field-group"><label for="lock-at">锁定时间<span>*</span></label><PerformanceDateTimeField v-model="form.lock_at" input-id="lock-at" aria-label="周期锁定时间" :disabled="formMode === 'edit'" required :invalid="Boolean(lockError)" :described-by="lockError ? 'lock-at-error' : ''" /><small v-if="lockError" id="lock-at-error" class="error" role="alert">定时锁定需晚于当前时间至少 6 小时</small></div></div>
-              <div class="sub-card sync-card"><div class="field-group"><label>锁定前名单同步</label><p class="field-description">周期级规则：可选择手动调整，或在指定时间前由系统每日自动调整；系统不覆盖已手动维护的周期名单。</p><div class="radio-row"><label><input v-model="form.pre_lock_sync_mode" value="MANUAL" type="radio" :disabled="formMode === 'edit'" /> <span>不自动变化，由管理员手动调整</span></label><label><input v-model="form.pre_lock_sync_mode" value="AUTO_DAILY" type="radio" :disabled="formMode === 'edit'" /> <span>指定时间前，系统每天定时自动调整</span></label></div></div></div>
+              <div class="field-group lock-rule-group"><label><PerformanceRequiredLabel label="锁定规则" /></label><p class="field-description">配置锁定规则和时间后，各项目人员汇报线和组织关系信息将以锁定时的信息为准。在绩效环节开始前，管理员仍可更新锁定的人员和部门信息。</p><div class="lock-rule-options"><label><input v-model="form.lock_rule" value="IMMEDIATE" type="radio" :disabled="formMode === 'edit'" /> <span>新建周期时，立即锁定</span></label><label><input v-model="form.lock_rule" value="SCHEDULED" type="radio" :disabled="formMode === 'edit'" /> <span>新建周期并到达指定时间后，再锁定</span></label></div></div>
+              <div v-if="form.lock_rule === 'SCHEDULED'" class="sub-card lock-settings-card"><div class="field-group"><label for="lock-at"><PerformanceRequiredLabel label="锁定时间" /></label><PerformanceDateTimeField v-model="form.lock_at" input-id="lock-at" aria-label="周期锁定时间" :disabled="formMode === 'edit'" required :invalid="Boolean(fieldErrors['lock-at']) || Boolean(lockError)" :described-by="fieldErrors['lock-at'] ? 'lock-at-error' : lockError ? 'lock-at-rule-error' : ''" /><small v-if="fieldErrors['lock-at']" id="lock-at-error" class="error" role="alert">{{ fieldErrors['lock-at'] }}</small><small v-if="lockError" id="lock-at-rule-error" class="error" role="alert">定时锁定需晚于当前时间至少 6 小时</small></div><div class="field-group sync-field"><label>锁定前名单同步</label><p class="field-description">周期级规则：可选择手动调整，或在指定时间前由系统每日自动调整；系统不覆盖已手动维护的周期名单。</p><div class="radio-row"><label><input v-model="form.pre_lock_sync_mode" value="MANUAL" type="radio" :disabled="formMode === 'edit'" /> <span>不自动变化，由管理员手动调整</span></label><label><input v-model="form.pre_lock_sync_mode" value="AUTO_DAILY" type="radio" :disabled="formMode === 'edit'" /> <span>指定时间前，系统每天定时自动调整</span></label></div></div></div>
             </section>
             <section id="evaluation-settings" class="form-card">
               <h2>评估设置</h2>
-              <div class="field-group"><label for="evaluation-template">绩效模板<span>*</span></label><select id="evaluation-template" v-model="form.evaluation_template"><option value="">请选择绩效模板</option></select></div>
+              <div class="field-group"><label for="evaluation-template"><span>绩效模板</span></label><select id="evaluation-template" v-model="form.evaluation_template" disabled aria-disabled="true"><option value="">绩效模板（暂未接入）</option></select></div>
             </section>
             <section id="leaver-settings" class="form-card">
               <h2>离职人员参评设置</h2>
               <div class="switch-field"><label for="leaver-enabled">离职人员可在本周期成为被评估人</label><input id="leaver-enabled" v-model="form.leaver_enabled" type="checkbox" role="switch" /></div>
               <p class="field-description">开启后，离职人员也可在本周期项目中被圈选为被评估人。</p>
-              <div v-if="form.leaver_enabled" class="sub-card"><div class="field-group"><label>离职日期范围<span>*</span></label><div class="two-col field-row"><input id="leaver-start" v-model="form.leaver_start_date" type="date" required :aria-invalid="leaverDateError || undefined" :aria-describedby="leaverDateError ? 'leaver-date-error' : undefined" /><input id="leaver-end" v-model="form.leaver_end_date" type="date" required :aria-invalid="leaverDateError || undefined" :aria-describedby="leaverDateError ? 'leaver-date-error' : undefined" /></div><small v-if="leaverDateError" id="leaver-date-error" class="error" role="alert">离职人员参评日期范围不合法</small></div><div class="field-group"><label>离职人员参评方式</label><div class="radio-row"><label><input v-model="form.leaver_participation_mode" value="CREATE_TASK" type="radio" /> <span>生成评估任务，并纳入报表统计</span></label><label><input v-model="form.leaver_participation_mode" value="REPORT_ONLY" type="radio" /> <span>不生成评估任务，仅纳入报表统计</span></label></div></div></div>
+              <div v-if="form.leaver_enabled" class="sub-card"><div class="field-group"><label><PerformanceRequiredLabel label="离职日期范围" /></label><div class="two-col field-row"><input id="leaver-start" v-model="form.leaver_start_date" type="date" required :aria-invalid="Boolean(fieldErrors['leaver-start']) || leaverDateError || undefined" :aria-describedby="fieldErrors['leaver-start'] ? 'leaver-start-error' : leaverDateError ? 'leaver-date-error' : undefined" /><input id="leaver-end" v-model="form.leaver_end_date" type="date" required :aria-invalid="Boolean(fieldErrors['leaver-end']) || leaverDateError || undefined" :aria-describedby="fieldErrors['leaver-end'] ? 'leaver-end-error' : leaverDateError ? 'leaver-date-error' : undefined" /></div><small v-if="fieldErrors['leaver-start']" id="leaver-start-error" class="error" role="alert">{{ fieldErrors['leaver-start'] }}</small><small v-if="fieldErrors['leaver-end']" id="leaver-end-error" class="error" role="alert">{{ fieldErrors['leaver-end'] }}</small><small v-if="leaverDateError" id="leaver-date-error" class="error" role="alert">离职人员参评日期范围不合法</small></div><div class="field-group"><label>离职人员参评方式</label><div class="radio-row"><label><input v-model="form.leaver_participation_mode" value="CREATE_TASK" type="radio" /> <span>生成评估任务，并纳入报表统计</span></label><label><input v-model="form.leaver_participation_mode" value="REPORT_ONLY" type="radio" /> <span>不生成评估任务，仅纳入报表统计</span></label></div></div></div>
             </section>
           </div>
         </div>
@@ -212,9 +218,11 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, type CSSProp
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { formatDateTime, shanghaiLocalToUtcIso, utcToShanghaiLocal } from '@/utils/datetime'
 import PerformanceProjectSettings from '@/components/performance/PerformanceProjectSettings.vue'
+import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
+import PerformanceRequiredLabel from '@/components/performance/PerformanceRequiredLabel.vue'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceCycleSettingsMenu from '@/components/performance/PerformanceCycleSettingsMenu.vue'
@@ -224,13 +232,14 @@ import { performanceApi, performanceCycleApi, performanceProjectApi, type Perfor
 const organizationFields = [{ key: 'company_org', label: '公司级组织' }, { key: 'department', label: '一级部门' }, { key: 'department_2', label: '二级部门' }, { key: 'department_3', label: '三级部门' }, { key: 'department_4', label: '四级部门' }, { key: 'department_5', label: '五级部门' }] as const
 const route = useRoute(); const router = useRouter(); const cycles = ref<PerformanceCycle[]>([]); const selected = ref<PerformanceCycle | null>(null); const loading = ref(false); const saving = ref(false); const deleting = ref(false); const editing = ref(false); const formMode = ref<'create' | 'edit'>('create'); const keyword = ref(''); const page = ref(1); const pageSize = ref(20); const total = ref(0); const formError = ref(''); const saveSuccess = ref(false); const accessContext = ref<PerformanceAccessContext | null>(null); const people = ref<PerformanceCyclePerson[]>([]); const peopleLoading = ref(false); const showPeople = ref(false); const peopleReason = ref(''); const deleteConfirm = ref(false); const initialForm = ref(''); const dialogRef = ref<HTMLElement | null>(null); const cancelDeleteRef = ref<HTMLButtonElement | null>(null); const confirmDeleteRef = ref<HTMLButtonElement | null>(null); const previousFocus = ref<HTMLElement | null>(null); const requestVersion = ref(0); const anchorObserver = ref<IntersectionObserver | null>(null)
 const projectDialogOpen = ref(false); const projectDialogMode = ref<'create' | 'edit'>('create'); const projectDialogProject = ref<PerformanceCycleProjectShell | null>(null); const projectSaving = ref(false); const projectActionSuccess = ref(''); const projectRemoveTarget = ref<PerformanceCycleProjectShell | null>(null); const projectRemoveOpen = ref(false); const projectRemoving = ref(false)
+const leaveConfirmOpen = ref(false)
 const activeCycleMenuId = ref<number | null>(null); const cycleMenuStyle = ref<CSSProperties>({}); const cycleMenuRef = ref<HTMLElement | null>(null); const cycleMoreButtons = new Map<number, HTMLButtonElement>(); let cycleMenuCloseTimer: number | undefined
 const canManageCycles = computed(() => accessContext.value?.permission_codes.includes('performance.cycles.manage') ?? false); const canManagePeople = canManageCycles; const canManageProjects = computed(() => canManageCycles.value || accessContext.value?.permission_codes.includes('performance.projects.manage') || false); const managedProjectRefs = computed(() => accessContext.value?.role_grants?.filter(grant => grant.scope_type === 'PROJECT').map(grant => grant.scope_ref) || []); const canManageProjectDialog = computed(() => Boolean(selected.value && (canManageCycles.value || (projectDialogProject.value && managedProjectRefs.value.includes(projectDialogProject.value.project_ref))))); const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value))); const dateError = computed(() => Boolean(form.start_at && form.end_at && form.end_at <= form.start_at)); const leaverDateError = computed(() => Boolean(form.leaver_enabled && form.leaver_start_date && form.leaver_end_date && form.leaver_end_date < form.leaver_start_date)); const lockError = computed(() => form.lock_rule === 'SCHEDULED' && form.lock_at && (shanghaiLocalToUtcIso(form.lock_at) || '') < new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString()); const hasStartedProject = computed(() => selected.value?.projects.some(project => ['STARTED', '进行中', '已启动'].includes(project.status)) ?? false)
 const yearPickerOpen = ref(false); const periodTypePickerOpen = ref(false); const yearPanelStyle = ref<CSSProperties>({}); const periodPanelStyle = ref<CSSProperties>({}); const periodTypes: { value: PerformanceCyclePeriodType; label: string }[] = [{ value: 'YEAR', label: '全年' }, { value: 'HALF_YEAR', label: '半年度' }, { value: 'QUARTER', label: '季度' }, { value: 'BIMONTH', label: '双月' }, { value: 'MONTH', label: '月度' }, { value: 'CUSTOM', label: '自定义' }];
 type PeriodTypeOption = { value: string; type: PerformanceCyclePeriodType; subtype: string | null; label: string }; const periodTypeGroups: { label: string; options: PeriodTypeOption[] }[] = [{ label: '年/半年度', options: [{ value: 'YEAR', type: 'YEAR', subtype: null, label: '全年' }, { value: 'H1', type: 'HALF_YEAR', subtype: 'H1', label: '上半年' }, { value: 'H2', type: 'HALF_YEAR', subtype: 'H2', label: '下半年' }] }, { label: '季度', options: [1, 2, 3, 4].map(index => ({ value: `Q${index}`, type: 'QUARTER', subtype: `Q${index}`, label: `第 ${index} 季度` })) }, { label: '双月', options: [1, 2, 3, 4, 5, 6].map(index => ({ value: `B${index}`, type: 'BIMONTH', subtype: `B${index}`, label: `${index * 2 - 1}-${index * 2} 双月` })) }, { label: '月度', options: Array.from({ length: 12 }, (_, index) => ({ value: `M${index + 1}`, type: 'MONTH', subtype: `M${index + 1}`, label: `${index + 1} 月份` })) }, { label: '非标准周期', options: [{ value: 'CUSTOM', type: 'CUSTOM', subtype: 'CUSTOM', label: '自定义' }] }];
 const selectedPeriodOption = computed(() => periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type && option.subtype === (form.period_subtype || null)) || periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type));
-const activeAnchor = ref('cycle-info'); const anchorItems = [{ id: 'cycle-info', label: '周期信息' }, { id: 'people-settings', label: '人员和部门信息设置' }, { id: 'evaluation-settings', label: '评估设置' }, { id: 'leaver-settings', label: '离职人员参评设置' }]; const yearPageSize = 20; const getDefaultYearPageStart = () => Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize; const yearPageStart = ref(Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize); const yearOptions = computed(() => Array.from({ length: yearPageSize }, (_, index) => yearPageStart.value + index).filter(year => year >= 1900 && year <= 2200)); const form = reactive<any>({ name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', evaluation_template: '' }); const isDirty = computed(() => editing.value && JSON.stringify(form) !== initialForm.value)
-function snapshotForm() { initialForm.value = JSON.stringify(form) }; function resetForm() { Object.assign(form, { name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', evaluation_template: '' }); yearPageStart.value = getDefaultYearPageStart(); yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {}; snapshotForm() }; function changeYearPage(direction: number) { yearPageStart.value = Math.min(2200 - yearPageSize + 1, Math.max(1900, yearPageStart.value + direction * yearPageSize)) }; function positionPanel(trigger: HTMLElement | null, width: number, height: number): CSSProperties { if (!trigger) return { position: 'fixed', top: '0px', left: '0px' }; const rect = trigger.getBoundingClientRect(); const gap = 6; const margin = 16; const below = rect.bottom + gap; const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, rect.top - height - gap); const left = Math.min(Math.max(margin, rect.left), Math.max(margin, window.innerWidth - width - margin)); return { position: 'fixed', top: top + 'px', left: left + 'px' } }; function updatePanelPosition(type: 'year' | 'period') { void nextTick(() => { const trigger = document.getElementById(type === 'year' ? 'cycle-year' : 'cycle-type'); const style = positionPanel(trigger, type === 'year' ? 279 : 385, type === 'year' ? 311 : 364); if (type === 'year') yearPanelStyle.value = style; else periodPanelStyle.value = style }) }; function toggleYearPicker() { periodTypePickerOpen.value = false; yearPickerOpen.value = !yearPickerOpen.value; yearPanelStyle.value = {}; if (yearPickerOpen.value) updatePanelPosition('year') }; function togglePeriodTypePicker() { yearPickerOpen.value = false; periodTypePickerOpen.value = !periodTypePickerOpen.value; periodPanelStyle.value = {}; if (periodTypePickerOpen.value) updatePanelPosition('period') }; function closePickers() { yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {} }; function handlePickerOutsidePointerDown(event: PointerEvent) { if (!yearPickerOpen.value && !periodTypePickerOpen.value) return; const target = event.target; if (!(target instanceof Node)) return; const yearRoot = document.querySelector('.year-picker'); const periodRoot = document.querySelector('.period-type-picker'); if (yearPickerOpen.value && !yearRoot?.contains(target)) closePickers(); if (periodTypePickerOpen.value && !periodRoot?.contains(target)) closePickers() }; function selectYear(year: number) { form.period_year = year; applyPeriodDates() }; function selectPeriodOption(option: PeriodTypeOption) { form.period_type = option.type; form.period_subtype = option.subtype; periodTypePickerOpen.value = false; applyPeriodDates() }; function daysInMonth(year: number, month: number) { return new Date(year, month, 0).getDate() }; function applyPeriodDates() { const year = form.period_year; const subtype = form.period_subtype as string | null; if (!year || form.period_type === 'CUSTOM') return; let startMonth = 1; let endMonth = 12; if (form.period_type === 'HALF_YEAR') { startMonth = subtype === 'H2' ? 7 : 1; endMonth = subtype === 'H2' ? 12 : 6 } else if (form.period_type === 'QUARTER') { const quarter = Number(subtype?.slice(1) || 1); startMonth = (quarter - 1) * 3 + 1; endMonth = startMonth + 2 } else if (form.period_type === 'BIMONTH') { const bimonth = Number(subtype?.slice(1) || 1); startMonth = (bimonth - 1) * 2 + 1; endMonth = startMonth + 1 } else if (form.period_type === 'MONTH') { startMonth = Number(subtype?.slice(1) || 1); endMonth = startMonth } form.start_at = `${year}-${String(startMonth).padStart(2, '0')}-01T00:00`; form.end_at = `${year}-${String(endMonth).padStart(2, '0')}-${daysInMonth(year, endMonth)}T23:59` }; function toLocal(value: string | null) { return utcToShanghaiLocal(value) || '' }; function formatRange(start: string, end: string) { return `${formatDateTime(start)} - ${formatDateTime(end)}` }; function toIso(value: string) { return shanghaiLocalToUtcIso(value) || '' }
+const activeAnchor = ref('cycle-info'); const anchorItems = [{ id: 'cycle-info', label: '周期信息' }, { id: 'people-settings', label: '人员和部门信息设置' }, { id: 'evaluation-settings', label: '评估设置' }, { id: 'leaver-settings', label: '离职人员参评设置' }]; const yearPageSize = 20; const getDefaultYearPageStart = () => Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize; const yearPageStart = ref(Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize); const yearOptions = computed(() => Array.from({ length: yearPageSize }, (_, index) => yearPageStart.value + index).filter(year => year >= 1900 && year <= 2200)); const form = reactive<any>({ name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', evaluation_template: '' }); const formSubmitted = ref(false); const isDirty = computed(() => editing.value && JSON.stringify(form) !== initialForm.value)
+function snapshotForm() { initialForm.value = JSON.stringify(form) }; function resetForm() { Object.assign(form, { name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', evaluation_template: '' }); formSubmitted.value = false; yearPageStart.value = getDefaultYearPageStart(); yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {}; snapshotForm() }; function changeYearPage(direction: number) { yearPageStart.value = Math.min(2200 - yearPageSize + 1, Math.max(1900, yearPageStart.value + direction * yearPageSize)) }; function positionPanel(trigger: HTMLElement | null, width: number, height: number): CSSProperties { if (!trigger) return { position: 'fixed', top: '0px', left: '0px' }; const rect = trigger.getBoundingClientRect(); const gap = 6; const margin = 16; const below = rect.bottom + gap; const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, rect.top - height - gap); const left = Math.min(Math.max(margin, rect.left), Math.max(margin, window.innerWidth - width - margin)); return { position: 'fixed', top: top + 'px', left: left + 'px' } }; function updatePanelPosition(type: 'year' | 'period') { void nextTick(() => { const trigger = document.getElementById(type === 'year' ? 'cycle-year' : 'cycle-type'); const style = positionPanel(trigger, type === 'year' ? 279 : 385, type === 'year' ? 311 : 364); if (type === 'year') yearPanelStyle.value = style; else periodPanelStyle.value = style }) }; function toggleYearPicker() { periodTypePickerOpen.value = false; yearPickerOpen.value = !yearPickerOpen.value; yearPanelStyle.value = {}; if (yearPickerOpen.value) updatePanelPosition('year') }; function togglePeriodTypePicker() { yearPickerOpen.value = false; periodTypePickerOpen.value = !periodTypePickerOpen.value; periodPanelStyle.value = {}; if (periodTypePickerOpen.value) updatePanelPosition('period') }; function closePickers() { yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {} }; function handlePickerOutsidePointerDown(event: PointerEvent) { if (!yearPickerOpen.value && !periodTypePickerOpen.value) return; const target = event.target; if (!(target instanceof Node)) return; const yearRoot = document.querySelector('.year-picker'); const periodRoot = document.querySelector('.period-type-picker'); if (yearPickerOpen.value && !yearRoot?.contains(target)) closePickers(); if (periodTypePickerOpen.value && !periodRoot?.contains(target)) closePickers() }; function selectYear(year: number) { form.period_year = year; applyPeriodDates() }; function selectPeriodOption(option: PeriodTypeOption) { form.period_type = option.type; form.period_subtype = option.subtype; periodTypePickerOpen.value = false; applyPeriodDates() }; function daysInMonth(year: number, month: number) { return new Date(year, month, 0).getDate() }; function applyPeriodDates() { const year = form.period_year; const subtype = form.period_subtype as string | null; if (!year || form.period_type === 'CUSTOM') return; let startMonth = 1; let endMonth = 12; if (form.period_type === 'HALF_YEAR') { startMonth = subtype === 'H2' ? 7 : 1; endMonth = subtype === 'H2' ? 12 : 6 } else if (form.period_type === 'QUARTER') { const quarter = Number(subtype?.slice(1) || 1); startMonth = (quarter - 1) * 3 + 1; endMonth = startMonth + 2 } else if (form.period_type === 'BIMONTH') { const bimonth = Number(subtype?.slice(1) || 1); startMonth = (bimonth - 1) * 2 + 1; endMonth = startMonth + 1 } else if (form.period_type === 'MONTH') { startMonth = Number(subtype?.slice(1) || 1); endMonth = startMonth } form.start_at = `${year}-${String(startMonth).padStart(2, '0')}-01T00:00`; form.end_at = `${year}-${String(endMonth).padStart(2, '0')}-${daysInMonth(year, endMonth)}T23:59` }; function toLocal(value: string | null) { return utcToShanghaiLocal(value) || '' }; function formatRange(start: string, end: string) { return `${formatDateTime(start)} - ${formatDateTime(end)}` }; function toIso(value: string) { return shanghaiLocalToUtcIso(value) || '' }
 function toPayload(): PerformanceCyclePayload | Partial<PerformanceCyclePayload> { const base = { name: form.name, language: 'zh-CN' as const, period_year: form.period_year, period_type: form.period_type, period_subtype: form.period_subtype, start_at: toIso(form.start_at), end_at: toIso(form.end_at), leaver_enabled: form.leaver_enabled, leaver_start_date: form.leaver_enabled ? form.leaver_start_date : null, leaver_end_date: form.leaver_enabled ? form.leaver_end_date : null, leaver_participation_mode: form.leaver_participation_mode }; return formMode.value === 'create' ? { ...base, lock_rule: form.lock_rule, lock_at: form.lock_rule === 'SCHEDULED' ? toIso(form.lock_at) : null, pre_lock_sync_mode: form.pre_lock_sync_mode } : base }
 async function loadCycles() { const version = ++requestVersion.value; loading.value = true; formError.value = ''; try { const result = await performanceCycleApi.list(keyword.value, page.value, pageSize.value); if (version !== requestVersion.value) return; cycles.value = result.items; total.value = result.total; if (page.value > totalPages.value) { page.value = totalPages.value; return loadCycles() }; if (!selected.value || !cycles.value.some(item => item.id === selected.value?.id)) selected.value = cycles.value[0] || null } catch (error: any) { formError.value = error?.response?.data?.detail || '周期加载失败' } finally { if (version === requestVersion.value) loading.value = false } }
 async function searchCycles() { page.value = 1; await loadCycles() }; function clearSearch() { keyword.value = ''; void searchCycles() }; async function changePage(nextPage: number) { page.value = Math.min(Math.max(1, nextPage), totalPages.value); await loadCycles() }; async function selectCycle(cycle: PerformanceCycle) { selected.value = cycle; if (showPeople.value) await loadPeople() }
@@ -278,7 +287,9 @@ function handleCycleMenuOutsidePointerDown(event: PointerEvent) {
   const target = event.target
   if (!(target instanceof Node)) return
   const trigger = cycleMoreButtons.get(activeCycleMenuId.value)
-  if (!trigger?.contains(target) && !cycleMenuRef.value?.contains(target)) closeCycleMenu()
+  const menu = cycleMenuRef.value as HTMLElement | HTMLElement[] | null
+  const menuElement = Array.isArray(menu) ? menu[0] : menu
+  if (!trigger?.contains(target) && !menuElement?.contains(target)) closeCycleMenu()
 }
 function toggleCycleMenu(id: number) {
   if (activeCycleMenuId.value === id) closeCycleMenu()
@@ -298,7 +309,8 @@ function removeCycleFromMenu(cycle: PerformanceCycle) {
   removeSelected()
 }
 function startCreate() { resetForm(); formMode.value = 'create'; formError.value = ''; saveSuccess.value = false; editing.value = true; if (route.name !== 'PerformanceCycleCreate') void router.push({ name: 'PerformanceCycleCreate' }) }; async function startEdit() { if (!selected.value) return; await enterEdit(selected.value.id); if (route.name !== 'PerformanceCycleEdit') void router.push({ name: 'PerformanceCycleEdit', params: { id: selected.value.id } }) }; async function enterEdit(id: number) { const cycle = await performanceCycleApi.get(id); selected.value = cycle; Object.assign(form, { name: cycle.name, period_year: cycle.period_year, period_type: cycle.period_type, start_at: toLocal(cycle.start_at), end_at: toLocal(cycle.end_at), lock_rule: cycle.lock_rule, lock_at: toLocal(cycle.lock_at), pre_lock_sync_mode: cycle.pre_lock_sync_mode, leaver_enabled: cycle.leaver_enabled, leaver_start_date: cycle.leaver_start_date || '', leaver_end_date: cycle.leaver_end_date || '', leaver_participation_mode: cycle.leaver_participation_mode }); snapshotForm(); formMode.value = 'edit'; editing.value = true }
-function confirmDiscard() { return !isDirty.value || window.confirm('当前内容尚未保存，确定离开吗？') }; function discardEdit() { editing.value = false; formError.value = '' }; function cancelEdit() { if (!confirmDiscard()) return; discardEdit(); void router.replace({ name: 'PerformanceCycles' }) }
+function discardEdit() { editing.value = false; formError.value = '' }; function cancelEdit() { if (!isDirty.value) { discardEdit(); void router.replace({ name: 'PerformanceCycles' }); return }; leaveConfirmOpen.value = true }
+function confirmLeaveEdit() { leaveConfirmOpen.value = false; discardEdit(); void router.replace({ name: 'PerformanceCycles' }) }
 async function submitForm() { formError.value = ''; saveSuccess.value = false; if (!form.period_year) { formError.value = '请选择年份'; return }; if (dateError.value) { formError.value = '需晚于开始时间'; return }; if (leaverDateError.value) { formError.value = '离职人员参评日期范围不合法'; return }; if (lockError.value) { formError.value = '定时锁定需晚于当前时间至少 6 小时'; return }; saving.value = true; try { const cycle = formMode.value === 'create' ? await performanceCycleApi.create(toPayload() as PerformanceCyclePayload) : await performanceCycleApi.update(selected.value!.id, toPayload()); snapshotForm(); discardEdit(); saveSuccess.value = true; await loadCycles(); selected.value = cycle; await router.replace({ name: 'PerformanceCycles' }) } catch (error: any) { formError.value = error?.response?.data?.detail || error?.response?.data?.message || '保存失败' } finally { saving.value = false } }
 async function loadPeople() { if (!selected.value) return; peopleLoading.value = true; try { people.value = await performanceCycleApi.listPeople(selected.value.id) } catch (error: any) { formError.value = error?.response?.data?.detail || '人员快照加载失败' } finally { peopleLoading.value = false } }; async function togglePeople() { showPeople.value = !showPeople.value; if (showPeople.value) await loadPeople() }; async function refreshPeople() { if (!selected.value || !peopleReason.value) return; try { await performanceCycleApi.refreshPeople(selected.value.id, peopleReason.value); await loadPeople() } catch (error: any) { formError.value = error?.response?.data?.detail || '名单刷新失败' } }; async function savePerson(person: PerformanceCyclePerson) { if (!selected.value || !peopleReason.value) return; try { await performanceCycleApi.updatePerson(selected.value.id, { employee_no: person.employee_no, display_name: person.display_name, ...Object.fromEntries(organizationFields.map(field => [field.key, person[field.key]])), direct_supervisor_employee_no: person.direct_supervisor_employee_no, hrbp_employee_no: person.hrbp_employee_no }, peopleReason.value); await loadPeople() } catch (error: any) { formError.value = error?.response?.data?.detail || '人员维护失败' } }
 function restoreDeleteFocus() { void nextTick(() => previousFocus.value?.isConnected && previousFocus.value.focus()) }; function closeDeleteDialog() { deleteConfirm.value = false; restoreDeleteFocus() }; function handleDialogKeydown(event: KeyboardEvent) { if (event.key === 'Escape') { event.preventDefault(); closeDeleteDialog(); return }; if (event.key !== 'Tab') return; const focusable = [cancelDeleteRef.value, confirmDeleteRef.value].filter((item): item is HTMLButtonElement => Boolean(item && !item.disabled)); if (!focusable.length) return; const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }; function removeSelected() { if (!selected.value || hasStartedProject.value) return; previousFocus.value = document.activeElement as HTMLElement; deleteConfirm.value = true; void nextTick(() => cancelDeleteRef.value?.focus()) }; async function confirmDelete() { if (!selected.value) return; deleting.value = true; try { await performanceCycleApi.remove(selected.value.id); deleteConfirm.value = false; selected.value = null; await loadCycles(); restoreDeleteFocus() } catch (error: any) { formError.value = error?.response?.data?.detail || '删除失败' } finally { deleting.value = false } }
@@ -312,7 +324,7 @@ async function removeProject(project: PerformanceCycleProjectShell) { projectRem
 async function confirmRemoveProject() { const project = projectRemoveTarget.value; if (!project) return; projectRemoving.value = true; try { await performanceProjectApi.remove(project.id); projectRemoveOpen.value = false; projectRemoveTarget.value = null; projectActionSuccess.value = '项目已删除'; await reloadSelectedCycle() } catch (error: any) { formError.value = error?.response?.data?.detail || '项目删除失败' } finally { projectRemoving.value = false } }
 async function syncRoute() { if (route.name === 'PerformanceCycleCreate') { if (!editing.value) startCreate(); return }; if (route.name === 'PerformanceCycleEdit' && route.params.id) { if (selected.value?.id !== Number(route.params.id) || !editing.value) await enterEdit(Number(route.params.id)); return }; if (!editing.value && !cycles.value.length) await loadCycles() }
 function observeAnchors() { anchorObserver.value?.disconnect(); if (typeof IntersectionObserver === 'undefined') return; anchorObserver.value = new IntersectionObserver((entries) => { const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]; if (visible) activeAnchor.value = (visible.target as HTMLElement).id }, { threshold: [0.25, 0.5, 0.75], rootMargin: '-10% 0px -65% 0px' }); anchorItems.forEach(item => { const section = document.getElementById(item.id); if (section) anchorObserver.value?.observe(section) }) }
-watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(editing, value => { if (value) void nextTick(observeAnchors); else anchorObserver.value?.disconnect() }); onBeforeRouteLeave(() => confirmDiscard()); onBeforeRouteUpdate(() => { if (!confirmDiscard()) return false; if (isDirty.value) discardEdit(); return true }); onMounted(async () => { document.addEventListener('pointerdown', handlePickerOutsidePointerDown); document.addEventListener('pointerdown', handleCycleMenuOutsidePointerDown);  try { accessContext.value = await performanceApi.getAccessContext(); if (route.name === 'PerformanceCycleEdit') await syncRoute(); else { await loadCycles(); await syncRoute() } } catch (error: any) { formError.value = error?.response?.data?.detail || '权限加载失败' } }); onUnmounted(() => { anchorObserver.value?.disconnect(); document.removeEventListener('pointerdown', handlePickerOutsidePointerDown); document.removeEventListener('pointerdown', handleCycleMenuOutsidePointerDown); cancelCycleMenuClose(); cycleMoreButtons.clear() })
+watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(editing, value => { if (value) void nextTick(observeAnchors); else anchorObserver.value?.disconnect() }); onBeforeRouteLeave(() => { if (!isDirty.value) return true; leaveConfirmOpen.value = true; return false }); onBeforeRouteUpdate(() => { if (!isDirty.value) return true; leaveConfirmOpen.value = true; return false }); onMounted(async () => { document.addEventListener('pointerdown', handlePickerOutsidePointerDown); document.addEventListener('pointerdown', handleCycleMenuOutsidePointerDown);  try { accessContext.value = await performanceApi.getAccessContext(); if (route.name === 'PerformanceCycleEdit') await syncRoute(); else { await loadCycles(); await syncRoute() } } catch (error: any) { formError.value = error?.response?.data?.detail || '权限加载失败' } }); onUnmounted(() => { anchorObserver.value?.disconnect(); document.removeEventListener('pointerdown', handlePickerOutsidePointerDown); document.removeEventListener('pointerdown', handleCycleMenuOutsidePointerDown); cancelCycleMenuClose(); cycleMoreButtons.clear() })
 </script>
 
 <style scoped>
@@ -451,9 +463,13 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   line-height: 22px;
 }
 
-.field-group > label span,
-.form-card label span {
-  color: #f04438;
+.field-group > label span:not(.required-mark),
+.form-card label span:not(.required-mark) {
+  color: inherit;
+}
+
+.required-mark {
+  color: var(--color-text-danger-strong);
 }
 
 .field-description,
@@ -537,6 +553,75 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   margin-top: 0;
 }
 
+.language-options,
+.lock-rule-options {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.language-options label,
+.lock-rule-options label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.language-options input[type='checkbox'] {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  appearance: none;
+  box-sizing: border-box;
+  border: 1px solid var(--color-text-placeholder);
+  border-radius: 4px;
+  background: var(--color-bg-card);
+  cursor: pointer;
+}
+
+.language-options input[type='checkbox']:checked,
+.language-options input[type='checkbox']:checked:disabled {
+  border-color: #1456f0;
+  background: #1456f0;
+}
+
+.language-options input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+.language-options input[type='checkbox']:disabled {
+  cursor: default;
+}
+
+.lock-rule-group {
+  margin-top: 20px;
+}
+
+.lock-rule-options input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+
+.sync-field {
+  margin-top: 20px;
+}
+
 .radio-row {
   display: flex;
   flex-wrap: wrap;
@@ -559,7 +644,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: #3370ff;
+  accent-color: var(--color-primary);
 }
 
 .year-picker {
@@ -928,11 +1013,12 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   }
 }
 .cycle-page { min-width: 0; }
-.cycle-page-content { min-width: 0; padding: 0 20px 24px; }
-.cycle-page-title { margin: 0 0 16px; color: #1f2329; font-size: 20px; font-weight: 600; line-height: 28px; }
-.cycle-workspace-card { min-width: 0; padding: 20px; border-radius: 8px; background: #fff; box-shadow: 0 1px 4px rgba(31,35,41,.05); }
+.cycle-list-page :deep(.list-page-title) { margin: 0; }
+.cycle-page-content { min-width: 0; padding: 0; }
+.cycle-list-page :deep(.list-page-content) { min-height: 0; padding: var(--performance-content-surface-padding); }
+.cycle-workspace-card { min-width: 0; padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .cycle-workspace { display: flex; width: 100%; min-width: 0; align-items: stretch; }
-.cycle-list-panel { flex: 0 0 248px; width: 248px; min-width: 248px; padding-right: 20px; border-right: 1px solid #dee0e3; box-sizing: border-box; }
+.cycle-list-panel { flex: 0 0 208px; width: 208px; min-width: 208px; padding-right: 0; border-right: 1px solid #dee0e3; box-sizing: border-box; }
 .cycle-list-panel h2 { margin: 0 0 16px; color: #373c43; font-size: 16px; font-weight: 600; line-height: 24px; }
 .cycle-list-panel .info { color: #646a73; font-size: 14px; }
 .cycle-search-row { display: flex; align-items: center; width: 208px; height: 32px; margin-bottom: 16px; }
@@ -962,19 +1048,22 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .cycle-action-menu__icon :deep(.performance-icon-button:hover), .cycle-action-menu__icon :deep(.performance-icon-button:focus-visible) { background: transparent; color: inherit; }
 .cycle-action-menu__item.is-disabled .cycle-action-menu__icon { pointer-events: none; }
 .cycle-detail-panel { flex: 1 1 0; min-width: 0; }
-.detail-content { min-width: 0; padding-left: 20px; color: #1f2329; }
+.detail-content { min-width: 0; padding-left: 40px; color: #1f2329; }
 .detail-heading { display: flex; align-items: flex-start; justify-content: space-between; height: 40px; margin-bottom: 0; }
 .detail-heading h2 { margin: 0; color: #1f2329; font-size: 20px; font-weight: 600; line-height: 28px; }
 .detail-actions { display: flex; align-items: center; gap: 8px; }
 .detail-actions .danger-button { display: none; }
-.detail-content > h3 { margin: 20px 0 14px; font-size: 16px; font-weight: 600; line-height: 24px; }
+.project-settings :deep(.project-tools) { margin-bottom: 16px; }
+.project-settings :deep(.project-tools .toolbar-spacer) { display: none; }
+.project-settings :deep(.project-tools .search-input) { margin-left: 0; }
+.detail-content > h3 { margin: 0 0 14px; font-size: 16px; font-weight: 600; line-height: 24px; }
 .metrics { display: flex; align-items: flex-start; gap: 40px; min-width: 0; margin-bottom: 32px; }
 .metrics > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; color: #1f2329; font-size: 14px; line-height: 22px; white-space: nowrap; }
 .metrics label { color: #646a73; }
 .metrics strong { color: #3370ff; font-size: 14px; font-weight: 400; }
 .metrics > div:nth-child(3) { min-width: 156px; }.metrics > div:nth-child(4) { min-width: 108px; }.metrics > div:nth-child(5) { min-width: 210px; }
 .state-success, .state-error { margin: 0 0 12px; }.state-error { color: #f04438; }
-@media (max-width: 1280px) { .cycle-list-panel { flex-basis: 248px; width: 248px; min-width: 248px; }.metrics { gap: 24px; }.detail-content { padding-left: 20px; } }
+@media (max-width: 1280px) { .cycle-list-panel { flex-basis: 208px; width: 208px; min-width: 208px; padding-right: 0; }.metrics { gap: 24px; }.detail-content { padding-left: 40px; } }
 </style>
 
 
