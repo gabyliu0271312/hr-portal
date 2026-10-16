@@ -682,6 +682,11 @@ class PerformanceCycle(Base):
     period_year: Mapped[int] = mapped_column(Integer, nullable=False)
     period_type: Mapped[str] = mapped_column(String(32), nullable=False)
     period_subtype: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    template_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("performance_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     lock_rule: Mapped[str] = mapped_column(String(16), nullable=False)

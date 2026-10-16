@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.data.employee_roster_contract import (
     EmployeeRosterContractError,
     ORGANIZATION_FIELDS,
-    organization_leaf,
     organization_path,
     employee_roster_table,
     normalize_employee_no,
@@ -21,6 +20,7 @@ from app.data.employee_roster_contract import (
 )
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.self_summary_service import hydrate_self_summary_template, resolve_self_summary_content
+from app.performance.scope_options import build_organization_tree
 from app.performance.models import (
     PerformanceAuthorizationSnapshot,
     PerformanceAuthorizationSnapshotPerson,
@@ -39,6 +39,18 @@ from app.performance.models import (
 
 class ProjectValidationError(ValueError):
     pass
+
+
+def _matches_scope_condition(values: dict[str, str], condition: dict[str, Any]) -> bool:
+    field = condition.get("field")
+    selected = {str(value).strip() for value in condition.get("values", []) if str(value).strip()}
+    actual = values.get(field, "")
+    if field == "department":
+        leaf = actual.rsplit("/", 1)[-1] if actual else ""
+        matched = bool(actual and any(actual == value or actual.startswith(f"{value}/") or leaf == value for value in selected))
+    else:
+        matched = actual in selected
+    return matched if condition.get("operator") == "include" else not matched
 
 
 DEFAULT_FLOW_SETTINGS = {"node_settings": {}}
@@ -87,39 +99,34 @@ class PerformanceProjectService:
                     PerformanceAuthorizationSnapshotPerson.snapshot_id == locked_snapshot.id
                 )
             )).scalars().all())
-            departments = sorted({leaf for person in people if (leaf := organization_leaf(person))})
-            employee_types = sorted({person.employee_type.strip() for person in people if person.employee_type and person.employee_type.strip()})
-            employees = sorted(
-                [
-                    {"value": person.employee_no, "label": f"{person.display_name}（{person.employee_no}）"}
-                    for person in people
-                    if person.employee_no and person.display_name
-                ],
-                key=lambda item: item["value"],
-            )
-            return {
-                "departments": [{"value": value, "label": value} for value in departments],
-                "employee_types": [{"value": value, "label": value} for value in employee_types],
-                "employees": employees,
-            }
-        rows = await _canonical_roster_rows(self.db)
-        departments: set[str] = set()
+            rows = [
+                {
+                    "employee_no": person.employee_no,
+                    "full_name": person.display_name,
+                    "employment_status": person.employment_status,
+                    **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
+                }
+                for person in people
+                if person.employment_status == "在职"
+            ]
+        else:
+            rows = await _canonical_roster_rows(self.db)
+            rows = [row for row in rows if normalize_roster_text(row.get("employment_status")) != "离职"]
+        departments = build_organization_tree(rows)
         employee_types: set[str] = set()
         employees: list[dict[str, str]] = []
         for row in rows:
             employee_no_value = normalize_employee_no(row.get("employee_no"))
-            name_value = normalize_roster_text(row.get("display_name"))
+            name_value = normalize_roster_text(row.get("display_name") or row.get("full_name"))
             if not employee_no_value or not name_value:
                 continue
-            if department := organization_leaf(row):
-                departments.add(department)
             if employee_type := normalize_roster_text(row.get("employee_type")):
                 employee_types.add(employee_type)
             employees.append({"value": employee_no_value, "label": f"{name_value}（{employee_no_value}）"})
         return {
-            "departments": [{"value": value, "label": value} for value in sorted(departments)],
+            "organization_tree": departments,
+            "people": sorted(employees, key=lambda item: item["value"]),
             "employee_types": [{"value": value, "label": value} for value in sorted(employee_types)],
-            "employees": sorted(employees, key=lambda item: item["value"]),
         }
 
     async def evaluator_count(self, cycle: PerformanceCycle, rules: dict[str, Any]) -> int:
@@ -138,8 +145,7 @@ class PerformanceProjectService:
             rows = [
                 {
                     "employee_no": person.employee_no,
-                    "organization_ref": person.organization_ref,
-                    "department": organization_leaf(person),
+                    "department": organization_path(person) or "",
                     "employee_type": person.employee_type,
                     "employment_status": person.employment_status,
                     "departure_date": person.departure_date,
@@ -158,11 +164,11 @@ class PerformanceProjectService:
                 if not cycle.leaver_enabled or departure is None or cycle.leaver_start_date is None or cycle.leaver_end_date is None or not (cycle.leaver_start_date <= departure <= cycle.leaver_end_date):
                     continue
             values = {
-                "department": organization_leaf(row) or "",
+                "department": row.get("organization_ref") or row.get("department") or "",
                 "employee_type": normalize_roster_text(row.get("employee_type")) or "",
                 "employee": normalize_employee_no(row.get("employee_no")) or "",
             }
-            groups_match = any(all((values.get(condition.get("field"), "") in condition.get("values", [])) == (condition.get("operator") == "include") for condition in group.get("conditions", [])) for group in groups)
+            groups_match = any(all(_matches_scope_condition(values, condition) for condition in group.get("conditions", [])) for group in groups)
             if groups_match:
                 count += 1
         return count
@@ -205,6 +211,7 @@ class PerformanceProjectService:
             "data_managers": (project.settings or {}).get("data_managers", ["HRBP"]),
             "scope_limited": (project.settings or {}).get("scope_limited", False),
             "scope_employee_nos": (project.settings or {}).get("scope_employee_nos", []),
+            "scope_rules": (project.settings or {}).get("scope_rules", {"groups": []}),
             "status": project.status,
             "evaluated_count": project.evaluated_count,
         }
@@ -222,6 +229,7 @@ class PerformanceProjectService:
             "data_managers": (project.settings or {}).get("data_managers", ["HRBP"]),
             "scope_limited": (project.settings or {}).get("scope_limited", False),
             "scope_employee_nos": (project.settings or {}).get("scope_employee_nos", []),
+            "scope_rules": (project.settings or {}).get("scope_rules", {"groups": []}),
             "status": project.status,
             "evaluated_count": project.evaluated_count,
             "template_id": settings.get("template_id"),
@@ -230,6 +238,26 @@ class PerformanceProjectService:
             "evaluator_rules": settings.get("evaluator_rules", {"groups": []}),
             "flow_settings": settings.get("flow_settings", DEFAULT_FLOW_SETTINGS),
         }
+
+    @classmethod
+    def _validate_scope_rules(cls, rules: Any) -> dict[str, list[dict[str, Any]]]:
+        if rules is None:
+            return {"groups": []}
+        if not isinstance(rules, dict) or not isinstance(rules.get("groups"), list):
+            raise ProjectValidationError("限定考核范围格式不正确")
+        groups = []
+        for group in rules["groups"]:
+            conditions = group.get("conditions") if isinstance(group, dict) else None
+            if not isinstance(conditions, list) or len(conditions) != 1:
+                raise ProjectValidationError("限定考核范围每个条件组只能包含一条条件")
+            condition = conditions[0]
+            if not isinstance(condition, dict) or condition.get("field") not in {"department", "employee"} or condition.get("operator") not in {"include", "exclude"}:
+                raise ProjectValidationError("限定考核范围条件不合法")
+            values = [str(value).strip() for value in condition.get("values", []) if str(value).strip()]
+            if not values:
+                raise ProjectValidationError("限定考核范围条件不能为空")
+            groups.append({"conditions": [{"field": condition["field"], "operator": condition["operator"], "values": list(dict.fromkeys(values))}]})
+        return {"groups": groups}
 
     @classmethod
     def _validate_rules(cls, rules: Any) -> dict[str, list[dict[str, Any]]]:
@@ -392,6 +420,13 @@ class PerformanceProjectService:
         if payload.get("scope_employee_nos") is not None:
             settings["scope_employee_nos"] = list(dict.fromkeys(str(value).strip() for value in payload["scope_employee_nos"] if str(value).strip()))
         settings.setdefault("scope_employee_nos", [])
+        if "scope_rules" in payload and payload.get("scope_rules") is not None:
+            settings["scope_rules"] = cls._validate_scope_rules(payload.get("scope_rules"))
+        elif settings.get("scope_employee_nos") and not settings.get("scope_rules", {}).get("groups"):
+            settings["scope_rules"] = {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": list(settings["scope_employee_nos"])}]}]}
+        settings.setdefault("scope_rules", {"groups": []})
+        if settings.get("scope_limited") and not settings["scope_rules"].get("groups"):
+            raise ProjectValidationError("开启限定考核范围后至少需要配置一条条件")
         if "template_id" in payload:
             template_id = payload.get("template_id")
             if template_id is not None and int(template_id) <= 0:
@@ -498,10 +533,20 @@ class PerformanceProjectService:
         selected = []
         for person in people:
             values = {
-                "department": organization_leaf(person) or "",
+                "department": organization_path(person) or "",
                 "employee_type": person.employee_type or "",
                 "employee": person.employee_no,
             }
+            scope_rules = (project.settings or {}).get("scope_rules") or {}
+            scope_groups = scope_rules.get("groups") or []
+            if scope_groups:
+                in_scope = any(
+                    _matches_scope_condition(values, condition)
+                    for group in scope_groups
+                    for condition in group.get("conditions", [])
+                )
+                if not in_scope:
+                    continue
             matched = any(
                 all((values.get(condition.get("field"), "") in condition.get("values", [])) == (condition.get("operator") == "include") for condition in group.get("conditions", []))
                 for group in groups

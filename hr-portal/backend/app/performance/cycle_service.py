@@ -227,6 +227,7 @@ class PerformanceCycleService:
             period_year=payload["period_year"],
             period_type=payload["period_type"],
             period_subtype=payload.get("period_subtype"),
+            template_id=payload.get("template_id"),
             start_at=payload["start_at"],
             end_at=payload["end_at"],
             lock_rule=payload["lock_rule"],
@@ -258,7 +259,7 @@ class PerformanceCycleService:
         if forbidden:
             raise CycleValidationError("周期创建后不支持修改锁定规则")
         before = self.serialize(cycle)
-        for field in ("name", "language", "period_year", "period_type", "period_subtype", "start_at", "end_at", "leaver_enabled", "leaver_start_date", "leaver_end_date", "leaver_participation_mode"):
+        for field in ("name", "language", "period_year", "period_type", "period_subtype", "template_id", "start_at", "end_at", "leaver_enabled", "leaver_start_date", "leaver_end_date", "leaver_participation_mode"):
             if field in payload:
                 setattr(cycle, field, payload[field].strip() if field == "name" else payload[field])
         self._validate_cycle(cycle)
@@ -451,7 +452,7 @@ class PerformanceCycleService:
 
     @staticmethod
     def serialize(cycle: PerformanceCycle) -> dict[str, Any]:
-        return {"id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "status": cycle.status}
+        return {"id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "status": cycle.status}
 
     @staticmethod
     def _validate_payload(payload: dict[str, Any]) -> None:

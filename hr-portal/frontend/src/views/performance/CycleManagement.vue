@@ -103,6 +103,7 @@
             :can-submit="canManageProjectDialog"
             :saving="projectSaving"
             :evaluator-options="projectEvaluatorOptions"
+            @open-options="loadProjectEvaluatorOptions"
             @submit="saveProject"
           />
           <PerformanceConfirmDialog
@@ -189,8 +190,8 @@
                 <label>周期起止时间</label>
                 <p class="field-description">评估这段时间内的绩效表现</p>
                 <div class="two-col field-row">
-                  <div class="field-group"><label for="cycle-start"><PerformanceRequiredLabel label="开始时间" /></label><PerformanceDateTimeField v-model="form.start_at" input-id="cycle-start" aria-label="周期开始时间" required :invalid="Boolean(fieldErrors['cycle-start']) || dateError" :described-by="fieldErrors['cycle-start'] ? 'cycle-start-error' : dateError ? 'cycle-date-error' : ''" /><small v-if="fieldErrors['cycle-start']" id="cycle-start-error" class="error" role="alert">{{ fieldErrors['cycle-start'] }}</small></div>
-                  <div class="field-group"><label for="cycle-end"><PerformanceRequiredLabel label="截止时间" /></label><PerformanceDateTimeField v-model="form.end_at" input-id="cycle-end" aria-label="周期截止时间" required :invalid="Boolean(fieldErrors['cycle-end']) || dateError" :described-by="fieldErrors['cycle-end'] ? 'cycle-end-error' : dateError ? 'cycle-date-error' : ''" /><small v-if="fieldErrors['cycle-end']" id="cycle-end-error" class="error" role="alert">{{ fieldErrors['cycle-end'] }}</small><small v-if="dateError" id="cycle-date-error" class="error" role="alert">需晚于开始时间</small></div>
+                  <div class="field-group"><label for="cycle-start"><PerformanceRequiredLabel label="开始时间" /></label><PerformanceDateTimeField v-model="form.start_at" input-id="cycle-start" aria-label="周期开始时间" time-role="start" required :invalid="Boolean(fieldErrors['cycle-start']) || dateError" :described-by="fieldErrors['cycle-start'] ? 'cycle-start-error' : dateError ? 'cycle-date-error' : ''" /><small v-if="fieldErrors['cycle-start']" id="cycle-start-error" class="error" role="alert">{{ fieldErrors['cycle-start'] }}</small></div>
+                  <div class="field-group"><label for="cycle-end"><PerformanceRequiredLabel label="截止时间" /></label><PerformanceDateTimeField v-model="form.end_at" input-id="cycle-end" aria-label="周期截止时间" time-role="end" required :invalid="Boolean(fieldErrors['cycle-end']) || dateError" :described-by="fieldErrors['cycle-end'] ? 'cycle-end-error' : dateError ? 'cycle-date-error' : ''" /><small v-if="fieldErrors['cycle-end']" id="cycle-end-error" class="error" role="alert">{{ fieldErrors['cycle-end'] }}</small><small v-if="dateError" id="cycle-date-error" class="error" role="alert">需晚于开始时间</small></div>
                 </div>
               </div>
             </section>
@@ -201,7 +202,40 @@
             </section>
             <section id="evaluation-settings" class="form-card">
               <h2>评估设置</h2>
-              <div class="field-group"><label for="evaluation-template"><span>绩效模板</span></label><select id="evaluation-template" v-model="form.evaluation_template" disabled aria-disabled="true"><option value="">绩效模板（暂未接入）</option></select></div>
+              <div class="field-group evaluation-template-field">
+                <label for="evaluation-template"><span>绩效模板</span></label>
+                <PerformanceSelectShell
+                  id="evaluation-template"
+                  v-model="evaluationTemplateValue"
+                  :selected-items="selectedEvaluationTemplateItems"
+                  placeholder="请选择绩效模板"
+                  aria-label="绩效模板"
+                  popup-label="绩效模板选项"
+                  clear-label="清空绩效模板"
+                  :disabled="templateLoading || !evaluationTemplates.length"
+                >
+                  <template #default="{ query, close }">
+                    <div class="evaluation-template-options" role="listbox" aria-label="绩效模板选项">
+                      <button
+                        v-for="template in filteredEvaluationTemplates(query)"
+                        :key="template.template_id"
+                        class="evaluation-template-option"
+                        type="button"
+                        role="option"
+                        :aria-selected="String(template.template_id) === form.evaluation_template"
+                        @click="selectEvaluationTemplate(template, close)"
+                      >
+                        <span class="evaluation-template-option__name">{{ template.name }}</span>
+                        <span class="evaluation-template-option__description">{{ template.description || '--' }}</span>
+                      </button>
+                      <div v-if="!filteredEvaluationTemplates(query).length" class="evaluation-template-options__empty">暂无已启用绩效模板</div>
+                    </div>
+                  </template>
+                </PerformanceSelectShell>
+                <small v-if="templateLoading" class="field-description">正在加载绩效模板...</small>
+                <small v-else-if="templateError" class="error" role="status">{{ templateError }}</small>
+                <small v-else-if="!evaluationTemplates.length" class="field-description">暂无已启用绩效模板，请先完成绩效模板配置。</small>
+              </div>
               <div class="evaluation-result-rules">
                 <div class="evaluation-result-rules__title">评估结果校验提示规则</div>
                 <div class="evaluation-result-rule-card">
@@ -241,15 +275,29 @@ import PerformanceConfirmDialog from '@/components/performance/PerformanceConfir
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
 import PerformanceRequiredLabel from '@/components/performance/PerformanceRequiredLabel.vue'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
+import PerformanceSelectShell from '@/components/performance/PerformanceSelectShell.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceCycleSettingsMenu from '@/components/performance/PerformanceCycleSettingsMenu.vue'
 import PageHeader from '@/components/performance/PageHeader.vue'
-import { performanceApi, performanceCycleApi, performanceProjectApi, type PerformanceAccessContext, type PerformanceCycle, type PerformanceCyclePayload, type PerformanceCyclePerson, type PerformanceCycleProjectShell, type PerformanceProjectPayload, type PerformanceCyclePeriodSubtype, type PerformanceCyclePeriodType } from '@/api/performance'
+import { performanceApi, performanceCycleApi, performanceProjectApi, performanceTemplateApi, type PerformanceAccessContext, type PerformanceCycle, type PerformanceCyclePayload, type PerformanceCyclePerson, type PerformanceCycleProjectShell, type PerformanceProjectPayload, type PerformanceTemplateListItem, type PerformanceCyclePeriodSubtype, type PerformanceCyclePeriodType } from '@/api/performance'
 
 const organizationFields = [{ key: 'company_org', label: '公司级组织' }, { key: 'department', label: '一级部门' }, { key: 'department_2', label: '二级部门' }, { key: 'department_3', label: '三级部门' }, { key: 'department_4', label: '四级部门' }, { key: 'department_5', label: '五级部门' }] as const
 const route = useRoute(); const router = useRouter(); const cycles = ref<PerformanceCycle[]>([]); const selected = ref<PerformanceCycle | null>(null); const loading = ref(false); const saving = ref(false); const deleting = ref(false); const editing = ref(false); const formMode = ref<'create' | 'edit'>('create'); const keyword = ref(''); const page = ref(1); const pageSize = ref(20); const total = ref(0); const formError = ref(''); const saveSuccess = ref(false); const accessContext = ref<PerformanceAccessContext | null>(null); const people = ref<PerformanceCyclePerson[]>([]); const peopleLoading = ref(false); const showPeople = ref(false); const peopleReason = ref(''); const deleteConfirm = ref(false); const initialForm = ref(''); const requestVersion = ref(0); const anchorObserver = ref<IntersectionObserver | null>(null)
 const projectDialogOpen = ref(false); const projectDialogMode = ref<'create' | 'edit'>('create'); const projectDialogProject = ref<PerformanceCycleProjectShell | null>(null); const projectSaving = ref(false); const projectActionSuccess = ref(''); const projectRemoveTarget = ref<PerformanceCycleProjectShell | null>(null); const projectRemoveOpen = ref(false); const projectRemoving = ref(false)
-const projectEvaluatorOptions = ref<{ employees: Array<{ value: string; label: string }> }>({ employees: [] })
+const projectEvaluatorOptions = ref<import('@/api/performance').PerformanceEvaluatorOptions>({ organization_tree: [], people: [], employee_types: [] })
+const projectOptionsLoaded = ref(false)
+const projectOptionsLoading = ref(false)
+const evaluationTemplates = ref<PerformanceTemplateListItem[]>([])
+const templateLoading = ref(false)
+const templateError = ref('')
+const evaluationTemplateValue = computed({
+  get: () => form.evaluation_template ? [form.evaluation_template] : [],
+  set: (value: string[]) => { form.evaluation_template = value[0] || '' },
+})
+const selectedEvaluationTemplateItems = computed(() => {
+  const template = evaluationTemplates.value.find(item => String(item.template_id) === form.evaluation_template)
+  return template ? [{ value: String(template.template_id), label: template.name }] : []
+})
 const leaveConfirmOpen = ref(false)
 const comparisonRuleDrawerOpen = ref(false)
 const comparisonRuleDraft = ref<PerformanceComparisonConfig | null>(null)
@@ -258,7 +306,7 @@ const canManageCycles = computed(() => accessContext.value?.permission_codes.inc
 const yearPickerOpen = ref(false); const periodTypePickerOpen = ref(false); const yearPanelStyle = ref<CSSProperties>({}); const periodPanelStyle = ref<CSSProperties>({}); const periodTypes: { value: PerformanceCyclePeriodType; label: string }[] = [{ value: 'YEAR', label: '全年' }, { value: 'HALF_YEAR', label: '半年度' }, { value: 'QUARTER', label: '季度' }, { value: 'BIMONTH', label: '双月' }, { value: 'MONTH', label: '月度' }, { value: 'CUSTOM', label: '自定义' }];
 type PeriodTypeOption = { value: string; type: PerformanceCyclePeriodType; subtype: string | null; label: string }; const periodTypeGroups: { label: string; options: PeriodTypeOption[] }[] = [{ label: '年/半年度', options: [{ value: 'YEAR', type: 'YEAR', subtype: null, label: '全年' }, { value: 'H1', type: 'HALF_YEAR', subtype: 'H1', label: '上半年' }, { value: 'H2', type: 'HALF_YEAR', subtype: 'H2', label: '下半年' }] }, { label: '季度', options: [1, 2, 3, 4].map(index => ({ value: `Q${index}`, type: 'QUARTER', subtype: `Q${index}`, label: `第 ${index} 季度` })) }, { label: '双月', options: [1, 2, 3, 4, 5, 6].map(index => ({ value: `B${index}`, type: 'BIMONTH', subtype: `B${index}`, label: `${index * 2 - 1}-${index * 2} 双月` })) }, { label: '月度', options: Array.from({ length: 12 }, (_, index) => ({ value: `M${index + 1}`, type: 'MONTH', subtype: `M${index + 1}`, label: `${index + 1} 月份` })) }, { label: '非标准周期', options: [{ value: 'CUSTOM', type: 'CUSTOM', subtype: 'CUSTOM', label: '自定义' }] }];
 const selectedPeriodOption = computed(() => periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type && option.subtype === (form.period_subtype || null)) || periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type));
-const activeAnchor = ref('cycle-info'); const anchorItems = [{ id: 'cycle-info', label: '周期信息' }, { id: 'people-settings', label: '人员和部门信息设置' }, { id: 'evaluation-settings', label: '评估设置' }, { id: 'leaver-settings', label: '离职人员参评设置' }]; const yearPageSize = 20; const getDefaultYearPageStart = () => Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize; const yearPageStart = ref(Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize); const yearOptions = computed(() => Array.from({ length: yearPageSize }, (_, index) => yearPageStart.value + index).filter(year => year >= 1900 && year <= 2200)); const form = reactive<any>({ name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', evaluation_template: '', comparison_rule: null }); const formSubmitted = ref(false); const isDirty = computed(() => editing.value && JSON.stringify(form) !== initialForm.value)
+const activeAnchor = ref('cycle-info'); const anchorItems = [{ id: 'cycle-info', label: '周期信息' }, { id: 'people-settings', label: '人员和部门信息设置' }, { id: 'evaluation-settings', label: '评估设置' }, { id: 'leaver-settings', label: '离职人员参评设置' }]; const yearPageSize = 20; const getDefaultYearPageStart = () => Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize; const yearPageStart = ref(Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize); const yearOptions = computed(() => Array.from({ length: yearPageSize }, (_, index) => yearPageStart.value + index).filter(year => year >= 1900 && year <= 2200)); const form = reactive<any>({ name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', evaluation_template: null, comparison_rule: null }); const formSubmitted = ref(false); const isDirty = computed(() => editing.value && JSON.stringify(form) !== initialForm.value)
 const cycleFormRef = ref<HTMLFormElement | null>(null)
 const fieldErrors = reactive<Record<string, string>>({})
 const requiredFields = computed(() => [
@@ -273,6 +321,31 @@ const requiredFields = computed(() => [
     { id: 'leaver-end', key: 'leaver_end_date', label: '离职截止日期' },
   ] : []),
 ])
+function filteredEvaluationTemplates(query: string) {
+  const keyword = query.trim().toLowerCase()
+  return evaluationTemplates.value.filter(template => !keyword || `${template.name} ${template.description}`.toLowerCase().includes(keyword))
+}
+function selectEvaluationTemplate(template: PerformanceTemplateListItem, close: () => void) {
+  form.evaluation_template = String(template.template_id)
+  close()
+}
+async function loadEvaluationTemplates() {
+  templateLoading.value = true
+  templateError.value = ''
+  try {
+    const templates = await performanceTemplateApi.list('performance')
+    evaluationTemplates.value = templates.filter(template => template.status === 'active')
+    if (form.evaluation_template && !evaluationTemplates.value.some(template => String(template.template_id) === form.evaluation_template)) {
+      formError.value = '当前选择的绩效模板不可用，请重新选择'
+      return
+    }
+  } catch {
+    evaluationTemplates.value = []
+    templateError.value = '绩效模板加载失败，请稍后重试'
+  } finally {
+    templateLoading.value = false
+  }
+}
 function clearFormErrors() { Object.keys(fieldErrors).forEach(key => delete fieldErrors[key]) }
 function validateFields() {
   clearFormErrors()
@@ -288,7 +361,7 @@ function updateInputValidity() {
 }
 watch(form, updateInputValidity, { flush: 'post' })
 function snapshotForm() { initialForm.value = JSON.stringify(form) }; function resetForm() { clearFormErrors(); comparisonRuleDraft.value = null; Object.assign(form, { name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', evaluation_template: '', comparison_rule: null }); formSubmitted.value = false; yearPageStart.value = getDefaultYearPageStart(); yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {}; snapshotForm() }; function changeYearPage(direction: number) { yearPageStart.value = Math.min(2200 - yearPageSize + 1, Math.max(1900, yearPageStart.value + direction * yearPageSize)) }; function positionPanel(trigger: HTMLElement | null, width: number, height: number): CSSProperties { if (!trigger) return { position: 'fixed', top: '0px', left: '0px' }; const rect = trigger.getBoundingClientRect(); const gap = 6; const margin = 16; const below = rect.bottom + gap; const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, rect.top - height - gap); const left = Math.min(Math.max(margin, rect.left), Math.max(margin, window.innerWidth - width - margin)); return { position: 'fixed', top: top + 'px', left: left + 'px' } }; function updatePanelPosition(type: 'year' | 'period') { void nextTick(() => { const trigger = document.getElementById(type === 'year' ? 'cycle-year' : 'cycle-type'); const style = positionPanel(trigger, type === 'year' ? 279 : 385, type === 'year' ? 311 : 364); if (type === 'year') yearPanelStyle.value = style; else periodPanelStyle.value = style }) }; function toggleYearPicker() { periodTypePickerOpen.value = false; yearPickerOpen.value = !yearPickerOpen.value; yearPanelStyle.value = {}; if (yearPickerOpen.value) updatePanelPosition('year') }; function togglePeriodTypePicker() { yearPickerOpen.value = false; periodTypePickerOpen.value = !periodTypePickerOpen.value; periodPanelStyle.value = {}; if (periodTypePickerOpen.value) updatePanelPosition('period') }; function closePickers() { yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {} }; function handlePickerOutsidePointerDown(event: PointerEvent) { if (!yearPickerOpen.value && !periodTypePickerOpen.value) return; const target = event.target; if (!(target instanceof Node)) return; const yearRoot = document.querySelector('.year-picker'); const periodRoot = document.querySelector('.period-type-picker'); if (yearPickerOpen.value && !yearRoot?.contains(target)) closePickers(); if (periodTypePickerOpen.value && !periodRoot?.contains(target)) closePickers() }; function selectYear(year: number) { form.period_year = year; applyPeriodDates() }; function selectPeriodOption(option: PeriodTypeOption) { form.period_type = option.type; form.period_subtype = option.subtype; periodTypePickerOpen.value = false; applyPeriodDates() }; function daysInMonth(year: number, month: number) { return new Date(year, month, 0).getDate() }; function applyPeriodDates() { const year = form.period_year; const subtype = form.period_subtype as string | null; if (!year || form.period_type === 'CUSTOM') return; let startMonth = 1; let endMonth = 12; if (form.period_type === 'HALF_YEAR') { startMonth = subtype === 'H2' ? 7 : 1; endMonth = subtype === 'H2' ? 12 : 6 } else if (form.period_type === 'QUARTER') { const quarter = Number(subtype?.slice(1) || 1); startMonth = (quarter - 1) * 3 + 1; endMonth = startMonth + 2 } else if (form.period_type === 'BIMONTH') { const bimonth = Number(subtype?.slice(1) || 1); startMonth = (bimonth - 1) * 2 + 1; endMonth = startMonth + 1 } else if (form.period_type === 'MONTH') { startMonth = Number(subtype?.slice(1) || 1); endMonth = startMonth } form.start_at = `${year}-${String(startMonth).padStart(2, '0')}-01T00:00`; form.end_at = `${year}-${String(endMonth).padStart(2, '0')}-${daysInMonth(year, endMonth)}T23:59` }; function toLocal(value: string | null) { return utcToShanghaiLocal(value) || '' }; function formatRange(start: string, end: string) { return `${formatDateTime(start)} - ${formatDateTime(end)}` }; function toIso(value: string) { return shanghaiLocalToUtcIso(value) || '' }
-function toPayload(): PerformanceCyclePayload | Partial<PerformanceCyclePayload> { const base = { name: form.name, language: 'zh-CN' as const, period_year: form.period_year, period_type: form.period_type, period_subtype: form.period_subtype, start_at: toIso(form.start_at), end_at: toIso(form.end_at), leaver_enabled: form.leaver_enabled, leaver_start_date: form.leaver_enabled ? form.leaver_start_date : null, leaver_end_date: form.leaver_enabled ? form.leaver_end_date : null, leaver_participation_mode: form.leaver_participation_mode }; return formMode.value === 'create' ? { ...base, lock_rule: form.lock_rule, lock_at: form.lock_rule === 'SCHEDULED' ? toIso(form.lock_at) : null, pre_lock_sync_mode: form.pre_lock_sync_mode } : base }
+function toPayload(): PerformanceCyclePayload | Partial<PerformanceCyclePayload> { const base = { name: form.name, language: 'zh-CN' as const, period_year: form.period_year, period_type: form.period_type, period_subtype: form.period_subtype, template_id: form.evaluation_template ? Number(form.evaluation_template) : null, start_at: toIso(form.start_at), end_at: toIso(form.end_at), leaver_enabled: form.leaver_enabled, leaver_start_date: form.leaver_enabled ? form.leaver_start_date : null, leaver_end_date: form.leaver_enabled ? form.leaver_end_date : null, leaver_participation_mode: form.leaver_participation_mode }; return formMode.value === 'create' ? { ...base, lock_rule: form.lock_rule, lock_at: form.lock_rule === 'SCHEDULED' ? toIso(form.lock_at) : null, pre_lock_sync_mode: form.pre_lock_sync_mode } : base }
 async function loadCycles() { const version = ++requestVersion.value; loading.value = true; formError.value = ''; try { const result = await performanceCycleApi.list(keyword.value, page.value, pageSize.value); if (version !== requestVersion.value) return; cycles.value = result.items; total.value = result.total; if (page.value > totalPages.value) { page.value = totalPages.value; return loadCycles() }; if (!selected.value || !cycles.value.some(item => item.id === selected.value?.id)) selected.value = cycles.value[0] || null } catch (error: any) { formError.value = error?.response?.data?.detail || '周期加载失败' } finally { if (version === requestVersion.value) loading.value = false } }
 async function searchCycles() { page.value = 1; await loadCycles() }; function clearSearch() { keyword.value = ''; void searchCycles() }; async function changePage(nextPage: number) { page.value = Math.min(Math.max(1, nextPage), totalPages.value); await loadCycles() }; async function selectCycle(cycle: PerformanceCycle) { selected.value = cycle; if (showPeople.value) await loadPeople() }
 function openCycleSettings(key: string) {
@@ -356,16 +429,18 @@ function removeCycleFromMenu(cycle: PerformanceCycle) {
   selected.value = cycle
   removeSelected()
 }
-function startCreate() { resetForm(); formMode.value = 'create'; formError.value = ''; saveSuccess.value = false; editing.value = true; if (route.name !== 'PerformanceCycleCreate') void router.push({ name: 'PerformanceCycleCreate' }) }; async function startEdit() { if (!selected.value) return; await enterEdit(selected.value.id); if (route.name !== 'PerformanceCycleEdit') void router.push({ name: 'PerformanceCycleEdit', params: { id: selected.value.id } }) }; async function enterEdit(id: number) { const cycle = await performanceCycleApi.get(id); selected.value = cycle; comparisonRuleDraft.value = null; clearFormErrors(); formSubmitted.value = false; Object.assign(form, { name: cycle.name, period_year: cycle.period_year, period_type: cycle.period_type, period_subtype: cycle.period_subtype || null, start_at: toLocal(cycle.start_at), end_at: toLocal(cycle.end_at), lock_rule: cycle.lock_rule, lock_at: toLocal(cycle.lock_at), pre_lock_sync_mode: cycle.pre_lock_sync_mode, leaver_enabled: cycle.leaver_enabled, leaver_start_date: cycle.leaver_start_date || '', leaver_end_date: cycle.leaver_end_date || '', leaver_participation_mode: cycle.leaver_participation_mode, comparison_rule: null }); snapshotForm(); formMode.value = 'edit'; editing.value = true }
+function startCreate() { resetForm(); formMode.value = 'create'; formError.value = ''; saveSuccess.value = false; editing.value = true; if (route.name !== 'PerformanceCycleCreate') void router.push({ name: 'PerformanceCycleCreate' }) }; async function startEdit() { if (!selected.value) return; await enterEdit(selected.value.id); if (route.name !== 'PerformanceCycleEdit') void router.push({ name: 'PerformanceCycleEdit', params: { id: selected.value.id } }) }; async function enterEdit(id: number) { const cycle = await performanceCycleApi.get(id); selected.value = cycle; comparisonRuleDraft.value = null; clearFormErrors(); formSubmitted.value = false; Object.assign(form, { name: cycle.name, period_year: cycle.period_year, period_type: cycle.period_type, period_subtype: cycle.period_subtype || null, start_at: toLocal(cycle.start_at), end_at: toLocal(cycle.end_at), lock_rule: cycle.lock_rule, lock_at: toLocal(cycle.lock_at), pre_lock_sync_mode: cycle.pre_lock_sync_mode, leaver_enabled: cycle.leaver_enabled, leaver_start_date: cycle.leaver_start_date || '', leaver_end_date: cycle.leaver_end_date || '', leaver_participation_mode: cycle.leaver_participation_mode, evaluation_template: cycle.template_id ? String(cycle.template_id) : '', comparison_rule: null }); snapshotForm(); formMode.value = 'edit'; editing.value = true }
 function saveComparisonRule(config: PerformanceComparisonConfig) { comparisonRuleDraft.value = config; form.comparison_rule = config }
 function discardEdit() { comparisonRuleDrawerOpen.value = false; comparisonRuleDraft.value = null; editing.value = false; formError.value = ''; clearFormErrors(); formSubmitted.value = false }; function cancelEdit() { if (!isDirty.value) { discardEdit(); void router.replace({ name: 'PerformanceCycles' }); return }; leaveConfirmOpen.value = true }
 function confirmLeaveEdit() { leaveConfirmOpen.value = false; discardEdit(); void router.replace({ name: 'PerformanceCycles' }) }
-async function submitForm() { formError.value = ''; saveSuccess.value = false; formSubmitted.value = true; validateFields(); if (Object.keys(fieldErrors).length) { formError.value = '请完善必填信息'; return }; if (dateError.value) { formError.value = '需晚于开始时间'; return }; if (leaverDateError.value) { formError.value = '离职人员参评日期范围不合法'; return }; if (lockError.value && !(formMode.value === 'edit' && form.lock_rule === 'SCHEDULED')) { formError.value = '定时锁定需晚于当前时间至少 6 小时'; return }; saving.value = true; try { const cycle = formMode.value === 'create' ? await performanceCycleApi.create(toPayload() as PerformanceCyclePayload) : await performanceCycleApi.update(selected.value!.id, toPayload()); snapshotForm(); discardEdit(); saveSuccess.value = true; await loadCycles(); selected.value = cycle; await router.replace({ name: 'PerformanceCycles' }) } catch (error: any) { formError.value = error?.response?.data?.detail || error?.response?.data?.message || '保存失败' } finally { saving.value = false } }
+async function submitForm() { formError.value = ''; saveSuccess.value = false; formSubmitted.value = true; validateFields(); if (Object.keys(fieldErrors).length) { formError.value = '请完善必填信息'; return }; if (dateError.value) { formError.value = '需晚于开始时间'; return }; if (leaverDateError.value) { formError.value = '离职人员参评日期范围不合法'; return }; if (lockError.value && !(formMode.value === 'edit' && form.lock_rule === 'SCHEDULED')) { formError.value = '定时锁定需晚于当前时间至少 6 小时'; return }; if (!form.evaluation_template) { formError.value = '请选择绩效模板'; return }; if (!evaluationTemplates.value.some(template => String(template.template_id) === form.evaluation_template)) { formError.value = '只能选择已启用的绩效模板'; return }; saving.value = true; try { const cycle = formMode.value === 'create' ? await performanceCycleApi.create(toPayload() as PerformanceCyclePayload) : await performanceCycleApi.update(selected.value!.id, toPayload()); snapshotForm(); discardEdit(); saveSuccess.value = true; await loadCycles(); selected.value = cycle; await router.replace({ name: 'PerformanceCycles' }) } catch (error: any) { formError.value = error?.response?.data?.detail || error?.response?.data?.message || '保存失败' } finally { saving.value = false } }
 async function loadPeople() { if (!selected.value) return; peopleLoading.value = true; try { people.value = await performanceCycleApi.listPeople(selected.value.id) } catch (error: any) { formError.value = error?.response?.data?.detail || '人员快照加载失败' } finally { peopleLoading.value = false } }; async function togglePeople() { showPeople.value = !showPeople.value; if (showPeople.value) await loadPeople() }; async function refreshPeople() { if (!selected.value || !peopleReason.value) return; try { await performanceCycleApi.refreshPeople(selected.value.id, peopleReason.value); await loadPeople() } catch (error: any) { formError.value = error?.response?.data?.detail || '名单刷新失败' } }; async function savePerson(person: PerformanceCyclePerson) { if (!selected.value || !peopleReason.value) return; try { await performanceCycleApi.updatePerson(selected.value.id, { employee_no: person.employee_no, display_name: person.display_name, ...Object.fromEntries(organizationFields.map(field => [field.key, person[field.key]])), direct_supervisor_employee_no: person.direct_supervisor_employee_no, hrbp_employee_no: person.hrbp_employee_no }, peopleReason.value); await loadPeople() } catch (error: any) { formError.value = error?.response?.data?.detail || '人员维护失败' } }
 function removeSelected() { if (!selected.value || hasStartedProject.value) return; deleteConfirm.value = true }; async function confirmDelete() { if (!selected.value) return; deleting.value = true; try { await performanceCycleApi.remove(selected.value.id); deleteConfirm.value = false; selected.value = null; await loadCycles() } catch (error: any) { formError.value = error?.response?.data?.detail || '删除失败' } finally { deleting.value = false } }
 async function reloadSelectedCycle() { if (!selected.value) return; selected.value = await performanceCycleApi.get(selected.value.id); cycles.value = cycles.value.map(cycle => cycle.id === selected.value?.id ? selected.value! : cycle) }
-async function openProjectCreate() { if (!selected.value || !canManageCycles.value) return; try { const options = await performanceProjectApi.listEvaluatorOptions(selected.value.id); projectEvaluatorOptions.value = { employees: options.employees }; } catch { projectEvaluatorOptions.value = { employees: [] }; formError.value = '周期人员范围加载失败'; return } projectDialogProject.value = null; projectDialogMode.value = 'create'; projectActionSuccess.value = ''; projectDialogOpen.value = true }
+async function openProjectCreate() { if (!selected.value || !canManageCycles.value) return; projectEvaluatorOptions.value = { organization_tree: [], people: [], employee_types: [] }; projectOptionsLoaded.value = false; projectOptionsLoading.value = false; projectDialogProject.value = null; projectDialogMode.value = 'create'; projectActionSuccess.value = ''; projectDialogOpen.value = true }
+async function loadProjectEvaluatorOptions() { if (!selected.value || projectOptionsLoaded.value || projectOptionsLoading.value) return; projectOptionsLoading.value = true; try { projectEvaluatorOptions.value = await performanceProjectApi.listEvaluatorOptions(selected.value.id); projectOptionsLoaded.value = true; formError.value = '' } catch { formError.value = '周期人员范围加载失败' } finally { projectOptionsLoading.value = false } }
 function openProjectEdit(project: PerformanceCycleProjectShell) { if (!selected.value) return; void router.push({ name: 'PerformanceProjectEdit', params: { cycleId: selected.value.id, id: project.id } }) }
+
 async function saveProject(payload: PerformanceProjectPayload) { if (!selected.value || !canManageProjectDialog.value) return; projectSaving.value = true; formError.value = ''; try { const project = projectDialogMode.value === 'create' ? await performanceProjectApi.create(selected.value.id, payload) : await performanceProjectApi.update(projectDialogProject.value!.id, payload); projectDialogOpen.value = false; projectActionSuccess.value = projectDialogMode.value === 'create' ? '项目已创建' : '项目已保存'; await router.push({ name: 'PerformanceProjectEdit', params: { cycleId: selected.value.id, id: project.id } }) } catch (error: any) { formError.value = error?.response?.data?.detail || '项目保存失败' } finally { projectSaving.value = false } }
 async function startProject(project: PerformanceCycleProjectShell) { if (project.status === 'STARTED') return; formError.value = ''; try { await performanceProjectApi.start(project.id); projectActionSuccess.value = '项目已启动'; await reloadSelectedCycle() } catch (error: any) { formError.value = error?.response?.data?.detail || '项目启动失败' } }
 async function copyProject(project: PerformanceCycleProjectShell) { formError.value = ''; try { await performanceProjectApi.copy(project.id); projectActionSuccess.value = '项目已复制'; await reloadSelectedCycle() } catch (error: any) { formError.value = error?.response?.data?.detail || '项目复制失败' } }
@@ -373,7 +448,7 @@ async function removeProject(project: PerformanceCycleProjectShell) { projectRem
 async function confirmRemoveProject() { const project = projectRemoveTarget.value; if (!project) return; projectRemoving.value = true; try { await performanceProjectApi.remove(project.id); projectRemoveOpen.value = false; projectRemoveTarget.value = null; projectActionSuccess.value = '项目已删除'; await reloadSelectedCycle() } catch (error: any) { formError.value = error?.response?.data?.detail || '项目删除失败' } finally { projectRemoving.value = false } }
 async function syncRoute() { if (route.name === 'PerformanceCycleCreate') { if (!editing.value) startCreate(); return }; if (route.name === 'PerformanceCycleEdit' && route.params.id) { if (selected.value?.id !== Number(route.params.id) || !editing.value) await enterEdit(Number(route.params.id)); return }; if (!editing.value && !cycles.value.length) await loadCycles() }
 function observeAnchors() { anchorObserver.value?.disconnect(); if (typeof IntersectionObserver === 'undefined') return; anchorObserver.value = new IntersectionObserver((entries) => { const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]; if (visible) activeAnchor.value = (visible.target as HTMLElement).id }, { threshold: [0.25, 0.5, 0.75], rootMargin: '-10% 0px -65% 0px' }); anchorItems.forEach(item => { const section = document.getElementById(item.id); if (section) anchorObserver.value?.observe(section) }) }
-watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(editing, value => { if (value) void nextTick(observeAnchors); else anchorObserver.value?.disconnect() }); onBeforeRouteLeave(() => { if (!isDirty.value) return true; leaveConfirmOpen.value = true; return false }); onBeforeRouteUpdate(() => { if (!isDirty.value) return true; leaveConfirmOpen.value = true; return false }); onMounted(async () => { document.addEventListener('pointerdown', handlePickerOutsidePointerDown); document.addEventListener('pointerdown', handleCycleMenuOutsidePointerDown);  try { accessContext.value = await performanceApi.getAccessContext(); if (route.name === 'PerformanceCycleEdit') await syncRoute(); else { await loadCycles(); await syncRoute() } } catch (error: any) { formError.value = error?.response?.data?.detail || '权限加载失败' } }); onUnmounted(() => { anchorObserver.value?.disconnect(); document.removeEventListener('pointerdown', handlePickerOutsidePointerDown); document.removeEventListener('pointerdown', handleCycleMenuOutsidePointerDown); cancelCycleMenuClose(); cycleMoreButtons.clear() })
+watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(editing, value => { if (value) void nextTick(observeAnchors); else anchorObserver.value?.disconnect() }); onBeforeRouteLeave(() => { if (!isDirty.value) return true; leaveConfirmOpen.value = true; return false }); onBeforeRouteUpdate(() => { if (!isDirty.value) return true; leaveConfirmOpen.value = true; return false }); onMounted(async () => { document.addEventListener('pointerdown', handlePickerOutsidePointerDown); document.addEventListener('pointerdown', handleCycleMenuOutsidePointerDown);  try { accessContext.value = await performanceApi.getAccessContext(); await loadEvaluationTemplates(); if (route.name === 'PerformanceCycleEdit') await syncRoute(); else { await loadCycles(); await syncRoute() } } catch (error: any) { formError.value = error?.response?.data?.detail || '权限加载失败' } }); onUnmounted(() => { anchorObserver.value?.disconnect(); document.removeEventListener('pointerdown', handlePickerOutsidePointerDown); document.removeEventListener('pointerdown', handleCycleMenuOutsidePointerDown); cancelCycleMenuClose(); cycleMoreButtons.clear() })
 </script>
 
 <style scoped>
@@ -616,6 +691,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   font-size: 14px;
   font-weight: 400;
   line-height: 22px;
+  cursor: pointer;
 }
 
 .language-options input[type='checkbox'] {
@@ -662,6 +738,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   height: 16px;
   margin: 0;
   accent-color: var(--color-primary);
+  cursor: pointer;
 }
 
 .sync-field {
@@ -684,6 +761,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   font-size: 14px;
   font-weight: 400;
   line-height: 22px;
+  cursor: pointer;
 }
 
 .radio-row input[type='radio'] {
@@ -691,6 +769,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   height: 16px;
   margin: 0;
   accent-color: var(--color-primary);
+  cursor: pointer;
 }
 
 .year-picker {
@@ -893,9 +972,15 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   margin-top: 16px;
 }
 
-.evaluation-result-rules {
-  margin-top: var(--spacing-6);
-}
+.evaluation-template-field { margin-top: 0; }
+.evaluation-template-field :deep(.performance-select-shell__selector) { min-height: 32px; }
+.evaluation-template-options { max-height: 320px; overflow: auto; padding: 4px 0; }
+.evaluation-template-option { display: flex; flex-direction: column; align-items: flex-start; width: 100%; min-height: 56px; padding: 7px 12px; border: 0; background: transparent; color: #1f2329; font: 400 14px/22px var(--font-sans); text-align: left; cursor: pointer; }
+.evaluation-template-option:hover, .evaluation-template-option[aria-selected='true'] { background: #f5f6f7; }
+.evaluation-template-option__name { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evaluation-template-option__description { width: 100%; overflow: hidden; color: #8f959e; text-overflow: ellipsis; white-space: nowrap; }
+.evaluation-template-options__empty { padding: 10px 12px; color: #8f959e; font: 400 14px/22px var(--font-sans); }
+
 
 .evaluation-result-rules__title {
   margin-bottom: var(--spacing-3);

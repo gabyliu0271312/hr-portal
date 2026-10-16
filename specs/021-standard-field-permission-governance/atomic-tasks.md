@@ -122,7 +122,7 @@
 - [ ] **X2121 校验并复用当前组织/成本中心树**
   - 前置：X2120。范围：A保留org_unit和cost_center_monthly的构树输入，绑定员工/分摊/维度编码；检查父子/启停/过期/名称path/后代/孤儿与标签。不等待B接管。
   - 交付：现有OrgNode/CostCenterNode/ScopeTag健康验证，无新权限树。
-  - [x] X2121.health.local 只读组织/成本中心树健康分析：编码重复、孤儿父节点、循环、level/path异常和inactive统计；复用现有OrgNode/CostCenterNode，不新增权限树，异常fail-closed。
+  - [ ] X2121.health.local 只读组织/成本中心树健康分析：编码重复、名称路径重复、孤儿父节点、循环、level/path异常和inactive统计；复用现有OrgNode/CostCenterNode，不新增权限树。后代范围已加入停用过滤与LIKE转义，但真实树/标签展开及生产路径验收未通过。
   - UI：健康错误修复入口，不假历史树。验收：ID和展开范围分别比较，重复名称/缺父/环/停用不扩大权限，旧月度口径保持。
 
 - [ ] **X2124 目录管理API与安全生命周期**
@@ -175,6 +175,15 @@
   - [x] X2122.validation.local 每个来源别名角色、稳定事实键/人员键、实际物理类型、输出和分组/度量/内部字段白名单、模型快照漂移校验；中心汇总、参考、桥接复杂路径暂拒绝元数据批准，留后续树/基数/最小投影验证。
   - [x] X2122.execution.local 执行准备检查：解析person/allocation/reference/bridge事实角色、D/S候选路径、模型快照和ACL可用性；明确tree/cardinality/sql compiler未接入时eligible=false，runtime_enabled=false，复杂路径不可批准；不执行真实查询。
   - [ ] X2122.execution 事实集合D/S、批准关系基数/树路径及生产试点、UI和当前ACL回归；不得以meta完成替代执行合同完成。
+  - [ ] X2122.execution.d.local 单事实person_fact明细合同绑定校验：仅验证服务端合同快照与请求计划的dataset/contract/version绑定、单事实/单表/无JOIN/无中心汇总；runtime_enabled恒为false，不执行SQL、不接入报表运行；真实合同与结构验收未运行。
+  - [ ] X2122.execution.acl.local readiness接入当前用户数据集资源ACL裁决；未提供用户、资源ACL不命中时保持阻断，不读取业务行；当前PostgreSQL ACL集成用例未运行，不以模拟通过冒充验收。
+  - [ ] X2122.execution.schema.local readiness只读诊断合同事实键、输出字段、内部字段和关联键的物理列/类型漂移；目前仅纯函数/模拟回归，真实PostgreSQL验收未运行，不执行业务SQL。
+  - [ ] X2122.execution.tree.local readiness接入现有组织树及成本中心树健康纯诊断，按生产名称path而非code检验；空树/缺根/重复路径/坏父子结构阻断，仅在合同声明成本中心汇总时检查成本中心树；真实树与范围展开尚未在隔离PostgreSQL验收。
+  - [ ] X2141.scope.local 单事实D明细切片复用现有 `build_scope_filter(..., strategy="person_first")` 原语；无范围返回阻断，不接入报表执行、不启用runtime_enabled；真实范围与树后代结果仍待PostgreSQL验收。
+  - [ ] X2141.scope.membership.local 单事实人员事实的D集合仅允许从已受控花名册人员范围生成；无限制、无花名册、非person_fact或锚点缺失均阻断，尚未在隔离PostgreSQL证明真实范围结果。
+  - [ ] X2141.projection.local 单事实D内部SQLAlchemy投影改为只在服务端用户编排内构造，不再接受外部membership/hidden_fields参数；合同输出白名单和实体列继续阻断未授权字段。未执行真实SQL与敏感字段数据库验收。
+  - [ ] X2141.field-access.local 单事实D用户编排先核对合同输出和事实锚点的物理列元数据，再复用 `get_hidden_columns()` 并叠加物理列敏感/不可见标志；字段缺失、不可见或人员范围不可解析时阻断；当前只覆盖模拟测试、未做真实PostgreSQL敏感字段验收。
+  - [x] X2141.server-contract.local 单事实D内部入口复用服务端readiness；当前readiness恒阻断时不生成投影、不读取业务行；无对外查询接口，仅模拟单测覆盖该拒绝路径。
   - UI：spec7.2产品底座一次配置、健康解释。验收：个人产品无自动中心特许，多维组织不AND组织授权，多事实不借单事实OR放行；未知路径/字段/敏感参考/关联拒绝，空授权和配置失效分开。
 
 - [ ] **X2126 全业务输出发布/刷新/消费准入**
@@ -820,6 +829,15 @@ npm run dev -- --host 127.0.0.1 --port 5174 --strictPort
 5. **X2142/A4**：只选无出口对象试点；dataset 15及报表3等有出口/多事实风险对象默认阻断，先完成出口隔离和对照。
 6. **生产已登录验收**：当前尚未完成，原因是终端交互登录请求体传递失败，不要把未登录401当业务权限结论；可改用浏览器已有会话或按部署方安全方式获取临时会话，但不要把JWT写入文档/仓库。
 7. **B5–B8/X2160–X2163**继续保持未完成；A本地子集完成不代表021/A或021全项目完成。
+
+### 2026-10-15 开发交接（本轮停止继续迭代）
+
+- 本轮新增/修改：`backend/app/datasets/d_execution.py`、`authorization_contract.py`、`permissions/scope_filter.py`、`reports/execution_plan.py`、`warehouse/router.py`、`warehouse/service/tree_health.py`；测试为`test_d_execution.py`、`test_standard_field_catalog.py`、`test_scope_filter_entity.py`。同工作树的绩效文件由其他会话并行修改，勿覆盖或一并提交。
+- 已实现候选：执行计划字段/汇总形态阻断、当前用户数据集ACL与合同/物理字段漂移只读诊断、生产名称path树健康、停用节点及LIKE通配符的范围止损，以及仅单`person_fact`的D合同/字段/人员membership内部编译原语。`compile_person_fact_d_select_for_dataset`依旧恒阻断，`execution_readiness.eligible=false`、`runtime_enabled=false`；未开放真实D/S执行、报表入口、COUNT、导出、推送或下钻。
+- 实测命令：`backend/.venv/Scripts/python.exe -m pytest backend/tests/test_d_execution.py backend/tests/test_standard_field_catalog.py backend/tests/test_scope_filter_entity.py -q -p no:cacheprovider`：**49 passed、62 skipped、1 warning**；相关源码编译与`git diff --check`通过。62跳过含显式PostgreSQL验收，不能记作通过；warning为`python_multipart`弃用提示。
+- 本轮继续修复：D membership复用同一SQLAlchemy roster alias；合同批准前拒绝多事实/JOIN并执行物理结构校验；execution-plan路由先执行当前用户ACL/readiness；批准的内部人数度量从个人定位识别中单独排除。未开放运行时执行。
+- 当前阻塞：Docker daemon不可用，未能创建或启动隔离PostgreSQL；因此未验证F1/F2/F3的100/200/300/600与非700、树后代真实展开、字段分类真实投影、JOIN/多事实/一对多金额、生产ACL和旧出口。不得勾选X2122.execution.d.local、X2122.execution.acl.local、X2122.execution.schema.local、X2122.execution.tree.local、X2141.scope.local、X2141.scope.membership.local、X2141.projection.local、X2141.field-access.local。
+- 下次先建立**全新隔离PostgreSQL**（独立端口/账号/库及数据目录，避开现用Compose与`data/pg`），按`tests/conftest.py`和`test_scope_classification.py`的硬性环境断言运行专项；修复真实集成测试暴露的问题后，再设计S的同事实OR与去重。不要通过取消fail-closed开关来让测试通过；不要把单元通过或合同active当运行批准。
 
 ### 明确不可做
 

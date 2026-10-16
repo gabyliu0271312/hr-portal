@@ -11,6 +11,37 @@ afterEach(() => {
 })
 
 describe('PerformanceDateTimeField', () => {
+  it('displays a space instead of T and defaults selected start/end dates to boundary times', async () => {
+    wrapper = mount(PerformanceDateTimeField, {
+      attachTo: document.body,
+      props: { modelValue: '2026-10-14T09:30', timeRole: 'start' },
+    })
+
+    expect(wrapper.get('input').element.value).toBe('2026-10-14 09:30')
+    await wrapper.get('input').trigger('click')
+    await flushPromises()
+    document.body.querySelector<HTMLButtonElement>('[data-date="2026-10-20"]')?.click()
+    document.body.querySelector<HTMLButtonElement>('.performance-datetime-panel__confirm')?.click()
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['2026-10-20T00:00'])
+
+    wrapper.unmount()
+    await new Promise(resolve => setTimeout(resolve, 220))
+    wrapper = mount(PerformanceDateTimeField, {
+      attachTo: document.body,
+      props: { modelValue: '', timeRole: 'end' },
+    })
+    await wrapper.get('input').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelectorAll('.performance-datetime-panel')).toHaveLength(1)
+    document.body.querySelector<HTMLButtonElement>('[data-date]')?.click()
+    await flushPromises()
+    expect(document.body.querySelector<HTMLButtonElement>('.performance-datetime-panel__confirm')?.disabled).toBe(false)
+    document.body.querySelector<HTMLButtonElement>('.performance-datetime-panel__confirm')?.click()
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toMatch(/^\d{4}-\d{2}-\d{2}T23:59$/)
+  })
+
   it('opens the custom calendar and commits the selected date and time', async () => {
     wrapper = mount(PerformanceDateTimeField, {
       attachTo: document.body,

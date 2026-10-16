@@ -344,6 +344,38 @@ async def test_build_scope_filter_passthrough_via_roster():
     assert "ORG001" in sql                           # 组织约束下放到花名册
 
 
+async def test_org_descendants_escape_like_wildcards_and_reject_inactive_nodes():
+    model = _make_plain_entity("scope_tree_escape", "org_node_code")
+    old_model = set_table("scope_tree_escape", model)
+    node = OrgNode(id=10, code="ORG1", name="研发_%", parent_id=None, level=1,
+                   path="/研发_%/", is_leaf=False, is_active=True)
+    tag = make_tag(dimension="org")
+    selection = ScopeTagSelection(id=1, tag_id=1, node_id=10, include_descendants=True)
+    role_col = make_column(table_name="scope_tree_escape", column_code="org_node_code", scope_role="org_node_code")
+    db = FakeSession(results=[FakeResult(rows=[]), FakeResult(rows=[role_col]), FakeResult(rows=[]), FakeResult(rows=[tag]),
+                              FakeResult(rows=[selection]), FakeResult(rows=[]), FakeResult(rows=[("ORG1",), ("ORG2",)])],
+                     get_map={(OrgNode, 10): node})
+    try:
+        clause = await scope_filter.build_scope_filter(SimpleNamespace(id=99), "scope_tree_escape", db, strategy="person_first")
+        sql = compiled_sql(clause)
+        assert "ORG1" in sql and "ORG2" in sql
+        descendant_sql = compiled_sql(db.executed[-1][0])
+        assert "ESCAPE" in descendant_sql and "is_active" in descendant_sql
+        node.is_active = False
+        db2 = FakeSession(results=[FakeResult(rows=[]), FakeResult(rows=[role_col]), FakeResult(rows=[]), FakeResult(rows=[tag]),
+                                   FakeResult(rows=[selection]), FakeResult(rows=[])], get_map={(OrgNode, 10): node})
+        denied = await scope_filter.build_scope_filter(SimpleNamespace(id=99), "scope_tree_escape", db2, strategy="person_first")
+        assert compiled_sql(denied).lower() == "false"
+        node.is_active = True
+        node.path = None
+        db3 = FakeSession(results=[FakeResult(rows=[]), FakeResult(rows=[role_col]), FakeResult(rows=[]), FakeResult(rows=[tag]),
+                                   FakeResult(rows=[selection]), FakeResult(rows=[])], get_map={(OrgNode, 10): node})
+        no_path = await scope_filter.build_scope_filter(SimpleNamespace(id=99), "scope_tree_escape", db3, strategy="person_first")
+        assert compiled_sql(no_path).lower() == "false"
+    finally:
+        restore_table("scope_tree_escape", old_model)
+
+
 async def test_build_scope_filter_no_role_no_join_fails_closed():
     """无 scope_role 列且无 roster_join_col → fail-closed。"""
     target_name = "scope_no_role_no_join"

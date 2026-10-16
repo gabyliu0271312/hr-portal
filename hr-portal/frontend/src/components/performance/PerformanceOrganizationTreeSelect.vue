@@ -9,6 +9,8 @@
     clear-label="清空已选部门"
     :popup-height="230"
     class="performance-organization-tree-select__trigger"
+    :disabled="disabled"
+    @open="$emit('open')"
   >
     <template #default>
       <div class="organization-tree__list">
@@ -27,8 +29,8 @@ import type { PerformanceHrbpOrganizationNode } from '@/api/performance'
 import PerformanceOrganizationTreeNodes from './PerformanceOrganizationTreeNodes.vue'
 import PerformanceSelectShell, { type PerformanceSelectItem } from './PerformanceSelectShell.vue'
 
-const props = defineProps<{ modelValue: string[]; nodes: PerformanceHrbpOrganizationNode[] }>()
-const emit = defineEmits<{ 'update:modelValue': [value: string[]] }>()
+const props = withDefaults(defineProps<{ modelValue: string[]; nodes: PerformanceHrbpOrganizationNode[]; disabled?: boolean }>(), { disabled: false })
+const emit = defineEmits<{ 'update:modelValue': [value: string[]]; open: [] }>()
 const query = defineModel<string>('query', { default: '' })
 const modelValueProxy = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 
@@ -55,6 +57,7 @@ const filteredNodes = computed(() => {
 })
 
 function toggleNode(value: string) {
+  if (props.disabled) return
   const selected = new Set(props.modelValue)
   if (selected.has(value)) selected.delete(value)
   else selected.add(value)

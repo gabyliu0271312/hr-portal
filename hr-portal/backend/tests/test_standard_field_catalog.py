@@ -1335,9 +1335,9 @@ def test_current_tree_health_is_fail_closed_for_orphans_cycles_duplicate_codes_a
     from types import SimpleNamespace
     from app.warehouse.service.tree_health import analyze_tree
     nodes = [
-        SimpleNamespace(id=1, code="ROOT", parent_id=2, level=1, path="ROOT", is_active=True),
-        SimpleNamespace(id=2, code="ROOT", parent_id=1, level=1, path="/ROOT", is_active=True),
-        SimpleNamespace(id=3, code="ROOT", parent_id=99, level=0, path="/OTHER", is_active=False),
+        SimpleNamespace(id=1, code="ROOT", name="根组织", parent_id=2, level=1, path="/根组织/", is_active=True),
+        SimpleNamespace(id=2, code="ROOT", name="重复组织", parent_id=1, level=1, path="/根组织/重复组织/", is_active=True),
+        SimpleNamespace(id=3, code="ROOT", name="孤儿组织", parent_id=99, level=0, path="/错误路径/", is_active=False),
     ]
     result = analyze_tree("org", nodes)
     codes = {issue.code for issue in result.issues}
@@ -1350,13 +1350,90 @@ def test_current_tree_health_accepts_stable_active_tree_and_preserves_inactive_n
     from types import SimpleNamespace
     from app.warehouse.service.tree_health import analyze_tree
     nodes = [
-        SimpleNamespace(id=1, code="ROOT", parent_id=None, level=1, path="ROOT", is_active=True),
-        SimpleNamespace(id=2, code="A", parent_id=1, level=2, path="ROOT/A", is_active=True),
-        SimpleNamespace(id=3, code="OLD", parent_id=1, level=2, path="ROOT/OLD", is_active=False),
+        SimpleNamespace(id=1, code="ROOT", name="根成本中心", parent_id=None, level=1, path="/根成本中心/", is_active=True),
+        SimpleNamespace(id=2, code="A", name="项目A", parent_id=1, level=2, path="/根成本中心/项目A/", is_active=True),
+        SimpleNamespace(id=3, code="OLD", name="旧项目", parent_id=1, level=2, path="/根成本中心/旧项目/", is_active=False),
     ]
     result = analyze_tree("cost_center", nodes)
     assert result.eligible is True and result.node_count == 3
     assert result.active_count == 2 and result.root_count == 1 and result.issues == []
+
+
+def test_tree_health_rejects_empty_and_inconsistent_parent_structure():
+    from types import SimpleNamespace
+    from app.warehouse.service.tree_health import analyze_tree
+    empty = analyze_tree("org", [])
+    assert empty.eligible is False and {issue.code for issue in empty.issues} == {"empty_tree"}
+    nodes = [
+        SimpleNamespace(id=1, code="ROOT", name="根组织", parent_id=None, level=2, path="/根组织/额外/", is_active=True),
+        SimpleNamespace(id=2, code="CHILD", name="子组织", parent_id=1, level=4, path="/错误/子组织/", is_active=True),
+        SimpleNamespace(id=3, code="OLD", name="旧组织", parent_id=1, level=2, path="/根组织/旧组织/", is_active=False),
+    ]
+    codes = {issue.code for issue in analyze_tree("org", nodes).issues}
+    assert {"root_level_invalid", "root_path_invalid", "level_mismatch", "parent_path_mismatch", "path_depth_mismatch"} <= codes
+
+
+def test_tree_health_accepts_name_paths_when_codes_differ():
+    from types import SimpleNamespace
+    from app.warehouse.service.tree_health import analyze_tree
+
+    nodes = [
+        SimpleNamespace(id=1, code="RootOrg", name="集团", parent_id=None, level=1, path="/集团/", is_active=True),
+        SimpleNamespace(id=2, code="ORG1", name="研发", parent_id=1, level=2, path="/集团/研发/", is_active=True),
+    ]
+    result = analyze_tree("org", nodes)
+    assert result.eligible is True and result.issues == []
+
+
+def test_tree_health_rejects_wrong_child_name_and_inactive_parent():
+    from types import SimpleNamespace
+    from app.warehouse.service.tree_health import analyze_tree
+
+    nodes = [
+        SimpleNamespace(id=1, code="RootOrg", name="集团", parent_id=None, level=1, path="/集团/", is_active=False),
+        SimpleNamespace(id=2, code="ORG1", name="研发", parent_id=1, level=2, path="/集团/财务/", is_active=True),
+    ]
+    codes = {issue.code for issue in analyze_tree("org", nodes).issues}
+    assert {"parent_path_mismatch", "active_under_inactive"} <= codes
+
+
+def test_tree_health_rejects_duplicate_name_paths():
+    from types import SimpleNamespace
+    from app.warehouse.service.tree_health import analyze_tree
+
+    nodes = [
+        SimpleNamespace(id=1, code="RootOrg", name="集团", parent_id=None, level=1, path="/集团/", is_active=True),
+        SimpleNamespace(id=2, code="ORG1", name="同名", parent_id=1, level=2, path="/集团/同名/", is_active=True),
+        SimpleNamespace(id=3, code="ORG2", name="同名", parent_id=1, level=2, path="/集团/同名/", is_active=True),
+    ]
+    result = analyze_tree("org", nodes)
+    assert result.eligible is False
+    assert "duplicate_path" in {issue.code for issue in result.issues}
+
+
+def test_tree_health_rejects_nonempty_cycle_without_root():
+    from types import SimpleNamespace
+    from app.warehouse.service.tree_health import analyze_tree
+
+    nodes = [
+        SimpleNamespace(id=1, code="ORG1", name="研发", parent_id=2, level=2, path="/集团/研发/", is_active=True),
+        SimpleNamespace(id=2, code="ORG2", name="集团", parent_id=1, level=1, path="/集团/", is_active=True),
+    ]
+    codes = {issue.code for issue in analyze_tree("org", nodes).issues}
+    assert {"root_missing", "cycle"} <= codes
+
+
+def test_tree_health_rejects_duplicate_node_ids():
+    from types import SimpleNamespace
+    from app.warehouse.service.tree_health import analyze_tree
+
+    nodes = [
+        SimpleNamespace(id=1, code="ROOT", name="集团", parent_id=None, level=1, path="/集团/", is_active=True),
+        SimpleNamespace(id=1, code="OTHER", name="另一根", parent_id=None, level=1, path="/另一根/", is_active=True),
+    ]
+    result = analyze_tree("org", nodes)
+    assert "duplicate_node_id" in {issue.code for issue in result.issues}
+    assert result.eligible is False
 
 
 @pytest.mark.postgres_acceptance
@@ -1388,6 +1465,21 @@ async def test_authorization_execution_readiness_is_fail_closed_and_exposes_no_r
         "summary_mode": "person_scope", "employee_key": "employee_no", "cost_center_key": None,
     }]
     assert "employee_no" not in str(body.get("issues")) or True
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_authorization_readiness_denies_nonmatching_user_before_contract_metadata(standard_catalog_api):
+    from types import SimpleNamespace
+    from app.core.deps import current_user
+    client, _, _, app = standard_catalog_api
+    app.dependency_overrides[current_user] = lambda: SimpleNamespace(id=99)
+    response = await client.get("/api/v1/warehouse/models/4/authorization-execution-readiness")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["eligible"] is False and body["runtime_enabled"] is False
+    assert body["contract_id"] is None and body["paths"] == []
+    assert [issue["code"] for issue in body["issues"]] == ["dataset_acl_denied"]
 
 
 @pytest.mark.postgres_acceptance
@@ -1424,3 +1516,44 @@ def test_execution_plan_blocks_unknown_fields_and_unapproved_aggregations():
     result = compile_execution_plan(4, ExecutionPlanIn(output_fields=["secret"], aggregations={"secret": "sum"}), allowed_fields={"amount"}, measures={"amount"})
     assert result.shape == "blocked"
     assert {issue["code"] for issue in result.issues} == {"plan_field_not_allowed", "aggregate_field_not_measure"}
+
+
+def test_execution_plan_blocks_identifying_filters_and_invalid_summary_projection():
+    from app.reports.execution_plan import compile_execution_plan
+    from app.warehouse.schemas import ExecutionPlanIn
+    personal_filter = compile_execution_plan(
+        4,
+        ExecutionPlanIn(output_fields=["department", "amount"], filters=["employee_no"], group_by=["department"], aggregations={"amount": "sum"}),
+        allowed_fields={"department", "amount", "employee_no"},
+        measures={"amount"},
+        identifying_fields={"employee_no"},
+    )
+    assert personal_filter.shape == "blocked"
+    assert {issue["code"] for issue in personal_filter.issues} >= {"personal_locator_requires_detail", "personal_filter_requires_detail"}
+    invalid_projection = compile_execution_plan(
+        4,
+        ExecutionPlanIn(output_fields=["department", "amount", "employee_no"], group_by=["department"], aggregations={"amount": "sum"}),
+        allowed_fields={"department", "amount", "employee_no"},
+        measures={"amount"},
+        identifying_fields={"employee_no"},
+    )
+    assert invalid_projection.shape == "blocked"
+    assert "aggregate_projection_invalid" in {issue["code"] for issue in invalid_projection.issues}
+
+
+def test_authorization_readiness_snapshot_detects_relation_output_and_alias_drift():
+    from types import SimpleNamespace
+    from app.datasets.authorization_contract import _snapshot, _snapshot_drift, _validate_relation_metadata
+
+    tables = [SimpleNamespace(id=1, alias="person", table_name="person_fact")]
+    outputs = [SimpleNamespace(id=1, source_alias="person", source_column="employee_no", output_code="employee_no",
+                               data_type="string", is_sensitive=False, is_visible=True)]
+    relation = SimpleNamespace(id=1, left_alias="person", right_alias="ref", join_type="left",
+                               cardinality="N:1", keys=[{"left": "employee_no", "right": "employee_no"}])
+    snapshot = _snapshot(tables, [relation], outputs)
+    assert _snapshot_drift(snapshot, tables, [relation], outputs) is False
+    assert _snapshot_drift(snapshot, [SimpleNamespace(id=1, alias="other", table_name="person_fact")], [relation], outputs)
+    assert _snapshot_drift(snapshot, tables, [SimpleNamespace(**{**vars(relation), "cardinality": "1:N"})], outputs)
+    assert _snapshot_drift(snapshot, tables, [relation], [SimpleNamespace(**{**vars(outputs[0]), "is_sensitive": True})])
+    assert _snapshot_drift({"tables": snapshot["tables"]}, tables, [relation], outputs)
+    assert {issue["code"] for issue in _validate_relation_metadata([relation], {"person"})} == {"authorization_relation_alias_invalid"}

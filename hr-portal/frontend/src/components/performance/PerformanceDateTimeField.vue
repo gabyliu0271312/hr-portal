@@ -5,7 +5,7 @@
       :id="inputId"
       class="performance-date-time-field__input"
       type="text"
-      :value="modelValue"
+      :value="displayValue"
       :placeholder="placeholder"
       :required="required"
       :disabled="disabled"
@@ -83,6 +83,7 @@ const props = withDefaults(defineProps<{
   required?: boolean
   disabled?: boolean
   ariaLabel?: string
+  timeRole?: 'start' | 'end'
   invalid?: boolean
   describedBy?: string
 }>(), { inputId: undefined, placeholder: 'YYYY-MM-DD HH:MM', required: false, disabled: false, ariaLabel: '', invalid: false, describedBy: '' })
@@ -104,6 +105,7 @@ const months = Array.from({ length: 12 }, (_, index) => index + 1)
 const timeColumns = [{ key: 'hour', label: '时', values: Array.from({ length: 24 }, (_, index) => index) }, { key: 'minute', label: '分', values: Array.from({ length: 60 }, (_, index) => index) }] as const
 const pad = (value: number) => String(value).padStart(2, '0')
 const dateValue = (date: Date) => `${String(date.getUTCFullYear()).padStart(4, '0')}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`
+const displayValue = computed(() => props.modelValue.replace('T', ' '))
 const today = computed(() => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()))
 const yearOptions = computed(() => Array.from({ length: 12 }, (_, index) => Math.floor(viewYear.value / 12) * 12 + index).filter(year => year >= 1 && year <= 9999))
 const calendarDays = computed(() => {
@@ -138,8 +140,8 @@ function resetDraft() {
   draftDate.value = props.modelValue && validValue(props.modelValue) ? value.slice(0, 10) : ''
   viewYear.value = Number(value.slice(0, 4))
   viewMonth.value = Number(value.slice(5, 7)) - 1
-  draftHour.value = Number(value.slice(11, 13))
-  draftMinute.value = Number(value.slice(14, 16))
+  draftHour.value = props.modelValue && validValue(props.modelValue) ? Number(value.slice(11, 13)) : (props.timeRole === 'end' ? 23 : 0)
+  draftMinute.value = props.modelValue && validValue(props.modelValue) ? Number(value.slice(14, 16)) : (props.timeRole === 'end' ? 59 : 0)
   mode.value = 'date'
 }
 
@@ -196,6 +198,8 @@ function confirmPicker() {
 
 function selectDate(value: string) {
   draftDate.value = value
+  draftHour.value = props.timeRole === 'end' ? 23 : 0
+  draftMinute.value = props.timeRole === 'end' ? 59 : 0
   viewYear.value = Number(value.slice(0, 4))
   viewMonth.value = Number(value.slice(5, 7)) - 1
 }

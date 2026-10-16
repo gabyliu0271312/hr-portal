@@ -334,6 +334,7 @@ class ProjectPayload(BaseModel):
     data_managers: list[Literal["PROJECT_ADMIN", "HRBP"]] | None = Field(default=None, min_length=1)
     scope_limited: bool | None = None
     scope_employee_nos: list[str] | None = Field(default=None, max_length=5000)
+    scope_rules: dict | None = None
     template_id: int | None = Field(default=None, ge=1)
     start_at: datetime | None = None
     end_at: datetime | None = None
@@ -356,6 +357,7 @@ class ProjectResponse(BaseModel):
     data_managers: list[Literal["PROJECT_ADMIN", "HRBP"]] = Field(default_factory=lambda: ["HRBP"])
     scope_limited: bool = False
     scope_employee_nos: list[str] = Field(default_factory=list)
+    scope_rules: dict = Field(default_factory=lambda: {"groups": []})
     status: str
     evaluated_count: int
     template_id: int | None = None

@@ -170,16 +170,20 @@ async def _build_org_clause(
         if s.node_id is None:
             continue
         node = await db.get(NodeModel, s.node_id)
-        if node is None:
+        if node is None or not node.is_active:
             continue
         if s.include_descendants and node.path:
+            prefix = node.path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             descendants = (
                 await db.execute(
-                    select(NodeModel.code).where(NodeModel.path.like(f"{node.path}%"))
+                    select(NodeModel.code).where(
+                        NodeModel.path.like(prefix + "%", escape="\\"),
+                        NodeModel.is_active.is_(True),
+                    )
                 )
             ).all()
             codes.update(r[0] for r in descendants)
-        else:
+        elif not s.include_descendants:
             codes.add(node.code)
 
     if not codes:
@@ -401,7 +405,7 @@ async def _build_scope_filter_for_model(
     # This avoids fragile regex post-processing in executor.py.
     EffectiveModel = Model
     if table_alias:
-        EffectiveModel = aliased(Model, name=table_alias)
+        EffectiveModel = table_alias if not isinstance(table_alias, str) else aliased(Model, name=table_alias)
 
     role_cols = await _get_role_columns(table, db)
     roster_join_col = None

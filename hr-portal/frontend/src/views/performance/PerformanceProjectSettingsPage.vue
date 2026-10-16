@@ -34,18 +34,15 @@
       <section v-if="currentStep === 0" class="settings-card" aria-labelledby="people-title">
         <h2 id="people-title">被评估人<span class="required">*</span></h2>
         <p class="hint">可圈定被评估人范围。同一评估周期中，每名被评估人只能参与 1 次「绩效评估」。</p>
-        <div v-for="(group, groupIndex) in form.evaluator_rules.groups" :key="groupIndex" class="rule-group">
-          <div class="rule-group-heading"><span>范围 {{ groupIndex + 1 }}</span><PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" @click="removeGroup(groupIndex)" /></div>
-          <div v-for="(condition, conditionIndex) in group.conditions" :key="conditionIndex" class="rule-row">
-            <select v-model="condition.field" @change="condition.values = []"><option value="department">部门</option><option value="employee_type">人员类型</option><option value="employee">员工</option></select>
-            <select v-model="condition.operator"><option value="include">包含</option><option value="exclude">不包含</option></select>
-            <PerformanceMultiSelect v-model="condition.values" :options="optionsFor(condition.field)" :placeholder="condition.field === 'department' ? '请选择部门' : condition.field === 'employee_type' ? '请选择人员类型' : '请选择员工'" />
-            <PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`" @click="removeCondition(groupIndex, conditionIndex)" />
-          </div>
-          <PerformanceTextButton label="＋ 添加条件" @click="addCondition(groupIndex)" />
-          <div v-if="groupIndex < form.evaluator_rules.groups.length - 1" class="or-divider">或</div>
-        </div>
-        <PerformanceTextButton label="＋ 添加人员范围" @click="addGroup" />
+        <PerformanceAudienceRuleEditor
+          v-model="form.evaluator_rules.groups"
+          :allowed-fields="['department', 'employee_type', 'employee']"
+          :organization-tree="evaluatorOptions.organization_tree"
+          :person-options="evaluatorOptions.people"
+          :employee-type-options="evaluatorOptions.employee_types"
+          :disabled="saving"
+          @open-options="loadEvaluatorOptions"
+        />
         <p v-if="validationError" class="error" role="alert">{{ validationError }}</p>
       </section>
 
@@ -56,7 +53,7 @@
           v-if="form.template_id"
           v-model="form.flow_settings"
           :nodes="workflowNodes"
-          :people-options="evaluatorOptions.employees"
+          :people-options="evaluatorOptions.people"
           :evaluated-count="evaluatedCount"
           :loading="flowLoading"
           :error="flowError"
@@ -82,8 +79,10 @@
       v-model="basicDialogOpen"
       mode="edit"
       :project="basicDialogProject"
+      :evaluator-options="evaluatorOptions"
       :can-submit="Boolean(projectId)"
       :saving="basicDialogSaving"
+      @open-options="loadEvaluatorOptions"
       @submit="saveBasicInfo"
     />
   </div>
@@ -94,13 +93,11 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/performance/PageHeader.vue'
 import PerformanceButton from '@/components/performance/PerformanceButton.vue'
-import PerformanceTextButton from '@/components/performance/PerformanceTextButton.vue'
 import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue'
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
-import PerformanceMultiSelect from '@/components/performance/PerformanceMultiSelect.vue'
-import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceContentSurface from '@/components/performance/PerformanceContentSurface.vue'
-import { performanceProjectApi, performanceTemplateApi, type PerformanceCycleProjectShell, type PerformanceProjectFlowSettings as ProjectFlowSettings, type PerformanceProjectPayload, type PerformanceTemplateListItem, type PerformanceWorkflowNode } from '@/api/performance'
+import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceAudienceRuleEditor.vue'
+import { performanceProjectApi, performanceTemplateApi, type PerformanceCycleProjectShell, type PerformanceProjectFlowSettings as ProjectFlowSettings, type PerformanceProjectPayload, type PerformanceTemplateListItem, type PerformanceWorkflowNode, type PerformanceEvaluatorOptions } from '@/api/performance'
 import PerformanceProjectFlowSettings from '@/components/performance/PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
@@ -109,11 +106,13 @@ import PerformanceTextField from '@/components/performance/PerformanceTextField.
 const route = useRoute(); const router = useRouter()
 const projectId = computed(() => Number(route.params.id || 0) || null)
 const cycleId = computed(() => Number(route.params.cycleId || 0) || null)
-const evaluatorOptions = ref<{ departments: Array<{ value: string; label: string }>; employee_types: Array<{ value: string; label: string }>; employees: Array<{ value: string; label: string }> }>({ departments: [], employee_types: [], employees: [] })
+const evaluatorOptions = ref<PerformanceEvaluatorOptions>({ organization_tree: [], people: [], employee_types: [] })
+const evaluatorOptionsLoaded = ref(false)
+const evaluatorOptionsLoading = ref(false)
 const savedView = ref(false); const currentStep = ref(0); const saving = ref(false); const notice = ref(''); const validationError = ref(''); const templateLoading = ref(false); const templates = ref<PerformanceTemplateListItem[]>([]); const basicDialogOpen = ref(false); const basicDialogSaving = ref(false); const basicDialogProject = ref<PerformanceCycleProjectShell | null>(null)
 const workflowNodes = ref<PerformanceWorkflowNode[]>([]); const flowLoading = ref(false); const flowError = ref(''); const evaluatedCount = ref(0); const projectStatus = ref('DRAFT'); const savedNodeTimeKeys = ref(new Set<string>())
 const steps = [{ key: 'info', label: '项目信息' }, { key: 'flow', label: '流程设置' }, { key: 'time', label: '起止时间' }]
-const form = reactive<{ name: string; description: string; administrators: string[]; template_id: number | null; start_at: string; end_at: string; evaluator_rules: NonNullable<PerformanceProjectPayload['evaluator_rules']>; flow_settings: ProjectFlowSettings }>({ name: '', description: '', administrators: [], template_id: null, start_at: '', end_at: '', evaluator_rules: { groups: [{ conditions: [{ field: 'department', operator: 'include', values: [] }] }] }, flow_settings: { node_settings: {}, node_times: {} } })
+const form = reactive<{ name: string; description: string; administrators: string[]; template_id: number | null; start_at: string; end_at: string; evaluator_rules: NonNullable<PerformanceProjectPayload['evaluator_rules']>; flow_settings: ProjectFlowSettings }>({ name: '', description: '', administrators: [], template_id: null, start_at: '', end_at: '', evaluator_rules: { groups: [{ conditions: [{ field: '', operator: 'include', values: [] }] }] }, flow_settings: { node_settings: {}, node_times: {} } })
 const administratorsText = computed({ get: () => form.administrators.join('、'), set: value => { form.administrators = value.split(/[、,，]/).map(item => item.trim()).filter(Boolean) } })
 const selectedTemplate = computed(() => templates.value.find(template => template.template_id === form.template_id))
 const projectName = computed(() => form.name)
@@ -134,15 +133,10 @@ const nodeTimeError = computed(() => {
   }
   return ''
 })
-function addGroup() { form.evaluator_rules.groups.push({ conditions: [{ field: 'department', operator: 'include', values: [] }] }) }
-function removeGroup(index: number) { if (form.evaluator_rules.groups.length > 1) form.evaluator_rules.groups.splice(index, 1) }
-function addCondition(index: number) { form.evaluator_rules.groups[index].conditions.push({ field: 'department', operator: 'include', values: [] }) }
-function removeCondition(groupIndex: number, conditionIndex: number) { const conditions = form.evaluator_rules.groups[groupIndex].conditions; if (conditions.length > 1) conditions.splice(conditionIndex, 1) }
-function optionsFor(field: 'department' | 'employee_type' | 'employee') { return field === 'department' ? evaluatorOptions.value.departments : field === 'employee_type' ? evaluatorOptions.value.employee_types : evaluatorOptions.value.employees }
 function openBasicEditor() { if (!projectId.value) return; basicDialogProject.value = { id: projectId.value, project_ref: '', name: form.name, description: form.description || null, administrators: [...form.administrators], status: 'DRAFT', evaluated_count: 0 }; basicDialogOpen.value = true }
 async function saveBasicInfo(payload: PerformanceProjectPayload) { if (!projectId.value) return; basicDialogSaving.value = true; try { await performanceProjectApi.update(projectId.value, payload); basicDialogOpen.value = false; await loadProject() } catch (error: any) { notice.value = error?.response?.data?.detail || '基本信息保存失败' } finally { basicDialogSaving.value = false } }
 function toInputTime(value: string | null) { return value ? value.slice(0, 16) : '' }
-function validate() { validationError.value = ''; if (!form.name.trim()) validationError.value = '项目名称不能为空'; else if (!form.template_id) validationError.value = '请选择绩效模板'; else if (!form.evaluator_rules.groups.some(group => group.conditions.some(condition => condition.values.length))) validationError.value = '请至少配置一个被评估人筛选条件'; else if (dateError.value) validationError.value = '项目截止时间必须晚于开始时间'; return !validationError.value }
+function validate() { validationError.value = ''; if (!form.name.trim()) validationError.value = '项目名称不能为空'; else if (!form.template_id) validationError.value = '请选择绩效模板'; else if (!form.evaluator_rules.groups.length || form.evaluator_rules.groups.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length))) validationError.value = '请完善被评估人筛选条件'; else if (dateError.value) validationError.value = '项目截止时间必须晚于开始时间'; return !validationError.value }
 function payload(): PerformanceProjectPayload { return { name: form.name.trim(), description: form.description.trim() || null, administrators: form.administrators, template_id: form.template_id, start_at: form.start_at ? new Date(form.start_at).toISOString() : null, end_at: form.end_at ? new Date(form.end_at).toISOString() : null, evaluator_rules: { groups: form.evaluator_rules.groups.map(group => ({ conditions: group.conditions.map(condition => { const values = Array.isArray(condition.values) ? condition.values : String(condition.values).split(/[、,，]/).map(value => value.trim()).filter(Boolean); return { ...condition, values } }) })) }, flow_settings: form.flow_settings } }
 async function loadTemplates() { templateLoading.value = true; try { templates.value = (await performanceTemplateApi.list()).filter(template => template.status === 'active') } catch { notice.value = '绩效模板加载失败，请稍后重试' } finally { templateLoading.value = false } }
 async function loadTemplateWorkflow() {
@@ -156,12 +150,12 @@ async function loadTemplateWorkflow() {
     flowError.value = error?.response?.data?.detail?.message || '绩效模板流程加载失败，请稍后重试'
   } finally { flowLoading.value = false }
 }
-async function loadEvaluatorOptions() { if (!cycleId.value) return; try { evaluatorOptions.value = await performanceProjectApi.listEvaluatorOptions(cycleId.value) } catch { notice.value = '被评估人名单加载失败，请稍后重试' } }
+async function loadEvaluatorOptions() { if (!cycleId.value || evaluatorOptionsLoaded.value || evaluatorOptionsLoading.value) return; evaluatorOptionsLoading.value = true; try { evaluatorOptions.value = await performanceProjectApi.listEvaluatorOptions(cycleId.value); evaluatorOptionsLoaded.value = true; notice.value = '' } catch { notice.value = '被评估人名单加载失败，请稍后重试' } finally { evaluatorOptionsLoading.value = false } }
 async function loadProject() { if (!projectId.value) return; try { const project = await performanceProjectApi.get(projectId.value); form.name = project.name; form.description = project.description || ''; form.administrators = [...project.administrators]; form.template_id = project.template_id; form.start_at = toInputTime(project.start_at); form.end_at = toInputTime(project.end_at); evaluatedCount.value = project.evaluated_count; const savedFlowSettings = project.flow_settings || { node_settings: {}, node_times: {} }; form.flow_settings = { node_settings: savedFlowSettings.node_settings || {}, node_times: savedFlowSettings.node_times || {} }; savedNodeTimeKeys.value = new Set(Object.keys(form.flow_settings.node_times)); projectStatus.value = project.status; if (project.evaluator_rules?.groups?.length) form.evaluator_rules = JSON.parse(JSON.stringify(project.evaluator_rules)); savedView.value = true } catch (error: any) { notice.value = error?.response?.data?.detail || '项目加载失败' } }
 async function saveDraft() { if (!projectId.value) return true; saving.value = true; try { await performanceProjectApi.update(projectId.value, payload()); return true } catch (error: any) { notice.value = error?.response?.data?.detail || '当前步骤保存失败'; return false } finally { saving.value = false } }
 async function nextStep() { if (currentStep.value === 0 && !validate()) return; if (currentStep.value < steps.length - 1) { if (await saveDraft()) currentStep.value += 1; return } if (nodeTimeError.value) { validationError.value = nodeTimeError.value; return } if (!validate() || saving.value) return; if (await saveDraft()) { savedView.value = true; notice.value = '项目设置已保存' } }
 function goBack() { void router.push({ name: 'PerformanceCycles' }) }
-onMounted(async () => { document.body.style.overflow = 'hidden'; await loadTemplates(); await loadEvaluatorOptions(); await loadProject(); await loadTemplateWorkflow() })
+onMounted(async () => { document.body.style.overflow = 'hidden'; await loadTemplates(); await loadProject(); await loadTemplateWorkflow() })
 onBeforeUnmount(() => { document.body.style.overflow = '' })
 </script>
 

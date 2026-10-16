@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   updatePerson: vi.fn(),
   remove: vi.fn(),
   projectRemove: vi.fn(),
+  listEvaluatorOptions: vi.fn(),
+  templateList: vi.fn(),
 }))
 
 vi.mock('@/api/performance', () => ({
@@ -32,6 +34,10 @@ vi.mock('@/api/performance', () => ({
   },
   performanceProjectApi: {
     remove: mocks.projectRemove,
+    listEvaluatorOptions: mocks.listEvaluatorOptions,
+  },
+  performanceTemplateApi: {
+    list: mocks.templateList,
   },
 }))
 
@@ -94,6 +100,13 @@ async function mountView(path = '/performance/settings/cycles') {
   return wrapper.getComponent(CycleManagement)
 }
 
+async function selectEnabledTemplate(wrapper: ReturnType<typeof mountView> extends Promise<infer T> ? T : never) {
+  await wrapper.get('.evaluation-template-field .performance-select-shell__selector').trigger('click')
+  await flushPromises()
+  ;(document.body.querySelector('.evaluation-template-option') as HTMLButtonElement).click()
+  await flushPromises()
+}
+
 describe('CycleManagement', () => {
   beforeEach(() => {
     Object.values(mocks).forEach(mock => mock.mockReset())
@@ -101,6 +114,30 @@ describe('CycleManagement', () => {
     mocks.list.mockResolvedValue({ items: [cycle], total: 1, page: 1, page_size: 20 })
     mocks.get.mockResolvedValue(cycle)
     mocks.listPeople.mockResolvedValue([])
+    mocks.templateList.mockResolvedValue([{ template_id: 101, name: '已启用模板', description: '模板说明', status: 'active' }])
+    mocks.listEvaluatorOptions.mockResolvedValue({ organization_tree: [{ value: '集团/研发', label: '研发', level: 2, children: [] }], people: [{ value: 'E001', label: '员工（E001）' }], employee_types: [] })
+  })
+
+  it('loads project department choices only when the value selector opens', async () => {
+    const wrapper = await mountView()
+    await wrapper.get('.project-create').trigger('click')
+    await flushPromises()
+    expect(mocks.listEvaluatorOptions).not.toHaveBeenCalled()
+    const scope = document.body.querySelector('[aria-label="限定考核范围"]') as HTMLButtonElement
+    scope.click()
+    await flushPromises()
+    expect(mocks.listEvaluatorOptions).not.toHaveBeenCalled()
+    const field = document.body.querySelector('select[aria-label="范围字段"]') as HTMLSelectElement
+    expect(field.value).toBe('')
+    field.value = 'department'
+    field.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    expect(mocks.listEvaluatorOptions).not.toHaveBeenCalled()
+    expect(document.body.querySelector('.performance-select-shell__tag')).toBeNull()
+    ;(document.body.querySelector('.performance-organization-tree-select__trigger') as HTMLElement).click()
+    await flushPromises()
+    expect(mocks.listEvaluatorOptions).toHaveBeenCalledTimes(1)
+    expect(mocks.listEvaluatorOptions).toHaveBeenCalledWith(1)
   })
 
   it('confirms project deletion through the shared dialog and refreshes the cycle', async () => {
@@ -347,8 +384,8 @@ describe('CycleManagement', () => {
     const quarterTwo = wrapper.get('[aria-label="周期类型选择器"]').findAll('[role="option"]').find(item => item.text() === '第 2 季度')
     await quarterTwo!.trigger('click')
     expect((wrapper.get('#cycle-type').element as HTMLButtonElement).textContent).toContain('第 2 季度')
-    expect((wrapper.get('#cycle-start').element as HTMLInputElement).value).toBe('2026-04-01T00:00')
-    expect((wrapper.get('#cycle-end').element as HTMLInputElement).value).toBe('2026-06-30T23:59')
+    expect((wrapper.get('#cycle-start').element as HTMLInputElement).value).toBe('2026-04-01 00:00')
+    expect((wrapper.get('#cycle-end').element as HTMLInputElement).value).toBe('2026-06-30 23:59')
   })
 
   it('keeps the delete dialog keyboard-trapped and restores focus on close', async () => {
@@ -411,6 +448,7 @@ describe('CycleManagement', () => {
     await wrapper.get('#cycle-name').setValue('新周期')
     await wrapper.get('#cycle-start').setValue('2026-01-01T09:00')
     await wrapper.get('#cycle-end').setValue('2026-12-31T18:00')
+    await selectEnabledTemplate(wrapper)
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(mocks.create).toHaveBeenCalledOnce()
@@ -443,6 +481,7 @@ describe('CycleManagement', () => {
     await wrapper.get('#cycle-name').setValue('新周期')
     await wrapper.get('#cycle-start').setValue('2026-01-01T09:00')
     await wrapper.get('#cycle-end').setValue('2026-12-31T18:00')
+    await selectEnabledTemplate(wrapper)
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
@@ -462,6 +501,7 @@ describe('CycleManagement', () => {
     await wrapper.get('#cycle-name').setValue('保留的周期')
     await wrapper.get('#cycle-start').setValue('2026-01-01T09:00')
     await wrapper.get('#cycle-end').setValue('2026-12-31T18:00')
+    await selectEnabledTemplate(wrapper)
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 

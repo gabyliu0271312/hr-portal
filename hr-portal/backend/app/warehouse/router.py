@@ -1987,9 +1987,9 @@ async def approve_authorization_contract(model_id: int, contract_id: int, payloa
 
 
 @router.get("/models/{model_id}/authorization-execution-readiness", response_model=AuthorizationExecutionReadinessOut, dependencies=[Depends(require_op("warehouse.assets", "V"))])
-async def authorization_execution_readiness(model_id: int, db: AsyncSession = Depends(get_session)):
+async def authorization_execution_readiness(model_id: int, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
     from app.datasets.authorization_contract import execution_readiness
-    return await execution_readiness(db, model_id)
+    return await execution_readiness(db, model_id, user)
 
 
 @router.post("/models/{model_id}/authorization-contracts/{contract_id}/retire", response_model=ProductAuthorizationOut, dependencies=[Depends(require_op("warehouse.assets", "U"))])
@@ -2001,16 +2001,25 @@ async def retire_authorization_contract(model_id: int, contract_id: int, payload
 # ==================== 标准字段输出发布准入 (X2126 local) ====================
 
 @router.post("/models/{model_id}/execution-plan", response_model=ExecutionPlanOut, dependencies=[Depends(require_op("warehouse.assets", "V"))])
-async def compile_execution_plan_route(model_id: int, payload: ExecutionPlanIn, db: AsyncSession = Depends(get_session)):
+async def compile_execution_plan_route(model_id: int, payload: ExecutionPlanIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
     from app.datasets.models import DataSet, DatasetOutputField
     from app.reports.execution_plan import compile_execution_plan
+    from app.datasets.authorization_contract import execution_readiness
     dataset = await db.get(DataSet, model_id)
     if dataset is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "dataset_not_found", "message": "数据集不存在"})
+    readiness = await execution_readiness(db, model_id, user)
+    if not readiness.eligible:
+        return ExecutionPlanOut(
+            dataset_id=model_id, shape="blocked", detail_path="not_allowed", summary_path="not_allowed",
+            output_fields=payload.output_fields, group_by=payload.group_by, aggregations=payload.aggregations,
+            eligible=False, issues=readiness.issues,
+        )
     fields = (await db.execute(select(DatasetOutputField).where(DatasetOutputField.dataset_id == model_id))).scalars().all()
     allowed = {field.output_code for field in fields}
     measures = {field.output_code for field in fields if field.agg_role == "measure"}
-    return compile_execution_plan(model_id, payload, allowed_fields=allowed, measures=measures, approved_summary=False)
+    identifying = {field.output_code for field in fields if field.output_code in {"employee_no", "employee_id", "employee_name", "phone", "mobile"}}
+    return compile_execution_plan(model_id, payload, allowed_fields=allowed, measures=measures, identifying_fields=identifying, approved_summary=False)
 
 
 @router.get("/models/{model_id}/release-readiness", response_model=DatasetReleaseReadinessOut,

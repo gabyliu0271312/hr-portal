@@ -9,16 +9,16 @@
         <h2>{{ node.name }}</h2>
       </header>
       <div v-if="node.node_type === 'result_view'" class="time-fields time-fields--result-view">
-        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" required @update:model-value="timeFor(node).start_at = $event" /></label>
+        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required @update:model-value="timeFor(node).start_at = $event" /></label>
         <p class="time-help">由管理员人员开通后，被评估人立即收到绩效结果</p>
-        <label><span>发起复议截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).appeal_deadline || ''" :input-id="`${nodeKey(node)}-appeal-deadline`" required @update:model-value="timeFor(node).appeal_deadline = $event" /></label>
+        <label><span>发起复议截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).appeal_deadline || ''" :input-id="`${nodeKey(node)}-appeal-deadline`" time-role="end" required @update:model-value="timeFor(node).appeal_deadline = $event" /></label>
       </div>
       <div v-else-if="node.node_type === 'result_reconsideration'" class="time-fields time-fields--single">
-        <label><span>处理复议截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).end_at" :input-id="`${nodeKey(node)}-end`" required @update:model-value="timeFor(node).end_at = $event" /></label>
+        <label><span>处理复议截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).end_at" :input-id="`${nodeKey(node)}-end`" time-role="end" required @update:model-value="timeFor(node).end_at = $event" /></label>
       </div>
       <div v-else class="time-fields">
-        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" required @update:model-value="timeFor(node).start_at = $event" /></label>
-        <label><span>截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).end_at" :input-id="`${nodeKey(node)}-end`" required @update:model-value="timeFor(node).end_at = $event" /></label>
+        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required @update:model-value="timeFor(node).start_at = $event" /></label>
+        <label><span>截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).end_at" :input-id="`${nodeKey(node)}-end`" time-role="end" required @update:model-value="timeFor(node).end_at = $event" /></label>
       </div>
     </article>
   </div>

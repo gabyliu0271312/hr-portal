@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, watch, ref } from 'vue'
-import type { PerformanceCycleProjectShell, PerformanceProjectPayload } from '@/api/performance'
+import type { PerformanceAudienceGroup, PerformanceCycleProjectShell, PerformanceHrbpOrganizationNode, PerformanceProjectPayload } from '@/api/performance'
 import PerformanceButton from './PerformanceButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceFormItem from './PerformanceFormItem.vue'
@@ -8,7 +8,7 @@ import PerformancePermissionButton from './PerformancePermissionButton.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceSwitch from './PerformanceSwitch.vue'
-import PerformanceMultiSelect from './PerformanceMultiSelect.vue'
+import PerformanceAudienceRuleEditor from './PerformanceAudienceRuleEditor.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
@@ -16,23 +16,24 @@ const props = withDefaults(defineProps<{
   project?: PerformanceCycleProjectShell | null
   canSubmit: boolean
   saving?: boolean
-  evaluatorOptions?: { employees: Array<{ value: string; label: string }> }
+  evaluatorOptions?: { organization_tree: PerformanceHrbpOrganizationNode[]; people: Array<{ value: string; label: string }>; employee_types: Array<{ value: string; label: string }> }
 }>(), {
   project: null,
   saving: false,
-  evaluatorOptions: () => ({ employees: [] }),
+  evaluatorOptions: () => ({ organization_tree: [], people: [], employee_types: [] }),
 })
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   submit: [payload: PerformanceProjectPayload]
+  'open-options': []
 }>()
 
-const form = reactive({ name: '', description: '', administrators: '', dataManagers: ['HRBP'] as Array<'PROJECT_ADMIN' | 'HRBP'>, scopeLimited: false, scopeEmployeeNos: [] as string[] })
+const form = reactive({ name: '', description: '', administrators: '', dataManagers: ['HRBP'] as Array<'PROJECT_ADMIN' | 'HRBP'>, scopeLimited: false, scopeRules: [{ conditions: [{ field: '', operator: 'include', values: [] }] }] as PerformanceAudienceGroup[] })
 const submitted = ref(false)
 const error = computed(() => submitted.value && !form.name.trim() ? '请输入项目名称' : '')
 const dataManagersError = computed(() => !form.dataManagers.length ? '请选择谁可管理人员绩效数据' : '')
-const scopeError = computed(() => form.scopeLimited && !form.scopeEmployeeNos.length ? '请圈定至少一名被评估人' : '')
+const scopeError = computed(() => submitted.value && form.scopeLimited && (!form.scopeRules.length || form.scopeRules.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length))) ? '请完善限定考核范围条件' : '')
 const dataManagerOptions = [{ value: 'PROJECT_ADMIN' as const, label: '项目管理员' }, { value: 'HRBP' as const, label: 'HRBP' }]
 
 function syncForm(project = props.project) {
@@ -41,7 +42,7 @@ function syncForm(project = props.project) {
   form.administrators = project?.administrators.join('、') || ''
   form.dataManagers = project?.data_managers ? [...project.data_managers] : ['HRBP']
   form.scopeLimited = project?.scope_limited ?? false
-  form.scopeEmployeeNos = project?.scope_employee_nos ? [...project.scope_employee_nos] : []
+  form.scopeRules = project?.scope_rules?.groups?.length ? JSON.parse(JSON.stringify(project.scope_rules.groups)) : [{ conditions: [{ field: '', operator: 'include', values: [] }] }]
 }
 function toggleDataManager(value: 'PROJECT_ADMIN' | 'HRBP', checked: boolean) {
   form.dataManagers = checked ? [...new Set([...form.dataManagers, value])] : form.dataManagers.filter(item => item !== value)
@@ -58,7 +59,7 @@ function submit() {
     administrators: form.administrators.split(/[、,，]/).map(value => value.trim()).filter(Boolean),
     data_managers: form.dataManagers,
     scope_limited: form.scopeLimited,
-    scope_employee_nos: form.scopeLimited ? form.scopeEmployeeNos : [],
+    scope_rules: form.scopeLimited ? { groups: form.scopeRules } : { groups: [] },
   })
 }
 watch(() => [props.modelValue, props.project], () => {
@@ -109,10 +110,17 @@ watch(() => [props.modelValue, props.project], () => {
           </div>
         </div>
       </PerformanceFormItem>
-      <PerformanceFormItem label="限定考核范围">
+      <PerformanceFormItem label="限定考核范围" :invalid="Boolean(scopeError)" :error-message="scopeError">
         <div class="project-scope-limit__heading"><span>开启后，只能在限定范围内圈选被评估人</span><PerformanceSwitch v-model="form.scopeLimited" aria-label="限定考核范围" :disabled="saving" /></div>
-        <PerformanceMultiSelect v-if="form.scopeLimited" v-model="form.scopeEmployeeNos" :options="evaluatorOptions.employees" placeholder="请选择被评估人" />
-        <span v-if="scopeError" class="scope-error" role="alert">{{ scopeError }}</span>
+        <PerformanceAudienceRuleEditor
+          v-if="form.scopeLimited"
+          v-model="form.scopeRules"
+          :allowed-fields="['department', 'employee']"
+          :organization-tree="evaluatorOptions.organization_tree"
+          :person-options="evaluatorOptions.people"
+          :disabled="saving"
+          @open-options="$emit('open-options')"
+        />
       </PerformanceFormItem>
     </form>
 
@@ -132,10 +140,9 @@ watch(() => [props.modelValue, props.project], () => {
 .project-data-manager-option p { margin: 2px 0 0 24px; color: var(--color-text-secondary); font-size: 14px; line-height: 22px; }
 .project-scope-limit__heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--color-text-primary); font-size: 14px; line-height: 22px; }
 .project-scope-limit__heading span { color: var(--color-text-secondary); }
-.scope-error { display: block; margin-top: 6px; color: var(--performance-field-error-color); font-size: 13px; }
-.project-dialog-form :deep(input) { box-sizing: border-box; width: 100%; height: var(--performance-control-height); padding: 4px var(--performance-input-padding-x); border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius); color: var(--color-text-primary); font: inherit; line-height: var(--performance-input-line-height); transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
-.project-dialog-form :deep(input:focus) { border-color: var(--performance-field-border-focus); outline: 0; box-shadow: var(--performance-field-focus-ring); }
-.project-dialog-form :deep(input[aria-invalid="true"]) { border-color: var(--performance-field-border-invalid); box-shadow: none; }
-.project-dialog-form :deep(input::placeholder) { color: var(--color-text-placeholder); }
+.project-dialog-form :deep(#project-name), .project-dialog-form :deep(#project-administrators) { box-sizing: border-box; width: 100%; height: var(--performance-control-height); padding: 4px var(--performance-input-padding-x); border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius); color: var(--color-text-primary); font: inherit; line-height: var(--performance-input-line-height); transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+.project-dialog-form :deep(#project-name:focus), .project-dialog-form :deep(#project-administrators:focus) { border-color: var(--performance-field-border-focus); outline: 0; box-shadow: var(--performance-field-focus-ring); }
+.project-dialog-form :deep(#project-name[aria-invalid="true"]) { border-color: var(--performance-field-border-invalid); box-shadow: none; }
+.project-dialog-form :deep(#project-name::placeholder), .project-dialog-form :deep(#project-administrators::placeholder) { color: var(--color-text-placeholder); }
 .project-dialog-footer { display: flex; justify-content: flex-end; gap: var(--performance-button-gap); }
 </style>

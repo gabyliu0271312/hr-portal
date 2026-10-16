@@ -18,6 +18,7 @@ from app.performance.cycle_service import (
     PerformanceCycleService,
     normalize_cycle_datetime,
 )
+from app.performance.scope_options import build_organization_tree
 from app.performance.models import (
     CYCLE_LEAVER_MODE_CREATE_TASK,
     CYCLE_LEAVER_MODE_REPORT_ONLY,
@@ -30,6 +31,7 @@ from app.performance.models import (
     PerformanceCycle,
     PerformanceHrbpPermission,
     PerformanceProject,
+    PerformanceTemplate,
 )
 
 router = APIRouter(prefix="/performance/cycles", tags=["performance-cycles"])
@@ -45,6 +47,7 @@ class CyclePayload(BaseModel):
     period_year: int = Field(..., ge=1900, le=2200)
     period_type: CyclePeriodType = Field(...)
     period_subtype: str | None = Field(default=None, max_length=16)
+    template_id: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="before")
     @classmethod
@@ -85,6 +88,7 @@ class CyclePatch(BaseModel):
     period_year: int | None = Field(default=None, ge=1900, le=2200)
     period_type: CyclePeriodType | None = None
     period_subtype: str | None = Field(default=None, max_length=16)
+    template_id: int | None = Field(default=None, ge=1)
     start_at: datetime | None = None
     end_at: datetime | None = None
     leaver_enabled: bool | None = None
@@ -166,30 +170,7 @@ _HRBP_ORGANIZATION_FIELDS = ORGANIZATION_FIELDS
 
 
 def _build_hrbp_organization_tree(rows: list[dict[str, Any]]) -> list[HrbpOrganizationNode]:
-    roots: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        path: list[str] = []
-        siblings = roots
-        for field in _HRBP_ORGANIZATION_FIELDS:
-            label = str(row.get(field) or "").strip()
-            if not label:
-                continue
-            path.append(label)
-            node = siblings.setdefault(label, {"path": list(path), "children": {}})
-            siblings = node["children"]
-
-    def serialize(nodes: dict[str, dict[str, Any]]) -> list[HrbpOrganizationNode]:
-        return [
-            HrbpOrganizationNode(
-                value="/".join(node["path"]),
-                label=label,
-                level=len(node["path"]),
-                children=serialize(node["children"]),
-            )
-            for label, node in sorted(nodes.items())
-        ]
-
-    return serialize(roots)
+    return [HrbpOrganizationNode.model_validate(node) for node in build_organization_tree(rows)]
 
 
 async def _load_hrbp_options(db: AsyncSession, cycle: PerformanceCycle | None = None) -> HrbpOptionsResponse:
@@ -305,6 +286,7 @@ class CycleSummary(BaseModel):
     period_year: int
     period_type: str
     period_subtype: str | None
+    template_id: int | None
     start_at: datetime
     end_at: datetime
     lock_rule: str
@@ -445,6 +427,10 @@ async def create_cycle(
     context: PerformanceAccessContext = Depends(require_performance_permission("performance.cycles.manage")),
     db: AsyncSession = Depends(get_session),
 ):
+    if payload.template_id is not None:
+        template = await db.get(PerformanceTemplate, payload.template_id)
+        if template is None or template.template_kind != "performance" or template.status != "active":
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="只能选择已启用的绩效模板")
     try:
         cycle = await PerformanceCycleService(db).create_cycle(payload.model_dump(), actor_type=context.subject_type, actor_id=context.subject_id)
     except CycleValidationError as exc:
@@ -638,6 +624,10 @@ async def update_cycle(
 ):
     service = PerformanceCycleService(db)
     cycle = await service.get_cycle(cycle_id)
+    if payload.template_id is not None:
+        template = await db.get(PerformanceTemplate, payload.template_id)
+        if template is None or template.template_kind != "performance" or template.status != "active":
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="只能选择已启用的绩效模板")
     try:
         cycle = await service.update_cycle(cycle, payload.model_dump(exclude_unset=True), actor_type=context.subject_type, actor_id=context.subject_id)
     except CycleValidationError as exc:

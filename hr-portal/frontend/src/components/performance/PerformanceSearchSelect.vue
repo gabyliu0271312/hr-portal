@@ -7,6 +7,8 @@
     :popup-label="`${ariaLabel}选项`"
     :clear-label="`${ariaLabel}清空已选`"
     class="performance-search-select__trigger"
+    :disabled="disabled"
+    @open="$emit('open')"
     @update:model-value="updateValues"
   >
     <template #default="{ query, close, focus }">
@@ -44,7 +46,7 @@ const props = withDefaults(defineProps<{
   disabled: false,
   ariaLabel: '选择器',
 })
-const emit = defineEmits<{ 'update:modelValue': [value: SelectValue]; search: [value: string] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: SelectValue]; search: [value: string]; open: [] }>()
 const selectedValues = computed(() => props.multiple ? (Array.isArray(props.modelValue) ? props.modelValue : []) : (typeof props.modelValue === 'string' && props.modelValue ? [props.modelValue] : []))
 const selectedItems = computed(() => props.options.filter(option => selectedValues.value.includes(option.value)))
 

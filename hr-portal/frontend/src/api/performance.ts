@@ -1051,6 +1051,20 @@ export type PerformanceCycleLockRule = 'IMMEDIATE' | 'SCHEDULED'
 export type PerformanceCycleSyncMode = 'MANUAL' | 'AUTO_DAILY'
 export type PerformanceCycleLeaverMode = 'CREATE_TASK' | 'REPORT_ONLY'
 
+export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'employee'
+export type PerformanceAudienceOperator = 'include' | 'exclude'
+export interface PerformanceAudienceCondition {
+  field: PerformanceAudienceField
+  operator: PerformanceAudienceOperator
+  values: string[]
+}
+export interface PerformanceAudienceGroup {
+  conditions: PerformanceAudienceCondition[]
+}
+export interface PerformanceAudienceRules {
+  groups: PerformanceAudienceGroup[]
+}
+
 export interface PerformanceCycleProjectShell {
   id: number
   project_ref: string
@@ -1060,6 +1074,7 @@ export interface PerformanceCycleProjectShell {
   data_managers?: Array<'PROJECT_ADMIN' | 'HRBP'>
   scope_limited?: boolean
   scope_employee_nos?: string[]
+  scope_rules?: PerformanceAudienceRules
   status: string
   evaluated_count: number
 }
@@ -1103,14 +1118,11 @@ export interface PerformanceProjectPayload {
   data_managers?: Array<'PROJECT_ADMIN' | 'HRBP'>
   scope_limited?: boolean
   scope_employee_nos?: string[]
+  scope_rules?: PerformanceAudienceRules
   template_id?: number | null
   start_at?: string | null
   end_at?: string | null
-  evaluator_rules?: {
-    groups: Array<{
-      conditions: Array<{ field: 'department' | 'employee_type' | 'employee'; operator: 'include' | 'exclude'; values: string[] }>
-    }>
-  }
+  evaluator_rules?: PerformanceAudienceRules
   flow_settings?: PerformanceProjectFlowSettings
 }
 
@@ -1196,6 +1208,7 @@ export interface PerformanceCycle {
   period_year: number
   period_type: PerformanceCyclePeriodType
   period_subtype: PerformanceCyclePeriodSubtype | null
+  template_id: number | null
   start_at: string
   end_at: string
   lock_rule: PerformanceCycleLockRule
@@ -1274,6 +1287,12 @@ export const performanceCycleApi = {
   },
 }
 
+export interface PerformanceEvaluatorOptions {
+  organization_tree: PerformanceHrbpOrganizationNode[]
+  people: Array<{ value: string; label: string }>
+  employee_types: Array<{ value: string; label: string }>
+}
+
 export const performanceProjectApi = {
   async list(cycleId: number, keyword?: string, page = 1, pageSize = 20): Promise<PerformanceProjectPage> {
     const { data } = await api.get<PerformanceProjectPage>(`/performance/cycles/${cycleId}/projects`, {
@@ -1281,8 +1300,8 @@ export const performanceProjectApi = {
     })
     return data
   },
-  async listEvaluatorOptions(cycleId: number): Promise<{ departments: Array<{ value: string; label: string }>; employee_types: Array<{ value: string; label: string }>; employees: Array<{ value: string; label: string }> }> {
-    const { data } = await api.get(`/performance/cycles/${cycleId}/evaluator-options`)
+  async listEvaluatorOptions(cycleId: number): Promise<PerformanceEvaluatorOptions> {
+    const { data } = await api.get<PerformanceEvaluatorOptions>(`/performance/cycles/${cycleId}/evaluator-options`)
     return data
   },
   async create(cycleId: number, payload: PerformanceProjectPayload): Promise<PerformanceProject> {
