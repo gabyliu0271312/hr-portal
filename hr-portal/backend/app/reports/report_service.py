@@ -64,6 +64,11 @@ async def run_report_query(
     owner = await db.get(User, report.owner_id)
     if owner is None:
         raise RuntimeError(f'报表 {report.id} 创建人不存在，无法执行')
+    from app.datasets.models import DataSet
+    from app.datasets.router import _can_consume
+    dataset = await db.get(DataSet, report.dataset_id)
+    if dataset is None or not await _can_consume(owner, dataset, db):
+        raise RuntimeError(f'报表 {report.id} 绑定数据集当前不可消费')
 
     try:
         config_model = ReportConfig(**(report.config or {}))

@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException, status
 
 from app.reports import router as report_router
+from app.datasets.models import DataSet
 from app.reports.router import (
     ReportConfig,
     _apply_runtime_overrides,
@@ -87,6 +88,8 @@ async def test_run_export_push_paths_return_422_for_stale_config(monkeypatch):
 
     class DummyDb:
         async def get(self, model, *_args, **_kwargs):
+            if model is DataSet:
+                return DataSet(id=1, created_by=1, is_active=True, status="published")
             return report if model.__name__ == "Report" else SimpleNamespace(id=1)
 
     db = DummyDb()
@@ -108,3 +111,25 @@ async def test_run_export_push_paths_return_422_for_stale_config(monkeypatch):
     with pytest.raises(HTTPException) as push_error:
         await push_report(1, user=SimpleNamespace(id=1), db=db)
     assert push_error.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_export_and_push_columns_deny_inactive_dataset_before_query(monkeypatch):
+    report = _report({'columns': [{'source_code': 'emp.amount', 'instance_id': 'emp.amount'}]})
+
+    class DummyDb:
+        async def get(self, model, *_args, **_kwargs):
+            if model is DataSet:
+                return DataSet(id=1, created_by=1, is_active=False, status='published')
+            return SimpleNamespace(id=1)
+
+    db = DummyDb()
+    query = AsyncMock()
+    monkeypatch.setattr('app.reports.report_service.run_audited_dataset_query', query)
+    with pytest.raises(HTTPException) as export_error:
+        await _collect_export_rows(report, SimpleNamespace(id=1), db)
+    assert export_error.value.status_code == status.HTTP_403_FORBIDDEN
+    with pytest.raises(HTTPException) as push_columns_error:
+        await get_report_push_columns(report, db)
+    assert push_columns_error.value.status_code == status.HTTP_403_FORBIDDEN
+    query.assert_not_awaited()

@@ -134,6 +134,8 @@ async def archive_cost_allocation(
 
     if r.dataset_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
+    from app.reports.router import _ensure_report_dataset_consumable
+    await _ensure_report_dataset_consumable(r, user, db)
 
     # 2) 全量运行（page_size=0 → 不限页）
     from app.reports.sql_builder import run_dataset_query

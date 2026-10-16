@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.data.models import StandardFieldBinding, StandardFieldVersion, TableColumn
 from app.datasets.models import DataSet, DataSetTable, DatasetOutputField, DataProductAuthorizationContract
@@ -92,11 +93,28 @@ async def check_dataset_release(db, dataset_id: int) -> DatasetReleaseReadinessO
         DataProductAuthorizationContract.status == "active",
     ).order_by(DataProductAuthorizationContract.contract_version.desc()).limit(1))).scalar_one_or_none()
     authorization_verified = contract is not None
+    external_export_count = 0
+    try:
+        external_export_count = int((await db.execute(text(
+            "SELECT count(*) FROM push_targets pt "
+            "JOIN reports r ON ("
+            "    (pt.source_type = 'report' AND pt.source_id IN (r.id::text, 'report:' || r.id::text)) "
+            " OR (pt.source_table = ('report:' || r.id::text))"
+            ") "
+            "WHERE pt.is_active IS TRUE AND r.dataset_id = :dataset_id"
+        ), {"dataset_id": dataset_id})).scalar_one() or 0)
+    except SQLAlchemyError:
+        issue("external_export_reference_unchecked", "外部出口引用尚未完成校验")
+    if external_export_count:
+        issue("external_exports_not_isolated", "数据集存在外部推送出口，未完成版本隔离与结果对照")
     if contract is None:
         issue("authorization_contract_unverified", "事实归属、人员/中心授权路径和实际粒度合同尚未验证")
     else:
         snapshot = contract.model_snapshot or {}
-        if {row.id for row in tables} != {item.get("id") for item in snapshot.get("tables", [])} or {row.id for row in outputs} != {item.get("id") for item in snapshot.get("outputs", [])}:
+        if not isinstance(snapshot, dict):
+            authorization_verified = False
+            issue("authorization_snapshot_invalid", "授权合同结构快照无效")
+        elif {row.id for row in tables} != {item.get("id") for item in snapshot.get("tables", [])} or {row.id for row in outputs} != {item.get("id") for item in snapshot.get("outputs", [])}:
             authorization_verified = False
             issue("authorization_contract_drift", "已批准授权合同的结构快照已漂移，请创建新合同版本")
     # Conversion approval is a separate contract and remains fail-closed here.
@@ -123,8 +141,8 @@ async def get_dataset_release_health(db, dataset_id):
     return DatasetReleaseHealthOut(
         readiness=readiness, references=references,
         blocking=not readiness.eligible or any(row.get("blocking") for row in references),
-        checked_areas=["output_fields", "report_references", "metric_references"],
-        unchecked_areas=["authorization_contract", "conversion_contract", "external_exports"],
+        checked_areas=["output_fields", "report_references", "metric_references", "external_exports"],
+        unchecked_areas=["authorization_contract", "conversion_contract"],
     )
 
 

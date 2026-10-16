@@ -839,6 +839,28 @@ npm run dev -- --host 127.0.0.1 --port 5174 --strictPort
 - 当前阻塞：Docker daemon不可用，未能创建或启动隔离PostgreSQL；因此未验证F1/F2/F3的100/200/300/600与非700、树后代真实展开、字段分类真实投影、JOIN/多事实/一对多金额、生产ACL和旧出口。不得勾选X2122.execution.d.local、X2122.execution.acl.local、X2122.execution.schema.local、X2122.execution.tree.local、X2141.scope.local、X2141.scope.membership.local、X2141.projection.local、X2141.field-access.local。
 - 下次先建立**全新隔离PostgreSQL**（独立端口/账号/库及数据目录，避开现用Compose与`data/pg`），按`tests/conftest.py`和`test_scope_classification.py`的硬性环境断言运行专项；修复真实集成测试暴露的问题后，再设计S的同事实OR与去重。不要通过取消fail-closed开关来让测试通过；不要把单元通过或合同active当运行批准。
 
+### 2026-10-16 A消费门禁收口与回归记录
+
+- 本轮继续修改021相关后端消费入口：`backend/app/datasets/router.py` 增加 `_can_consume`，报表运行/导出共享取数、定时报表、DWD关联、成本分摊运行/存档统一检查数据集 `is_active + published + ACL`；配置/目录/合同诊断仍使用元数据访问口径，不误阻断草稿维护。
+- `backend/app/warehouse/service/release_gate.py` 同时识别 `source_type=report/source_id=report:<id>` 和 legacy `source_type=table/source_table=report:<id>` 的active外部出口，未隔离返回 `external_exports_not_isolated`；外部出口已纳入健康摘要检查区域。
+- 实测：相关回归 **72 passed、62 skipped、1 warning**；后端编译及`git diff --check`通过。未写生产数据库、未改生产ACL/报表/PushTarget/字段元数据，未启用D/S执行。
+- 当前仍未完成：真实D/S SQL、COUNT/预览/CSV/XLSX/推送/下钻统一计划、F1/F2/F3金额矩阵、生产类型漂移治理、旧报表版本隔离和A4生产验收。不得勾选X2122.execution、X2141、X2143、X2150-X2152。
+
+### 2026-10-16 A阶段消费门禁与生产盘点阶段记录
+
+- 生产只读聚合显示：`standard_fields=0`、标准字段绑定=0；4个敏感字段分类、99条分类绑定、少量角色/用户分类授权；15张报表全部未发布；14个active外部出口；18个数据集中的16个为published+active，但有报表引用的数据集中仍无active授权合同。未读取业务记录、员工、金额、范围值、URL、Token或凭证。
+- 本阶段代码收口：新增/复用数据集`_can_consume`，统一报表运行/导出/推送、定时报表、DWD关联、成本分摊运行/存档的`active + published + ACL`门禁；发布健康识别两种报表出口引用形式；损坏合同快照返回稳定阻断；元数据配置仍使用`_can_access`。
+- 本阶段测试：相关后端回归 **82 passed、62 skipped、1 warning**；编译和`git diff --check`通过。未写生产数据库，未创建标准字段、授权合同、ACL或修改生产字段分类。
+- 阶段结论：标准字段目录和生产权限消费防旁路基础继续保持fail-closed；生产标准字段尚未初始化，不能直接开放D/S。真实D/S、COUNT、导出/下钻统一计划、生产类型漂移治理、旧报表/出口隔离和A4仍未完成，不能勾选A3/A4父任务。
+
+### 2026-10-16 A消费门禁负例补测与安全修正
+
+- 去掉报表/定时报表消费入口基于测试夹具类型的放行分支：数据集缺失一律阻断；`_can_consume`缺少真实状态字段不能按默认published放行。调整原有测试夹具为真实DataSet，并补草稿、停用、ACL撤销、数据集缺失、导出/推送字段预览不触发查询的负例。
+- 发布门禁外部出口识别覆盖`source_type=report`且`source_id`为数字或`report:<id>`两种协议，以及`source_table=report:<id>`的历史数据；生产只读聚合确认14个active出口中存在1个新协议、6个旧表协议，不能只查其中一种。
+- 本轮局部验证：`tests/test_dataset_acl.py tests/test_report_service_validation.py tests/test_track_b_report_runtime_validation.py tests/test_standard_field_catalog.py tests/test_report_access_audit.py` **63 passed、62 skipped、1 warning**；编译和`git diff --check`通过。跳过项仍需隔离PostgreSQL，A父项继续保持未完成。
+- **可部署提交范围**：仅提交数据集消费状态/ACL门禁、报表运行/导出/推送字段/调度、DWD关联、成本分摊运行/存档及外部出口发布阻断；保持legacy报表配置和`scope_strategy`不迁移、不启用新D/S。该范围可部署用于安全止损。
+- **暂不提交/不启用范围**：`d_execution.py`、授权合同执行候选、execution-plan新D/S形态、树健康候选及其未完成PostgreSQL验收继续留在工作树/后续分支；`eligible=false`、`runtime_enabled=false`维持不变。完整空库迁移验收另发现历史迁移链依赖seed菜单，不能以手工stamp冒充冷启动通过。
+
 ### 明确不可做
 
 - 不在生产直接编辑/删除迁移文件。

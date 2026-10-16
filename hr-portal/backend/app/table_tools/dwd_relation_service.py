@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.datasets.models import DataSet
-from app.datasets.router import _can_access as dataset_can_access
+from app.datasets.router import _can_consume as dataset_can_access
 from app.permissions.masker import get_hidden_columns
 from app.reports.config import ReportConfig
 from app.reports.models import Report

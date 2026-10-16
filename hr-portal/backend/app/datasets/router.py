@@ -195,12 +195,7 @@ async def _to_out(ds: DataSet, db: AsyncSession) -> DatasetOut:
 
 
 async def _can_access(user: User, ds: DataSet, db: AsyncSession) -> bool:
-    """用户能否使用该数据集（FR-MODEL-004）
-
-    创建者总可访问；超级管理员总可访问；
-    ACL 命中（角色或用户）→ 可访问；
-    没有任何 ACL 行 → 仅创建者可访问；
-    """
+    """用户能否访问数据集配置或元数据（FR-MODEL-004）。"""
     if ds.created_by == user.id:
         return True
     # 超管直通
@@ -229,6 +224,12 @@ async def _can_access(user: User, ds: DataSet, db: AsyncSession) -> bool:
         if a.role_id and a.role_id in user_role_ids:
             return True
     return False
+
+
+async def _can_consume(user: User, ds: DataSet, db: AsyncSession) -> bool:
+    if ds.is_active is not True or ds.status != "published":
+        return False
+    return await _can_access(user, ds, db)
 
 
 def _validate_payload(payload: DatasetIn) -> None:

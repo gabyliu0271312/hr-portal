@@ -321,6 +321,12 @@ async def run_scheme(
         today = date.today()
         period_ym = f"{today.year}{today.month:02d}"
 
+    from app.datasets.models import DataSet
+    from app.datasets.router import _can_consume
+    dataset = await db.get(DataSet, dataset_id_ref)
+    if dataset is None or not await _can_consume(user, dataset, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="数据集当前不可消费")
+
     run = AllocationRun(
         scheme_id=s.id,
         period_ym=period_ym,

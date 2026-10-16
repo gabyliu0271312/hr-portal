@@ -317,6 +317,17 @@ async def _dataset_authorized_principals(
     return role_ids, user_ids
 
 
+async def _ensure_report_dataset_consumable(report: Report, user: User, db: AsyncSession) -> None:
+    from app.datasets.models import DataSet
+    from app.datasets.router import _can_consume
+
+    if report.dataset_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
+    dataset = await db.get(DataSet, report.dataset_id)
+    if dataset is None or not await _can_consume(user, dataset, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="数据集当前不可消费")
+
+
 async def _can_access(user: User, r: Report, db: AsyncSession) -> bool:
     if r.owner_id == user.id:
         return True
@@ -1201,6 +1212,8 @@ async def run_report(
     if report.dataset_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
 
+    await _ensure_report_dataset_consumable(report, user, db)
+
     cfg = ReportConfig(**(report.config or {}))
     _ensure_valid_runtime_filters(cfg, overrides.filters if overrides else None)
     cfg = _ensure_valid_report_config(_apply_runtime_overrides(
@@ -1515,6 +1528,7 @@ async def _collect_export_rows(
     if report.dataset_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
 
+    await _ensure_report_dataset_consumable(report, user, db)
     cfg = ReportConfig(**(report.config or {}))
     _ensure_valid_runtime_filters(cfg, runtime_filters)
     cfg = _ensure_valid_report_config(_apply_runtime_overrides(cfg, runtime_filters))
@@ -1587,6 +1601,7 @@ async def get_report_push_columns(report: Report, db: AsyncSession) -> list[dict
     owner = await db.get(User, report.owner_id) if report.owner_id else None
     if owner is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表创建人不存在")
+    await _ensure_report_dataset_consumable(report, owner, db)
     cfg = _ensure_valid_report_config(ReportConfig(**(report.config or {})))
     await _ensure_valid_report_field_references(cfg, report.dataset_id, owner, db)
     from app.reports.report_service import run_audited_dataset_query

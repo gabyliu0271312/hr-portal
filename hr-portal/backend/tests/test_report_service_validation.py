@@ -5,6 +5,8 @@ import pytest
 from fastapi import HTTPException, status
 
 from app.reports import report_service
+from app.datasets.models import DataSet
+from app.users.models import User
 
 
 @pytest.mark.asyncio
@@ -24,7 +26,7 @@ async def test_scheduled_report_rejects_invalid_instance_before_query(monkeypatc
     query = AsyncMock()
     monkeypatch.setattr('app.reports.sql_builder.run_dataset_query', query)
     owner = SimpleNamespace(id=8)
-    db = SimpleNamespace(get=AsyncMock(return_value=owner))
+    db = SimpleNamespace(get=AsyncMock(side_effect=lambda model, _id: owner if model is User else DataSet(id=1, created_by=8, is_active=True, status="published")))
     report = SimpleNamespace(
         id=2,
         dataset_id=1,
@@ -57,12 +59,24 @@ async def test_scheduled_report_uses_owner_for_query(monkeypatch):
         run_count=0,
     )
 
-    total, _ = await report_service.run_report_query(
-        report, SimpleNamespace(get=AsyncMock(return_value=owner))
-    )
+    db = SimpleNamespace(get=AsyncMock(side_effect=lambda model, _id: owner if model is User else DataSet(id=1, created_by=9, is_active=True, status="published")))
+    total, _ = await report_service.run_report_query(report, db)
 
     assert total == 3
     assert query.await_args.kwargs['user'] is owner
+
+
+@pytest.mark.asyncio
+async def test_scheduled_report_rejects_missing_or_inactive_dataset_before_query(monkeypatch):
+    query = AsyncMock()
+    monkeypatch.setattr('app.reports.sql_builder.run_dataset_query', query)
+    owner = SimpleNamespace(id=9)
+    report = SimpleNamespace(id=5, dataset_id=1, owner_id=9, config={})
+    for dataset in (None, DataSet(id=1, created_by=9, status='draft', is_active=True)):
+        db = SimpleNamespace(get=AsyncMock(side_effect=lambda model, _id: owner if model is User else dataset))
+        with pytest.raises(RuntimeError, match='数据集当前不可消费'):
+            await report_service.run_report_query(report, db)
+    query.assert_not_awaited()
 
 
 @pytest.mark.asyncio
