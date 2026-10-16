@@ -19,6 +19,7 @@ class EmployeeRosterField:
     label: str
     source_column: str | None
     snapshot_column: str | None
+    source_columns: tuple[str, ...] = ()
 
 
 EMPLOYEE_ROSTER_FIELDS = {
@@ -36,12 +37,12 @@ EMPLOYEE_ROSTER_FIELDS = {
         EmployeeRosterField("direct_supervisor", "直属上级", "direct_supervisor", "direct_supervisor_source_value"),
         EmployeeRosterField("hrbp", "HRBP", "hrbp", "hrbp_source_value"),
         EmployeeRosterField("employee_type", "人员类型", "employee_type", "employee_type"),
-        EmployeeRosterField("employment_status", "在职状态", "employment_status", "employment_status"),
+        EmployeeRosterField("employment_status", "在职状态", "employment_status", "employment_status", ("employment_status", "active_status")),
         EmployeeRosterField("job_family", "职位族", "job_family", "job_family"),
         EmployeeRosterField("job_category", "职位类", "job_category", "job_category"),
         EmployeeRosterField("position_level", "职级", "position_level", "position_level"),
         EmployeeRosterField("hire_date", "入职日期", "hire_date", "hire_date"),
-        EmployeeRosterField("departure_date", "预计离职日期", "expected_departure_date", "departure_date"),
+        EmployeeRosterField("departure_date", "离职日期", "expected_departure_date", "departure_date", ("expected_departure_date", "terminated_date")),
     )
 }
 PERFORMANCE_SNAPSHOT_FIELD_KEYS = tuple(EMPLOYEE_ROSTER_FIELDS)
@@ -58,11 +59,25 @@ def employee_roster_table() -> Table:
     return model.__table__
 
 
+def resolve_employee_roster_source_column(table: Table, key: str) -> str | None:
+    field = EMPLOYEE_ROSTER_FIELDS[key]
+    candidates = field.source_columns or ((field.source_column,) if field.source_column else ())
+    return next((candidate for candidate in candidates if candidate in table.c), None)
+
+
 def require_employee_roster_columns(table: Table, keys: tuple[str, ...] = PERFORMANCE_SNAPSHOT_FIELD_KEYS) -> dict[str, object]:
-    missing = [EMPLOYEE_ROSTER_FIELDS[key].source_column for key in keys if EMPLOYEE_ROSTER_FIELDS[key].source_column and EMPLOYEE_ROSTER_FIELDS[key].source_column not in table.c]
+    resolved: dict[str, object] = {}
+    missing: list[str] = []
+    for key in keys:
+        source_column = resolve_employee_roster_source_column(table, key)
+        if source_column is None:
+            if EMPLOYEE_ROSTER_FIELDS[key].source_column is not None:
+                missing.append(EMPLOYEE_ROSTER_FIELDS[key].source_column)
+        else:
+            resolved[key] = table.c[source_column]
     if missing:
         raise EmployeeRosterContractError(f"员工实时花名册缺少权威字段: {', '.join(missing)}")
-    return {key: table.c[EMPLOYEE_ROSTER_FIELDS[key].source_column] for key in keys if EMPLOYEE_ROSTER_FIELDS[key].source_column}
+    return resolved
 
 
 def normalize_roster_text(value: object) -> str | None:

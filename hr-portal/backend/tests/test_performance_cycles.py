@@ -583,6 +583,27 @@ async def test_cycle_snapshot_reads_canonical_employee_roster_fields():
     assert (person.position_level, person.hire_date) == ("P6", date(2020, 1, 2))
 
 
+@pytest.mark.parametrize(
+    ("status_column", "departure_column"),
+    (("employment_status", "expected_departure_date"), ("active_status", "terminated_date")),
+)
+def test_employee_roster_contract_resolves_development_and_production_columns(status_column, departure_column):
+    from app.data.employee_roster_contract import require_employee_roster_columns
+
+    table = Table(
+        "emp_realtime_roster",
+        MetaData(),
+        Column("employee_no", String),
+        Column(status_column, String),
+        Column(departure_column, Date),
+    )
+
+    columns = require_employee_roster_columns(table, ("employee_no", "employment_status", "departure_date"))
+
+    assert columns["employment_status"].name == status_column
+    assert columns["departure_date"].name == departure_column
+
+
 def test_manual_people_payload_rejects_derived_organization_ref():
     from app.performance.cycles_router import ManualPersonUpdate
 

@@ -9,21 +9,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.employee_profile_catalog import EmployeeProfileCatalogError, EmployeeProfileCatalogItem, load_employee_profile_catalog, resolve_employee_profile_codes
 from app.ai.employee_profile_repository import EMPLOYEE_PROFILE_ROSTER_TABLE, EMPLOYEE_PROFILE_SCOPE_STRATEGY, build_employee_profile_lookup_statement, build_employee_profile_selected_lookup_statement, validate_employee_profile_roster_model
 from app.ai.employee_profile_schemas import EmployeeProfileQuerySpec
-from app.data.employee_roster_contract import EMPLOYEE_ROSTER_FIELDS
+from app.data.employee_roster_contract import resolve_employee_roster_source_column
 from app.data.models import DATA_TABLES
 from app.permissions.masker import VERDICT_HIDE, resolve_field_access
 from app.permissions.scope_filter import build_scope_filter, is_unrestricted
 from app.users.models import User
 
 EmployeeProfileMatchKind = Literal["no_match", "unique", "candidates", "too_many"]
-_HEADER_COLUMNS = {
-    "employee_no": EMPLOYEE_ROSTER_FIELDS["employee_no"].source_column,
-    "full_name": EMPLOYEE_ROSTER_FIELDS["display_name"].source_column,
-}
-_CANDIDATE_COLUMNS = {
-    **_HEADER_COLUMNS,
-    "organization_name": EMPLOYEE_ROSTER_FIELDS["company_org"].source_column,
-    "employment_status": EMPLOYEE_ROSTER_FIELDS["employment_status"].source_column,
+_CANDIDATE_FIELD_KEYS = {
+    "employee_no": "employee_no",
+    "full_name": "display_name",
+    "organization_name": "company_org",
+    "employment_status": "employment_status",
 }
 
 
@@ -88,11 +85,10 @@ def _field_columns(items: tuple[EmployeeProfileCatalogItem, ...]) -> dict[str, s
 
 
 def _candidate_columns(model) -> dict[str, str]:
-    available_columns = set(model.__table__.columns.keys())
     return {
         field_code: column_name
-        for field_code, column_name in _CANDIDATE_COLUMNS.items()
-        if column_name in available_columns
+        for field_code, field_key in _CANDIDATE_FIELD_KEYS.items()
+        if (column_name := resolve_employee_roster_source_column(model.__table__, field_key)) is not None
     }
 
 
@@ -104,7 +100,10 @@ class EmployeeProfileQueryService:
         verdicts = await resolve_field_access(user, EMPLOYEE_PROFILE_ROSTER_TABLE, db, tool_key="employee.profile.query")
         visible = _visible(requested, verdicts)
         lookup_type: Literal["employee_no", "employee_name"] = "employee_no" if query_spec.lookup_type == "employee_no" else "employee_name"
-        projection = {**_candidate_columns(model), **_field_columns(visible)}
+        projection = {
+            **_candidate_columns(model),
+            **_field_columns(visible),
+        }
         rows = tuple(dict(row) for row in (await db.execute(build_employee_profile_lookup_statement(model, lookup_type=lookup_type, scope_filter=scope_filter, field_columns=projection), {"employee_lookup_value": query_spec.lookup_value})).mappings().all())
         kind = _match_kind(lookup_type, len(rows))
         codes = tuple(item.field_code for item in visible)
@@ -140,7 +139,10 @@ class EmployeeProfileQueryService:
         visible = _visible(requested, verdicts)
         codes = tuple(item.field_code for item in visible)
         labels = {item.field_code: item.display_name for item in visible}
-        projection = {**_HEADER_COLUMNS, **_field_columns(visible)}
+        projection = {
+            **_candidate_columns(model),
+            **_field_columns(visible),
+        }
         rows = tuple(dict(row) for row in (await db.execute(build_employee_profile_selected_lookup_statement(model, scope_filter=scope_filter, field_columns=projection), {"employee_profile_employee_id": employee_id})).mappings().all())
         if len(rows) != 1:
             return EmployeeProfileLookupResult("no_match", (), codes, labels, True, not is_unrestricted(scope_filter))
