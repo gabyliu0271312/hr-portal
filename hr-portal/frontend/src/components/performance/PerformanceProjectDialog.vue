@@ -110,18 +110,20 @@ watch(() => [props.modelValue, props.project], () => {
           </div>
         </div>
       </PerformanceFormItem>
-      <PerformanceFormItem label="限定考核范围" :invalid="Boolean(scopeError)" :error-message="scopeError">
-        <div class="project-scope-limit__heading"><span>开启后，只能在限定范围内圈选被评估人</span><PerformanceSwitch v-model="form.scopeLimited" aria-label="限定考核范围" :disabled="saving" /></div>
+      <div class="project-scope-limit__field" :class="{ 'project-scope-limit__field--invalid': Boolean(scopeError) }">
+        <div class="project-scope-limit__label-row"><span class="project-scope-limit__label">限定考核范围</span><PerformanceSwitch v-model="form.scopeLimited" aria-label="限定考核范围" :disabled="saving" /></div>
+        <p class="project-scope-limit__description">开启后，只能在限定范围内圈选被评估人</p>
         <PerformanceAudienceRuleEditor
           v-if="form.scopeLimited"
           v-model="form.scopeRules"
           :allowed-fields="['department', 'employee']"
+          scope-mode
           :organization-tree="evaluatorOptions.organization_tree"
           :person-options="evaluatorOptions.people"
           :disabled="saving"
           @open-options="$emit('open-options')"
         />
-      </PerformanceFormItem>
+      </div>
     </form>
 
     <template #footer>
@@ -136,10 +138,16 @@ watch(() => [props.modelValue, props.project], () => {
 <style scoped>
 .project-dialog-form { display: grid; gap: 0; }
 .project-data-managers { display: grid; gap: 12px; }
-.project-dialog-form :deep(.performance-form-item) { margin-bottom: 20px; }
+.project-dialog-form :deep(.performance-form-item) { margin-bottom: var(--spacing-5); }
+.project-dialog-form :deep(.performance-form-item:last-child .performance-form-item__label) { margin-bottom: 0; }
+.project-dialog-form :deep(.performance-form-item:last-child .performance-required-label) { display: inline-flex; align-items: center; gap: var(--spacing-2); }
+.project-dialog-form :deep(.performance-form-item:last-child .performance-required-label::after) { content: ''; display: inline-block; width: var(--performance-switch-width); height: var(--performance-switch-height); }
 .project-data-manager-option p { margin: 2px 0 0 24px; color: var(--color-text-secondary); font-size: 14px; line-height: 22px; }
-.project-scope-limit__heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--color-text-primary); font-size: 14px; line-height: 22px; }
-.project-scope-limit__heading span { color: var(--color-text-secondary); }
+.project-scope-limit__field { margin-bottom: var(--spacing-5); }
+.project-scope-limit__label-row { display: flex; align-items: center; gap: var(--spacing-2); min-height: 22px; color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: 600; line-height: var(--performance-input-line-height); }
+.project-scope-limit__label { display: inline-block; }
+.project-scope-limit__description { margin: var(--spacing-1) 0 var(--spacing-2); color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
+.project-scope-limit__field--invalid .performance-audience-rule-editor { outline: 1px solid var(--performance-field-border-invalid); outline-offset: 1px; }
 .project-dialog-form :deep(#project-name), .project-dialog-form :deep(#project-administrators) { box-sizing: border-box; width: 100%; height: var(--performance-control-height); padding: 4px var(--performance-input-padding-x); border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius); color: var(--color-text-primary); font: inherit; line-height: var(--performance-input-line-height); transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
 .project-dialog-form :deep(#project-name:focus), .project-dialog-form :deep(#project-administrators:focus) { border-color: var(--performance-field-border-focus); outline: 0; box-shadow: var(--performance-field-focus-ring); }
 .project-dialog-form :deep(#project-name[aria-invalid="true"]) { border-color: var(--performance-field-border-invalid); box-shadow: none; }

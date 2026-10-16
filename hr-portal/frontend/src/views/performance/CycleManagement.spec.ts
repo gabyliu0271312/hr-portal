@@ -127,13 +127,16 @@ describe('CycleManagement', () => {
     scope.click()
     await flushPromises()
     expect(mocks.listEvaluatorOptions).not.toHaveBeenCalled()
-    const field = document.body.querySelector('select[aria-label="范围字段"]') as HTMLSelectElement
-    expect(field.value).toBe('')
-    field.value = 'department'
-    field.dispatchEvent(new Event('change', { bubbles: true }))
+    const field = document.body.querySelector('input[aria-label="范围字段"]') as HTMLInputElement
+    expect(field.readOnly).toBe(true)
+    ;(field.closest('.performance-select-shell__selector') as HTMLElement).click()
+    await flushPromises()
+    const department = [...document.body.querySelectorAll<HTMLButtonElement>('.performance-flat-option-list__option')].find(option => option.textContent === '部门')
+    expect(department).toBeDefined()
+    department!.click()
     await flushPromises()
     expect(mocks.listEvaluatorOptions).not.toHaveBeenCalled()
-    expect(document.body.querySelector('.performance-select-shell__tag')).toBeNull()
+    expect(document.body.querySelector('.performance-audience-rule-editor__condition .performance-select-shell__tag')?.textContent).toBe('部门')
     ;(document.body.querySelector('.performance-organization-tree-select__trigger') as HTMLElement).click()
     await flushPromises()
     expect(mocks.listEvaluatorOptions).toHaveBeenCalledTimes(1)

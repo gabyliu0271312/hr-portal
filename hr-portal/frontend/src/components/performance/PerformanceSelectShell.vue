@@ -1,17 +1,17 @@
 <template>
   <div ref="root" class="performance-select-shell" :class="{ 'is-open': open }">
-    <div class="performance-select-shell__selector" :class="[$attrs.class, { 'has-value': selectedItems.length, disabled }]" @click="openMenu">
+    <div class="performance-select-shell__selector" :class="[$attrs.class, { 'has-value': selectedItems.length, disabled, 'disabled-white': disabledSurface === 'white', 'is-plain': selectionStyle === 'plain' }]" @click="openMenu">
       <div class="performance-select-shell__content">
         <span v-if="!selectedItems.length && !query" class="performance-select-shell__placeholder">{{ placeholder }}</span>
-        <div v-for="item in selectedItems" :key="item.value" class="performance-select-shell__tag" @click.stop>
+        <div v-for="item in selectionStyle === 'plain' ? selectedItems.slice(0, 1) : selectedItems" :key="item.value" class="performance-select-shell__tag" @click.stop>
           <span class="performance-select-shell__tag-content">{{ item.label }}</span>
-          <button class="performance-select-shell__tag-close" type="button" :disabled="disabled" :aria-label="`移除${item.label}`" @click.stop="removeValue(item.value)">
+          <button v-if="selectionStyle !== 'plain'" class="performance-select-shell__tag-close" type="button" :disabled="disabled" :aria-label="`移除${item.label}`" @click.stop="removeValue(item.value)">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" data-icon="CloseBoldOutlined" aria-hidden="true"><path d="M19.778 19.778a1.5 1.5 0 0 0 0-2.121L14.122 12l5.656-5.657a1.5 1.5 0 1 0-2.121-2.121L12 9.879 6.343 4.222a1.5 1.5 0 1 0-2.121 2.121L9.878 12l-5.657 5.657a1.5 1.5 0 0 0 2.121 2.121L12 14.121l5.657 5.657a1.5 1.5 0 0 0 2.121 0Z" fill="currentColor" /></svg>
           </button>
         </div>
-        <input ref="searchInput" v-model="query" class="performance-select-shell__input" type="search" role="combobox" autocomplete="off" :disabled="disabled" :aria-label="ariaLabel" :aria-expanded="open" :placeholder="selectedItems.length ? undefined : placeholder" :style="{ width: query ? `${Math.max(6, query.length * 14)}px` : '6px' }" @focus="openMenu" @keydown.esc.stop="close" />
+        <input ref="searchInput" v-model="query" class="performance-select-shell__input" type="search" role="combobox" autocomplete="off" :disabled="disabled" :readonly="selectionStyle === 'plain'" :aria-label="ariaLabel" :aria-expanded="open" :placeholder="selectedItems.length ? undefined : placeholder" :style="{ width: query ? `${Math.max(6, query.length * 14)}px` : '6px' }" @focus="openMenu" @keydown.esc.stop="close" />
       </div>
-      <button v-if="selectedItems.length" class="performance-select-shell__clear" type="button" :disabled="disabled" :aria-label="clearLabel" @click.stop="clearAll">
+      <button v-if="selectedItems.length && selectionStyle !== 'plain'" class="performance-select-shell__clear" type="button" :disabled="disabled" :aria-label="clearLabel" @click.stop="clearAll">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" data-icon="EmptyFilled" aria-hidden="true"><path d="M12 23C5.925 23 1 18.075 1 12S5.925 1 12 1s11 4.925 11 11-4.925 11-11 11Zm3.874-16.635L12 10.239 8.126 6.365a1.245 1.245 0 1 0-1.761 1.76L10.239 12l-3.874 3.874a1.245 1.245 0 1 0 1.76 1.761L12 13.761l3.874 3.874a1.245 1.245 0 0 0 1.761-1.76L13.761 12l3.874-3.874a1.245 1.245 0 0 0-1.76-1.761Z" fill="currentColor" /></svg>
       </button>
       <DownBoldOutlinedIcon :size="12" class="performance-select-shell__arrow" />
@@ -43,6 +43,8 @@ const props = withDefaults(defineProps<{
   clearLabel?: string
   popupHeight?: number | 'auto'
   popupMaxHeight?: number
+  selectionStyle?: 'tags' | 'plain'
+  disabledSurface?: 'muted' | 'white'
   disabled?: boolean
 }>(), {
   selectedItems: () => [],
@@ -52,6 +54,8 @@ const props = withDefaults(defineProps<{
   clearLabel: '清空已选',
   popupHeight: 'auto',
   popupMaxHeight: 320,
+  selectionStyle: 'tags',
+  disabledSurface: 'muted',
   disabled: false,
 })
 const emit = defineEmits<{
@@ -112,7 +116,15 @@ onBeforeUnmount(() => { document.removeEventListener('pointerdown', onOutside); 
 .performance-select-shell { position: relative; width: 100%; min-width: 0; }
 .performance-select-shell__selector { display: flex; align-items: flex-start; overflow: hidden auto; width: 100%; min-height: 32px; max-height: 188px; padding: 1px 11px; box-sizing: border-box; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; font: 400 14px/22px var(--font-sans); cursor: pointer; transition: border .2s cubic-bezier(.34,.69,.1,1), background .2s cubic-bezier(.34,.69,.1,1); }
 .performance-select-shell__selector.has-value { padding-left: 3px; }
+.performance-select-shell__selector.is-plain.has-value { padding-left: 11px; }
+.performance-select-shell__selector.is-plain .performance-select-shell__tag { margin: 0; padding: 0; background: transparent; }
+.performance-select-shell__selector.is-plain .performance-select-shell__tag-content { max-width: none; }
+.performance-select-shell__selector.is-plain .performance-select-shell__input { position: absolute; inset: 0; z-index: 1; width: 100% !important; color: transparent; }
+.performance-select-shell__selector.is-plain .performance-select-shell__placeholder { position: relative; z-index: 1; pointer-events: none; }
+.performance-select-shell__selector.is-plain .performance-select-shell__input::placeholder { color: transparent; }
+.performance-select-shell__selector.is-plain .performance-select-shell__input::selection { background: transparent; }
 .performance-select-shell__selector.disabled { background: var(--performance-field-disabled-background); color: var(--performance-field-disabled-text); cursor: not-allowed; }
+.performance-select-shell__selector.disabled.disabled-white { background: var(--color-bg-card); color: var(--color-text-primary); }
 .performance-select-shell__selector:hover, .performance-select-shell.is-open .performance-select-shell__selector { border-color: #336df4; }
 .performance-select-shell__content { position: relative; display: flex; overflow: hidden; min-width: 0; flex: 1; flex-wrap: wrap; align-items: center; min-height: 28px; }
 .performance-select-shell__placeholder { overflow: hidden; min-width: 0; max-width: 100%; color: #8f959e; line-height: 28px; text-overflow: ellipsis; white-space: nowrap; }

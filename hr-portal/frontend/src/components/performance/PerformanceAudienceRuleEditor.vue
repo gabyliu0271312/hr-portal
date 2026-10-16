@@ -1,33 +1,46 @@
 <template>
-  <div class="performance-audience-rule-editor" :class="{ 'is-disabled': disabled }">
+  <div class="performance-audience-rule-editor" :class="{ 'is-disabled': disabled, 'is-scope': scopeMode }">
+    <div v-if="scopeMode" class="performance-audience-rule-editor__scope-heading">
+      <span>人员范围</span>
+      <span>满足以下任一条件</span>
+    </div>
     <div v-if="loading" class="performance-audience-rule-editor__state" role="status">正在加载范围选项...</div>
     <div v-else>
-      <div v-for="(group, groupIndex) in modelValue" :key="groupIndex" class="performance-audience-rule-editor__group">
-        <div class="performance-audience-rule-editor__group-heading">
+      <div class="performance-audience-rule-editor__groups">
+        <div v-if="scopeMode && modelValue.length > 1" class="performance-audience-rule-editor__scope-or" aria-hidden="true"><span></span><span>或</span><span></span></div>
+        <div class="performance-audience-rule-editor__main">
+          <div class="performance-audience-rule-editor__rows">
+          <div v-for="(group, groupIndex) in modelValue" :key="groupIndex" class="performance-audience-rule-editor__group">
+        <div v-if="!scopeMode" class="performance-audience-rule-editor__group-heading">
           <span>范围 {{ groupIndex + 1 }}</span>
           <PerformanceIconButton
-            v-if="modelValue.length > 1"
+            v-if="!scopeMode && modelValue.length > 1"
             icon="DeleteTrashOutlined"
             :label="`删除范围 ${groupIndex + 1}`"
             :disabled="disabled"
             @click="removeGroup(groupIndex)"
           />
         </div>
-        <div v-for="(condition, conditionIndex) in group.conditions" :key="conditionIndex" class="performance-audience-rule-editor__condition">
-          <label class="performance-audience-rule-editor__select">
-            <span class="sr-only">范围字段</span>
-            <select :value="condition.field" :disabled="disabled" aria-label="范围字段" @change="updateField(groupIndex, conditionIndex, ($event.target as HTMLSelectElement).value)">
-              <option v-for="option in fieldOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-            <span class="performance-audience-rule-editor__select-arrow" aria-hidden="true">⌄</span>
-          </label>
-          <label class="performance-audience-rule-editor__select">
-            <span class="sr-only">范围操作</span>
-            <select :value="condition.operator" :disabled="disabled || !condition.field" aria-label="范围操作" @change="updateOperator(groupIndex, conditionIndex, ($event.target as HTMLSelectElement).value)">
-              <option v-for="option in operatorOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-            <span class="performance-audience-rule-editor__select-arrow" aria-hidden="true">⌄</span>
-          </label>
+        <div v-for="(condition, conditionIndex) in group.conditions" :key="conditionIndex" class="performance-audience-rule-editor__condition" :class="{ 'has-delete': scopeMode && modelValue.length > 1 }">
+          <PerformanceSearchSelect
+            :model-value="condition.field || null"
+            :options="fieldOptions"
+            selection-style="plain"
+            disabled-surface="white"
+            aria-label="范围字段"
+            placeholder="请选择范围"
+            :disabled="disabled"
+            @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))"
+          />
+          <PerformanceSearchSelect
+            :model-value="condition.operator"
+            :options="operatorOptions"
+            selection-style="plain"
+            disabled-surface="white"
+            aria-label="范围操作"
+            :disabled="disabled || !condition.field"
+            @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))"
+          />
           <PerformanceOrganizationSelect
             v-if="condition.field === 'department'"
             :model-value="condition.values"
@@ -67,28 +80,42 @@
             aria-label="范围条件值"
             placeholder="请选择"
             disabled
+            disabled-surface="white"
           />
           <PerformanceIconButton
-            v-if="group.conditions.length > 1"
+            v-if="scopeMode ? modelValue.length > 1 : group.conditions.length > 1"
             icon="DeleteTrashOutlined"
-            :label="`删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`"
+            :label="scopeMode ? `删除范围 ${groupIndex + 1}` : `删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`"
             :disabled="disabled"
-            @click="removeCondition(groupIndex, conditionIndex)"
+            @click="scopeMode ? removeGroup(groupIndex) : removeCondition(groupIndex, conditionIndex)"
           />
         </div>
         <PerformanceTextButton
-          v-if="allowMultipleConditions"
+          v-if="allowMultipleConditions && !scopeMode"
           label="＋ 添加条件"
           :disabled="disabled"
           @click="addCondition(groupIndex)"
         />
-        <div v-if="groupIndex < modelValue.length - 1" class="performance-audience-rule-editor__or">或</div>
+        <div v-if="!scopeMode && groupIndex < modelValue.length - 1" class="performance-audience-rule-editor__or">或</div>
       </div>
-      <PerformanceTextButton
-        label="＋ 添加人员范围"
-        :disabled="disabled"
-        @click="addGroup"
-      />
+      </div>
+      </div>
+      </div>
+      <div class="performance-audience-rule-editor__scope-tools">
+        <PerformanceTextButton
+          v-if="scopeMode"
+          class="performance-audience-rule-editor__scope-add"
+          label="添加条件"
+          aria-label="添加条件"
+          :disabled="disabled"
+          @click="addGroup"
+        >
+          <template #icon>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v8h8a1 1 0 1 1 0 2h-8v8a1 1 0 1 1-2 0v-8H3a1 1 0 1 1 0-2h8V3a1 1 0 0 1 1-1Z" fill="currentColor" /></svg>
+          </template>
+        </PerformanceTextButton>
+        <PerformanceTextButton v-else label="＋ 添加人员范围" :disabled="disabled" @click="addGroup" />
+      </div>
       <p v-if="error" class="performance-audience-rule-editor__error" role="alert">{{ error }}</p>
     </div>
   </div>
@@ -114,6 +141,7 @@ const props = withDefaults(defineProps<{
   organizationTree?: PerformanceHrbpOrganizationNode[]
   personOptions?: PerformanceSearchSelectOption[]
   employeeTypeOptions?: PerformanceSearchSelectOption[]
+  scopeMode?: boolean
   disabled?: boolean
   loading?: boolean
   error?: string
@@ -121,6 +149,7 @@ const props = withDefaults(defineProps<{
   organizationTree: () => [],
   personOptions: () => [],
   employeeTypeOptions: () => [],
+  scopeMode: false,
   disabled: false,
   loading: false,
   error: '',
@@ -136,7 +165,7 @@ const fieldLabels: Record<PerformanceAudienceField, string> = {
   employee_type: '人员类型',
   employee: '员工',
 }
-const fieldOptions = computed(() => [{ value: '', label: '请选择范围' }, ...props.allowedFields.map(value => ({ value, label: fieldLabels[value] }))])
+const fieldOptions = computed(() => props.allowedFields.map(value => ({ value, label: fieldLabels[value] })))
 const allowMultipleConditions = computed(() => props.allowedFields.length > 2)
 
 function normalizeValues(value: string | string[] | null) {
@@ -184,14 +213,30 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 
 <style scoped>
 .performance-audience-rule-editor { min-width: 0; }
+.performance-audience-rule-editor.is-scope { margin-top: var(--spacing-2); padding: var(--spacing-5); border-radius: var(--radius-lg); background: var(--performance-review-readonly-surface); }
+.performance-audience-rule-editor__scope-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-2); margin-bottom: var(--spacing-2); color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); }
+.performance-audience-rule-editor__scope-heading span:last-child { color: var(--performance-count-badge-text); }
+.performance-audience-rule-editor__groups { min-width: 0; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__groups { display: flex; align-items: stretch; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-add { margin-top: var(--spacing-2); }
+.performance-audience-rule-editor__main { min-width: 0; flex: 1; }
+.performance-audience-rule-editor__rows { min-width: 0; }
+.performance-audience-rule-editor__scope-tools { min-width: 0; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group { margin: 0 0 var(--spacing-2); padding: 0; border-radius: 0; background: transparent; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition { grid-template-columns: 128px 88px minmax(0, 1fr); margin: 0; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-heading + .performance-audience-rule-editor__groups { min-width: 0; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition.has-delete { grid-template-columns: 128px 88px minmax(0, 1fr) 24px; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition > :deep(.performance-icon-button) { --performance-icon-button-size: 24px; margin-top: 4px; }
+.performance-audience-rule-editor__scope-or { display: flex; width: 20px; flex: 0 0 20px; flex-direction: column; align-items: center; align-self: stretch; margin: 0 var(--spacing-2) 0 0; padding: 6px 0; box-sizing: border-box; color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); }
+.performance-audience-rule-editor__scope-or span:first-child, .performance-audience-rule-editor__scope-or span:last-child { width: 7px; min-height: 0; flex: 1; margin-left: 7px; border-left: 1px solid var(--color-border); }
+.performance-audience-rule-editor__scope-or span:nth-child(2) { margin: 2px 0; }
+.performance-audience-rule-editor__scope-or span:first-child { border-top: 1px solid var(--color-border); border-radius: var(--radius-xs) 0 0; }
+.performance-audience-rule-editor__scope-or span:last-child { border-bottom: 1px solid var(--color-border); border-radius: 0 0 0 var(--radius-xs); }
+.performance-audience-rule-editor__scope-add { align-self: flex-start; margin-top: var(--spacing-2); }
+.performance-audience-rule-editor__scope-add :deep(.text-button-icon) { width: 14px; height: 14px; }
 .performance-audience-rule-editor__group { margin-top: var(--spacing-3); padding: var(--spacing-4); border-radius: var(--radius-lg); background: var(--performance-evaluation-rule-surface); }
 .performance-audience-rule-editor__group:first-child { margin-top: 0; }
 .performance-audience-rule-editor__group-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--spacing-3); color: var(--color-text-primary); font: 600 var(--font-size-md)/22px var(--font-sans); }
-.performance-audience-rule-editor__select { position: relative; display: block; min-width: 0; }
-.performance-audience-rule-editor__select select { width: 100%; height: 32px; padding: 1px 28px 1px 11px; border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius); background: var(--color-bg-card); color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); appearance: none; }
-.performance-audience-rule-editor__select select:focus { border-color: var(--performance-field-border-focus); outline: 0; box-shadow: var(--performance-field-focus-ring); }
-.performance-audience-rule-editor__select-arrow { position: absolute; top: 6px; right: 10px; color: var(--color-text-secondary); pointer-events: none; }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .performance-audience-rule-editor__condition { display: grid; grid-template-columns: 112px 96px minmax(0, 1fr) 24px; gap: var(--spacing-2); align-items: start; margin-top: var(--spacing-2); }
 .performance-audience-rule-editor__condition:first-child { margin-top: 0; }
 .performance-audience-rule-editor__condition > :deep(.performance-select-shell) { min-width: 0; }

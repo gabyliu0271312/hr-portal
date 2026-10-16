@@ -6,6 +6,8 @@
     :aria-label="ariaLabel"
     :popup-label="`${ariaLabel}选项`"
     :clear-label="`${ariaLabel}清空已选`"
+    :selection-style="selectionStyle"
+    :disabled-surface="disabledSurface"
     class="performance-search-select__trigger"
     :disabled="disabled"
     @open="$emit('open')"
@@ -37,6 +39,8 @@ const props = withDefaults(defineProps<{
   emptyText?: string
   multiple?: boolean
   disabled?: boolean
+  selectionStyle?: 'tags' | 'plain'
+  disabledSurface?: 'muted' | 'white'
   ariaLabel?: string
 }>(), {
   options: () => [],
@@ -44,6 +48,8 @@ const props = withDefaults(defineProps<{
   emptyText: '暂无可选项',
   multiple: false,
   disabled: false,
+  selectionStyle: 'tags',
+  disabledSurface: 'muted',
   ariaLabel: '选择器',
 })
 const emit = defineEmits<{ 'update:modelValue': [value: SelectValue]; search: [value: string]; open: [] }>()
