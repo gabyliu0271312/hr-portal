@@ -116,8 +116,13 @@ async def postgres_standard_catalog(postgres_classification_schema):
         await conn.run_sync(metadata.create_all)
         await conn.execute(Role.__table__.insert().values(id=1, name="catalog_test", is_active=True))
         await conn.execute(Menu.__table__.insert().values(id=1, code="warehouse.assets", label="Assets"))
+        await conn.execute(Menu.__table__.insert().values(id=2, code="warehouse.standard_fields.catalog", label="Standard fields"))
         await conn.execute(RoleMenu.__table__.insert().values(
             id=1, role_id=1, menu_id=1, can_view=True, can_create=True, can_update=True,
+            can_delete=True, can_export=False,
+        ))
+        await conn.execute(RoleMenu.__table__.insert().values(
+            id=2, role_id=1, menu_id=2, can_view=True, can_create=True, can_update=True,
             can_delete=True, can_export=False,
         ))
         await conn.execute(UserRole.__table__.insert().values(user_id=7, role_id=1))
@@ -483,14 +488,14 @@ async def test_catalog_routes_enforce_real_permissions_and_authentication(standa
     ]
     for permission in ("can_view", "can_create", "can_update", "can_delete"):
         async with engine.begin() as conn:
-            await conn.execute(text("UPDATE role_menus SET can_view=true,can_create=true,can_update=true,can_delete=true"))
-            await conn.execute(text(f"UPDATE role_menus SET {permission}=false"))
+            await conn.execute(text("UPDATE role_menus SET can_view=true,can_create=true,can_update=true,can_delete=true WHERE menu_id=2"))
+            await conn.execute(text(f"UPDATE role_menus SET {permission}=false WHERE menu_id=2"))
         for method, path, payload, required in cases:
             if required == permission:
                 response = await client.request(method, path, json=payload)
                 assert response.status_code == 403 and "employee_no" not in response.text
     async with engine.begin() as conn:
-        await conn.execute(text("UPDATE role_menus SET can_view=true"))
+        await conn.execute(text("UPDATE role_menus SET can_view=true WHERE menu_id=2"))
         await conn.execute(text("UPDATE roles SET is_active=false"))
     assert (await client.get(base)).status_code == 403
     app.dependency_overrides.pop(current_user)
@@ -1084,13 +1089,13 @@ async def test_binding_endpoints_enforce_permissions_schema_and_derived_release_
     ]
     for permission in ("can_view", "can_update"):
         async with engine.begin() as conn:
-            await conn.execute(text("UPDATE role_menus SET can_view=true,can_update=true"))
-            await conn.execute(text(f"UPDATE role_menus SET {permission}=false"))
+            await conn.execute(text("UPDATE role_menus SET can_view=true,can_update=true WHERE menu_id=2"))
+            await conn.execute(text(f"UPDATE role_menus SET {permission}=false WHERE menu_id=2"))
         for method, path, payload, required in routes:
             if permission == required:
                 assert (await client.request(method, path, json=payload)).status_code == 403
     async with engine.begin() as conn:
-        await conn.execute(text("UPDATE role_menus SET can_view=true,can_update=true"))
+        await conn.execute(text("UPDATE role_menus SET can_view=true,can_update=true WHERE menu_id=2"))
     for target_kind, target_id in (("table_column", 18), ("dataset_output_field", 41)):
         response = await client.post(base + "/bindings", json={
             "target_kind": target_kind, "target_id": target_id, "standard_field_version_id": 11,

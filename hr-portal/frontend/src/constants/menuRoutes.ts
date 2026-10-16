@@ -56,6 +56,8 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   // 数据仓库
   'warehouse': '/warehouse',
   'warehouse.assets': '/warehouse/assets',
+  'warehouse.standard_fields': '/warehouse/standard-fields',
+  'warehouse.standard_fields.catalog': '/warehouse/standard-fields',
   'warehouse.cleaning': '/warehouse/data-recipe',
   'warehouse.modeling': '/warehouse/modeling',
   'warehouse.service': '/warehouse/service',

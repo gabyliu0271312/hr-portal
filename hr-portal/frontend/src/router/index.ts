@@ -295,6 +295,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '数据资产', menuCode: 'warehouse.assets' },
       },
       {
+        path: 'warehouse/standard-fields',
+        name: 'WarehouseStandardFields',
+        component: () => import('@/views/warehouse/WarehouseStandardFields.vue'),
+        meta: { label: '标准字段目录', menuCode: 'warehouse.standard_fields.catalog' },
+      },
+      {
         path: 'warehouse/assets/:tableName',
         name: 'WarehouseAssetDetail',
         component: () => import('@/views/warehouse/WarehouseAssetDetail.vue'),

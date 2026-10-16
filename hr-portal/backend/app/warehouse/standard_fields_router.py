@@ -22,6 +22,8 @@ from app.warehouse.service import standard_fields as service
 
 router = APIRouter(prefix="/standard-fields")
 
+CATALOG_MENU = "warehouse.standard_fields.catalog"
+
 
 @router.get("", response_model=StandardFieldListOut)
 async def list_fields(
@@ -29,7 +31,7 @@ async def list_fields(
     status: StandardFieldStatus | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    user: User = Depends(require_op("warehouse.assets", "V")),
+    user: User = Depends(require_op(CATALOG_MENU, "V")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_standard_fields(db, keyword, status, offset, limit)
@@ -38,7 +40,7 @@ async def list_fields(
 @router.get("/{field_id}", response_model=StandardFieldDetailOut)
 async def get_field(
     field_id: int = Path(..., gt=0),
-    user: User = Depends(require_op("warehouse.assets", "V")),
+    user: User = Depends(require_op(CATALOG_MENU, "V")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.read_standard_field(db, field_id)
@@ -47,7 +49,7 @@ async def get_field(
 @router.post("", response_model=StandardFieldDetailOut, status_code=201)
 async def create_field(
     payload: StandardFieldCreateIn,
-    user: User = Depends(require_op("warehouse.assets", "C")),
+    user: User = Depends(require_op(CATALOG_MENU, "C")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.create_standard_field(db, payload, user)
@@ -59,7 +61,7 @@ async def binding_candidates(
     keyword: str | None = Query(None, min_length=1, max_length=128),
     table_name: str | None = Query(None, min_length=1, max_length=64),
     dataset_id: int | None = Query(None, gt=0),
-    user: User = Depends(require_op("warehouse.assets", "V")),
+    user: User = Depends(require_op(CATALOG_MENU, "V")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_binding_candidates(db, field_id, keyword, table_name, dataset_id)
@@ -69,7 +71,7 @@ async def binding_candidates(
 async def create_binding(
     payload: StandardFieldBindingCreateIn,
     field_id: int = Path(..., gt=0),
-    user: User = Depends(require_op("warehouse.assets", "U")),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.create_suggested_binding(db, field_id, payload, user)
@@ -80,7 +82,7 @@ async def confirm_binding(
     payload: StandardFieldBindingActionIn,
     field_id: int = Path(..., gt=0),
     binding_id: int = Path(..., gt=0),
-    user: User = Depends(require_op("warehouse.assets", "U")),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.transition_binding(db, field_id, binding_id, payload, user, "confirmed")
@@ -91,7 +93,7 @@ async def invalidate_binding(
     payload: StandardFieldBindingActionIn,
     field_id: int = Path(..., gt=0),
     binding_id: int = Path(..., gt=0),
-    user: User = Depends(require_op("warehouse.assets", "U")),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.transition_binding(db, field_id, binding_id, payload, user, "invalid")
@@ -101,7 +103,7 @@ async def invalidate_binding(
 async def create_version(
     payload: StandardFieldVersionCreateIn,
     field_id: int = Path(..., gt=0),
-    user: User = Depends(require_op("warehouse.assets", "C")),
+    user: User = Depends(require_op(CATALOG_MENU, "C")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.create_standard_field_version(db, field_id, payload, user)
@@ -112,7 +114,7 @@ async def update_version(
     payload: StandardFieldVersionUpdateIn,
     field_id: int = Path(..., gt=0),
     version_id: int = Path(..., gt=0),
-    user: User = Depends(require_op("warehouse.assets", "U")),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.update_standard_field_version(db, field_id, version_id, payload, user)
@@ -123,7 +125,7 @@ async def approve_version(
     payload: StandardFieldActionIn,
     field_id: int = Path(..., gt=0),
     version_id: int = Path(..., gt=0),
-    user: User = Depends(require_op("warehouse.assets", "U")),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.transition_standard_field_version(db, field_id, version_id, payload, user, "active")
@@ -134,7 +136,7 @@ async def deprecate_version(
     payload: StandardFieldActionIn,
     field_id: int = Path(..., gt=0),
     version_id: int = Path(..., gt=0),
-    user: User = Depends(require_op("warehouse.assets", "U")),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.transition_standard_field_version(db, field_id, version_id, payload, user, "deprecated")
@@ -145,7 +147,7 @@ async def archive_version(
     payload: StandardFieldActionIn,
     field_id: int = Path(..., gt=0),
     version_id: int = Path(..., gt=0),
-    user: User = Depends(require_op("warehouse.assets", "D")),
+    user: User = Depends(require_op(CATALOG_MENU, "D")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.transition_standard_field_version(db, field_id, version_id, payload, user, "archived")
@@ -156,7 +158,7 @@ async def delete_field(
     field_id: int = Path(..., gt=0),
     expected_version: int = Query(..., ge=1),
     expected_revision: int = Query(..., ge=0),
-    user: User = Depends(require_op("warehouse.assets", "D")),
+    user: User = Depends(require_op(CATALOG_MENU, "D")),
     db: AsyncSession = Depends(get_session),
 ):
     await service.delete_standard_field(db, field_id, expected_version, expected_revision, user)

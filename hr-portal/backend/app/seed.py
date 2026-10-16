@@ -111,6 +111,9 @@ MENU_TREE: list[dict] = [
         "icon": "DataBoard",
         "children": [
             {"code": "warehouse.assets", "label": "数据资产", "icon": "Folder"},
+            {"code": "warehouse.standard_fields", "label": "标准字段", "icon": "Collection", "children": [
+                {"code": "warehouse.standard_fields.catalog", "label": "标准字段目录", "icon": "List"},
+            ]},
             {"code": "warehouse.cleaning", "label": "数据清洗", "icon": "Brush"},
             {"code": "warehouse.modeling", "label": "数据建模", "icon": "Edit"},
             {"code": "warehouse.metrics", "label": "指标管理", "icon": "TrendCharts"},
