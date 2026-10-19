@@ -8,7 +8,7 @@
         </colgroup>
         <thead>
           <tr>
-            <th class="selection-cell"><PerformanceCheckbox :model-value="allSelected" :disabled="!rows.length || loading" label="全选被评估人" @update:model-value="toggleAll" /></th>
+            <th class="selection-cell"><PerformanceCheckbox :model-value="allSelected" :disabled="!selectableRows.length || loading" label="全选被评估人" @update:model-value="toggleAll" /></th>
             <th v-for="column in columns" :key="column.key">{{ column.label }}</th>
           </tr>
         </thead>
@@ -17,7 +17,7 @@
         </tbody>
         <tbody v-else>
           <tr v-for="row in rows" :key="row.task_id">
-            <td class="selection-cell"><PerformanceCheckbox :model-value="selectedKeys.includes(String(row.task_id))" :disabled="loading" :label="`选择${row.display_name}`" @update:model-value="toggleRow(row, $event)" /></td>
+            <td class="selection-cell"><PerformanceCheckbox :model-value="selectedKeys.includes(String(row.task_id))" :disabled="loading || row.selectable === false" :label="`选择${row.display_name}`" @update:model-value="toggleRow(row, $event)" /></td>
             <td v-for="column in columns" :key="column.key" :class="{ 'name-cell': column.key === 'display_name' }"><span class="cell-text" :title="String(reminderCellValue(row, column.key))">{{ reminderCellValue(row, column.key) }}</span></td>
           </tr>
         </tbody>
@@ -35,15 +35,17 @@ import { reminderCellValue, type ReminderColumn, type ReminderPerson } from './p
 
 const props = withDefaults(defineProps<{ rows: ReminderPerson[]; columns: ReminderColumn[]; selectedKeys: string[]; loading: boolean; error?: string; total: number; page: number; pageSize: number }>(), { error: '' })
 const emit = defineEmits<{ 'update:selectedKeys': [keys: string[]]; retry: []; 'page-change': [page: number] }>()
-const allSelected = computed(() => props.rows.length > 0 && props.rows.every(row => props.selectedKeys.includes(String(row.task_id))))
+const selectableRows = computed(() => props.rows.filter(row => row.selectable !== false))
+const allSelected = computed(() => selectableRows.value.length > 0 && selectableRows.value.every(row => props.selectedKeys.includes(String(row.task_id))))
 
 function toggleAll(value: boolean) {
-  const pageKeys = props.rows.map(row => String(row.task_id))
+  const pageKeys = selectableRows.value.map(row => String(row.task_id))
   const next = value ? Array.from(new Set([...props.selectedKeys, ...pageKeys])) : props.selectedKeys.filter(key => !pageKeys.includes(key))
   emit('update:selectedKeys', next)
 }
 
 function toggleRow(row: ReminderPerson, value: boolean) {
+  if (row.selectable === false) return
   const key = String(row.task_id)
   const next = value ? Array.from(new Set([...props.selectedKeys, key])) : props.selectedKeys.filter(item => item !== key)
   emit('update:selectedKeys', next)

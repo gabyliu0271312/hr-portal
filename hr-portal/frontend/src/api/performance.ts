@@ -547,6 +547,29 @@ export interface ProjectStatisticsReport {
   departments: Array<{ id: string; name: string; counts: Record<string, number>; heatLevels?: Record<string, 1 | 2 | 3>; children?: never[] }>
 }
 
+export interface PerformanceResultOpeningPerson {
+  employee_no: string
+  display_name: string
+  project_id: number
+  project_name: string
+  can_open: boolean
+  unavailable_reason: string | null
+}
+
+export interface PerformanceResultOpeningPage {
+  items: PerformanceResultOpeningPerson[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface PerformanceResultOpeningResponse {
+  accepted_employee_nos: string[]
+  skipped_employee_nos: string[]
+  skipped_reasons: Record<string, string>
+  notification_status: 'pending_integration'
+}
+
 export const projectManagementApi = {
   async overview(cycleId?: number): Promise<ProjectManagementOverview> {
     const { data } = await api.get<ProjectManagementOverview>('/performance/project-management/overview', {
@@ -566,6 +589,18 @@ export const projectManagementApi = {
   },
   async remindTasks(projectId: number | string, nodeId: string, taskIds: number[]): Promise<PerformanceReminderResult> {
     const { data } = await api.post<PerformanceReminderResult>(`/performance/projects/${encodeURIComponent(String(projectId))}/reminder-tasks/remind`, { node_id: nodeId, task_ids: taskIds })
+    return data
+  },
+  async openingPeople(cycleId: number, keyword = '', page = 1, pageSize = 50): Promise<PerformanceResultOpeningPage> {
+    const { data } = await api.get<PerformanceResultOpeningPage>(`/performance/cycles/${cycleId}/result-opening/people`, { params: { keyword: keyword || undefined, page, page_size: pageSize } })
+    return data
+  },
+  async openResults(cycleId: number, employeeNos: string[]): Promise<PerformanceResultOpeningResponse> {
+    const { data } = await api.post<PerformanceResultOpeningResponse>(`/performance/cycles/${cycleId}/result-opening/open`, { employee_nos: employeeNos })
+    return data
+  },
+  async myResults(projectId: number): Promise<{ project_id: number; employee_no: string; results: Array<{ task_id: number; field_id: string; option_id: string; label: string }> }> {
+    const { data } = await api.get(`/performance/workbench/projects/${projectId}/results`)
     return data
   },
   async levelStatistics(cycleId: number, dimension: 'level' | 'tenure' = 'level'): Promise<ProjectStatisticsReport> {

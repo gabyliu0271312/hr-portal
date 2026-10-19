@@ -1,5 +1,13 @@
 <template>
   <div class="review-page">
+    <section v-if="route.query.entry === 'results'" class="review-results" aria-label="我的绩效结果">
+      <h1>我的绩效结果</h1>
+      <div v-if="resultLoading" role="status">正在加载绩效结果…</div>
+      <div v-else-if="resultError" role="alert">{{ resultError }}</div>
+      <div v-else-if="!myResults.length">暂无可查看的绩效结果</div>
+      <ul v-else><li v-for="item in myResults" :key="`${item.task_id}-${item.field_id}`">{{ item.label }}</li></ul>
+    </section>
+    <template v-else>
     <PerformanceReviewCategorySidebar
       :categories="overview?.categories || emptyCategories"
       :projects="overview?.projects || []"
@@ -29,6 +37,7 @@
       @edit="editDrawerTask"
       @remind="openReminderPlaceholder"
     />
+    </template>
   </div>
 </template>
 
@@ -37,6 +46,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   performanceReviewApi,
+  projectManagementApi,
   type PerformanceReferenceTab,
   type PerformanceReviewCategory,
   type PerformanceReviewMemberContext,
@@ -59,6 +69,22 @@ const overview = ref<PerformanceReviewOverview | null>(null)
 const selectedNodeId = ref(String(route.query.node || projectContext.selectedReviewNode(activeProjectId.value) || ''))
 const loading = ref(true)
 const error = ref('')
+const myResults = ref<Array<{ task_id: number; field_id: string; option_id: string; label: string }>>([])
+const resultLoading = ref(false)
+const resultError = ref('')
+async function loadMyResults() {
+  if (!activeProjectId.value) { myResults.value = []; return }
+  resultLoading.value = true
+  resultError.value = ''
+  try {
+    myResults.value = (await projectManagementApi.myResults(activeProjectId.value)).results
+  } catch {
+    myResults.value = []
+    resultError.value = '当前结果尚未开通或不可查看'
+  } finally {
+    resultLoading.value = false
+  }
+}
 const emptyCategories: PerformanceReviewCategory[] = [
   { key: 'mine', label: '我的绩效', nodes: [] },
   { key: 'others', label: '给他人的评估', nodes: [] },
@@ -160,6 +186,7 @@ async function editDrawerTask(payload: { task_id: string | number; employee_no: 
   await router.push(taskRoute)
 }
 onMounted(() => {
+  if (route.query.entry === 'results') { void loadMyResults(); return }
   const cached = projectContext.reviewOverview(activeProjectId.value)
   if (cached) {
     applyOverview(cached)
@@ -170,6 +197,10 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.review-results{width:100%;padding:var(--performance-review-surface-inset);overflow:auto;background:var(--performance-review-page-bg);color:var(--color-text-primary)}
+.review-results h1{margin:0 0 var(--spacing-5);font-size:var(--font-size-xl)}
+.review-results ul{margin:0;padding:0;list-style:none}
+.review-results li{padding:var(--spacing-4);border-bottom:1px solid var(--color-border);background:var(--color-bg-card)}
 :global(html:has(.review-page)) { scrollbar-gutter: auto; }
 .review-page { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--performance-page-surface); }
 @media (max-width: 720px) { .review-page { display: block; } }

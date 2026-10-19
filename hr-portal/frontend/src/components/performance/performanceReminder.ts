@@ -10,7 +10,7 @@ export type ReminderContext = {
   sectionTitle: string
 }
 
-export type ReminderPerson = PerformanceWorkbenchTaskPerson
+export type ReminderPerson = Omit<PerformanceWorkbenchTaskPerson, 'task_id'> & { task_id: number | string; selectable?: boolean; unavailable_reason?: string | null; project_name?: string }
 
 export type ReminderColumn = {
   key: string
@@ -78,6 +78,10 @@ export function reminderColumnsForVisibility(rows: ReminderPerson[]) {
 export function reminderCellValue(person: ReminderPerson, key: string) {
   if (key === 'status') {
     return person.status === 'completed' ? '已完成' : person.status === 'overdue' ? '已逾期' : '待完成'
+  }
+  if (key === 'unavailable_reason') {
+    const reasons: Record<string, string> = { MANUAL_OPENING_DISABLED: '仅按流程自动开通', RESULT_VIEW_NOT_STARTED: '尚未到结果查看开始时间', RESULT_NOT_READY: '最终结果尚未生成' }
+    return person.unavailable_reason ? reasons[person.unavailable_reason] || '暂不可开通' : '可开通'
   }
   if (key === 'due_at') {
     return person.due_at ? new Date(person.due_at).toLocaleString('zh-CN', { hour12: false }) : '--'

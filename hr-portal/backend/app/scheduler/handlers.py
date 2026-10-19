@@ -521,6 +521,22 @@ async def _handler_performance_cycle_lifecycle(
     locked = await PerformanceCycleService(db).process_due_locks()
     return locked, f"performance cycle lifecycle: locked={locked}"
 
+async def _handler_performance_result_opening(
+    job: ScheduledJob,
+    db: AsyncSession,
+    triggered_by: str,
+) -> tuple[int, str]:
+    from sqlalchemy import select
+    from app.performance.models import PerformanceProject, PROJECT_STATUS_STARTED
+    from app.performance.projects_router import _sync_automatic_openings
+
+    projects = (await db.execute(select(PerformanceProject).where(PerformanceProject.status == PROJECT_STATUS_STARTED))).scalars().all()
+    opened = 0
+    for project in projects:
+        opened += await _sync_automatic_openings(db, project)
+    return opened, f"performance result openings: opened={opened}"
+
+
 JOB_HANDLERS: dict[str, HandlerFn] = {
     "datasource_sync": _handler_datasource_sync,
     "push_target": _handler_push_target,
@@ -533,6 +549,7 @@ JOB_HANDLERS: dict[str, HandlerFn] = {
     "quality_queue": _handler_quality_queue,
     "cost_center_notification_queue": _handler_cost_center_notification_queue,
     "performance_cycle_lifecycle": _handler_performance_cycle_lifecycle,
+    "performance_result_opening": _handler_performance_result_opening,
     "scd_run": _handler_scd_run,
     "ai_controlled_action_retention": _handler_ai_controlled_action_retention,
     "ucp_pipeline_trigger": _handler_ucp_pipeline_trigger,

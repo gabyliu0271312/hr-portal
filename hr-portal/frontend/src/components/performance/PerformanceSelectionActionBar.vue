@@ -1,9 +1,12 @@
 <template>
   <footer class="performance-selection-action-bar">
     <div class="performance-selection-action-bar__actions">
-      <PerformanceButton variant="primary" :disabled="!selectedCount || !capabilities.canRemind || loading" @click="emit('action', 'remind')">催办</PerformanceButton>
-      <PerformanceButton variant="secondary" :disabled="!selectedCount || !capabilities.canAuthorize || loading" @click="emit('action', 'authorize')">授权他人处理</PerformanceButton>
-      <PerformanceButton variant="secondary" :disabled="!selectedCount || !capabilities.canTransfer || loading" @click="emit('action', 'transfer')">转交他人处理</PerformanceButton>
+      <PerformanceButton v-if="actionMode === 'open-result'" variant="primary" :disabled="!selectedCount || loading" @click="emit('action', 'open-result')">开通所选成员</PerformanceButton>
+      <template v-else>
+        <PerformanceButton variant="primary" :disabled="!selectedCount || !capabilities.canRemind || loading" @click="emit('action', 'remind')">催办</PerformanceButton>
+        <PerformanceButton variant="secondary" :disabled="!selectedCount || !capabilities.canAuthorize || loading" @click="emit('action', 'authorize')">授权他人处理</PerformanceButton>
+        <PerformanceButton variant="secondary" :disabled="!selectedCount || !capabilities.canTransfer || loading" @click="emit('action', 'transfer')">转交他人处理</PerformanceButton>
+      </template>
       <span class="selected-count">已选择 {{ selectedCount }} 条</span>
       <PerformanceButton variant="text" :disabled="!selectedCount || loading" @click="emit('clear')">清除</PerformanceButton>
     </div>
@@ -14,8 +17,8 @@
 import type { ReminderCapabilities } from './performanceReminder'
 import PerformanceButton from './PerformanceButton.vue'
 
-defineProps<{ selectedCount: number; capabilities: ReminderCapabilities; loading?: boolean }>()
-const emit = defineEmits<{ action: ['remind' | 'authorize' | 'transfer']; clear: [] }>()
+defineProps<{ selectedCount: number; capabilities: ReminderCapabilities; loading?: boolean; actionMode?: 'remind' | 'open-result' }>()
+const emit = defineEmits<{ action: ['remind' | 'authorize' | 'transfer' | 'open-result']; clear: [] }>()
 </script>
 
 <style scoped>

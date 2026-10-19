@@ -578,6 +578,13 @@ class PerformanceProjectService:
         before = self.serialize(project)
         values = {**before, **payload}
         name, description, administrators, settings = self._validate_payload(values, project.settings or {})
+        if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload:
+            previous_flow = (project.settings or {}).get("flow_settings") or {}
+            previous_opening = previous_flow.get("node_settings") or {}
+            new_opening = (settings.get("flow_settings") or {}).get("node_settings") or {}
+            for node_id, node_settings in previous_opening.items():
+                if "result_view" in node_settings and node_settings.get("result_view") != new_opening.get(node_id, {}).get("result_view"):
+                    raise ProjectValidationError("已启动项目不能修改结果开通方式")
         project.name = name
         project.description = description
         project.administrators = administrators
@@ -658,6 +665,19 @@ class PerformanceProjectService:
                 selected.append(person)
         if not selected:
             raise ProjectValidationError("项目没有可用的被评估人")
+        owned_elsewhere = await self.db.scalar(
+            select(PerformanceProjectMember.employee_no)
+            .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
+            .join(PerformanceProject, PerformanceProject.id == PerformanceProjectMemberSnapshot.project_id)
+            .where(
+                PerformanceProject.cycle_ref == project.cycle_ref,
+                PerformanceProject.id != project.id,
+                PerformanceProject.status == PROJECT_STATUS_STARTED,
+                PerformanceProjectMember.employee_no.in_([person.employee_no for person in selected]),
+            ).limit(1)
+        )
+        if owned_elsewhere:
+            raise ProjectValidationError(f"被评估人 {owned_elsewhere} 已参加本周期其他项目")
         workflow = None
         template_id = (project.settings or {}).get("template_id")
         if template_id:
@@ -676,6 +696,8 @@ class PerformanceProjectService:
         opening = (((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {}).get(result_view_key, {}).get("result_view") or {}
         if not opening.get("automatic_enabled") and not opening.get("manual_enabled"):
             raise ProjectValidationError("请至少选择一种方式")
+        if sum(bool(node.get("include_final_result")) for node in nodes) != 1:
+            raise ProjectValidationError("请且仅请选择一个环节作为最终结果")
         content_library = list((workflow.content_library if workflow else []) or [])
         before = self.serialize(project)
         member_snapshot = PerformanceProjectMemberSnapshot(
@@ -709,8 +731,8 @@ class PerformanceProjectService:
         node_times = flow_settings.get("node_times") or {}
         for index, source_node in enumerate(nodes):
             node_type = source_node.get("node_type")
-            raw_node = resolve_self_summary_content(source_node, content_library) if node_type == "work_summary" else source_node
-            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type == "work_summary" else raw_node
+            raw_node = resolve_self_summary_content(source_node, content_library) if node_type in {"work_summary", "evaluation"} else source_node
+            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation"} else raw_node
             node_id = str(raw_node.get("node_id") or f"node-{index + 1}")
             node_snapshot = PerformanceProjectNodeSnapshot(
                 project_id=project.id,
@@ -798,8 +820,8 @@ class PerformanceProjectService:
         for index, source_node in enumerate(pending):
             node_id = str(source_node["node_id"])
             node_type = source_node.get("node_type")
-            raw_node = resolve_self_summary_content(source_node, list(workflow.content_library or [])) if node_type == "work_summary" else source_node
-            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type == "work_summary" else raw_node
+            raw_node = resolve_self_summary_content(source_node, list(workflow.content_library or [])) if node_type in {"work_summary", "evaluation"} else source_node
+            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation"} else raw_node
             snapshot = PerformanceProjectNodeSnapshot(project_id=project.id, node_id=node_id, node_type=node_type, name=str(raw_node.get("name") or node_id), node_order=int(raw_node.get("order") or index + 1), config={"template": raw_node, "time": normalized_times[node_id]})
             self.db.add(snapshot)
             await self.db.flush()

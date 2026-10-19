@@ -28,8 +28,37 @@ describe('PerformanceReminderPanel', () => {
 
     await wrapper.find('tbody input[type="checkbox"]').setValue(true)
     expect(wrapper.find('.performance-selection-action-bar').text()).toContain('已选择 1 条')
-    expect(wrapper.find('.performance-selection-action-bar button.primary').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('.performance-selection-action-bar .performance-button--primary').attributes('disabled')).toBeUndefined()
     expect(provider).toHaveBeenCalledWith(expect.objectContaining({ context, page: 1, pageSize: 50 }))
+  })
+
+  it('blocks ineligible rows and confirms only eligible members before batch opening', async () => {
+    const api = await import('@/api/performance')
+    const people = vi.spyOn(api.projectManagementApi, 'openingPeople').mockResolvedValue({
+      items: [
+        { employee_no: 'E001', display_name: '张三', project_id: 3, project_name: '项目甲', can_open: true, unavailable_reason: null },
+        { employee_no: 'E002', display_name: '李四', project_id: 3, project_name: '项目甲', can_open: false, unavailable_reason: 'MANUAL_OPENING_DISABLED' },
+      ], total: 2, page: 1, page_size: 50,
+    })
+    const opening = vi.spyOn(api.projectManagementApi, 'openResults').mockResolvedValue({ accepted_employee_nos: ['E001'], skipped_employee_nos: [], skipped_reasons: {}, notification_status: 'pending_integration' })
+    const wrapper = mount(PerformanceReminderPanel, { attachTo: document.body, props: { context, mode: 'open-result' } })
+    await flushPromises()
+    const boxes = wrapper.findAll('tbody input[type="checkbox"]')
+    expect(boxes[1].attributes('disabled')).toBeDefined()
+    await wrapper.find('thead input[type="checkbox"]').setValue(true)
+    expect(wrapper.text()).toContain('已选择 1 条')
+    await wrapper.get('.performance-selection-action-bar .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('.performance-confirm-dialog__title-content')?.textContent).toBe('确定开通所选成员的绩效结果嘛？')
+    expect(document.body.querySelector('.performance-confirm-dialog__body')?.textContent).toContain('有1名被评估人会立即收到结果开通的通知')
+    ;(document.body.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(opening).toHaveBeenCalledWith(1, ['E001'])
+    expect(wrapper.text()).toContain('实际开通 1 人，跳过 0 人')
+    expect(people).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+    people.mockRestore()
+    opening.mockRestore()
   })
 
   it('keeps selection and reports failed reminder requests', async () => {
@@ -40,7 +69,7 @@ describe('PerformanceReminderPanel', () => {
     const api = await import('@/api/performance')
     vi.spyOn(api.projectManagementApi, 'remindTasks').mockRejectedValueOnce(new Error('failed'))
 
-    await wrapper.find('.performance-selection-action-bar button.primary').trigger('click')
+    await wrapper.find('.performance-selection-action-bar .performance-button--primary').trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).toContain('催办请求提交失败')

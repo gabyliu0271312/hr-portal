@@ -38,7 +38,18 @@
       <div v-if="notice" class="performance-reminder-notice" role="status">{{ notice }}</div>
     </div>
     <PerformanceColumnVisibilityDrawer v-model="columnDrawerOpen" :columns="columns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
-    <PerformanceSelectionActionBar :selected-count="selectedKeys.length" :capabilities="capabilities" :loading="actionLoading" @action="handleAction" @clear="selectedKeys = []" />
+    <PerformanceSelectionActionBar :selected-count="selectedKeys.length" :capabilities="capabilities" :action-mode="mode" :loading="actionLoading" @action="handleAction" @clear="selectedKeys = []" />
+    <PerformanceConfirmDialog
+      v-if="mode === 'open-result'"
+      v-model="confirmOpen"
+      message="确定开通所选成员的绩效结果嘛？"
+      :description="`有${selectedKeys.length}名被评估人会立即收到结果开通的通知，并且可以在系统中查看自己的绩效结果。`"
+      cancel-text="取消"
+      confirm-text="确定"
+      confirm-variant="primary"
+      :loading="actionLoading"
+      @confirm="confirmResults"
+    />
   </section>
 </template>
 
@@ -46,6 +57,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { performanceWorkbenchApi, projectManagementApi } from '@/api/performance'
 import PerformanceColumnVisibilityDrawer from './PerformanceColumnVisibilityDrawer.vue'
+import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
 import PerformanceExportIcon from './PerformanceExportIcon.vue'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceSelectionActionBar from './PerformanceSelectionActionBar.vue'
@@ -53,7 +65,7 @@ import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceTaskTable from './PerformanceTaskTable.vue'
 import { defaultReminderColumns, reminderColumnsForVisibility, type ReminderCapabilities, type ReminderColumn, type ReminderContext, type ReminderListResult, type ReminderProvider } from './performanceReminder'
 
-const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人' })
+const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'open-result' }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind' })
 const emit = defineEmits<{ filter: []; export: []; action: [action: 'authorize' | 'transfer'] }>()
 const keyword = ref('')
 const rows = ref<ReminderListResult['items']>([])
@@ -69,12 +81,32 @@ const actionLoading = ref(false)
 const error = ref('')
 const notice = ref('')
 const columnDrawerOpen = ref(false)
+const confirmOpen = ref(false)
 let requestSequence = 0
 
 const visibleColumns = computed(() => selectedColumnKeys.value.map(key => columns.value.find(column => column.key === key)).filter((column): column is ReminderColumn => Boolean(column)))
 const hiddenColumnCount = computed(() => Math.max(0, columns.value.length - selectedColumnKeys.value.length))
 
 async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<ReminderListResult> {
+  if (props.mode === 'open-result') {
+    const result = await projectManagementApi.openingPeople(props.context.cycleId, query.keyword.trim(), query.page, query.pageSize)
+    return {
+      items: result.items.map(item => ({
+        task_id: item.employee_no,
+        employee_no: item.employee_no, display_name: item.display_name, project_name: item.project_name,
+        status: item.can_open ? 'pending' : 'unavailable', selectable: item.can_open, unavailable_reason: item.unavailable_reason,
+        due_at: null, job_family: null, job_category: null, job_sequence: null, position_level: null,
+        hire_date: null, department: null, employee_type: null, employment_status: null,
+      })),
+      total: result.total,
+      columns: [
+        { key: 'display_name', label: '被评估人', locked: true, visibleByDefault: true },
+        { key: 'project_name', label: '所属项目', visibleByDefault: true },
+        { key: 'unavailable_reason', label: '开通状态', visibleByDefault: true },
+      ],
+      capabilities: { canRemind: false, canAuthorize: false, canTransfer: false, canExport: false },
+    }
+  }
   const result = await performanceWorkbenchApi.taskPeople(query.context.projectId, query.context.nodeId, 'pending', query.keyword.trim() || undefined)
   const start = (query.page - 1) * query.pageSize
   return {
@@ -99,7 +131,7 @@ async function load() {
     capabilities.value = result.capabilities
     selectedColumnKeys.value = selectedColumnKeys.value.filter(key => columns.value.some(column => column.key === key))
     if (!selectedColumnKeys.value.length) selectedColumnKeys.value = columns.value.filter(column => column.visibleByDefault !== false).map(column => column.key)
-    const availableKeys = new Set(rows.value.map(row => String(row.task_id)))
+    const availableKeys = new Set(rows.value.filter(row => row.selectable !== false).map(row => String(row.task_id)))
     selectedKeys.value = selectedKeys.value.filter(key => availableKeys.has(key))
   } catch {
     if (sequence === requestSequence) error.value = '未完成人员加载失败，请稍后重试'
@@ -134,7 +166,11 @@ function handleExport() {
   emit('export')
 }
 
-async function handleAction(action: 'remind' | 'authorize' | 'transfer') {
+async function handleAction(action: 'remind' | 'authorize' | 'transfer' | 'open-result') {
+  if (action === 'open-result') {
+    if (selectedKeys.value.length) confirmOpen.value = true
+    return
+  }
   if (action !== 'remind') {
     emit('action', action)
     return
@@ -149,6 +185,24 @@ async function handleAction(action: 'remind' | 'authorize' | 'transfer') {
     await load()
   } catch {
     notice.value = '催办请求提交失败，请稍后重试'
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function confirmResults() {
+  if (!selectedKeys.value.length || actionLoading.value) return
+  const selected = rows.value.filter(row => row.selectable !== false && selectedKeys.value.includes(String(row.task_id))).map(row => row.employee_no)
+  if (!selected.length) { confirmOpen.value = false; return }
+  actionLoading.value = true
+  try {
+    const result = await projectManagementApi.openResults(props.context.cycleId, selected)
+    confirmOpen.value = false
+    selectedKeys.value = []
+    await load()
+    notice.value = `实际开通 ${result.accepted_employee_nos.length} 人，跳过 ${result.skipped_employee_nos.length} 人`
+  } catch {
+    notice.value = '结果开通失败，请稍后重试'
   } finally {
     actionLoading.value = false
   }

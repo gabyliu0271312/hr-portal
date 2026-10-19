@@ -58,6 +58,68 @@ def test_admin_preview_requires_dev_debug_and_admin_permission(monkeypatch):
         ProjectPayload(name="项目一", unknown="value")
 
 
+def test_result_opening_requires_complete_tasks_and_configured_rating_answers():
+    from datetime import UTC, datetime
+    from app.performance.projects_router import _result_ready, _previous_finished, _manual_openable, _result_opening_scope
+
+    schema = [{"fields": [{"id": "rating-a", "type": "rating", "options": [{"id": "A", "label": "优秀"}]}, {"id": "rating-b", "type": "rating", "options": [{"id": "B", "label": "良好"}]}]}]
+    submitted = datetime(2026, 10, 19, tzinfo=UTC)
+    first = SimpleNamespace(id=1, status="completed", submitted_at=submitted, answers={"rating-a": "A", "rating-b": "B"}, target_employee_no="E001", node_snapshot_id=11)
+    second = SimpleNamespace(id=2, status="pending", submitted_at=None, answers={}, target_employee_no="E001", node_snapshot_id=11)
+    assert not _result_ready([first, second], schema)
+    second.status = "completed"
+    second.submitted_at = submitted
+    second.answers = {"rating-a": "A"}
+    assert not _result_ready([first, second], schema)
+    second.answers["rating-b"] = "B"
+    assert _result_ready([first, second], schema)
+    assert not _result_ready([], schema)
+    assert not _result_ready([first], [{"fields": [{"id": "score", "type": "rich_text"}]}])
+    previous = SimpleNamespace(id=12, node_type="calibration")
+    assert _previous_finished("E001", previous, [])
+    assert not _previous_finished("E001", previous, [SimpleNamespace(target_employee_no="E001", node_snapshot_id=12, status="pending", submitted_at=None)])
+    assert _previous_finished("E001", previous, [SimpleNamespace(target_employee_no="E001", node_snapshot_id=12, status="completed", submitted_at=submitted)])
+
+    project = SimpleNamespace(project_ref="project:one", settings={"flow_settings": {"node_settings": {"view": {"result_view": {"manual_enabled": True}}}, "node_times": {"view": {"start_at": "2026-10-19T00:00:00Z"}}}})
+    view = SimpleNamespace(node_id="view", config={})
+    member = SimpleNamespace(employee_no="E001", organization_ref="总部/研发")
+    state = (view, SimpleNamespace(id=11), None, [member], [first, second], schema)
+    assert _manual_openable(project, member, state, submitted) is None
+    project.settings["flow_settings"]["node_settings"]["view"]["result_view"]["manual_enabled"] = False
+    assert _manual_openable(project, member, state, submitted) == "MANUAL_OPENING_DISABLED"
+    grant = SimpleNamespace(scope_type="ORG", scope_ref="总部", is_active=True)
+    role = SimpleNamespace(is_active=True, function_permission_keys=["performance.frontend.result-open"])
+    assert _result_opening_scope(context(), [(role, grant)], project, member)
+    assert not _result_opening_scope(context(), [(role, grant)], project, SimpleNamespace(organization_ref="分部/研发"))
+
+
+def test_result_opening_batch_contract_is_bounded_and_forbids_unexpected_fields():
+    from app.performance.projects_router import ResultOpeningBatchPayload
+
+    assert ResultOpeningBatchPayload.model_validate({"employee_nos": ["E001"]}).employee_nos == ["E001"]
+    with pytest.raises(ValidationError):
+        ResultOpeningBatchPayload.model_validate({"employee_nos": []})
+    with pytest.raises(ValidationError):
+        ResultOpeningBatchPayload.model_validate({"employee_nos": ["E001"], "actor_ref": "forged"})
+
+
+@pytest.mark.asyncio
+async def test_result_opening_list_and_batch_deny_roles_without_function_key(monkeypatch):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+
+    async def grants(_db, _context):
+        return [(SimpleNamespace(is_active=True, function_permission_keys=[]), SimpleNamespace(scope_type="GLOBAL", scope_ref="GLOBAL"))]
+
+    monkeypatch.setattr(projects_router, "_opening_role_grants", grants)
+    with pytest.raises(HTTPException) as listed:
+        await projects_router.result_opening_people(1, context=context(), db=object())
+    assert listed.value.status_code == 403
+    with pytest.raises(HTTPException) as opened:
+        await projects_router.open_cycle_results(1, projects_router.ResultOpeningBatchPayload(employee_nos=["E001"]), context=context(), db=object())
+    assert opened.value.status_code == 403
+
+
 def test_project_payload_normalizes_duplicate_administrators():
     name, description, administrators, settings = PerformanceProjectService._validate_payload({
         "name": " 项目一 ",
@@ -365,7 +427,7 @@ async def test_project_management_overview_empty_and_missing_cycle(monkeypatch):
 async def test_project_completion_nodes_aggregate_real_deadlines_and_task_progress():
     from datetime import UTC, datetime
     from app.performance import projects_router
-    from app.performance.models import PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceResultOpening
 
     project = _pm_project(1, "项目", 1)
     project.settings = {"flow_settings": {}}
@@ -394,6 +456,8 @@ async def test_project_completion_nodes_aggregate_real_deadlines_and_task_progre
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: nodes))
             if model is PerformanceNodeTask:
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: tasks))
+            if model is PerformanceResultOpening:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
             raise AssertionError(model)
 
     result = await projects_router._project_completion_nodes([project], Db(), datetime(2026, 9, 23, tzinfo=UTC))
@@ -1293,6 +1357,10 @@ async def test_workbench_projects_uses_employee_identity_and_member_visibility(m
 
     class Db:
         statement = None
+
+        async def scalar(self, statement):
+            assert "performance_result_openings" in str(statement)
+            return None
 
         async def execute(self, statement):
             self.statement = statement

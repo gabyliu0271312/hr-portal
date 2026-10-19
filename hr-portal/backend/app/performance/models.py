@@ -858,6 +858,23 @@ class PerformanceTagFillQuestion(Base):
     )
 
 
+class PerformanceResultOpening(Base):
+    __tablename__ = "performance_result_openings"
+    __table_args__ = (
+        UniqueConstraint("project_id", "employee_no", name="uq_performance_result_opening_person"),
+        Index("ix_performance_result_openings_cycle", "cycle_ref", "employee_no"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    project_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_projects.id", ondelete="CASCADE"), nullable=False)
+    cycle_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    employee_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    opened_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    opened_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_version: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
 class PerformanceProjectMemberSnapshot(Base):
     __tablename__ = "performance_project_member_snapshots"
     __table_args__ = (

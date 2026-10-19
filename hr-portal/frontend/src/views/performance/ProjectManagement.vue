@@ -42,7 +42,7 @@
       </template>
     </section>
     <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" @close="closeReminder">
-      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" @filter="handleReminderFilter" @export="handleReminderExport" />
+      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderMode === 'open-result' ? '仅可选择当前周期内符合开通条件的被评估人' : undefined" @filter="handleReminderFilter" @export="handleReminderExport" />
     </PerformanceTaskOverlay>
   </div>
 </template>
@@ -95,6 +95,7 @@ const overviewTabs = OVERVIEW_TABS
 const loading = ref(true)
 const error = ref('')
 const reminderOpen = ref(false)
+const reminderMode = ref<'remind' | 'open-result'>('remind')
 const reminderContext = ref<ReminderContext | null>(null)
 
 const fallbackCompletionNodes: CompletionNode[] = [
@@ -215,7 +216,17 @@ async function selectNode(node: PerformanceReviewNode) {
 
 async function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string }) {
   emit('completion-action', payload)
+  if (payload.action === 'enable-result' && activeCycle.value) {
+    reminderMode.value = 'open-result'
+    reminderContext.value = {
+      projectId: 0, cycleId: activeCycle.value.cycle_id, nodeId: 'result-view', nodeType: 'result_view',
+      reviewType: 'result_opening', title: '开通绩效结果', sectionTitle: '未开通的被评估人',
+    }
+    reminderOpen.value = true
+    return
+  }
   if (payload.action !== 'remind' || !activeCycle.value || !memberProjectId.value) return
+  reminderMode.value = 'remind'
   try {
     const groups = await performanceWorkbenchApi.tasks(memberProjectId.value, 'pending')
     const taskGroup = groups.find(group => payload.nodeKey === 'manager-review'

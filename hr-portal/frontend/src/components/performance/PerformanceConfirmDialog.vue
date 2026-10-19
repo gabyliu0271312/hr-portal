@@ -8,7 +8,7 @@
     >
       <section
         class="performance-confirm-dialog"
-        :class="{ 'performance-confirm-dialog--wide': requireConfirm }"
+        :class="{ 'performance-confirm-dialog--wide': requireConfirm, 'performance-confirm-dialog--primary': confirmVariant === 'primary' }"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="performance-confirm-title"
@@ -57,6 +57,7 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   requireConfirm?: boolean
   confirmDisabled?: boolean
+  confirmVariant?: 'danger' | 'primary'
   errorMessage?: string
 }>(), {
   message: '后续配置项目将无法使用该模板，确定删除吗？',
@@ -67,6 +68,7 @@ const props = withDefaults(defineProps<{
   loading: false,
   requireConfirm: false,
   confirmDisabled: false,
+  confirmVariant: 'danger',
   errorMessage: '',
 })
 
@@ -132,6 +134,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.performance-confirm-dialog--primary .performance-confirm-dialog__button--danger{border-color:var(--color-action-primary);background:var(--color-action-primary);color:var(--color-surface-card)}
+.performance-confirm-dialog--primary .performance-confirm-dialog__button--danger:hover:not(:disabled){border-color:var(--color-action-primary-hover);background:var(--color-action-primary-hover);color:var(--color-surface-card)}
 .performance-confirm-overlay {
   position: fixed;
   inset: 0;

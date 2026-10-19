@@ -60,6 +60,7 @@ class SchedulerEngine:
             for kind, payload in (
                 ("quality_queue", {}),
                 ("cost_center_notification_queue", {"batch_size": 20}),
+                ("performance_result_opening", {}),
             ):
                 statement = pg_insert(ScheduledJob).values(
                     kind=kind, business_id=0, cron="* * * * *",

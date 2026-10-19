@@ -8,13 +8,14 @@ from types import SimpleNamespace
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.cycle_service import PerformanceCycleService
-from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
+from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
 from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
@@ -30,6 +31,34 @@ def _is_admin_preview(context: PerformanceAccessContext) -> bool:
 class SelfSummaryAnswersPayload(BaseModel):
     answers: dict = Field(default_factory=dict)
     version: int | None = Field(default=None, ge=1)
+
+
+class ResultOpeningBatchPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    employee_nos: list[str] = Field(min_length=1, max_length=500)
+
+
+class ResultOpeningPerson(BaseModel):
+    employee_no: str
+    display_name: str
+    project_id: int
+    project_name: str
+    can_open: bool
+    unavailable_reason: str | None = None
+
+
+class ResultOpeningPeoplePage(BaseModel):
+    items: list[ResultOpeningPerson]
+    total: int
+    page: int
+    page_size: int
+
+
+class ResultOpeningBatchResponse(BaseModel):
+    accepted_employee_nos: list[str]
+    skipped_employee_nos: list[str]
+    skipped_reasons: dict[str, str]
+    notification_status: Literal["pending_integration"] = "pending_integration"
 
 
 class ReminderTasksPayload(BaseModel):
@@ -305,6 +334,8 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
         task.submitted_at = datetime.now(UTC)
         task.status = "completed"
         task.completed_at = task.submitted_at
+        if project is not None:
+            await _sync_automatic_openings(db, project)
     await db.commit()
     editable, submit_allowed = _self_summary_state(task, available_at, due_at)
     return {"answers": task.answers, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed}
@@ -683,6 +714,291 @@ async def project_matrix(
         pending_rows=[MatrixRowResponse(**row) for row in pending_rows],
         completed_rows=[MatrixRowResponse(**row) for row in _matrix_rows(completed_groups, ratings)],
     )
+
+
+def _result_view_snapshot(nodes: list[PerformanceProjectNodeSnapshot]) -> PerformanceProjectNodeSnapshot | None:
+    return next((node for node in nodes if node.node_type == "result_view"), None)
+
+
+def _final_result_snapshot(nodes: list[PerformanceProjectNodeSnapshot]) -> PerformanceProjectNodeSnapshot | None:
+    marked = [node for node in nodes if bool(((node.config or {}).get("template") or {}).get("include_final_result"))]
+    return marked[0] if len(marked) == 1 else None
+
+
+def _result_opening_config(project: PerformanceProject, view: PerformanceProjectNodeSnapshot) -> dict:
+    return (((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {}).get(view.node_id, {}).get("result_view") or {}
+
+
+def _result_ready(tasks: list[PerformanceNodeTask], schema: list[dict]) -> bool:
+    if not tasks or not all(task.status == "completed" and task.submitted_at is not None for task in tasks):
+        return False
+    fields = [field for section in schema for field in section.get("fields", []) if field.get("type") == "rating"]
+    if not fields:
+        return False
+    for task in tasks:
+        for field in fields:
+            options = field.get("options") or []
+            answer = (task.answers or {}).get(field["id"])
+            if not options or _matrix_rating_value(answer, options) is None:
+                return False
+    return True
+
+
+async def _opening_state(project: PerformanceProject, db: AsyncSession):
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+    ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+    view = _result_view_snapshot(nodes)
+    final = _final_result_snapshot(nodes)
+    if view is None or final is None:
+        return None
+    snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+    if snapshot_id is None:
+        return None
+    members = list((await db.execute(select(PerformanceProjectMember).where(
+        PerformanceProjectMember.snapshot_id == snapshot_id,
+    ))).scalars().all())
+    tasks = list((await db.execute(select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.member_snapshot_id == snapshot_id,
+        PerformanceNodeTask.node_snapshot_id.in_([node.id for node in nodes]),
+    ))).scalars().all())
+    previous_index = nodes.index(view) - 1
+    previous = nodes[previous_index] if previous_index >= 0 else None
+    schema = await _matrix_node_schema(final, project, db)
+    return view, final, previous, members, tasks, schema
+
+
+def _member_result_ready(employee_no: str, final: PerformanceProjectNodeSnapshot, tasks: list[PerformanceNodeTask], schema: list[dict]) -> bool:
+    return _result_ready([task for task in tasks if task.target_employee_no == employee_no and task.node_snapshot_id == final.id], schema)
+
+
+def _previous_finished(employee_no: str, previous: PerformanceProjectNodeSnapshot | None, tasks: list[PerformanceNodeTask]) -> bool:
+    if previous is None or previous.node_type in {"project_start", "project_end"}:
+        return True
+    related = [task for task in tasks if task.target_employee_no == employee_no and task.node_snapshot_id == previous.id]
+    return not related or any(task.status == "completed" and task.submitted_at is not None for task in related)
+
+
+async def _open_result(db: AsyncSession, project: PerformanceProject, employee_no: str, *, actor_type: str, actor_ref: str, tasks: list[PerformanceNodeTask], final: PerformanceProjectNodeSnapshot):
+    version = {str(task.id): task.answer_version for task in tasks if task.target_employee_no == employee_no and task.node_snapshot_id == final.id}
+    statement = pg_insert(PerformanceResultOpening).values(
+        project_id=project.id, cycle_ref=project.cycle_ref, employee_no=employee_no,
+        opened_at=datetime.now(UTC), opened_by_type=actor_type, opened_by_ref=actor_ref, result_version=version,
+    ).on_conflict_do_nothing(index_elements=["project_id", "employee_no"]).returning(PerformanceResultOpening.id)
+    opened_id = await db.scalar(statement)
+    if opened_id is not None:
+        PerformanceAuditService(db).append_event(AuditEventInput(
+            event_type="PERFORMANCE_RESULT_OPENED", cycle_ref=project.cycle_ref, employee_no=employee_no,
+            actor_type=actor_type, actor_ref=actor_ref, subject_type="PERFORMANCE_RESULT_OPENING",
+            subject_ref=str(opened_id), after_state={"project_id": project.id, "result_version": version},
+        ))
+    return opened_id is not None
+
+
+async def _sync_automatic_openings(db: AsyncSession, project: PerformanceProject, *, now: datetime | None = None) -> int:
+    if project.status != PROJECT_STATUS_STARTED:
+        return 0
+    state = await _opening_state(project, db)
+    if state is None:
+        return 0
+    view, final, previous, members, tasks, schema = state
+    config = _result_opening_config(project, view)
+    if not config.get("automatic_enabled"):
+        return 0
+    if config.get("automatic_rule") != "PREVIOUS_IMMEDIATE":
+        start_at = _parse_time((_node_timing(project, view) or {}).get("start_at"))
+        if start_at is None or (now or datetime.now(UTC)) < start_at:
+            return 0
+    opened = 0
+    for member in members:
+        if not _previous_finished(member.employee_no, previous, tasks) or not _member_result_ready(member.employee_no, final, tasks, schema):
+            continue
+        opened += int(await _open_result(db, project, member.employee_no, actor_type="SYSTEM", actor_ref="automatic", tasks=tasks, final=final))
+    return opened
+
+
+def _result_opening_scope(context: PerformanceAccessContext, grants: list[tuple[PerformanceRole, PerformanceRoleAssignment]], project: PerformanceProject, member: PerformanceProjectMember) -> bool:
+    for role, assignment in grants:
+        if role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or []):
+            if assignment.scope_type == "GLOBAL":
+                return True
+            if assignment.scope_type == "PROJECT" and assignment.scope_ref == project.project_ref:
+                return True
+            if assignment.scope_type == "ORG" and _organization_in_scope(member.organization_ref, [assignment.scope_ref]):
+                return True
+    return False
+
+
+async def _opening_role_grants(db: AsyncSession, context: PerformanceAccessContext) -> list[tuple[PerformanceRole, PerformanceRoleAssignment]]:
+    now = datetime.now(UTC)
+    return list((await db.execute(select(PerformanceRole, PerformanceRoleAssignment).join(
+        PerformanceRoleAssignment, PerformanceRoleAssignment.role_id == PerformanceRole.id,
+    ).where(
+        PerformanceRoleAssignment.subject_type == context.subject_type,
+        PerformanceRoleAssignment.subject_id == context.subject_id,
+        PerformanceRoleAssignment.is_active.is_(True),
+        PerformanceRole.is_active.is_(True),
+        PerformanceRole.role_type == "MANAGEMENT",
+        or_(PerformanceRoleAssignment.starts_at.is_(None), PerformanceRoleAssignment.starts_at <= now),
+        or_(PerformanceRoleAssignment.ends_at.is_(None), PerformanceRoleAssignment.ends_at > now),
+    ))).all())
+
+
+async def _opening_project_members(db: AsyncSession, cycle_id: int) -> list[tuple[PerformanceProject, PerformanceProjectMember]]:
+    cycle = await _get_cycle(db, cycle_id)
+    projects = list((await db.execute(select(PerformanceProject).where(
+        PerformanceProject.cycle_ref == cycle.cycle_ref,
+        PerformanceProject.status == PROJECT_STATUS_STARTED,
+    ))).scalars().all())
+    rows: list[tuple[PerformanceProject, PerformanceProjectMember]] = []
+    for project in projects:
+        snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+        if snapshot_id is None:
+            continue
+        members = (await db.execute(select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id == snapshot_id,
+        ))).scalars().all()
+        rows.extend((project, member) for member in members)
+    return rows
+
+
+def _manual_openable(project: PerformanceProject, member: PerformanceProjectMember, state, now: datetime) -> str | None:
+    if state is None:
+        return "RESULT_NOT_READY"
+    view, final, _previous, _members, tasks, schema = state
+    if not _result_opening_config(project, view).get("manual_enabled"):
+        return "MANUAL_OPENING_DISABLED"
+    start_at = _parse_time((_node_timing(project, view) or {}).get("start_at"))
+    if start_at is None or now < start_at:
+        return "RESULT_VIEW_NOT_STARTED"
+    if not _member_result_ready(member.employee_no, final, tasks, schema):
+        return "RESULT_NOT_READY"
+    return None
+
+
+@router.get("/cycles/{cycle_id}/result-opening/people", response_model=ResultOpeningPeoplePage)
+async def result_opening_people(
+    cycle_id: int,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=100),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    grants = await _opening_role_grants(db, context)
+    if not any(role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or []) for role, _ in grants):
+        raise HTTPException(status_code=403, detail="RESULT_OPEN_FORBIDDEN")
+    rows = await _opening_project_members(db, cycle_id)
+    project_ids = [project.id for project, _ in rows]
+    projects_by_id = {project.id: project for project, _ in rows}
+    opened = set((await db.execute(select(PerformanceResultOpening.project_id, PerformanceResultOpening.employee_no).where(
+        PerformanceResultOpening.project_id.in_(project_ids),
+    ))).all()) if project_ids else set()
+    states = {project.id: await _opening_state(project, db) for project in projects_by_id.values()}
+    items = []
+    for project, member in rows:
+        if (project.id, member.employee_no) in opened or not _result_opening_scope(context, grants, project, member):
+            continue
+        if keyword and keyword.casefold() not in f"{member.display_name} {member.employee_no}".casefold():
+            continue
+        reason = _manual_openable(project, member, states.get(project.id), datetime.now(UTC))
+        items.append(ResultOpeningPerson(
+            employee_no=member.employee_no, display_name=member.display_name, project_id=project.id,
+            project_name=project.name, can_open=reason is None, unavailable_reason=reason,
+        ))
+    items.sort(key=lambda item: (item.display_name, item.employee_no))
+    return ResultOpeningPeoplePage(items=items[(page - 1) * page_size:page * page_size], total=len(items), page=page, page_size=page_size)
+
+
+@router.post("/cycles/{cycle_id}/result-opening/open", response_model=ResultOpeningBatchResponse)
+async def open_cycle_results(
+    cycle_id: int,
+    payload: ResultOpeningBatchPayload,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    grants = await _opening_role_grants(db, context)
+    if not any(role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or []) for role, _ in grants):
+        raise HTTPException(status_code=403, detail="RESULT_OPEN_FORBIDDEN")
+    rows = await _opening_project_members(db, cycle_id)
+    selected = list(dict.fromkeys(payload.employee_nos))
+    matched: dict[str, tuple[PerformanceProject, PerformanceProjectMember]] = {}
+    duplicates: set[str] = set()
+    for project, member in rows:
+        if member.employee_no in matched:
+            duplicates.add(member.employee_no)
+        matched[member.employee_no] = project, member
+    actor = await resolve_trusted_performance_actor(db, context)
+    accepted: list[str] = []
+    skipped: dict[str, str] = {}
+    states = {}
+    for employee_no in selected:
+        if not employee_no or len(employee_no) > 64:
+            skipped[employee_no] = "PERSON_NOT_FOUND"
+            continue
+        if employee_no in duplicates:
+            skipped[employee_no] = "MULTIPLE_PROJECT_MEMBERSHIPS"
+            continue
+        item = matched.get(employee_no)
+        if item is None:
+            skipped[employee_no] = "PERSON_NOT_FOUND"
+            continue
+        project, member = item
+        if not _result_opening_scope(context, grants, project, member):
+            skipped[employee_no] = "RESULT_OPEN_FORBIDDEN"
+            continue
+        if project.id not in states:
+            states[project.id] = await _opening_state(project, db)
+        reason = _manual_openable(project, member, states[project.id], datetime.now(UTC))
+        if reason:
+            skipped[employee_no] = reason
+            continue
+        final = states[project.id][1]
+        tasks = states[project.id][4]
+        if await _open_result(db, project, employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref, tasks=tasks, final=final):
+            accepted.append(employee_no)
+        else:
+            skipped[employee_no] = "ALREADY_OPENED"
+    await db.commit()
+    return ResultOpeningBatchResponse(accepted_employee_nos=accepted, skipped_employee_nos=[employee_no for employee_no in selected if employee_no in skipped], skipped_reasons=skipped)
+
+
+@router.get("/workbench/projects/{project_id}/results")
+async def read_my_project_results(
+    project_id: int,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    project = await _get_project(db, project_id)
+    try:
+        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+    except PerformanceIdentityMappingNotFound:
+        raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND") from None
+    if actor.actor_type != "EMPLOYEE":
+        raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
+    opening = await db.scalar(select(PerformanceResultOpening).where(
+        PerformanceResultOpening.project_id == project_id,
+        PerformanceResultOpening.employee_no == actor.actor_ref,
+    ))
+    if opening is None:
+        raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
+    state = await _opening_state(project, db)
+    if state is None:
+        raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
+    _view, final, _previous, members, tasks, schema = state
+    if not any(member.employee_no == actor.actor_ref for member in members):
+        raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
+    fields = [field for section in schema for field in section.get("fields", []) if field.get("type") == "rating"]
+    results = []
+    for task in tasks:
+        if task.target_employee_no != actor.actor_ref or task.node_snapshot_id != final.id:
+            continue
+        for field in fields:
+            option = _matrix_rating_value((task.answers or {}).get(field["id"]), field.get("options") or [])
+            if option is not None:
+                results.append({"task_id": task.id, "field_id": field["id"], "option_id": str(option["id"]), "label": str(option.get("label") or "")})
+    return {"project_id": project.id, "employee_no": actor.actor_ref, "results": results}
 
 
 def _latest_member_snapshot_statement(project_id: int):
@@ -1087,6 +1403,9 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
             PerformanceNodeTask.project_id == project.id,
             PerformanceNodeTask.member_snapshot_id == snapshot_id,
         ))).scalars().all())
+        opened_people = set((await db.execute(select(PerformanceResultOpening.employee_no).where(
+            PerformanceResultOpening.project_id == project.id,
+        ))).scalars().all())
         tasks_by_node: dict[int, list[PerformanceNodeTask]] = {}
         for task in tasks:
             tasks_by_node.setdefault(task.node_snapshot_id, []).append(task)
@@ -1105,7 +1424,7 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
                 state["deadlines"].append(deadline_at)
             if node.node_type == "result_view":
                 total = len(members)
-                completed = total if bool((project.settings or {}).get("result_published")) else 0
+                completed = sum(member.employee_no in opened_people for member in members)
             else:
                 node_tasks = tasks_by_node.get(node.id, [])
                 total = len(node_tasks) if node.node_type == "result_reconsideration" else (len(node_tasks) or len(members))
@@ -1585,7 +1904,16 @@ async def workbench_projects(
     if keyword:
         stmt = stmt.where(PerformanceProject.name.ilike(f"%{keyword.strip()}%"))
     rows = (await db.execute(stmt.order_by(PerformanceProject.updated_at.desc()).offset((page - 1) * page_size).limit(page_size))).all()
-    return [{"project_id": project.id, "project_name": project.name, "cycle_ref": project.cycle_ref, "cycle_name": cycle.name, "cycle_start_at": cycle.start_at, "cycle_end_at": cycle.end_at, "project_status": project.status, "result_published": bool((project.settings or {}).get("result_published", False)), "participation_roles": []} for project, cycle in rows]
+    result = []
+    for project, cycle in rows:
+        opened = False
+        if getattr(actor, "actor_type", "EMPLOYEE") == "EMPLOYEE":
+            opened = await db.scalar(select(PerformanceResultOpening.id).where(
+                PerformanceResultOpening.project_id == project.id,
+                PerformanceResultOpening.employee_no == actor.actor_ref,
+            ).limit(1)) is not None
+        result.append({"project_id": project.id, "project_name": project.name, "cycle_ref": project.cycle_ref, "cycle_name": cycle.name, "cycle_start_at": cycle.start_at, "cycle_end_at": cycle.end_at, "project_status": project.status, "result_published": opened, "participation_roles": []})
+    return result
 
 
 @router.get("/workbench/projects/{project_id}/timeline")

@@ -189,6 +189,18 @@ describe('ProjectManagement', () => {
     expect(cards[1].find('.text-button').text()).toBe('去催办')
   })
 
+  it('opens the shared task overlay for cycle-wide result opening', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({
+      completion_nodes: [{ key: 'view-result', title: '查看绩效结果', status: 'not_started', completed_count: 0, total_count: 2, completion_rate: 0, deadline_at: null }],
+    }))
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.completion-node-card .node-action').trigger('click')
+    expect(wrapper.findComponent({ name: 'PerformanceReminderPanel' }).props('mode')).toBe('open-result')
+    expect(wrapper.findComponent({ name: 'PerformanceReminderPanel' }).props('context')).toMatchObject({ cycleId: 1, projectId: 0 })
+    wrapper.unmount()
+  })
+
   it('keeps member headers when the member list is empty', async () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
     vi.mocked(mockedApi.members).mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
@@ -197,9 +209,9 @@ describe('ProjectManagement', () => {
     await wrapper.findAll('.line-tab')[1].trigger('click')
     await flushPromises()
 
-    expect(wrapper.findAll('.member-table thead .sort-header').map(item => item.text())).toEqual(['姓名', '绩效评级', '360° 评估率', '序列', '职级', '入职日期', '所属部门'])
+    expect(wrapper.findAll('.member-table thead .sort-header').map(item => item.text())).toEqual(['姓名', '绩效评级', '360° 评估率', '直属上级', '序列', '职级', '入职日期', '所属部门'])
     expect(wrapper.get('.member-table tbody .member-state').text()).toBe('暂无成员')
-    expect(wrapper.get('.member-state-cell').attributes('colspan')).toBe('8')
+    expect(wrapper.get('.member-state-cell').attributes('colspan')).toBe('9')
     expect(wrapper.findAll('.member-table tbody .member-name')).toHaveLength(0)
   })
 
