@@ -387,6 +387,97 @@ def test_project_flow_settings_validate_supported_editable_variants():
     assert normalized["node_times"] == {}
 
 
+def _calibration_rule_settings(rule):
+    return {"node_settings": {"calibration-1": {"calibration": {"phases": [{"rules": [rule]}]}}}}
+
+
+def test_project_calibration_rule_groups_round_trip_without_mutating_input():
+    rule = {
+        "subject_type": "PERSON", "operator": "EXCLUDE", "scope": "RULE", "allow_authorize": True,
+        "subject_source": "RULE", "description": "  按指定人员校准  ",
+        "subject_groups": [
+            {"conditions": [
+                {"field": "employee", "operator": "INCLUDE", "values": [" E001 ", "E002"]},
+                {"field": "employee", "operator": "EXCLUDE", "values": ["E003"]},
+            ]},
+            {"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E004"]}]},
+        ],
+        "scope_groups": [
+            {"conditions": [
+                {"field": "calibrator_relation", "operator": "INCLUDE", "values": ["DIRECT_MANAGER"]},
+                {"field": "calibrator_relation", "operator": "EXCLUDE", "values": ["HRBP"]},
+            ]},
+            {"conditions": [{"field": "calibrator_relation", "operator": "INCLUDE", "values": ["PROJECT_MANAGER"]}]},
+        ],
+    }
+    payload = _calibration_rule_settings(rule)
+    normalized = PerformanceProjectService._validate_flow_settings(payload)
+    saved = normalized["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"][0]
+    assert saved == {**rule, "description": "按指定人员校准", "subject_groups": [
+        {"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001", "E002"]},
+                        {"field": "employee", "operator": "EXCLUDE", "values": ["E003"]}]},
+        rule["subject_groups"][1],
+    ]}
+    assert rule["subject_groups"][0]["conditions"][0]["values"][0] == " E001 "
+    assert PerformanceProjectService._validate_flow_settings(normalized) == normalized
+    _, _, _, settings = PerformanceProjectService._validate_payload({"name": "校准项目", "flow_settings": payload})
+    assert settings["flow_settings"] == normalized
+    target = project()
+    target.settings = settings
+    assert PerformanceProjectService.serialize(target)["flow_settings"] == normalized
+
+
+def test_project_calibration_legacy_rule_keeps_four_fields():
+    rule = {"subject_type": "PERSON", "operator": "INCLUDE", "scope": "PROJECT_ALL", "allow_authorize": False}
+    normalized = PerformanceProjectService._validate_flow_settings(_calibration_rule_settings(rule))
+    assert normalized["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"] == [rule]
+
+
+@pytest.mark.parametrize("changes", [
+    {"scope": "RULE"},
+    {"scope": "RULE", "scope_groups": []},
+    {"scope_groups": []},
+    {"subject_groups": []},
+    {"subject_groups": [{"conditions": []}]},
+    {"scope": "RULE", "scope_groups": [{"conditions": []}]},
+    {"scope": "RULE", "scope_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001"]}]}]},
+    {"subject_groups": [{"conditions": [{"field": "department", "operator": "INCLUDE", "values": ["研发"]}]}]},
+    {"subject_groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E001"]}]}]},
+    {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": []}]}]},
+    {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": [" "]}]}]},
+    {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": "E001"}]}]},
+    {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": [123]}]}]},
+    {"subject_groups": [{"conditions": "bad"}]},
+    {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001", ""]}]}]},
+    {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["x" * 129]}]}]},
+    {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001"], "extra": 1}]}]},
+    {"scope_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001"]}]}]},
+    {"scope": "RULE", "scope_groups": [{"conditions": [{"field": "calibrator_relation", "operator": "INCLUDE", "values": [""]}]}]},
+    {"subject_source": "IMPORT"},
+    {"subject_source": ""},
+    {"description": "x" * 501},
+    {"description": 123},
+    {"unknown": "lost"},
+])
+def test_project_calibration_rejects_invalid_rule_fields(changes):
+    rule = {"subject_type": "PERSON", "operator": "INCLUDE", "scope": "PROJECT_ALL", "allow_authorize": False, **changes}
+    with pytest.raises(ProjectValidationError):
+        PerformanceProjectService._validate_flow_settings(_calibration_rule_settings(rule))
+
+
+@pytest.mark.parametrize("rule", [{}, None, {"subject_type": "PERSON", "scope": None}])
+def test_project_calibration_rejects_empty_or_malformed_rule(rule):
+    with pytest.raises(ProjectValidationError):
+        PerformanceProjectService._validate_flow_settings(_calibration_rule_settings(rule))
+
+
+def test_project_calibration_optional_project_all_fields():
+    rule = {"subject_source": "RULE", "subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001"]}]}], "description": "备注"}
+    normalized = PerformanceProjectService._validate_flow_settings(_calibration_rule_settings(rule))
+    saved = normalized["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"][0]
+    assert saved == {"subject_type": "PERSON", "operator": "INCLUDE", "scope": "PROJECT_ALL", "allow_authorize": False, **rule}
+
+
 def test_project_flow_settings_accepts_template_node_limit():
     node_settings = {str(index): {} for index in range(100)}
     node_times = {

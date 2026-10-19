@@ -283,6 +283,28 @@ class PerformanceProjectService:
             groups.append({"conditions": normalized_conditions})
         return {"groups": groups}
 
+    @staticmethod
+    def _validate_calibration_groups(groups: Any, *, field: str) -> list[dict[str, Any]]:
+        if not isinstance(groups, list) or not groups:
+            raise ProjectValidationError("校准规则条件组不能为空")
+        normalized = []
+        for group in groups:
+            if (not isinstance(group, dict) or set(group) != {"conditions"}
+                    or not isinstance(group["conditions"], list) or not group["conditions"]):
+                raise ProjectValidationError("校准规则条件组不合法")
+            conditions = []
+            for condition in group["conditions"]:
+                if (not isinstance(condition, dict) or set(condition) != {"field", "operator", "values"}
+                        or condition.get("field") != field or condition.get("operator") not in {"INCLUDE", "EXCLUDE"}):
+                    raise ProjectValidationError("校准规则条件不合法")
+                values = condition.get("values")
+                if (not isinstance(values, list) or not values
+                        or any(not isinstance(value, str) or not value.strip() or len(value.strip()) > 128 for value in values)):
+                    raise ProjectValidationError("校准规则条件值不合法")
+                conditions.append({"field": field, "operator": condition["operator"], "values": [value.strip() for value in values]})
+            normalized.append({"conditions": conditions})
+        return normalized
+
     @classmethod
     def _validate_flow_settings(cls, flow_settings: Any) -> dict[str, Any]:
         if flow_settings is None:
@@ -327,19 +349,36 @@ class PerformanceProjectService:
                         raise ProjectValidationError("校准阶段设置格式不正确")
                     rules = []
                     for rule in phase.get("rules", []):
-                        if not isinstance(rule, dict):
+                        if (not isinstance(rule, dict) or not rule
+                                or set(rule) - {"subject_type", "operator", "scope", "allow_authorize", "subject_source", "subject_groups", "scope_groups", "description"}):
                             raise ProjectValidationError("校准规则设置格式不正确")
-                        subject_type = str(rule.get("subject_type") or "PERSON")
-                        operator = str(rule.get("operator") or "INCLUDE")
-                        scope = str(rule.get("scope") or "PROJECT_ALL")
-                        if subject_type != "PERSON" or operator not in {"INCLUDE", "EXCLUDE"} or scope != "PROJECT_ALL":
+                        subject_type = rule.get("subject_type", "PERSON")
+                        operator = rule.get("operator", "INCLUDE")
+                        scope = rule.get("scope", "PROJECT_ALL")
+                        if subject_type != "PERSON" or operator not in {"INCLUDE", "EXCLUDE"} or scope not in {"PROJECT_ALL", "RULE"}:
                             raise ProjectValidationError("校准规则设置不合法")
-                        rules.append({
+                        normalized_rule = {
                             "subject_type": subject_type,
                             "operator": operator,
                             "scope": scope,
                             "allow_authorize": bool(rule.get("allow_authorize", False)),
-                        })
+                        }
+                        if "subject_source" in rule:
+                            if rule["subject_source"] != "RULE":
+                                raise ProjectValidationError("校准人来源不合法")
+                            normalized_rule["subject_source"] = "RULE"
+                        if "subject_groups" in rule:
+                            normalized_rule["subject_groups"] = cls._validate_calibration_groups(rule["subject_groups"], field="employee")
+                        if "scope_groups" in rule:
+                            normalized_rule["scope_groups"] = cls._validate_calibration_groups(rule["scope_groups"], field="calibrator_relation")
+                        if scope == "RULE" and "scope_groups" not in normalized_rule:
+                            raise ProjectValidationError("规则校准范围不能为空")
+                        if "description" in rule:
+                            description = rule["description"]
+                            if not isinstance(description, str) or len(description.strip()) > 500:
+                                raise ProjectValidationError("校准规则说明不合法")
+                            normalized_rule["description"] = description.strip()
+                        rules.append(normalized_rule)
                     phases.append({"rules": rules})
                 normalized["calibration"] = {
                     "force_distribution_enabled": bool(calibration.get("force_distribution_enabled", False)),

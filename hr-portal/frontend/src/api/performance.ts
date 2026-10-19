@@ -1079,11 +1079,25 @@ export interface PerformanceCycleProjectShell {
   evaluated_count: number
 }
 
+export interface PerformanceCalibrationCondition {
+  field: 'employee' | 'calibrator_relation'
+  operator: 'INCLUDE' | 'EXCLUDE'
+  values: string[]
+}
+
+export interface PerformanceCalibrationConditionGroup {
+  conditions: PerformanceCalibrationCondition[]
+}
+
 export interface PerformanceProjectFlowRule {
   subject_type: 'PERSON'
   operator: 'INCLUDE' | 'EXCLUDE'
-  scope: 'PROJECT_ALL'
+  scope: 'PROJECT_ALL' | 'RULE'
   allow_authorize: boolean
+  subject_source?: 'RULE'
+  subject_groups?: PerformanceCalibrationConditionGroup[]
+  scope_groups?: PerformanceCalibrationConditionGroup[]
+  description?: string
 }
 
 export interface PerformanceProjectNodeTime {

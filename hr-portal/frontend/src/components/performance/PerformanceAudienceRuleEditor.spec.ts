@@ -81,9 +81,40 @@ describe('PerformanceAudienceRuleEditor', () => {
     await wrapper.setProps({ modelValue: added })
     expect(wrapper.findAll('.performance-audience-rule-editor__condition')).toHaveLength(2)
     expect(wrapper.get('.performance-audience-rule-editor__scope-or').text()).toBe('或')
+    expect(wrapper.get('.performance-audience-rule-editor__scope-or').findAll('span')).toHaveLength(3)
+    expect(wrapper.get('.performance-audience-rule-editor__scope-or').classes()).toContain('performance-condition-logic-group__rail')
+    expect(wrapper.get('.performance-audience-rule-editor__scope-or').element.parentElement?.className).toBe('performance-audience-rule-editor__groups')
+    expect(wrapper.get('.performance-audience-rule-editor__rows').element.children).toHaveLength(2)
+    expect(wrapper.get('.performance-audience-rule-editor__condition.has-delete').element.parentElement?.className).toBe('performance-audience-rule-editor__group')
+    expect(wrapper.find('.performance-condition-logic-group').exists()).toBe(false)
     expect(wrapper.findAll('[aria-label^="删除范围"]')).toHaveLength(2)
     await wrapper.get('[aria-label="删除范围 2"]').trigger('click')
     expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[])).toHaveLength(1)
+  })
+
+  it('combines reviewee conditions with AND inside groups and OR between groups without changing the scope rule shape', async () => {
+    const first = { field: 'department' as const, operator: 'include' as const, values: ['集团'] }
+    const wrapper = mount(PerformanceAudienceRuleEditor, {
+      props: { modelValue: [{ conditions: [first] }], allowedFields: ['department', 'employee'], organizationTree },
+    })
+    await wrapper.get('.performance-audience-rule-editor__group > .text-button').trigger('click')
+    const twoConditions = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[]
+    expect(twoConditions).toEqual([{ conditions: [first, { field: '', operator: 'include', values: [] }] }])
+    await wrapper.setProps({ modelValue: twoConditions })
+    expect(wrapper.get('.performance-condition-logic-group__rail').text()).toBe('且')
+    expect(wrapper.findAll('[aria-label^="删除范围 1 条件"]')).toHaveLength(2)
+    await wrapper.get('[aria-label="删除范围 1 条件 2"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([{ conditions: [first] }])
+    await wrapper.setProps({ modelValue: twoConditions })
+    await wrapper.get('.performance-audience-rule-editor__scope-tools button').trigger('click')
+    const twoGroups = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[]
+    expect(twoGroups).toHaveLength(2)
+    await wrapper.setProps({ modelValue: twoGroups })
+    expect(wrapper.findAll('.performance-condition-logic-group__rail').map(rail => rail.text())).toEqual(['且'])
+    expect(wrapper.get('.performance-audience-rule-editor__or').text()).toBe('或')
+    expect(wrapper.get('.performance-audience-rule-editor__or').element.parentElement?.className).toBe('performance-audience-rule-editor__group')
+    await wrapper.get('[aria-label="删除范围 2"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual(twoConditions)
   })
 
   it('reuses the organization tree and only selects a department after clicking a node', async () => {

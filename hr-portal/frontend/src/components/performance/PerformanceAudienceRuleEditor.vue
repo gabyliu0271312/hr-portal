@@ -7,97 +7,45 @@
     <div v-if="loading" class="performance-audience-rule-editor__state" role="status">正在加载范围选项...</div>
     <div v-else>
       <div class="performance-audience-rule-editor__groups">
-        <div v-if="scopeMode && modelValue.length > 1" class="performance-audience-rule-editor__scope-or" aria-hidden="true"><span></span><span>或</span><span></span></div>
+        <PerformanceConditionLogicGroup v-if="scopeMode && modelValue.length > 1" rail-only :count="modelValue.length" operator="或" class="performance-audience-rule-editor__scope-or" />
         <div class="performance-audience-rule-editor__main">
           <div class="performance-audience-rule-editor__rows">
+          <template v-if="scopeMode">
           <div v-for="(group, groupIndex) in modelValue" :key="groupIndex" class="performance-audience-rule-editor__group">
-        <div v-if="!scopeMode" class="performance-audience-rule-editor__group-heading">
-          <span>范围 {{ groupIndex + 1 }}</span>
-          <PerformanceIconButton
-            v-if="!scopeMode && modelValue.length > 1"
-            icon="DeleteTrashOutlined"
-            :label="`删除范围 ${groupIndex + 1}`"
-            :disabled="disabled"
-            @click="removeGroup(groupIndex)"
-          />
-        </div>
-        <div v-for="(condition, conditionIndex) in group.conditions" :key="conditionIndex" class="performance-audience-rule-editor__condition" :class="{ 'has-delete': scopeMode && modelValue.length > 1 }">
-          <PerformanceSearchSelect
-            :model-value="condition.field || null"
-            :options="fieldOptions"
-            selection-style="plain"
-            disabled-surface="white"
-            aria-label="范围字段"
-            placeholder="请选择范围"
-            :disabled="disabled"
-            @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))"
-          />
-          <PerformanceSearchSelect
-            :model-value="condition.operator"
-            :options="operatorOptions"
-            selection-style="plain"
-            disabled-surface="white"
-            aria-label="范围操作"
-            :disabled="disabled || !condition.field"
-            @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))"
-          />
-          <PerformanceOrganizationSelect
-            v-if="condition.field === 'department'"
-            :model-value="condition.values"
-            :nodes="organizationTree"
-            aria-label="部门范围"
-            :disabled="disabled"
-            @open="emit('open-options')"
-            @update:model-value="updateValues(groupIndex, conditionIndex, $event)"
-          />
-          <PerformancePersonSelect
-            v-else-if="condition.field === 'employee'"
-            :model-value="condition.values"
-            :options="personOptions"
-            multiple
-            aria-label="员工范围"
-            placeholder="请选择员工"
-            :disabled="disabled"
-            @open="emit('open-options')"
-            @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))"
-          />
-          <PerformanceSearchSelect
-            v-else-if="condition.field === 'employee_type'"
-            :model-value="condition.values"
-            :options="employeeTypeOptions"
-            multiple
-            aria-label="人员类型范围"
-            placeholder="请选择人员类型"
-            :disabled="disabled"
-            @open="emit('open-options')"
-            @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))"
-          />
-          <PerformanceSearchSelect
-            v-else
-            :model-value="[]"
-            :options="[]"
-            multiple
-            aria-label="范围条件值"
-            placeholder="请选择"
-            disabled
-            disabled-surface="white"
-          />
-          <PerformanceIconButton
-            v-if="scopeMode ? modelValue.length > 1 : group.conditions.length > 1"
-            icon="DeleteTrashOutlined"
-            :label="scopeMode ? `删除范围 ${groupIndex + 1}` : `删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`"
-            :disabled="disabled"
-            @click="scopeMode ? removeGroup(groupIndex) : removeCondition(groupIndex, conditionIndex)"
-          />
-        </div>
-        <PerformanceTextButton
-          v-if="allowMultipleConditions && !scopeMode"
-          label="＋ 添加条件"
-          :disabled="disabled"
-          @click="addCondition(groupIndex)"
-        />
-        <div v-if="!scopeMode && groupIndex < modelValue.length - 1" class="performance-audience-rule-editor__or">或</div>
-      </div>
+            <div v-for="(condition, conditionIndex) in group.conditions" :key="conditionIndex" class="performance-audience-rule-editor__condition" :class="{ 'has-delete': modelValue.length > 1 }">
+              <PerformanceSearchSelect :model-value="condition.field || null" :options="fieldOptions" selection-style="plain" disabled-surface="white" aria-label="范围字段" placeholder="请选择范围" :disabled="disabled" @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))" />
+              <PerformanceSearchSelect :model-value="condition.operator" :options="operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || !condition.field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
+              <PerformanceOrganizationSelect v-if="condition.field === 'department'" :model-value="condition.values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
+              <PerformancePersonSelect v-else-if="condition.field === 'employee'" :model-value="condition.values" :options="personOptions" multiple aria-label="员工范围" placeholder="请选择员工" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+              <PerformanceSearchSelect v-else-if="condition.field === 'employee_type'" :model-value="condition.values" :options="employeeTypeOptions" multiple aria-label="人员类型范围" placeholder="请选择人员类型" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+              <PerformanceSearchSelect v-else :model-value="[]" :options="[]" multiple aria-label="范围条件值" placeholder="请选择" disabled disabled-surface="white" />
+              <PerformanceIconButton v-if="modelValue.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="removeGroup(groupIndex)" />
+            </div>
+          </div>
+          </template>
+          <template v-else>
+            <div v-for="(group, groupIndex) in modelValue" :key="groupIndex" class="performance-audience-rule-editor__group">
+                <div class="performance-audience-rule-editor__group-heading">
+                  <span>范围 {{ groupIndex + 1 }}</span>
+                  <PerformanceIconButton v-if="modelValue.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="removeGroup(groupIndex)" />
+                </div>
+                <PerformanceConditionLogicGroup :count="modelValue[groupIndex].conditions.length" operator="且">
+                  <template #default="{ index: conditionIndex }">
+                    <div class="performance-audience-rule-editor__condition" :class="{ 'has-delete': modelValue[groupIndex].conditions.length > 1 }">
+                      <PerformanceSearchSelect :model-value="modelValue[groupIndex].conditions[conditionIndex].field || null" :options="fieldOptions" selection-style="plain" disabled-surface="white" aria-label="范围字段" placeholder="请选择范围" :disabled="disabled" @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))" />
+                      <PerformanceSearchSelect :model-value="modelValue[groupIndex].conditions[conditionIndex].operator" :options="operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || !modelValue[groupIndex].conditions[conditionIndex].field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
+                      <PerformanceOrganizationSelect v-if="modelValue[groupIndex].conditions[conditionIndex].field === 'department'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
+                      <PerformancePersonSelect v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'employee'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :options="personOptions" multiple aria-label="员工范围" placeholder="请选择员工" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+                      <PerformanceSearchSelect v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'employee_type'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :options="employeeTypeOptions" multiple aria-label="人员类型范围" placeholder="请选择人员类型" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+                      <PerformanceSearchSelect v-else :model-value="[]" :options="[]" multiple aria-label="范围条件值" placeholder="请选择" disabled disabled-surface="white" />
+                      <PerformanceIconButton v-if="modelValue[groupIndex].conditions.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`" :disabled="disabled" @click="removeCondition(groupIndex, conditionIndex)" />
+                    </div>
+                  </template>
+                </PerformanceConditionLogicGroup>
+                <PerformanceTextButton v-if="allowMultipleConditions" label="＋ 添加条件" :disabled="disabled" @click="addCondition(groupIndex)" />
+                <div v-if="groupIndex < modelValue.length - 1" class="performance-audience-rule-editor__or">或</div>
+              </div>
+            </template>
       </div>
       </div>
       </div>
@@ -124,6 +72,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { PerformanceHrbpOrganizationNode } from '@/api/performance'
+import PerformanceConditionLogicGroup from './PerformanceConditionLogicGroup.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
@@ -166,7 +115,7 @@ const fieldLabels: Record<PerformanceAudienceField, string> = {
   employee: '员工',
 }
 const fieldOptions = computed(() => props.allowedFields.map(value => ({ value, label: fieldLabels[value] })))
-const allowMultipleConditions = computed(() => props.allowedFields.length > 2)
+const allowMultipleConditions = computed(() => !props.scopeMode)
 
 function normalizeValues(value: string | string[] | null) {
   return Array.isArray(value) ? value : value ? [value] : []
