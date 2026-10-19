@@ -25,6 +25,7 @@ from app.performance.models import (
     PerformanceAuthorizationSnapshot,
     PerformanceAuthorizationSnapshotPerson,
     PerformanceCycle,
+    PerformanceCycleProjectManager,
     PerformanceNodeTask,
     PerformanceProject,
     PerformanceProjectMember,
@@ -69,6 +70,35 @@ def _parse_time(value: Any) -> datetime | None:
     except ValueError as exc:
         raise ProjectValidationError("流程节点时间格式不合法") from exc
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
+def _resolve_node_handlers(node: dict, person: Any, people_by_employee: dict[str, Any]) -> set[str]:
+    types = set(node.get("executor_types") or [])
+    if node.get("executor_label") == "虚线上级" or "VIRTUAL_LINE_MANAGER" in types:
+        return set()
+    handlers: set[str] = set()
+    if "SUBJECT" in types or node.get("node_type") in {"work_summary", "reviewer_360_invite"}:
+        handlers.add(person.employee_no)
+    if "HRBP" in types and person.hrbp_employee_no:
+        handlers.add(person.hrbp_employee_no)
+    if "PROJECT_MANAGER" in types and getattr(person, "project_manager_employee_no", None):
+        handlers.add(person.project_manager_employee_no)
+
+    levels = {"DIRECT_MANAGER", "LEVEL_1_MANAGER", "LEVEL_2_MANAGER", "LEVEL_3_MANAGER_PLUS"}
+    if types & levels:
+        manager_ref = person.direct_supervisor_employee_no
+        visited = {person.employee_no}
+        depth = 1
+        while manager_ref and manager_ref not in visited:
+            visited.add(manager_ref)
+            if manager_ref not in people_by_employee:
+                break
+            level = ("DIRECT_MANAGER", "LEVEL_1_MANAGER", "LEVEL_2_MANAGER")[depth - 1] if depth <= 3 else "LEVEL_3_MANAGER_PLUS"
+            if level in types:
+                handlers.add(manager_ref)
+            manager_ref = people_by_employee[manager_ref].direct_supervisor_employee_no
+            depth += 1
+    return handlers
 
 
 async def _canonical_roster_rows(db: AsyncSession) -> list[dict[str, Any]]:
@@ -301,6 +331,8 @@ class PerformanceProjectService:
                 if (not isinstance(values, list) or not values
                         or any(not isinstance(value, str) or not value.strip() or len(value.strip()) > 128 for value in values)):
                     raise ProjectValidationError("校准规则条件值不合法")
+                if field == "calibrator_relation" and any(value.strip() not in {"ALL_SUBORDINATES", "DIRECT_SUBORDINATES", "INDIRECT_SUBORDINATES"} for value in values):
+                    raise ProjectValidationError("与校准人关系选项不合法")
                 conditions.append({"field": field, "operator": condition["operator"], "values": [value.strip() for value in values]})
             normalized.append({"conditions": conditions})
         return normalized
@@ -410,9 +442,14 @@ class PerformanceProjectService:
                 }
             result_view = raw.get("result_view")
             if result_view is not None:
-                if not isinstance(result_view, dict) or result_view.get("opening_mode", "MANUAL") not in {"AUTOMATIC", "MANUAL"}:
+                if not isinstance(result_view, dict):
                     raise ProjectValidationError("结果开通方式不合法")
-                normalized["result_view"] = {"opening_mode": result_view.get("opening_mode", "MANUAL")}
+                automatic = result_view.get("automatic_enabled", False)
+                manual = result_view.get("manual_enabled", False)
+                rule = result_view.get("automatic_rule", "PREVIOUS_AND_START")
+                if not isinstance(automatic, bool) or not isinstance(manual, bool) or rule not in {"PREVIOUS_AND_START", "PREVIOUS_IMMEDIATE"}:
+                    raise ProjectValidationError("结果开通方式不合法")
+                normalized["result_view"] = {"automatic_enabled": automatic, "manual_enabled": manual, "automatic_rule": rule}
             reconsideration = raw.get("result_reconsideration")
             if reconsideration is not None:
                 if not isinstance(reconsideration, dict):
@@ -573,7 +610,7 @@ class PerformanceProjectService:
             return project
         if project.status != PROJECT_STATUS_DRAFT:
             raise ProjectValidationError("当前项目状态不允许启动")
-        cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
+        cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update())
         if cycle is None:
             raise ProjectValidationError("绩效周期不存在")
         authorization_snapshot = await self.db.scalar(
@@ -593,6 +630,9 @@ class PerformanceProjectService:
                 PerformanceAuthorizationSnapshotPerson.snapshot_id == authorization_snapshot.id
             )
         )).scalars().all())
+        people_by_employee = {person.employee_no: person for person in people}
+        project_manager_rows = (await self.db.execute(select(PerformanceCycleProjectManager).where(PerformanceCycleProjectManager.cycle_ref == project.cycle_ref))).scalars().all()
+        project_managers = {row.target_employee_no: row.manager_employee_no for row in project_manager_rows}
         selected = []
         for person in people:
             values = {
@@ -623,9 +663,20 @@ class PerformanceProjectService:
         if template_id:
             workflow = await self.db.get(PerformanceTemplateWorkflow, int(template_id))
         nodes = list((workflow.nodes if workflow else []) or [])
-        content_library = list((workflow.content_library if workflow else []) or [])
         if not nodes:
             raise ProjectValidationError("项目未配置流程节点")
+        if any("PROJECT_MANAGER" in (node.get("executor_types") or []) for node in nodes):
+            missing = [person.employee_no for person in selected if person.employee_no not in project_managers]
+            if missing:
+                raise ProjectValidationError(f"被评估人 {missing[0]} 未导入直属项目上级")
+        result_view_nodes = [node for node in nodes if node.get("node_type") == "result_view"]
+        if len(result_view_nodes) != 1:
+            raise ProjectValidationError("项目必须配置一个绩效结果查看环节")
+        result_view_key = str(result_view_nodes[0].get("node_id") or "")
+        opening = (((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {}).get(result_view_key, {}).get("result_view") or {}
+        if not opening.get("automatic_enabled") and not opening.get("manual_enabled"):
+            raise ProjectValidationError("请至少选择一种方式")
+        content_library = list((workflow.content_library if workflow else []) or [])
         before = self.serialize(project)
         member_snapshot = PerformanceProjectMemberSnapshot(
             project_id=project.id,
@@ -645,6 +696,7 @@ class PerformanceProjectService:
                 **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
                 organization_ref=organization_path(person),
                 direct_supervisor_employee_no=person.direct_supervisor_employee_no,
+                project_manager_employee_no=project_managers.get(person.employee_no),
                 hrbp_employee_no=person.hrbp_employee_no,
                 employee_type=person.employee_type,
                 employment_status=person.employment_status,
@@ -670,17 +722,13 @@ class PerformanceProjectService:
             )
             self.db.add(node_snapshot)
             await self.db.flush()
-            if node_type in {"result_view", "reviewer_360_confirm"}:
+            if node_type == "result_view":
                 continue
             for person in selected:
-                executor_types = raw_node.get("executor_types") or []
-                if "DIRECT_MANAGER" in executor_types:
-                    handlers = [person.direct_supervisor_employee_no] if person.direct_supervisor_employee_no else []
-                elif "HRBP" in executor_types:
-                    handlers = [person.hrbp_employee_no] if person.hrbp_employee_no else []
-                else:
-                    handlers = [person.employee_no] if "SUBJECT" in executor_types or node_type in {"work_summary", "reviewer_360_invite"} else []
-                for handler in {value for value in handlers if value}:
+                handlers = _resolve_node_handlers(raw_node, person, people_by_employee)
+                if "PROJECT_MANAGER" in (raw_node.get("executor_types") or []):
+                    handlers.add(project_managers[person.employee_no])
+                for handler in sorted(handlers):
                     timing = node_times.get(node_id) or {}
                     self.db.add(PerformanceNodeTask(
                         project_id=project.id,
@@ -737,6 +785,12 @@ class PerformanceProjectService:
         if member_snapshot is None:
             raise ProjectValidationError("项目成员快照不存在")
         members = list((await self.db.execute(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == member_snapshot.id))).scalars())
+        if any("PROJECT_MANAGER" in (node.get("executor_types") or []) for node in pending):
+            missing = [member.employee_no for member in members if not member.project_manager_employee_no]
+            if missing:
+                raise ProjectValidationError(f"被评估人 {missing[0]} 缺少已冻结的直属项目上级")
+        people = list((await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(PerformanceAuthorizationSnapshotPerson.snapshot_id == member_snapshot.source_snapshot_id))).scalars())
+        people_by_employee = {person.employee_no: person for person in people}
         settings = dict(project.settings or {})
         flow_settings = dict(settings.get("flow_settings") or {})
         saved_times = dict(flow_settings.get("node_times") or {})
@@ -749,11 +803,10 @@ class PerformanceProjectService:
             snapshot = PerformanceProjectNodeSnapshot(project_id=project.id, node_id=node_id, node_type=node_type, name=str(raw_node.get("name") or node_id), node_order=int(raw_node.get("order") or index + 1), config={"template": raw_node, "time": normalized_times[node_id]})
             self.db.add(snapshot)
             await self.db.flush()
-            if node_type not in {"result_view", "reviewer_360_confirm"}:
+            if node_type != "result_view":
                 for person in members:
-                    types = raw_node.get("executor_types") or []
-                    handlers = [person.direct_supervisor_employee_no] if "DIRECT_MANAGER" in types else [person.hrbp_employee_no] if "HRBP" in types else [person.employee_no] if "SUBJECT" in types or node_type in {"work_summary", "reviewer_360_invite"} else []
-                    for handler in {value for value in handlers if value}:
+                    handlers = _resolve_node_handlers(raw_node, person, people_by_employee)
+                    for handler in sorted(handlers):
                         timing = normalized_times[node_id]
                         self.db.add(PerformanceNodeTask(project_id=project.id, cycle_ref=project.cycle_ref, member_snapshot_id=member_snapshot.id, node_snapshot_id=snapshot.id, target_employee_no=person.employee_no, handler_ref=str(handler), task_kind=node_type, available_at=_parse_time(timing.get("start_at")), due_at=_parse_time(timing.get("end_at") or timing.get("appeal_deadline")), status="pending"))
             saved_times[node_id] = normalized_times[node_id]

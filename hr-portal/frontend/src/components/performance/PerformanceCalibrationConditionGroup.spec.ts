@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
 import PerformanceCalibrationRuleDrawer from './PerformanceCalibrationRuleDrawer.vue'
 import type { PerformanceProjectFlowRule } from '@/api/performance'
+import { CALIBRATOR_RELATION_OPTIONS } from './performanceConditionFields'
 
 const condition = (field: 'employee' | 'calibrator_relation', values: string[] = []) => ({ field, operator: 'INCLUDE' as const, values })
 afterEach(() => { document.body.innerHTML = '' })
@@ -22,6 +23,36 @@ describe('PerformanceCalibrationConditionGroup', () => {
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ conditions: [condition('employee', ['E1'])] })
     await wrapper.setProps({ modelValue: { conditions: [condition('employee', ['E1'])] } })
     expect(wrapper.find('[aria-label^="删除校准人条件"]').exists()).toBe(false)
+  })
+
+  it('offers only fixed calibrator relation values, never people', async () => {
+    const wrapper = mount(PerformanceCalibrationConditionGroup, {
+      props: {
+        modelValue: { conditions: [condition('calibrator_relation')] },
+        title: '条件组 1', fieldLabel: '校准范围',
+        fieldOptions: [{ value: 'calibrator_relation', label: '与校准人关系' }],
+        valueOptions: [{ value: 'E1', label: '员工 E1' }],
+      },
+      attachTo: document.body,
+    })
+    expect(wrapper.get('input[aria-label="校准范围条件值"]').attributes('placeholder')).toBe('请选择与校准人的关系')
+    await wrapper.get('input[aria-label="校准范围条件值"]').trigger('click')
+    const options = [...document.body.querySelectorAll('.performance-flat-option-list__option')].map(option => option.textContent?.trim())
+    expect(options).toEqual(CALIBRATOR_RELATION_OPTIONS.map(option => option.label))
+    expect(options).not.toContain('员工 E1')
+    ;(document.body.querySelectorAll('.performance-flat-option-list__option')[2] as HTMLButtonElement).click()
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ conditions: [condition('calibrator_relation', ['INDIRECT_SUBORDINATES'])] })
+    wrapper.findComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', ['HRBP', 'DIRECT_SUBORDINATES'])
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ conditions: [condition('calibrator_relation', ['DIRECT_SUBORDINATES'])] })
+    wrapper.unmount()
+  })
+
+  it('clears stale values when changing fields', async () => {
+    const wrapper = mount(PerformanceCalibrationConditionGroup, {
+      props: { modelValue: { conditions: [condition('employee', ['E1'])] }, title: '条件组 1', fieldLabel: '校准人', fieldOptions: [{ value: 'employee', label: '人员' }, { value: 'calibrator_relation', label: '与校准人关系' }] },
+    })
+    await wrapper.get('.calibration-select select').setValue('calibrator_relation')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ conditions: [condition('calibrator_relation')] })
   })
 })
 
@@ -59,7 +90,7 @@ describe('PerformanceCalibrationRuleDrawer', () => {
         { conditions: [condition('employee', ['E1']), condition('employee', ['E2'])] },
         { conditions: [condition('employee', ['E3'])] },
       ],
-      scope_groups: [{ conditions: [condition('calibrator_relation', ['CURRENT'])] }, { conditions: [condition('calibrator_relation', ['PARENT'])] }],
+      scope_groups: [{ conditions: [condition('calibrator_relation', ['DIRECT_SUBORDINATES'])] }, { conditions: [condition('calibrator_relation', ['INDIRECT_SUBORDINATES'])] }],
       description: '已保存的描述',
     }
     const wrapper = mount(PerformanceCalibrationRuleDrawer, { props: { modelValue: true, rule: original, mode: 'edit' }, attachTo: document.body })
@@ -72,6 +103,39 @@ describe('PerformanceCalibrationRuleDrawer', () => {
     ;(document.body.querySelector('.performance-drawer-footer__confirm') as HTMLElement).click()
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted('confirm')?.at(-1)?.[0]).toEqual(original)
+    wrapper.unmount()
+  })
+
+  it('shows saved relation labels for all, direct, and indirect subordinates', async () => {
+    const rule: PerformanceProjectFlowRule = {
+      subject_type: 'PERSON', operator: 'INCLUDE', scope: 'RULE', allow_authorize: false,
+      subject_groups: [{ conditions: [condition('employee', ['E1'])] }],
+      scope_groups: [{ conditions: [condition('calibrator_relation', CALIBRATOR_RELATION_OPTIONS.map(option => option.value))] }],
+    }
+    const wrapper = mount(PerformanceCalibrationRuleDrawer, { props: { modelValue: true, rule, mode: 'edit' }, attachTo: document.body })
+    const selected = document.body.querySelector('.calibration-rule-section:nth-child(2) .calibration-value-select')!
+    for (const option of CALIBRATOR_RELATION_OPTIONS) expect(selected.textContent).toContain(option.label)
+    ;(document.body.querySelector('.performance-drawer-footer__confirm') as HTMLElement).click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('confirm')?.at(-1)?.[0]).toMatchObject({ scope_groups: rule.scope_groups })
+    wrapper.unmount()
+  })
+
+  it('keeps the draft open until the parent reports a successful save', async () => {
+    const rule: PerformanceProjectFlowRule = {
+      subject_type: 'PERSON', operator: 'INCLUDE', scope: 'RULE', allow_authorize: false,
+      subject_groups: [{ conditions: [condition('employee', ['E1'])] }],
+      scope_groups: [{ conditions: [condition('calibrator_relation', ['DIRECT_SUBORDINATES'])] }],
+    }
+    const wrapper = mount(PerformanceCalibrationRuleDrawer, { props: { modelValue: true, rule, saving: false }, attachTo: document.body })
+    const confirm = document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement
+    confirm.click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('confirm')?.at(-1)?.[0]).toMatchObject(rule)
+    expect(document.body.querySelector('[aria-label="校准规则编辑"]')).not.toBeNull()
+    await wrapper.setProps({ saving: true, saveError: '校准规则保存失败' })
+    expect((document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement).disabled).toBe(true)
+    expect(document.body.querySelector('.calibration-rule-error')?.textContent).toContain('保存失败')
     wrapper.unmount()
   })
 

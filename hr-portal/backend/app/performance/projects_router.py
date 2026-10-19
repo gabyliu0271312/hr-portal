@@ -11,7 +11,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.performance.auth_context import PerformanceAccessContext, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
+from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
@@ -38,10 +38,14 @@ class ReminderTasksPayload(BaseModel):
 
 
 async def _self_summary_task(task_id: int, actor: PerformanceAccessContext, db: AsyncSession, task_kind: str = "work_summary", target_employee_no: str | None = None) -> tuple[PerformanceNodeTask, PerformanceProjectNodeSnapshot]:
-    trusted = await resolve_trusted_performance_actor(db, actor)
     row = (await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id).where(PerformanceNodeTask.id == task_id))).first()
-    is_admin_preview = _is_admin_preview(actor)
-    if not row or (not is_admin_preview and str(row[0].handler_ref) not in {str(trusted.actor_ref), str(actor.subject_id)}):
+    if not row:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
+    try:
+        trusted = await resolve_trusted_performance_actor(db, actor, cycle_ref=row[0].cycle_ref, require_employee_identity=True)
+    except PerformanceIdentityMappingNotFound:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND") from None
+    if str(row[0].handler_ref) != trusted.actor_ref:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     if row[0].task_kind != task_kind:
         raise HTTPException(status_code=422, detail="TASK_TYPE_NOT_SUPPORTED")

@@ -291,6 +291,8 @@ class PerformanceTemplateWorkflowService:
         actor_ref: str,
     ) -> PerformanceTemplateWorkflow:
         normalized = normalize_workflow_nodes(nodes)
+        if sum(node["include_final_result"] for node in normalized) != 1:
+            raise TemplateWorkflowValidationError("请且仅请选择一个环节作为最终结果")
         record = await self.get_record(template_id)
         existing_library = getattr(record, "content_library", None) if record is not None else []
         library = normalize_content_library(content_library or [])

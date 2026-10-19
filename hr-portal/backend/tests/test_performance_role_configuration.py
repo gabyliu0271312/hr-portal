@@ -72,6 +72,8 @@ async def test_create_performance_role_persists_and_audits_name_and_description(
     assert result.description == "负责校准"
     assert role.code.startswith("custom.")
     assert role.is_system is False
+    assert role.role_type == "MANAGEMENT"
+    assert role.member_source is None
     assert db.commits == 1
     audit = next(item for item in db.items if isinstance(item, models.PerformanceAuditEvent))
     assert audit.event_type == "PERFORMANCE_ROLE_CREATED"

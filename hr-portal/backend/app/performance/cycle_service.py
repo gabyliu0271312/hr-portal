@@ -33,6 +33,7 @@ from app.performance.models import (
     PerformanceAuthorizationSnapshot,
     PerformanceAuthorizationSnapshotPerson,
     PerformanceCycle,
+    PerformanceCycleProjectManager,
     PerformanceProject,
     PROJECT_STATUS_STARTED,
 )
@@ -114,6 +115,8 @@ class PerformanceCycleService:
                 .order_by(PerformanceAuthorizationSnapshotPerson.employee_no.asc())
             )
         ).scalars().all()
+        manager_rows = (await self.db.execute(select(PerformanceCycleProjectManager).where(PerformanceCycleProjectManager.cycle_ref == cycle.cycle_ref))).scalars().all()
+        project_managers = {row.target_employee_no: row.manager_employee_no for row in manager_rows}
         return [
             {
                 "employee_no": person.employee_no,
@@ -121,6 +124,7 @@ class PerformanceCycleService:
                 **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
                 "organization_ref": person.organization_ref,
                 "direct_supervisor_employee_no": person.direct_supervisor_employee_no,
+                "project_manager_employee_no": project_managers.get(person.employee_no),
                 "hrbp_employee_no": person.hrbp_employee_no,
                 "employee_type": person.employee_type,
                 "employment_status": person.employment_status,
@@ -356,6 +360,44 @@ class PerformanceCycleService:
         await self.db.commit()
         await self.db.refresh(cycle)
         return cycle
+
+    async def update_project_managers(
+        self,
+        cycle: PerformanceCycle,
+        mappings: list[dict[str, str]],
+        *,
+        actor_type: str,
+        actor_id: int,
+        reason: str,
+    ) -> list[dict[str, Any]]:
+        locked = (await self.db.execute(select(PerformanceCycle).where(PerformanceCycle.id == cycle.id).with_for_update())).scalar_one()
+        if not reason.strip():
+            raise CycleValidationError("直属项目上级导入必须填写原因")
+        if await self.has_started_projects(locked):
+            raise CycleValidationError("周期内有已启动项目，不能变更直属项目上级")
+        snapshot = (await self.db.execute(select(PerformanceAuthorizationSnapshot).where(PerformanceAuthorizationSnapshot.cycle_ref == locked.cycle_ref))).scalar_one_or_none()
+        if snapshot is None:
+            raise CycleValidationError("周期人员快照不存在")
+        employee_nos = set((await self.db.execute(select(PerformanceAuthorizationSnapshotPerson.employee_no).where(PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id))).scalars().all())
+        targets = [row["target_employee_no"].strip() for row in mappings]
+        if len(set(targets)) != len(targets) or any(not target or target not in employee_nos or row["manager_employee_no"].strip() not in employee_nos or target == row["manager_employee_no"].strip() for target, row in zip(targets, mappings)):
+            raise CycleValidationError("直属项目上级导入的员工编号不在本周期、与本人相同或目标重复")
+        existing = {row.target_employee_no: row for row in (await self.db.execute(select(PerformanceCycleProjectManager).where(PerformanceCycleProjectManager.cycle_ref == locked.cycle_ref))).scalars().all()}
+        changes = []
+        for target, mapping in zip(targets, mappings):
+            manager = mapping["manager_employee_no"].strip()
+            before = existing[target].manager_employee_no if target in existing else None
+            if before == manager:
+                continue
+            if target in existing:
+                existing[target].manager_employee_no = manager
+            else:
+                self.db.add(PerformanceCycleProjectManager(cycle_ref=locked.cycle_ref, target_employee_no=target, manager_employee_no=manager))
+            changes.append({"target_employee_no": target, "before": before, "after": manager})
+        if changes:
+            self.audit.append_event(AuditEventInput(event_type="PERFORMANCE_CYCLE_PROJECT_MANAGERS_UPDATED", cycle_ref=locked.cycle_ref, actor_type=actor_type, actor_ref=_actor_ref(actor_id), after_state={"reason": reason.strip(), "changes": changes}))
+            await self.db.commit()
+        return await self.people_for_cycle(locked)
 
     async def delete_cycle(self, cycle: PerformanceCycle, *, actor_type: str, actor_id: int) -> None:
         locked_cycle = (await self.db.execute(select(PerformanceCycle).where(PerformanceCycle.id == cycle.id).with_for_update())).scalar_one()

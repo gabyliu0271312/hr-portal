@@ -56,6 +56,8 @@ class PerformanceRoleListItem(BaseModel):
     code: str
     name: str
     description: str | None
+    role_type: str
+    member_source: str | None
     is_system: bool
     is_active: bool
     updated_at: datetime
@@ -87,6 +89,8 @@ def _role_out(role: PerformanceRole) -> PerformanceRoleOut:
         code=role.code,
         name=role.name,
         description=role.description,
+        role_type=role.role_type,
+        member_source=role.member_source,
         is_system=role.is_system,
         is_active=role.is_active,
         updated_at=role.updated_at,
@@ -97,6 +101,7 @@ def _role_out(role: PerformanceRole) -> PerformanceRoleOut:
 @router.get("", response_model=PerformanceRoleListOut)
 async def list_performance_roles(
     keyword: str | None = None,
+    role_type: str = "MANAGEMENT",
     page: int = 1,
     page_size: int = 10,
     _: PerformanceAccessContext = Depends(_context),
@@ -104,9 +109,14 @@ async def list_performance_roles(
 ) -> PerformanceRoleListOut:
     if page < 1 or page_size < 1 or page_size > 100:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="分页参数无效")
+    if role_type not in {"MANAGEMENT", "ASSESSMENT"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="角色类型无效")
 
-    statement = select(PerformanceRole)
-    count_statement = select(func.count()).select_from(PerformanceRole)
+    statement = select(PerformanceRole).where(PerformanceRole.role_type == role_type)
+    count_statement = select(func.count()).select_from(PerformanceRole).where(PerformanceRole.role_type == role_type)
+    if role_type == "ASSESSMENT":
+        statement = statement.where(PerformanceRole.is_system.is_(True))
+        count_statement = count_statement.where(PerformanceRole.is_system.is_(True))
     normalized_keyword = keyword.strip() if keyword else ""
     if normalized_keyword:
         pattern = f"%{normalized_keyword}%"
@@ -146,6 +156,8 @@ async def create_performance_role(
         name=payload.name,
         description=payload.description,
         function_permission_keys=list(dict.fromkeys(payload.function_permission_keys)),
+        role_type="MANAGEMENT",
+        member_source=None,
         is_system=False,
         is_active=True,
     )

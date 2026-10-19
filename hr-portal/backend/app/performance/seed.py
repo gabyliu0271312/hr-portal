@@ -37,6 +37,7 @@ ROLE_DEFAULTS = (
         "name": "绩效超级管理员",
         "description": "仅管理独立绩效管理员账号",
         "permissions": (PERMISSION_MANAGE_ADMIN_ACCOUNTS,),
+        "role_type": "MANAGEMENT",
     },
     {
         "code": PERFORMANCE_ADMIN_ROLE_CODE,
@@ -49,6 +50,63 @@ ROLE_DEFAULTS = (
             "performance.projects.manage",
             "performance.audit.view",
         ),
+        "role_type": "MANAGEMENT",
+    },
+    {
+        "code": "assessment.reviewee",
+        "name": "被评估人",
+        "description": "系统预置角色",
+        "role_type": "ASSESSMENT",
+        "member_source": "员工本人",
+        "permissions": (),
+    },
+    {
+        "code": "assessment.line_manager",
+        "name": "实线上级",
+        "description": "系统预置角色",
+        "role_type": "ASSESSMENT",
+        "member_source": "从组织架构中获取",
+        "permissions": (),
+    },
+    {
+        "code": "assessment.dotted_manager",
+        "name": "虚线上级",
+        "description": "系统预置角色",
+        "role_type": "ASSESSMENT",
+        "member_source": "从组织架构中获取",
+        "permissions": (),
+    },
+    {
+        "code": "assessment.project_manager",
+        "name": "直属项目上级",
+        "description": "系统预置角色",
+        "role_type": "ASSESSMENT",
+        "member_source": "在周期中导入",
+        "permissions": (),
+    },
+    {
+        "code": "assessment.reviewer_360",
+        "name": "360°评估人",
+        "description": "系统预置角色",
+        "role_type": "ASSESSMENT",
+        "member_source": "通过 360 邀请添加",
+        "permissions": (),
+    },
+    {
+        "code": "assessment.calibrator",
+        "name": "校准人",
+        "description": "系统预置角色",
+        "role_type": "ASSESSMENT",
+        "member_source": "在项目配置中指定",
+        "permissions": (),
+    },
+    {
+        "code": "assessment.metric_evaluator",
+        "name": "指标评价人",
+        "description": "系统预置角色",
+        "role_type": "ASSESSMENT",
+        "member_source": "在添加指标时指定",
+        "permissions": (),
     },
 )
 
@@ -77,11 +135,17 @@ async def _ensure_roles(db: AsyncSession) -> dict[str, PerformanceRole]:
     }
     for definition in ROLE_DEFAULTS:
         role = existing.get(definition["code"])
+        if role is not None and definition["role_type"] == "ASSESSMENT" and (
+            role.role_type != "ASSESSMENT" or not role.is_system
+        ):
+            raise ValueError(f"评估角色编码已被非系统角色占用：{role.code}")
         if role is None:
             role = PerformanceRole(
                 code=definition["code"],
                 name=definition["name"],
                 description=definition["description"],
+                role_type=definition.get("role_type", "MANAGEMENT"),
+                member_source=definition.get("member_source"),
                 is_system=True,
                 is_active=True,
             )

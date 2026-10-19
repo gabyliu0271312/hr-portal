@@ -12,7 +12,7 @@
         <label class="calibration-select">
           <span class="sr-only">{{ fieldLabel }}类型</span>
           <select :value="modelValue.conditions[index].field" @change="updateField(index, ($event.target as HTMLSelectElement).value)">
-            <option v-for="option in fieldOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            <option v-for="option in optionFields" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3.414 7.086-.707.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0-1.415 0l-7.07 7.07-7.072-7.07a1 1 0 0 0-1.414 0Z" fill="currentColor" /></svg>
         </label>
@@ -24,9 +24,19 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3.414 7.086-.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0-1.415 0l-7.07 7.07-7.072-7.07a1 1 0 0 0-1.414 0Z" fill="currentColor" /></svg>
         </label>
         <div class="calibration-value-select">
-          <PerformancePersonSelect
+          <PerformanceSearchSelect
+            v-if="modelValue.conditions[index].field === 'calibrator_relation'"
             :model-value="modelValue.conditions[index].values"
-            :options="valueOptions"
+            :options="conditionValueOptions('calibrator_relation', {})"
+            multiple
+            placeholder="请选择与校准人的关系"
+            :aria-label="`${fieldLabel}条件值`"
+            @update:model-value="updateValues(index, $event)"
+          />
+          <PerformancePersonSelect
+            v-else
+            :model-value="modelValue.conditions[index].values"
+            :options="conditionValueOptions('employee', { people: valueOptions })"
             multiple
             placeholder="请输入"
             :aria-label="`${fieldLabel}条件值`"
@@ -51,6 +61,8 @@ import type { PerformanceCalibrationCondition, PerformanceCalibrationConditionGr
 import PerformanceConditionLogicGroup from './PerformanceConditionLogicGroup.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
+import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
+import { CALIBRATOR_RELATION_OPTIONS, PERFORMANCE_CONDITION_FIELDS, conditionValueOptions } from './performanceConditionFields'
 
 type Option = { value: string; label: string }
 const props = withDefaults(defineProps<{
@@ -66,18 +78,20 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ 'update:modelValue': [value: PerformanceCalibrationConditionGroup]; remove: [] }>()
 const operatorOptions = [{ value: 'INCLUDE', label: '包含' }, { value: 'EXCLUDE', label: '不包含' }]
 const countText = computed(() => `共 ${props.count} 人${props.countSuffix}`)
+const optionFields = computed(() => props.fieldOptions.map(option => ({ value: option.value, label: PERFORMANCE_CONDITION_FIELDS[option.value as PerformanceCalibrationCondition['field']].label })))
 function updateCondition(index: number, patch: Partial<PerformanceCalibrationCondition>) {
   const conditions = props.modelValue.conditions.map((condition, conditionIndex) => conditionIndex === index ? { ...condition, ...patch } : condition)
   emit('update:modelValue', { ...props.modelValue, conditions })
 }
 function updateField(index: number, value: string | string[] | null) {
-  updateCondition(index, { field: String(value || 'employee') as PerformanceCalibrationCondition['field'] })
+  updateCondition(index, { field: String(value || 'employee') as PerformanceCalibrationCondition['field'], values: [] })
 }
 function updateOperator(index: number, value: string | string[] | null) {
   updateCondition(index, { operator: String(value || 'INCLUDE') as PerformanceCalibrationCondition['operator'] })
 }
 function updateValues(index: number, value: string | string[] | null) {
-  updateCondition(index, { values: Array.isArray(value) ? value : value ? [value] : [] })
+  const values = Array.isArray(value) ? value : value ? [value] : []
+  updateCondition(index, { values: props.modelValue.conditions[index].field === 'calibrator_relation' ? values.filter(item => CALIBRATOR_RELATION_OPTIONS.some(option => option.value === item)) : values })
 }
 function removeCondition(index: number) {
   if (props.modelValue.conditions.length <= 1) return

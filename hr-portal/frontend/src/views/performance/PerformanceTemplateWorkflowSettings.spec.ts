@@ -58,12 +58,30 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     expect(confirmationSwitch.attributes('aria-checked')).toBe('true')
   })
 
+  it('blocks next when two nodes are marked as final results', async () => {
+    const nodes: PerformanceWorkflowNode[] = [
+      { node_id: 'evaluation-1', node_type: 'evaluation', name: '评估环节一', description: '', order: 1, executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: 'SINGLE', include_final_result: true, system: false, allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false },
+      { node_id: 'evaluation-2', node_type: 'evaluation', name: '评估环节二', description: '', order: 2, executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: 'SINGLE', include_final_result: true, system: false, allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false },
+    ]
+    const getSpy = vi.spyOn(performanceTemplateApi, 'getWorkflow').mockResolvedValue({ template_id: 98, usage_summary: { cycle_count: 0, project_count: 0 }, nodes })
+    const updateSpy = vi.spyOn(performanceTemplateApi, 'updateWorkflow')
+    const wrapper = mount(PerformanceTemplateWorkflowSettings, { props: { templateId: 98 } })
+    await flushPromises()
+    await (wrapper.vm as unknown as { save: () => Promise<void> }).save()
+    expect(wrapper.get('.workflow-validation-error').text()).toBe('请且仅请选择一个环节作为最终结果')
+    expect(updateSpy).not.toHaveBeenCalled()
+    expect(wrapper.emitted('next')).toBeUndefined()
+    wrapper.unmount()
+    getSpy.mockRestore()
+    updateSpy.mockRestore()
+  })
+
   it('normalizes and persists result-view subject confirmation through the workflow API', async () => {
     const nodes: PerformanceWorkflowNode[] = [
       {
         node_id: 'evaluation-1', node_type: 'evaluation', name: '评估型环节', description: '', order: 1,
         executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: 'SINGLE',
-        include_final_result: false, system: false, allow_invite_other_executors: false,
+        include_final_result: true, system: false, allow_invite_other_executors: false,
         invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false,
         subject_confirm_required: true,
       },
@@ -200,9 +218,9 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     expect(executorFieldSource).toContain('.sub-options{display:flex;flex-direction:column;gap:8px;width:263.333px;margin:0 0 20px;padding:12px')
     expect(executorFieldSource).toContain('border-radius:6px;background:#f8f9fa')
     expect(executorFieldSource).toContain('.check-row{width:100%}')
-    expect(checkboxSource).toContain('border:.666667px solid #8f959e;border-radius:4px;background:#fff')
-    expect(checkboxSource).toContain('.ud__checkbox__wallpaper--checked{border-color:transparent;background:#0442d2}')
-    expect(checkboxSource).toContain('.performance-checkbox__label{display:block;flex:0 0 auto;height:22px;margin-left:8px')
+    expect(checkboxSource).toContain('border:.666667px solid var(--color-text-placeholder);border-radius:var(--radius-sm);background:var(--color-bg-card)')
+    expect(checkboxSource).toContain('.ud__checkbox__wallpaper--checked{border-color:transparent;background:var(--performance-checkbox-checked-color, var(--performance-checkbox-checked))}')
+    expect(checkboxSource).toContain('margin-left:var(--performance-field-label-gap)')
   })
 
   it.each([
@@ -360,7 +378,7 @@ describe('PerformanceTemplateWorkflowSettings', () => {
       {
         node_id: 'evaluation-1', node_type: 'evaluation', name: '评估型环节', description: '', order: 1,
         executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: 'SINGLE',
-        include_final_result: false, system: false, allow_invite_other_executors: false,
+        include_final_result: true, system: false, allow_invite_other_executors: false,
         invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false,
       },
       {
@@ -436,7 +454,7 @@ describe('PerformanceTemplateWorkflowSettings', () => {
       {
         node_id: 'evaluation-1', node_type: 'evaluation', name: '评估型环节', description: '', order: 1,
         executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: 'SINGLE',
-        include_final_result: false, system: false, allow_invite_other_executors: false,
+        include_final_result: true, system: false, allow_invite_other_executors: false,
         invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false,
       },
       {
@@ -759,7 +777,9 @@ describe('PerformanceTemplateWorkflowSettings', () => {
       include_final_result: false, system: false, allow_invite_other_executors: true,
       invite_executor_scope: scope, invite_executor_types: [], require_previous_node_completion: false,
     })
-    const nodes = [node('360-1', 'PARTIAL'), node('360-2', 'ALL')]
+    const nodes = [node('360-1', 'PARTIAL'), node('360-2', 'ALL'), {
+      ...node('manager-1', 'ALL'), executor_label: '实线上级', executor_types: ['DIRECT_MANAGER'], evaluation_type: 'SINGLE' as const, include_final_result: true,
+    }]
     const getSpy = vi.spyOn(performanceTemplateApi, 'getWorkflow').mockResolvedValue({
       template_id: 88, usage_summary: { cycle_count: 0, project_count: 0 }, nodes,
     })
@@ -788,7 +808,7 @@ describe('PerformanceTemplateWorkflowSettings', () => {
       {
         node_id: 'evaluation-1', node_type: 'evaluation', name: '评估型环节', description: '', order: 1,
         executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: 'SINGLE',
-        include_final_result: false, system: false, allow_invite_other_executors: false,
+        include_final_result: true, system: false, allow_invite_other_executors: false,
         invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false,
       },
       {
@@ -837,7 +857,7 @@ describe('PerformanceTemplateWorkflowSettings', () => {
       {
         node_id: 'evaluation-1', node_type: 'evaluation', name: '评估型环节', description: '', order: 2,
         executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: 'SINGLE',
-        include_final_result: false, system: false, allow_invite_other_executors: false,
+        include_final_result: true, system: false, allow_invite_other_executors: false,
         invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false,
       },
     ]

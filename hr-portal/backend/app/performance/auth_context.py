@@ -136,6 +136,7 @@ async def load_active_authorization(
         PerformanceRoleAssignment.subject_id == subject_id,
         PerformanceRoleAssignment.is_active.is_(True),
         PerformanceRole.is_active.is_(True),
+        PerformanceRole.role_type == "MANAGEMENT",
         or_(
             PerformanceRoleAssignment.starts_at.is_(None),
             PerformanceRoleAssignment.starts_at <= now,

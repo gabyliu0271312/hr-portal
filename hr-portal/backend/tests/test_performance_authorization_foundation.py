@@ -75,6 +75,16 @@ def test_super_admin_role_is_limited_to_admin_account_management():
     )
 
     assert super_admin["permissions"] == (PERMISSION_MANAGE_ADMIN_ACCOUNTS,)
+    assert super_admin["role_type"] == "MANAGEMENT"
+    assert {role["code"] for role in ROLE_DEFAULTS} >= {
+        "assessment.reviewee",
+        "assessment.line_manager",
+        "assessment.dotted_manager",
+        "assessment.project_manager",
+        "assessment.reviewer_360",
+        "assessment.calibrator",
+        "assessment.metric_evaluator",
+    }
     assert PERMISSION_MANAGE_ADMIN_ACCOUNTS in {
         permission[0] for permission in PERMISSION_DEFAULTS
     }
@@ -149,6 +159,10 @@ async def test_performance_seed_is_idempotent_and_limits_super_admin_permissions
     }
 
     assert len(super_accounts) == 1
+    assessment_roles = [role for role in db.rows[models.PerformanceRole] if role.role_type == "ASSESSMENT"]
+    assert len(assessment_roles) == 7
+    assert all(role.is_system and role.is_active and role.description == "系统预置角色" for role in assessment_roles)
+    assert not any(link.role_id in {role.id for role in assessment_roles} for link in db.rows[models.PerformanceRolePermission])
     assert verify_password(
         "SecurePerformanceRoot@2026", super_accounts[0].password_hash
     ) is True

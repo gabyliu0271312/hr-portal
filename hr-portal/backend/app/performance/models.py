@@ -227,11 +227,17 @@ class PerformanceWorkbenchAnnouncement(Base):
 
 class PerformanceRole(Base):
     __tablename__ = "performance_roles"
+    __table_args__ = (
+        CheckConstraint("role_type IN ('MANAGEMENT', 'ASSESSMENT')", name="ck_performance_roles_role_type"),
+        Index("ix_performance_roles_role_type_active", "role_type", "is_active"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role_type: Mapped[str] = mapped_column(String(16), nullable=False, default="MANAGEMENT", server_default="MANAGEMENT")
+    member_source: Mapped[str | None] = mapped_column(String(64), nullable=True)
     function_permission_keys: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -703,6 +709,19 @@ class PerformanceCycle(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class PerformanceCycleProjectManager(Base):
+    __tablename__ = "performance_cycle_project_managers"
+    __table_args__ = (
+        UniqueConstraint("cycle_ref", "target_employee_no", name="uq_performance_cycle_project_manager_target"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    cycle_ref: Mapped[str] = mapped_column(String(64), ForeignKey("performance_cycles.cycle_ref", ondelete="CASCADE"), nullable=False)
+    target_employee_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    manager_employee_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class PerformanceTemplateWorkflow(Base):
     """Node-level workflow draft persisted independently from cycle snapshots."""
 
@@ -875,6 +894,7 @@ class PerformanceProjectMember(Base):
     department_5: Mapped[str | None] = mapped_column(String(256), nullable=True)
     organization_ref: Mapped[str | None] = mapped_column(String(1536), nullable=True)
     direct_supervisor_employee_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    project_manager_employee_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
     hrbp_employee_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
     employee_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     employment_status: Mapped[str | None] = mapped_column(String(64), nullable=True)

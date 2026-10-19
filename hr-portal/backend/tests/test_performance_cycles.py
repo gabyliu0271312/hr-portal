@@ -28,6 +28,17 @@ def _payload(**overrides):
     return value
 
 
+def test_project_manager_import_payload_rejects_missing_identifiers_and_unknown_fields():
+    from app.performance.cycles_router import ProjectManagerImportIn
+
+    with pytest.raises(ValidationError):
+        ProjectManagerImportIn(reason="导入", people=[{"target_employee_no": "E1"}])
+    with pytest.raises(ValidationError):
+        ProjectManagerImportIn(reason="导入", people=[{"target_employee_no": "E1", "manager_employee_no": "M1", "unknown": True}])
+    with pytest.raises(ValidationError):
+        ProjectManagerImportIn(reason="", people=[{"target_employee_no": "E1", "manager_employee_no": "M1"}])
+
+
 def test_cycle_payload_normalizes_annual_period_type_for_compatibility():
     payload = CyclePayload(**_payload(period_type="ANNUAL"))
 

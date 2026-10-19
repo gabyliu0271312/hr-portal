@@ -59,8 +59,10 @@
           :evaluated-count="evaluatedCount"
           :loading="flowLoading"
           :error="flowError"
+          :show-opening-error="openingError"
         />
         <p v-else class="flow-summary">请先返回基本信息选择绩效模板</p>
+        <p v-if="validationError" class="error" role="alert">{{ validationError }}</p>
       </section>
 
       <section v-if="currentStep === 2" class="settings-card time-card" aria-labelledby="date-title">
@@ -112,7 +114,7 @@ const evaluatorOptions = ref<PerformanceEvaluatorOptions>({ organization_tree: [
 const evaluatorOptionsLoaded = ref(false)
 const evaluatorOptionsLoading = ref(false)
 const savedView = ref(false); const currentStep = ref(0); const saving = ref(false); const notice = ref(''); const validationError = ref(''); const templateLoading = ref(false); const templates = ref<PerformanceTemplateListItem[]>([]); const basicDialogOpen = ref(false); const basicDialogSaving = ref(false); const basicDialogProject = ref<PerformanceCycleProjectShell | null>(null)
-const workflowNodes = ref<PerformanceWorkflowNode[]>([]); const flowLoading = ref(false); const flowError = ref(''); const evaluatedCount = ref(0); const projectStatus = ref('DRAFT'); const savedNodeTimeKeys = ref(new Set<string>())
+const workflowNodes = ref<PerformanceWorkflowNode[]>([]); const flowLoading = ref(false); const flowError = ref(''); const openingError = ref(false); const evaluatedCount = ref(0); const projectStatus = ref('DRAFT'); const savedNodeTimeKeys = ref(new Set<string>())
 const steps = [{ key: 'info', label: '项目信息' }, { key: 'flow', label: '流程设置' }, { key: 'time', label: '起止时间' }]
 const form = reactive<{ name: string; description: string; administrators: string[]; template_id: number | null; start_at: string; end_at: string; evaluator_rules: NonNullable<PerformanceProjectPayload['evaluator_rules']>; flow_settings: ProjectFlowSettings }>({ name: '', description: '', administrators: [], template_id: null, start_at: '', end_at: '', evaluator_rules: { groups: [{ conditions: [{ field: '', operator: 'include', values: [] }] }] }, flow_settings: { node_settings: {}, node_times: {} } })
 const administratorsText = computed({ get: () => form.administrators.join('、'), set: value => { form.administrators = value.split(/[、,，]/).map(item => item.trim()).filter(Boolean) } })
@@ -142,8 +144,8 @@ function validate() { validationError.value = ''; if (!form.name.trim()) validat
 function payload(): PerformanceProjectPayload { return { name: form.name.trim(), description: form.description.trim() || null, administrators: form.administrators, template_id: form.template_id, start_at: form.start_at ? new Date(form.start_at).toISOString() : null, end_at: form.end_at ? new Date(form.end_at).toISOString() : null, evaluator_rules: { groups: form.evaluator_rules.groups.map(group => ({ conditions: group.conditions.map(condition => { const values = Array.isArray(condition.values) ? condition.values : String(condition.values).split(/[、,，]/).map(value => value.trim()).filter(Boolean); return { ...condition, values } }) })) }, flow_settings: form.flow_settings } }
 async function loadTemplates() { templateLoading.value = true; try { templates.value = (await performanceTemplateApi.list()).filter(template => template.status === 'active') } catch { notice.value = '绩效模板加载失败，请稍后重试' } finally { templateLoading.value = false } }
 async function loadTemplateWorkflow() {
-  if (!form.template_id) { workflowNodes.value = []; flowError.value = ''; return }
-  flowLoading.value = true; flowError.value = ''
+  if (!form.template_id) { workflowNodes.value = []; flowError.value = ''; openingError.value = false; return }
+  flowLoading.value = true; flowError.value = ''; openingError.value = false
   try {
     const workflow = await performanceTemplateApi.getWorkflow(form.template_id)
     workflowNodes.value = workflow.nodes
@@ -155,7 +157,27 @@ async function loadTemplateWorkflow() {
 async function loadEvaluatorOptions() { if (!cycleId.value || evaluatorOptionsLoaded.value || evaluatorOptionsLoading.value) return; evaluatorOptionsLoading.value = true; try { evaluatorOptions.value = await performanceProjectApi.listEvaluatorOptions(cycleId.value); evaluatorOptionsLoaded.value = true; notice.value = '' } catch { notice.value = '被评估人名单加载失败，请稍后重试' } finally { evaluatorOptionsLoading.value = false } }
 async function loadProject() { if (!projectId.value) return; try { const project = await performanceProjectApi.get(projectId.value); form.name = project.name; form.description = project.description || ''; form.administrators = [...project.administrators]; form.template_id = project.template_id; form.start_at = toInputTime(project.start_at); form.end_at = toInputTime(project.end_at); evaluatedCount.value = project.evaluated_count; const savedFlowSettings = project.flow_settings || { node_settings: {}, node_times: {} }; form.flow_settings = { node_settings: savedFlowSettings.node_settings || {}, node_times: savedFlowSettings.node_times || {} }; savedNodeTimeKeys.value = new Set(Object.keys(form.flow_settings.node_times)); projectStatus.value = project.status; if (project.evaluator_rules?.groups?.length) form.evaluator_rules = JSON.parse(JSON.stringify(project.evaluator_rules)); savedView.value = true } catch (error: any) { notice.value = error?.response?.data?.detail || '项目加载失败' } }
 async function saveDraft() { if (!projectId.value) return true; saving.value = true; try { await performanceProjectApi.update(projectId.value, payload()); return true } catch (error: any) { notice.value = error?.response?.data?.detail || '当前步骤保存失败'; return false } finally { saving.value = false } }
-async function nextStep() { if (currentStep.value === 0 && !validate()) return; if (currentStep.value < steps.length - 1) { if (await saveDraft()) currentStep.value += 1; return } if (nodeTimeError.value) { validationError.value = nodeTimeError.value; return } if (!validate() || saving.value) return; if (await saveDraft()) { savedView.value = true; notice.value = '项目设置已保存' } }
+async function nextStep() {
+  if (currentStep.value === 0 && !validate()) return
+  if (currentStep.value === 1) {
+    validationError.value = ''
+    openingError.value = workflowNodes.value.some(node => node.node_type === 'result_view'
+      && !form.flow_settings.node_settings[workflowNodeKey(node)]?.result_view?.automatic_enabled
+      && !form.flow_settings.node_settings[workflowNodeKey(node)]?.result_view?.manual_enabled)
+    if (openingError.value) return
+    if (flowLoading.value || flowError.value || !workflowNodes.value.some(node => node.node_type === 'result_view')) {
+      validationError.value = flowError.value || '请先加载绩效结果查看环节'
+      return
+    }
+  }
+  if (currentStep.value < steps.length - 1) {
+    if (await saveDraft()) currentStep.value += 1
+    return
+  }
+  if (nodeTimeError.value) { validationError.value = nodeTimeError.value; return }
+  if (!validate() || saving.value) return
+  if (await saveDraft()) { savedView.value = true; notice.value = '项目设置已保存' }
+}
 function goBack() { void router.push({ name: 'PerformanceCycles' }) }
 onMounted(async () => { document.body.style.overflow = 'hidden'; await loadTemplates(); await loadProject(); await loadTemplateWorkflow() })
 onBeforeUnmount(() => { document.body.style.overflow = '' })

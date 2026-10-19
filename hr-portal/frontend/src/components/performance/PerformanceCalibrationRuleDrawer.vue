@@ -81,7 +81,8 @@
       </section>
     </div>
     <template #footer>
-      <PerformanceDrawerFooter variant="captured" @confirm="confirm" @cancel="cancel" />
+      <p v-if="saveError" class="calibration-rule-error" role="alert">{{ saveError }}</p>
+      <PerformanceDrawerFooter variant="captured" :confirm-disabled="saving" @confirm="confirm" @cancel="cancel" />
     </template>
   </PerformanceDrawerShell>
 </template>
@@ -92,6 +93,7 @@ import type { PerformanceCalibrationConditionGroup as CalibrationGroup, Performa
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
+import { PERFORMANCE_CONDITION_FIELDS, conditionValueOptions } from './performanceConditionFields'
 import PerformanceSwitch from './PerformanceSwitch.vue'
 
 type PeopleOption = { value: string; label: string }
@@ -109,14 +111,15 @@ const props = withDefaults(defineProps<{
   rule?: PerformanceProjectFlowRule | null
   mode?: 'create' | 'edit'
   peopleOptions?: PeopleOption[]
-  scopeOptions?: PeopleOption[]
-}>(), { rule: null, mode: 'create', peopleOptions: () => [], scopeOptions: () => [] })
+  saving?: boolean
+  saveError?: string
+}>(), { rule: null, mode: 'create', peopleOptions: () => [], saving: false, saveError: '' })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [rule: PerformanceProjectFlowRule]; cancel: [] }>()
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
-const subjectFieldOptions = [{ value: 'employee', label: '人员' }]
-const scopeFieldOptions = [{ value: 'calibrator_relation', label: '与校准人关系' }]
-const peopleOptions = computed(() => props.peopleOptions)
-const scopeOptions = computed(() => props.scopeOptions)
+const subjectFieldOptions = [{ value: 'employee', label: PERFORMANCE_CONDITION_FIELDS.employee.label }]
+const scopeFieldOptions = [{ value: 'calibrator_relation', label: PERFORMANCE_CONDITION_FIELDS.calibrator_relation.label }]
+const peopleOptions = computed(() => conditionValueOptions('employee', { people: props.peopleOptions }))
+const scopeOptions = conditionValueOptions('calibrator_relation', {})
 const draft = ref<RuleDraft>(createDraft(props.rule))
 const validationError = ref('')
 const subjectDirty = ref(false)
@@ -155,11 +158,13 @@ function toRule(): PerformanceProjectFlowRule {
   }
 }
 function cancel() {
+  if (props.saving) return
   validationError.value = ''
   emit('cancel')
   open.value = false
 }
 function confirm() {
+  if (props.saving) return
   if ((!props.rule || subjectDirty.value || props.rule.subject_groups) && !validGroups(draft.value.subject_groups)) {
     validationError.value = '请完善校准人条件组中的条件值'
     return
@@ -170,7 +175,6 @@ function confirm() {
   }
   validationError.value = ''
   emit('confirm', toRule())
-  open.value = false
 }
 watch(() => [props.modelValue, props.rule, props.mode], () => {
   if (props.modelValue) {

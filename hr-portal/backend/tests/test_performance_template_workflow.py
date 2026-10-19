@@ -327,7 +327,7 @@ async def test_service_save_writes_workflow_and_audit_in_one_commit(monkeypatch)
     monkeypatch.setattr(service, "get_record", no_record)
     record = await service.save_nodes(
         77,
-        [_evaluation("evaluation-1", "实线上级")],
+        [{**_evaluation("evaluation-1", "实线上级"), "include_final_result": True}],
         actor_type="PORTAL_USER",
         actor_ref="9",
     )
@@ -339,6 +339,26 @@ async def test_service_save_writes_workflow_and_audit_in_one_commit(monkeypatch)
     audit = next(value for value in db.added if value is not record)
     assert audit.subject_type == "PERFORMANCE_TEMPLATE"
     assert audit.subject_ref == "77"
+
+
+@pytest.mark.asyncio
+async def test_service_rejects_zero_or_multiple_final_result_nodes_before_writing():
+    from app.performance.template_workflow_service import PerformanceTemplateWorkflowService
+
+    class FakeDb:
+        def add(self, _value):
+            raise AssertionError("invalid workflow must not write")
+
+    service = PerformanceTemplateWorkflowService(FakeDb())
+    for nodes in (
+        [_evaluation("evaluation-1", "实线上级")],
+        [
+            {**_evaluation("evaluation-1", "实线上级"), "include_final_result": True},
+            {**_evaluation("evaluation-2", "实线上级"), "include_final_result": True},
+        ],
+    ):
+        with pytest.raises(TemplateWorkflowValidationError, match="请且仅请选择一个环节作为最终结果"):
+            await service.save_nodes(77, nodes, actor_type="PORTAL_USER", actor_ref="9")
 
 
 class _EmptyWorkflowResult:

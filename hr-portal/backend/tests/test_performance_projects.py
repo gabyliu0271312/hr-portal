@@ -148,6 +148,72 @@ def test_project_delete_removes_draft_and_writes_audit():
 
 
 
+@pytest.mark.asyncio
+async def test_template_task_rejects_unmapped_or_other_employee(monkeypatch):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+
+    task = SimpleNamespace(cycle_ref="cycle:one", handler_ref="EMP-1", task_kind="evaluation", target_employee_no="EMP-2")
+    node = SimpleNamespace(node_type="evaluation")
+
+    class Result:
+        def first(self):
+            return (task, node)
+
+    class Db:
+        async def execute(self, _statement):
+            return Result()
+
+    async def trusted(_db, _context, *, cycle_ref, require_employee_identity):
+        assert cycle_ref == "cycle:one" and require_employee_identity
+        return SimpleNamespace(actor_ref="EMP-3")
+
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", trusted)
+    with pytest.raises(HTTPException) as denied:
+        await projects_router._self_summary_task(1, context(), Db(), "evaluation")
+    assert denied.value.status_code == 404
+
+    async def unmapped(*_args, **_kwargs):
+        raise projects_router.PerformanceIdentityMappingNotFound("no identity")
+
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", unmapped)
+    with pytest.raises(HTTPException) as denied:
+        await projects_router._self_summary_task(1, context(), Db(), "evaluation")
+    assert denied.value.status_code == 404
+
+
+def test_real_line_handlers_follow_selected_snapshot_levels():
+    from app.performance.project_service import _resolve_node_handlers
+
+    people = {
+        "subject": SimpleNamespace(employee_no="subject", direct_supervisor_employee_no="m1", hrbp_employee_no=None),
+        "m1": SimpleNamespace(employee_no="m1", direct_supervisor_employee_no="m2"),
+        "m2": SimpleNamespace(employee_no="m2", direct_supervisor_employee_no="m3"),
+        "m3": SimpleNamespace(employee_no="m3", direct_supervisor_employee_no="m4"),
+        "m4": SimpleNamespace(employee_no="m4", direct_supervisor_employee_no="m5"),
+        "m5": SimpleNamespace(employee_no="m5", direct_supervisor_employee_no=None),
+    }
+    node = {"node_type": "evaluation", "executor_label": "实线上级", "executor_types": ["DIRECT_MANAGER", "LEVEL_2_MANAGER", "LEVEL_3_MANAGER_PLUS"]}
+    assert _resolve_node_handlers(node, people["subject"], people) == {"m1", "m3", "m4", "m5"}
+    assert _resolve_node_handlers({**node, "executor_label": "虚线上级"}, people["subject"], people) == set()
+    project_member = SimpleNamespace(employee_no="subject", direct_supervisor_employee_no="m1", hrbp_employee_no=None, project_manager_employee_no="m2")
+    assert _resolve_node_handlers({"node_type": "evaluation", "executor_types": ["PROJECT_MANAGER"]}, project_member, people) == {"m2"}
+    project_member.project_manager_employee_no = None
+    assert _resolve_node_handlers({"node_type": "evaluation", "executor_types": ["PROJECT_MANAGER"]}, project_member, people) == set()
+
+
+def test_real_line_handlers_stop_at_cyclic_supervisor_chain():
+    from app.performance.project_service import _resolve_node_handlers
+
+    people = {
+        "subject": SimpleNamespace(employee_no="subject", direct_supervisor_employee_no="m1", hrbp_employee_no=None),
+        "m1": SimpleNamespace(employee_no="m1", direct_supervisor_employee_no="m2"),
+        "m2": SimpleNamespace(employee_no="m2", direct_supervisor_employee_no="m1"),
+    }
+    node = {"node_type": "reviewer_360_confirm", "executor_label": "实线上级", "executor_types": ["DIRECT_MANAGER", "LEVEL_1_MANAGER", "LEVEL_3_MANAGER_PLUS"]}
+    assert _resolve_node_handlers(node, people["subject"], people) == {"m1", "m2"}
+
+
 def test_review_nodes_follow_template_executor_mapping():
     assert _review_node_category("work_summary", [], has_task=False) == "mine"
     assert _review_node_category("evaluation", ["SUBJECT"], has_task=False) == "mine"
@@ -378,13 +444,22 @@ def test_project_flow_settings_validate_supported_editable_variants():
                     "phases": [{"rules": [{"subject_type": "PERSON", "operator": "INCLUDE", "scope": "PROJECT_ALL", "allow_authorize": False}]}],
                 }
             },
-            "result-view-1": {"result_view": {"opening_mode": "MANUAL"}},
+            "result-view-1": {"result_view": {"automatic_enabled": False, "manual_enabled": True, "automatic_rule": "PREVIOUS_AND_START"}},
             "reconsideration-1": {"result_reconsideration": {"handler": "HRBP"}},
         }
     }
     normalized = PerformanceProjectService._validate_flow_settings(settings)
     assert normalized["node_settings"] == settings["node_settings"]
     assert normalized["node_times"] == {}
+
+
+def test_project_result_view_modes_round_trip_and_reject_invalid_rule():
+    for automatic, manual in [(True, False), (False, True), (True, True), (False, False)]:
+        result_view = {"automatic_enabled": automatic, "manual_enabled": manual, "automatic_rule": "PREVIOUS_IMMEDIATE"}
+        flow = {"node_settings": {"view-1": {"result_view": result_view}}}
+        assert PerformanceProjectService._validate_flow_settings(flow)["node_settings"]["view-1"]["result_view"] == result_view
+    with pytest.raises(ProjectValidationError, match="结果开通方式不合法"):
+        PerformanceProjectService._validate_flow_settings({"node_settings": {"view-1": {"result_view": {"automatic_enabled": True, "manual_enabled": False, "automatic_rule": "UNKNOWN"}}}})
 
 
 def test_project_invite_counts_round_trip_and_legacy_compatibility():
@@ -449,10 +524,10 @@ def test_project_calibration_rule_groups_round_trip_without_mutating_input():
         ],
         "scope_groups": [
             {"conditions": [
-                {"field": "calibrator_relation", "operator": "INCLUDE", "values": ["DIRECT_MANAGER"]},
-                {"field": "calibrator_relation", "operator": "EXCLUDE", "values": ["HRBP"]},
+                {"field": "calibrator_relation", "operator": "INCLUDE", "values": ["ALL_SUBORDINATES"]},
+                {"field": "calibrator_relation", "operator": "EXCLUDE", "values": ["DIRECT_SUBORDINATES"]},
             ]},
-            {"conditions": [{"field": "calibrator_relation", "operator": "INCLUDE", "values": ["PROJECT_MANAGER"]}]},
+            {"conditions": [{"field": "calibrator_relation", "operator": "INCLUDE", "values": ["INDIRECT_SUBORDINATES"]}]},
         ],
     }
     payload = _calibration_rule_settings(rule)
@@ -498,6 +573,7 @@ def test_project_calibration_legacy_rule_keeps_four_fields():
     {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001"], "extra": 1}]}]},
     {"scope_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001"]}]}]},
     {"scope": "RULE", "scope_groups": [{"conditions": [{"field": "calibrator_relation", "operator": "INCLUDE", "values": [""]}]}]},
+    {"scope": "RULE", "scope_groups": [{"conditions": [{"field": "calibrator_relation", "operator": "INCLUDE", "values": ["HRBP"]}]}]},
     {"subject_source": "IMPORT"},
     {"subject_source": ""},
     {"description": "x" * 501},

@@ -265,6 +265,8 @@ export interface PerformanceRoleListItem {
   code: string
   name: string
   description: string | null
+  role_type: 'MANAGEMENT' | 'ASSESSMENT'
+  member_source: string | null
   is_system: boolean
   is_active: boolean
   updated_at: string
@@ -285,9 +287,9 @@ export interface PerformanceRoleCreatePayload {
 }
 
 export const performanceRoleApi = {
-  async list(keyword = '', page = 1, pageSize = 10): Promise<PerformanceRoleListPage> {
+  async list(keyword = '', page = 1, pageSize = 10, roleType: PerformanceRoleListItem['role_type'] = 'MANAGEMENT'): Promise<PerformanceRoleListPage> {
     const { data } = await api.get<PerformanceRoleListPage>('/performance/permission-settings/roles', {
-      params: { keyword: keyword || undefined, page, page_size: pageSize },
+      params: { keyword: keyword || undefined, role_type: roleType, page, page_size: pageSize },
     })
     return data
   },
@@ -1111,20 +1113,24 @@ export interface PerformanceProjectFlowSettings {
     invite?: {
       default_invite: 'DIRECT_SUBORDINATES' | 'NONE'
       minimum_invited_count: number
-      exclude_default_invite_from_limit: boolean
-      recommended_invite: string[]
       maximum_invited_count?: number | null
       maximum_invite_mode?: 'SUGGESTED' | 'LIMIT'
       second_prompt_enabled?: boolean
       second_prompt_count?: number | null
       second_prompt_mode?: 'SUGGESTED' | 'LIMIT'
+      exclude_default_invite_from_limit: boolean
+      recommended_invite: string[]
       allow_voluntary_evaluation: boolean
     }
     calibration?: {
       force_distribution_enabled: boolean
       phases: Array<{ rules: PerformanceProjectFlowRule[] }>
     }
-    result_view?: { opening_mode: 'AUTOMATIC' | 'MANUAL' }
+    result_view?: {
+      automatic_enabled: boolean
+      manual_enabled: boolean
+      automatic_rule: 'PREVIOUS_AND_START' | 'PREVIOUS_IMMEDIATE'
+    }
     result_reconsideration?: { handler: string | null }
   }>
   node_times: Record<string, PerformanceProjectNodeTime>
@@ -1208,6 +1214,7 @@ export interface PerformanceCyclePerson {
   department_5: string | null
   organization_ref: string | null
   direct_supervisor_employee_no: string | null
+  project_manager_employee_no: string | null
   hrbp_employee_no: string | null
   employee_type: string | null
   employment_status: string | null
@@ -1291,6 +1298,10 @@ export const performanceCycleApi = {
   },
   async listPeople(id: number): Promise<PerformanceCyclePerson[]> {
     const { data } = await api.get<PerformanceCyclePerson[]>(`/performance/cycles/${id}/people`)
+    return data
+  },
+  async importProjectManagers(id: number, people: Array<{ target_employee_no: string; manager_employee_no: string }>, reason: string): Promise<PerformanceCyclePerson[]> {
+    const { data } = await api.patch<PerformanceCyclePerson[]>(`/performance/cycles/${id}/people/project-managers`, { reason, people })
     return data
   },
   async refreshPeople(id: number, reason: string): Promise<PerformanceCycle> {

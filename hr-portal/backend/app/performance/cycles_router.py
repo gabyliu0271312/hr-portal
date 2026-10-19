@@ -108,6 +108,7 @@ class CyclePerson(BaseModel):
     department_5: str | None
     organization_ref: str | None
     direct_supervisor_employee_no: str | None
+    project_manager_employee_no: str | None = None
     hrbp_employee_no: str | None
     employee_type: str | None
     employment_status: str | None
@@ -313,6 +314,18 @@ class CyclePage(BaseModel):
 class PeopleRefreshIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: str = Field(..., min_length=1, max_length=500)
+
+
+class ProjectManagerMappingIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target_employee_no: str = Field(..., min_length=1, max_length=64)
+    manager_employee_no: str = Field(..., min_length=1, max_length=64)
+
+
+class ProjectManagerImportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(..., min_length=1, max_length=500)
+    people: list[ProjectManagerMappingIn] = Field(..., min_length=1, max_length=500)
 
 
 class ManualPersonUpdate(BaseModel):
@@ -656,6 +669,21 @@ async def refresh_cycle_people(
     visible_refs = None if "performance.cycles.manage" in context.permission_codes else _project_scope_refs(context)
     projects = await service.projects_for_cycle(cycle, project_refs=visible_refs)
     return _summary_for_context(cycle, people, departments, projects, context)
+
+
+@router.patch("/{cycle_id}/people/project-managers", response_model=list[CyclePerson])
+async def import_cycle_project_managers(
+    cycle_id: int,
+    payload: ProjectManagerImportIn,
+    context: PerformanceAccessContext = Depends(require_performance_permission("performance.cycles.manage")),
+    db: AsyncSession = Depends(get_session),
+):
+    service = PerformanceCycleService(db)
+    cycle = await service.get_cycle(cycle_id)
+    try:
+        return await service.update_project_managers(cycle, [row.model_dump() for row in payload.people], actor_type=context.subject_type, actor_id=context.subject_id, reason=payload.reason)
+    except CycleValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT if "已启动" in str(exc) else status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.patch("/{cycle_id}/people/manual", response_model=CycleSummary)

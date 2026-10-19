@@ -5,6 +5,7 @@
       <div class="banner-copy"><a>{{ usageSummary.cycle_count }} 个周期的项目</a></div>
       <button class="banner-close" type="button" aria-label="关闭提示" @click="bannerVisible = false">×</button>
     </div>
+    <p v-if="finalResultError" class="workflow-validation-error" role="alert">{{ finalResultError }}</p>
     <div class="workflow-body" :class="{ 'with-banner': bannerVisible && usageSummary.cycle_count > 0 }">
       <section ref="workflowCanvas" class="workflow-canvas" aria-label="评估流程模板" @scroll.passive="updatePopoverPosition">
         <button class="template-entry" type="button">▣&nbsp;评估流程模板</button>
@@ -266,6 +267,7 @@ const finalResultTooltipVisible = ref(false)
 const finalResultTooltipStyle = ref<Record<string, string>>({})
 let finalResultTooltipTimer: ReturnType<typeof setTimeout> | null = null
 const inviteValidationNodeId = ref<string | null>(null)
+const finalResultError = ref('')
 const appealPromptEditorOpen = ref(false)
 const appealPromptDraft = ref('')
 const appealReasonInstructionDraft = ref('')
@@ -606,13 +608,16 @@ async function save() {
     document.querySelector('.invite-role-error')?.scrollIntoView({ block: 'nearest' })
     return
   }
-  if (!props.templateId) { emit('next'); return }
+  finalResultError.value = businessNodes.value.filter(node => node.include_final_result).length === 1 ? '' : '请且仅请选择一个环节作为最终结果'
+  if (finalResultError.value) return
+  if (!props.templateId) { finalResultError.value = '请先保存绩效模板基本信息'; return }
   saving.value = true
   try {
     renumber()
     const data = await performanceTemplateApi.updateWorkflow(props.templateId, { nodes: businessNodes.value })
     data.nodes.forEach(normalizeNode)
     businessNodes.value = data.nodes
+    finalResultError.value = ''
     emit('next')
   } finally { saving.value = false }
 }
@@ -620,6 +625,7 @@ defineExpose({ save })
 </script>
 
 <style scoped>
+.workflow-validation-error{margin:0;padding:8px 20px;color:var(--performance-field-error-color);background:var(--color-bg-card)}
 .workflow-page{flex:1 1 auto;width:100%;min-width:0;height:100%;background:#f5f6f7;color:#1f2329;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif}.usage-banner{display:flex;align-items:center;height:40px;padding:0 16px;box-sizing:border-box;background:#e1eaff;font-size:14px;line-height:22px}.banner-icon{width:16px;height:16px;margin-right:8px;border-radius:50%;background:#3370ff;color:#fff;text-align:center;font-size:12px;line-height:16px}.banner-copy{flex:1;min-width:0;overflow:hidden;white-space:nowrap}.banner-copy a{color:#1890ff}.banner-close{margin-left:8px;border:0;background:transparent;color:#646a73;font-size:20px;line-height:16px;cursor:pointer}.workflow-body{display:flex;width:100%;height:100%;min-height:0}.workflow-body.with-banner{height:calc(100% - 40px)}.workflow-canvas{position:relative;flex:1 1 auto;min-width:0;overflow:auto;background:#f5f6f7}.template-entry{position:absolute;top:20px;left:20px;height:32px;padding:4px 11px;border:.666667px solid #d0d3d6;border-radius:4px;background:#fff;color:#1f2329;font-size:14px}.flow-stack{display:flex;flex-direction:column;align-items:center;width:max-content;max-width:100%;min-height:441px;margin:0 auto;padding:40px;box-sizing:border-box}.system-node{display:flex;align-items:center;justify-content:center;flex:0 0 40px;width:100px;height:40px;box-sizing:border-box;border:.666667px solid rgba(187,191,196,.5);border-radius:64px;background:#f8f9fa;color:#646a73;font-size:14px;line-height:14px}.stage-node{position:relative;display:flex;align-items:center;justify-content:center;flex:0 0 66px;width:max-content;min-width:0;max-width:100%;height:66px;padding:12px 16px;box-sizing:border-box;border:.666667px solid #dee0e3;border-radius:6px;background:#fff;color:#1f2329;cursor:pointer}.stage-node.selected{border-color:#3370ff;background:rgba(51,112,255,.08);color:#3370ff}.stage-node.selected .node-icon,.stage-node.selected .node-copy strong{color:#3370ff}.node-icon{display:flex;align-items:center;justify-content:center;flex:0 0 20px;width:20px;height:20px;margin-right:8px;color:#646a73}.node-icon svg{display:block;width:20px;height:20px}.node-copy{display:flex;flex-direction:column;align-items:center;min-width:0;max-width:100%;white-space:nowrap}.node-copy strong{overflow:hidden;max-width:100%;font-size:14px;line-height:21px;font-weight:400}.node-copy small{overflow:hidden;max-width:100%;color:#646a73;font-size:12px;line-height:20px}.delete-node{position:absolute;top:21px;right:-28px;width:24px;height:24px;padding:4px;border:0;border-radius:6px;background:transparent;color:#646a73;line-height:16px}.flow-connector{display:flex;flex:0 0 41px;flex-direction:column;align-items:center;width:16px;height:41px;padding:0;border:0;background:transparent;cursor:pointer}.flow-connector--passive{cursor:default}.flow-connector--passive .flow-line{height:36.33333px}.flow-line{width:1px;height:10px;background:#bbbfc4}.add-circle{display:flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:16px;box-sizing:border-box;border:.666667px solid #bbbfc4;border-radius:999px;background:#fff;color:#bbbfc4;font-size:14px;line-height:14px}.flow-connector.open .add-circle{border-color:#3370ff;color:#3370ff}.triangle{width:0;height:0;border-top:4.66667px solid #bbbfc4;border-right:3.33333px solid transparent;border-left:3.33333px solid transparent}.config-panel{flex:0 0 320px;width:320px;overflow:auto;background:#fff;border-left:.666667px solid #dee0e3}.panel-scroll{padding:24px}.panel-scroll label,.panel-scroll fieldset{display:block;margin:0 0 20px;border:0;padding:0;font-size:14px;line-height:22px}.panel-scroll input:not([type=checkbox]):not([type=radio]),.panel-scroll textarea{display:block;width:100%;box-sizing:border-box;margin-top:8px;border:.666667px solid #d0d3d6;border-radius:4px;padding:4px 11px;font:inherit}.panel-scroll input:not([type=checkbox]):not([type=radio]){height:32px}.panel-scroll textarea{height:97px;resize:vertical}.check-row,.radio-row{display:flex!important;align-items:center;gap:8px;margin:8px 0!important}.empty-panel{display:flex;align-items:center;justify-content:center;height:100%;color:#8f959e}.stage-popover{position:absolute;top:0;left:0;overflow:visible;width:313px;box-sizing:border-box;z-index:2000}.stage-popover-content{overflow:auto;max-height:inherit;box-sizing:border-box;padding:12px 16px;border:.666667px solid #dee0e3;border-radius:8px;background:#fff;box-shadow:rgba(31,35,41,.04) 0 8px 24px 8px,rgba(31,35,41,.04) 0 6px 12px,rgba(31,35,41,.06) 0 4px 8px -8px}.popover-arrow{position:absolute;left:0;width:8px;height:16px;overflow:visible;transform:translate(calc(-100% + 1px),-50%) rotate(180deg);pointer-events:none}.popover-arrow path{fill:#fff;stroke:#dee0e3;stroke-width:.666667px}.popover-title{margin-bottom:12px;color:#646a73;font-size:14px;line-height:22px}.popover-stage{display:flex;align-items:center;width:280px;height:38px;margin-bottom:8px;padding:8px 12px;box-sizing:border-box;border:.666667px solid #dee0e3;border-radius:4px;background:#f5f6f7;color:#1f2329;font-size:14px;cursor:pointer}.popover-stage:last-child{margin-bottom:0}.popover-icon{display:flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:16px;margin-right:8px;color:#646a73}.popover-icon :deep(.stage-icon){width:16px;height:16px}
  .stage-node{flex-direction:column}.node-title-row{display:flex;justify-content:center;align-items:center;min-width:0;max-width:100%;font-size:14px;font-weight:400;line-height:21px}.node-title{overflow:hidden;min-width:0;max-width:100%;box-sizing:border-box;text-overflow:ellipsis;white-space:nowrap}.node-executor{overflow:hidden;min-width:0;max-width:100%;box-sizing:border-box;color:#646a73;font-size:12px;font-weight:400;line-height:20px;text-align:center;text-overflow:ellipsis;white-space:nowrap}.stage-node.selected .node-icon,.stage-node.selected .node-title{color:#3370ff}
 .panel-title{height:48px;padding:12px 20px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;font-weight:600;line-height:24px;color:rgba(0,0,0,.65);border-bottom:.666667px solid rgba(31,35,41,.15)}

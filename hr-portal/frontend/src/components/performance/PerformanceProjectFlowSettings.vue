@@ -46,8 +46,20 @@
 
       <section v-else-if="node.node_type === 'result_view'" class="node-settings result-view-settings" aria-label="绩效结果查看设置">
         <h3>结果开通方式 <span class="required-mark">*</span></h3>
-        <PerformanceCheckbox :model-value="resultViewSettings(node).opening_mode === 'AUTOMATIC'" label="按流程自动开通" @update:model-value="setOpeningMode(node, 'AUTOMATIC', $event)" />
-        <PerformanceCheckbox :model-value="resultViewSettings(node).opening_mode === 'MANUAL'" label="手动开通" @update:model-value="setOpeningMode(node, 'MANUAL', $event)" />
+        <div class="result-view-choices" :class="{ 'result-view-choices--error': openingInvalid(node) }">
+          <PerformanceCheckbox :model-value="resultViewSettings(node).automatic_enabled" label="按流程自动开通" @update:model-value="setOpeningMode(node, 'automatic_enabled', $event)" />
+          <PerformanceRadioGroup
+            v-if="resultViewSettings(node).automatic_enabled"
+            :model-value="resultViewSettings(node).automatic_rule"
+            :name="`result-opening-${nodeKey(node)}`"
+            :options="openingRuleOptions(node)"
+            direction="vertical"
+            aria-label="自动开通条件"
+            @update:model-value="setAutomaticRule(node, $event)"
+          />
+          <PerformanceCheckbox :model-value="resultViewSettings(node).manual_enabled" label="手动开通" @update:model-value="setOpeningMode(node, 'manual_enabled', $event)" />
+        </div>
+        <p v-if="openingInvalid(node)" class="result-view-error" role="alert">请至少选择一种方式</p>
         <p class="setting-help">指定角色可以手动为被评估人开通绩效结果，不论被评估人的评估流程是否结束。有开通权限的角色以权限管理模块配置为准</p>
       </section>
 
@@ -74,7 +86,8 @@
       :mode="ruleEditor.ruleIndex === null ? 'create' : 'edit'"
       :rule="ruleEditor.rule"
       :people-options="peopleOptions"
-      :scope-options="peopleOptions"
+      :saving="calibrationSaving"
+      :save-error="calibrationSaveError"
       @confirm="saveRuleEditor"
       @cancel="ruleEditor = null"
     />
@@ -86,6 +99,7 @@ import { computed, ref, watch } from 'vue'
 import type { PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
 import { performanceProjectApi } from '@/api/performance'
 import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
+import PerformanceRadioGroup from '@/components/performance/PerformanceRadioGroup.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceTextButton from '@/components/performance/PerformanceTextButton.vue'
 import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
@@ -111,17 +125,20 @@ const props = withDefaults(defineProps<{
   projectPayload?: PerformanceProjectPayload | null
   loading?: boolean
   error?: string
-}>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], evaluatedCount: 0, loading: false, error: '' })
+  showOpeningError?: boolean
+}>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], evaluatedCount: 0, loading: false, error: '', showOpeningError: false })
 const emit = defineEmits<{ 'update:modelValue': [value: PerformanceProjectFlowSettings] }>()
 
 const draft = ref<PerformanceProjectFlowSettings>(cloneSettings(props.modelValue))
 const lastEmitted = ref(JSON.stringify(draft.value))
 const ruleEditor = ref<RuleEditorState | null>(null)
-const drawerOpen = computed({ get: () => Boolean(ruleEditor.value), set: value => { if (!value) ruleEditor.value = null } })
+const calibrationSaving = ref(false)
+const calibrationSaveError = ref('')
+const drawerOpen = computed({ get: () => Boolean(ruleEditor.value), set: value => { if (!value && !calibrationSaving.value) ruleEditor.value = null } })
 const inviteDrawerNode = ref<PerformanceWorkflowNode | null>(null)
 const inviteSaving = ref(false)
 const inviteSaveError = ref('')
-const inviteDrawerOpen = computed({ get: () => Boolean(inviteDrawerNode.value), set: value => { if (!value && !inviteSaving.value) inviteDrawerNode.value = null } })
+const inviteDrawerOpen = computed({ get: () => Boolean(inviteDrawerNode.value), set: value => { if (!value) inviteDrawerNode.value = null } })
 const descriptions: Record<string, string> = {
   reviewer_360_invite: '「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效',
   reviewer_360_confirm: '「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效',
@@ -138,7 +155,7 @@ function nodeKey(node: PerformanceWorkflowNode) { return node.node_id || `${node
 function defaultFor(node: PerformanceWorkflowNode) {
   if (node.node_type === 'reviewer_360_invite') return { invite: { default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5, exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false } }
   if (node.node_type === 'calibration') return { calibration: { force_distribution_enabled: false, phases: [{ rules: [{ subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }] }] } }
-  if (node.node_type === 'result_view') return { result_view: { opening_mode: 'MANUAL' as const } }
+  if (node.node_type === 'result_view') return { result_view: { automatic_enabled: false, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' as const } }
   if (node.node_type === 'result_reconsideration') return { result_reconsideration: { handler: null } }
   return {}
 }
@@ -194,14 +211,48 @@ async function saveInviteSettings(value: NonNullable<PerformanceProjectFlowSetti
 function subjectLabel(value: string) { return value === 'PERSON' ? '人员' : value }
 function scopeLabel(value: string) { return value === 'PROJECT_ALL' ? '项目全员' : value }
 function openRuleEditor(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number | null = null) {
+  calibrationSaveError.value = ''
   const rule = ruleIndex === null ? null : calibrationSettings(node).phases[phaseIndex].rules[ruleIndex]
   ruleEditor.value = { open: true, node, phaseIndex, ruleIndex, rule: rule ? JSON.parse(JSON.stringify(rule)) : null }
 }
-function saveRuleEditor(rule: PerformanceProjectFlowRule) {
-  if (!ruleEditor.value) return
-  const rules = calibrationSettings(ruleEditor.value.node).phases[ruleEditor.value.phaseIndex].rules
-  if (ruleEditor.value.ruleIndex === null) rules.push(rule)
-  else rules.splice(ruleEditor.value.ruleIndex, 1, rule)
+async function saveRuleEditor(rule: PerformanceProjectFlowRule) {
+  const editor = ruleEditor.value
+  if (!editor || calibrationSaving.value) return
+  const settings = cloneSettings(draft.value)
+  const key = nodeKey(editor.node)
+  const rules = settings.node_settings[key]?.calibration?.phases[editor.phaseIndex]?.rules
+  if (!rules) return
+  if (editor.ruleIndex === null) rules.push(rule)
+  else rules.splice(editor.ruleIndex, 1, rule)
+  calibrationSaveError.value = ''
+  if (props.projectId && props.projectPayload) {
+    calibrationSaving.value = true
+    try {
+      const project = await performanceProjectApi.update(props.projectId, { ...props.projectPayload, flow_settings: settings })
+      if (ruleEditor.value !== editor) return
+      draft.value = cloneSettings(project.flow_settings)
+      lastEmitted.value = JSON.stringify(draft.value)
+      emit('update:modelValue', cloneSettings(draft.value))
+      try {
+        const saved = await performanceProjectApi.get(props.projectId)
+        if (ruleEditor.value !== editor) return
+        draft.value = cloneSettings(saved.flow_settings)
+        lastEmitted.value = JSON.stringify(draft.value)
+        emit('update:modelValue', cloneSettings(draft.value))
+      } catch {
+        calibrationSaveError.value = '校准规则已保存，重新加载失败，请稍后刷新项目'
+        ruleEditor.value = null
+        return
+      }
+    } catch (error: any) {
+      calibrationSaveError.value = error?.response?.data?.detail || '校准规则保存失败，请重试'
+      return
+    } finally {
+      calibrationSaving.value = false
+    }
+  } else {
+    draft.value = settings
+  }
   ruleEditor.value = null
 }
 function setInviteDefault(node: PerformanceWorkflowNode, event: Event) { inviteSettings(node).default_invite = (event.target as HTMLSelectElement).value as 'DIRECT_SUBORDINATES' | 'NONE' }
@@ -211,13 +262,28 @@ function removeRule(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex
 function removePhase(node: PerformanceWorkflowNode, phaseIndex: number) { const phases = calibrationSettings(node).phases; if (phases.length > 1) phases.splice(phaseIndex, 1) }
 function addPhase(node: PerformanceWorkflowNode) { calibrationSettings(node).phases.push({ rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }) }
 function setReconsiderationHandler(node: PerformanceWorkflowNode, event: Event) { reconsiderationSettings(node).handler = (event.target as HTMLSelectElement).value || null }
-function setOpeningMode(node: PerformanceWorkflowNode, mode: 'AUTOMATIC' | 'MANUAL', enabled: boolean) { if (enabled) resultViewSettings(node).opening_mode = mode }
+function openingInvalid(node: PerformanceWorkflowNode) { const view = resultViewSettings(node); return props.showOpeningError && !view.automatic_enabled && !view.manual_enabled }
+function openingRuleOptions(node: PerformanceWorkflowNode) {
+  const previousIndex = props.nodes.findIndex(item => nodeKey(item) === nodeKey(node)) - 1
+  const previousName = previousIndex >= 0 ? props.nodes[previousIndex].name : '项目启动'
+  return [
+    { value: 'PREVIOUS_AND_START', label: `完成${previousName}，且到${node.name}开始时间时开通` },
+    { value: 'PREVIOUS_IMMEDIATE', label: `完成${previousName}，立即开通` },
+  ]
+}
+function setOpeningMode(node: PerformanceWorkflowNode, field: 'automatic_enabled' | 'manual_enabled', enabled: boolean) { resultViewSettings(node)[field] = enabled }
+function setAutomaticRule(node: PerformanceWorkflowNode, value: string) { resultViewSettings(node).automatic_rule = value as 'PREVIOUS_AND_START' | 'PREVIOUS_IMMEDIATE' }
 watch(() => props.modelValue, value => { const next = JSON.stringify(value || { node_settings: {}, node_times: {} }); if (next !== lastEmitted.value) { draft.value = cloneSettings(value); ensureAllNodes(); lastEmitted.value = JSON.stringify(draft.value) } }, { deep: true })
 watch(() => props.nodes, ensureAllNodes, { deep: true, immediate: true })
 watch(draft, value => { const next = JSON.stringify(value); if (next === lastEmitted.value) return; lastEmitted.value = next; emit('update:modelValue', cloneSettings(value)) }, { deep: true })
 </script>
 
 <style scoped>
-.project-flow-settings{display:grid;width:100%;gap:16px}.flow-state{padding:32px;color:#646a73;text-align:center}.flow-state--error{color:#f04438}.flow-node-card{width:100%;box-sizing:border-box;padding:24px 32px;border-radius:8px;background:#fff;box-shadow:0 1px 4px rgba(31,35,41,.05)}.flow-node-header{display:flex;align-items:flex-start;gap:12px}.flow-node-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;background:#f5f6f7;color:#3370ff}.flow-node-icon :deep(.stage-icon){width:24px;height:24px}.flow-node-heading{min-width:0;padding-top:3px}.flow-node-heading h2{margin:0;color:#1f2329;font-size:16px;line-height:24px}.flow-node-heading p{margin:4px 0 0;color:#646a73;font-size:14px;line-height:22px}.node-settings{margin:20px 0 0 52px}.settings-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.settings-heading h3,.node-settings h3{margin:0;color:#1f2329;font-size:14px;line-height:22px}.settings-heading p,.calibration-switch-row p,.setting-help{margin:4px 0 0;color:#646a73;font-size:14px;line-height:22px}.outline-button{height:32px;padding:4px 20px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;color:#1f2329;font:inherit;cursor:pointer}.invite-grid{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:16px;padding:16px;border-radius:8px;background:#f5f6f7}.invite-column{min-width:0}.field-label{display:block;margin:0 0 8px;color:#646a73;font-size:14px;line-height:22px}.invite-count-label{margin-top:18px}.field-control{width:100%;height:32px;padding:4px 10px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;color:#1f2329;font:inherit}.setting-value{margin:0;color:#1f2329;font-size:14px;line-height:22px}.number-field{display:flex;align-items:center;gap:8px;color:#646a73;font-size:14px;line-height:32px}.number-field input{width:72px;height:32px;padding:4px 8px;box-sizing:border-box;border:1px solid #d0d3d6;border-radius:6px;background:#fff;font:inherit}.check-line{display:block;margin-top:8px}.calibration-switch-row{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.calibration-switch-row strong{font-size:14px;line-height:22px}.calibration-heading{margin-top:20px}.required-mark{color:#f04438}.info-mark,.info-circle{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#3370ff;color:#fff;font-size:11px;font-style:normal}.info-mark{margin-left:4px}.calibration-summary{display:flex;align-items:center;gap:8px;margin-top:12px;padding:12px 16px;border-radius:6px;background:#f0f4ff;color:#1f2329;font-size:14px;line-height:22px}.calibration-summary .link-button{margin-left:auto}.link-button,.text-button{padding:0;border:0;background:transparent;color:#3370ff;font:inherit;cursor:pointer}.calibration-phase{margin-top:20px}.phase-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.phase-heading :deep(.performance-icon-button){--performance-icon-button-size:24px;width:24px;height:24px}.phase-title{color:#1f2329;font-size:14px;line-height:22px}.rule-table{padding:0 16px;border-radius:8px;background:#f5f6f7}.rule-table-header{display:grid;grid-template-columns:140px minmax(180px,1fr) 140px 72px;align-items:center;gap:8px;min-height:47px;border-bottom:1px solid #dee0e3;color:#646a73;font-size:14px;line-height:22px}.rule-row{display:grid;grid-template-columns:140px minmax(180px,1fr) 140px 72px;align-items:center;gap:8px;min-height:52px;border-bottom:1px solid #dee0e3}.rule-row select{height:32px;padding:4px 8px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;font:inherit}.scope-editor{display:grid;grid-template-columns:120px minmax(120px,1fr);gap:8px}.rule-person{display:flex;align-items:center;gap:8px;min-width:0}.rule-tag,.rule-scope-tag{display:inline-flex;align-items:center;min-height:24px;padding:1px 6px;border-radius:4px;background:#e5e6e8;color:#1f2329;white-space:nowrap}.rule-person>span:last-child{overflow:hidden;color:#1f2329;text-overflow:ellipsis;white-space:nowrap}.rule-scope-tag{width:max-content}.rule-actions{display:flex;gap:8px;white-space:nowrap}.text-button{padding:0;border:0;background:transparent;color:#3370ff;font:inherit;cursor:pointer}.add-rule{display:block;margin-top:12px}.add-phase{margin-top:12px}.result-view-settings h3{margin-bottom:12px}.result-view-settings :deep(.performance-checkbox){margin:8px 0}.setting-help{max-width:720px}.reconsideration-settings{max-width:520px}.reconsideration-settings h3{margin-bottom:12px}
+.result-view-choices--error :deep(.ud__checkbox__wallpaper){border-color:var(--performance-field-error-color)}
+.result-view-choices .performance-radio-group{display:flex;margin:8px 0 12px 24px;max-width:100%}
+.result-view-choices :deep(.performance-radio-option){height:auto;min-height:22px;white-space:normal}
+.result-view-choices :deep(.radio-label){white-space:normal}
+.result-view-error{margin:4px 0;color:var(--performance-field-error-color);font-size:var(--font-size-md)}
+.project-flow-settings{display:grid;width:100%;gap:16px}.flow-state{padding:32px;color:#646a73;text-align:center}.flow-state--error{color:#f04438}.flow-node-card{width:100%;box-sizing:border-box;padding:24px 32px;border-radius:8px;background:#fff;box-shadow:0 1px 4px rgba(31,35,41,.05)}.flow-node-header{display:flex;align-items:flex-start;gap:12px}.flow-node-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;background:#f5f6f7;color:#3370ff}.flow-node-icon :deep(.stage-icon){width:24px;height:24px}.flow-node-heading{min-width:0;padding-top:3px}.flow-node-heading h2{margin:0;color:#1f2329;font-size:16px;line-height:24px}.flow-node-heading p{margin:4px 0 0;color:#646a73;font-size:14px;line-height:22px}.node-settings{margin:20px 0 0 52px}.settings-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.settings-heading h3,.node-settings h3{margin:0;color:#1f2329;font-size:14px;line-height:22px}.settings-heading p,.calibration-switch-row p,.setting-help{margin:4px 0 0;color:#646a73;font-size:14px;line-height:22px}.outline-button{height:32px;padding:4px 20px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;color:#1f2329;font:inherit;cursor:pointer}.invite-grid{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:16px;padding:16px;border-radius:8px;background:#f5f6f7}.invite-summary{display:flex;flex-direction:column;gap:8px;margin-top:16px;padding:12px 16px;border-radius:6px;background:#f5f6f7}.invite-summary div{display:flex;align-items:center;justify-content:space-between;gap:16px}.invite-summary span{color:#646a73}.invite-summary strong{color:#1f2329;font-weight:400}.invite-column{min-width:0}.field-label{display:block;margin:0 0 8px;color:#646a73;font-size:14px;line-height:22px}.invite-count-label{margin-top:18px}.field-control{width:100%;height:32px;padding:4px 10px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;color:#1f2329;font:inherit}.setting-value{margin:0;color:#1f2329;font-size:14px;line-height:22px}.number-field{display:flex;align-items:center;gap:8px;color:#646a73;font-size:14px;line-height:32px}.number-field input{width:72px;height:32px;padding:4px 8px;box-sizing:border-box;border:1px solid #d0d3d6;border-radius:6px;background:#fff;font:inherit}.check-line{display:block;margin-top:8px}.calibration-switch-row{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.calibration-switch-row strong{font-size:14px;line-height:22px}.calibration-heading{margin-top:20px}.required-mark{color:#f04438}.info-mark,.info-circle{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#3370ff;color:#fff;font-size:11px;font-style:normal}.info-mark{margin-left:4px}.calibration-summary{display:flex;align-items:center;gap:8px;margin-top:12px;padding:12px 16px;border-radius:6px;background:#f0f4ff;color:#1f2329;font-size:14px;line-height:22px}.calibration-summary .link-button{margin-left:auto}.link-button,.text-button{padding:0;border:0;background:transparent;color:#3370ff;font:inherit;cursor:pointer}.calibration-phase{margin-top:20px}.phase-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.phase-heading :deep(.performance-icon-button){--performance-icon-button-size:24px;width:24px;height:24px}.phase-title{color:#1f2329;font-size:14px;line-height:22px}.rule-table{padding:0 16px;border-radius:8px;background:#f5f6f7}.rule-table-header{display:grid;grid-template-columns:140px minmax(180px,1fr) 140px 72px;align-items:center;gap:8px;min-height:47px;border-bottom:1px solid #dee0e3;color:#646a73;font-size:14px;line-height:22px}.rule-row{display:grid;grid-template-columns:140px minmax(180px,1fr) 140px 72px;align-items:center;gap:8px;min-height:52px;border-bottom:1px solid #dee0e3}.rule-row select{height:32px;padding:4px 8px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;font:inherit}.scope-editor{display:grid;grid-template-columns:120px minmax(120px,1fr);gap:8px}.rule-person{display:flex;align-items:center;gap:8px;min-width:0}.rule-tag,.rule-scope-tag{display:inline-flex;align-items:center;min-height:24px;padding:1px 6px;border-radius:4px;background:#e5e6e8;color:#1f2329;white-space:nowrap}.rule-person>span:last-child{overflow:hidden;color:#1f2329;text-overflow:ellipsis;white-space:nowrap}.rule-scope-tag{width:max-content}.rule-actions{display:flex;gap:8px;white-space:nowrap}.text-button{padding:0;border:0;background:transparent;color:#3370ff;font:inherit;cursor:pointer}.add-rule{display:block;margin-top:12px}.add-phase{margin-top:12px}.result-view-settings h3{margin-bottom:12px}.result-view-settings :deep(.performance-checkbox){margin:8px 0}.setting-help{max-width:720px}.reconsideration-settings{max-width:520px}.reconsideration-settings h3{margin-bottom:12px}
 @media (max-width:800px){.flow-node-card{padding:20px}.node-settings{margin-left:0}.invite-grid{grid-template-columns:1fr}.rule-row{grid-template-columns:1fr 1fr;}.rule-delegation{display:none}}
 </style>
