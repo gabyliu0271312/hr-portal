@@ -329,12 +329,36 @@ class PerformanceProjectService:
                 minimum = invite.get("minimum_invited_count", 0)
                 if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum < 0 or minimum > 100:
                     raise ProjectValidationError("最少邀请人数不合法")
+                maximum = invite.get("maximum_invited_count")
+                if maximum is not None and (not isinstance(maximum, int) or isinstance(maximum, bool) or maximum > 100 or maximum <= minimum):
+                    raise ProjectValidationError("需大于最少邀请人数")
+                maximum_mode = invite.get("maximum_invite_mode", "SUGGESTED")
+                if maximum_mode not in {"SUGGESTED", "LIMIT"}:
+                    raise ProjectValidationError("最多邀请人数提示方式不合法")
+                second_enabled = invite.get("second_prompt_enabled", False)
+                if not isinstance(second_enabled, bool):
+                    raise ProjectValidationError("二次触发提示设置不合法")
+                second_count = invite.get("second_prompt_count")
+                if second_enabled and (maximum is None or not isinstance(second_count, int) or isinstance(second_count, bool) or second_count > 100 or second_count <= maximum):
+                    raise ProjectValidationError("需大于最多邀请人数")
+                if not second_enabled and second_count is not None:
+                    raise ProjectValidationError("二次触发提示人数不合法")
+                second_mode = invite.get("second_prompt_mode", "SUGGESTED")
+                if second_mode not in {"SUGGESTED", "LIMIT"}:
+                    raise ProjectValidationError("二次触发提示方式不合法")
                 recommended = invite.get("recommended_invite", [])
                 if not isinstance(recommended, list) or not all(isinstance(item, str) and item.strip() for item in recommended):
                     raise ProjectValidationError("推荐邀请设置格式不正确")
                 normalized["invite"] = {
                     "default_invite": default_invite,
                     "minimum_invited_count": minimum,
+                    **({
+                        "maximum_invited_count": maximum,
+                        "maximum_invite_mode": maximum_mode,
+                        "second_prompt_enabled": second_enabled,
+                        "second_prompt_count": second_count,
+                        "second_prompt_mode": second_mode,
+                    } if any(key in invite for key in ("maximum_invited_count", "maximum_invite_mode", "second_prompt_enabled", "second_prompt_count", "second_prompt_mode")) else {}),
                     "exclude_default_invite_from_limit": bool(invite.get("exclude_default_invite_from_limit", False)),
                     "recommended_invite": list(dict.fromkeys(recommended)),
                     "allow_voluntary_evaluation": bool(invite.get("allow_voluntary_evaluation", False)),

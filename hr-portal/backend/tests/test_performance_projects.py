@@ -387,6 +387,51 @@ def test_project_flow_settings_validate_supported_editable_variants():
     assert normalized["node_times"] == {}
 
 
+def test_project_invite_counts_round_trip_and_legacy_compatibility():
+    invite = {
+        "default_invite": "DIRECT_SUBORDINATES", "minimum_invited_count": 5,
+        "maximum_invited_count": 8, "maximum_invite_mode": "SUGGESTED",
+        "second_prompt_enabled": True, "second_prompt_count": 10, "second_prompt_mode": "SUGGESTED",
+        "exclude_default_invite_from_limit": True, "recommended_invite": [], "allow_voluntary_evaluation": False,
+    }
+    flow = {"node_settings": {"invite-1": {"invite": invite}}}
+    normalized = PerformanceProjectService._validate_flow_settings(flow)
+    assert normalized["node_settings"]["invite-1"]["invite"] == invite
+    assert PerformanceProjectService._validate_flow_settings(normalized) == normalized
+    _, _, _, settings = PerformanceProjectService._validate_payload({"name": "360项目", "flow_settings": flow})
+    target = project()
+    target.settings = settings
+    assert PerformanceProjectService.serialize(target)["flow_settings"]["node_settings"]["invite-1"]["invite"] == invite
+
+    limited = {**invite, "maximum_invite_mode": "LIMIT", "second_prompt_mode": "LIMIT"}
+    flow["node_settings"]["invite-1"]["invite"] = limited
+    assert PerformanceProjectService._validate_flow_settings(flow)["node_settings"]["invite-1"]["invite"] == limited
+
+    legacy = {key: value for key, value in invite.items() if key not in {
+        "maximum_invited_count", "maximum_invite_mode", "second_prompt_enabled", "second_prompt_count", "second_prompt_mode",
+    }}
+    old_flow = {"node_settings": {"invite-1": {"invite": legacy}}}
+    assert PerformanceProjectService._validate_flow_settings(old_flow)["node_settings"]["invite-1"]["invite"] == legacy
+
+
+@pytest.mark.parametrize(("updates", "error"), [
+    ({"maximum_invited_count": 5}, "需大于最少邀请人数"),
+    ({"maximum_invited_count": 4}, "需大于最少邀请人数"),
+    ({"maximum_invited_count": True}, "需大于最少邀请人数"),
+    ({"maximum_invited_count": 8, "second_prompt_enabled": True}, "需大于最多邀请人数"),
+    ({"maximum_invited_count": 8, "second_prompt_enabled": True, "second_prompt_count": 8}, "需大于最多邀请人数"),
+    ({"maximum_invited_count": 8, "second_prompt_enabled": True, "second_prompt_count": 101}, "需大于最多邀请人数"),
+    ({"maximum_invited_count": 8, "second_prompt_enabled": False, "second_prompt_count": 9}, "二次触发提示人数不合法"),
+    ({"maximum_invited_count": 8, "maximum_invite_mode": "UNKNOWN"}, "最多邀请人数提示方式不合法"),
+    ({"second_prompt_mode": "UNKNOWN"}, "二次触发提示方式不合法"),
+    ({"second_prompt_enabled": "true"}, "二次触发提示设置不合法"),
+])
+def test_project_invite_count_validation(updates, error):
+    flow = {"node_settings": {"invite-1": {"invite": {"minimum_invited_count": 5, **updates}}}}
+    with pytest.raises(ProjectValidationError, match=error):
+        PerformanceProjectService._validate_flow_settings(flow)
+
+
 def _calibration_rule_settings(rule):
     return {"node_settings": {"calibration-1": {"calibration": {"phases": [{"rules": [rule]}]}}}}
 

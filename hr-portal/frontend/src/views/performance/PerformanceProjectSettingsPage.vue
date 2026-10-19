@@ -53,6 +53,8 @@
           v-if="form.template_id"
           v-model="form.flow_settings"
           :nodes="workflowNodes"
+          :project-id="projectId"
+          :project-payload="payload()"
           :people-options="evaluatorOptions.people"
           :evaluated-count="evaluatedCount"
           :loading="flowLoading"

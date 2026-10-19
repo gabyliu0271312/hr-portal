@@ -15,32 +15,12 @@
       <section v-if="node.node_type === 'reviewer_360_invite'" class="node-settings invite-settings" aria-label="360°评估人设置">
         <div class="settings-heading">
           <div><h3>360°评估人设置</h3><p>该配置对所有 360° 相关环节生效</p></div>
-          <button class="outline-button" type="button" @click="inviteEdit[nodeKey(node)] = !inviteEdit[nodeKey(node)]">{{ inviteEdit[nodeKey(node)] ? '完成' : '设置' }}</button>
+          <button class="outline-button" type="button" @click="openInviteDrawer(node)">设置</button>
         </div>
-        <div class="invite-grid">
-          <div class="invite-column">
-            <label class="field-label" for="default-invite">默认邀请</label>
-            <template v-if="inviteEdit[nodeKey(node)]">
-              <select id="default-invite" :value="inviteSettings(node).default_invite" class="field-control" @change="setInviteDefault(node, $event)">
-                <option value="DIRECT_SUBORDINATES">直属下级</option>
-                <option value="NONE">暂不配置</option>
-              </select>
-            </template>
-            <strong v-else>{{ inviteLabel(inviteSettings(node).default_invite) }}</strong>
-            <label class="field-label invite-count-label" :for="`invite-count-${nodeKey(node)}`">邀请人数设置</label>
-            <div v-if="inviteEdit[nodeKey(node)]" class="number-field"><span>最少邀请人数：</span><input :id="`invite-count-${nodeKey(node)}`" :value="inviteSettings(node).minimum_invited_count" type="number" min="0" max="100" @input="setMinimumInviteCount(node, $event)" /></div>
-            <p v-else class="setting-value">最少邀请人数：{{ inviteSettings(node).minimum_invited_count }}</p>
-            <label v-if="inviteEdit[nodeKey(node)]" class="check-line"><PerformanceCheckbox :model-value="inviteSettings(node).exclude_default_invite_from_limit" label="“直属下级”不计入邀请人数限制" @update:model-value="inviteSettings(node).exclude_default_invite_from_limit = $event" /></label>
-            <p v-else class="setting-value">{{ inviteSettings(node).exclude_default_invite_from_limit ? '“直属下级”不计入邀请人数限制' : '“直属下级”计入邀请人数限制' }}</p>
-          </div>
-          <div class="invite-column">
-            <label class="field-label">推荐邀请</label>
-            <PerformanceMultiSelect v-if="inviteEdit[nodeKey(node)]" :model-value="inviteSettings(node).recommended_invite" :options="peopleOptions" placeholder="暂未配置" @update:model-value="inviteSettings(node).recommended_invite = $event" />
-            <strong v-else>{{ inviteSettings(node).recommended_invite.length ? inviteSettings(node).recommended_invite.join('、') : '暂未配置' }}</strong>
-            <label class="field-label invite-count-label">允许自愿评估</label>
-            <PerformanceSwitch v-if="inviteEdit[nodeKey(node)]" :model-value="inviteSettings(node).allow_voluntary_evaluation" aria-label="允许自愿评估" @update:model-value="inviteSettings(node).allow_voluntary_evaluation = $event" />
-            <p v-else class="setting-value">{{ inviteSettings(node).allow_voluntary_evaluation ? '允许' : '不允许' }}</p>
-          </div>
+        <div class="invite-summary">
+          <div><span>默认邀请</span><strong>{{ inviteLabel(inviteSettings(node).default_invite) }}</strong></div>
+          <div><span>最少邀请人数</span><strong>{{ inviteSettings(node).minimum_invited_count }} 人</strong></div>
+          <div><span>允许自愿评估</span><strong>{{ inviteSettings(node).allow_voluntary_evaluation ? '允许' : '不允许' }}</strong></div>
         </div>
       </section>
 
@@ -79,6 +59,15 @@
         </select>
       </section>
     </article>
+    <PerformanceProject360InviteSettingsDrawer
+      v-if="inviteDrawerNode"
+      v-model="inviteDrawerOpen"
+      :settings="inviteSettings(inviteDrawerNode)"
+      :people-options="peopleOptions"
+      :saving="inviteSaving"
+      :save-error="inviteSaveError"
+      @confirm="saveInviteSettings"
+    />
     <PerformanceCalibrationRuleDrawer
       v-if="ruleEditor"
       v-model="drawerOpen"
@@ -94,13 +83,14 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceWorkflowNode } from '@/api/performance'
+import type { PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
+import { performanceProjectApi } from '@/api/performance'
 import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceTextButton from '@/components/performance/PerformanceTextButton.vue'
-import PerformanceMultiSelect from '@/components/performance/PerformanceMultiSelect.vue'
 import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
 import PerformanceCalibrationRuleDrawer from '@/components/performance/PerformanceCalibrationRuleDrawer.vue'
+import PerformanceProject360InviteSettingsDrawer from '@/components/performance/PerformanceProject360InviteSettingsDrawer.vue'
 import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflowStageIcon.vue'
 
 type PeopleOption = { value: string; label: string }
@@ -117,6 +107,8 @@ const props = withDefaults(defineProps<{
   modelValue?: PerformanceProjectFlowSettings
   peopleOptions?: PeopleOption[]
   evaluatedCount?: number
+  projectId?: number | null
+  projectPayload?: PerformanceProjectPayload | null
   loading?: boolean
   error?: string
 }>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], evaluatedCount: 0, loading: false, error: '' })
@@ -126,7 +118,10 @@ const draft = ref<PerformanceProjectFlowSettings>(cloneSettings(props.modelValue
 const lastEmitted = ref(JSON.stringify(draft.value))
 const ruleEditor = ref<RuleEditorState | null>(null)
 const drawerOpen = computed({ get: () => Boolean(ruleEditor.value), set: value => { if (!value) ruleEditor.value = null } })
-const inviteEdit = ref<Record<string, boolean>>({})
+const inviteDrawerNode = ref<PerformanceWorkflowNode | null>(null)
+const inviteSaving = ref(false)
+const inviteSaveError = ref('')
+const inviteDrawerOpen = computed({ get: () => Boolean(inviteDrawerNode.value), set: value => { if (!value && !inviteSaving.value) inviteDrawerNode.value = null } })
 const descriptions: Record<string, string> = {
   reviewer_360_invite: '「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效',
   reviewer_360_confirm: '「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效',
@@ -169,6 +164,33 @@ function resultViewSettings(node: PerformanceWorkflowNode) { ensureNode(node); r
 function reconsiderationSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].result_reconsideration! }
 function descriptionFor(node: PerformanceWorkflowNode) { return node.description || descriptions[node.node_type] || '' }
 function inviteLabel(value: string) { return value === 'DIRECT_SUBORDINATES' ? '直属下级' : '暂未配置' }
+function openInviteDrawer(node: PerformanceWorkflowNode) { inviteSaveError.value = ''; inviteDrawerNode.value = node }
+async function saveInviteSettings(value: NonNullable<PerformanceProjectFlowSettings['node_settings'][string]['invite']>) {
+  if (!inviteDrawerNode.value || inviteSaving.value) return
+  const key = nodeKey(inviteDrawerNode.value)
+  const activeNode = inviteDrawerNode.value
+  inviteSaveError.value = ''
+  if (props.projectId && props.projectPayload) {
+    inviteSaving.value = true
+    try {
+      const settings = cloneSettings(draft.value)
+      settings.node_settings[key] = { ...settings.node_settings[key], invite: value }
+      const project = await performanceProjectApi.update(props.projectId, { ...props.projectPayload, flow_settings: settings })
+      if (inviteDrawerNode.value !== activeNode) return
+      draft.value = cloneSettings(project.flow_settings)
+      lastEmitted.value = JSON.stringify(draft.value)
+      emit('update:modelValue', cloneSettings(draft.value))
+    } catch (error: any) {
+      inviteSaveError.value = error?.response?.data?.detail || '360°评估人设置保存失败'
+      return
+    } finally {
+      inviteSaving.value = false
+    }
+  } else {
+    draft.value.node_settings[key] = { ...draft.value.node_settings[key], invite: value }
+  }
+  inviteDrawerNode.value = null
+}
 function subjectLabel(value: string) { return value === 'PERSON' ? '人员' : value }
 function scopeLabel(value: string) { return value === 'PROJECT_ALL' ? '项目全员' : value }
 function openRuleEditor(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number | null = null) {

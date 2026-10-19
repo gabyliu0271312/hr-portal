@@ -1113,6 +1113,11 @@ export interface PerformanceProjectFlowSettings {
       minimum_invited_count: number
       exclude_default_invite_from_limit: boolean
       recommended_invite: string[]
+      maximum_invited_count?: number | null
+      maximum_invite_mode?: 'SUGGESTED' | 'LIMIT'
+      second_prompt_enabled?: boolean
+      second_prompt_count?: number | null
+      second_prompt_mode?: 'SUGGESTED' | 'LIMIT'
       allow_voluntary_evaluation: boolean
     }
     calibration?: {

@@ -9,7 +9,7 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" data-icon="CloseBoldOutlined" aria-hidden="true"><path d="M19.778 19.778a1.5 1.5 0 0 0 0-2.121L14.122 12l5.656-5.657a1.5 1.5 0 1 0-2.121-2.121L12 9.879 6.343 4.222a1.5 1.5 0 1 0-2.121 2.121L9.878 12l-5.657 5.657a1.5 1.5 0 0 0 2.121 2.121L12 14.121l5.657 5.657a1.5 1.5 0 0 0 2.121 0Z" fill="currentColor" /></svg>
           </button>
         </div>
-        <input ref="searchInput" v-model="query" class="performance-select-shell__input" type="search" role="combobox" autocomplete="off" :disabled="disabled" :readonly="selectionStyle === 'plain'" :aria-label="ariaLabel" :aria-expanded="open" :placeholder="selectedItems.length ? undefined : placeholder" :style="{ width: query ? `${Math.max(6, query.length * 14)}px` : '6px' }" @focus="openMenu" @keydown.esc.stop="close" />
+        <input ref="searchInput" v-model="query" class="performance-select-shell__input" type="search" role="combobox" autocomplete="off" :disabled="disabled" :readonly="selectionStyle === 'plain'" :aria-label="ariaLabel" :aria-expanded="open" :placeholder="selectedItems.length ? undefined : placeholder" :style="{ width: query ? `${Math.max(6, query.length * 14)}px` : '6px' }" @focus="openOnFocus && openMenu()" @keydown.esc.stop="close" />
       </div>
       <button v-if="selectedItems.length && selectionStyle !== 'plain'" class="performance-select-shell__clear" type="button" :disabled="disabled" :aria-label="clearLabel" @click.stop="clearAll">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" data-icon="EmptyFilled" aria-hidden="true"><path d="M12 23C5.925 23 1 18.075 1 12S5.925 1 12 1s11 4.925 11 11-4.925 11-11 11Zm3.874-16.635L12 10.239 8.126 6.365a1.245 1.245 0 1 0-1.761 1.76L10.239 12l-3.874 3.874a1.245 1.245 0 1 0 1.76 1.761L12 13.761l3.874 3.874a1.245 1.245 0 0 0 1.761-1.76L13.761 12l3.874-3.874a1.245 1.245 0 0 0-1.76-1.761Z" fill="currentColor" /></svg>
@@ -42,8 +42,10 @@ const props = withDefaults(defineProps<{
   popupLabel?: string
   clearLabel?: string
   popupHeight?: number | 'auto'
+  popupWidth?: number
   popupMaxHeight?: number
   selectionStyle?: 'tags' | 'plain'
+  openOnFocus?: boolean
   disabledSurface?: 'muted' | 'white'
   disabled?: boolean
 }>(), {
@@ -53,8 +55,10 @@ const props = withDefaults(defineProps<{
   popupLabel: '选项',
   clearLabel: '清空已选',
   popupHeight: 'auto',
+  popupWidth: undefined,
   popupMaxHeight: 320,
   selectionStyle: 'tags',
+  openOnFocus: true,
   disabledSurface: 'muted',
   disabled: false,
 })
@@ -83,7 +87,8 @@ function updatePosition() {
     : props.popupHeight
   const top = below + popupContentHeight <= window.innerHeight - margin ? below : Math.max(margin, box.top - popupContentHeight - gap)
   const left = Math.min(box.left, Math.max(margin, window.innerWidth - box.width - margin))
-  popupStyle.value = { position: 'fixed', top: `${top}px`, left: `${left}px`, width: `${box.width}px`, minWidth: `${box.width}px`, visibility: 'visible' }
+  const width = props.popupWidth ?? box.width
+  popupStyle.value = { position: 'fixed', top: `${top}px`, left: `${left}px`, width: `${width}px`, minWidth: `${width}px`, visibility: 'visible' }
 }
 function openMenu() {
   if (props.disabled || open.value) return
