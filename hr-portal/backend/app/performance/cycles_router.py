@@ -65,6 +65,8 @@ class CyclePayload(BaseModel):
     leaver_start_date: date | None = None
     leaver_end_date: date | None = None
     leaver_participation_mode: Literal["CREATE_TASK", "REPORT_ONLY"] = "CREATE_TASK"
+    overdue_submission_enabled: bool = True
+    overdue_submission_scope: Literal["EVALUATION", "ALL"] = "EVALUATION"
 
     @model_validator(mode="after")
     def validate_dates(self):
@@ -95,6 +97,8 @@ class CyclePatch(BaseModel):
     leaver_start_date: date | None = None
     leaver_end_date: date | None = None
     leaver_participation_mode: Literal["CREATE_TASK", "REPORT_ONLY"] | None = None
+    overdue_submission_enabled: bool | None = None
+    overdue_submission_scope: Literal["EVALUATION", "ALL"] | None = None
 
 
 class CyclePerson(BaseModel):
@@ -297,6 +301,8 @@ class CycleSummary(BaseModel):
     leaver_start_date: date | None
     leaver_end_date: date | None
     leaver_participation_mode: str
+    overdue_submission_enabled: bool
+    overdue_submission_scope: str
     status: str
     people_count: int
     department_count: int

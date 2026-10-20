@@ -30,12 +30,12 @@
         :key="rule.key"
         :label="rule.label"
         :enabled="settings[rule.key]"
-        :frequency="rule.key === 'todo_task_notification_enabled' ? todoSummary.frequency : rule.frequency"
-        :time="rule.key === 'todo_task_notification_enabled' ? todoSummary.time : rule.time"
-        :holiday-policy="rule.key === 'todo_task_notification_enabled' ? todoSummary.holidayPolicy : '不屏蔽'"
-        :editable="rule.key === 'todo_task_notification_enabled'"
+        :frequency="rule.key === 'todo_task_notification_enabled' ? todoSummary.frequency : rule.key === 'progress_daily_notification_enabled' ? progressSummary.frequency : rule.frequency"
+        :time="rule.key === 'todo_task_notification_enabled' ? todoSummary.time : rule.key === 'progress_daily_notification_enabled' ? progressSummary.time : rule.time"
+        :holiday-policy="rule.key === 'todo_task_notification_enabled' ? todoSummary.holidayPolicy : rule.key === 'progress_daily_notification_enabled' ? progressSummary.holidayPolicy : '不屏蔽'"
+        :editable="rule.key !== 'stage_start_notification_enabled'"
         :editing-disabled="saving"
-        @edit="emit('edit-todo')"
+        @edit="rule.key === 'progress_daily_notification_enabled' ? emit('edit-progress-daily') : emit('edit-todo')"
         @update:enabled="updateRule(rule.key, $event)"
       />
     </section>
@@ -44,7 +44,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { todoNotificationSummary } from './performanceTodoNotificationRule'
+import { defaultProgressDailyNotificationRule, todoNotificationSummary } from './performanceTodoNotificationRule'
 import type { PerformanceNotificationSettings, PerformanceNotificationSettingsPayload, PerformanceNotificationRuleKey } from '@/api/performance'
 import PerformanceNotificationRadioSection from './PerformanceNotificationRadioSection.vue'
 import PerformanceNotificationRuleSummary from './PerformanceNotificationRuleSummary.vue'
@@ -54,8 +54,10 @@ const emit = defineEmits<{
   (event: 'request-save', payload: PerformanceNotificationSettingsPayload): void
   (event: 'request-disable', key: PerformanceNotificationRuleKey): void
   (event: 'edit-todo'): void
+  (event: 'edit-progress-daily'): void
 }>()
 const todoSummary = computed(() => todoNotificationSummary(props.settings.todo_task_rule))
+const progressSummary = computed(() => todoNotificationSummary(props.settings.progress_daily_rule || defaultProgressDailyNotificationRule()))
 
 const calibrationOptions = [
   { value: 'realtime', label: '实时发送', showInfo: true },

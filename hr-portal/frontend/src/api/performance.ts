@@ -233,6 +233,34 @@ export interface PerformanceOtherSettings {
   overdue_single_submission_enabled: boolean
   overdue_voluntary_360_submission_enabled: boolean
   cycle_overdue_submission_override_enabled: boolean
+  authorization_prompt_zh: string
+  authorization_prompt_en: string
+  transfer_prompt_zh: string
+  transfer_prompt_en: string
+}
+
+export interface PerformanceReviewer360Tag {
+  id: string
+  name_zh: string
+  name_en: string
+  description_zh: string
+  description_en: string
+}
+
+export interface PerformanceReviewer360Tags {
+  tags: PerformanceReviewer360Tag[]
+  version: number
+}
+
+export const performanceReviewer360TagsApi = {
+  async get(): Promise<PerformanceReviewer360Tags> {
+    const { data } = await api.get<PerformanceReviewer360Tags>('/performance/system-settings/other/reviewer-360-tags')
+    return data
+  },
+  async update(payload: PerformanceReviewer360Tags): Promise<PerformanceReviewer360Tags> {
+    const { data } = await api.put<PerformanceReviewer360Tags>('/performance/system-settings/other/reviewer-360-tags', payload)
+    return data
+  },
 }
 
 export const performanceOtherSettingsApi = {
@@ -250,7 +278,7 @@ export interface PerformanceTodoNotificationRule {
   frequency: 'specified' | 'daily' | 'weekly'
   interval: number
   days_before: number[]
-  day_kind: 'calendar_day'
+  day_kind: 'calendar_day' | 'working_day'
   weekdays: number[]
   time: string
   timezone: string
@@ -265,6 +293,7 @@ export interface PerformanceNotificationSettings {
   todo_task_notification_enabled: boolean
   todo_task_rule?: PerformanceTodoNotificationRule
   progress_daily_notification_enabled: boolean
+  progress_daily_rule?: PerformanceTodoNotificationRule
   stage_start_notification_enabled: boolean
 }
 
@@ -281,6 +310,7 @@ export type PerformanceNotificationSettingsPayload = Partial<Pick<
   | 'todo_task_notification_enabled'
   | 'todo_task_rule'
   | 'progress_daily_notification_enabled'
+  | 'progress_daily_rule'
   | 'stage_start_notification_enabled'
 > >
 
@@ -1321,6 +1351,8 @@ export interface PerformanceCycle {
   leaver_start_date: string | null
   leaver_end_date: string | null
   leaver_participation_mode: PerformanceCycleLeaverMode
+  overdue_submission_enabled: boolean
+  overdue_submission_scope: 'EVALUATION' | 'ALL'
   status: 'DRAFT' | 'active' | 'inactive' | 'LOCKED'
   people_count: number
   department_count: number

@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useUserStore } from '@/stores/user'
-import { defaultTodoNotificationRule } from '@/components/performance/performanceTodoNotificationRule'
+import { defaultProgressDailyNotificationRule, defaultTodoNotificationRule } from '@/components/performance/performanceTodoNotificationRule'
 import NotificationSettings from './NotificationSettings.vue'
 import type { PerformanceNotificationSettings } from '@/api/performance'
 
@@ -285,6 +285,29 @@ describe('NotificationSettings', () => {
     reopened.unmount()
   })
 
+  it('saves and reloads the workday rule and summary without optimistic updates', async () => {
+    let persisted = response({ todo_task_rule: defaultTodoNotificationRule() })
+    api.get.mockImplementation(async () => persisted)
+    api.update.mockImplementation(async (payload: Partial<PerformanceNotificationSettings>) => {
+      persisted = { ...persisted, ...payload }
+      return persisted
+    })
+    const rule = { ...defaultTodoNotificationRule(), frequency: 'specified' as const, days_before: [3, 100], day_kind: 'working_day' as const }
+    const wrapper = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="编辑待办任务通知"]').trigger('click')
+    wrapper.getComponent({ name: 'PerformanceTodoNotificationDialog' }).vm.$emit('confirm', rule)
+    await flushPromises()
+    expect(api.update).toHaveBeenCalledWith({ todo_task_rule: rule })
+    expect(wrapper.findAll('.notification-rule-summary')[0].text()).toContain('第 3 个工作日、第 100 个工作日')
+    wrapper.unmount()
+    const reopened = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    await reopened.get('button[aria-label="编辑待办任务通知"]').trigger('click')
+    expect(reopened.getComponent({ name: 'PerformanceTodoNotificationDialog' }).props('rule')).toEqual(rule)
+    reopened.unmount()
+  })
+
   it('keeps the rule editor and its draft on failure, without changing the summary', async () => {
     api.get.mockResolvedValue(response({ todo_task_rule: defaultTodoNotificationRule() }))
     api.update.mockRejectedValueOnce(new Error('failed'))
@@ -293,11 +316,87 @@ describe('NotificationSettings', () => {
     const before = wrapper.findAll('.notification-rule-summary')[0].text()
     await wrapper.get('button[aria-label="编辑待办任务通知"]').trigger('click')
     const dialog = wrapper.getComponent({ name: 'PerformanceTodoNotificationDialog' })
-    dialog.vm.$emit('confirm', { ...defaultTodoNotificationRule(), interval: 3 })
+    await dialog.get('input[value="specified"]').setValue(true)
+    const days = dialog.findAllComponents({ name: 'PerformanceSearchSelect' })[0]
+    days.vm.$emit('update:modelValue', ['3'])
+    dialog.findAllComponents({ name: 'PerformanceSearchSelect' })[1].vm.$emit('update:modelValue', 'working_day')
+    await dialog.findAll('.todo-notification-actions button')[1].trigger('click')
     await flushPromises()
     expect(wrapper.find('[aria-labelledby="todo-notification-title"]').exists()).toBe(true)
     expect(wrapper.get('.todo-notification-error').text()).toContain('保存失败')
+    expect(dialog.findAllComponents({ name: 'PerformanceSearchSelect' })[1].props('modelValue')).toBe('working_day')
     expect(wrapper.findAll('.notification-rule-summary')[0].text()).toBe(before)
+    wrapper.unmount()
+  })
+
+  it('edits progress separately, cancels without writing and reloads its saved rule', async () => {
+    let persisted = response({ todo_task_rule: defaultTodoNotificationRule(), progress_daily_rule: defaultProgressDailyNotificationRule() })
+    api.get.mockImplementation(async () => persisted)
+    api.update.mockImplementation(async (payload: Partial<PerformanceNotificationSettings>) => {
+      persisted = { ...persisted, ...payload }
+      return persisted
+    })
+    const wrapper = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="编辑绩效进度日报通知"]').trigger('click')
+    const dialog = wrapper.getComponent({ name: 'PerformanceTodoNotificationDialog' })
+    expect(dialog.props('title')).toBe('编辑绩效进度日报通知')
+    expect(dialog.props('rule')?.time).toBe('18:00')
+    await dialog.get('input[value="weekly"]').setValue(true)
+    dialog.findAllComponents({ name: 'PerformanceSearchSelect' })[0].vm.$emit('update:modelValue', ['1', '5'])
+    await dialog.findAll('.todo-notification-actions button')[0].trigger('click')
+    expect(api.update).not.toHaveBeenCalled()
+    await wrapper.get('button[aria-label="编辑绩效进度日报通知"]').trigger('click')
+    expect(dialog.get('input[value="daily"]').element).toHaveProperty('checked', true)
+    const rule = { ...defaultProgressDailyNotificationRule(), frequency: 'weekly' as const, weekdays: [1, 5], time: '09:30' }
+    dialog.vm.$emit('confirm', rule)
+    await flushPromises()
+    expect(api.update).toHaveBeenCalledWith({ progress_daily_rule: rule })
+    expect(persisted.todo_task_rule).toEqual(defaultTodoNotificationRule())
+    expect(wrapper.findAll('.notification-rule-summary')[1].text()).toContain('星期一、星期五')
+    await wrapper.get('button[aria-label="编辑待办任务通知"]').trigger('click')
+    expect(dialog.props('title')).toBe('编辑待办任务通知')
+    expect(dialog.props('rule')).toEqual(defaultTodoNotificationRule())
+    wrapper.unmount()
+    const reopened = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    await reopened.get('button[aria-label="编辑绩效进度日报通知"]').trigger('click')
+    expect(reopened.getComponent({ name: 'PerformanceTodoNotificationDialog' }).props('rule')).toEqual(rule)
+    reopened.unmount()
+  })
+
+  it('keeps progress drafts on failure, locks pending saves and updates only after retry', async () => {
+    const initial = response({ todo_task_rule: defaultTodoNotificationRule(), progress_daily_rule: defaultProgressDailyNotificationRule() })
+    api.get.mockResolvedValue(initial)
+    api.update.mockRejectedValueOnce(new Error('failed'))
+    const wrapper = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    const before = wrapper.findAll('.notification-rule-summary').map(row => row.text())
+    await wrapper.get('button[aria-label="编辑绩效进度日报通知"]').trigger('click')
+    const dialog = wrapper.getComponent({ name: 'PerformanceTodoNotificationDialog' })
+    await dialog.get('input[value="specified"]').setValue(true)
+    dialog.findAllComponents({ name: 'PerformanceSearchSelect' })[0].vm.$emit('update:modelValue', ['3'])
+    await dialog.findAll('.todo-notification-actions button')[1].trigger('click')
+    await flushPromises()
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(dialog.get('.todo-notification-error').text()).toContain('保存失败')
+    expect(dialog.findAllComponents({ name: 'PerformanceSearchSelect' })[0].props('modelValue')).toEqual(['3'])
+    expect(wrapper.findAll('.notification-rule-summary').map(row => row.text())).toEqual(before)
+    let finish!: (value: PerformanceNotificationSettings) => void
+    api.update.mockImplementationOnce(() => new Promise<PerformanceNotificationSettings>(resolve => { finish = resolve }))
+    await dialog.findAll('.todo-notification-actions button')[1].trigger('click')
+    await dialog.findAll('.todo-notification-actions button')[1].trigger('click')
+    await dialog.get('.performance-dialog__close').trigger('click')
+    expect(api.update).toHaveBeenCalledTimes(2)
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(dialog.props('saving')).toBe(true)
+    expect(wrapper.findAll('.notification-rule-summary')[1].text()).toBe(before[1])
+    const rule = api.update.mock.calls[1][0].progress_daily_rule
+    finish({ ...initial, progress_daily_rule: rule })
+    await flushPromises()
+    expect(dialog.props('modelValue')).toBe(false)
+    expect(wrapper.findAll('.notification-rule-summary')[1].text()).toContain('第 3 个自然日')
+    expect(wrapper.findAll('.notification-rule-summary')[0].text()).toBe(before[0])
     wrapper.unmount()
   })
 
@@ -306,6 +405,7 @@ describe('NotificationSettings', () => {
     const wrapper = mount(NotificationSettings, { global: { stubs } })
     await flushPromises()
     expect(wrapper.find('button[aria-label="编辑待办任务通知"]').exists()).toBe(false)
+    expect(wrapper.find('button[aria-label="编辑绩效进度日报通知"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

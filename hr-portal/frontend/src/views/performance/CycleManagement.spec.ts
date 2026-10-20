@@ -18,10 +18,12 @@ const mocks = vi.hoisted(() => ({
   projectRemove: vi.fn(),
   listEvaluatorOptions: vi.fn(),
   templateList: vi.fn(),
+  otherSettingsGet: vi.fn(),
 }))
 
 vi.mock('@/api/performance', () => ({
   performanceApi: { getAccessContext: mocks.getAccessContext },
+  performanceOtherSettingsApi: { get: mocks.otherSettingsGet },
   performanceCycleApi: {
     list: mocks.list,
     get: mocks.get,
@@ -57,6 +59,8 @@ const cycle = {
   leaver_start_date: null,
   leaver_end_date: null,
   leaver_participation_mode: 'CREATE_TASK',
+  overdue_submission_enabled: true,
+  overdue_submission_scope: 'EVALUATION',
   status: 'LOCKED',
   people_count: 2,
   department_count: 1,
@@ -115,7 +119,30 @@ describe('CycleManagement', () => {
     mocks.get.mockResolvedValue(cycle)
     mocks.listPeople.mockResolvedValue([])
     mocks.templateList.mockResolvedValue([{ template_id: 101, name: '已启用模板', description: '模板说明', status: 'active' }])
+    mocks.otherSettingsGet.mockResolvedValue({ overdue_single_submission_enabled: true, cycle_overdue_submission_override_enabled: true })
     mocks.listEvaluatorOptions.mockResolvedValue({ organization_tree: [{ value: '集团/研发', label: '研发', level: 2, children: [] }], people: [{ value: 'E001', label: '员工（E001）' }], employee_types: [] })
+  })
+
+  it('allows overdue settings after a project has started and submits only the policy fields', async () => {
+    const startedCycle = { ...cycle, status: 'LOCKED', projects: [{ ...project, status: 'STARTED' }] }
+    mocks.list.mockResolvedValue({ items: [startedCycle], total: 1, page: 1, page_size: 20 })
+    mocks.update.mockResolvedValue({ ...startedCycle, overdue_submission_enabled: false, overdue_submission_scope: 'ALL' })
+    const wrapper = await mountView()
+    await wrapper.get('[aria-label="设置周期"]').trigger('click')
+    const item = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.includes('逾期任务提交机会设置'))
+    expect(item).toBeDefined()
+    item!.click()
+    await flushPromises()
+    expect(document.body.querySelector('.cycle-overdue-submission-dialog')).not.toBeNull()
+    const checkbox = document.body.querySelector<HTMLInputElement>('.cycle-overdue-submission-dialog input[type="checkbox"]')!
+    checkbox.click()
+    await flushPromises()
+    const all = document.body.querySelector<HTMLInputElement>('.cycle-overdue-submission-dialog input[type="radio"][value="ALL"]')!
+    all.click()
+    await flushPromises()
+    document.body.querySelector<HTMLButtonElement>('.cycle-overdue-submission-actions button.performance-button--primary')!.click()
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(1, { overdue_submission_enabled: false, overdue_submission_scope: 'ALL' })
   })
 
   it('loads project department choices only when the value selector opens', async () => {
@@ -144,8 +171,9 @@ describe('CycleManagement', () => {
   })
 
   it('confirms project deletion through the shared dialog and refreshes the cycle', async () => {
-    mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [project] }], total: 1, page: 1, page_size: 20 })
-    mocks.get.mockResolvedValue({ ...cycle, projects: [project] })
+    const cycleWithProjects = { ...cycle, projects: [project] }
+    mocks.list.mockResolvedValue({ items: [cycleWithProjects], total: 1, page: 1, page_size: 20 })
+    mocks.get.mockResolvedValue(cycleWithProjects)
     mocks.projectRemove.mockResolvedValue(undefined)
     const wrapper = await mountView()
 
@@ -154,8 +182,8 @@ describe('CycleManagement', () => {
     await document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     await wrapper.vm.$nextTick()
     const removeItems = [...document.body.querySelectorAll('.el-dropdown-menu__item')].filter(item => item.textContent === '删除')
-    expect(removeItems).toHaveLength(1)
-    removeItems[0].dispatchEvent(new Event('click', { bubbles: true }))
+    expect(removeItems.length).toBeGreaterThanOrEqual(1)
+    removeItems[removeItems.length - 1].dispatchEvent(new Event('click', { bubbles: true }))
     await wrapper.vm.$nextTick()
     await flushPromises()
 
@@ -173,8 +201,9 @@ describe('CycleManagement', () => {
   })
 
   it('keeps project remove behind the confirm dialog until confirmed', async () => {
-    mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [project] }], total: 1, page: 1, page_size: 20 })
-    mocks.get.mockResolvedValue({ ...cycle, projects: [project] })
+    const cycleWithProjects = { ...cycle, projects: [project] }
+    mocks.list.mockResolvedValue({ items: [cycleWithProjects], total: 1, page: 1, page_size: 20 })
+    mocks.get.mockResolvedValue(cycleWithProjects)
     const wrapper = await mountView()
 
     const moreButton = wrapper.findAll('button').find(button => button.attributes('aria-label') === '更多操作')

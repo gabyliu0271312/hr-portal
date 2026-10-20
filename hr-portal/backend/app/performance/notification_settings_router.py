@@ -31,7 +31,7 @@ class TodoTaskRule(BaseModel):
     frequency: Literal["specified", "daily", "weekly"] = "daily"
     interval: StrictInt = Field(default=1, ge=1, le=365)
     days_before: list[StrictInt] = Field(default_factory=list)
-    day_kind: Literal["calendar_day"] = "calendar_day"
+    day_kind: Literal["calendar_day", "working_day"] = "calendar_day"
     weekdays: list[StrictInt] = Field(default_factory=list)
     time: StrictStr = "10:00"
     timezone: StrictStr = "person"
@@ -82,7 +82,12 @@ class TodoTaskRule(BaseModel):
         return self
 
 
+class ProgressDailyRule(TodoTaskRule):
+    time: StrictStr = "18:00"
+
+
 DEFAULT_TODO_TASK_RULE = TodoTaskRule()
+DEFAULT_PROGRESS_DAILY_RULE = ProgressDailyRule()
 
 
 class NotificationSettingsOut(BaseModel):
@@ -94,6 +99,7 @@ class NotificationSettingsOut(BaseModel):
     progress_daily_notification_enabled: bool
     stage_start_notification_enabled: bool
     todo_task_rule: TodoTaskRule
+    progress_daily_rule: ProgressDailyRule
 
 
 class NotificationSettingsPatch(BaseModel):
@@ -106,6 +112,7 @@ class NotificationSettingsPatch(BaseModel):
     progress_daily_notification_enabled: bool | None = None
     stage_start_notification_enabled: bool | None = None
     todo_task_rule: TodoTaskRule | None = None
+    progress_daily_rule: ProgressDailyRule | None = None
 
     @model_validator(mode="after")
     def reject_explicit_null(self) -> "NotificationSettingsPatch":
@@ -132,6 +139,7 @@ def _response(setting: PerformanceNotificationSetting) -> NotificationSettingsOu
         progress_daily_notification_enabled=setting.progress_daily_notification_enabled,
         stage_start_notification_enabled=setting.stage_start_notification_enabled,
         todo_task_rule=TodoTaskRule.model_validate(setting.todo_task_rule or DEFAULT_TODO_TASK_RULE.model_dump()),
+        progress_daily_rule=ProgressDailyRule.model_validate(setting.progress_daily_rule or DEFAULT_PROGRESS_DAILY_RULE.model_dump()),
     )
 
 
@@ -145,6 +153,7 @@ def _defaults() -> NotificationSettingsOut:
         progress_daily_notification_enabled=True,
         stage_start_notification_enabled=True,
         todo_task_rule=DEFAULT_TODO_TASK_RULE.model_copy(deep=True),
+        progress_daily_rule=DEFAULT_PROGRESS_DAILY_RULE.model_copy(deep=True),
     )
 
 

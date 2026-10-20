@@ -55,7 +55,75 @@ def test_cycle_patch_rejects_unknown_period_type():
         CyclePatch(period_type="WEEK")
 
 
+@pytest.mark.asyncio
+async def test_cycle_overdue_patch_is_audited_and_applies_to_locked_cycle_with_started_project(monkeypatch):
+    from app.performance import cycle_service
+    from app.performance.models import PerformanceOtherSetting
 
+    cycle = SimpleNamespace(
+        id=1, cycle_ref="cycle:1", name="本周期", language="zh-CN", period_year=2026,
+        period_type="YEAR", period_subtype=None, template_id=None,
+        start_at=datetime(2026, 1, 1, tzinfo=timezone.utc), end_at=datetime(2026, 12, 31, tzinfo=timezone.utc),
+        lock_rule="IMMEDIATE", lock_at=None, pre_lock_sync_mode="MANUAL", leaver_enabled=False,
+        leaver_start_date=None, leaver_end_date=None, leaver_participation_mode="CREATE_TASK",
+        overdue_submission_enabled=True, overdue_submission_scope="EVALUATION", status="LOCKED",
+        projects=[SimpleNamespace(status="STARTED")],
+    )
+
+    class Db:
+        def __init__(self):
+            self.committed = False
+
+        async def get(self, model, _key):
+            if model is PerformanceOtherSetting:
+                return SimpleNamespace(overdue_single_submission_enabled=True, cycle_overdue_submission_override_enabled=True)
+
+        async def commit(self):
+            self.committed = True
+
+        async def refresh(self, _value):
+            pass
+
+    events = []
+    monkeypatch.setattr(cycle_service.PerformanceAuditService, "append_event", lambda _self, event: events.append(event))
+    db = Db()
+    result = await PerformanceCycleService(db).update_cycle(cycle, {"overdue_submission_enabled": False, "overdue_submission_scope": "ALL"}, actor_type="SYSTEM_ACCOUNT", actor_id=1)
+    assert result.overdue_submission_enabled is False
+    assert result.overdue_submission_scope == "ALL"
+    assert db.committed
+    assert events[-1].before_state["overdue_submission_enabled"] is True
+    assert events[-1].after_state["overdue_submission_scope"] == "ALL"
+
+
+@pytest.mark.asyncio
+async def test_cycle_overdue_patch_requires_global_switches():
+    from app.performance.models import PerformanceOtherSetting
+
+    cycle = SimpleNamespace(overdue_submission_enabled=True, overdue_submission_scope="EVALUATION")
+
+    class Db:
+        async def get(self, model, _key):
+            if model is PerformanceOtherSetting:
+                return SimpleNamespace(overdue_single_submission_enabled=True, cycle_overdue_submission_override_enabled=False)
+
+    with pytest.raises(CycleValidationError, match="未开启按周期"):
+        await PerformanceCycleService(Db()).update_cycle(cycle, {"overdue_submission_enabled": False}, actor_type="SYSTEM_ACCOUNT", actor_id=1)
+
+
+def test_cycle_payload_validates_overdue_configuration():
+    payload = CyclePayload(**_payload())
+    assert payload.overdue_submission_enabled is True
+    assert payload.overdue_submission_scope == "EVALUATION"
+    assert CyclePatch(overdue_submission_enabled=False, overdue_submission_scope="ALL").model_dump(exclude_unset=True) == {
+        "overdue_submission_enabled": False, "overdue_submission_scope": "ALL",
+    }
+    with pytest.raises(ValidationError):
+        CyclePatch(overdue_submission_scope="INVALID")
+    with pytest.raises(ValidationError):
+        CyclePayload(**_payload(overdue_submission_enabled="not-a-boolean"))
+
+
+def test_cycle_payload_rejects_end_before_start():
     with pytest.raises(ValidationError, match="晚于开始时间"):
         CyclePayload(**_payload(end_at=datetime(2026, 1, 1, 9, 0)))
 
@@ -383,6 +451,7 @@ def test_project_manager_cycle_summary_hides_global_counts():
         end_at=datetime(2026, 12, 31, tzinfo=timezone.utc), lock_rule="IMMEDIATE",
         lock_at=None, pre_lock_sync_mode="MANUAL", leaver_enabled=False,
         leaver_start_date=None, leaver_end_date=None, leaver_participation_mode="CREATE_TASK",
+        overdue_submission_enabled=True, overdue_submission_scope="EVALUATION",
         status="LOCKED",
     )
     summary = cycles_router._summary_for_context(cycle, 10, 4, [], context)

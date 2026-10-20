@@ -83,6 +83,61 @@
   - Non-scope: 禁止历史项目实际手动开通、强制取消历史已选项、变更结果开通权限或计分规则。
   - Blockers: 真实浏览器与直接项目 API（含权限拒绝、全局开关竞争）的端到端验收尚未完成。
 
+- [ ] PM-T007-T02-A 授权提示中英文编辑与真实保存（T02授权子项）
+  - Goal/Type: 用户2026-10-20要求按授权提示.txt复用组件开发，确认清空用默认、每种1000字；frontend/backend/API/migration。
+  - Prerequisites/reading: T01/T03/T04；本功能spec 7.1和ui-interaction T02-A冻结契约；Spec002基线/ADR-001/PM-001权限边界；execution-contract、migration-coordination、acceptance-evidence；Spec012 START_HERE/spec/UI/guardrails/A01/A02/A05/N000/N00/testing。
+  - Allowed modifications: backend/app/performance/other_settings_router.py、models.py仅PerformanceOtherSetting、tests/test_performance_other_settings.py；frontend/src/api/performance.ts仅OtherSettings DTO、views/performance/OtherSettings.vue/.spec.ts、components/performance/PerformanceAuthorizationTransferCard.vue、PerformanceIconAction.vue、PerformanceDialogShell.vue、PerformanceCountedTextarea.vue/.spec.ts；本功能现有文档。
+  - Allowed new files: backend/alembic/versions/0262_performance_authorization_prompts.py；frontend/src/components/performance/PerformanceAuthorizationPromptDialog.vue；独立PM-T007-T02-A-implemented-authorization-prompt*.png。不新建脚本或测试文档，测试补在既有spec。
+  - Protected/shared: 不改通知/角色并行工作、现有迁移、路由/权限注册、真实对象授权服务、项目/周期快照、转交提示、UCP/外部系统；共享文件仅局部串行改动，保留未提交内容。
+  - Contract: spec 7.1为唯一契约，原GET/PATCH新增两个文本，逐语言1000码点/空白规范化默认/严格类型；行锁、事务审计、401/403/422沿用。
+  - UI: /performance/settings/system/other；小范围既有表单，采集布局及ui-interaction T02-A为确认版；600×424、两个552×116、语言标、统一壳/按钮/多行框；覆盖加载/草稿/取消/保存中/失败重试/无权/重开。独立PNG ../../ui-blueprints/PM-T007-T02-A-implemented-authorization-prompt.png。
+  - Test contract: Given 默认/自定义/空白/1000/1001/emoji；When PATCH/刷新/取消/失败/无权；Then 默认恢复、双语保留、兄弟开关不覆盖、不伪成功、不重复审计、拒绝非法参数。真实PG隔离schema升降重升、旧行保留、并发、审计回滚；UI真实前端→实际API→隔离PG→重开尽可能验收，未跑单独报告。
+  - Commands: python -m pytest tests/test_performance_other_settings.py --postgres-acceptance；python -m alembic heads；npm run test -- src/views/performance/OtherSettings.spec.ts src/components/performance/PerformanceCountedTextarea.spec.ts（并回归共用壳用户）；npm run build；git diff --check；实际浏览器截图。
+  - UI compliance: N0001/N0002/N0004/N0005、N1102-N1104，本任务内留证，不改数仓勾选；无破坏性业务动作或UCP重复建设。
+  - Evidence (2026-10-20): 最终前端8文件63 passed（OtherSettings21、Textarea2、Button4、AuthorizationDialog2、ConfirmDialog8、TodoDialog12、Checkbox3、AdminLayout11）；后端pytest29 passed、1 skipped、1个python_multipart依赖warning；唯一head0262。初次新增UI测试因持有嵌套DOMWrapper后继续setValue/点击未同步失败，改为从页面重新查询控件，复跑通过，未掩盖失败。
+  - PostgreSQL evidence: 标准docker pytest --postgres-acceptance被public运行库仍0261的schema检查正确拦截（exit2），未为测试擅自迁移运行库。改为容器内runpy.run_path执行既有test_postgres_migration_roundtrip_persistence_concurrency_and_audit_rollback函数，真实PG隔离随机schema验证0260+0262升降重升、旧行默认及布尔保留、双语并发与兄弟字段不覆盖、提示和开关的审计失败原子回滚；两次exit0，finally清理。pytest里的1 skipped明确不计为PG通过，PG由该独立真实执行留证；未从空库跑全迁移链。
+  - Browser evidence: 实际Vite5181路由 + Playwright，登录/壳API为fixture；其他设置GET/PATCH通过传输中继调用容器内独立FastAPI真实router及真实PG隔离schema，非内存设置fixture。4次PATCH含1次模拟失败；已验证双语两字段payload、真实数据库回读、刷新重开、取消不写、失败草稿保留重试、1001emoji限制为1000、空串/空白恢复默认、八开关不变、390px无页面横向溢出，0 pageerrors。未覆盖真实登录认证全链路，权限401/403另由真实依赖接口测试覆盖；public配置未修改。验收服务已正常关闭，输出CLEANED pm_prompt_browser_a331b0d50da1。
+  - UI evidence: 已生成并读取 ../../ui-blueprints/PM-T007-T02-A-implemented-authorization-prompt.png 及 -mobile.png；桌面弹窗600×424、textarea552×116各两个、关闭28×28、取消/确定80×32。UI自检N0001/N0002/N0004/N0005、N1102-N1104通过，数仓专属任务不适用；未改数仓任务状态或全局主色。构建vue-tsc+vite已通过（1m4s，仅既有VueUse PURE警告），最终计数一致性小修订后另行复跑构建收尾；git diff --check通过。
+  - Deployment/not-run: 用户随后明确要求Docker内构建部署；`docker compose -f ../docker-compose.yml build frontend backend`成功（exit0），frontend镜像sha256:e48424a92981e544323192d6819eae803eaad1b9b491f4e50a85455dd7cc8622、backend镜像sha256:ab7a3a01143087c77b7f86e15bdb1f03565f1b13812f378fc31327cc723e83b8。最终主机vue-tsc+vite也通过（1m32s）。部署阻塞：并行会话新增0263并明确通知仍在开发测试、禁止迁移/重启；entrypoint自动upgrade head，不能仅升0262后重启以绕开0263。本会话未执行public迁移或替换容器，运行库仍0261、现有服务保持运行，db/gotenberg及数据卷未改。待0263负责人明确就绪后须重新核对最新head及工作树、必要时重建，再部署验证。真实登录端到端及完整空库全链迁移not-run；父T02转交提示仍未开发；未发布远程生产、未提交推送。
+  - Final container replacement (2026-10-20，替代前述暂停状态): 用户明确要求完成替换后，独立执行周期/项目/逾期/授权后端回归215 passed、1 skipped；前端最终3文件55 passed且vue-tsc退出0（首次并行编辑时测试语法/断言失败，当前树修复后复跑通过；有测试路由空路径warning）。隔离事务验证0260+0262+0263及旧行默认值通过。Docker compose build frontend/backend退出0；运行库0261→0262→0263成功，随后 `docker compose -f ../docker-compose.yml up -d --no-deps --force-recreate backend frontend`退出0，已实际替换。frontend容器5bd1a0f1c59f，image sha256:cb3578eee1f71609eb5e67850ceabc2c63541510dd7ff1e6989bce91ca61e5cb；backend容器0e4828e6d14c，image sha256:d5f60639c1cdcbb4b4f667ce956fec99bc746f5988fa78d575af2903c3a40740；均running/restarts0。启动期间短暂502，启动完成后 `/api/v1/health`200且db.ok=true、目标页面200、匿名设置API401、nginx-t通过；实际OpenAPI含双语字段，8080提供OtherSettings-Bauk0dh0.js，含双语保存和授权弹窗代码。新后端 `python -m pytest tests/test_performance_other_settings.py --postgres-acceptance -q` → 30 passed、2个第三方弃用warning，无skip；第一次在旧容器执行的测试因容器替换退出137，不计通过。db/gotenberg容器ID保持不变，未删除数据卷、未重置业务配置；核验时提示双列非空、public版本0263。未执行真实登录浏览器全链验收或远程生产发布；不将本轮部署视作并行0263业务的完整验收。
+  - Non-scope: 转交提示编辑、前台对象授权流程展示、运行时权限变更、提交/推送；本机Docker部署已由用户后续明确授权并完成。
+  - Definition of done: 主会话核验开发、测试、迁移及UI证据后勾选；父T02仍含转交提示，不能随子项勾选。
+
+- [ ] PM-T007-T02-B 转交提示复用编辑框与独立保存
+  - Goal/Type: 用户明确要求标题转交提示、指定中英文默认值并独立保存；frontend/API/backend/migration。
+  - Prerequisites/reading: T02-A；spec 7.3、ui-interaction T02-B、Spec002基线及ADR-001、Spec012 UI门禁/A01/A02/A05/N000/N00、execution-contract/task-card/acceptance-evidence/migration-coordination，现有提示组件/API/模型/测试。
+  - Allowed modifications: components/performance/PerformanceAuthorizationPromptDialog.vue、PerformanceAuthorizationTransferCard.vue；views/performance/OtherSettings.vue/.spec.ts；api/performance.ts仅OtherSettings；backend/app/performance/other_settings_router.py及models.py仅PerformanceOtherSetting、tests/test_performance_other_settings.py；本功能spec/ui/atomic。允许新增单个线性transfer_prompts迁移和独立T02-B PNG，不创建脚本/测试文档。
+  - Shared/protected: 与T06会话串行交接models/router/API/page/tests/docs，精确局部追加，保留标签及周期/通知未提交内容；迁移编号协调后再创建。禁止改旧迁移、权限码/路由、真实授权转交服务、历史快照、全局样式、其他共享组件；不自动部署。
+  - Contract/UI: spec 7.3，独立transfer_prompt_zh/en、1000码点、空白默认；GET/PATCH/可信审计/行锁/事务回滚/401/403/422沿用；kind默认authorization兼容，transfer标题及label；同一布局与按钮/多行框；PNG ../../ui-blueprints/PM-T007-T02-B-implemented-transfer-prompt.png。小表单变体，无需新蓝图确认。
+  - Tests: Given授权/转交已存值、默认/空白/emoji1000/1001、无权/失败；When各自编辑保存取消重开刷新；Then载荷只含各自两字段、双向不覆盖、换行保留、失败草稿可重试、权限拒绝、无变化不审计；真实PG隔离schema验证升降重升/旧数据保留/并发/审计失败回滚。
+  - Commands: pytest tests/test_performance_other_settings.py；alembic heads；npm test -- src/views/performance/OtherSettings.spec.ts src/components/performance/PerformanceCountedTextarea.spec.ts；npm run build；实际浏览器尺寸/保存及独立截图。未执行或环境阻塞项目如实标not-run，不将fixture当真实DB。
+  - UI compliance: N0001/N0002/N0004/N0005、N1102-N1104，无UCP/新主题/破坏性业务动作；不更改数仓勾选。
+  - Evidence (2026-10-20): `0264_performance_transfer_prompts`已接唯一0263，模型/API新增两列与独立PATCH；后端`python -m pytest tests/test_performance_other_settings.py -q` →44 passed、1 skipped（真实PG专用标记），独立容器内runpy执行既有PG验收函数→PASS（隔离schema 0260+0262+0264、并发两类提示/开关写入、审计回滚、升降重升），未触碰public迁移。前端4个spec39 passed，首次新增测试把内存API mock误当服务器空白规范化而失败，修订mock结果后复跑通过；vue-tsc+vite build最终退出0（仅第三方VueUse PURE警告），早先构建因测试VueNode未声明textarea类型失败，修正类型断言后复跑通过。实际Vite5181+登录/设置API fixture浏览器验证转交弹窗600×424/两个552×116、只PATCH transfer两字段/授权值不变、取消不写/刷新回显/空白恢复默认、390px无横向溢出、0 pageerrors；已生成并读取独立PNG ../../ui-blueprints/PM-T007-T02-B-implemented-transfer-prompt.png。此浏览器API是fixture，不代表真实DB浏览器端到端；PG独立测试如上。N0001/N0002/N0004/N0005、N1102-N1104自检通过，数仓N02-N10不适用。未部署/升级public或重启本机容器，运行版本保持0263，且不创建脚本/测试文档；后续部署另需用户明确授权。
+  - Non-scope: 转交资格或运行时授权变更、周期快照、标签目录、部署/提交/推送。
+
+- [ ] PM-T007-T06 360°评估人标签管理与真实保存
+  - Goal/Type: 根据360°评估人标签.txt复用组件完成全局目录增改删排序及持久化；frontend/backend/API/migration。
+  - Prerequisites/reading: T01/T03/T04、spec 7.2冻结契约、ui-interaction T06、蓝图T06补充；Spec002/012必读门禁、ADR-001、execution-contract/task-card/acceptance-evidence/migration-coordination；设计系统、token和共享组件。
+  - Allowed modifications: backend/app/performance/other_settings_router.py、models.py仅PerformanceOtherSetting、tests/test_performance_other_settings.py；frontend/src/api/performance.ts仅标签独立DTO/client、views/performance/OtherSettings.vue/.spec.ts、components/performance/PerformanceOtherSettings360Card.vue；本功能现有spec/ui/atomic和既有蓝图。
+  - Allowed new files: components/performance/PerformanceReviewer360TagsDialog.vue、PerformanceReviewer360TagRow.vue；单个新迁移（编号协调确认后）、独立PM-T007-T06-implemented-reviewer-tags*.png。测试补既有文件；不建脚本/测试文档。
+  - Protected/shared: 保留并行授权提示、通知、角色和周期改动；不改旧迁移、共享弹窗/按钮/拖拽/token、运行时邀请/评价/快照。共享文件局部串行合入，迁移链占用需协调。
+  - Input/output contract: spec 7.2；独立GET/PUT目录、UUID稳定身份、数组排序、版本409防覆盖、严格校验、同事务审计；原开关/提示DTO不变。
+  - UI: /performance/settings/system/other，绩效配置管理员；基于用户采集及授权决策的小范围既有重复表单，600px、空284/两项622参考；空/加载/失败重试/草稿取消/保存锁定/中英文展开/字段校验/排序/权限/刷新重开。PNG ../../ui-blueprints/PM-T007-T06-implemented-reviewer-tags.png。
+  - API/database/permission/external impact: 新增单例JSONB目录和Integer版本；旧数据默认[]/0；既有configuration.manage和U；无UCP/外部调用。
+  - Test contract: Given空/多项/双语/emoji边界/重名/非法ID/无权/旧版本；When编辑排序取消保存重开或直接PUT；Then字段严格校验、排序与ID稳定、取消不写、失败留草稿、401/403/422/409及no-op不审计；真实PG隔离schema升降重升/旧配置保留/并发冲突/审计回滚。
+  - Commands: npm.cmd --prefix hr-portal/frontend run test -- src/views/performance/OtherSettings.spec.ts src/components/performance/PerformanceSortableList.spec.ts；npm.cmd --prefix hr-portal/frontend run build；python -m pytest tests/test_performance_other_settings.py --postgres-acceptance -q（backend）；Alembic heads；git diff --check。
+  - UI compliance: N0001/N0002/N0004/N0005、N1102-N1104在本任务留证；数仓N02-N10不适用，不修改其勾选。
+  - Evidence (2026-10-20, partial): 两个独立Vue组件已实现，复用既有弹窗/按钮/输入/拖拽组件，未修改共享组件。`npm.cmd --prefix hr-portal/frontend run test -- src/views/performance/OtherSettings.spec.ts src/components/performance/PerformanceSortableList.spec.ts` 最后一次37/37通过（标签弹窗5项、设置页21项、共享排序11项）；覆盖草稿增删、稳定ID键盘排序/Esc仅取消排序、名称去重与trim、双语隐藏保留、Unicode边界、保存锁定、失败草稿与重开重置。初次专项测试4通过1失败（排序Esc误关闭）已修复并复跑通过。现有页面测试仍有router injection警告；首轮权限断言失败由周期任务负责人修正后回归通过。后端改动前基线29 passed、1 skipped（真实PG未启用）、1第三方弃用warning。`npm.cmd --prefix hr-portal/frontend run build` 已完成，退出码0，vue-tsc及Vite构建通过；本结果不代表标签API/页面接入或真实浏览器验收完成。
+  - Frontend integration evidence (2026-10-20): T02-B共享窗口明确归还后精确局部增加标签独立GET/PUT client与统一DTO、OtherSettings入口/卡片回显/保存载荷/失败留草稿/409关闭后自动重拉最新目录；保留authorization/transfer字段、promptKind和周期入口。`npm.cmd --prefix hr-portal/frontend run test -- src/views/performance/OtherSettings.spec.ts src/components/performance/PerformanceSortableList.spec.ts` →41/41通过；有既有内存路由空路径警告。集成后的`npm.cmd --prefix hr-portal/frontend run build`已完成（exit0），vue-tsc及Vite通过；仅既有VueUse PURE注释警告。
+  - Browser evidence (component fixture, not full persistence): 实际Vite5173加载真实Vue标签组件，空态600×284，两标签600×624（采集参考622，高差2px）；1280×361正文clientHeight111/scrollHeight402、footer底347可达且无横向溢出；400宽弹窗368/左右16无溢出，0pageerrors。真实mouse指针拖拽将两项换序，confirm保留ID与version7；初始聚焦中文名，关闭恢复外部入口焦点。独立PNG ../../ui-blueprints/PM-T007-T06-implemented-reviewer-tags.png 与 ../../ui-blueprints/PM-T007-T06-implemented-reviewer-tags-short-viewport.png 已生成并读取。挂载与保存接收使用隔离fixture，不把截图或confirm事件当真实数据库闭环。
+  - Migration/backend partial evidence: 0265迁移已提取到共享alembic/versions，前驱0264，主机`python -m alembic heads`唯一0265；仅落文件未执行迁移。隔离后端已实现模型两列与独立GET/PUT、严格参数校验、行锁+版本409、同事务可信审计；agent实跑专项112 passed/1 skipped、相邻135 passed/1 skipped，标准`--postgres-acceptance`被public0263低于0265门禁阻止(exit2)，不为此升级public。agent随后直接执行同一PG验收函数，在随机隔离schema实际验证0265升降重升、旧配置保留、旧版本并发一成功一409、目录与普通设置不覆盖和审计失败回滚，exit0；主会话已读代码，发现缺最新T02-B测试段，要求保留补齐后复验。未将skipped算PG通过。
+  - Shared integration evidence (2026-10-20): 经部署协调会话确认先完整合入再统一验证后，主会话精确Edit合入PerformanceOtherSetting两列、独立DTO/GET/PUT和测试；保留T02-B全部12个非PG函数及原PG语句、日报progress_daily_rule和所有周期改动。共享测试与隔离最终554行`git diff --no-index`无差异。共享`python -m pytest tests/test_performance_other_settings.py tests/test_performance_notification_settings.py tests/test_performance_assessment_method_settings.py -q` →159 passed、1 skipped、1第三方python_multipart弃用warning；跳过项为PG专用测试，不算PG通过。前端OtherSettings/SortableList/CountedTextarea →43/43通过；git diff --check通过。共享heads唯一0266_performance_progress_daily_rule，链0263→0264→0265→0266，无public迁移/容器操作。
+  - Shared PostgreSQL evidence: 主会话显式load_dotenv主机backend/.env后，以共享代码runpy调用既有PG验收函数，仅随机schema；实际输出`PASS shared worktree: T02-B + T06 isolated PostgreSQL migration/concurrency/audit rollback; cleanup completed; no public migration`，exit0，已读取输出。保留转交/授权迁移回归，覆盖标签0265升降重升、旧数据保留、并发一成功一409、目录/普通设置互不覆盖、no-op不审计和审计失败回滚。标准`--postgres-acceptance`第一次未加载主机.env因host无法解析exit2；加载主机.env后重跑仍exit2，正确拦截public0263低于代码0266，未绕过该门禁或升级public。
+  - Persistence browser evidence: 真实OtherSettings.vue页面与正式API client→loopback5189真实FastAPI标签GET/PUT→随机PostgreSQL schema→浏览器刷新挂载/重开回读已PASS；两标签排序与稳定UUID、隐藏英文Partner保留、实际PUT仅tags/version、取消不写均核验，direct SQL确认顺序/版本1及SYSTEM_ACCOUNT/1可信审计仅1条，0pageerrors。入口权限与后端身份采用隔离夹具，不代表真实登录/路由守卫验收。首次fixture误用client.ts/user.ts导致与Vite实际解析client.js/user.js不一致并超时，调整验收挂载的导入后复跑PASS，未修改这些共享镜像文件；临时服务已退出且schema清理。新增并读取截图 ../../ui-blueprints/PM-T007-T06-implemented-reviewer-tags-persisted.png。
+  - Blockers/not-run: 开发与隔离验证已完成，但运行库仍0263，标准PG acceptance被版本门禁阻止；真实登录容器页面验收、空库完整0→head迁移链未运行，任务暂不勾选。共享ORM已含0264/0265/0266配套列，源码绑定挂载环境不得在未处理版本差异前直接重启/发布。已通知部署负责人按其用户授权另行统一核验最终源码、迁移及重建，本会话未执行public迁移、容器构建/替换、提交或推送。
+  - Non-scope: 周期标签规则、邀请打标签、结果分类展示、历史快照改写、生产或本地部署、提交推送。
+  - Definition of done: 主会话核验测试、迁移、UI和回读证据后才勾选。
+
 - [ ] PM-T007-T02 实现授权和转交提示编辑弹窗与保存业务
   - Goal: 为授权提示和转交提示提供弹窗编辑、校验、保存、失败重试和重新打开读取闭环。
   - Type: frontend/API/backend/business
@@ -93,9 +148,9 @@
   - UI: 待补充弹窗蓝图；必须覆盖 loading、empty/default、validation、error、forbidden、success、cancel、reopen。
   - API/database/permission/external-system impact: 待确认；预计需要设置读取/更新、权限校验、审计和持久化。
   - Test contract: 必须追踪 UI → 实际请求 payload → service/database → GET reopen，并覆盖权限拒绝、校验失败、保存失败与审计。
-  - Acceptance: 未冻结契约前不得开发或勾选。
-  - Evidence: 待补充。
-  - Blockers: 字段长度、默认值、全局/周期生效边界、权限 code、审计字段和数据表未确认。
+  - Acceptance: 授权子项契约已冻结于spec 7.1并由T02-A实施；转交子项未确认前不得开发或勾选父任务。
+  - Evidence: 授权子项见上方T02-A；转交子项待补充。
+  - Blockers: 授权子项契约与隔离验收已完成；转交提示的采集/双语默认值及保存范围尚待单独确认。
   - Non-scope: 校准设置业务，除非另行确认。
   - Definition of done: 待后续拆分和确认。
 

@@ -4,7 +4,7 @@
       <div v-if="index === 0 || checked[0]" class="overdue-setting__item" :class="{ 'is-first': index === 0 }">
         <PerformanceReadOnlySettingRow :checked="checked[index] ?? false" :disabled="disabled" :label="item.label" @update:checked="updateChecked(index, $event)" />
         <p class="overdue-setting__helper" :class="{ 'is-link-line': item.link }">
-          <template v-if="item.link">勾选后，可在<span class="overdue-setting__link">周期设置</span>关闭逾期任务提交机会</template>
+          <template v-if="item.link"><span>勾选后，可在</span><button v-if="!disabled && checked[index]" class="overdue-setting__link" type="button" @click.stop="emit('open-cycle-settings')">周期设置</button><span v-else class="overdue-setting__link-text">周期设置</span><span>关闭逾期任务提交机会</span></template>
           <template v-else>{{ item.helper }}</template>
         </p>
       </div>
@@ -17,7 +17,7 @@ import PerformanceOtherSettingsCard from './PerformanceOtherSettingsCard.vue'
 import PerformanceReadOnlySettingRow from './PerformanceReadOnlySettingRow.vue'
 
 const props = defineProps<{ checked: boolean[]; disabled?: boolean }>()
-const emit = defineEmits<{ 'update:checked': [value: boolean[]] }>()
+const emit = defineEmits<{ 'update:checked': [value: boolean[]]; 'open-cycle-settings': [] }>()
 
 function updateChecked(index: number, value: boolean) {
   const next = [...props.checked]
@@ -36,5 +36,7 @@ const items = [
 .overdue-setting__item { margin-top: var(--spacing-5); }
 .overdue-setting__item.is-first { margin-top: 0; }
 .overdue-setting__helper { margin: 0 0 0 24px; color: var(--performance-settings-text-secondary); font-size: var(--font-size-md); line-height: 20px; }
-.overdue-setting__link { color: var(--color-primary); }
+.overdue-setting__link { padding: 0; border: 0; background: transparent; color: var(--color-primary); font: inherit; cursor: pointer; }
+.overdue-setting__link-text { color: var(--color-primary); }
+.overdue-setting__link:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 </style>

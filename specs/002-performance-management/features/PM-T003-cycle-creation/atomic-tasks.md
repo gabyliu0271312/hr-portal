@@ -132,6 +132,20 @@
   - 验收：UI 选择 -> POST/PATCH `template_id` -> 数据库 -> GET 编辑回填；服务端拒绝不存在、非绩效类型或非 active 模板。
   - 证据：迁移 0256 在本地 PostgreSQL 升级/回滚/升级通过；周期前端测试 25 项通过。后端周期测试 26/27 通过（另 1 项受并行花名册契约变更阻断）；生产构建受并行组织筛选组件类型错误阻断；真实 API 创建/编辑回填及浏览器截图尚未验收，保持待完成。
 
+## 逾期任务提交机会：2026-10-20 最新要求“本周期立即生效”
+
+- [ ] PM-T003-I08 周期逾期配置持久化与即时提交策略
+  - 输入：全局第三项开启且第一项开启，周期 `overdue_submission_enabled=true`、`overdue_submission_scope=EVALUATION` 默认；PATCH 仅两个字段。全局第一项关闭时不允许逾期补交，全局第三项关闭时周期规则不覆盖全局默认。权限 `performance.cycles.manage`；403 无权、422 非法枚举/布尔、404 无周期；已启动项目仍可修改并在下一次任务提交读取最新值。
+  - 范围：models.PerformanceCycle、cycles_router.CyclePayload/CyclePatch/CycleSummary、cycle_service.create_cycle/update_cycle/serialize、迁移0263、实际任务提交策略及相关后端测试；禁止改0260-0262旧迁移、历史提交或任务快照。一次仅由本任务修改迁移链；部署由其他会话在READY后负责。
+  - Given 已有旧周期、已启动项目与逾期未提交任务；When 切换评估型/全部或重新开启并 POST 提交；Then 命中范围拒绝逾期、未命中保留单次补交、GET 回显且无历史改写；并验证权限、非法值、审计、迁移升降级和并发修改。pytest 周期/项目/其他设置，alembic heads 和隔离数据库验证。
+  - 当前：代码和迁移未验收，待补全提交策略与测试，不得勾选。
+
+- [ ] PM-T003-I09 周期设置菜单与弹窗复用接入
+  - 输入：`ui-interaction.md` 第11节及 `D:\乐逗\Desktop\逾期任务提交机会设置.txt`；适用 Spec012 N0001/N0002/N0004/N0005、N1101-N1106 通用项，不修改数仓领域任务。已有页面小范围增补无需新页面完整蓝图。
+  - 范围：OtherSettings.vue/OtherSettingsOverdueCard.vue、CycleManagement.vue、PerformanceCycleSettingsMenu.vue、PerformanceCycleOverdueSubmissionDialog.vue、api/performance.ts及对应 spec；共享文件仅局部串行编辑并保护别的会话改动。不新增全局主题或路由，不改360°/通知设置。
+  - Given 勾选全局第三项；When 进入周期设置、勾选/取消/切换单选、取消/确定、失败重试；Then 灰区仅勾选时显示，提交仅两个字段，已启动项目立即生效，刷新/重开回显，权限不足无入口，空态/失败不伪造保存。前端组件/页面 Vitest、npm run build、实际浏览器截图与窄屏走查。
+  - 当前：待组件测试、构建、截图及后端联调，不得勾选；独立 PNG 待生成 `../../ui-blueprints/PM-T003-I09-implemented-cycle-overdue-dialog.png`。
+
 ## 任务依赖图
 ```text
 PM-T003-I01 -> PM-T003-I02 -> PM-T003-I03 -> PM-T003-I04

@@ -10,7 +10,7 @@
         <div class="authorization-transfer-card__item-title">{{ item.title }}</div>
         <div class="authorization-transfer-card__item-line">
           <p>{{ item.description }}</p>
-          <PerformanceIconAction :label="`编辑${item.title}`" text="编辑" @click="$emit('edit', item.key)" />
+          <PerformanceIconAction :disabled="disabled" :label="`编辑${item.title}`" text="编辑" @click="$emit('edit', item.key)" />
         </div>
       </div>
     </div>
@@ -18,14 +18,16 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import PerformanceIconAction from './PerformanceIconAction.vue'
 import PerformanceOtherSettingsCard from './PerformanceOtherSettingsCard.vue'
 import PerformancePermissionButton from './PerformancePermissionButton.vue'
 
-const items = [
-  { key: 'authorization', title: '授权提示', description: '请确保授权对象有所选环节的操作资格，避免错误授权泄露敏感数据。' },
-  { key: 'transfer', title: '转交提示', description: '请确保转交对象有所选环节的操作资格，避免错误授权泄露敏感数据。' },
-] as const
+const props = defineProps<{ authorizationPrompt?: string; transferPrompt?: string; disabled?: boolean }>()
+const items = computed(() => [
+  { key: 'authorization', title: '授权提示', description: props.authorizationPrompt ?? '请确保授权对象有所选环节的操作资格，避免错误授权泄露敏感数据。' },
+  { key: 'transfer', title: '转交提示', description: props.transferPrompt ?? '请确保转交对象有所选环节的操作资格，避免错误授权泄露敏感数据。' },
+] as const)
 
 defineEmits<{
   showExample: []
@@ -42,7 +44,7 @@ defineEmits<{
 .authorization-transfer-card__item + .authorization-transfer-card__item { border-top: 1px solid var(--color-line-divider); }
 .authorization-transfer-card__item-title { margin-bottom: var(--spacing-1); color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: 600; line-height: 22px; }
 .authorization-transfer-card__item-line { display: flex; align-items: flex-start; gap: 36px; }
-.authorization-transfer-card__item-line p { min-width: 0; flex: 1; margin: 0; color: var(--color-text-primary); font-size: var(--font-size-md); line-height: 21px; }
+.authorization-transfer-card__item-line p { min-width: 0; flex: 1; margin: 0; color: var(--color-text-primary); font-size: var(--font-size-md); line-height: 21px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .authorization-transfer-card__item-line :deep(.other-settings-icon-action) { margin-top: -2px; }
 @media (max-width: 640px) { .authorization-transfer-card__item-line { gap: 12px; } }
 </style>

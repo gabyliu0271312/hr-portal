@@ -88,10 +88,16 @@ class PerformanceOtherSetting(Base):
     calibration_import_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     performance_coefficient_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     reviewer_360_tags_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    reviewer_360_tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    reviewer_360_tags_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     manual_result_opening_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     overdue_single_submission_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     overdue_voluntary_360_submission_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     cycle_overdue_submission_override_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    authorization_prompt_zh: Mapped[str] = mapped_column(Text, nullable=False, default="请确保授权对象有所选环节的操作资格，避免错误授权泄露敏感数据。", server_default="请确保授权对象有所选环节的操作资格，避免错误授权泄露敏感数据。")
+    authorization_prompt_en: Mapped[str] = mapped_column(Text, nullable=False, default="To prevent sensitive data exposure, please ensure that the authorized individuals has permission for the selected steps.", server_default="To prevent sensitive data exposure, please ensure that the authorized individuals has permission for the selected steps.")
+    transfer_prompt_zh: Mapped[str] = mapped_column(Text, nullable=False, default="请确保转交对象有所选环节的操作资格，避免错误授权泄露敏感数据。", server_default="请确保转交对象有所选环节的操作资格，避免错误授权泄露敏感数据。")
+    transfer_prompt_en: Mapped[str] = mapped_column(Text, nullable=False, default="To prevent sensitive data exposure, please ensure that the transferee has permission for the selected steps.", server_default="To prevent sensitive data exposure, please ensure that the transferee has permission for the selected steps.")
     updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     updated_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -139,6 +145,7 @@ class PerformanceNotificationSetting(Base):
     progress_daily_notification_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     stage_start_notification_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     todo_task_rule: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    progress_daily_rule: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     updated_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -694,6 +701,7 @@ class PerformanceCycle(Base):
         CheckConstraint("lock_rule IN ('IMMEDIATE', 'SCHEDULED')", name="ck_performance_cycle_lock_rule"),
         CheckConstraint("pre_lock_sync_mode IN ('MANUAL', 'AUTO_DAILY')", name="ck_performance_cycle_pre_lock_sync_mode"),
         CheckConstraint("leaver_participation_mode IN ('CREATE_TASK', 'REPORT_ONLY')", name="ck_performance_cycle_leaver_mode"),
+        CheckConstraint("overdue_submission_scope IN ('EVALUATION', 'ALL')", name="ck_performance_cycle_overdue_submission_scope"),
         CheckConstraint("status IN ('DRAFT', 'LOCKED')", name="ck_performance_cycle_status"),
         CheckConstraint("end_at > start_at", name="ck_performance_cycle_end_after_start"),
         CheckConstraint("lock_rule = 'IMMEDIATE' OR lock_at IS NOT NULL", name="ck_performance_cycle_scheduled_lock_at"),
@@ -722,6 +730,8 @@ class PerformanceCycle(Base):
     leaver_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     leaver_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     leaver_participation_mode: Mapped[str] = mapped_column(String(16), nullable=False, default=CYCLE_LEAVER_MODE_CREATE_TASK)
+    overdue_submission_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    overdue_submission_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="EVALUATION", server_default="EVALUATION")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=CYCLE_STATUS_DRAFT)
     created_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
     created_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)

@@ -15,7 +15,7 @@ from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.cycle_service import PerformanceCycleService
-from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
+from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
 from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
@@ -111,13 +111,33 @@ def _task_is_available(task: PerformanceNodeTask, node: PerformanceProjectNodeSn
     return available_at is None or (now or datetime.now(UTC)) >= available_at
 
 
-def _self_summary_state(task: PerformanceNodeTask, available_at: datetime | None, due_at: datetime | None) -> tuple[bool, bool]:
+def _self_summary_state(task: PerformanceNodeTask, available_at: datetime | None, due_at: datetime | None, overdue_allowed: bool = True) -> tuple[bool, bool]:
     now = datetime.now(UTC)
     if available_at is not None and now < available_at:
         return False, False
     overdue = due_at is not None and now > due_at
     submitted = task.submitted_at is not None
-    return (not (overdue and submitted), not (overdue and submitted))
+    if overdue and (submitted or not overdue_allowed):
+        return False, False
+    return True, True
+
+
+async def _overdue_submission_allowed(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession) -> bool:
+    cycle_ref = getattr(task, "cycle_ref", None)
+    if not cycle_ref:
+        return True
+    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == cycle_ref))
+    if cycle is None:
+        return True
+    global_setting = await db.get(PerformanceOtherSetting, 1)
+    if global_setting is not None and not getattr(global_setting, "overdue_single_submission_enabled", True):
+        return False
+    if global_setting is not None and global_setting.cycle_overdue_submission_override_enabled and not getattr(cycle, "overdue_submission_enabled", True):
+        scope = getattr(cycle, "overdue_submission_scope", "EVALUATION")
+        scope_matches = scope == "ALL" or (scope == "EVALUATION" and getattr(node, "node_type", None) == "evaluation")
+        if scope_matches:
+            return False
+    return True
 
 
 async def _self_summary_template(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession) -> dict:
@@ -245,7 +265,8 @@ async def _reference_tabs(
 async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, context: PerformanceAccessContext, db: AsyncSession):
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
-    editable, submit_allowed = _self_summary_state(task, available_at, due_at)
+    overdue_allowed = await _overdue_submission_allowed(task, node, db)
+    editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     template = await _self_summary_template(task, node, db)
     member = await db.scalar(select(PerformanceProjectMember).where(
         PerformanceProjectMember.snapshot_id == task.member_snapshot_id,
@@ -315,7 +336,8 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     task, node = await _self_summary_task(task_id, context, db, task_kind, target_employee_no)
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
-    editable, submit_allowed = _self_summary_state(task, available_at, due_at)
+    overdue_allowed = await _overdue_submission_allowed(task, node, db)
+    editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     if not editable or (submit and not submit_allowed):
         raise HTTPException(status_code=409, detail="SUBMISSION_NOT_ALLOWED")
     if payload.version is not None and payload.version != task.answer_version:
@@ -337,7 +359,7 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
         if project is not None:
             await _sync_automatic_openings(db, project)
     await db.commit()
-    editable, submit_allowed = _self_summary_state(task, available_at, due_at)
+    editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     return {"answers": task.answers, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed}
 
 

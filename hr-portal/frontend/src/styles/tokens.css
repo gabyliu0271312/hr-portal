@@ -100,6 +100,9 @@
   --performance-dialog-wide-width: 600px;
   --performance-notification-dialog-width: 680px;
   --performance-notification-unit-width: 70px;
+  --performance-time-column-width: 70px;
+  --performance-time-panel-height: 240px;
+  --performance-time-scrollbar-thumb: rgba(31, 35, 41, 0.6);
   --performance-dialog-body-indent: calc(var(--performance-dialog-icon-size) + var(--spacing-4));
   --performance-dialog-icon-size: 24px;
   --performance-dialog-body-gap: var(--spacing-2);

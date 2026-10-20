@@ -34,6 +34,7 @@ from app.performance.models import (
     PerformanceAuthorizationSnapshotPerson,
     PerformanceCycle,
     PerformanceCycleProjectManager,
+    PerformanceOtherSetting,
     PerformanceProject,
     PROJECT_STATUS_STARTED,
 )
@@ -241,6 +242,8 @@ class PerformanceCycleService:
             leaver_start_date=payload.get("leaver_start_date"),
             leaver_end_date=payload.get("leaver_end_date"),
             leaver_participation_mode=payload["leaver_participation_mode"],
+            overdue_submission_enabled=payload.get("overdue_submission_enabled", True),
+            overdue_submission_scope=payload.get("overdue_submission_scope", "EVALUATION"),
             status=CYCLE_STATUS_DRAFT,
             created_by_type=actor_type,
             created_by_ref=_actor_ref(actor_id),
@@ -262,8 +265,13 @@ class PerformanceCycleService:
         forbidden = {"lock_rule", "lock_at", "pre_lock_sync_mode"}.intersection(payload)
         if forbidden:
             raise CycleValidationError("周期创建后不支持修改锁定规则")
+        overdue_changed = any(field in payload and payload[field] != getattr(cycle, field) for field in ("overdue_submission_enabled", "overdue_submission_scope"))
+        if overdue_changed:
+            setting = await self.db.get(PerformanceOtherSetting, 1)
+            if setting is None or not setting.overdue_single_submission_enabled or not setting.cycle_overdue_submission_override_enabled:
+                raise CycleValidationError("未开启按周期关闭逾期任务提交机会")
         before = self.serialize(cycle)
-        for field in ("name", "language", "period_year", "period_type", "period_subtype", "template_id", "start_at", "end_at", "leaver_enabled", "leaver_start_date", "leaver_end_date", "leaver_participation_mode"):
+        for field in ("name", "language", "period_year", "period_type", "period_subtype", "template_id", "start_at", "end_at", "leaver_enabled", "leaver_start_date", "leaver_end_date", "leaver_participation_mode", "overdue_submission_enabled", "overdue_submission_scope"):
             if field in payload:
                 setattr(cycle, field, payload[field].strip() if field == "name" else payload[field])
         self._validate_cycle(cycle)
@@ -494,7 +502,7 @@ class PerformanceCycleService:
 
     @staticmethod
     def serialize(cycle: PerformanceCycle) -> dict[str, Any]:
-        return {"id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "status": cycle.status}
+        return {"id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
 
     @staticmethod
     def _validate_payload(payload: dict[str, Any]) -> None:

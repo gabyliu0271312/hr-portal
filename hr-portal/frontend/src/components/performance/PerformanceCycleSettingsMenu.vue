@@ -30,7 +30,7 @@
         :style="menuStyle"
         @keydown="handleMenuKeydown"
       >
-        <li v-for="item in items" :key="item.key" class="cycle-settings-menu__entry" role="none">
+        <li v-for="item in visibleItems" :key="item.key" class="cycle-settings-menu__entry" role="none">
           <button class="cycle-settings-menu__item" type="button" role="menuitem" @click="select(item.key)">
             <span class="cycle-settings-menu__content">
               <span class="cycle-settings-menu__title">{{ item.title }}</span>
@@ -48,7 +48,7 @@ let nextCycleSettingsMenuId = 0
 </script>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
 type SettingsMenuItem = {
   key: string
@@ -56,21 +56,26 @@ type SettingsMenuItem = {
   description: string
 }
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   buttonLabel?: string
   ariaLabel?: string
   items?: SettingsMenuItem[]
+  overdueSubmissionAvailable?: boolean
 }>(), {
   buttonLabel: '设置',
   ariaLabel: '设置周期',
+  overdueSubmissionAvailable: false,
   items: () => [
     { key: 'hrbp-permission', title: 'HRBP 权限管理', description: '可管理该周期内角色成员的数据权限' },
     { key: 'people-group', title: '人员组管理', description: '可管理周期内的人员组' },
     { key: 'aggregate-dimension', title: '自定义聚合维度', description: '可自定义该周期内的人员聚合维度' },
     { key: 'report', title: '报表配置', description: '可配置该周期内的报表内容' },
     { key: 'review-relation', title: '评估关系管理', description: '可管理该周期内各成员之间的评估关系' },
+    { key: 'overdue-submission', title: '逾期任务提交机会设置', description: '可关闭逾期任务提交机会，关闭后在本周期内生效' },
   ],
 })
+
+const visibleItems = computed(() => props.items.filter(item => item.key !== 'overdue-submission' || props.overdueSubmissionAvailable))
 
 const emit = defineEmits<{
   select: [key: string]

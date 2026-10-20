@@ -23,10 +23,15 @@ export function defaultTodoNotificationRule(): PerformanceTodoNotificationRule {
   }
 }
 
+export function defaultProgressDailyNotificationRule(): PerformanceTodoNotificationRule {
+  return { ...defaultTodoNotificationRule(), time: '18:00' }
+}
+
 export function todoNotificationSummary(rule = defaultTodoNotificationRule()) {
   const frequency = notificationFrequencyOptions.find(option => option.value === rule.frequency)?.label || rule.frequency
   const zone = notificationTimezoneOptions.find(option => option.value === rule.timezone)?.label || rule.timezone
-  const days = rule.days_before.map(day => day === 0 ? '截止当天' : `第 ${day} 天`).join('、')
+  const dayKind = rule.day_kind === 'working_day' ? '工作日' : '自然日'
+  const days = rule.days_before.map(day => day === 0 ? '截止当天' : `第 ${day} 个${dayKind}`).join('、')
   const weekdays = rule.weekdays.map(day => notificationWeekdayOptions[day - 1]?.label).filter(Boolean).join('、')
   const schedule = rule.frequency === 'specified'
     ? `环节截止前 ${days}`

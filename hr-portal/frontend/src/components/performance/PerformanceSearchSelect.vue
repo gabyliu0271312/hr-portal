@@ -14,10 +14,11 @@
     @update:model-value="updateValues"
   >
     <template #default="{ query, close, focus }">
-      <div class="performance-flat-option-list">
+      <div class="performance-flat-option-list" :class="{ 'performance-flat-option-list--checkmark': optionStyle === 'checkmark' }">
         <button v-for="option in filteredOptions(query)" :key="option.value" class="performance-flat-option-list__option" :class="{ 'is-selected': selectedValues.includes(option.value), 'is-disabled': option.disabled }" type="button" role="option" :aria-selected="selectedValues.includes(option.value)" :disabled="option.disabled" @click="select(option.value, close, focus)">
-          <span v-if="multiple" class="performance-flat-option-list__checkbox" :class="{ 'is-checked': selectedValues.includes(option.value) }">{{ selectedValues.includes(option.value) ? '✓' : '' }}</span>
+          <span v-if="multiple && optionStyle === 'checkbox'" class="performance-flat-option-list__checkbox" :class="{ 'is-checked': selectedValues.includes(option.value) }">{{ selectedValues.includes(option.value) ? '✓' : '' }}</span>
           <span>{{ option.label }}</span>
+          <svg v-if="optionStyle === 'checkmark' && selectedValues.includes(option.value)" class="performance-flat-option-list__checkmark" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </button>
         <div v-if="!filteredOptions(query).length" class="performance-flat-option-list__empty">{{ emptyText }}</div>
       </div>
@@ -38,6 +39,7 @@ const props = withDefaults(defineProps<{
   placeholder?: string
   emptyText?: string
   multiple?: boolean
+  optionStyle?: 'checkbox' | 'checkmark'
   disabled?: boolean
   selectionStyle?: 'tags' | 'plain'
   disabledSurface?: 'muted' | 'white'
@@ -47,6 +49,7 @@ const props = withDefaults(defineProps<{
   placeholder: '请选择',
   emptyText: '暂无可选项',
   multiple: false,
+  optionStyle: 'checkbox',
   disabled: false,
   selectionStyle: 'tags',
   disabledSurface: 'muted',
@@ -86,5 +89,11 @@ function select(value: string, close: () => void, focus: () => void) {
 .performance-flat-option-list__option.is-disabled { color: #bbbfc4; cursor: not-allowed; }
 .performance-flat-option-list__checkbox { display: grid; place-items: center; width: 16px; height: 16px; box-sizing: border-box; border: 1px solid #bbbfc4; border-radius: 3px; color: #fff; font-size: 12px; }
 .performance-flat-option-list__checkbox.is-checked { border-color: #3370ff; background: #3370ff; }
+.performance-flat-option-list--checkmark { max-height: calc(var(--performance-control-height) * 7.5); padding: 0; }
+.performance-flat-option-list--checkmark .performance-flat-option-list__option { height: var(--performance-control-height); min-height: var(--performance-control-height); padding: 0 var(--spacing-3); color: var(--color-text-primary); }
+.performance-flat-option-list--checkmark .performance-flat-option-list__option.is-selected { background: var(--color-primary-subtle); color: var(--color-primary-hover); }
+.performance-flat-option-list--checkmark .performance-flat-option-list__option:hover { background: var(--color-bg-hover); }
+.performance-flat-option-list--checkmark .performance-flat-option-list__option.is-disabled { color: var(--performance-field-disabled-text); }
+.performance-flat-option-list__checkmark { flex: 0 0 var(--spacing-4); margin-left: auto; }
 .performance-flat-option-list__empty { padding: 8px 10px; color: #8f959e; line-height: 22px; }
 </style>

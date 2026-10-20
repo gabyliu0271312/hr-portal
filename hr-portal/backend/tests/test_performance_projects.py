@@ -947,6 +947,9 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
             return SimpleNamespace(settings={"flow_settings": {"node_times": {"summary": {"start_at": "2026-09-16T00:00:00Z", "end_at": "2026-09-30T00:00:00Z"}}}})
 
     monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    async def allow_overdue(*_args):
+        return True
+    monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow_overdue)
     result = await projects_router.get_self_summary(9, context(), Db())
 
     assert result["task_id"] == 9
@@ -1006,6 +1009,9 @@ async def test_self_summary_partial_draft_merges_existing_answers(monkeypatch):
             return None
 
     monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    async def allow_overdue(*_args):
+        return True
+    monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow_overdue)
     result = await projects_router._save_self_summary(
         9,
         projects_router.SelfSummaryAnswersPayload(answers={"work": "新内容"}, version=1),
@@ -1148,13 +1154,15 @@ def test_live_project_time_controls_task_opening_and_late_submission(monkeypatch
     current = datetime(2026, 9, 17, 12, tzinfo=UTC)
     monkeypatch.setattr('app.performance.projects_router.datetime', SimpleNamespace(now=lambda _tz: current))
     task = SimpleNamespace(available_at=None, due_at=None, submitted_at=None)
-    node = SimpleNamespace(node_id="summary", config={"time": {"start_at": "2026-09-16T00:00:00Z"}})
+    node = SimpleNamespace(node_id="summary", node_type="work_summary", config={"time": {"start_at": "2026-09-16T00:00:00Z"}})
     project = SimpleNamespace(settings={"flow_settings": {"node_times": {"summary": {"start_at": "2026-09-18T00:00:00Z", "end_at": "2026-09-30T00:00:00Z"}}}})
     assert _self_summary_state(task, *_task_window(task, node, project)) == (False, False)
     project.settings["flow_settings"]["node_times"]["summary"]["start_at"] = "2026-09-16T00:00:00Z"
     assert _self_summary_state(task, *_task_window(task, node, project)) == (True, True)
     project.settings["flow_settings"]["node_times"]["summary"]["end_at"] = "2026-09-16T23:59:00Z"
-    assert _self_summary_state(task, *_task_window(task, node, project)) == (True, True)
+    assert _self_summary_state(task, *_task_window(task, node, project), False) == (False, False)
+    task.submitted_at = None
+    assert _self_summary_state(task, *_task_window(task, node, project), True) == (True, True)
     task.submitted_at = current - timedelta(days=1)
     assert _self_summary_state(task, *_task_window(task, node, project)) == (False, False)
 
@@ -1265,6 +1273,9 @@ async def test_self_summary_save_uses_live_project_window_not_frozen_task(monkey
             self.commits += 1
 
     monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    async def allow_overdue(*_args):
+        return True
+    monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow_overdue)
     db = Db()
     payload = projects_router.SelfSummaryAnswersPayload(answers={"work": "完成"}, version=1)
     with pytest.raises(HTTPException) as exc:

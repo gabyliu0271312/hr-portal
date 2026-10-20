@@ -73,6 +73,8 @@ def test_notification_get_returns_capture_defaults_without_writing():
 
     assert response.status_code == 200
     assert response.json() == _defaults().model_dump()
+    assert response.json()["progress_daily_rule"]["time"] == "18:00"
+    assert response.json()["todo_task_rule"]["time"] == "10:00"
     assert db.setting is None
     assert db.commits == 0
 
@@ -94,6 +96,7 @@ def test_notification_patch_rejects_invalid_fields_and_null():
         {"calibration_delivery_mode": "invalid"},
         {"result_change_notification_scope": "invalid"},
         {"progress_daily_notification_enabled": None},
+        {"progress_daily_rule": None},
     ):
         with pytest.raises(ValidationError):
             NotificationSettingsPatch(**values)
@@ -160,7 +163,9 @@ def test_patch_http_returns_persisted_state_and_validates_unknown_fields(monkeyp
     assert client.patch("/api/v1/performance/system-settings/notifications", json={"todo_task_notification_enabled": None}).status_code == 422
 
 
-def test_todo_rule_three_modes_normalize_and_reopen(monkeypatch):
+@pytest.mark.parametrize("field", ["todo_task_rule", "progress_daily_rule"])
+@pytest.mark.parametrize("day_kind", ["calendar_day", "working_day"])
+def test_todo_rule_three_modes_normalize_and_reopen(monkeypatch, day_kind, field):
     db = MemoryNotificationDb()
 
     class Audit:
@@ -176,7 +181,7 @@ def test_todo_rule_three_modes_normalize_and_reopen(monkeypatch):
         {
             "frequency": "specified",
             "days_before": [30, 0, 30],
-            "day_kind": "calendar_day",
+            "day_kind": day_kind,
             "time": "09:05",
             "timezone": "Asia/Shanghai",
             "suppress_non_working_days": True,
@@ -184,12 +189,80 @@ def test_todo_rule_three_modes_normalize_and_reopen(monkeypatch):
         {"frequency": "daily", "interval": 3, "time": "10:15", "timezone": "person"},
         {"frequency": "weekly", "interval": 2, "weekdays": [7, 1, 7], "time": "23:59", "timezone": "UTC"},
     ):
-        response = client.patch("/api/v1/performance/system-settings/notifications", json={"todo_task_rule": rule})
+        response = client.patch("/api/v1/performance/system-settings/notifications", json={field: rule})
         assert response.status_code == 200
-        saved = response.json()["todo_task_rule"]
+        saved = response.json()[field]
+        assert saved["day_kind"] == rule.get("day_kind", "calendar_day")
         assert saved["days_before"] == sorted(set(rule.get("days_before", []))) if rule["frequency"] == "specified" else saved["days_before"] == []
         assert saved["weekdays"] == sorted(set(rule.get("weekdays", []))) if rule["frequency"] == "weekly" else saved["weekdays"] == []
-        assert client.get("/api/v1/performance/system-settings/notifications").json()["todo_task_rule"] == saved
+        assert client.get("/api/v1/performance/system-settings/notifications").json()[field] == saved
+
+
+def test_day_kind_change_is_audited_once_and_sibling_patch_preserves_it(monkeypatch):
+    db = MemoryNotificationDb()
+    events = []
+
+    class Audit:
+        def __init__(self, _db):
+            pass
+
+        def append_event(self, event):
+            events.append(event)
+
+    monkeypatch.setattr(notification_settings_router, "PerformanceAuditService", Audit)
+    client = _client(allowed=True, db=db)
+    url = "/api/v1/performance/system-settings/notifications"
+    rule = {"frequency": "specified", "days_before": [3], "day_kind": "calendar_day"}
+    assert client.patch(url, json={"todo_task_rule": rule}).status_code == 200
+    rule["day_kind"] = "working_day"
+    assert client.patch(url, json={"todo_task_rule": rule}).status_code == 200
+    assert len(events) == 2
+    assert events[-1].before_state["todo_task_rule"]["day_kind"] == "calendar_day"
+    assert events[-1].after_state["todo_task_rule"]["day_kind"] == "working_day"
+    assert client.patch(url, json={"todo_task_rule": rule}).status_code == 200
+    assert len(events) == 2
+    assert client.patch(url, json={"email_enabled": True}).json()["todo_task_rule"]["day_kind"] == "working_day"
+    for invalid in ("workday", ["calendar_day", "working_day"], None):
+        commits = db.commits
+        response = client.patch(url, json={"todo_task_rule": {**rule, "day_kind": invalid}})
+        assert response.status_code == 422
+        assert db.commits == commits
+        assert client.get(url).json()["todo_task_rule"]["day_kind"] == "working_day"
+
+
+def test_progress_rule_is_independent_audited_and_preserved_by_switches(monkeypatch):
+    db = MemoryNotificationDb()
+    events = []
+
+    class Audit:
+        def __init__(self, _db):
+            pass
+
+        def append_event(self, event):
+            events.append(event)
+
+    monkeypatch.setattr(notification_settings_router, "PerformanceAuditService", Audit)
+    client = _client(allowed=True, db=db)
+    url = "/api/v1/performance/system-settings/notifications"
+    assert client.patch(url, json={"progress_daily_notification_enabled": False}).status_code == 200
+    before = client.get(url).json()
+    rule = {"frequency": "weekly", "interval": 2, "weekdays": [5, 1, 5], "time": "09:05"}
+    saved = client.patch(url, json={"progress_daily_rule": rule}).json()
+    assert saved["progress_daily_rule"]["weekdays"] == [1, 5]
+    assert saved["todo_task_rule"] == before["todo_task_rule"]
+    assert saved["progress_daily_notification_enabled"] is False
+    assert events[-1].before_state["progress_daily_rule"]["time"] == "18:00"
+    assert events[-1].after_state["progress_daily_rule"]["time"] == "09:05"
+    count = len(events)
+    assert client.patch(url, json={"progress_daily_rule": rule}).status_code == 200
+    assert len(events) == count
+    changed = client.patch(url, json={"todo_task_rule": {"time": "11:30"}, "email_enabled": True, "progress_daily_notification_enabled": True}).json()
+    assert changed["progress_daily_rule"] == saved["progress_daily_rule"]
+    commits = db.commits
+    for invalid in (None, {"time": "24:00"}, {"unknown": True}):
+        assert client.patch(url, json={"progress_daily_rule": invalid}).status_code == 422
+    assert db.commits == commits
+    assert client.get(url).json()["progress_daily_rule"] == saved["progress_daily_rule"]
 
 
 def test_todo_rule_patch_does_not_overwrite_sibling_fields(monkeypatch):
@@ -228,8 +301,12 @@ def test_todo_rule_patch_does_not_overwrite_sibling_fields(monkeypatch):
         {"frequency": "daily", "timezone": "Mars/Olympus"},
         {"frequency": "daily", "suppress_non_working_days": None},
         {"frequency": "daily", "unknown": 1},
+        {"frequency": "specified", "days_before": [1], "day_kind": "workday"},
+        {"frequency": "specified", "days_before": [1], "day_kind": ["calendar_day", "working_day"]},
+        {"frequency": "specified", "days_before": [1], "day_kind": None},
     ],
 )
-def test_todo_rule_invalid_values_are_rejected(rule):
+@pytest.mark.parametrize("field", ["todo_task_rule", "progress_daily_rule"])
+def test_todo_rule_invalid_values_are_rejected(rule, field):
     with pytest.raises(ValidationError):
-        NotificationSettingsPatch(todo_task_rule=rule)
+        NotificationSettingsPatch(**{field: rule})

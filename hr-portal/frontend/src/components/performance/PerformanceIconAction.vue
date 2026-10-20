@@ -1,5 +1,5 @@
 <template>
-  <PerformancePermissionButton :allowed="true" op="U" class="other-settings-icon-action" :class="{ 'has-text': text }" :aria-label="label" @click="$emit('click')">
+  <PerformancePermissionButton :allowed="true" op="U" :disabled="disabled" class="other-settings-icon-action" :class="{ 'has-text': text }" :aria-label="label" @click="$emit('click')">
     <svg v-if="icon === 'edit'" viewBox="0 0 24 24" aria-hidden="true">
       <path d="m17.57 7.244-.006-.006.37-.37a1 1 0 0 0 .001-1.412l-3.434-3.453-.002-.002a1 1 0 0 0-1.414 0l-.705.706.01.01L2 13.186V17a1 1 0 0 0 1 1h3.814L17.57 7.244Zm-3.273.389-2.015-2.015 1.487-1.515 2.023 2.034-1.495 1.496Zm-3.415-.587 2.002 2.002-6.913 6.92h-.004l-1.934-1.935v-.003l6.849-6.984ZM3 20a1 1 0 1 0 0 2h18a1 1 0 0 0 0-2H3Z" fill="currentColor" />
     </svg>
@@ -13,7 +13,7 @@
 <script setup lang="ts">
 import PerformancePermissionButton from './PerformancePermissionButton.vue'
 
-withDefaults(defineProps<{ icon?: 'edit' | 'settings'; label: string; text?: string }>(), { icon: 'edit', text: '' })
+withDefaults(defineProps<{ icon?: 'edit' | 'settings'; label: string; text?: string; disabled?: boolean }>(), { icon: 'edit', text: '' })
 defineEmits<{ click: [] }>()
 </script>
 
