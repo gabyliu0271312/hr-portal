@@ -519,8 +519,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'permissions/authorization',
         name: 'PerformancePermissionAuthorization',
-        component: () => import('@/views/performance/Settings.vue'),
-        props: { section: 'permissions', title: '授权配置' },
+        component: () => import('@/views/performance/PerformanceAuthorizationConfiguration.vue'),
         meta: { label: '授权配置' },
       },
       {

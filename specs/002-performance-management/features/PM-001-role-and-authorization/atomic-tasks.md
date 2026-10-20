@@ -38,6 +38,22 @@
   - 测试要求：角色叠加、间接上级汇报链、360°名单可见性、校准调整审计、按人/按角色申诉处理人。
   - 验收标准：后续功能不得绕过 PM-001 的对象级授权服务。
 
+## 授权配置界面增量（2026-10-20）
+
+- [ ] PM-001-T06 授权配置双 Tab 与组件接入
+  - 执行依据：用户明确要求直接按文字描述开发，复用高级组件与全局 token；未取得独立可视蓝图确认，不记为蓝图已确认。
+  - 范围：既有 `/performance/settings/permissions/authorization` 路由接入专属页面；指定用户授权、按规则授权两个 Tab，工具栏、表格与分页壳；添加弹窗仅展示壳，不执行授权。
+  - 复用：`PerformanceLineTabs`、`PerformanceContentSurface`、`PerformanceListToolbar`、`PerformanceManagementTable`、`PerformanceCreateButton`、`PerformanceButton`、`PerformancePermissionButton`、`PerformanceDialogShell`、`PerformanceFormItem`、`PerformanceSearchSelect` 与 `styles/tokens.css`。
+  - 修改范围：`PerformanceAuthorizationConfiguration.vue/.spec.ts`、`PerformanceAuthorizationDialog.vue/.spec.ts`、路由中授权配置条目及本功能文档。
+  - 禁止范围：不修改角色配置、鉴权、API、数据库、已启动周期快照；不写入模拟授权数据；不覆盖并行任务的路由或其他修改。
+  - 契约：指定用户表头为选择用户、授权角色、更新人、最近更新时间、操作（仅编辑）；规则表头为用户范围、授权角色、更新人、最近更新时间、操作（编辑、删除）。搜索词分 Tab 保留；当前列表数据固定为空，不代表后端真实授权为空。导出/编辑/删除提示后续接入；弹窗选项及提交禁用。
+  - 测试：Given 默认页面，Then 指定用户 Tab 与对应五列表头；When 切到规则 Tab，Then 展示规则表头和编辑/删除列；When 输入搜索词并切换，Then 各 Tab 独立保留；When 添加，Then 展示对应弹窗壳且不发送授权请求。
+  - 已执行：授权配置页面 5 项、弹窗 2 项、角色配置 2 项、共享 Tab 8 项，共 17 项通过。命令：`npm.cmd --prefix hr-portal/frontend run test -- src/views/performance/PerformanceAuthorizationConfiguration.spec.ts src/components/performance/PerformanceAuthorizationDialog.spec.ts src/views/performance/PerformanceRoleConfiguration.spec.ts src/components/performance/PerformanceLineTabs.spec.ts`。
+  - 已知基线：额外运行 `PerformanceListToolbar.spec.ts` 的既有断言失败（预期 filter 2 次，实际 1 次），本任务未修改该共享组件或测试。
+  - 构建：最终 `npm.cmd --prefix hr-portal/frontend run build` 通过（exit 0）；仅有第三方 `@vueuse/core` 的 Rollup 注释警告。首次构建中的本页测试类型问题已修复，后续构建通过。
+  - 待验收：真实应用截图、可视蓝图、权限态验证。现有 9222 浏览器端点无法连接，未取得真实应用截图；未取得完整 UI 证据前不勾选。
+  - 后续独立范围：真实列表/查询/导出、授权与规则模型、候选项、弹窗字段及提交、编辑、删除确认/影响提示和后端审计；本任务不声称完整授权功能可用。
+
 ## 任务依赖
 
 ```text
