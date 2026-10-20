@@ -27,6 +27,7 @@ from app.performance.workbench_settings_router import consumer_router as perform
 from app.performance.workbench_settings_router import router as performance_workbench_settings_router
 from app.performance.other_permission_settings_router import router as performance_other_permission_settings_router
 from app.performance.notification_settings_router import router as performance_notification_settings_router
+from app.performance.other_settings_router import router as performance_other_settings_router
 from app.performance.assessment_method_settings_router import router as performance_assessment_method_settings_router
 from app.performance.subject_visibility_router import router as performance_subject_visibility_router
 from app.performance.role_configuration_router import router as performance_role_configuration_router
@@ -232,6 +233,7 @@ app.include_router(performance_workbench_settings_router, prefix=settings.API_PR
 app.include_router(performance_workbench_consumer_router, prefix=settings.API_PREFIX)
 app.include_router(performance_other_permission_settings_router, prefix=settings.API_PREFIX)
 app.include_router(performance_notification_settings_router, prefix=settings.API_PREFIX)
+app.include_router(performance_other_settings_router, prefix=settings.API_PREFIX)
 app.include_router(performance_assessment_method_settings_router, prefix=settings.API_PREFIX)
 app.include_router(performance_subject_visibility_router, prefix=settings.API_PREFIX)
 app.include_router(performance_role_configuration_router, prefix=settings.API_PREFIX)

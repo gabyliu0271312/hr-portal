@@ -1,0 +1,82 @@
+# PM-T007 原子任务
+
+- [x] PM-T007-T01 实现其他设置页面轮廓与授权转交卡片视觉还原
+  - Goal: 将 `/performance/settings/system/other` 从占位页替换为高组件化的其他设置页面，第一张授权和转交卡片按采集参数像素级还原。
+  - Type: frontend/UI
+  - Prerequisites: PM-T002-T02；用户确认页面范围；蓝图 `../../ui-blueprints/PM-T007-other-settings.md` v1.0 确认。
+  - Required reading: 本功能 `spec.md`、`ui-interaction.md`、蓝图、`START_HERE.md`、`hr-portal/frontend/docs/design-system.md`、`hr-portal/frontend/src/styles/tokens.css`、Spec 012 `ui-interaction.md`、`ui-implementation-guardrails.md`、N000/N1102-N1104。
+  - Allowed modifications: `hr-portal/frontend/src/styles/tokens.css`（仅新增 `--performance-settings-text-secondary`，不改变既有值）、`hr-portal/frontend/src/components/performance/PerformanceAuthorizationTransferCard.vue`、`hr-portal/frontend/src/router/index.ts`、`hr-portal/frontend/src/views/performance/OtherSettings.vue`、`hr-portal/frontend/src/components/performance/PerformanceOtherSettings*.vue`、`hr-portal/frontend/src/components/performance/PerformanceReadOnlySettingRow.vue`、`hr-portal/frontend/src/components/performance/PerformanceIconAction.vue`、对应 Vitest 文件、`specs/002-performance-management/features/PM-T007-other-settings/**`、`specs/002-performance-management/ui-blueprints/PM-T007-T01-implemented-other-settings.png`。
+  - Allowed new files: 仅上述专属页面、组件、测试和独立 UI 证据文件。
+  - Forbidden modifications: 后端、migration、API、权限模型、PM-001 授权规则、项目授权卡片、PM-T004 流程设置、`Settings.vue` 共享占位页、UCP、外部系统。
+  - Shared files and merge rule: 路由只替换 `PerformanceSystemOther` 组件；保留其他路由和同期开发内容（包括另一个任务替换的授权配置路由）；不覆盖本次会话开始时及过程中出现的无关修改。
+  - Input contract: 采集文件文本与已确认蓝图；无远端 API。
+  - Output contract: 页面 DOM 结构、组件 props/events、编辑入口待办提示。
+  - UI: 路由 `/performance/settings/system/other`；覆盖正常态、空态；无 loading/error API 状态；无权限由既有守卫处理；第一张卡片像素级；其余卡片尽量还原；编辑图标不打开弹窗。
+  - API/database/permission/external-system impact: 不涉及 API、数据库、UCP 或外部系统；复用既有后台路由访问权限。
+  - Test contract:
+    - Given 其他设置页面路由；When 页面渲染；Then 标题、卡片顺序、第一张卡片文案、编辑入口、360°空态和任务逾期项存在。
+    - Given 点击查看示例/编辑图标；When 触发点击；Then 显示待办提示且不产生保存成功反馈。
+    - Given 页面窄屏；When 内容换行；Then 文案和操作不产生横向溢出。
+    - Given 其他后台路由；When 加载；Then 仍使用原 Settings.vue 或原业务组件。
+    - Test files: `hr-portal/frontend/src/views/performance/OtherSettings.spec.ts`（6 项，组合验证所有专属卡片）、`PerformanceCheckbox.spec.ts`（3 项）、`PerformanceAdminLayout.spec.ts`（11 项）。
+    - Commands: `npm.cmd run test -- OtherSettings.spec.ts`；`npm.cmd run build`。
+    - skipped/not-run rule: 未执行的浏览器截图和真实应用走查必须标记为 not-run，不得作为通过；独立 PNG 需在可用截图环境生成。
+  - Acceptance: 页面替换成功、第一张卡片与采集参数一致、其余卡片不出现误导性可保存交互、编辑入口明确预留、共享占位页和既有路由不回归。
+  - Evidence: 2026-10-20，`npm.cmd --prefix hr-portal/frontend run test -- src/views/performance/OtherSettings.spec.ts src/components/performance/PerformanceCheckbox.spec.ts src/layouts/PerformanceAdminLayout.spec.ts`，3 文件 20/20 通过。`npm.cmd --prefix hr-portal/frontend run build` 通过 vue-tsc 和 Vite 构建（`built in 1m 36s`）；有第三方 VueUse PURE 注释警告。初次测试的事件命名和错误的 toast DOM 断言已修正；初次全量构建曾被同期开发的授权配置测试类型错误阻塞，未改该文件，后续构建通过。
+  - Browser evidence: 实际 Vite 应用路由 `/performance/settings/system/other`，1534×911，Chrome CDP；仅 `/auth/me`、`/performance/auth/context` 和后台壳设置 API 使用隔离响应夹具，不更改应用守卫、不使用真实凭证。已读取独立截图 `../../ui-blueprints/PM-T007-T01-implemented-other-settings.png`。首卡高度 277px、灰框 145px、标题 18/26、内边距 20px、间距 16px；宽度跟随现有壳（首次 1244px，隐藏原生滚动条环境 1254px），不硬编码采集的 1246px。点击编辑显示待办消息，0 个 dialog；8 个复用复选框均 disabled，默认值与采集一致。400px 下 documentWidth=400，mainWidth=mainScrollWidth=150，无横向溢出。
+  - UI compliance: 已完成本任务适用的 N0001/N0002/N0004/N0005、N1102-N1104；复用全局 token、PerformanceCheckbox、PerformancePermissionButton 和 PerformanceButton，V/U 按钮权限有 allow/deny 组件测试。Spec 012 数仓专属 N02-N10 不适用；无 UCP/建模/破坏性操作。不改 Spec 012 既有全局勾选状态。
+  - Container evidence: 2026-10-20 用户要求容器构建替换后，与共享工作树的 hr-98 会话协调，避免并行重建；该会话执行 Docker compose build frontend/backend 和 up --no-deps --force-recreate（反馈退出码均为 0，保留数据库卷）。本会话独立只读核验：前端容器 ID `4083a70cd870`、运行镜像 `sha256:ab5a9c007baeaf161af63b08501dfb27b5e8d1df0c8b4c1910a785df0c51a05a`、状态 running；nginx -t 成功，目标路由 HTTP 200；容器中存在 `OtherSettings-DAa5ar8K.js` / `OtherSettings-Cw_xfHE1.css`，通过 localhost:8080 获取后核实授权/转交标题文案、下一步提示和两项设计 token 均匹配。Dockerfile 容器内执行 npx vite build，不含 vue-tsc，类型检查沿用上方主机验证结果。
+  - Blockers: T01 无阻塞；未做真实后端登录联调、生产服务器部署、源页面截图逐像素差分，不将路由 HTTP 200 或隔离夹具视为业务闭环验收。
+  - Non-scope: 编辑弹窗、字段校验、API、数据库持久化、审计、运行时授权与转交规则。
+  - Definition of done: 开发、UI、测试、验收和证据完成后，才允许由主 agent 将任务标记为 `[x]`。
+
+- [x] PM-T007-T03 八个复选项设置持久化与 API
+  - Goal: 用户明确要求接入后端保存；只保存八个复选项，不扩展运行时规则。
+  - Required reading: spec.md 第 5 节冻结的 DTO/默认值/权限/事务契约、通知设置 router/model/tests、execution-contract.md、migration-coordination.md。
+  - Allowed files: backend/app/performance/other_settings_router.py、models.py（仅新模型）、app/main.py（仅注册）、alembic/versions/0260_performance_other_settings.py（前驱0259，实施时核对）、backend/tests/test_performance_other_settings.py；frontend/src/api/performance.ts（仅新增类型/client）；本功能文档。
+  - Forbidden: 现有迁移、运行时校准/授权/结果/逾期服务、周期/项目快照、UCP、无关共享文件改动。
+  - Contract: GET/PATCH /api/v1/performance/system-settings/other，performance.configuration.manage；StrictBool，禁止空PATCH、unknown/null，首次写入防冲突+行锁+同事务审计；规范字段与默认值见 spec。
+  - Tests: 默认GET不写库、逐字段true/false保存回读不覆盖、无变化不重复审计、非法参数422、权限403、真实数据库并发与回滚；新表迁移升级/降级/重升。只有实际验证后勾选。
+  - Evidence (2026-10-20): `docker exec hr-portal-backend python -m pytest tests/test_performance_other_settings.py tests/test_performance_notification_settings.py tests/test_performance_assessment_method_settings.py --postgres-acceptance -q`，22 passed、2条第三方弃用warning。新测试文件13项（12项接口/模型、1项真实PG），未跳过；真实PG用独立随机schema调用0260升级/降级/重升，验证默认GET不写、首次并发初始化及交叉字段不覆盖、八字段回读、无变化不重复审计、审计写入失败时设置原子回滚；测试schema在finally清理，不对public执行降级。对既有schema创建旁表/旁数据后升级，降级后旁数据保留。
+  - Migration evidence: 代码唯一head和public current均`0260_performance_other_settings`，前驱`0259_performance_result_openings`。由hr-98会话统一完成本地升级与前后端构建替换，本会话未并行迁移或重建。真实API未登录401，依赖链测试缺权限403，非法PATCH422；真实登录具备configuration.manage后GET/PATCH200。数据库public八列实体落库、审计主体OTHER_SETTINGS/1及可信PORTAL_USER操作者均已核验。保留既有周期/项目快照，不接八项运行时策略。
+  - Known limitations: 生产服务器未发布；未执行全量迁移链从空数据库0→head（仅本次0260在空隔离schema及旁数据场景验证）；降级删除本次设置表，会丢失该表配置，不能在已有配置环境无确认执行。
+  - Non-scope: 不实现提示文案编辑或运行时约束；不改已启动周期。
+
+- [x] PM-T007-T04 接入八项自动保存与刷新回读
+  - Goal: 页面GET加载数据库值，变化仅PATCH单字段；保存中禁用，失败回滚，加载失败可重试。沿用现有布局，无新信息架构，更新交互记录即可。
+  - Allowed files: OtherSettings.vue/spec、PerformanceReadOnlySettingRow.vue、PerformanceOtherSettingsToggleCard.vue、PerformanceOtherSettings360Card.vue、PerformanceOtherSettingsOverdueCard.vue、前端API DTO/client、本功能文档与独立 PM-T007-T04-*.png。
+  - Contract: 复用T03，八项前端状态与具名DTO逐一映射；不提交位置数组；保存成功才提示成功，失败恢复服务器已确认值；加载/保存不可编辑。
+  - Tests: UI→单字段PATCH→数据库→GET刷新；失败回滚、未加载禁用、无权拒绝、正常布局与F01文案不回归；Vitest、vue-tsc/Vite、真实PostgreSQL回读证据。
+  - UI compliance: Spec012 N0001/N0002/N0004/N0005、N1102-N1104，独立实现截图；无UCP。
+  - Evidence (2026-10-20): `npm.cmd --prefix hr-portal/frontend run test -- src/views/performance/OtherSettings.spec.ts src/components/performance/PerformanceCheckbox.spec.ts src/layouts/PerformanceAdminLayout.spec.ts`，25 passed（页面11、Checkbox3、Layout11）。覆盖8字段两方向16次单字段PATCH，重挂载GET回读、标签切换、初始加载禁用、加载失败与重试、保存中拦截重复操作、失败回滚不报成功、U权限禁用。`npm.cmd --prefix hr-portal/frontend run build` vue-tsc/Vite通过，1m35s，仅既有VueUse PURE注释warning。
+  - Real browser trace: 真实容器路由`http://localhost:8080/performance/settings/system/other`、真实登录，无API拦截/假数据；8项依次反转，监测PATCH实际请求均仅含一个具名字段，再直接查询public表确认8列一致；刷新页面GET后复选框全部匹配数据库。再逐项恢复原配置，确认最终GET与验收前值一致；本轮16次PATCH、0 page errors。真实审计已核对（核验时22条设置事件，包含该16次及同期验收事件），主体OTHER_SETTINGS/1，保留before/after和可信操作者。
+  - UI screenshot: `../../ui-blueprints/PM-T007-T04-implemented-persisted-settings.png`，1534×911，新容器真实页面刷新后已保存反转状态，已读取确认；截图不是默认状态，验收后数据库已恢复原值。
+  - Container evidence: frontend `sha256:ad096d2c5e05b67eea3ee566a56521720f8038124f5bd8fc6b865b7b8ebe6ef6`，backend `sha256:da21b113f5e59dd3918df9094cb4bf693a66d6960cf3aadab982e1bf801cd2ad`，均running/restart0；nginx-t通过，代理health200且db.ok=true，启动初期502随后恢复。未触碰db/gotenberg容器或数据卷。
+  - Not in scope: 提示编辑弹窗与标签管理仍是待办入口；运行时业务消费这八项配置另行实施。
+  - Non-scope: 不实施编辑弹窗、标签管理、八项运行时业务。
+
+- [ ] PM-T007-T02 实现授权和转交提示编辑弹窗与保存业务
+  - Goal: 为授权提示和转交提示提供弹窗编辑、校验、保存、失败重试和重新打开读取闭环。
+  - Type: frontend/API/backend/business
+  - Prerequisites: PM-T007-T01；独立 API/数据模型/权限/审计契约确认；弹窗蓝图确认。
+  - Required reading: PM-001 授权规格、PM-001 UI 边界、`acceptance-evidence.md`、相关设置 API 实现。
+  - Allowed modifications: 待契约确认后单独冻结。
+  - Forbidden modifications: 未经确认不得修改 PM-001 对象授权运行时规则或项目校准规则。
+  - UI: 待补充弹窗蓝图；必须覆盖 loading、empty/default、validation、error、forbidden、success、cancel、reopen。
+  - API/database/permission/external-system impact: 待确认；预计需要设置读取/更新、权限校验、审计和持久化。
+  - Test contract: 必须追踪 UI → 实际请求 payload → service/database → GET reopen，并覆盖权限拒绝、校验失败、保存失败与审计。
+  - Acceptance: 未冻结契约前不得开发或勾选。
+  - Evidence: 待补充。
+  - Blockers: 字段长度、默认值、全局/周期生效边界、权限 code、审计字段和数据表未确认。
+  - Non-scope: 校准设置业务，除非另行确认。
+  - Definition of done: 待后续拆分和确认。
+
+- [x] PM-T007-T01-F01 勾选交互与缺失文案修订（2026-10-20）
+  - Scope: 用户明确要求 8 个勾选框允许勾选/取消；示例前补“可设置前台授权或转交时显示的提示文案”，两处编辑图标补“编辑”，标签图标补“管理标签”，逾期说明补“勾选后，可在周期设置关闭逾期任务提交机会”。仅修订既有 UI，不新增信息架构或弹窗，不需要重新确认完整蓝图。
+  - Allowed files: OtherSettings.vue/spec、PerformanceAuthorizationTransferCard.vue、PerformanceIconAction.vue、PerformanceOtherSettingsCard.vue、PerformanceOtherSettingsToggleCard.vue、PerformanceOtherSettings360Card.vue、PerformanceOtherSettingsOverdueCard.vue、PerformanceReadOnlySettingRow.vue、PM-T007 规格/交互/蓝图、独立 F01 PNG。
+  - State contract: 父页面持有 reactive settings，通过 v-model:checked 逐层更新；8 项独立，复选框与标签可切换；当前页面内存状态，刷新后恢复采集默认值。未调用保存 API，未修改数据库、运行时校准/授权/逾期规则。不因 UI 勾选宣称业务配置已生效。保留原行组件文件名，避免无关重命名。
+  - Tests: npm.cmd --prefix hr-portal/frontend run test -- src/views/performance/OtherSettings.spec.ts src/components/performance/PerformanceCheckbox.spec.ts src/layouts/PerformanceAdminLayout.spec.ts；3 文件 22/22 通过。页面 8 项覆盖全体复选框双向切换、互不影响、标签切换、四处文案、操作权限和路由不回归。
+  - Build: npm.cmd --prefix hr-portal/frontend run build；vue-tsc 与 Vite 构建退出码 0，仅既有 VueUse PURE 注释警告。
+  - Browser evidence: Vite 实际路由 + 隔离登录/壳 API 夹具，逐项真实 input.click() 后反向点击，allToggle=true、labelToggle=true、count=8、enabled=true；0 个 page errors。读取独立截图 ../../ui-blueprints/PM-T007-T01-F01-implemented-checkboxes-copy.png 和 ../../ui-blueprints/PM-T007-T01-F01-implemented-overdue-copy.png，包含完整新增文案；桌面无溢出。400px 视口修正卡片内边距后 mainWidth=mainScrollWidth=366。
+  - UI compliance: N0001/N0002/N0004/N0005、N1102-N1104；复用全局 token/PerformanceCheckbox/权限按钮，无新增主题、无破坏性变更、无 UCP。
+  - Not run: 本轮未更新运行中的 Docker 镜像，未做后端保存业务；T02 仍未完成。上方 T01 的只读控件证据为 F01 前历史状态，本任务明确替代该限制。

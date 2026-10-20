@@ -224,6 +224,28 @@ export const performanceAssessmentMethodSettingsApi = {
   },
 }
 
+export interface PerformanceOtherSettings {
+  calibration_authorization_outside_direct_reports_enabled: boolean
+  calibration_import_enabled: boolean
+  performance_coefficient_enabled: boolean
+  reviewer_360_tags_enabled: boolean
+  manual_result_opening_enabled: boolean
+  overdue_single_submission_enabled: boolean
+  overdue_voluntary_360_submission_enabled: boolean
+  cycle_overdue_submission_override_enabled: boolean
+}
+
+export const performanceOtherSettingsApi = {
+  async get(): Promise<PerformanceOtherSettings> {
+    const { data } = await api.get<PerformanceOtherSettings>('/performance/system-settings/other')
+    return data
+  },
+  async update(payload: Partial<PerformanceOtherSettings>): Promise<PerformanceOtherSettings> {
+    const { data } = await api.patch<PerformanceOtherSettings>('/performance/system-settings/other', payload)
+    return data
+  },
+}
+
 export interface PerformanceNotificationSettings {
   feishu_push_enabled: boolean
   email_enabled: boolean

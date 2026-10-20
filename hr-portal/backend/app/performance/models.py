@@ -79,6 +79,25 @@ class PerformanceAssessmentMethodSetting(Base):
     )
 
 
+class PerformanceOtherSetting(Base):
+    __tablename__ = "performance_other_settings"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_performance_other_settings_singleton"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    calibration_authorization_outside_direct_reports_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    calibration_import_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    performance_coefficient_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    reviewer_360_tags_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    manual_result_opening_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    overdue_single_submission_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    overdue_voluntary_360_submission_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    cycle_overdue_submission_override_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    updated_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class PerformanceOtherPermissionSetting(Base):
     __tablename__ = "performance_other_permission_settings"
 

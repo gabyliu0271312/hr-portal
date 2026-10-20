@@ -563,8 +563,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'system/other',
         name: 'PerformanceSystemOther',
-        component: () => import('@/views/performance/Settings.vue'),
-        props: { section: 'system', title: '其他设置' },
+        component: () => import('@/views/performance/OtherSettings.vue'),
         meta: { label: '其他设置' },
       },
       {
