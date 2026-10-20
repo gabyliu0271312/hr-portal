@@ -82,14 +82,41 @@
               </template>
               <template v-else>
                 <PerformancePermissionButton allowed op="U" aria-label="编辑角色" @click="notifyUnavailable(`编辑${row.name}`)">编辑</PerformancePermissionButton>
-                <PerformancePermissionButton allowed op="U" aria-label="停用角色" disabled>停用</PerformancePermissionButton>
-                <button class="role-more-button" type="button" aria-label="更多操作" @click="notifyUnavailable('更多操作')">···</button>
+                <PerformancePermissionButton
+                  allowed
+                  op="U"
+                  :aria-label="row.isActive ? '停用角色' : '启用角色'"
+                  :disabled="row.isSystem || updatingRoleId === row.id"
+                  @click="toggleRoleStatus(row)"
+                >{{ row.isActive ? '停用' : '启用' }}</PerformancePermissionButton>
+                <div class="role-more-wrap">
+                  <el-dropdown trigger="click" :disabled="updatingRoleId === row.id" placement="bottom-end" popper-class="performance-role-action-popper">
+                    <button class="role-more-button" type="button" aria-label="更多操作" :disabled="updatingRoleId === row.id">···</button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-tooltip :content="row.isActive ? '需要先停用角色，再进行删除' : '系统角色不可删除'" :disabled="!row.isActive && !row.isSystem" placement="left">
+                          <div :title="row.isActive ? '需要先停用角色，再进行删除' : row.isSystem ? '系统角色不可删除' : undefined">
+                            <el-dropdown-item :disabled="row.isActive || row.isSystem || updatingRoleId === row.id" @click="openDeleteDialog(row)">删除</el-dropdown-item>
+                          </div>
+                        </el-tooltip>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
               </template>
             </div>
           </template>
         </el-table-column>
       </PerformanceManagementTable>
     </section>
+    <PerformanceConfirmDialog
+      v-model="deleteDialogVisible"
+      message="确定删除吗？"
+      description="删除后，该角色将从角色管理页面移除"
+      :loading="deleting"
+      :error-message="deleteError"
+      @confirm="confirmDelete"
+    />
   </section>
 </template>
 
@@ -103,6 +130,7 @@ import {
 } from '@/api/performance'
 import PerformanceCreateButton from '@/components/performance/PerformanceCreateButton.vue'
 import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceExportIcon from '@/components/performance/PerformanceExportIcon.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
@@ -113,6 +141,8 @@ type RoleTab = 'management' | 'assessment'
 type RoleRow = {
   id: number
   name: string
+  isActive: boolean
+  isSystem: boolean
   description: string
   status: '已启用' | '已停用'
   memberSource: string
@@ -133,12 +163,19 @@ const pageSize = ref(10)
 const total = ref(0)
 const loading = ref(false)
 const filteredRows = ref<RoleRow[]>([])
+const updatingRoleId = ref<number | null>(null)
+const pendingDeleteRole = ref<RoleRow | null>(null)
+const deleteDialogVisible = ref(false)
+const deleteError = ref('')
+const deleting = ref(false)
 let requestId = 0
 
 function toRoleRow(item: PerformanceRoleListItem): RoleRow {
   return {
     id: item.id,
     name: item.name,
+    isActive: item.is_active,
+    isSystem: item.is_system,
     description: item.description || '--',
     memberSource: item.member_source || '--',
     status: item.is_active ? '已启用' : '已停用',
@@ -177,6 +214,51 @@ function goCreate() {
   void router.push({ name: 'PerformancePermissionRoleCreate' })
 }
 
+async function toggleRoleStatus(row: RoleRow) {
+  if (row.isSystem || updatingRoleId.value !== null) return
+  updatingRoleId.value = row.id
+  try {
+    await performanceRoleApi.updateStatus(row.id, !row.isActive)
+    filteredRows.value = filteredRows.value.map(item => item.id === row.id
+      ? { ...item, isActive: !row.isActive, status: row.isActive ? '已停用' : '已启用' }
+      : item)
+    ElMessage.success(row.isActive ? '角色已停用' : '角色已启用')
+    await loadRoles()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '角色状态更新失败')
+  } finally {
+    updatingRoleId.value = null
+  }
+}
+
+function openDeleteDialog(row: RoleRow) {
+  if (row.isActive || row.isSystem || updatingRoleId.value === row.id) return
+  pendingDeleteRole.value = row
+  deleteError.value = ''
+  deleteDialogVisible.value = true
+}
+
+async function confirmDelete() {
+  const role = pendingDeleteRole.value
+  if (!role || deleting.value) return
+  deleting.value = true
+  try {
+    await performanceRoleApi.remove(role.id)
+  } catch (error: any) {
+    deleteError.value = error?.response?.data?.detail || '角色删除失败'
+    deleting.value = false
+    return
+  }
+  deleteDialogVisible.value = false
+  pendingDeleteRole.value = null
+  filteredRows.value = filteredRows.value.filter(item => item.id !== role.id)
+  if (filteredRows.value.length === 0 && page.value > 1) page.value -= 1
+  total.value = Math.max(0, total.value - 1)
+  deleting.value = false
+  ElMessage.success('角色已删除')
+  await loadRoles()
+}
+
 function notifyUnavailable(action: string) {
   ElMessage.info(`${action}功能将在后续任务接入`)
 }
@@ -200,6 +282,9 @@ function notifyUnavailable(action: string) {
 .role-updater { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .role-actions { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .role-actions :deep(.performance-button--text:disabled) { color: var(--performance-button-link-disabled-color); opacity: 1; }
-.role-more-button { width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: #646a73; cursor: pointer; font-size: 16px; line-height: 18px; }
+.role-more-wrap { position: relative; }
+.role-more-button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--performance-button-radius); background: transparent; color: #646a73; cursor: pointer; font-size: 16px; line-height: 18px; }
+.role-more-button:hover:not(:disabled), .role-more-button:focus-visible { background: var(--performance-button-text-hover-background); outline: 0; }
+.role-more-button:disabled { color: var(--performance-button-link-disabled-color); cursor: not-allowed; }
 @media (max-width: 720px) { .role-toolbar :deep(.list-toolbar) { flex-wrap: wrap; }.role-card { padding: 8px; } }
 </style>

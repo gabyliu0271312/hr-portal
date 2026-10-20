@@ -54,6 +54,17 @@
   - 待验收：真实应用截图、可视蓝图、权限态验证。现有 9222 浏览器端点无法连接，未取得真实应用截图；未取得完整 UI 证据前不勾选。
   - 后续独立范围：真实列表/查询/导出、授权与规则模型、候选项、弹窗字段及提交、编辑、删除确认/影响提示和后端审计；本任务不声称完整授权功能可用。
 
+- [ ] PM-001-T07 管理角色停用后删除
+  - 前置任务：PM-001-T01、PM-001-T04。
+  - 功能范围：在既有管理角色列表的“更多操作”接入删除；启用角色的删除项置灰并提示“需要先停用角色，再进行删除”，仅停用的非系统管理角色允许打开确认弹窗并执行真实删除。
+  - 代码交付物：`frontend/src/views/performance/PerformanceRoleConfiguration.vue/.spec.ts`、`frontend/src/api/performance.ts`、`backend/app/performance/role_configuration_router.py`、角色配置后端测试。
+  - UI 要求：复用 Element Plus 下拉菜单、全局按钮 token 和 `PerformanceConfirmDialog`；标题“确定删除吗？”，内容“删除后，该角色将从角色管理页面移除”，按钮“保留/删除”；取消、Escape、加载态和错误态保持全局弹窗行为。涉及既有页面小范围交互，不新增页面蓝图；关联 PM-001 `ui-interaction.md` 与 Spec 012 N0001-N0005/N0008 危险操作检查。
+  - API/权限：状态更新 `PATCH /api/v1/performance/permission-settings/roles/{role_id}/status`，删除 `DELETE /api/v1/performance/permission-settings/roles/{role_id}`；均要求 `performance.authorization.manage`，删除仅接受 `MANAGEMENT`、非系统且已停用角色；有授权关联时返回 409，资源不存在 404，状态/角色类型不合法 400。
+  - 审计：状态启用/停用和物理删除分别写入 `PERFORMANCE_ROLE_ACTIVATED`、`PERFORMANCE_ROLE_DEACTIVATED`、`PERFORMANCE_ROLE_DELETED`；删除与审计在同一事务提交。
+  - 测试要求：后端覆盖状态切换、启用删除拒绝、系统/评估角色删除拒绝、授权关联冲突、停用角色删除和权限门禁；前端覆盖启用置灰提示、停用后可删除、确认/保留和列表刷新；运行定向测试与前端构建。
+  - 验收标准：启用角色不能删除且用户能看到先停用提示；停用自定义管理角色确认删除后列表移除；刷新列表不会恢复已删除角色；系统/评估角色不可删除；失败时弹窗可关闭且不会误删。
+  - 完成定义：开发、UI 合规、测试和独立 PNG 验收证据齐全后才勾选。
+
 ## 任务依赖
 
 ```text

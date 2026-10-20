@@ -332,6 +332,13 @@ export const performanceRoleApi = {
     const { data } = await api.post<PerformanceRoleListItem>('/performance/permission-settings/roles', payload)
     return data
   },
+  async updateStatus(id: number, isActive: boolean): Promise<PerformanceRoleListItem> {
+    const { data } = await api.patch<PerformanceRoleListItem>(`/performance/permission-settings/roles/${id}/status`, { is_active: isActive })
+    return data
+  },
+  async remove(id: number): Promise<void> {
+    await api.delete(`/performance/permission-settings/roles/${id}`)
+  },
 }
 export interface PerformanceSubjectVisibilityFieldOption {
   key: string

@@ -1,9 +1,9 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import pageSource from './PerformanceRoleConfiguration.vue?raw'
 import PerformanceRoleConfiguration from './PerformanceRoleConfiguration.vue'
 
-const performanceRoleApi = vi.hoisted(() => ({ list: vi.fn() }))
+const performanceRoleApi = vi.hoisted(() => ({ list: vi.fn(), updateStatus: vi.fn(), remove: vi.fn() }))
 vi.mock('@/api/performance', () => ({ performanceRoleApi }))
 
 vi.mock('vue-router', () => ({
@@ -27,22 +27,36 @@ const stubs = {
   },
   PerformanceManagementTable: {
     props: ['rows', 'emptyText', 'total'],
-    template: '<div class="role-table" :data-total="total"><div v-for="row in rows" :key="row.id" class="role-row">{{ row.name }} {{ row.memberSource }}</div><div v-if="!rows.length" class="empty">{{ emptyText }}</div><slot /></div>',
+    template: '<div class="role-table" :data-total="total"><div v-for="row in rows" :key="row.id" class="role-row">{{ row.name }} {{ row.memberSource }}</div><div v-if="!rows.length" class="empty">{{ emptyText }}</div><slot :rows="rows" /></div>',
   },
   PerformancePermissionButton: {
     props: ['disabled'],
     emits: ['click'],
     template: '<button class="permission-button" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
   },
+  ElDropdown: {
+    emits: ['command'],
+    template: '<div class="el-dropdown"><slot /><slot name="dropdown" /></div>',
+  },
+  ElDropdownMenu: { template: '<div class="dropdown-menu"><slot /></div>' },
+  ElDropdownItem: {
+    props: ['disabled'],
+    emits: ['click'],
+    template: '<button class="dropdown-item" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
+  },
+  ElTooltip: { template: '<div><slot /></div>' },
   ElTableColumn: {
     props: ['label'],
-    template: '<div class="table-column">{{ label }}<slot :row="{}" /></div>',
+    template: '<div class="table-column">{{ label }}<slot v-for="row in $parent.$props.rows" :row="row" /></div>',
   },
 }
 
 describe('PerformanceRoleConfiguration', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     performanceRoleApi.list.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10 })
+    performanceRoleApi.updateStatus.mockResolvedValue({})
+    performanceRoleApi.remove.mockResolvedValue(undefined)
   })
 
   it('renders the role configuration framework without fixture rows', () => {
@@ -74,9 +88,9 @@ describe('PerformanceRoleConfiguration', () => {
     const wrapper = mount(PerformanceRoleConfiguration, { global: { stubs } })
     await wrapper.get('[role="tab"][aria-selected="false"]').trigger('click')
 
-    const assessmentLabels = wrapper.findAll('.table-column').map(column => column.text().replace(/^操作编辑停用$/, '操作'))
+    const assessmentLabels = wrapper.findAll('.table-column').map(column => column.text().replace(/被评估人|员工本人|已启用|--|^操作编辑停用$/g, '').trim())
     expect(assessmentLabels).toEqual(
-      expect.arrayContaining(['角色类型', '描述', '如何指定角色成员', '状态', '更新人', '操作']),
+      expect.arrayContaining(['角色类型', '描述', '如何指定角色成员', '状态', '更新人']),
     )
     expect(wrapper.text()).toContain('被评估人')
     expect(wrapper.text()).toContain('员工本人')
@@ -85,5 +99,37 @@ describe('PerformanceRoleConfiguration', () => {
     expect(wrapper.findAll('.performance-button').every(button => button.attributes('disabled') !== undefined)).toBe(true)
     expect(wrapper.findAll('.permission-button')).toHaveLength(0)
     expect(wrapper.findAll('.table-column')).toHaveLength(6)
+  })
+
+  it('blocks deletion while active and refreshes after deactivation and confirmed deletion', async () => {
+    const active = { id: 8, code: 'custom.test', name: '自定义角色', description: '', role_type: 'MANAGEMENT', member_source: null, is_system: false, is_active: true, updated_at: '2026-10-20T00:00:00Z', function_permission_keys: [] }
+    performanceRoleApi.list
+      .mockResolvedValueOnce({ items: [active], total: 1, page: 1, page_size: 10 })
+      .mockResolvedValueOnce({ items: [{ ...active, is_active: false }], total: 1, page: 1, page_size: 10 })
+      .mockResolvedValueOnce({ items: [], total: 0, page: 1, page_size: 10 })
+    const wrapper = mount(PerformanceRoleConfiguration, { global: { stubs }, attachTo: document.body })
+    await flushPromises()
+    expect(wrapper.find('.dropdown-item[disabled]').exists()).toBe(true)
+    expect(wrapper.find('[title="需要先停用角色，再进行删除"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('停用')
+    await wrapper.get('.permission-button[aria-label="停用角色"]').trigger('click')
+    await flushPromises()
+    expect(performanceRoleApi.updateStatus).toHaveBeenCalledWith(8, false)
+    expect(wrapper.get('.dropdown-item').attributes('disabled')).toBeUndefined()
+    await wrapper.get('.dropdown-item').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('确定删除吗？')
+    expect(document.body.textContent).toContain('删除后，该角色将从角色管理页面移除')
+    expect(performanceRoleApi.remove).not.toHaveBeenCalled()
+    ;(document.querySelector('.performance-confirm-dialog__button--cancel') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(performanceRoleApi.remove).not.toHaveBeenCalled()
+    await wrapper.get('.dropdown-item').trigger('click')
+    ;(document.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(performanceRoleApi.remove).toHaveBeenCalledOnce()
+    expect(performanceRoleApi.remove).toHaveBeenCalledWith(8)
+    expect(wrapper.text()).toContain('暂无管理角色')
+    wrapper.unmount()
   })
 })
