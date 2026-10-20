@@ -1,5 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { useUserStore } from '@/stores/user'
+import { defaultTodoNotificationRule } from '@/components/performance/performanceTodoNotificationRule'
 import NotificationSettings from './NotificationSettings.vue'
 import type { PerformanceNotificationSettings } from '@/api/performance'
 
@@ -34,6 +37,8 @@ function response(overrides: Partial<PerformanceNotificationSettings> = {}): Per
 
 describe('NotificationSettings', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
+    useUserStore().menus = [{ id: 1, parent_id: null, code: 'performance.admin', label: '绩效后台', scope_dimension: '', icon: null, order: 1, can_create: true, can_update: true, can_delete: false, can_export: false }]
     vi.clearAllMocks()
     api.get.mockResolvedValue(response())
     api.update.mockResolvedValue(response({ email_enabled: true }))
@@ -252,6 +257,56 @@ describe('NotificationSettings', () => {
     finish(response({ calibration_delivery_mode: 'after_calibration' }))
     await flushPromises()
     expect(wrapper.findAll('.notification-settings-card input:disabled')).toHaveLength(0)
+  })
+
+  it('saves an edited rule only on confirmation and restores it after reopening', async () => {
+    let persisted = response({ todo_task_rule: defaultTodoNotificationRule() })
+    api.get.mockImplementation(async () => persisted)
+    api.update.mockImplementation(async (payload: Partial<PerformanceNotificationSettings>) => {
+      persisted = { ...persisted, ...payload }
+      return persisted
+    })
+    const wrapper = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="编辑待办任务通知"]').trigger('click')
+    expect(api.update).not.toHaveBeenCalled()
+    const dialog = wrapper.getComponent({ name: 'PerformanceTodoNotificationDialog' })
+    const rule = { ...defaultTodoNotificationRule(), frequency: 'weekly' as const, interval: 2, weekdays: [1, 5], time: '09:30' }
+    dialog.vm.$emit('confirm', rule)
+    await flushPromises()
+    expect(api.update).toHaveBeenCalledWith({ todo_task_rule: rule })
+    expect(wrapper.find('[aria-labelledby="todo-notification-title"]').exists()).toBe(false)
+    expect(wrapper.findAll('.notification-rule-summary')[0].text()).toContain('星期一、星期五')
+    wrapper.unmount()
+    const reopened = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    await reopened.get('button[aria-label="编辑待办任务通知"]').trigger('click')
+    expect(reopened.getComponent({ name: 'PerformanceTodoNotificationDialog' }).props('rule')).toEqual(rule)
+    reopened.unmount()
+  })
+
+  it('keeps the rule editor and its draft on failure, without changing the summary', async () => {
+    api.get.mockResolvedValue(response({ todo_task_rule: defaultTodoNotificationRule() }))
+    api.update.mockRejectedValueOnce(new Error('failed'))
+    const wrapper = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    const before = wrapper.findAll('.notification-rule-summary')[0].text()
+    await wrapper.get('button[aria-label="编辑待办任务通知"]').trigger('click')
+    const dialog = wrapper.getComponent({ name: 'PerformanceTodoNotificationDialog' })
+    dialog.vm.$emit('confirm', { ...defaultTodoNotificationRule(), interval: 3 })
+    await flushPromises()
+    expect(wrapper.find('[aria-labelledby="todo-notification-title"]').exists()).toBe(true)
+    expect(wrapper.get('.todo-notification-error').text()).toContain('保存失败')
+    expect(wrapper.findAll('.notification-rule-summary')[0].text()).toBe(before)
+    wrapper.unmount()
+  })
+
+  it('hides the edit action without Portal update permission', async () => {
+    useUserStore().menus[0].can_update = false
+    const wrapper = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    expect(wrapper.find('button[aria-label="编辑待办任务通知"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('does not reveal the preview when loading is forbidden', async () => {

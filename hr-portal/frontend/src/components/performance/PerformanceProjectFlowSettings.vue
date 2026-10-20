@@ -57,7 +57,18 @@
             aria-label="自动开通条件"
             @update:model-value="setAutomaticRule(node, $event)"
           />
-          <PerformanceCheckbox :model-value="resultViewSettings(node).manual_enabled" label="手动开通" @update:model-value="setOpeningMode(node, 'manual_enabled', $event)" />
+          <PerformanceDisabledReason
+            :disabled="manualOpeningDisabled(node)"
+            :reason="manualOpeningSettingLoaded ? '组织内暂不允许手动开通绩效结果' : '正在加载组织设置，请稍后重试'"
+            variant="popover"
+          >
+            <PerformanceCheckbox
+              :model-value="resultViewSettings(node).manual_enabled"
+              label="手动开通"
+              :disabled="manualOpeningDisabled(node)"
+              @update:model-value="setOpeningMode(node, 'manual_enabled', $event)"
+            />
+          </PerformanceDisabledReason>
         </div>
         <p v-if="openingInvalid(node)" class="result-view-error" role="alert">请至少选择一种方式</p>
         <p class="setting-help">指定角色可以手动为被评估人开通绩效结果，不论被评估人的评估流程是否结束。有开通权限的角色以权限管理模块配置为准</p>
@@ -99,6 +110,7 @@ import { computed, ref, watch } from 'vue'
 import type { PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
 import { performanceProjectApi } from '@/api/performance'
 import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
+import PerformanceDisabledReason from '@/components/performance/PerformanceDisabledReason.vue'
 import PerformanceRadioGroup from '@/components/performance/PerformanceRadioGroup.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceTextButton from '@/components/performance/PerformanceTextButton.vue'
@@ -125,8 +137,10 @@ const props = withDefaults(defineProps<{
   projectPayload?: PerformanceProjectPayload | null
   loading?: boolean
   error?: string
+  manualResultOpeningEnabled?: boolean
+  manualOpeningSettingLoaded?: boolean
   showOpeningError?: boolean
-}>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], evaluatedCount: 0, loading: false, error: '', showOpeningError: false })
+}>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], evaluatedCount: 0, loading: false, error: '', showOpeningError: false, manualResultOpeningEnabled: true, manualOpeningSettingLoaded: true })
 const emit = defineEmits<{ 'update:modelValue': [value: PerformanceProjectFlowSettings] }>()
 
 const draft = ref<PerformanceProjectFlowSettings>(cloneSettings(props.modelValue))
@@ -263,6 +277,12 @@ function removePhase(node: PerformanceWorkflowNode, phaseIndex: number) { const 
 function addPhase(node: PerformanceWorkflowNode) { calibrationSettings(node).phases.push({ rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }) }
 function setReconsiderationHandler(node: PerformanceWorkflowNode, event: Event) { reconsiderationSettings(node).handler = (event.target as HTMLSelectElement).value || null }
 function openingInvalid(node: PerformanceWorkflowNode) { const view = resultViewSettings(node); return props.showOpeningError && !view.automatic_enabled && !view.manual_enabled }
+function manualOpeningDisabled(node: PerformanceWorkflowNode) {
+  if (node.node_type !== 'result_view') return false
+  const manualEnabled = resultViewSettings(node).manual_enabled
+  if (props.projectId && manualEnabled) return false
+  return !props.manualOpeningSettingLoaded || !props.manualResultOpeningEnabled
+}
 function openingRuleOptions(node: PerformanceWorkflowNode) {
   const previousIndex = props.nodes.findIndex(item => nodeKey(item) === nodeKey(node)) - 1
   const previousName = previousIndex >= 0 ? props.nodes[previousIndex].name : '项目启动'
@@ -271,7 +291,10 @@ function openingRuleOptions(node: PerformanceWorkflowNode) {
     { value: 'PREVIOUS_IMMEDIATE', label: `完成${previousName}，立即开通` },
   ]
 }
-function setOpeningMode(node: PerformanceWorkflowNode, field: 'automatic_enabled' | 'manual_enabled', enabled: boolean) { resultViewSettings(node)[field] = enabled }
+function setOpeningMode(node: PerformanceWorkflowNode, field: 'automatic_enabled' | 'manual_enabled', enabled: boolean) {
+  if (field === 'manual_enabled' && enabled && manualOpeningDisabled(node)) return
+  resultViewSettings(node)[field] = enabled
+}
 function setAutomaticRule(node: PerformanceWorkflowNode, value: string) { resultViewSettings(node).automatic_rule = value as 'PREVIOUS_AND_START' | 'PREVIOUS_IMMEDIATE' }
 watch(() => props.modelValue, value => { const next = JSON.stringify(value || { node_settings: {}, node_times: {} }); if (next !== lastEmitted.value) { draft.value = cloneSettings(value); ensureAllNodes(); lastEmitted.value = JSON.stringify(draft.value) } }, { deep: true })
 watch(() => props.nodes, ensureAllNodes, { deep: true, immediate: true })

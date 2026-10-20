@@ -17,6 +17,15 @@
       :saving="saving"
       @request-save="saveSettings"
       @request-disable="askDisable"
+      @edit-todo="openTodoEditor"
+    />
+    <PerformanceTodoNotificationDialog
+      :model-value="editingTodo"
+      :rule="settings?.todo_task_rule"
+      :saving="saving"
+      :save-error="todoSaveError"
+      @update:model-value="editingTodo = $event"
+      @confirm="saveTodoRule"
     />
     <PerformanceNotificationDisableConfirm
       :model-value="pendingDisable !== null"
@@ -35,9 +44,11 @@ import {
   type PerformanceNotificationSettings,
   type PerformanceNotificationSettingsPayload,
   type PerformanceNotificationRuleKey,
+  type PerformanceTodoNotificationRule,
 } from '@/api/performance'
 import PerformanceNotificationMethodsCard from '@/components/performance/PerformanceNotificationMethodsCard.vue'
 import PerformanceNotificationSettingsCard from '@/components/performance/PerformanceNotificationSettingsCard.vue'
+import PerformanceTodoNotificationDialog from '@/components/performance/PerformanceTodoNotificationDialog.vue'
 import PerformanceNotificationDisableConfirm from '@/components/performance/PerformanceNotificationDisableConfirm.vue'
 
 const emailEnabled = ref(false)
@@ -47,6 +58,29 @@ const loaded = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const loadError = ref('')
+const editingTodo = ref(false)
+const todoSaveError = ref('')
+
+function openTodoEditor() {
+  if (saving.value || pendingDisable.value || !settings.value) return
+  todoSaveError.value = ''
+  editingTodo.value = true
+}
+
+async function saveTodoRule(rule: PerformanceTodoNotificationRule) {
+  if (saving.value || !settings.value) return
+  todoSaveError.value = ''
+  saving.value = true
+  try {
+    applySettings(await performanceNotificationSettingsApi.update({ todo_task_rule: rule }))
+    editingTodo.value = false
+    ElMessage.success('保存成功')
+  } catch (error: any) {
+    todoSaveError.value = typeof error?.response?.data?.detail === 'string' ? error.response.data.detail : '通知规则保存失败，请重试'
+  } finally {
+    saving.value = false
+  }
+}
 
 function applySettings(next: PerformanceNotificationSettings) {
   emailEnabled.value = next.email_enabled
@@ -58,6 +92,8 @@ async function loadSettings() {
   loaded.value = false
   settings.value = null
   pendingDisable.value = null
+  editingTodo.value = false
+  todoSaveError.value = ''
   loadError.value = ''
   try {
     applySettings(await performanceNotificationSettingsApi.get())

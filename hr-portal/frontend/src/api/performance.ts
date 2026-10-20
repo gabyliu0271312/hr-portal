@@ -246,12 +246,24 @@ export const performanceOtherSettingsApi = {
   },
 }
 
+export interface PerformanceTodoNotificationRule {
+  frequency: 'specified' | 'daily' | 'weekly'
+  interval: number
+  days_before: number[]
+  day_kind: 'calendar_day'
+  weekdays: number[]
+  time: string
+  timezone: string
+  suppress_non_working_days: boolean
+}
+
 export interface PerformanceNotificationSettings {
   feishu_push_enabled: boolean
   email_enabled: boolean
   calibration_delivery_mode: 'realtime' | 'after_calibration'
   result_change_notification_scope: 'final_score_grade' | 'any_content'
   todo_task_notification_enabled: boolean
+  todo_task_rule?: PerformanceTodoNotificationRule
   progress_daily_notification_enabled: boolean
   stage_start_notification_enabled: boolean
 }
@@ -267,6 +279,7 @@ export type PerformanceNotificationSettingsPayload = Partial<Pick<
   | 'calibration_delivery_mode'
   | 'result_change_notification_scope'
   | 'todo_task_notification_enabled'
+  | 'todo_task_rule'
   | 'progress_daily_notification_enabled'
   | 'stage_start_notification_enabled'
 > >

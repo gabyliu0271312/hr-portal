@@ -138,6 +138,7 @@ class PerformanceNotificationSetting(Base):
     todo_task_notification_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     progress_daily_notification_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     stage_start_notification_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    todo_task_rule: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     updated_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

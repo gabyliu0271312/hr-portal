@@ -19,6 +19,8 @@ const props = withDefaults(defineProps<{
   readonly?: boolean
   required?: boolean
   invalid?: boolean
+  suffix?: string
+  showControls?: boolean
 }>(), {
   modelValue: '',
   placeholder: '',
@@ -37,6 +39,8 @@ const props = withDefaults(defineProps<{
   readonly: false,
   required: false,
   invalid: false,
+  suffix: '',
+  showControls: true,
 })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -118,11 +122,13 @@ function adjust(delta: number) {
         :required="required"
         :aria-label="ariaLabel"
         :aria-readonly="readonly"
+        :aria-invalid="invalid || undefined"
         @input="update(($event.target as HTMLInputElement).value)"
         @blur="formatInput"
       />
     </div>
-    <div class="number-stepper">
+    <span v-if="suffix" class="number-input-suffix">{{ suffix }}</span>
+    <div v-if="showControls" class="number-stepper">
       <button type="button" :aria-label="`${ariaLabel}增加`" :disabled="disabled || readonly || atMaximum" @click="adjust(1)">
         <svg width="8" height="8" viewBox="0 0 24 24" fill="none" data-icon="UpBoldOutlined" aria-hidden="true">
           <path d="m20.385 16.914.707-.707a1 1 0 0 0 0-1.414l-7.778-7.778a2 2 0 0 0-2.829 0l-7.778 7.778a1 1 0 0 0 0 1.414l.707.707a1 1 0 0 0 1.414 0l7.071-7.07 7.071 7.07a1 1 0 0 0 1.415 0Z" fill="currentColor" />
@@ -147,6 +153,7 @@ function adjust(delta: number) {
 .performance-number-input[data-size="interval"] input { flex: 0 0 auto; width: 75.0729px; height: 22px; padding: 0 32px 0 0; line-height: 0; }
 .performance-number-input input::placeholder { color: var(--color-text-placeholder); }
 .performance-number-input[data-size="interval"] .number-stepper { position: absolute; top: 0; left: 65.0729px; right: auto; width: 32px; height: 30px; }
+.number-input-suffix { display: grid; flex: 0 0 var(--performance-notification-unit-width); place-items: center; border-left: 1px solid var(--performance-field-border); background: var(--color-surface-disabled); color: var(--color-text-primary); font-size: var(--font-size-md); }
 .number-stepper { display: flex; flex: 0 0 var(--number-input-stepper-width); flex-direction: column; border-left: 1px solid var(--performance-field-border); }
 .number-stepper button { display: grid; flex: 1; min-height: 0; place-items: center; padding: 0; border: 0; background: var(--color-bg-card); color: var(--color-text-secondary); cursor: pointer; }
 .number-stepper button + button { border-top: 1px solid var(--performance-field-border); }

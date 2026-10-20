@@ -158,3 +158,78 @@ def test_patch_http_returns_persisted_state_and_validates_unknown_fields(monkeyp
     assert client.get("/api/v1/performance/system-settings/notifications").json()["stage_start_notification_enabled"] is False
     assert client.patch("/api/v1/performance/system-settings/notifications", json={"unexpected": True}).status_code == 422
     assert client.patch("/api/v1/performance/system-settings/notifications", json={"todo_task_notification_enabled": None}).status_code == 422
+
+
+def test_todo_rule_three_modes_normalize_and_reopen(monkeypatch):
+    db = MemoryNotificationDb()
+
+    class Audit:
+        def __init__(self, _db):
+            pass
+
+        def append_event(self, _event):
+            pass
+
+    monkeypatch.setattr(notification_settings_router, "PerformanceAuditService", Audit)
+    client = _client(allowed=True, db=db)
+    for rule in (
+        {
+            "frequency": "specified",
+            "days_before": [30, 0, 30],
+            "day_kind": "calendar_day",
+            "time": "09:05",
+            "timezone": "Asia/Shanghai",
+            "suppress_non_working_days": True,
+        },
+        {"frequency": "daily", "interval": 3, "time": "10:15", "timezone": "person"},
+        {"frequency": "weekly", "interval": 2, "weekdays": [7, 1, 7], "time": "23:59", "timezone": "UTC"},
+    ):
+        response = client.patch("/api/v1/performance/system-settings/notifications", json={"todo_task_rule": rule})
+        assert response.status_code == 200
+        saved = response.json()["todo_task_rule"]
+        assert saved["days_before"] == sorted(set(rule.get("days_before", []))) if rule["frequency"] == "specified" else saved["days_before"] == []
+        assert saved["weekdays"] == sorted(set(rule.get("weekdays", []))) if rule["frequency"] == "weekly" else saved["weekdays"] == []
+        assert client.get("/api/v1/performance/system-settings/notifications").json()["todo_task_rule"] == saved
+
+
+def test_todo_rule_patch_does_not_overwrite_sibling_fields(monkeypatch):
+    db = MemoryNotificationDb()
+
+    class Audit:
+        def __init__(self, _db):
+            pass
+
+        def append_event(self, _event):
+            pass
+
+    monkeypatch.setattr(notification_settings_router, "PerformanceAuditService", Audit)
+    client = _client(allowed=True, db=db)
+    assert client.patch("/api/v1/performance/system-settings/notifications", json={"email_enabled": True}).status_code == 200
+    response = client.patch(
+        "/api/v1/performance/system-settings/notifications",
+        json={"todo_task_rule": {"frequency": "daily", "interval": 2}},
+    )
+    assert response.status_code == 200
+    assert response.json()["email_enabled"] is True
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        {"frequency": "specified", "days_before": []},
+        {"frequency": "weekly", "weekdays": []},
+        {"frequency": "daily", "interval": 0},
+        {"frequency": "daily", "interval": 1.5},
+        {"frequency": "daily", "interval": True},
+        {"frequency": "daily", "days_before": [366]},
+        {"frequency": "weekly", "weekdays": [0]},
+        {"frequency": "daily", "time": "9:00"},
+        {"frequency": "daily", "time": "24:00"},
+        {"frequency": "daily", "timezone": "Mars/Olympus"},
+        {"frequency": "daily", "suppress_non_working_days": None},
+        {"frequency": "daily", "unknown": 1},
+    ],
+)
+def test_todo_rule_invalid_values_are_rejected(rule):
+    with pytest.raises(ValidationError):
+        NotificationSettingsPatch(todo_task_rule=rule)

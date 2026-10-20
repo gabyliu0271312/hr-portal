@@ -32,6 +32,7 @@ from app.performance.models import (
     PerformanceProjectMemberSnapshot,
     PerformanceProjectNodeSnapshot,
     PerformanceTemplateWorkflow,
+    PerformanceOtherSetting,
     PROJECT_STATUS_DRAFT,
     PROJECT_STATUS_STARTED,
     AUTHORIZATION_SNAPSHOT_STATUS_LOCKED,
@@ -609,8 +610,25 @@ class PerformanceProjectService:
             raise ProjectValidationError("项目截止时间必须晚于开始时间")
         return name, description, normalized, settings
 
+    @classmethod
+    async def _manual_opening_allowed_for_new_project(cls, db: AsyncSession) -> bool:
+        setting = await db.get(PerformanceOtherSetting, 1)
+        return setting is None or bool(setting.manual_result_opening_enabled)
+
+    async def _validate_manual_opening_policy(self, flow_settings: dict[str, Any], existing_settings: dict[str, Any] | None = None) -> None:
+        if await self._manual_opening_allowed_for_new_project(self.db):
+            return
+        previous_nodes = (existing_settings or {}).get("flow_settings", {}).get("node_settings", {})
+        for node_id, node_settings in flow_settings.get("node_settings", {}).items():
+            if not (node_settings.get("result_view") or {}).get("manual_enabled"):
+                continue
+            if ((previous_nodes.get(node_id) or {}).get("result_view") or {}).get("manual_enabled"):
+                continue
+            raise ProjectValidationError("组织内暂不允许手动开通绩效结果")
+
     async def create_project(self, cycle_ref: str, payload: dict[str, Any], *, actor_type: str, actor_id: int) -> PerformanceProject:
         name, description, administrators, settings = self._validate_payload(payload)
+        await self._validate_manual_opening_policy(settings["flow_settings"])
         project = PerformanceProject(
             project_ref=f"project:{uuid4().hex}",
             cycle_ref=cycle_ref,
@@ -640,6 +658,7 @@ class PerformanceProjectService:
         before = self.serialize(project)
         values = {**before, **payload}
         name, description, administrators, settings = self._validate_payload(values, project.settings or {})
+        await self._validate_manual_opening_policy(settings["flow_settings"], project.settings or {})
         if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload:
             previous_flow = (project.settings or {}).get("flow_settings") or {}
             previous_opening = previous_flow.get("node_settings") or {}

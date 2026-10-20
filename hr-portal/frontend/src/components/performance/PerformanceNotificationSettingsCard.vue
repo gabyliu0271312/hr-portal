@@ -30,9 +30,12 @@
         :key="rule.key"
         :label="rule.label"
         :enabled="settings[rule.key]"
-        :frequency="rule.frequency"
-        :time="rule.time"
-        holiday-policy="不屏蔽"
+        :frequency="rule.key === 'todo_task_notification_enabled' ? todoSummary.frequency : rule.frequency"
+        :time="rule.key === 'todo_task_notification_enabled' ? todoSummary.time : rule.time"
+        :holiday-policy="rule.key === 'todo_task_notification_enabled' ? todoSummary.holidayPolicy : '不屏蔽'"
+        :editable="rule.key === 'todo_task_notification_enabled'"
+        :editing-disabled="saving"
+        @edit="emit('edit-todo')"
         @update:enabled="updateRule(rule.key, $event)"
       />
     </section>
@@ -40,6 +43,8 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { todoNotificationSummary } from './performanceTodoNotificationRule'
 import type { PerformanceNotificationSettings, PerformanceNotificationSettingsPayload, PerformanceNotificationRuleKey } from '@/api/performance'
 import PerformanceNotificationRadioSection from './PerformanceNotificationRadioSection.vue'
 import PerformanceNotificationRuleSummary from './PerformanceNotificationRuleSummary.vue'
@@ -48,7 +53,9 @@ const props = withDefaults(defineProps<{ settings: PerformanceNotificationSettin
 const emit = defineEmits<{
   (event: 'request-save', payload: PerformanceNotificationSettingsPayload): void
   (event: 'request-disable', key: PerformanceNotificationRuleKey): void
+  (event: 'edit-todo'): void
 }>()
+const todoSummary = computed(() => todoNotificationSummary(props.settings.todo_task_rule))
 
 const calibrationOptions = [
   { value: 'realtime', label: '实时发送', showInfo: true },

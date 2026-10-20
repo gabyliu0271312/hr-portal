@@ -55,6 +55,18 @@
   - Not in scope: 提示编辑弹窗与标签管理仍是待办入口；运行时业务消费这八项配置另行实施。
   - Non-scope: 不实施编辑弹窗、标签管理、八项运行时业务。
 
+- [ ] PM-T007-T05 系统手动开通设置与项目流程选择联动
+  - Goal/Type: 已有设置增强，关闭 `manual_result_opening_enabled` 后阻止新项目选择手动开通；已有项目保留已选配置和实际开通能力。
+  - Prerequisites/reading: PM-T007-T03/T04；本功能 spec/ui-interaction、Spec 002 START_HERE、Spec 012 UI 守则和 N0001/N0002/N0004/N0005、N1102-N1104、execution-contract、acceptance-evidence、项目流程组件/API/后端校验。
+  - Allowed modifications: `frontend/src/views/performance/PerformanceProjectSettingsPage.vue`、`frontend/src/components/performance/PerformanceProjectFlowSettings.vue` 及其现有 spec；`backend/app/performance/project_service.py`、`backend/tests/test_performance_projects.py`；本功能 spec/ui-interaction/atomic-tasks。现有全局 checkbox、提示框和 token 只复用，不修改。
+  - Forbidden: 运行时结果开通、迁移/模型、权限表、其他设置保存 API、UCP/外部系统和通知设置并行改动。
+  - Input/output contract: 现有 GET `/performance/system-settings/other` 的 `manual_result_opening_enabled`（缺行默认 true）为唯一策略来源；项目 `flow_settings.node_settings[*].result_view.manual_enabled` 格式不变。配置为 false 时，只有原项目未启用手动开通却请求启用（含新建项目）的写入拒绝；原已启用项目不因系统配置切换被静默改写。无新迁移/API 字段；保留原项目更新权限和审计边界。
+  - UI: `/performance/settings/cycles/:cycleId/projects/create` 项目设置流程步骤；禁用未勾选的手动选项，悬停/键盘聚焦说明“组织内暂不允许手动开通绩效结果”。已选配置保留；设置读取失败时不放开选择并提供重试。复用 PerformanceCheckbox、PerformanceDisabledReason 的 token 化提示框和全局 disabled token。小范围既有页面调整，无新蓝图；截图证据如可用另行补齐，不复用其他任务 PNG。
+  - Test contract: Given 开关开/关、历史项目已选/未选、设置读取失败或中途关闭；When 页面选取/直接提交项目接口；Then 可选/禁选、原配置保留、无授权旁路，自动开通不受影响。文件：`PerformanceProjectFlowSettings.spec.ts`、`test_performance_projects.py`；命令：前端 Vitest + build、后端 pytest。实际浏览器、截图、真实数据库未执行时标记 not-run，不将单测等同端到端验收。
+  - Evidence: 后端 `python -m pytest tests/test_performance_projects.py -q`：149 passed、1 warning；前端 `npm.cmd run test -- src/components/performance/PerformanceProjectFlowSettings.spec.ts`：17 passed；`npm.cmd run build`：vue-tsc/Vite 通过，仅第三方 VueUse PURE 注释警告。2026-10-20 在 `hr-portal` 容器内执行 `docker compose build frontend backend` 与 `docker compose up -d --no-deps --force-recreate frontend backend`；迁移日志显示 up to date，前后端容器 running、restart false、exit 0，前端 HTTP 200、Nginx 配置检查通过，构建产物包含联动文案。无浏览器真实项目创建/数据库回读、独立截图、设置加载失败页面实测证据，因此保留 `[ ]`。首次 Vitest 因测试对 disabled input 使用 setValue 的 DOM 状态断言失败、首次 build 因测试类型错误未通过；修正测试后复跑通过。
+  - Non-scope: 禁止历史项目实际手动开通、强制取消历史已选项、变更结果开通权限或计分规则。
+  - Blockers: 真实浏览器与直接项目 API（含权限拒绝、全局开关竞争）的端到端验收尚未完成。
+
 - [ ] PM-T007-T02 实现授权和转交提示编辑弹窗与保存业务
   - Goal: 为授权提示和转交提示提供弹窗编辑、校验、保存、失败重试和重新打开读取闭环。
   - Type: frontend/API/backend/business

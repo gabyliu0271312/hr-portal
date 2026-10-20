@@ -526,6 +526,19 @@ def test_project_result_view_modes_round_trip_and_reject_invalid_rule():
         PerformanceProjectService._validate_flow_settings({"node_settings": {"view-1": {"result_view": {"automatic_enabled": True, "manual_enabled": False, "automatic_rule": "UNKNOWN"}}}})
 
 
+@pytest.mark.asyncio
+async def test_new_project_manual_opening_follows_global_setting_but_existing_selection_is_preserved(monkeypatch):
+    async def disabled(_cls, _db):
+        return False
+
+    monkeypatch.setattr(PerformanceProjectService, "_manual_opening_allowed_for_new_project", classmethod(disabled))
+    service = PerformanceProjectService(object())
+    flow = {"node_settings": {"view-1": {"result_view": {"automatic_enabled": False, "manual_enabled": True}}}}
+    with pytest.raises(ProjectValidationError, match="组织内暂不允许手动开通绩效结果"):
+        await service._validate_manual_opening_policy(flow)
+    await service._validate_manual_opening_policy(flow, {"flow_settings": flow})
+
+
 def test_project_invite_counts_round_trip_and_legacy_compatibility():
     invite = {
         "default_invite": "DIRECT_SUBORDINATES", "minimum_invited_count": 5,

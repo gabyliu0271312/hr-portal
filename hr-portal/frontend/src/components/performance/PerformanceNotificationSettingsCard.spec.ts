@@ -1,5 +1,7 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { useUserStore } from '@/stores/user'
 import PerformanceNotificationSettingsCard from './PerformanceNotificationSettingsCard.vue'
 import type { PerformanceNotificationSettings } from '@/api/performance'
 
@@ -18,6 +20,10 @@ function mountCard(overrides: Partial<PerformanceNotificationSettings> = {}) {
 }
 
 describe('PerformanceNotificationSettingsCard', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useUserStore().menus = [{ id: 1, parent_id: null, code: 'performance.admin', label: '绩效后台', scope_dimension: '', icon: null, order: 1, can_create: true, can_update: true, can_delete: false, can_export: false }]
+  })
   it('shows server values and captured content in order', () => {
     const wrapper = mountCard({ calibration_delivery_mode: 'after_calibration', progress_daily_notification_enabled: false })
     const text = wrapper.text()
@@ -41,7 +47,7 @@ describe('PerformanceNotificationSettingsCard', () => {
     expect((checkboxes[1].element as HTMLInputElement).checked).toBe(false)
     expect(wrapper.findAll('.notification-rule-summary')[1].find('.notification-rule-summary__details').exists()).toBe(false)
     expect(wrapper.findAll('.notification-rule-summary')[1].find('button').exists()).toBe(false)
-    expect(wrapper.findAll('button:disabled')).toHaveLength(2)
+    expect(wrapper.findAll('button:disabled')).toHaveLength(1)
     expect(wrapper.find('form').exists()).toBe(false)
   })
 

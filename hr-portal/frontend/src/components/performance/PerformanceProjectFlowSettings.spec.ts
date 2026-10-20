@@ -366,6 +366,42 @@ describe('PerformanceProjectFlowSettings', () => {
     update.mockRestore()
   })
 
+  it('disables manual opening for new projects when the organization setting is off', async () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, {
+      props: { nodes: [node('result_view', 1)], manualResultOpeningEnabled: false, manualOpeningSettingLoaded: true },
+    })
+
+    const manualInput = wrapper.findAll('.result-view-choices input[type="checkbox"]')[1]
+    expect((manualInput.element as HTMLInputElement).disabled).toBe(true)
+    expect(wrapper.find('[data-disabled-reason]').exists()).toBe(true)
+    expect(wrapper.find('[data-disabled-reason]').text()).toContain('手动开通')
+    await manualInput.setValue(true)
+    expect((wrapper.findAll('.result-view-choices input[type="checkbox"]')[1].element as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('keeps an existing manual opening selection available when the organization setting is off', () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, {
+      props: {
+        projectId: 12,
+        nodes: [node('result_view', 1)],
+        manualResultOpeningEnabled: false,
+        manualOpeningSettingLoaded: true,
+        modelValue: { node_settings: { 'result_view-1': { result_view: { automatic_enabled: false, manual_enabled: true, automatic_rule: 'PREVIOUS_AND_START' } } }, node_times: {} },
+      },
+    })
+
+    expect((wrapper.findAll('.result-view-choices input[type="checkbox"]')[1].element as HTMLInputElement).disabled).toBe(false)
+  })
+
+  it('keeps manual opening unavailable until the organization setting loads', () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, {
+      props: { nodes: [node('result_view', 1)], manualOpeningSettingLoaded: false },
+    })
+
+    expect((wrapper.findAll('.result-view-choices input[type="checkbox"]')[1].element as HTMLInputElement).disabled).toBe(true)
+    expect(wrapper.find('[data-disabled-reason]').exists()).toBe(true)
+  })
+
   it('allows both opening modes and labels automatic choices with adjacent node names', async () => {
     const previous = node('evaluation', 1)
     previous.name = '直属经理评价'
