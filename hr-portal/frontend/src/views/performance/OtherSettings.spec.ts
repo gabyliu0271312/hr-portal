@@ -94,17 +94,86 @@ describe('OtherSettings', () => {
     const values = Object.values(defaults)
     expect(inputs).toHaveLength(8)
     expect(inputs.map(input => input.element.checked)).toEqual(values)
-    for (const [index, input] of inputs.entries()) {
-      await input.setValue(!values[index])
+    for (const [index] of inputs.entries()) {
+      await wrapper.findAll('input[type="checkbox"]')[index].setValue(!values[index])
       await flushPromises()
       expect(api.update).toHaveBeenLastCalledWith({ [keys[index]]: !values[index] })
-      expect(inputs.map(input => input.element.checked)).toEqual(values.map((value, i) => i === index ? !value : value))
-      await input.setValue(values[index])
+      const currentInputs = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')
+      const expected = values.map((value, i) => i === index ? !value : value)
+      expect(currentInputs.map(input => input.element.checked)).toEqual(expected[5] ? expected : expected.slice(0, 6))
+      await wrapper.findAll('input[type="checkbox"]')[index].setValue(values[index])
       await flushPromises()
       expect(api.update).toHaveBeenLastCalledWith({ [keys[index]]: values[index] })
-      expect(inputs.map(input => input.element.checked)).toEqual(values)
+      expect(wrapper.findAll<HTMLInputElement>('input[type="checkbox"]').map(input => input.element.checked)).toEqual(values)
     }
     expect(message.success).toHaveBeenCalledTimes(16)
+  })
+
+  it('hides dependent overdue rows on load and restores their saved values when enabled', async () => {
+    api.get.mockResolvedValueOnce({
+      ...defaults,
+      overdue_single_submission_enabled: false,
+      overdue_voluntary_360_submission_enabled: true,
+      cycle_overdue_submission_override_enabled: true,
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.findAll('.overdue-setting__item')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('360° 评估截止后，允许添加新的自愿评估任务')
+    expect(wrapper.text()).not.toContain('勾选后，可在周期设置关闭逾期任务提交机会')
+    expect(api.update).not.toHaveBeenCalled()
+    api.update.mockResolvedValueOnce({
+      ...defaults,
+      overdue_voluntary_360_submission_enabled: true,
+      cycle_overdue_submission_override_enabled: true,
+    })
+    await wrapper.get('.overdue-setting__item input').setValue(true)
+    await flushPromises()
+    expect(wrapper.findAll('.overdue-setting__item')).toHaveLength(3)
+    expect(wrapper.findAll<HTMLInputElement>('.overdue-setting__item input').map(input => input.element.checked)).toEqual([true, true, true])
+    expect(api.update).toHaveBeenCalledTimes(1)
+    expect(api.update).toHaveBeenLastCalledWith({ overdue_single_submission_enabled: true })
+  })
+
+  it('hides overdue rows after disabling and remounting without clearing dependent settings', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    for (const index of [1, 2]) {
+      await wrapper.findAll('.overdue-setting__item input')[index].setValue(true)
+      await flushPromises()
+    }
+    api.update.mockClear()
+    await wrapper.get('.overdue-setting__item input').setValue(false)
+    await flushPromises()
+    expect(wrapper.findAll('.overdue-setting__item')).toHaveLength(1)
+    expect(api.update).toHaveBeenCalledTimes(1)
+    expect(api.update).toHaveBeenLastCalledWith({ overdue_single_submission_enabled: false })
+    wrapper.unmount()
+    const reopened = mountPage()
+    await flushPromises()
+    expect(reopened.findAll('.overdue-setting__item')).toHaveLength(1)
+    await reopened.get('.overdue-setting__item .performance-checkbox__label').trigger('click')
+    await flushPromises()
+    expect(reopened.findAll<HTMLInputElement>('.overdue-setting__item input').map(input => input.element.checked)).toEqual([true, true, true])
+    expect(api.update).toHaveBeenCalledTimes(2)
+    expect(api.update).toHaveBeenLastCalledWith({ overdue_single_submission_enabled: true })
+  })
+
+  it.each([true, false])('restores overdue row visibility when saving the first option fails (initial %s)', async initial => {
+    api.get.mockResolvedValueOnce({ ...defaults, overdue_single_submission_enabled: initial })
+    let reject!: (reason: Error) => void
+    api.update.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail }))
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('.overdue-setting__item input').setValue(!initial)
+    expect(wrapper.findAll('.overdue-setting__item')).toHaveLength(initial ? 1 : 3)
+    expect(wrapper.findAll<HTMLInputElement>('input').every(input => input.element.disabled)).toBe(true)
+    reject(new Error('offline'))
+    await flushPromises()
+    expect(wrapper.findAll('.overdue-setting__item')).toHaveLength(initial ? 3 : 1)
+    expect(wrapper.get<HTMLInputElement>('.overdue-setting__item input').element.checked).toBe(initial)
+    expect(message.error).toHaveBeenCalledWith('其他设置保存失败，请重试')
+    expect(message.success).not.toHaveBeenCalled()
   })
 
   it('toggles a checkbox by its label and reloads the stored value on remount', async () => {

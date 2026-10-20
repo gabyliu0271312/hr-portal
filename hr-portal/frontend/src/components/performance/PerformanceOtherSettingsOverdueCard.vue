@@ -1,12 +1,14 @@
 <template>
   <PerformanceOtherSettingsCard title="任务逾期限制">
-    <div v-for="(item, index) in items" :key="item.label" class="overdue-setting__item" :class="{ 'is-first': index === 0 }">
-      <PerformanceReadOnlySettingRow :checked="checked[index] ?? false" :disabled="disabled" :label="item.label" @update:checked="updateChecked(index, $event)" />
-      <p class="overdue-setting__helper" :class="{ 'is-link-line': item.link }">
-        <template v-if="item.link">勾选后，可在<span class="overdue-setting__link">周期设置</span>关闭逾期任务提交机会</template>
-        <template v-else>{{ item.helper }}</template>
-      </p>
-    </div>
+    <template v-for="(item, index) in items" :key="item.label">
+      <div v-if="index === 0 || checked[0]" class="overdue-setting__item" :class="{ 'is-first': index === 0 }">
+        <PerformanceReadOnlySettingRow :checked="checked[index] ?? false" :disabled="disabled" :label="item.label" @update:checked="updateChecked(index, $event)" />
+        <p class="overdue-setting__helper" :class="{ 'is-link-line': item.link }">
+          <template v-if="item.link">勾选后，可在<span class="overdue-setting__link">周期设置</span>关闭逾期任务提交机会</template>
+          <template v-else>{{ item.helper }}</template>
+        </p>
+      </div>
+    </template>
   </PerformanceOtherSettingsCard>
 </template>
 

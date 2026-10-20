@@ -55,6 +55,22 @@
   - Not in scope: 提示编辑弹窗与标签管理仍是待办入口；运行时业务消费这八项配置另行实施。
   - Non-scope: 不实施编辑弹窗、标签管理、八项运行时业务。
 
+- [x] PM-T007-T04-F01 任务逾期限制三项显隐联动（2026-10-20）
+  - Goal/Type: 用户明确要求第一条勾选后才显示第二、三条及说明；既有页面小范围 UI 调整。
+  - Prerequisites/reading: T03/T04；本功能 spec/ui-interaction/蓝图 v1.0、Spec002 START_HERE 和基线、ADR-001、Spec012 START_HERE/UI守则/A01/A02/A05/N000/N1102-N1104、acceptance-evidence。
+  - Allowed modifications: `hr-portal/frontend/src/components/performance/PerformanceOtherSettingsOverdueCard.vue`、`hr-portal/frontend/src/views/performance/OtherSettings.spec.ts`、本功能 spec/ui-interaction/atomic-tasks。
+  - Allowed new files: 无；优先补充既有测试，不创建脚本或测试文档。
+  - Forbidden/shared files: 不改后端、API、迁移、权限、运行时逾期规则、其他卡片、全局组件/token；保留无关修改。
+  - Input/output contract: 继续使用 T04 三项 boolean[] 和 update:checked；第一条控制后两条整行显隐，隐藏不清空已保存子项，仍仅 PATCH 变化字段。
+  - UI: `/performance/settings/system/other`；用户本次明确确认显隐行为，既有蓝图 v1.0 小调整无需新蓝图；规则已记录于 ui-interaction；未新增截图，使用组件测试作为本次小范围 UI 验证证据。
+  - API/database/permission/external-system impact: 无新增影响，沿用加载/保存禁用、失败回滚、U权限控制。
+  - Test contract: Given 第一项关闭且子项已保存；When 初始GET/勾选/取消/重挂载；Then 仅显示第一项或显示三项，子项值保留且只PATCH第一项。Given 保存失败；When 回滚；Then 对应显隐恢复。既有双向单字段保存测试不得依赖已卸载DOM。
+  - Test files/commands: `OtherSettings.spec.ts`；`npm.cmd --prefix hr-portal/frontend run test -- src/views/performance/OtherSettings.spec.ts src/components/performance/PerformanceCheckbox.spec.ts src/layouts/PerformanceAdminLayout.spec.ts`；`npm.cmd --prefix hr-portal/frontend run build`。
+  - UI compliance: N0001/N0002/N0004/N0005、N1102-N1104；复用既有组件/token，无禁止项；数仓 N02-N10 不适用（绩效页面，不涉及数仓能力）。
+  - Evidence: 2026-10-20，`OtherSettings.spec.ts`、`PerformanceCheckbox.spec.ts`、`PerformanceAdminLayout.spec.ts` 共 3 个文件 29/29 通过；覆盖初始隐藏、勾选恢复、取消隐藏、重挂载保留子项值、第一项保存失败回滚及既有单字段保存。`npm.cmd --prefix hr-portal/frontend run build` 通过 vue-tsc 与 Vite 构建；仅有既有 VueUse PURE 注释 warning。`git diff --check` 通过。未执行真实浏览器走查、独立截图、真实后端回读。用户随后要求容器构建替换：`docker compose -f hr-portal/docker-compose.yml build frontend`、`up -d --no-deps --force-recreate frontend` 均成功；新容器 `87479ce12911`，镜像 `sha256:b98f451283b2ef5bc8fcf228c9abcf4fbd19fb53972054d11ed476e274735640`，running/restart0；Nginx 配置检查通过，localhost:8080 目标路由 HTTP200，实际提供的 `OtherSettings-DTMP94DI.js` 含 `g===0||t.checked[0]` 显隐条件。仅替换本地 frontend，未重建后端、未操作数据库卷、未发布生产。
+  - Non-scope: 不自动取消第二、三项，不扩展逾期运行时策略，不修改历史周期/项目。
+  - Definition of done: 主 agent 已核验代码、测试、构建和文档证据；未覆盖的真实浏览器/截图/部署项已明确标记 not-run。
+
 - [ ] PM-T007-T05 系统手动开通设置与项目流程选择联动
   - Goal/Type: 已有设置增强，关闭 `manual_result_opening_enabled` 后阻止新项目选择手动开通；已有项目保留已选配置和实际开通能力。
   - Prerequisites/reading: PM-T007-T03/T04；本功能 spec/ui-interaction、Spec 002 START_HERE、Spec 012 UI 守则和 N0001/N0002/N0004/N0005、N1102-N1104、execution-contract、acceptance-evidence、项目流程组件/API/后端校验。
