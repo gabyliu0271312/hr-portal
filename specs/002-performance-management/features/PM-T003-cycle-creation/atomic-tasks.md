@@ -107,6 +107,23 @@
   - 校准配置真实保存补充（2026-10-19）：项目已创建时，校准规则抽屉确认后通过现有项目 PATCH 保存完整条件组，成功再 GET 回读并关闭；失败保留抽屉与旧规则，可重试。前端聚焦 5 个文件 32 项通过，`npm.cmd run build`（含类型检查）及后端项目测试 134 项通过（仅有既有依赖弃用警告）。仅配置持久化，不含运行时校准任务计算；真实鉴权 API/数据库的端到端验收及页面截图未完成，本任务仍为 `[ ]`。
   - 完成定义：共享组件、API、后端校验/筛选、项目页面接入和验证全部完成后勾选。
 
+- [ ] PM-T003-I07-F01 被评估人人员类型与入职日期筛选接入
+  - Goal/Type：既有选人能力增强，前后端契约/组件/校验；用户于 2026-10-20 明确同意复用选项 API 后开始开发。
+  - 前置与必读：PM-T003-I07 既有选项和条件组；Spec 002 START_HERE、基线、ADR-001、本功能 spec/ui-interaction、execution-contract、acceptance-evidence；Spec 012 UI 门禁 A01/A02/A05/N000/N00/N11。
+  - 允许修改：`hr-portal/backend/app/performance/project_service.py`、`projects_router.py`、现有 `tests/test_performance_projects.py`；前端 `api/performance.ts`、`PerformanceAudienceRuleEditor.vue`、`PerformanceDateTimeField.vue`、`performanceConditionFields.ts` 与现有对应 spec、`PerformanceProjectSettingsPage.vue`；本功能交互/任务文档。
+  - UI 组件与证据：单日期框直接复用 `PerformanceDateTimeField.vue`，已删除本轮新增但不再需要的 `PerformanceDateRangeField.vue`；历史双日期截图 `../../ui-blueprints/PM-T003-I07-F01-implemented-reviewee-filters.png` 仅作历史证据，当前截图为 `../../ui-blueprints/PM-T003-I07-F01-implemented-single-date-operators.png`。不新建脚本或测试文档。
+  - 禁止修改：迁移/模型、权限配置、UCP/外部系统、历史快照、路由和无关设置。共享工作树：后端与前端分文件串行合并，保留其他会话变更。
+  - 输入输出：既有 GET `/api/v1/performance/cycles/{cycle_id}/evaluator-options` 增加 `hire_date_range: {min: string|null, max: string|null}`，保留 `employee_types`；锁定快照优先。既有项目 POST/PATCH/GET 中 `evaluator_rules` 增加 `hire_date`；2026-10-20 最新用户修订为单值 `values: ['YYYY-MM-DD']`，操作符 `before/not_before/after/not_after` 对应早于/不早于/晚于/不晚于（<、>=、>、<=）。空日期均不匹配，非法输入 422；历史 include/exclude 双值范围仅保留后端读取兼容，不自动转换。
+  - UI：沿用项目设置页和条件组结构，无需新完整蓝图；见 `ui-interaction.md` 第 10 节。复用现有日历纯日期模式，保持初始空值、按需 API、错误保留/重试、保存回填、禁用态；独立实现截图见允许新增路径。Spec 012 通用 N0001/N0002/N0004/N0005、N1102-N1106 适用，数仓专属检查不涉及。
+  - API/数据库/权限/外部影响：现有 API 向后兼容扩展、既有 JSONB 持久化；无迁移、权限变化或外部副作用。
+  - Given/When/Then：有多种人员类型/空日期/锁定人员快照，打开选项后去重并正确初始化日历；选择单日期及四种比较保存/回读后值不丢失，人数与启动日期匹配一致；比较日期相等时 >=/<= 命中、</> 不命中；非法日期/错误值数量/非日期字段使用日期操作符/无权访问被拒绝，旧字段回归不变。
+  - 单日期修订验证（2026-10-20）：前端四个测试文件 41 passed；后端项目/周期 178 passed、1 项既有弃用警告；`npm.cmd run build`（含 vue-tsc）通过，仅既有 PURE 注释 warning。实际开发页以隔离模拟接口验证：日期输入仅 1 个，操作符准确为早于/不早于/晚于/不晚于，非法日期不能提交旧合法值，PATCH 请求为 `operator: after, values: ['2026-01-15']`；无 pageerror。截图见当前单日期证据路径。单日期修订现已按用户要求完成 Docker 构建/替换，以下旧镜像仅为前一版历史记录；最新部署证据见下一项。
+  - 单日期容器部署（2026-10-20）：用户明确同意将并行 PM-T007 的0260一并迁移并替换。执行 `docker exec hr-portal-backend alembic upgrade 0260_performance_other_settings` 成功（0259→0260）；随后 Compose `build frontend backend` 与 `up -d --no-deps --force-recreate backend frontend` 均退出0。运行镜像：frontend `sha256:ad096d2c5e05b67eea3ee566a56521720f8038124f5bd8fc6b865b7b8ebe6ef6`、backend `sha256:da21b113f5e59dd3918df9094cb4bf693a66d6960cf3aadab982e1bf801cd2ad`，均 running、restart0；db/gotenberg 容器ID和启动时间未变。0260 current/head 单头，public新增表及字段存在；nginx配置通过，启动初期短暂502后最终health200且db.ok=true，evaluator-options与other-settings未认证均401。新后端容器项目/周期/其他设置回归190 passed、1 skipped、2既有弃用warning；跳过项需 `--postgres-acceptance`，未将其计为通过。类型检查通过，前端日期+其他设置聚焦26项通过。8080实际容器页面用隔离模拟API复验日期输入1个、四个比较中文选项、非法日期阻断、单日期PATCH载荷、0 pageerror；非真实鉴权数据库保存验收，不据此勾选F01。
+  - 测试：现有前端字段/条件/日历/周期 spec，`npm.cmd test -- ...`、`npm.cmd run build`；后端 `pytest -q tests/test_performance_projects.py tests/test_performance_cycles.py`；浏览器核验新筛选及截图。未执行/模拟接口验证必须单列，不算真实数据库验收通过。
+  - 验证与部署证据（2026-10-20）：前端筛选/日期/字段目录 14 项、周期页面 26 项通过；本地生产构建通过。Docker Compose 对 frontend/backend 构建并以 `up -d --no-deps --force-recreate frontend backend` 替换，未重建 db/gotenberg 或删除数据卷。运行前端镜像 `sha256:ab5a9c007baeaf161af63b08501dfb27b5e8d1df0c8b4c1910a785df0c51a05a`，后端 `sha256:e292ae29c499e67a3a0ee2a01d91b21bda93d9b6d68ea30a4880b3f6af7ab54e`，均 running、0 restart。新后端容器执行 `pytest -q tests/test_performance_projects.py tests/test_performance_cycles.py`：174 passed，1 项既有 python_multipart 弃用警告；`nginx -t` 通过，`http://127.0.0.1:8080/api/v1/health` 返回 200、db.ok=true，未认证 evaluator-options 返回 401。迁移 current/head 均为 `0259_performance_result_openings`，无新增迁移。重启初期短暂 502，后端启动完成后最终复查恢复正常。
+  - UI 证据与验收限制：独立截图 `../../ui-blueprints/PM-T003-I07-F01-implemented-reviewee-filters.png`；替换后 8080 前端实际页面以隔离模拟 API 验证按需选项请求 1 次、日期格 42 个、无时间列、无 pageerror。真实鉴权 API→数据库保存/重开仍未验收，因此 F01 与 I07 保持 `[ ]`，容器部署成功不等同于完整业务验收；共享工作树的 PM-T007/授权配置前端壳一并构建，不据此宣称其真实授权 API/持久化已完成。
+  - 完成定义：实现、边界/权限测试、构建、UI 和持久化证据齐全后再勾选；I07 其余未验收项不随子任务勾选。
+
 - [ ] PM-T003-I02-F01 周期评估设置接入已启用绩效模板并持久化周期关联
   - 范围：周期新建/编辑页真实读取绩效模板，过滤为 `active`，两行展示名称和说明，并通过周期 API 的 `template_id` 保存和回填。
   - 代码交付物：周期模板选择器、周期 DTO/服务/模型字段、迁移和测试。

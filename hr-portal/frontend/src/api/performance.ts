@@ -1110,8 +1110,8 @@ export type PerformanceCycleLockRule = 'IMMEDIATE' | 'SCHEDULED'
 export type PerformanceCycleSyncMode = 'MANUAL' | 'AUTO_DAILY'
 export type PerformanceCycleLeaverMode = 'CREATE_TASK' | 'REPORT_ONLY'
 
-export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'employee'
-export type PerformanceAudienceOperator = 'include' | 'exclude'
+export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'hire_date' | 'employee'
+export type PerformanceAudienceOperator = 'include' | 'exclude' | 'before' | 'not_before' | 'after' | 'not_after'
 export interface PerformanceAudienceCondition {
   field: PerformanceAudienceField
   operator: PerformanceAudienceOperator
@@ -1378,6 +1378,7 @@ export interface PerformanceEvaluatorOptions {
   organization_tree: PerformanceHrbpOrganizationNode[]
   people: Array<{ value: string; label: string }>
   employee_types: Array<{ value: string; label: string }>
+  hire_date_range?: { min: string | null; max: string | null }
 }
 
 export const performanceProjectApi = {

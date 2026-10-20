@@ -33,10 +33,11 @@
                   <template #default="{ index: conditionIndex }">
                     <div class="performance-audience-rule-editor__condition" :class="{ 'has-delete': modelValue[groupIndex].conditions.length > 1 }">
                       <PerformanceSearchSelect :model-value="modelValue[groupIndex].conditions[conditionIndex].field || null" :options="fieldOptions" selection-style="plain" disabled-surface="white" aria-label="范围字段" placeholder="请选择范围" :disabled="disabled" @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))" />
-                      <PerformanceSearchSelect :model-value="modelValue[groupIndex].conditions[conditionIndex].operator" :options="operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || !modelValue[groupIndex].conditions[conditionIndex].field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
+                      <PerformanceSearchSelect :model-value="modelValue[groupIndex].conditions[conditionIndex].operator" :options="modelValue[groupIndex].conditions[conditionIndex].field === 'hire_date' ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || !modelValue[groupIndex].conditions[conditionIndex].field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
                       <PerformanceOrganizationSelect v-if="modelValue[groupIndex].conditions[conditionIndex].field === 'department'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
                       <PerformancePersonSelect v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'employee'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :options="conditionValueOptions('employee', { people: personOptions })" multiple aria-label="员工范围" placeholder="请选择员工" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
                       <PerformanceSearchSelect v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'employee_type'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :options="conditionValueOptions('employee_type', { employeeTypes: employeeTypeOptions })" multiple aria-label="人员类型范围" placeholder="请选择人员类型" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+                      <PerformanceDateTimeField v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'hire_date'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values.length === 1 ? modelValue[groupIndex].conditions[conditionIndex].values[0] : ''" date-only :initial-date="hireDateRange?.min || hireDateRange?.max || undefined" aria-label="入职日期" placeholder="请选择日期" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
                       <PerformanceSearchSelect v-else :model-value="[]" :options="[]" multiple aria-label="范围条件值" placeholder="请选择" disabled disabled-surface="white" />
                       <PerformanceIconButton v-if="modelValue[groupIndex].conditions.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`" :disabled="disabled" @click="removeCondition(groupIndex, conditionIndex)" />
                     </div>
@@ -73,15 +74,16 @@
 import { computed } from 'vue'
 import type { PerformanceHrbpOrganizationNode } from '@/api/performance'
 import PerformanceConditionLogicGroup from './PerformanceConditionLogicGroup.vue'
-import { PERFORMANCE_CONDITION_FIELDS, conditionValueOptions } from './performanceConditionFields'
+import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
+import { HIRE_DATE_OPERATOR_OPTIONS, PERFORMANCE_CONDITION_FIELDS, conditionValueOptions } from './performanceConditionFields'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 import PerformanceTextButton from './PerformanceTextButton.vue'
 
-export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'employee'
-export type PerformanceAudienceOperator = 'include' | 'exclude'
+export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'hire_date' | 'employee'
+export type PerformanceAudienceOperator = 'include' | 'exclude' | 'before' | 'not_before' | 'after' | 'not_after'
 export type PerformanceAudienceCondition = { field: PerformanceAudienceField; operator: PerformanceAudienceOperator; values: string[] }
 export type PerformanceAudienceGroup = { conditions: PerformanceAudienceCondition[] }
 
@@ -91,6 +93,7 @@ const props = withDefaults(defineProps<{
   organizationTree?: PerformanceHrbpOrganizationNode[]
   personOptions?: PerformanceSearchSelectOption[]
   employeeTypeOptions?: PerformanceSearchSelectOption[]
+  hireDateRange?: { min: string | null; max: string | null }
   scopeMode?: boolean
   disabled?: boolean
   loading?: boolean
@@ -125,10 +128,12 @@ function updateCondition(groupIndex: number, conditionIndex: number, patch: Part
 }
 function updateField(groupIndex: number, conditionIndex: number, value: string) {
   const field = props.allowedFields.includes(value as PerformanceAudienceField) ? value as PerformanceAudienceField : ''
-  updateCondition(groupIndex, conditionIndex, { field, values: [] })
+  updateCondition(groupIndex, conditionIndex, { field, operator: field === 'hire_date' ? 'before' : 'include', values: [] })
 }
 function updateOperator(groupIndex: number, conditionIndex: number, value: string) {
-  updateCondition(groupIndex, conditionIndex, { operator: value === 'exclude' ? 'exclude' : 'include' })
+  const field = props.modelValue[groupIndex].conditions[conditionIndex].field
+  const options = field === 'hire_date' ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions
+  if (options.some(option => option.value === value)) updateCondition(groupIndex, conditionIndex, { operator: value as PerformanceAudienceOperator })
 }
 function updateValues(groupIndex: number, conditionIndex: number, values: string[]) {
   if (!props.modelValue[groupIndex]?.conditions[conditionIndex]?.field) return

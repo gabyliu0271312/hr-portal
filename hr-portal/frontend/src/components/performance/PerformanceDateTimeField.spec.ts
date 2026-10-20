@@ -11,6 +11,30 @@ afterEach(() => {
 })
 
 describe('PerformanceDateTimeField', () => {
+  it('reuses the calendar in date-only mode without time controls or automatic selection', async () => {
+    wrapper = mount(PerformanceDateTimeField, {
+      attachTo: document.body,
+      props: { modelValue: '', dateOnly: true, initialDate: '2020-01-01', ariaLabel: '入职日期' },
+    })
+    await wrapper.get('input').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('open')).toHaveLength(1)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(document.body.querySelector('.performance-datetime-calendar__heading')?.textContent).toContain('2020年')
+    expect(document.body.querySelector('.performance-datetime-time')).toBeNull()
+    await wrapper.setProps({ initialDate: '2020-02-01' })
+    expect(document.body.querySelector('.performance-datetime-calendar__heading')?.textContent).toContain('2月')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    document.body.querySelector<HTMLButtonElement>('[data-date="2020-02-15"]')!.click()
+    await flushPromises()
+    document.body.querySelector<HTMLButtonElement>('.performance-datetime-panel__confirm')!.click()
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['2020-02-15'])
+    await wrapper.get('input').setValue('2026-02-30')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['2026-02-30'])
+    expect(wrapper.get('input').element.validationMessage).toContain('请输入有效日期')
+  })
+
   it('displays a space instead of T and defaults selected start/end dates to boundary times', async () => {
     wrapper = mount(PerformanceDateTimeField, {
       attachTo: document.body,

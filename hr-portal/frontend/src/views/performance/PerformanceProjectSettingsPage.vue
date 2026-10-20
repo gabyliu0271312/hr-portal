@@ -36,10 +36,11 @@
         <p class="hint">可圈定被评估人范围。同一评估周期中，每名被评估人只能参与 1 次「绩效评估」。</p>
         <PerformanceAudienceRuleEditor
           v-model="form.evaluator_rules.groups"
-          :allowed-fields="['department', 'employee_type', 'employee']"
+          :allowed-fields="['department', 'employee_type', 'hire_date', 'employee']"
           :organization-tree="evaluatorOptions.organization_tree"
           :person-options="evaluatorOptions.people"
           :employee-type-options="evaluatorOptions.employee_types"
+          :hire-date-range="evaluatorOptions.hire_date_range"
           :disabled="saving"
           @open-options="loadEvaluatorOptions"
         />
@@ -101,6 +102,7 @@ import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vu
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
 import PerformanceContentSurface from '@/components/performance/PerformanceContentSurface.vue'
 import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceAudienceRuleEditor.vue'
+import { validHireDateCondition } from '@/components/performance/performanceConditionFields'
 import { performanceProjectApi, performanceTemplateApi, type PerformanceCycleProjectShell, type PerformanceProjectFlowSettings as ProjectFlowSettings, type PerformanceProjectPayload, type PerformanceTemplateListItem, type PerformanceWorkflowNode, type PerformanceEvaluatorOptions } from '@/api/performance'
 import PerformanceProjectFlowSettings from '@/components/performance/PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
@@ -140,7 +142,7 @@ const nodeTimeError = computed(() => {
 function openBasicEditor() { if (!projectId.value) return; basicDialogProject.value = { id: projectId.value, project_ref: '', name: form.name, description: form.description || null, administrators: [...form.administrators], status: 'DRAFT', evaluated_count: 0 }; basicDialogOpen.value = true }
 async function saveBasicInfo(payload: PerformanceProjectPayload) { if (!projectId.value) return; basicDialogSaving.value = true; try { await performanceProjectApi.update(projectId.value, payload); basicDialogOpen.value = false; await loadProject() } catch (error: any) { notice.value = error?.response?.data?.detail || '基本信息保存失败' } finally { basicDialogSaving.value = false } }
 function toInputTime(value: string | null) { return value ? value.slice(0, 16) : '' }
-function validate() { validationError.value = ''; if (!form.name.trim()) validationError.value = '项目名称不能为空'; else if (!form.template_id) validationError.value = '请选择绩效模板'; else if (!form.evaluator_rules.groups.length || form.evaluator_rules.groups.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length))) validationError.value = '请完善被评估人筛选条件'; else if (dateError.value) validationError.value = '项目截止时间必须晚于开始时间'; return !validationError.value }
+function validate() { validationError.value = ''; if (!form.name.trim()) validationError.value = '项目名称不能为空'; else if (!form.template_id) validationError.value = '请选择绩效模板'; else if (!form.evaluator_rules.groups.length || form.evaluator_rules.groups.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length || (condition.field === 'hire_date' && !validHireDateCondition(condition.operator, condition.values))))) validationError.value = '请完善被评估人筛选条件'; else if (dateError.value) validationError.value = '项目截止时间必须晚于开始时间'; return !validationError.value }
 function payload(): PerformanceProjectPayload { return { name: form.name.trim(), description: form.description.trim() || null, administrators: form.administrators, template_id: form.template_id, start_at: form.start_at ? new Date(form.start_at).toISOString() : null, end_at: form.end_at ? new Date(form.end_at).toISOString() : null, evaluator_rules: { groups: form.evaluator_rules.groups.map(group => ({ conditions: group.conditions.map(condition => { const values = Array.isArray(condition.values) ? condition.values : String(condition.values).split(/[、,，]/).map(value => value.trim()).filter(Boolean); return { ...condition, values } }) })) }, flow_settings: form.flow_settings } }
 async function loadTemplates() { templateLoading.value = true; try { templates.value = (await performanceTemplateApi.list()).filter(template => template.status === 'active') } catch { notice.value = '绩效模板加载失败，请稍后重试' } finally { templateLoading.value = false } }
 async function loadTemplateWorkflow() {

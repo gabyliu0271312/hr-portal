@@ -1229,8 +1229,10 @@ async def create_project(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅周期管理员可创建项目")
     cycle = await _get_cycle(db, cycle_id)
     data = payload.model_dump()
-    data["evaluated_count"] = await PerformanceProjectService(db).evaluator_count(cycle, data.get("evaluator_rules"))
     try:
+        if data.get("evaluator_rules") is not None:
+            data["evaluator_rules"] = PerformanceProjectService._validate_rules(data.get("evaluator_rules"))
+        data["evaluated_count"] = await PerformanceProjectService(db).evaluator_count(cycle, data.get("evaluator_rules"))
         project = await PerformanceProjectService(db).create_project(
             cycle.cycle_ref, data, actor_type=context.subject_type, actor_id=context.subject_id
         )
@@ -1262,9 +1264,10 @@ async def update_project(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
     data = payload.model_dump()
-    if data.get("evaluator_rules") is not None:
-        data["evaluated_count"] = await PerformanceProjectService(db).evaluator_count(cycle, data.get("evaluator_rules"))
     try:
+        if data.get("evaluator_rules") is not None:
+            data["evaluator_rules"] = PerformanceProjectService._validate_rules(data.get("evaluator_rules"))
+            data["evaluated_count"] = await PerformanceProjectService(db).evaluator_count(cycle, data.get("evaluator_rules"))
         project = await PerformanceProjectService(db).update_project(
             project, data, actor_type=context.subject_type, actor_id=context.subject_id
         )

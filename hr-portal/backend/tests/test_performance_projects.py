@@ -2198,3 +2198,202 @@ def test_hrbp_scope_only_includes_selected_path_and_descendants():
     assert not _organization_in_scope("集团", ["集团/研发"])
     assert not _organization_in_scope("集团/运营/平台", ["集团/研发/平台"])
     assert not _organization_in_scope("平台", ["集团/研发/平台"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("locked", [False, True])
+async def test_evaluator_options_and_counts_use_roster_or_locked_snapshot(monkeypatch, locked):
+    from datetime import date
+    from app.performance import project_service
+    from app.performance.models import PerformanceAuthorizationSnapshotPerson
+
+    rows = [dict(employee_no=f"E{i}", display_name=f"员工{i}", company_org="总部", department="研发",
+                 department_2=None, department_3=None, department_4=None, department_5=None,
+                 employee_type=kind, hire_date=hire, employment_status="在职", departure_date=None)
+            for i, (kind, hire) in enumerate([
+                ("正式员工", date(2026, 1, 1)), ("实习生", date(2026, 1, 31)),
+                ("正式员工", date(2026, 2, 1)), (None, None),
+            ])]
+    live_calls = []
+
+    async def roster(_db):
+        assert not locked, "锁定周期不得读取实时花名册"
+        live_calls.append(True)
+        return rows
+
+    monkeypatch.setattr(project_service, "_canonical_roster_rows", roster)
+
+    class Db:
+        async def scalar(self, _statement):
+            return SimpleNamespace(id=7) if locked else None
+
+        async def execute(self, statement):
+            assert statement.column_descriptions[0]["entity"] is PerformanceAuthorizationSnapshotPerson
+            assert statement.compile().params["snapshot_id_1"] == 7
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [SimpleNamespace(**row) for row in rows]))
+
+    service = PerformanceProjectService(Db())
+    cycle = SimpleNamespace(cycle_ref="cycle:one", leaver_enabled=False)
+    options = await service.evaluator_options(cycle)
+    assert {item["value"] for item in options["employee_types"]} == {"正式员工", "实习生"}
+    assert options["hire_date_range"] == {"min": "2026-01-01", "max": "2026-02-01"}
+    condition = {"field": "hire_date", "operator": "include", "values": ["2026-01-01", "2026-01-31"]}
+    assert await service.evaluator_count(cycle, {"groups": [{"conditions": [condition]}]}) == 2
+    assert await service.evaluator_count(cycle, {"groups": [{"conditions": [{**condition, "operator": "exclude"}]}]}) == 1
+    for operator, expected in [("before", 1), ("not_before", 2), ("after", 1), ("not_after", 2)]:
+        single = {"field": "hire_date", "operator": operator, "values": ["2026-01-31"]}
+        assert await service.evaluator_count(cycle, {"groups": [{"conditions": [single]}]}) == expected
+    for row in rows:
+        row["hire_date"] = None
+    assert (await service.evaluator_options(cycle))["hire_date_range"] == {"min": None, "max": None}
+    assert bool(live_calls) is not locked
+
+
+@pytest.mark.asyncio
+async def test_project_hire_date_http_validation_precedes_count_and_denies_permissions(monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+    from app.performance import projects_router
+
+    target = project()
+    cycle = SimpleNamespace(cycle_ref="cycle:one")
+
+    async def get_cycle(*_args):
+        return cycle
+
+    async def get_project(*_args):
+        return target
+
+    async def must_not_count(*_args):
+        raise AssertionError("非法日期必须在计数之前返回 422")
+
+    monkeypatch.setattr(projects_router, "_get_cycle", get_cycle)
+    monkeypatch.setattr(projects_router, "_get_project", get_project)
+    monkeypatch.setattr(PerformanceProjectService, "evaluator_count", must_not_count)
+    db = SimpleNamespace(scalar=get_cycle)
+    app = FastAPI()
+    app.include_router(projects_router.router, prefix="/api/v1")
+    app.dependency_overrides[projects_router.get_session] = lambda: db
+    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        for values in [[], [""], ["2026-02-30"], ["2026-1-01"], ["2026-01-01T00:00:00"], ["2026-01-01", "2026-02-01"]]:
+            payload = {"name": "日期筛选", "evaluator_rules": {"groups": [{"conditions": [{"field": "hire_date", "operator": "not_before", "values": values}]}]}}
+            for method, url in [(client.post, "/api/v1/performance/cycles/1/projects"), (client.patch, "/api/v1/performance/projects/1")]:
+                response = await method(url, json=payload)
+                assert response.status_code == 422
+                assert response.json()["detail"] == "入职日期条件不合法"
+        app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context()
+        assert (await client.get("/api/v1/performance/cycles/1/evaluator-options")).status_code == 403
+        assert (await client.post("/api/v1/performance/cycles/1/projects", json=payload)).status_code == 403
+        assert (await client.patch("/api/v1/performance/projects/1", json=payload)).status_code == 403
+
+
+@pytest.mark.parametrize("operator,expected", [
+    ("before", [True, False, False]), ("not_before", [False, True, True]),
+    ("after", [False, False, True]), ("not_after", [True, True, False]),
+])
+def test_hire_date_comparisons_share_boundaries_and_round_trip(operator, expected):
+    from datetime import date
+    from app.performance.project_service import _matches_scope_condition, _matches_start_project_condition
+
+    condition = {"field": "hire_date", "operator": operator, "values": ["2026-01-15"]}
+    rules = {"groups": [{"conditions": [condition]}]}
+    assert PerformanceProjectService._validate_rules(rules) == rules
+    _, _, _, saved = PerformanceProjectService._validate_payload({"name": "日期比较", "evaluator_rules": rules})
+    target = project()
+    target.settings = saved
+    assert PerformanceProjectService.serialize(target)["evaluator_rules"] == rules
+    for matcher in [_matches_scope_condition, _matches_start_project_condition]:
+        assert [matcher({"hire_date": date(2026, 1, day)}, condition) for day in [14, 15, 16]] == expected
+        assert matcher({"hire_date": "2026-01-15T00:00:00"}, condition) is expected[1]
+        assert not matcher({"hire_date": None}, condition)
+        assert not matcher({"hire_date": "invalid"}, condition)
+    for values in [[], [""], ["2026-02-30"], ["2026-1-15"], ["2026-01-15T00:00:00"], ["2026-01-01", "2026-02-01"]]:
+        with pytest.raises(ProjectValidationError):
+            PerformanceProjectService._validate_rules({"groups": [{"conditions": [{**condition, "values": values}]}]})
+    with pytest.raises(ProjectValidationError):
+        PerformanceProjectService._validate_rules({"groups": [{"conditions": [{**condition, "field": "employee_type"}]}]})
+
+
+def test_start_project_evaluator_hire_date_condition_uses_inclusive_snapshot_date():
+    from datetime import date
+    from app.performance.project_service import _matches_start_project_condition
+
+    condition = {"field": "hire_date", "operator": "include", "values": ["2026-01-01", "2026-01-31"]}
+    assert _matches_start_project_condition({"hire_date": date(2026, 1, 1)}, condition)
+    assert _matches_start_project_condition({"hire_date": date(2026, 1, 31)}, condition)
+    assert not _matches_start_project_condition({"hire_date": None}, condition)
+    assert not _matches_start_project_condition({"hire_date": date(2026, 2, 1)}, condition)
+
+
+def test_evaluator_rules_validate_hire_date_ranges_and_match_boundaries():
+    from datetime import date
+    from app.performance.project_service import _matches_scope_condition
+
+    condition = {"field": "hire_date", "operator": "include", "values": ["2026-01-01", "2026-01-31"]}
+    assert _matches_scope_condition({"hire_date": date(2026, 1, 1)}, condition)
+    assert _matches_scope_condition({"hire_date": date(2026, 1, 31)}, condition)
+    assert not _matches_scope_condition({"hire_date": None}, condition)
+    assert not _matches_scope_condition({"hire_date": date(2026, 2, 1)}, condition)
+    exclude = {**condition, "operator": "exclude"}
+    assert not _matches_scope_condition({"hire_date": date(2026, 1, 15)}, exclude)
+    assert _matches_scope_condition({"hire_date": date(2026, 2, 1)}, exclude)
+
+
+def test_evaluator_rules_reject_invalid_hire_date_values():
+    invalid = [
+        ["2026-01-01"],
+        ["2026-02-01", "2026-01-01"],
+        ["2026/01/01", "2026-01-31"],
+        ["2026-01-01T00:00:00", "2026-01-31"],
+    ]
+    for values in invalid:
+        with pytest.raises(ProjectValidationError, match="入职日期条件不合法"):
+            PerformanceProjectService._validate_rules({"groups": [{"conditions": [{"field": "hire_date", "operator": "include", "values": values}]}]})
+
+
+
+
+@pytest.mark.asyncio
+async def test_start_project_filters_locked_snapshot_by_hire_date_before_workflow_validation():
+    from datetime import date
+    from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycleProjectManager
+    from app.performance.project_service import PerformanceProjectService
+
+    person = SimpleNamespace(
+        employee_no="E001", employee_type="正式员工", hire_date=date(2026, 1, 15),
+        employment_status="在职", departure_date=None, company_org="总部", department="研发",
+        department_2=None, department_3=None, department_4=None, department_5=None,
+    )
+    cycle = SimpleNamespace(cycle_ref="cycle:one", leaver_enabled=False)
+    snapshot = SimpleNamespace(id=7)
+    project = SimpleNamespace(
+        id=1, project_ref="project:one", cycle_ref="cycle:one", status="DRAFT", settings={
+            "evaluator_rules": {"groups": [{"conditions": [{
+                "field": "hire_date", "operator": "include", "values": ["2026-01-01", "2026-01-31"]
+            }]}]}
+        },
+    )
+
+    class Result:
+        def __init__(self, values):
+            self.values = values
+        def scalars(self):
+            return SimpleNamespace(all=lambda: self.values)
+
+    class Db:
+        def __init__(self):
+            self.scalar_calls = 0
+        async def scalar(self, _query):
+            self.scalar_calls += 1
+            return [cycle, snapshot, None][self.scalar_calls - 1]
+        async def execute(self, query):
+            model = query.column_descriptions[0]["entity"]
+            if model is PerformanceAuthorizationSnapshotPerson:
+                return Result([person])
+            if model is PerformanceCycleProjectManager:
+                return Result([])
+            raise AssertionError(model)
+
+    with pytest.raises(ProjectValidationError, match="项目未配置流程节点"):
+        await PerformanceProjectService(Db()).start_project(project, actor_type="PORTAL_USER", actor_id=1)

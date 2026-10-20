@@ -1,7 +1,7 @@
 """Project lifecycle services for cycle-scoped project configuration."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -42,8 +42,43 @@ class ProjectValidationError(ValueError):
     pass
 
 
-def _matches_scope_condition(values: dict[str, str], condition: dict[str, Any]) -> bool:
+def _parse_hire_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str) or len(value) != 10 or value[4] != "-" or value[7] != "-":
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _matches_hire_date_condition(actual: Any, condition: dict[str, Any]) -> bool:
+    parsed_actual = normalize_roster_date(actual)
+    if parsed_actual is None:
+        return False
+    values = condition.get("values") or []
+    operator = condition.get("operator")
+    if operator in {"before", "not_before", "after", "not_after"}:
+        target = _parse_hire_date(values[0])
+        if operator == "before":
+            return parsed_actual < target
+        if operator == "not_before":
+            return parsed_actual >= target
+        if operator == "after":
+            return parsed_actual > target
+        return parsed_actual <= target
+    start, end = (_parse_hire_date(value) for value in values)
+    matched = start <= parsed_actual <= end
+    return matched if operator == "include" else not matched
+
+
+def _matches_scope_condition(values: dict[str, Any], condition: dict[str, Any]) -> bool:
     field = condition.get("field")
+    if field == "hire_date":
+        return _matches_hire_date_condition(values.get(field), condition)
     selected = {str(value).strip() for value in condition.get("values", []) if str(value).strip()}
     actual = values.get(field, "")
     if field == "department":
@@ -51,6 +86,14 @@ def _matches_scope_condition(values: dict[str, str], condition: dict[str, Any]) 
         matched = bool(actual and any(actual == value or actual.startswith(f"{value}/") or leaf == value for value in selected))
     else:
         matched = actual in selected
+    return matched if condition.get("operator") == "include" else not matched
+
+
+def _matches_start_project_condition(values: dict[str, Any], condition: dict[str, Any]) -> bool:
+    if condition.get("field") == "hire_date":
+        return _matches_scope_condition(values, condition)
+    actual = values.get(condition.get("field"), "")
+    matched = actual in condition.get("values", [])
     return matched if condition.get("operator") == "include" else not matched
 
 
@@ -116,7 +159,7 @@ class PerformanceProjectService:
         self.db = db
         self.audit = PerformanceAuditService(db)
 
-    async def evaluator_options(self, cycle: PerformanceCycle) -> dict[str, list[dict[str, str]]]:
+    async def evaluator_options(self, cycle: PerformanceCycle) -> dict[str, Any]:
         locked_snapshot = await self.db.scalar(
             select(PerformanceAuthorizationSnapshot).where(
                 PerformanceAuthorizationSnapshot.cycle_ref == cycle.cycle_ref,
@@ -134,6 +177,8 @@ class PerformanceProjectService:
                     "employee_no": person.employee_no,
                     "full_name": person.display_name,
                     "employment_status": person.employment_status,
+                    "employee_type": person.employee_type,
+                    "hire_date": person.hire_date,
                     **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
                 }
                 for person in people
@@ -153,10 +198,15 @@ class PerformanceProjectService:
             if employee_type := normalize_roster_text(row.get("employee_type")):
                 employee_types.add(employee_type)
             employees.append({"value": employee_no_value, "label": f"{name_value}（{employee_no_value}）"})
+        hire_dates = [value for row in rows if (value := normalize_roster_date(row.get("hire_date"))) is not None]
         return {
             "organization_tree": departments,
             "people": sorted(employees, key=lambda item: item["value"]),
             "employee_types": [{"value": value, "label": value} for value in sorted(employee_types)],
+            "hire_date_range": {
+                "min": min_date.isoformat() if (min_date := min(hire_dates, default=None)) else None,
+                "max": max_date.isoformat() if (max_date := max(hire_dates, default=None)) else None,
+            },
         }
 
     async def evaluator_count(self, cycle: PerformanceCycle, rules: dict[str, Any]) -> int:
@@ -177,6 +227,7 @@ class PerformanceProjectService:
                     "employee_no": person.employee_no,
                     "department": organization_path(person) or "",
                     "employee_type": person.employee_type,
+                    "hire_date": person.hire_date,
                     "employment_status": person.employment_status,
                     "departure_date": person.departure_date,
                 }
@@ -197,6 +248,7 @@ class PerformanceProjectService:
                 "department": row.get("organization_ref") or row.get("department") or "",
                 "employee_type": normalize_roster_text(row.get("employee_type")) or "",
                 "employee": normalize_employee_no(row.get("employee_no")) or "",
+                "hire_date": normalize_roster_date(row.get("hire_date")),
             }
             groups_match = any(all(_matches_scope_condition(values, condition) for condition in group.get("conditions", [])) for group in groups)
             if groups_match:
@@ -295,8 +347,8 @@ class PerformanceProjectService:
             return {"groups": []}
         if not isinstance(rules, dict) or not isinstance(rules.get("groups"), list):
             raise ProjectValidationError("被评估人筛选规则格式不正确")
-        allowed_fields = {"department", "employee_type", "employee"}
-        allowed_operators = {"include", "exclude"}
+        allowed_fields = {"department", "employee_type", "employee", "hire_date"}
+        allowed_operators = {"include", "exclude", "before", "not_before", "after", "not_after"}
         groups = []
         for group in rules["groups"]:
             conditions = group.get("conditions") if isinstance(group, dict) else None
@@ -306,9 +358,19 @@ class PerformanceProjectService:
             for condition in conditions:
                 if not isinstance(condition, dict) or condition.get("field") not in allowed_fields or condition.get("operator") not in allowed_operators:
                     raise ProjectValidationError("被评估人筛选条件不合法")
-                values = [str(value).strip() for value in condition.get("values", []) if str(value).strip()]
-                if not values:
-                    raise ProjectValidationError("被评估人筛选条件不能为空")
+                if condition.get("field") == "hire_date":
+                    values = condition.get("values")
+                    comparison = condition["operator"] in {"before", "not_before", "after", "not_after"}
+                    if (not isinstance(values, list) or len(values) != (1 if comparison else 2)
+                            or any(not isinstance(value, str) or _parse_hire_date(value) is None for value in values)
+                            or (not comparison and values[0] > values[1])):
+                        raise ProjectValidationError("入职日期条件不合法")
+                else:
+                    if condition["operator"] not in {"include", "exclude"}:
+                        raise ProjectValidationError("被评估人筛选条件不合法")
+                    values = [str(value).strip() for value in condition.get("values", []) if str(value).strip()]
+                    if not values:
+                        raise ProjectValidationError("被评估人筛选条件不能为空")
                 normalized_conditions.append({"field": condition["field"], "operator": condition["operator"], "values": values})
             groups.append({"conditions": normalized_conditions})
         return {"groups": groups}
@@ -646,6 +708,7 @@ class PerformanceProjectService:
                 "department": organization_path(person) or "",
                 "employee_type": person.employee_type or "",
                 "employee": person.employee_no,
+                "hire_date": person.hire_date,
             }
             scope_rules = (project.settings or {}).get("scope_rules") or {}
             scope_groups = scope_rules.get("groups") or []
@@ -658,7 +721,7 @@ class PerformanceProjectService:
                 if not in_scope:
                     continue
             matched = any(
-                all((values.get(condition.get("field"), "") in condition.get("values", [])) == (condition.get("operator") == "include") for condition in group.get("conditions", []))
+                all(_matches_start_project_condition(values, condition) for condition in group.get("conditions", []))
                 for group in groups
             )
             if matched:

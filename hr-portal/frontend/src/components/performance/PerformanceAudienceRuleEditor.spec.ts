@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import PerformanceAudienceRuleEditor, { type PerformanceAudienceGroup } from './PerformanceAudienceRuleEditor.vue'
+import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
+import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
 
 const organizationTree = [{ value: '集团', label: '集团', level: 1, children: [{ value: '集团/研发', label: '研发', level: 2, children: [] }] }]
 const emptyGroups = [{ conditions: [{ field: '' as const, operator: 'include' as const, values: [] }] }]
@@ -8,6 +10,63 @@ const emptyGroups = [{ conditions: [{ field: '' as const, operator: 'include' as
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('PerformanceAudienceRuleEditor', () => {
+  it('loads roster employee types lazily and preserves selected values on failure or reload', async () => {
+    const wrapper = mount(PerformanceAudienceRuleEditor, {
+      props: { modelValue: [{ conditions: [{ field: 'employee_type', operator: 'include', values: ['实习生'] }] }], allowedFields: ['employee_type', 'hire_date'], employeeTypeOptions: [] },
+      attachTo: document.body,
+    })
+    expect(wrapper.emitted('open-options')).toBeUndefined()
+    await wrapper.get('input[aria-label="人员类型范围"]').trigger('click')
+    expect(wrapper.emitted('open-options')).toHaveLength(1)
+    await wrapper.setProps({ error: '加载失败，请重试' })
+    expect(wrapper.get('[role="alert"]').text()).toContain('加载失败')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.setProps({ error: '', employeeTypeOptions: [{ value: '实习生', label: '实习生' }, { value: '正式员工', label: '正式员工' }] })
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    const option = [...document.body.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(item => item.textContent?.includes('正式员工'))!
+    option.click()
+    await flushPromises()
+    expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[])[0].conditions[0].values).toEqual(['实习生', '正式员工'])
+    wrapper.unmount()
+  })
+
+  it('uses exactly one shared calendar with the four date comparison operators', async () => {
+    const wrapper = mount(PerformanceAudienceRuleEditor, {
+      props: { modelValue: [{ conditions: [{ field: 'hire_date', operator: 'before', values: [] }] }], allowedFields: ['employee_type', 'hire_date'], hireDateRange: { min: '2020-01-01', max: '2026-10-20' } },
+      attachTo: document.body,
+    })
+    expect(wrapper.findAllComponents(PerformanceDateTimeField)).toHaveLength(1)
+    const calendar = wrapper.getComponent(PerformanceDateTimeField)
+    expect(calendar.props('dateOnly')).toBe(true)
+    expect(calendar.props('initialDate')).toBe('2020-01-01')
+    const operator = wrapper.findAllComponents(PerformanceSearchSelect)[1]
+    expect(operator.props('options')).toEqual([
+      { value: 'before', label: '早于' }, { value: 'not_before', label: '不早于' },
+      { value: 'after', label: '晚于' }, { value: 'not_after', label: '不晚于' },
+    ])
+    for (const value of ['before', 'not_before', 'after', 'not_after']) {
+      operator.vm.$emit('update:modelValue', value)
+      await flushPromises()
+      const groups = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[]
+      expect(groups[0].conditions[0].operator).toBe(value)
+      await wrapper.setProps({ modelValue: groups })
+    }
+    calendar.vm.$emit('update:modelValue', '2026-10-20')
+    await flushPromises()
+    const groups = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[]
+    expect(groups[0].conditions[0]).toEqual({ field: 'hire_date', operator: 'not_after', values: ['2026-10-20'] })
+    await wrapper.setProps({ modelValue: groups })
+    await wrapper.get('input[aria-label="入职日期"]').trigger('click')
+    expect(wrapper.emitted('open-options')).toHaveLength(1)
+    await wrapper.setProps({ disabled: true })
+    expect(wrapper.get('input[aria-label="入职日期"]').attributes('disabled')).toBeDefined()
+    expect(operator.props('disabled')).toBe(true)
+    wrapper.findAllComponents(PerformanceSearchSelect)[0].vm.$emit('update:modelValue', 'employee_type')
+    await flushPromises()
+    expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[])[0].conditions[0]).toEqual({ field: 'employee_type', operator: 'include', values: [] })
+    wrapper.unmount()
+  })
   it('does not preselect a field or load options until a value selector opens', async () => {
     const wrapper = mount(PerformanceAudienceRuleEditor, {
       props: { modelValue: emptyGroups, allowedFields: ['department', 'employee'], organizationTree, personOptions: [{ value: 'E001', label: '员工（E001）' }] },

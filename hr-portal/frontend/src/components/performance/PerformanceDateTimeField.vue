@@ -9,7 +9,7 @@
       :placeholder="placeholder"
       :required="required"
       :disabled="disabled"
-      pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}"
+      :pattern="dateOnly ? '[0-9]{4}-[0-9]{2}-[0-9]{2}' : '[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}'"
       :aria-label="ariaLabel || undefined"
       :aria-invalid="invalid || undefined"
       :aria-describedby="describedBy || undefined"
@@ -50,7 +50,7 @@
                 <button v-for="value in mode === 'year' ? yearOptions : months" :key="value" type="button" :aria-pressed="mode === 'year' ? value === viewYear : value === viewMonth + 1" @click="selectPeriod(value)">{{ mode === 'year' ? value : `${value}月` }}</button>
               </div>
             </div>
-            <div class="performance-datetime-time">
+            <div v-if="!dateOnly" class="performance-datetime-time">
               <div v-for="column in timeColumns" :key="column.key" class="performance-datetime-time__column">
                 <div class="performance-datetime-time__label">{{ column.label }}</div>
                 <div class="performance-datetime-time__list" role="group" :aria-label="`选择${column.label === '时' ? '小时' : '分钟'}`">
@@ -84,10 +84,12 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   ariaLabel?: string
   timeRole?: 'start' | 'end'
+  dateOnly?: boolean
+  initialDate?: string
   invalid?: boolean
   describedBy?: string
 }>(), { inputId: undefined, placeholder: 'YYYY-MM-DD HH:MM', required: false, disabled: false, ariaLabel: '', invalid: false, describedBy: '' })
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string]; open: [] }>()
 const panelId = `performance-datetime-${++nextDateTimeFieldId}`
 const root = ref<HTMLElement | null>(null)
 const input = ref<HTMLInputElement | null>(null)
@@ -119,29 +121,29 @@ const calendarDays = computed(() => {
 })
 
 function validValue(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/.exec(value)
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/.exec(props.dateOnly ? `${value}T00:00` : value)
   if (!match || Number(match[1]) < 1 || Number(match[4]) > 23 || Number(match[5]) > 59) return false
   const date = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`)
   return !Number.isNaN(date.getTime()) && dateValue(date) === `${match[1]}-${match[2]}-${match[3]}`
 }
 
 function updateValidity(value = props.modelValue) {
-  input.value?.setCustomValidity(value && !validValue(value) ? '请输入有效日期时间，格式为 YYYY-MM-DD HH:MM' : '')
+  input.value?.setCustomValidity(value && !validValue(value) ? (props.dateOnly ? '请输入有效日期，格式为 YYYY-MM-DD' : '请输入有效日期时间，格式为 YYYY-MM-DD HH:MM') : '')
 }
 
 function updateInput(event: Event) {
   const value = (event.target as HTMLInputElement).value
   updateValidity(value)
-  if (!value || validValue(value)) emit('update:modelValue', value.replace(' ', 'T'))
+  if (props.dateOnly || !value || validValue(value)) emit('update:modelValue', value.replace(' ', 'T'))
 }
 
 function resetDraft() {
-  const value = validValue(props.modelValue) ? props.modelValue.replace(' ', 'T') : `${today.value}T00:00`
+  const value = validValue(props.modelValue) ? props.modelValue.replace(' ', 'T') : `${props.initialDate || today.value}T00:00`
   draftDate.value = props.modelValue && validValue(props.modelValue) ? value.slice(0, 10) : ''
   viewYear.value = Number(value.slice(0, 4))
   viewMonth.value = Number(value.slice(5, 7)) - 1
-  draftHour.value = props.modelValue && validValue(props.modelValue) ? Number(value.slice(11, 13)) : (props.timeRole === 'end' ? 23 : 0)
-  draftMinute.value = props.modelValue && validValue(props.modelValue) ? Number(value.slice(14, 16)) : (props.timeRole === 'end' ? 59 : 0)
+  draftHour.value = !props.dateOnly && props.modelValue && validValue(props.modelValue) ? Number(value.slice(11, 13)) : (props.timeRole === 'end' ? 23 : 0)
+  draftMinute.value = !props.dateOnly && props.modelValue && validValue(props.modelValue) ? Number(value.slice(14, 16)) : (props.timeRole === 'end' ? 59 : 0)
   mode.value = 'date'
 }
 
@@ -153,7 +155,7 @@ function updatePosition() {
   const y = viewport?.offsetTop || 0
   const width = viewport?.width || window.innerWidth
   const height = viewport?.height || window.innerHeight
-  const panelWidth = Math.min(420, Math.max(0, width - 32))
+  const panelWidth = Math.min(props.dateOnly ? 280 : 420, Math.max(0, width - 32))
   const panelHeight = Math.min(panel.value.offsetHeight || 366, Math.max(0, height - 32))
   const left = Math.min(Math.max(x + 16, rect.left), x + width - panelWidth - 16)
   const below = rect.bottom + 6
@@ -174,6 +176,7 @@ function openPicker() {
   if (props.disabled || open.value) return
   resetDraft()
   open.value = true
+  emit('open')
   panelStyle.value = { visibility: 'hidden' }
   void nextTick(() => {
     updatePosition()
@@ -189,7 +192,7 @@ function closePicker(restoreFocus = false) {
 
 function confirmPicker() {
   if (props.disabled || !draftDate.value) return
-  const value = `${draftDate.value}T${pad(draftHour.value)}:${pad(draftMinute.value)}`
+  const value = props.dateOnly ? draftDate.value : `${draftDate.value}T${pad(draftHour.value)}:${pad(draftMinute.value)}`
   if (!validValue(value)) return
   updateValidity(value)
   emit('update:modelValue', value)
@@ -261,6 +264,12 @@ function handleOutsidePointerDown(event: PointerEvent) {
 }
 
 watch(() => props.modelValue, () => { updateValidity(); if (open.value) { resetDraft(); void nextTick(scrollTimeIntoView) } })
+watch(() => props.initialDate, value => {
+  if (open.value && !draftDate.value && value && validValue(props.dateOnly ? value : `${value}T00:00`)) {
+    viewYear.value = Number(value.slice(0, 4))
+    viewMonth.value = Number(value.slice(5, 7)) - 1
+  }
+})
 watch(() => props.disabled, value => { if (value) closePicker() })
 onMounted(() => {
   updateValidity()
