@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException, status
 
 from app.reports import router as report_router
+from app.datasets.models import DataSet
 from app.reports.router import (
     ReportConfig,
     _collect_export_rows,
@@ -140,7 +141,9 @@ async def test_duplicate_instances_keep_export_and_push_identifiers(monkeypatch)
     result_rows = [{"r.amount": 120, "r.amount#2": 3}]
 
     class _Db:
-        async def get(self, _model, *_args, **_kwargs):
+        async def get(self, model, *_args, **_kwargs):
+            if model is DataSet:
+                return DataSet(id=1, created_by=7, is_active=True, status="published")
             return SimpleNamespace(id=7)
 
     from app.reports import sql_builder
@@ -230,7 +233,8 @@ async def test_legacy_string_columns_keep_export_path_compatible(monkeypatch):
         ], [{"r.amount": 88}], 1)),
     )
 
-    labels, matrix, codes, _meta = await _collect_export_rows(report, SimpleNamespace(id=7), SimpleNamespace())
+    db = SimpleNamespace(get=AsyncMock(return_value=DataSet(id=1, created_by=7, is_active=True, status="published")))
+    labels, matrix, codes, _meta = await _collect_export_rows(report, SimpleNamespace(id=7), db)
 
     assert labels == ["金额"]
     assert codes == ["r.amount"]
@@ -383,6 +387,8 @@ async def test_invalid_filter_returns_422_in_run_export_and_push_paths(monkeypat
 
     class _RouteDb(_MetadataDb):
         async def get(self, model, *_args, **_kwargs):
+            if model is DataSet:
+                return DataSet(id=1, created_by=7, is_active=True, status="published")
             return report if model.__name__ == "Report" else SimpleNamespace(id=7)
 
     def db_for_path():
@@ -466,7 +472,7 @@ async def test_scope_configuration_error_propagates_without_export_or_push(chann
         id=11, name="scope test", dataset_id=15, owner_id=7, scope_strategy="cc_first",
         config={"columns": ["r.amount"]}, last_run_at=None, run_count=0,
     )
-    db = SimpleNamespace(get=AsyncMock(side_effect=lambda model, *_: report if model.__name__ == "Report" else owner),
+    db = SimpleNamespace(get=AsyncMock(side_effect=lambda model, *_: DataSet(id=15, created_by=7, is_active=True, status="published") if model is DataSet else report if model.__name__ == "Report" else owner),
                          commit=AsyncMock())
     error = HTTPException(status_code=409, detail="[REPORT_SCOPE_CONFIGURATION_INVALID] 数据范围配置未完成，请联系管理员")
     async def denied_query(**kwargs):
@@ -537,7 +543,7 @@ async def test_successful_query_scope_audit_uses_actual_actor_and_channel(channe
         config={"columns": ["r.amount"]}, last_run_at=None, run_count=0,
     )
     db = SimpleNamespace(
-        get=AsyncMock(side_effect=lambda model, *_: report if model.__name__ == "Report" else owner),
+        get=AsyncMock(side_effect=lambda model, *_: DataSet(id=15, created_by=7, is_active=True, status="published") if model is DataSet else report if model.__name__ == "Report" else owner),
         commit=AsyncMock(),
     )
     async def query(**kwargs):

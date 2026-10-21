@@ -61,6 +61,8 @@ async def assess_report_realtime_deployability(report, db: AsyncSession) -> dict
     from app.reports.config import ReportConfig
 
     reasons: list[str] = []
+    if (getattr(report, "execution_version", None) or "legacy_v1") != "legacy_v1":
+        return {"supported": False, "reasons": ["新授权执行版本未批准实时数据库出口"]}
     if report.dataset_id is None:
         reasons.append("报表未绑定数据集")
         return {"supported": False, "reasons": reasons}

@@ -18,6 +18,7 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -37,6 +38,9 @@ class Report(Base):
         Index("ix_reports_table", "table_name"),
         Index("ix_reports_owner", "owner_id"),
         Index("ix_reports_dataset", "dataset_id"),
+        CheckConstraint("execution_version IN ('legacy_v1','authorized_v1')", name="ck_report_execution_version"),
+        CheckConstraint("execution_version='legacy_v1' OR (execution_binding IS NOT NULL AND owner_id IS NOT NULL)",
+                        name="ck_report_execution_binding"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -58,6 +62,8 @@ class Report(Base):
         String(16), nullable=False, default="private", server_default="private"
     )
     scope_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    execution_version: Mapped[str] = mapped_column(String(32), nullable=False, default="legacy_v1", server_default="legacy_v1")
+    execution_binding: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     last_run_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

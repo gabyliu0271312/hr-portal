@@ -23,7 +23,156 @@ from app.users.models import User
 logger = logging.getLogger("reports.service")
 
 
-async def run_audited_dataset_query(*, channel, report_id=None, **query):
+def execution_fingerprint(report):
+    import hashlib
+    import json
+    value = {"report_id": report.id, "dataset_id": report.dataset_id, "owner_id": report.owner_id,
+             "scope_strategy": report.scope_strategy, "config": report.config}
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+
+async def require_authorized_report_readiness(report, user, db):
+    from app.datasets.models import DataSet
+    from app.datasets.router import _can_consume
+    from app.datasets.authorization_contract import execution_readiness
+    from app.warehouse.service.release_gate import check_dataset_release
+
+    if user is None:
+        raise HTTPException(403, detail={"code": "authorized_subject_required", "message": "缺少当前执行主体"})
+    dataset = await db.get(DataSet, report.dataset_id)
+    if dataset is None or not await _can_consume(user, dataset, db):
+        raise HTTPException(403, detail={"code": "authorized_dataset_denied", "message": "当前数据集不可消费"})
+    from sqlalchemy import select, or_, literal
+    from app.push.models import PushTarget
+    report_ids = select(Report.id).where(Report.dataset_id == report.dataset_id)
+    from sqlalchemy import String, cast
+    related_reports = report_ids.subquery()
+    references = select(PushTarget.id).where(PushTarget.is_active.is_(True), or_(
+        PushTarget.source_table.in_(select(literal("report:") + cast(related_reports.c.id, String))),
+        (PushTarget.source_type == "report") & PushTarget.source_id.in_(
+            select(cast(related_reports.c.id, String))),
+        (PushTarget.source_type == "report") & PushTarget.source_id.in_(
+            select(literal("report:") + cast(related_reports.c.id, String)))
+    )).limit(1)
+    if await db.scalar(references) is not None:
+        raise HTTPException(409, detail={"code": "external_exports_not_isolated", "message": "关联数据集存在未隔离外部出口"})
+    release = await check_dataset_release(db, report.dataset_id)
+    readiness = await execution_readiness(db, report.dataset_id, user)
+    if not (release.eligible and release.fields_eligible and release.authorization_verified
+            and release.conversion_verified and readiness.eligible and readiness.runtime_enabled):
+        raise HTTPException(409, detail={"code": "authorized_execution_not_ready", "message": "发布、转换或授权执行准入尚未通过"})
+    return readiness
+
+
+async def run_authorized_report_query(*, report, channel, **query):
+    if getattr(report, "execution_version", None) != "authorized_v1":
+        raise HTTPException(409, detail={"code": "execution_version_invalid", "message": "报表执行版本无效"})
+    if channel not in {"run", "csv", "xlsx"}:
+        raise HTTPException(409, detail={"code": "authorized_channel_not_supported", "message": "此渠道尚未获准使用新执行版本"})
+    if query.get("dataset_id") != report.dataset_id:
+        raise HTTPException(409, detail={"code": "execution_dataset_mismatch", "message": "报表与执行数据集不一致"})
+    binding = getattr(report, "execution_binding", None)
+    if (not isinstance(binding, dict) or binding.get("fingerprint") != execution_fingerprint(report)
+            or type(binding.get("approved_by")) is not int or not binding.get("approved_at")
+            or not isinstance(binding.get("reason"), str) or not binding["reason"].strip()):
+        raise HTTPException(409, detail={"code": "execution_binding_invalid", "message": "报表执行绑定缺失或已失效"})
+    readiness = await require_authorized_report_readiness(report, query.get("user"), query["db"])
+    if (binding.get("contract_id") != readiness.contract_id
+            or binding.get("contract_version") != readiness.contract_version):
+        raise HTTPException(409, detail={"code": "execution_binding_stale", "message": "授权合同版本已变化，请重新批准"})
+    return await _execute_authorized_summary(report, channel, query, readiness)
+
+
+async def _execute_authorized_summary(report, channel, query, readiness):
+    from app.datasets.models import DataProductAuthorizationContract, DatasetOutputField
+    from app.datasets.d_execution import SExecutionBindingIn, compile_allocation_fact_s_result_statements_for_user
+    from app.reports.config import ReportConfig
+    from app.warehouse.schemas import ExecutionPlanIn
+    from sqlalchemy import select
+
+    config = ReportConfig(**report.config)
+    unsupported = (config.filters or config.sorts or config.value_rules or config.filter_logic
+        or config.transpose or config.rounding_corrections or config.list_lookup
+        or config.dimension_merge_rules or config.default_split_rule or not config.aggregate)
+    unsupported_settings = any(set(setting) - {"display_name", "hidden", "display_format"}
+                               for setting in config.column_settings.values())
+    if unsupported or unsupported_settings or query.get("filters") or query.get("sorts"):
+        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "message": "新执行版本暂不支持当前筛选、排序或派生配置"})
+    outputs = (await query["db"].execute(select(DatasetOutputField).where(
+        DatasetOutputField.dataset_id == report.dataset_id))).scalars().all()
+    by_source = {}
+    for output in outputs:
+        for key in (output.output_code, f"{output.source_alias}.{output.source_column}"):
+            by_source.setdefault(key, []).append(output)
+    selected = []
+    for column in config.columns:
+        candidates = {row.id: row for row in by_source.get(column.source_code, [])}
+        if len(candidates) != 1:
+            raise HTTPException(422, detail={"code": "authorized_output_unresolved", "message": "报表字段不属于唯一批准输出"})
+        selected.append((column, next(iter(candidates.values()))))
+    if len({output.output_code for _, output in selected}) != len(selected):
+        raise HTTPException(422, detail={"code": "authorized_instances_unsupported", "message": "新执行版本暂不支持重复字段实例"})
+    aggregate_by_output = {}
+    for instance, output in selected:
+        if instance.instance_id in config.aggregations:
+            aggregate_by_output[output.output_code] = config.aggregations[instance.instance_id]
+    if set(config.aggregations) - {instance.instance_id for instance, _ in selected}:
+        raise HTTPException(422, detail={"code": "authorized_aggregation_invalid", "message": "聚合引用不属于报表输出"})
+    try:
+        plan = ExecutionPlanIn(output_fields=[output.output_code for _, output in selected],
+            group_by=[output.output_code for _, output in selected if output.output_code not in aggregate_by_output],
+            aggregations=aggregate_by_output)
+    except ValueError as exc:
+        raise HTTPException(422, detail={"code": "authorized_plan_invalid", "message": "报表聚合计划无效"}) from exc
+    row = await query["db"].get(DataProductAuthorizationContract, readiness.contract_id)
+    if row is None or row.status != "active" or row.dataset_id != report.dataset_id or row.contract_version != readiness.contract_version:
+        raise HTTPException(409, detail={"code": "execution_contract_invalid", "message": "授权合同不可用"})
+    snapshot = {"id": row.id, "dataset_id": row.dataset_id, "contract_version": row.contract_version,
+                "status": row.status, "contract_json": row.contract_json, "model_snapshot": row.model_snapshot}
+    request = SExecutionBindingIn(dataset_id=report.dataset_id, contract_id=row.id,
+        contract_version=row.contract_version, plan=plan)
+    statements, issues = await compile_allocation_fact_s_result_statements_for_user(
+        contract=snapshot, request=request, user=query["user"], db=query["db"],
+        page=query.get("page", 1), page_size=query.get("page_size", 50))
+    if issues:
+        denied = any(issue["code"] in {"s_execution_scope_denied", "s_execution_hidden_field_forbidden"} for issue in issues)
+        raise HTTPException(403 if denied else 409, detail={
+            "code": "authorized_query_denied" if denied else "authorized_query_blocked", "message": "当前授权或查询配置不满足执行条件"})
+    total = await query["db"].scalar(statements["count"])
+    rows = (await query["db"].execute(statements["preview"] if channel == "run" else statements["export"])).mappings().all()
+    from datetime import date, datetime
+    from decimal import Decimal
+    def serialize(value):
+        if isinstance(value, Decimal):
+            return str(value)
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return value
+    columns = [{"code": instance.instance_id, "source_code": instance.source_code,
+                "label": instance.label or output.output_label,
+                "data_type": "number" if aggregate_by_output.get(output.output_code) in {"sum", "avg", "count", "count_distinct"} else output.data_type,
+                "is_sensitive": output.is_sensitive} for instance, output in selected]
+    items = [{instance.instance_id: serialize(result[output.output_code]) for instance, output in selected} for result in rows]
+    if query.get("warnings_sink") is not None:
+        query["warnings_sink"].append("当前授权范围内汇总：人员范围与获准成本中心范围合并")
+    return columns, items, total
+
+
+async def run_audited_dataset_query(*, channel, report_id=None, report=None, **query):
+    if report is None and report_id is not None:
+        report = await query["db"].get(Report, report_id)
+        if report is None:
+            raise HTTPException(404, detail="报表不存在")
+    if (getattr(report, "execution_version", None) or "legacy_v1") != "legacy_v1":
+        from app.reports.audit import record_authorized_scope_audit
+        query_status = "failed"
+        try:
+            result = await run_authorized_report_query(report=report, channel=channel, **query)
+            query_status = "success"
+            return result
+        finally:
+            await record_authorized_scope_audit(user=query.get("user"), report=report,
+                channel=channel, query_status=query_status)
     from app.reports.audit import record_scope_audit
     from app.reports.sql_builder import run_dataset_query
 
@@ -118,7 +267,7 @@ async def run_report_query(
     # 定时任务下使用 page_size=1 只获取 total，避免大量数据占内存
     warnings: list[str] = []
     _, _, total = await run_audited_dataset_query(
-        channel="scheduled", report_id=report.id,
+        channel="scheduled", report_id=report.id, report=report,
         dataset_id=report.dataset_id,
         columns=columns,
         filters=filters if isinstance(filters, list) else [],

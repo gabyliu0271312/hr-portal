@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -83,6 +83,13 @@ class AclOptionsOut(BaseModel):
 
 
 class ReportIn(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def reject_execution_controls(cls, value):
+        if isinstance(value, dict) and {"execution_version", "execution_binding"} & set(value):
+            raise ValueError("执行版本只能通过受控批准入口变更")
+        return value
+
     name: str = Field(min_length=1, max_length=128)
     description: str | None = None
     table_name: str = ""
@@ -98,6 +105,26 @@ class PushTargetSummary(BaseModel):
     name: str
     push_type: str
     is_active: bool
+
+
+class ReportExecutionBindingIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    contract_id: int = Field(ge=1, strict=True)
+    contract_version: int = Field(ge=1, strict=True)
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value):
+        if not value.strip():
+            raise ValueError("批准原因不能为空")
+        return value.strip()
+
+
+class ReportExecutionBindingOut(BaseModel):
+    execution_version: str
+    fingerprint: str
 
 
 class ReportPushResult(BaseModel):
@@ -128,6 +155,7 @@ class ReportOut(BaseModel):
     updated_at: datetime
     acl: list[ReportAclOut] = Field(default_factory=list)
     can_edit: bool = True
+    execution_version: str = "legacy_v1"
     push_target_count: int = 0
     active_push_target_count: int = 0
 
@@ -142,6 +170,7 @@ class RunResult(BaseModel):
 
 
 class RunOverrides(BaseModel):
+    model_config = {"extra": "forbid"}
     filters: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -452,7 +481,7 @@ async def _to_out(r: Report, db: AsyncSession, user: User | None = None) -> Repo
         visibility=r.visibility or "private",
         is_published=(r.visibility or "private") == "public",
         scope_strategy=r.scope_strategy,
-        last_run_at=r.last_run_at,
+        last_run_at=r.last_run_at, execution_version=getattr(r, "execution_version", None) or "legacy_v1",
         run_count=r.run_count,
         created_at=r.created_at,
         updated_at=r.updated_at,
@@ -594,7 +623,7 @@ async def list_reports(
             visibility=r.visibility or "private",
             is_published=(r.visibility or "private") == "public",
             scope_strategy=r.scope_strategy,
-            last_run_at=r.last_run_at,
+            last_run_at=r.last_run_at, execution_version=getattr(r, "execution_version", None) or "legacy_v1",
             run_count=r.run_count,
             created_at=r.created_at,
             updated_at=r.updated_at,
@@ -676,6 +705,8 @@ async def _dimension_combination_items(
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
         if report.dataset_id != payload.dataset_id or not await _can_access(user, report, db):
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
+        if (getattr(report, "execution_version", None) or "legacy_v1") != "legacy_v1":
+            raise HTTPException(409, detail={"code": "authorized_channel_not_supported", "message": "新执行版本尚未支持维度归并预览"})
         if report_scope_strategy is None:
             report_scope_strategy = report.scope_strategy
 
@@ -1181,6 +1212,52 @@ def _parse_runtime_filters(raw: str | None) -> list[dict[str, Any]]:
     return [item for item in parsed if isinstance(item, dict)]
 
 
+@router.get("/{report_id}/execution-binding", response_model=ReportExecutionBindingOut,
+            dependencies=[Depends(require_op("report.list", "U")), Depends(require_op("warehouse.assets", "U"))])
+async def get_report_execution_binding(report_id: int, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
+    from app.reports.report_service import execution_fingerprint
+    report = await db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(404, detail="报表不存在")
+    if not await _can_edit(user, report, db):
+        raise HTTPException(403, detail="无权批准报表执行版本")
+    await _ensure_report_dataset_consumable(report, user, db)
+    return ReportExecutionBindingOut(execution_version=report.execution_version, fingerprint=execution_fingerprint(report))
+
+
+@router.post("/{report_id}/execution-binding", response_model=ReportExecutionBindingOut,
+             dependencies=[Depends(require_op("report.list", "U")), Depends(require_op("warehouse.assets", "U"))])
+async def approve_report_execution_binding(report_id: int, payload: ReportExecutionBindingIn,
+        user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
+    from app.reports.report_service import execution_fingerprint, require_authorized_report_readiness
+    from app.system.models import SystemLog
+    report = (await db.execute(select(Report).where(Report.id == report_id).with_for_update()
+        .execution_options(populate_existing=True))).scalar_one_or_none()
+    if report is None:
+        raise HTTPException(404, detail="报表不存在")
+    if not await _can_edit(user, report, db):
+        raise HTTPException(403, detail="无权批准报表执行版本")
+    fingerprint = execution_fingerprint(report)
+    if fingerprint != payload.expected_fingerprint:
+        raise HTTPException(409, detail={"code": "execution_binding_conflict", "message": "报表配置已变化"})
+    readiness = await require_authorized_report_readiness(report, user, db)
+    if readiness.contract_id != payload.contract_id or readiness.contract_version != payload.contract_version:
+        raise HTTPException(409, detail={"code": "execution_contract_mismatch", "message": "授权合同版本不匹配"})
+    from datetime import UTC
+    try:
+        report.execution_version = "authorized_v1"
+        report.execution_binding = {"contract_id": payload.contract_id, "contract_version": payload.contract_version,
+            "fingerprint": fingerprint, "approved_by": user.id, "approved_at": datetime.now(UTC).isoformat(), "reason": payload.reason}
+        db.add(SystemLog(category="scope_governance", action="report_execution_binding", status="success", user_id=user.id,
+            metadata_json={"report_id": report.id, "dataset_id": report.dataset_id, "contract_id": payload.contract_id,
+                           "contract_version": payload.contract_version, "execution_version": "authorized_v1"}))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    return ReportExecutionBindingOut(execution_version="authorized_v1", fingerprint=fingerprint)
+
+
 @router.post(
     "/{report_id}/run",
     response_model=RunResult,
@@ -1212,6 +1289,8 @@ async def run_report(
     if report.dataset_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
 
+    if (getattr(report, "execution_version", None) or "legacy_v1") != "legacy_v1" and overrides and overrides.filters:
+        raise HTTPException(422, detail={"code": "authorized_runtime_filters_unsupported", "message": "新执行版本尚未支持运行时筛选"})
     await _ensure_report_dataset_consumable(report, user, db)
 
     cfg = ReportConfig(**(report.config or {}))
@@ -1233,7 +1312,7 @@ async def run_report(
     error_message = ""
     try:
         columns_meta, items, total = await run_audited_dataset_query(
-            channel="run", report_id=report.id,
+            channel="run", report_id=report.id, report=report,
             dataset_id=report.dataset_id,
             columns=cfg.columns,
             filters=[item.model_dump() for item in cfg.filters],
@@ -1537,7 +1616,7 @@ async def _collect_export_rows(
     from app.reports.report_service import run_audited_dataset_query
 
     columns_meta, items, _ = await run_audited_dataset_query(
-        channel=audit_channel, report_id=report.id,
+        channel=audit_channel, report_id=report.id, report=report,
         dataset_id=report.dataset_id,
         columns=cfg.columns,
         filters=[item.model_dump() for item in cfg.filters],
@@ -1606,7 +1685,7 @@ async def get_report_push_columns(report: Report, db: AsyncSession) -> list[dict
     await _ensure_valid_report_field_references(cfg, report.dataset_id, owner, db)
     from app.reports.report_service import run_audited_dataset_query
     columns_meta, items, _ = await run_audited_dataset_query(
-        channel="push_columns", report_id=report.id,
+        channel="push_columns", report_id=report.id, report=report,
         dataset_id=report.dataset_id,
         columns=cfg.columns,
         filters=[item.model_dump() for item in cfg.filters],
@@ -1751,6 +1830,8 @@ async def export_report_csv(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
 
     export_filters = _parse_runtime_filters(runtime_filters)
+    if (getattr(report, "execution_version", None) or "legacy_v1") != "legacy_v1" and export_filters:
+        raise HTTPException(422, detail={"code": "authorized_runtime_filters_unsupported", "message": "新执行版本尚未支持运行时筛选"})
     try:
         export_cfg = _ensure_valid_report_config(
             _apply_runtime_overrides(ReportConfig(**(report.config or {})), export_filters)
@@ -1845,6 +1926,8 @@ async def export_report_xlsx(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
 
     export_filters = _parse_runtime_filters(runtime_filters)
+    if (getattr(report, "execution_version", None) or "legacy_v1") != "legacy_v1" and export_filters:
+        raise HTTPException(422, detail={"code": "authorized_runtime_filters_unsupported", "message": "新执行版本尚未支持运行时筛选"})
     try:
         export_cfg = _ensure_valid_report_config(
             _apply_runtime_overrides(ReportConfig(**(report.config or {})), export_filters)
@@ -1875,7 +1958,8 @@ async def export_report_xlsx(
         raise
     numeric_codes = {col["code"] for col in columns_meta if _is_numeric_column(col)}
     export_config = export_cfg.model_dump()
-    rows = _prepare_xlsx_export_rows(rows, codes, numeric_codes, export_config)
+    if (getattr(report, "execution_version", None) or "legacy_v1") == "legacy_v1":
+        rows = _prepare_xlsx_export_rows(rows, codes, numeric_codes, export_config)
     column_settings = export_config.get("column_settings", {})
 
     workbook = Workbook()

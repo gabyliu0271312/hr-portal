@@ -1,15 +1,11 @@
-"""最小安全 D 执行合同校验。
-
-本模块只负责无副作用的合同/计划绑定校验，不执行 SQL，也不接入报表运行链路。
-当前切片仅允许单一 person_fact、无 JOIN、无成本中心汇总、无 reference/bridge。
-"""
+"""内部单事实 D/S 合同校验与 SQL 编译，不接入报表运行链路。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import String, cast, select
+from sqlalchemy import String, cast, false, func, or_, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import False_
 
@@ -51,6 +47,364 @@ class DExecutionValidationOut(BaseModel):
     filters: list[str] = []
     order_by: list[str] = []
     issues: list[dict[str, str]] = []
+
+
+class SExecutionBindingIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    dataset_id: int = Field(strict=True, ge=1)
+    contract_id: int = Field(strict=True, ge=1)
+    contract_version: int = Field(strict=True, ge=1)
+    plan: ExecutionPlanIn
+
+
+class SExecutionValidationOut(BaseModel):
+    dataset_id: int
+    contract_id: int | None
+    contract_version: int | None
+    shape: str
+    summary_path: str
+    eligible: bool
+    runtime_enabled: bool = False
+    output_fields: list[str] = []
+    group_by: list[str] = []
+    aggregations: dict[str, str] = {}
+    issues: list[dict[str, str]] = []
+
+
+def _s_issue(code: str, message: str) -> dict[str, str]:
+    return {"code": code, "message": message}
+
+
+def validate_allocation_fact_s_execution(contract, request):
+    """Validate a server-bound S plan without accepting client scope controls."""
+    try:
+        bound_contract = _as_contract(contract)
+        bound_request = request if isinstance(request, SExecutionBindingIn) else SExecutionBindingIn.model_validate(request)
+    except (KeyError, TypeError, ValueError, ValidationError):
+        return SExecutionValidationOut(
+            dataset_id=0, contract_id=None, contract_version=None, shape="blocked",
+            summary_path="not_allowed", eligible=False,
+            issues=[_s_issue("authorization_contract_invalid", "授权合同快照未通过服务端校验")],
+        )
+    issues: list[dict[str, str]] = []
+    if bound_contract.status != "active":
+        issues.append(_s_issue("authorization_contract_not_active", "只有active授权合同可以进入S执行校验"))
+    if bound_contract.runtime_enabled:
+        issues.append(_s_issue("runtime_enablement_forbidden", "S执行切片不允许开启runtime_enabled"))
+    if bound_request.dataset_id != bound_contract.dataset_id:
+        issues.append(_s_issue("execution_dataset_mismatch", "执行计划与授权合同数据集不匹配"))
+    if bound_request.contract_id != bound_contract.contract_id:
+        issues.append(_s_issue("execution_contract_mismatch", "执行计划未绑定当前授权合同"))
+    if bound_request.contract_version != bound_contract.contract_version:
+        issues.append(_s_issue("execution_contract_version_mismatch", "执行计划未绑定当前授权合同版本"))
+    definition = bound_contract.definition
+    if len(definition.facts) != 1:
+        issues.append(_s_issue("s_execution_requires_one_fact", "S执行切片只允许一个事实来源"))
+    else:
+        fact = definition.facts[0]
+        if fact.role != "allocation_fact":
+            issues.append(_s_issue("s_execution_allocation_fact_required", "S执行切片只允许allocation_fact"))
+        if not fact.allow_cost_center_summary or not fact.cost_center_key:
+            issues.append(_s_issue("s_execution_cost_center_path_required", "S执行切片必须声明获准成本中心汇总路径"))
+        if not fact.employee_key:
+            issues.append(_s_issue("s_execution_employee_key_required", "allocation_fact必须声明人员键"))
+    snapshot = bound_contract.model_snapshot
+    tables = snapshot.get("tables") if isinstance(snapshot, dict) else None
+    relations = snapshot.get("relations") if isinstance(snapshot, dict) else None
+    outputs = snapshot.get("outputs") if isinstance(snapshot, dict) else None
+    fact = definition.facts[0] if len(definition.facts) == 1 else None
+    if not isinstance(tables, list) or len(tables) != 1:
+        issues.append(_s_issue("s_execution_requires_one_table", "S执行切片只允许一个来源表"))
+    elif fact is not None and (not isinstance(tables[0], dict)
+            or type(tables[0].get("id")) is not int
+            or tables[0].get("alias") != fact.alias or tables[0].get("table_name") != fact.table_name):
+        issues.append(_s_issue("s_execution_fact_table_mismatch", "S执行来源表未绑定批准事实"))
+    if not isinstance(relations, list) or relations:
+        issues.append(_s_issue("s_execution_join_forbidden", "S执行切片不允许JOIN"))
+    valid_outputs = isinstance(outputs, list) and all(
+        isinstance(item, dict) and type(item.get("id")) is int
+        and isinstance(item.get("output_code"), str) and bool(item["output_code"])
+        and isinstance(item.get("source_column"), str) and bool(item["source_column"])
+        and isinstance(item.get("data_type"), str)
+        and item["data_type"] in {"string", "number", "date", "datetime", "bool", "enum"}
+        and type(item.get("is_visible")) is bool and type(item.get("is_sensitive")) is bool
+        for item in outputs)
+    if not valid_outputs:
+        issues.append(_s_issue("authorization_snapshot_invalid", "授权合同输出结构快照无效"))
+    elif fact is not None:
+        output_by_code = {item["output_code"]: item for item in outputs}
+        if (len(output_by_code) != len(outputs) or not set(definition.output_fields) <= set(output_by_code)
+                or len({item["id"] for item in outputs}) != len(outputs)
+                or any(item.get("source_alias") != fact.alias for item in outputs)):
+            issues.append(_s_issue("s_execution_fact_output_mismatch", "S执行输出必须全部来自批准分摊事实"))
+        bound_keys = {item["source_column"] for item in outputs}
+        bound_keys |= {field.removeprefix(f"{fact.alias}.") for field in definition.internal_fields
+                       if field.startswith(f"{fact.alias}.")}
+        if not {fact.fact_key, fact.employee_key, fact.cost_center_key} <= bound_keys:
+            issues.append(_s_issue("s_execution_anchor_unbound", "S执行授权锚点未绑定批准事实"))
+        identifying = {code for code, item in output_by_code.items()
+                       if item["source_column"] in {fact.employee_key, fact.fact_key}}
+        if set(bound_request.plan.aggregations) & identifying:
+            issues.append(_s_issue("s_execution_personal_locator_forbidden", "人员键聚合须独立批准，当前切片不支持"))
+        from app.reports.execution_plan import compile_execution_plan
+        shape = compile_execution_plan(bound_request.dataset_id, bound_request.plan,
+            allowed_fields=set(definition.output_fields), measures=set(definition.measures),
+            approved_summary=True, identifying_fields=identifying)
+        issues.extend(shape.issues)
+    plan = bound_request.plan
+    if not plan.aggregations:
+        issues.append(_s_issue("s_execution_summary_required", "S执行切片必须包含度量聚合"))
+    if len(set(plan.output_fields)) != len(plan.output_fields):
+        issues.append(_s_issue("s_execution_duplicate_output", "S执行输出不可重复"))
+    if set(plan.group_by) - set(definition.dimensions):
+        issues.append(_s_issue("s_execution_dimension_not_allowed", "分组字段不在批准维度中"))
+    if plan.personal_fields or plan.employee_keys:
+        issues.append(_s_issue("s_execution_personal_locator_forbidden", "S执行切片不允许个人定位字段"))
+    if plan.filters or plan.order_by:
+        issues.append(_s_issue("s_execution_plan_unsupported", "当前S切片不支持筛选或排序覆盖"))
+    if "count_distinct" in plan.aggregations.values():
+        issues.append(_s_issue("s_execution_aggregation_unsupported", "人数指标须独立批准，当前切片不支持"))
+    if issues:
+        return SExecutionValidationOut(
+            dataset_id=bound_request.dataset_id, contract_id=bound_request.contract_id,
+            contract_version=bound_request.contract_version, shape="blocked", summary_path="not_allowed",
+            eligible=False, output_fields=list(bound_request.plan.output_fields),
+            group_by=list(bound_request.plan.group_by), aggregations=dict(bound_request.plan.aggregations), issues=issues,
+        )
+    return SExecutionValidationOut(
+        dataset_id=bound_request.dataset_id, contract_id=bound_request.contract_id,
+        contract_version=bound_request.contract_version, shape="summary", summary_path="person_or_cost_center_scope",
+        eligible=True, output_fields=list(bound_request.plan.output_fields), group_by=list(bound_request.plan.group_by),
+        aggregations=dict(bound_request.plan.aggregations), issues=[],
+    )
+
+
+async def compile_allocation_fact_s_scope(*, user, fact, model, db, table_alias=None):
+    """Build one server-side S scope: person scope OR approved cost-center scope."""
+    if fact.role != "allocation_fact" or not fact.allow_cost_center_summary or not fact.cost_center_key:
+        return None, [_s_issue("s_execution_cost_center_path_invalid", "S执行事实未批准成本中心汇总路径")]
+    from app.data.models import DATA_TABLES, OrgNode, CostCenterNode
+    from app.permissions import scope_filter
+    from app.warehouse.service.tree_health import analyze_tree
+
+    roster = DATA_TABLES.get(scope_filter.ROSTER_TABLE)
+    if (roster is None or "raw" in roster.__table__.columns
+            or scope_filter.ROSTER_EMP_COL not in roster.__table__.columns
+            or model is not DATA_TABLES.get(fact.table_name)
+            or not {fact.fact_key, fact.employee_key, fact.cost_center_key} <= set(model.__table__.columns.keys())):
+        return None, [_s_issue("s_execution_scope_configuration_invalid", "事实或人员授权锚点不可用")]
+    for kind, tree in (("org", OrgNode), ("cost_center", CostCenterNode)):
+        nodes = (await db.execute(select(tree))).scalars().all()
+        if not analyze_tree(kind, nodes).eligible:
+            return None, [_s_issue("s_execution_tree_invalid", "授权依赖的权限树未通过检查")]
+    roster_roles = await scope_filter._get_role_columns(scope_filter.ROSTER_TABLE, db)
+    center_roles = await scope_filter._get_role_columns(fact.table_name, db)
+    if (roster_roles.get("org_node_code") not in set(roster.__table__.columns.keys())
+            or center_roles.get("cc_code") != fact.cost_center_key):
+        return None, [_s_issue("s_execution_scope_configuration_invalid", "人员或成本中心范围配置与合同不一致")]
+    tags = await scope_filter._get_user_tags(user.id, db)
+    for tag, _, filters in tags:
+        if tag.person_scope_enabled and (not filters or any(
+                roster_roles.get(item.field_code) not in set(roster.__table__.columns.keys()) for item in filters)):
+            return None, [_s_issue("s_execution_scope_configuration_invalid", "人员条件未能完整解析")]
+    roster_alias = aliased(roster, name="s_scope_roster")
+    personnel = await scope_filter.build_scope_filter(
+        user, scope_filter.ROSTER_TABLE, db, strategy="person_first", table_alias=roster_alias)
+    if scope_filter.is_unrestricted(personnel):
+        return None, [_s_issue("s_execution_unrestricted_scope_unverified", "无限人员范围尚未完成运行资格校验")]
+    effective_model = model if table_alias is None else (
+        aliased(model, name=table_alias) if isinstance(table_alias, str) else table_alias)
+    person_scope = false() if isinstance(personnel, False_) else scope_filter._entity_text(
+        effective_model, fact.employee_key).in_(select(
+            scope_filter._entity_text(roster_alias, scope_filter.ROSTER_EMP_COL)).where(personnel))
+    center_clauses = []
+    for tag, selections, filters in scope_filter._filter_tags_by_strategy(tags, "cc_first"):
+        center_clauses.append(await scope_filter._build_tag_clause_with_passthrough(
+            tag, selections, filters, effective_model, {"cc_code": fact.cost_center_key}, db,
+            roster_join_col=fact.employee_key, roster_role_cols=roster_roles))
+    center_scope = or_(*center_clauses) if center_clauses else false()
+    if scope_filter.is_unrestricted(center_scope):
+        return None, [_s_issue("s_execution_unrestricted_scope_unverified", "无限中心范围尚未完成运行资格校验")]
+    if isinstance(person_scope, False_) and isinstance(center_scope, False_):
+        return None, [_s_issue("s_execution_scope_denied", "当前用户没有可解析的人员或成本中心汇总范围")]
+    return or_(person_scope, center_scope), []
+
+
+async def compile_allocation_fact_s_select_for_user(*, contract, request, user, db):
+    """Compile an internal, server-bound S aggregation; no route calls this yet."""
+    from app.data.models import DATA_TABLES, TableColumn
+    from app.permissions.masker import get_hidden_columns
+    from app.reports.sql_builder import _entity_column
+
+    validation = validate_allocation_fact_s_execution(contract, request)
+    if not validation.eligible:
+        return None, validation.issues
+    if request.plan.filters or request.plan.order_by or request.plan.personal_fields or request.plan.employee_keys:
+        return None, [_s_issue("s_execution_plan_unsupported", "S汇总暂不接受个人定位、排序或客户端筛选覆盖")]
+    bound_contract = _as_contract(contract)
+    fact = bound_contract.definition.facts[0]
+    model = DATA_TABLES.get(fact.table_name)
+    if model is None or model.__table__.name != fact.table_name or "raw" in model.__table__.columns:
+        return None, [_s_issue("s_execution_entity_model_required", "S汇总必须使用合同声明的实体列事实")]
+    columns = (await db.execute(select(TableColumn).where(TableColumn.table_name == fact.table_name))).scalars().all()
+    current_columns = {column.column_code: column for column in columns}
+    from types import SimpleNamespace
+    from app.datasets.authorization_contract import _collect_contract_physical_drift
+    from app.warehouse.service.standardization import _normalized_metadata_type
+    outputs = {item["output_code"]: item for item in bound_contract.model_snapshot["outputs"]}
+    physical_issues = await _collect_contract_physical_drift(db, bound_contract.definition,
+        [SimpleNamespace(**item) for item in bound_contract.model_snapshot["tables"]], [],
+        [SimpleNamespace(**item) for item in outputs.values()])
+    if physical_issues:
+        return None, physical_issues
+    required = {fact.fact_key, fact.employee_key, fact.cost_center_key}
+    required |= {outputs[code]["source_column"] for code in request.plan.output_fields}
+    if not required <= set(current_columns) or not required <= set(model.__table__.columns.keys()):
+        return None, [_s_issue("s_execution_source_column_missing", "事实字段物理来源不存在")]
+    for code in required:
+        type_issue = _type_issue_for_column(model, current_columns[code], code)
+        if type_issue:
+            return None, [type_issue]
+    from app.data.models import StandardFieldBinding, StandardFieldVersion
+    from app.datasets.models import DatasetOutputField
+    current_outputs = (await db.execute(select(DatasetOutputField).where(
+        DatasetOutputField.dataset_id == bound_contract.dataset_id,
+        DatasetOutputField.id.in_([output["id"] for output in outputs.values()])))).scalars().all()
+    current_outputs_by_id = {output.id: output for output in current_outputs}
+    for expected in outputs.values():
+        current = current_outputs_by_id.get(expected["id"])
+        if current is None or any(getattr(current, key) != expected[key] for key in (
+                "source_alias", "source_column", "output_code", "data_type", "is_visible", "is_sensitive")):
+            return None, [_s_issue("s_execution_output_drift", "当前数据集输出已偏离批准快照")]
+    semantics = (await db.execute(select(StandardFieldBinding, StandardFieldVersion).join(
+        StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id
+    ).where(or_(
+        StandardFieldBinding.table_column_id.in_([current_columns[code].id for code in required]),
+        StandardFieldBinding.dataset_output_field_id.in_([output["id"] for output in outputs.values()])
+    )))).all()
+    semantics_by_column = {binding.table_column_id: (binding, version) for binding, version in semantics
+                           if binding.table_column_id is not None}
+    semantics_by_output = {binding.dataset_output_field_id: (binding, version) for binding, version in semantics
+                           if binding.dataset_output_field_id is not None}
+    checked_versions = set()
+    from app.warehouse.service.standard_fields import _physical_source_identity
+    for code in request.plan.output_fields:
+        output = outputs[code]
+        column = current_columns[output["source_column"]]
+        identity = column.source_field_id or _physical_source_identity(column.table_name, column.column_code)
+        for semantic in (semantics_by_column.get(column.id), semantics_by_output.get(output["id"])):
+            if semantic is None:
+                return None, [_s_issue("s_execution_semantic_unverified", "汇总来源或输出缺少批准语义绑定")]
+            binding, version = semantic
+            if (binding.status != "confirmed" or binding.confirmed_by is None or binding.confirmed_at is None
+                    or binding.binding_version <= 0 or binding.observed_source_field_id != identity
+                    or binding.observed_data_type != column.data_type
+                    or version.status != "active" or version.approved_by is None or version.approved_at is None
+                    or not (version.approval_reason or "").strip() or version.data_type != column.data_type
+                    or version.grain_level == "identifying"
+                    or (code in request.plan.group_by and version.grain_level not in {"coarse", "fine"})):
+                return None, [_s_issue("s_execution_semantic_unverified", "汇总来源或输出语义未通过检查")]
+            checked_versions.add(version.id)
+    from app.data.models import StandardFieldVersionCategory
+    from app.field_category.models import FieldCategory
+    from app.permissions.masker import _user_allowed_categories
+    semantic_categories = (await db.execute(select(StandardFieldVersionCategory.field_category_id).join(
+        FieldCategory, FieldCategory.id == StandardFieldVersionCategory.field_category_id
+    ).where(StandardFieldVersionCategory.standard_field_version_id.in_(
+        checked_versions), FieldCategory.is_sensitive.is_(True)))).scalars().all()
+    if set(semantic_categories) - await _user_allowed_categories(user, db):
+        return None, [_s_issue("s_execution_hidden_field_forbidden", "当前用户没有汇总字段的敏感分类权限")]
+    from sqlalchemy import inspect
+    connection = await db.connection()
+    actual_primary_key = await connection.run_sync(lambda sync: inspect(sync).get_pk_constraint(
+        fact.table_name, schema=model.__table__.schema).get("constrained_columns", []))
+    if actual_primary_key != [fact.fact_key]:
+        return None, [_s_issue("s_execution_fact_identity_unverified", "当前切片要求事实键为唯一物理主键")]
+    hidden = await get_hidden_columns(user, fact.table_name, db, tool_key=None)
+    if hidden is None:
+        return None, [_s_issue("s_execution_field_access_unresolved", "字段授权尚未完成裁决")]
+    protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive or not column.is_visible}
+    outputs = {item["output_code"]: item for item in bound_contract.model_snapshot["outputs"]}
+    projected = []
+    group_columns = []
+    for output_code in request.plan.group_by:
+        output = outputs[output_code]
+        source_column = output["source_column"]
+        if (output.get("is_visible") is not True or output.get("is_sensitive") is not False
+                or source_column in protected or output_code in protected):
+            return None, [_s_issue("s_execution_hidden_field_forbidden", "执行计划包含当前用户不可见字段")]
+        if source_column not in current_columns or source_column not in model.__table__.columns:
+            return None, [_s_issue("s_execution_source_column_missing", "执行计划字段物理来源不存在")]
+        expression = _entity_column(model, source_column).label(output_code)
+        projected.append(expression)
+        group_columns.append(expression)
+    for output_code, aggregation in request.plan.aggregations.items():
+        output = outputs[output_code]
+        source_column = output["source_column"]
+        if (output.get("is_visible") is not True or output.get("is_sensitive") is not False
+                or source_column in protected or output_code in protected):
+            return None, [_s_issue("s_execution_hidden_field_forbidden", "执行计划包含当前用户不可见字段")]
+        if source_column not in current_columns or source_column not in model.__table__.columns:
+            return None, [_s_issue("s_execution_source_column_missing", "执行计划字段物理来源不存在")]
+        expression = _entity_column(model, source_column)
+        source_type = _normalized_metadata_type(current_columns[source_column].data_type)
+        output_type = _normalized_metadata_type(output.get("data_type"))
+        if ((aggregation in {"sum", "avg"} and source_type != "number")
+                or (aggregation in {"min", "max"} and source_type not in {"number", "string", "enum", "date", "datetime"})):
+            return None, [_s_issue("s_execution_aggregation_type_invalid", "聚合函数与度量类型不兼容")]
+        if output_type and source_type != output_type and not (output_type == "enum" and source_type == "string"):
+            return None, [_s_issue("s_execution_physical_type_drift", "汇总输出类型与物理度量类型不一致")]
+        aggregate = {
+            "sum": func.sum,
+            "count": func.count,
+            "avg": func.avg,
+            "min": func.min,
+            "max": func.max,
+        }.get(aggregation)
+        if aggregate is None:
+            return None, [_s_issue("s_execution_aggregation_unsupported", "S汇总聚合函数未通过服务端校验")]
+        projected.append(aggregate(expression).label(output_code))
+    scope, issues = await compile_allocation_fact_s_scope(
+        user=user, fact=fact, model=model, db=db)
+    if issues or scope is None:
+        return None, issues or [_s_issue("s_execution_scope_denied", "当前用户没有可解析的汇总范围")]
+    return select(*projected).where(scope).group_by(*group_columns), []
+
+
+async def compile_allocation_fact_s_result_statements_for_user(
+        *, contract, request, user, db, page=1, page_size=100):
+    if (type(page) is not int or type(page_size) is not int
+            or page < 1 or page_size < 0 or page_size > 1000):
+        return None, [_s_issue("s_execution_pagination_invalid", "分页参数未通过校验")]
+    statement, issues = await compile_allocation_fact_s_select_for_user(
+        contract=contract, request=request, user=user, db=db)
+    if issues:
+        return None, issues
+    result = statement.subquery("authorized_summary")
+    full = select(*(result.c[code] for code in request.plan.output_fields))
+    if request.plan.group_by:
+        full = full.order_by(*(result.c[code].asc().nulls_last() for code in request.plan.group_by))
+    preview = full.limit(page_size).offset((page - 1) * page_size) if page_size else full
+    return {"count": select(func.count()).select_from(result), "preview": preview, "export": full}, []
+
+
+async def compile_allocation_fact_s_select_for_dataset(*, db, user, request):
+    from app.datasets.authorization_contract import execution_readiness
+
+    readiness = await execution_readiness(db, request.dataset_id, user)
+    if not readiness.eligible:
+        return None, readiness.issues
+    return None, [_s_issue("s_execution_runtime_disabled", "S汇总执行尚未获得运行资格")]
+
+
+def compile_allocation_fact_s_select(*, contract, request, user, db):
+    """Runtime remains closed; validation is intentionally separate from SQL execution."""
+    result = validate_allocation_fact_s_execution(contract, request)
+    if not result.eligible:
+        return None, result.issues
+    return None, [_s_issue("s_execution_runtime_disabled", "S汇总执行尚未接入运行时查询")]
+
 
 
 def _scope_issue(code: str, message: str) -> dict[str, str]:

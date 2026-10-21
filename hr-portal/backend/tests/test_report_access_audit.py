@@ -323,7 +323,8 @@ async def test_audited_query_records_success_or_error_in_independent_session(mon
 
     audit_session = _ScopeAuditSession()
     monkeypatch.setattr(audit, "get_session_factory", lambda: lambda: audit_session)
-    business = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    business = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock(),
+        get=AsyncMock(return_value=SimpleNamespace(id=17, execution_version="legacy_v1")))
     error = HTTPException(status_code=409, detail="PRIVATE_QUERY_ERROR")
     result = ([{"code": "r.amount"}], [{"r.amount": "123456.78"}], 1)
 

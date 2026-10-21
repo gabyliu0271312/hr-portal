@@ -86,8 +86,10 @@ async def postgres_standard_catalog(postgres_classification_schema):
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
     from sqlalchemy import BigInteger, Boolean, Column, MetaData, Table, text
-    from app.datasets.models import DataSet, DataSetRelation, DataSetTable, DatasetOutputField, DataProductAuthorizationContract
+    from app.datasets.models import DataSet, DataSetAcl, DataSetRelation, DataSetTable, DatasetOutputField, DataProductAuthorizationContract, WarehouseMetric
     from app.field_category.models import FieldCategory
+    from app.push.models import PushTarget
+    from app.reports.models import Report
     from app.warehouse.models import StandardizationRule
     from app.users.models import Menu, Role, RoleMenu, UserRole
 
@@ -101,7 +103,11 @@ async def postgres_standard_catalog(postgres_classification_schema):
     datasets = DataSet.__table__.to_metadata(metadata)
     dataset_tables = DataSetTable.__table__.to_metadata(metadata)
     relations = DataSetRelation.__table__.to_metadata(metadata)
+    acls = DataSetAcl.__table__.to_metadata(metadata)
     outputs = DatasetOutputField.__table__.to_metadata(metadata)
+    Report.__table__.to_metadata(metadata)
+    for model in (PushTarget, WarehouseMetric, models.OrgNode, models.CostCenterNode):
+        model.__table__.to_metadata(metadata)
     rules = StandardizationRule.__table__.to_metadata(metadata)
     categories = FieldCategory.__table__.to_metadata(metadata)
     migration = _migration()
@@ -135,6 +141,7 @@ async def postgres_standard_catalog(postgres_classification_schema):
         await conn.execute(columns.insert().values(id=18, table_name="dwd_probe", column_code="employee_no", column_label="Managed employee label", source_field_id="dwd-employee", is_sensitive=True, display_order=77))
         await conn.execute(columns.insert().values(id=19, table_name="dwd_probe", column_code="department", column_label="Department", source_field_id="dwd-department", display_order=88))
         await conn.execute(datasets.insert().values(id=4, name="dataset_probe", warehouse_layer="DWD", status="published", version=3))
+        await conn.execute(acls.insert().values(id=4, dataset_id=4, user_id=7))
         await conn.execute(dataset_tables.insert().values(id=4, dataset_id=4, table_name="dwd_probe", alias="current"))
         await conn.execute(outputs.insert().values(id=41, dataset_id=4, source_alias="current", source_column="employee_no", output_code="employee_no", output_label="Approved employee label", is_sensitive=True, display_order=91))
         await conn.execute(rules.insert().values(id=101, asset_type="table", asset_code="source_probe", rule_type="rename", source_field="employee_no", target_field="employee_no", rule_config={}, enabled=True, display_order=1))
@@ -1469,7 +1476,7 @@ async def test_authorization_execution_readiness_is_fail_closed_and_exposes_no_r
         "alias": "current", "role": "person_fact", "detail_mode": "person_scope",
         "summary_mode": "person_scope", "employee_key": "employee_no", "cost_center_key": None,
     }]
-    assert "employee_no" not in str(body.get("issues")) or True
+    assert all(set(issue) == {"code", "message"} for issue in body["issues"])
 
 
 @pytest.mark.postgres_acceptance
@@ -1477,7 +1484,11 @@ async def test_authorization_execution_readiness_is_fail_closed_and_exposes_no_r
 async def test_authorization_readiness_denies_nonmatching_user_before_contract_metadata(standard_catalog_api):
     from types import SimpleNamespace
     from app.core.deps import current_user
-    client, _, _, app = standard_catalog_api
+    client, engine, _, app = standard_catalog_api
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("INSERT INTO users(id) VALUES(99)"))
+        await conn.execute(text("INSERT INTO user_roles(user_id,role_id) VALUES(99,1)"))
     app.dependency_overrides[current_user] = lambda: SimpleNamespace(id=99)
     response = await client.get("/api/v1/warehouse/models/4/authorization-execution-readiness")
     assert response.status_code == 200
@@ -1502,6 +1513,170 @@ async def test_authorization_execution_readiness_rejects_reference_and_cost_cent
     approval = await client.post(f"{base}/{created.json()['id']}/approve", json={"expected_revision": 0, "reason": "path review"})
     assert approval.status_code == 409
     assert approval.json()["detail"]["code"] == "contract_execution_validation_required"
+
+
+@pytest_asyncio.fixture
+async def approved_execution_catalog(standard_catalog_api):
+    from sqlalchemy import text
+
+    client, engine, factory, app = standard_catalog_api
+    async with engine.begin() as conn:
+        await conn.execute(models.OrgNode.__table__.insert().values(
+            id=1, code="ROOT", name="集团", path="/集团/", level=1, is_active=True))
+    base = "/api/v1/warehouse/models/4/authorization-contracts"
+    created = await client.post(base, json={
+        "expected_version": 0,
+        "facts": [{"alias": "current", "table_name": "dwd_probe", "fact_key": "employee_no",
+                   "employee_key": "employee_no", "role": "person_fact"}],
+        "output_fields": ["employee_no"], "dimensions": [], "measures": [],
+        "internal_fields": ["current.department"],
+    })
+    assert created.status_code == 201, created.text
+    approved = await client.post(f"{base}/{created.json()['id']}/approve", json={
+        "expected_revision": 0, "reason": "isolated execution validation",
+    })
+    assert approved.status_code == 200, approved.text
+    yield client, engine, factory, app
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift,expected", [
+    ("physical_type", "authorization_fact_metadata_type_drift"),
+    ("physical_missing", "authorization_fact_column_missing"),
+    ("internal_type", "authorization_internal_metadata_type_drift"),
+    ("output_type", "authorization_output_physical_type_drift"),
+    ("output_source", "authorization_contract_drift"),
+    ("alias", "authorization_contract_drift"),
+    ("relation", "authorization_relation_alias_invalid"),
+])
+async def test_postgres_readiness_rechecks_approved_schema(approved_execution_catalog, drift, expected):
+    from sqlalchemy import text
+
+    client, engine, _, _ = approved_execution_catalog
+    statements = {
+        "physical_type": "ALTER TABLE dwd_probe ALTER COLUMN employee_no TYPE numeric USING NULL::numeric",
+        "physical_missing": "ALTER TABLE dwd_probe DROP COLUMN employee_no",
+        "internal_type": "ALTER TABLE dwd_probe ALTER COLUMN department TYPE date USING NULL::date",
+        "output_type": "UPDATE dataset_output_fields SET data_type='number' WHERE id=41",
+        "output_source": "UPDATE dataset_output_fields SET source_column='department' WHERE id=41",
+        "alias": "UPDATE dataset_tables SET alias='changed' WHERE id=4",
+        "relation": "INSERT INTO dataset_relations(dataset_id,left_alias,right_alias,join_type,cardinality,keys) VALUES(4,'current','unknown','left','N:1','[{\"left\":\"employee_no\",\"right\":\"employee_no\"}]')",
+    }
+    async with engine.begin() as conn:
+        await conn.execute(text(statements[drift]))
+    result = await client.get("/api/v1/warehouse/models/4/authorization-execution-readiness")
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["eligible"] is False and body["runtime_enabled"] is False
+    assert expected in {issue["code"] for issue in body["issues"]}
+    async with engine.connect() as conn:
+        assert (await conn.execute(text("SELECT status,version FROM datasets WHERE id=4"))).one() == ("published", 3)
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+@pytest.mark.parametrize("defect", ["healthy", "empty", "no_root", "duplicate_path", "bad_child", "inactive_parent"])
+async def test_postgres_readiness_rechecks_current_name_tree(approved_execution_catalog, defect):
+    from sqlalchemy import text
+
+    client, engine, _, _ = approved_execution_catalog
+    async with engine.begin() as conn:
+        if defect == "empty":
+            await conn.execute(text("DELETE FROM org_tree"))
+        elif defect == "no_root":
+            await conn.execute(text("UPDATE org_tree SET parent_id=1"))
+        elif defect == "duplicate_path":
+            await conn.execute(models.OrgNode.__table__.insert().values(
+                id=2, code="DIFFERENT", name="集团", path="/集团/", level=1, is_active=True))
+        elif defect in {"bad_child", "inactive_parent"}:
+            await conn.execute(models.OrgNode.__table__.insert().values(
+                id=2, code="CHILD", name="子组织", path="/集团/子组织/", parent_id=1, level=2, is_active=True))
+            if defect == "bad_child":
+                await conn.execute(text("UPDATE org_tree SET path='/集团/错名/' WHERE id=2"))
+            else:
+                await conn.execute(text("UPDATE org_tree SET is_active=false WHERE id=1"))
+    result = await client.get("/api/v1/warehouse/models/4/authorization-execution-readiness")
+    assert result.status_code == 200, result.text
+    body = result.json()
+    codes = {issue["code"] for issue in body["issues"]}
+    assert body["eligible"] is False and body["runtime_enabled"] is False
+    assert ("authorization_org_tree_unhealthy" in codes) == (defect != "healthy")
+    assert "authorization_cost_center_tree_unhealthy" not in codes
+    assert "sql_compiler_not_integrated" in codes
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_d_binding_uses_persisted_contract_and_keeps_server_gate_closed(approved_execution_catalog):
+    from types import SimpleNamespace
+    from sqlalchemy import select
+    from app.datasets.models import DataProductAuthorizationContract
+    from app.datasets.d_execution import (
+        DExecutionBindingIn, compile_person_fact_d_select_for_dataset,
+        validate_person_fact_d_execution,
+    )
+    from app.warehouse.schemas import ExecutionPlanIn
+
+    _, _, factory, _ = approved_execution_catalog
+    async with factory() as db:
+        row = (await db.execute(select(DataProductAuthorizationContract))).scalar_one()
+        snapshot = {"id": row.id, "dataset_id": row.dataset_id,
+                    "contract_version": row.contract_version, "status": row.status,
+                    "contract_json": row.contract_json, "model_snapshot": row.model_snapshot}
+        request = DExecutionBindingIn(dataset_id=4, contract_id=row.id,
+            contract_version=row.contract_version, plan=ExecutionPlanIn(output_fields=["employee_no"]))
+        valid = validate_person_fact_d_execution(snapshot, request)
+        assert valid.eligible is True and valid.runtime_enabled is False
+        for key, code in (("dataset_id", "execution_dataset_mismatch"),
+                          ("contract_id", "execution_contract_mismatch"),
+                          ("contract_version", "execution_contract_version_mismatch")):
+            mismatched = request.model_copy(update={key: getattr(request, key) + 1})
+            result = validate_person_fact_d_execution(snapshot, mismatched)
+            assert result.eligible is False
+            assert code in {issue["code"] for issue in result.issues}
+        statement, issues = await compile_person_fact_d_select_for_dataset(
+            db=db, user=SimpleNamespace(id=7), request=request)
+        assert statement is None
+        assert "sql_compiler_not_integrated" in {issue["code"] for issue in issues}
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["org", "cost_center"])
+@pytest.mark.parametrize("defect,expected", [
+    ("healthy", None), ("empty", "empty_tree"), ("cycle", "cycle"),
+    ("duplicate_path", "duplicate_path"), ("bad_level", "level_mismatch"),
+    ("bad_path", "parent_path_mismatch"), ("inactive_parent", "active_under_inactive"),
+])
+async def test_postgres_tree_health_reads_both_current_trees(standard_catalog_api, kind, defect, expected):
+    from app.users.models import Menu, RoleMenu
+
+    client, engine, _, _ = standard_catalog_api
+    model = models.OrgNode if kind == "org" else models.CostCenterNode
+    async with engine.begin() as conn:
+        await conn.execute(Menu.__table__.insert().values(id=3, code="warehouse.governance", label="Governance"))
+        await conn.execute(RoleMenu.__table__.insert().values(id=3, role_id=1, menu_id=3, can_view=True))
+        if defect != "empty":
+            await conn.execute(model.__table__.insert().values(
+                id=1, code="R", name="根组织", path="/根组织/", level=1,
+                is_active=defect != "inactive_parent"))
+            await conn.execute(model.__table__.insert().values(
+                id=2, code="C", name="根组织" if defect == "duplicate_path" else "子组织",
+                path="/根组织/" if defect == "duplicate_path" else "/根组织/子组织/",
+                parent_id=None if defect == "duplicate_path" else 1,
+                level=1 if defect == "duplicate_path" else 3 if defect == "bad_level" else 2,
+                is_active=True))
+            if defect == "cycle":
+                await conn.execute(model.__table__.update().where(model.id == 1).values(parent_id=2))
+            elif defect == "bad_path":
+                await conn.execute(model.__table__.update().where(model.id == 2).values(path="/根组织/错误/"))
+    result = await client.get("/api/v1/warehouse/tree-health", params={"kind": kind})
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["kind"] == kind and body["eligible"] == (expected is None)
+    if expected:
+        assert expected in {issue["code"] for issue in body["issues"]}
 
 
 def test_execution_plan_classifies_detail_summary_and_blocks_personal_locator():

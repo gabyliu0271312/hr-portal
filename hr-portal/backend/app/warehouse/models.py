@@ -21,6 +21,7 @@ from sqlalchemy import (
     Index,
 )
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.sql import func
 
 from app.core.db import Base
 
@@ -542,6 +543,31 @@ class WarehouseLineageEdge(Base):
     run_id = Column(BigInteger, nullable=True, comment="关联运行 ID")
     edge_metadata = Column(JSON, nullable=True, comment="血缘 metadata（definition_id/rule_ids/version）")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class WarehouseConversionRun(Base):
+    __tablename__ = "warehouse_conversion_runs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    source_table = Column(String(64), nullable=False)
+    target_table = Column(String(64), nullable=False, index=True)
+    evidence = Column(JSON, nullable=False)
+    lineage_id = Column(BigInteger, ForeignKey("warehouse_lineage_edges.id", ondelete="RESTRICT"), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class WarehouseConversionApproval(Base):
+    __tablename__ = "warehouse_conversion_approvals"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    dataset_id = Column(BigInteger, ForeignKey("datasets.id", ondelete="RESTRICT"), nullable=False, index=True)
+    contract_id = Column(BigInteger, ForeignKey("data_product_authorization_contracts.id", ondelete="RESTRICT"), nullable=False)
+    run_id = Column(BigInteger, ForeignKey("warehouse_conversion_runs.id", ondelete="RESTRICT"), nullable=False)
+    dataset_version = Column(Integer, nullable=False)
+    model_fingerprint = Column(String(64), nullable=False)
+    approved_by = Column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    reason = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 # ==================== ods_dwd_automation_configs (Z0104) ====================
