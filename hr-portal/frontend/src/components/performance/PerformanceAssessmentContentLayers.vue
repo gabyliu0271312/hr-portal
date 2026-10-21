@@ -16,17 +16,22 @@
           </section>
           <div class="divider" />
 
+          <p v-if="selectionRestriction" class="content-selection-restriction" role="note">{{ selectionRestriction }}</p>
           <template v-if="drawerContents.length">
             <div class="drawer-actions">
-              <CreateMenu ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
+              <CreateMenu v-if="!selectionRestriction" ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
               <button class="plain-button expand-all-button" type="button" :aria-expanded="allExpanded" @click="toggleAllExpanded"><ArrowDown v-if="!allExpanded" /><ArrowUp v-else /> {{ allExpanded ? '全部收起' : '全部展开' }}</button>
             </div>
             <section class="created-list" aria-label="评估内容">
               <h3>评估内容</h3>
-              <article v-for="content in drawerContents" :key="content.id" class="created-item">
-                <input type="checkbox" :checked="isContentSelected(content.id)" :disabled="isContentSelected(content.id)" :aria-label="content.name" @change="toggleAvailableContent(content)" /><strong>{{ content.name }}</strong>
+              <article v-for="content in drawerContents" :key="content.id" class="created-item" :class="{ 'created-item--unavailable': !canSelectContent(content) }">
+                <PerformanceInfoPopover v-if="!canSelectContent(content)" :content="selectionRestriction" variant="disabled-action" width="auto">
+                  <PerformanceCheckbox :model-value="isContentSelected(content.id)" :label="content.name" disabled><template #label /></PerformanceCheckbox>
+                </PerformanceInfoPopover>
+                <PerformanceCheckbox v-else :model-value="isContentSelected(content.id)" :label="content.name" :disabled="isContentSelected(content.id)" @update:model-value="toggleAvailableContent(content)"><template #label /></PerformanceCheckbox>
+                <strong>{{ content.name }}</strong>
                 <div class="created-item__actions"><PerformanceExpandButton :expanded="expandedIds.has(content.id)" :label="`${expandedIds.has(content.id) ? '收起' : '展开'}${content.name}`" @toggle="toggleExpanded(content.id)" />
-                  <button class="created-item__edit" type="button" :aria-label="`缂栬緫${content.name}`" @click="editCreated(content)"><Edit /></button>
+                  <button v-if="!selectionRestriction" class="created-item__edit" type="button" :aria-label="`缂栬緫${content.name}`" @click="editCreated(content)"><Edit /></button>
                 </div>
                 <div v-if="expandedIds.has(content.id)" class="created-item__details"><div v-for="item in content.items" :key="item.id" class="created-item__detail">{{ item.label }}</div></div>
               </article>
@@ -34,7 +39,7 @@
           </template>
           <section v-else class="empty-state" aria-label="评估内容列表">
             <el-empty :image-size="112" description="暂无内容" />
-            <CreateMenu ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
+            <CreateMenu v-if="!selectionRestriction" ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
           </section>
         </main>
         <footer v-if="drawerContents.length" class="drawer-footer">
@@ -135,6 +140,7 @@ import PerformanceRatingControl from './PerformanceRatingControl.vue'
 import PerformanceSwitch from './PerformanceSwitch.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
+import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 
 export type AssessmentContentType = 'work_summary' | 'rating' | 'custom'
 export interface AssessmentOption { id:string; label:string; description?:string; disabled?:boolean; disabledReason?:string; levels?:string[]; levelOptions?:Array<{id:string;label:string;color?:string}>; displayMode?:'标签样式'|'下拉样式' }
@@ -144,7 +150,7 @@ export interface AssessmentContentDraft { type:AssessmentContentType; name:strin
 interface WorkSummaryItem { id:string; label:string; hint:string; richText:string }
 interface FillItem { id:string; label:string; hint:string; richText?:string; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;label:string;placeholder?:string;color?:string}> }
 
-const props=withDefaults(defineProps<{open:boolean;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[]}>(),{ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom']})
+const props=withDefaults(defineProps<{open:boolean;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
 const emit=defineEmits<{'update:open':[boolean];confirm:[AssessmentContentDraft[]]}>()
 const drawerRef=ref<HTMLElement|null>(null), modalRef=ref<HTMLElement|null>(null), modalCloseRef=ref<HTMLButtonElement|null>(null), createMenuRef=ref<{focus:()=>void}|null>(null)
 const groupVisible=ref(true), activeType=ref<AssessmentContentType|null>(null), submitted=ref(false), itemSubmitted=ref(false), success=ref(false), draggedIndex=ref<number|null>(null), dragAnnouncement=ref(''), editingCreatedId=ref<string|null>(null), expandedIds=ref<Set<string>>(new Set())
@@ -215,12 +221,13 @@ function resetDraft(){Object.assign(draft,{name:'',description:'',itemName:'',hi
 function closeDrawer(){activeType.value=null;emit('update:open',false)}
 function contentKey(content:AssessmentContentDraft&{id:string}){return content.content_id||content.id}
 function isContentSelected(id:string){return created.value.some(content=>contentKey(content)===id)}
+function canSelectContent(content:AssessmentContentDraft&{id:string}){return props.selectableContentIds === undefined || props.selectableContentIds.includes(contentKey(content))}
 function toggleAvailableContent(content:AssessmentContentDraft&{id:string}){
   const id=contentKey(content)
-  if(isContentSelected(id))return
+  if(isContentSelected(id)||!canSelectContent(content))return
   created.value.push({ ...content, id, content_id:id, items: content.items.map(item=>({ ...item })) })
 }
-function finishDrawer(){emit('confirm',created.value.map(content=>({ ...content, content_id:content.content_id||content.id })));emit('update:open',false)}
+function finishDrawer(){if(created.value.some(content=>!canSelectContent(content)))return;emit('confirm',created.value.map(content=>({ ...content, content_id:content.content_id||content.id })));emit('update:open',false)}
 function openModal(type:AssessmentContentType, content?:AssessmentContentDraft&{id:string}){
   resetDraft(); editingCreatedId.value=content?.id||null; activeType.value=type
   if(content){
@@ -542,6 +549,10 @@ const RichTextBox=defineComponent({props:{modelValue:{type:String,default:''},pl
 .created-item{position:relative;grid-template-columns:16px 1fr auto;min-height:48px;height:auto}
 .created-item input{accent-color:#8f959e;opacity:.65}.created-item input:disabled{pointer-events:none}
 .created-item__actions{display:flex;align-items:center;gap:2px}
+.created-item > :deep(.performance-checkbox),.created-item > :deep(.performance-info-popover-root){width:16px;min-width:16px}
+.created-item :deep(.performance-checkbox__label){display:none}
+.created-item--unavailable > strong{color:var(--color-text-disabled)}
+.content-selection-restriction{margin:var(--spacing-3) 0 0;color:var(--color-text-secondary);font:400 var(--font-size-md)/22px var(--font-sans)}
 .created-item__actions button{display:grid;place-items:center;width:28px;height:28px;padding:4px;border:0;border-radius:6px;background:transparent;color:#646a73;cursor:pointer}
 .created-item__actions button:hover,.created-item__actions button:focus-visible{background:#eff0f1;color:#3370ff;outline:0}
 .created-item__actions svg{width:16px}

@@ -190,6 +190,18 @@
     - Non-scope: runtime confirmation task generation/completion, cycle snapshots, result publication behavior, migration, and permission changes.
     - Definition of done: development, UI, API round-trip, tests, build, runtime verification, and evidence complete; only then mark `[x]`.
 
+- [ ] PM-T004-T05-F01 修复结果查看专用内容配置（2026-10-21 用户确认）
+  - Goal: 按 `D:/乐逗/Desktop/查看绩效结果.txt` 修复现有结果区域，复用统一内容侧边弹窗，仅允许选择终评节点执行人填写的内容；其余候选保留、置灰并提示限制原因。
+  - Prerequisites/reading: PM-T004-T05 既有蓝图、Spec 002 基线、用户采集与交互确认、Spec 012 A01/A02/A05/N000/N00/N11；属于现有页面局部修复，不新建全页蓝图。
+  - Allowed modifications: `hr-portal/frontend/src/views/performance/PerformanceTemplateContentSettings.vue` 及已有测试、`components/performance/PerformanceAssessmentContentLayers.vue` 及已有测试、`performanceContentSettingsRules.ts`、`PerformanceReferenceEntryBar.vue`、`backend/app/performance/template_workflow_service.py` 及已有 workflow 测试、本功能交互说明。
+  - Input/output contract: 沿用 workflow GET/PATCH 的 `content`、`content_bindings`、`content_library`；唯一 `include_final_result=true` 节点的 fill 内容 ID 为 view 可选集合；无来源时禁止选择，后端保存非法 view 返回 422 `TEMPLATE_WORKFLOW_INVALID`；不得按 rating/custom 类型代替来源判断。引用已有内容，不新建来源 DTO。
+  - UI: 既有 content 路由；结果区标题“绩效结果”、18/600/26 字体、16px/24px 标题内边距、1px 分隔、空态40px上下间距与14/22字体、4px圆角、54px操作栏、底部“添加其他参考内容”；执行人动态显示。复用公共 checkbox、禁用操作 popover 与 token；普通节点保持原交互。独立截图目标 `../../ui-blueprints/PM-T004-T05-F01-implemented-result-view.png`。
+  - Tests: 已有 content/layers Vitest 覆盖结果空态、合法/非法来源、无终评、普通环节回归、保存重开和其他参考独立保存；已有 workflow pytest 覆盖合法保存及绕过前端拒绝；`npm run build`；浏览器截图实际可运行后补齐。
+  - Non-scope/forbidden: 不改变员工结果 API、结果开通规则、周期/项目历史快照、权限、迁移、UCP 或其他节点业务；提示编辑复用既有弹窗，本次不定义新的提示存储模型。
+  - Evidence: 最终前端定向Vitest八文件131/131通过；`npm --prefix hr-portal/frontend run build`（vue-tsc+vite）通过；后端workflow pytest108/108通过、1个Starlette弃用警告。补齐已选view旧副本覆盖最新终评内容及普通节点同ID副本干扰binding-only来源的回归。向导测试有jsdom XHR AggregateError日志但所有断言通过；构建有VueUse PURE注释警告。同步既有 `performanceContentSettingsRules.js` 镜像，避免旧JS遮蔽TS规则。本地Docker前后端镜像构建与容器替换通过，均running且restarts=0，保留hr-portal_default网络；数据库与Gotenberg容器未替换，Alembic当前版本和单一head均为0266。前端镜像`sha256:0c1b9b010b1d5ba05784f36d6c4cad4b70bb7aa42fbee0c4ee7750ee16879f5d`，后端镜像`sha256:13c60912adcaf8ee3bc34473c977dd38944407194ea72c8d379e9d4ab741121c`。容器页面HTTP200、未登录workflow API401；后端启动期间短暂502，启动完成后恢复。浏览器被登录守卫重定向，未取得实现态PNG；未做真实数据库/API保存重开验收。
+  - Blockers: 登录态与实际页面PNG缺失，完整验收前保持未勾选；非生产部署。
+  - Acceptance/DoD: UI→payload→保存校验→重开、组件/后端回归、build、实际截图均有证据才勾选。尚未运行检查不得记为通过。
+
 - [ ] PM-T004-T05 内容设置整体架构与空态还原
   - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。
   - Type: frontend/UI

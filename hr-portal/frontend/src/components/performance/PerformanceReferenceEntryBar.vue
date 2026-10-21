@@ -5,12 +5,13 @@
         <span class="reference-entry-bar__icon">
           <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" data-icon="AddEntryOutlined"><path d="M5 3h14v10h2V3a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v18a2 2 0 0 0 2 2h7v-2H5V3Z" fill="currentColor"></path><path d="M7 8a1 1 0 0 1 1-1h3a1 1 0 1 1 0 2H8a1 1 0 0 1-1-1Zm1 3a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2H8Zm9 5a1 1 0 1 1 2 0v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2h-2a1 1 0 1 1 0-2h2v-2Z" fill="currentColor"></path></svg>
         </span>
-      </span>选择参考内容
+      </span>{{ label }}
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
+withDefaults(defineProps<{ label?: string }>(), { label: '选择参考内容' })
 defineEmits<{ select: [] }>()
 </script>
 

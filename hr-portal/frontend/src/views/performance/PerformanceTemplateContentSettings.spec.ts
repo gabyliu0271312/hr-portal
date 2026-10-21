@@ -93,7 +93,7 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.get('.content-tab').classes()).toContain('content-tab--active')
   })
 
-  it('opens add-content layers for supported stages and filters result-view types', async () => {
+  it('opens shared content layers and restricts result-view selection by source instead of type', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
 
@@ -120,9 +120,91 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.vm.$nextTick()
     await wrapper.findAll('.stage-card')[7].trigger('click')
     await wrapper.findAll('.template-operate__button')[0].trigger('click')
-    ;(document.body.querySelector('.create-button') as HTMLButtonElement).click()
+    expect(document.body.querySelector('.create-button')).toBeNull()
+    expect(document.body.textContent).toContain('仅可选择终评环节执行人「未配置」填写的内容')
+    expect(wrapper.findComponent(PerformanceAssessmentContentLayers).props('selectableContentIds')).toEqual([])
+  })
+
+  it('renders the captured result section and keeps non-final contents visible but disabled', async () => {
+    const finalContent = { content_id: 'final-content', content_slot: 'fill', type: 'work_summary', name: '终评意见', description: '', items: [{ id: 'final-item', label: '意见', hint: '' }] }
+    const otherContent = { ...finalContent, content_id: 'other-content', name: '自评意见' }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
+      nodes: [{ ...mockNodes[6], include_final_result: true, executor_label: '实线上级', executor_types: ['DIRECT_MANAGER'], content: [finalContent] }, mockNodes[7]],
+      content_library: [otherContent, finalContent],
+    } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    expect(wrapper.find('.result-view-section').exists()).toBe(false)
+    await wrapper.findAll('.stage-card')[1].trigger('click')
     await wrapper.vm.$nextTick()
-    expect(Array.from(document.body.querySelectorAll('.create-menu [role="menuitem"]')).map((node) => node.textContent)).toEqual(['评分评级', '自定义'])
+    expect(wrapper.findAll('.content-tab').map(tab => tab.text())).toEqual(['配置查看内容'])
+    expect(wrapper.get('.result-view-section h2').text()).toBe('绩效结果')
+    expect(wrapper.get('.result-view-section__empty').text()).toBe('此区域应添加终评环节执行人「直属上级」填写的内容')
+    expect(wrapper.get('.result-view-reference-entry').text()).toBe('添加其他参考内容')
+    await wrapper.get('.result-view-section .template-operate__button').trigger('click')
+    await flushPromises()
+    const layer = wrapper.getComponent(PerformanceAssessmentContentLayers)
+    expect(layer.props('open')).toBe(true)
+    expect(layer.props('availableContents')).toHaveLength(2)
+    const rows = [...document.body.querySelectorAll('.created-item')]
+    expect(rows).toHaveLength(2)
+    expect((rows.find(row => row.textContent?.includes('自评意见'))?.querySelector('input') as HTMLInputElement).disabled).toBe(true)
+    const allowed = rows.find(row => row.textContent?.includes('终评意见'))?.querySelector('input') as HTMLInputElement
+    expect(allowed.disabled).toBe(false)
+    allowed.click()
+    await wrapper.vm.$nextTick()
+    ;(document.body.querySelector('.drawer-footer .button--primary') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.configured-content-panel').text()).toContain('终评意见')
+    expect(wrapper.find('.result-view-section__empty').exists()).toBe(false)
+  })
+
+  it('uses current final content instead of the previously selected view copy', async () => {
+    const source = { content_id: 'same', type: 'custom', name: '最新终评意见', description: '', items: [{ id: 'item', label: '最新问题', hint: '' }] }
+    const stale = { ...source, name: '旧终评意见', items: [{ id: 'item', label: '旧问题', hint: '' }], content_slot: 'view' }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
+      nodes: [{ ...mockNodes[6], include_final_result: true, content: [{ ...source, content_slot: 'fill' }] }, { ...mockNodes[7], content: [stale] }],
+      content_library: [stale],
+    } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    await wrapper.get('.configured-content-footer .template-operate__button').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('.created-list')?.textContent).toContain('最新终评意见')
+    expect(document.body.querySelector('.created-list')?.textContent).not.toContain('旧终评意见')
+    ;(document.body.querySelector('.drawer-footer .button--primary') as HTMLButtonElement).click()
+    await flushPromises()
+    await (wrapper.vm as any).save()
+    expect(update.mock.calls[0][1].nodes[1].content?.[0].name).toBe('最新终评意见')
+    expect(update.mock.calls[0][1].content_library?.find(content => content.content_id === 'same')?.name).toBe('最新终评意见')
+  })
+
+  it('persists result view and other references independently and reopens binding-only content', async () => {
+    const content = { content_id: 'final', type: 'custom', name: '终评意见', description: '', items: [{ id: 'item', label: '意见', hint: '' }] }
+    const nodes = [{ ...mockNodes[6], include_final_result: true, content_bindings: { fill: ['final'] } }, { ...mockNodes[7], content_bindings: { view: ['final'] } }]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes, content_library: [content] } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.get('.configured-content-panel').text()).toContain('终评意见')
+    await wrapper.get('.result-view-reference-entry button').trigger('click')
+    const okr = document.body.querySelector('.reference-drawer__group:nth-of-type(2) input') as HTMLInputElement
+    okr.click()
+    await wrapper.vm.$nextTick()
+    ;([...document.body.querySelectorAll('.reference-drawer__footer button')].find(node => node.textContent === '确认') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.configured-content-panel').text()).toContain('终评意见')
+    expect(wrapper.get('.result-view-references').text()).toContain('OKR')
+    await (wrapper.vm as any).save()
+    const view = update.mock.calls[0][1].nodes[1]
+    expect(view.content_bindings).toEqual({ view: ['final'], reference: ['reference-okr'] })
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.get('.configured-content-panel').text()).toContain('终评意见')
+    expect(wrapper.get('.result-view-references').text()).toContain('OKR')
   })
 
   it('loads tag fill questions from assessment management for the custom tag selector', async () => {

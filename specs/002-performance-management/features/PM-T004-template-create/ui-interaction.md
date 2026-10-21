@@ -150,3 +150,13 @@
 - Directly below the executor field, render `PerformanceSwitchSettingRow.vue` with label `需要被评估人确认绩效结果`; its shared `PerformanceSwitch.vue` defaults off and uses the captured `8px` label-to-switch gap.
 - The existing workflow field `subject_confirm_required: boolean` is the sole persistence contract. It defaults to `false`, may retain `true` only for `result_view`, and is normalized to `false` for every other node type.
 - Existing GET/PATCH workflow JSONB is reused. No route, database migration, permission, UCP, external-system, cycle snapshot, or runtime confirmation-task behavior is introduced.
+
+## Result-view content correction (PM-T004-T05-F01, 2026-10-21)
+
+- 用户确认沿用统一“选择评估内容”侧边弹窗，不新增终评专用弹窗。候选保留工作总结、评分评级、自定义三种内容；以唯一 `include_final_result=true` 节点的 fill 内容归属判断可选性，而非按内容类型过滤。无终评或无填写内容时所有候选不可选；全部 item 隐藏的内容不可选。
+- 其他内容复选框置灰，复用 `PerformanceCheckbox`、`PerformanceInfoPopover` 的 disabled-action 及全局 token。显示提示“仅可选择终评环节执行人「直属上级」填写的内容”；实线上级从现有 manager-level options 动态生成具体级别，多级用顿号连接。受限模式不允许在结果查看节点新建或修改来源内容，普通节点保留原编辑/新建行为。
+- 选中 result_view 后显示唯一“配置查看内容”Tab；区域标题为“绩效结果”，不是流程节点自定义名称。按采集还原18/600/26标题、16px/24px内边距、4px圆角、1px分隔、40px空态上下内边距、14/22灰色说明及54px双操作栏；区域悬浮显示蓝色虚线边框，顶部保留原始16px横向拖拽图标。该固定区域当前不新增拖拽排序协议。
+- “添加其他参考内容”在同一查看Tab下复用参考内容抽屉，保存到独立 reference slot；不得覆盖 view 内容，也不增加参考Tab。已有内容支持回显与移除。
+- API继续使用原 workflow GET/PATCH、content/content_bindings/content_library。支持仅 bindings 的内容回显；后端在修改记录与审计前拒绝非法 view 来源，返回422 `TEMPLATE_WORKFLOW_INVALID`、动态 message 与 result_view node_id。无view配置的旧数据兼容，不更改其他节点slot行为。
+- 范围不包括提示内容存储模型、员工结果读取接口、结果开放策略、项目历史快照或数据库迁移。“添加提示”继续复用既有弹窗，不声称已补齐既有提示保存链路。
+- 验证：最终前端八组定向Vitest 131/131，后端workflow pytest 108/108，前端类型检查和生产构建通过。补齐view旧副本覆盖来源和普通节点同ID干扰binding-only来源的回归。前端向导测试输出既有jsdom XHR AggregateError日志（用例仍通过），构建有VueUse PURE注释警告，后端有Starlette弃用警告。本地Docker前后端镜像构建与容器替换通过，数据库和Gotenberg容器未替换；Alembic当前版本与head均0266。容器路由HTTP200、未登录API401，后端启动期间短暂502后恢复。浏览器跳转登录，未取得F01实际页面PNG，也未完成真实API保存重开验收；不得将登录页或目标图作为实现截图。F01保留未勾选。

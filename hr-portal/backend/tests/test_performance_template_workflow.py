@@ -361,6 +361,272 @@ async def test_service_rejects_zero_or_multiple_final_result_nodes_before_writin
             await service.save_nodes(77, nodes, actor_type="PORTAL_USER", actor_ref="9")
 
 
+@pytest.fixture
+def workflow_save_setup(monkeypatch):
+    from app.performance.template_workflow_service import PerformanceTemplateWorkflowService
+
+    db = _TemplateMetadataDb(None)
+    service = PerformanceTemplateWorkflowService(db)
+
+    async def get_record(_template_id):
+        return db.workflow
+
+    monkeypatch.setattr(service, "get_record", get_record)
+    return service, db
+
+
+def _view_source_content(content_id="final-content", content_type="rating", **overrides):
+    return {
+        "content_id": content_id,
+        "type": content_type,
+        "name": "终评内容",
+        "items": [{"id": "item-1", "settings": {"mode": "fill"}}],
+        **overrides,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content_type", ["rating", "work_summary", "custom"])
+@pytest.mark.parametrize("source_form", ["inline", "default-fill", "bindings"])
+@pytest.mark.parametrize("view_form", ["inline", "bindings"])
+async def test_service_saves_result_view_only_from_final_fill_and_reopens(
+    workflow_save_setup, content_type, source_form, view_form,
+):
+    service, db = workflow_save_setup
+    content = _view_source_content(content_type=content_type, items=[
+        {"id": "hidden", "settings": {"mode": "hidden"}},
+        {"id": "visible"},
+    ])
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True}
+    if source_form == "bindings":
+        final["content_bindings"] = {"fill": [content["content_id"]]}
+    else:
+        final["content"] = [
+            {**content, "content_slot": "fill"} if source_form == "inline" else content
+        ]
+    view = default_workflow_nodes()[1]
+    if view_form == "inline":
+        view["content"] = [{**content, "content_slot": "view"}]
+    else:
+        view["content_bindings"] = {"view": [content["content_id"]]}
+
+    record = await service.save_nodes(
+        77, [final, view], content_library=[content],
+        actor_type="PORTAL_USER", actor_ref="9",
+    )
+    db.workflow = record
+    reopened, _, _ = await service.get_nodes(77)
+    library = await service.get_content_library(77)
+
+    assert reopened[0]["content_bindings"]["fill"] == [content["content_id"]]
+    assert reopened[1]["content_bindings"]["view"] == [content["content_id"]]
+    assert record.content_library == [content]
+    assert next(item for item in library if item["content_id"] == content["content_id"]) == content
+    assert db.commits == 1
+    assert len(db.added) == 2
+    assert db.added[1].after_state["nodes"] == record.nodes
+
+
+@pytest.mark.asyncio
+async def test_service_resolves_final_fill_binding_from_existing_library(workflow_save_setup):
+    service, db = workflow_save_setup
+    content = _view_source_content()
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[], content_library=[content])
+    final = {
+        **_evaluation("final", "实线上级"), "include_final_result": True,
+        "content_bindings": {"fill": [content["content_id"]]},
+    }
+    view = {**default_workflow_nodes()[1], "content_bindings": {"view": [content["content_id"]]}}
+
+    record = await service.save_nodes(
+        77, [final, view], actor_type="PORTAL_USER", actor_ref="9",
+    )
+
+    assert record.content_library == [content]
+    assert db.commits == 1
+    assert len(db.added) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("library_source", ["existing", "request"])
+@pytest.mark.parametrize("source_visible", [True, False])
+async def test_service_final_fill_binding_ignores_other_node_inline_settings(
+    workflow_save_setup, library_source, source_visible,
+):
+    service, db = workflow_save_setup
+    source = _view_source_content(items=[{
+        "id": "item-1", "settings": {"mode": "fill" if source_visible else "hidden"},
+    }])
+    other_content = _view_source_content(items=[{
+        "id": "item-1", "settings": {"mode": "hidden" if source_visible else "fill"},
+    }])
+    existing = PerformanceTemplateWorkflow(
+        template_id=77, nodes=[],
+        content_library=[source] if library_source == "existing" else [],
+    )
+    db.workflow = existing
+    final = {
+        **_evaluation("final", "实线上级"), "include_final_result": True,
+        "executor_types": ["DIRECT_MANAGER"],
+        "content_bindings": {"fill": [source["content_id"]]},
+    }
+    other = {**_evaluation("other", "被评估人"), "content": [other_content]}
+    view = {**default_workflow_nodes()[1], "content_bindings": {"view": [source["content_id"]]}}
+    library = [source] if library_source == "request" else []
+
+    if source_visible:
+        record = await service.save_nodes(
+            77, [final, other, view], content_library=library,
+            actor_type="PORTAL_USER", actor_ref="9",
+        )
+        assert record.nodes[2]["content_bindings"] == {"view": [source["content_id"]]}
+        assert db.commits == 1
+        assert len(db.added) == 1
+    else:
+        with pytest.raises(TemplateWorkflowValidationError) as exc:
+            await service.save_nodes(
+                77, [final, other, view], content_library=library,
+                actor_type="PORTAL_USER", actor_ref="9",
+            )
+        assert str(exc.value) == "仅可选择终评环节执行人「直属上级」填写的内容"
+        assert exc.value.node_id == view["node_id"]
+        assert existing.nodes == []
+        assert existing.content_library == ([source] if library_source == "existing" else [])
+        assert db.added == []
+        assert db.commits == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_source", [
+    "other-node", "final-reference", "final-adjustment", "final-view", "unbound-library",
+    "no-fill", "missing-library", "empty-items", "hidden-items", "hidden-inline-copy",
+])
+@pytest.mark.parametrize("view_form", ["inline", "bindings", "mixed-inline", "mixed-bindings"])
+async def test_service_rejects_invalid_result_view_before_mutating_or_committing(
+    workflow_save_setup, invalid_source, view_form,
+):
+    service, db = workflow_save_setup
+    content = _view_source_content()
+    old_nodes = [{
+        **_evaluation("old-final", "实线上级"), "include_final_result": True,
+        "content": [content],
+    }]
+    old_library = [content]
+    existing = SimpleNamespace(
+        nodes=old_nodes, content_library=old_library,
+        updated_by_type="SYSTEM_ACCOUNT", updated_by_ref="old-actor",
+    )
+    db.workflow = existing
+    final = {
+        **_evaluation("new-final", "实线上级"), "include_final_result": True,
+        "executor_types": ["LEVEL_1_MANAGER"],
+    }
+    other = _evaluation("other", "被评估人")
+    library = [content]
+    if invalid_source == "other-node":
+        other["content"] = [content]
+    elif invalid_source.startswith("final-"):
+        final["content"] = [{**content, "content_slot": invalid_source.removeprefix("final-")}]
+    elif invalid_source == "unbound-library":
+        library = []
+    elif invalid_source == "missing-library":
+        existing.content_library = []
+        old_library = existing.content_library
+        library = []
+        final["content_bindings"] = {"fill": [content["content_id"]]}
+    elif invalid_source in {"empty-items", "hidden-items", "hidden-inline-copy"}:
+        items = [] if invalid_source == "empty-items" else [
+            {"id": "hidden", "settings": {"mode": "hidden"}},
+        ]
+        hidden = {**content, "items": items}
+        if invalid_source == "hidden-inline-copy":
+            final["content"] = [hidden]
+        else:
+            final["content_bindings"] = {"fill": [content["content_id"]]}
+            library = [hidden]
+    view = default_workflow_nodes()[1]
+    valid = _view_source_content("valid-content")
+    if view_form.startswith("mixed-"):
+        final.setdefault("content", []).append(valid)
+    if view_form in {"inline", "mixed-inline"}:
+        view["content"] = [{**content, "content_slot": "view"}]
+        if view_form == "mixed-inline":
+            view["content_bindings"] = {"view": [valid["content_id"]]}
+    else:
+        view["content_bindings"] = {"view": [content["content_id"]]}
+        if view_form == "mixed-bindings":
+            view["content"] = [{**valid, "content_slot": "view"}]
+
+    with pytest.raises(TemplateWorkflowValidationError) as exc:
+        await service.save_nodes(
+            77, [other, final, view], content_library=library,
+            actor_type="PORTAL_USER", actor_ref="9",
+        )
+
+    assert exc.value.node_id == view["node_id"]
+    assert str(exc.value) == "仅可选择终评环节执行人「隔 1 级上级」填写的内容"
+    assert existing.nodes is old_nodes
+    assert existing.content_library is old_library
+    assert existing.updated_by_type == "SYSTEM_ACCOUNT"
+    assert existing.updated_by_ref == "old-actor"
+    assert db.added == []
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("executor_label", "executor_types", "expected_label"), [
+    ("实线上级", ["DIRECT_MANAGER"], "直属上级"),
+    ("实线上级", ["LEVEL_1_MANAGER"], "隔 1 级上级"),
+    ("实线上级", ["LEVEL_2_MANAGER"], "隔 2 级上级"),
+    ("实线上级", ["LEVEL_3_MANAGER_PLUS"], "隔 3 级上级及以上"),
+    ("实线上级", ["DIRECT_MANAGER", "LEVEL_2_MANAGER", "DIRECT_MANAGER"], "直属上级、隔 2 级上级"),
+    ("实线上级", [], "实线上级"),
+    ("指标评价人", [], "指标评价人"),
+])
+async def test_service_result_view_error_uses_final_executor_label(
+    workflow_save_setup, executor_label, executor_types, expected_label,
+):
+    service, db = workflow_save_setup
+    final = {
+        **_evaluation("final", executor_label), "include_final_result": True,
+        "executor_types": executor_types,
+    }
+    view = {**default_workflow_nodes()[1], "content_bindings": {"view": ["missing"]}}
+
+    with pytest.raises(TemplateWorkflowValidationError) as exc:
+        await service.save_nodes(77, [final, view], actor_type="PORTAL_USER", actor_ref="9")
+
+    assert str(exc.value) == f"仅可选择终评环节执行人「{expected_label}」填写的内容"
+    assert exc.value.node_id == view["node_id"]
+    assert db.added == []
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_service_keeps_other_node_slots_and_legacy_result_view_without_view(
+    workflow_save_setup,
+):
+    service, db = workflow_save_setup
+    content = _view_source_content("legacy-content")
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True}
+    other = {
+        **_evaluation("other", "被评估人"),
+        "content": [{**content, "content_slot": "view"}],
+        "content_bindings": {"view": ["unresolved-other-node"]},
+    }
+    view = {**default_workflow_nodes()[1], "content": [content]}
+
+    record = await service.save_nodes(
+        77, [final, other, view], actor_type="PORTAL_USER", actor_ref="9",
+    )
+
+    assert record.nodes[1]["content"] == other["content"]
+    assert record.nodes[1]["content_bindings"] == other["content_bindings"]
+    assert record.nodes[2]["content"] == [content]
+    assert record.nodes[2]["content_bindings"] == {"fill": [content["content_id"]]}
+    assert db.commits == 1
+
+
 class _EmptyWorkflowResult:
     def scalar_one_or_none(self):
         return None
@@ -493,6 +759,30 @@ def _template_admin_context():
         role_grants=(),
         permission_codes=("performance.configuration.manage",),
     )
+
+
+@pytest.mark.asyncio
+async def test_workflow_patch_maps_invalid_result_view_to_422(workflow_save_setup, monkeypatch):
+    service, db = workflow_save_setup
+    monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
+    final = {
+        **_evaluation("final", "实线上级"), "include_final_result": True,
+        "executor_types": ["DIRECT_MANAGER"],
+    }
+    view = {**default_workflow_nodes()[1], "content_bindings": {"view": ["unbound"]}}
+    payload = WorkflowUpdate.model_validate({"nodes": [final, view]})
+
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+
+    assert exc.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert exc.value.detail == {
+        "code": "TEMPLATE_WORKFLOW_INVALID",
+        "message": "仅可选择终评环节执行人「直属上级」填写的内容",
+        "node_id": view["node_id"],
+    }
+    assert db.added == []
+    assert db.commits == 0
 
 
 @pytest.mark.asyncio

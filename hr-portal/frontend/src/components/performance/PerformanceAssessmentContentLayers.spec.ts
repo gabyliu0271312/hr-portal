@@ -66,6 +66,28 @@ function placeCaretInEmptyLeaf(editor: HTMLElement) {
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('PerformanceAssessmentContentLayers', () => {
+  it('keeps unavailable contents disabled with the shared reason popover and blocks forged changes', async () => {
+    const content = { id: 'allowed', content_id: 'allowed', type: 'custom' as const, name: '终评内容', description: '', items: [{ id: 'i', label: '意见', hint: '' }] }
+    const reason = '仅可选择终评环节执行人「直属上级」填写的内容'
+    const wrapper = mount(PerformanceAssessmentContentLayers, {
+      props: { open: true, availableContents: [content, { ...content, id: 'other', content_id: 'other', name: '其他内容' }], selectableContentIds: ['allowed'], selectionRestriction: reason },
+      global: { stubs: { Teleport: true } }, attachTo: document.body,
+    })
+    const rows = wrapper.findAll('.created-item')
+    expect(rows).toHaveLength(2)
+    expect(rows[1].get('input').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('.content-selection-restriction').text()).toBe(reason)
+    expect(wrapper.find('.create-button').exists()).toBe(false)
+    expect(wrapper.find('.created-item__edit').exists()).toBe(false)
+    await rows[1].get('input').trigger('change')
+    await rows[0].get('input').setValue(true)
+    expect(rows[1].find('.performance-info-popover__anchor').exists()).toBe(true)
+    expect(wrapper.get('.content-selection-restriction').text()).toBe(reason)
+    await wrapper.get('.drawer-footer .button--primary').trigger('click')
+    expect(wrapper.emitted('confirm')?.[0][0]).toEqual([expect.objectContaining({ content_id: 'allowed' })])
+    wrapper.unmount()
+  })
+
   it('renders the measured drawer and reveals the three types only from the create menu', async () => {
     const wrapper = mountLayers()
     expect(wrapper.get('.assessment-drawer').attributes('role')).toBe('dialog')

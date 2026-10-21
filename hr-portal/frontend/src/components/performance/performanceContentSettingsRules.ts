@@ -40,7 +40,7 @@ export const stageContentRules: Record<string, StageContentRule> = {
     ...genericRule,
     visibleSlots: ['view'],
     forbiddenSlots: ['fill', 'reference', 'adjustment'],
-    allowedContentTypes: ['rating', 'custom'],
+    allowedContentTypes: ['work_summary', 'rating', 'custom'],
   },
   result_reconsideration: {
     ...genericRule,

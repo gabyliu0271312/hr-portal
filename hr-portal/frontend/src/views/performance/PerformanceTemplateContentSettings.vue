@@ -22,7 +22,15 @@
 
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
       <div v-if="selectedStageData" class="content-pane">
-        <PerformanceTemplateSectionCard v-if="!referenceTabEmpty" :title="selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" @action="handleContentAction" />
+        <section v-if="isResultView" class="result-view-section" aria-label="绩效结果">
+          <div class="result-view-section__content">
+            <div class="result-view-section__drag" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" data-icon="DragOutlined"><path d="M8.25 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm0 7.25a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm1.75 5.5a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0ZM14.753 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5ZM16.5 12a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Zm-1.747 9a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Z" /></svg></div>
+            <h2>绩效结果</h2>
+            <div v-if="!configuredContents.length" class="result-view-section__empty">此区域应添加终评环节执行人「{{ finalExecutorLabel }}」填写的内容</div>
+          </div>
+          <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
+        </section>
+        <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" @action="handleContentAction" />
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
           <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
@@ -53,14 +61,13 @@
           </PerformanceSortableList>
           <PerformanceTemplateOperateBar class="configured-content-footer" :actions="summaryActions" @action="handleContentAction" />
         </section>
+        <template v-if="isResultView">
+          <div v-if="resultReferences.length" class="result-view-references" aria-label="其他参考内容"><div v-for="content in resultReferences" :key="content.content_id" class="result-view-reference"><span>{{ content.name }}</span><button type="button" :aria-label="`移除${content.name}`" @click="removeResultReference(contentIdentity(content))">移除</button></div></div>
+          <PerformanceReferenceEntryBar class="result-view-reference-entry" label="添加其他参考内容" @select="handleContentAction('add-reference')" />
+        </template>
       </div>
       <div v-if="referenceTabEmpty" class="reference-entry-pane">
         <PerformanceReferenceEntryBar @select="handleContentAction('add-reference')" />
-      </div>
-      <div v-else-if="!selectedStageData" class="content-card content-card--result">
-        <div class="content-card__head"><strong>绩效结果查看</strong><span class="drag-dots" aria-hidden="true">⠿</span></div>
-        <div class="content-card__body">此区域应添加终评环节执行人「直属上级」填写的内容</div>
-        <div class="content-card__actions"><button type="button">＋ 添加终评内容</button><i aria-hidden="true"></i><button type="button">＋ 添加提示</button></div>
       </div>
     </ContentSettingsStageRenderer>
     <aside v-if="false" class="configured-content-panel" aria-label="閰嶇疆濉啓鍐呭唴">
@@ -72,7 +79,7 @@
     </aside>
     <PerformancePromptModal v-model:open="promptModalOpen" @save="handlePromptSave" />
     <PerformanceReferenceContentDrawer v-model:open="referenceDrawerOpen" :node-candidates="referenceNodeCandidates" :more-options="referenceMoreOptions" :selected="referenceSelectedValues" @confirm="handleReferenceConfirm" />
-    <PerformanceAssessmentContentLayers ref="contentLayerRef" v-model:open="contentDrawerOpen" :initial-contents="assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" @confirm="handleContentConfirm" />
+    <PerformanceAssessmentContentLayers ref="contentLayerRef" v-model:open="contentDrawerOpen" :initial-contents="assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @confirm="handleContentConfirm" />
   </div>
 </template>
 
@@ -92,6 +99,7 @@ import ContentSettingsStageRenderer from '@/components/performance/ContentSettin
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
 import { getStageContentRule, getStageContentTabs } from '@/components/performance/performanceContentSettingsRules'
+import { REAL_LINE_MANAGER_LEVEL_OPTIONS } from '@/components/performance/performanceExecutorOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
 
@@ -157,6 +165,36 @@ async function loadTagOptions() {
 }
 const selectedStageData = computed(() => stages.value.find((stage) => stage.id === selectedStage.value) || null)
 const selectedStageTitle = computed(() => selectedStageData.value?.title || '')
+const isResultView = computed(() => selectedStageData.value?.nodeType === 'result_view')
+const finalNode = computed(() => {
+  const nodes = workflowNodes.value.filter(node => node.include_final_result)
+  return nodes.length === 1 ? nodes[0] : null
+})
+const finalExecutorLabel = computed(() => {
+  const node = finalNode.value
+  if (!node) return '未配置'
+  if (node.executor_label === '实线上级') {
+    const levels = REAL_LINE_MANAGER_LEVEL_OPTIONS.filter(option => node.executor_types?.includes(option.type))
+    if (levels.length) return levels.map(option => option.label).join('、')
+  }
+  return node.executor_label || '未配置'
+})
+const finalContents = computed(() => {
+  const node = finalNode.value
+  if (!node) return []
+  const contents = new Map<string, PerformanceTemplateContent>()
+  ;(node.content || []).filter(content => (content.content_slot || 'fill') === 'fill').forEach(content => contents.set(contentIdentity(content), content))
+  ;(node.content_bindings?.fill || []).forEach(id => {
+    if (!contents.has(id)) {
+      const content = contentLibrary.value.find(item => contentIdentity(item) === id)
+      if (content) contents.set(id, content)
+    }
+  })
+  return [...contents.values()].filter(content => content.type !== 'reference' && content.items?.some(item => item.settings?.mode !== 'hidden'))
+})
+const finalContentIds = computed(() => finalContents.value.map(contentIdentity))
+const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
+const resultReferences = computed(() => workflowNodes.value.find(node => node.node_id === selectedStage.value)?.content?.filter(content => content.content_slot === 'reference') || [])
 const summaryActions = computed(() => {
   const type = selectedStageData.value?.nodeType
   if (type === 'result_view') {
@@ -210,14 +248,27 @@ const referenceMoreOptions: ReferenceOption[] = [
   { value: 'more_reference', label: '更多参考', description: '支持展示绩效信息、异动信息、补充信息等其他信息' },
   { value: 'team_stats', label: '团队统计', description: '有对应权限的用户可查看被评估人下级同周期的绩效结果分布（如被评估人无下级，则不展示此参考内容）' },
 ]
-const referenceSelectedValues = computed(() => configuredContents.value.map((content) => content.content_id || content.id || content.name))
-const assessmentInitialContents = computed(() => configuredContents.value.filter((content) => (content.type as string) !== 'reference').map((content) => ({ ...content, type: content.type as AssessmentContentType })) as Array<AssessmentContentDraft & { id: string }>)
+const referenceSelectedValues = computed(() => {
+  const contents: PerformanceTemplateContent[] = isResultView.value ? resultReferences.value : configuredContents.value
+  return contents.map(content => content.reference_value || content.content_id || content.id || content.name)
+})
+const assessmentInitialContents = computed(() => configuredContents.value.filter((content) => (content.type as string) !== 'reference').map(content => {
+  const source = isResultView.value ? finalContents.value.find(item => contentIdentity(item) === contentIdentity(content)) : undefined
+  return { ...content, ...source, id: content.id, type: (source || content).type as AssessmentContentType }
+}) as Array<AssessmentContentDraft & { id: string }>)
 const activeStageContentRule = computed(() => getStageContentRule(selectedStageData.value?.nodeType))
 const configuredContentRulesEnabled = computed(() => activeStageContentRule.value.rootSettingsVariant === 'work-summary-root' && activeStageContentRule.value.itemSettingsVariant === 'work-summary-item')
 const hasActiveConfiguredSettings = computed(() => Boolean(selectedConfiguredId.value) && configuredContentRulesEnabled.value)
 const allowedContentTypes = computed(() => activeStageContentRule.value.allowedContentTypes)
 const allowedContentTypeList = computed(() => [...allowedContentTypes.value])
-const availableContentCandidates = computed(() => contentLibrary.value.filter((content) => allowedContentTypes.value.includes(content.type as AssessmentContentType)).map((content) => { const normalized = normalizeRatingContent(content); return { ...normalized, id: normalized.content_id || normalized.id || `${normalized.type}-${normalized.name}` } }) as Array<AssessmentContentDraft & { id: string }>)
+const availableContentCandidates = computed(() => {
+  const pool = new Map(contentLibrary.value.map(content => [contentIdentity(content), content]))
+  if (isResultView.value) finalContents.value.forEach(content => pool.set(contentIdentity(content), content))
+  return [...pool.values()].filter(content => allowedContentTypes.value.includes(content.type as AssessmentContentType)).map(content => {
+    const normalized = normalizeRatingContent(content)
+    return { ...normalized, id: contentIdentity(normalized) }
+  }) as Array<AssessmentContentDraft & { id: string }>
+})
 const defaultRootSettings = (): WorkSummaryRootSettings => ({ hideDescription: false, allowMultiple: false })
 const defaultItemSettings = (): WorkSummaryItemSettings => ({ mode: 'fill', required: true, hideName: false })
 function normalizeRootSettings(value: unknown): WorkSummaryRootSettings {
@@ -248,6 +299,7 @@ function setConfiguredExpanded(contentId: string, expanded: boolean) {
 }
 watch(selectedStageData, () => { activeTab.value = availableTabs.value[0].key })
 function handleContentAction(key: string) {
+  syncSelectedStageContents()
   if (key === 'add-prompt') promptModalOpen.value = true
   if (key === 'add-reference') { referenceDrawerOpen.value = true; return }
   const contentSlot = key === 'add-final-content' ? 'view' : key === 'add-content' ? activeTab.value : null
@@ -330,7 +382,8 @@ function selectStage(id: string) {
   configuredHoverKey.value = null
 }
 function handleContentConfirm(contents: AssessmentContentDraft[]) {
-  setConfiguredContents(contents as PerformanceTemplateContent[])
+  if (isResultView.value && contents.some(content => !finalContentIds.value.includes(content.content_id || content.id || `${content.type}-${content.name}`))) return
+  setConfiguredContents(isResultView.value ? contents.map(content => finalContents.value.find(item => contentIdentity(item) === contentIdentity(content))!) : contents as PerformanceTemplateContent[])
   mergeContentLibrary(configuredContents.value)
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
@@ -348,12 +401,20 @@ function handleReferenceConfirm(selected: string[]) {
     if (!option) return []
     return [{ type: 'reference', name: option.label, description: option.description || '', content_id: `reference-${value}`, reference_kind: option.kind, reference_value: value, items: [] } as PerformanceTemplateContent]
   })
-  setConfiguredContents(contents)
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
-  if (node) replaceNodeContentSlot(node, 'reference', serializeConfiguredContents('reference'))
+  if (isResultView.value) {
+    if (node) replaceNodeContentSlot(node, 'reference', contents.map(content => ({ ...content, content_slot: 'reference' })))
+  } else {
+    setConfiguredContents(contents)
+    if (node) replaceNodeContentSlot(node, 'reference', serializeConfiguredContents('reference'))
+  }
   selectedConfiguredId.value = null
   configuredHoverKey.value = null
   referenceDrawerOpen.value = false
+}
+function removeResultReference(id: string) {
+  const node = workflowNodes.value.find(item => item.node_id === selectedStage.value)
+  if (node) replaceNodeContentSlot(node, 'reference', resultReferences.value.filter(content => contentIdentity(content) !== id))
 }
 function reorderConfigured(from: number, to: number) {
   if (from === to) return
@@ -379,7 +440,9 @@ function removeConfigured(index: number) {
   configuredHoverKey.value = null
 }
 function editConfigured(content: AssessmentContentDraft & { id: string }) {
+  syncSelectedStageContents()
   contentDrawerOpen.value = true
+  if (isResultView.value) return
   void nextTick(() => contentLayerRef.value?.openEditor(content))
 }
 function refreshRatingSnapshots() {
@@ -389,7 +452,16 @@ function refreshRatingSnapshots() {
   if (node) setConfiguredContents(node.content?.filter(content => (content.content_slot || 'fill') === activeTab.value) || [])
 }
 function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: PerformanceTemplateContent[] = []) {
-  workflowNodes.value = nodes.map((node) => ({ ...node, content: node.content?.map((content) => normalizeRatingContent({ ...content, items: content.items || [] })) }))
+  workflowNodes.value = nodes.map(node => {
+    const contents = [...(node.content || [])]
+    Object.entries(node.content_bindings || {}).forEach(([slot, ids]) => ids.forEach(id => {
+      if (!contents.some(content => contentIdentity(content) === id && (content.content_slot || 'fill') === slot)) {
+        const content = library.find(item => contentIdentity(item) === id)
+        if (content) contents.push({ ...content, content_slot: slot as PerformanceTemplateContent['content_slot'] })
+      }
+    }))
+    return { ...node, content: contents.map(content => normalizeRatingContent({ ...content, items: content.items || [] })) }
+  })
   const merged = new Map<string, PerformanceTemplateContent>()
   library.forEach((content) => { const normalized = normalizeRatingContent(content); merged.set(contentIdentity(normalized), normalized) })
   workflowNodes.value.flatMap((node) => node.content || []).forEach((content) => {
@@ -574,6 +646,18 @@ onMounted(async () => {
 .content-card__actions button { border: 0; background: transparent; color: #3370ff; font-size: 18px; cursor: pointer; }
 .content-card__actions i { width: 1px; height: 24px; background: #bbbfc4; }
 
+.result-view-section{position:relative;overflow:hidden;border-radius:var(--radius-sm);background:var(--color-bg-card)}
+.result-view-section__content{position:relative}
+.result-view-section__content::after{position:absolute;inset:0;border:1px dashed var(--color-primary);border-radius:var(--radius-sm);box-sizing:border-box;opacity:0;pointer-events:none;content:''}
+.result-view-section__content:hover::after{opacity:1}
+.result-view-section h2{margin:0;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary);font:600 18px/26px var(--font-sans)}
+.result-view-section__empty{padding:var(--spacing-8) var(--spacing-6);border-top:1px solid var(--performance-popover-border);color:var(--color-text-placeholder);font:400 var(--font-size-md)/22px var(--font-sans);text-align:center;overflow-wrap:anywhere}
+.result-view-section__drag{position:absolute;top:0;right:calc(50% - 20px);display:flex;justify-content:center;width:40px;height:24px;color:var(--color-text-secondary)}
+.result-view-section__drag svg{transform:rotate(90deg)}
+.result-view-reference-entry{margin-top:var(--spacing-3);border-radius:var(--radius-sm)}
+.result-view-references{margin-top:var(--spacing-3);background:var(--color-bg-card);border-radius:var(--radius-sm)}
+.result-view-reference{display:flex;justify-content:space-between;align-items:center;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary)}
+.result-view-reference button{border:0;border-radius:var(--radius-sm);background:transparent;color:var(--performance-button-text-color);font:inherit;cursor:pointer}
 .content-stage-renderer{grid-column:2;grid-row:1}
 .text-normal {
   grid-column: 3;

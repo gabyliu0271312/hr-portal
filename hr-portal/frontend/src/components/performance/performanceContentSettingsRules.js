@@ -26,7 +26,7 @@ export const stageContentRules = {
         ...genericRule,
         visibleSlots: ['view'],
         forbiddenSlots: ['fill', 'reference', 'adjustment'],
-        allowedContentTypes: ['rating', 'custom'],
+        allowedContentTypes: ['work_summary', 'rating', 'custom'],
     },
     result_reconsideration: {
         ...genericRule,

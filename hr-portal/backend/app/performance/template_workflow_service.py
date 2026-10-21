@@ -254,6 +254,52 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
     return normalized
 
 
+def _validate_result_view_contents(nodes: list[dict], library: list[dict]) -> None:
+    final_node = next(node for node in nodes if node["include_final_result"])
+    contents_by_id = {content["content_id"]: content for content in library}
+    fill_contents = {
+        _content_id(content): content
+        for content in final_node.get("content") or []
+        if (content.get("content_slot") or "fill") == "fill"
+    }
+    fill_ids = set(fill_contents) | set(final_node["content_bindings"].get("fill") or [])
+    allowed_ids = set()
+    for content_id in fill_ids:
+        content = fill_contents.get(content_id, contents_by_id.get(content_id))
+        if content and any(
+            (item.get("settings") or {}).get("mode") != "hidden"
+            for item in content.get("items") or []
+        ):
+            allowed_ids.add(content_id)
+
+    executor_label = final_node["executor_label"]
+    if executor_label == "实线上级":
+        manager_labels = {
+            "DIRECT_MANAGER": "直属上级",
+            "LEVEL_1_MANAGER": "隔 1 级上级",
+            "LEVEL_2_MANAGER": "隔 2 级上级",
+            "LEVEL_3_MANAGER_PLUS": "隔 3 级上级及以上",
+        }
+        executor_label = "、".join(
+            manager_labels[value]
+            for value in final_node["executor_types"]
+            if value in manager_labels
+        ) or executor_label
+    for node in nodes:
+        if node["node_type"] != "result_view":
+            continue
+        view_ids = set(node["content_bindings"].get("view") or []) | {
+            _content_id(content)
+            for content in node.get("content") or []
+            if content.get("content_slot") == "view"
+        }
+        if not view_ids.issubset(allowed_ids):
+            raise TemplateWorkflowValidationError(
+                f"仅可选择终评环节执行人「{executor_label}」填写的内容",
+                node_id=node["node_id"],
+            )
+
+
 class PerformanceTemplateWorkflowService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -296,6 +342,7 @@ class PerformanceTemplateWorkflowService:
         record = await self.get_record(template_id)
         existing_library = getattr(record, "content_library", None) if record is not None else []
         library = normalize_content_library(content_library or [])
+        source_library = _merge_content_library(existing_library or [], library)
         for node in normalized:
             library = _merge_content_library(library, node.get("content") or [])
             bindings = deepcopy(node.get("content_bindings") or {})
@@ -307,6 +354,7 @@ class PerformanceTemplateWorkflowService:
                 bindings = grouped
             node["content_bindings"] = bindings
         library = _merge_content_library(existing_library or [], library)
+        _validate_result_view_contents(normalized, source_library)
         before = deepcopy(record.nodes) if record is not None else []
         if record is None:
             record = PerformanceTemplateWorkflow(template_id=template_id, nodes=normalized, content_library=library)
