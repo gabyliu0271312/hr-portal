@@ -10,6 +10,7 @@ import PerformanceDragHandle from './PerformanceDragHandle.vue'
 import PerformanceExpandButton from './PerformanceExpandButton.vue'
 import PerformanceWorkSummaryItemSettings, { type WorkSummaryItemSettings } from './PerformanceWorkSummaryItemSettings.vue'
 import PerformanceWorkSummaryRootSettings, { type WorkSummaryRootSettings } from './PerformanceWorkSummaryRootSettings.vue'
+import { getItemSettingsVariant } from './performanceContentSettingsRules'
 
 const props = defineProps<{
   content: AssessmentContentDraft & { id: string }
@@ -22,6 +23,8 @@ const props = defineProps<{
   toolbarVisible: boolean
   rootSettings: WorkSummaryRootSettings
   itemSettings: Record<string, WorkSummaryItemSettings>
+  rootSettingsEnabled?: boolean
+  itemSettingsEnabled?: boolean
   rootSettingsVariant: string
   itemSettingsVariant: string
 }>()
@@ -40,17 +43,10 @@ const emit = defineEmits<{
 
 const owner = ref<'root' | 'item'>('root')
 const selectedItemId = ref<string | null>(null)
-const rulesEnabled = computed(() => props.rootSettingsVariant === 'work-summary-root' && props.itemSettingsVariant === 'work-summary-item')
-const itemSettingsVariant = computed(() => {
-  if (props.content.type === 'rating') return 'rating'
-  if (props.content.type !== 'custom') return 'work-summary'
-  const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)
-  const questionType = item?.questionType || props.content.questionType || 'text'
-  return questionType === 'text' ? 'custom-text' : 'work-summary'
-})
+const itemSettingsVariant = computed(() => getItemSettingsVariant(props.content, props.content.items.find((item) => item.id === selectedItemId.value)))
 const selectedItemKey = computed(() => props.active && owner.value === 'item' && selectedItemId.value ? `${props.content.id}:${selectedItemId.value}` : null)
 const selectedItemSettings = computed(() => selectedItemId.value ? props.itemSettings[selectedItemId.value] || { mode: 'fill', required: true, hideName: false } : { mode: 'fill' as const, required: true, hideName: false })
-const rendererItemSettings = computed(() => rulesEnabled.value ? Object.fromEntries(props.content.items.map((item) => [item.id, props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }])) : {})
+const rendererItemSettings = computed(() => props.itemSettingsEnabled ? Object.fromEntries(props.content.items.map((item) => [item.id, props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }])) : {})
 
 watch(() => props.active, (active) => {
   if (!active) selectedItemId.value = null
@@ -81,7 +77,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     variant="root"
     :selected="active && owner === 'root'"
     class="configured-content-card"
-    :class="{ 'rating-content-card': content.type === 'rating', 'is-dragging': dragging, 'hides-description': rulesEnabled && rootSettings.hideDescription, 'allows-multiple': rulesEnabled && rootSettings.allowMultiple }"
+    :class="{ 'rating-content-card': content.type === 'rating', 'is-dragging': dragging, 'hides-description': rootSettingsEnabled && rootSettings.hideDescription, 'allows-multiple': rootSettingsEnabled && rootSettings.allowMultiple }"
     :data-sortable-index="index"
     :style="itemStyle"
     @mouseenter="emit('hover-change', true)"
@@ -100,7 +96,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     <div class="configured-content-card__row" role="button" :tabindex="toolbarVisible ? 0 : -1" :aria-label="`Select ${content.name}`" @click="selectRoot">
       <div class="configured-content-card__header">
         <PerformanceAssessmentPreviewHeader :name="content.name" />
-        <p v-if="content.description && (!rulesEnabled || !rootSettings.hideDescription)" class="configured-content-card__description">{{ content.description }}</p>
+        <p v-if="content.description && (!rootSettingsEnabled || !rootSettings.hideDescription)" class="configured-content-card__description">{{ content.description }}</p>
       </div>
       <PerformanceExpandButton :expanded="expanded" :hover-only="true" icon-variant="regular" label="Toggle content" @toggle="emit('update:expanded', !expanded)" @click.stop />
     </div>
@@ -113,10 +109,10 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
       class="configured-content-card__details"
       @select-item="selectItem"
     />
-    <PerformanceAddAnotherButton v-if="rulesEnabled && rootSettings.allowMultiple" class="configured-content-card__add-item" />
+    <PerformanceAddAnotherButton v-if="rootSettingsEnabled && rootSettings.allowMultiple" class="configured-content-card__add-item" />
   </PerformanceContentSelectionFrame>
 
-  <div v-if="active && rulesEnabled" class="configured-content-settings">
+  <div v-if="active && (owner === 'root' ? rootSettingsEnabled : itemSettingsEnabled)" class="configured-content-settings">
     <div v-if="owner === 'root'" class="content-settings-detail content-settings-detail--root" aria-label="Selected content settings">
       <PerformanceWorkSummaryRootSettings :model-value="rootSettings" @update:model-value="emit('update:root-settings', $event)" />
     </div>

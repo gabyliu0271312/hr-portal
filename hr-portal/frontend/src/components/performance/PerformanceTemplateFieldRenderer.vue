@@ -1,6 +1,6 @@
 <template>
   <div class="performance-template-field summary-field" :class="{ invalid, 'readonly-field-rating': mode === 'readonly' && field.type === 'rating' }">
-    <div class="template-field-label field-label" :class="{ 'readonly-label': mode === 'readonly' }"><span>{{ label }}</span><em v-if="mode === 'edit' && field.required" aria-label="必填">*</em></div>
+    <div v-if="!field.hide_name" class="template-field-label field-label" :class="{ 'readonly-label': mode === 'readonly' }"><span>{{ label }}</span><em v-if="mode === 'edit' && field.required" aria-label="必填">*</em></div>
     <p v-if="!registered" class="unsupported-template-field" role="alert">不支持的填写类型</p>
     <template v-else>
     <template v-if="mode === 'readonly'">

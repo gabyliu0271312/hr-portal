@@ -690,6 +690,8 @@ export type PerformanceTemplateField = {
   placeholder?: string
   options?: PerformanceTemplateOption[]
   display_mode?: '标签样式' | '下拉样式'
+  hide_name?: boolean
+  default_all?: boolean
 }
 export type PerformanceTemplateSection = { id: string; name: string; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[] }
 export type PerformanceReferenceTab = {
@@ -1071,6 +1073,9 @@ export interface PerformanceTemplateContentItem {
   label: string
   hint: string
   richText?: string
+  questionType?: 'text' | 'tag'
+  tagOptionId?: string
+  defaultAll?: boolean
   settings?: {
     mode?: 'fill' | 'hidden'
     required?: boolean

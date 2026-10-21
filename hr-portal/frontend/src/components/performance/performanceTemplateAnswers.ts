@@ -5,7 +5,20 @@ function isLegacyTagArray(field: PerformanceTemplateField, value: unknown) {
 }
 
 function defaultValue(field: PerformanceTemplateField) {
-  return field.type === 'tag_with_followup' ? { tags: [], notes: {} } : ''
+  return field.type === 'tag_with_followup' ? { tags: field.default_all ? (field.options || []).map(option => option.id) : [], notes: {} } : ''
+}
+
+export function performanceTemplateInitialAnswers(sections: PerformanceTemplateSection[], answers: Record<string, unknown>) {
+  const initialized = { ...answers }
+  for (const section of sections) {
+    for (const field of section.fields) {
+      if (field.type === 'tag_with_followup' && field.default_all && !Object.prototype.hasOwnProperty.call(initialized, field.id)) {
+        const count = performanceTemplateInstanceCount(section, answers)
+        initialized[field.id] = section.allow_multiple ? Array.from({ length: count }, () => defaultValue(field)) : defaultValue(field)
+      }
+    }
+  }
+  return initialized
 }
 
 export function performanceTemplateFieldValues(section: PerformanceTemplateSection, field: PerformanceTemplateField, answers: Record<string, unknown>) {

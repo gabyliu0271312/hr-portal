@@ -2,10 +2,28 @@ import type { AssessmentContentType } from './PerformanceAssessmentContentLayers
 
 export type ContentSlot = 'fill' | 'reference' | 'adjustment' | 'view'
 export type ContentSettingsOwner = 'none' | 'root' | 'item'
+export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'rating'
+export interface ItemSettingsCapabilities {
+  hideName: boolean
+  mode: boolean
+  required: boolean
+}
+export const itemSettingsCapabilities: Record<ItemSettingsVariant, ItemSettingsCapabilities> = {
+  'work-summary': { hideName: false, mode: true, required: true },
+  'custom-text': { hideName: true, mode: true, required: true },
+  rating: { hideName: true, mode: false, required: true },
+}
+export function getItemSettingsVariant(content: { type: string; questionType?: 'text' | 'tag' }, item?: { questionType?: 'text' | 'tag' }): ItemSettingsVariant {
+  if (content.type === 'rating') return 'rating'
+  if (content.type === 'custom' && (item?.questionType || content.questionType || 'text') === 'text') return 'custom-text'
+  return 'work-summary'
+}
 
 export interface StageContentRule {
   visibleSlots: readonly ContentSlot[]
   forbiddenSlots: readonly ContentSlot[]
+  rootSettingsEnabled: boolean
+  itemSettingsEnabled: boolean
   rootSettingsVariant: string
   itemSettingsVariant: string
   allowedContentTypes: readonly AssessmentContentType[]
@@ -14,6 +32,8 @@ export interface StageContentRule {
 const genericRule: StageContentRule = {
   visibleSlots: ['fill', 'reference'],
   forbiddenSlots: ['adjustment', 'view'],
+  rootSettingsEnabled: false,
+  itemSettingsEnabled: false,
   rootSettingsVariant: 'generic-root',
   itemSettingsVariant: 'generic-item',
   allowedContentTypes: ['work_summary', 'rating', 'custom'],
@@ -24,6 +44,8 @@ export const stageContentRules: Record<string, StageContentRule> = {
     ...genericRule,
     visibleSlots: ['fill'],
     forbiddenSlots: ['reference', 'adjustment', 'view'],
+    rootSettingsEnabled: true,
+    itemSettingsEnabled: true,
     rootSettingsVariant: 'work-summary-root',
     itemSettingsVariant: 'work-summary-item',
   },

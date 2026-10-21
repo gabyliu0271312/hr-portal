@@ -34,7 +34,8 @@
         @click.stop="interactive && $emit('select-item', item.id)"
       >
         <button v-if="itemState(item.id).mode === 'hidden'" class="content-renderer-hidden-icon" type="button" aria-label="在此环节隐藏" tabindex="-1"><PerformanceVisibleLockIcon /></button>
-        <PerformanceAssessmentRichTextField :label="item.label" :required="itemState(item.id).required && itemState(item.id).mode === 'fill'">
+        <PerformanceTemplateFieldRenderer v-if="isCustomTagItem(item)" mode="edit" :editable="false" :field="tagField(item)" :value="tagPreviewValue(item)" :label="item.label" />
+        <PerformanceAssessmentRichTextField v-else :label="item.label" :required="itemState(item.id).required && itemState(item.id).mode === 'fill'">
           <PerformanceRichTextBox readonly>
             <div v-if="item.richText" class="content-renderer-editor__body" v-html="item.richText" />
             <div v-else class="content-renderer-editor__body">{{ item.hint || emptyText }}</div>
@@ -51,8 +52,10 @@ import PerformanceAssessmentRichTextField from './PerformanceAssessmentRichTextF
 import PerformanceContentSelectionFrame from './PerformanceContentSelectionFrame.vue'
 import PerformanceVisibleLockIcon from './PerformanceVisibleLockIcon.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
-type ContentItem = { id: string; label: string; hint?: string; richText?: string; questionType?: 'text' | 'tag' }
-type Content = { type: 'work_summary' | 'rating' | 'custom'; questionType?: 'text' | 'tag'; items: ContentItem[]; options?: Array<{ id: string; label: string; color?: string }>; ratingDisplayMode?: '标签样式' | '下拉样式' }
+import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
+import type { PerformanceTemplateField, PerformanceTemplateOption } from '@/api/performance'
+type ContentItem = { id: string; label: string; hint?: string; richText?: string; questionType?: 'text' | 'tag'; options?: PerformanceTemplateOption[]; defaultAll?: boolean }
+type Content = { type: 'work_summary' | 'rating' | 'custom'; questionType?: 'text' | 'tag'; defaultAll?: boolean; items: ContentItem[]; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式' }
 type ItemSettings = { mode: 'fill' | 'hidden'; required: boolean; hideName?: boolean }
 const props = withDefaults(defineProps<{
   content: Content
@@ -69,6 +72,9 @@ const selectionKey = (itemId: string) => props.selectionPrefix ? `${props.select
 const hasItemSettings = (itemId: string) => Object.prototype.hasOwnProperty.call(props.itemSettings, itemId)
 const itemState = (itemId: string): ItemSettings => props.itemSettings[itemId] || { mode: 'fill', required: false }
 const isCustomTextItem = (item: ContentItem) => content.value.type === 'custom' && (item.questionType || content.value.questionType || 'text') === 'text'
+const isCustomTagItem = (item: ContentItem) => content.value.type === 'custom' && (item.questionType || content.value.questionType || 'text') === 'tag'
+const tagField = (item: ContentItem): PerformanceTemplateField => ({ id: item.id, type: 'tag_with_followup', label: item.label, placeholder: item.hint, required: itemState(item.id).required && itemState(item.id).mode === 'fill', options: item.options ?? content.value.options ?? [] })
+const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? content.value.defaultAll) ? tagField(item).options!.map(option => option.id) : [], notes: {} })
 </script>
 <style scoped>
 .performance-content-renderer{min-width:0;color:#1f2329}

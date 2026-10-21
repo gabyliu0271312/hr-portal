@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import PerformanceConfiguredContentBlock from './PerformanceConfiguredContentBlock.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
+import { getItemSettingsVariant, getStageContentRule, itemSettingsCapabilities } from './performanceContentSettingsRules'
 
 const content = {
   id: 'content-1',
@@ -34,6 +35,8 @@ describe('PerformanceConfiguredContentBlock', () => {
         toolbarVisible: false,
         rootSettings: { hideDescription: false, allowMultiple: false },
         itemSettings: { 'item-1': { mode: 'fill', required: true } },
+        rootSettingsEnabled: true,
+        itemSettingsEnabled: true,
         rootSettingsVariant: 'work-summary-root',
         itemSettingsVariant: 'work-summary-item',
       },
@@ -88,6 +91,8 @@ describe('PerformanceConfiguredContentBlock', () => {
           'item-2': { mode: 'fill', required: true, hideName: false },
           'tag-item': { mode: 'fill', required: true, hideName: false },
         },
+        rootSettingsEnabled: true,
+        itemSettingsEnabled: true,
         rootSettingsVariant: 'work-summary-root',
         itemSettingsVariant: 'work-summary-item',
       },
@@ -134,6 +139,8 @@ describe('PerformanceConfiguredContentBlock', () => {
         toolbarVisible: false,
         rootSettings: { hideDescription: false, allowMultiple: false },
         itemSettings: { 'rating-item': { mode: 'fill', required: true, hideName: false } },
+        rootSettingsEnabled: true,
+        itemSettingsEnabled: true,
         rootSettingsVariant: 'work-summary-root',
         itemSettingsVariant: 'work-summary-item',
       },
@@ -150,7 +157,40 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(wrapper.find('[data-content-item-id="rating-item"] strong').exists()).toBe(false)
     expect(wrapper.find('[data-content-item-id="rating-item"] > i').exists()).toBe(false)
   })
-  it('does not mount the rule panel when the stage variants do not opt in', () => {
+  it('exposes only confirmed stage and item capabilities with item-first legacy fallbacks', () => {
+    expect(getStageContentRule('work_summary')).toMatchObject({ rootSettingsEnabled: true, itemSettingsEnabled: true, visibleSlots: ['fill'] })
+    for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'evaluation', 'calibration', 'result_communication', 'result_view', 'result_reconsideration', 'unknown', undefined]) {
+      expect(getStageContentRule(stage)).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: false, allowedContentTypes: ['work_summary', 'rating', 'custom'] })
+    }
+    expect(itemSettingsCapabilities).toEqual({
+      'work-summary': { hideName: false, mode: true, required: true },
+      'custom-text': { hideName: true, mode: true, required: true },
+      rating: { hideName: true, mode: false, required: true },
+    })
+    expect(getItemSettingsVariant({ type: 'custom', questionType: 'tag' }, { questionType: 'text' })).toBe('custom-text')
+    expect(getItemSettingsVariant({ type: 'custom', questionType: 'text' }, { questionType: 'tag' })).toBe('work-summary')
+    expect(getItemSettingsVariant({ type: 'custom', questionType: 'tag' })).toBe('work-summary')
+    expect(getItemSettingsVariant({ type: 'custom' })).toBe('custom-text')
+  })
+
+  it('enables root and item settings independently rather than inferring them from variant names', async () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content, active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: true, allowMultiple: true }, itemSettings: {},
+      rootSettingsEnabled: false, itemSettingsEnabled: true, rootSettingsVariant: 'generic-root', itemSettingsVariant: 'generic-item',
+    } })
+    expect(wrapper.find('.content-settings-detail--root').exists()).toBe(false)
+    expect(wrapper.find('.configured-content-card__description').exists()).toBe(true)
+    expect(wrapper.find('.configured-content-card__add-item').exists()).toBe(false)
+    await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
+    expect(wrapper.find('.content-settings-detail--item').exists()).toBe(true)
+    await wrapper.setProps({ rootSettingsEnabled: true, itemSettingsEnabled: false })
+    expect(wrapper.find('.content-settings-detail--item').exists()).toBe(false)
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    expect(wrapper.find('.content-settings-detail--root').exists()).toBe(true)
+  })
+
+  it('does not mount the rule panel when the stage does not opt in', () => {
     mount(PerformanceConfiguredContentBlock, {
       props: {
         content,

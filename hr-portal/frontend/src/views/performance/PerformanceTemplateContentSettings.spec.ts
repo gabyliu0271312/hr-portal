@@ -4,6 +4,7 @@ import PerformanceTemplateContentSettings from './PerformanceTemplateContentSett
 import PerformanceAssessmentContentLayers from '@/components/performance/PerformanceAssessmentContentLayers.vue'
 import PerformanceRatingControl from '@/components/performance/PerformanceRatingControl.vue'
 import PerformancePromptModal from '@/components/performance/PerformancePromptModal.vue'
+import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
 import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi } from '@/api/performance'
 
 const mockNodes = [
@@ -74,7 +75,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await (wrapper.vm as any).save()
     const payload = update.mock.calls[0][1]
     expect(payload.nodes[0].content?.[0].items.map(item => item.settings?.hideName)).toEqual([true, false])
-    expect(payload.content_library?.find(content => content.content_id === 'custom-text')?.items[0].settings?.hideName).toBe(true)
+    expect(payload.content_library?.find(content => content.content_id === 'custom-text')?.items[0].settings?.hideName).not.toBe(true)
     wrapper.unmount()
 
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(payload as any)
@@ -347,7 +348,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await flushPromises()
     await (wrapper.vm as any).save()
     expect(update.mock.calls[0][1].nodes[1].content?.[0].name).toBe('最新终评意见')
-    expect(update.mock.calls[0][1].content_library?.find(content => content.content_id === 'same')?.name).toBe('最新终评意见')
+    expect(update.mock.calls[0][1].content_library?.find(content => content.content_id === 'same')?.name).toBe('旧终评意见')
   })
 
   it('persists result view and other references independently and reopens binding-only content', async () => {
@@ -418,27 +419,57 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(options[0].textContent).not.toContain('停用评级')
   })
 
-  it('refreshes configured rating content from the current assessment rule', async () => {
+  it('preserves the local rating definition and settings when rating options refresh', async () => {
+    let resolveQuestions!: (questions: any[]) => void
+    vi.mocked(performanceReviewQuestionApi.list).mockReturnValue(new Promise(resolve => { resolveQuestions = resolve }))
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
-      nodes: [{ ...mockNodes[0], content: [{ content_id: 'rating-content', content_slot: 'fill', type: 'rating', name: '评分评级', description: '', ratingOptionId: '101', items: [{ id: 'old', label: '旧项', hint: '' }, { id: '101', label: '旧评级名称', hint: '' }], options: [{ id: 'old-level', label: '旧等级' }] }] }],
+      nodes: [{ ...mockNodes[0], content: [{ content_id: 'rating-content', content_slot: 'fill', type: 'rating', name: '评分评级', description: '', ratingOptionId: '101', ratingDisplayMode: '标签样式', settings: { customRoot: { enabled: true } }, items: [{ id: 'old', label: '旧项', hint: '' }, { id: '101', label: '本地评级名称', hint: '本地提示', settings: { required: false, customItem: { enabled: true } } }], options: [{ id: 'local-level', label: '本地等级' }] }] }],
       content_library: [],
     } as any)
-    vi.mocked(performanceReviewQuestionApi.list).mockResolvedValue([
-      { id: 101, name: '当前绩效评级', display_mode: '下拉样式', rule: { name: '当前评级规则', review_type: '评级', status: 'active', config: { levels: [{ id: 'current-level', code: '当前等级', color: '#3370ff' }] } } },
-    ] as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
     await wrapper.get('.stage-card').trigger('click')
-    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-content-item-id="101"]').trigger('click')
+    await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(true)
+    resolveQuestions([{ id: 101, name: '当前全局评级', display_mode: '下拉样式', rule: { name: '当前评级规则', review_type: '评级', status: 'active', config: { levels: [{ id: 'current-level', name: '当前等级' }] } } }])
+    await flushPromises()
 
     expect(wrapper.findAll('.content-renderer-rating')).toHaveLength(1)
-    expect(wrapper.get('.content-renderer-rating__header strong').text()).toBe('当前绩效评级')
-    const ratingControl = wrapper.getComponent(PerformanceRatingControl)
-    expect(ratingControl.props('displayMode')).toBe('下拉样式')
-    expect(ratingControl.props('options').map((option: { label: string }) => option.label)).toEqual(['当前等级'])
-    expect(wrapper.get('.rating-select-preview').text()).toContain('请选择等级')
-    expect(wrapper.text()).not.toContain('旧项')
-    expect(wrapper.text()).not.toContain('旧等级')
+    const control = wrapper.getComponent(PerformanceRatingControl)
+    expect(control.props('displayMode')).toBe('标签样式')
+    expect(control.props('options')).toEqual([{ id: 'local-level', label: '本地等级' }])
+    expect(wrapper.find('.content-renderer-rating__header strong').exists()).toBe(false)
+    await (wrapper.vm as any).save()
+    const local = update.mock.calls[0][1].nodes[0].content![0]
+    expect(local.settings).toEqual({ hideDescription: false, allowMultiple: false, customRoot: { enabled: true } })
+    expect(local.items).toEqual([{ id: '101', label: '本地评级名称', hint: '本地提示', settings: { mode: 'fill', required: false, hideName: true, customItem: { enabled: true } } }])
+    expect(local.options).toEqual([{ id: 'local-level', label: '本地等级' }])
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(update.mock.calls[0][1] as any)
+    const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await reopened.get('.stage-card').trigger('click')
+    expect(reopened.find('.content-renderer-rating__header strong').exists()).toBe(false)
+    await reopened.get('[data-content-item-id="101"]').trigger('click')
+    expect(reopened.findAll('.content-settings-detail--item input[type="checkbox"]').map(input => (input.element as HTMLInputElement).checked)).toEqual([true, false])
+    reopened.unmount()
+  })
+
+  it('fills missing rating definitions without replacing explicit empty options', async () => {
+    vi.mocked(performanceReviewQuestionApi.list).mockResolvedValue([{ id: 101, name: '当前绩效评级', display_mode: '下拉样式', rule: { name: '规则', review_type: '评级', status: 'active', config: { levels: ['优秀'] } } }] as any)
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [{ ...mockNodes[0], content: [
+      { content_id: 'missing', type: 'rating', name: '缺失定义', ratingOptionId: '101', items: [] },
+      { content_id: 'empty', type: 'rating', name: '空选项', ratingOptionId: '101', items: [{ id: '101', label: '', hint: '' }], options: [] },
+    ] }] } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.get('.stage-card').trigger('click')
+    const controls = wrapper.findAllComponents(PerformanceRatingControl)
+    expect(wrapper.findAll('.content-renderer-rating__header strong').map(item => item.text())).toEqual(['当前绩效评级', ''])
+    expect(controls[0].props('options').map((option: { label: string }) => option.label)).toEqual(['优秀'])
+    expect(controls[1].props('options')).toEqual([])
+    wrapper.unmount()
   })
 
   it('shows only the captured reference entry bar for an empty reference tab', async () => {
@@ -610,6 +641,56 @@ describe('PerformanceTemplateContentSettings', () => {
     await reopened.findAll('.stage-card')[3].trigger('click')
     expect(reopened.find('.configured-content-panel').text()).toContain('重开总结')
     expect(reopened.find('.configured-content-panel').text()).toContain('重开填写项')
+  })
+
+  it('keeps same-id node definitions and nested settings independent from library seeds through save and reopen', async () => {
+    const seed = { content_id: 'shared', type: 'custom', name: '初始种子', description: '种子描述', settings: { customRoot: { source: 'seed' } }, items: [{ id: 'item', label: '种子题目', hint: '种子提示', questionType: 'tag', options: [{ id: 'tag', label: '种子标签' }], settings: { customItem: { source: 'seed' } } }] }
+    const second = { ...seed, name: '第二环节独立定义', items: [{ ...seed.items[0], label: '第二环节题目', options: [{ id: 'tag', label: '第二环节标签' }], settings: { customItem: { source: 'second' } } }] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [
+      { ...mockNodes[0], node_id: 'first', content_bindings: { fill: ['shared'] } },
+      { ...mockNodes[0], node_id: 'second', content: [second], content_bindings: { fill: ['shared'] } },
+      { ...mockNodes[0], node_id: 'third', content_bindings: { fill: ['shared'] } },
+    ], content_library: [seed] } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    const block = wrapper.getComponent(PerformanceConfiguredContentBlock)
+    const local = block.props('content') as any
+    local.name = '第一环节独立定义'
+    local.items[0].label = '第一环节题目'
+    local.items[0].options[0].label = '第一环节标签'
+    ;(block.props('rootSettings') as any).customRoot.source = 'first'
+    ;(block.props('itemSettings').item as any).customItem.source = 'first'
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    await wrapper.findAll('.content-settings-detail--root input[type="checkbox"]')[0].setValue(true)
+    await wrapper.get('[data-content-item-id="item"]').trigger('click')
+    await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(false)
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.get('.configured-content-card').text()).toContain('第二环节独立定义')
+    expect(wrapper.get('.tag-options').text()).toBe('第二环节标签')
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    expect(wrapper.get('.configured-content-card').text()).toContain('初始种子')
+    expect(wrapper.get('.tag-options').text()).toBe('种子标签')
+    await (wrapper.vm as any).save()
+    const payload = update.mock.calls[0][1]
+    expect(payload.content_library![0]).toMatchObject(seed)
+    const first = payload.nodes[0].content![0] as any
+    expect(first).toMatchObject({ content_id: 'shared', name: '第一环节独立定义', settings: { hideDescription: true, allowMultiple: false, customRoot: { source: 'first' } } })
+    expect(first.items[0]).toMatchObject({ label: '第一环节题目', options: [{ id: 'tag', label: '第一环节标签' }], settings: { mode: 'fill', required: false, hideName: false, customItem: { source: 'first' } } })
+    expect(payload.nodes[1].content![0]).toMatchObject(second)
+    expect(payload.nodes[2].content![0]).toMatchObject(seed)
+    expect(seed.items[0].options[0].label).toBe('种子标签')
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(payload as any)
+    const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    for (const [index, name, tag] of [[0, '第一环节独立定义', '第一环节标签'], [1, '第二环节独立定义', '第二环节标签'], [2, '初始种子', '种子标签']] as const) {
+      await reopened.findAll('.stage-card')[index].trigger('click')
+      expect(reopened.get('.configured-content-card').text()).toContain(name)
+      expect(reopened.get('.tag-options').text()).toBe(tag)
+    }
+    reopened.unmount()
   })
 
   it('scopes root and item selection to the rendered content card', async () => {

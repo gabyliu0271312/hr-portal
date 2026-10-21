@@ -772,6 +772,98 @@ def test_self_summary_schema_preserves_content_sections_and_item_rules():
     assert sanitized["contribution"]["notes"] == {"good": "<p>亮点</p>", "improve": "<p>改进</p>"}
 
 
+@pytest.mark.parametrize("legacy_question_type", [None, "text", "tag"])
+def test_self_summary_schema_maps_each_custom_item_independently(legacy_question_type):
+    from copy import deepcopy
+    from app.performance.self_summary_service import build_self_summary_schema
+
+    content = {
+        "content_id": "mixed",
+        "type": "custom",
+        "defaultAll": True,
+        "options": [{"id": "legacy-option", "label": "旧选项"}],
+        "items": [
+            {"id": "text", "questionType": "text", "settings": {"hideName": True}},
+            {"id": "tag", "questionType": "tag", "defaultAll": False,
+             "options": [{"id": "item-option", "label": "题目选项"}]},
+            {"id": "tag-fallback", "questionType": "tag"},
+            {"id": "legacy"},
+        ],
+        "future_content": {"enabled": True},
+    }
+    if legacy_question_type is not None:
+        content["questionType"] = legacy_question_type
+    template = {"content": [content]}
+    original = deepcopy(template)
+
+    fields = build_self_summary_schema(template)[0]["fields"]
+
+    assert [field["type"] for field in fields] == [
+        "rich_text", "tag_with_followup", "tag_with_followup",
+        "tag_with_followup" if legacy_question_type == "tag" else "rich_text",
+    ]
+    assert fields[0]["options"] == []
+    assert fields[0]["hide_name"] is True
+    assert "hide_name" not in fields[1]
+    assert fields[1]["default_all"] is False
+    assert fields[2]["default_all"] is True
+    assert "hide_name" not in fields[2]
+    assert "default_all" not in fields[0]
+    assert [option["id"] for option in fields[2]["options"]] == ["legacy-option"]
+    assert fields[3]["options"] == (fields[2]["options"] if legacy_question_type == "tag" else [])
+    assert all("hideName" not in field and "defaultAll" not in field for field in fields)
+    assert template == original
+
+
+def test_self_summary_schema_defaults_display_and_tag_selection_flags():
+    from app.performance.self_summary_service import build_self_summary_schema
+
+    fields = build_self_summary_schema({"content": [{
+        "type": "custom", "items": [{"id": "text"}, {"id": "tag", "questionType": "tag"}],
+    }]})[0]["fields"]
+
+    assert all(
+        field.get("hide_name", False) is False and field.get("default_all", False) is False
+        for field in fields
+    )
+
+
+def test_self_summary_content_completes_partial_inline_bindings_without_losing_unknown_fields():
+    from copy import deepcopy
+    from app.performance.self_summary_service import build_self_summary_schema, resolve_self_summary_content
+
+    inline = {
+        "id": "shared", "type": "custom", "name": "环节内填写内容",
+        "items": [{"id": "inline", "future_item": {"value": 1}}],
+        "future_content": {"value": 2},
+    }
+    template = {
+        "content": [inline, {"id": "inline-only", "type": "reference", "content_slot": "reference"}],
+        "content_bindings": {"reference": ["shared"], "fill": ["shared", "missing", "missing", "absent"]},
+        "future_node": {"value": 3},
+    }
+    library = [
+        {"content_id": "shared", "type": "custom", "name": "内容库版本", "items": [{"id": "library"}]},
+        {"content_id": "missing", "type": "custom", "items": [{"id": "added"}], "future_library": {"value": 4}},
+    ]
+    original_template, original_library = deepcopy(template), deepcopy(library)
+
+    resolved = resolve_self_summary_content(template, library)
+
+    assert resolved["content"] == [
+        inline, template["content"][1],
+        {**library[1], "content_slot": "fill"},
+    ]
+    assert resolved["future_node"] == template["future_node"]
+    assert resolved["content_bindings"] == template["content_bindings"]
+    assert [section["fields"][0]["id"] for section in build_self_summary_schema(resolved)] == ["inline", "added"]
+    assert resolve_self_summary_content(resolved, library) == resolved
+    resolved["content"][0]["future_content"]["value"] = 99
+    resolved["content"][2]["future_library"]["value"] = 99
+    assert template == original_template
+    assert library == original_library
+
+
 @pytest.mark.asyncio
 async def test_self_summary_template_expands_rating_rule_options():
     from app.performance.self_summary_service import hydrate_self_summary_template
@@ -791,7 +883,7 @@ async def test_self_summary_template_expands_rating_rule_options():
 
     hydrated = await hydrate_self_summary_template({
         "content": [{
-            "type": "rating", "name": "评分评级", "description": "",
+            "type": "rating", "name": "评分评级",
             "items": [{"id": "101", "label": "绩效评级"}],
         }]
     }, Db())
@@ -803,6 +895,49 @@ async def test_self_summary_template_expands_rating_rule_options():
         {"id": "one", "label": "1星", "color": "#f54a45", "placeholder": "", "required": False},
         {"id": "five", "label": "5星", "color": "#3370ff", "placeholder": "", "required": False},
     ]
+
+
+@pytest.mark.asyncio
+async def test_self_summary_rating_hydration_preserves_inline_display_and_content_fields():
+    from app.performance.self_summary_service import hydrate_self_summary_template
+
+    class Result:
+        def all(self):
+            question = SimpleNamespace(id=101, description="全局说明", display_mode="下拉样式")
+            rule = SimpleNamespace(config={"levels": [
+                {"id": "one", "name": "全局名称", "color": "#f54a45", "code": "ONE"},
+                {"id": "five", "name": "五星", "color": "#3370ff"},
+            ]})
+            return [(question, rule)]
+
+    class Db:
+        async def execute(self, _statement):
+            return Result()
+
+    template = {
+        "content": [{
+            "type": "rating", "ratingOptionId": "101", "ratingDisplayMode": "标签样式",
+            "description": "局部说明", "settings": {"required": False},
+            "items": [{"id": "101", "label": "局部评级名称", "hint": "局部提示", "settings": {"required": True}}],
+            "options": [{"id": "one", "label": "局部名称", "placeholder": "局部提示", "required": True}, {"id": "five"}],
+        }]
+    }
+
+    content = (await hydrate_self_summary_template(template, Db()))["content"][0]
+
+    assert content["ratingDisplayMode"] == "标签样式"
+    assert content["description"] == "局部说明"
+    assert content["settings"] == {"required": False}
+    assert content["items"] == [{"id": "101", "label": "局部评级名称", "hint": "局部提示", "settings": {"required": True}}]
+    assert content["options"][0] == {"id": "one", "label": "局部名称", "placeholder": "局部提示", "required": True, "code": "ONE", "color": "#f54a45"}
+    assert content["options"][1]["label"] == "五星"
+    assert content["options"][1]["color"] == "#3370ff"
+    template["content"][0]["options"] = []
+    template["content"][0]["description"] = ""
+    empty = (await hydrate_self_summary_template(template, Db()))["content"][0]
+    assert empty["options"] == []
+    assert empty["description"] == ""
+
 
 
 def test_self_summary_legacy_duplicate_rating_keeps_only_selected_question():

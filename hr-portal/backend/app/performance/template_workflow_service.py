@@ -111,8 +111,11 @@ def normalize_content_library(contents: list[dict]) -> list[dict]:
 
 def _merge_content_library(library: list[dict], contents: list[dict]) -> list[dict]:
     merged = {content["content_id"]: content for content in normalize_content_library(library)}
-    for content in normalize_content_library(contents):
-        merged[content["content_id"]] = content
+    for raw in contents:
+        content = deepcopy(raw)
+        content["content_id"] = _content_id(content)
+        content.pop("content_slot", None)
+        merged.setdefault(content["content_id"], content)
     return list(merged.values())
 
 
@@ -300,6 +303,22 @@ def _validate_result_view_contents(nodes: list[dict], library: list[dict]) -> No
             )
 
 
+def _materialize_node_contents(node: dict, library: list[dict]) -> dict:
+    resolved = deepcopy(node)
+    contents = resolved.get("content") or []
+    existing = {(_content_id(content), content.get("content_slot") or "fill") for content in contents}
+    by_id = {_content_id(content): content for content in library}
+    for slot, content_ids in (resolved.get("content_bindings") or {}).items():
+        for content_id in content_ids:
+            key = (str(content_id), slot)
+            if key not in existing and str(content_id) in by_id:
+                contents.append({**deepcopy(by_id[str(content_id)]), "content_slot": slot})
+                existing.add(key)
+    if contents or "content" in resolved:
+        resolved["content"] = contents
+    return resolved
+
+
 class PerformanceTemplateWorkflowService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -325,7 +344,9 @@ class PerformanceTemplateWorkflowService:
         record = await self.get_record(template_id)
         if record is None:
             return default_workflow_nodes(), 0, 0
-        return normalize_workflow_nodes(record.nodes), record.cycle_count, record.project_count
+        library = normalize_content_library(getattr(record, "content_library", None) or [])
+        nodes = [_materialize_node_contents(node, library) for node in normalize_workflow_nodes(record.nodes)]
+        return nodes, record.cycle_count, record.project_count
 
     async def save_nodes(
         self,
@@ -342,9 +363,9 @@ class PerformanceTemplateWorkflowService:
         record = await self.get_record(template_id)
         existing_library = getattr(record, "content_library", None) if record is not None else []
         library = normalize_content_library(content_library or [])
-        source_library = _merge_content_library(existing_library or [], library)
+        source_library = _merge_content_library(library, existing_library or [])
+        library = _merge_content_library(existing_library or [], library)
         for node in normalized:
-            library = _merge_content_library(library, node.get("content") or [])
             bindings = deepcopy(node.get("content_bindings") or {})
             if not bindings:
                 grouped: dict[str, list[str]] = {}
@@ -353,8 +374,10 @@ class PerformanceTemplateWorkflowService:
                     grouped.setdefault(slot, []).append(_content_id(content))
                 bindings = grouped
             node["content_bindings"] = bindings
-        library = _merge_content_library(existing_library or [], library)
         _validate_result_view_contents(normalized, source_library)
+        normalized = [_materialize_node_contents(node, source_library) for node in normalized]
+        for node in normalized:
+            library = _merge_content_library(library, node.get("content") or [])
         before = deepcopy(record.nodes) if record is not None else []
         if record is None:
             record = PerformanceTemplateWorkflow(template_id=template_id, nodes=normalized, content_library=library)

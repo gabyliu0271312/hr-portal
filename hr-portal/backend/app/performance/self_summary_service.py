@@ -24,8 +24,9 @@ def _option(value: dict, index: int) -> dict:
 
 
 def _inline_options(content: dict, item: dict | None = None) -> list[dict]:
-    raw = item.get("options") if item else None
-    if not raw:
+    if item is not None and "options" in item:
+        raw = item.get("options")
+    else:
         raw = content.get("options") or content.get("defaultFields") or content.get("default_fields")
     options: list[dict] = []
     seen_ids: set[str] = set()
@@ -95,7 +96,7 @@ async def hydrate_self_summary_template(template: dict, db: AsyncSession) -> dic
             pair = questions.get(int(raw_id)) if raw_id.isdigit() else None
             if pair:
                 question, rule = pair
-                if not content.get("options"):
+                if content.get("options") is None:
                     content["options"] = [
                         _option(level, index)
                         for index, level in enumerate((rule.config or {}).get("levels") or [])
@@ -109,10 +110,15 @@ async def hydrate_self_summary_template(template: dict, db: AsyncSession) -> dic
                     }
                     for option in content["options"]:
                         level = levels_by_id.get(str(option.get("id")))
-                        if level and level.get("code") and "code" not in option:
-                            option["code"] = level["code"]
-                content["ratingDisplayMode"] = question.display_mode or "标签样式"
-                if not content.get("description"):
+                        if not level:
+                            continue
+                        defaults = _option(level, 0)
+                        for key, value in defaults.items():
+                            if key not in option:
+                                option[key] = value
+                if "ratingDisplayMode" not in content or not content["ratingDisplayMode"]:
+                    content["ratingDisplayMode"] = question.display_mode or "标签样式"
+                if content.get("description") is None:
                     content["description"] = question.description or ""
         elif content.get("type") == "custom" and content.get("questionType") == "tag" and not content.get("options"):
             content["options"] = _inline_options(content)
@@ -134,11 +140,14 @@ def build_self_summary_schema(template: dict) -> list[dict]:
             if item_settings.get("mode") == "hidden":
                 continue
             content_type = content.get("type")
-            field_type = "rich_text"
-            if content_type == "rating":
-                field_type = "rating"
-            elif content_type == "custom" and content.get("questionType") == "tag":
-                field_type = "tag_with_followup"
+            question_type = (
+                item.get("questionType")
+                or content.get("questionType")
+                or "text"
+            ) if content_type == "custom" else None
+            field_type = "rating" if content_type == "rating" else (
+                "tag_with_followup" if content_type == "custom" and question_type == "tag" else "rich_text"
+            )
             options = _inline_options(content, item) if field_type in {"rating", "tag_with_followup"} else []
             base_field_id = str(item.get("id") or f"{section_id}-{item_index}")
             field_id = base_field_id
@@ -147,15 +156,22 @@ def build_self_summary_schema(template: dict) -> list[dict]:
                 field_id = f"{base_field_id}-{suffix}"
                 suffix += 1
             seen_field_ids.add(field_id)
-            fields.append({
+            field = {
                 "id": field_id,
                 "type": field_type,
                 "label": item.get("label") or content.get("name") or "填写题",
                 "required": bool(item_settings.get("required", (content.get("settings") or {}).get("required", False))),
                 "placeholder": item.get("hint") or "提示",
                 "options": options,
-                **({"display_mode": content.get("ratingDisplayMode") or "标签样式"} if field_type == "rating" else {}),
-            })
+            }
+            if field_type == "rating":
+                field["display_mode"] = content.get("ratingDisplayMode") or "标签样式"
+                field["hide_name"] = bool(item_settings.get("hideName", False))
+            elif content_type == "custom" and question_type == "text":
+                field["hide_name"] = bool(item_settings.get("hideName", False))
+            elif content_type == "custom" and question_type == "tag":
+                field["default_all"] = bool(item.get("defaultAll", content.get("defaultAll", False)))
+            fields.append(field)
         if fields:
             settings = content.get("settings") or {}
             sections.append({
@@ -297,10 +313,31 @@ def self_summary_field_requires_value(field: dict, value: object) -> bool:
 
 def resolve_self_summary_content(template: dict, content_library: list[dict]) -> dict:
     resolved = deepcopy(template)
-    if resolved.get("content"):
-        return resolved
     bindings = resolved.get("content_bindings") or {}
     library = {str(content.get("content_id") or content.get("id")): content for content in content_library}
+    inline_contents = resolved.get("content") or []
+    if inline_contents:
+        # Inline node content is the local authority. Bindings only seed missing content.
+        inline_ids = {
+            str(content.get("content_id") or content.get("id"))
+            for content in inline_contents
+            if isinstance(content, dict) and (content.get("content_id") or content.get("id")) is not None
+        }
+        contents = deepcopy(inline_contents)
+        appended_ids: set[str] = set()
+        ordered_slots = [slot for slot in ("fill", "reference", "adjustment", "view") if slot in bindings]
+        ordered_slots.extend(slot for slot in bindings if slot not in ordered_slots)
+        for slot in ordered_slots:
+            for content_id in bindings.get(slot) or []:
+                key = str(content_id)
+                if key in inline_ids or key in appended_ids:
+                    continue
+                content = library.get(key)
+                if content:
+                    contents.append({**deepcopy(content), "content_slot": slot})
+                    appended_ids.add(key)
+        resolved["content"] = contents
+        return resolved
     contents: list[dict] = []
     ordered_slots = [slot for slot in ("fill", "reference", "adjustment", "view") if slot in bindings]
     ordered_slots.extend(slot for slot in bindings if slot not in ordered_slots)

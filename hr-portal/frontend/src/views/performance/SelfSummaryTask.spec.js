@@ -66,6 +66,28 @@ describe('SelfSummaryTask', () => {
     expect(push).toHaveBeenCalledWith({ name: 'PerformanceReminderPlaceholder', query: { project_id: '', node_id: 'evaluation-1', task_id: '77', employee_no: 'E001' } })
   })
 
+  it.each([undefined, { tags: [], notes: {} }])('applies default tags only to missing editable answers: %o', async value => {
+    const loaded = structuredClone(task)
+    loaded.form_schema = [{ id: 'tags', name: '标签', fields: [{ id: 'value', type: 'tag_with_followup', label: '默认标签', default_all: true, options: [{ id: 'good', label: '亮点' }] }] }]
+    if (value !== undefined) loaded.answers.value = value
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue(loaded)
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.get('.tag-options input').element.checked).toBe(value === undefined)
+    wrapper.unmount()
+  })
+
+  it('does not invent default tag answers for a noneditable task', async () => {
+    const loaded = structuredClone(task)
+    loaded.editable = false
+    loaded.form_schema[3].fields[0].default_all = true
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue(loaded)
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.findAll('.tag-options input').every(input => !input.element.checked)).toBe(true)
+    wrapper.unmount()
+  })
+
   it('loads an evaluation task through the generic template task endpoint', async () => {
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'evaluation', entry_mode: 'template_task', node_name: '上级评估' })
     const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
@@ -106,7 +128,7 @@ describe('SelfSummaryTask', () => {
     const tagInput = wrapper.get('.tag-rich-input')
     tagInput.element.innerHTML = '主动解决关键问题'
     await tagInput.trigger('input')
-    await wrapper.get('.self-summary-footer .primary').trigger('click')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
 
     expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', expect.objectContaining({
@@ -128,7 +150,7 @@ describe('SelfSummaryTask', () => {
     const inputs = wrapper.findAll('.tag-rich-input')
     inputs[0].element.innerHTML = '亮点说明'
     await inputs[0].trigger('input')
-    await wrapper.get('.self-summary-footer .primary').trigger('click')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('请填写做得好的的补充说明')
@@ -164,7 +186,7 @@ describe('SelfSummaryTask', () => {
 
     expect(wrapper.find('.performance-rating-control__labels').exists()).toBe(false)
     await wrapper.get('.performance-rating-control__select').setValue('five')
-    await wrapper.get('.self-summary-footer .primary').trigger('click')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
 
     expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', expect.objectContaining({ rating: 'five' }), 1)
@@ -190,7 +212,7 @@ describe('SelfSummaryTask', () => {
     await editors[0].trigger('input')
     editors[1].element.innerHTML = '第二条总结'
     await editors[1].trigger('input')
-    await wrapper.get('.self-summary-footer .primary').trigger('click')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
 
     expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', expect.objectContaining({
@@ -201,7 +223,7 @@ describe('SelfSummaryTask', () => {
   it('keeps inputs and focuses the first field when required validation fails', async () => {
     const wrapper = mount(SelfSummaryTask)
     await flushPromises()
-    await wrapper.get('.self-summary-footer .primary').trigger('click')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
 
     expect(wrapper.text()).toContain('填写题名称为必填')
     expect(wrapper.text()).toContain('绩效评级为必填')

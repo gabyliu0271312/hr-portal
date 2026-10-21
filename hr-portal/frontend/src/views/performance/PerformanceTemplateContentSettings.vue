@@ -83,6 +83,8 @@
                 :toolbar-visible="configuredHoverKey === configuredCardKey(content)"
                 :root-settings="rootSettingFor(content.id)"
                 :item-settings="itemSettingsForContent(content.id)"
+                :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
+                :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
                 :root-settings-variant="activeStageContentRule.rootSettingsVariant"
                 :item-settings-variant="activeStageContentRule.itemSettingsVariant"
                 @activate="selectedConfiguredId = $event"
@@ -263,18 +265,19 @@ const reviewerInvitePreviewSelected = ref(false)
 const rootSettings = ref<Record<string, WorkSummaryRootSettings>>({})
 const itemSettings = ref<Record<string, WorkSummaryItemSettings>>({})
 const contentIdentity = (content: PerformanceTemplateContent) => content.content_id || content.id || `${content.type}-${content.name}`
+const cloneContent = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 function normalizeRatingContent<T extends PerformanceTemplateContent>(content: T): T {
   if (content.type !== 'rating') return content
   const ratingOptionId = content.ratingOptionId || content.items.at(-1)?.id || ''
   const current = ratingOptions.value.find(option => option.id === ratingOptionId)
   const selected = content.items.find(item => item.id === ratingOptionId) || content.items.at(-1)
-  const item = current ? { id: current.id, label: current.label, hint: '' } : selected ? { ...selected } : null
-  const options = current?.levelOptions?.length
-    ? current.levelOptions.map(option => ({ ...option }))
-    : current?.levels?.length
-      ? current.levels.map((label, index) => ({ id: `${current.id}-${index}`, label }))
-      : content.options
-  const ratingDisplayMode = current?.displayMode || content.ratingDisplayMode || '标签样式'
+  const item = selected
+    ? { ...selected, label: selected.label ?? current?.label ?? '', hint: selected.hint ?? '' }
+    : current ? { id: current.id, label: current.label, hint: '' } : null
+  const options = content.options ?? (current?.levelOptions?.length
+    ? cloneContent(current.levelOptions)
+    : current?.levels?.map((label, index) => ({ id: `${current.id}-${index}`, label })))
+  const ratingDisplayMode = content.ratingDisplayMode || current?.displayMode
   return { ...content, ratingOptionId, ratingDisplayMode, items: item ? [item] : [], options }
 }
 const configuredCardKey = (content: PerformanceTemplateContent) => `${selectedStage.value || 'stage'}:${activeTab.value}:${contentIdentity(content)}`
@@ -302,8 +305,7 @@ const assessmentInitialContents = computed(() => configuredContents.value.filter
   return { ...content, ...source, id: content.id, type: (source || content).type as AssessmentContentType }
 }) as Array<AssessmentContentDraft & { id: string }>)
 const activeStageContentRule = computed(() => getStageContentRule(selectedStageData.value?.nodeType))
-const configuredContentRulesEnabled = computed(() => activeStageContentRule.value.rootSettingsVariant === 'work-summary-root' && activeStageContentRule.value.itemSettingsVariant === 'work-summary-item')
-const hasActiveConfiguredSettings = computed(() => Boolean(selectedConfiguredId.value) && configuredContentRulesEnabled.value)
+const hasActiveConfiguredSettings = computed(() => Boolean(selectedConfiguredId.value) && (activeStageContentRule.value.rootSettingsEnabled || activeStageContentRule.value.itemSettingsEnabled))
 const allowedContentTypes = computed(() => activeStageContentRule.value.allowedContentTypes)
 const allowedContentTypeList = computed(() => [...allowedContentTypes.value])
 const availableContentCandidates = computed(() => {
@@ -318,11 +320,11 @@ const defaultRootSettings = (): WorkSummaryRootSettings => ({ hideDescription: f
 const defaultItemSettings = (): WorkSummaryItemSettings => ({ mode: 'fill', required: true, hideName: false })
 function normalizeRootSettings(value: unknown): WorkSummaryRootSettings {
   const settings = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  return { hideDescription: settings.hideDescription === true, allowMultiple: settings.allowMultiple === true }
+  return { ...settings, hideDescription: settings.hideDescription === true, allowMultiple: settings.allowMultiple === true }
 }
 function normalizeItemSettings(value: unknown): WorkSummaryItemSettings {
   const settings = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  return { mode: settings.mode === 'hidden' ? 'hidden' : 'fill', required: settings.required !== false, hideName: settings.hideName === true }
+  return { ...settings, mode: settings.mode === 'hidden' ? 'hidden' : 'fill', required: settings.required !== false, hideName: settings.hideName === true }
 }
 function rootSettingFor(contentId: string): WorkSummaryRootSettings {
   return rootSettings.value[contentId] || defaultRootSettings()
@@ -374,7 +376,7 @@ function handlePromptSave() {
 function setConfiguredContents(contents: PerformanceTemplateContent[]) {
   const unique = new Map<string, AssessmentContentDraft & { id: string }>()
   contents.forEach((rawContent, index) => {
-    const content = normalizeRatingContent(rawContent)
+    const content = normalizeRatingContent(cloneContent(rawContent))
     const baseId = content.content_id || content.id || `${content.type}-${content.name}`
     let id = baseId
     let suffix = index + 1
@@ -394,27 +396,27 @@ function setConfiguredContents(contents: PerformanceTemplateContent[]) {
 function mergeContentLibrary(contents: PerformanceTemplateContent[]) {
   const next = new Map(contentLibrary.value.map((content) => [content.content_id || content.id || `${content.type}-${content.name}`, content]))
   contents.forEach((rawContent) => {
-    const content = normalizeRatingContent(rawContent)
+    const content = normalizeRatingContent(cloneContent(rawContent))
     const contentId = content.content_id || content.id || `${content.type}-${content.name}`
     const { content_slot: _slot, ...libraryContent } = content
-    next.set(contentId, { ...libraryContent, content_id: contentId })
+    if (!next.has(contentId)) next.set(contentId, { ...libraryContent, content_id: contentId })
   })
   contentLibrary.value = [...next.values()]
 }
 function serializeConfiguredContents(slot = activeTab.value): PerformanceTemplateContent[] {
-  return configuredContents.value.map(({ id, ...content }) => ({
+  return cloneContent(configuredContents.value.map(({ id, ...content }) => ({
     ...content,
     id,
     content_id: content.content_id || id,
     content_slot: slot as PerformanceTemplateContent['content_slot'],
-    settings: configuredContentRulesEnabled.value ? rootSettingFor(id) : content.settings,
+    settings: activeStageContentRule.value.rootSettingsEnabled ? rootSettingFor(id) : content.settings,
     items: content.items.map(({ settings, ...item }) => ({
       ...item,
-      settings: configuredContentRulesEnabled.value
+      settings: activeStageContentRule.value.itemSettingsEnabled
         ? itemSettings.value[`${id}:${item.id}`] || normalizeItemSettings(settings)
         : settings,
     })),
-  }))
+  })))
 }
 function replaceNodeContentSlot(node: PerformanceWorkflowNode, slot: string, contents: PerformanceTemplateContent[]) {
   const retained = (node.content || []).filter((content) => (content.content_slot || 'fill') !== slot)
@@ -500,27 +502,28 @@ function editConfigured(content: AssessmentContentDraft & { id: string }) {
   void nextTick(() => contentLayerRef.value?.openEditor(content))
 }
 function refreshRatingSnapshots() {
+  syncSelectedStageContents()
   workflowNodes.value = workflowNodes.value.map(node => ({ ...node, content: node.content?.map(content => normalizeRatingContent(content)) }))
   contentLibrary.value = contentLibrary.value.map(content => normalizeRatingContent(content))
   const node = workflowNodes.value.find(item => item.node_id === selectedStage.value)
   if (node) setConfiguredContents(node.content?.filter(content => (content.content_slot || 'fill') === activeTab.value) || [])
 }
 function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: PerformanceTemplateContent[] = []) {
-  workflowNodes.value = nodes.map(node => {
+  workflowNodes.value = cloneContent(nodes).map(node => {
     const contents = [...(node.content || [])]
     Object.entries(node.content_bindings || {}).forEach(([slot, ids]) => ids.forEach(id => {
       if (!contents.some(content => contentIdentity(content) === id && (content.content_slot || 'fill') === slot)) {
         const content = library.find(item => contentIdentity(item) === id)
-        if (content) contents.push({ ...content, content_slot: slot as PerformanceTemplateContent['content_slot'] })
+        if (content) contents.push({ ...cloneContent(content), content_slot: slot as PerformanceTemplateContent['content_slot'] })
       }
     }))
     return { ...node, content: contents.map(content => normalizeRatingContent({ ...content, items: content.items || [] })) }
   })
   const merged = new Map<string, PerformanceTemplateContent>()
-  library.forEach((content) => { const normalized = normalizeRatingContent(content); merged.set(contentIdentity(normalized), normalized) })
+  library.forEach((content) => { const normalized = normalizeRatingContent(cloneContent(content)); merged.set(contentIdentity(normalized), normalized) })
   workflowNodes.value.flatMap((node) => node.content || []).forEach((content) => {
     const contentId = content.content_id || content.id || `${content.type}-${content.name}`
-    if (!merged.has(contentId)) merged.set(contentId, { ...content, content_id: contentId })
+    if (!merged.has(contentId)) merged.set(contentId, { ...cloneContent(content), content_id: contentId })
   })
   contentLibrary.value = [...merged.values()]
   stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: node.executor_label }))
@@ -528,9 +531,8 @@ function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: Performan
 async function save() {
   if (!props.templateId) return
   syncSelectedStageContents()
-  workflowNodes.value.flatMap((node) => node.content || []).forEach((content) => mergeContentLibrary([content]))
-  const nodes = workflowNodes.value.map((node) => ({ ...node, content: node.content ? node.content.map((content) => ({ ...content, items: content.items || [] })) : [] }))
-  const response = await performanceTemplateApi.updateWorkflow(props.templateId, { nodes, content_library: contentLibrary.value })
+  const nodes = cloneContent(workflowNodes.value.map((node) => ({ ...node, content: node.content ? node.content.map((content) => ({ ...content, items: content.items || [] })) : [] })))
+  const response = await performanceTemplateApi.updateWorkflow(props.templateId, { nodes, content_library: cloneContent(contentLibrary.value) })
   applyWorkflowNodes(response.nodes || [], response.content_library || [])
 }
 defineExpose({ save })

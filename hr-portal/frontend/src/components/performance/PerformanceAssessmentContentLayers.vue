@@ -186,7 +186,11 @@ const activeLabel=computed(()=>({work_summary:'工作总结',rating:'评分评�
 const selectedRating=computed(()=>props.ratingOptions.find(item=>item.id===draft.ratingOptionId)||null)
 const selectedTag=computed(()=>props.tagOptions.find(item=>item.id===draft.tagOptionId)||null)
 const ratingPreviewOptions=computed(()=> selectedRating.value?.levelOptions || (selectedRating.value?.levels || []).map((level,index)=>({id:`rating-preview-${index}`,label:level})))
-const tagOptionFor=(item:FillItem)=>props.tagOptions.find(option=>option.id===item.tagOptionId)||null
+const tagOptionFor=(item:FillItem)=>{
+  const source=props.tagOptions.find(option=>option.id===item.tagOptionId)
+  if(item.options!==undefined)return{id:item.tagOptionId||item.id,label:item.label||source?.label||'标签型填写题',description:item.hint||source?.description,defaultFields:item.options.map(option=>({label:option.label,content:option.placeholder||''}))}
+  return source||null
+}
 const tagSelectionFor=(item:FillItem)=>tagSelections.value[item.id] || []
 const selectedTagFields=(item:FillItem)=>{
   const option=tagOptionFor(item)
@@ -221,7 +225,7 @@ function removePreviewTag(item:FillItem,label:string){
 }
 const allExpanded=computed(()=>created.value.length>0&&expandedIds.value.size===created.value.length)
 
-watch(()=>props.open,open=>{if(open){created.value=props.initialContents.map(content=>{const id=content.content_id||content.id||nextId();return{...content,id,content_id:id,items:content.items.map(item=>({...item}))}});void nextTick(()=>drawerRef.value?.focus())}else activeType.value=null},{ immediate:true })
+watch(()=>props.open,open=>{if(open){created.value=props.initialContents.map(content=>{const id=content.content_id||content.id||nextId();return JSON.parse(JSON.stringify({...content,id,content_id:id}))});void nextTick(()=>drawerRef.value?.focus())}else activeType.value=null},{ immediate:true })
 watch(()=>draft.questionType,()=>{ itemSubmitted.value=false })
 watch([items,()=>props.tagOptions],syncTagSelections,{deep:true,immediate:true})
 function resetDraft(){Object.assign(draft,{name:'',description:'',itemName:'',hint:'',richText:'',ratingOptionId:'',questionType:'text',tagOptionId:'',defaultAll:false});items.value=[];tagSelections.value={};previousDefaultAll.value={};previousTagOption.value={};workSummaryItems.value=[];submitted.value=false;itemSubmitted.value=false;draggedIndex.value=null;dragAnnouncement.value=''}
@@ -232,21 +236,18 @@ function canSelectContent(content:AssessmentContentDraft&{id:string}){return pro
 function toggleAvailableContent(content:AssessmentContentDraft&{id:string}){
   const id=contentKey(content)
   if(isContentSelected(id)||!canSelectContent(content))return
-  created.value.push({ ...content, id, content_id:id, items: content.items.map(item=>({ ...item })) })
+  created.value.push(JSON.parse(JSON.stringify({ ...content, id, content_id:id })))
 }
 function finishDrawer(){if(created.value.some(content=>!canSelectContent(content)))return;emit('confirm',created.value.map(content=>({ ...content, content_id:content.content_id||content.id })));emit('update:open',false)}
 function openModal(type:AssessmentContentType, content?:AssessmentContentDraft&{id:string}){
   resetDraft(); editingCreatedId.value=content?.id||null; activeType.value=type
   if(content){
     Object.assign(draft,{name:content.name,description:content.description,ratingOptionId:content.ratingOptionId||(type==='rating'?content.items[0]?.id||'':''),questionType:content.questionType||'text',tagOptionId:content.tagOptionId||'',defaultAll:!!content.defaultAll})
-    if(type==='work_summary' || (type==='custom' && content.questionType==='text')) {
+    if(type==='work_summary' || type==='custom') {
       const fillItems=content.items.length?content.items:[{id:nextId(),label:'',hint:'',richText:''}]
-      const targetItems=fillItems.map(item=>({id:item.id,label:item.label,hint:item.hint,richText:item.richText||'',questionType:item.questionType||'text',tagOptionId:item.tagOptionId,defaultAll:item.defaultAll,options:item.options}))
+      const targetItems=fillItems.map(item=>JSON.parse(JSON.stringify({...item,richText:item.richText||'',questionType:item.questionType||content.questionType||'text',tagOptionId:item.tagOptionId??content.tagOptionId,defaultAll:item.defaultAll??content.defaultAll,options:item.options??content.options})))
       if(type==='work_summary') workSummaryItems.value=targetItems
       else items.value=targetItems
-    } else if(type==='custom') {
-      const fillItems=content.items.length?content.items:[{id:nextId(),label:'',hint:'',questionType:'tag' as const,tagOptionId:content.tagOptionId,defaultAll:content.defaultAll,options:content.options}]
-      items.value=fillItems.map(item=>({id:item.id,label:item.label,hint:item.hint,richText:item.richText||'',questionType:item.questionType||'tag',tagOptionId:item.tagOptionId||content.tagOptionId,defaultAll:item.defaultAll??content.defaultAll,options:item.options||content.options}))
     } else if(type==='rating') items.value=[]
   } else if(type==='work_summary') {
     workSummaryItems.value.push(createWorkSummaryItem())
@@ -301,7 +302,18 @@ function confirmContent(){
       : activeType.value==='rating'&&ratingItem?[ratingItem]:[...items.value]
   const existing=editingCreatedId.value?created.value.find(item=>item.id===editingCreatedId.value):undefined
   const ratingLevels=selectedRating.value?.levelOptions||(selectedRating.value?.levels||[]).map((label,index)=>({id:`${selectedRating.value!.id}-${index}`,label}))
-  const nextContent={type:activeType.value,name:draft.name.trim(),description:draft.description.trim(),items:finalItems,ratingOptionId:activeType.value==='rating'?selectedRating.value?.id:undefined,ratingDisplayMode:activeType.value==='rating'?(selectedRating.value?.displayMode||'标签样式'):undefined,questionType:undefined,tagOptionId:undefined,defaultAll:undefined,options:activeType.value==='rating'?ratingLevels:undefined}
+  const preservedItems=finalItems.map(item=>{
+    const previous=existing?.items.find(value=>value.id===item.id)
+    const next=activeType.value==='rating' && previous?{...item,...previous}:{...previous,...item}
+    if(activeType.value==='custom' && item.questionType==='tag') {
+      const current=items.value.find(value=>value.id===item.id)
+      const option=props.tagOptions.find(value=>value.id===item.tagOptionId)
+      next.options=current?.options??option?.defaultFields?.map((field,index)=>({id:`${item.tagOptionId}-${index}`,label:field.label,placeholder:field.content}))
+    }
+    return next
+  })
+  const sameRating=existing?.ratingOptionId===selectedRating.value?.id
+  const nextContent={...existing,type:activeType.value,name:draft.name.trim(),description:draft.description.trim(),items:preservedItems,ratingOptionId:activeType.value==='rating'?selectedRating.value?.id:undefined,ratingDisplayMode:activeType.value==='rating'?((sameRating?existing?.ratingDisplayMode:selectedRating.value?.displayMode)||'标签样式'):undefined,questionType:undefined,tagOptionId:undefined,defaultAll:undefined,options:activeType.value==='rating'?(sameRating?existing?.options??ratingLevels:ratingLevels):existing?.options}
   if(editingCreatedId.value){const index=created.value.findIndex(item=>item.id===editingCreatedId.value);if(index>=0)created.value[index]={id:editingCreatedId.value,...nextContent}}
   else {const contentId=nextContentId();created.value.push({id:contentId,content_id:contentId,...nextContent})}
   activeType.value=null;editingCreatedId.value=null;resetDraft();success.value=true;if(successTimer)clearTimeout(successTimer);successTimer=setTimeout(()=>success.value=false,2200);void nextTick(()=>drawerRef.value?.focus())

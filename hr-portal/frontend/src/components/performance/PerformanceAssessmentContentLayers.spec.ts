@@ -124,6 +124,28 @@ describe('PerformanceAssessmentContentLayers', () => {
     expect(height).toMatch(/px$/)
   })
 
+  it('preserves mixed custom question types, local options and settings when editing a reused block', async () => {
+    const content = { id: 'local', content_id: 'local', type: 'custom' as const, name: '局部内容', description: '局部说明', settings: { hideDescription: true }, items: [
+      { id: 'text', label: '局部文本', hint: '局部提示', questionType: 'text' as const, settings: { required: false, hideName: true } },
+      { id: 'tag', label: '局部标签', hint: '', questionType: 'tag' as const, tagOptionId: 'contribution', defaultAll: true, options: [{ id: 'local-tag', label: '局部选项', placeholder: '局部选项提示' }], settings: { required: true } },
+    ] }
+    const wrapper = mount(PerformanceAssessmentContentLayers, { props: { open: true, initialContents: [content], tagOptions }, global: { stubs: { Teleport: true, Transition: false } }, attachTo: document.body })
+    ;(wrapper.vm as any).openEditor(content)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.question-type-option input:checked').map(input => input.attributes('value'))).toEqual(['text', 'tag'])
+    await modalInputs(wrapper)[0].setValue('更新局部内容')
+    await wrapper.get('.modal-footer .button--primary').trigger('click')
+    await wrapper.get('.drawer-footer .button--primary').trigger('click')
+    const saved = (wrapper.emitted('confirm')![0][0] as any[])[0]
+    expect(saved.name).toBe('更新局部内容')
+    expect(saved.content_id).toBe('local')
+    expect(saved.settings).toEqual(content.settings)
+    expect(saved.items[0]).toEqual(expect.objectContaining(content.items[0]))
+    expect(saved.items[1]).toEqual(expect.objectContaining(content.items[1]))
+    expect(content.name).toBe('局部内容')
+    wrapper.unmount()
+  })
+
   it('keeps confirm enabled and shows inline errors only after an invalid submit', async () => {
     const wrapper = mountLayers()
     await openType(wrapper, '工作总结')

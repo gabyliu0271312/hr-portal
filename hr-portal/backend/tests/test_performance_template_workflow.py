@@ -428,6 +428,34 @@ async def test_service_saves_result_view_only_from_final_fill_and_reopens(
 
 
 @pytest.mark.asyncio
+async def test_service_keeps_node_content_independent_from_library_and_other_nodes(workflow_save_setup):
+    from copy import deepcopy
+
+    service, db = workflow_save_setup
+    seed = _view_source_content(content_type="custom", name="种子", items=[{
+        "id": "item-1", "label": "原题", "hint": "原提示", "options": [{"id": "a", "label": "原选项"}],
+        "settings": {"required": False, "extra": {"keep": True}},
+    }])
+    local = deepcopy(seed)
+    local["name"] = "环节一"
+    local["items"][0].update(label="局部题目", hint="局部提示", options=[{"id": "b", "label": "局部选项"}])
+    local["items"][0]["settings"]["required"] = True
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [local]}
+    other = {**_evaluation("other", "被评估人"), "content_bindings": {"fill": [seed["content_id"]]}}
+    record = await service.save_nodes(77, [final, other], content_library=[seed], actor_type="PORTAL_USER", actor_ref="9")
+    db.workflow = record
+    assert record.content_library == [seed]
+    assert record.nodes[0]["content"][0] == local
+    assert record.nodes[1]["content"][0]["items"] == seed["items"]
+    reopened, _, _ = await service.get_nodes(77)
+    reopened[0]["content"][0]["items"][0]["options"][0]["label"] = "再改"
+    assert reopened[1]["content"][0]["items"][0]["options"][0]["label"] == "原选项"
+    assert record.nodes[0]["content"][0]["items"][0]["options"][0]["label"] == "局部选项"
+    assert await service.get_content_library(77) == [seed]
+    assert local["items"][0]["settings"]["extra"] == {"keep": True}
+
+
+@pytest.mark.asyncio
 async def test_service_resolves_final_fill_binding_from_existing_library(workflow_save_setup):
     service, db = workflow_save_setup
     content = _view_source_content()

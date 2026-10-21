@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
+import { performanceTemplateAddedInstance, performanceTemplateInitialAnswers } from './performanceTemplateAnswers'
 
 const sections = [
   {
@@ -38,6 +39,33 @@ describe('PerformanceTemplateRenderer', () => {
       ['rating', ['', '']],
       ['tag', [{ tags: [], notes: {} }, { tags: [], notes: {} }]],
     ]))
+  })
+
+  it.each(['edit', 'readonly'] as const)('hides configured field labels without removing their controls in %s mode', (mode) => {
+    const wrapper = mount(PerformanceTemplateRenderer, { props: {
+      mode, editable: mode === 'edit', sections: [{ id: 'names', name: '内容', fields: [
+        { id: 'text', type: 'rich_text', label: '隐藏文本名', required: true, hide_name: true },
+        { id: 'rating', type: 'rating', label: '隐藏评级名', hide_name: true, options: [{ id: 'a', label: '优秀' }] },
+        { id: 'visible', type: 'rich_text', label: '保留名称' },
+      ] }], answers: { text: '文本内容', rating: 'a' },
+    } })
+    expect(wrapper.find('[data-field-id="text"] .template-field-label').exists()).toBe(false)
+    expect(wrapper.find('[data-field-id="rating"] .template-field-label').exists()).toBe(false)
+    expect(wrapper.get('[data-field-id="visible"] .template-field-label').text()).toBe('保留名称')
+    expect(wrapper.find('[data-field-id="text"]').exists()).toBe(true)
+    expect(wrapper.find('[data-field-id="rating"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('initializes tag defaults only for unanswered fields and preserves explicit empty answers', () => {
+    const defaultSections = [{ id: 'tags', name: '标签', fields: [{ id: 'tag', type: 'tag_with_followup' as const, label: '标签题', default_all: true, options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] }] }]
+    expect(performanceTemplateInitialAnswers(defaultSections, {})).toEqual({ tag: { tags: ['a', 'b'], notes: {} } })
+    for (const value of [null, [], { tags: [], notes: {} }]) {
+      expect(performanceTemplateInitialAnswers(defaultSections, { tag: value })).toEqual({ tag: value })
+    }
+    const repeat = { ...defaultSections[0], allow_multiple: true }
+    const added = performanceTemplateAddedInstance(repeat, { tag: [{ tags: [], notes: {} }] })
+    expect(added.tag).toEqual([{ tags: [], notes: {} }, { tags: ['a', 'b'], notes: {} }])
   })
 
   it('shows a controlled error for an unregistered field type', () => {

@@ -22,7 +22,7 @@ import PerformanceReferenceContent from '@/components/performance/PerformanceRef
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
-import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount } from '@/components/performance/performanceTemplateAnswers'
+import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers } from '@/components/performance/performanceTemplateAnswers'
 
 const props = withDefaults(defineProps<{ taskKind?: 'work_summary' | 'evaluation' }>(), { taskKind: 'work_summary' })
 const route = useRoute()
@@ -61,7 +61,7 @@ async function load() {
     task.value = loaded
     activeTab.value = 'current'
     Object.keys(answers).forEach(key => delete answers[key])
-    Object.assign(answers, loaded.answers || {})
+    Object.assign(answers, loaded.editable && loaded.submit_allowed ? performanceTemplateInitialAnswers(loaded.form_schema, loaded.answers || {}) : loaded.answers || {})
   } catch (error) {
     loadError.value = errorMessage(error, '自我总结加载失败，请稍后重试')
   } finally {

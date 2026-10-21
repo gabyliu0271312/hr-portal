@@ -70,10 +70,31 @@ describe('performance content shared primitives', () => {
     } })
     expect(wrapper.get('[data-content-item-id="item"]').classes().includes('content-renderer-item--name-hidden')).toBe(hidden)
     expect(contentRendererSource).toContain('.content-renderer-item--name-hidden :deep(.performance-assessment-rich-text-field__label){display:none}')
-    expect(wrapper.find('.performance-rich-text-box').exists()).toBe(true)
+    const isTag = type === 'custom' && (itemType || contentType) === 'tag'
+    expect(wrapper.find('.performance-rich-text-box').exists()).toBe(!isTag)
+    expect(wrapper.find('.tag-followup').exists()).toBe(isTag)
     await wrapper.setProps({ itemSettings: { item: { mode: 'fill', required: true, hideName: false } } })
     expect(wrapper.get('[data-content-item-id="item"]').classes()).not.toContain('content-renderer-item--name-hidden')
-    expect(wrapper.get('.performance-assessment-rich-text-field__label').text()).toBe('题目名称*')
+    expect(wrapper.get(isTag ? '.template-field-label' : '.performance-assessment-rich-text-field__label').text()).toBe('题目名称*')
+  })
+
+  it('previews custom tags with local item options and item-first default-all settings', async () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: { content: {
+      type: 'custom', questionType: 'text', defaultAll: true,
+      options: [{ id: 'global', label: '块级标签' }],
+      items: [{ id: 'tag', label: '标签题', questionType: 'tag', defaultAll: true, options: [{ id: 'local', label: '本地标签', placeholder: '本地提示' }] }],
+    } } })
+    expect(wrapper.findAll('.tag-options .performance-checkbox__label').map(item => item.text())).toEqual(['本地标签'])
+    expect(wrapper.get('.tag-options input').attributes('disabled')).toBeDefined()
+    expect((wrapper.get('.tag-options input').element as HTMLInputElement).checked).toBe(true)
+    expect(wrapper.get('.tag-answer-label').text()).toBe('本地标签')
+    expect(wrapper.get('.tag-rich-input').attributes('data-placeholder')).toBe('本地提示')
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    await wrapper.setProps({ content: { type: 'custom', questionType: 'tag', defaultAll: true, options: [{ id: 'fallback', label: '块级兼容' }], items: [{ id: 'tag', label: '标签题', defaultAll: false }] } })
+    expect(wrapper.get('.tag-options').text()).toBe('块级兼容')
+    expect((wrapper.get('.tag-options input').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.setProps({ content: { type: 'custom', questionType: 'tag', defaultAll: true, options: [{ id: 'fallback', label: '块级兼容' }], items: [{ id: 'tag', label: '标签题', options: [] }] } })
+    expect(wrapper.get('.empty-options').text()).toBe('暂无可用标签选项')
   })
 
   it('renders rating levels from the selected rule snapshot', () => {

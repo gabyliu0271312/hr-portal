@@ -186,6 +186,15 @@
 
 - 容器验证：2026-10-21在现有Docker多阶段构建内编译并仅替换本地frontend；镜像 `sha256:561d35b19b604a3d7d4b226c9abb51f0b5cc8cbaa7edb9ef8781a3d37d0a30e2`，running/restarts=0，nginx配置有效，端口8080。页面及模板JS/CSS均HTTP200，已从HTTP资源核验custom-text、hideName及隐藏label的CSS；未登录API401。后端/数据库/Gotenberg未替换。没有实际登录态交互截图或真实保存重开证据，不将静态资源验证冒充UI验收。
 
+## 环节独立内容与统一能力（PM-T004-T05-F07，2026-10-21）
+
+- 用户明确：题目名称、提示、选项及显示/填写/必填设置均由各环节独立维护，不属于共享定义变更。选择已有内容只复制初始结构；节点content是局部权威，content_library仅种子及旧binding补齐来源，不用局部副本覆盖已有库。
+- 不修改已启动周期快照、生效时机或已使用模板锁定逻辑；本次不建立“模板修改不影响已启动周期”的新约束。允许修改后的生效策略留既有逻辑及后续前端控制任务。
+- 环节root/item能力和题型字段矩阵集中声明，保持现有启用范围，不凭通用化自动开放其他环节新设置。自定义题按item.questionType优先、块级兼容、缺省text；配置卡片和员工端均正确区分标签/文本。
+- 编辑内容保留原settings、未知字段和局部选项；评级资料异步返回仅补缺失定义，不覆盖已保存的label/hint/options/settings。模板GET/PATCH保持原路径和JSONB协议。
+- 员工schema新增hide_name/default_all：隐藏名称在编辑/只读字段组件中生效；标签默认全部只初始化无答案的可编辑任务，新添加重复实例使用默认值，显式空答案和历史只读答案不重置。UI组件复用现有checkbox、rating、rich-text，不新建页面或设计体系。
+- 最终整合验证：前端七文件Vitest117/117、后端workflow/projects284/284（129+155）、前端vue-tsc+vite build通过；git diff --check通过。后端有既有python_multipart弃用警告，构建有VueUse PURE注释和大chunk提示。测试覆盖同ID环节独立、库种子不覆盖、评级异步刷新、显式空值、标签item优先、编辑保存保留settings、员工编辑/只读隐藏名及默认标签不覆盖空答案。尚未执行登录态浏览器/独立PNG、真实API/数据库保存重开和全仓回归，F07不勾选。遵循Spec012 N0001/N0002/N0004/N0005/N1102-N1104，未引入禁止项；不改锁定/快照/生效时机。
+
 ## Result-view content correction (PM-T004-T05-F01, 2026-10-21)
 
 - 用户确认沿用统一“选择评估内容”侧边弹窗，不新增终评专用弹窗。候选保留工作总结、评分评级、自定义三种内容；以唯一 `include_final_result=true` 节点的 fill 内容归属判断可选性，而非按内容类型过滤。无终评或无填写内容时所有候选不可选；全部 item 隐藏的内容不可选。
