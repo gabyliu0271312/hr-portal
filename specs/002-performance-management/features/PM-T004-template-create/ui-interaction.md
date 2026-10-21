@@ -242,6 +242,15 @@
 
 - 容器更新（F11）：用户授权后在Docker内完成frontend生产构建和替换，镜像 `sha256:f126be3ee2c1be7fff952240c16f71dcb1abcda3779947001986ad3e12f3d333`，frontend running/restarts=0，nginx -t成功，页面HTTP200；运行资源包含模板allowUnknown/公共评级与跳过代码，未登录workflow API401。backend/db/gotenberg镜像、ID、启动时间未变，网络保持hr-portal_default；旧镜像回退标签`hr-portal-frontend:before-rating-unknown-20261021`。仅本地容器更新，未部署生产；真实登录态/数据库保存重开/PNG未执行，F11保持未勾选。
 
+## 360°邀请与确认共享填写内容（PM-T004-T05-F12，2026-10-21）
+
+- 用户最新确认：将邀请环节现有填写内容提炼成 `PerformanceReviewer360Content.vue`，在 `reviewer_360_invite` 和 `reviewer_360_confirm` 的fill Tab共用；覆盖F02关于确认环节入口保持原样的旧边界。共享原有标题、搜索/邀请列表非交互预览、54px单“添加提示”操作栏及样式，不复制确认专属实现。
+- 组件props接收页面标题、标题/root选中态、操作栏显隐和actions；`select-heading`、`select-root`、`action`事件沿用页面互斥选择和 `handleContentAction('add-prompt')` 打开 `PerformancePromptModal`。存量配置内容继续走原共享渲染链，已有内容时公共底栏仍只有一个“添加提示”。参考Tab及其他节点不变。
+- 选择两环节预览root后，右侧显示“暂无可配置内容”；没有选择内容、切换环节/Tab后仍显示“暂未选择内容”。选择标题仍显示原页面名称表单，标题/root/item互斥，不新增可配置字段。
+- 复用现有workflow DTO和提示弹窗；不增加提示持久化、人员搜索/邀请、实际360确认任务或API能力，无权限、迁移、UCP和快照变更。
+- 验证：页面45、ConfiguredContentBlock15、ContentRenderer17、AssessmentContentLayers36，共113/113通过；前端build（vue-tsc+vite）通过，既有VueUse PURE注释提示；git diff --check通过。组件DOM验证覆盖共享组件接入、空态文案、标题/root/item互斥、空/已有内容单提示入口、切Tab及非360节点回归。未执行真实浏览器截图、真实API数据库验收或容器替换，不宣称生产已更新。
+- UI自检：已阅读Spec012交互与实施守则，N0001/N0002/N0004/N0005/N1102-N1104适用检查完成；沿用T05蓝图及公共控件，无新设计体系、信息架构或禁止项。
+
 ## Result-view content correction (PM-T004-T05-F01, 2026-10-21)
 
 - 用户确认沿用统一“选择评估内容”侧边弹窗，不新增终评专用弹窗。候选保留工作总结、评分评级、自定义三种内容；以唯一 `include_final_result=true` 节点的 fill 内容归属判断可选性，而非按内容类型过滤。无终评或无填写内容时所有候选不可选；全部 item 隐藏的内容不可选。

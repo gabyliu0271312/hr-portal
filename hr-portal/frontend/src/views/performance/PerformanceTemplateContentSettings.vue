@@ -28,7 +28,7 @@
         <PerformanceTextField v-model="contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked" :invalid="Boolean(pageNameError)" />
         <span v-if="pageNameError" class="page-name-settings__error" role="alert">{{ pageNameError }}</span>
       </div>
-      <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>暂未选择内容</span></div>
+      <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>{{ isReviewer360Fill && reviewer360PreviewSelected ? '暂无可配置内容' : '暂未选择内容' }}</span></div>
     </aside>
 
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
@@ -41,35 +41,7 @@
           </div>
           <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
         </section>
-        <section v-else-if="isReviewerInvite" class="reviewer-360-invite-preview" aria-label="360°邀请环节预览">
-          <PerformanceTemplateSectionCard :title="contentPageName" :actions="[]" selectable :selected="pageHeadingSelected" @select="selectPageHeading" />
-          <PerformanceContentSelectionFrame variant="root" :selected="reviewerInvitePreviewSelected" class="reviewer-360-invite-preview__body" @click="selectReviewerInvitePreview">
-            <div class="reviewer-360-invite-preview__content">
-              <div class="reviewer-360-invite-preview__intro">
-                <div>通过「搜索」添加 360° 评估人</div>
-                <span>已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。</span>
-              </div>
-              <div class="reviewer-360-invite-preview__search">搜索成员</div>
-              <div class="reviewer-360-invite-preview__list-title">已邀请列表：当前共 0 人</div>
-              <div class="reviewer-360-invite-preview__segmented" role="radiogroup" aria-label="邀请列表分组方式">
-                <span class="is-checked" role="radio" aria-checked="true">按关系</span>
-                <span role="radio" aria-checked="false">按邀请人</span>
-              </div>
-              <table class="reviewer-360-invite-preview__table">
-                <colgroup><col class="reviewer-360-invite-preview__table-title" /><col /></colgroup>
-                <tbody>
-                  <tr><td>相同上级同事</td><td></td></tr>
-                  <tr><td>不同上级同事</td><td></td></tr>
-                  <tr><td>虚线上级</td><td></td></tr>
-                  <tr><td>直属下级</td><td></td></tr>
-                </tbody>
-              </table>
-            </div>
-          </PerformanceContentSelectionFrame>
-          <div v-if="!configuredContents.length" class="reviewer-360-invite-preview__actions">
-            <PerformanceTemplateOperateBar :actions="summaryActions" @action="handleContentAction" />
-          </div>
-        </section>
+        <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="contentPageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
         <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill'" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
           <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" class="configured-content-sortable-list" @reorder="reorderConfigured">
@@ -134,7 +106,7 @@ import PerformancePromptModal from '@/components/performance/PerformancePromptMo
 import PerformanceAssessmentContentLayers, { type AssessmentContentDraft, type AssessmentContentType, type AssessmentOption, type AssessmentTagOption } from '@/components/performance/PerformanceAssessmentContentLayers.vue'
 import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
 import PerformanceTemplateOperateBar from '@/components/performance/PerformanceTemplateOperateBar.vue'
-import PerformanceContentSelectionFrame from '@/components/performance/PerformanceContentSelectionFrame.vue'
+import PerformanceReviewer360Content from '@/components/performance/PerformanceReviewer360Content.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
 import type { WorkSummaryRootSettings } from '@/components/performance/PerformanceWorkSummaryRootSettings.vue'
@@ -221,7 +193,7 @@ const contentPageName = computed({
   },
 })
 const isResultView = computed(() => selectedStageData.value?.nodeType === 'result_view')
-const isReviewerInvite = computed(() => selectedStageData.value?.nodeType === 'reviewer_360_invite' && activeTab.value === 'fill')
+const isReviewer360Fill = computed(() => ['reviewer_360_invite', 'reviewer_360_confirm'].includes(selectedStageData.value?.nodeType || '') && activeTab.value === 'fill')
 const finalNode = computed(() => {
   const nodes = workflowNodes.value.filter(node => node.include_final_result)
   return nodes.length === 1 ? nodes[0] : null
@@ -253,7 +225,7 @@ const finalContentRestriction = computed(() => `仅可选择终评环节执行�
 const resultReferences = computed(() => workflowNodes.value.find(node => node.node_id === selectedStage.value)?.content?.filter(content => content.content_slot === 'reference') || [])
 const summaryActions = computed(() => {
   const type = selectedStageData.value?.nodeType
-  if (type === 'reviewer_360_invite' && activeTab.value === 'fill') {
+  if (isReviewer360Fill.value) {
     return [{ key: 'add-prompt', label: '添加提示' }]
   }
   if (type === 'result_view') {
@@ -275,11 +247,11 @@ const configuredContents = ref<Array<AssessmentContentDraft & { id: string }>>([
 const configuredExpandedIds = ref<Set<string>>(new Set())
 const selectedConfiguredId = ref<string | null>(null)
 const configuredHoverKey = ref<string | null>(null)
-const reviewerInvitePreviewSelected = ref(false)
+const reviewer360PreviewSelected = ref(false)
 const pageHeadingSelected = ref(false)
 function clearContentSelection() {
   selectedConfiguredId.value = null
-  reviewerInvitePreviewSelected.value = false
+  reviewer360PreviewSelected.value = false
   pageHeadingSelected.value = false
 }
 function selectPageHeading() {
@@ -290,9 +262,9 @@ function selectConfiguredContent(contentId: string) {
   clearContentSelection()
   selectedConfiguredId.value = contentId
 }
-function selectReviewerInvitePreview() {
+function selectReviewer360Preview() {
   clearContentSelection()
-  reviewerInvitePreviewSelected.value = true
+  reviewer360PreviewSelected.value = true
 }
 watch([selectedStage, activeTab], () => { clearContentSelection(); pageNameError.value = '' })
 const rootSettings = ref<Record<string, WorkSummaryRootSettings>>({})
@@ -779,22 +751,6 @@ onMounted(async () => {
 .result-view-references{margin-top:var(--spacing-3);background:var(--color-bg-card);border-radius:var(--radius-sm)}
 .result-view-reference{display:flex;justify-content:space-between;align-items:center;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary)}
 .result-view-reference button{border:0;border-radius:var(--radius-sm);background:transparent;color:var(--performance-button-text-color);font:inherit;cursor:pointer}
-.reviewer-360-invite-preview{width:var(--performance-content-width);max-width:100%;color:var(--color-text-primary);font:400 14px/21px var(--font-sans)}
-.reviewer-360-invite-preview__body{position:relative;background:var(--color-bg-card);border-radius:4px;cursor:pointer}
-.reviewer-360-invite-preview__content{padding:24px 24px 0;pointer-events:none}
-.reviewer-360-invite-preview__intro{margin-bottom:8px}
-.reviewer-360-invite-preview__intro div,.reviewer-360-invite-preview__list-title{font-weight:600}
-.reviewer-360-invite-preview__intro span{color:var(--color-text-secondary)}
-.reviewer-360-invite-preview__search{display:flex;align-items:center;height:32px;padding:0 12px;box-sizing:border-box;border:1px solid rgba(187,191,196,.5);border-radius:6px;color:var(--color-text-placeholder)}
-.reviewer-360-invite-preview__list-title{margin-top:20px}
-.reviewer-360-invite-preview__segmented{display:inline-flex;height:32px;margin:8px 0 12px;border-radius:6px;background:var(--color-bg-card);vertical-align:top}
-.reviewer-360-invite-preview__segmented span{display:block;padding:4px 16px;box-sizing:border-box;border:1px solid var(--color-border);border-radius:6px 0 0 6px;line-height:22px}
-.reviewer-360-invite-preview__segmented span+span{border-left:0;border-radius:0 6px 6px 0}
-.reviewer-360-invite-preview__segmented .is-checked{border-color:var(--color-primary);color:var(--performance-button-text-color);font-weight:500}
-.reviewer-360-invite-preview__table{width:100%;border-collapse:collapse;table-layout:fixed;border-radius:6px;overflow:hidden;box-shadow:0 0 0 1px rgba(187,191,196,.5);color:var(--color-text-secondary)}
-.reviewer-360-invite-preview__table-title{width:109px;background:#f5f6f7}
-.reviewer-360-invite-preview__table td{height:52px;padding:15px 12px;box-sizing:border-box;border:1px solid #e4e5e7;line-height:21px}
-.reviewer-360-invite-preview__actions{position:sticky;z-index:20;bottom:8px;border-top:1px solid rgba(187,191,196,.5);border-radius:0 0 4px 4px;overflow:hidden}
 .content-stage-renderer{grid-column:2;grid-row:1}
 .text-normal {
   grid-column: 3;

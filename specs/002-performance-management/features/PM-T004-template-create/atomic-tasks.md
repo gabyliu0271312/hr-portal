@@ -306,6 +306,16 @@
   - UI compliance: N0001/N0002/N0004/N0005/N1102-N1104；实际浏览器PNG目标../../ui-blueprints/PM-T004-T05-F11-implemented-rating-unknown.png，未执行不得宣称完整视觉验收。
   - Evidence/DoD: 前端6文件Vitest101/101，后端projects/workflow294/294通过，`git diff --check`通过；公共评级组件唯一生成不了解选项，前端内容级/实例级跳过和后端提交校验均有覆盖。构建结果：`npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）exit0，有既有VueUse PURE注释提示；未执行真实浏览器/真实API数据库重开，保持未勾选。
 
+- [x] PM-T004-T05-F12 360°邀请填写内容组件复用于360°确认（2026-10-21 用户确认）
+  - Goal/UI: 提炼现有邀请填写内容为 `PerformanceReviewer360Content.vue`，邀请/确认的fill Tab共用页面标题、不可交互的邀请列表预览、root选择与单一“添加提示”入口；选择预览root后右侧统一显示“暂无可配置内容”，未选择仍为“暂未选择内容”。本确认覆盖F02关于确认环节入口不变的旧边界。
+  - Required reading: Spec002基线、PM-T004-T05已确认蓝图、F02/F05/F06交互、Spec012 A01/A02/A05/N000/N00/N11及现有设计体系。
+  - Allowed modifications: 新增上述绩效领域Vue组件；内容设置页、既有同名spec、本任务及ui-interaction记录。保留存量配置内容及既有渲染链路，不新增脚本或测试文档。
+  - Contract/non-scope: 组件通过props接收标题/选中状态/操作栏显隐，通过事件向页面报告标题/root选择及提示操作；页面负责互斥选择和现有提示弹窗。参考Tab、其他节点、API、JSONB、提示存储、权限、迁移、员工端、UCP、快照及部署不变。
+  - Tests/acceptance: Given邀请/确认空或已有内容；When选择root/标题、切换环节/Tab、添加提示；Then两节点使用同一组件、选中态互斥、提示语正确、单一提示入口打开原弹窗且保留存量内容，参考/其他节点不回归。执行既有页面和共享组件Vitest、build（含vue-tsc）、git diff --check；组件DOM作为本次局部UI验收，不以其冒充真实浏览器或数据库验收。
+  - UI compliance: N0001/N0002/N0004/N0005/N1102-N1104；沿用T05蓝图/公共标题、选择框及操作栏，无新整页蓝图、设计体系或禁止项；Spec012业务任务不受影响。
+  - Evidence: `npm.cmd --prefix hr-portal/frontend test -- src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/PerformanceAssessmentContentLayers.spec.ts` 4文件113/113通过；`npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）通过，存在既有VueUse PURE注释提示；`git diff --check`通过。覆盖360邀请/确认共用组件、选择root后的“暂无可配置内容”、未选择时“暂未选择内容”、标题/root/item互斥、单提示入口、Tab切换和存量内容。未执行真实登录态浏览器截图、真实API/数据库验收或部署。
+  - Definition of done: 最小组件提炼、两处使用、组件DOM回归、类型检查/构建与证据已完成；真实浏览器、真实API数据库与部署不在本次范围。
+
 - [ ] PM-T004-T05 内容设置整体架构与空态还原
   - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。
   - Type: frontend/UI
