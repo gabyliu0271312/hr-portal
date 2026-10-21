@@ -70,6 +70,10 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 
 状态色需要浅底或边框时，使用 `--color-success-light`、`--color-success-border`、`--color-danger-light`、`--color-danger-border` 等配套 token。
 
+### 绩效内容配置选择态
+
+页面标题、内容块与题目统一复用 `PerformanceContentSelectionFrame.vue`：hover 使用 `--performance-content-hover-outline`（1px dashed）及 `--performance-content-hover-outline-offset`（-1px）；选中使用 `--performance-content-selected-shadow`（内嵌2px实线）。hover 不改变选中目标；点击时由页面协调标题与内容块互斥选中。
+
 ### 字体
 
 系统默认 sans-serif，不引入外部字体包。数字、编码、SQL、技术字段可用 `--font-mono`。

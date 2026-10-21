@@ -29,6 +29,7 @@ class WorkflowNode(BaseModel):
     node_id: str | None = Field(default=None, max_length=96)
     node_type: str = Field(..., min_length=1, max_length=48)
     name: str = Field(..., min_length=1, max_length=100)
+    content_page_name: str | None = Field(default=None, max_length=100)
     description: str = Field(default="", max_length=2000)
     order: int = Field(..., ge=1)
     executor_types: list[str] = Field(default_factory=list, max_length=32)
@@ -452,7 +453,7 @@ async def update_template_workflow(
     try:
         record = await service.save_nodes(
             template_id,
-            [node.model_dump() for node in payload.nodes],
+            [node.model_dump(exclude_unset=True) for node in payload.nodes],
             content_library=payload.content_library,
             actor_type=context.subject_type,
             actor_ref=str(context.subject_id),

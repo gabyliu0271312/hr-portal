@@ -23,7 +23,12 @@
     <aside class="text-normal" aria-label="内容设置">
       <div class="text-normal__title">内容设置</div>
       <div class="text-normal__divider" aria-hidden="true"></div>
-      <div v-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>暂未选择内容</span></div>
+      <div v-if="pageHeadingSelected" class="page-name-settings">
+        <label class="page-name-settings__label" for="content-page-name">页面名称<svg class="page-name-settings__required" viewBox="0 0 8 8" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.964 5.816L4.378 4.668l.17 1.935H3.456l.171-1.935L2.04 5.816l-.54-.984 1.757-.827L1.5 3.178l.54-.991 1.586 1.175-.17-1.962h1.093l-.171 1.962 1.586-1.175.54.99-1.75.828 1.75.827-.54.984z" /></svg></label>
+        <PerformanceTextField v-model="contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked" :invalid="Boolean(pageNameError)" />
+        <span v-if="pageNameError" class="page-name-settings__error" role="alert">{{ pageNameError }}</span>
+      </div>
+      <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>暂未选择内容</span></div>
     </aside>
 
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
@@ -37,11 +42,8 @@
           <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
         </section>
         <section v-else-if="isReviewerInvite" class="reviewer-360-invite-preview" aria-label="360°邀请环节预览">
-          <div class="reviewer-360-invite-preview__heading">
-            <div class="reviewer-360-invite-preview__heading-hover" aria-hidden="true"></div>
-            <h2>{{ selectedStageTitle }}</h2>
-          </div>
-          <PerformanceContentSelectionFrame variant="root" :selected="reviewerInvitePreviewSelected" class="reviewer-360-invite-preview__body" @click="reviewerInvitePreviewSelected = true">
+          <PerformanceTemplateSectionCard :title="contentPageName" :actions="[]" selectable :selected="pageHeadingSelected" @select="selectPageHeading" />
+          <PerformanceContentSelectionFrame variant="root" :selected="reviewerInvitePreviewSelected" class="reviewer-360-invite-preview__body" @click="selectReviewerInvitePreview">
             <div class="reviewer-360-invite-preview__content">
               <div class="reviewer-360-invite-preview__intro">
                 <div>通过「搜索」添加 360° 评估人</div>
@@ -68,7 +70,7 @@
             <PerformanceTemplateOperateBar :actions="summaryActions" @action="handleContentAction" />
           </div>
         </section>
-        <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" @action="handleContentAction" />
+        <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill'" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
           <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
@@ -87,7 +89,7 @@
                 :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
                 :root-settings-variant="activeStageContentRule.rootSettingsVariant"
                 :item-settings-variant="activeStageContentRule.itemSettingsVariant"
-                @activate="selectedConfiguredId = $event"
+                @activate="selectConfiguredContent"
                 @update:expanded="setConfiguredExpanded(content.id, $event)"
                 @update:root-settings="rootSettings[content.id] = $event"
                 @update:item-settings="setItemSettingsForContent(content.id, $event)"
@@ -133,6 +135,7 @@ import PerformanceAssessmentContentLayers, { type AssessmentContentDraft, type A
 import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
 import PerformanceTemplateOperateBar from '@/components/performance/PerformanceTemplateOperateBar.vue'
 import PerformanceContentSelectionFrame from '@/components/performance/PerformanceContentSelectionFrame.vue'
+import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
 import type { WorkSummaryRootSettings } from '@/components/performance/PerformanceWorkSummaryRootSettings.vue'
 import type { WorkSummaryItemSettings } from '@/components/performance/PerformanceWorkSummaryItemSettings.vue'
@@ -149,6 +152,8 @@ const activeTab = ref('fill')
 const loading = ref(false)
 const stages = ref<Array<{ id: string; nodeType: string; icon: string; title: string; executor: string }>>([])
 const workflowNodes = ref<PerformanceWorkflowNode[]>([])
+const pageNameLocked = ref(false)
+const pageNameError = ref('')
 const contentLibrary = ref<PerformanceTemplateContent[]>([])
 const ratingOptions = ref<AssessmentOption[]>([])
 const tagOptions = ref<AssessmentTagOption[]>([])
@@ -206,6 +211,15 @@ async function loadTagOptions() {
 }
 const selectedStageData = computed(() => stages.value.find((stage) => stage.id === selectedStage.value) || null)
 const selectedStageTitle = computed(() => selectedStageData.value?.title || '')
+const selectedWorkflowNode = computed(() => workflowNodes.value.find(node => node.node_id === selectedStage.value))
+const contentPageName = computed({
+  get: () => selectedWorkflowNode.value?.content_page_name ?? selectedStageTitle.value,
+  set: (value: string) => {
+    if (!selectedWorkflowNode.value || pageNameLocked.value) return
+    selectedWorkflowNode.value.content_page_name = value
+    pageNameError.value = ''
+  },
+})
 const isResultView = computed(() => selectedStageData.value?.nodeType === 'result_view')
 const isReviewerInvite = computed(() => selectedStageData.value?.nodeType === 'reviewer_360_invite' && activeTab.value === 'fill')
 const finalNode = computed(() => {
@@ -262,6 +276,25 @@ const configuredExpandedIds = ref<Set<string>>(new Set())
 const selectedConfiguredId = ref<string | null>(null)
 const configuredHoverKey = ref<string | null>(null)
 const reviewerInvitePreviewSelected = ref(false)
+const pageHeadingSelected = ref(false)
+function clearContentSelection() {
+  selectedConfiguredId.value = null
+  reviewerInvitePreviewSelected.value = false
+  pageHeadingSelected.value = false
+}
+function selectPageHeading() {
+  clearContentSelection()
+  pageHeadingSelected.value = true
+}
+function selectConfiguredContent(contentId: string) {
+  clearContentSelection()
+  selectedConfiguredId.value = contentId
+}
+function selectReviewerInvitePreview() {
+  clearContentSelection()
+  reviewerInvitePreviewSelected.value = true
+}
+watch([selectedStage, activeTab], () => { clearContentSelection(); pageNameError.value = '' })
 const rootSettings = ref<Record<string, WorkSummaryRootSettings>>({})
 const itemSettings = ref<Record<string, WorkSummaryItemSettings>>({})
 const contentIdentity = (content: PerformanceTemplateContent) => content.content_id || content.id || `${content.type}-${content.name}`
@@ -531,9 +564,20 @@ function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: Performan
 async function save() {
   if (!props.templateId) return
   syncSelectedStageContents()
-  const nodes = cloneContent(workflowNodes.value.map((node) => ({ ...node, content: node.content ? node.content.map((content) => ({ ...content, items: content.items || [] })) : [] })))
+  const invalidPage = workflowNodes.value.find(node => node.content_page_name != null && (!node.content_page_name.trim() || node.content_page_name.trim().length > 100))
+  if (invalidPage?.node_id) {
+    selectStage(invalidPage.node_id)
+    await nextTick()
+    selectPageHeading()
+    pageNameError.value = '页面名称长度必须为 1-100'
+    await nextTick()
+    document.getElementById('content-page-name')?.focus()
+    throw new Error(pageNameError.value)
+  }
+  const nodes = cloneContent(workflowNodes.value.map((node) => ({ ...node, ...(node.content_page_name != null ? { content_page_name: node.content_page_name.trim() } : {}), content: node.content ? node.content.map((content) => ({ ...content, items: content.items || [] })) : [] })))
   const response = await performanceTemplateApi.updateWorkflow(props.templateId, { nodes, content_library: cloneContent(contentLibrary.value) })
   applyWorkflowNodes(response.nodes || [], response.content_library || [])
+  pageNameLocked.value = (response.usage_summary?.cycle_count || 0) > 0 || response.editable_scope?.workflow === false
 }
 defineExpose({ save })
 onMounted(async () => {
@@ -541,7 +585,7 @@ onMounted(async () => {
   void loadRatingOptions()
   void loadTagOptions()
   loading.value = true
-  try { const data = await performanceTemplateApi.getWorkflow(props.templateId); applyWorkflowNodes(data.nodes || [], data.content_library || []) } finally { loading.value = false }
+  try { const data = await performanceTemplateApi.getWorkflow(props.templateId); applyWorkflowNodes(data.nodes || [], data.content_library || []); pageNameLocked.value = (data.usage_summary?.cycle_count || 0) > 0 || data.editable_scope?.workflow === false } finally { loading.value = false }
 })
 </script>
 
@@ -736,10 +780,6 @@ onMounted(async () => {
 .result-view-reference{display:flex;justify-content:space-between;align-items:center;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary)}
 .result-view-reference button{border:0;border-radius:var(--radius-sm);background:transparent;color:var(--performance-button-text-color);font:inherit;cursor:pointer}
 .reviewer-360-invite-preview{width:var(--performance-content-width);max-width:100%;color:var(--color-text-primary);font:400 14px/21px var(--font-sans)}
-.reviewer-360-invite-preview__heading{position:relative;height:58px;margin-bottom:12px;padding:16px 24px;box-sizing:border-box;border-radius:4px;background:var(--color-bg-card);cursor:pointer}
-.reviewer-360-invite-preview__heading h2{margin:0;font:600 18px/26px var(--font-sans)}
-.reviewer-360-invite-preview__heading-hover{position:absolute;inset:0;z-index:2;box-sizing:border-box;border:2px solid var(--performance-content-hover-border);border-radius:4px;opacity:0;pointer-events:none}
-.reviewer-360-invite-preview__heading:hover .reviewer-360-invite-preview__heading-hover{opacity:1}
 .reviewer-360-invite-preview__body{position:relative;background:var(--color-bg-card);border-radius:4px;cursor:pointer}
 .reviewer-360-invite-preview__content{padding:24px 24px 0;pointer-events:none}
 .reviewer-360-invite-preview__intro{margin-bottom:8px}
@@ -783,6 +823,9 @@ onMounted(async () => {
 }
 
 .text-normal__divider {
+  position: relative;
+  z-index: 31;
+  pointer-events: none;
   width: 100%;
   height: var(--hairline);
   margin: 0 0 20px;
@@ -790,6 +833,12 @@ onMounted(async () => {
   background: rgba(31, 35, 41, 0.15);
 }
 
+.page-name-settings{padding:4px 24px 0;color:#1f2329;font:400 14px/22px var(--font-sans)}
+.page-name-settings__label{display:block;min-width:0;margin-bottom:8px;font-weight:600;line-height:22px}
+.page-name-settings__required{display:inline;width:8px;height:8px;margin:4px 0 4px 2px;vertical-align:text-bottom;fill:var(--color-text-danger-strong)}
+.page-name-settings :deep(.native-input){font:400 14px/22px var(--font-sans)}
+.page-name-settings :deep(.feishu-input-wrap:has(.error)){border-color:var(--performance-field-border-invalid)}
+.page-name-settings__error{display:block;margin-top:4px;color:var(--performance-field-error-color);font-size:14px;line-height:22px}
 .text-normal__body { margin-top: 212px; color: #8f959e; font-size: 14px; line-height: 22px; text-align: center; }
 .configured-content-section { width: var(--performance-content-width); max-width: 100%; margin: 0; padding: 0; border: 0; border-radius: 4px; background: #fff; overflow: visible; }
 .configured-content-sortable-list { width: 100%; }

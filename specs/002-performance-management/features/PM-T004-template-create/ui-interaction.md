@@ -186,6 +186,16 @@
 
 - 容器验证：2026-10-21在现有Docker多阶段构建内编译并仅替换本地frontend；镜像 `sha256:561d35b19b604a3d7d4b226c9abb51f0b5cc8cbaa7edb9ef8781a3d37d0a30e2`，running/restarts=0，nginx配置有效，端口8080。页面及模板JS/CSS均HTTP200，已从HTTP资源核验custom-text、hideName及隐藏label的CSS；未登录API401。后端/数据库/Gotenberg未替换。没有实际登录态交互截图或真实保存重开证据，不将静态资源验证冒充UI验收。
 
+## 页面标题选择与名称保存（PM-T004-T05-F06，2026-10-21）
+
+- 本次用户确认优先于F02/F05旧记录：配置填写内容标题可以选中，hover为1px虚线、选中为2px实线；标题与内容root、item、邀请预览主体互斥。统一复用PerformanceContentSelectionFrame与tokens.css的hover-outline/hover-outline-offset/selected-shadow，不保留标题独立实线hover层。切换环节或Tab清空选中；hover不切换选中目标。
+- 选中标题后，右侧“内容设置”展示必填“页面名称”：label为14px/600/22px、下间距8px，红色必填SVG为8px；输入复用PerformanceTextField的feishu-input，高30px、padding 4px 8px 4px 11px、宽随272px面板内容区。标题支持点击及Enter/Space选择。
+- 页面名称独立于流程环节名称和内容块名称。现有workflow GET/PATCH新增可选content_page_name:string|null，缺省/null使用node.name；仅fill页使用该值，reference/adjustment与固定result_view标题“绩效结果”不变。显式名称trim后1–100字符，空白不能保存，定位到出错节点和输入框；保存失败保留输入，父向导不跳转。
+- 值保存在既有nodes JSONB，GET重新打开回显；流程设置再次保存需保留。旧客户端省略新字段保留存量值，显式null恢复默认。沿用performance.configuration.manage权限、审计事务和已使用模板409 TEMPLATE_WORKFLOW_LOCKED，不改历史周期快照或新增migration。
+- UI合规关联Spec012 N0001/N0002/N0004/N0005/N1102-N1104；沿用T05三栏蓝图，不新增整页蓝图或设计体系。实现态PNG目标../../ui-blueprints/PM-T004-T05-F06-implemented-page-name.png，未取得不作为完成证据。
+- 追加确认：选中内容块root或题目item时，右侧“内容设置”标题下同一根公共分隔线保持可见，不被固定定位的设置表单遮住；标题/root/item切换不重复生成分隔线，不改变互斥选中、表单或保存行为。
+- 最终验证：前端五文件106/106、后端页面名称专项20/20和完整workflow129/129通过；前端build含类型检查通过。先前测试源码读取和类型断言错误已修复。浏览器实际交互/PNG及真实DB保存重开未执行，F06保留未勾选；未更新容器或部署。
+
 ## 环节独立内容与统一能力（PM-T004-T05-F07，2026-10-21）
 
 - 用户明确：题目名称、提示、选项及显示/填写/必填设置均由各环节独立维护，不属于共享定义变更。选择已有内容只复制初始结构；节点content是局部权威，content_library仅种子及旧binding补齐来源，不用局部副本覆盖已有库。

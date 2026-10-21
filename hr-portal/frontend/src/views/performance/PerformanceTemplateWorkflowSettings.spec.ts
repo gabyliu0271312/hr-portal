@@ -83,14 +83,14 @@ describe('PerformanceTemplateWorkflowSettings', () => {
         executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: 'SINGLE',
         include_final_result: true, system: false, allow_invite_other_executors: false,
         invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false,
-        subject_confirm_required: true,
+        subject_confirm_required: true, content_page_name: '自定义填写页面',
       },
       {
         node_id: 'result-view-1', node_type: 'result_view', name: '绩效结果查看环节', description: '', order: 2,
         executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: null,
         include_final_result: false, system: true, allow_invite_other_executors: false,
         invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false,
-        subject_confirm_required: true,
+        subject_confirm_required: true, content_page_name: '自定义填写页面',
       },
     ]
     vi.spyOn(performanceTemplateApi, 'getWorkflow').mockResolvedValue({
@@ -106,6 +106,8 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     expect(wrapper.get('.subject-confirm-setting .performance-switch').attributes('aria-checked')).toBe('true')
     await (wrapper.vm as unknown as { save: () => Promise<void> }).save()
 
+    expect(updateSpy.mock.calls[0][1].nodes[0].content_page_name).toBe('自定义填写页面')
+    expect(updateSpy.mock.calls[0][1].nodes[1].content_page_name).toBe('自定义填写页面')
     expect(updateSpy.mock.calls[0][1].nodes[0].subject_confirm_required).toBe(false)
     expect(updateSpy.mock.calls[0][1].nodes[1]).toMatchObject({
       executor_label: '被评估人', executor_types: ['SUBJECT'], subject_confirm_required: true,

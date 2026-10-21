@@ -22,8 +22,9 @@ withDefaults(defineProps<{
 <style scoped>
 .performance-content-selection-frame {
   position: relative;
-  outline: 1px dashed transparent;
-  outline-offset: -1px;
+  outline: var(--performance-content-hover-outline);
+  outline-color: transparent;
+  outline-offset: var(--performance-content-hover-outline-offset);
 }
 .performance-content-selection-frame--root:hover:not(:has(.performance-content-selection-frame--item:hover)),
 .performance-content-selection-frame--item:hover {

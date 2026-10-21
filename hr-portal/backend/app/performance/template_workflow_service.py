@@ -119,6 +119,18 @@ def _merge_content_library(library: list[dict], contents: list[dict]) -> list[di
     return list(merged.values())
 
 
+def _normalize_content_page_name(node: dict, node_id: str) -> str | None:
+    if "content_page_name" not in node or node.get("content_page_name") is None:
+        return None
+    content_page_name = str(node["content_page_name"]).strip()
+    if not content_page_name or len(content_page_name) > 100:
+        raise TemplateWorkflowValidationError(
+            "页面名称长度必须为 1-100",
+            node_id=node_id,
+        )
+    return content_page_name
+
+
 def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
     if not nodes:
         raise TemplateWorkflowValidationError("流程至少需要一个评估型环节")
@@ -136,6 +148,7 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
         name = str(node.get("name") or "").strip()
         if not name or len(name) > 100:
             raise TemplateWorkflowValidationError("环节名称长度必须为 1-100", node_id=node_id)
+        content_page_name = _normalize_content_page_name(node, node_id)
         description = str(node.get("description") or "")
         if len(description) > 2000:
             raise TemplateWorkflowValidationError("环节描述最多 2000 个字符", node_id=node_id)
@@ -180,6 +193,7 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
                 "node_id": node_id,
                 "node_type": node_type,
                 "name": name,
+                "content_page_name": content_page_name,
                 "description": description,
                 "order": index + 1,
                 "executor_types": ["SUBJECT"] if is_fixed_subject else executor_types,
@@ -361,6 +375,15 @@ class PerformanceTemplateWorkflowService:
         if sum(node["include_final_result"] for node in normalized) != 1:
             raise TemplateWorkflowValidationError("请且仅请选择一个环节作为最终结果")
         record = await self.get_record(template_id)
+        existing_nodes = {
+            str(node.get("node_id")): node
+            for node in (record.nodes if record is not None else [])
+            if node.get("node_id")
+        }
+        for raw_node, node in zip(nodes, normalized):
+            existing_node = existing_nodes.get(node["node_id"])
+            if "content_page_name" not in raw_node and existing_node is not None:
+                node["content_page_name"] = _normalize_content_page_name(existing_node, node["node_id"])
         existing_library = getattr(record, "content_library", None) if record is not None else []
         library = normalize_content_library(content_library or [])
         source_library = _merge_content_library(library, existing_library or [])

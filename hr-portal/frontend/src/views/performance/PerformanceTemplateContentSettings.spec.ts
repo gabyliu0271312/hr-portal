@@ -5,6 +5,12 @@ import PerformanceAssessmentContentLayers from '@/components/performance/Perform
 import PerformanceRatingControl from '@/components/performance/PerformanceRatingControl.vue'
 import PerformancePromptModal from '@/components/performance/PerformancePromptModal.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
+import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
+import PerformanceContentSelectionFrame from '@/components/performance/PerformanceContentSelectionFrame.vue'
+import selectionFrameSource from '@/components/performance/PerformanceContentSelectionFrame.vue?raw'
+import contentSettingsSource from './PerformanceTemplateContentSettings.vue?raw'
+import configuredBlockSource from '@/components/performance/PerformanceConfiguredContentBlock.vue?raw'
+import { readFileSync } from 'node:fs'
 import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi } from '@/api/performance'
 
 const mockNodes = [
@@ -35,6 +41,103 @@ describe('PerformanceTemplateContentSettings', () => {
   afterEach(() => {
     document.body.innerHTML = ''
     vi.restoreAllMocks()
+  })
+
+  it('shares dashed hover and solid selection tokens between headings and content blocks', async () => {
+    const tokenSource = readFileSync('src/styles/tokens.css', 'utf8')
+    expect(tokenSource).toContain('--performance-content-hover-outline: 1px dashed var(--performance-content-hover-border)')
+    expect(selectionFrameSource).toContain('outline: var(--performance-content-hover-outline)')
+    expect(selectionFrameSource).toContain('box-shadow: var(--performance-content-selected-shadow)')
+    expect(contentSettingsSource.replace(/\r\n/g, '\n')).toContain('.text-normal__divider {\n  position: relative;\n  z-index: 31;')
+    expect(configuredBlockSource).toContain('position:fixed;top:104px')
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{ content_id: 'block', type: 'work_summary', name: '内容块', description: '', items: [{ id: 'item', label: '问题', hint: '' }] }])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAllComponents(PerformanceContentSelectionFrame)).toHaveLength(3)
+    const divider = wrapper.get('.text-normal__divider').element
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    expect(wrapper.get('.text-normal__divider').element).toBe(divider)
+    expect(wrapper.find('.content-settings-detail--root').exists()).toBe(true)
+    await wrapper.get('.template-section__heading').trigger('click')
+    expect(wrapper.findAll('.performance-content-selection-frame.is-selected')).toHaveLength(1)
+    expect(wrapper.get('.template-section__heading').classes()).toContain('is-selected')
+    expect(wrapper.find('.content-settings-detail--root').exists()).toBe(false)
+    await wrapper.get('[data-content-item-id="item"]').trigger('click')
+    expect(wrapper.findAll('.performance-content-selection-frame.is-selected')).toHaveLength(1)
+    expect(wrapper.get('.template-section__heading').classes()).not.toContain('is-selected')
+    expect(wrapper.find('.page-name-settings').exists()).toBe(false)
+    await wrapper.get('.template-section__heading').trigger('keydown', { key: 'Enter' })
+    expect(wrapper.findAll('.performance-content-selection-frame.is-selected')).toHaveLength(1)
+    expect(wrapper.get('.template-section__heading').attributes('aria-pressed')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it('edits only the page name, preserves it per node, and reopens the saved payload', async () => {
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    await wrapper.get('.template-section__heading').trigger('click')
+    const input = wrapper.getComponent(PerformanceTextField)
+    expect(input.props('variant')).toBe('feishu-input')
+    expect(input.props('modelValue')).toBe('工作总结环节')
+    await input.get('input').setValue('  本季度工作总结  ')
+    expect(wrapper.get('.template-section__title').text()).toBe('本季度工作总结')
+    expect(wrapper.findAll('.stage-card__title')[0].text()).toBe('工作总结环节')
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    expect(wrapper.find('.page-name-settings').exists()).toBe(false)
+    expect(wrapper.get('.template-section__title').text()).toBe('360°确认环节')
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    expect(wrapper.get('.template-section__title').text()).toBe('本季度工作总结')
+    await (wrapper.vm as any).save()
+    const payload = update.mock.calls[0][1]
+    expect(payload.nodes[0]).toMatchObject({ name: '工作总结环节', content_page_name: '本季度工作总结' })
+    expect(payload.nodes[2].content_page_name).toBeUndefined()
+    expect(payload.content_library).toEqual([])
+    expect(wrapper.get('.template-section__title').text()).toBe('本季度工作总结')
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(payload as any)
+    const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await reopened.findAll('.stage-card')[0].trigger('click')
+    await reopened.get('.template-section__heading').trigger('click')
+    expect((reopened.get('#content-page-name').element as HTMLInputElement).value).toBe('本季度工作总结')
+    reopened.unmount()
+  })
+
+  it('blocks empty page names, locates the invalid node, and retains input after API failure', async () => {
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockRejectedValue(new Error('保存失败'))
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    await wrapper.get('.template-section__heading').trigger('click')
+    await wrapper.get('#content-page-name').setValue(' ')
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    await expect((wrapper.vm as any).save()).rejects.toThrow('页面名称长度必须为 1-100')
+    expect(update).not.toHaveBeenCalled()
+    expect(wrapper.get('.page-name-settings__error').text()).toBe('页面名称长度必须为 1-100')
+    expect(wrapper.get('.stage-card.selected .stage-card__title').text()).toBe('工作总结环节')
+    await wrapper.get('#content-page-name').setValue('待保存页面')
+    await expect((wrapper.vm as any).save()).rejects.toThrow('保存失败')
+    expect(wrapper.get('.template-section__title').text()).toBe('待保存页面')
+    expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('待保存页面')
+    wrapper.unmount()
+  })
+
+  it('clears selection on tab changes and disables names on used templates', async () => {
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: mockNodes, usage_summary: { cycle_count: 1, project_count: 0 } } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    await wrapper.get('.template-section__heading').trigger('click')
+    expect(wrapper.get('#content-page-name').attributes('disabled')).toBeDefined()
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    expect(wrapper.find('.page-name-settings').exists()).toBe(false)
+    await wrapper.findAll('.content-tab')[0].trigger('click')
+    expect(wrapper.get('.template-section__heading').classes()).not.toContain('is-selected')
+    wrapper.unmount()
   })
 
   it('shows rating item display settings inside a work-summary stage', async () => {
@@ -202,14 +305,15 @@ describe('PerformanceTemplateContentSettings', () => {
     await flushPromises()
     await wrapper.findAll('.stage-card')[1].trigger('click')
     const preview = wrapper.get('.reviewer-360-invite-preview')
-    expect(preview.get('h2').text()).toBe('360°邀请环节')
-    expect(wrapper.get('.reviewer-360-invite-preview__heading').classes()).not.toContain('is-selected')
+    expect(preview.get('.template-section__title').text()).toBe('360°邀请环节')
+    expect(wrapper.get('.template-section__heading').classes()).not.toContain('is-selected')
     expect(wrapper.get('.reviewer-360-invite-preview__body').classes()).not.toContain('is-selected')
-    await wrapper.get('.reviewer-360-invite-preview__heading').trigger('click')
-    expect(wrapper.get('.reviewer-360-invite-preview__heading').classes()).not.toContain('is-selected')
+    await wrapper.get('.template-section__heading').trigger('click')
+    expect(wrapper.get('.template-section__heading').classes()).toContain('is-selected')
+    expect(wrapper.get('.page-name-settings').text()).toContain('页面名称')
     expect(wrapper.get('.reviewer-360-invite-preview__body').classes()).not.toContain('is-selected')
     await wrapper.get('.reviewer-360-invite-preview__body').trigger('click')
-    expect(wrapper.get('.reviewer-360-invite-preview__heading').classes()).not.toContain('is-selected')
+    expect(wrapper.get('.template-section__heading').classes()).not.toContain('is-selected')
     expect(wrapper.get('.reviewer-360-invite-preview__body').classes()).toContain('is-selected')
     expect(preview.get('.reviewer-360-invite-preview__intro').text()).toBe('通过「搜索」添加 360° 评估人已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。')
     expect(preview.get('.reviewer-360-invite-preview__search').text()).toBe('搜索成员')
@@ -218,7 +322,8 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(preview.findAll('tr').map(row => row.findAll('td').map(cell => cell.text()))).toEqual([
       ['相同上级同事', ''], ['不同上级同事', ''], ['虚线上级', ''], ['直属下级', ''],
     ])
-    expect(preview.findAll('input, textarea, select, [tabindex]')).toHaveLength(0)
+    expect(preview.findAll('input, textarea, select')).toHaveLength(0)
+    expect(preview.get('[tabindex="0"]').attributes('aria-label')).toBe('选择页面标题')
     expect(preview.findAll('button')).toHaveLength(1)
     expect(preview.get('button').text()).toBe('添加提示')
     await preview.get('button').trigger('click')
@@ -517,6 +622,56 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.get('.configured-content-panel').text()).toContain('OKR')
   })
 
+  it('keeps same-id node definitions and nested settings independent from library seeds through save and reopen', async () => {
+    const seed = { content_id: 'shared', type: 'custom', name: '初始种子', description: '种子描述', settings: { customRoot: { source: 'seed' } }, items: [{ id: 'item', label: '种子题目', hint: '种子提示', questionType: 'tag', options: [{ id: 'tag', label: '种子标签' }], settings: { customItem: { source: 'seed' } } }] }
+    const second = { ...seed, name: '第二环节独立定义', items: [{ ...seed.items[0], label: '第二环节题目', options: [{ id: 'tag', label: '第二环节标签' }], settings: { customItem: { source: 'second' } } }] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [
+      { ...mockNodes[0], node_id: 'first', content_bindings: { fill: ['shared'] } },
+      { ...mockNodes[0], node_id: 'second', content: [second], content_bindings: { fill: ['shared'] } },
+      { ...mockNodes[0], node_id: 'third', content_bindings: { fill: ['shared'] } },
+    ], content_library: [seed] } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    const block = wrapper.getComponent(PerformanceConfiguredContentBlock)
+    const local = block.props('content') as any
+    local.name = '第一环节独立定义'
+    local.items[0].label = '第一环节题目'
+    local.items[0].options[0].label = '第一环节标签'
+    ;(block.props('rootSettings') as any).customRoot.source = 'first'
+    ;(block.props('itemSettings').item as any).customItem.source = 'first'
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    await wrapper.findAll('.content-settings-detail--root input[type="checkbox"]')[0].setValue(true)
+    await wrapper.get('[data-content-item-id="item"]').trigger('click')
+    await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(false)
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.get('.configured-content-card').text()).toContain('第二环节独立定义')
+    expect(wrapper.get('.tag-options').text()).toBe('第二环节标签')
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    expect(wrapper.get('.configured-content-card').text()).toContain('初始种子')
+    expect(wrapper.get('.tag-options').text()).toBe('种子标签')
+    await (wrapper.vm as any).save()
+    const payload = update.mock.calls[0][1]
+    expect(payload.content_library![0]).toMatchObject(seed)
+    const first = payload.nodes[0].content![0] as any
+    expect(first).toMatchObject({ content_id: 'shared', name: '第一环节独立定义', settings: { hideDescription: true, allowMultiple: false, customRoot: { source: 'first' } } })
+    expect(first.items[0]).toMatchObject({ label: '第一环节题目', options: [{ id: 'tag', label: '第一环节标签' }], settings: { mode: 'fill', required: false, hideName: false, customItem: { source: 'first' } } })
+    expect(payload.nodes[1].content![0]).toMatchObject(second)
+    expect(payload.nodes[2].content![0]).toMatchObject(seed)
+    expect(seed.items[0].options[0].label).toBe('种子标签')
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(payload as any)
+    const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    for (const [index, name, tag] of [[0, '第一环节独立定义', '第一环节标签'], [1, '第二环节独立定义', '第二环节标签'], [2, '初始种子', '种子标签']] as const) {
+      await reopened.findAll('.stage-card')[index].trigger('click')
+      expect(reopened.get('.configured-content-card').text()).toContain(name)
+      expect(reopened.get('.tag-options').text()).toBe(tag)
+    }
+    reopened.unmount()
+  })
+
   it('hides the reference entry bar once reference content is configured', async () => {
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
       nodes: [{ ...mockNodes[3], content: [{ content_id: 'ref-1', content_slot: 'reference', type: 'custom', name: '参考材料', description: '', items: [] }] }],
@@ -641,56 +796,6 @@ describe('PerformanceTemplateContentSettings', () => {
     await reopened.findAll('.stage-card')[3].trigger('click')
     expect(reopened.find('.configured-content-panel').text()).toContain('重开总结')
     expect(reopened.find('.configured-content-panel').text()).toContain('重开填写项')
-  })
-
-  it('keeps same-id node definitions and nested settings independent from library seeds through save and reopen', async () => {
-    const seed = { content_id: 'shared', type: 'custom', name: '初始种子', description: '种子描述', settings: { customRoot: { source: 'seed' } }, items: [{ id: 'item', label: '种子题目', hint: '种子提示', questionType: 'tag', options: [{ id: 'tag', label: '种子标签' }], settings: { customItem: { source: 'seed' } } }] }
-    const second = { ...seed, name: '第二环节独立定义', items: [{ ...seed.items[0], label: '第二环节题目', options: [{ id: 'tag', label: '第二环节标签' }], settings: { customItem: { source: 'second' } } }] }
-    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [
-      { ...mockNodes[0], node_id: 'first', content_bindings: { fill: ['shared'] } },
-      { ...mockNodes[0], node_id: 'second', content: [second], content_bindings: { fill: ['shared'] } },
-      { ...mockNodes[0], node_id: 'third', content_bindings: { fill: ['shared'] } },
-    ], content_library: [seed] } as any)
-    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
-    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
-    await flushPromises()
-    await wrapper.findAll('.stage-card')[0].trigger('click')
-    const block = wrapper.getComponent(PerformanceConfiguredContentBlock)
-    const local = block.props('content') as any
-    local.name = '第一环节独立定义'
-    local.items[0].label = '第一环节题目'
-    local.items[0].options[0].label = '第一环节标签'
-    ;(block.props('rootSettings') as any).customRoot.source = 'first'
-    ;(block.props('itemSettings').item as any).customItem.source = 'first'
-    await wrapper.get('.configured-content-card__row').trigger('click')
-    await wrapper.findAll('.content-settings-detail--root input[type="checkbox"]')[0].setValue(true)
-    await wrapper.get('[data-content-item-id="item"]').trigger('click')
-    await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(false)
-    await wrapper.findAll('.stage-card')[1].trigger('click')
-    expect(wrapper.get('.configured-content-card').text()).toContain('第二环节独立定义')
-    expect(wrapper.get('.tag-options').text()).toBe('第二环节标签')
-    await wrapper.findAll('.stage-card')[2].trigger('click')
-    expect(wrapper.get('.configured-content-card').text()).toContain('初始种子')
-    expect(wrapper.get('.tag-options').text()).toBe('种子标签')
-    await (wrapper.vm as any).save()
-    const payload = update.mock.calls[0][1]
-    expect(payload.content_library![0]).toMatchObject(seed)
-    const first = payload.nodes[0].content![0] as any
-    expect(first).toMatchObject({ content_id: 'shared', name: '第一环节独立定义', settings: { hideDescription: true, allowMultiple: false, customRoot: { source: 'first' } } })
-    expect(first.items[0]).toMatchObject({ label: '第一环节题目', options: [{ id: 'tag', label: '第一环节标签' }], settings: { mode: 'fill', required: false, hideName: false, customItem: { source: 'first' } } })
-    expect(payload.nodes[1].content![0]).toMatchObject(second)
-    expect(payload.nodes[2].content![0]).toMatchObject(seed)
-    expect(seed.items[0].options[0].label).toBe('种子标签')
-    wrapper.unmount()
-    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(payload as any)
-    const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
-    await flushPromises()
-    for (const [index, name, tag] of [[0, '第一环节独立定义', '第一环节标签'], [1, '第二环节独立定义', '第二环节标签'], [2, '初始种子', '种子标签']] as const) {
-      await reopened.findAll('.stage-card')[index].trigger('click')
-      expect(reopened.get('.configured-content-card').text()).toContain(name)
-      expect(reopened.get('.tag-options').text()).toBe(tag)
-    }
-    reopened.unmount()
   })
 
   it('scopes root and item selection to the rendered content card', async () => {

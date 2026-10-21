@@ -1112,6 +1112,7 @@ export interface PerformanceTemplateContent {
 
 export interface PerformanceWorkflowNode {
   node_id: string | null
+  content_page_name?: string | null
   node_type: string
   name: string
   description: string

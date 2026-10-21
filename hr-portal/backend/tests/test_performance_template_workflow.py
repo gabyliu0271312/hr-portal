@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI, HTTPException, status
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext
@@ -1085,3 +1086,179 @@ def test_workflow_accepts_more_than_nine_nodes():
 
     assert len(normalized) == 10
     assert [node["order"] for node in normalized] == list(range(1, 11))
+
+
+@pytest.mark.parametrize("page_name", [None, "页面名称", "字" * 100])
+def test_content_page_name_dto_accepts_nullable_name_with_max_length(page_name):
+    node = WorkflowNode.model_validate({
+        **_evaluation("evaluation-1", "实线上级"), "content_page_name": page_name,
+    })
+
+    assert node.content_page_name == page_name
+    assert node.model_dump(exclude_unset=True)["content_page_name"] == page_name
+
+
+def test_content_page_name_dto_distinguishes_omission_from_explicit_null():
+    node = WorkflowNode.model_validate(_evaluation("evaluation-1", "实线上级"))
+
+    assert node.content_page_name is None
+    assert node.model_dump()["content_page_name"] is None
+    assert "content_page_name" not in node.model_dump(exclude_unset=True)
+    with pytest.raises(ValidationError):
+        WorkflowNode.model_validate({**node.model_dump(), "content_page_name": "字" * 101})
+
+
+@pytest.mark.parametrize("page_name", [None, "  页面名称 \t", "字" * 100])
+def test_content_page_name_normalization_is_independent_of_node_and_content_names(page_name):
+    raw = {
+        **_evaluation("evaluation-1", "实线上级"),
+        "name": "环节名称",
+        "content_page_name": page_name,
+        "content": [{"id": "content-1", "name": "内容名称", "items": []}],
+    }
+
+    node = normalize_workflow_nodes([raw])[0]
+
+    assert node["content_page_name"] == (page_name.strip() if page_name is not None else None)
+    assert node["name"] == "环节名称"
+    assert node["content"][0]["name"] == "内容名称"
+    assert raw["content_page_name"] == page_name
+    assert normalize_workflow_nodes([_evaluation("legacy", "实线上级")])[0]["content_page_name"] is None
+
+
+@pytest.mark.parametrize("page_name", ["", " \t\n ", "字" * 101])
+def test_content_page_name_normalization_rejects_empty_or_overlong_name(page_name):
+    with pytest.raises(TemplateWorkflowValidationError, match="页面名称长度必须为 1-100") as exc:
+        normalize_workflow_nodes([{
+            **_evaluation("evaluation-1", "实线上级"), "content_page_name": page_name,
+        }])
+
+    assert exc.value.node_id == "evaluation-1"
+
+
+@pytest.mark.asyncio
+async def test_content_page_name_service_save_reopen_and_audit(workflow_save_setup):
+    service, db = workflow_save_setup
+    raw = {
+        **_evaluation("evaluation-1", "实线上级"), "include_final_result": True,
+        "content_page_name": "  自定义页面  ",
+        "content": [{"id": "content-1", "name": "内容名称", "items": []}],
+    }
+
+    record = await service.save_nodes(77, [raw], actor_type="PORTAL_USER", actor_ref="9")
+    db.workflow = record
+    record.cycle_count = 0
+    record.project_count = 0
+    reopened, _, _ = await service.get_nodes(77)
+
+    assert record.nodes[0]["content_page_name"] == "自定义页面"
+    assert reopened[0]["content_page_name"] == "自定义页面"
+    assert reopened[0]["name"] == "evaluation-1"
+    assert reopened[0]["content"][0]["name"] == "内容名称"
+    assert db.commits == 1
+    assert len(db.added) == 2
+    audit = db.added[1]
+    assert audit.event_type == "PERFORMANCE_TEMPLATE_WORKFLOW_UPDATED"
+    assert audit.before_state == {"nodes": []}
+    assert audit.after_state["nodes"][0]["content_page_name"] == "自定义页面"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_null", [False, True])
+async def test_content_page_name_service_omission_preserves_and_null_resets(workflow_save_setup, explicit_null):
+    service, db = workflow_save_setup
+    old = {
+        **_evaluation("evaluation-1", "实线上级"), "include_final_result": True,
+        "content_page_name": "已有页面名称",
+    }
+    db.workflow = PerformanceTemplateWorkflow(
+        template_id=77, nodes=[old], content_library=[], cycle_count=0, project_count=0,
+    )
+    incoming = {**_evaluation("evaluation-1", "实线上级"), "include_final_result": True, "name": "新环节名称"}
+    if explicit_null:
+        incoming["content_page_name"] = None
+
+    record = await service.save_nodes(77, [incoming], actor_type="PORTAL_USER", actor_ref="9")
+    reopened, _, _ = await service.get_nodes(77)
+    expected = None if explicit_null else "已有页面名称"
+
+    assert record.nodes[0]["content_page_name"] == expected
+    assert reopened[0]["content_page_name"] == expected
+    assert reopened[0]["name"] == "新环节名称"
+    assert db.added[0].before_state["nodes"][0]["content_page_name"] == "已有页面名称"
+    assert db.added[0].after_state["nodes"][0]["content_page_name"] == expected
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_content_page_name_patch_get_preserves_omitted_and_resets_null(workflow_save_setup, monkeypatch):
+    service, db = workflow_save_setup
+    final = {**_evaluation("evaluation-1", "实线上级"), "include_final_result": True}
+    legacy = _evaluation("legacy", "被评估人")
+    db.workflow = PerformanceTemplateWorkflow(
+        template_id=77, nodes=[final, legacy], content_library=[], cycle_count=0, project_count=0,
+    )
+    monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
+    for supplied, expected in (({"content_page_name": "  页面一  "}, "页面一"), ({}, "页面一"), ({"content_page_name": None}, None)):
+        payload = WorkflowUpdate.model_validate({"nodes": [{**final, **supplied}, legacy]})
+        patched = await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+        fetched = await templates_router.get_template_workflow(77, _template_admin_context(), db)
+
+        assert patched.model_dump()["nodes"][0]["content_page_name"] == expected
+        assert fetched.model_dump()["nodes"][0]["content_page_name"] == expected
+        assert fetched.model_dump()["nodes"][1]["content_page_name"] is None
+        assert fetched.nodes[0].name == final["name"]
+    assert db.commits == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page_name", ["", " \t\n ", "字" * 101])
+async def test_content_page_name_service_rejects_without_write(workflow_save_setup, page_name):
+    service, db = workflow_save_setup
+    old = {**_evaluation("evaluation-1", "实线上级"), "include_final_result": True, "content_page_name": "原页面"}
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[old], content_library=[])
+
+    with pytest.raises(TemplateWorkflowValidationError):
+        await service.save_nodes(77, [{**old, "content_page_name": page_name}], actor_type="PORTAL_USER", actor_ref="9")
+
+    assert db.workflow.nodes == [old]
+    assert db.added == []
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page_name", ["", " \t "])
+async def test_content_page_name_patch_rejects_blank_with_canonical_422(workflow_save_setup, monkeypatch, page_name):
+    service, db = workflow_save_setup
+    monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
+    payload = WorkflowUpdate.model_validate({"nodes": [{
+        **_evaluation("evaluation-1", "实线上级"), "include_final_result": True, "content_page_name": page_name,
+    }]})
+
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+
+    assert exc.value.status_code == 422
+    assert exc.value.detail == {
+        "code": "TEMPLATE_WORKFLOW_INVALID", "message": "页面名称长度必须为 1-100", "node_id": "evaluation-1",
+    }
+    assert db.added == []
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_content_page_name_patch_keeps_cycle_used_workflow_locked(workflow_save_setup, monkeypatch):
+    service, db = workflow_save_setup
+    old = {**_evaluation("evaluation-1", "实线上级"), "include_final_result": True, "content_page_name": "原页面"}
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[old], content_library=[], cycle_count=1, project_count=0)
+    monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
+    payload = WorkflowUpdate.model_validate({"nodes": [{**old, "content_page_name": "新页面"}]})
+
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "TEMPLATE_WORKFLOW_LOCKED"
+    assert db.workflow.nodes == [old]
+    assert db.added == []
+    assert db.commits == 0
