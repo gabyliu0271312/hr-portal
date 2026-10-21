@@ -17,7 +17,14 @@
   --color-action-primary: var(--color-primary);
   --color-action-primary-hover: var(--color-primary-hover);
 
-  /* Performance shared component tokens */
+  /* Shared performance content option cards */
+  --performance-content-option-card-min-height: 54px;
+  --performance-content-option-card-padding-inline: 16px;
+  --performance-content-option-card-gap: 12px;
+  --performance-content-option-card-radius: 6px;
+  --performance-content-option-card-border: #dee0e3;
+  --performance-content-option-card-background: transparent;
+  --performance-content-option-card-list-gap: 12px;
   --performance-content-surface-padding: var(--spacing-5);
   --performance-content-surface-radius: var(--radius-lg);
   --performance-content-surface-background: var(--color-surface-card);

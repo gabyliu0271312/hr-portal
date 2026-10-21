@@ -3,6 +3,7 @@ import { beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import PerformanceReferenceContentDrawer from './PerformanceReferenceContentDrawer.vue'
+import optionCardSource from './PerformanceContentOptionCard.vue?raw'
 
 const componentSource = readFileSync(resolve(__dirname, 'PerformanceReferenceContentDrawer.vue'), 'utf8')
 
@@ -89,6 +90,8 @@ describe('PerformanceReferenceContentDrawer', () => {
   })
 
   it('encodes the captured CSS contract for panel, cards, checkbox and footer buttons', () => {
+    expect(optionCardSource).toContain('min-height: var(--performance-content-option-card-min-height)')
+    expect(componentSource).toContain('PerformanceContentOptionCard')
     expect(componentSource).not.toBe('')
     const css = componentSource.replace(/\s+/g, ' ')
     const expectations = [
@@ -100,7 +103,7 @@ describe('PerformanceReferenceContentDrawer', () => {
       'min-height: 54px;',
       'padding-top: 12px; padding-bottom: 12px;',
       'border: 1px solid #dee0e3;',
-      'gap: 12px;',
+      'gap: var(--performance-content-option-card-list-gap);',
       '.reference-option-card:hover { border-color: #3370ff; }',
       'border: 1px solid #8f959e;',
       'border-radius: 4px;',

@@ -2,6 +2,7 @@ import { mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import PerformanceAssessmentContentLayers, { type AssessmentOption, type AssessmentTagOption } from './PerformanceAssessmentContentLayers.vue'
 import layersSource from './PerformanceAssessmentContentLayers.vue?raw'
+import optionCardSource from './PerformanceContentOptionCard.vue?raw'
 
 const ratingOptions: AssessmentOption[] = [
   { id: 'duplicate', label: '绩效评级', description: '7档绩效等级', disabled: true, disabledReason: '模板中已存在该评估项', displayMode: '标签样式' },
@@ -624,5 +625,14 @@ describe('PerformanceAssessmentContentLayers', () => {
     expect(wrapper.get('.created-item__details').text()).toContain('item')
     await wrapper.get('.created-item__edit').trigger('click')
     expect((wrapper.findAll('.config-pane input')[0].element as HTMLInputElement).value).toBe('summary')
+  })
+
+  it('matches the reference-card layout for created assessment contents while keeping actions available', () => {
+    expect(optionCardSource.replace(/\s+/g, ' ')).toContain('grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; min-height: var(--performance-content-option-card-min-height);')
+    expect(layersSource).toContain('PerformanceContentOptionCard')
+    expect(layersSource).toContain('.created-item__actions')
+    expect(layersSource).toContain('created-item__edit')
+    expect(layersSource).toContain('全部收起')
+    expect(layersSource).toContain('全部展开')
   })
 })

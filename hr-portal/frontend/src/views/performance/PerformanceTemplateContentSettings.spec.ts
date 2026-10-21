@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PerformanceTemplateContentSettings from './PerformanceTemplateContentSettings.vue'
 import PerformanceAssessmentContentLayers from '@/components/performance/PerformanceAssessmentContentLayers.vue'
 import PerformanceRatingControl from '@/components/performance/PerformanceRatingControl.vue'
+import PerformancePromptModal from '@/components/performance/PerformancePromptModal.vue'
 import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi } from '@/api/performance'
 
 const mockNodes = [
@@ -104,10 +105,15 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.vm.$nextTick()
 
     await wrapper.findAll('.stage-card')[1].trigger('click')
-    await wrapper.findAll('.template-operate__button')[0].trigger('click')
-    expect(document.body.querySelector('#assessment-drawer-title')?.textContent).toBe('选择评估内容')
-    ;(document.body.querySelector('.drawer-header .icon-button') as HTMLButtonElement).click()
+    expect(wrapper.findAll('.template-operate__button').map(button => button.text())).toEqual(['添加提示'])
+    expect(wrapper.findAll('.template-operate__item')).toHaveLength(1)
+    await wrapper.get('.template-operate__button').trigger('click')
+    expect(wrapper.getComponent(PerformancePromptModal).props('open')).toBe(true)
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('添加提示')
+    expect(document.body.querySelector('#assessment-drawer-title')).toBeNull()
+    ;([...document.body.querySelectorAll('.prompt-modal__footer button')].find(button => button.textContent === '取消') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
+    expect(wrapper.getComponent(PerformancePromptModal).props('open')).toBe(false)
 
     await wrapper.findAll('.stage-card')[3].trigger('click')
     await wrapper.findAll('.template-operate__button')[0].trigger('click')
@@ -123,6 +129,82 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(document.body.querySelector('.create-button')).toBeNull()
     expect(document.body.textContent).toContain('仅可选择终评环节执行人「未配置」填写的内容')
     expect(wrapper.findComponent(PerformanceAssessmentContentLayers).props('selectableContentIds')).toEqual([])
+  })
+
+  it('renders the captured non-interactive invitation preview only in the invitation fill tab', async () => {
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    const preview = wrapper.get('.reviewer-360-invite-preview')
+    expect(preview.get('h2').text()).toBe('360°邀请环节')
+    expect(preview.get('.reviewer-360-invite-preview__intro').text()).toBe('通过「搜索」添加 360° 评估人已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。')
+    expect(preview.get('.reviewer-360-invite-preview__search').text()).toBe('搜索成员')
+    expect(preview.get('.reviewer-360-invite-preview__list-title').text()).toBe('已邀请列表：当前共 0 人')
+    expect(preview.findAll('[role="radio"]').map(item => [item.text(), item.attributes('aria-checked')])).toEqual([['按关系', 'true'], ['按邀请人', 'false']])
+    expect(preview.findAll('tr').map(row => row.findAll('td').map(cell => cell.text()))).toEqual([
+      ['相同上级同事', ''], ['不同上级同事', ''], ['虚线上级', ''], ['直属下级', ''],
+    ])
+    expect(preview.findAll('input, textarea, select, [tabindex]')).toHaveLength(0)
+    expect(preview.findAll('button')).toHaveLength(1)
+    expect(preview.get('button').text()).toBe('添加提示')
+    await preview.get('button').trigger('click')
+    expect(wrapper.getComponent(PerformancePromptModal).props('open')).toBe(true)
+    wrapper.getComponent(PerformancePromptModal).vm.$emit('update:open', false)
+    await wrapper.vm.$nextTick()
+    await (wrapper.vm as any).save()
+    expect(update.mock.calls[0][1].nodes.find(node => node.node_id === 'n2')?.content).toEqual([])
+    expect(update.mock.calls[0][1].content_library).toEqual([])
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    expect(wrapper.find('.reviewer-360-invite-preview').exists()).toBe(false)
+    expect(wrapper.get('.reference-entry-bar button').text()).toBe('选择参考内容')
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    expect(wrapper.find('.reviewer-360-invite-preview').exists()).toBe(false)
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    expect(wrapper.find('.reviewer-360-invite-preview').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([false, true])('reuses the prompt dialog for invitation fill actions with existing content: %s', async (hasContent) => {
+    const content = { content_id: 'legacy-invite', content_slot: 'fill', type: 'custom', name: '已有邀请内容', description: '', items: [] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
+      nodes: [{ ...mockNodes[1], content: hasContent ? [content] : [] }, mockNodes[2], mockNodes[3]],
+    } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    expect(wrapper.findAll('.template-operate__button').map(button => button.text())).toEqual(['添加提示'])
+    expect(wrapper.findAll('.template-operate__item')).toHaveLength(1)
+    expect(wrapper.find('.configured-content-footer').exists()).toBe(hasContent)
+    if (hasContent) expect(wrapper.get('.configured-content-panel').text()).toContain('已有邀请内容')
+
+    await wrapper.get('.template-operate__button').trigger('click')
+    const prompt = wrapper.getComponent(PerformancePromptModal)
+    expect(prompt.props('open')).toBe(true)
+    expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('open')).toBe(false)
+    const confirm = document.body.querySelector('.prompt-modal__footer button') as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    const textarea = document.body.querySelector('.prompt-modal__body textarea') as HTMLTextAreaElement
+    textarea.value = '请邀请熟悉你工作表现的同事'
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(confirm.disabled).toBe(false)
+    confirm.click()
+    await wrapper.vm.$nextTick()
+    expect(prompt.emitted('save')?.[0][0]).toEqual(expect.objectContaining({ content: '请邀请熟悉你工作表现的同事' }))
+    expect(prompt.props('open')).toBe(false)
+
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    expect(wrapper.get('.reference-entry-bar button').text()).toBe('选择参考内容')
+    await wrapper.get('.reference-entry-bar button').trigger('click')
+    expect(document.body.querySelector('.reference-drawer')).not.toBeNull()
+    ;(document.body.querySelector('.reference-drawer__footer button') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.findAll('.template-operate__button').map(button => button.text())).toEqual(['添加内容', '添加提示'])
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    expect(wrapper.findAll('.template-operate__button').map(button => button.text())).toEqual(['添加内容', '添加提示'])
+    wrapper.unmount()
   })
 
   it('renders the captured result section and keeps non-final contents visible but disabled', async () => {
@@ -408,7 +490,9 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.find('.configured-content-panel').exists()).toBe(false)
     await wrapper.findAll('.template-operate__button')[0].trigger('click')
     expect(wrapper.findComponent(PerformanceAssessmentContentLayers).props('initialContents')).toEqual([])
-    ;(document.body.querySelector('.drawer-header .icon-button') as HTMLButtonElement).click()
+    expect(wrapper.getComponent(PerformancePromptModal).props('open')).toBe(true)
+    expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('open')).toBe(false)
+    ;([...document.body.querySelectorAll('.prompt-modal__footer button')].find(button => button.textContent === '取消') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
 
     await wrapper.findAll('.stage-card')[3].trigger('click')

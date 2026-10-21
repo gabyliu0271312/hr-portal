@@ -20,21 +20,23 @@
             <section class="reference-drawer__group">
               <h3 class="reference-drawer__group-title">评估环节内容</h3>
               <div class="reference-drawer__list">
-                <label v-for="option in nodeCandidates" :key="option.value" class="reference-option-card" :class="{ 'reference-option-card--checked': selectedValues.includes(option.value) }">
-                  <span class="reference-option-card__checkbox" aria-hidden="true">
-                    <span class="reference-option-card__wallpaper" :class="{ 'reference-option-card__wallpaper--checked': selectedValues.includes(option.value) }">
-                      <svg v-if="selectedValues.includes(option.value)" width="12" height="12" viewBox="0 0 12 12" fill="none" class="reference-option-card__checked-svg"><path d="M9.589 2.903l.808.809a.35.35 0 010 .495L5.18 9.425a.35.35 0 01-.495 0l-2.981-2.98a.35.35 0 010-.496l.808-.808a.35.35 0 01.495 0l1.925 1.925 4.163-4.163a.35.35 0 01.495 0z" fill="currentColor"></path></svg>
-                    </span>
-                  </span>
-                  <input class="reference-option-card__input" type="checkbox" :value="option.value" :checked="selectedValues.includes(option.value)" @change="toggle(option.value)" />
-                  <span class="reference-option-card__text">{{ option.label }}</span>
-                </label>
+                  <PerformanceContentOptionCard v-for="option in nodeCandidates" :key="option.value" tag="label" class="reference-option-card" :class="{ 'reference-option-card--checked': selectedValues.includes(option.value) }">
+                    <template #leading>
+                      <span class="reference-option-card__checkbox" aria-hidden="true">
+                        <span class="reference-option-card__wallpaper" :class="{ 'reference-option-card__wallpaper--checked': selectedValues.includes(option.value) }">
+                          <svg v-if="selectedValues.includes(option.value)" width="12" height="12" viewBox="0 0 12 12" fill="none" class="reference-option-card__checked-svg"><path d="M9.589 2.903l.808.809a.35.35 0 010 .495L5.18 9.425a.35.35 0 01-.495 0l-2.981-2.98a.35.35 0 010-.496l.808-.808a.35.35 0 01.495 0l1.925 1.925 4.163-4.163a.35.35 0 01.495 0z" fill="currentColor"></path></svg>
+                        </span>
+                      </span>
+                      <input class="reference-option-card__input" type="checkbox" :value="option.value" :checked="selectedValues.includes(option.value)" @change="toggle(option.value)" />
+                    </template>
+                    <span class="reference-option-card__text">{{ option.label }}</span>
+                  </PerformanceContentOptionCard>
               </div>
             </section>
             <section class="reference-drawer__group">
               <h3 class="reference-drawer__group-title">更多参考内容</h3>
               <div class="reference-drawer__list">
-                <label v-for="option in moreOptions" :key="option.value" class="reference-option-card reference-option-card--multiline" :class="{ 'reference-option-card--checked': selectedValues.includes(option.value) }">
+                  <label v-for="option in moreOptions" :key="option.value" class="reference-option-card reference-option-card--legacy reference-option-card--multiline" :class="{ 'reference-option-card--checked': selectedValues.includes(option.value) }">
                   <span class="reference-option-card__checkbox" aria-hidden="true">
                     <span class="reference-option-card__wallpaper" :class="{ 'reference-option-card__wallpaper--checked': selectedValues.includes(option.value) }">
                       <svg v-if="selectedValues.includes(option.value)" width="12" height="12" viewBox="0 0 12 12" fill="none" class="reference-option-card__checked-svg"><path d="M9.589 2.903l.808.809a.35.35 0 010 .495L5.18 9.425a.35.35 0 01-.495 0l-2.981-2.98a.35.35 0 010-.496l.808-.808a.35.35 0 01.495 0l1.925 1.925 4.163-4.163a.35.35 0 01.495 0z" fill="currentColor"></path></svg>
@@ -61,6 +63,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import PerformanceContentOptionCard from './PerformanceContentOptionCard.vue'
 
 export interface ReferenceOption {
   value: string
@@ -113,9 +116,9 @@ function close(reason: 'cancel') {
 .reference-drawer__scroll { flex: 1; overflow: auto; padding: 24px 24px 24px; box-sizing: border-box; }
 .reference-drawer__group + .reference-drawer__group { margin-top: 20px; }
 .reference-drawer__group-title { margin: 0 0 12px; font-size: 14px; font-weight: 600; line-height: 22px; color: #1f2329; }
-.reference-drawer__list { display: flex; flex-direction: column; gap: 12px; }
+.reference-drawer__list { display: flex; flex-direction: column; gap: var(--performance-content-option-card-list-gap); }
 
-.reference-option-card { position: relative; display: flex; align-items: center; min-height: 54px; padding: 0 16px; box-sizing: border-box; border: 1px solid #dee0e3; border-radius: 6px; background: transparent; cursor: pointer; }
+.reference-option-card--legacy { position: relative; display: flex; align-items: center; min-height: 54px; padding: 0 16px; box-sizing: border-box; border: 1px solid #dee0e3; border-radius: 6px; background: transparent; }
 .reference-option-card--multiline { min-height: 0; padding-top: 12px; padding-bottom: 12px; }
 .reference-option-card:hover { border-color: #3370ff; }
 .reference-option-card:hover .reference-option-card__text { color: #3370ff; }

@@ -151,6 +151,19 @@
 - The existing workflow field `subject_confirm_required: boolean` is the sole persistence contract. It defaults to `false`, may retain `true` only for `result_view`, and is normalized to `false` for every other node type.
 - Existing GET/PATCH workflow JSONB is reused. No route, database migration, permission, UCP, external-system, cycle snapshot, or runtime confirmation-task behavior is introduced.
 
+## 360°邀请填写内容操作入口修复（PM-T004-T05-F02，2026-10-21）
+
+- 用户确认 `D:/乐逗/Desktop/360°邀请环节.txt` 中的唯一加号按钮为“添加提示”，复用已有功能即可。
+- 仅当 `node_type=reviewer_360_invite` 且当前为 `fill / 配置填写内容` 时，空内容操作栏和已有内容底栏仅显示“添加提示”。复用 `PerformanceTemplateOperateBar.vue` 单 action，保持54px高度与全宽居中操作项，不渲染第二个操作项或分隔线。
+- 点击沿用 `handleContentAction('add-prompt')` 打开 `PerformancePromptModal.vue`；复用原有字段、必填校验、确定和取消行为，不打开“选择评估内容”抽屉。
+- 参考Tab、360°确认、执行人为360°评估人的 evaluation 及其他节点保持原行为；保留已有内容，不修改内容类型规则、GET/PATCH、JSONB、权限、周期快照或数据库迁移。
+- 本次仅修复操作入口。既有 `handlePromptSave` 只关闭弹窗，尚未持久化提示；本次不扩展提示存储契约，不宣称提示保存落库或重开回显。
+- 验证：页面定向 Vitest 27/27通过；覆盖空/已有内容的单按钮、提示必填校验、确认事件与关闭、取消、邀请参考入口及其他360节点回归。`npm --prefix hr-portal/frontend run build`（vue-tsc+vite）通过，存在VueUse PURE注释及大chunk告警。扩展三文件回归67/68，共享抽屉另一组未提交改动的源码断言失败，本任务未修改其文件；向导有既有jsdom XHR日志。已隔离Docker构建（HEAD前端叠加本次页面及测试，不纳入其他未提交抽屉改动）并仅替换本地frontend容器；镜像 `sha256:49a7463e8985ee68607153914ad29c545e5e37bceb355925cbed3f34a61be130`，running/restarts=0，网络 `hr-portal_default`，页面HTTP200、未登录API401，运行JS已核验邀请预览及fill单提示分支；后端、数据库、Gotenberg容器未替换。未执行浏览器截图或真实保存重开验收，非生产部署。
+- 采集的邀请预览主体固定为 `792×408px`：白底、圆角4px、内边距上24px/左右24px；内容区不可操作（`pointer-events:none`），外层悬浮显示 `1px dashed #3370FF` 边框。预览依次展示标题“通过「搜索」添加 360° 评估人”、说明“已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。”、32px搜索占位框“搜索成员”、列表标题“已邀请列表：当前共 0 人”、默认选中的“按关系”/“按邀请人”分组，以及四行空表格“相同上级同事/不同上级同事/虚线上级/直属下级”。表格左列约109px、每行52px、右侧为空。这里是模板预览，不接搜索、邀请人员、列表加载或邀请规则接口。
+- 预览标题栏为58px高、下方12px间距；底部操作区使用 `sticky; bottom:8px`，顶部1px分隔线，内层操作栏54px高，仅保留“添加提示”。空/已有内容状态均复用现有提示弹窗入口；采集示例中的0人和至少5人仅为展示文案，不转化为后端约束。
+- 验证：内容设置页面定向 Vitest 28/28通过；覆盖预览文案、四行表格、不可交互、单提示按钮、打开提示弹窗、Tab/其他节点回归。前端类型检查和生产构建通过；构建存在既有VueUse PURE注释及大chunk告警。
+- UI合规：Spec 012 N0001/N0002/N0004/N0005；复用既有按钮和提示弹窗，不新建组件体系或信息架构；N1102-N1104在本记录及交付说明中记录。没有新增接口错误态或权限行为。
+
 ## Result-view content correction (PM-T004-T05-F01, 2026-10-21)
 
 - 用户确认沿用统一“选择评估内容”侧边弹窗，不新增终评专用弹窗。候选保留工作总结、评分评级、自定义三种内容；以唯一 `include_final_result=true` 节点的 fill 内容归属判断可选性，而非按内容类型过滤。无终评或无填写内容时所有候选不可选；全部 item 隐藏的内容不可选。

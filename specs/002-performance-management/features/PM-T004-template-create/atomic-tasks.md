@@ -202,6 +202,13 @@
   - Blockers: 登录态与实际页面PNG缺失，完整验收前保持未勾选；非生产部署。
   - Acceptance/DoD: UI→payload→保存校验→重开、组件/后端回归、build、实际截图均有证据才勾选。尚未运行检查不得记为通过。
 
+- [ ] PM-T004-T05-F02 360°邀请填写内容仅保留“添加提示”（2026-10-21 用户确认）
+  - Goal/UI: `reviewer_360_invite` 的 fill Tab 空内容栏和已有内容底栏仅保留一个“添加提示”，点击复用 `handleContentAction('add-prompt')` 与 `PerformancePromptModal.vue`；沿用54px共享操作栏，不新增整页蓝图。交互依据：`ui-interaction.md` 的本任务小节及用户采集 `D:/乐逗/Desktop/360°邀请环节.txt`。
+  - Scope: 仅修改 `PerformanceTemplateContentSettings.vue`、已有同名 `.spec.ts` 和本功能交互/任务记录；不改变参考Tab、其他节点、已有内容、内容类型策略、后端契约、权限、迁移、周期快照、UCP或提示持久化。
+  - Tests/acceptance: Given 邀请节点的空/已有内容；When 点击唯一操作项；Then 打开现有提示弹窗而非评估内容抽屉，必填校验和确定/取消复用原逻辑；参考入口及确认/360评估节点保持原样。执行页面定向Vitest与前端类型检查/构建。UI检查关联Spec 012 N0001/N0002/N0004/N0005/N1102-N1104，不引入新设计体系。
+  - Evidence: `npm --prefix hr-portal/frontend test -- src/views/performance/PerformanceTemplateContentSettings.spec.ts` 28/28通过；新增覆盖792×408邀请预览、说明/搜索/分组/四行空表格、不可交互和单提示按钮；`npm --prefix hr-portal/frontend run build`（vue-tsc+vite）通过，有VueUse PURE注释及大chunk告警；扩展三文件历史回归结果67/68（当时页面27/27、向导7/7、共享抽屉33/34），失败为其他未提交改动新增的源码字符串断言 `.created-item__edit`，本任务未修改该抽屉；向导有既有jsdom XHR日志。随后以HEAD前端源码叠加本次页面及测试文件进行隔离Docker构建，排除其他未提交抽屉改动，构建和仅frontend容器替换成功；运行镜像 `sha256:49a7463e8985ee68607153914ad29c545e5e37bceb355925cbed3f34a61be130`，前端容器running/restarts=0，保留 `hr-portal_default`，页面HTTP200、未登录workflow API401；运行JS已核验包含邀请预览标题、说明、搜索成员、列表标题和分组表格文案。后端、数据库、Gotenberg容器未替换。回退镜像标签 `hr-portal-frontend:before-360-invite-prompt`。未运行真实浏览器或数据库验收；仅更新本地容器，非生产部署。提示确定仅触发现有save事件并关闭，不声称已落库。
+  - Blockers/DoD: 代码及组件交互验证已完成；独立实现态PNG和真实页面走查未完成，保持未勾选。完整UI验收证据齐备后才勾选，不影响F01及T05原状态。
+
 - [ ] PM-T004-T05 内容设置整体架构与空态还原
   - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。
   - Type: frontend/UI
