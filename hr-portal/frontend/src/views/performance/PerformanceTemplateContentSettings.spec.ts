@@ -123,6 +123,30 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.findAll('.template-operate__button').map((button) => button.text())).toEqual(['添加内容', '添加提示'])
   })
 
+  it('opens all assessment content with the shared drawer and keeps the normal add-content title', async () => {
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+
+    const allContentButton = wrapper.get('.all-content-button')
+    expect(allContentButton.get('svg').attributes('data-icon')).toBe('ArrangeOutlined')
+    expect(allContentButton.get('svg').attributes('width')).toBe('14')
+    expect(allContentButton.get('svg').attributes('height')).toBe('14')
+    expect(allContentButton.findAll('path').map(path => path.attributes('d'))).toEqual([
+      'M2.467 11.5a1 1 0 0 1 1.366-.366L12 15.846l8.167-4.712a1 1 0 0 1 1 1.732l-8.534 4.923a1.267 1.267 0 0 1-1.266 0l-8.534-4.923a1 1 0 0 1-.366-1.366Z',
+      'M2.453 16.193a1 1 0 0 1 1.354-.407L12 20.198l8.192-4.412a1 1 0 1 1 .949 1.761l-8.54 4.599a1.267 1.267 0 0 1-1.202 0l-8.54-4.599a1 1 0 0 1-.406-1.354ZM12 4.267l5.942 3.169L12 11 6.058 7.436 12 4.266Zm.502-2a1.067 1.067 0 0 0-1.004 0L2.83 6.89a.533.533 0 0 0-.023.928l8.643 5.186c.338.203.76.203 1.098 0l8.643-5.186a.533.533 0 0 0-.023-.928l-8.667-4.622Z',
+    ])
+    await allContentButton.trigger('click')
+    expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('title')).toBe('全部评估内容')
+    expect(document.body.querySelector('#assessment-drawer-title')?.textContent).toBe('全部评估内容')
+
+    ;(document.body.querySelector('.drawer-header .icon-button') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    await wrapper.find('.template-operate__button').trigger('click')
+    expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('title')).toBe('选择评估内容')
+    expect(document.body.querySelector('#assessment-drawer-title')?.textContent).toBe('选择评估内容')
+  })
+
   it('derives the middle tabs from the selected workflow node and moves the active ink', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
