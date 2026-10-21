@@ -3,8 +3,8 @@
     <div v-if="open" class="assessment-layer">
       <aside ref="drawerRef" class="assessment-drawer" role="dialog" aria-modal="true" aria-labelledby="assessment-drawer-title" tabindex="-1" @keydown="onDrawerKeydown">
         <header class="drawer-header">
-          <h2 id="assessment-drawer-title">选择评估内容</h2>
-          <button class="icon-button" type="button" aria-label="关闭选择评估内容" @click="closeDrawer"><Close /></button>
+          <h2 id="assessment-drawer-title">{{ title }}</h2>
+          <button class="icon-button" type="button" :aria-label="`关闭${title}`" @click="closeDrawer"><Close /></button>
         </header>
         <main class="drawer-body">
           <section class="visibility-row">
@@ -157,7 +157,7 @@ export interface AssessmentContentDraft { type:AssessmentContentType; name:strin
 interface WorkSummaryItem { id:string; label:string; hint:string; richText:string }
 interface FillItem { id:string; label:string; hint:string; richText?:string; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;label:string;placeholder?:string;color?:string}> }
 
-const props=withDefaults(defineProps<{open:boolean;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
+const props=withDefaults(defineProps<{open:boolean;title?:string;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{title:'选择评估内容',ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
 const emit=defineEmits<{'update:open':[boolean];confirm:[AssessmentContentDraft[]]}>()
 const drawerRef=ref<HTMLElement|null>(null), modalRef=ref<HTMLElement|null>(null), modalCloseRef=ref<HTMLButtonElement|null>(null), createMenuRef=ref<{focus:()=>void}|null>(null)
 const groupVisible=ref(true), activeType=ref<AssessmentContentType|null>(null), submitted=ref(false), itemSubmitted=ref(false), success=ref(false), draggedIndex=ref<number|null>(null), dragAnnouncement=ref(''), editingCreatedId=ref<string|null>(null), expandedIds=ref<Set<string>>(new Set())

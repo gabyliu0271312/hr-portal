@@ -3,7 +3,13 @@
     <aside class="stage-panel" aria-label="按评估流程配置">
       <div class="stage-panel__header">
         <strong>按评估流程配置</strong>
-        <button class="all-content-button" type="button" aria-label="全部内容"><span aria-hidden="true">▱</span>全部内容</button>
+        <button class="all-content-button" type="button" aria-label="全部内容" @click="openAllContentDrawer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" data-icon="ArrangeOutlined" aria-hidden="true">
+            <path d="M2.467 11.5a1 1 0 0 1 1.366-.366L12 15.846l8.167-4.712a1 1 0 0 1 1 1.732l-8.534 4.923a1.267 1.267 0 0 1-1.266 0l-8.534-4.923a1.267 1.267 0 0 1-.366-1.366Z" fill="currentColor"></path>
+            <path d="M2.453 16.193a1 1 0 0 1 1.354-.407L12 20.198l8.192-4.412a1 1 0 1 1 .949 1.761l-8.54 4.599a1.267 1.267 0 0 1-1.202 0l-8.54-4.599a1.267 1.267 0 0 1-.406-1.354ZM12 4.267l5.942 3.169L12 11 6.058 7.436 12 4.266Zm.502-2a1.067 1.067 0 0 0-1.004 0L2.83 6.89a.533.533 0 0 0-.023.928l8.643 5.186c.338.203.76.203 1.098 0l8.643-4.622Z" fill="currentColor"></path>
+          </svg>
+          <span>全部内容</span>
+        </button>
       </div>
       <div class="stage-list" aria-live="polite">
         <div v-if="loading" class="stage-loading">加载流程节点中…</div>
@@ -35,8 +41,7 @@
             <div class="reviewer-360-invite-preview__heading-hover" aria-hidden="true"></div>
             <h2>{{ selectedStageTitle }}</h2>
           </div>
-          <div class="reviewer-360-invite-preview__body">
-            <div class="reviewer-360-invite-preview__body-hover" aria-hidden="true"></div>
+          <PerformanceContentSelectionFrame variant="root" :selected="reviewerInvitePreviewSelected" class="reviewer-360-invite-preview__body" @click="reviewerInvitePreviewSelected = true">
             <div class="reviewer-360-invite-preview__content">
               <div class="reviewer-360-invite-preview__intro">
                 <div>通过「搜索」添加 360° 评估人</div>
@@ -58,7 +63,7 @@
                 </tbody>
               </table>
             </div>
-          </div>
+          </PerformanceContentSelectionFrame>
           <div v-if="!configuredContents.length" class="reviewer-360-invite-preview__actions">
             <PerformanceTemplateOperateBar :actions="summaryActions" @action="handleContentAction" />
           </div>
@@ -112,7 +117,7 @@
     </aside>
     <PerformancePromptModal v-model:open="promptModalOpen" @save="handlePromptSave" />
     <PerformanceReferenceContentDrawer v-model:open="referenceDrawerOpen" :node-candidates="referenceNodeCandidates" :more-options="referenceMoreOptions" :selected="referenceSelectedValues" @confirm="handleReferenceConfirm" />
-    <PerformanceAssessmentContentLayers ref="contentLayerRef" v-model:open="contentDrawerOpen" :initial-contents="assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @confirm="handleContentConfirm" />
+    <PerformanceAssessmentContentLayers ref="contentLayerRef" :open="contentDrawerOpen" :title="allContentDrawerOpen ? '全部评估内容' : '选择评估内容'" :initial-contents="allContentDrawerOpen ? [] : assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @update:open="handleContentDrawerVisibility" @confirm="handleContentConfirm" />
   </div>
 </template>
 
@@ -125,6 +130,7 @@ import PerformancePromptModal from '@/components/performance/PerformancePromptMo
 import PerformanceAssessmentContentLayers, { type AssessmentContentDraft, type AssessmentContentType, type AssessmentOption, type AssessmentTagOption } from '@/components/performance/PerformanceAssessmentContentLayers.vue'
 import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
 import PerformanceTemplateOperateBar from '@/components/performance/PerformanceTemplateOperateBar.vue'
+import PerformanceContentSelectionFrame from '@/components/performance/PerformanceContentSelectionFrame.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
 import type { WorkSummaryRootSettings } from '@/components/performance/PerformanceWorkSummaryRootSettings.vue'
 import type { WorkSummaryItemSettings } from '@/components/performance/PerformanceWorkSummaryItemSettings.vue'
@@ -247,11 +253,13 @@ const summaryActions = computed(() => {
 })
 const promptModalOpen = ref(false)
 const contentDrawerOpen = ref(false)
+const allContentDrawerOpen = ref(false)
 const referenceDrawerOpen = ref(false)
 const configuredContents = ref<Array<AssessmentContentDraft & { id: string }>>([])
 const configuredExpandedIds = ref<Set<string>>(new Set())
 const selectedConfiguredId = ref<string | null>(null)
 const configuredHoverKey = ref<string | null>(null)
+const reviewerInvitePreviewSelected = ref(false)
 const rootSettings = ref<Record<string, WorkSummaryRootSettings>>({})
 const itemSettings = ref<Record<string, WorkSummaryItemSettings>>({})
 const contentIdentity = (content: PerformanceTemplateContent) => content.content_id || content.id || `${content.type}-${content.name}`
@@ -335,6 +343,15 @@ function setConfiguredExpanded(contentId: string, expanded: boolean) {
   configuredExpandedIds.value = next
 }
 watch(selectedStageData, () => { activeTab.value = availableTabs.value[0].key })
+function handleContentDrawerVisibility(open: boolean) {
+  contentDrawerOpen.value = open
+  if (!open) allContentDrawerOpen.value = false
+}
+function openAllContentDrawer() {
+  syncSelectedStageContents()
+  allContentDrawerOpen.value = true
+  contentDrawerOpen.value = true
+}
 function handleContentAction(key: string) {
   syncSelectedStageContents()
   if (key === 'add-prompt') promptModalOpen.value = true
@@ -569,17 +586,38 @@ onMounted(async () => {
 .all-content-button {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 22px;
-  padding: 0;
+  gap: 4px;
+  height: 26px;
+  padding: 2px 4px;
   border: 0;
+  border-radius: var(--performance-button-radius);
   background: transparent;
-  color: #1f2329;
-  font: inherit;
+  color: var(--color-text-primary);
+  font: var(--performance-button-font-weight) var(--performance-button-font-size)/var(--performance-button-line-height) var(--font-sans);
   cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard);
 }
 
-.all-content-button span { font-size: 22px; }
+.all-content-button:hover {
+  background: var(--performance-button-text-hover-background);
+}
+
+.all-content-button:active {
+  background: var(--performance-button-text-active-background);
+}
+
+.all-content-button:focus-visible {
+  outline: 0;
+  box-shadow: var(--performance-button-focus-ring);
+}
+
+.all-content-button svg {
+  display: block;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+}
+
 .stage-list { display: flex; flex-direction: column; gap: 12px; }
 .stage-loading { color: #646a73; font-size: 12px; }
 
@@ -683,9 +721,9 @@ onMounted(async () => {
 .content-card__actions button { border: 0; background: transparent; color: #3370ff; font-size: 18px; cursor: pointer; }
 .content-card__actions i { width: 1px; height: 24px; background: #bbbfc4; }
 
-.result-view-section{position:relative;overflow:hidden;border-radius:var(--radius-sm);background:var(--color-bg-card)}
+.result-view-section{position:relative;width:var(--performance-content-width);max-width:100%;overflow:hidden;border-radius:var(--radius-sm);background:var(--color-bg-card)}
 .result-view-section__content{position:relative}
-.result-view-section__content::after{position:absolute;inset:0;border:1px dashed var(--color-primary);border-radius:var(--radius-sm);box-sizing:border-box;opacity:0;pointer-events:none;content:''}
+.result-view-section__content::after{position:absolute;inset:0;border:2px solid var(--performance-content-hover-border);border-radius:var(--radius-sm);box-sizing:border-box;opacity:0;pointer-events:none;content:''}
 .result-view-section__content:hover::after{opacity:1}
 .result-view-section h2{margin:0;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary);font:600 18px/26px var(--font-sans)}
 .result-view-section__empty{padding:var(--spacing-8) var(--spacing-6);border-top:1px solid var(--performance-popover-border);color:var(--color-text-placeholder);font:400 var(--font-size-md)/22px var(--font-sans);text-align:center;overflow-wrap:anywhere}
@@ -695,12 +733,12 @@ onMounted(async () => {
 .result-view-references{margin-top:var(--spacing-3);background:var(--color-bg-card);border-radius:var(--radius-sm)}
 .result-view-reference{display:flex;justify-content:space-between;align-items:center;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary)}
 .result-view-reference button{border:0;border-radius:var(--radius-sm);background:transparent;color:var(--performance-button-text-color);font:inherit;cursor:pointer}
-.reviewer-360-invite-preview{width:792px;max-width:100%;color:var(--color-text-primary);font:400 14px/21px var(--font-sans)}
-.reviewer-360-invite-preview__heading{position:relative;height:58px;margin-bottom:12px;padding:16px 24px;box-sizing:border-box;border-radius:4px;background:var(--color-bg-card)}
+.reviewer-360-invite-preview{width:var(--performance-content-width);max-width:100%;color:var(--color-text-primary);font:400 14px/21px var(--font-sans)}
+.reviewer-360-invite-preview__heading{position:relative;height:58px;margin-bottom:12px;padding:16px 24px;box-sizing:border-box;border-radius:4px;background:var(--color-bg-card);cursor:pointer}
 .reviewer-360-invite-preview__heading h2{margin:0;font:600 18px/26px var(--font-sans)}
-.reviewer-360-invite-preview__heading-hover,.reviewer-360-invite-preview__body-hover{position:absolute;inset:0;z-index:2;box-sizing:border-box;border:1px dashed var(--color-primary);border-radius:4px;opacity:0;pointer-events:none}
-.reviewer-360-invite-preview__heading:hover .reviewer-360-invite-preview__heading-hover,.reviewer-360-invite-preview__body:hover .reviewer-360-invite-preview__body-hover{opacity:1}
-.reviewer-360-invite-preview__body{position:relative;background:var(--color-bg-card);border-radius:4px}
+.reviewer-360-invite-preview__heading-hover{position:absolute;inset:0;z-index:2;box-sizing:border-box;border:2px solid var(--performance-content-hover-border);border-radius:4px;opacity:0;pointer-events:none}
+.reviewer-360-invite-preview__heading:hover .reviewer-360-invite-preview__heading-hover{opacity:1}
+.reviewer-360-invite-preview__body{position:relative;background:var(--color-bg-card);border-radius:4px;cursor:pointer}
 .reviewer-360-invite-preview__content{padding:24px 24px 0;pointer-events:none}
 .reviewer-360-invite-preview__intro{margin-bottom:8px}
 .reviewer-360-invite-preview__intro div,.reviewer-360-invite-preview__list-title{font-weight:600}
@@ -751,7 +789,7 @@ onMounted(async () => {
 }
 
 .text-normal__body { margin-top: 212px; color: #8f959e; font-size: 14px; line-height: 22px; text-align: center; }
-.configured-content-section { width: 792px; max-width: 100%; margin: 0; padding: 0; border: 0; border-radius: 4px; background: #fff; overflow: visible; }
+.configured-content-section { width: var(--performance-content-width); max-width: 100%; margin: 0; padding: 0; border: 0; border-radius: 4px; background: #fff; overflow: visible; }
 .configured-content-sortable-list { width: 100%; }
 .configured-content-sortable-list :deep(.performance-sortable-list__placeholder) { border: 0; background: transparent; }
 .configured-content-footer { position: sticky; z-index: 20; bottom: 0; width: 100%; margin-top: 0; border-radius: 0 0 4px 4px; }

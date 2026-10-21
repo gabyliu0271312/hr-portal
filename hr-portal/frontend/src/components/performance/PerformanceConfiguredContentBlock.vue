@@ -41,7 +41,13 @@ const emit = defineEmits<{
 const owner = ref<'root' | 'item'>('root')
 const selectedItemId = ref<string | null>(null)
 const rulesEnabled = computed(() => props.rootSettingsVariant === 'work-summary-root' && props.itemSettingsVariant === 'work-summary-item')
-const itemSettingsVariant = computed(() => props.content.type === 'rating' ? 'rating' : 'work-summary')
+const itemSettingsVariant = computed(() => {
+  if (props.content.type === 'rating') return 'rating'
+  if (props.content.type !== 'custom') return 'work-summary'
+  const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)
+  const questionType = item?.questionType || props.content.questionType || 'text'
+  return questionType === 'text' ? 'custom-text' : 'work-summary'
+})
 const selectedItemKey = computed(() => props.active && owner.value === 'item' && selectedItemId.value ? `${props.content.id}:${selectedItemId.value}` : null)
 const selectedItemSettings = computed(() => selectedItemId.value ? props.itemSettings[selectedItemId.value] || { mode: 'fill', required: true, hideName: false } : { mode: 'fill' as const, required: true, hideName: false })
 const rendererItemSettings = computed(() => rulesEnabled.value ? Object.fromEntries(props.content.items.map((item) => [item.id, props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }])) : {})

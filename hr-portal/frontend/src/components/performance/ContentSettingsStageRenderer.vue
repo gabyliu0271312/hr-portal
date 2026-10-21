@@ -20,7 +20,7 @@ defineEmits<{ 'update:activeTab': [value: string] }>()
 
 <style scoped>
 .content-canvas { min-width: 0; min-height: 0; overflow: auto; padding: 0 20px 20px; box-sizing: border-box; background: #f5f6f7; }
-.content-tabs { position: relative; display: flex; align-items: stretch; max-width: 800px; height: 46px; margin: 8px auto 0; }
+.content-tabs { position: relative; display: flex; align-items: stretch; width: var(--performance-content-width); max-width: 100%; height: 46px; margin: 8px auto 0; }
 .content-tabs__divider { position: absolute; right: 0; top: 46px; left: 0; z-index: 0; height: .666667px; background: rgba(31, 35, 41, .15); }
 .content-tab { position: relative; z-index: 1; display: inline-flex; align-items: center; max-width: 240px; height: 46px; margin-right: 28px; padding: 12px 0; box-sizing: border-box; border: 0; background: transparent; color: #1f2329; font: 400 14px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; cursor: pointer; }
 .content-tab:last-of-type { margin-right: 0; }

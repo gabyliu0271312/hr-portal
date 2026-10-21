@@ -158,11 +158,33 @@
 - 点击沿用 `handleContentAction('add-prompt')` 打开 `PerformancePromptModal.vue`；复用原有字段、必填校验、确定和取消行为，不打开“选择评估内容”抽屉。
 - 参考Tab、360°确认、执行人为360°评估人的 evaluation 及其他节点保持原行为；保留已有内容，不修改内容类型规则、GET/PATCH、JSONB、权限、周期快照或数据库迁移。
 - 本次仅修复操作入口。既有 `handlePromptSave` 只关闭弹窗，尚未持久化提示；本次不扩展提示存储契约，不宣称提示保存落库或重开回显。
-- 验证：页面定向 Vitest 27/27通过；覆盖空/已有内容的单按钮、提示必填校验、确认事件与关闭、取消、邀请参考入口及其他360节点回归。`npm --prefix hr-portal/frontend run build`（vue-tsc+vite）通过，存在VueUse PURE注释及大chunk告警。扩展三文件回归67/68，共享抽屉另一组未提交改动的源码断言失败，本任务未修改其文件；向导有既有jsdom XHR日志。已隔离Docker构建（HEAD前端叠加本次页面及测试，不纳入其他未提交抽屉改动）并仅替换本地frontend容器；镜像 `sha256:49a7463e8985ee68607153914ad29c545e5e37bceb355925cbed3f34a61be130`，running/restarts=0，网络 `hr-portal_default`，页面HTTP200、未登录API401，运行JS已核验邀请预览及fill单提示分支；后端、数据库、Gotenberg容器未替换。未执行浏览器截图或真实保存重开验收，非生产部署。
+- 验证：页面定向 Vitest 27/27通过；覆盖空/已有内容的单按钮、提示必填校验、确认事件与关闭、取消、邀请参考入口及其他360节点回归。`npm --prefix hr-portal/frontend run build`（vue-tsc+vite）通过，存在VueUse PURE注释及大chunk告警。扩展三文件回归67/68，共享抽屉另一组未提交改动的源码断言失败，本任务未修改其文件；向导有既有jsdom XHR日志。已隔离Docker构建并仅替换本地frontend容器；本次使用采集实测公共内容宽度 `792px`、Tab外层 `800px`、标题hover `2px solid #3370FF`、内容块hover `1px dashed #3370FF`及公共选中 `inset 0 0 0 2px #3370FF`。运行镜像 `sha256:35b6176249016bbfea73cfa4a9dca2817f3f404b0c66aed1841d78d0acd30b38`，running/restarts=0，网络 `hr-portal_default`，页面HTTP200；运行CSS已核验公共宽度与邀请选中态样式。后端、数据库、Gotenberg容器未替换。未执行浏览器截图或真实保存重开验收，非生产部署。
 - 采集的邀请预览主体固定为 `792×408px`：白底、圆角4px、内边距上24px/左右24px；内容区不可操作（`pointer-events:none`），外层悬浮显示 `1px dashed #3370FF` 边框。预览依次展示标题“通过「搜索」添加 360° 评估人”、说明“已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。”、32px搜索占位框“搜索成员”、列表标题“已邀请列表：当前共 0 人”、默认选中的“按关系”/“按邀请人”分组，以及四行空表格“相同上级同事/不同上级同事/虚线上级/直属下级”。表格左列约109px、每行52px、右侧为空。这里是模板预览，不接搜索、邀请人员、列表加载或邀请规则接口。
 - 预览标题栏为58px高、下方12px间距；底部操作区使用 `sticky; bottom:8px`，顶部1px分隔线，内层操作栏54px高，仅保留“添加提示”。空/已有内容状态均复用现有提示弹窗入口；采集示例中的0人和至少5人仅为展示文案，不转化为后端约束。
 - 验证：内容设置页面定向 Vitest 28/28通过；覆盖预览文案、四行表格、不可交互、单提示按钮、打开提示弹窗、Tab/其他节点回归。前端类型检查和生产构建通过；构建存在既有VueUse PURE注释及大chunk告警。
 - UI合规：Spec 012 N0001/N0002/N0004/N0005；复用既有按钮和提示弹窗，不新建组件体系或信息架构；N1102-N1104在本记录及交付说明中记录。没有新增接口错误态或权限行为。
+
+## 内容 item 选择事件与360°确认复用（PM-T004-T05-F05，2026-10-21）
+
+- 360°邀请预览点击选择只作用于主体 item 区；标题不响应选择，不能与主体同时显示实线选中。主体直接复用 `PerformanceContentSelectionFrame.vue` 的 root 选中态；取消页面独立维护的标题选中样式。
+- 配置内容 item 的点击由共享 `PerformanceContentRenderer.vue` 截断事件冒泡，不得让外层卡片标题/root同时变为选中；360°确认环节的已配置内容继续复用 `PerformanceConfiguredContentBlock.vue → PerformanceAssessmentConfiguredPreview.vue → PerformanceContentRenderer.vue`，无需复制内容编辑器或另造确认专属行为。
+- 验证：前端定向 Vitest 50/50通过，前端类型检查与生产构建通过。未执行登录态实际页面截图或真实API保存重开；本次不替换容器。
+
+## 工作总结 item 设置分组修复（PM-T004-T05-F03，2026-10-21）
+
+- 用户确认：工作总结环节 → 配置填写内容 → 选择工作总结 item，右侧“内容设置”面板不显示“显示设置”分组，最顶部直接显示“填写设置”（在此环节填写/在此环节隐藏）；仅填写模式显示后续“必填项设置”。
+- F03 原实现将非 rating 的自定义 item 一并按此规则处理；用户后续在 F04 明确纠正：自定义文本型 item 需要顶部“显示设置/隐藏名称”，不应与工作总结 item 混同。评分评级 item 仍显示“显示设置/隐藏名称”和“必填项设置”。整体 root 的隐藏描述、允许添加多个保持不变。
+- 仅移除非 rating 的空 fieldset，不更改设置值、事件或持久化契约。沿用现有蓝图和控件，关联 Spec 012 N0001/N0002/N0004/N0005/N1102-N1104，无禁止项。
+
+## 自定义文本 item 隐藏名称恢复（PM-T004-T05-F04，2026-10-21）
+
+- 工作总结环节 → 配置填写内容 → 自定义文本型 item：顶部显示“显示设置”，下方复用 `PerformanceCheckbox.vue` 展示“隐藏名称”，再展示既有“填写设置”和条件必填设置。
+- 勾选时立即隐藏该 item 的题目名称和附属必填星号，取消时恢复；不隐藏整个题目、输入区、内容块名称或其他 item 名称。值归属当前 item，沿用 `items[].settings.hideName`，默认 false，保存与重开需保持一致。
+- 工作总结类型 item 仍遵循 F03；评分评级保持原行为。标签型自定义 item 和其他环节不因本次文本题修复改变。沿用 T05 蓝图和公共控件，不新增整页蓝图。
+- 实现：当前选中item按item.questionType优先、兼容content.questionType、缺省text分类；仅custom-text增加显示组。名称联动通过renderer条件class隐藏整条label（含星号），输入区、内容块标题和其他item仍保留。hideName复用现有normalize/serialize/API JSONB，不新增字段。
+- 验证：block/renderer/layers/checkbox/page五文件Vitest87/87通过，覆盖多题隔离、公共checkbox、文本/tag/工作总结/rating和mock保存重开。真实页面PNG、真实API/数据库保存重开尚未执行；员工填报和只读结果页不在本次范围。UI自检N0001/N0002/N0004/N0005/N1102-N1104，无新设计体系、权限或禁止项。
+
+- 容器验证：2026-10-21在现有Docker多阶段构建内编译并仅替换本地frontend；镜像 `sha256:561d35b19b604a3d7d4b226c9abb51f0b5cc8cbaa7edb9ef8781a3d37d0a30e2`，running/restarts=0，nginx配置有效，端口8080。页面及模板JS/CSS均HTTP200，已从HTTP资源核验custom-text、hideName及隐藏label的CSS；未登录API401。后端/数据库/Gotenberg未替换。没有实际登录态交互截图或真实保存重开证据，不将静态资源验证冒充UI验收。
 
 ## Result-view content correction (PM-T004-T05-F01, 2026-10-21)
 

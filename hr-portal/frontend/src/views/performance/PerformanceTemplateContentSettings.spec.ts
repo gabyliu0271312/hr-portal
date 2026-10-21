@@ -51,6 +51,46 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.find('[data-content-item-id="rating-item"] strong').exists()).toBe(false)
     expect(wrapper.find('[data-content-item-id="rating-item"] > i').exists()).toBe(false)
   })
+  it('toggles custom text names independently and preserves hideName through save and reopen', async () => {
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{
+      content_id: 'custom-text', type: 'custom', name: '自定义内容', description: '', items: [
+        { id: 'text-1', label: '第一题', hint: '填写内容', questionType: 'text' },
+        { id: 'text-2', label: '第二题', hint: '', questionType: 'text' },
+      ],
+    }])
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-content-item-id="text-1"]').trigger('click')
+    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '填写设置', '必填项设置'])
+    await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(true)
+    expect(wrapper.get('[data-content-item-id="text-1"]').classes()).toContain('content-renderer-item--name-hidden')
+    expect(wrapper.get('[data-content-item-id="text-2"]').classes()).not.toContain('content-renderer-item--name-hidden')
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    expect(wrapper.get('[data-content-item-id="text-1"]').classes()).toContain('content-renderer-item--name-hidden')
+    await (wrapper.vm as any).save()
+    const payload = update.mock.calls[0][1]
+    expect(payload.nodes[0].content?.[0].items.map(item => item.settings?.hideName)).toEqual([true, false])
+    expect(payload.content_library?.find(content => content.content_id === 'custom-text')?.items[0].settings?.hideName).toBe(true)
+    wrapper.unmount()
+
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(payload as any)
+    const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await reopened.findAll('.stage-card')[0].trigger('click')
+    await reopened.get('[data-content-item-id="text-1"]').trigger('click')
+    const checkbox = reopened.get('.content-settings-detail--item input[type="checkbox"]')
+    expect((checkbox.element as HTMLInputElement).checked).toBe(true)
+    expect(reopened.get('[data-content-item-id="text-1"]').classes()).toContain('content-renderer-item--name-hidden')
+    await checkbox.setValue(false)
+    expect(reopened.get('[data-content-item-id="text-1"]').classes()).not.toContain('content-renderer-item--name-hidden')
+    expect(reopened.get('[data-content-item-id="text-1"] .performance-assessment-rich-text-field__label').text()).toBe('第一题*')
+    reopened.unmount()
+  })
+
   it('renders the three-column architecture and workflow-driven stage list in API order', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
@@ -138,6 +178,14 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.findAll('.stage-card')[1].trigger('click')
     const preview = wrapper.get('.reviewer-360-invite-preview')
     expect(preview.get('h2').text()).toBe('360°邀请环节')
+    expect(wrapper.get('.reviewer-360-invite-preview__heading').classes()).not.toContain('is-selected')
+    expect(wrapper.get('.reviewer-360-invite-preview__body').classes()).not.toContain('is-selected')
+    await wrapper.get('.reviewer-360-invite-preview__heading').trigger('click')
+    expect(wrapper.get('.reviewer-360-invite-preview__heading').classes()).not.toContain('is-selected')
+    expect(wrapper.get('.reviewer-360-invite-preview__body').classes()).not.toContain('is-selected')
+    await wrapper.get('.reviewer-360-invite-preview__body').trigger('click')
+    expect(wrapper.get('.reviewer-360-invite-preview__heading').classes()).not.toContain('is-selected')
+    expect(wrapper.get('.reviewer-360-invite-preview__body').classes()).toContain('is-selected')
     expect(preview.get('.reviewer-360-invite-preview__intro').text()).toBe('通过「搜索」添加 360° 评估人已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。')
     expect(preview.get('.reviewer-360-invite-preview__search').text()).toBe('搜索成员')
     expect(preview.get('.reviewer-360-invite-preview__list-title').text()).toBe('已邀请列表：当前共 0 人')
@@ -205,6 +253,21 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.findAll('.stage-card')[2].trigger('click')
     expect(wrapper.findAll('.template-operate__button').map(button => button.text())).toEqual(['添加内容', '添加提示'])
     wrapper.unmount()
+  })
+
+  it('reuses the configured item selection component for reviewer 360 confirmation without selecting its stage heading', async () => {
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
+      nodes: [{ ...mockNodes[2], content: [{ content_id: 'confirm-content', content_slot: 'fill', type: 'custom', name: '确认内容', description: '', items: [{ id: 'confirm-item', label: '确认问题', hint: '' }] }] }],
+    } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    expect(wrapper.get('.template-section__title').text()).toBe('360°确认环节')
+    expect(wrapper.findAll('[data-content-item-id="confirm-item"]').length).toBe(1)
+    await wrapper.get('[data-content-item-id="confirm-item"]').trigger('click')
+    expect(wrapper.get('[data-content-item-id="confirm-item"]').classes()).toContain('is-selected')
+    expect(wrapper.get('.configured-content-card').classes()).not.toContain('is-selected')
+    expect(wrapper.get('.template-section__heading').classes()).not.toContain('is-selected')
   })
 
   it('renders the captured result section and keeps non-final contents visible but disabled', async () => {

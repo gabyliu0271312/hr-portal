@@ -27,11 +27,11 @@ withDefaults(defineProps<{
 }
 .performance-content-selection-frame--root:hover:not(:has(.performance-content-selection-frame--item:hover)),
 .performance-content-selection-frame--item:hover {
-  outline-color: #3370ff;
+  outline-color: var(--performance-content-hover-border);
 }
 .performance-content-selection-frame.is-selected {
   outline: none;
-  box-shadow: inset 0 0 0 2px #3370ff;
+  box-shadow: var(--performance-content-selected-shadow);
 }
 .performance-content-selection-frame--root.is-selected:has(.performance-content-selection-frame--item:hover) {
   box-shadow: none;

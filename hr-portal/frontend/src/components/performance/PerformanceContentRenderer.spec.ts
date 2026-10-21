@@ -12,6 +12,16 @@ const content = {
 }
 
 describe('performance content shared primitives', () => {
+  it('stops item selection from bubbling into the content root', async () => {
+    const host = document.createElement('div')
+    host.addEventListener('click', () => { throw new Error('item click escaped the selection frame') })
+    const wrapper = mount(PerformanceContentRenderer, { attachTo: host, props: { content, interactive: true } })
+    await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
+    expect(wrapper.emitted('select-item')).toEqual([['item-1']])
+    wrapper.unmount()
+    host.remove()
+  })
+
   it('renders configured content with the shared readonly toolbar', () => {
     const wrapper = mount(PerformanceContentRenderer, { props: { content } })
     const toolbar = wrapper.getComponent(PerformanceRichTextToolbar)
@@ -44,6 +54,26 @@ describe('performance content shared primitives', () => {
     expect(wrapper.get('.performance-assessment-rich-text-field__label i').text()).toBe('*')
     await wrapper.setProps({ itemSettings: { 'text-item': { mode: 'fill', required: false } } })
     expect(wrapper.find('.performance-assessment-rich-text-field__label i').exists()).toBe(false)
+  })
+
+  it.each([
+    { type: 'custom' as const, itemType: 'text' as const, contentType: 'tag' as const, hidden: true },
+    { type: 'custom' as const, itemType: undefined, contentType: undefined, hidden: true },
+    { type: 'custom' as const, itemType: undefined, contentType: 'text' as const, hidden: true },
+    { type: 'custom' as const, itemType: 'tag' as const, contentType: 'text' as const, hidden: false },
+    { type: 'custom' as const, itemType: undefined, contentType: 'tag' as const, hidden: false },
+    { type: 'work_summary' as const, itemType: 'text' as const, contentType: undefined, hidden: false },
+  ])('limits name hiding to custom text items: %o', async ({ type, itemType, contentType, hidden }) => {
+    const wrapper = mount(PerformanceContentRenderer, { props: {
+      content: { type, questionType: contentType, items: [{ id: 'item', label: '题目名称', questionType: itemType }] },
+      itemSettings: { item: { mode: 'fill', required: true, hideName: true } },
+    } })
+    expect(wrapper.get('[data-content-item-id="item"]').classes().includes('content-renderer-item--name-hidden')).toBe(hidden)
+    expect(contentRendererSource).toContain('.content-renderer-item--name-hidden :deep(.performance-assessment-rich-text-field__label){display:none}')
+    expect(wrapper.find('.performance-rich-text-box').exists()).toBe(true)
+    await wrapper.setProps({ itemSettings: { item: { mode: 'fill', required: true, hideName: false } } })
+    expect(wrapper.get('[data-content-item-id="item"]').classes()).not.toContain('content-renderer-item--name-hidden')
+    expect(wrapper.get('.performance-assessment-rich-text-field__label').text()).toBe('题目名称*')
   })
 
   it('renders rating levels from the selected rule snapshot', () => {

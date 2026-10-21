@@ -8,7 +8,7 @@ export interface WorkSummaryItemSettings {
   hideName?: boolean
 }
 
-const props = withDefaults(defineProps<{ modelValue: WorkSummaryItemSettings; variant?: 'work-summary' | 'rating' }>(), {
+const props = withDefaults(defineProps<{ modelValue: WorkSummaryItemSettings; variant?: 'work-summary' | 'custom-text' | 'rating' }>(), {
   variant: 'work-summary',
 })
 const emit = defineEmits<{ 'update:modelValue': [value: WorkSummaryItemSettings] }>()
@@ -24,10 +24,10 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
 </script>
 
 <template>
-  <div class="work-summary-item-settings" :class="{ 'work-summary-item-settings--rating': variant === 'rating' }" :aria-label="variant === 'rating' ? '评分评级设置' : '工作总结填写题设置'">
-    <fieldset class="work-summary-setting-group">
+  <div class="work-summary-item-settings" :class="{ 'work-summary-item-settings--rating': variant === 'rating' }" :aria-label="variant === 'rating' ? '评分评级设置' : variant === 'custom-text' ? '自定义文本填写题设置' : '工作总结填写题设置'">
+    <fieldset v-if="variant === 'rating' || variant === 'custom-text'" class="work-summary-setting-group">
       <legend>显示设置</legend>
-      <PerformanceCheckbox v-if="variant === 'rating'" :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" @update:model-value="update({ hideName: $event })" />
+      <PerformanceCheckbox :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" @update:model-value="update({ hideName: $event })" />
     </fieldset>
     <fieldset v-if="variant === 'rating'" class="work-summary-setting-group work-summary-required-setting">
       <legend>必填项设置</legend>

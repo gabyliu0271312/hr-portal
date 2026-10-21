@@ -17,6 +17,11 @@
   --color-action-primary: var(--color-primary);
   --color-action-primary-hover: var(--color-primary-hover);
 
+  /* Shared performance content surfaces */
+  --performance-content-width: 792px;
+  --performance-content-hover-border: #3370ff;
+  --performance-content-selected-shadow: inset 0 0 0 2px #3370ff;
+
   /* Shared performance content option cards */
   --performance-content-option-card-min-height: 54px;
   --performance-content-option-card-padding-inline: 16px;
