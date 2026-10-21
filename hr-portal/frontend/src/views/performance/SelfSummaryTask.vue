@@ -22,7 +22,7 @@ import PerformanceReferenceContent from '@/components/performance/PerformanceRef
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
-import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers } from '@/components/performance/performanceTemplateAnswers'
+import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown } from '@/components/performance/performanceTemplateAnswers'
 
 const props = withDefaults(defineProps<{ taskKind?: 'work_summary' | 'evaluation' }>(), { taskKind: 'work_summary' })
 const route = useRoute()
@@ -107,6 +107,7 @@ function validate() {
   Object.keys(errors).forEach(key => delete errors[key])
   for (const section of task.value.form_schema) {
     for (let index = 0; index < performanceTemplateInstanceCount(section, answers); index += 1) {
+      if (performanceTemplateInstanceUnknown(section, index, answers)) continue
       for (const field of section.fields) {
         const value = performanceTemplateFieldValue(section, field, index, answers)
         if (field.type === 'tag_with_followup') {

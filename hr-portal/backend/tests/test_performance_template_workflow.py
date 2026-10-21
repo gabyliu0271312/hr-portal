@@ -429,6 +429,23 @@ async def test_service_saves_result_view_only_from_final_fill_and_reopens(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_service_preserves_rating_level_rule_toggle(workflow_save_setup, enabled):
+    service, db = workflow_save_setup
+    content = _view_source_content(content_type="rating", items=[{
+        "id": "rating", "label": "季度评级", "hint": "",
+        "settings": {"levelRulesEnabled": enabled, "hideName": True, "required": False, "futureRules": {"keep": True}},
+    }])
+    content["settings"] = {"allowUnknown": enabled}
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [content]}
+    record = await service.save_nodes(77, [final], actor_type="PORTAL_USER", actor_ref="9")
+    db.workflow = record
+    reopened, _, _ = await service.get_nodes(77)
+    assert reopened[0]["content"][0]["settings"]["allowUnknown"] is enabled
+    assert reopened[0]["content"][0]["items"][0]["settings"] == content["items"][0]["settings"]
+
+
+@pytest.mark.asyncio
 async def test_service_keeps_node_content_independent_from_library_and_other_nodes(workflow_save_setup):
     from copy import deepcopy
 
@@ -440,7 +457,7 @@ async def test_service_keeps_node_content_independent_from_library_and_other_nod
     local = deepcopy(seed)
     local["name"] = "环节一"
     local["items"][0].update(label="局部题目", hint="局部提示", options=[{"id": "b", "label": "局部选项"}])
-    local["items"][0]["settings"]["required"] = True
+    local["items"][0]["settings"].update(required=True, hideName=True, hideDescription=True)
     final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [local]}
     other = {**_evaluation("other", "被评估人"), "content_bindings": {"fill": [seed["content_id"]]}}
     record = await service.save_nodes(77, [final, other], content_library=[seed], actor_type="PORTAL_USER", actor_ref="9")

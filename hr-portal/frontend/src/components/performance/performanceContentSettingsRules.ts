@@ -2,21 +2,28 @@ import type { AssessmentContentType } from './PerformanceAssessmentContentLayers
 
 export type ContentSlot = 'fill' | 'reference' | 'adjustment' | 'view'
 export type ContentSettingsOwner = 'none' | 'root' | 'item'
-export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'rating'
+export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'custom-tag' | 'rating'
 export interface ItemSettingsCapabilities {
   hideName: boolean
+  hideDescription?: boolean
   mode: boolean
   required: boolean
+  levelRules?: boolean
 }
 export const itemSettingsCapabilities: Record<ItemSettingsVariant, ItemSettingsCapabilities> = {
   'work-summary': { hideName: false, mode: true, required: true },
   'custom-text': { hideName: true, mode: true, required: true },
-  rating: { hideName: true, mode: false, required: true },
+  'custom-tag': { hideName: true, hideDescription: true, mode: true, required: true },
+  rating: { hideName: true, mode: false, required: true, levelRules: true },
 }
 export function getItemSettingsVariant(content: { type: string; questionType?: 'text' | 'tag' }, item?: { questionType?: 'text' | 'tag' }): ItemSettingsVariant {
   if (content.type === 'rating') return 'rating'
-  if (content.type === 'custom' && (item?.questionType || content.questionType || 'text') === 'text') return 'custom-text'
+  if (content.type === 'custom') return (item?.questionType || content.questionType || 'text') === 'tag' ? 'custom-tag' : 'custom-text'
   return 'work-summary'
+}
+
+export function getRootSettingsCapabilities(content: { type: string; questionType?: 'text' | 'tag'; items: { questionType?: 'text' | 'tag' }[] }) {
+  return { allowMultiple: content.type === 'work_summary', allowUnknown: content.type === 'rating' }
 }
 
 export interface StageContentRule {

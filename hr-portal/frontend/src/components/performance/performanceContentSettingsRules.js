@@ -1,12 +1,16 @@
 const itemSettingsCapabilities = {
   "work-summary": { hideName: false, mode: true, required: true },
   "custom-text": { hideName: true, mode: true, required: true },
-  rating: { hideName: true, mode: false, required: true }
+  "custom-tag": { hideName: true, hideDescription: true, mode: true, required: true },
+  rating: { hideName: true, mode: false, required: true, levelRules: true }
 };
 function getItemSettingsVariant(content, item) {
   if (content.type === "rating") return "rating";
-  if (content.type === "custom" && (item?.questionType || content.questionType || "text") === "text") return "custom-text";
+  if (content.type === "custom") return (item?.questionType || content.questionType || "text") === "tag" ? "custom-tag" : "custom-text";
   return "work-summary";
+}
+function getRootSettingsCapabilities(content) {
+  return { allowMultiple: content.type === "work_summary", allowUnknown: content.type === "rating" };
 }
 const genericRule = {
   visibleSlots: ["fill", "reference"],
@@ -62,6 +66,7 @@ function getStageContentTabs(nodeType) {
 export {
   contentSlotLabels,
   getItemSettingsVariant,
+  getRootSettingsCapabilities,
   getStageContentRule,
   getStageContentTabs,
   itemSettingsCapabilities,

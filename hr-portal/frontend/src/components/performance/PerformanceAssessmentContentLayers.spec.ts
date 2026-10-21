@@ -146,6 +146,20 @@ describe('PerformanceAssessmentContentLayers', () => {
     wrapper.unmount()
   })
 
+  it('preserves rating level rule settings when editing an existing rating block', async () => {
+    const content = { id: 'rating-local', content_id: 'rating-local', type: 'rating' as const, name: '评级内容', description: '', ratingOptionId: 'annual', items: [{ id: 'annual', label: '本地评级', hint: '', settings: { levelRulesEnabled: true, required: false } }] }
+    const wrapper = mount(PerformanceAssessmentContentLayers, { props: { open: true, initialContents: [content], ratingOptions: [{ id: 'annual', label: '年度评级', levels: ['A', 'B'] }] }, global: { stubs: { Teleport: true, Transition: false } }, attachTo: document.body })
+    ;(wrapper.vm as any).openEditor(content)
+    await wrapper.vm.$nextTick()
+    await modalInputs(wrapper)[0].setValue('更新评级内容')
+    await wrapper.get('.modal-footer .button--primary').trigger('click')
+    await wrapper.get('.drawer-footer .button--primary').trigger('click')
+    const saved = (wrapper.emitted('confirm')![0][0] as any[])[0]
+    expect(saved.items[0].settings).toEqual(content.items[0].settings)
+    expect(saved.name).toBe('更新评级内容')
+    wrapper.unmount()
+  })
+
   it('keeps confirm enabled and shows inline errors only after an invalid submit', async () => {
     const wrapper = mountLayers()
     await openType(wrapper, '工作总结')

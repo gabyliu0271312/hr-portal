@@ -3,11 +3,14 @@ import { computed } from 'vue'
 import { itemSettingsCapabilities, type ItemSettingsVariant } from './performanceContentSettingsRules'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
+import PerformanceRatingLevelRuleSettings from './PerformanceRatingLevelRuleSettings.vue'
 
 export interface WorkSummaryItemSettings {
   mode: 'fill' | 'hidden'
   required: boolean
   hideName?: boolean
+  hideDescription?: boolean
+  levelRulesEnabled?: boolean
 }
 
 const props = withDefaults(defineProps<{ modelValue: WorkSummaryItemSettings; variant?: ItemSettingsVariant }>(), {
@@ -27,10 +30,11 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
 </script>
 
 <template>
-  <div class="work-summary-item-settings" :class="{ 'work-summary-item-settings--rating': variant === 'rating' }" :aria-label="variant === 'rating' ? '评分评级设置' : variant === 'custom-text' ? '自定义文本填写题设置' : '工作总结填写题设置'">
-    <fieldset v-if="capabilities.hideName" class="work-summary-setting-group">
+  <div class="work-summary-item-settings" :class="{ 'work-summary-item-settings--rating': variant === 'rating' }" :aria-label="variant === 'rating' ? '评分评级设置' : variant === 'custom-text' ? '自定义文本填写题设置' : variant === 'custom-tag' ? '自定义标签填写题设置' : '工作总结填写题设置'">
+    <fieldset v-if="capabilities.hideName || capabilities.hideDescription" class="work-summary-setting-group">
       <legend>显示设置</legend>
-      <PerformanceCheckbox :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" @update:model-value="update({ hideName: $event })" />
+      <PerformanceCheckbox v-if="capabilities.hideName" :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" @update:model-value="update({ hideName: $event })" />
+      <PerformanceCheckbox v-if="capabilities.hideDescription" :model-value="modelValue.hideDescription === true" label="隐藏描述" :checked-color="checkedColor" @update:model-value="update({ hideDescription: $event })" />
     </fieldset>
     <fieldset v-if="capabilities.mode" class="work-summary-setting-group">
       <legend>填写设置</legend>
@@ -40,9 +44,11 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
       <legend>必填项设置</legend>
       <PerformanceCheckbox :model-value="modelValue.required" label="必填" :checked-color="checkedColor" @update:model-value="update({ required: $event })" />
     </fieldset>
+    <PerformanceRatingLevelRuleSettings v-if="capabilities.levelRules" class="work-summary-level-rules" :model-value="modelValue.levelRulesEnabled === true" @update:model-value="update({ levelRulesEnabled: $event })" />
   </div>
 </template>
 
 <style scoped>
-.work-summary-item-settings{display:flex;flex-direction:column;color:var(--color-text-primary);font:400 var(--font-size-md)/22px var(--font-sans)}.work-summary-setting-group{display:flex;flex-direction:column;width:272px;margin:0;padding:0;border:0}.work-summary-setting-group+ .work-summary-setting-group{margin-top:24px}.work-summary-setting-group legend{width:272px;height:22px;margin:0 0 8px;padding:0;color:var(--color-text-primary);font-size:var(--font-size-md);font-weight:600;line-height:22px}.work-summary-setting-group :deep(.performance-radio-group){display:flex;flex-direction:column;align-items:flex-start;gap:8px!important}.work-summary-setting-group :deep(.performance-checkbox){width:auto}
+.work-summary-item-settings{display:flex;flex-direction:column;color:var(--color-text-primary);font:400 var(--font-size-md)/22px var(--font-sans)}.work-summary-setting-group{display:flex;flex-direction:column;width:272px;margin:0;padding:0;border:0}.work-summary-setting-group+ .work-summary-setting-group{margin-top:24px}.work-summary-setting-group legend{width:272px;height:22px;margin:0 0 8px;padding:0;color:var(--color-text-primary);font-size:var(--font-size-md);font-weight:600;line-height:22px}.work-summary-setting-group :deep(.performance-radio-group){display:flex;flex-direction:column;align-items:flex-start;gap:8px!important}.work-summary-setting-group :deep(.performance-checkbox){width:auto}.work-summary-setting-group :deep(.performance-checkbox + .performance-checkbox){margin-top:8px}
+.work-summary-level-rules{margin-top:var(--spacing-6)}
 </style>

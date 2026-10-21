@@ -16,7 +16,7 @@ from app.performance.auth_context import PerformanceAccessContext, PerformanceId
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
-from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_value_empty
+from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
@@ -347,7 +347,9 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     incoming_answers = payload.answers if submit else {**(task.answers or {}), **payload.answers}
     answers = sanitize_self_summary_answers(schema, incoming_answers)
     if submit:
-        for _section, field, _index, value in iter_self_summary_field_instances(schema, answers):
+        for section, field, index, value in iter_self_summary_field_instances(schema, answers):
+            if self_summary_instance_unknown(section, answers, index):
+                continue
             if self_summary_field_requires_value(field, value) and self_summary_value_empty(field, value):
                 raise HTTPException(status_code=400, detail={"code": "VALIDATION_FAILED", "field_id": field["id"]})
     task.answers = answers

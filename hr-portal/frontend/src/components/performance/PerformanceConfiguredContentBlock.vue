@@ -10,7 +10,7 @@ import PerformanceDragHandle from './PerformanceDragHandle.vue'
 import PerformanceExpandButton from './PerformanceExpandButton.vue'
 import PerformanceWorkSummaryItemSettings, { type WorkSummaryItemSettings } from './PerformanceWorkSummaryItemSettings.vue'
 import PerformanceWorkSummaryRootSettings, { type WorkSummaryRootSettings } from './PerformanceWorkSummaryRootSettings.vue'
-import { getItemSettingsVariant } from './performanceContentSettingsRules'
+import { getItemSettingsVariant, getRootSettingsCapabilities } from './performanceContentSettingsRules'
 
 const props = defineProps<{
   content: AssessmentContentDraft & { id: string }
@@ -41,6 +41,8 @@ const emit = defineEmits<{
   'hover-change': [hovered: boolean]
 }>()
 
+const previewContent = computed(() => ({ ...props.content, settings: { ...props.content.settings, ...(props.rootSettingsEnabled ? props.rootSettings : {}) } }))
+const rootCapabilities = computed(() => getRootSettingsCapabilities(props.content))
 const owner = ref<'root' | 'item'>('root')
 const selectedItemId = ref<string | null>(null)
 const itemSettingsVariant = computed(() => getItemSettingsVariant(props.content, props.content.items.find((item) => item.id === selectedItemId.value)))
@@ -102,7 +104,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     </div>
     <PerformanceAssessmentConfiguredPreview
       v-if="expanded"
-      :content="content"
+      :content="previewContent"
       :interactive="true"
       :selected-item-id="selectedItemKey"
       :item-settings="rendererItemSettings"
@@ -114,7 +116,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
 
   <div v-if="active && (owner === 'root' ? rootSettingsEnabled : itemSettingsEnabled)" class="configured-content-settings">
     <div v-if="owner === 'root'" class="content-settings-detail content-settings-detail--root" aria-label="Selected content settings">
-      <PerformanceWorkSummaryRootSettings :model-value="rootSettings" @update:model-value="emit('update:root-settings', $event)" />
+      <PerformanceWorkSummaryRootSettings :model-value="rootSettings" :allow-multiple-enabled="rootCapabilities.allowMultiple" :allow-unknown-enabled="rootCapabilities.allowUnknown" @update:model-value="emit('update:root-settings', $event)" />
     </div>
     <div v-else class="content-settings-detail content-settings-detail--item" aria-label="Selected content item settings">
       <PerformanceWorkSummaryItemSettings :model-value="selectedItemSettings" :variant="itemSettingsVariant" @update:model-value="updateItemSettings" />

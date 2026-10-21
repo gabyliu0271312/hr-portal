@@ -73,6 +73,7 @@ describe('performance content shared primitives', () => {
     const isTag = type === 'custom' && (itemType || contentType) === 'tag'
     expect(wrapper.find('.performance-rich-text-box').exists()).toBe(!isTag)
     expect(wrapper.find('.tag-followup').exists()).toBe(isTag)
+    expect(wrapper.find(isTag ? '.template-field-label' : '.performance-assessment-rich-text-field__label').exists()).toBe(!isTag)
     await wrapper.setProps({ itemSettings: { item: { mode: 'fill', required: true, hideName: false } } })
     expect(wrapper.get('[data-content-item-id="item"]').classes()).not.toContain('content-renderer-item--name-hidden')
     expect(wrapper.get(isTag ? '.template-field-label' : '.performance-assessment-rich-text-field__label').text()).toBe('题目名称*')
@@ -95,6 +96,16 @@ describe('performance content shared primitives', () => {
     expect((wrapper.get('.tag-options input').element as HTMLInputElement).checked).toBe(false)
     await wrapper.setProps({ content: { type: 'custom', questionType: 'tag', defaultAll: true, options: [{ id: 'fallback', label: '块级兼容' }], items: [{ id: 'tag', label: '标签题', options: [] }] } })
     expect(wrapper.get('.empty-options').text()).toBe('暂无可用标签选项')
+  })
+
+  it('adds a single unknown preview option without changing source levels', async () => {
+    const levels = [{ id: 'a', label: 'A' }, { id: '__unknown__', label: '旧不了解' }]
+    const wrapper = mount(PerformanceContentRenderer, { props: { content: { type: 'rating', items: [{ id: 'rating', label: '评级' }], options: levels, settings: { allowUnknown: true } } } })
+    expect(wrapper.findAll('.performance-rating-control__option').map(option => option.text())).toEqual(['A', '不了解'])
+    expect(levels[1].label).toBe('旧不了解')
+    await wrapper.setProps({ content: { type: 'rating', items: [{ id: 'rating', label: '评级' }], options: levels.slice(0, 1), settings: { allowUnknown: false } } })
+    expect(wrapper.findAll('.performance-rating-control__option').map(option => option.text())).toEqual(['A'])
+    wrapper.unmount()
   })
 
   it('renders rating levels from the selected rule snapshot', () => {

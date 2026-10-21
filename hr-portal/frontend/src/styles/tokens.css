@@ -45,6 +45,9 @@
   --performance-review-completion-icon: #32a645;
   --performance-review-readonly-surface: #f5f6f7;
   --performance-settings-text-secondary: #646a73;
+  --performance-content-settings-width: 272px;
+  --performance-settings-help-line-height: 21px;
+  --performance-rule-button-border-width: 0.666667px;
   --performance-evaluation-rule-surface: #f8f9fa;
   --performance-form-surface-width: 800px;
   --performance-form-surface-page-gap: var(--spacing-5);

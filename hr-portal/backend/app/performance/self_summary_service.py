@@ -5,6 +5,7 @@ from html import escape, unescape
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -167,9 +168,13 @@ def build_self_summary_schema(template: dict) -> list[dict]:
             if field_type == "rating":
                 field["display_mode"] = content.get("ratingDisplayMode") or "标签样式"
                 field["hide_name"] = bool(item_settings.get("hideName", False))
+                field["allow_unknown"] = (content.get("settings") or {}).get("allowUnknown") is True
             elif content_type == "custom" and question_type == "text":
                 field["hide_name"] = bool(item_settings.get("hideName", False))
             elif content_type == "custom" and question_type == "tag":
+                field["hide_name"] = bool(item_settings.get("hideName", False))
+                field["description"] = item.get("hint") or ""
+                field["hide_description"] = bool(item_settings.get("hideDescription", False))
                 field["default_all"] = bool(item.get("defaultAll", content.get("defaultAll", False)))
             fields.append(field)
         if fields:
@@ -255,7 +260,17 @@ def iter_self_summary_field_instances(schema: list[dict], answers: dict):
                 yield section, field, index, self_summary_field_value(section, field, answers, index)
 
 
+def self_summary_instance_unknown(section: dict, answers: dict, index: int) -> bool:
+    return any(
+        field.get("type") == "rating" and field.get("allow_unknown") is True
+        and self_summary_field_value(section, field, answers, index) == "__unknown__"
+        for field in section.get("fields") or []
+    )
+
+
 def _sanitize_field_value(field: dict, value: object) -> object:
+    if field.get("type") == "rating" and value == "__unknown__" and field.get("allow_unknown") is not True:
+        raise HTTPException(status_code=400, detail={"code": "VALIDATION_FAILED", "field_id": field["id"]})
     if field.get("type") == "rich_text" and value is not None:
         return sanitize_rich_text(value)
     if field.get("type") == "tag_with_followup" and isinstance(value, dict):

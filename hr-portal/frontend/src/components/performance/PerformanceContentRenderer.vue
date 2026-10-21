@@ -16,7 +16,7 @@
             <strong v-if="!itemState(item.id).hideName">{{ item.label }}</strong><i v-if="!itemState(item.id).hideName && (!hasItemSettings(item.id) || itemState(item.id).required)">*</i>
           </div>
           <div class="content-renderer-rating__body">
-            <PerformanceRatingControl class="content-renderer-rating__levels" :options="content.options || []" :display-mode="content.ratingDisplayMode" :interactive="false" />
+            <PerformanceRatingControl class="content-renderer-rating__levels performance-content-renderer__rating" :options="content.options || []" :allow-unknown="content.settings?.allowUnknown === true" :display-mode="content.ratingDisplayMode" :interactive="false" />
           </div>
         </PerformanceContentSelectionFrame>
       </template>
@@ -55,8 +55,8 @@ import PerformanceRatingControl from './PerformanceRatingControl.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import type { PerformanceTemplateField, PerformanceTemplateOption } from '@/api/performance'
 type ContentItem = { id: string; label: string; hint?: string; richText?: string; questionType?: 'text' | 'tag'; options?: PerformanceTemplateOption[]; defaultAll?: boolean }
-type Content = { type: 'work_summary' | 'rating' | 'custom'; questionType?: 'text' | 'tag'; defaultAll?: boolean; items: ContentItem[]; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式' }
-type ItemSettings = { mode: 'fill' | 'hidden'; required: boolean; hideName?: boolean }
+type Content = { type: 'work_summary' | 'rating' | 'custom'; settings?: { allowUnknown?: boolean }; questionType?: 'text' | 'tag'; defaultAll?: boolean; items: ContentItem[]; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式' }
+type ItemSettings = { mode: 'fill' | 'hidden'; required: boolean; hideName?: boolean; hideDescription?: boolean }
 const props = withDefaults(defineProps<{
   content: Content
   variant?: 'configured-card' | 'editor-preview' | 'drawer-summary'
@@ -73,7 +73,7 @@ const hasItemSettings = (itemId: string) => Object.prototype.hasOwnProperty.call
 const itemState = (itemId: string): ItemSettings => props.itemSettings[itemId] || { mode: 'fill', required: false }
 const isCustomTextItem = (item: ContentItem) => content.value.type === 'custom' && (item.questionType || content.value.questionType || 'text') === 'text'
 const isCustomTagItem = (item: ContentItem) => content.value.type === 'custom' && (item.questionType || content.value.questionType || 'text') === 'tag'
-const tagField = (item: ContentItem): PerformanceTemplateField => ({ id: item.id, type: 'tag_with_followup', label: item.label, placeholder: item.hint, required: itemState(item.id).required && itemState(item.id).mode === 'fill', options: item.options ?? content.value.options ?? [] })
+const tagField = (item: ContentItem): PerformanceTemplateField => ({ id: item.id, type: 'tag_with_followup', label: item.label, description: item.hint, hide_name: itemState(item.id).hideName === true, hide_description: itemState(item.id).hideDescription === true, placeholder: item.hint, required: itemState(item.id).required && itemState(item.id).mode === 'fill', options: item.options ?? content.value.options ?? [] })
 const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? content.value.defaultAll) ? tagField(item).options!.map(option => option.id) : [], notes: {} })
 </script>
 <style scoped>

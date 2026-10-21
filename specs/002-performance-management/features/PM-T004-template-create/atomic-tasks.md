@@ -262,6 +262,50 @@
   - Commit isolation: 按用户要求独立提交F07，排除F06页面名称/标题及数据仓库并行改动。实际暂存版本在 `.claude/worktrees/verify-f07-staged` 隔离验证：同七文件前端113/113通过（页面33项，排除F06四项），后端workflow/projects264/264通过（109+155，排除F06二十项）；vue-tsc --noEmit通过。既有python_multipart弃用与历史migration转义SyntaxWarning，不改旧migration。隔离生产构建已启动，结果待确认。
   - DoD/blockers: 代码、定向回归及build已完成；实际登录态浏览器/独立PNG、真实数据库/API保存重开、全仓回归尚未执行，保持未勾选。未建设自然语言入口，未对其他未确认环节开放全部设置，不宣称所有环节已具备完整配置引擎。用户已授权本次commit和推送main；其他会话的容器操作不作为本次验收证据。
 
+- [ ] PM-T004-T05-F08 移除自定义文本 root 的填写设置，保留 item 填写设置（2026-10-21 用户确认）
+  - Goal/UI: 自定义文本型内容块 root 仅保留“显示设置/隐藏描述”，去掉 root 的“填写设置/允许添加多个”；其 item 继续保留“填写设置/在此环节填写、在此环节隐藏”、显示设置和必填项设置。工作总结、标签、评分评级能力不变。沿用 T05 已确认三栏蓝图，无信息架构变更，不要求新增整页蓝图或 PNG。
+  - Prerequisites/reading: F04/F07 已有实现、Spec 002 基线、本功能交互说明、Spec 012 A01/A02/A05/N000/N00/N11。
+  - Allowed modifications: `performanceContentSettingsRules.ts` 及既有 `.js` 镜像、`PerformanceConfiguredContentBlock.vue`、`PerformanceWorkSummaryRootSettings.vue`、已有 block/page 测试、本功能任务及交互记录；保留其他未提交改动。
+  - Input/output contract: 通过集中 root 能力判断，仅当内容全部为自定义文本题时关闭 `allowMultiple` 展示；不删除或改写已有 `rootSettings.allowMultiple`，item 的 `settings.mode` 与其他字段原样保留。
+  - Non-scope: 工作总结/标签/评分评级 root 与 item 能力、其他环节入口、API、数据库、权限、历史周期、UCP、外部系统及部署不变。
+  - Tests/acceptance: Given 纯自定义文本、混合文本/标签、自定义标签、工作总结和评分评级内容；When 选择 root/item、修改显示/填写/必填设置、保存与 mock 重开；Then 纯文本 root 无填写分组且 item 有填写设置，混合/标签/工作总结/评分 root 仍保持原分组，已有 settings 不清除。运行既有 block/page/renderer Vitest 和前端 build；组件 DOM 作为本次 UI 验证，不冒充浏览器或真实 API 验收。
+  - UI compliance: N0001/N0002/N0004/N0005/N1102-N1104；复用原组件和能力矩阵，无新增禁止项，Spec 012 业务任务不受影响。
+  - Evidence: `npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts` 三文件65/65通过（block12/page37/renderer16），覆盖纯文本root无填写组、item保留填写组、混合/标签/rating不变、隐藏描述更新保留allowMultiple及mock保存重开；git diff --check通过（仅LF/CRLF提示）。前端build运行中，待结果后勾选；未执行真实浏览器/数据库验收或部署。
+  - Definition of done: 最小配置修改、组件 DOM 验证、定向回归和构建均通过后勾选；真实浏览器/数据库验收及部署不在本次范围。
+
+- [ ] PM-T004-T05-F09 工作总结环节自定义标签题显示能力扩展
+  - Goal/UI: 自定义标签题 root 仅显示“显示设置/隐藏描述”，无填写设置；item 顶部“显示设置”含隐藏名称、隐藏描述，保留填写设置及条件必填项设置。沿用T05蓝图和公共checkbox，无新信息架构。
+  - Required reading: Spec002基线、F07/F08、现有配置/renderer/员工schema与Spec012 A01/A02/A05/N000/N00/N11；前置F07/F08现有代码。
+  - Allowed modifications: performanceContentSettingsRules.ts/.js、WorkSummaryItemSettings、ContentRenderer、TemplateFieldRenderer、TemplateContentSettings及已有组件/页面测试、api/performance.ts/.js必要镜像、backend self_summary_service.py及已有projects/workflow测试、本功能任务/交互记录；不创建脚本、测试文档或新文件，保护已有无关dirty。
+  - Frozen contract: custom-tag item能力 hideName/hideDescription/mode/required=true；自定义root统一无allowMultiple入口（含混合text/tag），不清除历史值。item.settings.hideDescription默认false，与hideName独立；标签题描述=item.hint，不隐藏标签选项提示或答案。现有workflow GET/PATCH和JSONB/settings保留；员工schema的tag字段新增description/hide_description，并沿用hide_name，均可选且默认显示；不改变权限、错误码、审计、事务、快照或migration。
+  - Tests: Given text/tag混合与历史块级tag、多个item、局部设置；When 切换root/item并独立切换两个显示选项、填写/隐藏、必填、保存/mock重开；Then 分组/控件/描述/名称正确且值不串题，员工编辑/只读同样遵守显隐，标签内容和答案不变。运行block/page/renderer/template/layers Vitest、backend projects/workflow pytest、build和diff检查。
+  - UI compliance: N0001/N0002/N0004/N0005/N1102-N1104；无新组件体系/禁止项。PNG目标../../ui-blueprints/PM-T004-T05-F09-implemented-custom-tag-display.png；未取得不得冒充浏览器验收。
+  - Non-scope: 其他环节入口、工作总结/rating能力、已启动快照、生效时机、权限、迁移、UCP、部署。
+  - Evidence/DoD: 前端五文件Vitest109/109通过（block13/ContentRenderer16/TemplateRenderer8/page37/layers35）；命令 `npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceAssessmentContentLayers.spec.ts`。后端 `PYTHONPATH=hr-portal/backend python -m pytest hr-portal/backend/tests/test_performance_template_workflow.py hr-portal/backend/tests/test_performance_projects.py -q` 288/288通过，1个既有python_multipart弃用提示；含四组合显示flags和服务save/get保留两个settings。`npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）exit0，存在既有VueUse PURE提示；首轮隐式any测试错误已修复。git diff --check通过。真实API/数据库重开和浏览器/PNG未执行，保持未勾选；未部署，未改其他会话的数据仓库/报表和迁移文件。
+
+- [ ] PM-T004-T05-F10 评分评级 item 按规则配置可选等级入口
+  - Goal/UI: 工作总结环节→配置填写内容→评分评级 item，原有显示设置、必填项设置不变；其后新增“按规则配置可选等级”公共开关，默认关闭；开启显示用户提供的272px说明和272×32px虚线“添加规则”按钮及原始14px GanttsetOutlined图标。
+  - Required reading: Spec002基线、F07-F09、T05已确认蓝图、用户SnapSpec、Spec012 A01/A02/A05/N000/N00/N11、现有能力矩阵/控件/token/序列化与workflow服务测试。
+  - Allowed modifications: 新建 components/performance/PerformanceRatingLevelRuleSettings.vue；已有WorkSummaryItemSettings、performanceContentSettingsRules.ts/.js、api/performance.ts与AssessmentContentLayers仅settings类型、tokens.css；已有block/page/layers测试和backend workflow测试、本功能任务/交互文档。保留无关dirty，不改后端业务、历史migration、权限或周期快照。
+  - Frozen contract: item.settings.levelRulesEnabled?:boolean，默认false；仅rating暴露levelRules能力，普通题/root及其他环节入口不变。沿用workflow GET/PATCH与JSONB/未知字段保留、现有审计事务/锁定；不新增API、状态码或schema。关闭仅收起，不清理其他settings/未知规则值。保存和重开保留开关，未接规则过滤执行。
+  - UI: 用独立小组件和公共PerformanceSwitch/PerformanceButton；所有新增样式消费全局token；说明为“当满足条件时，当前评估题仅可选如下规则配置的可选项，当不满足所有规则时，当前评估题可选任意选项。”，14px/21px与#646A73对应既有token；按钮虚线边框、6px圆角、14px图标、8px上间距，文字“添加规则”。点击仅提示“添加规则弹窗暂未开放”，不渲染dialog，不写规则、不触发保存。
+  - Tests: Given rating/text/tag/root、多item、缺省/开启/关闭及保存配置；When 切换开关、切题/环节、点击按钮、保存/mock重开；Then 原有设置不变、说明和按钮条件显隐、SVG正确、未知字段与开关独立保存、无规则弹窗；backend service save/get确认settings保留。执行既有block/page/layers/renderer Vitest、workflow pytest、build、diff检查。
+  - UI compliance: N0001/N0002/N0004/N0005/N1102-N1104；沿用T05局部调整，无新整页蓝图或设计体系；实现PNG目标../../ui-blueprints/PM-T004-T05-F10-implemented-rating-level-rules.png，未取得须说明。
+  - Non-scope: 规则弹窗/条件模型/实际等级过滤、员工端执行、权限、迁移、历史快照、生效时机、UCP、部署。
+  - Evidence/DoD: 前端6文件Vitest114/114通过（block13/page39/layers36/ContentRenderer16/Switch2/TemplateRenderer8），后端workflow131/131及workflow+projects290/290通过（1个既有python_multipart弃用提示）。覆盖公共switch/button、默认关闭、开关显隐/关闭后重开、root/非rating无入口、原有名称/必填不变、环节切换、true/false保存/mock重开、编辑内容保留开关、服务save/get保留开关和未知字段。命令：`npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceAssessmentContentLayers.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/PerformanceSwitch.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts`；后端 `PYTHONPATH=hr-portal/backend python -m pytest hr-portal/backend/tests/test_performance_template_workflow.py hr-portal/backend/tests/test_performance_projects.py -q`。容器验证：`docker compose -f hr-portal/docker-compose.yml build frontend` 在容器内执行 `npx vite build` 成功（镜像 `sha256:10b15538af97850b0ccc83d5bdd2b18ccbb9cc42ab869725716bb8f1aae8c957`）；随后 `docker compose -f hr-portal/docker-compose.yml up -d --no-deps --no-build --force-recreate frontend` 替换成功。frontend running/restarts=0，nginx -t成功，页面HTTP200；运行JS资源含`levelRulesEnabled`、`GanttsetOutlined`和“添加规则”功能代码，运行CSS含新增token；未登录workflow API401。frontend旧镜像已保留回退标签`hr-portal-frontend:before-rating-level-rules-20261021`。backend/db/gotenberg容器ID与启动时间未变，网络保持`hr-portal_default`。仅本地容器更新，未部署生产。
+
+- [ ] PM-T004-T05-F11 评分评级 root 评估时允许不了解
+  - Goal/UI: 工作总结→配置填写内容→评分评级root无填写设置，保留显示设置，新增评估设置与公共checkbox“评估时允许选择「不了解」”，下方4px显示“开启后，若评估人选择「不了解」，则会跳过该评估内容中的所有问题。”；勾选在当前块评级预览追加不了解，取消移除且不改原始等级。
+  - Required reading: Spec002基线、F07-F10、T05蓝图、用户SnapSpec、Spec012 UI规范及现有root/renderer/保存/必填校验链路。
+  - Allowed modifications: 绩效root设置/能力规则TS与JS镜像、ConfiguredContentBlock/ContentRenderer/评级控件与必要员工renderer/答案更新链路、api/performance.ts与AssessmentContentLayers类型、backend self_summary_service.py及实际提交校验调用处、已有focused specs与workflow/projects测试、本功能交互/任务记录；保护无关dirty，不创建脚本、测试文档或迁移。
+  - Frozen configuration contract: content.settings.allowUnknown?:boolean默认false，仅rating暴露；root.hideDescription/allowMultiple历史值保留，不把不了解写入原始content.options/等级资料；局部配置随现有workflow GET/PATCH JSONB保存，其他块/环节不联动。保留F10 item规则开关及显示/必填。
+  - Frozen runtime contract（用户确认按调整逻辑实现）: PerformanceRatingControl 是唯一生成不了解选项的入口，allowUnknown=true临时追加`__unknown__ / 不了解`并去重，ContentRenderer/TemplateFieldRenderer仅透传原始options和模板flag，不各自拼选项。schema将rating root.allowUnknown映射为field.allow_unknown，默认false，不把sentinel加入真实等级options。前后端共享各自内容实例判定，仅允许rating答案精确为sentinel时跳过同一内容同一实例的必填；其他实例/内容继续校验，不清除原答案，切回正常值恢复校验。后端对未授权sentinel返回400 VALIDATION_FAILED；不改结果统计/开放策略和历史快照。
+  - UI: 沿用T05和本次SnapSpec，无新页面或信息架构；共享checkbox和token，14px/22px辅助文本使用performance-settings-text-secondary，4px上间距；root无填写组但item不变。
+  - Tests: root分组/勾选/取消、预览选项追加去重/不污染源、文本/标签/工作总结不变、保存/mock重开、服务配置保留、编辑内容不丢值；若接运行时跳过须补充允许/禁止/内容范围与必填回归。
+  - Non-scope: 新流程/权限、等级计算引擎、历史快照/生效时机、迁移、UCP、生产部署；运行时边界以检查结果冻结后再实现。
+  - UI compliance: N0001/N0002/N0004/N0005/N1102-N1104；实际浏览器PNG目标../../ui-blueprints/PM-T004-T05-F11-implemented-rating-unknown.png，未执行不得宣称完整视觉验收。
+  - Evidence/DoD: 前端6文件Vitest101/101，后端projects/workflow294/294通过，`git diff --check`通过；公共评级组件唯一生成不了解选项，前端内容级/实例级跳过和后端提交校验均有覆盖。构建结果：`npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）exit0，有既有VueUse PURE注释提示；未执行真实浏览器/真实API数据库重开，保持未勾选。
+
 - [ ] PM-T004-T05 内容设置整体架构与空态还原
   - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。
   - Type: frontend/UI

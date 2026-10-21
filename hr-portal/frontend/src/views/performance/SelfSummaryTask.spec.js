@@ -192,6 +192,31 @@ describe('SelfSummaryTask', () => {
     expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', expect.objectContaining({ rating: 'five' }), 1)
   })
 
+  it('skips unknown content only and validates it again after a normal rating is selected', async () => {
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), form_schema: [
+      { id: 'rating', name: '评级内容', fields: [{ id: 'grade', type: 'rating', label: '评级', allow_unknown: true, required: true, options: [{ id: 'a', label: 'A' }] }, { id: 'note', type: 'rich_text', label: '说明', required: true }] },
+      { id: 'other', name: '其他内容', fields: [{ id: 'other', type: 'rich_text', label: '其他必填', required: true }] },
+    ], answers: { grade: '__unknown__' } })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    expect(performanceReviewApi.submitSelfSummary).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('其他必填为必填')
+    expect(wrapper.text()).not.toContain('说明为必填')
+    const other = wrapper.get('[data-field-id="other"] .rich-input')
+    other.element.innerHTML = '其他内容已填写'
+    await other.trigger('input')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', expect.objectContaining({ grade: '__unknown__', other: '其他内容已填写' }), 1)
+    vi.mocked(performanceReviewApi.submitSelfSummary).mockClear()
+    await wrapper.get('[data-field-id="grade"] .rating-option').trigger('click')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    expect(wrapper.text()).toContain('说明为必填')
+    expect(performanceReviewApi.submitSelfSummary).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('adds and submits multiple instances when the template allows it', async () => {
     vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue({
       ...structuredClone(task),

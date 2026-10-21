@@ -691,6 +691,9 @@ export type PerformanceTemplateField = {
   options?: PerformanceTemplateOption[]
   display_mode?: '标签样式' | '下拉样式'
   hide_name?: boolean
+  allow_unknown?: boolean
+  description?: string
+  hide_description?: boolean
   default_all?: boolean
 }
 export type PerformanceTemplateSection = { id: string; name: string; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[] }
@@ -1081,6 +1084,7 @@ export interface PerformanceTemplateContentItem {
     required?: boolean
     hideName?: boolean
     hideDescription?: boolean
+    levelRulesEnabled?: boolean
     allowMultiple?: boolean
   }
   options?: Array<{ id: string; label: string; color?: string; placeholder?: string }>
@@ -1099,6 +1103,7 @@ export interface PerformanceTemplateContent {
   settings?: {
     hideDescription?: boolean
     allowMultiple?: boolean
+    allowUnknown?: boolean
     mode?: string
     required?: boolean
   }

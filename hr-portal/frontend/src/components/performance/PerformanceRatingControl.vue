@@ -3,7 +3,7 @@
     <template v-if="normalizedMode === 'dropdown'">
       <select v-if="interactive" class="performance-rating-control__select" :value="modelValue || ''" :aria-label="ariaLabel" @change="$emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
         <option value="" disabled>{{ placeholder }}</option>
-        <option v-for="option in options" :key="option.id" :value="option.id">{{ option.label }}</option>
+        <option v-for="option in selectableOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
       </select>
       <div v-else class="rating-select-preview performance-rating-control__dropdown-preview" aria-label="下拉样式预览">
         <span>{{ selectedLabel || placeholder }}</span>
@@ -11,9 +11,9 @@
       </div>
     </template>
     <div v-else class="performance-rating-control__labels" role="radiogroup" :aria-label="ariaLabel">
-      <template v-for="(option, index) in options" :key="option.id">
+      <template v-for="(option, index) in selectableOptions" :key="option.id">
         <button type="button" role="radio" :aria-checked="modelValue === option.id" :tabindex="interactive ? 0 : -1" :class="['performance-rating-control__option', 'rating-option', { selected: modelValue === option.id }]" :style="modelValue === option.id ? { '--rating-color': option.color || '#3370ff' } : undefined" :disabled="!interactive" @click="$emit('update:modelValue', option.id)">{{ option.label }}</button>
-        <span v-if="index < options.length - 1" class="performance-rating-control__connector rating-connector" aria-hidden="true"></span>
+        <span v-if="index < selectableOptions.length - 1" class="performance-rating-control__connector rating-connector" aria-hidden="true"></span>
       </template>
     </div>
   </div>
@@ -32,6 +32,7 @@ export interface PerformanceRatingOption {
 const props = withDefaults(defineProps<{
   modelValue?: string
   options: PerformanceRatingOption[]
+  allowUnknown?: boolean
   displayMode?: '标签样式' | '下拉样式'
   interactive?: boolean
   invalid?: boolean
@@ -47,7 +48,8 @@ const props = withDefaults(defineProps<{
 })
 defineEmits<{ 'update:modelValue': [value: string] }>()
 const normalizedMode = computed(() => props.displayMode === '下拉样式' ? 'dropdown' : 'labels')
-const selectedLabel = computed(() => props.options.find(option => option.id === props.modelValue)?.label || '')
+const selectableOptions = computed(() => props.allowUnknown === true ? [...props.options.filter(option => option.id !== '__unknown__'), { id: '__unknown__', label: '不了解' }] : props.options)
+const selectedLabel = computed(() => selectableOptions.value.find(option => option.id === props.modelValue)?.label || '')
 </script>
 
 <style scoped>

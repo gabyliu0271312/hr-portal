@@ -804,14 +804,38 @@ def test_self_summary_schema_maps_each_custom_item_independently(legacy_question
     ]
     assert fields[0]["options"] == []
     assert fields[0]["hide_name"] is True
-    assert "hide_name" not in fields[1]
+    assert fields[1]["hide_name"] is False
+    assert fields[1]["hide_description"] is False
     assert fields[1]["default_all"] is False
     assert fields[2]["default_all"] is True
-    assert "hide_name" not in fields[2]
+    assert fields[2]["hide_name"] is False
+    assert fields[2]["description"] == ""
     assert "default_all" not in fields[0]
     assert [option["id"] for option in fields[2]["options"]] == ["legacy-option"]
     assert fields[3]["options"] == (fields[2]["options"] if legacy_question_type == "tag" else [])
     assert all("hideName" not in field and "defaultAll" not in field for field in fields)
+    assert template == original
+
+
+@pytest.mark.parametrize("hide_name,hide_description", [(False, False), (True, False), (False, True), (True, True)])
+def test_self_summary_tag_display_flags_preserve_description_options_and_source(hide_name, hide_description):
+    from copy import deepcopy
+    from app.performance.self_summary_service import build_self_summary_schema
+
+    template = {"content": [{"type": "custom", "questionType": "tag", "items": [
+        {"id": "tag", "label": "标签题", "hint": "标签题描述", "settings": {"hideName": hide_name, "hideDescription": hide_description},
+         "options": [{"id": "a", "label": "选项A", "placeholder": "补充提示"}]},
+        {"id": "text", "questionType": "text", "hint": "文本提示"},
+        {"id": "hidden", "settings": {"mode": "hidden"}},
+    ]}]}
+    original = deepcopy(template)
+    fields = build_self_summary_schema(template)[0]["fields"]
+    assert [field["id"] for field in fields] == ["tag", "text"]
+    assert fields[0]["hide_name"] is hide_name
+    assert fields[0]["hide_description"] is hide_description
+    assert fields[0]["description"] == "标签题描述"
+    assert fields[0]["options"][0]["placeholder"] == "补充提示"
+    assert "hide_description" not in fields[1]
     assert template == original
 
 
@@ -1218,6 +1242,82 @@ def test_self_summary_repeatable_section_uses_aligned_answer_arrays():
         ("work", 1, "<p>第二条</p>"),
         ("result", 1, None),
     ]
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_rating_unknown_is_template_driven_and_not_a_real_grade(enabled):
+    from copy import deepcopy
+    from fastapi import HTTPException
+    from app.performance.self_summary_service import build_self_summary_schema, sanitize_self_summary_answers, self_summary_instance_unknown
+
+    template = {"content": [{"type": "rating", "content_id": "rating", "settings": {"allowUnknown": enabled, "allowMultiple": True},
+        "items": [{"id": "grade", "label": "评级", "settings": {"required": True}}], "options": [{"id": "a", "label": "A"}]}]}
+    original = deepcopy(template)
+    schema = build_self_summary_schema(template)
+    field = schema[0]["fields"][0]
+    assert field["allow_unknown"] is enabled
+    assert [option["id"] for option in field["options"]] == ["a"]
+    answers = {"grade": ["__unknown__", "a"], "unrelated": "保留"}
+    if enabled:
+        assert sanitize_self_summary_answers(schema, answers) == answers
+        assert self_summary_instance_unknown(schema[0], answers, 0)
+        assert not self_summary_instance_unknown(schema[0], answers, 1)
+    else:
+        with pytest.raises(HTTPException) as exc:
+            sanitize_self_summary_answers(schema, answers)
+        assert exc.value.status_code == 400
+        assert exc.value.detail == {"code": "VALIDATION_FAILED", "field_id": "grade"}
+    assert template == original
+
+
+def test_unknown_skip_is_scoped_to_content_instance_and_keeps_other_answers():
+    from app.performance.self_summary_service import self_summary_instance_unknown, sanitize_self_summary_answers
+
+    section = {"allow_multiple": True, "fields": [
+        {"id": "grade", "type": "rating", "allow_unknown": True},
+        {"id": "note", "type": "rich_text", "required": True},
+    ]}
+    other = {"fields": [{"id": "other", "type": "rich_text", "required": True}]}
+    answers = {"grade": ["__unknown__", "a"], "note": ["保留说明", ""], "other": ""}
+    assert self_summary_instance_unknown(section, answers, 0)
+    assert not self_summary_instance_unknown(section, answers, 1)
+    assert not self_summary_instance_unknown(other, answers, 0)
+    assert sanitize_self_summary_answers([section, other], answers) == answers
+    assert not self_summary_instance_unknown({"fields": [{"id": "grade", "type": "rating"}]}, {"grade": "__unknown__"}, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("other_value,success", [("", False), ("其他内容已填", True)])
+async def test_submit_unknown_skips_only_its_content(monkeypatch, other_value, success):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+
+    task = SimpleNamespace(id=9, project_id=3, available_at=None, due_at=None, submitted_at=None, answer_version=1, answers={}, status="pending", completed_at=None)
+    node = SimpleNamespace(node_id="summary", config={"template": {"content": [
+        {"content_id": "rating", "type": "rating", "settings": {"allowUnknown": True}, "items": [{"id": "grade", "settings": {"required": True}}]},
+        {"content_id": "other", "type": "work_summary", "items": [{"id": "other", "settings": {"required": True}}]},
+    ]}})
+    async def fake_task(*_args):
+        return task, node
+    async def allow_overdue(*_args):
+        return True
+    class Db:
+        async def get(self, *_args):
+            return None
+        async def commit(self):
+            return None
+    monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow_overdue)
+    payload = projects_router.SelfSummaryAnswersPayload(answers={"grade": "__unknown__", "other": other_value}, version=1)
+    if success:
+        result = await projects_router._save_self_summary(9, payload, True, context(), Db())
+        assert result["answers"] == payload.answers
+        assert task.status == "completed"
+    else:
+        with pytest.raises(HTTPException) as exc:
+            await projects_router._save_self_summary(9, payload, True, context(), Db())
+        assert exc.value.detail == {"code": "VALIDATION_FAILED", "field_id": "other"}
+        assert task.answer_version == 1
 
 
 @pytest.mark.asyncio

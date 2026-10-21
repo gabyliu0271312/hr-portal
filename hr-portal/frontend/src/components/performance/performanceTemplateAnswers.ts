@@ -36,6 +36,10 @@ export function performanceTemplateFieldValue(section: PerformanceTemplateSectio
   return performanceTemplateFieldValues(section, field, answers)[index]
 }
 
+export function performanceTemplateInstanceUnknown(section: PerformanceTemplateSection, index: number, answers: Record<string, unknown>) {
+  return section.fields.some(field => field.type === 'rating' && field.allow_unknown === true && performanceTemplateFieldValue(section, field, index, answers) === '__unknown__')
+}
+
 export function performanceTemplateUpdatedFieldValue(section: PerformanceTemplateSection, field: PerformanceTemplateField, index: number, value: unknown, answers: Record<string, unknown>) {
   if (!section.allow_multiple) return value
   const count = performanceTemplateInstanceCount(section, answers)

@@ -1,5 +1,11 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ElMessage } from 'element-plus'
+import PerformanceRatingControl from './PerformanceRatingControl.vue'
+import PerformanceSwitch from './PerformanceSwitch.vue'
+import PerformanceButton from './PerformanceButton.vue'
+import PerformanceRatingLevelRuleSettings from './PerformanceRatingLevelRuleSettings.vue'
+import ratingRuleSource from './PerformanceRatingLevelRuleSettings.vue?raw'
 import PerformanceConfiguredContentBlock from './PerformanceConfiguredContentBlock.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import { getItemSettingsVariant, getStageContentRule, itemSettingsCapabilities } from './performanceContentSettingsRules'
@@ -58,6 +64,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     const radios = wrapper.findAll('.content-settings-detail--item input[type="radio"]')
     await radios[1].setValue()
     expect(wrapper.emitted('update:item-settings')?.at(-1)).toEqual([{ 'item-1': { mode: 'hidden', required: true } }])
+    expect(wrapper.findComponent(PerformanceRatingLevelRuleSettings).exists()).toBe(false)
     await wrapper.setProps({ itemSettings: { 'item-1': { mode: 'hidden', required: true } } })
     expect(wrapper.find('[data-icon="VisibleLockOutlined"]').exists()).toBe(true)
     expect(wrapper.find('.work-summary-required-setting').exists()).toBe(false)
@@ -124,7 +131,102 @@ describe('PerformanceConfiguredContentBlock', () => {
     await wrapper.setProps({ itemSettings: (wrapper.emitted('update:item-settings')!.at(-1) as [typeof settings])[0] })
     expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '填写设置'])
     await wrapper.get('[data-content-item-id="tag-item"]').trigger('click')
-    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['填写设置', '必填项设置'])
+    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '填写设置', '必填项设置'])
+    expect(wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')).toHaveLength(3)
+    expect(wrapper.findComponent(PerformanceRatingLevelRuleSettings).exists()).toBe(false)
+  })
+
+  it.each([
+    { type: 'custom' as const, questionType: undefined, items: [{ id: 'item-1', label: '文本题', hint: '' }], fillSettings: false },
+    { type: 'custom' as const, questionType: 'tag' as const, items: [{ id: 'item-1', label: '文本题', hint: '', questionType: 'text' as const }], fillSettings: false },
+    { type: 'custom' as const, questionType: 'text' as const, items: [{ id: 'item-1', label: '标签题', hint: '', questionType: 'tag' as const }], fillSettings: false },
+    { type: 'custom' as const, questionType: undefined, items: [{ id: 'item-1', label: '文本题', hint: '', questionType: 'text' as const }, { id: 'tag', label: '标签题', hint: '', questionType: 'tag' as const }], fillSettings: false },
+    { type: 'rating' as const, questionType: undefined, items: content.items, fillSettings: false },
+  ])('controls root fill settings independently for $type / $questionType / $fillSettings', async ({ type, questionType, items, fillSettings }) => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type, questionType, items }, active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: true }, itemSettings: {},
+      rootSettingsEnabled: true, itemSettingsEnabled: true, rootSettingsVariant: 'work-summary-root', itemSettingsVariant: 'work-summary-item',
+    } })
+    const groups = type === 'rating' ? ['显示设置', '评估设置'] : fillSettings ? ['显示设置', '填写设置'] : ['显示设置']
+    expect(wrapper.findAll('.content-settings-detail--root legend').map(group => group.text())).toEqual(groups)
+    expect(wrapper.get('.content-settings-detail--root').text().includes('允许添加多个')).toBe(fillSettings)
+    await wrapper.get('.content-settings-detail--root input[type="checkbox"]').setValue(true)
+    expect(wrapper.emitted('update:root-settings')?.at(-1)).toEqual([{ hideDescription: true, allowMultiple: true }])
+    await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
+    if (type === 'custom') expect(wrapper.get('.content-settings-detail--item').text()).toContain('在此环节填写')
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    expect(wrapper.findAll('.content-settings-detail--root legend').map(group => group.text())).toEqual(groups)
+    wrapper.unmount()
+  })
+
+  it('keeps tag name and description independent from root and other items', async () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, questionType: 'text', items: [
+        { id: 'tag', label: '标签题', hint: '题目描述', questionType: 'tag', options: [{ id: 'a', label: '选项A' }] },
+        { id: 'text', label: '文本题', hint: '文本提示', questionType: 'text' },
+      ] }, active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false }, itemSettings: { tag: { mode: 'fill', required: true }, text: { mode: 'fill', required: true } },
+      rootSettingsEnabled: true, itemSettingsEnabled: true, rootSettingsVariant: 'work-summary-root', itemSettingsVariant: 'work-summary-item',
+    } })
+    expect(wrapper.findAll('.content-settings-detail--root legend').map(group => group.text())).toEqual(['显示设置'])
+    await wrapper.get('[data-content-item-id="tag"]').trigger('click')
+    const display = wrapper.get('.content-settings-detail--item fieldset')
+    expect(display.text()).toContain('显示设置')
+    const displayCheckboxes = display.findAllComponents(PerformanceCheckbox)
+    expect(displayCheckboxes).toHaveLength(2)
+    expect(displayCheckboxes[0].props('label')).toBe('隐藏名称')
+    expect(displayCheckboxes[1].props('label')).toBe('隐藏描述')
+    await display.findAll('input')[0].setValue(true)
+    await wrapper.setProps({ itemSettings: (wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0] })
+    expect(wrapper.find('[data-content-item-id="tag"] .template-field-label').exists()).toBe(false)
+    expect(wrapper.get('[data-content-item-id="tag"] .template-field-description').text()).toBe('题目描述')
+    await display.findAll('input')[1].setValue(true)
+    await wrapper.setProps({ itemSettings: (wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0] })
+    expect(wrapper.find('[data-content-item-id="tag"] .template-field-description').exists()).toBe(false)
+    expect(wrapper.get('.configured-content-card__description').text()).toBe('描述')
+    expect(wrapper.get('[data-content-item-id="tag"] .tag-options').text()).toBe('选项A')
+    expect(wrapper.get('[data-content-item-id="text"] .content-renderer-editor__body').text()).toBe('文本提示')
+    await display.findAll('input')[0].setValue(false)
+    await wrapper.setProps({ itemSettings: (wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0] })
+    expect(wrapper.get('[data-content-item-id="tag"] .template-field-label').text()).toBe('标签题*')
+    expect(wrapper.find('[data-content-item-id="tag"] .template-field-description').exists()).toBe(false)
+    await wrapper.get('.content-settings-detail--item input[value="hidden"]').setValue()
+    await wrapper.setProps({ itemSettings: (wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0] })
+    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '填写设置'])
+    await wrapper.get('.content-settings-detail--item input[value="fill"]').setValue()
+    await wrapper.setProps({ itemSettings: (wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0] })
+    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '填写设置', '必填项设置'])
+    await wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')[2].setValue(false)
+    expect((wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0].tag).toMatchObject({ mode: 'fill', required: false, hideName: false, hideDescription: true })
+    wrapper.unmount()
+  })
+
+  it.each(['标签样式', '下拉样式'] as const)('configures unknown rating on the root without mutating levels in %s mode', async ratingDisplayMode => {
+    const levels = [{ id: 'a', label: '符合预期' }]
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type: 'rating', ratingDisplayMode, options: levels }, active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false }, itemSettings: {},
+      rootSettingsEnabled: true, itemSettingsEnabled: true, rootSettingsVariant: 'work-summary-root', itemSettingsVariant: 'work-summary-item',
+    } })
+    expect(wrapper.findAll('.content-settings-detail--root legend').map(group => group.text())).toEqual(['显示设置', '评估设置'])
+    expect(wrapper.get('.rating-unknown-description').text()).toBe('开启后，若评估人选择「不了解」，则会跳过该评估内容中的所有问题。')
+    const checkbox = wrapper.findAll('.content-settings-detail--root input')[1]
+    expect((checkbox.element as HTMLInputElement).checked).toBe(false)
+    await checkbox.setValue(true)
+    const settings = (wrapper.emitted('update:root-settings')!.at(-1) as [typeof wrapper.vm.$props.rootSettings])[0]
+    expect(settings).toEqual({ hideDescription: false, allowMultiple: false, allowUnknown: true })
+    await wrapper.setProps({ rootSettings: settings })
+    expect(wrapper.get('.content-renderer-rating__levels').attributes('aria-label')).toBe('评级选项')
+    const rating = wrapper.getComponent(PerformanceRatingControl)
+    expect(rating.props('allowUnknown')).toBe(true)
+    expect(rating.props('options')).toEqual(levels)
+    if (ratingDisplayMode === '标签样式') expect(rating.findAll('.rating-option').map(option => option.text())).toEqual(['符合预期', '不了解'])
+    expect(levels).toEqual([{ id: 'a', label: '符合预期' }])
+    await checkbox.setValue(false)
+    await wrapper.setProps({ rootSettings: (wrapper.emitted('update:root-settings')!.at(-1) as [typeof settings])[0] })
+    expect(rating.props('options')).toEqual(levels)
+    wrapper.unmount()
   })
 
   it('shows rating visibility settings for a rating item and reuses the shared checkbox', async () => {
@@ -156,6 +258,31 @@ describe('PerformanceConfiguredContentBlock', () => {
     await wrapper.setProps({ itemSettings: { 'rating-item': { mode: 'fill', required: true, hideName: true } } })
     expect(wrapper.find('[data-content-item-id="rating-item"] strong').exists()).toBe(false)
     expect(wrapper.find('[data-content-item-id="rating-item"] > i').exists()).toBe(false)
+    const toggle = wrapper.getComponent(PerformanceSwitch)
+    expect(toggle.props('modelValue')).toBe(false)
+    expect(wrapper.find('.rating-level-rule-settings__details').exists()).toBe(false)
+    await toggle.trigger('click')
+    expect(wrapper.emitted('update:item-settings')?.at(-1)).toEqual([{ 'rating-item': { mode: 'fill', required: true, hideName: true, levelRulesEnabled: true } }])
+    await wrapper.setProps({ itemSettings: { 'rating-item': { mode: 'fill', required: true, hideName: true, levelRulesEnabled: true } } })
+    expect(wrapper.get('.rating-level-rule-settings__details p').text()).toBe('当满足条件时，当前评估题仅可选如下规则配置的可选项，当不满足所有规则时，当前评估题可选任意选项。')
+    expect(wrapper.getComponent(PerformanceButton).text()).toBe('添加规则')
+    expect(wrapper.get('[data-icon="GanttsetOutlined"]').findAll('path')).toHaveLength(2)
+    expect(ratingRuleSource).toContain('var(--performance-settings-help-line-height)')
+    expect(ratingRuleSource).toContain('var(--color-line-control)')
+    const info = vi.spyOn(ElMessage, 'info').mockImplementation(() => ({ close: () => {} }))
+    await wrapper.getComponent(PerformanceButton).trigger('click')
+    expect(info).toHaveBeenCalledWith('添加规则弹窗暂未开放')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    info.mockRestore()
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    expect(wrapper.findComponent(PerformanceRatingLevelRuleSettings).exists()).toBe(false)
+    await wrapper.get('[data-content-item-id="rating-item"]').trigger('click')
+    expect(wrapper.getComponent(PerformanceSwitch).props('modelValue')).toBe(true)
+    await wrapper.getComponent(PerformanceSwitch).trigger('click')
+    await wrapper.setProps({ itemSettings: (wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0] })
+    expect(wrapper.find('.rating-level-rule-settings__details').exists()).toBe(false)
+    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '必填项设置'])
+    wrapper.unmount()
   })
   it('exposes only confirmed stage and item capabilities with item-first legacy fallbacks', () => {
     expect(getStageContentRule('work_summary')).toMatchObject({ rootSettingsEnabled: true, itemSettingsEnabled: true, visibleSlots: ['fill'] })
@@ -165,11 +292,12 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(itemSettingsCapabilities).toEqual({
       'work-summary': { hideName: false, mode: true, required: true },
       'custom-text': { hideName: true, mode: true, required: true },
-      rating: { hideName: true, mode: false, required: true },
+      'custom-tag': { hideName: true, hideDescription: true, mode: true, required: true },
+      rating: { hideName: true, mode: false, required: true, levelRules: true },
     })
     expect(getItemSettingsVariant({ type: 'custom', questionType: 'tag' }, { questionType: 'text' })).toBe('custom-text')
-    expect(getItemSettingsVariant({ type: 'custom', questionType: 'text' }, { questionType: 'tag' })).toBe('work-summary')
-    expect(getItemSettingsVariant({ type: 'custom', questionType: 'tag' })).toBe('work-summary')
+    expect(getItemSettingsVariant({ type: 'custom', questionType: 'text' }, { questionType: 'tag' })).toBe('custom-tag')
+    expect(getItemSettingsVariant({ type: 'custom', questionType: 'tag' })).toBe('custom-tag')
     expect(getItemSettingsVariant({ type: 'custom' })).toBe('custom-text')
   })
 
