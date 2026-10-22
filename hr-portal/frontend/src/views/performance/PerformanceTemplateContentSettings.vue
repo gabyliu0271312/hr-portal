@@ -34,11 +34,11 @@
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
       <div v-if="selectedStageData" class="content-pane">
         <section v-if="isResultView" class="result-view-section" aria-label="绩效结果">
-          <div class="result-view-section__content">
+          <PerformanceContentSelectionFrame variant="root" :selected="pageHeadingSelected" class="result-view-section__content" role="button" tabindex="0" :aria-pressed="pageHeadingSelected" aria-label="选择页面标题" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
             <div class="result-view-section__drag" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" data-icon="DragOutlined"><path d="M8.25 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm0 7.25a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm1.75 5.5a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0ZM14.753 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5ZM16.5 12a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Zm-1.747 9a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Z" /></svg></div>
-            <h2>绩效结果</h2>
+            <h2>{{ contentPageName }}</h2>
             <div v-if="!configuredContents.length" class="result-view-section__empty">此区域应添加终评环节执行人「{{ finalExecutorLabel }}」填写的内容</div>
-          </div>
+          </PerformanceContentSelectionFrame>
           <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
         </section>
         <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="contentPageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
@@ -204,7 +204,7 @@ const selectedStageData = computed(() => stages.value.find((stage) => stage.id =
 const selectedStageTitle = computed(() => selectedStageData.value?.title || '')
 const selectedWorkflowNode = computed(() => workflowNodes.value.find(node => node.node_id === selectedStage.value))
 const contentPageName = computed({
-  get: () => selectedWorkflowNode.value?.content_page_name ?? selectedStageTitle.value,
+  get: () => selectedWorkflowNode.value?.content_page_name ?? (selectedStageData.value?.nodeType === 'result_view' ? '绩效结果' : selectedStageTitle.value),
   set: (value: string) => {
     if (!selectedWorkflowNode.value || pageNameLocked.value) return
     selectedWorkflowNode.value.content_page_name = value
@@ -788,10 +788,9 @@ onMounted(async () => {
 .result-reconsideration-section__collapse{flex:0 0 24px;margin-left:auto}
 .result-reconsideration-section__body{height:102px;padding:12px 24px;box-sizing:border-box}
 .result-reconsideration-section__preview{width:284px;height:54px;padding:16px;box-sizing:border-box;border-radius:6px;background:#f5f6f7;color:#1f2329;font:400 14px/22px var(--font-sans);white-space:pre-wrap;overflow-wrap:anywhere}
-.result-reconsideration-section>.template-operate{border-top:1px solid rgba(187,191,196,.5)}
 .result-view-section{position:relative;width:var(--performance-content-width);max-width:100%;overflow:hidden;border-radius:var(--radius-sm);background:var(--color-bg-card)}
 .result-view-section__content{position:relative}
-.result-view-section__content::after{position:absolute;inset:0;border:2px solid var(--performance-content-hover-border);border-radius:var(--radius-sm);box-sizing:border-box;opacity:0;pointer-events:none;content:''}
+.result-view-section__content::after{position:absolute;inset:0;border:var(--performance-content-hover-outline);border-radius:var(--radius-sm);box-sizing:border-box;outline-offset:var(--performance-content-hover-outline-offset);opacity:0;pointer-events:none;content:''}
 .result-view-section__content:hover::after{opacity:1}
 .result-view-section h2{margin:0;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary);font:600 18px/26px var(--font-sans)}
 .result-view-section__empty{padding:var(--spacing-8) var(--spacing-6);border-top:1px solid var(--performance-popover-border);color:var(--color-text-placeholder);font:400 var(--font-size-md)/22px var(--font-sans);text-align:center;overflow-wrap:anywhere}

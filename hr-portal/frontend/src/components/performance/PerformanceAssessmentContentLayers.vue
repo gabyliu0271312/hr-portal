@@ -16,10 +16,9 @@
           </section>
           <div class="divider" />
 
-          <p v-if="selectionRestriction" class="content-selection-restriction" role="note">{{ selectionRestriction }}</p>
           <template v-if="drawerContents.length">
             <div class="drawer-actions">
-              <CreateMenu v-if="!selectionRestriction" ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
+              <CreateMenu ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
               <button class="plain-button expand-all-button" type="button" :aria-expanded="allExpanded" @click="toggleAllExpanded"><ArrowDown v-if="!allExpanded" /><ArrowUp v-else /> {{ allExpanded ? '全部收起' : '全部展开' }}</button>
             </div>
             <section class="created-list" aria-label="评估内容">
@@ -34,7 +33,7 @@
                 <strong>{{ content.name }}</strong>
                 <template #actions>
                   <div class="created-item__actions"><PerformanceExpandButton :expanded="expandedIds.has(content.id)" :label="`${expandedIds.has(content.id) ? '收起' : '展开'}${content.name}`" @toggle="toggleExpanded(content.id)" />
-                    <button v-if="!selectionRestriction" class="created-item__edit" type="button" :aria-label="`缂栬緫${content.name}`" @click="editCreated(content)"><Edit /></button>
+                    <button class="created-item__edit" type="button" :aria-label="`缂栬緫${content.name}`" @click="editCreated(content)"><Edit /></button>
                   </div>
                 </template>
                 <template #details>
@@ -45,7 +44,7 @@
           </template>
           <section v-else class="empty-state" aria-label="评估内容列表">
             <el-empty :image-size="112" description="暂无内容" />
-            <CreateMenu v-if="!selectionRestriction" ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
+            <CreateMenu ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
           </section>
         </main>
         <footer v-if="drawerContents.length" class="drawer-footer">

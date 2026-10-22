@@ -66,5 +66,5 @@ defineEmits<{
 .reviewer-360-content__table{width:100%;border-collapse:collapse;table-layout:fixed;border-radius:6px;overflow:hidden;box-shadow:0 0 0 1px rgba(187,191,196,.5);color:var(--color-text-secondary)}
 .reviewer-360-content__table-title{width:109px;background:#f5f6f7}
 .reviewer-360-content__table td{height:52px;padding:15px 12px;box-sizing:border-box;border:1px solid #e4e5e7;line-height:21px}
-.reviewer-360-content__actions{position:sticky;z-index:20;bottom:8px;border-top:1px solid rgba(187,191,196,.5);border-radius:0 0 4px 4px;overflow:hidden}
+.reviewer-360-content__actions{position:sticky;z-index:20;bottom:8px;border-radius:0 0 4px 4px;overflow:hidden}
 </style>
