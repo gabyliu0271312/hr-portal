@@ -27,7 +27,7 @@
         :key="item.id"
         variant="item"
         class="content-renderer-item content-renderer-item--interactive"
-        :class="{ 'content-renderer-item--selected': selectionKey(item.id) === selectedItemId, 'content-renderer-item--configured': hasItemSettings(item.id), 'content-renderer-item--hidden': itemState(item.id).mode === 'hidden', 'content-renderer-item--view': itemState(item.id).mode === 'view', 'content-renderer-item--name-hidden': isCustomTextItem(item) && itemState(item.id).hideName === true }"
+        :class="{ 'content-renderer-item--selected': selectionKey(item.id) === selectedItemId, 'content-renderer-item--configured': hasItemSettings(item.id), 'content-renderer-item--custom-tag': isCustomTagItem(item), 'content-renderer-item--hidden': itemState(item.id).mode === 'hidden', 'content-renderer-item--view': itemState(item.id).mode === 'view', 'content-renderer-item--name-hidden': isCustomTextItem(item) && itemState(item.id).hideName === true }"
         :selected="selectionKey(item.id) === selectedItemId"
         :data-content-item-id="item.id"
         :aria-disabled="itemState(item.id).mode === 'hidden'"
@@ -88,7 +88,16 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
 .content-renderer-item--view :deep(.readonly-answer),.content-renderer-item--view :deep(.readonly-tag-panel){background:#f8f9fa}
 .content-renderer-view-preview{pointer-events:none}
 .content-renderer-view-preview :deep(.readonly-answer),.content-renderer-view-preview :deep(.readonly-tag-panel){min-height:54px}
-.content-renderer-item--configured.content-renderer-item--view{min-height:132px}
+  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view){min-height:216px;padding:12px 24px;box-sizing:border-box}
+  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.template-field-label){margin:0 0 8px}
+  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.template-field-description){margin:0 0 8px}
+  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-followup){padding:0;margin:0;border:0;border-radius:0;background:transparent}
+  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-options){gap:0 24px;margin:0 0 24px;padding:8px 24px 24px;box-sizing:border-box;border-radius:8px;background:#f8f9fa}
+  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-options .performance-checkbox){margin-top:16px}
+  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-answers){gap:8px}
+  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-answer){padding:12px 16px 0;border:1px solid #d0d3d6;border-radius:6px;background:#fff}
+  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-editor-placeholder){min-height:102px;padding:10px 8px;border:0;color:#8f959e;background:transparent}
+
 .content-renderer-item--configured.content-renderer-item--view:has(:deep(.readonly-tag-panel)){min-height:186px}
 .content-renderer-item--interactive{padding:8px;border:2px solid transparent;border-radius:6px;box-sizing:border-box;cursor:pointer}
 .content-renderer-item--configured{width:100%;min-height:185.333px;margin:0;padding:16px 22px 10.333px;border-radius:4px}
