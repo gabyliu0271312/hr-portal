@@ -7,6 +7,7 @@ from app.datasets.models import DataSet, DataSetTable, DatasetOutputField, DataP
 from app.warehouse.schemas import DatasetReleaseIssueOut, DatasetReleaseReadinessOut
 from app.warehouse.service.standard_fields import _physical_source_identity
 from app.warehouse.service.standardization import _normalized_metadata_type, _physical_metadata_type
+from app.warehouse.service_ref import LEGACY_REPORT_PREFIX, SOURCE_DATASET, SOURCE_REPORT, SOURCE_TABLE
 
 
 async def check_dataset_release(db, dataset_id: int, *, verify_conversion=True) -> DatasetReleaseReadinessOut:
@@ -97,13 +98,41 @@ async def check_dataset_release(db, dataset_id: int, *, verify_conversion=True) 
     try:
         async with db.begin_nested():
             external_export_count = int((await db.execute(text(
-                "SELECT count(*) FROM push_targets pt "
-                "JOIN reports r ON ("
-                "    (pt.source_type = 'report' AND pt.source_id IN (r.id::text, 'report:' || r.id::text)) "
-                " OR (pt.source_table = ('report:' || r.id::text))"
+                "WITH bound_tables AS ("
+                "    SELECT table_name FROM dataset_tables WHERE dataset_id = :dataset_id"
+                "), affected_tables AS ("
+                "    SELECT table_name FROM bound_tables "
+                "    UNION "
+                "    SELECT cr.source_table FROM bound_tables dt "
+                "    JOIN LATERAL ("
+                "        SELECT source_table FROM warehouse_conversion_runs "
+                "        WHERE target_table = dt.table_name ORDER BY id DESC LIMIT 1"
+                "    ) cr ON TRUE"
+                "), affected_datasets AS ("
+                "    SELECT :dataset_id AS id "
+                "    UNION "
+                "    SELECT dataset_id FROM dataset_tables "
+                "    WHERE table_name IN (SELECT table_name FROM affected_tables)"
                 ") "
-                "WHERE pt.is_active IS TRUE AND r.dataset_id = :dataset_id"
-            ), {"dataset_id": dataset_id})).scalar_one() or 0)
+                "SELECT count(*) FROM push_targets pt "
+                "WHERE pt.is_active IS TRUE AND ("
+                "    EXISTS ("
+                "        SELECT 1 FROM reports r "
+                "        WHERE r.dataset_id IN (SELECT id FROM affected_datasets) AND ("
+                "            (pt.source_type = :report_type AND pt.source_id IN ("
+                "                r.id::text, :report_prefix || r.id::text)) "
+                "            OR pt.source_table = :report_prefix || r.id::text"
+                "        )"
+                "    ) "
+                "    OR (pt.source_type IN (:dataset_type, 'model') "
+                "        AND pt.source_id IN (SELECT id::text FROM affected_datasets)) "
+                "    OR (pt.source_type = :table_type "
+                "        AND pt.source_id IN (SELECT table_name FROM affected_tables)) "
+                "    OR pt.source_table IN (SELECT table_name FROM affected_tables)"
+                ")"
+            ), {"dataset_id": dataset_id, "report_type": SOURCE_REPORT,
+                "report_prefix": LEGACY_REPORT_PREFIX, "dataset_type": SOURCE_DATASET,
+                "table_type": SOURCE_TABLE})).scalar_one() or 0)
     except SQLAlchemyError:
         issue("external_export_reference_unchecked", "外部出口引用尚未完成校验")
     if external_export_count:

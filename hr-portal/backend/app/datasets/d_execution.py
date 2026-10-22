@@ -1,4 +1,4 @@
-"""内部单事实 D/S 合同校验与 SQL 编译，不接入报表运行链路。"""
+"""单事实 D/S 合同校验与 SQL 编译；运行入口必须先核对服务端准入。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -91,7 +91,7 @@ def validate_allocation_fact_s_execution(contract, request):
     if bound_contract.status != "active":
         issues.append(_s_issue("authorization_contract_not_active", "只有active授权合同可以进入S执行校验"))
     if bound_contract.runtime_enabled:
-        issues.append(_s_issue("runtime_enablement_forbidden", "S执行切片不允许开启runtime_enabled"))
+        issues.append(_s_issue("runtime_enablement_forbidden", "执行资格必须由服务端当前准入判定，不能由合同快照开启"))
     if bound_request.dataset_id != bound_contract.dataset_id:
         issues.append(_s_issue("execution_dataset_mismatch", "执行计划与授权合同数据集不匹配"))
     if bound_request.contract_id != bound_contract.contract_id:
@@ -232,7 +232,7 @@ async def compile_allocation_fact_s_scope(*, user, fact, model, db, table_alias=
 
 
 async def compile_allocation_fact_s_select_for_user(*, contract, request, user, db):
-    """Compile an internal, server-bound S aggregation; no route calls this yet."""
+    """Compile S aggregation from a server-bound contract with current field and scope checks."""
     from app.data.models import DATA_TABLES, TableColumn
     from app.permissions.masker import get_hidden_columns
     from app.reports.sql_builder import _entity_column
@@ -391,11 +391,17 @@ async def compile_allocation_fact_s_result_statements_for_user(
 
 async def compile_allocation_fact_s_select_for_dataset(*, db, user, request):
     from app.datasets.authorization_contract import execution_readiness
-
+    from app.datasets.models import DataProductAuthorizationContract
     readiness = await execution_readiness(db, request.dataset_id, user)
-    if not readiness.eligible:
-        return None, readiness.issues
-    return None, [_s_issue("s_execution_runtime_disabled", "S汇总执行尚未获得运行资格")]
+    if not readiness.eligible or not readiness.runtime_enabled:
+        return None, readiness.issues or [_s_issue("s_execution_runtime_disabled", "S汇总执行尚未获得运行资格")]
+    row = await db.get(DataProductAuthorizationContract, readiness.contract_id)
+    if row is None:
+        return None, [_s_issue("authorization_contract_missing", "授权合同不存在")]
+    contract = {"id": row.id, "dataset_id": row.dataset_id, "contract_version": row.contract_version,
+                "status": row.status, "contract_json": row.contract_json, "model_snapshot": row.model_snapshot}
+    return await compile_allocation_fact_s_select_for_user(
+        contract=contract, request=request, user=user, db=db)
 
 
 def compile_allocation_fact_s_select(*, contract, request, user, db):

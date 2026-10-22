@@ -193,7 +193,7 @@
   - 本地子项：
     - [x] X2126.a.local 唯一服务端完整资格校验与发布：字段通过不等于发布通过，缺X2122事实/授权路径及转换证据时明确拒绝完整发布。
     - [x] X2126.a.fields 本地字段资格校验：全部输出confirmed+active，真实物理字段/类型、来源身份、可见/敏感限制及技术列；fields_eligible独立于eligible，缺授权/转换合同拒绝发布。
-    - [ ] X2126.conversion.local 0268不可变转换运行/批准、成功刷新同事务证据、readiness/approve及release复核；2026-10-22已实现候选，真实PostgreSQL专项与约束/回滚验证完成后再勾选。仅单来源同名rename全量子集，runtime继续关闭。
+    - [x] X2126.conversion.local 0268不可变转换运行/批准、成功刷新同事务证据、readiness/approve及release复核；隔离PostgreSQL完成迁移/不可变/漂移/审计回滚及直接出口阻断验证，数值及直接出口专项18 passed（127.22s）。仅单来源同名rename全量子集，不代表全规则/全渠道准入；运行资格见X2143.allocation.local，不是全局开关。
     - [ ] X2126.b.local 覆盖所有生成/刷新/预览/新报表消费入口；尚未接入全渠道。
     - [ ] X2126.c.local 新旧状态版本隔离、消费旁路阻断和生产迁移回滚；尚未完成。
   - UI：逐字段阻断和修复由X2130/X2132。验收：锚点合格但普通列未绑定仍拒绝、伪造published不放行、新ODS列不透、旧资产不整体下线、失败无部分新列公开、真实迁移回滚。
@@ -234,7 +234,8 @@
 - [ ] **X2143 Portal运行、计数、预览、导出与下钻闭环**
   - 前置：X2141、X2142。范围：同用户相同计划、D/S与字段裁决，分组COUNT、批准人数指标、CSV/XLSX及后处理不旁路；下钻新请求用D，中心汇总参与人员不作为明细授权。
   - 交付：reports/router/export及预览调用一致性和测试，混合范围提示不伪全量。
-  - [ ] X2143.business.local 正式业务接入（2026-10-21接线已验证，但完整准入不可用）：Report新增`execution_version`和绑定指纹（报表ID/数据集/owner/策略/config），默认legacy_v1；0267迁移约束及非legacy降级拒绝已真库验证。GET/POST `/reports/{id}/execution-binding`严格Schema、report.list U+warehouse.assets U、编辑权/指纹冲突/合同版本和审计同事务；普通输入/运行参数不能切版本。run/CSV/XLSX已接新S结果且绕开旧Python聚合/XLSX补差，外部/调度/维度/实时新版本拒绝不回退；关联数据集未隔离报表出口也拒绝。真实接口不替换准入时409且保持legacy；替换准入的合成ASGI+PostgreSQL只证明路由/COUNT/CSV/XLSX金额600接线，不能作为正式准入通过。转换合同与runtime readiness仍恒阻断、D/下钻/模型预览等未接全，本子项及父任务继续[ ]。
+  - [ ] X2143.business.local 正式业务接入（2026-10-21接线已验证，但完整准入不可用）：Report新增`execution_version`和绑定指纹（报表ID/数据集/owner/策略/config），默认legacy_v1；0267迁移约束及非legacy降级拒绝已真库验证。GET/POST `/reports/{id}/execution-binding`严格Schema、report.list U+warehouse.assets U、编辑权/指纹冲突/合同版本和审计同事务；普通输入/运行参数不能切版本。run/CSV/XLSX已接新S结果且绕开旧Python聚合/XLSX补差，外部/调度/维度/实时新版本拒绝不回退；关联数据集未隔离报表出口也拒绝。真实接口不替换准入时409且保持legacy；替换准入的合成ASGI+PostgreSQL只证明路由/COUNT/CSV/XLSX金额600接线，不能作为正式准入通过。后续2026-10-22已追加正式转换批准和限缩allocation汇总真实HTTP链路（见X2143.allocation.local及文末）；D/下钻/模型预览等未接全，本完整业务子项及父任务继续[ ]。
+  - [x] X2143.allocation.local 限缩allocation_fact汇总运行资格与真实Portal run/COUNT/CSV/XLSX隔离回归：仅单表、无JOIN/计算、已批准成本中心汇总路径；完整字段/ACL/树/转换批准/出口/实际编译全通过才获运行资格。正式HTTP组织400、中心300、双授权600去重、无范围拒绝，以及字段隐藏/出口重新关联/ACL撤销/规则失效拒绝，最终四组真库4 passed（63.38s）；不替换准入或编译器。D明细、下钻、多事实及复杂过滤继续关闭，未代表UI或生产启用。
   - [x] X2143.result-adapter.local 内部S结果集语句适配：复用`compile_allocation_fact_s_select_for_user`，从同一已授权聚合子查询派生COUNT/稳定分页preview/无分页export，输出顺序沿请求；page>=1、page_size=0或1–1000，非法值返回稳定issue；不实际执行SQL、不接入任何业务路由/旧后处理、不回退legacy。隔离PostgreSQL覆盖org/cc/both/none，COUNT数聚合结果行、分页及全量一致，dataset级入口readiness恒阻断；CSV/XLSX/Portal/外部渠道仍未完成。
   - UI：spec7.2、012 N07/N12加载/无权/失效/空态/导出失败；不新增外部功能。
   - 验收：行/金额/分组数/表头/隐藏字段比对，跨组织原始明细不进响应/日志，个人筛选不能S定位，撤权下次请求生效，旧出口未迁移风险保持。
@@ -1005,13 +1006,77 @@ hr-portal/backend/.venv/Scripts/python.exe -m pytest
 - 执行命令沿前节环境和七文件，追加test_report_execution_binding.py、test_report_service_validation.py、test_report_access_audit.py、test_track_b_report_field_validation.py、test_track_b_report_runtime_validation.py、test_report_rounding_export.py、test_push_service_entity.py：**445 passed、0 skipped、291 warnings，418.35s，退出0**。绑定专项29 passed/19 warnings；警告为既有依赖/utcnow，未禁用schema/权限。测试后随机schema0，acceptance库revision0267。之后新增运行时筛选路由拒绝断言和min/max输出类型映射修正，最终重跑绑定/运行/导出/审计/舍入/推送七文件专项为**136 passed、0 skipped、21 warnings，48.21s，退出0**。
 - X2143.business.local与父X2143保持[ ]：当前仅S的正式路由接线和合成成功分支，完整转换批准/运行资格、D正式执行/下钻、模型预览/重复列实例/过滤排序/复杂派生/多事实JOIN、生产出口/金额/P95和PC真实浏览器未闭环，不宣称正式业务接入已完成或可部署启用。下一步应实现可核验转换运行合同及其批准/执行版本，而非删除conversion_contract_unverified或runtime门禁。
 
-### 2026-10-22 转换运行证据候选（验证进行中）
+### 2026-10-22 转换运行证据与限缩汇总闭环（以后续结果为准）
 
 - 只改021后端与既有测试/任务记录；并行绩效文件保留，不提交、不部署、不连接生产。
 - 新增0268（parent0267）：不可变conversion run/approval、血缘唯一RESTRICT与匹配校验、批准版本/身份/原因约束、被引用血缘保护，非空降级拒绝。
 - `execute_full`仅对ODS→DWD同名rename且无规则子集覆盖的full_refresh生成证据；来源锁、原始规则/结构快照、实际投影比对、源/目标加密键摘要、ID/规则/结构/行数和血缘同一事务。其他规则仍可沿既有流程执行，但不获此子集的转换准入。
 - conversion-readiness/approve使用warehouse.assets V/U及当前数据集ACL；只批准最新run，复核无JOIN/计算、active合同、完整输出确认、当前来源/目标结构/数据/规则、外部出口；批准与安全审计同事务，409冲突/失败回滚。release gate复核转换批准，不改变execution readiness，runtime保持关闭；`POST /release`仍拒绝，不能把readiness通过当正式发布。
 - 55432被Windows排除端口段55360–55459占用；保留原`hr021-postgres`及数据，另建仅127.0.0.1:15432的`hr021-evidence-postgres`，账号/库前缀仍固定hr021；只扩展测试fixture允许两个专用端口，不放宽主机/账号/库断言。密码仅进程内读取/注入。15432合成acceptance库由ORM建立0267结构（非生产克隆、非历史冷启动通过），实际0267→0268升级成功；随机schema仍在hr021_migration内逐例建立/清理。
-- 已执行无DB专项：标准字段/报表绑定48 passed、98 skipped、1 warning；标准化/报表/权限/旧推送定向224 passed、8 skipped、1 warning。跳过为显式真库验收，非通过；最后代码改动后的真库和定向重跑仍待返回。
+- 已执行无DB专项：标准字段/报表绑定48 passed、98 skipped、1 warning；标准化/报表/权限/旧推送定向224 passed、8 skipped、1 warning。跳过为显式真库验收，非通过。后续15432真库：标准字段全文件129 passed（485.49s），另补拒绝发布不重扫数据HTTP单例1 passed（24.23s）；报表绑定/运行/审计/SQL/ACL/旧推送六文件146 passed、0 skipped、19 warnings（48.96s），其中既有替换准入的接线正例不冒充正式准入。最后数值投影修正后标准化单测30 passed、1 warning（7.29s），既有转换真库专项重跑13 passed、117 deselected、44 warnings（91.85s）；新增数值类型真库及直接出口漏检补测待完成。
 - 曾误用无起点的全历史离线SQL，遇0026 JSON literal renderer失败；随后只验证增量0268，不修改历史迁移或冒称冷启动通过。15432首次测试因未初始化版本表exit2，后建立上述合成起点；失败不计通过。完整0268真库约束/批准/漂移/回滚由新增专项验证中。
-- X2126.conversion.local及全部A父任务仍[ ]；A UI、allocation合同运行资格、未mock Portal闭环、多事实/JOIN/下钻和生产灰度/P95/旧出口验收尚未完成。
+- 额外内部D/S及scope_filter真库回归：`tests/test_d_execution.py tests/test_scope_filter_entity.py --postgres-acceptance -q --tb=short -rs -p no:cacheprovider`，82 passed、0 skipped、81 warnings（209.76s）；仍为内部切片，不替代正式报表运行资格。
+- X2126.conversion.local已有隔离验证，按任务段勾选；全部A父任务仍[ ]。后续用户要求完成最短闭环，新增allocation运行资格与正式HTTP专项，最新结果见下节；A UI、多事实/JOIN/下钻和生产灰度/P95/旧出口实体验收尚未完成。
+
+### 2026-10-22 开发库迁移与限缩allocation真实执行增量
+
+- 用户明确授权应用开发库。先确认本机`hr-portal-db` / `hr_portal` revision0267、宿主5432，备份至`hr-portal/data/hr_portal_before_0268.dump`（7.2MB，SHA256 `283ed055d511e81da428ec6b1f36122bac2e3763d3c7837336466d668d3ccd28`）。正式迁移首轮因ORM预建的空证据表重复失败；只读核对两表0行、无0268触发器/函数后，清理两张空半成品并执行正式0267→0268成功，5个触发器存在。未重启backend，未改生产或自动重绑报表。
+- 最新运行资格不再是常量false，也不是单表角色即true：只限单allocation_fact、批准中心汇总、无JOIN/计算，当前ACL/树/字段、正式转换批准、出口隔离和实际S编译全部通过才返回eligible/runtime_enabled=true；元数据合同API仍不接受runtime开关，person_fact及其他形态继续拒绝。allocation运行能力仅汇总，detail_mode=not_allowed，不暗示下钻可用。
+- 复用`compile_allocation_fact_s_select_for_user`、`compile_allocation_fact_s_result_statements_for_user`及既有`run_audited_dataset_query`路由，不新建执行器，不回退legacy。新批准合同须通过真实锚点/批准输出/维度度量校验；新数据集编译入口先readiness再读取服务端合同。
+- 既有`tests/test_report_execution_binding.py`新增真实HTTP四组：正式execute_full生成run→创建/批准合同→转换批准→真实execution readiness→正式报表绑定→run分页/COUNT/CSV/XLSX。没有替换readiness/release/conversion或SQL编译器；只将认证用户/测试schema反射/非本次通知和普通报表审计适配到测试环境。新授权审计使用真实隔离session。
+- 最终四组真库4 passed、29 deselected、29 warnings（63.38s）：org400、cc300、both600非700、none拒绝，同一受控集合派生COUNT/分页/CSV/XLSX；额外验证出口重新关联409、数据集ACL撤销403、规则失效409以及字段隐藏422且无items。还实际调用dataset级S编译入口获得600，不替换readiness。完整报表绑定文件真库33 passed、47 warnings（85.85s）；最新授权边界与修复新DWD测试合跑5 passed、144 deselected、12 warnings（20.19s）。三文件扩大回归为253 passed、1 failed（803.28s），唯一失败是旧测试将table_columns序列重置20与新增夹具ID22/23冲突；现改为当前max(id)，失败用例已在上述5项中重跑通过。不把分次结果拼成一次254全通过，不隐瞒首轮失败。
+- 无DB兼容回归`test_report_service_validation.py test_report_access_audit.py test_reports_sql_builder_entity.py test_dataset_acl.py test_push_service_entity.py test_standardization_service.py`：147 passed、1 warning（11.52s）。编译、应用导入及增量唯一head0268检查通过。本轮不改021 UI，前端组件/build/PC浏览器不重复声明通过；未执行commit/push、backend重启或生产部署。
+- 本次目标是限缩allocation汇总业务切片，不是A整体交付；D明细/下钻/全部JOIN/复杂筛选排序/人数指标/重复列实例、治理与绑定UI、生产无出口试点/P95/安全回退仍保留原任务。
+
+## 2026-10-22 最新交接与下一轮MVP
+
+**下次启动先读本节，再读本文件2026-10-21的生产进展、证据分工和风险分级合同。**本节覆盖历史“0268未实现/执行资格恒false”的状态描述，但不覆盖当时的失败证据，不代表生产已经更新。
+
+### 1. 用户最新交付原则
+
+- **每轮优先完成一个可验收的MVP闭环，逐步扩大到完整启用。**开工先明确：哪个角色、通过哪个真实入口、完成什么业务、开放范围、验收证据及安全停止方法。
+- MVP是实施顺序，不是删掉A剩余范围；不把内部函数/建表/编译/模拟准入的测试数量当成可用交付。优先把上轮后端闭环接成用户可操作的开发PC试点，不继续长期堆“仅候选”子项。
+- 仅修当轮MVP实际影响面的V0/V1阻塞；P2/P3按既有合同登记后排期，不无限扩展外围检查。不取消当前权限、金额正确性、出口隔离、迁移备份及必要批准。
+- 区分“代码完成、隔离真库/API通过、开发PC可操作、批准试点、生产启用”；每轮说明实际到哪一层。后台代理停在阅读/计划而无结果时及时接管，不能反复用“最后测试中”代替反馈；未返回的测试不可预报通过。
+
+### 2. 当前完成程度与未启用边界
+
+- 已完成本地子项：**X2126.conversion.local、X2143.allocation.local**。真实隔离链路为：`execute_full`同事务run/lineage → 正式创建并批准allocation合同 → conversion批准 → release及execution readiness → 正式报表绑定 → run/COUNT/分页/CSV/XLSX。
+- 单allocation_fact、单表、无JOIN/计算、批准中心汇总路径及全字段确认；运行资格由当前字段/ACL/树/转换批准/外部出口/实际编译共同计算，不是全局常量true。合同输入不可传runtime开关，合同元数据输出仍固定false；execution-readiness才返回当次运行资格。D明细、person_fact正式执行、下钻、多事实/JOIN、复杂筛选排序、人数指标和重复列实例仍未开放。
+- 已真实验证org=400、cc=300、both=600非700、none拒绝，撤销ACL/隐藏字段/修改规则/重新关联active出口下次请求拒绝，无legacy回退；最终报表绑定全文件33 passed（85.85s），包含未替换准入的四组真实闭环4 passed（63.38s）。仅认证主体、测试schema反射和非核心通知等适配测试环境，没有替换转换证据/批准、release、readiness或SQL编译器。
+- 其他实际结果：转换数值/出口专项18 passed（127.22s）；旧报表/权限/推送/标准化兼容147 passed（11.52s）；三文件扩大回归253 passed、1 failed（803.28s），唯一失败为新DWD测试序列20撞夹具ID22/23，已改当前max(id)，失败用例连同授权边界5项重跑通过（20.19s）。**没有重新完整跑出一次254全通过，不得拼接宣称全绿。**warnings主要为python_multipart/utcnow弃用；初轮异步取消warning后已修测试审计session引用，最终报表文件仍保留实际warning数量记录。
+- **新增对象发布仍是下一轮前置缺口**：当前`POST /warehouse/models/{id}/release`仍恒409；本轮真实闭环从已有published合成数据集起步，不证明draft→published成功。readiness=true不等于发布完成。下一轮若选新draft对象，要把正式安全发布也纳入同一个MVP，复用同一release gate、权限、版本冲突及原子审计，覆盖成功/失败回滚；不得SQL改published或绕过门禁假装闭环。物理/数据集/报表标准绑定写入口是否可用亦须查当前实现，缺失则在该MVP内补最小正式流程，不要求用户直接写库。
+- **没有交付本轮021治理/绑定UI或真实浏览器走查，没有重启backend载入最新代码，没有批准/绑定开发库业务对象，没有生产部署。**A全部父任务仍[ ]；限缩汇总API闭环完成≠A整体完成。
+
+### 3. 交接时环境与代码状态（2026-10-22实查）
+
+| 环境 | 实际状态与用途 |
+| --- | --- |
+| Git | 分支main，HEAD `d6266a6`；上一个`bfa3010`为并行会话提交，曾包含部分021文件。本会话未commit/push；下次重新读HEAD/status/diff，不假设全部021仍未跟踪或全部已提交 |
+| 开发库 | `hr-portal-db`，127.0.0.1:5432，database=`hr_portal`，实际revision=`0268_warehouse_conversion_evidence`；交接只读查询run=0、approval=0、4条报表均legacy_v1 |
+| 应用 | 本机`hr-portal-backend`仍运行，源码bind到`hr-portal/backend:/app`，本会话未重启；frontend端口8080。挂载文件变化不等于现有worker已载入；不要声称新路由行为已在开发应用验收 |
+| 隔离验收 | `hr021-evidence-postgres`，只监听127.0.0.1:15432，账号hr021_test，库hr021_acceptance/hr021_migration；前者为合成ORM0267+实际0268升级起点，非生产克隆/全历史迁移通过；后者逐例随机schema测试 |
+| 原隔离库 | `hr021-postgres`的55432被Windows保留端口段挡住，未删除，不作为当前可用入口 |
+| 生产 | 本会话未连接、未变更；最新用户已回传的生产代码/迁移仍见2026-10-21记录（9a889bb/0267），不能拿开发库0268或本机4报表冒充生产15报表状态 |
+
+- 开发库备份：`hr-portal/data/hr_portal_before_0268.dump`，7.2MB，SHA256 `283ed055d511e81da428ec6b1f36122bac2e3763d3c7837336466d668d3ccd28`。含业务数据，只保留本地，不上传；此轮只检查备份文件生成/大小/hash，**未做pg_restore目录检查或恢复演练**，下次不能声称已验证可恢复。首次迁移遇ORM预建两张空证据表重复错误；已盘点0行/无正式触发器，清理两张空半成品后正式0267→0268成功、5个触发器存在。**这个一次性处理不是下次可直接DROP的通用SOP**；非空证据禁止直接降级，无用户许可不得破坏性操作。
+- 未提交021范围：`backend/app/datasets/{authorization_contract,d_execution}.py`，`backend/app/warehouse/service/{conversion,release_gate,standardization}.py`，`backend/tests/{test_report_execution_binding,test_standard_field_catalog,test_standardization_service}.py`，本目录START_HERE/atomic。并行performance组件/页面及测试也有修改，不覆盖、不顺手修、不混合提交。
+- 开发库迁移授权已经执行完，不自动延伸为下次重启共享backend、写业务批准/ACL、提交推送或生产部署授权；先核对用户本轮授权与并行会话，再执行对应操作。
+
+### 4. 下一轮唯一主MVP：开发环境PC可操作的无出口分摊汇总试点
+
+**预期用户结果：**管理员在现有仓库/报表入口完成一个对象的治理与正式批准，普通获准用户在PC运行并导出当前授权范围汇总；无权/失效可解释并安全停止。不要又回到仅增加内部编译函数。
+
+1. **启动核对**：按START_HERE输出启动确认，重新读012相关UI/N/测试规范和021 spec7.2，核对本节文件、实际路由、HEAD/status、开发库revision及当前应用版本；不重读所有历史日志拖延开工。
+2. **先只读选样，不猜业务对象**：盘点开发库表/数据集来源、标准绑定、合同、转换规则、run/approval、Report/PushTarget引用。只取安全元数据，不能把生产dataset15多事实成本对象直接当单表试点；不读取或输出员工/薪酬/secret原值。找一个无active出口、可证明依赖隔离、规则符合当前同名rename/full_refresh的对象。现库不满足时明确缺口，不降门禁；与用户确认开发合成演示对象或真实字段/owner/试点选择，不用INSERT补造证据。
+3. **UI最小闭环（X2131/X2133/X2132/X2143及012相关N）**：复用既有字段目录、Mapping/仓库模型/报表页面和统一API客户端，提供本次试点必需的字段确认/治理入口、合同与转换批准、readiness阻断与修复、报表版本绑定及范围提示。全目录复杂治理不用一次包揽；一个动作一个小组件、V/U/资源ACL/PermissionButton、409主动重载，不造第二规则正文或普通用户scope选择器。已有后端暂不支持的动作明确禁用，不做假成功。
+4. **对象和环境启用分开**：先验证组件/API/必要构建，再经本轮明确授权重启开发backend载入候选（0268已迁移无需再DROP/stamp），验证health/登录/旧报表。真实转换及批准走正式流程，选择用户批准的无出口对象，显式绑定authorized_v1，不批量回填legacy。来源/类型/输出要符合当前子集，例：当前正式全量刷新生成目标自有`id`主键，不照抄旧fixture的fact_id主键假设。
+5. **PC验收与安全停止**：真实浏览器确认批准→运行→COUNT/分页→CSV/XLSX、当前授权范围文案、加载/空/无权/失效态；核对普通用户而非只用超管。验证撤权/出口关联/规则变更立即拒绝，失败不退legacy。停止试点沿获准停用/撤销或安全阻断方式，未经设计不要添加一键回退到旧漏洞。记录对象ID/操作路径/实际结果，不存业务明细。
+6. **同轮收尾**：可核验交付后才勾对应具名MVP/N子项；若环境/业务批准阻塞，列出唯一下一动作和谁决定，不再循环泛化盘点。下一轮完成这个PC试点后，再按依赖逐个补D/下钻、受控筛选/人数、JOIN/多事实等MVP，最后生产灰度/性能/回退和A整体验收；B仍不加入前置。
+
+### 5. 验证入口与不要重复踩的坑
+
+- backend解释器：`hr-portal/backend/.venv/Scripts/python.exe`；Bash/PowerShell工作目录可能不同，先确认位置或用绝对路径，避免反复拼出`hr-portal/backend/hr-portal/backend`。pytest真库显式配置DB_HOST=127.0.0.1、DB_PORT=15432、DB_NAME=hr021_acceptance、DB_USER=hr021_test，并加`--postgres-acceptance`；密码仅从专用容器进程内读取注入，不打印/落盘。
+- 真实业务专项：`python -m pytest tests/test_report_execution_binding.py -k real_conversion_contract_binding --postgres-acceptance -q --tb=short -p no:cacheprovider`；完整报表文件去掉`-k`。范围内已验证的旧证据可复用；改了共享查询/权限/刷新后扩大到实际影响面，不为凑数量重跑无关模块。
+- 忘记DB环境会在schema-check解析db主机失败exit2，这不是业务测试失败也不是通过；跳过也不当通过。只验证0267→0268增量，不再误跑全历史离线链；历史0026离线JSON/0046版本长度/0051 seed依赖缺口单列。
+- 完整最新规格以本节和START_HERE为入口；旧段落保留审计过程。新session不能声称“无条件runtime仍false”，也不能反过来宣称“整个A/开发应用/生产已启用”。

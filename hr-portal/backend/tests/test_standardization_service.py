@@ -25,6 +25,23 @@ from app.warehouse.service.standardization import (
 )
 
 
+def test_conversion_numeric_projection_matches_database_numeric_without_precision_loss():
+    from app.warehouse.service.conversion import _projection_fingerprint
+
+    types = {"amount": "NUMERIC"}
+    for source, target in (
+        (100, Decimal("100.000")),
+        (0, Decimal("0.0")),
+        (-0.0, Decimal("0")),
+        (0.1, Decimal(0.1)),
+        (Decimal("123456789012345678901234567890.123400"),
+         Decimal("123456789012345678901234567890.1234")),
+    ):
+        assert _projection_fingerprint({"amount": source}, types) == _projection_fingerprint({"amount": target}, types)
+    assert _projection_fingerprint({"amount": Decimal("123456789012345678901234567890.1234")}, types) != _projection_fingerprint({"amount": Decimal("123456789012345678901234567890.1235")}, types)
+    assert _projection_fingerprint({"amount": None}, types) != _projection_fingerprint({"amount": 0}, types)
+
+
 def test_wage_standardization_uses_persisted_rollout_by_default():
     """工资 DWD 路径不传执行级覆盖时应读取持久化 rollout。"""
     import inspect

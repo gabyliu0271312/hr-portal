@@ -763,14 +763,21 @@ async def postgres_dwd_refresh(postgres_standard_catalog, monkeypatch):
             id=32, table_name="dwd_probe", table_label="Target", warehouse_layer="DWD",
         ))
 
-        await conn.execute(text("INSERT INTO source_probe VALUES('A001','Org1')"))
-        await conn.execute(text("INSERT INTO dwd_probe VALUES('OLD','OldOrg')"))
+        await conn.execute(text("ALTER TABLE source_probe ADD COLUMN amount numeric NOT NULL DEFAULT 0"))
+        await conn.execute(text("ALTER TABLE dwd_probe ADD COLUMN amount numeric NOT NULL DEFAULT 0"))
+        await conn.execute(text("INSERT INTO source_probe(employee_no,department,amount) VALUES('A001','Org1',0)"))
+        await conn.execute(text("INSERT INTO dwd_probe(employee_no,department,amount) VALUES('OLD','OldOrg',0)"))
         await conn.execute(text("UPDATE table_columns SET source_field_id='source-employee' WHERE id=18"))
         await conn.execute(text("UPDATE table_columns SET source_field_id='source-department' WHERE id=19"))
         await conn.execute(models.TableColumn.__table__.insert().values(
             id=20, table_name="source_probe", column_code="department", column_label="Source department",
             source_field_id="source-department", data_type="string",
         ))
+        for column_id, table_name in ((22, "source_probe"), (23, "dwd_probe")):
+            await conn.execute(models.TableColumn.__table__.insert().values(
+                id=column_id, table_name=table_name, column_code="amount", column_label="Hidden amount",
+                source_field_id="source-amount", data_type="number", is_visible=False,
+            ))
         await conn.execute(text("UPDATE standard_field_versions SET status='active',approved_by=7,approved_at=now(),approval_reason='reviewed' WHERE id=11"))
         for binding_id, target in ((51, {"table_column_id": 18}), (52, {"dataset_output_field_id": 41})):
             await conn.execute(models.StandardFieldBinding.__table__.insert().values(
@@ -957,7 +964,7 @@ async def test_new_dwd_remains_draft_without_implicit_public_output(postgres_dwd
     engine, factory, _ = postgres_dwd_refresh
     async with engine.begin() as conn:
         await conn.execute(text("SELECT setval(pg_get_serial_sequence('registered_tables','id'),32)"))
-        await conn.execute(text("SELECT setval(pg_get_serial_sequence('table_columns','id'),20)"))
+        await conn.execute(text("SELECT setval(pg_get_serial_sequence('table_columns','id'),(SELECT max(id) FROM table_columns))"))
     try:
         async with factory() as db:
             result = await StandardizationRuleService(db).execute_full(asset_code="source_probe", target_table="dwd_new_probe")
@@ -1528,6 +1535,26 @@ async def test_authorization_execution_readiness_rejects_reference_and_cost_cent
     assert approval.json()["detail"]["code"] == "contract_execution_validation_required"
 
 
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_authorization_execution_readiness_rejects_incomplete_allocation_summary(standard_catalog_api):
+    client, _, _, _ = standard_catalog_api
+    base = "/api/v1/warehouse/models/4/authorization-contracts"
+    payload = {
+        "expected_version": 0,
+        "facts": [{"alias": "current", "table_name": "dwd_probe", "fact_key": "employee_no", "employee_key": "employee_no", "cost_center_key": "department", "allow_cost_center_summary": True, "role": "allocation_fact"}],
+        "output_fields": ["employee_no"], "dimensions": [], "measures": [], "internal_fields": [],
+    }
+    created = await client.post(base, json=payload)
+    assert created.status_code == 201
+    approval = await client.post(f"{base}/{created.json()['id']}/approve", json={"expected_revision": 0, "reason": "limited allocation path review"})
+    assert approval.status_code == 409
+    readiness = await client.get("/api/v1/warehouse/models/4/authorization-execution-readiness")
+    assert readiness.status_code == 200
+    assert readiness.json()["eligible"] is False
+    assert readiness.json()["runtime_enabled"] is False
+
+
 @pytest_asyncio.fixture
 async def approved_execution_catalog(standard_catalog_api):
     from sqlalchemy import text
@@ -2033,6 +2060,167 @@ async def test_postgres_conversion_release_request_does_not_scan_fingerprints_un
     async with engine.connect() as conn:
         assert (await conn.execute(text("SELECT status,version,published_by FROM datasets WHERE id=4"))).one() == ("published", 3, None)
         assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_approvals")) == 1
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sql_type,value", [("BIGINT", 100), ("REAL", 0.1)])
+async def test_postgres_conversion_numeric_projection_preserves_hidden_amount(postgres_dwd_refresh, sql_type, value):
+    from decimal import Decimal
+    from sqlalchemy import text
+
+    engine, factory, _ = postgres_dwd_refresh
+    assert sql_type in {"BIGINT", "REAL"}
+    async with engine.begin() as conn:
+        await conn.execute(text(f"ALTER TABLE source_probe ALTER COLUMN amount TYPE {sql_type} USING amount::{sql_type}"))
+        await conn.execute(text("UPDATE source_probe SET amount=:value"), {"value": value})
+    for iteration in range(2):
+        result = await _run_conversion(factory)
+        assert "error" not in result, result
+        async with engine.connect() as conn:
+            source_value = await conn.scalar(text("SELECT amount FROM source_probe"))
+            assert await conn.scalar(text("SELECT amount FROM dwd_probe")) == Decimal(source_value)
+            assert await conn.scalar(text(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_schema=current_schema() AND table_name='dwd_probe' AND column_name='amount'"
+            )) == "numeric"
+            assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_runs")) == iteration + 1
+            assert await conn.scalar(text("SELECT count(*) FROM dataset_output_fields WHERE dataset_id=4")) == 1
+            assert await conn.scalar(text("SELECT is_visible FROM table_columns WHERE id=23")) is False
+            assert (await conn.scalar(text(
+                "SELECT evidence->'projection' FROM warehouse_conversion_runs ORDER BY id DESC LIMIT 1"
+            ))) == ["employee_no", "department", "amount"]
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_type,source_id,source_table", [
+    ("table", "dwd_probe", "unrelated"),
+    ("table", "", "dwd_probe"),
+    ("dataset", "4", "4"),
+    ("model", "4", "4"),
+    ("table", "source_probe", "source_probe"),
+    ("dataset", "5", "5"),
+    ("model", "5", "5"),
+    ("report", "8", "report:8"),
+    ("report", "report:8", "unrelated"),
+    ("table", "", "report:8"),
+])
+async def test_postgres_release_gate_blocks_active_direct_and_shared_exports(
+    conversion_acceptance_api, source_type, source_id, source_table,
+):
+    from sqlalchemy import text
+    from app.datasets.models import DataSet, DataSetTable
+    from app.push.models import PushTarget
+    from app.reports.models import Report
+
+    client, engine, factory, _ = conversion_acceptance_api
+    result = await _run_conversion(factory)
+    assert "error" not in result, result
+    contract_id = await _create_and_approve_person_contract(client)
+    ready = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    assert ready.status_code == 200, ready.text
+    payload = {"expected_run_id": ready.json()["run_id"], "expected_contract_id": contract_id,
+               "expected_dataset_version": 3, "reason": "external isolation required"}
+    async with engine.begin() as conn:
+        await conn.execute(DataSet.__table__.insert().values(id=5, name="shared_source_dataset"))
+        await conn.execute(DataSetTable.__table__.insert().values(
+            id=5, dataset_id=5, table_name="source_probe", alias="shared",
+        ))
+        for report_id, dataset_id, table_name in ((8, 4, "dwd_probe"), (9, 5, "source_probe")):
+            await conn.execute(Report.__table__.insert().values(
+                id=report_id, name=f"export_report_{report_id}", dataset_id=dataset_id, table_name=table_name,
+            ))
+        await conn.execute(PushTarget.__table__.insert().values(
+            id=81, source_type=source_type, source_id=source_id, source_table=source_table,
+            name="active synthetic export", push_type="db_snapshot", is_active=True,
+        ))
+    for endpoint in ("release-readiness", "conversion-readiness"):
+        blocked = await client.get(f"/api/v1/warehouse/models/4/{endpoint}")
+        assert blocked.status_code == 200, blocked.text
+        assert blocked.json()["eligible"] is False
+        assert "external_exports_not_isolated" in {issue["code"] for issue in blocked.json()["issues"]}
+        assert "external_export_reference_unchecked" not in {issue["code"] for issue in blocked.json()["issues"]}
+    rejected = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve", json=payload)
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["detail"]["code"] == "conversion_approval_blocked"
+    assert "external_exports_not_isolated" in {issue["code"] for issue in rejected.json()["detail"]["issues"]}
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_approvals")) == 0
+        assert await conn.scalar(text("SELECT count(*) FROM system_logs WHERE action='conversion_approval_created'")) == 0
+        assert await conn.scalar(text("SELECT is_active FROM push_targets WHERE id=81")) is True
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE push_targets SET is_active=false WHERE id=81"))
+    approved = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve", json=payload)
+    assert approved.status_code == 200, approved.text
+    release = await client.get("/api/v1/warehouse/models/4/release-readiness")
+    assert release.status_code == 200 and release.json()["eligible"] is True, release.text
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE push_targets SET is_active=true WHERE id=81"))
+    rechecked = await client.get("/api/v1/warehouse/models/4/release-readiness")
+    assert rechecked.status_code == 200 and rechecked.json()["eligible"] is False, rechecked.text
+    assert rechecked.json()["conversion_verified"] is True
+    assert "external_exports_not_isolated" in {issue["code"] for issue in rechecked.json()["issues"]}
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_type,source_id,source_table,is_active", [
+    ("table", "unrelated", "unrelated", True),
+    ("dataset", "99", "99", True),
+    ("model", "99", "99", True),
+    ("table", "dwd_probe", "dwd_probe", False),
+    ("dataset", "4", "4", False),
+])
+async def test_postgres_release_gate_does_not_block_unrelated_or_inactive_exports(
+    conversion_acceptance_api, source_type, source_id, source_table, is_active,
+):
+    from sqlalchemy import text
+    from app.push.models import PushTarget
+
+    client, engine, factory, _ = conversion_acceptance_api
+    result = await _run_conversion(factory)
+    assert "error" not in result, result
+    contract_id = await _create_and_approve_person_contract(client)
+    async with engine.begin() as conn:
+        await conn.execute(PushTarget.__table__.insert().values(
+            id=81, source_type=source_type, source_id=source_id, source_table=source_table,
+            name="nonblocking synthetic export", push_type="api_expose", is_active=is_active,
+        ))
+    ready = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    assert ready.status_code == 200, ready.text
+    assert not any(issue["code"].startswith("external_export") for issue in ready.json()["issues"])
+    approved = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve", json={
+        "expected_run_id": ready.json()["run_id"], "expected_contract_id": contract_id,
+        "expected_dataset_version": 3, "reason": "unrelated or disabled export",
+    })
+    assert approved.status_code == 200, approved.text
+    release = await client.get("/api/v1/warehouse/models/4/release-readiness")
+    assert release.status_code == 200 and release.json()["eligible"] is True, release.text
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_approvals")) == 1
+        assert await conn.scalar(text("SELECT is_active FROM push_targets WHERE id=81")) is is_active
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_release_gate_checks_all_dataset_physical_tables(standard_catalog_api):
+    from app.datasets.models import DataSetTable
+    from app.push.models import PushTarget
+
+    client, engine, _, _ = standard_catalog_api
+    async with engine.begin() as conn:
+        await conn.execute(DataSetTable.__table__.insert().values(
+            id=5, dataset_id=4, table_name="source_probe", alias="second",
+        ))
+        await conn.execute(PushTarget.__table__.insert().values(
+            id=81, source_type="table", source_id="", source_table="source_probe",
+            name="second table synthetic export", push_type="db_realtime", is_active=True,
+        ))
+    readiness = await client.get("/api/v1/warehouse/models/4/release-readiness")
+    assert readiness.status_code == 200, readiness.text
+    assert "external_exports_not_isolated" in {issue["code"] for issue in readiness.json()["issues"]}
+    assert "external_export_reference_unchecked" not in {issue["code"] for issue in readiness.json()["issues"]}
 
 
 @pytest.mark.postgres_acceptance

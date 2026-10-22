@@ -1224,6 +1224,7 @@ class StandardizationRuleService:
                     source_rows=rows,
                     source_schema_fingerprint=conversion_snapshot[0],
                     rules_fingerprint=conversion_snapshot[1],
+                    column_types={column: column_types[column] for column in bcols},
                 )
             # P2/P3 收口：执行成功后同步 DWD 单表数据集输出字段，避免额外“发布 DWD 视图”动作。
             sync_result = await self._sync_dwd_dataset_fields(asset_code=asset_code, target_table=target, output_columns=(bcols if transformed else cols), commit=False)

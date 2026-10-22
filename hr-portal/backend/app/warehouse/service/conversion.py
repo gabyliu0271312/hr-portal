@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import json
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import select, text
@@ -18,7 +19,7 @@ from app.system.models import SystemLog
 from app.warehouse.models import (
     StandardizationRule, WarehouseConversionApproval, WarehouseConversionRun, WarehouseLineageEdge,
 )
-from app.warehouse.service.standardization import _quote_ident
+from app.warehouse.service.standardization import _quote_ident, _coerce_insert_value
 
 
 def _fingerprint(value):
@@ -77,9 +78,23 @@ async def _rule_fingerprint(db, source_table):
     return _rules_fingerprint(rules)
 
 
+def _projection_fingerprint(row, column_types):
+    values = {}
+    for column, sql_type in column_types.items():
+        value = _coerce_insert_value(row.get(column), sql_type)
+        if value is not None and sql_type == "NUMERIC":
+            number = Decimal(value) if isinstance(value, float) else Decimal(str(value))
+            canonical = format(number, "f") if number.is_finite() else str(number)
+            if "." in canonical:
+                canonical = canonical.rstrip("0").rstrip(".")
+            value = {"numeric": canonical if number else "0"}
+        values[column] = value
+    return _fingerprint(values)
+
+
 async def record_conversion_run(db, *, source_table, target_table, lineage, rules,
                                 input_rows, output_rows, output_columns, source_rows,
-                                source_schema_fingerprint, rules_fingerprint):
+                                source_schema_fingerprint, rules_fingerprint, column_types):
     source = await db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == source_table))
     if (source is None or source.warehouse_layer != "ODS" or source_table == target_table
             or not rules or any(rule.asset_type != "table" or rule.rule_type != "rename"
@@ -90,8 +105,8 @@ async def record_conversion_run(db, *, source_table, target_table, lineage, rule
         f"SELECT {', '.join(_quote_ident(column) for column in output_columns)} "
         f"FROM {_quote_ident(target_table)}"
     ))).mappings().all()
-    if sorted(_fingerprint(row) for row in projected) != sorted(_fingerprint(dict(row)) for row in target):
-        return None
+    if sorted(_projection_fingerprint(row, column_types) for row in projected) != sorted(_projection_fingerprint(dict(row), column_types) for row in target):
+        raise ValueError("DWD_REFRESH_CONVERSION_MISMATCH: 转换结果与输入投影不一致")
     source_digest, source_count = await _data_fingerprint(db, source_table)
     target_digest, target_count = await _data_fingerprint(db, target_table)
     source_snapshot = _fingerprint(sorted(_row_fingerprint(row) for row in source_rows))

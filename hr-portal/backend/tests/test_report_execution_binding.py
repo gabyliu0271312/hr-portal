@@ -342,6 +342,168 @@ async def test_postgres_run_csv_xlsx_use_real_summary_under_synthetic_admission(
     legacy.assert_not_awaited()
 
 
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authorization,expected", [("org", 400), ("cc", 300), ("both", 600), ("none", None)])
+async def test_postgres_real_conversion_contract_binding_run_count_csv_xlsx(postgres_d_fact, monkeypatch, authorization, expected):
+    import csv
+    import io
+    import httpx
+    from fastapi import FastAPI
+    from openpyxl import load_workbook
+    from sqlalchemy import MetaData, Table, select, text
+    from app.core.db import get_session
+    from app.core.deps import current_user
+    from app.data import dynamic_loader, models
+    from app.datasets.models import DataSetAcl, DatasetCalculatedField
+    from app.reports.models import Report
+    from app.reports.router import router
+    from app.scopes.models import UserScopeTag
+    from app.users.models import Menu, RoleMenu
+    from app.warehouse.models import StandardizationRule, WarehouseQualityRule, WarehouseQualityStatus
+    from app.warehouse.router import router as warehouse_router
+    from app.warehouse.service.standardization import StandardizationRuleService
+
+    engine, factory, _ = postgres_d_fact
+    async with engine.begin() as conn:
+        for model in (DatasetCalculatedField, WarehouseQualityRule, WarehouseQualityStatus):
+            await conn.run_sync(lambda sync, model=model: model.__table__.create(sync, checkfirst=True))
+        await conn.execute(text("CREATE TABLE allocation_source (fact_id bigint, employee_no text, amount numeric, cc_code text, department text)"))
+        await conn.execute(text("INSERT INTO allocation_source SELECT fact_id,employee_no,amount,cc_code,department FROM allocation_fact"))
+        await conn.execute(models.RegisteredTable.__table__.insert().values(
+            id=33, table_name="allocation_source", table_label="Source", warehouse_layer="ODS"))
+        columns = (await conn.execute(select(models.TableColumn.__table__).where(
+            models.TableColumn.table_name == "allocation_fact"))).mappings().all()
+        for column in columns:
+            await conn.execute(models.TableColumn.__table__.insert().values(
+                table_name="allocation_source", column_code=column["column_code"],
+                column_label=column["column_label"], data_type=column["data_type"],
+                is_visible=True, scope_role=column["scope_role"]))
+        await conn.execute(models.TableColumn.__table__.insert().values(
+            table_name="allocation_fact", column_code="id", column_label="Internal identity", data_type="number"))
+        await conn.execute(StandardizationRule.__table__.insert().values(
+            asset_type="table", asset_code="allocation_source", rule_type="rename",
+            source_field="amount", target_field="amount", rule_config={}, enabled=True))
+        await conn.execute(Menu.__table__.insert().values(id=8, code="report.list", label="Reports"))
+        await conn.execute(RoleMenu.__table__.insert().values(id=8, role_id=1, menu_id=8,
+            can_view=True, can_update=True, can_export=True))
+        await conn.execute(DataSetAcl.__table__.insert().values(id=7, dataset_id=7, user_id=7))
+        await conn.execute(Report.__table__.insert().values(id=1, name="real summary", table_name="", dataset_id=7,
+            owner_id=7, config={"columns": ["allocation.cc_code", "allocation.amount"], "aggregate": True,
+                                "aggregations": {"allocation.amount": "sum"}}))
+
+    async def reflect_in_schema(db, table_name):
+        reflected = await db.run_sync(lambda sync: Table(table_name, MetaData(), autoload_with=sync.connection()))
+        return dynamic_loader._make_model_from_table(table_name, reflected)
+
+    monkeypatch.setattr(dynamic_loader, "reflect_source_table_model", reflect_in_schema)
+    async with factory() as db:
+        refreshed = await StandardizationRuleService(db).execute_full(
+            asset_code="allocation_source", target_table="allocation_fact")
+        assert "error" not in refreshed, refreshed
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.include_router(warehouse_router, prefix="/api/v1")
+
+    async def session():
+        async with factory() as db:
+            yield db
+
+    app.dependency_overrides[get_session] = session
+    app.dependency_overrides[current_user] = lambda: SimpleNamespace(id=7)
+    monkeypatch.setattr("app.core.db.get_session_factory", lambda: factory)
+    monkeypatch.setattr("app.reports.audit.get_session_factory", lambda: factory)
+    monkeypatch.setattr("app.reports.router.record_report_audit", AsyncMock())
+    monkeypatch.setattr("app.automation.events.publish_event", AsyncMock())
+    legacy = AsyncMock(side_effect=AssertionError("authorized execution must not fall back"))
+    monkeypatch.setattr("app.reports.sql_builder.run_dataset_query", legacy)
+    model_base = "/api/v1/warehouse/models/7"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(model_base + "/authorization-contracts", json={
+            "expected_version": 0,
+            "facts": [{"alias": "allocation", "table_name": "allocation_fact", "fact_key": "id",
+                       "employee_key": "employee_no", "cost_center_key": "cc_code",
+                       "allow_cost_center_summary": True, "role": "allocation_fact"}],
+            "output_fields": ["cc_code", "department", "amount"], "dimensions": ["cc_code", "department"],
+            "measures": ["amount"], "internal_fields": ["allocation.id", "allocation.employee_no"],
+        })
+        assert created.status_code == 201, created.text
+        contract_id = created.json()["id"]
+        approved = await client.post(f"{model_base}/authorization-contracts/{contract_id}/approve",
+                                     json={"expected_revision": 0, "reason": "real contract review"})
+        assert approved.status_code == 200, approved.text
+        before = await client.get(model_base + "/authorization-execution-readiness")
+        assert before.status_code == 200 and before.json()["runtime_enabled"] is False
+        conversion = await client.get(model_base + "/conversion-readiness")
+        assert conversion.status_code == 200, conversion.text
+        approved = await client.post(model_base + "/conversion-readiness/approve", json={
+            "expected_run_id": conversion.json()["run_id"], "expected_contract_id": contract_id,
+            "expected_dataset_version": 1, "reason": "real conversion review"})
+        assert approved.status_code == 200, approved.text
+        ready = await client.get(model_base + "/authorization-execution-readiness")
+        assert ready.status_code == 200 and ready.json()["runtime_enabled"] is True, ready.text
+        assert ready.json()["paths"][0]["detail_mode"] == "not_allowed"
+        from app.datasets.d_execution import SExecutionBindingIn, compile_allocation_fact_s_select_for_dataset
+        from app.warehouse.schemas import ExecutionPlanIn
+        async with factory() as db:
+            statement, issues = await compile_allocation_fact_s_select_for_dataset(
+                db=db, user=SimpleNamespace(id=7), request=SExecutionBindingIn(
+                    dataset_id=7, contract_id=contract_id, contract_version=1,
+                    plan=ExecutionPlanIn(output_fields=["cc_code", "amount"], group_by=["cc_code"],
+                                         aggregations={"amount": "sum"})))
+            assert statement is not None and issues == []
+            assert sum(row.amount for row in (await db.execute(statement)).all()) == 600
+        state = await client.get("/api/v1/reports/1/execution-binding")
+        bound = await client.post("/api/v1/reports/1/execution-binding", json={
+            "expected_fingerprint": state.json()["fingerprint"], "contract_id": contract_id,
+            "contract_version": 1, "reason": "real isolated trial"})
+        assert bound.status_code == 200, bound.text
+        retained = {"org": [1], "cc": [2], "both": [1, 2], "none": []}[authorization]
+        async with engine.begin() as conn:
+            await conn.execute(UserScopeTag.__table__.delete().where(UserScopeTag.tag_id.not_in(retained)))
+        response = await client.post("/api/v1/reports/1/run?page=1&page_size=1")
+        if expected is None:
+            assert response.status_code in {403, 409}, response.text
+            for suffix in ("csv", "xlsx"):
+                assert (await client.get(f"/api/v1/reports/1/export.{suffix}")).status_code in {403, 409}
+        else:
+            assert response.status_code == 200, response.text
+            assert response.json()["total"] == (1 if authorization == "cc" else 2)
+            assert len(response.json()["items"]) == 1
+            exported = await client.get("/api/v1/reports/1/export.csv")
+            assert exported.status_code == 200, exported.text
+            rows = list(csv.reader(io.StringIO(exported.content.decode("utf-8-sig"))))
+            assert sum(float(row[1]) for row in rows[1:]) == expected
+            exported = await client.get("/api/v1/reports/1/export.xlsx")
+            assert exported.status_code == 200, exported.text
+            matrix = list(load_workbook(io.BytesIO(exported.content)).active.values)
+            assert sum(row[1] for row in matrix[1:]) == expected
+            if authorization == "both":
+                from app.push.models import PushTarget
+                async with engine.begin() as conn:
+                    await conn.execute(PushTarget.__table__.insert().values(
+                        id=88, source_type="table", source_id="allocation_fact", source_table="allocation_fact",
+                        name="isolated external target", push_type="api_expose", is_active=True))
+                assert (await client.post("/api/v1/reports/1/run")).status_code == 409
+                async with engine.begin() as conn:
+                    await conn.execute(text("UPDATE push_targets SET is_active=false WHERE id=88"))
+                    await conn.execute(text("DELETE FROM dataset_acl WHERE dataset_id=7 AND user_id=7"))
+                assert (await client.post("/api/v1/reports/1/run")).status_code == 403
+                async with engine.begin() as conn:
+                    await conn.execute(DataSetAcl.__table__.insert().values(id=7, dataset_id=7, user_id=7))
+                    await conn.execute(text("UPDATE standardization_rules SET enabled=false WHERE asset_code='allocation_source'"))
+                assert (await client.post("/api/v1/reports/1/run")).status_code == 409
+                async with engine.begin() as conn:
+                    await conn.execute(text("UPDATE standardization_rules SET enabled=true WHERE asset_code='allocation_source'"))
+                assert (await client.post("/api/v1/reports/1/run")).status_code == 200
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE table_columns SET is_visible=false WHERE table_name='allocation_fact' AND column_code='amount'"))
+            denied = await client.post("/api/v1/reports/1/run")
+            assert denied.status_code in {403, 409, 422}, denied.text
+            assert "items" not in denied.json()
+        legacy.assert_not_awaited()
+
+
 from tests.test_d_execution import postgres_d_fact
 from tests.test_scope_classification import postgres_classification_schema
 from tests.test_standard_field_catalog import postgres_standard_catalog, standard_catalog_api

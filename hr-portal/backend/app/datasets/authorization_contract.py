@@ -346,8 +346,23 @@ async def approve_contract(db, dataset_id, contract_id, payload, user):
         current = ProductAuthorizationDefinition.model_validate(row.contract_json)
         _, tables, relations, outputs = await _validate_definition(db, dataset_id, current)
         if (len(current.facts) != 1 or relations
-                or any(f.role != "person_fact" or f.allow_cost_center_summary or f.cost_center_key for f in current.facts)):
-            raise HTTPException(409, detail={"code": "contract_execution_validation_required", "message": "当前执行切片仅允许单一person_fact且不含JOIN或成本中心汇总路径"})
+                or any(f.role not in {"person_fact", "allocation_fact"} for f in current.facts)
+                or (current.facts[0].role == "person_fact" and (current.facts[0].allow_cost_center_summary or current.facts[0].cost_center_key))
+                or (current.facts[0].role == "allocation_fact" and (not current.facts[0].allow_cost_center_summary or not current.facts[0].cost_center_key))):
+            raise HTTPException(409, detail={"code": "contract_execution_validation_required", "message": "当前执行切片仅允许单一person_fact或已批准成本中心汇总的allocation_fact且不含JOIN"})
+        if current.facts[0].role == "allocation_fact":
+            from app.datasets.d_execution import SExecutionBindingIn, validate_allocation_fact_s_execution
+            from app.warehouse.schemas import ExecutionPlanIn
+            validation = validate_allocation_fact_s_execution(
+                {"id": row.id, "dataset_id": dataset_id, "contract_version": row.contract_version,
+                 "status": "active", "contract_json": row.contract_json,
+                 "model_snapshot": _snapshot(tables, relations, outputs)},
+                SExecutionBindingIn(dataset_id=dataset_id, contract_id=row.id,
+                    contract_version=row.contract_version, plan=ExecutionPlanIn(
+                        output_fields=current.output_fields, group_by=current.dimensions,
+                        aggregations={code: "sum" for code in current.measures})))
+            if not validation.eligible or len(tables) != 1:
+                raise HTTPException(409, detail={"code": "contract_execution_validation_required", "message": "分摊事实锚点、维度或度量未通过汇总合同校验"})
         physical_issues = await _collect_contract_physical_drift(db, current, tables, relations, outputs)
         if physical_issues:
             raise HTTPException(409, detail={"code": "contract_physical_validation_failed", "message": "授权合同引用的字段物理结构未通过校验"})
@@ -393,7 +408,7 @@ class AuthorizationExecutionReadinessOut(BaseModel):
     dataset_id: int
     contract_id: int | None
     contract_version: int | None
-    runtime_enabled: Literal[False] = False
+    runtime_enabled: bool = False
     eligible: bool
     paths: list[AuthorizationPathOut]
     issues: list[dict[str, str]]
@@ -494,13 +509,57 @@ async def execution_readiness(db, dataset_id, user=None):
                           "person_scope" if fact.role in {"person_fact", "allocation_fact"} else "not_allowed"),
             employee_key=fact.employee_key, cost_center_key=fact.cost_center_key,
         ))
-    issues.extend([
-        {"code": "tree_validation_required", "message": "权限树授权节点展开尚未接入执行编译器"},
-        {"code": "sql_compiler_not_integrated", "message": "D/S计划尚未接入现有查询执行器"},
-    ])
+    is_limited_allocation = (len(definition.facts) == 1 and len(tables) == 1 and not relations
+                            and definition.facts[0].role == "allocation_fact"
+                            and definition.facts[0].allow_cost_center_summary
+                            and bool(definition.facts[0].cost_center_key))
+    checked = ["contract_snapshot", "fact_roles", "current_user_acl", "contract_physical_schema", "tree_health"]
+    if is_limited_allocation:
+        if dataset.status != "published":
+            issues.append({"code": "dataset_not_published", "message": "数据集尚未发布，不可运行"})
+        for path in paths:
+            path.detail_mode = "not_allowed"
+        if not issues:
+            from app.warehouse.service.release_gate import check_dataset_release
+            release = await check_dataset_release(db, dataset_id)
+            issues.extend({"code": item.code, "message": item.message} for item in release.issues)
+            if not issues and not (release.eligible and release.fields_eligible
+                                   and release.authorization_verified and release.conversion_verified):
+                issues.append({"code": "allocation_release_not_ready", "message": "完整发布和转换准入尚未通过"})
+            checked.extend(["output_fields", "conversion_approval", "external_exports"])
+        if not issues:
+            from app.datasets.d_execution import SExecutionBindingIn, compile_allocation_fact_s_select_for_user
+            from app.warehouse.schemas import ExecutionPlanIn
+            outputs = (await db.execute(select(DatasetOutputField).where(
+                DatasetOutputField.dataset_id == dataset_id))).scalars().all()
+            by_code = {output.output_code: output for output in outputs}
+            if (not definition.measures or not definition.dimensions
+                    or not set(definition.output_fields) <= set(by_code)
+                    or set(definition.output_fields) != set(definition.dimensions) | set(definition.measures)
+                    or any(_normalized_metadata_type(by_code[code].data_type) != "number"
+                           for code in definition.measures)):
+                issues.append({"code": "allocation_runtime_shape_unsupported", "message": "当前运行切片要求全部输出为批准维度和数值度量"})
+            else:
+                request = SExecutionBindingIn(dataset_id=dataset_id, contract_id=row.id,
+                    contract_version=row.contract_version, plan=ExecutionPlanIn(
+                        output_fields=definition.output_fields, group_by=definition.dimensions,
+                        aggregations={code: "sum" for code in definition.measures}))
+                statement, compile_issues = await compile_allocation_fact_s_select_for_user(
+                    contract={"id": row.id, "dataset_id": dataset_id, "contract_version": row.contract_version,
+                              "status": row.status, "contract_json": row.contract_json, "model_snapshot": row.model_snapshot},
+                    request=request, user=user, db=db)
+                issues.extend(compile_issues)
+                if statement is None and not compile_issues:
+                    issues.append({"code": "allocation_compiler_unavailable", "message": "无法安全编译汇总计划"})
+            checked.extend(["tree_scope_expansion", "single_fact_primary_key", "field_execution", "limited_allocation_s_compiler"])
+    else:
+        issues.extend([
+            {"code": "tree_validation_required", "message": "当前路径尚未接入运行时权限树展开"},
+            {"code": "sql_compiler_not_integrated", "message": "当前路径尚未接入查询执行器"},
+        ])
+    enabled = is_limited_allocation and not issues
     return AuthorizationExecutionReadinessOut(
         dataset_id=dataset_id, contract_id=row.id, contract_version=row.contract_version,
-        eligible=False, paths=paths, issues=issues,
-        checked_areas=["contract_snapshot", "fact_roles", "current_user_acl", "contract_physical_schema", "tree_health"],
-        unchecked_areas=["tree_scope_expansion", "cardinality", "sql_compiler", "field_execution", "external_exports"],
+        eligible=enabled, runtime_enabled=enabled, paths=paths, issues=issues, checked_areas=checked,
+        unchecked_areas=["complex_joins", "detail_drilldown"] if enabled else ["runtime_execution"],
     )
